@@ -142,10 +142,10 @@ const PT: &[(&str, &str)] = &[
         "{} de {} células mudaram de classe ({}%), em {} transições",
     ),
     (
-        "The map compared is of another coordinate system, or rotated: put it on this map's grid (raster.match) to \
-         see the difference.",
-        "O mapa comparado está em outro sistema de coordenadas, ou rotacionado: ponha-o na grade deste mapa \
-         (raster.match) para ver a diferença.",
+        "The map compared is rotated, or of a coordinate system that cannot be carried to this map's: put it on \
+         this map's grid (raster.match) to see the difference.",
+        "O mapa comparado está rotacionado, ou em um sistema de coordenadas que não pode ser levado ao deste \
+         mapa: ponha-o na grade deste mapa (raster.match) para ver a diferença.",
     ),
 ];
 

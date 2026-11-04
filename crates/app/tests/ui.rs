@@ -4903,3 +4903,63 @@ fn comparing_with_a_band_of_another_stack() {
     assert_eq!(s.preview_compare.band, Some(2));
     assert_eq!(s.preview_compare.more[0].band, Some(1));
 }
+
+/// The difference of two maps of different coordinate systems: the other map carried to this one's grid, made and
+/// kept as a layer too.
+#[test]
+fn the_difference_of_maps_of_two_coordinate_systems_is_made() {
+    use terraflux_app::builder::{CompareWith, How};
+    use terraflux_graph::Node;
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let d = tmp("difference_crs");
+    std::fs::create_dir_all(&d).unwrap();
+    let (land, geo) = (d.join("land.tif"), d.join("land_geo.tif"));
+    terraflux_gdal::translate(&data("sibuyan_landuse.tif"), &land, &["-a_srs".to_string(), "EPSG:32651".to_string()])
+        .unwrap();
+    terraflux_gdal::warp(&[&land], &geo, &["-t_srs".into(), "EPSG:4326".into(), "-r".into(), "near".into()]).unwrap();
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let read = |id: &str, p: &std::path::Path| {
+            Node::new(id, "raster.read").param("path", p.to_string_lossy().as_ref()).param("band", "0")
+        };
+        s.source.nodes = vec![read("land", &land), read("geo", &geo)];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && ["land", "geo"].iter().all(|n| s.value_of(n, "raster").is_some())
+    });
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview = Some(("land".into(), "raster".into()));
+        s.preview_compare.with = Some(CompareWith::Output("geo".into(), "raster".into()));
+        s.preview_compare.how = How::Difference;
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the difference", |a| a.session.as_ref().unwrap().preview_compare.difference.made.is_some());
+    h.run_steps(4);
+    drawn(&mut h);
+    shot(&mut h, "14c6-difference-two-systems");
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let d = s.preview_compare.difference.made.as_ref().unwrap().as_ref().expect("the difference made");
+        let terraflux_app::map_view::Source::Map(m) = &d.source else { panic!("a map") };
+        assert!(m.data.iter().any(|v| v.is_finite()), "cells with a value in both maps: {}", d.summary);
+    }
+    // (the legend of many classes pushes the button down the side panel)
+    h.get_by_label("📌 Keep as a layer").scroll_to_me();
+    h.run_steps(20);
+    h.get_by_label("📌 Keep as a layer").click();
+    h.run_steps(2);
+    until(&mut h, "the difference layer", |a| {
+        let s = a.session.as_ref().unwrap();
+        s.layer_differences.values().any(|d| matches!(d.made, Some(Ok(_))))
+    });
+    h.run_steps(4);
+    drawn(&mut h);
+}

@@ -178,7 +178,8 @@ scenario, another date, the observed map) or another layer of the same stack. Ch
   you hide a layer, set its opacity, remove it or add another map or features of the run, differences included.
   The Plot keeps them;
 - **Difference**: for maps of values, the other map minus this one; for maps of classes, what each cell changed
-  from and to. *Keep as a layer* makes it a layer of its own, drawn with the others and kept in a Plot. It works between two outputs and between two layers of one
+  from and to. The two maps may be of different coordinate systems: the other map is carried to the first one's
+  cells, each cell taking the nearest cell of the other (nothing is interpolated). *Keep as a layer* makes it a layer of its own, drawn with the others and kept in a Plot. It works between two outputs and between two layers of one
   stack or steps of one series (the layer then says which band of each: "x.map step 5 minus step 1").
 
 When the output compared is a stack or a series, a **band** choice under *Compare* (and under each view added)

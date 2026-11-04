@@ -1,7 +1,8 @@
 //! The difference of two maps, the third view of the viewer's comparison: maps of values the other one minus this
 //! one, cell by cell, in a ramp centred on 0; maps of classes the transitions, a class each ("forest -> pasture"),
 //! the cells that did not change apart. Made on the grid of the map shown (every few cells when it is very
-//! large), the other's cells taken where they are by the coordinates.
+//! large), the other's cells taken where they are by the coordinates; a map of another coordinate system has its
+//! cells carried through the transformation, the nearest cell taken (nothing interpolated, classes and values alike).
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -85,20 +86,29 @@ pub fn make(a: &Source, b: &Source, classes: Option<(&Names, &Names)>) -> Result
 
 /// The difference in a language: its summary and the transitions' names in it.
 pub fn make_in(a: &Source, b: &Source, classes: Option<(&Names, &Names)>, lang: Lang) -> Result<Made, String> {
-    if crate::map_view::place_on(b.grid(), a.grid()).is_none() {
-        return Err(lang
-            .t("The map compared is of another coordinate system, or rotated: put it on this map's grid \
-                (raster.match) to see the difference.")
-            .into());
-    }
     let (ga, gb) = (a.grid(), b.grid());
+    // (a map of another coordinate system is carried to this one's cells; its transformation is made here, in the
+    // thread that makes the difference, as the transformations are not shared between threads)
+    let warp = if crate::map_view::place_on(gb, ga).is_some() {
+        None
+    } else {
+        match crate::reproject::Reproj::new(gb, ga) {
+            Ok(re) => Some(re),
+            Err(_) => {
+                return Err(lang
+                    .t("The map compared is rotated, or of a coordinate system that cannot be carried to this \
+                        map's: put it on this map's grid (raster.match) to see the difference.")
+                    .into());
+            }
+        }
+    };
     let (w, h) = (ga.width, ga.height);
     let step = step_for(w, h);
     let (va, aw) = read(a, step)?;
     let ah = h.div_ceil(step);
     // the other map read as finely (its own step for its own size), each of this one's cells looked up in it by
     // its centre's coordinates; the same grid cell for cell
-    let same = gb.width == w && gb.height == h && gb.transform == ga.transform;
+    let same = warp.is_none() && gb.width == w && gb.height == h && gb.transform == ga.transform;
     let bstep = if same { step } else { step_for(gb.width, gb.height) };
     let (vb, bw) = read(b, bstep)?;
     let bh = gb.height.div_ceil(bstep);
@@ -123,9 +133,13 @@ pub fn make_in(a: &Source, b: &Source, classes: Option<(&Names, &Names)>, lang: 
             (r >= 0.0 && (r as usize) < gb.height).then(|| (r as usize / bstep).min(bh - 1))
         })
         .collect();
-    let other = |i: usize, j: usize| match (rows[i], cols[j]) {
-        (Some(r), Some(c)) => vb[r * bw + c],
-        _ => f64::NAN,
+    let warped = warp.as_ref().map(|re| carried(re, &vb, bw, bh, bstep, gb, (aw, ah, step)));
+    let other = |i: usize, j: usize| match &warped {
+        Some(v) => v[i * aw + j],
+        None => match (rows[i], cols[j]) {
+            (Some(r), Some(c)) => vb[r * bw + c],
+            _ => f64::NAN,
+        },
     };
     let grid = if step == 1 {
         match a {
@@ -150,6 +164,35 @@ pub fn make_in(a: &Source, b: &Source, classes: Option<(&Names, &Names)>, lang: 
     made.0.push_str(&every);
     let (summary, data, coloring, counts, names) = made;
     Ok(Made { source: Source::Map(Map::new(grid, data)), coloring, counts, names, step, summary })
+}
+
+/// The other map (`vb`, `bw` by `bh` cells read every `bstep`) on this map's grid (`aw` by `ah` cells, every `step`),
+/// row by row: each cell's centre carried to the other map's cells, the nearest one taken (for classes and values
+/// alike, nothing is interpolated); NaN where the other map has no cell.
+fn carried(
+    re: &crate::reproject::Reproj,
+    vb: &[f64],
+    bw: usize,
+    bh: usize,
+    bstep: usize,
+    gb: &terraflux_raster::Grid,
+    (aw, ah, step): (usize, usize, usize),
+) -> Vec<f64> {
+    let mut out = Vec::with_capacity(aw * ah);
+    for i in 0..ah {
+        let y = (i * step) as f64 + 0.5;
+        let row: Vec<[f64; 2]> = (0..aw).map(|j| [(j * step) as f64 + 0.5, y]).collect();
+        out.extend(re.to_source_many(&row).iter().map(|p| {
+            let (c, r) = (p[0].floor(), p[1].floor());
+            if c >= 0.0 && r >= 0.0 && c < gb.width as f64 && r < gb.height as f64 {
+                let (c, r) = ((c as usize / bstep).min(bw - 1), (r as usize / bstep).min(bh - 1));
+                vb[r * bw + c]
+            } else {
+                f64::NAN
+            }
+        }));
+    }
+    out
 }
 
 type Parts = (String, Vec<f64>, Coloring, Vec<(f64, usize)>, Vec<(f64, String)>);
@@ -350,6 +393,39 @@ mod tests {
         let v = data(&make(&a, &b, None).unwrap().source);
         assert!(v[0].is_nan());
         assert_eq!(v[1..], [5.0, 5.0, 7.0]);
+    }
+
+    #[test]
+    fn a_map_of_another_coordinate_system_is_carried_to_this_ones_grid() {
+        if terraflux_gdal::gdal().is_err() {
+            return;
+        }
+        // 400 x 300 cells of 10 m in UTM 51N, about 122.54 E 11.76 N, all 10
+        let mut g = Grid::new(400, 300);
+        g.transform = [450_000.0, 10.0, 0.0, 1_300_000.0, 0.0, -10.0];
+        g.geo.geokeys = Some(vec![1, 1, 0, 2, 1024, 0, 1, 1, 3072, 0, 1, 32651]);
+        let a = Source::Map(Map::new(Arc::new(g), vec![10.0; 400 * 300]));
+        // 1000 x 800 cells of 0.0001 degrees from 122.5 E 11.8 N: 1 west of 122.55 E, 2 east of it
+        let mut geo = Grid::new(1000, 800);
+        geo.transform = [122.5, 0.0001, 0.0, 11.8, 0.0, -0.0001];
+        geo.geo.geokeys = Some(vec![1, 1, 0, 2, 1024, 0, 1, 2, 2048, 0, 1, 4326]);
+        let vb = (0..1000 * 800).map(|i| if i % 1000 < 500 { 1.0 } else { 2.0 }).collect();
+        let b = Source::Map(Map::new(Arc::new(geo), vb));
+        let d = make(&a, &b, None).unwrap();
+        let v = data(&d.source);
+        assert_eq!(v.len(), 400 * 300);
+        // (122.55 E is about 95 cells from the west edge)
+        let at = |r: usize, c: usize| v[r * 400 + c];
+        assert_eq!((at(10, 20), at(150, 30), at(280, 40)), (-9.0, -9.0, -9.0));
+        assert_eq!((at(10, 300), at(150, 200), at(280, 390)), (-8.0, -8.0, -8.0));
+        // classes too
+        let na: Names = [(1, "forest".to_string()), (2, "pasture".to_string()), (10, "ten".to_string())].into();
+        let d = make(&a, &b, Some((&na, &na))).unwrap();
+        // (the east is the larger part: its transition first)
+        assert_eq!(d.name(1.0), "ten -> pasture");
+        assert_eq!(d.name(2.0), "ten -> forest");
+        let v = data(&d.source);
+        assert_eq!((v[150 * 400 + 30], v[150 * 400 + 200]), (2.0, 1.0));
     }
 
     #[test]

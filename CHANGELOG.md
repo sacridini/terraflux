@@ -50,7 +50,8 @@ minor versions.
   transformation. Side by side, a view whose map is of another system follows the others (the camera carried
   through the transformation of its centre, the scale from a cell's displacement; the pointer too), the Figure and
   *Export the view* (and the animation's frames) draw such layers reprojected pixel by pixel, and a layer's *zoom*
-  carries its edges to the shown grid. A rotated grid still has to be put on the map's grid first (`raster.match`).
+  carries its edges to the shown grid. The *Difference* of two maps of different systems carries the other map
+  to the first one's grid cell by cell (nearest neighbour, classes and values alike). A rotated grid still has to be put on the map's grid first (`raster.match`).
 - Viewer: **several features selected in the attribute table**: ctrl+click toggles a row, shift+click selects the
   range from the last row clicked, a plain click still selects just one and zooms to it; on the map a click selects
   a feature and ctrl+click toggles it. All of them are outlined (those in view) in every view, side by side too;

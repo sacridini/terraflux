@@ -3288,7 +3288,7 @@ pub(crate) fn output_name(node: &str, port: &str) -> String {
 pub fn follow(
     left: &mut crate::map_view::MapView,
     right: &mut crate::map_view::MapView,
-    place: crate::map_view::Place,
+    place: impl Into<Link>,
     before: [(f32, Vec2); 2],
 ) {
     follow_all(&mut [left, right], &[SAME_PLACE.into(), place.into()], &before);
@@ -5023,17 +5023,20 @@ fn show_difference(
             return None;
         }
     };
-    let place = crate::map_view::place_on(d.source.grid(), main.grid())?;
+    let link = Link::between(d.source.grid(), main.grid())?;
     // (the world under it as the map shown has it; the view where that one's is, before it is drawn)
     let (basemap, transparency, hide) = (sh.view.basemap, sh.view.transparency, sh.view.hide_data);
     let (zoom, center) = sh.view.camera();
     let v = &mut sh.compare.view;
     (v.basemap, v.transparency, v.hide_data) = (basemap, transparency, hide);
     v.hold(d.source.size());
-    v.set_camera(zoom * place.scale.x, place.to_source(center));
+    let at = link.to_own(center);
+    if at.x.is_finite() && at.y.is_finite() {
+        v.set_camera(zoom * link.scale_at(at), at);
+    }
     let before = [sh.view.camera(), v.camera()];
     let mut hover = v.show_stacked(ui, &d.source, &d.coloring, rasters, overlays);
-    follow(&mut sh.view, &mut sh.compare.view, place, before);
+    follow(&mut sh.view, &mut sh.compare.view, link, before);
     (sh.view.ghost, sh.compare.view.ghost) = (None, None);
     let step = d.step;
     if let Some(h) = &mut hover {

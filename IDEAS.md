@@ -1142,8 +1142,12 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    próximo; os quadros da animação saem iguais) e o zoom à camada (`Reproj::box_on_view`, as bordas levadas).
    Testes: `views_of_two_coordinate_systems_follow_each_other`,
    `a_layer_of_another_coordinate_system_is_carried_to_the_map`,
-   `views_of_maps_of_two_coordinate_systems_follow_each_other`. Falta: a diferença de mapas de dois CRSs;
-   grades rotacionadas (`raster.match` antes); o antimeridiano; a linha de data.
+   `views_of_maps_of_two_coordinate_systems_follow_each_other`.
+   A diferença de mapas de dois CRSs também está feita (`difference::carried`: o outro mapa levado à grade do
+   primeiro na CPU, por linha, com `Reproj::to_source_many`, vizinho mais próximo para classes e valores, NaN onde
+   não há célula; a transformação é feita na própria thread da diferença; `follow` aceita `Link`). Testes:
+   `a_map_of_another_coordinate_system_is_carried_to_this_ones_grid`,
+   `the_difference_of_maps_of_two_coordinate_systems_is_made`. Falta: grades rotacionadas (`raster.match` antes); o antimeridiano; a linha de data.
    **Várias feições selecionadas feito** (Unreleased, por um sub-agente): `Pick` (`table_view.rs`) guarda as linhas
    (`rows`), a última clicada (`row`) e o começo da faixa (`anchor`): `Pick::click` (clique simples, Ctrl alterna,
    Shift pega a faixa na ordem mostrada), `clear`, `only`; `click_modifiers` lê as teclas do clique. A tabela mostra
