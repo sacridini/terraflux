@@ -3,6 +3,7 @@
 //! C++ port of it (`lsio::polygon_runs`, the same cells), lines by GDAL, points by their cell, as landschaft's
 //! rasterize; the exact sums are exactextract's (landschaft's port of it, exactextractr's bits).
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
@@ -251,6 +252,92 @@ fn layers_of(args: &Args, port: &str) -> Result<(Layers, Option<usize>)> {
     })
 }
 
+/// The files of vector features a path names when it is a folder (its files of features, not `.json`) or a pattern
+/// of their names (`roads/*.gpkg`, `*` any text, `?` a character), in the order of their names; none for a file.
+pub fn vector_files_of(path: &str) -> Option<Result<Vec<PathBuf>>> {
+    let p = Path::new(path);
+    let name = p.file_name()?.to_string_lossy().into_owned();
+    let pattern = (!p.is_dir()).then_some(name);
+    if pattern.as_ref().is_some_and(|n| !n.contains(['*', '?'])) {
+        return None;
+    }
+    let dir = if pattern.is_some() { p.parent().unwrap_or(Path::new("")) } else { p };
+    let dir = if dir.as_os_str().is_empty() { Path::new(".") } else { dir };
+    let features = |q: &Path| {
+        let name = q.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let ext = q.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+        q.is_file()
+            && crate::files::VECTOR_EXTENSIONS.contains(&ext.as_str())
+            && match &pattern {
+                Some(pt) => crate::files::matches(pt, &name),
+                None => ext != "json",
+            }
+    };
+    let found = match std::fs::read_dir(dir) {
+        Ok(d) => d,
+        Err(e) => return Some(Err(Error::msg(format!("{}: {e}", dir.display())))),
+    };
+    let mut files: Vec<PathBuf> = found.flatten().map(|e| e.path()).filter(|q| features(q)).collect();
+    files.sort();
+    if files.is_empty() {
+        return Some(Err(Error::msg(format!("{path}: no file of vector features"))));
+    }
+    Some(Ok(files))
+}
+
+/// The features of several files (each by its name) as one layer: in the coordinate system of the first (the
+/// others' carried to it), with every attribute of any of them (no value where a file has none: NaN, or an empty
+/// text; numbers in one and texts in another are texts), and `file` (or `source_file` when one has a `file`): the
+/// name of the file each feature comes from.
+pub fn merge_vectors(parts: Vec<(String, Vector)>) -> Result<Vector> {
+    let crs = parts.first().and_then(|(_, v)| v.crs.clone());
+    let mut carried = Vec::with_capacity(parts.len());
+    for (name, v) in parts {
+        let v = match (&crs, &v.crs) {
+            (Some(to), Some(from)) if to != from => {
+                terraflux_gdal::reproject_vector(&v, to).map_err(|e| Error::msg(format!("{name}: {e}")))?
+            }
+            _ => v,
+        };
+        carried.push((name, v));
+    }
+    // the attributes in the order met, of texts when one file has them as texts
+    let mut columns: Vec<(String, bool)> = Vec::new();
+    for (_, v) in &carried {
+        for (n, c) in &v.attributes {
+            let texts = matches!(c, Column::Texts(_));
+            match columns.iter_mut().find(|(m, _)| m == n) {
+                Some((_, t)) => *t |= texts,
+                None => columns.push((n.clone(), texts)),
+            }
+        }
+    }
+    let mut attributes: Vec<(String, Column)> = columns
+        .iter()
+        .map(|(n, texts)| {
+            let mut numbers = Vec::new();
+            let mut words = Vec::new();
+            for (_, v) in &carried {
+                match v.column(n) {
+                    Some(Column::Numbers(x)) if *texts => {
+                        words.extend(x.iter().map(|x| if x.is_nan() { String::new() } else { x.to_string() }))
+                    }
+                    Some(Column::Numbers(x)) => numbers.extend_from_slice(x),
+                    Some(Column::Texts(x)) => words.extend(x.iter().cloned()),
+                    None if *texts => words.extend(std::iter::repeat_n(String::new(), v.len())),
+                    None => numbers.extend(std::iter::repeat_n(f64::NAN, v.len())),
+                }
+            }
+            (n.clone(), if *texts { Column::Texts(words) } else { Column::Numbers(numbers) })
+        })
+        .collect();
+    let file = if columns.iter().any(|(n, _)| n == "file") { "source_file" } else { "file" };
+    let names = carried.iter().flat_map(|(name, v)| std::iter::repeat_n(name.clone(), v.len())).collect();
+    attributes.push((file.to_string(), Column::Texts(names)));
+    let geometries = carried.into_iter().flat_map(|(_, v)| v.geometries).collect();
+    Ok(Vector { geometries, attributes, crs })
+}
+
 struct Read;
 
 impl Operator for Read {
@@ -258,12 +345,18 @@ impl Operator for Read {
         OpSignature::new(
             "vector.read",
             "Vector features from a file GDAL reads (GeoPackage, Shapefile, GeoJSON, FlatGeobuf, KML...): their \
-             geometries, attributes and coordinate system.",
+             geometries, attributes and coordinate system. A folder or a pattern (roads/*.gpkg): the features of \
+             every file in it as one layer, in the coordinate system of the first (the others' carried to it), \
+             with every attribute of any of them and `file`, the name of the file each feature comes from.",
             Access::Global,
         )
         .output(PortSpec::new("vector", Type::Vector, "the features"))
         .output(PortSpec::new("table", Type::Table, "the feature (1..) and its attributes that are numbers"))
-        .param(PortSpec::new("path", Type::Text, "the file, relative to the model's folder"))
+        .param(PortSpec::new(
+            "path",
+            Type::Text,
+            "a file, a folder or a pattern (their features as one layer), relative to the model's folder",
+        ))
         .param(PortSpec::optional("layer", Type::Text, "the layer (default the first)"))
     }
 
@@ -273,7 +366,22 @@ impl Operator for Read {
             return Err(Error::msg(format!("node {:?}: choose the file", args.node)));
         }
         let layer: Option<String> = args.opt_param("layer")?;
-        let v = terraflux_gdal::read_vector(&path, layer.as_deref().filter(|l| !l.is_empty())).map_err(Error::msg)?;
+        let layer = layer.as_deref().filter(|l| !l.is_empty());
+        let v = match vector_files_of(&path) {
+            None => terraflux_gdal::read_vector(&path, layer).map_err(Error::msg)?,
+            Some(files) => {
+                let parts = files?
+                    .iter()
+                    .map(|f| {
+                        let v = terraflux_gdal::read_vector(f, layer)
+                            .map_err(|e| Error::msg(format!("{}: {e}", f.display())))?;
+                        let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                        Ok((name, v))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                merge_vectors(parts)?
+            }
+        };
         let t = attribute_table(&v);
         Ok(outputs([("vector", Value::Vector(Arc::new(v))), ("table", Value::Table(t))]))
     }

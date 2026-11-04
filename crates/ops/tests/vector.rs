@@ -85,6 +85,46 @@ fn vectors_are_read_and_written() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// A folder or a pattern: the features of its files as one layer, with every attribute (none where a file has
+/// none) and the file each comes from; a `.json` of a folder left out.
+#[test]
+fn the_vectors_of_a_folder_are_one_layer() {
+    if !gdal() {
+        return;
+    }
+    let (mixed, shapes) = (read("mixed"), read("shapes"));
+    let dir = std::env::temp_dir().join(format!("terraflux_vector_folder_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for name in ["mixed", "shapes"] {
+        std::fs::copy(
+            root().join(format!("tests/data/reference/vectors/{name}.gpkg")),
+            dir.join(format!("{name}.gpkg")),
+        )
+        .unwrap();
+    }
+    std::fs::write(dir.join("notes.json"), "{}").unwrap();
+    let out = run("vector.read", vec![], json!({"path": dir.to_string_lossy()}));
+    let Value::Vector(v) = &out["vector"] else { panic!() };
+    assert_eq!(v.len(), mixed.len() + shapes.len());
+    assert_eq!(v.crs, mixed.crs, "the first one's coordinate system");
+    let Some(terraflux_raster::vector::Column::Texts(files)) = v.column("file") else { panic!("{:?}", v.attributes) };
+    assert_eq!(files[0], "mixed.gpkg");
+    assert_eq!(files[v.len() - 1], "shapes.gpkg");
+    // every attribute of either, none where a file has none
+    for (name, _) in mixed.attributes.iter().chain(&shapes.attributes) {
+        assert_eq!(v.column(name).map(|c| c.len()), Some(v.len()), "{name}");
+    }
+    if shapes.column("v").is_none() {
+        assert!(v.column("v").unwrap().numbers()[mixed.len()..].iter().all(|x| x.is_nan()));
+    }
+    // a pattern: only the files it names
+    let out = run("vector.read", vec![], json!({"path": dir.join("m*.gpkg").to_string_lossy()}));
+    let Value::Vector(w) = &out["vector"] else { panic!() };
+    assert_eq!(w.len(), mixed.len());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// Polygons (the centre rule and all touched), lines and points burnt as landschaft's rasterize: an attribute or a
 /// value, the later over the earlier or added up, a fill.
 #[test]

@@ -1356,6 +1356,18 @@ pub fn add_at(
     params: &[(&str, serde_json::Value)],
     at: Option<[f32; 2]>,
 ) -> Result<String, String> {
+    add_named_at(s, r, op, params, at, None)
+}
+
+/// [`add_at`], the node named `name` (made unique) when given.
+fn add_named_at(
+    s: &mut Session,
+    r: &Registry,
+    op: &str,
+    params: &[(&str, serde_json::Value)],
+    at: Option<[f32; 2]>,
+    name: Option<&str>,
+) -> Result<String, String> {
     let path = s.editor.path.clone();
     let nodes = s.source.scope(&path).cloned().unwrap_or_default();
     let from = match at {
@@ -1365,6 +1377,7 @@ pub fn add_at(
     let pos = at.unwrap_or_else(|| beside(&nodes, from.as_ref().map(|n| n.id.as_str())));
     // (a node that reads a file named by it: landuse_1997, not raster_read_2)
     let name = match params.iter().find(|(k, _)| *k == "path") {
+        _ if name.is_some() => name.map(str::to_string),
         Some((_, serde_json::Value::String(p))) if READERS.contains(&op) => crate::editor::id_of_file(p),
         _ => None,
     };
@@ -1410,7 +1423,7 @@ pub fn feed(s: &mut Session, r: &Registry, path: &[String], id: &str, from: &Nod
 }
 
 /// The files of vector features the dialogs offer (GDAL reads others too).
-pub const VECTOR_EXTENSIONS: [&str; 8] = ["gpkg", "shp", "geojson", "json", "fgb", "kml", "gml", "parquet"];
+pub const VECTOR_EXTENSIONS: [&str; 8] = terraflux_ops::files::VECTOR_EXTENSIONS;
 
 /// An operator's whole name as the lists write it: its subject (`stack.`) in a weaker colour than the rest (`of`);
 /// on the colour of a row `selected`, both in the selection's.
@@ -1568,19 +1581,14 @@ pub fn add_file(s: &mut Session, r: &Registry, p: &Path, at: Option<[f32; 2]>) -
 
 /// The files of vector features in a folder, in the order of their names (not `.json`: often of something else).
 fn vectors_in(dir: &Path) -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map(|d| d.flatten().map(|e| e.path()).collect::<Vec<_>>())
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|p| p.is_file() && is_vector(p))
-        .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")))
-        .collect();
-    v.sort();
-    v
+    match terraflux_ops::vector::vector_files_of(&dir.to_string_lossy()) {
+        Some(Ok(v)) => v,
+        _ => Vec::new(),
+    }
 }
 
-/// The nodes that read a file or a folder dropped ([`add_file`]): a folder's rasters as one stack, and a node for
-/// each file of vector features in it, one under the other.
+/// The nodes that read a file or a folder dropped ([`add_file`]): a folder's rasters as one stack, and its vector
+/// features as one layer (a `vector.read` of the folder; of the file when it has one), under it.
 pub fn add_path(s: &mut Session, r: &Registry, p: &Path, at: Option<[f32; 2]>) -> Result<Vec<String>, String> {
     if !p.is_dir() {
         return add_file(s, r, p, at).map(|id| vec![id]);
@@ -1596,17 +1604,22 @@ pub fn add_path(s: &mut Session, r: &Registry, p: &Path, at: Option<[f32; 2]>) -
     if rasters {
         made.push(add_file(s, r, p, at)?);
     }
-    for v in &vectors {
-        // (each beside the node that was selected, under the one before)
-        s.selected = selected.clone();
+    if !vectors.is_empty() {
+        // (beside the node that was selected, under the stack)
+        s.selected = selected;
         let at = at.map(|[x, y]| [x, y + 150.0 * made.len() as f32]);
-        made.push(add_file(s, r, v, at)?);
+        let read = if let [one] = vectors.as_slice() { one.as_path() } else { p };
+        // (named by the folder; beside its stack, the folder's name and `_features`)
+        let name = crate::editor::id_of_file(&read.to_string_lossy())
+            .map(|n| if rasters && read == p { format!("{n}_features") } else { n });
+        let path = [("path", read.to_string_lossy().into_owned().into())];
+        made.push(add_named_at(s, r, "vector.read", &path, at, name.as_deref())?);
     }
     Ok(made)
 }
 
 /// Files dropped on a window (from the system's file manager): a node each that reads it, one under the other (a
-/// folder: its rasters as one stack, its vector features a node each); a model (`.toml`) is not data, it is given
+/// folder: its rasters as one stack, its vector features as one layer); a model (`.toml`) is not data, it is given
 /// back to be opened.
 pub fn add_files(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Option<PathBuf> {
     add_files_made(s, r, files).0

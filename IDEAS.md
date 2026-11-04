@@ -2257,5 +2257,15 @@ responder no próprio Viewer as perguntas de quem estuda mudança de uso, sem mo
    `a_node_that_reads_a_file_is_named_by_it`, `the_maps_of_a_stack_named_by_their_years`, e os de UI
    `files_dropped_on_the_viewer_become_layers_of_it` (pasta com um vetor) e
    `rasters_dropped_at_once_joined_as_one_stack` (nomes e o ano sob *Play*); os testes de UI que esperavam
-   `raster_read` passam a usar o nome do arquivo. Falta: o ano também no visualizador da simulação (`app.rs`, as
-   bandas de uma camada); os vetores de uma pasta juntos numa camada só.
+   `raster_read` passam a usar o nome do arquivo.
+   **Feito também** (Unreleased, pedido em seguida): o ano no visualizador da simulação (`app.rs`, as bandas de uma
+   camada de stack, por `builder::by_year`). O `vector.read` de uma pasta ou de um padrão (`vector::vector_files_of`,
+   `vector::merge_vectors`): as feições de todos os arquivos numa camada, no sistema de coordenadas do primeiro (os
+   outros reprojetados por `reproject_vector`), a união dos atributos (NaN ou texto vazio onde faltam; número e
+   texto viram texto) e `file` (`source_file` se já houver um `file`); `.json` fora numa pasta. A pasta solta
+   (`builder::add_path`) vira um só `vector.read` dela (do arquivo, se for um), `<pasta>_features` ao lado da
+   stack. O cache do executor (`files_read`) olha cada arquivo de uma pasta ou do padrão (antes só a pasta: um
+   arquivo mudado dentro dela não refazia a leitura, também do `raster.read`). Testes:
+   `vector::the_vectors_of_a_folder_are_one_layer` (ops) e `files_dropped_on_the_viewer_become_layers_of_it` (UI,
+   dois gpkg na pasta). Falta: o export Python do `vector.read` de uma pasta (o `ls.load_vector` do landschaft lê um
+   arquivo só).

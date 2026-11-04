@@ -4638,15 +4638,16 @@ fn files_dropped_on_the_viewer_become_layers_of_it() {
         assert_eq!(s.preview, shown, "the map shown stays");
     }
     // a folder: its rasters as one stack (a time series), a layer of the Viewer, shown with its steps; its vector
-    // features a node each, a layer over it
+    // features as one layer over it
     let folder = tmp("dropped-series");
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder).unwrap();
     for year in ["1997", "2011"] {
         std::fs::copy(data("sibuyan_landuse.tif"), folder.join(format!("landuse_{year}.tif"))).unwrap();
     }
-    let gpkg = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference/vectors/mixed.gpkg");
-    std::fs::copy(gpkg, folder.join("roads.gpkg")).unwrap();
+    let vectors = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference/vectors");
+    std::fs::copy(vectors.join("mixed.gpkg"), folder.join("roads.gpkg")).unwrap();
+    std::fs::copy(vectors.join("shapes.gpkg"), folder.join("plots.gpkg")).unwrap();
     h.state_mut().session.as_mut().unwrap().preview = None;
     drop_files(&mut h, rect.center(), std::slice::from_ref(&folder));
     let id = {
@@ -4655,14 +4656,25 @@ fn files_dropped_on_the_viewer_become_layers_of_it() {
         let n = &s.source.nodes[s.source.nodes.len() - 2];
         assert_eq!((n.op.as_str(), n.id.as_str()), ("raster.read", "dropped_series"));
         let v = s.source.nodes.last().unwrap();
-        assert_eq!((v.op.as_str(), v.id.as_str()), ("vector.read", "roads"));
-        assert!(s.preview_layers.iter().any(|l| l.node == "roads"), "the features a layer");
+        assert_eq!((v.op.as_str(), v.id.as_str()), ("vector.read", "dropped_series_features"));
+        assert_eq!(v.params["path"].as_str(), Some(folder.to_string_lossy().as_ref()), "one node of the folder");
+        assert!(s.preview_layers.iter().any(|l| l.node == v.id), "the features a layer");
         n.id.clone()
     };
     until(&mut h, "the folder read", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of(&id, "raster").is_some()
+        s.show_queue.is_empty()
+            && !s.running()
+            && s.value_of(&id, "raster").is_some()
+            && s.value_of("dropped_series_features", "vector").is_some()
     });
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let Some(terraflux_ops::Value::Vector(v)) = s.value_of("dropped_series_features", "vector") else {
+            panic!("the features")
+        };
+        assert!(v.column("file").is_some(), "the file of each feature: {:?}", v.attributes);
+    }
     drawn(&mut h);
     let s = h.state().session.as_ref().unwrap();
     let Some(terraflux_ops::Value::Raster(r)) = s.value_of(&id, "raster") else { panic!("a stack") };

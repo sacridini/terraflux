@@ -65,9 +65,14 @@ minor versions.
   longer `raster_read_2`, `raster_read_3`... (accents dropped, another character a `_`, `map_` before a digit).
 - Viewer: **the maps of a stack by their years**: when each file's name has a year, a different one, and the rest of
   the names is the same (`landuse_1997`, `landuse_2011`), the steps are named `1997`, `2011` (under *Play*, in the
-  layer's choice of map, the charts along the steps, the figures and animations).
-- Viewer: **a folder of vector features** dropped (or dragged from the Files pane) is a `vector.read` for each of its
-  files of features (not `.json`), layers over its rasters (a stack, as before); a folder with neither is refused.
+  layer's choice of map, the charts along the steps, the figures and animations, and in the simulation's map tab).
+- `vector.read` reads **a folder or a pattern** (`roads/*.gpkg`): the features of every file as one layer, in the
+  coordinate system of the first (the others' carried to it), with every attribute of any of them (none where a
+  file has none) and `file`, the file each feature comes from; a folder's `.json` files are left out. A run reads a
+  folder (of rasters too) again when one of its files changes, is added or taken away.
+- Viewer: **a folder of vector features** dropped (or dragged from the Files pane) is one `vector.read` of it, a
+  layer over its rasters (a stack, as before; named by the folder and `_features` beside it); a folder with neither
+  is refused.
 
 ## [1.37.0] - 2026-11-04
 

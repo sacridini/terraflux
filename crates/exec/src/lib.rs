@@ -407,15 +407,7 @@ fn record_path(chain: &Chain, name: &str) -> Option<std::path::PathBuf> {
 /// written, the nodes and their settings, how long it took, Terraflux's version, what it depends on (`print`,
 /// [`print_of`]), and what of its other nodes is read from outside the chain (`needed`), when small.
 #[allow(clippy::too_many_arguments)]
-fn record(
-    chain: &Chain,
-    name: &str,
-    files: &[Value],
-    print: &str,
-    outs: &[Outputs],
-    needed: &Needed,
-    seconds: f64,
-) {
+fn record(chain: &Chain, name: &str, files: &[Value], print: &str, outs: &[Outputs], needed: &Needed, seconds: f64) {
     let Some(path) = record_path(chain, name) else { return };
     let written: serde_json::Map<String, serde_json::Value> = chain
         .nodes
@@ -445,12 +437,8 @@ fn record(
     }
     let mut values = serde_json::Map::new();
     for (m, o) in chain.nodes.iter().zip(outs) {
-        let ports: serde_json::Map<String, serde_json::Value> = needed
-            .get(&m.id)
-            .into_iter()
-            .flatten()
-            .filter_map(|p| Some((p.clone(), kept_value(o.get(p)?)?)))
-            .collect();
+        let ports: serde_json::Map<String, serde_json::Value> =
+            needed.get(&m.id).into_iter().flatten().filter_map(|p| Some((p.clone(), kept_value(o.get(p)?)?))).collect();
         if !ports.is_empty() {
             values.insert(m.id.clone(), ports.into());
         }
@@ -691,9 +679,31 @@ fn files_read(n: &Node, h: &mut impl Hasher) {
     if (n.op == "raster.read" || n.op == "vector.read")
         && let Some(serde_json::Value::String(p)) = n.params.get("path")
     {
-        match std::fs::metadata(p) {
-            Ok(m) => (m.len(), m.modified().ok()).hash(h),
-            Err(_) => "missing".hash(h),
+        // (a folder or a pattern of names: every file of the folder, a file changed, added or taken away)
+        let path = std::path::Path::new(p);
+        let wild = path.file_name().is_some_and(|n| n.to_string_lossy().contains(['*', '?']));
+        let dir = if path.is_dir() {
+            Some(path)
+        } else if wild {
+            path.parent()
+        } else {
+            None
+        };
+        match dir {
+            Some(d) => {
+                let mut files: Vec<_> =
+                    std::fs::read_dir(d).map(|e| e.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+                files.sort();
+                for f in files {
+                    if let Ok(m) = std::fs::metadata(&f) {
+                        (f, m.len(), m.modified().ok()).hash(h);
+                    }
+                }
+            }
+            None => match std::fs::metadata(p) {
+                Ok(m) => (m.len(), m.modified().ok()).hash(h),
+                Err(_) => "missing".hash(h),
+            },
         }
     }
     for b in n.body.iter().flat_map(|b| &b.nodes) {
@@ -1495,9 +1505,8 @@ impl Engine {
                             }
                             let (name, files) = &chain.files[i];
                             let mut relay = Relay { stop };
-                            let d = self.run_file(
-                                nodes, chain, source, env, inputs, prefix, name, files, resume, &mut relay,
-                            );
+                            let d = self
+                                .run_file(nodes, chain, source, env, inputs, prefix, name, files, resume, &mut relay);
                             let _ = tx.send((i, d));
                         })
                     })

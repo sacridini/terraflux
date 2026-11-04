@@ -82,6 +82,11 @@ hold several layers; the first is read by default). It has two outputs:
 - `table`: their attributes **that are numbers**, one row per feature numbered from 1, for operators that take
   tables. Text attributes (here `name`) stay with the features.
 
+The `path` may also be **a folder** or **a pattern** (`plots/*.gpkg`): the features of every file in it are read
+as one layer, in the coordinate system of the first file (the others are carried to it), with every attribute of
+any of them and one more, `file`, the name of the file each feature comes from. A folder dragged into the
+application is read this way, and the node is named after it (a node reading `reserves.gpkg` is `reserves`).
+
 To see features, select the [[vector.read]] node: the Viewer draws them. To see them **over a map**, keep them as
 **layers**: double-click `landcover`, then `reserves`, `road` and `plots` (or use **Add a layer** in the Viewer's
 side panel). Each layer is drawn over the ones listed under it: here the land cover is at the bottom, the reserves

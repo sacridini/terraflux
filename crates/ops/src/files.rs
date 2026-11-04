@@ -212,8 +212,11 @@ impl std::fmt::Debug for Rasters {
 pub const RASTER_EXTENSIONS: [&str; 16] =
     ["tif", "tiff", "img", "vrt", "nc", "jp2", "hdf", "h5", "asc", "grd", "rst", "sdat", "dem", "bil", "ecw", "kea"];
 
+/// The extensions of the files of vector features GDAL reads (a folder's: not `.json`, often of something else).
+pub const VECTOR_EXTENSIONS: [&str; 8] = ["gpkg", "shp", "geojson", "json", "fgb", "kml", "gml", "parquet"];
+
 /// Whether a file name matches a pattern of `*` (any text) and `?` (a character), ignoring case.
-fn matches(pattern: &str, name: &str) -> bool {
+pub(crate) fn matches(pattern: &str, name: &str) -> bool {
     let (p, n): (Vec<char>, Vec<char>) =
         (pattern.to_lowercase().chars().collect(), name.to_lowercase().chars().collect());
     // the classic two-pointer match with backtracking to the last star

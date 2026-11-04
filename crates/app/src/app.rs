@@ -452,13 +452,11 @@ impl Loaded {
                         };
                         vec![(band, m.clone(), Look::of(&m.data, classes))]
                     }
-                    Value::Stack(st) => st
-                        .keys
-                        .iter()
+                    // (its maps by their years when their names differ only by one: 1997, 2011)
+                    Value::Stack(st) => crate::builder::by_year(st.keys.iter().map(|k| k.to_string()).collect())
+                        .into_iter()
                         .zip(&st.layers)
-                        .map(|(k, d)| {
-                            (k.to_string(), Map { grid: st.grid.clone(), data: d.clone() }, Look::of(d, classes))
-                        })
+                        .map(|(k, d)| (k, Map { grid: st.grid.clone(), data: d.clone() }, Look::of(d, classes)))
                         .collect(),
                     _ => return None,
                 };
