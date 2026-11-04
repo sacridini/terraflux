@@ -242,6 +242,23 @@ pub enum Wish {
 
 const INK: Color32 = Color32::from_rgb(0, 220, 255);
 
+/// The line over a map: its segments (closed by a faint one once ended, from three points) and its vertices, at
+/// these screen points. Also drawn over the views beside the one measured on.
+pub fn paint_line(painter: &egui::Painter, pts: &[Pos2], ended: bool) {
+    let halo = Stroke::new(4.0, Color32::from_black_alpha(140));
+    let line = Stroke::new(2.0, INK);
+    if pts.len() >= 3 && ended {
+        painter.line_segment([pts[pts.len() - 1], pts[0]], Stroke::new(1.5, INK.gamma_multiply(0.6)));
+    }
+    if pts.len() >= 2 {
+        painter.add(egui::Shape::line(pts.to_vec(), halo));
+        painter.add(egui::Shape::line(pts.to_vec(), line));
+    }
+    for p in pts {
+        painter.circle(*p, 4.0, Color32::WHITE, Stroke::new(1.5, Color32::BLACK));
+    }
+}
+
 impl Measure {
     pub fn click(&mut self, cell: [f64; 2]) {
         if !self.ended {
@@ -309,17 +326,9 @@ impl Measure {
         }
         // the line, its vertices, and (not ended) the next segment up to the pointer
         let painter = ui.painter_at(response.rect);
-        let halo = Stroke::new(4.0, Color32::from_black_alpha(140));
         let line = Stroke::new(2.0, INK);
         let pts: Vec<Pos2> = self.points.iter().map(screen).collect();
-        if pts.len() >= 3 && self.ended {
-            let close = [pts[pts.len() - 1], pts[0]];
-            painter.line_segment(close, Stroke::new(1.5, INK.gamma_multiply(0.6)));
-        }
-        if pts.len() >= 2 {
-            painter.add(egui::Shape::line(pts.clone(), halo));
-            painter.add(egui::Shape::line(pts.clone(), line));
-        }
+        paint_line(&painter, &pts, self.ended);
         if !self.ended
             && let (Some(&last), Some(h)) = (pts.last(), response.hover_pos())
         {
@@ -339,9 +348,6 @@ impl Measure {
                 );
                 painter.galley(at, galley, Color32::WHITE);
             }
-        }
-        for p in &pts {
-            painter.circle(*p, 4.0, Color32::WHITE, Stroke::new(1.5, Color32::BLACK));
         }
         // the numbers, in a box at the map's lower corner (it takes the clicks over it: no point under it)
         let report = self.report(grid);
@@ -467,6 +473,53 @@ mod tests {
         assert_eq!(r.frame, Frame::Geographic);
         assert!((r.area.unwrap() / 1e6 - 12_308.0).abs() < 15.0);
         assert!((r.perimeter.unwrap() / 1000.0 - 443.0).abs() < 2.0, "{:?}", r.perimeter);
+    }
+
+    /// A GeoTIFF in WGS 84 written and read back: 128 x 108 cells of 0.0025 degrees, its corner at 122.30 E, 12.60 N
+    /// (the island of Sibuyan, as the test data). GDAL reads it as EPSG:4326 (checked with gdalinfo).
+    fn degrees_file() -> Grid {
+        let mut g = Grid::new(128, 108);
+        g.transform = [122.30, 0.0025, 0.0, 12.60, 0.0, -0.0025];
+        g.geo.geokeys = Some(vec![1, 1, 0, 2, 1024, 0, 1, 2, 2048, 0, 1, 4326]);
+        let data = (0..128 * 108).map(|i| f64::from(i % 5)).collect();
+        let r = terraflux_raster::Raster::single(g, data, terraflux_raster::DataType::U8, None);
+        let path = std::env::temp_dir().join(format!("terraflux-measure-{}.tif", std::process::id()));
+        r.write(&path).unwrap();
+        let back = terraflux_raster::Raster::read(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        back.grid
+    }
+
+    #[test]
+    fn a_file_in_degrees_measures_as_the_references() {
+        let g = degrees_file();
+        assert_eq!(Frame::of(&g), Frame::Geographic);
+        // The references (independent of this code): pyproj 3.7.2 `Geod(ellps="WGS84")`, that is GeographicLib's
+        // exact geodesics, for the corners of cells A = (10, 20), B = (110, 90) and C = (10, 90), that is
+        // (122.325 E, 12.55 N), (122.575 E, 12.375 N) and (122.325 E, 12.375 N):
+        //   A-B 33368.4751 m, A-C 19359.5509 m, C-B 27187.4490 m;
+        // the rectangle A, (110, 20), B, C: `polygon_area_perimeter` 526,161,498.514 m2 and 93,075.771 m, and the
+        // same area from GDAL, `ogrinfo -dialect SQLite -sql "SELECT ST_Area(GeomFromText(wkt, 4326), 1)"`,
+        // 526161498.514046 m2 (its geodesic edges on the ellipsoid).
+        let r = Report::of(&g, &[[10.0, 20.0], [110.0, 90.0]]);
+        let ab = 33_368.475_1;
+        assert!((r.length - ab).abs() / ab < 0.001, "{}", r.length);
+        // (Vincenty's formula is good to a millimetre: far tighter than the 0.1% asked)
+        assert!((r.length - ab).abs() < 0.01, "{}", r.length);
+        let r = Report::of(&g, &[[10.0, 20.0], [10.0, 90.0], [110.0, 90.0]]);
+        assert!((r.segments[0] - 19_359.550_9).abs() < 0.01 && (r.segments[1] - 27_187.449_0).abs() < 0.01);
+        // the rectangle: the polygon's edges are great circles on the authalic sphere, the reference's geodesics on
+        // the ellipsoid; the area is within 0.5% as asked (the authalic sphere has the ellipsoid's area)
+        let rect = [[10.0, 20.0], [110.0, 20.0], [110.0, 90.0], [10.0, 90.0]];
+        let r = Report::of(&g, &rect);
+        let (area, perimeter) = (526_161_498.514, 93_075.771);
+        let a = r.area.unwrap();
+        let off = (a - area) / area;
+        assert!(off.abs() < 0.005, "{a} against {area}");
+        // (in fact the difference is 8e-9: the authalic sphere keeps the ellipsoid's areas)
+        assert!(off.abs() < 1e-6, "{a} against {area}: {:.5}%", off * 100.0);
+        assert!((r.perimeter.unwrap() - perimeter).abs() / perimeter < 0.001, "{:?}", r.perimeter);
+        assert!(r.text().contains("km²"), "{}", r.text());
     }
 
     #[test]

@@ -540,6 +540,20 @@ impl MapView {
         self.rect
     }
 
+    /// The line measured in the view beside (its points as cells of that view's grid), drawn over this one: each
+    /// carried by `link` (this view's grid on that one's) to this view's cells. Call it after the view is drawn.
+    pub fn paint_measure(&self, ui: &Ui, line: &crate::measure::Measure, link: &crate::reproject::Link) {
+        let Some(rect) = self.rect else { return };
+        let pts: Vec<Pos2> = line
+            .points
+            .iter()
+            .map(|c| link.to_own(Vec2::new(c[0] as f32, c[1] as f32)))
+            .filter(|c| c.x.is_finite() && c.y.is_finite())
+            .map(|c| rect.center() + (c - self.center) * self.zoom)
+            .collect();
+        crate::measure::paint_line(&ui.painter_at(rect), &pts, line.ended);
+    }
+
     /// Measuring turned on or off (the line lost); refused while features are being drawn.
     pub fn set_measuring(&mut self, on: bool) {
         self.measuring = (on && self.drawing.is_none()).then(Default::default);

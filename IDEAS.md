@@ -938,7 +938,23 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    sempre por cima. O cursor diz o valor de cada mapa pelo nome (`RasterLayer::name`, `MapView::name`). As camadas
    seguem um nó renomeado e saem com um removido; o projeto do QGIS leva as camadas visíveis. Teste: `ui.rs`
    (fixar, clicar no nome, ⏷, tirar), `canvas.rs` (o duplo clique fixa). O painel próprio à esquerda feito (o botão *Layers* no cabeçalho o
-   esconde; teste no `maps_stack_and_cells_show_their_series`). Falta: a medida do Viewer com 1 e 5 camadas (o `canvas::timings` mede o grafo, não o Viewer). Os testes por pixels:
+   esconde; teste no `maps_stack_and_cells_show_their_series`). **A medida do Viewer com 1 e 5 camadas feita** (Unreleased): `ui.rs`, `viewer_timings` (`cargo test --release -p
+   terraflux-app --test ui viewer_timings -- --ignored --nocapture`), análogo ao `canvas::timings` mas do Viewer: 4
+   mapas `nlm.random` de 4000 x 4000 células e 300 polígonos; com 1 camada o mapa, com 5 os 4 mapas (3 a meia
+   opacidade) e os polígonos. Um quadro é um `Harness::step` (a interface, os ladrilhos; não a pintura da GPU). Rodado
+   uma vez em release com `RAYON_NUM_THREADS=2`, enquanto outro agente compilava (os números são indicativos), ms
+   (mediana / p95): 
+
+   | camadas | 1º desenho | parado | arrastando | zoom (roda) |
+   |---|---|---|---|---|
+   | 1 | 26 a 97 | 5,2 / 5,7 | 5,3 / 5,7 | 5,4 / 10,3 |
+   | 5 | 25 a 71 | 5,5 / 6,4 | 5,4 / 6,3 | 5,3 / 16,0 |
+
+   (o 1º desenho, do pedido até nada ocupado, variou entre as duas rodadas, 97 e 26 ms para 1 camada, 25 e 71 para 5:
+   depende de os ladrilhos do mapa já estarem feitos; o `render` com a leitura de volta da wgpu, 1 ms.) Nenhum caso
+   passa de 30 ms por quadro: os ~5 ms parados são o chão do quadro da aplicação inteira (os painéis), e o p95 do
+   zoom com 5 camadas (16 ms) é o refazer dos ladrilhos dos vetores e dos mapas. Falta: medir em debug não vale; e
+   com a GPU de verdade (aqui a wgpu do teste). Os testes por pixels:
    `the_layers_change_the_picture` (por cima, meia opacidade, escondida, por baixo).
 3. **Comparar e dividir dentro do Viewer; o fim das abas `Map`.** (média)
    - Cortina entre a camada de cima e a de baixo (ou duas escolhidas); a diferença (`difference.rs`) como camada
@@ -1091,7 +1107,20 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    unidades da grade e em células. Clique direito ou Backspace tira o último ponto, o duplo clique encerra, Esc
    limpa, *Copy*; medir e desenhar feições são exclusivos. A caixa dos números no canto de baixo do mapa. Testes:
    os de `measure.rs` (1° no equador, o caso de Vincenty, um octante da Terra) e `measuring_on_the_map_by_clicks`
-   (cliques de verdade). Falta: conferir com um arquivo em graus de verdade; a linha não segue as vistas lado a lado.
+   (cliques de verdade). **Conferido com um arquivo em graus** (Unreleased): o `gdal_translate -a_srs EPSG:4326
+   -a_ullr 122.30 12.60 122.62 12.33` do `sibuyan_landuse.tif` (128 x 108 células de 0,0025°) lido e medido no Viewer
+   (`measuring_a_file_in_degrees_matches_the_references`; em `measure.rs`, `a_file_in_degrees_measures_as_the_references`
+   com um GeoTIFF escrito pelo `terraflux_raster`). Referências de fora, `pyproj` 3.7.2 `Geod(ellps="WGS84")`
+   (GeographicLib, geodésicas exatas) e o GDAL (`ogrinfo -dialect SQLite -sql "SELECT ST_Area(GeomFromText(wkt,
+   4326), 1)"`): entre os cantos das células (10, 20) e (110, 90) 33 368,4751 m, e o Viewer 33 368,47 m (Vincenty,
+   dentro de 1 cm); o retângulo (10, 20)-(110, 90), 526 161 498,514 m² (pyproj e GDAL dão o mesmo) e perímetro
+   93 075,771 m, o Viewer 526 161 494,39 m² (diferença de 8e-9: a esfera autálica tem a área da elipsoide, as
+   arestas de grande círculo mal mudam o polígono de 27 x 19 km) e 93 075,7707 m. Os limites pedidos eram 0,1% e
+   0,5%. Nenhum erro achado. Um clique de verdade bate com a haversine numa esfera dentro de 0,5%. **A linha segue
+   as vistas lado a lado** (Unreleased): `MapView::paint_measure` desenha a linha da vista medida nas outras, cada
+   ponto levado pelo `reproject::Link` (também entre sistemas de coordenadas; teste
+   `the_measure_line_follows_into_the_views_side_by_side`, UTM e WGS 84 lado a lado, por pixels). Falta: a caixa dos
+   números só na vista medida; medir clicando numa vista ao lado mede ali, com a sua própria linha.
    **Soltar um arquivo no Viewer feito** (Unreleased, por um sub-agente): `builder::drop_on_viewer`. Os arquivos
    soltos sobre o Viewer (`TerrafluxApp::viewer_rect`, `over_viewer`) criam o `raster.read`/`vector.read`, fixados
    como camadas (os mapas na ordem soltos, os vetores por cima), o primeiro mostrado se o Viewer estava vazio, e o

@@ -583,6 +583,187 @@ fn measuring_on_the_map_by_clicks() {
     assert!(h.state().session.as_ref().unwrap().preview_view.measuring.is_some(), "M turns measuring on");
 }
 
+/// The test data given a place in degrees by GDAL (`gdal_translate -a_srs EPSG:4326 -a_ullr 122.30 12.60 122.62
+/// 12.33`: 128 x 108 cells of 0.0025 degrees) in a file of its own.
+fn in_degrees(name: &str) -> PathBuf {
+    let out = tmp(name);
+    let args = ["-a_srs", "EPSG:4326", "-a_ullr", "122.30", "12.60", "122.62", "12.33"];
+    terraflux_gdal::translate(&data("sibuyan_landuse.tif"), &out, &args.map(String::from)).unwrap();
+    out
+}
+
+/// A real file in degrees, read and measured: the Viewer's numbers against references of other tools (not from this
+/// code). The corners of the cells A = (10, 20), B = (110, 90), C = (10, 90) are (122.325 E, 12.55 N), (122.575 E,
+/// 12.375 N), (122.325 E, 12.375 N). pyproj 3.7.2 `Geod(ellps="WGS84")` (GeographicLib's exact geodesics) gives
+/// A-B 33368.4751 m; for the rectangle A, (110, 20), B, C the area 526,161,498.514 m2 (the same from GDAL,
+/// `ogrinfo -dialect SQLite -sql "SELECT ST_Area(GeomFromText(wkt, 4326), 1)"`: 526161498.514046) and the perimeter
+/// 93,075.771 m. The viewer's area is on the authalic sphere with great-circle edges: its difference from the
+/// ellipsoid's (here under a millionth, `measure.rs` checks it) is far below the 0.5% allowed.
+#[test]
+fn measuring_a_file_in_degrees_matches_the_references() {
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let file = in_degrees("measure_degrees.tif");
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = file.to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        s.preview = Some(("raster_read".into(), "raster".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("raster_read", "raster").is_some()
+    });
+    h.run_steps(4);
+    drawn(&mut h);
+    {
+        let v = &mut h.state_mut().session.as_mut().unwrap().preview_view;
+        v.set_measuring(true);
+        v.measure_click([10.0, 20.0]);
+        v.measure_click([110.0, 90.0]);
+    }
+    h.run_steps(2);
+    let m = h.state().session.as_ref().unwrap().preview_view.measured().expect("measured");
+    assert_eq!(m.frame, terraflux_app::measure::Frame::Geographic);
+    assert!((m.length - 33_368.475_1).abs() / 33_368.475_1 < 0.001, "A-B {} m", m.length);
+    assert!(m.text().contains("33.368 km"), "{}", m.text());
+    {
+        let v = &mut h.state_mut().session.as_mut().unwrap().preview_view;
+        v.measuring.as_mut().unwrap().points.clear();
+        for c in [[10.0, 20.0], [110.0, 20.0], [110.0, 90.0], [10.0, 90.0]] {
+            v.measure_click(c);
+        }
+    }
+    h.run_steps(2);
+    let m = h.state().session.as_ref().unwrap().preview_view.measured().expect("measured");
+    let (area, perimeter) = (m.area.expect("an area"), m.perimeter.expect("a perimeter"));
+    let off = (area - 526_161_498.514) / 526_161_498.514;
+    assert!(off.abs() < 0.005, "the area {area} m2: {:.4}% from the ellipsoid's", off * 100.0);
+    assert!((perimeter - 93_075.771).abs() / 93_075.771 < 0.001, "the perimeter {perimeter} m");
+    assert!(m.text().contains("526.16"), "{}", m.text());
+    // by the mouse: two clicks; the line against a haversine on a sphere (a mean radius: within 0.5% of the ellipsoid)
+    h.state_mut().session.as_mut().unwrap().preview_view.measuring.as_mut().unwrap().points.clear();
+    h.run_steps(2);
+    let rect = h.state().session.as_ref().unwrap().preview_view.rect().expect("drawn");
+    let click = |h: &mut Harness<TerrafluxApp>, p: egui::Pos2| {
+        h.event(egui::Event::PointerMoved(p));
+        h.run_steps(1);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(2);
+    };
+    click(&mut h, rect.center() + egui::vec2(-80.0, -50.0));
+    click(&mut h, rect.center() + egui::vec2(90.0, 40.0));
+    let v = &h.state().session.as_ref().unwrap().preview_view;
+    let pts = v.measuring.as_ref().unwrap().points.clone();
+    assert_eq!(pts.len(), 2);
+    let ll = |c: [f64; 2]| ((122.30 + 0.0025 * c[0]).to_radians(), (12.60 - 0.0025 * c[1]).to_radians());
+    let ((l1, p1), (l2, p2)) = (ll(pts[0]), ll(pts[1]));
+    let hav = ((p2 - p1) / 2.0).sin().powi(2) + p1.cos() * p2.cos() * ((l2 - l1) / 2.0).sin().powi(2);
+    let sphere = 6_371_008.8 * 2.0 * hav.sqrt().asin();
+    let got = v.measured().unwrap().length;
+    assert!((got - sphere).abs() / sphere < 0.005, "clicked {got} m against {sphere} m on a sphere");
+}
+
+/// The line measured on the map shown is drawn in the view beside it too, carried to its own grid when that is of
+/// another coordinate system (here the map in UTM 51N measured, the one in WGS 84 beside it): the line's colour is
+/// in both views, at the same place.
+#[test]
+fn the_measure_line_follows_into_the_views_side_by_side() {
+    use terraflux_app::builder::{CompareWith, How};
+    use terraflux_graph::Node;
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let d = tmp("measure_side_by_side");
+    std::fs::create_dir_all(&d).unwrap();
+    let (land, geo) = (d.join("land.tif"), d.join("land_geo.tif"));
+    terraflux_gdal::translate(&data("sibuyan_landuse.tif"), &land, &["-a_srs".to_string(), "EPSG:32651".to_string()])
+        .unwrap();
+    terraflux_gdal::warp(&[&land], &geo, &["-t_srs".into(), "EPSG:4326".into(), "-r".into(), "near".into()]).unwrap();
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let read = |id: &str, p: &std::path::Path| {
+            Node::new(id, "raster.read").param("path", p.to_string_lossy().as_ref()).param("band", "0")
+        };
+        s.source.nodes = vec![read("land", &land), read("geo", &geo)];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && ["land", "geo"].iter().all(|n| s.value_of(n, "raster").is_some())
+    });
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview = Some(("land".into(), "raster".into()));
+        s.preview_compare.with = Some(CompareWith::Output("geo".into(), "raster".into()));
+        s.preview_compare.how = How::SideBySide;
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "both views drawn", |a| {
+        let s = a.session.as_ref().unwrap();
+        s.preview_view.shown_grid().is_some() && s.preview_compare.view.shown_grid().is_some()
+    });
+    drawn(&mut h);
+    {
+        let v = &mut h.state_mut().session.as_mut().unwrap().preview_view;
+        v.set_measuring(true);
+        // the cells (30, 20) to (100, 80) of the map in UTM
+        v.measure_click([30.0, 20.0]);
+        v.measure_click([100.0, 80.0]);
+    }
+    h.run_steps(3);
+    // the pixels of the line's colour (0, 220, 255) in a view's rectangle
+    let ink = |h: &mut Harness<TerrafluxApp>, rect: egui::Rect| {
+        let img = h.render().expect("the window drawn by wgpu");
+        let mut n = 0;
+        for y in rect.top() as u32..rect.bottom() as u32 {
+            for x in rect.left() as u32..rect.right() as u32 {
+                let p = img.get_pixel(x, y).0;
+                if p[0] < 40 && p[1] > 200 && p[2] > 230 {
+                    n += 1;
+                }
+            }
+        }
+        n
+    };
+    let (shown, beside) = {
+        let s = h.state().session.as_ref().unwrap();
+        (s.preview_view.rect().unwrap(), s.preview_compare.view.rect().unwrap())
+    };
+    let (a, b) = (ink(&mut h, shown), ink(&mut h, beside));
+    assert!(a > 100, "the line in the view measured on: {a} pixels");
+    assert!(b > 100, "and in the view beside, of another coordinate system: {b} pixels");
+    // the vertex of the first point lands on the same ground: the view beside's centre is the shown one's, carried
+    let s = h.state().session.as_ref().unwrap();
+    let link = terraflux_app::reproject::Link::between(
+        s.preview_compare.view.shown_grid().unwrap(),
+        s.preview_view.shown_grid().unwrap(),
+    )
+    .unwrap();
+    let (zoom, centre) = s.preview_compare.view.camera();
+    let at = beside.center() + (link.to_own(egui::vec2(30.0, 20.0)) - centre) * zoom;
+    let img = h.render().expect("the window drawn by wgpu");
+    // (the vertex: a white disc with a black ring, at that screen point)
+    let p = img.get_pixel(at.x as u32, at.y as u32).0;
+    assert!(p[0] > 200 && p[1] > 200 && p[2] > 200, "the first vertex at {at:?} in the view beside: {p:?}");
+    shot(&mut h, "14d-measure-side-by-side");
+}
+
 #[test]
 fn maps_compare_by_a_curtain_and_side_by_side() {
     let mut h = harness(new_app(None));
@@ -4962,6 +5143,174 @@ fn the_difference_of_maps_of_two_coordinate_systems_is_made() {
     });
     h.run_steps(4);
     drawn(&mut h);
+}
+
+/// The median and the 95th percentile of frame times, in milliseconds.
+fn median_p95(mut t: Vec<Duration>) -> (f64, f64) {
+    t.sort();
+    let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    (ms(t[t.len() / 2]), ms(t[(t.len() * 95 / 100).min(t.len() - 1)]))
+}
+
+/// The Viewer's frame times with 1 and with 5 layers on rasters of 4000 x 4000 cells (the graph's are timed by
+/// `canvas::timings`): the first drawing (the layers shown until their tiles are made), the steady frames, and the
+/// frames while panning and zooming. The 5 layers are four maps (the last three at half opacity) and a layer of 300
+/// polygons. A frame is `Harness::step` (the interface and the tiles); the GPU's painting is `render`, timed apart.
+///
+/// `cargo test --release -p terraflux-app --test ui viewer_timings -- --ignored --nocapture`
+#[test]
+#[ignore = "timings: run with --release --ignored --nocapture"]
+fn viewer_timings() {
+    use terraflux_app::builder::Layer;
+    use terraflux_graph::Node;
+    const SIDE: usize = 4000;
+    // 300 squares of 20 to 220 cells over the map's extent (the cells are of one unit, its origin at the bottom left)
+    let mut seed = 12345_u64;
+    let mut next = move || {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (seed >> 33) as f64 / (1u64 << 31) as f64
+    };
+    let geometries = (0..300)
+        .map(|_| {
+            let (x, y, w) = (next() * 3700.0, next() * 3700.0, 20.0 + next() * 200.0);
+            terraflux_raster::vector::Geometry::Polygon(vec![vec![
+                [x, y],
+                [x + w, y],
+                [x + w, y + w],
+                [x, y + w],
+                [x, y],
+            ]])
+        })
+        .collect();
+    let gpkg = tmp("viewer-timings.gpkg");
+    let _ = std::fs::remove_file(&gpkg);
+    let v = terraflux_raster::vector::Vector { geometries, attributes: Vec::new(), crs: None };
+    terraflux_gdal::write_vector(&gpkg, "squares", &v).unwrap();
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let mut nodes: Vec<Node> = (0..4)
+            .map(|i| {
+                Node::new(&format!("m{i}"), "nlm.random")
+                    .param("rows", SIDE as i64)
+                    .param("columns", SIDE as i64)
+                    .param("seed", i + 1)
+            })
+            .collect();
+        nodes.push(Node::new("squares", "vector.read").param("path", gpkg.to_string_lossy().as_ref()));
+        s.source.nodes = nodes;
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running()
+            && (0..4).all(|i| s.value_of(&format!("m{i}"), "map").is_some())
+            && s.value_of("squares", "vector").is_some()
+    });
+    println!(
+        "{:<10} {:>12} {:>16} {:>16} {:>16} {:>14}",
+        "layers", "first (ms)", "steady med/p95", "pan med/p95", "zoom med/p95", "render (ms)"
+    );
+    for layers in [1, 5] {
+        {
+            let s = h.state_mut().session.as_mut().unwrap();
+            s.preview = Some(("m0".into(), "map".into()));
+            s.preview_layers = if layers == 1 {
+                Vec::new()
+            } else {
+                let half = |n: &str| Layer { opacity: 0.5, ..Layer::new(n, "map") };
+                vec![Layer::new("m0", "map"), half("m1"), half("m2"), half("m3"), Layer::new("squares", "vector")]
+            };
+            // (a view fitted again, its tiles made again)
+            s.preview_view = Default::default();
+        }
+        // the first drawing: from the layers chosen until the maps are coloured and nothing is busy
+        // (stepping with no pause, three frames at least, the view shown and fitted)
+        let t = Instant::now();
+        let mut frames = 0;
+        while frames < 3 || {
+            let v = &h.state().session.as_ref().unwrap().preview_view;
+            v.busy() || v.shown_grid().is_none()
+        } {
+            h.step();
+            frames += 1;
+            assert!(t.elapsed() < Duration::from_secs(120), "the first drawing: too long");
+        }
+        let first = t.elapsed();
+        drawn(&mut h);
+        let g = h.state().session.as_ref().unwrap().preview_view.shown_grid().cloned().unwrap();
+        assert_eq!((g.width, g.height), (SIDE, SIDE), "the map shown");
+        shot(&mut h, &format!("viewer-timings-{layers}"));
+        // steady: nothing moves
+        let steady: Vec<Duration> = (0..60)
+            .map(|_| {
+                let t = Instant::now();
+                h.step();
+                t.elapsed()
+            })
+            .collect();
+        let rect = h.state().session.as_ref().unwrap().preview_view.rect().expect("drawn");
+        let c = rect.center();
+        // panning: the primary button held and the pointer moved a few points a frame, across and back
+        h.event(egui::Event::PointerMoved(c));
+        h.run_steps(1);
+        h.event(egui::Event::PointerButton {
+            pos: c,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+        let mut pan = Vec::new();
+        for k in 1..=60 {
+            let dx = if k <= 30 { k as f32 * 6.0 } else { (60 - k) as f32 * 6.0 };
+            h.event(egui::Event::PointerMoved(c + egui::vec2(dx, dx * 0.5)));
+            let t = Instant::now();
+            h.step();
+            pan.push(t.elapsed());
+        }
+        h.event(egui::Event::PointerButton {
+            pos: c,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        drawn(&mut h);
+        // zooming: the wheel over the map, in and out
+        h.event(egui::Event::PointerMoved(c + egui::vec2(40.0, 20.0)));
+        h.run_steps(1);
+        let mut zoom = Vec::new();
+        for k in 0..60 {
+            h.event(egui::Event::Zoom(if k < 30 { 1.08 } else { 1.0 / 1.08 }));
+            let t = Instant::now();
+            h.step();
+            zoom.push(t.elapsed());
+        }
+        drawn(&mut h);
+        let mut render = Vec::new();
+        for _ in 0..5 {
+            let t = Instant::now();
+            h.render().expect("the window drawn by wgpu");
+            render.push(t.elapsed());
+        }
+        let (render, _) = median_p95(render);
+        let pair = |t: Vec<Duration>| {
+            let (m, p) = median_p95(t);
+            format!("{m:.1} / {p:.1}")
+        };
+        println!(
+            "{:<10} {:>12.0} {:>16} {:>16} {:>16} {:>14.0}",
+            layers,
+            first.as_secs_f64() * 1000.0,
+            pair(steady),
+            pair(pan),
+            pair(zoom),
+            render
+        );
+    }
 }
 
 /// A map turned by 30 degrees drawn over the map shown, in the same coordinate system (none told): its tiles are

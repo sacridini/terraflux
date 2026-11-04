@@ -5145,7 +5145,9 @@ fn side_by_side(
                     rect: Rect,
                     i: usize,
                     (src, coloring, name): (&Source, &Coloring, &str),
-                    view: &mut crate::map_view::MapView| {
+                    view: &mut crate::map_view::MapView,
+                    // (the line measured on the map shown, drawn over a view beside, carried by its link)
+                    line: Option<(&crate::measure::Measure, &Link)>| {
         // (view 0 is the map shown, the layers of the Viewer's; the next ones the compared and the views more)
         let (rasters, overlays) = match i.checked_sub(1).and_then(|j| own.get(j)).and_then(|o| o.as_ref()) {
             Some(d) => (&d.rasters[..], &d.overlays[..]),
@@ -5154,18 +5156,24 @@ fn side_by_side(
         let h = ui
             .scope_builder(egui::UiBuilder::new().max_rect(rect).id_salt(("side by side", i)), |ui| {
                 let h = view.show_stacked(ui, src, coloring, rasters, overlays);
+                if let Some((l, link)) = line {
+                    view.paint_measure(ui, l, link);
+                }
                 named(ui, rect, name);
                 h
             })
             .inner;
         hover = hover.take().or(h);
     };
-    draw(ui, rects[0], 0, left, &mut sh.view);
-    draw(ui, rects[1], 1, right, compared);
+    draw(ui, rects[0], 0, left, &mut sh.view, None);
+    let line = sh.view.measuring.clone().filter(|l| !l.points.is_empty());
+    draw(ui, rects[1], 1, right, compared, line.as_ref().map(|l| (l, &places[1])));
     for (i, ((m, p), b)) in more.iter().zip(&drawn).zip(views.iter_mut()).enumerate() {
         let rect = rects[2 + i];
         match (m, p) {
-            (Ok((src, coloring, name)), Ok(_)) => draw(ui, rect, 2 + i, (src, coloring, name), &mut b.view),
+            (Ok((src, coloring, name)), Ok(link)) => {
+                draw(ui, rect, 2 + i, (src, coloring, name), &mut b.view, line.as_ref().map(|l| (l, link)))
+            }
             (_, Err(e)) => {
                 ui.scope_builder(egui::UiBuilder::new().max_rect(rect).id_salt(("side by side", 2 + i)), |ui| {
                     ui.centered_and_justified(|ui| {

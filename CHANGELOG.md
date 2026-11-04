@@ -12,6 +12,8 @@ minor versions.
   with a note to run `raster.match`: its cells are carried by their full affine transform, and a layer in degrees
   across ±180° is drawn without the quads that stretched over the whole world; the difference, the Figure and
   *Export the view* do the same.
+- Viewer: the line of the **Measure** tool is drawn in the views side by side too, carried to each view's own map
+  (also when it is of another coordinate system).
 
 ## [1.36.0] - 2026-11-04
 
