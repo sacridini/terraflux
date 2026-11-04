@@ -6075,3 +6075,72 @@ fn the_nodes_selected_are_connected_together() {
     let n = s.source.node("stack").unwrap();
     assert_eq!(n.inputs.keys().map(String::as_str).collect::<Vec<_>>(), ["a", "c"]);
 }
+
+/// A group looks like one: two cards behind its box, an accent border and header, a stack icon and the count of
+/// its nodes (a node alone has none of it). Going in zooms into its box, going out back (the frames of the
+/// transition are drawn, each a little further), and it is over soon, with no frame requested after it.
+#[test]
+fn a_group_looks_like_one_and_going_in_and_out_is_a_zoom() {
+    use terraflux_graph::{Body, Model, Node};
+    let path = tmp("ui-group-look.toml");
+    let mut m = Model::new("group look");
+    let mut land = Node::new("land", "nlm.random").param("rows", 20).param("columns", 30).param("seed", 3);
+    land.pos = Some([0.0, 0.0]);
+    m.nodes.push(land);
+    let mut g = Node::new("smooth", terraflux_graph::GROUP).input("x", "land.map").body(Body {
+        nodes: (0..5)
+            .map(|k| {
+                let mut n = Node::new(&format!("step{k}"), "raster.calc").param("expression", "x + 1");
+                n = if k == 0 { n.input("x", "@x") } else { n.input("x", &format!("step{}.map", k - 1)) };
+                n.pos = Some([260.0 * (k % 3) as f32, 130.0 * (k / 3) as f32]);
+                n
+            })
+            .collect(),
+        outputs: [("map".to_string(), "step4.map".to_string())].into(),
+        ..Default::default()
+    });
+    g.pos = Some([300.0, 0.0]);
+    m.nodes.push(g);
+    let mut after = Node::new("after", "raster.calc").param("expression", "x * 2").input("x", "smooth.map");
+    after.pos = Some([620.0, 0.0]);
+    m.nodes.push(after);
+    m.save(&path).unwrap();
+    setup();
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        eframe::egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    terraflux_app::canvas_gpu::install(&rs);
+    // (short steps, to stop inside the transition)
+    let mut h = Harness::builder()
+        .with_size((1280.0, 820.0))
+        .with_step_dt(0.04)
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut TerrafluxApp| app.frame(ui), new_app(Some(path)));
+    // (the harness turns egui's animations off)
+    h.ctx.all_styles_mut(|s| s.animation_time = 1.0 / 12.0);
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(20);
+    shot(&mut h, "14m-group-box");
+    // going in: the first frames, a middle one, the end
+    h.state_mut().session.as_mut().unwrap().editor.path.push("smooth".into());
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().editor.moving(), "the zoom is going on");
+    h.render().unwrap().save(tmp("ui-14n-group-enter-start.png")).unwrap();
+    h.run_steps(3);
+    h.render().unwrap().save(tmp("ui-14n-group-enter-middle.png")).unwrap();
+    h.run_steps(20);
+    assert!(!h.state().session.as_ref().unwrap().editor.moving(), "and over");
+    shot(&mut h, "14n-group-inside");
+    let before = h.state().session.as_ref().unwrap().editor.zoom();
+    assert!(before > 0.0);
+    // going out
+    terraflux_app::builder::go_up(h.state_mut().session.as_mut().unwrap(), 0);
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().editor.moving());
+    h.render().unwrap().save(tmp("ui-14o-group-leave-middle.png")).unwrap();
+    h.run_steps(20);
+    shot(&mut h, "14o-group-left");
+    assert!(h.state().session.as_ref().unwrap().editor.path.is_empty());
+}

@@ -7,6 +7,10 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Canvas: **a group looks like one, and going in or out is a zoom**. A group's box has two cards behind it (a stack
+  of nodes), an accent border and header, a stack icon and how many nodes are inside ("group · 5 nodes"). Entering
+  it, the view zooms into its box: the scene inside grows out of the box as the outer scene fades; leaving, it
+  shrinks back into the box (about 0.3 s, easing out; none when egui's animations are off; clicks pass through).
 - Canvas: **the nodes selected are connected together**. A connection drawn from the output of a node selected
   takes the others selected with it (their wires drawn along, "3 connections" at the pointer): let go on a node that
   takes any (`stack.of`), each is a new input, in their order on the canvas; let go on another node, they fill its

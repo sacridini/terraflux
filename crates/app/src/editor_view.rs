@@ -308,6 +308,71 @@ impl Camera {
     }
 }
 
+/// The screen rectangle (points from the canvas's corner) of a rectangle of the graph.
+fn mapped(r: Rect, cam: &Camera) -> Rect {
+    Rect::from_min_max(
+        (cam.pan + r.min.to_vec2() * cam.zoom).to_pos2(),
+        (cam.pan + r.max.to_vec2() * cam.zoom).to_pos2(),
+    )
+}
+
+/// A rectangle part of the way to another (corners and all).
+fn between(a: Rect, b: Rect, t: f32) -> Rect {
+    Rect::from_min_max(a.min.lerp(b.min, t), a.max.lerp(b.max, t))
+}
+
+/// Going into a group or out of it, drawn as a zoom: the scene entered grows out of the group's box, the scene
+/// left to shrinks back into it. Only the camera and a veil change, the scene is the one of the new scope.
+struct Transit {
+    /// When it began (egui's time), and how long it lasts, seconds.
+    start: f64,
+    secs: f32,
+    /// A rectangle of the graph (the scene's bounds going in, the group's box going out), and where it is on
+    /// the canvas when it begins.
+    of: Rect,
+    from: Rect,
+    /// The frame that goes out with the zoom: where it begins and ends on the canvas.
+    frame: (Rect, Rect),
+}
+
+impl Transit {
+    /// Going in (`entering`: `boxed` is the group's box on the canvas, as the scope above had it) or out, to the
+    /// camera `cam`, on a canvas of `size`.
+    fn new(entering: bool, of: Rect, boxed: Rect, cam: &Camera, size: Vec2, start: f64, secs: f32) -> Option<Transit> {
+        let end = mapped(of, cam);
+        if !(end.width() > 1.0 && end.height() > 1.0) {
+            return None;
+        }
+        let canvas = Rect::from_min_size(Pos2::ZERO, size);
+        let (from, frame) = if entering {
+            let s = (boxed.width() / end.width()).min(boxed.height() / end.height());
+            (Rect::from_center_size(boxed.center(), end.size() * s), (boxed, canvas.shrink(1.0)))
+        } else {
+            // the scope above seen as close as the group's box fills the canvas (no closer than 2.5:1)
+            let s = ((size.x - 48.0) / end.width()).min((size.y - 48.0) / end.height()).min(2.5 / cam.zoom);
+            (Rect::from_center_size(canvas.center(), end.size() * s.max(1.0)), (canvas.shrink(1.0), end))
+        };
+        Some(Transit { start, secs, of, from, frame })
+    }
+
+    /// The camera, the opacity of the scene, and the frame (its rectangle, its opacity) at a time; `None` when it
+    /// is over.
+    fn at(&self, now: f64, cam: &Camera) -> Option<(Camera, f32, (Rect, f32))> {
+        let t = ((now - self.start) as f32 / self.secs).max(0.0);
+        if t >= 1.0 {
+            return None;
+        }
+        // ease out: fast at first, settling
+        let e = 1.0 - (1.0 - t).powi(3);
+        let r = between(self.from, mapped(self.of, cam), e);
+        let zoom = r.width() / self.of.width();
+        let camera = Camera { pan: r.min.to_vec2() - self.of.min.to_vec2() * zoom, zoom };
+        // the scene comes in over the first half
+        let a = (t / 0.55).min(1.0);
+        Some((camera, a * a * (3.0 - 2.0 * a), (between(self.frame.0, self.frame.1, e), 1.0 - e)))
+    }
+}
+
 /// What the pointer is doing on the canvas.
 #[derive(Debug, Clone, PartialEq)]
 enum Drag {
@@ -335,6 +400,9 @@ pub struct EditorState {
     pub message: Option<String>,
     /// Where the view looks, by scope.
     cameras: HashMap<Vec<String>, Camera>,
+    /// The scope drawn last frame (a change of one level starts a transition), and the transition going on.
+    shown: Vec<String>,
+    transit: Option<Transit>,
     fit: bool,
     scene: Option<Scene>,
     generation: u64,
@@ -401,6 +469,11 @@ impl EditorState {
     /// The zoom of the scope shown.
     pub fn zoom(&self) -> f32 {
         self.cameras.get(&self.path).map_or(1.0, |c| c.zoom)
+    }
+
+    /// Whether the view is zooming in or out of a group.
+    pub fn moving(&self) -> bool {
+        self.transit.is_some()
     }
 
     /// The generation of the shapes the GPU was last given (no two editors share one).
@@ -542,6 +615,8 @@ struct BoxAt {
     outputs: Vec<(String, Type)>,
     source: bool,
     container: bool,
+    /// The nodes in its body, for a container.
+    inside: usize,
     note: Option<String>,
     /// The file it reads or writes (a node's `path`, a model input's), named in the row at its bottom.
     file: Option<String>,
@@ -651,7 +726,36 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
         _ => (stroke, 1.0),
     };
     let radius = crate::theme::shape().node_radius;
+    // a group: two cards behind its box, peeking out under it (a stack of nodes), its border and header in the
+    // accent
+    let group = b.op == terraflux_graph::GROUP;
+    let accent = crate::theme::accent();
+    let (border, width) = if group && state != Some(NodeStatus::Failed) && !b.bypass {
+        (border.lerp_to_gamma(accent, 0.75), 1.5)
+    } else {
+        (border, width)
+    };
+    if group {
+        for k in [2.0, 1.0] {
+            let (card, edge) = (fill.lerp_to_gamma(accent, 0.05 * k), border.gamma_multiply(0.35 + 0.25 * (3.0 - k)));
+            let (min, size) =
+                ([b.rect.min.x + 7.0 * k, b.rect.min.y + 5.0 * k], [b.rect.width() - 14.0 * k, b.rect.height()]);
+            rects.push(RectInstance::new(min, size, radius, card, edge, 1.0));
+        }
+    }
     rects.push(RectInstance::new(b.rect.min.into(), b.rect.size().into(), radius, fill, border, width));
+    if group {
+        let head = b.head().shrink(2.0);
+        let tint = fill.lerp_to_gamma(accent, if v.dark_mode { 0.22 } else { 0.16 });
+        rects.push(RectInstance::new(
+            head.min.into(),
+            head.size().into(),
+            radius - 1.0,
+            tint,
+            Color32::TRANSPARENT,
+            0.0,
+        ));
+    }
     // a node of data's header in the colour of the type it gives (a map's blue, vectors' pink...), when
     // asked: what flows from it at a glance
     if let Some(c) = b.tint().filter(|_| colours).and_then(|t| type_colour(t, v.dark_mode)) {
@@ -921,6 +1025,7 @@ impl Scene {
                 outputs: vec![(String::new(), *t)],
                 source: true,
                 container: false,
+                inside: 0,
                 note: None,
                 file,
                 folded: Vec::new(),
@@ -966,6 +1071,7 @@ impl Scene {
                 outputs,
                 source: false,
                 container: n.body.is_some(),
+                inside: n.body.as_ref().map_or(0, |b| b.nodes.len()),
                 note: [n.note.clone(), n.why.as_ref().map(|w| format!("Why: {w}"))]
                     .into_iter()
                     .flatten()
@@ -1415,6 +1521,21 @@ pub fn show(
         st.path.clear();
         return actions;
     };
+    // one level in or out: a zoom between the scopes (going in, the group's box as the scope left had it)
+    let mut zoom_to: Option<(bool, String, Rect)> = None;
+    if st.shown != st.path {
+        let old = std::mem::replace(&mut st.shown, st.path.clone());
+        if st.path.len() == old.len() + 1 && st.path.starts_with(&old) {
+            let id = &st.path[old.len()];
+            if let (Some(s), Some(cam)) = (st.scene.as_ref().filter(|s| s.key.1 == old), st.cameras.get(&old))
+                && let Some(&i) = s.index.get(id.as_str())
+            {
+                zoom_to = Some((true, id.clone(), mapped(s.boxes[i].rect, cam)));
+            }
+        } else if old.len() > st.path.len() && old.starts_with(&st.path) {
+            zoom_to = Some((false, old[st.path.len()].clone(), Rect::NOTHING));
+        }
+    }
     // (built again when the model, the place in it, the nodes' states or the theme change)
     let colours = crate::settings::get().node_colours;
     let key = (revision, st.path.clone(), status_rev, crate::theme::current().name, colours, st.folds);
@@ -1458,6 +1579,15 @@ pub fn show(
     if st.fit || !st.cameras.contains_key(&path) {
         st.cameras.insert(path.clone(), Camera::fitting(scene.bounds, rect.size()));
         st.fit = false;
+    }
+    if let Some((entering, id, boxed)) = zoom_to {
+        // (as long as egui's animations: none when they are off)
+        let secs = ui.style().animation_time * 3.6;
+        let of = if entering { Some(scene.bounds) } else { scene.index.get(id.as_str()).map(|&i| scene.boxes[i].rect) };
+        let now = ui.input(|i| i.time);
+        st.transit = of
+            .filter(|_| secs > 0.0)
+            .and_then(|of| Transit::new(entering, of, boxed, &st.cameras[&path], rect.size(), now, secs));
     }
     let cam = st.cameras.get_mut(&path).unwrap();
     // the wheel zooms around the pointer
@@ -1760,7 +1890,19 @@ pub fn show(
     if on_edge {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
-    let cam = *cam;
+    let mut cam = *cam;
+    // a transition going on: the view drawn from a camera on its way, a veil over it (input passes through to
+    // the scene as it is)
+    let mut veil = None;
+    if let Some(t) = &st.transit {
+        match t.at(ui.input(|i| i.time), &cam) {
+            Some((c, shown, frame)) => {
+                (cam, veil) = (c, Some((1.0 - shown, frame)));
+                ui.ctx().request_repaint();
+            }
+            None => st.transit = None,
+        }
+    }
     // the nodes dragged move in the scene at once (the model's places follow through the actions)
     if !moved.is_empty() {
         st.generation = next_generation();
@@ -1837,13 +1979,37 @@ pub fn show(
                 // a node of data's operator in the colour of the type it gives, when asked
                 let colour =
                     b.tint().filter(|_| scene.key.4).and_then(|t| type_colour(t, v.dark_mode)).unwrap_or(faint);
-                painter.text(
-                    top + Vec2::new(8.0, 21.0) * cam.zoom,
-                    Align2::LEFT_TOP,
-                    &b.label,
-                    FontId::monospace(size(11.0)),
-                    colour,
-                );
+                if b.op == terraflux_graph::GROUP {
+                    // a group: the icon of a stack of cards, and what is inside it
+                    let accent = crate::theme::accent();
+                    let card = |x: f32, y: f32| {
+                        Rect::from_min_size(top + Vec2::new(x, y) * cam.zoom, Vec2::new(9.0, 7.0) * cam.zoom)
+                    };
+                    let radius = 1.5 * cam.zoom;
+                    painter.rect_stroke(
+                        card(8.0, 25.0),
+                        radius,
+                        Stroke::new(1.0, accent.gamma_multiply(0.55)),
+                        egui::StrokeKind::Inside,
+                    );
+                    painter.rect_filled(card(10.5, 22.0), radius, v.widgets.inactive.bg_fill);
+                    painter.rect_stroke(card(10.5, 22.0), radius, Stroke::new(1.3, accent), egui::StrokeKind::Inside);
+                    painter.text(
+                        top + Vec2::new(24.0, 21.0) * cam.zoom,
+                        Align2::LEFT_TOP,
+                        format!("group  ·  {} node{}", b.inside, if b.inside == 1 { "" } else { "s" }),
+                        FontId::monospace(size(11.0)),
+                        accent,
+                    );
+                } else {
+                    painter.text(
+                        top + Vec2::new(8.0, 21.0) * cam.zoom,
+                        Align2::LEFT_TOP,
+                        &b.label,
+                        FontId::monospace(size(11.0)),
+                        colour,
+                    );
+                }
             }
             for (k, p) in b.inputs.iter().enumerate() {
                 let (name, colour) =
@@ -2184,6 +2350,13 @@ pub fn show(
         FontId::proportional(11.0),
         v.weak_text_color(),
     );
+    if let Some((hidden, (frame, glow))) = veil {
+        let accent = crate::theme::accent();
+        painter.rect_filled(rect, 0.0, v.panel_fill.gamma_multiply(hidden));
+        let frame = frame.translate(rect.min.to_vec2());
+        painter.rect_filled(frame, 8.0, accent.gamma_multiply(0.07 * glow));
+        painter.rect_stroke(frame, 8.0, Stroke::new(2.5, accent.gamma_multiply(glow)), egui::StrokeKind::Inside);
+    }
     if ui.input(|i| i.key_pressed(egui::Key::Home)) && ui.ctx().memory(|m| m.focused().is_none()) {
         st.fit = true;
     }

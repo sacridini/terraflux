@@ -2290,7 +2290,12 @@ só quando pedido.
    reordenar as saídas no painel do grupo.
 3. **O grupo com cara de grupo, e a entrada e a saída animadas.** Uma caixa que se lê como "vários nós dentro"
    (cartões empilhados, o número de nós, um ícone) e, ao entrar ou sair, o zoom para dentro da caixa e de volta.
-   Em andamento.
+   **Feito** (Unreleased): dois cartões atrás da caixa, a borda e o cabeçalho na cor de destaque, um ícone e
+   `group · 5 nodes` na linha do operador (de zoom 0.6 para cima). Ao entrar, a câmera do corpo parte da caixa do
+   grupo e se abre até o canvas; ao sair, a cena de fora encolhe até a caixa (cerca de 0.3 s, ease-out cúbico, um
+   véu e uma moldura que acompanham; nada com `animation_time` 0). `editor_view::Transit`. Teste:
+   `a_group_looks_like_one_and_going_in_and_out_is_a_zoom`. Falta: ver no tema claro; uma foto da cena de fora
+   (hoje um véu) para que ela se apague em vez de cortar; uma silhueta dos nós de dentro.
 4. **Soltar um fio no vazio abre a busca de operadores**, só os que aceitam aquele tipo, e o nó escolhido nasce ali,
    já ligado (como no Blender, Houdini e Unreal).
 5. **Inserir um nó num fio**: arrastar um nó sobre uma conexão e soltar o coloca no meio (a entrada e a saída que
