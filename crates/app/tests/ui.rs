@@ -4222,3 +4222,39 @@ fn the_attribute_table_of_a_vector_layer() {
     assert!(h.query_by_label("Attributes of vector_read.vector").is_none());
     assert_eq!(h.state().session.as_ref().unwrap().preview_view.selected, None);
 }
+
+/// The histogram of the map shown: bars of its values under the legend, the numbers under them; a map of classes
+/// has bars for its classes in the legend.
+#[test]
+fn the_histogram_of_a_map() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::add(
+            s,
+            &r,
+            "nlm.random",
+            &[("rows", 60.into()), ("columns", 80.into()), ("seed", 4.into())],
+        )
+        .unwrap();
+        s.preview = Some(("nlm_random".into(), "map".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("nlm_random", "map").is_some()
+    });
+    let t = Instant::now();
+    while h.query_by_label_contains("cells with a value").is_none() {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(60), "the histogram: too long");
+    }
+    assert!(h.query_by_label_contains("4800 cells with a value, 0 with none").is_some());
+    assert!(h.query_by_label_contains("mean").is_some());
+    assert!(h.query_by_label_contains("from a sample").is_none());
+    shot(&mut h, "14f-histogram");
+}

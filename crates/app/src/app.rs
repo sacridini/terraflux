@@ -617,6 +617,8 @@ pub struct Session {
     /// The animations (GIF) of steps or of a stack's maps being made, and what the last one said.
     pub animations: crate::animation::Animations,
     pub looks: Looks,
+    /// The histograms of the maps shown.
+    pub histograms: crate::histogram::Histograms,
     /// Outputs being saved (in threads): where, and what came of it; a word for the status bar and since when.
     saving: Vec<(PathBuf, Receiver<Result<PathBuf, String>>)>,
     pub notice: Option<(String, Instant)>,
@@ -779,6 +781,7 @@ impl Session {
             animations: Default::default(),
             palettes: Default::default(),
             looks: Looks::default(),
+            histograms: Default::default(),
             auto: true,
             edited_at: None,
             run_when_ready: false,

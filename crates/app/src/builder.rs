@@ -2461,6 +2461,23 @@ fn layers_section(
                 None => {
                     ui.spacing_mut().slider_width = (ui.available_width() - 110.0).clamp(40.0, 160.0);
                     ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity"));
+                    // the histogram of the values, when open (and its colouring is known)
+                    if let Some(src) = s.value_of(&l.node, &l.port).and_then(|v| layer_source(&v, l.band))
+                        && let Some(Coloring::Continuous { min, max, ramp, log }) =
+                            s.looks.peek(&src).map(|k| k.coloring.clone())
+                    {
+                        let id = egui::Id::new(("layer histogram", salt, &l.node, &l.port));
+                        egui::CollapsingHeader::new("histogram").id_salt(id).show(ui, |ui| {
+                            match s.histograms.get(ui.ctx(), &src, min, max) {
+                                Some(h) => {
+                                    crate::histogram::show(ui, &h, &Coloring::Continuous { min, max, ramp, log })
+                                }
+                                None => {
+                                    ui.spinner();
+                                }
+                            }
+                        });
+                    }
                     // of a stack, a series or rasters on disk: the map it shows
                     let names = s.value_of(&l.node, &l.port).map(|v| maps_of(&v).1).unwrap_or_default();
                     if names.len() > 1 {
@@ -4076,6 +4093,19 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             legend(ui, &l.coloring, &l.counts, &|v| crate::legend_view::name(l, named, v));
                         }
                         crate::legend_view::editor(ui, s, r, &node, &port, l, named);
+                        // (of values: the histogram under the legend)
+                        if let Coloring::Continuous { min, max, .. } = &l.coloring {
+                            ui.add_space(4.0);
+                            match s.histograms.get(ui.ctx(), &maps[k], *min, *max) {
+                                Some(h) => crate::histogram::show(ui, &h, &l.coloring),
+                                None => {
+                                    ui.horizontal(|ui| {
+                                        ui.spinner();
+                                        ui.label(RichText::new("the histogram...").weak());
+                                    });
+                                }
+                            }
+                        }
                     }
                     None => {
                         ui.horizontal(|ui| {

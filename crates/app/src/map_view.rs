@@ -1435,7 +1435,9 @@ pub fn legend_lines(
 pub fn legend(ui: &mut Ui, coloring: &Coloring, counts: &[(f64, usize)], names: &dyn Fn(f64) -> String) {
     match coloring {
         Coloring::Classes(c) => {
-            for (col, name, n) in legend_lines(c, counts, names) {
+            let lines = legend_lines(c, counts, names);
+            let top = lines.iter().map(|l| l.2).max().unwrap_or(0).max(1);
+            for (col, name, n) in lines {
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(Vec2::splat(12.0), Sense::hover());
                     ui.painter().rect_filled(r, 2.0, crate::palette::seen(col));
@@ -1447,6 +1449,11 @@ pub fn legend(ui: &mut Ui, coloring: &Coloring, counts: &[(f64, usize)], names: 
                         });
                     });
                 });
+                // a thin bar under the row: the class's cells against the largest class's
+                let room = ui.available_width();
+                let (bar, _) = ui.allocate_exact_size(Vec2::new(room, 3.0), Sense::hover());
+                let full = Rect::from_min_size(bar.min, Vec2::new(room * n as f32 / top as f32, 3.0));
+                ui.painter().rect_filled(full, 1.0, crate::palette::seen(col));
             }
         }
         Coloring::Continuous { min, max, ramp, log } => {
