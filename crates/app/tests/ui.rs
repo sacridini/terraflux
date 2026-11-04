@@ -4398,3 +4398,82 @@ fn the_view_exported_as_a_picture() {
     assert!(back.bands[3].data.contains(&255.0), "cells drawn");
     shot(&mut h, "14h-export");
 }
+
+/// A layer of another coordinate system pinned over the map is drawn reprojected, tile by tile, where it lies: the
+/// land in geographic coordinates over the drivers in UTM looks as the land in UTM does (the picture of the map's
+/// middle, cell by cell of the screen), and not as the drivers do.
+#[test]
+fn a_layer_of_another_coordinate_system_is_drawn_reprojected() {
+    use terraflux_app::builder::Layer;
+    use terraflux_graph::Node;
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    // the files have no CRS: Sibuyan is in UTM 51N; the land again in geographic coordinates (nearest cell)
+    let d = tmp("reprojected");
+    std::fs::create_dir_all(&d).unwrap();
+    let (land, drivers, geo) = (d.join("land.tif"), d.join("drivers.tif"), d.join("land_geo.tif"));
+    let srs = ["-a_srs".to_string(), "EPSG:32651".to_string()];
+    terraflux_gdal::translate(&data("sibuyan_landuse.tif"), &land, &srs).unwrap();
+    terraflux_gdal::translate(&data("sibuyan_drivers.tif"), &drivers, &srs).unwrap();
+    terraflux_gdal::warp(&[&land], &geo, &["-t_srs".into(), "EPSG:4326".into(), "-r".into(), "near".into()]).unwrap();
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let read = |id: &str, p: &std::path::Path| {
+            Node::new(id, "raster.read").param("path", p.to_string_lossy().as_ref()).param("band", "0")
+        };
+        s.source.nodes = vec![read("land", &land), read("drivers", &drivers), read("geo", &geo)];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && ["land", "drivers", "geo"].iter().all(|n| s.value_of(n, "raster").is_some())
+    });
+    // the picture of the middle of the map shown (the cells from 20% to 80% across, a lattice of screen points)
+    let picture = |h: &mut Harness<TerrafluxApp>| -> Vec<[u8; 4]> {
+        drawn(h);
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_millis(500) {
+            h.step();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        drawn(h);
+        let s = h.state().session.as_ref().unwrap();
+        let (rect, (zoom, centre)) = (s.preview_view.rect().expect("the map drawn"), s.preview_view.camera());
+        let (w, ht) = s.preview_view.shown_grid().map(|g| (g.width as f32, g.height as f32)).unwrap();
+        let img = h.render().expect("the window drawn by wgpu");
+        let mut out = Vec::new();
+        for i in 0..40 {
+            for j in 0..40 {
+                let cell = egui::Vec2::new(w * (0.2 + 0.6 * j as f32 / 39.0), ht * (0.2 + 0.6 * i as f32 / 39.0));
+                let at = rect.center() + (cell - centre) * zoom;
+                out.push(img.get_pixel(at.x as u32, at.y as u32).0);
+            }
+        }
+        out
+    };
+    let same = |a: &[[u8; 4]], b: &[[u8; 4]]| {
+        let near = |p: &[u8; 4], q: &[u8; 4]| (0..3).all(|k| p[k].abs_diff(q[k]) <= 8);
+        a.iter().zip(b).filter(|(p, q)| near(p, q)).count() as f32 / a.len() as f32
+    };
+    show(&mut h, "land", "raster");
+    let land_alone = picture(&mut h);
+    show(&mut h, "drivers", "raster");
+    let drivers_alone = picture(&mut h);
+    assert!(same(&land_alone, &drivers_alone) < 0.9, "the two maps differ");
+    // the land in geographic coordinates over the drivers in UTM
+    h.state_mut().session.as_mut().unwrap().preview_layers =
+        vec![Layer::new("drivers", "raster"), Layer::new("geo", "raster")];
+    let over = picture(&mut h);
+    shot(&mut h, "14h-reprojected");
+    let (like_land, like_drivers) = (same(&over, &land_alone), same(&over, &drivers_alone));
+    assert!(like_land > 0.9, "the layer is there and lines up: {like_land} of the lattice is the land's");
+    assert!(like_drivers < 0.9, "the layer hides the drivers: {like_drivers}");
+    // hidden: the drivers again
+    let hidden = Layer { visible: false, ..Layer::new("geo", "raster") };
+    h.state_mut().session.as_mut().unwrap().preview_layers = vec![Layer::new("drivers", "raster"), hidden];
+    assert!(same(&picture(&mut h), &drivers_alone) > 0.99, "hidden");
+}

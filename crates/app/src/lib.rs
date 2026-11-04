@@ -54,6 +54,7 @@ pub mod pt;
 pub mod python;
 pub mod qgis;
 pub mod report;
+pub mod reproject;
 pub mod review;
 pub mod runner;
 pub mod search;

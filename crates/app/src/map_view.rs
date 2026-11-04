@@ -276,7 +276,7 @@ impl Basemap {
 }
 
 /// The CRS of a grid as GDAL takes it: the WKT GDAL read, else the EPSG code of the GeoTIFF keys.
-fn crs_of(g: &terraflux_raster::Grid) -> Option<String> {
+pub(crate) fn crs_of(g: &terraflux_raster::Grid) -> Option<String> {
     g.geo.wkt.clone().or_else(|| g.geo.epsg().map(|c| format!("EPSG:{c}")))
 }
 
@@ -317,6 +317,14 @@ impl Place {
     }
 }
 
+/// Where a layer is on the view's grid: placed by its coordinates (the same coordinate system), or carried there
+/// from another ([`crate::reproject`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum At {
+    Place(Place),
+    Warp,
+}
+
 /// A feature of a vector layer as the pointer tells it: the layer's name (when it has one), its number, its
 /// attributes a line each.
 pub fn feature_text(o: &crate::vector_tiles::Overlay, k: usize) -> String {
@@ -348,6 +356,11 @@ pub fn place_on(g: &terraflux_raster::Grid, base: &terraflux_raster::Grid) -> Op
     let scale = Vec2::new((t[1] / b[1]) as f32, (t[5] / b[5]) as f32);
     Some(Place { offset, scale })
 }
+
+/// Why a map drawn with the one shown is not: it is rotated, or its coordinate system is not told or cannot be
+/// carried to the view's.
+const OTHER_GRID: &str = "a map drawn with it is rotated, or its coordinate system is unknown or cannot be carried \
+                          to this map's: put it on this map's grid (raster.match)";
 
 /// A tile made: its values, its texture in a colouring, when it was last shown.
 struct Tile {
@@ -422,6 +435,8 @@ pub struct MapView {
     /// The map drawn at the last frame and its colouring; the one shown before the map now, while it fades in.
     last: Option<(Source, u64)>,
     prior: Option<Prior>,
+    /// The layers of another coordinate system than the view's, carried to it.
+    reproj: HashMap<SourceKey, crate::reproject::Reproj>,
     /// The grid of the map drawn at the last frame.
     shown_grid: Option<terraflux_raster::Grid>,
 }
@@ -749,6 +764,200 @@ impl MapView {
         complete
     }
 
+    /// Where a layer is on the view's grid, if it is: placed by its coordinates, or carried from another
+    /// coordinate system (the way to carry it already made).
+    fn placed(&self, l: &RasterLayer, base: &terraflux_raster::Grid) -> Option<At> {
+        if !self.reproj.is_empty()
+            && self.reproj.get(&l.source.key()).is_some_and(|re| re.is_for(l.source.grid(), base))
+        {
+            return Some(At::Warp);
+        }
+        place_on(l.source.grid(), base).map(At::Place)
+    }
+
+    /// Where a layer is on the view's grid; when it is of another coordinate system, the way to carry it made
+    /// (once). Why not, if so.
+    fn layer_at(&mut self, l: &RasterLayer, base: &terraflux_raster::Grid) -> Result<At, &'static str> {
+        if let Some(at) = self.placed(l, base) {
+            return Ok(at);
+        }
+        match crate::reproject::Reproj::new(l.source.grid(), base) {
+            Ok(re) => {
+                if self.reproj.len() > 64 {
+                    self.reproj.clear();
+                }
+                self.reproj.insert(l.source.key(), re);
+                Ok(At::Warp)
+            }
+            Err(_) => Err(OTHER_GRID),
+        }
+    }
+
+    /// [`MapView::draw_source`] for a layer wherever it is on the view's grid.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_at(
+        &mut self,
+        ctx: &egui::Context,
+        painter: &egui::Painter,
+        rect: Rect,
+        source: &Source,
+        paint: Paint<'_>,
+        tint: Color32,
+        at: At,
+        show: bool,
+        wanted: &mut Vec<(f32, Job)>,
+    ) -> bool {
+        match at {
+            At::Place(place) => self.draw_source(ctx, painter, rect, source, paint, tint, place, show, wanted),
+            At::Warp => {
+                let Some(mut re) = self.reproj.remove(&source.key()) else { return true };
+                let done = self.draw_warped(ctx, painter, rect, source, paint, tint, &mut re, show, wanted);
+                self.reproj.insert(source.key(), re);
+                done
+            }
+        }
+    }
+
+    /// [`MapView::draw_source`] for a layer of another coordinate system: each tile in view a mesh on the view
+    /// ([`crate::reproject`]), the tiles made as they are for any layer.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_warped(
+        &mut self,
+        ctx: &egui::Context,
+        painter: &egui::Painter,
+        rect: Rect,
+        source: &Source,
+        paint: Paint<'_>,
+        tint: Color32,
+        re: &mut crate::reproject::Reproj,
+        show: bool,
+        wanted: &mut Vec<(f32, Job)>,
+    ) -> bool {
+        let (w, h) = source.size();
+        if w == 0 || h == 0 {
+            return true;
+        }
+        let Some([bx0, by0, bx1, by1]) = re.seen(self.to_cell(rect, rect.min), self.to_cell(rect, rect.max)) else {
+            return true;
+        };
+        let top = source.top();
+        let cells_per_pixel = 1.0 / (self.zoom * re.scale * ctx.pixels_per_point());
+        let mut level = (cells_per_pixel.max(1.0).log2().floor() as u32).min(top);
+        let range = |level: u32| {
+            let span = (TILE << level) as f32;
+            let x0 = (bx0 / span).floor().max(0.0) as usize;
+            let y0 = (by0 / span).floor().max(0.0) as usize;
+            let x1 = ((bx1 / span).floor() as i64).min(w.div_ceil(TILE << level) as i64 - 1);
+            let y1 = ((by1 / span).floor() as i64).min(h.div_ceil(TILE << level) as i64 - 1);
+            (x0, y0, x1, y1)
+        };
+        // (a view far out: coarser tiles, not a thousand)
+        while level < top {
+            let (x0, y0, x1, y1) = range(level);
+            if (x1 - x0 as i64 + 1).max(0) * (y1 - y0 as i64 + 1).max(0) <= 400 {
+                break;
+            }
+            level += 1;
+        }
+        let src = source.key();
+        let (coloring, colouring) = match paint {
+            Paint::Asked(c) => (Some(c), c.key()),
+            Paint::Held(k) => (None, k),
+        };
+        let job = |key: TileKey, coloring: &Coloring| Job {
+            key,
+            source: source.clone(),
+            coloring: coloring.clone(),
+            colouring,
+        };
+        let (center, zoom, clock) = (self.center, self.zoom, self.clock);
+        let screen = |c: Vec2| rect.center() + (c - center) * zoom;
+        let full = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+        let mut complete = true;
+        let mut recolour = if coloring.is_some() { 8 } else { 0 };
+        // the top tiles over the layer's cells in view first: something to show at once
+        let (tx0, ty0, tx1, ty1) = range(top);
+        for ty in ty0..=(ty1.max(0) as usize) {
+            for tx in tx0..=(tx1.max(0) as usize) {
+                let k = (src, top, tx, ty);
+                if let Some(c) = coloring
+                    && self.tiles.get(&k).is_none_or(|t| t.texture.as_ref().is_none_or(|(c, _)| *c != colouring))
+                {
+                    wanted.push((-1.0, job(k, c)));
+                }
+            }
+        }
+        let (x0, y0, x1, y1) = range(level);
+        if x1 < x0 as i64 || y1 < y0 as i64 {
+            return complete;
+        }
+        for ty in y0..=y1 as usize {
+            for tx in x0..=x1 as usize {
+                let k = (src, level, tx, ty);
+                let vs = re.vertices(level, tx, ty);
+                // a tile kept in another colouring is coloured again here (a few per frame)
+                if let Some(t) = self.tiles.get_mut(&k)
+                    && t.texture.as_ref().is_none_or(|(c, _)| *c != colouring)
+                    && recolour > 0
+                    && let Some(coloring) = coloring
+                {
+                    recolour -= 1;
+                    let img = image_f32(&t.values, TILE, TILE, coloring);
+                    t.texture = Some((
+                        colouring,
+                        ctx.load_texture(format!("tile-r-{clock}-{tx}-{ty}"), img, TextureOptions::NEAREST),
+                    ));
+                }
+                let drawn = match self.tiles.get_mut(&k) {
+                    Some(t) if t.texture.as_ref().is_some_and(|(c, _)| *c == colouring) => {
+                        t.used = clock;
+                        if show {
+                            let id = t.texture.as_ref().unwrap().1.id();
+                            painter.add(crate::reproject::mesh(&vs, id, full, tint, screen));
+                        }
+                        true
+                    }
+                    _ => false,
+                };
+                if drawn {
+                    continue;
+                }
+                if let Some(c) = coloring {
+                    // (how far its middle is from the view's)
+                    let mid = vs[vs.len() / 2];
+                    let d = if mid[0].is_finite() && mid[1].is_finite() {
+                        (screen(Vec2::new(mid[0], mid[1])) - rect.center()).length()
+                    } else {
+                        f32::MAX
+                    };
+                    wanted.push((d, job(k, c)));
+                }
+                // meanwhile the finest coarser tile kept over it, stretched
+                let mut stretched = false;
+                for up in level + 1..=top {
+                    let shift = up - level;
+                    let (ax, ay) = (tx >> shift, ty >> shift);
+                    if let Some(t) = self.tiles.get_mut(&(src, up, ax, ay))
+                        && let Some((c, tex)) = &t.texture
+                        && *c == colouring
+                    {
+                        t.used = clock;
+                        let f = 1.0 / (1u32 << shift) as f32;
+                        let (u, v) = ((tx - (ax << shift)) as f32 * f, (ty - (ay << shift)) as f32 * f);
+                        let uv = Rect::from_min_size(Pos2::new(u, v), Vec2::splat(f));
+                        if show {
+                            painter.add(crate::reproject::mesh(&vs, tex.id(), uv, tint, screen));
+                        }
+                        stretched = true;
+                        break;
+                    }
+                }
+                complete &= stretched;
+            }
+        }
+        complete
+    }
+
     /// The cell under a screen point.
     fn to_cell(&self, rect: Rect, p: Pos2) -> Vec2 {
         self.center + (p - rect.center()) / self.zoom
@@ -806,8 +1015,14 @@ impl MapView {
     }
 
     /// The value of a map drawn over the view's at a cell of the view (none outside it).
-    fn layer_value(&self, l: &RasterLayer, place: Place, at: Vec2) -> f64 {
-        let c = place.to_source(at);
+    fn layer_value(&self, l: &RasterLayer, how: At, at: Vec2) -> f64 {
+        let c = match how {
+            At::Place(place) => place.to_source(at),
+            At::Warp => match self.reproj.get(&l.source.key()).and_then(|re| re.to_source(at)) {
+                Some(c) => c,
+                None => return f64::NAN,
+            },
+        };
         let (w, h) = l.source.size();
         if c.x < 0.0 || c.y < 0.0 || c.x >= w as f32 || c.y >= h as f32 {
             return f64::NAN;
@@ -884,8 +1099,8 @@ impl MapView {
             self.fitted = true;
         }
         // a comparison: the curtain's handle (over the map, so that dragging it does not move the map), and the
-        // other map's place on this one (none: of another coordinate system, or rotated)
-        let compared = curtain.and_then(|c| place_on(c.layer.source.grid(), source.grid()).map(|p| (c, p)));
+        // other map's place on this one (none: rotated, or of a coordinate system that cannot be carried to this one)
+        let compared = curtain.and_then(|c| self.layer_at(&c.layer, source.grid()).ok().map(|at| (c, at)));
         let split = compared.is_some().then(|| {
             let x = rect.left() + rect.width() * self.curtain();
             let handle = ui
@@ -956,16 +1171,14 @@ impl MapView {
         self.clock += 1;
         // the maps under it first, placed by their coordinates on its grid (of its coordinate system)
         let mut layer_errors = Vec::new();
-        const OTHER_GRID: &str = "a map drawn with it is of another coordinate system or rotated: put it on this \
-                                  map's grid (raster.match)";
         for l in rasters.iter().filter(|l| l.below) {
-            match place_on(l.source.grid(), source.grid()) {
-                Some(place) => {
+            match self.layer_at(l, source.grid()) {
+                Ok(at) => {
                     let tint = Color32::from_white_alpha((l.opacity.clamp(0.0, 1.0) * 255.0).round() as u8);
                     let paint = Paint::Asked(&l.coloring);
-                    self.draw_source(&ctx, &painter, rect, &l.source, paint, tint, place, true, &mut wanted);
+                    self.draw_at(&ctx, &painter, rect, &l.source, paint, tint, at, true, &mut wanted);
                 }
-                None => layer_errors.push(OTHER_GRID),
+                Err(e) => layer_errors.push(e),
             }
         }
         if !blank {
@@ -1009,28 +1222,28 @@ impl MapView {
                 }
             }
             self.last = Some((source.clone(), now.1));
-            if let (Some((c, place)), Some(x)) = (compared, split) {
+            if let (Some((c, at)), Some(x)) = (compared, split) {
                 let right = painter.with_clip_rect(Rect::from_min_max(Pos2::new(x, rect.min.y), rect.max));
                 let l = &c.layer;
                 let paint = Paint::Asked(&l.coloring);
-                self.draw_source(&ctx, &right, rect, &l.source, paint, tint, place, show_data, &mut wanted);
+                self.draw_at(&ctx, &right, rect, &l.source, paint, tint, at, show_data, &mut wanted);
             }
         }
         // the maps over it
         for l in rasters.iter().filter(|l| !l.below) {
-            match place_on(l.source.grid(), source.grid()) {
-                Some(place) => {
+            match self.layer_at(l, source.grid()) {
+                Ok(at) => {
                     let tint = Color32::from_white_alpha((l.opacity.clamp(0.0, 1.0) * 255.0).round() as u8);
                     let paint = Paint::Asked(&l.coloring);
-                    self.draw_source(&ctx, &painter, rect, &l.source, paint, tint, place, true, &mut wanted);
+                    self.draw_at(&ctx, &painter, rect, &l.source, paint, tint, at, true, &mut wanted);
                 }
-                None => layer_errors.push(OTHER_GRID),
+                Err(e) => layer_errors.push(e),
             }
         }
         if curtain.is_some() && compared.is_none() {
             layer_errors.push(
-                "the map compared is of another coordinate system or rotated: put it on this map's grid \
-                 (raster.match)",
+                "the map compared is rotated, or its coordinate system cannot be carried to this map's: put it on \
+                 this map's grid (raster.match)",
             );
         }
         // the workers' queue: what the view needs, the nearest the centre first; the rest let go
@@ -1145,8 +1358,8 @@ impl MapView {
                     let centre = rect.center() + (cell - self.center) * self.zoom;
                     // (right of a curtain: the other map's value, in its colours)
                     let (v, colours) = match (compared, split) {
-                        (Some((c, place)), Some(at)) if centre.x > at => {
-                            (self.layer_value(&c.layer, place, cell), &c.layer.coloring)
+                        (Some((c, how)), Some(at)) if centre.x > at => {
+                            (self.layer_value(&c.layer, how, cell), &c.layer.coloring)
                         }
                         _ => (self.value_at(source, x, y), coloring),
                     };
@@ -1329,23 +1542,23 @@ impl MapView {
                 text.push_str(&format!("   ·   row {}  column {}", c.y as usize, c.x as usize));
                 // compared: the values of both, by their names
                 match compared {
-                    Some((cmp, place)) => {
-                        let w = said(self.layer_value(&cmp.layer, place, c));
+                    Some((cmp, how)) => {
+                        let w = said(self.layer_value(&cmp.layer, how, c));
                         text.push_str(&format!("   ·   {} {v}   ·   {} {w}", cmp.names[0], cmp.names[1]));
                     }
                     // the maps drawn with it: each one's value by its name, from the top
                     None if rasters.iter().any(|l| !l.name.is_empty()) => {
                         let named = |l: &&RasterLayer| !l.name.is_empty();
                         for l in rasters.iter().rev().filter(|l| !l.below).filter(named) {
-                            if let Some(place) = place_on(l.source.grid(), source.grid()) {
-                                text.push_str(&format!("   ·   {} {}", l.name, said(self.layer_value(l, place, c))));
+                            if let Some(how) = self.placed(l, source.grid()) {
+                                text.push_str(&format!("   ·   {} {}", l.name, said(self.layer_value(l, how, c))));
                             }
                         }
                         let name = if self.name.is_empty() { "shown" } else { self.name.as_str() };
                         text.push_str(&format!("   ·   {name} {v}"));
                         for l in rasters.iter().rev().filter(|l| l.below).filter(named) {
-                            if let Some(place) = place_on(l.source.grid(), source.grid()) {
-                                text.push_str(&format!("   ·   {} {}", l.name, said(self.layer_value(l, place, c))));
+                            if let Some(how) = self.placed(l, source.grid()) {
+                                text.push_str(&format!("   ·   {} {}", l.name, said(self.layer_value(l, how, c))));
                             }
                         }
                     }
