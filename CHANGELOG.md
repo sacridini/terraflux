@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.38.0] - 2026-11-04
+
 ### Changed
 - Viewer: **the transition matrix** of two maps of classes compared by *Difference*: *Transition matrix...* opens
   every class before (rows) to every class after (columns) in hectares, km², a share of the landscape or of the
