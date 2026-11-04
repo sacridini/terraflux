@@ -23,6 +23,8 @@ use crate::palette::{Coloring, image, image_f32};
 
 /// The side of a tile, pixels.
 pub const TILE: usize = 256;
+/// The tiles made taken in a frame at most (their textures sent to the GPU).
+const MADE_PER_FRAME: usize = 32;
 /// The tiles kept (textures and values): 128 MB of each at most.
 const KEPT: usize = 512;
 /// The closest zoom, screen points per cell: the cells' values are written in them.
@@ -212,7 +214,7 @@ impl Workers {
         let queue: Arc<(Mutex<VecDeque<Job>>, Condvar)> = Arc::new((Mutex::new(VecDeque::new()), Condvar::new()));
         let started: Arc<Mutex<HashSet<(TileKey, u64)>>> = Arc::new(Mutex::new(HashSet::new()));
         let (tx, done): (Sender<Made>, _) = channel();
-        let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 8);
+        let threads = terraflux_ops::threads::most().min(8);
         for k in 0..threads {
             let (queue, started, tx, ctx) = (queue.clone(), started.clone(), tx.clone(), ctx.clone());
             let _ = std::thread::Builder::new().name(format!("terraflux-tiles-{k}")).spawn(move || {
@@ -1067,7 +1069,11 @@ impl MapView {
 
     fn take_made(&mut self, ctx: &egui::Context) {
         let Some(w) = &self.workers else { return };
-        let made: Vec<Made> = w.done.try_iter().collect();
+        // (a few textures a frame: hundreds made at once, a folder of rasters opened, would hold the window)
+        let made: Vec<Made> = w.done.try_iter().take(MADE_PER_FRAME).collect();
+        if made.len() == MADE_PER_FRAME {
+            ctx.request_repaint();
+        }
         for m in made {
             self.asked.remove(&(m.key, m.colouring));
             match m.values {

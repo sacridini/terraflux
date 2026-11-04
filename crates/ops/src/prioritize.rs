@@ -2631,7 +2631,7 @@ impl Operator for Optimize {
             )
             .choices(["highs", "gurobi"]),
         )
-        .param(PortSpec::optional("threads", Type::Number, "gurobi: the threads it uses (default every core but one, as landschaft)"))
+        .param(PortSpec::optional("threads", Type::Number, "gurobi: the threads it uses (default and most: Terraflux's threads, never every core)"))
     }
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {

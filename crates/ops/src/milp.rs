@@ -486,7 +486,7 @@ pub enum Solver {
     Gurobi,
 }
 
-/// How a model is solved: by which solver, with how many threads (0: the solver's choice, every core).
+/// How a model is solved: by which solver, with how many threads (0: Terraflux's threads).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Engine {
     pub solver: Solver,

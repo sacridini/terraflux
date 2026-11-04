@@ -3214,7 +3214,7 @@ pub use ffi::{
     PatchOut, PatchSpec, SimilarityOut, WoeWeights,
 };
 
-/// The threads Terraflux uses: never every core of the machine (all but one by default).
+/// The threads Terraflux uses: never every core of the machine (a quarter of them left free).
 pub mod threads {
     use std::sync::Once;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -3227,12 +3227,20 @@ pub mod threads {
         std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
     }
 
-    /// The most threads Terraflux may use: all the cores but one (one on a machine of one).
+    /// The most threads Terraflux may use: a quarter of the cores left free, at least one (20 cores: 15; 8: 6;
+    /// 4: 3; 2: 1; one on a machine of one). Every tool, run and view of Terraflux stays within it: the person
+    /// works on the same machine.
     pub fn most() -> usize {
-        cores().saturating_sub(1).max(1)
+        let n = cores();
+        n.saturating_sub((n / 4).max(1)).max(1)
     }
 
-    /// The threads by default: `TERRAFLUX_THREADS`, else all the cores but one; never more than [`most`].
+    /// `n` threads asked for (by a setting, a node, a command), within [`most`].
+    pub fn capped(n: usize) -> usize {
+        n.clamp(1, most())
+    }
+
+    /// The threads by default: `TERRAFLUX_THREADS`, else [`most`]; never more than [`most`].
     pub fn default_threads() -> usize {
         std::env::var("TERRAFLUX_THREADS").ok().and_then(|v| v.parse().ok()).unwrap_or_else(most).clamp(1, most())
     }

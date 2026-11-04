@@ -276,7 +276,7 @@ impl Gurobi {
         if p.is_null() { String::new() } else { unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned() }
     }
 
-    /// A started environment, silent, using `threads` (0: Gurobi's choice, every core).
+    /// A started environment, silent, using `threads` (never 0: Gurobi would take every core).
     fn env(&self, threads: usize) -> std::result::Result<Env, String> {
         let mut env: Env = std::ptr::null_mut();
         let e = unsafe { (self.api.GRBemptyenvinternal)(&mut env, self.major, self.minor, self.technical) };
@@ -315,8 +315,12 @@ pub fn solve(
     let g = available()?;
     let api = &g.api;
     let n = m.obj.len();
-    // (as landschaft: every core but one unless told)
-    let threads = if threads > 0 { threads } else { terraflux_ls_sys::ffi::max_threads().max(1) as usize };
+    // (Terraflux's threads unless told; never more)
+    let threads = if threads > 0 {
+        terraflux_ls_sys::threads::capped(threads)
+    } else {
+        terraflux_ls_sys::ffi::max_threads().max(1) as usize
+    };
     let env = g.env(threads)?;
     let mut grb: Grb = std::ptr::null_mut();
     let finite = |x: f64| x.clamp(-INFINITY, INFINITY);

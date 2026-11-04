@@ -29,6 +29,21 @@ const CACHE_BYTES: usize = 768 << 20;
 /// The most cells of an overview made in memory (16 MB a band).
 const OVERVIEW_CELLS: usize = 4 << 20;
 
+/// The threads that decode the chunks of the windows sampled (what a viewer shows) and make the overviews: a
+/// quarter of the cores, 1 to 4, so that drawing many rasters at once leaves the machine (and the window drawing
+/// them) free. Whole reads, for runs, use the threads of the run (never every core either).
+fn sampling() -> &'static rayon::ThreadPool {
+    static POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
+    POOL.get_or_init(|| {
+        let n = std::thread::available_parallelism().map_or(4, |n| n.get());
+        rayon::ThreadPoolBuilder::new()
+            .num_threads((n / 4).clamp(1, 4))
+            .thread_name(|k| format!("terraflux-sample-{k}"))
+            .build()
+            .expect("the threads that sample rasters")
+    })
+}
+
 /// Read `len` bytes at `offset` without moving a cursor (threads share the file).
 fn pread(f: &File, offset: u64, len: usize) -> Result<Vec<u8>> {
     let mut buf = vec![0u8; len];
@@ -252,8 +267,9 @@ impl Image {
         }
         // a dense read (a few cells per step) is kept for the windows around it
         let keep = step / f <= 4;
-        let decoded: HashMap<usize, Arc<Vec<f32>>> =
-            needed.par_iter().map(|&k| self.chunk(level, k, band, keep).map(|v| (k, v))).collect::<Result<_>>()?;
+        let decoded: HashMap<usize, Arc<Vec<f32>>> = sampling().install(|| {
+            needed.par_iter().map(|&k| self.chunk(level, k, band, keep).map(|v| (k, v))).collect::<Result<_>>()
+        })?;
         for (i, y) in rows.iter().enumerate() {
             let Some(y) = *y else { continue };
             let row = &mut out[i * ow..(i + 1) * ow];
@@ -284,7 +300,9 @@ impl Image {
 
     /// A band's overview in memory (made at the first call; the threads asking meanwhile wait for it).
     fn overview(&self, band: usize, f: usize) -> Option<Arc<Vec<f32>>> {
-        self.overviews[band].get_or_init(|| self.make_overview(band, f).ok().map(Arc::new)).clone()
+        self.overviews[band]
+            .get_or_init(|| sampling().install(|| self.make_overview(band, f)).ok().map(Arc::new))
+            .clone()
     }
 
     /// The cell at the top-left of each `f` x `f` block of a band, row by row: the bands of chunks (a strip, a

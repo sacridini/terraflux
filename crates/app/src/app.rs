@@ -2620,7 +2620,8 @@ impl TerrafluxApp {
                     let most = terraflux_ops::threads::most();
                     let mut n = st.threads.unwrap_or(most).clamp(1, most);
                     let mut auto = st.threads.is_none();
-                    ui.checkbox(&mut auto, format!("all the cores but one ({most})"));
+                    let cores = terraflux_ops::threads::cores();
+                    ui.checkbox(&mut auto, format!("{most} of the {cores} cores (a quarter left free)"));
                     ui.add_enabled_ui(!auto, |ui| {
                         ui.add(egui::Slider::new(&mut n, 1..=most));
                     });

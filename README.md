@@ -33,8 +33,9 @@
 Terraflux is a native desktop application and command line for spatial ecology. Habitat patterns, landscape
 metrics, connectivity, spatial prioritization, restoration planning, species distributions and land use change
 are operators in one visual model builder: connect them node by node, and every result shows as soon as the
-graph changes. The same model runs unchanged from the command line, on all the cores of a workstation, on the
-computers of a local network or on a Slurm cluster, and on maps larger than memory.
+graph changes. The same model runs unchanged from the command line, on a workstation (never on every core: a
+quarter is always left free), on the computers of a local network or on a Slurm cluster, and on maps larger than
+memory.
 
 ## Why Terraflux
 

@@ -284,8 +284,10 @@ pub fn batch(
             },
         }
     };
-    let pool =
-        rayon::ThreadPoolBuilder::new().num_threads(workers.max(1)).build().map_err(|e| Error::msg(e.to_string()))?;
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(crate::threads::capped(workers))
+        .build()
+        .map_err(|e| Error::msg(e.to_string()))?;
     Ok(pool.install(|| inputs.par_iter().map(process).collect()))
 }
 

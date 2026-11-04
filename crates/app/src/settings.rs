@@ -30,7 +30,8 @@ pub struct Settings {
     pub text: f32,
     /// The whole interface's zoom.
     pub zoom: f32,
-    /// The threads the functions use (none: all the cores but one); from the next start.
+    /// The threads the functions use (none: the most Terraflux takes, a quarter of the cores left free); from
+    /// the next start.
     pub threads: Option<usize>,
     /// The collections each operator is in (indices of [`COLLECTIONS`]).
     pub favourites: BTreeMap<String, Vec<u8>>,

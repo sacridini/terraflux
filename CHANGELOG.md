@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- **Terraflux never takes every core**: by default and at most it uses the cores but a quarter (20 cores: 15; 8: 6;
+  4: 3; 2: 1), for every tool, run, solver and view: the settings, `--threads` and `TERRAFLUX_THREADS` may ask for
+  fewer, never more. It was every core but one. A number of threads given to Gurobi, `batch.run`'s workers and the
+  runs of a model over many files is held to it too.
+
+### Fixed
+- Viewer: **the window stays fluid while many rasters load**. The rasters on disk are read for the view by a few
+  threads of their own (a quarter of the cores, 4 at most) instead of every core, and a frame takes at most 32
+  tiles new to the GPU, the others at the next frames.
+
 ## [1.39.0] - 2026-11-04
 
 ### Changed

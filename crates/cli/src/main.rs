@@ -17,7 +17,7 @@ use terraflux_ops::presets;
 #[derive(Parser)]
 #[command(name = "terraflux", version, about = "Land use and land cover change modelling")]
 struct Cli {
-    /// Threads to use (default: all the cores but one; never every core).
+    /// Threads to use (default and most: a quarter of the cores left free; never every core).
     #[arg(long, global = true)]
     threads: Option<usize>,
     /// The command (none: the application).
@@ -214,7 +214,7 @@ enum Command {
         /// Take tasks only after this many minutes without the keyboard or the mouse (Windows and macOS).
         #[arg(long)]
         idle: Option<f64>,
-        /// The threads of each task (default: all the cores but one).
+        /// The threads of each task (default: a quarter of the cores left free).
         #[arg(long)]
         threads: Option<usize>,
     },

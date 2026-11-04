@@ -500,7 +500,7 @@ impl Workers {
         let queue: Arc<(Mutex<VecDeque<Job>>, Condvar)> = Arc::new((Mutex::new(VecDeque::new()), Condvar::new()));
         let started: Arc<Mutex<HashSet<Key>>> = Arc::new(Mutex::new(HashSet::new()));
         let (tx, done): (Sender<Made>, _) = channel();
-        let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 6);
+        let threads = terraflux_ops::threads::most().min(6);
         for k in 0..threads {
             let (queue, started, tx, ctx) = (queue.clone(), started.clone(), tx.clone(), ctx.clone());
             let _ = std::thread::Builder::new().name(format!("terraflux-vector-tiles-{k}")).spawn(move || {

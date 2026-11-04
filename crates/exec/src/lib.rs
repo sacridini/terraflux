@@ -1469,7 +1469,7 @@ impl Engine {
             }
             slots[i] = Some(d);
         };
-        let workers = chain.workers.min(n).max(1);
+        let workers = terraflux_ops::threads::capped(chain.workers.min(n));
         if workers == 1 {
             for (i, (name, files)) in chain.files.iter().enumerate() {
                 if obs.cancelled() {
