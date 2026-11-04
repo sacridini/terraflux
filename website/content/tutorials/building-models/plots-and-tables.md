@@ -176,6 +176,12 @@ scenario, another date, the observed map) or another layer of the same stack. Ch
 
 Both maps are drawn in the same colours, so that the same value is the same colour.
 
+### The attributes of vector features
+
+The *table* button of a vector layer's row in the Layers opens its attributes under the map: a row per feature,
+sorted and filtered like the other tables, copied or saved as CSV. A row clicked outlines its feature on the map
+and takes the view to it; a feature clicked on the map selects its row.
+
 ### Measuring
 
 **Measure**, above the map (or M with the pointer over it), measures a line clicked point by point: each segment

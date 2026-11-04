@@ -24,6 +24,10 @@ minor versions.
   nodes that read them, kept as layers of the Viewer (the features over the maps), the first shown when the Viewer
   showed nothing, and run so that they appear without another click; the drop's overlay says so over the Viewer.
   Dropped elsewhere, a node each as before.
+- Viewer: **the attribute table of a vector layer**, under the map, from the *table* button of the layer's row
+  (and *Table* for features shown alone): sorted and filtered as the other tables, copied tab-separated or saved
+  as CSV. A row clicked selects its feature, outlined on the map and zoomed to; a feature clicked on the map
+  selects its row.
 
 ## [1.35.0] - 2026-11-04
 

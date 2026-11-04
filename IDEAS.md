@@ -1066,6 +1066,13 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    sistema (`system_pointer`, `GetCursorPos`). Testes: `files_dropped_on_the_viewer_become_layers_of_it`,
    `over_the_viewer_is_told_by_where_it_was_drawn`. Falta: conferir arrastando de verdade do Explorer; um Viewer
    numa janela à parte.
+   **A tabela de atributos feita** (Unreleased, por um sub-agente): `attribute_table.rs`. O botão *table* na linha
+   de uma camada de vetores (e *Table* para vetores mostrados sozinhos) abre sob o mapa uma tabela com uma linha
+   por feição (o número e os atributos; os textos ordenados pelo nome), ordenável e filtrável como as outras
+   (`table_view::show_picking`), *Copy* (por tabs) e *Save as CSV*. A seleção ligada: a linha clicada destaca a
+   feição no mapa (`MapView::selected`, o contorno na cor de destaque) e leva a vista até ela; a feição clicada no
+   mapa (`MapView::feature_clicked`) seleciona a linha e rola até ela. Testes: os de `attribute_table.rs`,
+   `the_attribute_table_of_a_vector_layer`. Falta: várias feições selecionadas; o destaque nas vistas lado a lado.
 
 ### Em aberto
 
