@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.40.0] - 2026-11-04
+
 ### Added
 - Canvas: **a group looks like one, and going in or out is a zoom**. A group's box has two cards behind it (a stack
   of nodes), an accent border and header, a stack icon and how many nodes are inside ("group · 5 nodes"). Entering
