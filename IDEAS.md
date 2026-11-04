@@ -1097,6 +1097,14 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    8 000 px no lado maior, numa thread. O desenho é o da figura (`figure::plain`, `pixels_on`). Testes: os de
    `export_view.rs` (os pixels, o GeoTIFF lido de volta), `the_view_exported_as_a_picture`. Falta: exportar um
    Plot pelo id no CLI e no MCP (o desenho depende das cores da sessão do app); a vista comparada; o basemap.
+   **Reprojetar ao desenhar feito** (Unreleased, por um sub-agente): `reproject.rs`. Uma camada de mapa (ou o mapa
+   da cortina) noutro CRS que o mapa mostrado não é mais pulada: cada tile, feito nas células do próprio mapa como
+   qualquer outro, vira uma malha de 16 × 16 quads cujos vértices são os cantos das células levados à grade
+   mostrada (transformados uma vez e guardados, até 2 048 tiles), e a GPU estica a textura sobre eles; o valor sob
+   o cursor vem pela transformação inversa (`crs_pair`, `key`). Teste:
+   `a_layer_of_another_coordinate_system_is_drawn_reprojected`. Falta: lado a lado, a diferença, a figura e
+   *Export the view*, a animação e o zoom à camada ainda pedem a mesma grade; grades rotacionadas (`raster.match`
+   antes); a linha de data.
 
 ### Em aberto
 

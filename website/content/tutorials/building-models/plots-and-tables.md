@@ -148,7 +148,9 @@ Keep `forest_only` too (📌) and set its opacity to 0.6: the forest's structure
 **Add a layer** adds the run's other maps and vector features without clicking their nodes, and a click on a
 layer's name shows that map, with its legend and settings. Cells **without a value** are transparent; that is why
 node 6 removes MSPA's background, which would otherwise cover the land cover in grey. Layers can be as many as you
-like: a hillshade under an elevation under a set of sampling points.
+like: a hillshade under an elevation under a set of sampling points. A map layer in **another coordinate system**
+than the map shown is reprojected as it is drawn, tile by tile, and its value under the pointer read back through
+the same transformation; a rotated grid has to be put on the map's grid first (`raster.match`).
 
 ```tfgallery
 columns: 3

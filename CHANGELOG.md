@@ -41,6 +41,10 @@ minor versions.
   QGIS over other data: a pixel to a cell, or ×2 and ×4 (up to 8 000 px on the long side), in the background.
 - Viewer: **the views play together**: playing a series or a stack, the maps compared that are other steps of it
   (by a curtain, side by side, the views more) go on with it, each keeping its distance from the map shown.
+- Viewer: **a layer of another coordinate system is drawn reprojected** on the fly instead of skipped: a map layer
+  (or the map compared by a curtain) in another system than the map shown is laid on it tile by tile, as meshes
+  the GPU stretches over the shown grid, and its value under the pointer is read through the inverse
+  transformation. A rotated grid still has to be put on the map's grid first (`raster.match`).
 
 ## [1.35.0] - 2026-11-04
 
