@@ -20,6 +20,10 @@ minor versions.
   segment and the total length, and from three points the area and perimeter, in m, km, m², ha and km² (geodesic
   on the WGS84 ellipsoid for grids in degrees; the grid's units and cells without a coordinate system), with
   *Copy*. Right click or backspace takes the last point away, a double click ends the line, esc clears it.
+- Viewer: **a file dropped onto it becomes a layer**. Files dragged from the file manager over the Viewer add the
+  nodes that read them, kept as layers of the Viewer (the features over the maps), the first shown when the Viewer
+  showed nothing, and run so that they appear without another click; the drop's overlay says so over the Viewer.
+  Dropped elsewhere, a node each as before.
 
 ## [1.35.0] - 2026-11-04
 

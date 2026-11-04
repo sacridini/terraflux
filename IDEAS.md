@@ -1058,6 +1058,14 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    limpa, *Copy*; medir e desenhar feições são exclusivos. A caixa dos números no canto de baixo do mapa. Testes:
    os de `measure.rs` (1° no equador, o caso de Vincenty, um octante da Terra) e `measuring_on_the_map_by_clicks`
    (cliques de verdade). Falta: conferir com um arquivo em graus de verdade; a linha não segue as vistas lado a lado.
+   **Soltar um arquivo no Viewer feito** (Unreleased, por um sub-agente): `builder::drop_on_viewer`. Os arquivos
+   soltos sobre o Viewer (`TerrafluxApp::viewer_rect`, `over_viewer`) criam o `raster.read`/`vector.read`, fixados
+   como camadas (os mapas na ordem soltos, os vetores por cima), o primeiro mostrado se o Viewer estava vazio, e o
+   modelo roda até cada um (`Session::show_queue`, uma rodada por vez). O aviso cobre só o Viewer enquanto estão
+   sobre ele. No Windows o winit não diz onde está o ponteiro durante um arraste do Explorer: a posição vem do
+   sistema (`system_pointer`, `GetCursorPos`). Testes: `files_dropped_on_the_viewer_become_layers_of_it`,
+   `over_the_viewer_is_told_by_where_it_was_drawn`. Falta: conferir arrastando de verdade do Explorer; um Viewer
+   numa janela à parte.
 
 ### Em aberto
 
