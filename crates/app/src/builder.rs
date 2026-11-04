@@ -1345,6 +1345,9 @@ pub fn add(s: &mut Session, r: &Registry, op: &str, params: &[(&str, serde_json:
     add_at(s, r, op, params, None)
 }
 
+/// The operators that read a file, a node of one named by its file when added with it.
+const READERS: [&str; 3] = ["raster.read", "vector.read", "table.read"];
+
 /// Add a node of an operator: at a place of the graph, if given (nothing connected to it), else as [`add`] does.
 pub fn add_at(
     s: &mut Session,
@@ -1360,7 +1363,12 @@ pub fn add_at(
         None => s.selected.as_ref().and_then(|id| nodes.iter().find(|n| &n.id == id)).cloned(),
     };
     let pos = at.unwrap_or_else(|| beside(&nodes, from.as_ref().map(|n| n.id.as_str())));
-    let id = crate::editor::add_node(&mut s.source, r, &path, op, pos)?;
+    // (a node that reads a file named by it: landuse_1997, not raster_read_2)
+    let name = match params.iter().find(|(k, _)| *k == "path") {
+        Some((_, serde_json::Value::String(p))) if READERS.contains(&op) => crate::editor::id_of_file(p),
+        _ => None,
+    };
+    let id = crate::editor::add_node_named(&mut s.source, r, &path, op, name.as_deref(), pos)?;
     if s.source.scope(&path).is_some_and(|v| v.iter().any(|n| n.id == id)) {
         for (k, v) in params {
             crate::editor::set_param(
@@ -1558,8 +1566,48 @@ pub fn add_file(s: &mut Session, r: &Registry, p: &Path, at: Option<[f32; 2]>) -
     add_at(s, r, op, &[("path", p.to_string_lossy().into_owned().into())], at)
 }
 
+/// The files of vector features in a folder, in the order of their names (not `.json`: often of something else).
+fn vectors_in(dir: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map(|d| d.flatten().map(|e| e.path()).collect::<Vec<_>>())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|p| p.is_file() && is_vector(p))
+        .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")))
+        .collect();
+    v.sort();
+    v
+}
+
+/// The nodes that read a file or a folder dropped ([`add_file`]): a folder's rasters as one stack, and a node for
+/// each file of vector features in it, one under the other.
+pub fn add_path(s: &mut Session, r: &Registry, p: &Path, at: Option<[f32; 2]>) -> Result<Vec<String>, String> {
+    if !p.is_dir() {
+        return add_file(s, r, p, at).map(|id| vec![id]);
+    }
+    let vectors = vectors_in(p);
+    let rasters =
+        std::fs::read_dir(p).map(|d| d.flatten().any(|e| e.path().is_file() && is_raster(&e.path()))).unwrap_or(false);
+    if !rasters && vectors.is_empty() {
+        return Err(format!("{}: no raster nor vector features in the folder", p.display()));
+    }
+    let selected = s.selected.clone();
+    let mut made = Vec::new();
+    if rasters {
+        made.push(add_file(s, r, p, at)?);
+    }
+    for v in &vectors {
+        // (each beside the node that was selected, under the one before)
+        s.selected = selected.clone();
+        let at = at.map(|[x, y]| [x, y + 150.0 * made.len() as f32]);
+        made.push(add_file(s, r, v, at)?);
+    }
+    Ok(made)
+}
+
 /// Files dropped on a window (from the system's file manager): a node each that reads it, one under the other (a
-/// folder: its rasters as one stack); a model (`.toml`) is not data, it is given back to be opened.
+/// folder: its rasters as one stack, its vector features a node each); a model (`.toml`) is not data, it is given
+/// back to be opened.
 pub fn add_files(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Option<PathBuf> {
     add_files_made(s, r, files).0
 }
@@ -1576,8 +1624,8 @@ fn add_files_made(s: &mut Session, r: &Registry, files: &[PathBuf]) -> (Option<P
         }
         // each beside the node that was selected, under the one before
         s.selected = selected.clone();
-        match add_file(s, r, p, None) {
-            Ok(id) => made.push(id),
+        match add_path(s, r, p, None) {
+            Ok(ids) => made.extend(ids),
             Err(e) => s.editor.message = Some(e),
         }
     }
@@ -2111,10 +2159,10 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 let at = s.editor.graph_at(p).map(|q| [q.x - crate::editor_view::WIDTH / 2.0, q.y - 19.0]);
                 let showing = s.preview.clone().map(|v| (v, s.preview_band, s.preview_chosen));
                 let mut made = Vec::new();
-                for (k, file) in f.0.iter().enumerate() {
-                    let at = at.map(|a| [a[0], a[1] + 150.0 * k as f32]);
-                    match add_file(s, r, file, at) {
-                        Ok(id) => made.push(id),
+                for file in &f.0 {
+                    let at = at.map(|a| [a[0], a[1] + 150.0 * made.len() as f32]);
+                    match add_path(s, r, file, at) {
+                        Ok(ids) => made.extend(ids),
                         Err(e) => s.editor.message = Some(e),
                     }
                 }
@@ -3332,7 +3380,7 @@ pub(crate) fn maps_of(value: &Value) -> (Vec<Source>, Vec<String>) {
         Value::Map(m) => (vec![Source::from(m)], vec![]),
         Value::Stack(st) => (
             st.layers.iter().map(|l| Source::Map(Map { grid: st.grid.clone(), data: l.clone() })).collect(),
-            st.keys.iter().map(|k| k.to_string()).collect(),
+            by_year(st.keys.iter().map(|k| k.to_string()).collect()),
         ),
         Value::Series(items) if items.iter().all(|v| matches!(v, Value::Map(_))) && !items.is_empty() => (
             items.iter().filter_map(|v| if let Value::Map(m) = v { Some(Source::from(m)) } else { None }).collect(),
@@ -3340,10 +3388,28 @@ pub(crate) fn maps_of(value: &Value) -> (Vec<Source>, Vec<String>) {
         ),
         Value::Raster(r) => (
             (0..r.layers.len()).map(|l| Source::Rasters(r.clone(), l)).collect(),
-            r.layers.iter().map(|l| l.name.clone()).collect(),
+            by_year(r.layers.iter().map(|l| l.name.clone()).collect()),
         ),
         _ => (vec![], vec![]),
     }
+}
+
+/// The names of a stack's maps shown as their years (`landuse_1997`, `landuse_2011`: `1997`, `2011`) when each has
+/// one, a different one, and the rest of their names is the same; else as they are.
+pub(crate) fn by_year(names: Vec<String>) -> Vec<String> {
+    let years: Option<Vec<(i64, String)>> = names
+        .iter()
+        .map(|n| {
+            let y = crate::advice::year_in(n)?;
+            Some((y, n.replacen(&y.to_string(), "", 1)))
+        })
+        .collect();
+    let Some(years) = years else { return names };
+    let distinct: std::collections::HashSet<i64> = years.iter().map(|(y, _)| *y).collect();
+    if names.len() < 2 || distinct.len() < names.len() || years.iter().any(|(_, rest)| *rest != years[0].1) {
+        return names;
+    }
+    years.into_iter().map(|(y, _)| y.to_string()).collect()
 }
 
 /// Where a layer is on the map shown (a grid): the box of its cells (`[x0, y0, x1, y1]`); none when it is not
@@ -6166,6 +6232,18 @@ pub fn metrics_param(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_maps_of_a_stack_named_by_their_years() {
+        let v = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(by_year(v(&["landuse_1997", "landuse_2011", "landuse_2020"])), v(&["1997", "2011", "2020"]));
+        assert_eq!(by_year(v(&["2010_forest", "2020_forest"])), v(&["2010", "2020"]));
+        // (other names around the years, a year twice, a name without one: as they are)
+        assert_eq!(by_year(v(&["forest_2010", "roads_2020"])), v(&["forest_2010", "roads_2020"]));
+        assert_eq!(by_year(v(&["a_2010 b1", "a_2010 b2"])), v(&["a_2010 b1", "a_2010 b2"]));
+        assert_eq!(by_year(v(&["landuse_2010", "landuse"])), v(&["landuse_2010", "landuse"]));
+        assert_eq!(by_year(v(&["landuse_2010"])), v(&["landuse_2010"]));
+    }
 
     #[test]
     fn a_folder_to_process_is_only_built_not_run() {

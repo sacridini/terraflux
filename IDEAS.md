@@ -2246,6 +2246,16 @@ responder no próprio Viewer as perguntas de quem estuda mudança de uso, sem mo
    exatamente esses arquivos (conferido com `files::files_of`; se nomeia outros, não serve) e um `raster.read` dele
    substitui os nós (os lidos por outro nó ficam); em pastas diferentes, um `stack.of` alimentado por eles. A stack
    vira a camada no lugar das deles e é mostrada; Ctrl+Z desfaz (é uma edição). Testes:
-   `a_pattern_names_exactly_the_files_dropped`, `rasters_dropped_at_once_joined_as_one_stack` (UI). Falta: vetores
-   de uma pasta; reconhecer o ano no nome dos arquivos para os nomes dos passos; nomear os nós pelos arquivos
-   (hoje `raster_read_2`...).
+   `a_pattern_names_exactly_the_files_dropped`, `rasters_dropped_at_once_joined_as_one_stack` (UI).
+   **Feito também** (Unreleased, pedido em seguida): os nós que leem um arquivo levam o nome dele
+   (`editor::id_of_file`, aplicado em `builder::add_at` a `raster.read`, `vector.read` e `table.read` com `path`;
+   `editor::add_node_named`): `landuse_1997`, a pasta pelo nome, o padrão pelas palavras (`landuse`), sem acentos,
+   `map_` antes de um dígito. Os mapas de uma stack pelo ano (`builder::by_year` em `maps_of`, com
+   `advice::year_in`): quando cada nome tem um ano, diferente, e o resto do nome é igual; só a exibição (o nome da
+   camada na stack não muda: `{name}` do `raster.write` segue `landuse_1997`). Uma pasta solta (`builder::add_path`)
+   traz também seus vetores, um `vector.read` cada (não `.json`), camadas sobre a stack. Testes:
+   `a_node_that_reads_a_file_is_named_by_it`, `the_maps_of_a_stack_named_by_their_years`, e os de UI
+   `files_dropped_on_the_viewer_become_layers_of_it` (pasta com um vetor) e
+   `rasters_dropped_at_once_joined_as_one_stack` (nomes e o ano sob *Play*); os testes de UI que esperavam
+   `raster_read` passam a usar o nome do arquivo. Falta: o ano também no visualizador da simulação (`app.rs`, as
+   bandas de uma camada); os vetores de uma pasta juntos numa camada só.

@@ -370,13 +370,13 @@ fn the_builder_reads_analyses_and_writes() {
         // (its first band: the file has two, and MSPA would run on each)
         let read =
             terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
-        assert_eq!(read, "raster_read");
+        assert_eq!(read, "sibuyan_landuse");
         // forest (class 1) as the foreground, connected to the map read
         terraflux_app::builder::add(s, &r, "landscape.mspa", &[("foreground", 1.into())]).unwrap();
         let mspa = s.source.nodes.iter().find(|n| n.id == "landscape_mspa").unwrap();
         assert_eq!(
             mspa.inputs["map"],
-            terraflux_graph::Source::Ref("raster_read.raster".into()),
+            terraflux_graph::Source::Ref("sibuyan_landuse.raster".into()),
             "fed by the node selected"
         );
         assert_eq!(s.preview, Some(("landscape_mspa".into(), "map".into())));
@@ -404,7 +404,7 @@ fn the_builder_reads_analyses_and_writes() {
     });
     {
         let s = h.state().session.as_ref().unwrap();
-        assert_eq!(s.status.get("raster_read"), Some(&NodeStatus::Done { cached: true }));
+        assert_eq!(s.status.get("sibuyan_landuse"), Some(&NodeStatus::Done { cached: true }));
         let Some(terraflux_ops::Value::Map(m)) = s.preview_value() else { panic!() };
         assert_ne!(m.data, first.data, "a wider edge, fewer cores");
     }
@@ -424,7 +424,7 @@ fn the_builder_reads_analyses_and_writes() {
     let model = tmp("ui-builder.toml");
     h.state_mut().session.as_mut().unwrap().save_as(&model).unwrap();
     let m = terraflux_graph::Model::load(&model).unwrap();
-    let p = m.node("raster_read").unwrap().params["path"].as_str().unwrap().to_string();
+    let p = m.node("sibuyan_landuse").unwrap().params["path"].as_str().unwrap().to_string();
     assert!(!std::path::Path::new(&p).is_absolute() && p.ends_with("sibuyan_landuse.tif"), "{p}");
     let again = terraflux_graph::Model::load_expanded(&model).unwrap();
     let r = terraflux_exec::Engine::default().run(&again, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
@@ -521,12 +521,12 @@ fn measuring_on_the_map_by_clicks() {
         let s = h.state_mut().session.as_mut().unwrap();
         let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
         terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
-        s.preview = Some(("raster_read".into(), "raster".into()));
+        s.preview = Some(("sibuyan_landuse".into(), "raster".into()));
     }
     h.state_mut().focus(Pane::Viewer);
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("raster_read", "raster").is_some()
+        !s.running() && s.value_of("sibuyan_landuse", "raster").is_some()
     });
     h.run_steps(4);
     drawn(&mut h);
@@ -624,12 +624,12 @@ fn measuring_a_file_in_degrees_matches_the_references() {
         let s = h.state_mut().session.as_mut().unwrap();
         let path = file.to_string_lossy().into_owned();
         terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
-        s.preview = Some(("raster_read".into(), "raster".into()));
+        s.preview = Some(("measure_degrees".into(), "raster".into()));
     }
     h.state_mut().focus(Pane::Viewer);
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("raster_read", "raster").is_some()
+        !s.running() && s.value_of("measure_degrees", "raster").is_some()
     });
     h.run_steps(4);
     drawn(&mut h);
@@ -788,14 +788,14 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
         terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 1\n* -> 0".into())]).unwrap();
         s.preview = Some(("raster_reclassify".into(), "map".into()));
         s.preview_compare.with =
-            Some(terraflux_app::builder::CompareWith::Output("raster_read".into(), "raster".into()));
+            Some(terraflux_app::builder::CompareWith::Output("sibuyan_landuse".into(), "raster".into()));
     }
     h.state_mut().focus(Pane::Viewer);
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
         !s.running()
             && s.value_of("raster_reclassify", "map").is_some()
-            && s.value_of("raster_read", "raster").is_some()
+            && s.value_of("sibuyan_landuse", "raster").is_some()
     });
     h.run_steps(4);
     drawn(&mut h);
@@ -814,7 +814,7 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
     // four views: two more, in two rows, all moving with the one moved
     {
         let s = h.state_mut().session.as_mut().unwrap();
-        let read = || terraflux_app::builder::CompareWith::Output("raster_read".into(), "raster".into());
+        let read = || terraflux_app::builder::CompareWith::Output("sibuyan_landuse".into(), "raster".into());
         s.preview_compare.more.push(terraflux_app::builder::Beside::new(read()));
         s.preview_compare.more.push(terraflux_app::builder::Beside::new(read()));
     }
@@ -872,7 +872,7 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
         assert!(s.preview_compare.with.is_none(), "the comparison let go");
         assert_eq!(s.preview_layers.len(), 1);
         let l = &s.preview_layers[0];
-        assert_eq!((l.node.as_str(), l.port.as_str()), ("raster_read", "raster"));
+        assert_eq!((l.node.as_str(), l.port.as_str()), ("sibuyan_landuse", "raster"));
         assert_eq!(l.minus, Some(("raster_reclassify".to_string(), "map".to_string())));
     }
     until(&mut h, "the difference layer", |a| {
@@ -885,7 +885,7 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
     {
         let s = h.state().session.as_ref().unwrap();
         let d = s.layer_differences.values().find_map(|d| d.made.clone()).unwrap().unwrap();
-        assert_eq!(s.preview_layers[0].name(Some(&d)), "raster_reclassify.map to raster_read");
+        assert_eq!(s.preview_layers[0].name(Some(&d)), "raster_reclassify.map to sibuyan_landuse");
     }
     // in a Plot: opened again as a difference
     {
@@ -897,7 +897,7 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
                 terraflux_graph::PlotLayer::new("raster_reclassify.map"),
                 terraflux_graph::PlotLayer {
                     minus: Some("raster_reclassify.map".into()),
-                    ..terraflux_graph::PlotLayer::new("raster_read.raster")
+                    ..terraflux_graph::PlotLayer::new("sibuyan_landuse.raster")
                 },
             ],
             ..Default::default()
@@ -920,9 +920,9 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
             id: "compared".into(),
             layers: vec![terraflux_graph::PlotLayer::new("raster_reclassify.map")],
             compare: Some(terraflux_graph::PlotCompare {
-                with: "raster_read.raster".into(),
+                with: "sibuyan_landuse.raster".into(),
                 how: Some("side by side".into()),
-                also: vec!["raster_read.raster".into()],
+                also: vec!["sibuyan_landuse.raster".into()],
                 ..Default::default()
             }),
             ..Default::default()
@@ -937,14 +937,14 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
     let s = h.state().session.as_ref().unwrap();
     assert_eq!(
         s.preview_compare.with,
-        Some(terraflux_app::builder::CompareWith::Output("raster_read".into(), "raster".into()))
+        Some(terraflux_app::builder::CompareWith::Output("sibuyan_landuse".into(), "raster".into()))
     );
     assert_eq!(s.preview_compare.how, terraflux_app::builder::How::SideBySide);
     // with its view more
     assert_eq!(s.preview_compare.more.len(), 1);
     assert_eq!(
         s.preview_compare.more[0].with,
-        Some(terraflux_app::builder::CompareWith::Output("raster_read".into(), "raster".into()))
+        Some(terraflux_app::builder::CompareWith::Output("sibuyan_landuse".into(), "raster".into()))
     );
 }
 
@@ -2700,7 +2700,7 @@ fn rename_metadata_and_the_operators_menu() {
         let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
         terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
     }
-    until(&mut h, "the raster read", |a| a.session.as_ref().unwrap().value_of("raster_read", "raster").is_some());
+    until(&mut h, "the raster read", |a| a.session.as_ref().unwrap().value_of("sibuyan_landuse", "raster").is_some());
     h.state_mut().focus(Pane::Model);
     h.run_steps(2);
     let canvas = h.state().session.as_ref().unwrap().editor.canvas().expect("the canvas");
@@ -2847,7 +2847,7 @@ fn the_legend_is_edited_in_the_viewer() {
         let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
         terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
     }
-    until(&mut h, "the raster read", |a| a.session.as_ref().unwrap().value_of("raster_read", "raster").is_some());
+    until(&mut h, "the raster read", |a| a.session.as_ref().unwrap().value_of("sibuyan_landuse", "raster").is_some());
     h.state_mut().focus(Pane::Viewer);
     drawn(&mut h);
     h.run_steps(5);
@@ -2873,7 +2873,7 @@ fn the_legend_is_edited_in_the_viewer() {
     h.run_steps(3);
     let s = h.state().session.as_ref().unwrap();
     let n = s.source.nodes.iter().find(|n| n.op == "raster.legend").expect("raster.legend added");
-    assert_eq!(n.inputs["map"], terraflux_graph::Source::Ref("raster_read.raster".into()));
+    assert_eq!(n.inputs["map"], terraflux_graph::Source::Ref("sibuyan_landuse.raster".into()));
     let classes = terraflux_ops::legend::parse(&n.params["classes"]).unwrap();
     assert_eq!(classes[0].name, "forest");
     assert_eq!(s.selected.as_deref(), Some(n.id.as_str()));
@@ -4020,14 +4020,14 @@ fn a_cell_in_every_map() {
     assert!(
         h.query_by_label("This cell in every map").is_some() || h.query_by_label("THIS CELL IN EVERY MAP").is_some()
     );
-    assert!(h.query_by_label("raster_read (layer 1 of 2)").is_some(), "the map read listed");
+    assert!(h.query_by_label("sibuyan_landuse (layer 1 of 2)").is_some(), "the map read listed");
     assert!(h.query_all_by_label("10").next().is_some() && h.query_all_by_label("1").next().is_some(), "both values");
     shot(&mut h, "14d-cell-everywhere");
     // the map read, shown by its name (the section's label, not the checkbox of the maps over it)
     // (the file has two bands: the one read, the first, said)
-    h.get_by_role_and_label(egui::accesskit::Role::Button, "raster_read (layer 1 of 2)").click();
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "sibuyan_landuse (layer 1 of 2)").click();
     h.run_steps(3);
-    assert_eq!(h.state().session.as_ref().unwrap().preview, Some(("raster_read".into(), "raster".into())));
+    assert_eq!(h.state().session.as_ref().unwrap().preview, Some(("sibuyan_landuse".into(), "raster".into())));
     // a map of two layers: they make an animation
     assert!(h.query_by_label("Save as GIF...").is_some());
 }
@@ -4066,26 +4066,22 @@ fn the_maps_of_a_run_to_qgis() {
         terraflux_app::builder::add(s, &r, "vector.read", &[("path", gpkg.to_string_lossy().into_owned().into())])
             .unwrap();
         let style = terraflux_app::vector_tiles::Style { by: Some("use".into()), ..Default::default() };
-        s.preview_layers = vec![terraflux_app::builder::Layer {
-            style,
-            ..terraflux_app::builder::Layer::new("vector_read", "vector")
-        }];
+        s.preview_layers =
+            vec![terraflux_app::builder::Layer { style, ..terraflux_app::builder::Layer::new("qgis_plots", "vector") }];
         s.preview = Some(("raster_reclassify".into(), "map".into()));
     }
     h.state_mut().focus(Pane::Viewer);
     h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running()
-            && s.value_of("raster_reclassify", "map").is_some()
-            && s.value_of("vector_read", "vector").is_some()
+        !s.running() && s.value_of("raster_reclassify", "map").is_some() && s.value_of("qgis_plots", "vector").is_some()
     });
     h.state_mut().session.as_mut().unwrap().qgis.open = true;
     h.run_steps(3);
     // both maps of the run listed, the one shown chosen
     let names: Vec<String> =
         terraflux_app::qgis::candidates(h.state().session.as_ref().unwrap()).into_iter().map(|c| c.2).collect();
-    assert_eq!(names, ["raster_read", "raster_reclassify.map", "vector_read.vector"]);
+    assert_eq!(names, ["sibuyan_landuse", "raster_reclassify.map", "qgis_plots.vector"]);
     assert!(h.query_by_label(".qgz").is_some() && h.query_by_label(".qgs").is_some());
     // the map shown and the features drawn over it
     assert!(h.query_by_label("Export 2 layers...").is_some());
@@ -4099,7 +4095,7 @@ fn the_maps_of_a_run_to_qgis() {
     assert_eq!(p.name, "raster_reclassify.map");
     assert!(terraflux_app::qgis::exportable(&p.value));
     // the features as the Viewer draws them; all of it as a .qgz
-    let plots = terraflux_app::qgis::pick(s, "vector_read", "vector").unwrap();
+    let plots = terraflux_app::qgis::pick(s, "qgis_plots", "vector").unwrap();
     assert_eq!(plots.style.as_ref().and_then(|st| st.by.as_deref()), Some("use"));
     let dir = tmp("qgis-export");
     let _ = std::fs::remove_dir_all(&dir);
@@ -4143,7 +4139,7 @@ fn a_map_as_a_figure() {
         terraflux_gdal::write_vector(&gpkg, "area", &v).unwrap();
         terraflux_app::builder::add(s, &r, "vector.read", &[("path", gpkg.to_string_lossy().into_owned().into())])
             .unwrap();
-        s.preview_layers = vec![terraflux_app::builder::Layer::new("vector_read", "vector")];
+        s.preview_layers = vec![terraflux_app::builder::Layer::new("figure_area", "vector")];
         s.preview = Some(("raster_reclassify".into(), "map".into()));
     }
     h.state_mut().focus(Pane::Viewer);
@@ -4155,7 +4151,7 @@ fn a_map_as_a_figure() {
     h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
     until(&mut h, "the whole run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("vector_read", "vector").is_some()
+        !s.running() && s.value_of("figure_area", "vector").is_some()
     });
     drawn(&mut h);
     h.get_by_label("Figure...").click();
@@ -4180,7 +4176,7 @@ fn a_map_as_a_figure() {
     {
         let s = h.state_mut().session.as_mut().unwrap();
         s.figure = None;
-        s.preview = Some(("raster_read".into(), "raster".into()));
+        s.preview = Some(("pie_landuse".into(), "raster".into()));
     }
     drawn(&mut h);
     // (its legend worked out in the background first)
@@ -4220,12 +4216,12 @@ fn a_study_area_drawn_on_the_map() {
         let s = h.state_mut().session.as_mut().unwrap();
         let path = data("pie_landuse.tif").to_string_lossy().into_owned();
         terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
-        s.preview = Some(("raster_read".into(), "raster".into()));
+        s.preview = Some(("pie_landuse".into(), "raster".into()));
     }
     h.state_mut().focus(Pane::Viewer);
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("raster_read", "raster").is_some()
+        !s.running() && s.value_of("pie_landuse", "raster").is_some()
     });
     drawn(&mut h);
     // (scrolled to, at the bottom of the panel beside the map)
@@ -4321,7 +4317,7 @@ fn a_study_area_drawn_on_the_map() {
     let s = h.state().session.as_ref().unwrap();
     let n = s.source.nodes.iter().find(|n| n.op == "data.download").expect("the download");
     assert!(n.params.contains_key("cellsize") && !n.params.contains_key("extent"), "{:?}", n.params);
-    assert!(format!("{:?}", n.inputs).contains("vector_read.vector"), "the area connected: {:?}", n.inputs);
+    assert!(format!("{:?}", n.inputs).contains("study_area.vector"), "the area connected: {:?}", n.inputs);
 }
 
 /// The data catalog: a dataset chosen by its card (CHELSA), its variables ticked, added to the model as a
@@ -4341,7 +4337,7 @@ fn a_dataset_from_the_catalog() {
     }
     h.run_steps(3);
     // the grid of the model's map by default; the datasets as cards
-    assert_eq!(h.state().session.as_ref().unwrap().catalog.choices.like.as_deref(), Some("raster_read.raster"));
+    assert_eq!(h.state().session.as_ref().unwrap().catalog.choices.like.as_deref(), Some("pie_landuse.raster"));
     h.get_by_label("CHELSA 2.1").click();
     h.run_steps(2);
     assert_eq!(h.state().session.as_ref().unwrap().catalog.chosen, 2);
@@ -4368,7 +4364,7 @@ fn a_dataset_from_the_catalog() {
     assert_eq!(n.params.get("layers"), Some(&serde_json::json!([12, 13, 14, 15, 16, 17, 18, 19])));
     assert!(n.params.get("extent").is_none(), "on the map's grid, not a box");
     assert!(
-        matches!(n.inputs.get("like"), Some(terraflux_graph::Source::Ref(r)) if r == "raster_read.raster"),
+        matches!(n.inputs.get("like"), Some(terraflux_graph::Source::Ref(r)) if r == "pie_landuse.raster"),
         "{:?}",
         n.inputs
     );
@@ -4517,13 +4513,14 @@ fn rasters_dropped_at_once_joined_as_one_stack() {
     std::fs::create_dir_all(folder.join("later")).unwrap();
     let years = ["1997", "2005", "2011"];
     for y in years {
-        std::fs::copy(data("pie_landuse.tif"), folder.join(format!("landuse_{y}.tif"))).unwrap();
+        std::fs::copy(data("pie_restrictions.tif"), folder.join(format!("landuse_{y}.tif"))).unwrap();
     }
-    std::fs::copy(data("pie_landuse.tif"), folder.join("later").join("landuse_2020.tif")).unwrap();
+    std::fs::copy(data("pie_restrictions.tif"), folder.join("later").join("landuse_2020.tif")).unwrap();
     let files: Vec<PathBuf> = years.iter().map(|y| folder.join(format!("landuse_{y}.tif"))).collect();
     drop_files(&mut h, rect.center(), &files);
     drawn(&mut h);
-    assert_eq!(h.state().session.as_ref().unwrap().dropped_rasters.len(), 3);
+    // (each node named by its file)
+    assert_eq!(h.state().session.as_ref().unwrap().dropped_rasters, ["landuse_1997", "landuse_2005", "landuse_2011"]);
     shot(&mut h, "layers-dropped-rasters");
     h.get_by_label("As one stack (a time series)").click();
     h.run_steps(2);
@@ -4533,6 +4530,7 @@ fn rasters_dropped_at_once_joined_as_one_stack() {
         let n = s.source.nodes.last().unwrap();
         let want = folder.join("landuse_*.tif").to_string_lossy().into_owned();
         assert_eq!((n.op.as_str(), n.params["path"].as_str()), ("raster.read", Some(want.as_str())));
+        assert_eq!(n.id, "landuse", "named by the pattern");
         let layers: Vec<&str> = s.preview_layers.iter().map(|l| l.node.as_str()).collect();
         assert_eq!(layers, [n.id.as_str()]);
         assert!(s.dropped_rasters.is_empty());
@@ -4548,6 +4546,8 @@ fn rasters_dropped_at_once_joined_as_one_stack() {
     };
     assert_eq!(r.images.len(), 3, "a file a year");
     assert!(h.query_by_label("Play").is_some(), "its steps played");
+    // (each step by the year in its file's name: a map a file)
+    assert!(h.query_by_label("1997").is_some(), "the step shown by its year");
     // in two folders: a stack.of fed by them, the nodes kept
     let two = [folder.join("landuse_1997.tif"), folder.join("later").join("landuse_2020.tif")];
     drop_files(&mut h, rect.center(), &two);
@@ -4637,20 +4637,26 @@ fn files_dropped_on_the_viewer_become_layers_of_it() {
         assert_eq!(s.preview_layers.len(), 4, "the two before and the two dropped");
         assert_eq!(s.preview, shown, "the map shown stays");
     }
-    // a folder: its rasters as one stack (a time series), a layer of the Viewer, shown with its steps
+    // a folder: its rasters as one stack (a time series), a layer of the Viewer, shown with its steps; its vector
+    // features a node each, a layer over it
     let folder = tmp("dropped-series");
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder).unwrap();
     for year in ["1997", "2011"] {
         std::fs::copy(data("sibuyan_landuse.tif"), folder.join(format!("landuse_{year}.tif"))).unwrap();
     }
+    let gpkg = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference/vectors/mixed.gpkg");
+    std::fs::copy(gpkg, folder.join("roads.gpkg")).unwrap();
     h.state_mut().session.as_mut().unwrap().preview = None;
     drop_files(&mut h, rect.center(), std::slice::from_ref(&folder));
     let id = {
         let s = h.state().session.as_ref().unwrap();
-        assert_eq!(s.source.nodes.len(), nodes + 6);
-        let n = s.source.nodes.last().unwrap();
-        assert_eq!(n.op, "raster.read");
+        assert_eq!(s.source.nodes.len(), nodes + 7);
+        let n = &s.source.nodes[s.source.nodes.len() - 2];
+        assert_eq!((n.op.as_str(), n.id.as_str()), ("raster.read", "dropped_series"));
+        let v = s.source.nodes.last().unwrap();
+        assert_eq!((v.op.as_str(), v.id.as_str()), ("vector.read", "roads"));
+        assert!(s.preview_layers.iter().any(|l| l.node == "roads"), "the features a layer");
         n.id.clone()
     };
     until(&mut h, "the folder read", |a| {
@@ -4701,28 +4707,28 @@ fn the_attribute_table_of_a_vector_layer() {
         terraflux_gdal::write_vector(&gpkg, "plots", &v).unwrap();
         terraflux_app::builder::add(s, &r, "vector.read", &[("path", gpkg.to_string_lossy().into_owned().into())])
             .unwrap();
-        s.preview_layers = vec![terraflux_app::builder::Layer::new("vector_read", "vector")];
-        s.preview = Some(("raster_read".into(), "raster".into()));
+        s.preview_layers = vec![terraflux_app::builder::Layer::new("attributes_plots", "vector")];
+        s.preview = Some(("sibuyan_landuse".into(), "raster".into()));
     }
     h.state_mut().focus(Pane::Viewer);
     h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
         !s.running()
-            && s.value_of("raster_read", "raster").is_some()
+            && s.value_of("sibuyan_landuse", "raster").is_some()
             && s.value_of("raster_reclassify", "map").is_some()
-            && s.value_of("vector_read", "vector").is_some()
+            && s.value_of("attributes_plots", "vector").is_some()
     });
     h.run_steps(4);
     drawn(&mut h);
     let open = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().preview_attributes.clone();
     assert!(open(&h).is_none());
-    assert!(h.query_by_label("Attributes of vector_read.vector").is_none());
+    assert!(h.query_by_label("Attributes of attributes_plots.vector").is_none());
     // the table button of the layer's settings
     h.get_by_label("Attribute table").click();
     h.run_steps(3);
-    assert!(open(&h).is_some_and(|o| o.is("vector_read", "vector") && o.pick.row.is_none()));
-    assert!(h.query_by_label("Attributes of vector_read.vector").is_some());
+    assert!(open(&h).is_some_and(|o| o.is("attributes_plots", "vector") && o.pick.row.is_none()));
+    assert!(h.query_by_label("Attributes of attributes_plots.vector").is_some());
     // (the map drawn first: its view fitted, whatever the other tests keep the machine busy with)
     until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().preview_view.camera().0 > 0.0);
     let before = h.state().session.as_ref().unwrap().preview_view.camera().0;
@@ -4842,7 +4848,7 @@ fn the_attribute_table_of_a_vector_layer() {
     // (a view with layers of its own: its clicks are of other layers)
     {
         let s = h.state_mut().session.as_mut().unwrap();
-        s.preview_compare.layers = Some(vec![terraflux_app::builder::Layer::new("vector_read", "vector")]);
+        s.preview_compare.layers = Some(vec![terraflux_app::builder::Layer::new("attributes_plots", "vector")]);
         s.preview_compare.view.feature_clicked = vec![(0, 1)];
     }
     h.run_steps(3);
@@ -4856,7 +4862,7 @@ fn the_attribute_table_of_a_vector_layer() {
     }
     h.run_steps(3);
     // the tab-separated copy: its columns named, a line a feature
-    let v = h.state().session.as_ref().unwrap().value_of("vector_read", "vector");
+    let v = h.state().session.as_ref().unwrap().value_of("attributes_plots", "vector");
     let Some(terraflux_ops::Value::Vector(v)) = v else { panic!("no features") };
     let text = terraflux_app::attribute_table::tsv(&terraflux_app::attribute_table::table_of(&v));
     assert_eq!(text.lines().next(), Some("feature\tarea\tuse"));
@@ -4865,7 +4871,7 @@ fn the_attribute_table_of_a_vector_layer() {
     h.get_by_label("Attribute table").click();
     h.run_steps(3);
     assert!(open(&h).is_none());
-    assert!(h.query_by_label("Attributes of vector_read.vector").is_none());
+    assert!(h.query_by_label("Attributes of attributes_plots.vector").is_none());
     assert_eq!(h.state().session.as_ref().unwrap().preview_view.selected, None);
 }
 
@@ -4936,16 +4942,18 @@ fn the_labels_of_a_vector_layer() {
         terraflux_gdal::write_vector(&gpkg, "plots", &v).unwrap();
         terraflux_app::builder::add(s, &r, "vector.read", &[("path", gpkg.to_string_lossy().into_owned().into())])
             .unwrap();
-        let mut layer = terraflux_app::builder::Layer::new("vector_read", "vector");
+        let mut layer = terraflux_app::builder::Layer::new("labels_plots", "vector");
         layer.style.labels = Some("use".into());
         s.preview_layers = vec![layer];
-        s.preview = Some(("raster_read".into(), "raster".into()));
+        s.preview = Some(("sibuyan_landuse".into(), "raster".into()));
     }
     h.state_mut().focus(Pane::Viewer);
     h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("raster_read", "raster").is_some() && s.value_of("vector_read", "vector").is_some()
+        !s.running()
+            && s.value_of("sibuyan_landuse", "raster").is_some()
+            && s.value_of("labels_plots", "vector").is_some()
     });
     h.run_steps(4);
     drawn(&mut h);
@@ -4996,15 +5004,15 @@ fn the_view_exported_as_a_picture() {
             .unwrap();
         let mut over = terraflux_app::builder::Layer::new("raster_reclassify", "map");
         over.opacity = 0.5;
-        s.preview_layers = vec![terraflux_app::builder::Layer::new("vector_read", "vector"), over];
-        s.preview = Some(("raster_read".into(), "raster".into()));
+        s.preview_layers = vec![terraflux_app::builder::Layer::new("export_area", "vector"), over];
+        s.preview = Some(("sibuyan_landuse".into(), "raster".into()));
     }
     h.state_mut().focus(Pane::Viewer);
     h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
         !s.running()
-            && s.value_of("vector_read", "vector").is_some()
+            && s.value_of("export_area", "vector").is_some()
             && s.value_of("raster_reclassify", "map").is_some()
     });
     drawn(&mut h);
@@ -5280,7 +5288,7 @@ fn a_view_side_by_side_has_layers_of_its_own() {
     let mut h = harness(new_app(None));
     h.run_steps(2);
     let r = terraflux_ops::Registry::standard();
-    let read = || CompareWith::Output("raster_read".into(), "raster".into());
+    let read = || CompareWith::Output("sibuyan_landuse".into(), "raster".into());
     {
         let s = h.state_mut().session.as_mut().unwrap();
         let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
@@ -5296,7 +5304,7 @@ fn a_view_side_by_side_has_layers_of_its_own() {
         let s = a.session.as_ref().unwrap();
         !s.running()
             && s.value_of("raster_reclassify", "map").is_some()
-            && s.value_of("raster_read", "raster").is_some()
+            && s.value_of("sibuyan_landuse", "raster").is_some()
     });
     // the views draw the Viewer's layers (here none), then the compared one has a layer of its own
     let drawn_in = |h: &Harness<TerrafluxApp>| {
@@ -5325,7 +5333,7 @@ fn a_view_side_by_side_has_layers_of_its_own() {
     {
         let s = h.state().session.as_ref().unwrap();
         let c = s.source.plot(id).expect("the Plot").compare.clone().expect("its comparison");
-        assert_eq!(c.also, ["raster_read.raster"]);
+        assert_eq!(c.also, ["sibuyan_landuse.raster"]);
         assert_eq!(c.layers.len(), 1, "the view more draws the Viewer's layers: none kept for it");
         assert_eq!(c.layers[0].iter().map(|l| l.from.as_str()).collect::<Vec<_>>(), ["raster_reclassify.map"]);
     }
@@ -5770,7 +5778,7 @@ fn the_transition_matrix_of_a_difference() {
         terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 1\n* -> 0".into())]).unwrap();
         s.preview = Some(("raster_reclassify".into(), "map".into()));
         s.preview_compare.with =
-            Some(terraflux_app::builder::CompareWith::Output("raster_read".into(), "raster".into()));
+            Some(terraflux_app::builder::CompareWith::Output("sibuyan_landuse".into(), "raster".into()));
         s.preview_compare.how = terraflux_app::builder::How::Difference;
     }
     h.state_mut().focus(Pane::Viewer);
@@ -5837,17 +5845,17 @@ fn the_area_of_the_classes_in_a_region_and_a_profile() {
         let s = h.state_mut().session.as_mut().unwrap();
         let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
         terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
-        s.preview = Some(("raster_read".into(), "raster".into()));
+        s.preview = Some(("sibuyan_landuse".into(), "raster".into()));
     }
     h.state_mut().focus(Pane::Viewer);
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("raster_read", "raster").is_some()
+        !s.running() && s.value_of("sibuyan_landuse", "raster").is_some()
     });
     drawn(&mut h);
     let src = {
         let s = h.state().session.as_ref().unwrap();
-        terraflux_app::builder::first_source(&s.value_of("raster_read", "raster").unwrap()).unwrap()
+        terraflux_app::builder::first_source(&s.value_of("sibuyan_landuse", "raster").unwrap()).unwrap()
     };
     // the whole map: every class, its cells (no coordinate system: no area)
     let whole = of(&src, &Part::Map, true);
@@ -5909,12 +5917,12 @@ fn the_area_of_the_classes_along_the_steps_and_the_flows_from_the_first() {
         let s = h.state_mut().session.as_mut().unwrap();
         let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
         terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
-        s.preview = Some(("raster_read".into(), "raster".into()));
+        s.preview = Some(("sibuyan_landuse".into(), "raster".into()));
     }
     h.state_mut().focus(Pane::Viewer);
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("raster_read", "raster").is_some()
+        !s.running() && s.value_of("sibuyan_landuse", "raster").is_some()
     });
     drawn(&mut h);
     // the two years (1997 and 2011): the classes counted at each, then the window of the flows from 1997 to 2011

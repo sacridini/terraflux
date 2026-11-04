@@ -52,11 +52,62 @@ fn fresh_id(nodes: &[Node], op: &str) -> String {
     (2..).map(|k| format!("{base}_{k}")).find(|id| !nodes.iter().any(|n| &n.id == id)).unwrap()
 }
 
+/// The name of a node that reads a file, by the file's: `landuse_1997.tif` `landuse_1997`, a folder its name, a
+/// pattern without its `*` (`landuse_*.tif` `landuse`); the letters without their accents, any other character a
+/// `_`; a digit first after `map_` (`map_1997`). None when no letter nor digit is left.
+pub fn id_of_file(path: &str) -> Option<String> {
+    let p = std::path::Path::new(path);
+    let name = if p.is_dir() { p.file_name() } else { p.file_stem() }?.to_string_lossy();
+    let plain = |c: char| match c {
+        'á' | 'à' | 'â' | 'ã' | 'ä' | 'å' => 'a',
+        'Á' | 'À' | 'Â' | 'Ã' | 'Ä' | 'Å' => 'A',
+        'é' | 'è' | 'ê' | 'ë' => 'e',
+        'É' | 'È' | 'Ê' | 'Ë' => 'E',
+        'í' | 'ì' | 'î' | 'ï' => 'i',
+        'Í' | 'Ì' | 'Î' | 'Ï' => 'I',
+        'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
+        'Ó' | 'Ò' | 'Ô' | 'Õ' | 'Ö' => 'O',
+        'ú' | 'ù' | 'û' | 'ü' => 'u',
+        'Ú' | 'Ù' | 'Û' | 'Ü' => 'U',
+        'ç' => 'c',
+        'Ç' => 'C',
+        'ñ' => 'n',
+        'Ñ' => 'N',
+        c if c.is_ascii_alphanumeric() => c,
+        _ => '_',
+    };
+    let mut id = String::new();
+    for c in name.chars().map(plain) {
+        // (one `_` between words, none at the ends)
+        if c != '_' || !id.is_empty() && !id.ends_with('_') {
+            id.push(c);
+        }
+    }
+    let id = id.trim_end_matches('_').to_string();
+    if !id.chars().any(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    let id = if valid_id(&id) { id } else { format!("map_{id}") };
+    valid_id(&id).then_some(id)
+}
+
 /// Add a node of an operator to a scope (containers with an empty body); its id.
 pub fn add_node(m: &mut Model, r: &Registry, path: &[String], op: &str, pos: [f32; 2]) -> Result<String> {
+    add_node_named(m, r, path, op, None, pos)
+}
+
+/// [`add_node`], named `name` (made unique: `name_2`...) when given, else by its operator.
+pub fn add_node_named(
+    m: &mut Model,
+    r: &Registry,
+    path: &[String],
+    op: &str,
+    name: Option<&str>,
+    pos: [f32; 2],
+) -> Result<String> {
     let sig = r.sig(op).ok_or_else(|| format!("no operator {op:?}"))?;
     let nodes = scope_mut(m, path)?;
-    let id = fresh_id(nodes, op);
+    let id = fresh_id(nodes, name.filter(|n| valid_id(n)).unwrap_or(op));
     let mut n = Node::new(&id, op);
     n.pos = Some(pos);
     if sig.container {
@@ -1112,6 +1163,21 @@ mod tests {
         m.inputs.insert("t0".into(), Input::Map { path: "a.tif".into(), band: None, nodata: None, note: None });
         m.inputs.insert("t1".into(), Input::Map { path: "b.tif".into(), band: None, nodata: None, note: None });
         m
+    }
+
+    #[test]
+    fn a_node_that_reads_a_file_is_named_by_it() {
+        assert_eq!(id_of_file("C:/data/landuse_1997.tif").as_deref(), Some("landuse_1997"));
+        assert_eq!(id_of_file("C:/data/landuse_*.tif").as_deref(), Some("landuse"));
+        assert_eq!(id_of_file("C:/data/Uso do Solo (São Paulo).gpkg").as_deref(), Some("Uso_do_Solo_Sao_Paulo"));
+        assert_eq!(id_of_file("C:/data/1997.tif").as_deref(), Some("map_1997"));
+        assert_eq!(id_of_file("C:/data/land-use.v2.tif").as_deref(), Some("land_use_v2"));
+        assert_eq!(id_of_file("C:/data/__.tif"), None);
+        let r = Registry::standard();
+        let mut m = Model::new("t");
+        let a = add_node_named(&mut m, &r, &[], "raster.read", Some("landuse_1997"), [0.0, 0.0]).unwrap();
+        let b = add_node_named(&mut m, &r, &[], "raster.read", Some("landuse_1997"), [0.0, 0.0]).unwrap();
+        assert_eq!((a.as_str(), b.as_str()), ("landuse_1997", "landuse_1997_2"));
     }
 
     #[test]

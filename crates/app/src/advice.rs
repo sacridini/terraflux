@@ -401,7 +401,7 @@ fn source<'a>(nodes: &[&'a Node], r: &str) -> Option<&'a Node> {
 }
 
 /// A year in a name (four digits from 1900 to 2100, not part of a longer number).
-fn year_in(s: &str) -> Option<i64> {
+pub(crate) fn year_in(s: &str) -> Option<i64> {
     let b = s.as_bytes();
     (0..b.len().saturating_sub(3)).find_map(|i| {
         let digits = b[i..i + 4].iter().all(u8::is_ascii_digit);

@@ -60,6 +60,14 @@ minor versions.
   `stack.of` they feed. The stack is the layer in their place, shown and played with *Play*; Ctrl+Z undoes it.
 - Problems: the *Ask the assistant* of an advice is under its text, no longer inside the box of a text of several
   lines.
+- Builder: **a node that reads a file is named by it**: `landuse_1997` for `landuse_1997.tif` (dropped, opened with
+  Ctrl+O or from the Files pane), a folder by its name, a pattern by its words (`landuse` for `landuse_*.tif`), no
+  longer `raster_read_2`, `raster_read_3`... (accents dropped, another character a `_`, `map_` before a digit).
+- Viewer: **the maps of a stack by their years**: when each file's name has a year, a different one, and the rest of
+  the names is the same (`landuse_1997`, `landuse_2011`), the steps are named `1997`, `2011` (under *Play*, in the
+  layer's choice of map, the charts along the steps, the figures and animations).
+- Viewer: **a folder of vector features** dropped (or dragged from the Files pane) is a `vector.read` for each of its
+  files of features (not `.json`), layers over its rasters (a stack, as before); a folder with neither is refused.
 
 ## [1.37.0] - 2026-11-04
 
