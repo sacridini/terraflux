@@ -1598,7 +1598,7 @@ fn all() -> Vec<Value> {
                     "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), palette (viridis, cividis, blue, orange, terrain, grey, red, rank; \", logarithmic\" for a scale of logarithms; default: by what the map is), hidden }.",
                     "items": {},
                 },
-                "compare": { "description": "A map compared with the top map: node.port, or { with, how } (how: curtain, side by side (default) or difference)." },
+                "compare": { "description": "A map compared with the top map: node.port, or { with, how, also } (how: curtain, side by side (default) or difference; also: up to 2 more maps (node.port) side by side, 4 views in all that move together)." },
                 "chart": { "type": "object", "description": "A table's chart: { kind (bars, lines, points, boxes), x (a column), y (columns, comma-separated), by (the column of the groups) }." },
                 "note": { "type": "string", "description": "What it shows and why (the record)." },
                 "why": { "type": "string" },
@@ -2423,7 +2423,7 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
     let compare = match a.get("compare") {
         None | Some(Value::Null) => None,
         Some(Value::String(w)) if w.is_empty() => None,
-        Some(Value::String(w)) => Some(PlotCompare { with: checked(w)?, how: None }),
+        Some(Value::String(w)) => Some(PlotCompare { with: checked(w)?, ..Default::default() }),
         Some(Value::Object(o)) => {
             let with = o.get("with").and_then(Value::as_str).ok_or("compare needs `with`: node.port")?;
             let how = o.get("how").and_then(Value::as_str).map(str::to_string);
@@ -2432,9 +2432,27 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
             {
                 return Err(format!("compare's how is curtain, side by side or difference, not {h:?}"));
             }
-            Some(PlotCompare { with: checked(with)?, how })
+            let also = match o.get("also") {
+                None | Some(Value::Null) => Vec::new(),
+                Some(Value::Array(a)) => {
+                    let names: Option<Vec<&str>> = a.iter().map(Value::as_str).collect();
+                    names
+                        .ok_or("compare's also is a list of node.port")?
+                        .into_iter()
+                        .map(checked)
+                        .collect::<Result<_, _>>()?
+                }
+                Some(other) => return Err(format!("compare's also is a list of node.port, not {other}")),
+            };
+            if !also.is_empty() && how.as_deref().is_some_and(|h| h != "side by side") {
+                return Err("compare's also shows more maps side by side: how is side by side".into());
+            }
+            if also.len() > 2 {
+                return Err(format!("compare's also has at most 2 maps (4 views in all), not {}", also.len()));
+            }
+            Some(PlotCompare { with: checked(with)?, how, also })
         }
-        Some(other) => return Err(format!("compare is node.port or {{ with, how }}, not {other}")),
+        Some(other) => return Err(format!("compare is node.port or {{ with, how, also }}, not {other}")),
     };
     let chart = a.get("chart").and_then(Value::as_object).map(|c| {
         let s = |k: &str| c.get(k).and_then(Value::as_str).map(String::from);
@@ -2658,6 +2676,15 @@ mod plot_tests {
         assert!(said.starts_with("replaced"), "{said}");
         assert_eq!(m.plots.len(), 1);
         assert!(m.plot("cover").unwrap().compare.is_none());
+        // more maps side by side: four views
+        let a = json!({
+            "id": "cover",
+            "layers": ["land.map"],
+            "compare": { "with": "forest.map", "also": ["land.map", "forest.map"] },
+        });
+        super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
+        assert_eq!(m.plot("cover").unwrap().compare.as_ref().unwrap().also, ["land.map", "forest.map"]);
+        assert!(terraflux_graph::check(&m, &r).iter().all(|i| !i.at.starts_with("plots.")));
         // a palette by its name in the Viewer, or its first word
         let a = json!({ "id": "cover", "layers": [{ "from": "forest.map", "palette": "Cividis, log" }] });
         super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
@@ -2670,6 +2697,9 @@ mod plot_tests {
             json!({ "id": "x", "layers": [] }),
             json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "how": "sideways" } }),
             json!({ "id": "1x", "layers": ["land.map"] }),
+            json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "also": ["gone.map"] } }),
+            json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "how": "curtain", "also": ["land.map"] } }),
+            json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "also": ["land.map", "land.map", "land.map"] } }),
             json!({ "id": "x", "layers": [{ "from": "land.map", "palette": "rainbow" }] }),
         ] {
             assert!(super::edit("set_plot", &mut m, &r, dir, &bad).is_err(), "{bad}");

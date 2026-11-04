@@ -535,6 +535,40 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
     let (a, b) = (s.preview_view.camera(), s.preview_compare.view.camera());
     assert!(s.preview_compare.view.rect().is_some(), "the view beside drawn");
     assert!((a.0 - b.0).abs() < 1e-4 && (a.1 - b.1).length() < 1e-3, "the same grid, the same view: {a:?} {b:?}");
+    // four views: two more, in two rows, all moving with the one moved
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let read = || terraflux_app::builder::CompareWith::Output("raster_read".into(), "raster".into());
+        s.preview_compare.more.push(terraflux_app::builder::Beside::new(read()));
+        s.preview_compare.more.push(terraflux_app::builder::Beside::new(read()));
+    }
+    h.run_steps(4);
+    drawn(&mut h);
+    shot(&mut h, "14c1-compare-four-views");
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let rect = |v: &terraflux_app::map_view::MapView| v.rect().expect("drawn");
+        let (one, two) = (rect(&s.preview_view), rect(&s.preview_compare.view));
+        let (three, four) = (rect(&s.preview_compare.more[0].view), rect(&s.preview_compare.more[1].view));
+        assert!(one.left() < two.left() && (one.top() - two.top()).abs() < 1.0, "{one:?} {two:?}");
+        assert!(three.top() > one.bottom() && four.top() > two.bottom(), "{three:?} {four:?}");
+        assert!((three.left() - one.left()).abs() < 1.0 && (four.left() - two.left()).abs() < 1.0);
+    }
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let (zoom, center) = s.preview_compare.view.camera();
+        s.preview_compare.view.set_camera(zoom * 2.0, center + egui::Vec2::new(5.0, 3.0));
+    }
+    h.run_steps(2);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let moved = s.preview_compare.view.camera();
+        for v in [&s.preview_view, &s.preview_compare.more[0].view, &s.preview_compare.more[1].view] {
+            let c = v.camera();
+            assert!((c.0 - moved.0).abs() < 1e-4 && (c.1 - moved.1).length() < 1e-3, "{c:?} {moved:?}");
+        }
+    }
+    h.state_mut().session.as_mut().unwrap().preview_compare.more.clear();
     // their difference: both maps of classes, the transitions from the forest map to the land use, named
     h.state_mut().session.as_mut().unwrap().preview_compare.how = terraflux_app::builder::How::Difference;
     until(&mut h, "the difference", |a| a.session.as_ref().unwrap().preview_compare.difference.made.is_some());
@@ -560,6 +594,7 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
             compare: Some(terraflux_graph::PlotCompare {
                 with: "raster_read.raster".into(),
                 how: Some("side by side".into()),
+                also: vec!["raster_read.raster".into()],
             }),
             ..Default::default()
         });
@@ -576,6 +611,12 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
         Some(terraflux_app::builder::CompareWith::Output("raster_read".into(), "raster".into()))
     );
     assert_eq!(s.preview_compare.how, terraflux_app::builder::How::SideBySide);
+    // with its view more
+    assert_eq!(s.preview_compare.more.len(), 1);
+    assert_eq!(
+        s.preview_compare.more[0].with,
+        Some(terraflux_app::builder::CompareWith::Output("raster_read".into(), "raster".into()))
+    );
 }
 
 /// A basemap under the data: Esri's imagery warped onto the map's grid (UTM 51N), the data half transparent.

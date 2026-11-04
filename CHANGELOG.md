@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- Viewer: **up to four views side by side**. Comparing side by side, *Another view* adds a third and a fourth map
+  (another output of the run, or another layer of the map shown): three in a row, four in two rows, all zooming
+  and panning together, the pointer marked in the others, in one colouring. A Plot keeps them
+  (`compare.also`, also in `set_plot`), the figure has "the views side by side", and a cell of any view is traced
+  from its menu.
+
 ## [1.35.0] - 2026-11-04
 
 ### Changed

@@ -599,6 +599,9 @@ pub fn check(model: &Model, catalog: &dyn Catalog) -> Vec<Issue> {
         }
         if let Some(cmp) = &p.compare {
             c.check_ref(&format!("plots.{}.compare", p.id), &cmp.with, Type::Any, &scopes, false);
+            for (i, a) in cmp.also.iter().enumerate() {
+                c.check_ref(&format!("plots.{}.compare.also[{i}]", p.id), a, Type::Any, &scopes, false);
+            }
         }
     }
     // what the parameters and scenarios change: a warning when it is not in the model (a node renamed away)

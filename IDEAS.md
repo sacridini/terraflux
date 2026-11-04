@@ -956,7 +956,14 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    que abriam abas (`ui.rs`: o traço de uma célula, as legendas dos plots, o clique direito; `readme_images.rs`)
    usam o Viewer. Depois da 1.34.0: a figura e o GIF/MP4 levam as camadas de mapas (`animation::composed`,
    `Panel::rasters`, `Frame::rasters`; teste `the_layers_are_drawn_with_the_map`), como já levavam os vetores.
-   Falta: dividir em 4 vistas ligadas, cada uma com as suas camadas; a diferença como camada derivada.
+   Depois da 1.35.0: até 4 vistas lado a lado (`Compare::more`, `Beside`, *Another view* no Compare; 3 numa
+   linha, 4 em duas), todas seguindo a que se moveu (`follow_all`), o cursor marcado nas outras, numa colorização
+   só; o Plot as guarda (`PlotCompare::also`, conferido no `check`, seguindo nós renomeados e agrupados, no
+   `set_plot`); a figura "the views side by side"; o traço de uma célula de qualquer vista. Testes:
+   `views_side_by_side_follow_each_other` (4 vistas), `maps_compare_by_a_curtain_and_side_by_side` (duas linhas,
+   a que se moveu leva as outras; o Plot com `also`), `plots_are_set_and_removed`.
+   Falta: cada vista com a sua lista de camadas (hoje todas desenham as camadas do Viewer); tocar a série junto
+   nas vistas; a diferença como camada derivada.
 4. **Os Plots salvos no lugar do nó `view.plot`.** (a maior)
    - Formato: `[[plots]]` no modelo (`terraflux_graph::Model::plots`, serde, omitido quando vazio): `id`, `title`,
      `layers = [{ from = "node.port", opacity, palette, band, style }]`, `compare = { with, how }`,

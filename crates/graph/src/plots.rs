@@ -53,12 +53,15 @@ pub struct PlotLayer {
     pub hidden: bool,
 }
 
-/// A map compared with a Plot's top map, and how: `curtain`, `side by side` (default) or `difference`.
+/// A map compared with a Plot's top map, and how: `curtain`, `side by side` (default) or `difference`; side by
+/// side, up to two more maps, each in a view of its own (`also`: the views move together).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlotCompare {
     pub with: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub how: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also: Vec<String>,
 }
 
 /// A table's chart: `bars`, `lines`, `points` or `boxes` (default: suggested), the column along x, the columns
@@ -173,9 +176,11 @@ impl Model {
             let mut ls = Vec::new();
             layers(&plots, &n.id, &mut Vec::new(), &mut ls);
             let compare = match n.inputs.get("compared") {
-                Some(Source::Ref(r)) => {
-                    resolve(r).map(|with| PlotCompare { with, how: text(n, "compare").filter(|h| !h.is_empty()) })
-                }
+                Some(Source::Ref(r)) => resolve(r).map(|with| PlotCompare {
+                    with,
+                    how: text(n, "compare").filter(|h| !h.is_empty()),
+                    also: Vec::new(),
+                }),
                 _ => None,
             };
             let chart = PlotChart { kind: text(n, "chart"), x: text(n, "x"), y: text(n, "y"), by: text(n, "by") };
@@ -234,6 +239,9 @@ impl Model {
             p.layers.retain_mut(|l| fix(&mut l.from));
             if p.compare.as_mut().is_some_and(|c| !fix(&mut c.with)) {
                 p.compare = None;
+            }
+            if let Some(c) = &mut p.compare {
+                c.also.retain_mut(|a| fix(a));
             }
         }
         // (the parameters and scenarios of a plot's settings: a title is no scenario)
@@ -296,7 +304,10 @@ mod tests {
                 PlotLayer::new("roads.vector"),
             ]
         );
-        assert_eq!(top.compare, Some(PlotCompare { with: "cover.raster".into(), how: Some("curtain".into()) }));
+        assert_eq!(
+            top.compare,
+            Some(PlotCompare { with: "cover.raster".into(), how: Some("curtain".into()), also: Vec::new() })
+        );
         assert_eq!(top.note.as_deref(), Some("MSPA over the cover"));
         let chart = m.plot("chart").unwrap();
         assert_eq!(chart.layers, [PlotLayer::new("metrics.table")]);

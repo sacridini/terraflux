@@ -1027,6 +1027,7 @@ fn plots_follow(m: &mut Model, id: &str, moved: &[String]) {
         }
         if let Some(c) = &mut p.compare {
             follow(&mut c.with);
+            c.also.iter_mut().for_each(&mut follow);
         }
     }
 }

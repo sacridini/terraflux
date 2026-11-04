@@ -168,7 +168,9 @@ images:
 scenario, another date, the observed map) or another layer of the same stack. Choose how:
 
 - **Curtain**: the other map is right of a line you drag across the map;
-- **Side by side**: two views that zoom and pan together, the pointer marked in both;
+- **Side by side**: two views that zoom and pan together, the pointer marked in both. *Another view* adds a third
+  and a fourth map (another output, or another layer of the one shown), four views in two rows, all moving
+  together;
 - **Difference**: for maps of values, the other map minus this one; for maps of classes, what each cell changed
   from and to.
 
@@ -202,7 +204,7 @@ layers = [{ from = "named.map" }, { from = "forest_only.map", opacity = 0.6 }]
 | `id` | the Plot's name in the model |
 | `title` | its title, in the menu and over its figure (by default its `id`) |
 | `layers` | what it shows, the first at the bottom: each an output (`node.port`) with its `opacity` (0 to 1), `band` (the layer of a stack or the step of a loop), `style` (vector features') and `hidden` |
-| `compare` | a map compared with the top map: `{ with = "node.port", how = "curtain" }` (or `"side by side"`, `"difference"`) |
+| `compare` | a map compared with the top map: `{ with = "node.port", how = "curtain" }` (or `"side by side"`, `"difference"`); side by side, `also = ["node.port", ...]` adds up to two more views |
 | `chart` | a table's chart: `{ kind = "bars", x = "...", y = "...", by = "..." }` |
 | `note`, `why` | what it shows and why, as a node's note |
 

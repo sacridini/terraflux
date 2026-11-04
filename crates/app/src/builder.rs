@@ -2507,6 +2507,13 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
         Some("difference") => How::Difference,
         _ => How::SideBySide,
     };
+    s.preview_compare.more = p
+        .compare
+        .iter()
+        .flat_map(|c| &c.also)
+        .filter_map(|a| port_of(a))
+        .map(|(n, q)| Beside::new(CompareWith::Output(n, q)))
+        .collect();
     s.plot_open = Some(p.id.clone());
     s.ask_viewer = true;
 }
@@ -2558,6 +2565,19 @@ fn plot_of(
                 }
                 .into(),
             ),
+            // (side by side, the views more of other outputs)
+            also: match sh.compare.how {
+                How::SideBySide => sh
+                    .compare
+                    .more
+                    .iter()
+                    .filter_map(|b| match &b.with {
+                        Some(CompareWith::Output(n, p)) => Some(format!("{n}.{p}")),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            },
         }),
         _ => None,
     };
@@ -2728,6 +2748,24 @@ pub struct Compare {
     pub how: How,
     pub view: crate::map_view::MapView,
     pub difference: Difference,
+    /// Side by side, more maps beside the two (up to four views), each in a view of its own following the others.
+    pub more: Vec<Beside>,
+}
+
+/// The most views side by side: the map shown, the one compared and two more.
+pub const MOST_VIEWS: usize = 4;
+
+/// A map more side by side (see [`Compare::more`]): which (none: not chosen yet), and its view.
+#[derive(Default)]
+pub struct Beside {
+    pub with: Option<CompareWith>,
+    pub view: crate::map_view::MapView,
+}
+
+impl Beside {
+    pub fn new(with: CompareWith) -> Beside {
+        Beside { with: Some(with), view: Default::default() }
+    }
 }
 
 /// How two maps are compared.
@@ -2810,15 +2848,40 @@ pub fn follow(
     place: crate::map_view::Place,
     before: [(f32, Vec2); 2],
 ) {
-    let (l, r) = (left.camera(), right.camera());
-    let scale = place.scale.x.abs().max(1e-12);
-    if r != before[1] && l == before[0] {
-        left.set_camera(r.0 / scale, place.to_view(r.1));
-    } else {
-        right.set_camera(l.0 * scale, place.to_source(l.1));
+    follow_all(&mut [left, right], &[SAME_PLACE, place], &before);
+}
+
+/// A grid on itself.
+const SAME_PLACE: crate::map_view::Place = crate::map_view::Place { offset: Vec2::ZERO, scale: Vec2::splat(1.0) };
+
+/// Views following each other (side by side, up to four): the first one that moved since the last frame
+/// (`before`) moves the others, unless the first view moved (it leads then); each view's grid put on the first
+/// one's by its place (`places`, the first's on itself). The pointer over one marked in the others.
+pub fn follow_all(
+    views: &mut [&mut crate::map_view::MapView],
+    places: &[crate::map_view::Place],
+    before: &[(f32, Vec2)],
+) {
+    let n = views.len().min(places.len()).min(before.len());
+    if n == 0 {
+        return;
     }
-    left.ghost = right.pointer().map(|p| place.to_view(p));
-    right.ghost = left.pointer().map(|p| place.to_source(p));
+    let moved = |i: usize, v: &crate::map_view::MapView| v.camera() != before[i];
+    let lead = if moved(0, views[0]) { 0 } else { (1..n).find(|&i| moved(i, views[i])).unwrap_or(0) };
+    // the leader's camera on the first view's grid, then on each one's
+    let (zoom, center) = views[lead].camera();
+    let p = places[lead];
+    let (zoom, center) = (zoom / p.scale.x.abs().max(1e-12), p.to_view(center));
+    for i in (0..n).filter(|&i| i != lead) {
+        let q = places[i];
+        views[i].set_camera(zoom * q.scale.x.abs().max(1e-12), q.to_source(center));
+    }
+    // (the pointer, on the first view's grid: from the view it is over)
+    let pointers: Vec<Option<Vec2>> = (0..n).map(|i| views[i].pointer().map(|c| places[i].to_view(c))).collect();
+    for i in 0..n {
+        let other = (0..n).filter(|&j| j != i).find_map(|j| pointers[j]);
+        views[i].ghost = other.map(|c| places[i].to_source(c));
+    }
 }
 
 /// A layer a plot stacks: a map (its reference and opacity) or vector features.
@@ -3492,27 +3555,23 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     // the map compared with it: its source, its name and its look; the two in one colouring (the same value the
     // same colour on both sides), the legend that colouring's
     let main_name = if maps.len() > 1 { format!("{title} {}", names[k]) } else { title.clone() };
-    let compared: Option<(Source, String, Option<crate::app::Look>)> = match &sh.compare.with {
-        Some(CompareWith::Layer(j)) if *j < maps.len() => {
-            let src = maps[*j].clone();
-            let l = s.looks.get(ui.ctx(), &src, palette);
-            Some((src, format!("{title} {}", names[*j]), l))
-        }
-        Some(CompareWith::Output(n, p)) => s.value_of(n, p).as_ref().and_then(first_source).map(|src| {
-            let (made, mut hint) = producer(s, n, p);
-            hint.push_str(p);
-            let pal = s.palettes.get(&(n.clone(), p.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
-            let l = s.looks.get(ui.ctx(), &src, pal);
-            let l = match (l, crate::legend_view::legend_of(s, n, p, &src)) {
-                (Some(l), Some(c)) => Some(crate::legend_view::apply(&l, &c)),
-                (l, _) => l,
-            };
-            (src, output_name(n, p), l)
-        }),
-        _ => None,
+    let compared = sh.compare.with.clone().and_then(|w| compared_map(s, ui.ctx(), &w, &maps, &names, &title, palette));
+    // side by side, the maps of the views more (none: not chosen, or not run)
+    let beside: Vec<Option<Compared>> = if sh.compare.how == How::SideBySide && compared.is_some() {
+        let withs: Vec<Option<CompareWith>> = sh.compare.more.iter().map(|b| b.with.clone()).collect();
+        withs
+            .into_iter()
+            .map(|w| w.and_then(|w| compared_map(s, ui.ctx(), &w, &maps, &names, &title, palette)))
+            .collect()
+    } else {
+        Vec::new()
     };
+    // (all of them in one colouring)
     let shared = match (&look, &compared) {
-        (Some(a), Some((_, _, Some(b)))) => Some(a.coloring.shared(&b.coloring)),
+        (Some(a), Some((_, _, Some(b)))) => {
+            let both = a.coloring.shared(&b.coloring);
+            Some(beside.iter().flatten().filter_map(|(_, _, l)| l.as_ref()).fold(both, |c, l| c.shared(&l.coloring)))
+        }
         _ => None,
     };
     let look = match (look, &shared) {
@@ -3648,6 +3707,23 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             "this map and the one compared".into(),
                             vec![panel(&maps[k], l, legend, main_name.clone()), panel(src, &other, None, name.clone())],
                         ));
+                        // (side by side, with the views more)
+                        let more: Vec<crate::figure::Panel> = beside
+                            .iter()
+                            .flatten()
+                            .filter_map(|(src, name, bl)| {
+                                let bl = Look { coloring: l.coloring.clone(), ..bl.clone()? };
+                                Some(panel(src, &bl, None, name.clone()))
+                            })
+                            .collect();
+                        if sh.compare.how == How::SideBySide && !more.is_empty() {
+                            let mut all = vec![
+                                panel(&maps[k], l, legend, main_name.clone()),
+                                panel(src, &other, None, name.clone()),
+                            ];
+                            all.extend(more);
+                            choices.push((format!("the {} views side by side", all.len()), all));
+                        }
                         // (their difference, as the view shows it)
                         if sh.compare.how == How::Difference
                             && let Some(Ok(d)) = &sh.compare.difference.made
@@ -3957,6 +4033,9 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             "values: the other map minus this one; classes: what each cell changed from and to",
                         );
                     });
+                    if cmp.how == How::SideBySide {
+                        beside_controls(ui, cmp, &others, &names, k, salt);
+                    }
                     if cmp.how == How::Difference {
                         match &cmp.difference.made {
                             None => {
@@ -4036,11 +4115,23 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 hover = sh.view.show_compared(ui, &maps[k], &l.coloring, &rasters, &overlays, Some(&curtain));
             }
             Some((src, name, coloring)) => {
+                // the views more: their maps in the colouring of all (a spinner while one's look is made)
+                let more: Vec<Result<(Source, Coloring, String), String>> = beside
+                    .iter()
+                    .map(|b| match b {
+                        None => Err("choose its map under Compare (or it has not run)".to_string()),
+                        Some((_, _, None)) => Err(String::new()),
+                        Some((src, name, Some(bl))) => {
+                            Ok((src.clone(), shared.clone().unwrap_or_else(|| bl.coloring.clone()), name.clone()))
+                        }
+                    })
+                    .collect();
                 hover = side_by_side(
                     ui,
                     sh,
                     (&maps[k], &l.coloring, &main_name),
                     (&src, &coloring, &name),
+                    &more,
                     &rasters,
                     &overlays,
                 );
@@ -4059,7 +4150,135 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             s.trace_asked = Some((n, p, grid, cell, explain));
         }
     }
+    // (and of a view more)
+    for b in &mut sh.compare.more {
+        if let Some(explain) = b.view.trace_request.take()
+            && let Some(cell) = b.view.picked
+        {
+            let (n, p) = match &b.with {
+                Some(CompareWith::Output(n, p)) => (n.clone(), p.clone()),
+                _ => (node.clone(), port.clone()),
+            };
+            if let Some(grid) = s.value_of(&n, &p).as_ref().and_then(crate::trace::grid_of) {
+                s.trace_asked = Some((n, p, grid, cell, explain));
+            }
+        }
+    }
     hover
+}
+
+/// Side by side, the views more (up to [`MOST_VIEWS`] in all): the map of each (another output of the run, or
+/// another layer of the map shown, of its `names`), taken away; another view added, with a map not shown yet.
+fn beside_controls(
+    ui: &mut Ui,
+    cmp: &mut Compare,
+    others: &[(String, String)],
+    names: &[String],
+    k: usize,
+    salt: &str,
+) {
+    // (a view's map gone from the run, or a layer the map no longer has: to be chosen again)
+    for b in &mut cmp.more {
+        match &b.with {
+            Some(CompareWith::Layer(j)) if *j >= names.len() || names.len() < 2 => b.with = None,
+            Some(CompareWith::Output(n, p)) if !others.iter().any(|(a, c)| a == n && c == p) => b.with = None,
+            _ => {}
+        }
+    }
+    let shown = |w: &Option<CompareWith>| match w {
+        None => "choose its map".to_string(),
+        Some(CompareWith::Layer(j)) => names.get(*j).cloned().unwrap_or_default(),
+        Some(CompareWith::Output(n, p)) => output_name(n, p),
+    };
+    let mut gone = None;
+    for (i, b) in cmp.more.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(format!("view {}", i + 3)).weak());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button("x").on_hover_text("this view no longer").clicked() {
+                    gone = Some(i);
+                }
+                egui::ComboBox::from_id_salt(("beside", salt, i))
+                    .selected_text(shown(&b.with))
+                    .width((ui.available_width() - 4.0).clamp(60.0, 180.0))
+                    .truncate()
+                    .show_ui(ui, |ui| {
+                        if names.len() > 1 {
+                            for (j, name) in names.iter().enumerate() {
+                                ui.selectable_value(&mut b.with, Some(CompareWith::Layer(j)), name);
+                            }
+                            ui.separator();
+                        }
+                        for (n, p) in others {
+                            ui.selectable_value(
+                                &mut b.with,
+                                Some(CompareWith::Output(n.clone(), p.clone())),
+                                output_name(n, p),
+                            );
+                        }
+                    });
+            });
+        });
+    }
+    if let Some(i) = gone {
+        cmp.more.remove(i);
+    }
+    if 2 + cmp.more.len() < MOST_VIEWS {
+        // (a map not in a view yet: another output, else another layer)
+        let taken = |w: &CompareWith| {
+            *w == CompareWith::Layer(k)
+                || cmp.with.as_ref() == Some(w)
+                || cmp.more.iter().any(|b| b.with.as_ref() == Some(w))
+        };
+        let next = others
+            .iter()
+            .map(|(n, p)| CompareWith::Output(n.clone(), p.clone()))
+            .chain((0..names.len()).filter(|_| names.len() > 1).map(CompareWith::Layer))
+            .find(|w| !taken(w));
+        if ui
+            .add_enabled(next.is_some(), egui::Button::new("Another view"))
+            .on_hover_text("one more map side by side, up to four views that move together")
+            .clicked()
+            && let Some(w) = next
+        {
+            cmp.more.push(Beside::new(w));
+        }
+    }
+}
+
+/// A map compared with the one shown: its source, its name, its look (none while it is being made).
+type Compared = (Source, String, Option<crate::app::Look>);
+
+/// The map `with` compared with the one shown (a layer of its `maps`, named by `names` after its `title`, in its
+/// `palette`; or another output of the run, in its own colours and legend).
+fn compared_map(
+    s: &mut Session,
+    ctx: &egui::Context,
+    with: &CompareWith,
+    maps: &[Source],
+    names: &[String],
+    title: &str,
+    palette: Palette,
+) -> Option<Compared> {
+    match with {
+        CompareWith::Layer(j) if *j < maps.len() => {
+            let src = maps[*j].clone();
+            let l = s.looks.get(ctx, &src, palette);
+            Some((src, format!("{title} {}", names[*j]), l))
+        }
+        CompareWith::Output(n, p) => s.value_of(n, p).as_ref().and_then(first_source).map(|src| {
+            let (made, mut hint) = producer(s, n, p);
+            hint.push_str(p);
+            let pal = s.palettes.get(&(n.clone(), p.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
+            let l = s.looks.get(ctx, &src, pal);
+            let l = match (l, crate::legend_view::legend_of(s, n, p, &src)) {
+                (Some(l), Some(c)) => Some(crate::legend_view::apply(&l, &c)),
+                (l, _) => l,
+            };
+            (src, output_name(n, p), l)
+        }),
+        _ => None,
+    }
 }
 
 /// The difference of the maps compared, drawn in the view of the map compared, which follows the map shown's (the
@@ -4111,13 +4330,15 @@ fn show_difference(
     hover
 }
 
-/// Two maps side by side, each in a view of its own, the views moving together (the pointer over one marked in
-/// the other) and each named at its top. What is under the pointer, over either.
+/// Two maps side by side, each in a view of its own, and up to two more (`more`: a map, or why there is none; an
+/// empty why while its colours are made): the views moving together (the pointer over one marked in the others),
+/// each named at its top; two or three in a row, four in two rows. What is under the pointer, over any.
 fn side_by_side(
     ui: &mut Ui,
     sh: &mut Shown,
     left: (&Source, &Coloring, &str),
     right: (&Source, &Coloring, &str),
+    more: &[Result<(Source, Coloring, String), String>],
     rasters: &[crate::map_view::RasterLayer],
     overlays: &[crate::vector_tiles::Overlay],
 ) -> Option<Hover> {
@@ -4133,41 +4354,110 @@ fn side_by_side(
         });
         return None;
     };
+    let more = &more[..more.len().min(sh.compare.more.len()).min(MOST_VIEWS - 2)];
     let full = ui.available_rect_before_wrap();
     let gap = 4.0;
-    let half = (full.width() - gap) / 2.0;
-    let a = Rect::from_min_size(full.min, Vec2::new(half, full.height()));
-    let b = Rect::from_min_size(egui::pos2(a.right() + gap, full.top()), Vec2::new(half, full.height()));
-    // (the one beside sees the world under it as this one does)
+    let n = 2 + more.len();
+    let (cols, rows) = if n == 4 { (2, 2) } else { (n, 1) };
+    let w = (full.width() - gap * (cols - 1) as f32) / cols as f32;
+    let h = (full.height() - gap * (rows - 1) as f32) / rows as f32;
+    let rects: Vec<Rect> = (0..n)
+        .map(|i| {
+            let at = Vec2::new((i % cols) as f32 * (w + gap), (i / cols) as f32 * (h + gap));
+            Rect::from_min_size(full.min + at, Vec2::new(w, h))
+        })
+        .collect();
+    // (the others see the world under them as this one does; a view more starts where this one is)
     let (basemap, transparency, hide) = (sh.view.basemap, sh.view.transparency, sh.view.hide_data);
-    let v = &mut sh.compare.view;
-    (v.basemap, v.transparency, v.hide_data) = (basemap, transparency, hide);
-    let before = [sh.view.camera(), sh.compare.view.camera()];
+    let (zoom, center) = sh.view.camera();
+    let Compare { view: compared, more: views, .. } = &mut sh.compare;
+    (compared.basemap, compared.transparency, compared.hide_data) = (basemap, transparency, hide);
+    let mut places = vec![SAME_PLACE, place];
+    // the views more drawn (their places on this map's grid), or why not
+    let mut drawn: Vec<Result<crate::map_view::Place, String>> = Vec::new();
+    for (m, b) in more.iter().zip(views.iter_mut()) {
+        let p = match m {
+            Ok((src, _, _)) => crate::map_view::place_on(src.grid(), left.0.grid()).ok_or_else(|| {
+                "another coordinate system, or rotated: put it on this map's grid (raster.match)".to_string()
+            }),
+            Err(e) => Err(e.clone()),
+        };
+        if let (Ok(p), Ok((src, _, _))) = (&p, m) {
+            let v = &mut b.view;
+            (v.basemap, v.transparency, v.hide_data) = (basemap, transparency, hide);
+            v.hold(src.size());
+            v.set_camera(zoom * p.scale.x.abs().max(1e-12), p.to_source(center));
+            places.push(*p);
+        }
+        drawn.push(p);
+    }
+    let mut before = vec![sh.view.camera(), compared.camera()];
+    before.extend(views.iter().zip(&drawn).filter(|(_, p)| p.is_ok()).map(|(b, _)| b.view.camera()));
+    let named = |ui: &mut Ui, rect: Rect, name: &str| {
+        let painter = ui.painter_at(rect);
+        let galley = painter.layout_no_wrap(name.to_string(), egui::FontId::proportional(12.0), Color32::WHITE);
+        let at = rect.left_top() + Vec2::new(10.0, 8.0);
+        painter.rect_filled(
+            Rect::from_min_size(at, galley.size()).expand2(Vec2::new(5.0, 2.0)),
+            3.0,
+            Color32::from_black_alpha(160),
+        );
+        painter.galley(at, galley, Color32::WHITE);
+    };
     let mut hover = None;
-    for (rect, (src, coloring, name), view) in [(a, left, &mut sh.view), (b, right, &mut sh.compare.view)] {
+    let mut draw = |ui: &mut Ui,
+                    rect: Rect,
+                    i: usize,
+                    (src, coloring, name): (&Source, &Coloring, &str),
+                    view: &mut crate::map_view::MapView| {
         let h = ui
-            .scope_builder(egui::UiBuilder::new().max_rect(rect).id_salt(name), |ui| {
+            .scope_builder(egui::UiBuilder::new().max_rect(rect).id_salt(("side by side", i)), |ui| {
                 let h = view.show_stacked(ui, src, coloring, rasters, overlays);
-                let painter = ui.painter_at(rect);
-                let galley = painter.layout_no_wrap(name.to_string(), egui::FontId::proportional(12.0), Color32::WHITE);
-                let at = rect.left_top() + Vec2::new(10.0, 8.0);
-                painter.rect_filled(
-                    Rect::from_min_size(at, galley.size()).expand2(Vec2::new(5.0, 2.0)),
-                    3.0,
-                    Color32::from_black_alpha(160),
-                );
-                painter.galley(at, galley, Color32::WHITE);
+                named(ui, rect, name);
                 h
             })
             .inner;
-        hover = hover.or(h);
+        hover = hover.take().or(h);
+    };
+    draw(ui, rects[0], 0, left, &mut sh.view);
+    draw(ui, rects[1], 1, right, compared);
+    for (i, ((m, p), b)) in more.iter().zip(&drawn).zip(views.iter_mut()).enumerate() {
+        let rect = rects[2 + i];
+        match (m, p) {
+            (Ok((src, coloring, name)), Ok(_)) => draw(ui, rect, 2 + i, (src, coloring, name), &mut b.view),
+            (_, Err(e)) => {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(rect).id_salt(("side by side", 2 + i)), |ui| {
+                    ui.centered_and_justified(|ui| {
+                        if e.is_empty() {
+                            ui.spinner();
+                        } else {
+                            ui.label(RichText::new(e).color(ui.visuals().weak_text_color()));
+                        }
+                    });
+                });
+                let name = match m {
+                    Ok((_, _, name)) => name.clone(),
+                    Err(_) => format!("view {}", 3 + i),
+                };
+                named(ui, rect, &name);
+            }
+            (Err(_), Ok(_)) => {}
+        }
     }
-    ui.painter().rect_filled(
-        Rect::from_min_size(egui::pos2(a.right(), full.top()), Vec2::new(gap, full.height())),
-        0.0,
-        theme::bar(),
-    );
-    follow(&mut sh.view, &mut sh.compare.view, place, before);
+    // the gaps between the views
+    for c in 1..cols {
+        let x = full.left() + c as f32 * (w + gap) - gap;
+        let gap_rect = Rect::from_min_size(egui::pos2(x, full.top()), Vec2::new(gap, full.height()));
+        ui.painter().rect_filled(gap_rect, 0.0, theme::bar());
+    }
+    for r in 1..rows {
+        let y = full.top() + r as f32 * (h + gap) - gap;
+        let gap_rect = Rect::from_min_size(egui::pos2(full.left(), y), Vec2::new(full.width(), gap));
+        ui.painter().rect_filled(gap_rect, 0.0, theme::bar());
+    }
+    let mut all: Vec<&mut crate::map_view::MapView> = vec![&mut sh.view, compared];
+    all.extend(views.iter_mut().zip(&drawn).filter(|(_, p)| p.is_ok()).map(|(b, _)| &mut b.view));
+    follow_all(&mut all, &places, &before);
     hover
 }
 
@@ -4921,5 +5211,24 @@ params = { expression = "x * 0 + k" }
         let before = [l.camera(), r.camera()];
         follow(&mut l, &mut r, place, before);
         assert_eq!([l.camera(), r.camera()], before);
+        // four views: the fourth (its cells half as large, at the first one's corner) moved, the others follow
+        let quarter = Place { offset: Vec2::ZERO, scale: Vec2::splat(0.5) };
+        let (mut c, mut d) = (MapView::default(), MapView::default());
+        let places = [SAME_PLACE, place, SAME_PLACE, quarter];
+        let before = [l.camera(), r.camera(), c.camera(), d.camera()];
+        follow_all(&mut [&mut l, &mut r, &mut c, &mut d], &places, &before);
+        let before = [l.camera(), r.camera(), c.camera(), d.camera()];
+        d.set_camera(8.0, Vec2::new(40.0, 20.0));
+        follow_all(&mut [&mut l, &mut r, &mut c, &mut d], &places, &before);
+        assert_eq!(l.camera(), (16.0, Vec2::new(20.0, 10.0)));
+        assert_eq!(c.camera(), l.camera());
+        assert_eq!(r.camera(), (32.0, Vec2::new(5.0, 5.0)));
+        assert_eq!(d.camera(), (8.0, Vec2::new(40.0, 20.0)));
+        // the first one moved too: it leads
+        let before = [l.camera(), r.camera(), c.camera(), d.camera()];
+        l.set_camera(1.0, Vec2::new(2.0, 2.0));
+        d.set_camera(3.0, Vec2::ZERO);
+        follow_all(&mut [&mut l, &mut r, &mut c, &mut d], &places, &before);
+        assert_eq!(d.camera(), (0.5, Vec2::new(4.0, 4.0)));
     }
 }
