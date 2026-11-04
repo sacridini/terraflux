@@ -967,8 +967,10 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    resumo nos Layers, opacidade, *zoom*; num Plot, `minus` (conferido no `check`, no `set_plot`, seguindo nós
    renomeados e agrupados, saindo com um removido); o Document e o QGIS a deixam de fora. Testes:
    `a_difference_is_a_layer`, `maps_compare_by_a_curtain_and_side_by_side` (o botão, o desenho, o Plot).
-   Falta: cada vista com a sua lista de camadas (hoje todas desenham as camadas do Viewer); tocar a série junto
-   nas vistas; a diferença de duas camadas de uma pilha como camada (hoje só de duas saídas).
+   Tocar a série junto (`step_together`): no *Play*, as vistas de outros passos da mesma série andam com ela, cada
+   uma à sua distância (teste `views_play_together`).
+   Falta: cada vista com a sua lista de camadas (hoje todas desenham as camadas do Viewer); a diferença de duas
+   camadas de uma pilha como camada (hoje só de duas saídas).
 4. **Os Plots salvos no lugar do nó `view.plot`.** (a maior)
    - Formato: `[[plots]]` no modelo (`terraflux_graph::Model::plots`, serde, omitido quando vazio): `id`, `title`,
      `layers = [{ from = "node.port", opacity, palette, band, style }]`, `compare = { with, how }`,

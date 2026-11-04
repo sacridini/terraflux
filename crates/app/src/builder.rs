@@ -4075,6 +4075,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         if tick.elapsed() >= period {
                             b = (b + 1) % maps.len();
                             sh.playing = Some(std::time::Instant::now());
+                            step_together(&mut sh.compare, maps.len());
                         }
                         ui.ctx().request_repaint_after(period);
                     }
@@ -4510,6 +4511,20 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         }
     }
     hover
+}
+
+/// The maps compared that are other layers of the one shown (another step of a series...) one layer on with it,
+/// from the last to the first again: playing, every view keeps its distance from the map shown.
+pub fn step_together(cmp: &mut Compare, layers: usize) {
+    let on = |w: &mut Option<CompareWith>| {
+        if let Some(CompareWith::Layer(j)) = w {
+            *j = (*j + 1) % layers.max(1);
+        }
+    };
+    on(&mut cmp.with);
+    for b in &mut cmp.more {
+        on(&mut b.with);
+    }
 }
 
 /// Side by side, the views more (up to [`MOST_VIEWS`] in all): the map of each (another output of the run, or
@@ -5539,6 +5554,18 @@ params = { expression = "x * 0 + k" }
         // the rows being written come back as typed, empty ones and spaces too
         let rows = vec![RuleRow::new("1 ", "", ""), RuleRow::default(), RuleRow::new("0", "5", "2")];
         assert_eq!(rule_rows(&rule_draft(&rows)), rows);
+    }
+
+    /// Playing, the views of other layers of the map shown go on with it; those of other outputs stay.
+    #[test]
+    fn views_play_together() {
+        let mut cmp = Compare { with: Some(CompareWith::Layer(2)), ..Default::default() };
+        cmp.more.push(Beside::new(CompareWith::Layer(4)));
+        cmp.more.push(Beside::new(CompareWith::Output("a".into(), "map".into())));
+        step_together(&mut cmp, 5);
+        assert_eq!(cmp.with, Some(CompareWith::Layer(3)));
+        assert_eq!(cmp.more[0].with, Some(CompareWith::Layer(0)), "from the last to the first again");
+        assert_eq!(cmp.more[1].with, Some(CompareWith::Output("a".into(), "map".into())));
     }
 
     /// A layer that is a difference: kept in a Plot as `minus`, following its nodes renamed, gone with one removed.

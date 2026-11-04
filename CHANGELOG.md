@@ -39,6 +39,8 @@ minor versions.
 - Viewer: **Export the view...**, beside *Figure...*, writes the map as shown (the layers under and over it at
   their opacity, the vectors and their labels) as a PNG, or as an RGBA GeoTIFF on the map's grid that opens in
   QGIS over other data: a pixel to a cell, or ×2 and ×4 (up to 8 000 px on the long side), in the background.
+- Viewer: **the views play together**: playing a series or a stack, the maps compared that are other steps of it
+  (by a curtain, side by side, the views more) go on with it, each keeping its distance from the map shown.
 
 ## [1.35.0] - 2026-11-04
 
