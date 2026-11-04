@@ -32,6 +32,10 @@ minor versions.
   minimum, maximum, mean and the cells with and without a value, worked out in a thread (from a sample of about
   4 million cells when the map is larger). A layer's settings have a *histogram* fold, and the legend of a map of
   classes has a bar under each class.
+- Viewer: **labels on vector layers**, by an attribute (*labels* in the layer's style, with a size): polygons
+  labelled at an inner point, lines at their middle, points beside them, on a thin halo; only the features in
+  view and large enough for their label, none covering another, at most 2 000 at a time. Kept in the Plot's
+  style and drawn in the figure too.
 
 ## [1.35.0] - 2026-11-04
 

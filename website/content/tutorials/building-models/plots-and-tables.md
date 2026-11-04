@@ -181,6 +181,13 @@ Both maps are drawn in the same colours, so that the same value is the same colo
 Under the legend of a map of values, its histogram: the values in bars coloured as the map is, with the
 minimum, maximum and mean, and how many cells have a value. A layer's settings have one too, folded.
 
+### Labels
+
+*labels*, in a vector layer's style, writes an attribute of its features over them: polygons at a point inside
+them, lines at their middle, points beside them. Only the features large enough for their label are labelled,
+and a label that would cover another is left out; zoom in to see more of them. A Plot keeps the labels, and the
+figure draws them.
+
 ### The attributes of vector features
 
 The *table* button of a vector layer's row in the Layers opens its attributes under the map: a row per feature,

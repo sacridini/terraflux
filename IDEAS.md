@@ -1080,6 +1080,15 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    *histogram* recolhido em cada camada; a legenda de classes com uma barra por classe. Testes: os de
    `histogram.rs`, `the_histogram_of_a_map`. Falta: as barras em escala logarítmica quando a cor é; o nodata que
    não é NaN de um raster em disco conta como valor (como no `look_of`).
+   **Os rótulos feitos** (Unreleased, por um sub-agente): `labels.rs`. *labels* no estilo de uma camada de
+   vetores (o atributo e o tamanho, 9 a 20 pt): polígonos num ponto de dentro (o centroide quando dentro, senão o
+   meio do trecho de dentro mais longo), linhas no meio, pontos ao lado, num halo fino. Só as feições à vista e
+   grandes o bastante para o texto; um rótulo que cobriria outro sai (`Placed`, uma grade de colisão); no máximo
+   2 000 por quadro. Os pontos dos rótulos feitos uma vez por camada, com o índice (`vector_tiles::Layer`). O
+   `Style` guarda `labels` e `label_size` (o JSON antigo continua lido); a figura também os desenha. Testes: os de
+   `labels.rs`, `a_layer_knows_where_its_features_are_labelled`, `the_labels_of_a_vector_layer`, o SVG da figura.
+   Falta: o projeto do QGIS ainda tem os rótulos à parte (`VectorOptions`), não os do estilo; a prioridade pelo
+   tamanho da feição.
 
 ### Em aberto
 
