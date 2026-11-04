@@ -1,9 +1,9 @@
 //! Vector features as the viewer shows them: drawn as tiles by threads ([`crate::vector_tiles`]) over a grid that
 //! spans them (in their coordinate system, so a basemap can go under them), as smoothly whatever their number:
 //! scroll to zoom, drag to move, double-click to fit again; the feature under the pointer named with its
-//! attributes, and the style (a colour or the colours of an attribute, the fill, the lines' width) beside. The
-//! attributes' table is also the node's output of its own (`table`); here a button opens it under the map,
-//! its rows linked to the features ([`crate::attribute_table`]).
+//! attributes, and the style (a colour or the colours of an attribute, the fill, the lines' width, the attribute that
+//! labels them) beside. The attributes' table is also the node's output of its own (`table`); here a button opens
+//! it under the map, its rows linked to the features ([`crate::attribute_table`]).
 
 use std::sync::Arc;
 
@@ -54,6 +54,20 @@ pub fn style_controls(ui: &mut Ui, v: &Vector, style: &mut Style, id: egui::Id) 
     let what = if v.geometries.iter().all(Geometry::is_point) { "size" } else { "line width" };
     ui.add(egui::Slider::new(&mut style.width, 0.0..=12.0).step_by(0.1).text(what))
         .on_hover_text("pixels: the lines' and outlines' width (0: polygons without outline), the points' size");
+    ui.horizontal(|ui| {
+        ui.label("labels");
+        let name = style.labels.clone().unwrap_or_else(|| "none".into());
+        egui::ComboBox::from_id_salt(id.with("labels")).selected_text(name).show_ui(ui, |ui| {
+            ui.selectable_value(&mut style.labels, None, "none");
+            for (n, _) in &v.attributes {
+                ui.selectable_value(&mut style.labels, Some(n.clone()), n);
+            }
+        });
+        if style.labels.is_some() {
+            ui.add(egui::DragValue::new(&mut style.label_size).range(9.0..=20.0).suffix(" pt"))
+                .on_hover_text("the labels' size, points");
+        }
+    });
 }
 
 /// What the panel shows of a layer, worked out once: the grid it is drawn on, its kinds of features and

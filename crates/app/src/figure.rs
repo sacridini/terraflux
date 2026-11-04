@@ -36,6 +36,9 @@ pub struct Vectors {
     pub colours: Vec<Color32>,
     pub fill: f32,
     pub width: f32,
+    /// The attribute whose values label the features (none: no labels), and their size, points.
+    pub labels: Option<String>,
+    pub label_size: f32,
 }
 
 /// How the figure is laid out.
@@ -398,6 +401,52 @@ fn vectors(out: &mut Vec<Shape>, v: &Vectors, at: &dyn Fn(f64, f64) -> (f32, f32
             }
             Geometry::Empty => {}
         }
+    }
+    if let Some(attr) = &v.labels {
+        labels(out, v, attr, at);
+    }
+}
+
+/// The labels of features: their attribute's values, dark on a light halo, where [`crate::labels::anchor`] puts them,
+/// one that would cover another left out.
+fn labels(out: &mut Vec<Shape>, v: &Vectors, attr: &str, at: &dyn Fn(f64, f64) -> (f32, f32)) {
+    use crate::vector_tiles::Kind;
+    use terraflux_raster::vector::Geometry;
+    let size = v.label_size.max(2.0);
+    let mut placed = crate::labels::Placed::default();
+    for (k, g) in v.vector.geometries.iter().enumerate() {
+        if placed.len() >= crate::labels::MAX {
+            break;
+        }
+        let (kind, parts): (Kind, Vec<&[[f64; 2]]>) = match g {
+            Geometry::Polygon(_) | Geometry::MultiPolygon(_) => {
+                (Kind::Polygon, g.polygons().into_iter().flatten().map(|r| &r[..]).collect())
+            }
+            Geometry::LineString(l) => (Kind::Line, vec![&l[..]]),
+            Geometry::MultiLineString(m) => (Kind::Line, m.iter().map(|l| &l[..]).collect()),
+            Geometry::Point(p) => (Kind::Point, vec![std::slice::from_ref(p)]),
+            Geometry::MultiPoint(ps) => (Kind::Point, ps.iter().map(std::slice::from_ref).collect()),
+            Geometry::Empty => continue,
+        };
+        let (Some(c), Some(text)) = (crate::labels::anchor(kind, &parts), crate::labels::text(&v.vector, attr, k))
+        else {
+            continue;
+        };
+        let (x, y) = at(c[0], c[1]);
+        let w = text.chars().count() as f32 * size * 0.55;
+        let point = kind == Kind::Point;
+        let x0 = if point { x + 2.5 } else { x - w / 2.0 };
+        if !placed.take(egui::Rect::from_min_size(egui::pos2(x0, y - size / 2.0), egui::vec2(w, size))) {
+            continue;
+        }
+        let (tx, anchor) = if point { (x + 2.5, Anchor::Start) } else { (x, Anchor::Middle) };
+        let ty = y + size * 0.35;
+        let halo = Color32::from_white_alpha(230);
+        let d = size * 0.07;
+        for (dx, dy) in [(-d, -d), (d, -d), (-d, d), (d, d)] {
+            out.push(Shape::Text { x: tx + dx, y: ty + dy, size, text: text.clone(), anchor, colour: halo, up: false });
+        }
+        out.push(Shape::Text { x: tx, y: ty, size, text, anchor, colour: INK, up: false });
     }
 }
 
@@ -1525,12 +1574,33 @@ mod tests {
             coloring: classes(),
             names: Vec::new(),
             caption: String::new(),
-            vectors: vec![Vectors { vector: Arc::new(v), colours: vec![magenta; 3], fill: 0.2, width: 1.0 }],
+            vectors: vec![Vectors {
+                vector: Arc::new(v),
+                colours: vec![magenta; 3],
+                fill: 0.2,
+                width: 1.0,
+                labels: None,
+                label_size: 6.0,
+            }],
             rasters: Vec::new(),
         };
         let l = Layout { width_mm: 120.0, columns: 1, legend: false, ..Default::default() };
         let d = lay_out(std::slice::from_ref(&a), &l, 2.0).unwrap();
         let svg = d.svg(120.0);
+        // labelled by an attribute: its values drawn, each over its halo
+        let mut named = a.clone();
+        let mut v = (*named.vectors[0].vector).clone();
+        v.attributes = vec![(
+            "name".into(),
+            terraflux_raster::vector::Column::Texts(vec!["plot".into(), "road".into(), "well".into()]),
+        )];
+        named.vectors[0].vector = Arc::new(v);
+        named.vectors[0].labels = Some("name".into());
+        let labelled = lay_out(std::slice::from_ref(&named), &l, 2.0).unwrap().svg(120.0);
+        for t in ["plot", "road", "well"] {
+            assert_eq!(labelled.matches(&format!(">{t}</text>")).count(), 5, "{t} and its halo: {labelled}");
+        }
+        assert_eq!(svg.matches("</text>").count() + 15, labelled.matches("</text>").count());
         // clipped to the map, and the inset to its box; the hole by the even-odd rule
         assert_eq!(svg.matches("<clipPath ").count(), 2, "{svg}");
         assert!(svg.contains("fill-rule=\"evenodd\"") && svg.contains("stroke=\"#ff00ff\""));

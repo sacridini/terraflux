@@ -30,6 +30,7 @@ pub mod files_view;
 pub mod guide;
 pub mod handoff;
 pub mod histogram;
+pub mod labels;
 pub mod legend_view;
 pub mod llm;
 pub mod logo;

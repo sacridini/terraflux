@@ -268,3 +268,26 @@ fn the_viewer_draws_vectors() {
     settle(&mut h, &view);
     render(&mut h, "over-map");
 }
+
+/// The labels of a prepared layer: a point per feature worked out with it, in cells, and the features in a box found.
+#[test]
+fn a_layer_knows_where_its_features_are_labelled() {
+    let v = Arc::new(Vector {
+        geometries: vec![
+            Geometry::Polygon(vec![square(0.0, 0.0, 4.0)]),
+            Geometry::LineString(vec![[10.0, 0.0], [20.0, 0.0]]),
+            Geometry::Point([30.0, 5.0]),
+            Geometry::Empty,
+        ],
+        attributes: vec![("name".into(), Column::Texts(vec!["a".into(), "b".into(), "c".into(), "d".into()]))],
+        crs: None,
+    });
+    let mut grid = terraflux_raster::Grid::new(64, 64);
+    grid.transform = [0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+    let layer = prepare(&v, &grid).unwrap();
+    assert_eq!(layer.anchor(0), Some([2.0, 2.0]));
+    assert_eq!(layer.anchor(1), Some([15.0, 0.0]));
+    assert_eq!(layer.anchor(2), Some([30.0, 5.0]));
+    assert_eq!(layer.anchor(3), None);
+    assert_eq!(layer.within([9.0, -1.0], [31.0, 6.0]), vec![1, 2]);
+}

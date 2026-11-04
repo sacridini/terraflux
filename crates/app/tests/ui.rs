@@ -4263,3 +4263,60 @@ fn the_histogram_of_a_map() {
     assert!(h.query_by_label_contains("from a sample").is_none());
     shot(&mut h, "14f-histogram");
 }
+
+/// The labels of a vector layer pinned over a map: by an attribute of its features, drawn over them (two plots,
+/// two labels), none when the layer is labelled by nothing, and kept in the layer's style.
+#[test]
+fn the_labels_of_a_vector_layer() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    let g = terraflux_gdal::Dataset::open(data("sibuyan_landuse.tif")).unwrap().meta.grid.clone();
+    let t = g.transform;
+    let (w, ht) = (g.width as f64 * t[1], g.height as f64 * -t[5]);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        let square = |a: f64, b: f64| {
+            let (x0, y0, x1, y1) = (t[0] + w * a, t[3] - ht * b, t[0] + w * (a + 0.3), t[3] - ht * (b - 0.3));
+            terraflux_raster::vector::Geometry::Polygon(vec![vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]])
+        };
+        let v = terraflux_raster::vector::Vector {
+            geometries: vec![square(0.1, 0.5), square(0.55, 0.9)],
+            attributes: vec![
+                ("area".into(), terraflux_raster::vector::Column::Numbers(vec![12.5, 3.0])),
+                ("use".into(), terraflux_raster::vector::Column::Texts(vec!["forest".into(), "pasture".into()])),
+            ],
+            crs: g.geo.wkt.clone(),
+        };
+        let gpkg = tmp("labels-plots.gpkg");
+        let _ = std::fs::remove_file(&gpkg);
+        terraflux_gdal::write_vector(&gpkg, "plots", &v).unwrap();
+        terraflux_app::builder::add(s, &r, "vector.read", &[("path", gpkg.to_string_lossy().into_owned().into())])
+            .unwrap();
+        let mut layer = terraflux_app::builder::Layer::new("vector_read", "vector");
+        layer.style.labels = Some("use".into());
+        s.preview_layers = vec![layer];
+        s.preview = Some(("raster_read".into(), "raster".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("raster_read", "raster").is_some() && s.value_of("vector_read", "vector").is_some()
+    });
+    h.run_steps(4);
+    drawn(&mut h);
+    let placed = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().preview_view.vectors.labels_placed;
+    assert_eq!(placed(&h), 2, "the labels placed");
+    shot(&mut h, "14g-labels");
+    // by a number: the same two features, labelled
+    h.state_mut().session.as_mut().unwrap().preview_layers[0].style.labels = Some("area".into());
+    h.run_steps(3);
+    assert_eq!(placed(&h), 2);
+    // by nothing: none
+    h.state_mut().session.as_mut().unwrap().preview_layers[0].style.labels = None;
+    h.run_steps(3);
+    assert_eq!(placed(&h), 0);
+}

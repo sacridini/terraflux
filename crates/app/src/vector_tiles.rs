@@ -38,16 +38,19 @@ pub struct Style {
     /// The lines' and the polygons' outlines' width, pixels (0: polygons without outline); points are a circle of
     /// 2 + width pixels across.
     pub width: f32,
+    /// The attribute whose values label the features (none: no labels), and the labels' size, points.
+    pub labels: Option<String>,
+    pub label_size: f32,
 }
 
 impl Default for Style {
     fn default() -> Self {
-        Style { colour: crate::theme::accent(), by: None, fill: 0.2, width: 1.2 }
+        Style { colour: crate::theme::accent(), by: None, fill: 0.2, width: 1.2, labels: None, label_size: 11.0 }
     }
 }
 
 impl Style {
-    /// As a Plot keeps it: `{ colour = "#rrggbbaa", by, fill, width }`.
+    /// As a Plot keeps it: `{ colour = "#rrggbbaa", by, fill, width, labels, label_size }`.
     pub fn to_json(&self) -> serde_json::Value {
         let [r, g, b, a] = self.colour.to_array();
         let mut o = serde_json::json!({
@@ -57,6 +60,10 @@ impl Style {
         });
         if let Some(by) = &self.by {
             o["by"] = by.clone().into();
+        }
+        if let Some(l) = &self.labels {
+            o["labels"] = l.clone().into();
+            o["label_size"] = self.label_size.into();
         }
         o
     }
@@ -80,6 +87,8 @@ impl Style {
             by: v.get("by").and_then(|b| b.as_str()).map(String::from),
             fill: number("fill", d.fill),
             width: number("width", d.width),
+            labels: v.get("labels").and_then(|b| b.as_str()).map(String::from),
+            label_size: number("label_size", d.label_size),
         }
     }
 
@@ -122,6 +131,8 @@ pub struct Layer {
     runs: Vec<[f64; 4]>,
     run_of: Vec<u32>,
     tree: RTree<GeomWithData<Rectangle<[f64; 2]>, u32>>,
+    /// Where each feature is labelled, cells ([`crate::labels::anchor`]).
+    anchors: Vec<Option<[f64; 2]>>,
     /// The box of every feature, cells.
     pub bounds: Option<[f64; 4]>,
 }
@@ -219,7 +230,14 @@ pub fn prepare(v: &Arc<Vector>, grid: &Grid) -> Result<Layer, String> {
         }
     }
     run_of.push(runs.len() as u32);
-    Ok(Layer { vector: v.clone(), features, parts, xy, runs, run_of, tree, bounds })
+    let mut layer = Layer { vector: v.clone(), features, parts, xy, runs, run_of, tree, anchors: Vec::new(), bounds };
+    layer.anchors = (0..layer.features.len())
+        .map(|k| {
+            let (kind, parts) = layer.shape(k)?;
+            crate::labels::anchor(kind, &parts)
+        })
+        .collect();
+    Ok(layer)
 }
 
 impl Layer {
@@ -230,6 +248,24 @@ impl Layer {
         let parts =
             (f.first..f.last).map(|i| &self.xy[self.parts[i as usize] as usize..self.parts[i as usize + 1] as usize]);
         Some((f.kind, parts.collect()))
+    }
+
+    /// A feature's kind.
+    pub fn kind(&self, k: usize) -> Option<Kind> {
+        self.features.get(k).map(|f| f.kind)
+    }
+
+    /// Where a feature is labelled, cells.
+    pub fn anchor(&self, k: usize) -> Option<[f64; 2]> {
+        self.anchors.get(k).copied().flatten()
+    }
+
+    /// The features whose boxes meet a rectangle of cells (corners), in their order.
+    pub fn within(&self, a: [f64; 2], b: [f64; 2]) -> Vec<usize> {
+        let env = AABB::from_corners(a, b);
+        let mut found: Vec<usize> = self.tree.locate_in_envelope_intersecting(&env).map(|g| g.data as usize).collect();
+        found.sort_unstable();
+        found
     }
 
     /// The box of a feature in cells (`[x0, y0, x1, y1]`); none when it has no vertex.
@@ -512,6 +548,8 @@ pub struct VectorTiles {
     workers: Option<Workers>,
     asked: HashSet<Key>,
     clock: u64,
+    /// The labels placed by the last frame.
+    pub labels_placed: usize,
 }
 
 /// A grid's key: its geotransform and coordinate system.
@@ -685,6 +723,15 @@ impl VectorTiles {
                 }
             }
         }
+        // the labels over the tiles, the topmost layer's placed first
+        let mut ready: Vec<(&Overlay, Arc<Layer>)> = Vec::new();
+        for o in overlays.iter().filter(|o| o.style.labels.is_some()) {
+            if let Ok(Some(l)) = self.layer(ctx, &o.vector, grid) {
+                ready.push((o, l));
+            }
+        }
+        let layers: Vec<(&Overlay, &Layer)> = ready.iter().map(|(o, l)| (*o, &**l)).collect();
+        self.labels_placed = crate::labels::draw(painter, cam, &layers, &mut crate::labels::Placed::default());
         wanted.sort_by(|a, b| a.0.total_cmp(&b.0));
         let workers = self.workers.as_ref().unwrap();
         let started = workers.started.lock().unwrap().clone();
@@ -741,5 +788,30 @@ impl VectorTiles {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_style_keeps_its_labels_in_a_plot() {
+        let s = Style { by: Some("use".into()), labels: Some("name".into()), label_size: 14.0, ..Style::default() };
+        let json = s.to_json();
+        assert_eq!(json["labels"], "name");
+        assert_eq!(Style::from_json(&json), s);
+        // no labels: none said, none read
+        let plain = Style::default();
+        assert!(plain.to_json().get("labels").is_none());
+        assert_eq!(Style::from_json(&plain.to_json()), plain);
+    }
+
+    #[test]
+    fn a_style_of_an_older_plot_has_no_labels() {
+        let old = serde_json::json!({ "colour": "#112233ff", "fill": 0.5, "width": 2.0, "by": "use" });
+        let s = Style::from_json(&old);
+        assert_eq!((s.labels, s.label_size), (None, Style::default().label_size));
+        assert_eq!((s.fill, s.width, s.by.as_deref()), (0.5, 2.0, Some("use")));
     }
 }

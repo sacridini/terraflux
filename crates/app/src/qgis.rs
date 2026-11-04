@@ -1088,7 +1088,13 @@ mod tests {
             ],
             crs: None,
         };
-        let one = crate::vector_tiles::Style { colour: Color32::from_rgb(10, 20, 30), by: None, fill: 0.5, width: 2.0 };
+        let one = crate::vector_tiles::Style {
+            colour: Color32::from_rgb(10, 20, 30),
+            by: None,
+            fill: 0.5,
+            width: 2.0,
+            ..Default::default()
+        };
         let plain = VectorOptions::default();
         let r = styled_renderer("Polygon", &v, &one, &plain);
         assert!(r.contains("type=\"singleSymbol\"") && r.contains("value=\"10,20,30,128\""), "{r}");
@@ -1102,7 +1108,7 @@ mod tests {
         let rgb = |c: Color32| format!("{},{},{},255", c.r(), c.g(), c.b());
         assert!(r.contains(&rgb(colours[0])) && r.contains(&rgb(colours[1])));
         // by a range of numbers: ranges along the ramp
-        let by_area = crate::vector_tiles::Style { by: Some("area".into()), ..one };
+        let by_area = crate::vector_tiles::Style { by: Some("area".into()), ..one.clone() };
         let r = styled_renderer("Line", &v, &by_area, &plain);
         assert!(r.contains("type=\"graduatedSymbol\" attr=\"area\""), "{r}");
         assert_eq!(r.matches("<range ").count(), RANGES);
@@ -1159,6 +1165,7 @@ mod tests {
             by: Some("use".into()),
             fill: 0.5,
             width: 2.0,
+            ..Default::default()
         };
         let pick = |name: &str, value: Value, style, options| Pick {
             name: name.into(),

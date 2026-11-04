@@ -3912,6 +3912,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 colours,
                                 fill: style.fill,
                                 width: style.width * 0.6,
+                                labels: style.labels.clone(),
+                                label_size: style.label_size * 0.6,
                             })
                         })
                         .collect();
