@@ -28,6 +28,10 @@ minor versions.
   (and *Table* for features shown alone): sorted and filtered as the other tables, copied tab-separated or saved
   as CSV. A row clicked selects its feature, outlined on the map and zoomed to; a feature clicked on the map
   selects its row.
+- Viewer: **the histogram of a map** under its legend: its values in 60 bars coloured by the ramp, with the
+  minimum, maximum, mean and the cells with and without a value, worked out in a thread (from a sample of about
+  4 million cells when the map is larger). A layer's settings have a *histogram* fold, and the legend of a map of
+  classes has a bar under each class.
 
 ## [1.35.0] - 2026-11-04
 

@@ -176,6 +176,11 @@ scenario, another date, the observed map) or another layer of the same stack. Ch
 
 Both maps are drawn in the same colours, so that the same value is the same colour.
 
+### The histogram of a map
+
+Under the legend of a map of values, its histogram: the values in bars coloured as the map is, with the
+minimum, maximum and mean, and how many cells have a value. A layer's settings have one too, folded.
+
 ### The attributes of vector features
 
 The *table* button of a vector layer's row in the Layers opens its attributes under the map: a row per feature,

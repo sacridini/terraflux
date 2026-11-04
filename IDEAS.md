@@ -1073,6 +1073,13 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    feição no mapa (`MapView::selected`, o contorno na cor de destaque) e leva a vista até ela; a feição clicada no
    mapa (`MapView::feature_clicked`) seleciona a linha e rola até ela. Testes: os de `attribute_table.rs`,
    `the_attribute_table_of_a_vector_layer`. Falta: várias feições selecionadas; o destaque nas vistas lado a lado.
+   **O histograma feito** (Unreleased, por um sub-agente): `histogram.rs`. Sob a legenda de um mapa de valores, 60
+   barras entre os limites da colorização, na cor da rampa, com mínimo, máximo, média e as células com e sem valor
+   (o cursor diz a faixa e a contagem de uma barra); feito numa thread e guardado pela fonte (`Histograms`, como
+   os `Looks`), de uma amostra de até 4 milhões de células ("from a sample of N cells"). Nos Layers, um
+   *histogram* recolhido em cada camada; a legenda de classes com uma barra por classe. Testes: os de
+   `histogram.rs`, `the_histogram_of_a_map`. Falta: as barras em escala logarítmica quando a cor é; o nodata que
+   não é NaN de um raster em disco conta como valor (como no `look_of`).
 
 ### Em aberto
 
