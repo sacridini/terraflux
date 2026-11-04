@@ -27,6 +27,7 @@ pub mod editor_view;
 pub mod eval;
 pub mod export_view;
 pub mod figure;
+pub mod frame;
 pub mod files_view;
 pub mod guide;
 pub mod handoff;

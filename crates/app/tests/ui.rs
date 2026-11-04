@@ -3015,6 +3015,82 @@ fn a_layers_band_and_palette_are_kept_in_its_plot() {
     assert_eq!(h.state().session.as_ref().unwrap().plot_open.as_deref(), Some("plot_land"));
 }
 
+/// A Plot's saved view: kept from what the Viewer has in view, left alone by Update the plot, brought back when the
+/// Plot is opened, and forgotten.
+#[test]
+fn a_plot_keeps_the_frame_of_its_map() {
+    use terraflux_graph::Node;
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.nodes = vec![
+            Node::new("land", "raster.read").param("path", data("sibuyan_landuse.tif").to_string_lossy().as_ref()),
+        ];
+        s.source.plots = vec![terraflux_graph::Plot {
+            id: "framed".into(),
+            layers: vec![terraflux_graph::PlotLayer::new("land.raster")],
+            ..Default::default()
+        }];
+        s.edited();
+        assert!(s.issues.is_empty(), "{:?}", s.issues);
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("land", "raster").is_some()
+    });
+    open_plot(&mut h, "framed");
+    drawn(&mut h);
+    h.run_steps(3);
+    // a part of the map in view
+    let (w, ht) = {
+        let s = h.state().session.as_ref().unwrap();
+        let g = s.preview_view.shown_grid().expect("the map is drawn");
+        (g.width as f32, g.height as f32)
+    };
+    let part = [w * 0.25, ht * 0.25, w * 0.5, ht * 0.5];
+    h.state_mut().session.as_mut().unwrap().preview_view.zoom_to(part);
+    h.run_steps(3);
+    let seen =
+        |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().preview_view.visible().map(|(_, b)| b).unwrap();
+    let before = seen(&h);
+    assert!(before[2] - before[0] < w * 0.6, "zoomed in: {before:?}");
+    // kept in the Plot
+    h.get_by_label("Plot: framed").click();
+    h.run_steps(2);
+    h.get_by_label("Keep this view in the plot").click();
+    h.run_steps(2);
+    let saved = {
+        let s = h.state().session.as_ref().unwrap();
+        s.source.plot("framed").unwrap().view.clone().expect("the saved view")
+    };
+    let [x0, y0, x1, y1] = saved.extent;
+    assert!(x1 > x0 && y1 > y0, "{saved:?}");
+    // the map fitted again, the Plot opened: the view is back on the frame
+    h.state_mut().session.as_mut().unwrap().preview_view.fit();
+    h.run_steps(3);
+    assert!(seen(&h)[2] - seen(&h)[0] > w * 0.9, "the whole map");
+    open_plot(&mut h, "framed");
+    h.run_steps(4);
+    let after = seen(&h);
+    for (a, b) in after.iter().zip(&before) {
+        assert!((a - b).abs() <= 1.5, "back on the frame: {after:?} was {before:?}");
+    }
+    // Update the plot leaves the frame as it is
+    h.get_by_label("Plot: framed").click();
+    h.run_steps(2);
+    h.get_by_label("Update the plot").click();
+    h.run_steps(2);
+    assert_eq!(h.state().session.as_ref().unwrap().source.plot("framed").unwrap().view, Some(saved));
+    // forgotten
+    h.get_by_label("Plot: framed").click();
+    h.run_steps(2);
+    h.get_by_label("Forget the saved view").click();
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().source.plot("framed").unwrap().view.is_none());
+}
+
 /// A table plotted (in the Viewer, as the chart its settings ask) and written to a file.
 #[test]
 fn a_table_is_plotted_and_written() {

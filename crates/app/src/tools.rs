@@ -1638,6 +1638,7 @@ fn all() -> Vec<Value> {
                 },
                 "compare": { "description": "A map compared with the top map: node.port, or { with, how, also } (how: curtain, side by side (default) or difference; also: up to 2 more maps (node.port) side by side, 4 views in all that move together; band: the band of the stack or the step of the loop `with` is (from 0, default the first); also_bands: the same for each map of also (a number each, 0 or null for the first); layers: side by side, the layers each view draws instead of the Plot's, a list per view (first the view of `with`, then those of `also`) in the form of the Plot's layers but without palette, an empty list for a view that draws the Plot's layers)." },
                 "chart": { "type": "object", "description": "A table's chart: { kind (bars, lines, points, boxes), x (a column), y (columns, comma-separated), by (the column of the groups) }." },
+                "view": { "type": "object", "description": "The saved view, the frame the plot is drawn at: { extent: [west, south, east, north] } in the coordinates of its map (the map's coordinate system). The Viewer opens on it, and the figure, the export (export_plot, `terraflux plot`) and the Document show only that part of the map. A plot set again without `view` loses its frame; in the Viewer, *Keep this view in the plot* sets it from what is in view." },
                 "note": { "type": "string", "description": "What it shows and why (the record)." },
                 "why": { "type": "string" },
             }),
@@ -2413,7 +2414,7 @@ fn edit_container(m: &mut Model, r: &Registry, a: &Value) -> Reply {
 
 /// A Plot added or replaced ([`terraflux_graph::Plot`]): its layers read outputs of top-level nodes (or inputs).
 fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
-    use terraflux_graph::{Plot, PlotChart, PlotCompare, PlotLayer};
+    use terraflux_graph::{Plot, PlotChart, PlotCompare, PlotLayer, PlotView};
     let id = text(a, "id")?;
     if !valid_id(id) {
         return Err(format!("{id:?} is not a valid id (a letter, then letters, digits, _ or -)"));
@@ -2587,6 +2588,19 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
         let s = |k: &str| c.get(k).and_then(Value::as_str).map(String::from);
         PlotChart { kind: s("kind"), x: s("x"), y: s("y"), by: s("by") }
     });
+    let view = match a.get("view") {
+        None | Some(Value::Null) => None,
+        Some(v) => {
+            let list = v.get("extent").and_then(Value::as_array);
+            let nums: Option<Vec<f64>> = list.and_then(|l| l.iter().map(Value::as_f64).collect());
+            match nums.as_deref() {
+                Some(&[w, s, e, n]) => Some(
+                    PlotView::new(w, s, e, n).ok_or("view's extent needs an area: west < east and south < north")?,
+                ),
+                _ => return Err("view is { extent: [west, south, east, north] }, four numbers".into()),
+            }
+        }
+    };
     let plot = Plot {
         id: id.to_string(),
         title: opt_text(a, "title").map(String::from),
@@ -2595,9 +2609,13 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
         chart,
         note: opt_text(a, "note").map(String::from),
         why: opt_text(a, "why").map(String::from),
+        view,
     };
     let shown: Vec<&str> = plot.layers.iter().map(|l| l.from.as_str()).collect();
-    let said = format!("{} ({})", id, shown.join(", "));
+    let mut said = format!("{} ({})", id, shown.join(", "));
+    if plot.view.is_some() {
+        said.push_str(", with a saved view");
+    }
     match m.plots.iter_mut().find(|p| p.id == id) {
         Some(p) => {
             *p = plot;
@@ -2776,6 +2794,27 @@ mod plot_tests {
         m.nodes.push(Node::new("land", "nlm.random").param("rows", 10).param("cols", 10));
         m.nodes.push(Node::new("forest", "raster.reclassify").input("map", "land.map").param("rules", "1 -> 1"));
         m
+    }
+
+    /// A Plot's saved view set by set_plot: four numbers with an area, kept in the file, lost when set again without.
+    #[test]
+    fn a_plot_keeps_its_view() {
+        let r = terraflux_ops::Registry::standard();
+        let dir = std::path::Path::new(".");
+        let mut m = model();
+        let a = json!({ "id": "cover", "layers": ["land.map"], "view": { "extent": [10.0, 20.0, 30, 40] } });
+        let said = super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
+        assert!(said.contains("saved view"), "{said}");
+        assert_eq!(m.plot("cover").unwrap().view, terraflux_graph::PlotView::new(10.0, 20.0, 30.0, 40.0));
+        let shown = super::show_model(&m, dir, &r).unwrap();
+        assert!(shown.contains("extent"), "{shown}");
+        for bad in [json!({ "extent": [1, 2, 3] }), json!({ "extent": [5, 0, 5, 9] }), json!({ "extent": "all" })] {
+            let a = json!({ "id": "cover", "layers": ["land.map"], "view": bad });
+            assert!(super::edit("set_plot", &mut m, &r, dir, &a).is_err(), "{bad}");
+        }
+        let a = json!({ "id": "cover", "layers": ["land.map"] });
+        super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
+        assert!(m.plot("cover").unwrap().view.is_none());
     }
 
     /// A Plot added and replaced by set_plot, its references checked; removed by remove_plot; no view.plot node.

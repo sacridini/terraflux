@@ -594,6 +594,15 @@ pub fn check(model: &Model, catalog: &dyn Catalog) -> Vec<Issue> {
         } else if !ids.insert(p.id.as_str()) {
             c.error(&format!("plots.{}", p.id), format!("two plots are named {:?}", p.id));
         }
+        if let Some(v) = &p.view {
+            let [x0, y0, x1, y1] = v.extent;
+            if ![x0, y0, x1, y1].iter().all(|x| x.is_finite()) || x1 <= x0 || y1 <= y0 {
+                c.error(
+                    &format!("plots.{}.view", p.id),
+                    "the view's extent is west, south, east, north, with an area".into(),
+                );
+            }
+        }
         for (i, l) in p.layers.iter().enumerate() {
             c.check_ref(&format!("plots.{}.layers[{i}]", p.id), &l.from, Type::Any, &scopes, false);
             if let Some(m) = &l.minus {
@@ -767,6 +776,20 @@ from = "sim.maps"
         assert!(e.iter().any(|x| x.contains("plots.maps.compare.layers[0][0]")), "{e:?}");
         assert!(e.iter().any(|x| x.contains("plots.maps.compare.layers[1][0].minus")), "{e:?}");
         assert!(e.iter().any(|x| x.contains("two plots are named")), "{e:?}");
+        // a saved view with an area
+        let framed = |extent: &str| {
+            format!(
+                "{GOOD}
+[[plots]]
+id = \"maps\"
+layers = [{{ from = \"$t0\" }}]
+view = {{ extent = {extent} }}
+"
+            )
+        };
+        assert!(errors(&model(&framed("[0.0, 0.0, 5.0, 5.0]"))).is_empty());
+        let e = errors(&model(&framed("[5.0, 0.0, 5.0, 5.0]")));
+        assert!(e.iter().any(|x| x.contains("plots.maps.view")), "{e:?}");
     }
 
     /// A stack where a port takes one map: the node runs once per layer, its maps a stack, its tables a table,

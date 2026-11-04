@@ -23,6 +23,8 @@ pub struct Made {
     pub skipped: Vec<String>,
     /// Said when the Plot compares its map with another (only the map is drawn).
     pub compare: Option<String>,
+    /// Said when the Plot has a saved view (only that part of the map is drawn).
+    pub framed: Option<String>,
 }
 
 /// What a layer is, once its value is read.
@@ -151,8 +153,18 @@ fn made(m: &Model, plot: &Plot, value: &dyn Fn(&str) -> Option<Value>) -> Result
             c.how.as_deref().filter(|h| !h.trim().is_empty()).unwrap_or("side by side")
         )
     });
-    let panel = Panel { source, coloring, names, caption: String::new(), vectors, rasters };
-    Ok(Made { panel, drawn, skipped, compare })
+    let mut panel = Panel { source, coloring, names, caption: String::new(), vectors, rasters };
+    // the saved view: only that part of the map (the vectors and the other maps follow its grid)
+    let framed = match &plot.view {
+        Some(v) if crate::frame::cells_of(panel.source.grid(), v.extent).is_some() => {
+            panel = crate::frame::crop_panel(&panel, v.extent)?;
+            let (w, h) = panel.source.size();
+            Some(format!("the plot's saved view: only that part of the map is drawn ({w} x {h} cells)"))
+        }
+        Some(_) => Some("the plot's saved view is outside the map: the whole map is drawn".to_string()),
+        None => None,
+    };
+    Ok(Made { panel, drawn, skipped, compare, framed })
 }
 
 /// The Plot written to `path` (a picture of the map, `scale` pixels to a cell); what to tell of it: the file, its
@@ -177,6 +189,9 @@ pub fn write(m: &Made, scale: usize, format: Format, path: &Path) -> Result<Stri
         s.push_str(&format!("\nNot drawn: {}", m.skipped.join("; ")));
     }
     if let Some(c) = &m.compare {
+        s.push_str(&format!("\nNote: {c}"));
+    }
+    if let Some(c) = &m.framed {
         s.push_str(&format!("\nNote: {c}"));
     }
     Ok(s)
@@ -309,6 +324,47 @@ mod tests {
         m.plots[0].layers.swap(0, 4);
         let made = panel_of(&m, "all", &|from| v.get(from).cloned()).unwrap();
         assert_eq!(made.panel.names.len(), 3);
+    }
+
+    #[test]
+    fn a_saved_view_draws_only_its_part() {
+        let (mut m, v) = setup();
+        let value = |from: &str| v.get(from).cloned();
+        let whole = panel_of(&m, "all", &value).unwrap();
+        assert!(whole.framed.is_none());
+        // columns 1 and 2, rows 2 and 3 of the 4 x 4 map (x 110 to 130, y 460 to 480)
+        m.plots[0].view = terraflux_graph::PlotView::new(110.0, 460.0, 130.0, 480.0);
+        let cut = panel_of(&m, "all", &value).unwrap();
+        assert!(cut.framed.as_deref().is_some_and(|t| t.contains("saved view") && t.contains("2 x 2")));
+        assert_eq!(cut.panel.source.size(), (2, 2));
+        assert_eq!(cut.panel.source.grid().transform, [110.0, 10.0, 0.0, 480.0, 0.0, -10.0]);
+        // the layers drawn and the vectors are the same
+        assert_eq!(cut.drawn, whole.drawn);
+        assert_eq!(cut.panel.vectors.len(), 1);
+        // the picture is that part of the whole one, the polygon (x 120 to 140) in its column
+        let (a, b) = (
+            crate::export_view::picture(&whole.panel, 1).unwrap(),
+            crate::export_view::picture(&cut.panel, 1).unwrap(),
+        );
+        assert_eq!((a.width(), b.width(), b.height()), (4, 2, 2));
+        for y in 0..2 {
+            for x in 0..2 {
+                assert_eq!(b.pixel(x, y), a.pixel(x + 1, y + 2), "({x}, {y})");
+            }
+        }
+        assert_ne!(b.pixel(0, 0), b.pixel(1, 0), "the polygon covers only the second column");
+        // written: the picture is the part's size, and the file says so
+        let dir = std::env::temp_dir().join(format!("terraflux-plot-view-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("cut.png");
+        let said = write(&cut, 2, Format::Png, &png).unwrap();
+        assert!(said.contains("4 x 4 px") && said.contains("saved view"), "{said}");
+        let _ = std::fs::remove_dir_all(&dir);
+        // a view away from the map: the whole map, and it says so
+        m.plots[0].view = terraflux_graph::PlotView::new(0.0, 0.0, 5.0, 5.0);
+        let away = panel_of(&m, "all", &value).unwrap();
+        assert_eq!(away.panel.source.size(), (4, 4));
+        assert!(away.framed.unwrap().contains("outside"));
     }
 
     #[test]

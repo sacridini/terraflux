@@ -2306,6 +2306,10 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
     for l in cmp.layers.iter_mut().chain(cmp.more.iter_mut().filter_map(|b| b.layers.as_mut())) {
         layers_follow(l, &s.source, None);
     }
+    // (the frame of a Plot just opened, or asked for: the view goes to it when the map is drawn)
+    if let Some(e) = s.plot_frame.take() {
+        shown.view.show_extent(e);
+    }
     let before = s.preview.clone();
     let hover = output(ui, s, r, &mut shown, "viewer");
     shown.view.rest_unless_drawn(ui.ctx());
@@ -2691,6 +2695,8 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
             Some(Beside { layers: view(1 + i), band, ..Beside::new(CompareWith::Output(n, q)) })
         })
         .collect();
+    // (its saved view: the Viewer is brought to that frame when it is drawn)
+    s.plot_frame = p.view.as_ref().map(|v| v.extent);
     s.plot_open = Some(p.id.clone());
     s.ask_viewer = true;
 }
@@ -2814,6 +2820,8 @@ fn plot_of(
         chart: chart.or_else(|| was.and_then(|p| p.chart.clone())),
         note: was.and_then(|p| p.note.clone()),
         why: was.and_then(|p| p.why.clone()),
+        // (the frame is kept by its own buttons, not by updating the layers)
+        view: was.and_then(|p| p.view.clone()),
     }
 }
 
@@ -2888,6 +2896,44 @@ fn plots_menu(ui: &mut Ui, s: &mut Session, sh: &Shown, top: bool, salt: &str) {
                     s.edited();
                 }
                 ui.close();
+            }
+            // its saved view: the frame of the map (a box in its coordinates) that the Viewer opens on and the figure,
+            // the export and the Document show
+            let saved = s.source.plot(id).and_then(|p| p.view.clone());
+            let now = sh.view.visible().and_then(|(g, c)| {
+                let e = crate::frame::extent_of(g, c);
+                terraflux_graph::PlotView::new(e[0], e[1], e[2], e[3])
+            });
+            let keep = if saved.is_some() { "Update the saved view" } else { "Keep this view in the plot" };
+            if ui
+                .add_enabled(now.is_some(), egui::Button::new(keep))
+                .on_hover_text(
+                    "keep the frame of the map now in view (its centre and zoom, as a box of the map's coordinates) in                      the plot: the plot opens on it, and its figure, export and Document picture show only that part",
+                )
+                .clicked()
+            {
+                if let Some(p) = s.source.plots.iter_mut().find(|p| &p.id == id) {
+                    p.view = now.clone();
+                    s.edited();
+                }
+                ui.close();
+            }
+            if let Some(v) = &saved {
+                if ui.button("Go to the saved view").on_hover_text("bring the map back to the plot's frame").clicked() {
+                    s.plot_frame = Some(v.extent);
+                    ui.close();
+                }
+                if ui
+                    .button("Forget the saved view")
+                    .on_hover_text("the plot shows the whole map again")
+                    .clicked()
+                {
+                    if let Some(p) = s.source.plots.iter_mut().find(|p| &p.id == id) {
+                        p.view = None;
+                        s.edited();
+                    }
+                    ui.close();
+                }
             }
             if ui.button("Remove the plot").on_hover_text("the plot goes; the layers stay in the Viewer").clicked() {
                 s.source.plots.retain(|p| &p.id != id);
@@ -4181,6 +4227,17 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     && (figure || export)
                 {
                     let vectors = figure_vectors(s, &plot_vectors, &sh.layers, maps[k].grid());
+                    // the Plot open: its saved view, the part of the map the figure and the export show
+                    let frame = s
+                        .plot_open
+                        .as_deref()
+                        .and_then(|id| s.source.plot(id))
+                        .and_then(|p| p.view.as_ref())
+                        .map(|v| v.extent);
+                    let cut = |p: crate::figure::Panel| match frame {
+                        Some(e) => crate::frame::crop_panel(&p, e).unwrap_or(p),
+                        None => p,
+                    };
                     if export {
                         let panel = crate::figure::Panel {
                             source: maps[k].clone(),
@@ -4190,7 +4247,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             vectors: vectors.clone(),
                             rasters: rasters.clone(),
                         };
-                        s.export = Some(crate::export_view::Export::new(panel));
+                        s.export = Some(crate::export_view::Export::new(cut(panel)));
                     }
                     let panel =
                         |src: &Source, lk: &Look, legend: Option<&[terraflux_ops::legend::Class]>, caption: String| {
@@ -4200,14 +4257,14 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 }
                                 Coloring::Continuous { .. } => Vec::new(),
                             };
-                            crate::figure::Panel {
+                            cut(crate::figure::Panel {
                                 source: src.clone(),
                                 coloring: lk.coloring.clone(),
                                 names,
                                 caption,
                                 vectors: vectors.clone(),
                                 rasters: rasters.clone(),
-                            }
+                            })
                         };
                     let legend = legend_classes.as_deref();
                     let mut choices = vec![("this map".to_string(), vec![panel(&maps[k], l, legend, String::new())])];
@@ -4252,7 +4309,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 vectors: vectors.clone(),
                                 rasters: rasters.clone(),
                             };
-                            choices.push(("the difference of the two".into(), vec![p]));
+                            choices.push(("the difference of the two".into(), vec![cut(p)]));
                         }
                     }
                     if maps.len() > 1 && maps.len() <= 12 {

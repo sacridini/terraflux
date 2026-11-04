@@ -480,6 +480,15 @@ fn html_animation(v: &Value, alt: &str, width: usize, lang: Lang) -> Option<Stri
     ))
 }
 
+/// What a figure shows, from the values of the run: the part of the map its plot's saved view keeps, else the value.
+fn figure_value(values: Values, f: &crate::document::Figure) -> Option<Value> {
+    let v = values(&f.node, &f.port)?;
+    Some(match f.view {
+        Some(e) => crate::frame::crop_value(&v, e),
+        None => v,
+    })
+}
+
 /// The comparison a figure asks for (its plot's `compared`), from the values of the run; none without one.
 fn figure_compared(
     values: Values,
@@ -489,6 +498,11 @@ fn figure_compared(
 ) -> Option<Compared> {
     let (n, p, how) = f.compared.as_ref()?;
     let (a, b) = (values(&f.node, &f.port)?, values(n, p)?);
+    // (the saved view of its plot: the same part of both)
+    let (a, b) = match f.view {
+        Some(e) => (crate::frame::crop_value(&a, e), crate::frame::crop_value(&b, e)),
+        None => (a, b),
+    };
     let name = |node: &str, port: &str| From::Node { node: node.into(), port: port.into() }.text(first);
     compared(&a, &b, [name(&f.node, &f.port), name(n, p)], how == "difference", FIGURE / 2, lang)
 }
@@ -681,7 +695,7 @@ impl Html<'_> {
         let lang = self.extras.lang;
         let img = match figure_compared(self.values, self.first, f, lang) {
             Some(c) => html_compared(&c, lang),
-            None => html_value((self.values)(&f.node, &f.port), &f.caption, FIGURE, FIGURE * 3 / 4, lang)
+            None => html_value(figure_value(self.values, f), &f.caption, FIGURE, FIGURE * 3 / 4, lang)
                 .unwrap_or_else(|| format!(r#"<p class="missing">{}</p>"#, lang.t("Not run."))),
         };
         let with = f
@@ -1630,7 +1644,7 @@ impl PdfReport<'_> {
     fn figure(&mut self, f: &crate::document::Figure, indent: f32) {
         let lang = self.extras.lang;
         self.pdf.space(4.0);
-        let value = (self.values)(&f.node, &f.port);
+        let value = figure_value(self.values, f);
         if let Some(c) = figure_compared(self.values, self.first, f, lang) {
             // the maps compared in a row, what their difference says and its key
             self.pdf.strip(&c.pics, if c.pics.len() > 2 { 150.0 } else { 200.0 }, indent);
@@ -2038,6 +2052,46 @@ mod tests {
         assert!(pdf.page.contains("(of) Tj") || pdf.page.contains("(step 50 of 50) Tj"), "{}", pdf.page);
         // a single map is not a series
         assert!(series_frames(&map(3), FRAMES, Lang::En).is_none());
+    }
+
+    /// A figure of a Plot with a saved view shows only that part of the map, on the page and compared.
+    #[test]
+    fn a_figure_shows_the_saved_view_of_its_plot() {
+        use std::sync::Arc;
+        let mut g = terraflux_raster::Grid::new(8, 6);
+        g.transform = [0.0, 10.0, 0.0, 60.0, 0.0, -10.0];
+        let m = Value::Map(terraflux_ops::Map::new(Arc::new(g), (0..48).map(|i| (i % 5) as f64).collect()));
+        let values = |_: &str, _: &str| Some(m.clone());
+        let mut f = crate::document::Figure {
+            plot: "p".into(),
+            node: "a".into(),
+            port: "map".into(),
+            step_port: "map".into(),
+            caption: "A".into(),
+            number: 1,
+            compared: None,
+            view: None,
+        };
+        let size = |f: &crate::document::Figure| match figure_value(&values, f) {
+            Some(Value::Map(m)) => (m.grid.width, m.grid.height),
+            _ => panic!("a map"),
+        };
+        assert_eq!(size(&f), (8, 6));
+        // x 20 to 50, y 10 to 40: columns 2 to 4, rows 2 to 4
+        f.view = Some([20.0, 10.0, 50.0, 40.0]);
+        assert_eq!(size(&f), (3, 3));
+        // the page picture is of that part (the cells of the picture are the map's, at most `side` across)
+        let Some(Visual { shown: Shown::Picture(p), .. }) = figure_value(&values, &f).and_then(|v| visual(&v, 100))
+        else {
+            panic!("a picture")
+        };
+        assert_eq!((p.width, p.height), (3, 3));
+        // compared with another map: both cut
+        f.compared = Some(("b".into(), "map".into(), "side by side".into()));
+        let first = |_: &str| None;
+        let c = figure_compared(&values, &first, &f, Lang::En).unwrap();
+        assert_eq!(c.pics.len(), 2);
+        assert!(c.pics.iter().all(|(p, _)| (p.width, p.height) == (3, 3)));
     }
 
     #[test]

@@ -445,6 +445,8 @@ pub struct MapView {
     shown_grid: Option<terraflux_raster::Grid>,
     /// The layers drawn with the map at the last frame: the maps and the vector layers.
     layers_drawn: (usize, usize),
+    /// A box (west, south, east, north) to bring the view to when the next map is drawn: a Plot's saved view.
+    frame: Option<[f64; 4]>,
 }
 
 /// How long a map takes to fade in over the one shown before it (a series' next step), seconds.
@@ -595,6 +597,12 @@ impl MapView {
         let (w, h) = ((cells[2] - cells[0]).abs().max(1e-3), (cells[3] - cells[1]).abs().max(1e-3));
         let zoom = (rect.width() / w).min(rect.height() / h).max(1e-6);
         self.set_camera(zoom, Vec2::new((cells[0] + cells[2]) / 2.0, (cells[1] + cells[3]) / 2.0));
+    }
+
+    /// The view on a box of the map's coordinates (west, south, east, north) when the map is drawn next, whichever
+    /// map and window size that is; kept until a map the box touches is drawn.
+    pub fn show_extent(&mut self, extent: [f64; 4]) {
+        self.frame = Some(extent);
     }
 
     /// The grid of the map drawn at the last frame.
@@ -1123,6 +1131,12 @@ impl MapView {
             self.zoom = (rect.width() / w as f32).min(rect.height() / h as f32).max(1e-6);
             self.center = Vec2::new(w as f32 / 2.0, h as f32 / 2.0);
             self.fitted = true;
+        }
+        // a Plot's saved view asked for: the view on that box (a box away from the map is let go)
+        if let Some(e) = self.frame.take()
+            && let Some(cells) = crate::frame::view_cells(source.grid(), e)
+        {
+            self.zoom_to(cells);
         }
         // a comparison: the curtain's handle (over the map, so that dragging it does not move the map), and the
         // other map's place on this one (none: of a coordinate system that cannot be carried to this one)

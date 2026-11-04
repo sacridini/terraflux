@@ -30,6 +30,27 @@ pub struct Plot {
     pub note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
+    /// The saved view: the part of the map the Plot is drawn at (the Viewer opens on it; the figure, the export and
+    /// the Document show only it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<PlotView>,
+}
+
+/// The frame of a Plot: a box in the coordinates of its map (not the window's pixels, so it does not depend on the
+/// size of the window the Viewer was in).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PlotView {
+    /// West, south, east, north.
+    pub extent: [f64; 4],
+}
+
+impl PlotView {
+    /// The frame of a box, whichever corners are given first; none when it has no area or is not a number.
+    pub fn new(a: f64, b: f64, c: f64, d: f64) -> Option<PlotView> {
+        let (x0, x1, y0, y1) = (a.min(c), a.max(c), b.min(d), b.max(d));
+        let ok = [x0, x1, y0, y1].iter().all(|v| v.is_finite()) && x1 > x0 && y1 > y0;
+        ok.then_some(PlotView { extent: [x0, y0, x1, y1] })
+    }
 }
 
 /// A layer of a Plot: an output (`node.port`) or an input (`$name`) of the model, and how it is drawn.
@@ -257,6 +278,7 @@ impl Model {
                 chart,
                 note: n.note.clone(),
                 why: n.why.clone(),
+                view: None,
             });
             notes.push(format!("node {:?}: a view.plot, kept now as the Plot {:?} (shown in the Viewer)", n.id, n.id));
         }
@@ -395,6 +417,26 @@ mod tests {
         assert_eq!(back.plots, m.plots);
         // a model without plots writes none
         assert!(!Model::new("none").to_toml().unwrap().contains("plots"));
+    }
+
+    #[test]
+    fn a_saved_view_is_kept_and_an_old_file_is_unchanged() {
+        let mut m = model();
+        m.plots_from_nodes();
+        // without a view the file has no key for it
+        let text = m.to_toml().unwrap();
+        assert!(!text.contains("view") && !text.contains("extent"), "{text}");
+        // with one it round trips
+        m.plots[1].view = PlotView::new(10.0, 20.0, 5.0, 2.5);
+        assert_eq!(m.plots[1].view, Some(PlotView { extent: [5.0, 2.5, 10.0, 20.0] }));
+        let text = m.to_toml().unwrap();
+        assert!(text.contains("extent"), "{text}");
+        let back = Model::from_toml(&text).unwrap();
+        assert_eq!(back.plots, m.plots);
+        assert_eq!(back.plots[0].view, None);
+        // a frame with no area is none
+        assert_eq!(PlotView::new(1.0, 1.0, 1.0, 5.0), None);
+        assert_eq!(PlotView::new(f64::NAN, 0.0, 1.0, 1.0), None);
     }
 
     #[test]

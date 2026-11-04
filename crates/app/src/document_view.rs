@@ -46,9 +46,19 @@ fn shown_map(v: &Value) -> Option<terraflux_ops::Map> {
     }
 }
 
-/// The image of a node's output (made the first time it is asked for), and what of the value it is.
-fn picture(ui: &Ui, s: &Session, node: &str, port: &str) -> Option<Result<(TextureHandle, Option<String>), Visual>> {
-    let v = s.value_of(node, port)?;
+/// The image of a node's output (made the first time it is asked for), and what of the value it is; of `view` (a
+/// Plot's saved view: west, south, east, north) only, when given.
+fn picture(
+    ui: &Ui,
+    s: &Session,
+    node: &str,
+    port: &str,
+    view: Option<[f64; 4]>,
+) -> Option<Result<(TextureHandle, Option<String>), Visual>> {
+    let mut v = s.value_of(node, port)?;
+    if let Some(e) = view {
+        v = crate::frame::crop_value(&v, e);
+    }
     if matches!(v, Value::Table(_)) {
         return visual(&v, 0).map(Err);
     }
@@ -62,7 +72,8 @@ fn picture(ui: &Ui, s: &Session, node: &str, port: &str) -> Option<Result<(Textu
             format!("{:?}{legend:?}", crate::builder::palette_of(s, node, port)).hash(&mut h);
             h.finish() as usize
         });
-    let key = (node.to_string(), port.to_string());
+    // (a part of a map is a picture of its own)
+    let key = (node.to_string(), view.map_or(port.to_string(), |e| format!("{port} {e:?}")));
     if let Some((k, t, of)) = PICS.with(|p| p.borrow().get(&key).cloned())
         && k == id
         && id != 0
@@ -136,8 +147,8 @@ fn weak(t: impl Into<String>) -> RichText {
 }
 
 /// A value shown: its image `w` points wide at most, a table's first rows, or words.
-fn shown(ui: &mut Ui, s: &Session, node: &str, port: &str, w: f32) {
-    match picture(ui, s, node, port) {
+fn shown(ui: &mut Ui, s: &Session, node: &str, port: &str, view: Option<[f64; 4]>, w: f32) {
+    match picture(ui, s, node, port, view) {
         None => {
             ui.label(weak("Not run.").italics().small());
         }
@@ -428,7 +439,7 @@ fn step_ui(ui: &mut Ui, s: &mut Session, r: &Registry, step: &Step, num: &str, n
         {
             ui.add_space(4.0);
             let w = if matches!(step.stage, Stage::Preparation) { 110.0 } else { 200.0 };
-            shown(ui, s, &node, &key, w);
+            shown(ui, s, &node, &key, None, w);
         }
         for f in &step.figures {
             figure_ui(ui, s, r, f, asked);
@@ -460,7 +471,7 @@ fn scroll_to(id: &str) -> bool {
 
 fn figure_ui(ui: &mut Ui, s: &mut Session, r: &Registry, f: &crate::document::Figure, asked: &mut Asked) {
     ui.add_space(6.0);
-    shown(ui, s, &f.node, &f.port, 360.0);
+    shown(ui, s, &f.node, &f.port, f.view, 360.0);
     ui.horizontal_wrapped(|ui| {
         ui.label(RichText::new(format!("Figure {}.", f.number)).strong());
         ui.label(&f.caption);
@@ -513,7 +524,7 @@ fn data_ui(ui: &mut Ui, s: &mut Session, r: &Registry, sec: &Section, num: &str,
                     for st in row.iter().take(4) {
                         if let Some((port, _)) = &st.shows
                             && let Some((node, key)) = st.value_key(port)
-                            && let Some(Ok((t, _))) = picture(ui, s, &node, &key)
+                            && let Some(Ok((t, _))) = picture(ui, s, &node, &key, None)
                         {
                             let size = t.size_vec2();
                             ui.add(egui::Image::new((t.id(), size * (40.0 / size.x.max(1.0))))).on_hover_text(&st.id);

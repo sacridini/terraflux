@@ -610,6 +610,9 @@ pub struct Session {
     /// drawn next).
     pub plot_open: Option<String>,
     pub plot_to_open: Option<String>,
+    /// A box (west, south, east, north) the Viewer is to be brought to when it is drawn next: the saved view of the
+    /// Plot just opened.
+    pub plot_frame: Option<[f64; 4]>,
     /// The map compared with the map shown (by a curtain or side by side).
     pub preview_compare: crate::builder::Compare,
     /// Playing the layers of the output shown in the viewer: when the last one came.
@@ -786,6 +789,7 @@ impl Session {
             layer_differences: Default::default(),
             plot_open: None,
             plot_to_open: None,
+            plot_frame: None,
             preview_compare: Default::default(),
             preview_playing: None,
             preview_attributes: None,

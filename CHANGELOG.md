@@ -27,6 +27,13 @@ minor versions.
   automata, the years of a file): a chart of the area of each class at every step beside *Play* (a click shows that
   step, *Copy* the table), and *first to last...* opens the transitions from the first step to the last: the flows
   as a Sankey diagram, the matrix, the gains and losses.
+- Viewer: **saved views**. A Plot keeps the frame of its map (`view = { extent = [west, south, east, north] }` in the
+  `[[plots]]` of the model file, in the map's coordinates, so it does not depend on the window): *Keep this view in the
+  plot* in the Plots menu keeps what is in view (*Update the saved view*, *Go to the saved view* and *Forget the saved
+  view* follow), and opening the Plot brings the map to that frame. The Figure, *Export the view*, the export of a Plot
+  by its id (`terraflux plot`, `export_plot`) and the Document and report pictures show only that part of the map,
+  at the same proportions, the vectors and the other maps cut the same way. `set_plot` takes `view` too. Plots without
+  a view, and old files, are unchanged.
 
 ## [1.37.0] - 2026-11-04
 

@@ -152,6 +152,8 @@ pub struct Figure {
     pub number: usize,
     /// The map it compares with the one it shows, and how (`compare`): a node, its port, the way.
     pub compared: Option<(String, String, String)>,
+    /// The part of the map it shows (its Plot's saved view: west, south, east, north); the whole map without one.
+    pub view: Option<[f64; 4]>,
 }
 
 /// What a container carries, collects and gives, how many times it runs, and its body.
@@ -790,7 +792,17 @@ impl Document {
                 plot.title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| format!("{node}.{port}"));
             let (path, id, step_port) = giver(&m.nodes, &node, &port);
             let compared = plot_compared(plot);
-            let f = Figure { plot: plot.id.clone(), node: node.clone(), port, step_port, caption, number: 0, compared };
+            let view = plot.view.as_ref().map(|v| v.extent);
+            let f = Figure {
+                plot: plot.id.clone(),
+                node: node.clone(),
+                port,
+                step_port,
+                caption,
+                number: 0,
+                compared,
+                view,
+            };
             let found = sections.iter_mut().find_map(|s| find_step(&mut s.steps, &path, &id));
             match found {
                 Some(s) => s.figures.push(f),
@@ -1093,6 +1105,16 @@ mod tests {
 
     fn ids(sec: &Section) -> Vec<&str> {
         sec.steps.iter().map(|s| s.id.as_str()).collect()
+    }
+
+    #[test]
+    fn a_figure_carries_the_saved_view_of_its_plot() {
+        let mut m = template("CLUE-S");
+        let r = Registry::standard();
+        let figure = |m: &Model| Document::of(m, &r).steps().iter().flat_map(|s| s.figures.clone()).next().unwrap();
+        assert_eq!(figure(&m).view, None);
+        m.plots[0].view = terraflux_graph::PlotView::new(1.0, 2.0, 3.0, 4.0);
+        assert_eq!(figure(&m).view, Some([1.0, 2.0, 3.0, 4.0]));
     }
 
     #[test]
