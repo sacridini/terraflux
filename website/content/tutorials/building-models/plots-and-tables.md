@@ -181,6 +181,9 @@ scenario, another date, the observed map) or another layer of the same stack. Ch
   from and to. *Keep as a layer* makes it a layer of its own, drawn with the others and kept in a Plot. It works between two outputs and between two layers of one
   stack or steps of one series (the layer then says which band of each: "x.map step 5 minus step 1").
 
+When the output compared is a stack or a series, a **band** choice under *Compare* (and under each view added)
+picks which of its maps is shown, drawn and kept in the Plot; *Keep as a layer* of a difference then uses that band.
+
 Both maps are drawn in the same colours, so that the same value is the same colour.
 
 ### The histogram of a map
@@ -202,7 +205,10 @@ sorted and filtered like the other tables, copied or saved as CSV. A row clicked
 and takes the view to it; a feature clicked on the map selects its row. Ctrl+click adds or removes a row (or a
 feature on the map) and shift+click takes the range from the last row clicked; the header counts the selected,
 zooms to all of them (*Zoom to selection*), lets them go (*Clear selection*, or esc) and copies or saves only their
-rows (*Copy selected*, *Save selected*). The selection is outlined in every view, side by side too.
+rows (*Copy selected*, *Save selected*). *Select all shown* (or ctrl+A with the pointer on the table) selects every
+row the filter leaves. A ctrl+click that leaves one row selected does not move the view, only a plain click does.
+The selection is outlined in every view, side by side too, and a feature clicked in a view side by side that
+draws the Viewer's layers selects its row as in the main one (a view with layers of its own draws other features).
 
 ### Exporting the view
 
@@ -250,7 +256,7 @@ layers = [{ from = "named.map" }, { from = "forest_only.map", opacity = 0.6 }]
 | `id` | the Plot's name in the model |
 | `title` | its title, in the menu and over its figure (by default its `id`) |
 | `layers` | what it shows, the first at the bottom: each an output (`node.port`) with its `opacity` (0 to 1), `band` (the layer of a stack or the step of a loop), `style` (vector features'), `hidden`, `minus` (another output: the layer is the difference, `from` minus it, or the transitions from it to `from` for classes) and `minus_band` (the layer of the stack or the step of the loop that `minus` is, so that two layers of one stack make a difference) |
-| `compare` | a map compared with the top map: `{ with = "node.port", how = "curtain" }` (or `"side by side"`, `"difference"`); side by side, `also = ["node.port", ...]` adds up to two more views, and `layers = [[...], [...]]` gives the views side by side layers of their own (a list of layers like the Plot's, one per view: first the view of `with`, then those of `also`; an empty list is a view that draws the Plot's layers) |
+| `compare` | a map compared with the top map: `{ with = "node.port", how = "curtain" }` (or `"side by side"`, `"difference"`); side by side, `also = ["node.port", ...]` adds up to two more views, `band` is the band of the stack (or step of the series) `with` is and `also_bands = [...]` those of the `also` maps (from 0; 0 is the first), and `layers = [[...], [...]]` gives the views side by side layers of their own (a list of layers like the Plot's, one per view: first the view of `with`, then those of `also`; an empty list is a view that draws the Plot's layers) |
 | `chart` | a table's chart: `{ kind = "bars", x = "...", y = "...", by = "..." }` |
 | `note`, `why` | what it shows and why, as a node's note |
 

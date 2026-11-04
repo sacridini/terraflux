@@ -667,6 +667,9 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
     let (a, b) = (s.preview_view.camera(), s.preview_compare.view.camera());
     assert!((a.0 - b.0).abs() < 1e-4 && (a.1 - b.1).length() < 1e-3, "drawn where the map is: {a:?} {b:?}");
     // the difference kept as a layer: over the map shown, the comparison let go
+    // (a taller window: the side panel, with the choice of the compared map's band, is longer than the default one)
+    h.set_size(egui::vec2(1280.0, 1100.0));
+    h.run_steps(2);
     h.get_by_label("📌 Keep as a layer").click();
     h.run_steps(2);
     {
@@ -4148,6 +4151,8 @@ fn the_attribute_table_of_a_vector_layer() {
         let s = h.state_mut().session.as_mut().unwrap();
         let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
         terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        // (another map, to compare the first with side by side)
+        terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 1\n* -> 0".into())]).unwrap();
         // two plots over the map, the second lower right
         let square = |a: f64, b: f64| {
             let (x0, y0, x1, y1) = (t[0] + w * a, t[3] - ht * b, t[0] + w * (a + 0.2), t[3] - ht * (b - 0.2));
@@ -4173,7 +4178,10 @@ fn the_attribute_table_of_a_vector_layer() {
     h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("raster_read", "raster").is_some() && s.value_of("vector_read", "vector").is_some()
+        !s.running()
+            && s.value_of("raster_read", "raster").is_some()
+            && s.value_of("raster_reclassify", "map").is_some()
+            && s.value_of("vector_read", "vector").is_some()
     });
     h.run_steps(4);
     drawn(&mut h);
@@ -4246,6 +4254,77 @@ fn the_attribute_table_of_a_vector_layer() {
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     assert_eq!(selected(&h), None);
+    // select all shown: the button (offered with nothing selected), and ctrl+A with the pointer on the table
+    h.get_by_label("Select all shown").click();
+    until(&mut h, "all selected by the button", |a| {
+        a.session.as_ref().unwrap().preview_view.selected == Some((0, vec![0, 1]))
+    });
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(selected(&h), None);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    until(&mut h, "all selected by ctrl+A", |a| {
+        a.session.as_ref().unwrap().preview_view.selected == Some((0, vec![0, 1]))
+    });
+    assert!(!open(&h).unwrap().zoom, "ctrl+A is no click on a row");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    // a ctrl+click that leaves one row selected does not zoom (a plain click does)
+    h.get_by_label("1 12.5 forest").click();
+    until(&mut h, "the view on the feature", |a| {
+        let s = a.session.as_ref().unwrap();
+        s.preview_attributes.as_ref().is_some_and(|o| !o.zoom && o.pick.plain)
+            && s.preview_view.selected == Some((0, vec![0]))
+    });
+    let camera = h.state().session.as_ref().unwrap().preview_view.camera();
+    h.get_by_label("2 3 pasture").click_modifiers(egui::Modifiers::COMMAND);
+    until(&mut h, "both rows selected", |a| a.session.as_ref().unwrap().preview_view.selected == Some((0, vec![0, 1])));
+    h.get_by_label("2 3 pasture").click_modifiers(egui::Modifiers::COMMAND);
+    until(&mut h, "one row left", |a| a.session.as_ref().unwrap().preview_view.selected == Some((0, vec![0])));
+    h.run_steps(3);
+    assert!(!open(&h).unwrap().zoom, "zoomed by a ctrl+click");
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.camera(), camera);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(selected(&h), None);
+    // a feature clicked in a view side by side (drawing the Viewer's layers) selects its row; in one with layers of
+    // its own it does not
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_compare.with =
+            Some(terraflux_app::builder::CompareWith::Output("raster_reclassify".into(), "map".into()));
+        s.preview_compare.how = terraflux_app::builder::How::SideBySide;
+        s.preview_compare.more.push(terraflux_app::builder::Beside::new(terraflux_app::builder::CompareWith::Output(
+            "raster_reclassify".into(),
+            "map".into(),
+        )));
+    }
+    drawn(&mut h);
+    h.run_steps(3);
+    for (view, want) in [(0, 1), (1, 0)] {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let v = if view == 0 { &mut s.preview_compare.view } else { &mut s.preview_compare.more[0].view };
+        v.feature_clicked = vec![(0, want)];
+        h.run_steps(2);
+        assert_eq!(open(&h).unwrap().pick.row, Some(want), "the feature clicked in view {}", view + 2);
+        assert_eq!(selected(&h), Some((0, vec![want])));
+    }
+    // (a view with layers of its own: its clicks are of other layers)
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_compare.layers = Some(vec![terraflux_app::builder::Layer::new("vector_read", "vector")]);
+        s.preview_compare.view.feature_clicked = vec![(0, 1)];
+    }
+    h.run_steps(3);
+    assert_eq!(open(&h).unwrap().pick.row, Some(0), "the click in a view with layers of its own is not a row's");
+    assert!(h.state().session.as_ref().unwrap().preview_compare.view.feature_clicked.is_empty());
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_compare.layers = None;
+        s.preview_compare.more.clear();
+        s.preview_compare.with = None;
+    }
+    h.run_steps(3);
     // the tab-separated copy: its columns named, a line a feature
     let v = h.state().session.as_ref().unwrap().value_of("vector_read", "vector");
     let Some(terraflux_ops::Value::Vector(v)) = v else { panic!("no features") };
@@ -4740,4 +4819,87 @@ fn a_view_side_by_side_has_layers_of_its_own() {
     until(&mut h, "drawn again", |a| a.session.as_ref().unwrap().preview_compare.view.layers_drawn() == (1, 0));
     drawn(&mut h);
     assert_eq!(drawn_in(&h), [(0, 0), (1, 0), (0, 0)]);
+}
+
+/// The band of another stack compared: the one the difference kept as a layer is of, then chosen for the compared
+/// view and for a view more, kept in the Plot and back from it.
+#[test]
+fn comparing_with_a_band_of_another_stack() {
+    use terraflux_app::builder::{Beside, CompareWith, How};
+    use terraflux_graph::Node;
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let drivers = || CompareWith::Output("drivers".into(), "raster".into());
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.nodes = vec![
+            Node::new("land", "raster.read").param("path", data("sibuyan_landuse.tif").to_string_lossy().as_ref()),
+            Node::new("drivers", "raster.read").param("path", data("sibuyan_drivers.tif").to_string_lossy().as_ref()),
+        ];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("land", "raster").is_some() && s.value_of("drivers", "raster").is_some()
+    });
+    show(&mut h, "land", "raster");
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let Some(terraflux_ops::Value::Raster(r)) = s.value_of("drivers", "raster") else { panic!("rasters") };
+        assert!(r.layers.len() > 2, "a stack");
+        s.preview_compare.with = Some(drivers());
+        s.preview_compare.band = Some(2);
+        s.preview_compare.how = How::Difference;
+    }
+    until(&mut h, "the difference", |a| a.session.as_ref().unwrap().preview_compare.difference.made.is_some());
+    drawn(&mut h);
+    // the difference kept as a layer: the band compared is the layer's own
+    // (a taller window: the side panel with the band choice is longer than the default one)
+    h.set_size(egui::vec2(1280.0, 1100.0));
+    h.run_steps(2);
+    h.get_by_label("📌 Keep as a layer").click();
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let l = s.preview_layers.iter().find(|l| l.minus.is_some()).expect("the difference layer");
+        assert_eq!((l.node.as_str(), l.port.as_str(), l.band), ("drivers", "raster", Some(2)));
+        assert_eq!(l.minus, Some(("land".to_string(), "raster".to_string())));
+        assert!(s.preview_compare.with.is_none(), "the comparison let go");
+        s.preview_layers.clear();
+        // side by side, the compared map and a view more each a band of its stack
+        s.preview_compare.with = Some(drivers());
+        s.preview_compare.band = Some(2);
+        s.preview_compare.how = How::SideBySide;
+        s.preview_compare.more.push(Beside { band: Some(1), ..Beside::new(drivers()) });
+    }
+    drawn(&mut h);
+    h.run_steps(3);
+    // kept in a Plot: the band of the compared map and of the view more
+    h.get_by_label("Plots").click();
+    h.run_steps(2);
+    h.get_by_label("Save as a new plot").click();
+    h.run_steps(2);
+    let id = "plot_land";
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let c = s.source.plot(id).expect("the Plot").compare.clone().expect("its comparison");
+        assert_eq!((c.with.as_str(), c.band), ("drivers.raster", Some(2)));
+        assert_eq!((c.also, c.also_bands), (vec!["drivers.raster".to_string()], vec![1]));
+    }
+    // let go, and opened again: the bands are back
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_compare.more.clear();
+        s.preview_compare.band = None;
+        s.preview_compare.with = None;
+        s.plot_to_open = Some(id.into());
+    }
+    until(&mut h, "the Plot", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.preview_compare.with.is_some() && !s.preview_compare.more.is_empty()
+    });
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.preview_compare.band, Some(2));
+    assert_eq!(s.preview_compare.more[0].band, Some(1));
 }

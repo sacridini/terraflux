@@ -11,12 +11,14 @@ minor versions.
   (another output of the run, or another layer of the map shown): three in a row, four in two rows, all zooming
   and panning together, the pointer marked in the others, in one colouring. A Plot keeps them
   (`compare.also`, also in `set_plot`), the figure has "the views side by side", and a cell of any view is traced
-  from its menu.
+  from its menu. Comparing with a stack or series of another output, a *band* choice picks which of its maps each
+  view shows (`compare.band` and `compare.also_bands` in the Plot, also in `set_plot`).
 - Viewer: **the difference as a layer**. Comparing by *Difference*, *Keep as a layer* makes it a layer of its own
   (values: the other map minus this one; classes: the transitions, named): drawn with the other layers, at an
   opacity, its legend and summary in the Layers, kept in a Plot (`minus` of a layer, also in `set_plot`), and
   following its nodes renamed or removed. It is also the difference of two steps of one stack or series (a
-  `minus_band` beside `minus` in the Plot's layer, "x.map step 5 minus step 1").
+  `minus_band` beside `minus` in the Plot's layer, "x.map step 5 minus step 1"), and of the band chosen of
+  another output's stack.
 - Viewer: **measure on the map**. *Measure* (or M over the map) turns on a line clicked point by point: each
   segment and the total length, and from three points the area and perimeter, in m, km, m², ha and km² (geodesic
   on the WGS84 ellipsoid for grids in degrees; the grid's units and cells without a coordinate system), with
@@ -53,7 +55,9 @@ minor versions.
   range from the last row clicked, a plain click still selects just one and zooms to it; on the map a click selects
   a feature and ctrl+click toggles it. All of them are outlined (those in view) in every view, side by side too;
   the table's header tells how many are selected, with *Zoom to selection*, *Clear selection* (or esc), and *Copy
-  selected* and *Save selected* for their rows only.
+  selected* and *Save selected* for their rows only. *Select all shown* (or ctrl+A with the pointer on the table)
+  selects the rows the filter leaves; a feature clicked in a view side by side that draws the Viewer's layers
+  selects its row too; a ctrl+click that leaves one row selected no longer zooms to it.
 - CLI and MCP: **a Plot exported by its id**. `terraflux plot model.toml cover -o cover.png` (or `.tif`, `--scale
   2`, `--set`, `--scenario`) and the tool `export_plot` run the model and write the Plot as the Viewer's *Export
   the view* does, without the application: the first map, the maps over it at their opacity, the features with

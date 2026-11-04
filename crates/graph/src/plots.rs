@@ -70,6 +70,12 @@ pub struct PlotCompare {
     pub how: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub also: Vec<String>,
+    /// The band of the stack or the step of the loop `with` is (default the first).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub band: Option<usize>,
+    /// The bands of the `also` maps, one each (0, or missing: the first); empty when none is chosen.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also_bands: Vec<usize>,
     /// The layers of the views side by side, the first the view of `with`, then those of `also`: a list each, the
     /// first at the bottom; an empty list (or none) is a view drawing the Plot's layers.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -99,6 +105,14 @@ impl PlotCompare {
             i += 1;
             kept[i - 1]
         });
+        let mut i = 0;
+        self.also_bands.retain(|_| {
+            i += 1;
+            kept.get(i - 1).copied().unwrap_or(true)
+        });
+        while self.also_bands.last() == Some(&0) {
+            self.also_bands.pop();
+        }
         // (the layers of the view of `with` first, then those of each `also`)
         let mut v = 0;
         self.layers.retain(|_| {
@@ -395,6 +409,8 @@ mod tests {
                 with: "cover.raster".into(),
                 how: Some("side by side".into()),
                 also: vec!["mspa.map".into(), "cover.raster".into()],
+                band: Some(2),
+                also_bands: vec![0, 1],
                 layers: vec![own("roads.vector"), Vec::new(), own("mspa.map")],
             }),
             ..Default::default()
@@ -408,6 +424,12 @@ mod tests {
         let text = plain.to_toml().unwrap();
         assert!(!text.contains("layers = [["), "{text}");
         assert_eq!(Model::from_toml(&text).unwrap().plots, plain.plots);
+        // (the bands are kept; none chosen writes no key)
+        assert!(text.contains("band = 2") && text.contains("also_bands"), "{text}");
+        plain.plots[0].compare.as_mut().unwrap().band = None;
+        plain.plots[0].compare.as_mut().unwrap().also_bands.clear();
+        let text = plain.to_toml().unwrap();
+        assert!(!text.contains("band"), "{text}");
         let mut c = m.plots[0].compare.clone().unwrap();
         // a node renamed
         c.each_ref(&mut |r| {
@@ -420,6 +442,8 @@ mod tests {
         // a node taken away: its view goes with its layers, the others keep theirs
         c.retain_refs(|r| !r.starts_with("seg."));
         assert_eq!(c.also, ["cover.raster"]);
+        assert_eq!(c.also_bands, [1], "the band goes with its map");
+        assert_eq!(c.band, Some(2));
         assert_eq!(c.layers, [own("roads.vector")]);
         c.retain_refs(|r| !r.starts_with("roads."));
         assert!(c.layers.is_empty());

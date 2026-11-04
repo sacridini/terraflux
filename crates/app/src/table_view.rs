@@ -117,6 +117,8 @@ pub struct Pick {
     pub clicked: bool,
     pub rows: BTreeSet<usize>,
     pub anchor: Option<usize>,
+    /// Whether the last click was a plain one (no ctrl, no shift): only that one zooms the view to its row.
+    pub plain: bool,
 }
 
 /// The keys held at the click of this frame (those of the last button event, else the ones held now).
@@ -138,6 +140,7 @@ impl Pick {
     /// it is toggled; with shift the range from the row clicked before to it is selected (no row before: alone).
     pub fn click(&mut self, shown: &[usize], k: usize, ctrl: bool, shift: bool) {
         self.clicked = true;
+        self.plain = !ctrl && !shift;
         let range = self.anchor.filter(|_| shift).and_then(|a| {
             let (i, j) = (shown.iter().position(|&r| r == a)?, shown.iter().position(|&r| r == k)?);
             Some(shown[i.min(j)..=i.max(j)].to_vec())
@@ -167,6 +170,21 @@ impl Pick {
     pub fn clear(&mut self) {
         (self.row, self.anchor) = (None, None);
         self.rows.clear();
+        self.plain = false;
+    }
+
+    /// Every row shown (`shown`: those left by the filter) selected, the first the anchor of a range, the last the
+    /// row clicked; none shown: the selection let go.
+    pub fn all(&mut self, shown: &[usize]) {
+        self.clear();
+        self.rows.extend(shown.iter().copied());
+        (self.anchor, self.row) = (shown.first().copied(), shown.last().copied());
+    }
+
+    /// Whether the view is to zoom to the row clicked: one row left selected by a plain click (ctrl or shift
+    /// build a selection, they do not go to a row).
+    pub fn zooms(&self) -> bool {
+        self.rows.len() == 1 && self.plain
     }
 
     /// Only this row selected (a feature clicked on the map).
@@ -175,6 +193,12 @@ impl Pick {
         self.rows.insert(k);
         (self.row, self.anchor) = (Some(k), Some(k));
     }
+}
+
+/// The rows of the table `t` shown now (as filtered), for the table drawn with `id`: all of them before it is drawn.
+pub fn shown_rows(ui: &Ui, t: &Table, id: egui::Id) -> Vec<usize> {
+    let st: TableState = ui.data(|d| d.get_temp(id)).unwrap_or_default();
+    rows_shown(t, &st).unwrap_or_default()
 }
 
 /// A table: the filter and the column drawn above it, then its rows (headers sort them).

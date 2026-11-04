@@ -2678,6 +2678,7 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
         list.map(|l| layers_of_plot(l))
     };
     s.preview_compare.layers = view(0);
+    s.preview_compare.band = p.compare.as_ref().and_then(|c| c.band);
     s.preview_compare.more = p
         .compare
         .iter()
@@ -2685,7 +2686,9 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
         .enumerate()
         .filter_map(|(i, a)| {
             let (n, q) = port_of(a)?;
-            Some(Beside { layers: view(1 + i), ..Beside::new(CompareWith::Output(n, q)) })
+            // (0: the first, as when none is chosen)
+            let band = p.compare.as_ref().and_then(|c| c.also_bands.get(i).copied()).filter(|b| *b > 0);
+            Some(Beside { layers: view(1 + i), band, ..Beside::new(CompareWith::Output(n, q)) })
         })
         .collect();
     s.plot_open = Some(p.id.clone());
@@ -2767,15 +2770,20 @@ fn plot_of(
                 l.iter().flatten().map(|l| plot_layer(l, l.band, None)).collect()
             };
             let (mut also, mut views) = (Vec::new(), vec![own(&sh.compare.layers)]);
+            let mut also_bands = Vec::new();
             if sh.compare.how == How::SideBySide {
                 for b in &sh.compare.more {
                     if let Some(CompareWith::Output(n, p)) = &b.with {
                         also.push(format!("{n}.{p}"));
+                        also_bands.push(b.band.unwrap_or(0));
                         views.push(own(&b.layers));
                     }
                 }
             } else {
                 views.clear();
+            }
+            while also_bands.last() == Some(&0) {
+                also_bands.pop();
             }
             while views.last().is_some_and(|v| v.is_empty()) {
                 views.pop();
@@ -2791,6 +2799,8 @@ fn plot_of(
                     .into(),
                 ),
                 also,
+                band: sh.compare.band,
+                also_bands,
                 layers: views,
             })
         }
@@ -3170,6 +3180,8 @@ pub fn preview_follow(s: &mut Session, renamed: Option<(&str, &str)>) {
 #[derive(Default)]
 pub struct Compare {
     pub with: Option<CompareWith>,
+    /// The band of the output compared (a stack's, a series' step; none: the first).
+    pub band: Option<usize>,
     pub how: How,
     pub view: crate::map_view::MapView,
     pub difference: Difference,
@@ -3186,6 +3198,8 @@ pub const MOST_VIEWS: usize = 4;
 #[derive(Default)]
 pub struct Beside {
     pub with: Option<CompareWith>,
+    /// The band of the output when it has several (none: the first).
+    pub band: Option<usize>,
     pub view: crate::map_view::MapView,
     /// The layers this view draws instead of the Viewer's (none: the Viewer's).
     pub layers: Option<Vec<Layer>>,
@@ -3193,7 +3207,7 @@ pub struct Beside {
 
 impl Beside {
     pub fn new(with: CompareWith) -> Beside {
-        Beside { with: Some(with), view: Default::default(), layers: None }
+        Beside { with: Some(with), band: None, view: Default::default(), layers: None }
     }
 }
 
@@ -4001,13 +4015,15 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     // the map compared with it: its source, its name and its look; the two in one colouring (the same value the
     // same colour on both sides), the legend that colouring's
     let main_name = if maps.len() > 1 { format!("{title} {}", names[k]) } else { title.clone() };
-    let compared = sh.compare.with.clone().and_then(|w| compared_map(s, ui.ctx(), &w, &maps, &names, &title, palette));
+    let (cw, cb) = (sh.compare.with.clone(), sh.compare.band);
+    let compared = cw.and_then(|w| compared_map(s, ui.ctx(), &w, cb, &maps, &names, &title, palette));
     // side by side, the maps of the views more (none: not chosen, or not run)
     let beside: Vec<Option<Compared>> = if sh.compare.how == How::SideBySide && compared.is_some() {
-        let withs: Vec<Option<CompareWith>> = sh.compare.more.iter().map(|b| b.with.clone()).collect();
+        let withs: Vec<(Option<CompareWith>, Option<usize>)> =
+            sh.compare.more.iter().map(|b| (b.with.clone(), b.band)).collect();
         withs
             .into_iter()
-            .map(|w| w.and_then(|w| compared_map(s, ui.ctx(), &w, &maps, &names, &title, palette)))
+            .map(|(w, b)| w.and_then(|w| compared_map(s, ui.ctx(), &w, b, &maps, &names, &title, palette)))
             .collect()
     } else {
         Vec::new()
@@ -4459,6 +4475,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     Some(CompareWith::Layer(_)) => "another layer of this one".to_string(),
                     Some(CompareWith::Output(n, p)) => output_name(n, p),
                 };
+                let was = cmp.with.clone();
                 egui::ComboBox::from_id_salt(("compare", salt))
                     .selected_text(shown)
                     .width((ui.available_width() - 8.0).clamp(80.0, 200.0))
@@ -4484,6 +4501,11 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     Some(CompareWith::Output(n, p)) if !others.iter().any(|(a, b)| a == n && b == p) => cmp.with = None,
                     _ => {}
                 }
+                // (another output: its first band again; one of a stack or series: the band to compare)
+                if cmp.with != was {
+                    cmp.band = None;
+                }
+                band_choice(ui, egui::Id::new(("compare band", salt)), &compared_names(s, &cmp.with), &mut cmp.band);
                 if let Some(CompareWith::Layer(j)) = &mut cmp.with {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("with").weak());
@@ -4523,7 +4545,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             }
                         }
                         let of = match &cmp.with {
-                            Some(CompareWith::Output(n, p)) => Some((n.clone(), p.clone(), None)),
+                            Some(CompareWith::Output(n, p)) => Some((n.clone(), p.clone(), cmp.band)),
                             // (two layers of one stack or series, by their bands)
                             Some(CompareWith::Layer(j)) if *j != k => Some((node.clone(), port.clone(), Some(*j))),
                             _ => None,
@@ -4660,10 +4682,29 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             }
         }
     });
-    // a feature clicked on the map selects its row (a click with no table open only picks the cell)
+    // a feature clicked on the map selects its row (a click with no table open only picks the cell); so does one
+    // clicked in a view side by side that draws the Viewer's layers (not one with layers of its own)
+    let side = sh.compare.how == How::SideBySide && compared.is_some();
+    let Compare { view: compared_view, layers: compared_own, more: views, .. } = &mut sh.compare;
+    let mut beside_views: Vec<(&mut crate::map_view::MapView, bool)> = vec![(compared_view, compared_own.is_some())];
+    beside_views.extend(views.iter_mut().map(|b| (&mut b.view, b.layers.is_some())));
     match &mut table {
-        Some(open) => crate::attribute_table::clicked(open, &mut sh.view, table_at),
-        None => sh.view.feature_clicked.clear(),
+        Some(open) => {
+            crate::attribute_table::clicked(open, &mut sh.view, table_at);
+            for (v, own) in beside_views {
+                if side && !own {
+                    crate::attribute_table::clicked(open, v, table_at);
+                } else {
+                    v.feature_clicked.clear();
+                }
+            }
+        }
+        None => {
+            sh.view.feature_clicked.clear();
+            for (v, _) in beside_views {
+                v.feature_clicked.clear();
+            }
+        }
     }
     sh.attributes = table;
     // the cell of the map compared side by side, traced from its menu: of the output it is, or of the layer
@@ -4740,6 +4781,7 @@ fn beside_controls(
     };
     let mut gone = None;
     for (i, b) in cmp.more.iter_mut().enumerate() {
+        let was = b.with.clone();
         ui.horizontal(|ui| {
             ui.label(RichText::new(format!("view {}", i + 3)).weak());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -4767,6 +4809,10 @@ fn beside_controls(
                     });
             });
         });
+        if b.with != was {
+            b.band = None;
+        }
+        band_choice(ui, egui::Id::new(("beside band", salt, i)), &compared_names(s, &b.with), &mut b.band);
         view_layers(ui, s, r, &mut b.layers, main, &format!("view {}", i + 3), salt);
     }
     if let Some(i) = gone {
@@ -4873,12 +4919,47 @@ fn view_layers(
 /// A map compared with the one shown: its source, its name, its look (none while it is being made).
 type Compared = (Source, String, Option<crate::app::Look>);
 
+/// The maps (a stack's bands, a series' steps) of the output `with` is, by name (none for a map or another layer).
+fn compared_names(s: &Session, with: &Option<CompareWith>) -> Vec<String> {
+    match with {
+        Some(CompareWith::Output(n, p)) => s.value_of(n, p).map(|v| maps_of(&v).1).unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+/// The band of an output compared, to choose among its maps' `names` (nothing drawn for one map): the first when
+/// none is chosen.
+fn band_choice(ui: &mut Ui, id: egui::Id, names: &[String], band: &mut Option<usize>) {
+    if names.len() < 2 {
+        return;
+    }
+    let at = band.unwrap_or(0).min(names.len() - 1);
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("band").weak());
+        egui::ComboBox::from_id_salt(id)
+            .selected_text(names[at].as_str())
+            .width((ui.available_width() - 8.0).clamp(60.0, 180.0))
+            .truncate()
+            .show_ui(ui, |ui| {
+                for (i, name) in names.iter().enumerate() {
+                    if ui.selectable_label(i == at, name).clicked() {
+                        *band = Some(i);
+                    }
+                }
+            })
+            .response
+            .on_hover_text("the band of the stack (or the step of the series) compared");
+    });
+}
+
 /// The map `with` compared with the one shown (a layer of its `maps`, named by `names` after its `title`, in its
-/// `palette`; or another output of the run, in its own colours and legend).
+/// `palette`; or another output of the run, in its own colours and legend, its `band` when it has several).
+#[allow(clippy::too_many_arguments)]
 fn compared_map(
     s: &mut Session,
     ctx: &egui::Context,
     with: &CompareWith,
+    band: Option<usize>,
     maps: &[Source],
     names: &[String],
     title: &str,
@@ -4890,7 +4971,17 @@ fn compared_map(
             let l = s.looks.get(ctx, &src, palette);
             Some((src, format!("{title} {}", names[*j]), l))
         }
-        CompareWith::Output(n, p) => output_map(s, ctx, n, p, None),
+        CompareWith::Output(n, p) => {
+            let (src, name, look) = output_map(s, ctx, n, p, band)?;
+            // (the band named when the output has several)
+            let name = match band {
+                Some(b) if s.value_of(n, p).is_some_and(|v| maps_of(&v).0.len() > 1) => {
+                    format!("{name} {}", band_name(s, n, p, b))
+                }
+                _ => name,
+            };
+            Some((src, name, look))
+        }
         _ => None,
     }
 }

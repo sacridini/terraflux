@@ -1636,7 +1636,7 @@ fn all() -> Vec<Value> {
                     "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), palette (viridis, cividis, blue, orange, terrain, grey, red, rank; \", logarithmic\" for a scale of logarithms; default: by what the map is), hidden, minus (node.port: the layer is the difference, from minus it for values, the transitions from it to from for classes), minus_band (the band or step of minus, 0-based: two layers of one stack or series) }.",
                     "items": {},
                 },
-                "compare": { "description": "A map compared with the top map: node.port, or { with, how, also } (how: curtain, side by side (default) or difference; also: up to 2 more maps (node.port) side by side, 4 views in all that move together; layers: side by side, the layers each view draws instead of the Plot's, a list per view (first the view of `with`, then those of `also`) in the form of the Plot's layers but without palette, an empty list for a view that draws the Plot's layers)." },
+                "compare": { "description": "A map compared with the top map: node.port, or { with, how, also } (how: curtain, side by side (default) or difference; also: up to 2 more maps (node.port) side by side, 4 views in all that move together; band: the band of the stack or the step of the loop `with` is (from 0, default the first); also_bands: the same for each map of also (a number each, 0 or null for the first); layers: side by side, the layers each view draws instead of the Plot's, a list per view (first the view of `with`, then those of `also`) in the form of the Plot's layers but without palette, an empty list for a view that draws the Plot's layers)." },
                 "chart": { "type": "object", "description": "A table's chart: { kind (bars, lines, points, boxes), x (a column), y (columns, comma-separated), by (the column of the groups) }." },
                 "note": { "type": "string", "description": "What it shows and why (the record)." },
                 "why": { "type": "string" },
@@ -2548,7 +2548,38 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                 }
                 Some(other) => return Err(format!("compare's layers is a list of lists of layers, not {other}")),
             }
-            Some(PlotCompare { with: checked(with)?, how, also, layers: views })
+            // (the band of the stack or the step of the loop each map is: `with`'s, then one for each of `also`)
+            let band = match o.get("band") {
+                None | Some(Value::Null) => None,
+                Some(b) => {
+                    Some(b.as_u64().ok_or_else(|| format!("compare's band is a number from 0, not {b}"))? as usize)
+                }
+            };
+            let mut also_bands: Vec<usize> = match o.get("also_bands") {
+                None | Some(Value::Null) => Vec::new(),
+                Some(Value::Array(a)) => a
+                    .iter()
+                    .map(|b| match b {
+                        Value::Null => Ok(0),
+                        b => b
+                            .as_u64()
+                            .map(|b| b as usize)
+                            .ok_or_else(|| format!("compare's also_bands are numbers from 0 (or null), not {b}")),
+                    })
+                    .collect::<Result<_, _>>()?,
+                Some(other) => return Err(format!("compare's also_bands is a list of numbers, not {other}")),
+            };
+            if also_bands.len() > also.len() {
+                return Err(format!(
+                    "compare's also_bands has a band for each map of also: at most {}, not {}",
+                    also.len(),
+                    also_bands.len()
+                ));
+            }
+            while also_bands.last() == Some(&0) {
+                also_bands.pop();
+            }
+            Some(PlotCompare { with: checked(with)?, how, also, band, also_bands, layers: views })
         }
         Some(other) => return Err(format!("compare is node.port or {{ with, how, also }}, not {other}")),
     };
@@ -2782,6 +2813,30 @@ mod plot_tests {
         });
         super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
         assert_eq!(m.plot("cover").unwrap().compare.as_ref().unwrap().also, ["land.map", "forest.map"]);
+        // ... each map a band of its stack (trailing nulls not kept)
+        let a = json!({
+            "id": "cover",
+            "layers": ["land.map"],
+            "compare": { "with": "forest.map", "band": 3, "also": ["land.map", "forest.map"], "also_bands": [null, 1] },
+        });
+        super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
+        let c = m.plot("cover").unwrap().compare.clone().unwrap();
+        assert_eq!((c.band, c.also_bands), (Some(3), vec![0, 1]));
+        let a = json!({
+            "id": "cover",
+            "layers": ["land.map"],
+            "compare": { "with": "forest.map", "also": ["land.map", "forest.map"], "also_bands": [2, null] },
+        });
+        super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
+        assert_eq!(m.plot("cover").unwrap().compare.as_ref().unwrap().also_bands, [2]);
+        for bad in [
+            json!({ "with": "forest.map", "band": "first" }),
+            json!({ "with": "forest.map", "also": ["land.map"], "also_bands": [1, 2] }),
+            json!({ "with": "forest.map", "also": ["land.map"], "also_bands": [-1] }),
+        ] {
+            let a = json!({ "id": "cover", "layers": ["land.map"], "compare": bad });
+            assert!(super::edit("set_plot", &mut m, &r, dir, &a).is_err(), "{a}");
+        }
         // ... each view with layers of its own (an empty list: the Plot's layers)
         let a = json!({
             "id": "cover",

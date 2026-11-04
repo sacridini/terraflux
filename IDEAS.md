@@ -995,6 +995,14 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    por `plot_of`/`open_plot` e aceito pelo `set_plot` (só com `minus`). O `step_together` só mexe nas vistas
    do Compare, nunca nas camadas de diferença. Testes: `two_bands_of_a_stack_are_a_difference`,
    `the_difference_of_two_bands_of_a_stack_is_a_layer`, `plots_are_set_and_removed`, `plots_read_what_the_model_has`.
+   Feito depois (Unreleased): a banda da outra saída comparada. `Compare.band` e `Beside.band` (um `band_choice`
+   no Compare e em cada vista a mais, só quando a saída tem vários mapas; trocar a saída volta à primeira) vão
+   a `compared_map`/`output_map`; o *Keep as a layer* de uma saída usa essa banda como a `band` da camada; o
+   `PlotCompare` ganhou `band: Option<usize>` e `also_bands: Vec<usize>` (0 = a primeira, TOML não guarda `None` em
+   lista; omitidos quando vazios; `retain_refs` os mantém junto de `also`), levados por `plot_of`/`open_plot` e
+   aceitos pelo `set_plot` (`band`, `also_bands`). Testes: `the_layers_of_the_views_are_kept_and_follow_the_nodes`,
+   `plots_are_set_and_removed`, `comparing_with_a_band_of_another_stack`. Falta: os nomes das bandas no
+   `check_model` (uma banda além das que a saída tem vale a última, sem aviso).
 4. **Os Plots salvos no lugar do nó `view.plot`.** (a maior)
    - Formato: `[[plots]]` no modelo (`terraflux_graph::Model::plots`, serde, omitido quando vazio): `id`, `title`,
      `layers = [{ from = "node.port", opacity, palette, band, style }]`, `compare = { with, how }`,
@@ -1144,9 +1152,15 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    (`feature_toggle`). `MapView.selected` virou `Option<(camada, Vec<feição>)>`: só as que estão à vista (pela caixa)
    são contornadas, no máximo 500 (`SELECTED_DRAWN`); `side_by_side` passa a seleção às vistas comparada e extras.
    Testes: `rows_toggled_and_ranged`, `selected_rows_as_a_table`, `selection_box_is_the_union`,
-   `the_attribute_table_of_a_vector_layer` (Ctrl, Shift, Esc). Falta: o Shift+clique no mapa (laço/retângulo para
-   selecionar por área); selecionar por filtro ("select all shown"); a seleção guardada no Plot ou usada por
-   `vector.filter`.
+   `the_attribute_table_of_a_vector_layer` (Ctrl, Shift, Esc).
+   Feito depois (Unreleased): `Pick::all(shown)` (*Select all shown*, também com nada selecionado, e Ctrl+A com o
+   ponteiro sobre a tabela e nenhuma caixa de texto com foco; `table_view::shown_rows` dá as linhas que o filtro
+   deixa); `Pick.plain` e `Pick::zooms` (só o clique simples leva o mapa à feição, um Ctrl+clique que deixa uma
+   linha não); o clique numa feição de uma vista lado a lado que desenha as camadas do Viewer (não as que têm
+   camadas próprias) seleciona a linha, como o do mapa principal. Testes: `all_the_rows_shown_selected`,
+   `only_a_plain_click_zooms`, `the_attribute_table_of_a_vector_layer`. Falta: o Shift+clique no mapa
+   (laço/retângulo para selecionar por área); a seleção guardada no Plot ou usada por `vector.filter`; Ctrl+A com
+   o foco do teclado (não só o ponteiro) na tabela.
    **Exportar um Plot pelo id feito** (Unreleased, por um sub-agente): `plot_export.rs`. `terraflux plot <modelo> <id>
    -o f.png|f.tif [--scale 1|2|4] [--format] [--set] [--scenario]` e a ferramenta MCP `export_plot { model, id, file,
    scale }` rodam o modelo e gravam o Plot sem o app: `panel_of` monta o `figure::Panel` (o primeiro mapa visível é

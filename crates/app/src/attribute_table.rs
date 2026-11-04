@@ -123,6 +123,14 @@ pub fn panel(ui: &mut Ui, id: egui::Id, v: &Arc<Vector>, name: &str, open: &mut 
             {
                 open.pick.clear();
             }
+            // ctrl+A selects the rows shown (when the pointer is on the table and no box has the focus)
+            let table_id = id.with("table");
+            if ui.ui_contains_pointer()
+                && !ui.ctx().text_edit_focused()
+                && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::A))
+            {
+                open.pick.all(&crate::table_view::shown_rows(ui, &table, table_id));
+            }
             let n = open.pick.rows.len();
             let picked = open.pick.rows.clone();
             ui.horizontal(|ui| {
@@ -167,8 +175,8 @@ pub fn panel(ui: &mut Ui, id: egui::Id, v: &Arc<Vector>, name: &str, open: &mut 
                     }
                 });
             });
-            if n > 0 {
-                ui.horizontal(|ui| {
+            ui.horizontal(|ui| {
+                if n > 0 {
                     if ui
                         .small_button("Zoom to selection")
                         .on_hover_text("the view on all the selected features")
@@ -179,17 +187,25 @@ pub fn panel(ui: &mut Ui, id: egui::Id, v: &Arc<Vector>, name: &str, open: &mut 
                     if ui.small_button("Clear selection").on_hover_text("let them go (escape)").clicked() {
                         open.pick.clear();
                     }
-                });
-            }
+                }
+                if ui
+                    .small_button("Select all shown")
+                    .on_hover_text("every row the filter leaves (ctrl+A with the pointer on the table)")
+                    .clicked()
+                {
+                    open.pick.all(&crate::table_view::shown_rows(ui, &table, table_id));
+                }
+            });
             if let Some(e) = ui.data(|d| d.get_temp::<String>(failed)).filter(|e| !e.is_empty()) {
                 ui.label(RichText::new(e).color(ui.visuals().error_fg_color));
             }
-            crate::table_view::show_picking(ui, &table, id.with("table"), Some(&mut open.pick));
+            crate::table_view::show_picking(ui, &table, table_id, Some(&mut open.pick));
         });
-    // a row clicked alone: the view goes to its feature (with ctrl or shift: the selection grows, the view stays)
+    // a row clicked alone: the view goes to its feature (with ctrl or shift: the selection grows or shrinks, the
+    // view stays, also when one row is left)
     if open.pick.clicked {
         open.pick.clicked = false;
-        open.zoom = open.pick.rows.len() == 1;
+        open.zoom = open.pick.zooms();
     }
     keep
 }
@@ -327,6 +343,45 @@ mod tests {
         assert_eq!((rows(&p), p.row, p.anchor), (vec![], None, None));
         p.only(3);
         assert_eq!((rows(&p), p.row), (vec![3], Some(3)));
+    }
+
+    #[test]
+    fn all_the_rows_shown_selected() {
+        let mut p = Pick::default();
+        p.click(&[2, 0, 1], 0, false, false);
+        // the rows the filter leaves, in the order shown: the first the anchor of a range, the last the row
+        p.all(&[2, 0, 1]);
+        assert_eq!((rows(&p), p.row, p.anchor), (vec![0, 1, 2], Some(1), Some(2)));
+        // a range from the anchor (the table is as it was shown)
+        p.click(&[2, 0, 1], 0, false, true);
+        assert_eq!(rows(&p), [0, 2]);
+        // none shown: nothing selected
+        p.all(&[]);
+        assert_eq!((rows(&p), p.row, p.anchor), (vec![], None, None));
+    }
+
+    #[test]
+    fn only_a_plain_click_zooms() {
+        let shown = [0, 1, 2];
+        let mut p = Pick::default();
+        p.click(&shown, 1, false, false);
+        assert!(p.zooms());
+        // ctrl+click adds a row, then another click takes it out: one row is left, no zoom
+        p.click(&shown, 2, true, false);
+        assert!(!p.zooms());
+        p.click(&shown, 2, true, false);
+        assert_eq!(rows(&p), [1]);
+        assert!(!p.zooms(), "one row left by a ctrl+click");
+        p.click(&shown, 0, false, true);
+        p.click(&shown, 1, false, true);
+        assert!(!p.zooms());
+        p.click(&shown, 2, false, false);
+        assert!(p.zooms());
+        // let go, or all selected: nothing to zoom to
+        p.clear();
+        assert!(!p.zooms());
+        p.all(&[1]);
+        assert!(!p.zooms(), "select all is no click on a row");
     }
 
     #[test]
