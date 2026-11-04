@@ -96,7 +96,7 @@ pub fn make_in(a: &Source, b: &Source, classes: Option<(&Names, &Names)>, lang: 
             Ok(re) => Some(re),
             Err(_) => {
                 return Err(lang
-                    .t("The map compared is rotated, or of a coordinate system that cannot be carried to this \
+                    .t("The map compared has a coordinate system that is unknown or cannot be carried to this \
                         map's: put it on this map's grid (raster.match) to see the difference.")
                     .into());
             }
@@ -426,6 +426,21 @@ mod tests {
         assert_eq!(d.name(2.0), "ten -> forest");
         let v = data(&d.source);
         assert_eq!((v[150 * 400 + 30], v[150 * 400 + 200]), (2.0, 1.0));
+    }
+
+    #[test]
+    fn a_rotated_grid_is_carried_to_this_ones_cells() {
+        // (no coordinate system told for either: the cells' places are the same ones, no GDAL)
+        // this map 3 x 3 cells of 1 from (0, 3); the other turned a quarter: its cell (c, r) is at x = r, y = 3 - c,
+        // so this map's cell (row i, column j) is the other's (c = i, r = j): its values transposed
+        let a = map(3, 3, T, vec![0.0; 9]);
+        let b = map(3, 3, [0.0, 0.0, 1.0, 3.0, -1.0, 0.0], (0..9).map(f64::from).collect());
+        let v = data(&make(&a, &b, None).unwrap().source);
+        let expect: Vec<f64> = (0..9).map(|k| f64::from((k % 3) * 3 + k / 3)).collect();
+        assert_eq!(v, expect);
+        // and the other way round, this map the rotated one: the flat map's zeros minus its own values, cell for cell
+        let v = data(&make(&b, &a, None).unwrap().source);
+        assert_eq!(v, (0..9).map(|k| -f64::from(k)).collect::<Vec<_>>());
     }
 
     #[test]

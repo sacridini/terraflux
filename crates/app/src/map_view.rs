@@ -341,7 +341,7 @@ pub fn feature_text(o: &crate::vector_tiles::Overlay, k: usize) -> String {
 }
 
 /// A grid's place on another: by their transforms, when they are of the same coordinate system (or neither has
-/// one) and neither is rotated.
+/// one) and neither is rotated (a rotated one is carried by [`crate::reproject`]).
 pub fn place_on(g: &terraflux_raster::Grid, base: &terraflux_raster::Grid) -> Option<Place> {
     let (t, b) = (g.transform, base.transform);
     if t[2] != 0.0 || t[4] != 0.0 || b[2] != 0.0 || b[4] != 0.0 {
@@ -357,9 +357,9 @@ pub fn place_on(g: &terraflux_raster::Grid, base: &terraflux_raster::Grid) -> Op
     Some(Place { offset, scale })
 }
 
-/// Why a map drawn with the one shown is not: it is rotated, or its coordinate system is not told or cannot be
+/// Why a map drawn with the one shown is not: its coordinate system is not told or cannot be
 /// carried to the view's.
-const OTHER_GRID: &str = "a map drawn with it is rotated, or its coordinate system is unknown or cannot be carried \
+const OTHER_GRID: &str = "the coordinate system of a map drawn with it is unknown or cannot be carried \
                           to this map's: put it on this map's grid (raster.match)";
 
 /// A tile made: its values, its texture in a colouring, when it was last shown.
@@ -924,7 +924,7 @@ impl MapView {
                         t.used = clock;
                         if show {
                             let id = t.texture.as_ref().unwrap().1.id();
-                            painter.add(crate::reproject::mesh(&vs, id, full, tint, screen));
+                            painter.add(crate::reproject::mesh(&vs, id, full, tint, re.half, screen));
                         }
                         true
                     }
@@ -957,7 +957,7 @@ impl MapView {
                         let (u, v) = ((tx - (ax << shift)) as f32 * f, (ty - (ay << shift)) as f32 * f);
                         let uv = Rect::from_min_size(Pos2::new(u, v), Vec2::splat(f));
                         if show {
-                            painter.add(crate::reproject::mesh(&vs, tex.id(), uv, tint, screen));
+                            painter.add(crate::reproject::mesh(&vs, tex.id(), uv, tint, re.half, screen));
                         }
                         stretched = true;
                         break;
@@ -1111,7 +1111,7 @@ impl MapView {
             self.fitted = true;
         }
         // a comparison: the curtain's handle (over the map, so that dragging it does not move the map), and the
-        // other map's place on this one (none: rotated, or of a coordinate system that cannot be carried to this one)
+        // other map's place on this one (none: of a coordinate system that cannot be carried to this one)
         let compared = curtain.and_then(|c| self.layer_at(&c.layer, source.grid()).ok().map(|at| (c, at)));
         let split = compared.is_some().then(|| {
             let x = rect.left() + rect.width() * self.curtain();
@@ -1254,7 +1254,7 @@ impl MapView {
         }
         if curtain.is_some() && compared.is_none() {
             layer_errors.push(
-                "the map compared is rotated, or its coordinate system cannot be carried to this map's: put it on \
+                "the coordinate system of the map compared is unknown or cannot be carried to this map's: put it on \
                  this map's grid (raster.match)",
             );
         }

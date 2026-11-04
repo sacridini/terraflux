@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- Viewer: **rotated grids and maps across the antimeridian are drawn reprojected**. A map layer, the curtain's or a
+  side-by-side view's map whose grid is rotated (of the map's coordinate system or another) is no longer skipped
+  with a note to run `raster.match`: its cells are carried by their full affine transform, and a layer in degrees
+  across ±180° is drawn without the quads that stretched over the whole world; the difference, the Figure and
+  *Export the view* do the same.
+
 ## [1.36.0] - 2026-11-04
 
 ### Changed

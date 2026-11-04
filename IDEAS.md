@@ -1147,7 +1147,22 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    primeiro na CPU, por linha, com `Reproj::to_source_many`, vizinho mais próximo para classes e valores, NaN onde
    não há célula; a transformação é feita na própria thread da diferença; `follow` aceita `Link`). Testes:
    `a_map_of_another_coordinate_system_is_carried_to_this_ones_grid`,
-   `the_difference_of_maps_of_two_coordinate_systems_is_made`. Falta: grades rotacionadas (`raster.match` antes); o antimeridiano; a linha de data.
+   `the_difference_of_maps_of_two_coordinate_systems_is_made`. Falta: grades polares (nelas a longitude quase não
+   significa nada, e o desembrulho abaixo não vale); a seguir, o seguimento de câmera (`calc_view::followed`) e a
+   janela das tabelas, que ainda usam só `place_on`.
+   **Grades rotacionadas e o antimeridiano feitos** (Unreleased, por um sub-agente): `Reproj` (`reproject.rs`) passou
+   a levar as células pela transformação afim inteira (`Affine`: cantos → mundo → transformação de CRS → células da
+   grade mostrada pela inversa da afim dela), então uma grade rotacionada (do mesmo CRS ou de outro, ou a própria
+   grade mostrada rotacionada) vai pelo mesmo caminho de malha (`Link::Warp`); `crs_pair` não recusa mais rotação, e
+   com o mesmo CRS (ou nenhum dos dois dito) não há transformação do GDAL. Antimeridiano: quando o CRS mostrado é
+   geográfico, os x levados são deslocados de 360° para o mais perto da longitude do meio da grade mostrada
+   (`unwrap`), e na volta (`to_source_many`, o cursor, a diferença, a figura) a longitude da vista vai para o mais
+   perto do meio da camada, então uma camada de 170 °E a 170 °W é buscada a ±360°; `mesh` descarta os quads cujos
+   cantos ainda distam mais que meio mundo (`Reproj::half`, o corte a 180° do meio da vista). Mensagens de recusa sem
+   "rotated". Testes: `a_rotated_grid_is_carried_to_an_axis_aligned_one_and_back`,
+   `a_layer_across_the_antimeridian_is_carried_without_a_jump`, `a_layer_across_the_antimeridian_on_a_projected_view`,
+   `a_rotated_layer_is_carried_to_the_map` (animation), `a_rotated_grid_is_carried_to_this_ones_cells`
+   (difference), `a_rotated_map_layer_is_drawn` (UI).
    **Várias feições selecionadas feito** (Unreleased, por um sub-agente): `Pick` (`table_view.rs`) guarda as linhas
    (`rows`), a última clicada (`row`) e o começo da faixa (`anchor`): `Pick::click` (clique simples, Ctrl alterna,
    Shift pega a faixa na ordem mostrada), `clear`, `only`; `click_modifiers` lê as teclas do clique. A tabela mostra

@@ -178,7 +178,7 @@ pub(crate) fn values(src: &Source, max_side: usize) -> Result<(Vec<f32>, usize, 
 
 /// A map's picture as [`values`] takes its cells, with the maps drawn with it: those `below` under it, the
 /// others over it, each at its opacity and placed by its grid (one of another coordinate system carried to the
-/// map's; one that cannot be carried, a rotated grid, left out); premultiplied colours, transparent where nothing is.
+/// map's; one that cannot be carried left out); premultiplied colours, transparent where nothing is.
 pub(crate) fn composed(
     src: &Source,
     coloring: &Coloring,
@@ -662,6 +662,38 @@ mod tests {
         let at = |r: usize, c: usize| img.pixels[r * 400 + c];
         assert_eq!((at(10, 20), at(150, 30), at(280, 40)), (red, red, red));
         assert_eq!((at(10, 300), at(150, 200), at(280, 390)), (blue, blue, blue));
+    }
+
+    /// A layer turned a quarter under a map of the same system (none told: no GDAL): its pixels found by the full
+    /// transform, not skipped.
+    #[test]
+    fn a_rotated_layer_is_carried_to_the_map() {
+        let (red, blue) = (Color32::from_rgb(200, 0, 0), Color32::from_rgb(0, 0, 200));
+        let grid = |t: [f64; 6]| {
+            let mut g = terraflux_raster::Grid::new(3, 3);
+            g.transform = t;
+            Arc::new(g)
+        };
+        let main = Source::Map(Map::new(grid([0.0, 1.0, 0.0, 3.0, 0.0, -1.0]), vec![f64::NAN; 9]));
+        // its cell (column c, row r) is at x = r, y = 3 - c: the map's cell (row i, column j) is its (c = i, r = j);
+        // the red one is (c = 2, r = 0), so the map's cell of row 2, column 0
+        let data = (0..9).map(|k| if k == 2 { 1.0 } else { 2.0 }).collect();
+        let layer = crate::map_view::RasterLayer {
+            source: Source::Map(Map::new(grid([0.0, 0.0, 1.0, 3.0, -1.0, 0.0]), data)),
+            coloring: Coloring::Classes(vec![(1.0, red), (2.0, blue)]),
+            opacity: 1.0,
+            below: true,
+            name: String::new(),
+        };
+        let coloring = Coloring::Classes(vec![(1.0, Color32::GREEN)]);
+        let img = composed(&main, &coloring, &[layer], 100).unwrap();
+        assert_eq!(img.size, [3, 3]);
+        let want = |i: usize, j: usize| if (i, j) == (2, 0) { red } else { blue };
+        for i in 0..3 {
+            for j in 0..3 {
+                assert_eq!(img.pixels[i * 3 + j], want(i, j), "row {i}, column {j}");
+            }
+        }
     }
 
     #[test]

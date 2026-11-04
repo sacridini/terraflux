@@ -3402,7 +3402,7 @@ pub(crate) fn maps_of(value: &Value) -> (Vec<Source>, Vec<String>) {
 }
 
 /// Where a layer is on the map shown (a grid): the box of its cells (`[x0, y0, x1, y1]`); none when it is not
-/// placed on it (rotated, or its coordinate system cannot be carried to the map's) or has nothing.
+/// placed on it (its coordinate system is unknown or cannot be carried to the map's) or has nothing.
 fn layer_cells(s: &Session, l: &Layer, shown: &terraflux_raster::Grid) -> Option<[f32; 4]> {
     let cells_of = |g: &terraflux_raster::Grid| {
         match Link::between(g, shown)? {
@@ -5071,7 +5071,7 @@ fn side_by_side(
         ui.centered_and_justified(|ui| {
             ui.label(
                 RichText::new(
-                    "The map compared is rotated, or its coordinate system is unknown or cannot be carried to this \
+                    "The coordinate system of the map compared is unknown or cannot be carried to this \
                      map's: put it on this map's grid (raster.match) to see them side by side.",
                 )
                 .color(ui.visuals().error_fg_color),
@@ -5108,7 +5108,7 @@ fn side_by_side(
     for (i, (m, b)) in more.iter().zip(views.iter_mut()).enumerate() {
         let p = match m {
             Ok((src, _, _)) => Link::between(src.grid(), left.0.grid()).ok_or_else(|| {
-                "rotated, or its coordinate system is unknown or cannot be carried to this map's: put it on this \
+                "its coordinate system is unknown or cannot be carried to this map's: put it on this \
                  map's grid (raster.match)"
                     .to_string()
             }),
@@ -5251,12 +5251,13 @@ fn cell_everywhere(
                     if *layers > 1 {
                         name.push_str(&format!(" (layer {} of {layers})", layer + 1));
                     }
-                    match crate::map_view::place_on(src.grid(), base.grid()) {
+                    match Link::between(src.grid(), base.grid()) {
                         None => "another coordinate system".to_string(),
-                        Some(place) => {
-                            let c = place.to_source(at);
+                        Some(link) => {
+                            // (a rotated grid, or another coordinate system: the cell carried through the link)
+                            let c = link.to_own(at);
                             let (w, h) = src.size();
-                            if c.x < 0.0 || c.y < 0.0 || c.x >= w as f32 || c.y >= h as f32 {
+                            if !(c.x >= 0.0 && c.y >= 0.0 && c.x < w as f32 && c.y < h as f32) {
                                 "outside".to_string()
                             } else {
                                 let v = series_at(std::slice::from_ref(src), c.y as usize, c.x as usize)[0];

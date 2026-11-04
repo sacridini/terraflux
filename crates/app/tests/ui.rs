@@ -4963,3 +4963,92 @@ fn the_difference_of_maps_of_two_coordinate_systems_is_made() {
     h.run_steps(4);
     drawn(&mut h);
 }
+
+/// A map turned by 30 degrees drawn over the map shown, in the same coordinate system (none told): its tiles are
+/// meshes on the view's cells, not skipped; the pixels of the cells it covers change, those it does not cover
+/// do not, and the pointer's cell is carried back to the map's by the inverse of its transform.
+#[test]
+fn a_rotated_map_layer_is_drawn() {
+    use terraflux_app::builder::Layer;
+    use terraflux_app::reproject::Link;
+    use terraflux_graph::Node;
+    let d = tmp("rotated");
+    std::fs::create_dir_all(&d).unwrap();
+    let (land, rot) = (data("sibuyan_landuse.tif"), d.join("rotated.tif"));
+    // the layer: a square of 60% of the land's smaller side, turned 30 degrees about the land's middle;
+    // its values a ramp (classes would share colours with the land's)
+    let base = terraflux_raster::Raster::read(&land).unwrap().grid;
+    let n = ((base.width.min(base.height) as f64) * 0.6) as usize;
+    let (c, s) = (30f64.to_radians().cos() * base.transform[1], 30f64.to_radians().sin() * base.transform[1]);
+    let mut grid = terraflux_raster::Grid::new(n, n);
+    let half = n as f64 / 2.0;
+    let middle = [
+        base.transform[0] + base.width as f64 / 2.0 * base.transform[1],
+        base.transform[3] + base.height as f64 / 2.0 * base.transform[5],
+    ];
+    grid.transform = [middle[0] - half * (c + s), c, s, middle[1] - half * (s - c), s, -c];
+    let values = (0..n * n).map(|k| (k % n) as f64 * 0.37 + 0.123).collect();
+    terraflux_raster::Raster::single(grid.clone(), values, terraflux_raster::DataType::F32, None).write(&rot).unwrap();
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let read = |id: &str, p: &std::path::Path| {
+            Node::new(id, "raster.read").param("path", p.to_string_lossy().as_ref()).param("band", "0")
+        };
+        s.source.nodes = vec![read("land", &land), read("rot", &rot)];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && ["land", "rot"].iter().all(|n| s.value_of(n, "raster").is_some())
+    });
+    // the colours of the middle of the map shown (a lattice of cells from 20% to 80% across), with their cells
+    let picture = |h: &mut Harness<TerrafluxApp>| -> Vec<(egui::Vec2, [u8; 4])> {
+        drawn(h);
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_millis(500) {
+            h.step();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        drawn(h);
+        let s = h.state().session.as_ref().unwrap();
+        let (rect, (zoom, centre)) = (s.preview_view.rect().expect("the map drawn"), s.preview_view.camera());
+        let (w, ht) = s.preview_view.shown_grid().map(|g| (g.width as f32, g.height as f32)).unwrap();
+        let img = h.render().expect("the window drawn by wgpu");
+        let mut out = Vec::new();
+        for i in 0..40 {
+            for j in 0..40 {
+                let cell = egui::Vec2::new(w * (0.2 + 0.6 * j as f32 / 39.0), ht * (0.2 + 0.6 * i as f32 / 39.0));
+                let at = rect.center() + (cell - centre) * zoom;
+                out.push((cell, img.get_pixel(at.x as u32, at.y as u32).0));
+            }
+        }
+        out
+    };
+    show(&mut h, "land", "raster");
+    let alone = picture(&mut h);
+    h.state_mut().session.as_mut().unwrap().preview_layers =
+        vec![Layer::new("land", "raster"), Layer::new("rot", "raster")];
+    let over = picture(&mut h);
+    shot(&mut h, "14i-rotated");
+    // the layer is not skipped: no refusal, and the shown grid's link to it is a warp
+    let s = h.state().session.as_ref().unwrap();
+    let shown = s.preview_view.shown_grid().unwrap().clone();
+    let link = Link::between(&grid, &shown).expect("a rotated grid is put on the map's");
+    assert!(matches!(link, Link::Warp(_)));
+    // the cells inside the layer (by the inverse of its transform) are the pixels that changed
+    let inside = |cell: egui::Vec2| {
+        let o = link.to_own(cell);
+        o.x >= 0.0 && o.y >= 0.0 && o.x < n as f32 && o.y < n as f32
+    };
+    let changed = |p: &[u8; 4], q: &[u8; 4]| (0..3).any(|k| p[k].abs_diff(q[k]) > 8);
+    let (mut agree, mut covered) = (0, 0);
+    for ((cell, a), (_, b)) in alone.iter().zip(&over) {
+        covered += usize::from(inside(*cell));
+        agree += usize::from(inside(*cell) == changed(a, b));
+    }
+    assert!((160..1400).contains(&covered), "the layer covers part of the lattice: {covered} of {}", alone.len());
+    assert!(agree as f32 / alone.len() as f32 > 0.9, "the pixels changed are the layer's: {agree} of {}", alone.len());
+}
