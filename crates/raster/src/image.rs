@@ -6,11 +6,17 @@
 //! The file is read at positions (no shared cursor), so one `Image` serves many threads. Chunks read densely
 //! (a step of a few cells) are kept in a cache, so that windows side by side do not decode the same chunk
 //! again.
+//!
+//! A large image without overviews of its own gets one in memory (as Janus does), made once when a coarse
+//! window is first asked for: the cell at the top-left of each block of `f` x `f` cells, each chunk holding them
+//! decoded once. Windows at a step that is a multiple of `f` (the whole map in view, its colours, its histogram)
+//! are then taken from it, the same cells as from the file: a folder of 40 Landsat scenes in strips of a row
+//! is not decoded again for each of them.
 
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use rayon::prelude::*;
 
@@ -19,6 +25,9 @@ use crate::{Error, Raster, Result};
 
 /// The bytes of decoded chunks kept.
 const CACHE_BYTES: usize = 768 << 20;
+
+/// The most cells of an overview made in memory (16 MB a band).
+const OVERVIEW_CELLS: usize = 4 << 20;
 
 /// Read `len` bytes at `offset` without moving a cursor (threads share the file).
 fn pread(f: &File, offset: u64, len: usize) -> Result<Vec<u8>> {
@@ -87,6 +96,8 @@ pub struct Image {
     /// The raster without cells: grid, bands' names, type, no-data value.
     pub meta: Raster,
     chunks: Mutex<Chunks>,
+    /// A band's overview made in memory, once asked for (none when it could not be read).
+    overviews: Vec<OnceLock<Option<Arc<Vec<f32>>>>>,
 }
 
 impl Image {
@@ -102,12 +113,14 @@ impl Image {
             .collect();
         levels.sort_by_key(|(f, _)| *f);
         levels.dedup_by_key(|(f, _)| *f);
+        let overviews = (0..meta.bands.len()).map(|_| OnceLock::new()).collect();
         Ok(Image {
             file: File::open(path)?,
             path: path.to_path_buf(),
             levels,
             meta,
             chunks: Mutex::new(Chunks::default()),
+            overviews,
         })
     }
 
@@ -184,6 +197,31 @@ impl Image {
         let step = step.max(1);
         let (ow, oh) = (win.width.div_ceil(step), win.height.div_ceil(step));
         let mut out = vec![f32::NAN; ow * oh];
+        // from the overview in memory: cells at multiples of its reduction
+        if let Some(f) = self.overview_factor()
+            && step.is_multiple_of(f)
+            && win.x0.rem_euclid(f as i64) == 0
+            && win.y0.rem_euclid(f as i64) == 0
+            && let Some(ov) = self.overview(band, f)
+        {
+            let (w, h) = (self.width(), self.height());
+            let across = w.div_ceil(f);
+            let at = |start: i64, k: usize, size: usize| -> Option<usize> {
+                let full = start + (k * step) as i64;
+                (full >= 0 && (full as usize) < size).then(|| full as usize / f)
+            };
+            let cols: Vec<Option<usize>> = (0..ow).map(|j| at(win.x0, j, w)).collect();
+            for i in 0..oh {
+                let Some(y) = at(win.y0, i, h) else { continue };
+                let row = &mut out[i * ow..(i + 1) * ow];
+                for (v, x) in row.iter_mut().zip(&cols) {
+                    if let Some(x) = x {
+                        *v = ov[y * across + x];
+                    }
+                }
+            }
+            return Ok(out);
+        }
         let level = self.levels.iter().rposition(|(f, _)| *f <= step).unwrap_or(0);
         let (f, l) = (&self.levels[level].0, &self.levels[level].1);
         // the level's rows and columns taken (none outside the image)
@@ -226,6 +264,64 @@ impl Image {
                 let (cx, cy) = (x % cw, y % ch);
                 row[j] = chunk.get(cy * cw + cx).copied().unwrap_or(f32::NAN);
             }
+        }
+        Ok(out)
+    }
+
+    /// The reduction of the overview made in memory: the least power of 2 that brings the image within
+    /// [`OVERVIEW_CELLS`]; none for an image that small, or with overviews of its own (read instead).
+    fn overview_factor(&self) -> Option<usize> {
+        if self.levels.len() > 1 {
+            return None;
+        }
+        let (w, h) = (self.width(), self.height());
+        let mut f = 1;
+        while w.div_ceil(f) * h.div_ceil(f) > OVERVIEW_CELLS {
+            f *= 2;
+        }
+        (f > 1).then_some(f)
+    }
+
+    /// A band's overview in memory (made at the first call; the threads asking meanwhile wait for it).
+    fn overview(&self, band: usize, f: usize) -> Option<Arc<Vec<f32>>> {
+        self.overviews[band].get_or_init(|| self.make_overview(band, f).ok().map(Arc::new)).clone()
+    }
+
+    /// The cell at the top-left of each `f` x `f` block of a band, row by row: the bands of chunks (a strip, a
+    /// row of tiles) holding a row taken decoded in parallel, each chunk once and not kept.
+    fn make_overview(&self, band: usize, f: usize) -> Result<Vec<f32>> {
+        let l = &self.levels[0].1;
+        let (w, h) = (l.width, l.height);
+        let (cw, ch) = l.chunk();
+        let (ow, oh) = (w.div_ceil(f), h.div_ceil(f));
+        let across = w.div_ceil(cw);
+        // a band of chunks: its first row taken and the one after its last (rows i at i * f)
+        let taken = |ty: usize| ((ty * ch).div_ceil(f), ((ty + 1) * ch).min(h).div_ceil(f));
+        let bands: Vec<usize> = (0..h.div_ceil(ch)).filter(|&ty| taken(ty).0 < taken(ty).1).collect();
+        let parts: Vec<(usize, Vec<f32>)> = bands
+            .par_iter()
+            .map(|&ty| -> Result<(usize, Vec<f32>)> {
+                let (first, last) = taken(ty);
+                let y0 = ty * ch;
+                let mut rows = vec![f32::NAN; (last - first) * ow];
+                for tx in 0..across {
+                    let chunk = self.decode(0, Self::chunk_of(l, tx * cw, y0, band), band)?;
+                    let x0 = tx * cw;
+                    let (j0, j1) = (x0.div_ceil(f), (x0 + cw).min(w).div_ceil(f));
+                    for i in first..last {
+                        let from = (i * f - y0) * cw;
+                        let row = &mut rows[(i - first) * ow..(i - first + 1) * ow];
+                        for (j, v) in row.iter_mut().enumerate().take(j1).skip(j0) {
+                            *v = chunk.get(from + j * f - x0).map_or(f32::NAN, |&c| c as f32);
+                        }
+                    }
+                }
+                Ok((first, rows))
+            })
+            .collect::<Result<_>>()?;
+        let mut out = vec![f32::NAN; ow * oh];
+        for (first, rows) in parts {
+            out[first * ow..first * ow + rows.len()].copy_from_slice(&rows);
         }
         Ok(out)
     }

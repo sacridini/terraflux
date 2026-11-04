@@ -150,3 +150,60 @@ fn tiled_files_written_here_read_by_windows() {
     let got = img.read_band(0).unwrap();
     assert!(got.iter().zip(&r.bands[0].data).all(|(a, b)| a == b || (a.is_nan() && b.is_nan())));
 }
+
+#[test]
+fn large_images_without_overviews_are_sampled_from_one_in_memory() {
+    // larger than the overview in memory holds at full size (4 Mi cells): one of half the size made, the same
+    // cells read from it as from the file, in strips and in tiles
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (w, h) = (2101usize, 2003usize);
+    let grid = terraflux_raster::Grid::new(w, h);
+    let data: Vec<f64> = (0..w * h)
+        .map(|k| {
+            let (x, y) = (k % w, k / w);
+            if (x + y) % 97 == 0 { f64::NAN } else { ((x * 31 + y * 17) % 1000) as f64 / 7.0 }
+        })
+        .collect();
+    let r = Raster::single(grid.clone(), data, DataType::F32, None);
+    let strips = dir.join("large_strips.tif");
+    r.write(&strips).unwrap();
+    let tiled = dir.join("large_tiled.tif");
+    let tile = 256;
+    let mut tw = TiledWriter::create(&tiled, &grid, vec![None], DataType::F32, None, tile, Some(1)).unwrap();
+    for row in 0..h.div_ceil(tile) {
+        for col in 0..w.div_ceil(tile) {
+            let mut v = Vec::new();
+            for y in row * tile..(row * tile + tile).min(h) {
+                for x in col * tile..(col * tile + tile).min(w) {
+                    v.push(r.bands[0].data[y * w + x]);
+                }
+            }
+            tw.write_tile(col, row, &[&v]).unwrap();
+        }
+    }
+    tw.finish().unwrap();
+    for path in [&strips, &tiled] {
+        let img = Image::open(path).unwrap();
+        assert!(img.overviews().is_empty());
+        // windows on the overview's cells (a step and corner of multiples of 2) and off them
+        for (x0, y0, step) in [(0, 0, 2), (0, 0, 8), (-4, 6, 4), (512, 1024, 2), (1, 0, 2), (0, 0, 3), (-2, -2, 6)] {
+            let win = Window { x0, y0, width: 1500, height: 1700 };
+            let got = img.sample(0, win, step).unwrap();
+            let (ow, oh) = (win.width.div_ceil(step), win.height.div_ceil(step));
+            assert_eq!(got.len(), ow * oh);
+            for i in 0..oh {
+                for j in 0..ow {
+                    let (x, y) = (x0 + (j * step) as i64, y0 + (i * step) as i64);
+                    let v = got[i * ow + j];
+                    if x < 0 || y < 0 || x >= w as i64 || y >= h as i64 {
+                        assert!(v.is_nan(), "{path:?}: outside the image at {x},{y}");
+                    } else {
+                        let want = r.bands[0].data[y as usize * w + x as usize] as f32;
+                        assert!(v == want || (v.is_nan() && want.is_nan()), "{path:?} step {step} at {x},{y}");
+                    }
+                }
+            }
+        }
+    }
+}

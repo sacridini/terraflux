@@ -96,7 +96,16 @@ pub fn editing(ui: &Ui, node: &str, port: &str) -> bool {
     ui.data(|d| d.get_temp::<Vec<Class>>(egui::Id::new(("legend editor", node, port))).is_some())
 }
 
-/// The legend's editor: a colour and a name per class, applied to the model (or left).
+/// Open the legend's editor on the classes of a look (their names and colours as shown).
+pub fn begin(ui: &Ui, node: &str, port: &str, look: &Look, legend: Option<&[Class]>) {
+    let Coloring::Classes(classes) = &look.coloring else { return };
+    let draft: Vec<Class> =
+        classes.iter().map(|(v, c)| Class { value: *v, name: name(look, legend, *v), colour: hex(*c) }).collect();
+    ui.data_mut(|d| d.insert_temp(egui::Id::new(("legend editor", node, port)), draft));
+}
+
+/// The legend's editor while it is open (see [`begin`]): a colour and a name per class, applied to the model (or
+/// left).
 pub fn editor(
     ui: &mut Ui,
     s: &mut Session,
@@ -106,21 +115,14 @@ pub fn editor(
     look: &Look,
     legend: Option<&[Class]>,
 ) {
-    let Coloring::Classes(classes) = &look.coloring else { return };
+    let _ = legend;
+    if !matches!(look.coloring, Coloring::Classes(_)) {
+        return;
+    }
     let id = egui::Id::new(("legend editor", node, port));
     let mut draft: Option<Vec<Class>> = ui.data(|d| d.get_temp(id));
     match &mut draft {
-        None => {
-            if ui.button("Edit the legend").on_hover_text("the classes' names and colours, kept in the model").clicked()
-            {
-                draft = Some(
-                    classes
-                        .iter()
-                        .map(|(v, c)| Class { value: *v, name: name(look, legend, *v), colour: hex(*c) })
-                        .collect(),
-                );
-            }
-        }
+        None => {}
         Some(d) => {
             let mut done = None;
             egui::Grid::new(id.with("rows")).num_columns(3).show(ui, |ui| {

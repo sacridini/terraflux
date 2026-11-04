@@ -2518,15 +2518,16 @@ fn maps_stack_and_cells_show_their_series() {
     }
     h.state_mut().focus(Pane::Viewer);
     drawn(&mut h);
-    assert!(h.query_by_label("LAYERS").is_some());
+    assert!(h.query_by_label("show drivers").is_some());
     shot(&mut h, "21-stacked");
     // the panel of the layers, at the map's left: hidden by its button, and shown again
-    h.get_by_label("Layers").click();
+    use egui::accesskit::Role;
+    h.get_by_role_and_label(Role::Button, "Layers").click();
     h.run_steps(20);
-    assert!(h.query_by_label("LAYERS").is_none(), "the layers hidden");
-    h.get_by_label("Layers").click();
+    assert!(h.query_by_label("show drivers").is_none(), "the layers hidden");
+    h.get_by_role_and_label(Role::Button, "Layers").click();
     h.run_steps(20);
-    assert!(h.query_by_label("LAYERS").is_some(), "the layers shown");
+    assert!(h.query_by_label("show drivers").is_some(), "the layers shown");
     // B over the map: the satellite under it (once the map is drawn: its colours come from a thread)
     until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().preview_view.rect().is_some());
     let rect = h.state().session.as_ref().unwrap().preview_view.rect().unwrap();
@@ -2559,7 +2560,7 @@ fn maps_stack_and_cells_show_their_series() {
     // land
     h.get_by_label("roads.vector").click();
     h.run_steps(2);
-    h.get_by_label("🔍").click();
+    h.get_by_label("Zoom to layer").click();
     h.run_steps(2);
     let (zoom, center) = h.state().session.as_ref().unwrap().preview_view.camera();
     // (the roads span 120 columns of 250 m: the view about 900 points wide)
@@ -2580,7 +2581,7 @@ fn maps_stack_and_cells_show_their_series() {
     assert_eq!(h.state().session.as_ref().unwrap().preview, Some(pair("drivers", "raster")));
     use egui_kittest::kittest::NodeT;
     // the drivers (selected by the click) down, under the roads, by the bar's down
-    h.get_by_label("⏷").click();
+    h.get_by_label("Down").click();
     drawn(&mut h);
     assert_eq!(kept(&h)[1], pair("drivers", "raster"), "the drivers under the roads");
     // the land no longer a layer: removed from its menu (a right click on its row)
@@ -2592,7 +2593,7 @@ fn maps_stack_and_cells_show_their_series() {
     // a map not among them, kept with the pin: on top
     show(&mut h, "land", "raster");
     drawn(&mut h);
-    h.get_by_label("📌").click();
+    h.get_by_label("Keep as a layer").click();
     h.run_steps(2);
     assert_eq!(kept(&h).last(), Some(&pair("land", "raster")));
     // the land (on top) dragged by its row under the drivers' (at the bottom): a line where it goes, and there
@@ -2604,7 +2605,8 @@ fn maps_stack_and_cells_show_their_series() {
         egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
     };
     let from = name_at(&h, "land");
-    let to = name_at(&h, "drag a row to put it over or under the others; a right click on it: more");
+    // (below the drivers' row and its legend, the last: the place under it)
+    let to = name_at(&h, "drivers") + egui::vec2(0.0, 150.0);
     h.event(egui::Event::PointerMoved(from));
     h.run_steps(1);
     let press = |pos, pressed| egui::Event::PointerButton {
@@ -2851,7 +2853,7 @@ fn the_legend_is_edited_in_the_viewer() {
     h.state_mut().focus(Pane::Viewer);
     drawn(&mut h);
     h.run_steps(5);
-    h.get_by_label("Edit the legend").click();
+    h.get_by_label("Edit legend").click();
     h.run_steps(3);
     assert!(h.query_by_label("4723").is_none(), "the editor in the legend's place");
     // the first class's name field (the first text field of the editor): "1" replaced by "forest"
@@ -2883,7 +2885,7 @@ fn the_legend_is_edited_in_the_viewer() {
     });
     drawn(&mut h);
     h.run_steps(5);
-    assert!(h.query_all_by_label("forest").count() > 0, "the name in the legend");
+    assert!(h.query_all_by_label_contains("forest").count() > 0, "the name in the legend");
     shot(&mut h, "30-legend");
 }
 
@@ -2976,7 +2978,7 @@ fn the_layers_as_a_gis_has_them() {
         s.preview_layers.iter().map(|l| l.node.clone()).collect()
     };
     // a layer added while there are layers: on top, the map shown kept under it (it would hide it else)
-    h.get_by_label("➕").click();
+    h.get_by_label("Add a layer").click();
     h.run_steps(2);
     h.get_by_label("slope").click();
     drawn(&mut h);
@@ -3027,9 +3029,10 @@ fn the_layers_as_a_gis_has_them() {
     let terrain = Palette::Chosen(terraflux_app::palette::Ramp::Terrain, false);
     assert_eq!(h.state().session.as_ref().unwrap().palettes.get(&key), Some(&terrain));
     // the range of its colours: over all its values, then back to the percentiles
-    h.get_by_label("least to most").scroll_to_me();
+    let x = |n: &egui_kittest::Node| n.accesskit_node().bounding_box().map_or(0.0, |b| b.x0);
+    h.query_all_by_label("least to most").max_by(|a, b| x(a).total_cmp(&x(b))).expect("at the right").scroll_to_me();
     h.run_steps(30);
-    h.get_by_label("least to most").click();
+    h.query_all_by_label("least to most").max_by(|a, b| x(a).total_cmp(&x(b))).expect("at the right").click();
     drawn(&mut h);
     let range = h.state().session.as_ref().unwrap().ranges.get(&key).copied().expect("the range chosen");
     assert!(range.1 > range.0, "{range:?}");
@@ -3044,7 +3047,7 @@ fn the_layers_as_a_gis_has_them() {
         let l = p.layers.iter().find(|l| l.from == "drivers.raster").expect("the map shown");
         assert_eq!((l.palette.as_deref(), l.range), (Some("terrain"), Some([range.0, range.1])));
     }
-    h.get_by_label("2% to 98%").click();
+    h.query_all_by_label("2% to 98%").max_by(|a, b| x(a).total_cmp(&x(b))).expect("at the right").click();
     drawn(&mut h);
     assert!(h.state().session.as_ref().unwrap().ranges.is_empty());
     // the land shown alone, from its menu (a right click on its row)
@@ -4736,7 +4739,14 @@ fn the_attribute_table_of_a_vector_layer() {
     let open = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().preview_attributes.clone();
     assert!(open(&h).is_none());
     assert!(h.query_by_label("Attributes of attributes_plots.vector").is_none());
-    // the table button of the layer's settings
+    // the table, from the menu of the layer's row
+    use egui_kittest::kittest::NodeT;
+    let dots = h
+        .query_all_by_label_contains(": its menu")
+        .find(|n| n.accesskit_node().label().is_some_and(|l| l.contains("attributes_plots")))
+        .expect("the menu of the features' row");
+    dots.click();
+    h.run_steps(2);
     h.get_by_label("Attribute table").click();
     h.run_steps(3);
     assert!(open(&h).is_some_and(|o| o.is("attributes_plots", "vector") && o.pick.row.is_none()));
@@ -4879,7 +4889,12 @@ fn the_attribute_table_of_a_vector_layer() {
     let text = terraflux_app::attribute_table::tsv(&terraflux_app::attribute_table::table_of(&v));
     assert_eq!(text.lines().next(), Some("feature\tarea\tuse"));
     assert_eq!(text.lines().nth(1), Some("1\t12.5\tforest"));
-    // the button again closes the table, the outline goes
+    // the button again (in the row's menu) closes the table, the outline goes
+    h.query_all_by_label_contains(": its menu")
+        .find(|n| n.accesskit_node().label().is_some_and(|l| l.contains("attributes_plots")))
+        .expect("the menu of the features' row")
+        .click();
+    h.run_steps(2);
     h.get_by_label("Attribute table").click();
     h.run_steps(3);
     assert!(open(&h).is_none());
@@ -5869,10 +5884,23 @@ fn the_area_of_the_classes_in_a_region_and_a_profile() {
         let s = h.state().session.as_ref().unwrap();
         terraflux_app::builder::first_source(&s.value_of("sibuyan_landuse", "raster").unwrap()).unwrap()
     };
+    // (a number as the legend writes it: its thousands apart by a thin space)
+    fn grouped(v: f64) -> String {
+        let t = format!("{}", v.round());
+        let n = t.len();
+        let mut out = String::new();
+        for (i, c) in t.chars().enumerate() {
+            if i > 0 && (n - i) % 3 == 0 {
+                out.push('\u{2009}');
+            }
+            out.push(c);
+        }
+        out
+    }
     // the whole map: every class, its cells (no coordinate system: no area)
     let whole = of(&src, &Part::Map, true);
     assert_eq!(whole.classes.len(), 5);
-    let said = format!("all: {} cells with a value", whole.cells);
+    let said = format!("total: {} cells with a value", grouped(whole.cells));
     let t = Instant::now();
     while h.query_by_label_contains(&said).is_none() {
         h.step();
@@ -5892,7 +5920,7 @@ fn the_area_of_the_classes_in_a_region_and_a_profile() {
     h.get_by_label("polygon").click();
     let inside = of(&src, &Part::Polygons(vec![square.clone()]), true);
     assert!(inside.cells > 0.0 && inside.cells < whole.cells, "{} of {}", inside.cells, whole.cells);
-    let said = format!("all: {} cells with a value", inside.cells);
+    let said = format!("total: {} cells with a value", grouped(inside.cells));
     let t = Instant::now();
     while h.query_by_label_contains(&said).is_none() {
         h.step();

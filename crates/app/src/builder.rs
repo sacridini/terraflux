@@ -621,7 +621,7 @@ fn producer_in(nodes: &[terraflux_graph::Node], node: &str, port: &str) -> (Opti
 
 type Worked = (SourceKey, Palette, Look);
 /// A source's key, the source (held so that its key stays its own), its palette, its look once worked out and
-/// when it was last asked for.
+/// the pass of the context it was last asked for in.
 type Kept = (SourceKey, Source, Palette, Option<Look>, u64);
 
 /// The cells a look of rasters on disk is worked out from (a sample of the whole, as a thumbnail).
@@ -648,12 +648,20 @@ pub(crate) fn look_of(source: &Source, palette: Palette) -> Look {
     }
 }
 
-/// The looks of the maps shown, each worked out once in a thread.
+/// The threads that work out looks, at most (each reads a sample of its map, the overview of a large file made
+/// then: a folder of 40 rasters dropped is worked out a few at a time, the map shown first).
+const LOOK_WORKERS: usize = 4;
+
+/// A look to work out: the source's key, the palette, the source, and the context to wake.
+type LookJob = (SourceKey, Palette, Source, egui::Context);
+
+/// The looks of the maps shown, each worked out once by a few threads (the map shown first).
 #[derive(Default)]
 pub struct Looks {
     kept: Vec<Kept>,
     channel: Option<(Sender<Worked>, Receiver<Worked>)>,
-    clock: u64,
+    queue: Arc<(std::sync::Mutex<std::collections::VecDeque<LookJob>>, std::sync::Condvar)>,
+    workers: usize,
 }
 
 impl Looks {
@@ -665,28 +673,82 @@ impl Looks {
 
     /// The look of a source, or none while it is worked out.
     pub fn get(&mut self, ctx: &egui::Context, source: &Source, palette: Palette) -> Option<Look> {
+        self.ask(ctx, source, palette, false)
+    }
+
+    /// [`Looks::get`], worked out before those asked for already (the map shown, over the layers' looks).
+    pub fn get_first(&mut self, ctx: &egui::Context, source: &Source, palette: Palette) -> Option<Look> {
+        self.ask(ctx, source, palette, true)
+    }
+
+    fn ask(&mut self, ctx: &egui::Context, source: &Source, palette: Palette, first: bool) -> Option<Look> {
         let (tx, rx) = self.channel.get_or_insert_with(channel);
         while let Ok((key, p, look)) = rx.try_recv() {
             if let Some(e) = self.kept.iter_mut().find(|e| e.0 == key && e.2 == p) {
                 e.3 = Some(look);
             }
         }
-        self.clock += 1;
+        let tx = tx.clone();
+        let pass = ctx.cumulative_pass_nr();
         let key = source.key();
         if let Some(e) = self.kept.iter_mut().find(|e| e.0 == key && e.2 == palette) {
-            e.4 = self.clock;
+            e.4 = pass;
+            // (still to come: before the others)
+            if first && e.3.is_none() {
+                let mut q = self.queue.0.lock().unwrap();
+                if let Some(at) = q.iter().position(|j| j.0 == key && j.1 == palette)
+                    && let Some(job) = q.remove(at)
+                {
+                    q.push_front(job);
+                }
+            }
             return e.3.clone();
         }
-        let (tx, src, c) = (tx.clone(), source.clone(), ctx.clone());
-        std::thread::spawn(move || {
-            let look = look_of(&src, palette);
-            let _ = tx.send((key, palette, look));
-            c.request_repaint();
-        });
-        self.kept.push((key, source.clone(), palette, None, self.clock));
-        // the sources are held while their looks are: keep a few
+        {
+            let mut q = self.queue.0.lock().unwrap();
+            let job = (key, palette, source.clone(), ctx.clone());
+            if first {
+                q.push_front(job);
+            } else {
+                q.push_back(job);
+            }
+        }
+        self.queue.1.notify_one();
+        if self.workers < LOOK_WORKERS {
+            self.workers += 1;
+            let queue = self.queue.clone();
+            let _ = std::thread::Builder::new().name("terraflux-looks".into()).spawn(move || {
+                loop {
+                    let job = {
+                        let (lock, cv) = &*queue;
+                        let mut q = lock.lock().unwrap();
+                        loop {
+                            if let Some(j) = q.pop_front() {
+                                break j;
+                            }
+                            // (the looks let go with their session: the thread ends)
+                            if Arc::strong_count(&queue) == 1 {
+                                return;
+                            }
+                            q = cv.wait_timeout(q, std::time::Duration::from_secs(1)).unwrap().0;
+                        }
+                    };
+                    let (key, palette, src, c) = job;
+                    let look = look_of(&src, palette);
+                    if tx.send((key, palette, look)).is_err() {
+                        return;
+                    }
+                    c.request_repaint();
+                }
+            });
+        }
+        self.kept.push((key, source.clone(), palette, None, pass));
+        // the sources are held while their looks are: keep a few, and all those asked for at this pass or the last
+        // (40 layers in view: those let go would be asked again at once, worked out again without end)
         while self.kept.len() > 24 {
-            let Some(i) = (0..self.kept.len()).filter(|&i| self.kept[i].3.is_some()).min_by_key(|&i| self.kept[i].4)
+            let Some(i) = (0..self.kept.len())
+                .filter(|&i| self.kept[i].3.is_some() && self.kept[i].4 + 1 < pass)
+                .min_by_key(|&i| self.kept[i].4)
             else {
                 break;
             };
@@ -2488,6 +2550,8 @@ pub struct Shown {
     pub attributes: Option<crate::attribute_table::Open>,
 }
 
+#[path = "class_legend.rs"]
+mod class_legend;
 #[path = "layers_panel.rs"]
 mod layers_panel;
 use layers_panel::layers_section;
@@ -4019,7 +4083,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         .get(&(node.clone(), port.clone()))
         .copied()
         .unwrap_or_else(|| default_palette(&s.model.nodes, &node, &port, Some(&maps[k])));
-    let look = s.looks.get(ui.ctx(), &maps[k], palette);
+    let look = s.looks.get_first(ui.ctx(), &maps[k], palette);
     // while the look of another layer (a series' next step) is worked out, the last one: the map and its legend
     // stay, not a spinner in their place
     let held = egui::Id::new(("look held", salt, &node, &port));
@@ -4133,7 +4197,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     };
     egui::Panel::right(egui::Id::new(("output side", salt)))
         .resizable(true)
-        .default_size(260.0)
+        .default_size(300.0)
         .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::same(8)))
         .show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -4370,28 +4434,20 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 }
                 ui.add_space(4.0);
                 match &look {
-                    Some(l) => {
+                    // of classes: one table, the legend and the area of each class in the part chosen
+                    Some(l) if matches!(l.coloring, Coloring::Classes(_)) => {
                         let named = legend_classes.as_deref();
-                        // (the editor in the legend's place while it is open; the palette first, a click on it
-                        // gives the others)
+                        class_legend::section(ui, s, r, sh, &maps[k], l, named, (&node, &port), salt);
+                    }
+                    Some(l) => {
+                        // of values: the ramp (a click on it gives the others), the histogram under it, the
+                        // range of the colours set on it
+                        let named = legend_classes.as_deref();
                         let key = (node.clone(), port.clone());
-                        if !crate::legend_view::editing(ui, &node, &port) {
-                            match &l.coloring {
-                                Coloring::Classes(_) => {
-                                    layers_panel::palette_legend(ui, s, &key, l, named, 0);
-                                    ui.add_space(2.0);
-                                    legend(ui, &l.coloring, &l.counts, &|v| crate::legend_view::name(l, named, v));
-                                }
-                                Coloring::Continuous { .. } => layers_panel::palette_legend(ui, s, &key, l, named, 0),
-                            }
-                        }
-                        crate::legend_view::editor(ui, s, r, &node, &port, l, named);
-                        // (of values: the histogram under the legend, the range of the colours set on it)
-                        if matches!(l.coloring, Coloring::Continuous { .. }) {
-                            ui.add_space(4.0);
-                            let id = egui::Id::new(("histogram", salt, &node, &port));
-                            layers_panel::range_histogram(ui, s, &key, &maps[k], &l.coloring, first_range, id);
-                        }
+                        layers_panel::palette_legend(ui, s, &key, l, named, 0);
+                        ui.add_space(4.0);
+                        let id = egui::Id::new(("histogram", salt, &node, &port));
+                        layers_panel::range_histogram(ui, s, &key, &maps[k], &l.coloring, first_range, id);
                     }
                     None => {
                         ui.horizontal(|ui| {
@@ -4404,7 +4460,9 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 // the line measured
                 if let Some(l) = &look {
                     ui.add_space(8.0);
-                    region_section(ui, s, sh, &maps[k], l, legend_classes.as_deref(), salt);
+                    if !matches!(l.coloring, Coloring::Classes(_)) {
+                        region_section(ui, s, sh, &maps[k], l, legend_classes.as_deref(), salt);
+                    }
                     profile_section(ui, s, sh, &maps[k], l, legend_classes.as_deref(), salt);
                 }
                 // the cell clicked in every map of the run (at the same place, by their coordinates); a name

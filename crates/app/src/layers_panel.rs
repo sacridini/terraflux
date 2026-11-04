@@ -1,8 +1,10 @@
-//! The Layers of the Viewer, as a GIS has them: a bar (add a layer of the run or a file, remove, up, down, zoom
-//! to it, all shown or hidden) over a list of rows, the top layer first. A row: whether it is shown (a click on its
-//! box), its legend and settings folded under it (its arrow), its symbol, its name; a click selects it (a map:
-//! its legend and settings at the right), a double click zooms to it, a drag puts it over or under the others, a
-//! right click (or its ⋯) gives what can be done with it. A palette is changed by a click on it.
+//! The Layers of the Viewer, as a GIS has them: a bar of icons (add a layer of the run or a file, remove, up,
+//! down, zoom to it, all shown or hidden, every legend folded) over a list of rows, the top layer first, that
+//! scrolls when long; then the properties of the layer selected. A row: its arrow (its legend folded under it, as
+//! in QGIS), whether it is shown (its box), its symbol, its name, what it is (how many maps, features) and its ⋯;
+//! a click selects it (a map: its legend and statistics at the right), a double click zooms to it, a drag puts it
+//! over or under the others, a right click (or its ⋯) gives what can be done with it. The properties: how opaque,
+//! which map of a stack, the palette (a click on it gives the others) and the histogram, the style of features.
 
 use super::*;
 use crate::map_view::cell_text;
@@ -35,6 +37,8 @@ struct Asked {
     /// The rasters dropped at once joined as one stack, or the offer let go.
     join: bool,
     no_join: bool,
+    /// Every legend folded (true) or unfolded (false).
+    fold: Option<bool>,
 }
 
 /// What a row is: a map (of values or classes), vector features, a difference of two maps.
@@ -76,7 +80,8 @@ pub(super) fn layer_look(s: &mut Session, ctx: &egui::Context, l: &Layer) -> Opt
     Some((src, look, first))
 }
 
-/// The Layers: their bar, then their rows (see the module).
+/// The Layers: their bar, their rows (the top layer first, in a list that scrolls when long), then the
+/// properties of the layer selected (see the module).
 pub(super) fn layers_section(
     ui: &mut Ui,
     s: &mut Session,
@@ -104,7 +109,15 @@ pub(super) fn layers_section(
         .filter(|(n, p)| !sh.layers.iter().any(|l| l.is(n, p)))
         .collect();
     toolbar(ui, sh, &more, (shown_is_layer, main_name), selected, &mut asked);
-    ui.add_space(2.0);
+    if let Some(fold) = asked.fold.take() {
+        ui.data_mut(|d| {
+            d.insert_temp(egui::Id::new("layers unfolded"), !fold);
+            for l in &sh.layers {
+                d.insert_temp(egui::Id::new(("layer row", salt, key_of(l))).with("open"), !fold);
+            }
+        });
+    }
+    ui.add_space(3.0);
     // rasters dropped at once, a layer each: the offer to join them as one stack (a time series)
     s.dropped_rasters.retain(|id| s.source.nodes.iter().any(|n| &n.id == id));
     if s.dropped_rasters.len() > 1 {
@@ -115,12 +128,16 @@ pub(super) fn layers_section(
             .inner_margin(Margin::same(6))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.label(RichText::new(format!("{} rasters dropped, a layer each", s.dropped_rasters.len())).size(11.5));
+                ui.label(
+                    RichText::new(format!("{} rasters dropped, a layer each", s.dropped_rasters.len())).size(11.5),
+                );
                 ui.horizontal(|ui| {
                     if ui
                         .button("As one stack (a time series)")
                         .on_hover_text(
-                            "one node that reads them all, a layer per band of each file in the order of their names,                              played with Play: a pattern of their names when they are in one folder, else a                              stack.of they feed",
+                            "one node that reads them all, a layer per band of each file in the order of their names, \
+                             played with Play: a pattern of their names when they are in one folder, else a \
+                             stack.of they feed",
                         )
                         .clicked()
                     {
@@ -131,124 +148,73 @@ pub(super) fn layers_section(
                     }
                 });
             });
-        ui.add_space(2.0);
+        ui.add_space(3.0);
     }
     let dragged_id = egui::Id::new(("layer dragged", salt));
+    // (the list takes at most about half the panel: the properties of the layer selected stay in sight)
+    let most = (ui.available_height() * 0.55).max(140.0);
     let frame = egui::Frame::new()
         .fill(ui.visuals().extreme_bg_color)
         .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
         .corner_radius(4)
-        .inner_margin(Margin::same(3))
+        .inner_margin(Margin::same(2))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.spacing_mut().item_spacing.y = 1.0;
-            // the map shown that is no layer: a row of its own, kept by the pin
-            if !shown_is_layer {
-                ui.horizontal(|ui| {
-                    if ui
-                        .small_button("📌")
-                        .on_hover_text(
-                            "keep it as a layer: it stays on the map when another node is clicked (a double click on \
-                             the node keeps it too)",
-                        )
-                        .clicked()
-                    {
-                        asked.pin = true;
+            egui::ScrollArea::vertical()
+                .id_salt(("layers list", salt))
+                .max_height(most)
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    // the map shown that is no layer: a row of its own, kept by the pin
+                    if !shown_is_layer {
+                        shown_row(ui, main_name, &mut asked);
                     }
-                    let mut job = egui::text::LayoutJob::default();
-                    let font = egui::TextStyle::Body.resolve(ui.style());
-                    let text = ui.visuals().text_color();
-                    let weak = ui.visuals().weak_text_color();
-                    job.append(
-                        main_name,
-                        0.0,
-                        egui::TextFormat { font_id: font, color: text, italics: true, ..Default::default() },
-                    );
-                    let small = egui::FontId::proportional(11.0);
-                    job.append("  shown", 0.0, egui::TextFormat { font_id: small, color: weak, ..Default::default() });
-                    ui.add(egui::Label::new(job).truncate());
+                    // the rows, the top layer first; where each is (its row, then its legend)
+                    let mut rows: Vec<Rect> = Vec::new();
+                    let mut let_go = None;
+                    for i in (0..n).rev() {
+                        let kind = match &sh.layers[i] {
+                            l if l.minus.is_some() => Kind::Difference,
+                            l if vectors.iter().any(|(vn, vp, _)| l.is(vn, vp)) => Kind::Features,
+                            _ => Kind::Map,
+                        };
+                        let (rect, started, released) = layer_row(
+                            ui,
+                            s,
+                            sh,
+                            &vectors,
+                            (i, kind),
+                            (&node, &port),
+                            selected == Some(i),
+                            salt,
+                            &mut asked,
+                        );
+                        if started {
+                            ui.data_mut(|d| d.insert_temp(dragged_id, i));
+                        }
+                        if released {
+                            let_go = Some(i);
+                        }
+                        rows.push(rect);
+                    }
+                    if n == 0 {
+                        ui.add_space(6.0);
+                        ui.vertical_centered(|ui| {
+                            ui.label(
+                                RichText::new(if shown_is_layer {
+                                    "no layer"
+                                } else {
+                                    "+ adds the run's maps and features, or a file; files dropped here too"
+                                })
+                                .weak()
+                                .size(11.0),
+                            );
+                        });
+                        ui.add_space(6.0);
+                    }
+                    drag_feedback(ui, s, sh, &rows, let_go, dragged_id, &mut asked);
                 });
-                if n > 0 {
-                    ui.separator();
-                }
-            }
-            // the rows, the top layer first; where each is (its row, then its legend and settings)
-            let mut rows: Vec<Rect> = Vec::new();
-            let mut let_go = None;
-            for i in (0..n).rev() {
-                let kind = match &sh.layers[i] {
-                    l if l.minus.is_some() => Kind::Difference,
-                    l if vectors.iter().any(|(vn, vp, _)| l.is(vn, vp)) => Kind::Features,
-                    _ => Kind::Map,
-                };
-                let (rect, started, released) =
-                    layer_row(ui, s, sh, &vectors, (i, kind), (&node, &port), selected == Some(i), salt, &mut asked);
-                if started {
-                    ui.data_mut(|d| d.insert_temp(dragged_id, i));
-                }
-                if released {
-                    let_go = Some(i);
-                }
-                rows.push(rect);
-            }
-            if n == 0 && shown_is_layer {
-                ui.label(RichText::new("no layer").weak());
-            }
-            if n == 0 && !shown_is_layer {
-                ui.label(
-                    RichText::new("➕ adds the run's maps and features, or a file, over the map shown")
-                        .weak()
-                        .size(11.0),
-                );
-            }
-            // a row dragged: a line where it would go (between two rows), and there once let go
-            let from: Option<usize> = ui.data(|d| d.get_temp(dragged_id));
-            if let Some(from) = from.filter(|f| *f < n)
-                && let Some(p) = ui.ctx().pointer_latest_pos()
-                && !rows.is_empty()
-            {
-                let slot = rows.iter().filter(|r| r.center().y < p.y).count();
-                let at_from = n - 1 - from;
-                let moves = slot != at_from && slot != at_from + 1;
-                if let_go.is_some() {
-                    if moves {
-                        asked.moved = Some((from, slot));
-                    }
-                    ui.data_mut(|d| d.remove::<usize>(dragged_id));
-                } else {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-                    let y = match rows.get(slot) {
-                        Some(r) => r.top() - 0.5,
-                        None => rows[rows.len() - 1].bottom() + 0.5,
-                    };
-                    if moves {
-                        let (l, rt) = (ui.min_rect().left(), ui.min_rect().right());
-                        let accent = theme::accent();
-                        ui.painter().line_segment([Pos2::new(l, y), Pos2::new(rt, y)], egui::Stroke::new(2.0, accent));
-                        ui.painter().circle_filled(Pos2::new(l + 2.0, y), 3.0, accent);
-                    }
-                    // (the name carried by the pointer)
-                    let name = sh.layers[from]
-                        .name_by(made_of(s, &sh.layers[from]).as_deref(), |n, p, b| band_name(s, n, p, b));
-                    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, dragged_id));
-                    let galley =
-                        painter.layout_no_wrap(name, egui::FontId::proportional(12.0), ui.visuals().text_color());
-                    let at = p + Vec2::new(12.0, 4.0);
-                    let back = Rect::from_min_size(at, galley.size()).expand(4.0);
-                    painter.rect(
-                        back,
-                        3.0,
-                        ui.visuals().window_fill,
-                        ui.visuals().window_stroke,
-                        egui::StrokeKind::Outside,
-                    );
-                    painter.galley(at, galley, ui.visuals().text_color());
-                }
-            }
-            // (a drag that ended elsewhere: let go)
-            if from.is_some() && !ui.ctx().input(|i| i.pointer.any_down()) && let_go.is_none() {
-                ui.data_mut(|d| d.remove::<usize>(dragged_id));
-            }
         });
     // files of the Files pane let go over the Layers: read by new nodes, their layers on top
     if egui::DragAndDrop::has_payload_of_type::<DraggedFile>(ui.ctx())
@@ -262,14 +228,229 @@ pub(super) fn layers_section(
             asked.files = Some(f.0.clone());
         }
     }
-    ui.label(
-        RichText::new("drag a row to put it over or under the others; a right click on it: more").weak().size(10.5),
-    );
+    // the properties of the layer selected
+    if let Some(i) = selected.filter(|i| *i < n) {
+        let kind = match &sh.layers[i] {
+            l if l.minus.is_some() => Kind::Difference,
+            l if vectors.iter().any(|(vn, vp, _)| l.is(vn, vp)) => Kind::Features,
+            _ => Kind::Map,
+        };
+        ui.add_space(6.0);
+        properties(ui, s, sh, &vectors, (i, kind), (&node, &port), salt, &mut asked);
+    }
     act(ui, s, r, sh, asked, (&node, &port), selected_id);
 }
 
-/// The bar over the rows: the title, then (from the right) add, remove, down, up, zoom to it (the layer
-/// selected), all shown or hidden.
+/// The map shown that is no layer: its name in italics and the pin that keeps it as a layer.
+fn shown_row(ui: &mut Ui, main_name: &str, asked: &mut Asked) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 24.0), Sense::hover());
+    let pin = icon_button_at(
+        ui,
+        Rect::from_min_size(rect.min + Vec2::new(3.0, 2.0), Vec2::splat(20.0)),
+        Icon::Pin,
+        true,
+    )
+    .on_hover_text(
+        "keep it as a layer: it stays on the map when another node is clicked (a double click on the node keeps \
+             it too)",
+    );
+    pin.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Keep as a layer"));
+    if pin.clicked() {
+        asked.pin = true;
+    }
+    let visuals = ui.visuals();
+    let mut job = egui::text::LayoutJob::default();
+    job.append(
+        main_name,
+        0.0,
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(13.0),
+            color: visuals.text_color(),
+            italics: true,
+            ..Default::default()
+        },
+    );
+    job.append(
+        "   shown, not kept",
+        0.0,
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(11.0),
+            color: visuals.weak_text_color(),
+            ..Default::default()
+        },
+    );
+    job.wrap = egui::text::TextWrapping {
+        max_width: (rect.width() - 34.0).max(10.0),
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('…'),
+    };
+    let galley = ui.fonts_mut(|f| f.layout_job(job));
+    ui.painter().galley(Pos2::new(rect.left() + 30.0, rect.center().y - galley.size().y / 2.0), galley, Color32::WHITE);
+    let line = ui.visuals().widgets.noninteractive.bg_stroke;
+    ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, line);
+}
+
+/// A row dragged: a line where it would go (between two rows), the name carried by the pointer, and there once
+/// let go.
+fn drag_feedback(
+    ui: &mut Ui,
+    s: &Session,
+    sh: &Shown,
+    rows: &[Rect],
+    let_go: Option<usize>,
+    dragged_id: egui::Id,
+    asked: &mut Asked,
+) {
+    let n = sh.layers.len();
+    let from: Option<usize> = ui.data(|d| d.get_temp(dragged_id));
+    if let Some(from) = from.filter(|f| *f < n)
+        && let Some(p) = ui.ctx().pointer_latest_pos()
+        && !rows.is_empty()
+    {
+        let slot = rows.iter().filter(|r| r.center().y < p.y).count();
+        let at_from = n - 1 - from;
+        let moves = slot != at_from && slot != at_from + 1;
+        if let_go.is_some() {
+            if moves {
+                asked.moved = Some((from, slot));
+            }
+            ui.data_mut(|d| d.remove::<usize>(dragged_id));
+        } else {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            let y = match rows.get(slot) {
+                Some(r) => r.top() + 0.5,
+                None => rows[rows.len() - 1].bottom() - 0.5,
+            };
+            if moves {
+                let (l, rt) = (ui.min_rect().left(), ui.min_rect().right());
+                let accent = theme::accent();
+                ui.painter()
+                    .line_segment([Pos2::new(l + 4.0, y), Pos2::new(rt - 2.0, y)], egui::Stroke::new(2.0, accent));
+                ui.painter().circle_stroke(Pos2::new(l + 4.0, y), 3.0, egui::Stroke::new(1.5, accent));
+            }
+            // (the name carried by the pointer)
+            let name =
+                sh.layers[from].name_by(made_of(s, &sh.layers[from]).as_deref(), |n, p, b| band_name(s, n, p, b));
+            let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, dragged_id));
+            let galley = painter.layout_no_wrap(name, egui::FontId::proportional(12.0), ui.visuals().text_color());
+            let at = p + Vec2::new(12.0, 4.0);
+            let back = Rect::from_min_size(at, galley.size()).expand(4.0);
+            painter.rect(back, 3.0, ui.visuals().window_fill, ui.visuals().window_stroke, egui::StrokeKind::Outside);
+            painter.galley(at, galley, ui.visuals().text_color());
+        }
+    }
+    // (a drag that ended elsewhere: let go)
+    if from.is_some() && !ui.ctx().input(|i| i.pointer.any_down()) && let_go.is_none() {
+        ui.data_mut(|d| d.remove::<usize>(dragged_id));
+    }
+}
+
+/// The icons of the Layers, drawn (the same size and weight in every theme and font, unlike symbols of a font).
+#[derive(Clone, Copy, PartialEq)]
+enum Icon {
+    Add,
+    Remove,
+    Up,
+    Down,
+    Zoom,
+    Eye,
+    Pin,
+    Fold,
+    Unfold,
+}
+
+/// An icon drawn in a square, in a colour.
+fn paint_icon(p: &egui::Painter, r: Rect, icon: Icon, c: Color32) {
+    let s = egui::Stroke::new(1.4, c);
+    let m = r.center();
+    let u = r.width().min(r.height()) / 16.0;
+    let at = |x: f32, y: f32| m + Vec2::new(x * u, y * u);
+    match icon {
+        Icon::Add => {
+            p.line_segment([at(-5.0, 0.0), at(5.0, 0.0)], s);
+            p.line_segment([at(0.0, -5.0), at(0.0, 5.0)], s);
+        }
+        Icon::Remove => {
+            // a bin: its lid, its handle, its body with two lines
+            p.line_segment([at(-5.5, -3.5), at(5.5, -3.5)], s);
+            p.line_segment([at(-1.5, -5.5), at(1.5, -5.5)], s);
+            let body = [at(-4.0, -3.5), at(-3.2, 5.5), at(3.2, 5.5), at(4.0, -3.5)];
+            p.add(egui::Shape::line(body.to_vec(), s));
+            p.line_segment([at(-1.2, -1.2), at(-1.0, 3.5)], s);
+            p.line_segment([at(1.2, -1.2), at(1.0, 3.5)], s);
+        }
+        Icon::Up | Icon::Down => {
+            let k = if icon == Icon::Up { 1.0 } else { -1.0 };
+            p.line_segment([at(0.0, 5.0 * k), at(0.0, -5.0 * k)], s);
+            p.add(egui::Shape::line(vec![at(-4.0, -k), at(0.0, -5.0 * k), at(4.0, -k)], s));
+        }
+        Icon::Zoom => {
+            // a lens over a frame's corners: zoom to the layer
+            p.circle_stroke(at(-1.0, -1.0), 3.8 * u, s);
+            p.line_segment([at(1.8, 1.8), at(5.5, 5.5)], egui::Stroke::new(2.0, c));
+        }
+        Icon::Eye => {
+            let n = 12;
+            let lid = |sign: f32| -> Vec<Pos2> {
+                (0..=n)
+                    .map(|k| {
+                        let t = k as f32 / n as f32 * std::f32::consts::PI;
+                        at(-6.0 * t.cos(), sign * 3.8 * t.sin())
+                    })
+                    .collect()
+            };
+            p.add(egui::Shape::line(lid(-1.0), s));
+            p.add(egui::Shape::line(lid(1.0), s));
+            p.circle_filled(m, 1.9 * u, c);
+        }
+        Icon::Pin => {
+            p.circle_stroke(at(0.0, -2.5), 2.8 * u, s);
+            p.line_segment([at(0.0, 0.3), at(0.0, 6.0)], s);
+        }
+        Icon::Fold | Icon::Unfold => {
+            // lines of a list, an arrow folding or unfolding them
+            for y in [-4.0, 0.0, 4.0] {
+                p.line_segment([at(-1.0, y), at(6.0, y)], s);
+            }
+            let k = if icon == Icon::Unfold { 1.0 } else { -1.0 };
+            p.add(egui::Shape::line(vec![at(-6.0, -2.0 * k), at(-4.0, 2.0 * k), at(-2.0, -2.0 * k)], s));
+        }
+    }
+}
+
+/// A button of an icon in a rectangle: no frame until the pointer is over it.
+fn icon_button_at(ui: &mut Ui, r: Rect, icon: Icon, enabled: bool) -> egui::Response {
+    let resp = ui.interact(
+        r,
+        ui.id().with(("icon", r.min.x as i32, r.min.y as i32)),
+        if enabled { Sense::click() } else { Sense::hover() },
+    );
+    let v = ui.visuals();
+    if enabled && resp.hovered() {
+        ui.painter().rect_filled(r, 3.0, v.widgets.hovered.weak_bg_fill);
+    }
+    let c = if !enabled {
+        v.weak_text_color().gamma_multiply(0.5)
+    } else if resp.hovered() {
+        v.strong_text_color()
+    } else {
+        v.text_color()
+    };
+    paint_icon(ui.painter(), r.shrink(3.0), icon, c);
+    if enabled { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp }
+}
+
+/// A button of an icon in the flow of a bar, its name told to screen readers (and tests).
+fn icon_button(ui: &mut Ui, icon: Icon, enabled: bool, name: &str) -> egui::Response {
+    let (r, _) = ui.allocate_exact_size(Vec2::splat(22.0), Sense::hover());
+    let resp = icon_button_at(ui, r, icon, enabled);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+    resp
+}
+
+/// The bar over the rows: the title and how many, then (from the right) add, remove, down, up, zoom to it (the
+/// layer selected), all shown or hidden, every legend folded or unfolded.
 fn toolbar(
     ui: &mut Ui,
     sh: &Shown,
@@ -280,13 +461,19 @@ fn toolbar(
 ) {
     let n = sh.layers.len();
     ui.horizontal(|ui| {
-        ui.label(RichText::new("LAYERS").size(10.5).color(theme::weak()).strong());
+        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.label(RichText::new("Layers").strong());
+        if n > 0 {
+            ui.label(RichText::new(n.to_string()).weak().size(11.0));
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
-            ui.menu_button("➕", |ui| {
+            ui.spacing_mut().item_spacing.x = 1.0;
+            let add = icon_button(ui, Icon::Add, true, "Add a layer")
+                .on_hover_text("add a layer: a map or features of the run, or a file (files dropped on the list too)");
+            egui::Popup::menu(&add).show(|ui| {
                 ui.set_min_width(220.0);
                 if !shown_is_layer
-                    && ui.button(format!("📌 {main_name}")).on_hover_text("the map shown, kept as a layer").clicked()
+                    && ui.button(format!("{main_name}, kept")).on_hover_text("the map shown, kept as a layer").clicked()
                 {
                     asked.pin = true;
                     ui.close();
@@ -310,52 +497,53 @@ fn toolbar(
                     asked.pick_files = true;
                     ui.close();
                 }
-            })
-            .response
-            .on_hover_text("Add a layer: a map or features of the run, or a file");
+            });
             let at = selected.filter(|i| *i < n);
-            if ui
-                .add_enabled(at.is_some(), egui::Button::new("🗑").small())
+            if icon_button(ui, Icon::Remove, at.is_some(), "Remove the layer")
                 .on_hover_text("remove the layer selected (no longer a layer; the node stays)")
                 .clicked()
             {
                 asked.remove = at;
             }
-            if ui
-                .add_enabled(at.is_some_and(|i| i > 0), egui::Button::new("⏷").small())
-                .on_hover_text("down: the layer selected under the one below")
+            ui.add_space(4.0);
+            if icon_button(ui, Icon::Down, at.is_some_and(|i| i > 0), "Down")
+                .on_hover_text("the layer selected under the one below (or drag its row)")
                 .clicked()
             {
                 asked.down = at;
             }
-            if ui
-                .add_enabled(at.is_some_and(|i| i + 1 < n), egui::Button::new("⏶").small())
-                .on_hover_text("up: the layer selected over the one above")
+            if icon_button(ui, Icon::Up, at.is_some_and(|i| i + 1 < n), "Up")
+                .on_hover_text("the layer selected over the one above (or drag its row)")
                 .clicked()
             {
                 asked.up = at;
             }
-            if ui
-                .add_enabled(at.is_some(), egui::Button::new("🔍").small())
-                .on_hover_text("zoom to layer: the view on all of the layer selected (a double click on a row too)")
+            ui.add_space(4.0);
+            if icon_button(ui, Icon::Zoom, at.is_some(), "Zoom to layer")
+                .on_hover_text("the view on all of the layer selected (a double click on its row too)")
                 .clicked()
             {
                 asked.zoom = at;
             }
             let all = sh.layers.iter().all(|l| l.visible);
-            if ui
-                .add_enabled(n > 0, egui::Button::new("👁").small())
+            if icon_button(ui, Icon::Eye, n > 0, if all { "Hide every layer" } else { "Show every layer" })
                 .on_hover_text(if all { "hide every layer" } else { "show every layer" })
                 .clicked()
             {
                 asked.all = Some(!all);
             }
+            let unfolded = ui.data(|d| d.get_temp::<bool>(egui::Id::new("layers unfolded"))).unwrap_or(n <= 6);
+            let (icon, name) =
+                if unfolded { (Icon::Fold, "Fold every legend") } else { (Icon::Unfold, "Unfold every legend") };
+            if icon_button(ui, icon, n > 0, name).on_hover_text(name.to_lowercase()).clicked() {
+                asked.fold = Some(unfolded);
+            }
         });
     });
 }
 
-/// A layer's row (its box, its arrow, its symbol, its name, its ⋯), then its legend and settings when unfolded;
-/// where it is (the row and its settings), and whether a drag of it started or ended.
+/// A layer's row (its box, its arrow, its symbol, its name, what it is, its ⋯), then its legend when unfolded;
+/// where it is (the row and its legend), and whether a drag of it started or ended.
 #[allow(clippy::too_many_arguments)]
 fn layer_row(
     ui: &mut Ui,
@@ -376,23 +564,57 @@ fn layer_row(
     let look = if kind == Kind::Map { layer_look(s, &ctx, &sh.layers[i]) } else { None };
     let row_id = egui::Id::new(("layer row", salt, key_of(&sh.layers[i])));
     let open_id = row_id.with("open");
-    let mut open: bool = ui.data(|d| d.get_temp(open_id)).unwrap_or(true);
+    // (every legend folded or unfolded from the bar; else each as it was, unfolded when there are a few layers)
+    let all = ui.data(|d| d.get_temp::<bool>(egui::Id::new("layers unfolded")));
+    let mut open: bool = ui.data(|d| d.get_temp(open_id)).or(all).unwrap_or(n <= 6);
     let table_open = sh.attributes.as_ref().is_some_and(|o| o.is(&sh.layers[i].node, &sh.layers[i].port));
+    let features = vectors.iter().find(|(vn, vp, _)| sh.layers[i].is(vn, vp)).map(|(_, _, v)| v.clone());
+    // what it is, at the right of its name: how many maps, features
+    let about = match kind {
+        Kind::Map => {
+            let count = s.value_of(&sh.layers[i].node, &sh.layers[i].port).map_or(0, |v| maps_of(&v).0.len());
+            if count > 1 { format!("{count} maps") } else { String::new() }
+        }
+        Kind::Features => features.as_ref().map_or(String::new(), |v| format!("{} features", v.geometries.len())),
+        Kind::Difference => "difference".into(),
+    };
     let top = ui.cursor().top();
     let (rect, row) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 24.0), Sense::click_and_drag());
     row.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &name));
     let visuals = ui.visuals().clone();
     if selected {
-        ui.painter().rect_filled(rect, 3.0, visuals.selection.bg_fill.gamma_multiply(0.5));
+        ui.painter().rect_filled(rect, 3.0, visuals.selection.bg_fill.gamma_multiply(0.45));
     } else if row.hovered() {
-        ui.painter().rect_filled(rect, 3.0, visuals.widgets.hovered.weak_bg_fill);
+        ui.painter().rect_filled(rect, 3.0, visuals.widgets.hovered.weak_bg_fill.gamma_multiply(0.7));
     }
     // the map whose legend is at the right: a bar of the accent at its left
     if active {
-        let bar = Rect::from_min_size(rect.min + Vec2::new(0.0, 3.0), Vec2::new(3.0, rect.height() - 6.0));
-        ui.painter().rect_filled(bar, 1.5, theme::accent());
+        let bar = Rect::from_min_size(rect.min + Vec2::new(0.0, 4.0), Vec2::new(2.5, rect.height() - 8.0));
+        ui.painter().rect_filled(bar, 1.0, theme::accent());
     }
-    let mut x = rect.left() + 6.0;
+    let mut x = rect.left() + 5.0;
+    // the arrow that folds its legend
+    let arrow = ui.interact(
+        Rect::from_center_size(Pos2::new(x + 6.0, rect.center().y), Vec2::splat(16.0)),
+        open_id,
+        Sense::click(),
+    );
+    arrow.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "legend"));
+    {
+        // a small chevron: right when folded, down when unfolded
+        let c = if arrow.hovered() { visuals.strong_text_color() } else { visuals.weak_text_color() };
+        let m = arrow.rect.center();
+        let pts = if open {
+            vec![m + Vec2::new(-3.5, -1.5), m + Vec2::new(0.0, 2.0), m + Vec2::new(3.5, -1.5)]
+        } else {
+            vec![m + Vec2::new(-1.5, -3.5), m + Vec2::new(2.0, 0.0), m + Vec2::new(-1.5, 3.5)]
+        };
+        ui.painter().add(egui::Shape::line(pts, egui::Stroke::new(1.5, c)));
+    }
+    if arrow.on_hover_text("its legend, under it, or folded").clicked() {
+        open = !open;
+    }
+    x += 16.0;
     let l = &mut sh.layers[i];
     ui.put(
         Rect::from_min_size(Pos2::new(x, rect.top()), Vec2::new(18.0, rect.height())),
@@ -401,19 +623,7 @@ fn layer_row(
     .on_hover_text("shown on the map, or hidden")
     .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, l.visible, format!("show {name}")));
     x += 22.0;
-    let arrow = ui.interact(
-        Rect::from_center_size(Pos2::new(x + 6.0, rect.center().y), Vec2::splat(16.0)),
-        open_id,
-        Sense::click(),
-    );
-    arrow.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "legend and settings"));
-    egui::collapsing_header::paint_default_icon(ui, if open { 1.0 } else { 0.0 }, &arrow);
-    if arrow.on_hover_text("its legend and settings, under it, or folded").clicked() {
-        open = !open;
-    }
-    x += 16.0;
     let symbol = Rect::from_min_size(Pos2::new(x, rect.center().y - 7.0), Vec2::new(18.0, 14.0));
-    let features = vectors.iter().find(|(vn, vp, _)| l.is(vn, vp)).map(|(_, _, v)| v.clone());
     paint_symbol(
         ui,
         symbol,
@@ -424,29 +634,43 @@ fn layer_row(
         &l.style,
     );
     x += 24.0;
-    // its ⋯ at the right: what can be done with it
+    // its ⋯ at the right (seen on the row hovered or selected): what can be done with it
     let dots_rect = Rect::from_center_size(Pos2::new(rect.right() - 12.0, rect.center().y), Vec2::new(20.0, 20.0));
     let dots = ui.interact(dots_rect, row_id.with("more"), Sense::click()).on_hover_text(
         "what can be done with it: zoom to it, its table, its colours, up and down, remove (a right click on the row too)",
     );
     dots.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{name}: its menu")));
-    let dot = if dots.hovered() { visuals.strong_text_color() } else { visuals.weak_text_color() };
-    for dx in [-5.0, 0.0, 5.0] {
-        ui.painter().circle_filled(dots_rect.center() + Vec2::new(dx, 0.0), 1.6, dot);
+    let near = row.hovered() || dots.hovered() || selected || ui.rect_contains_pointer(rect);
+    if near {
+        if dots.hovered() {
+            ui.painter().rect_filled(dots_rect, 3.0, visuals.widgets.hovered.weak_bg_fill);
+        }
+        let dot = if dots.hovered() { visuals.strong_text_color() } else { visuals.weak_text_color() };
+        for dx in [-4.5, 0.0, 4.5] {
+            ui.painter().circle_filled(dots_rect.center() + Vec2::new(dx, 0.0), 1.5, dot);
+        }
+    }
+    // what it is, at the right, dim
+    let mut right = dots_rect.left() - 4.0;
+    if !about.is_empty() {
+        let g = ui.painter().layout_no_wrap(about.clone(), egui::FontId::proportional(10.5), visuals.weak_text_color());
+        if right - g.size().x - x > 60.0 {
+            right -= g.size().x;
+            ui.painter().galley(Pos2::new(right, rect.center().y - g.size().y / 2.0), g, visuals.weak_text_color());
+            right -= 6.0;
+        }
     }
     // its name, cut to the room left
     let colour = if l.visible { visuals.text_color() } else { visuals.weak_text_color() };
     let text = if active { RichText::new(&name).strong().color(colour) } else { RichText::new(&name).color(colour) };
-    let room = (dots_rect.left() - 4.0 - x).max(10.0);
+    let room = (right - x).max(10.0);
     let galley =
         egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Truncate), room, egui::TextStyle::Body);
     ui.painter().galley(Pos2::new(x, rect.center().y - galley.size().y / 2.0), galley, colour);
-    let hint = match kind {
-        Kind::Map if !active => format!("{name}: a click shows its legend and settings at the right"),
-        _ => name.clone(),
-    };
     let row = row.on_hover_text(format!(
-        "{hint}; a double click zooms to it; drag it over or under the others; a right click: more"
+        "{name}: a click selects it (its properties under the list{}); a double click zooms to it; drag it over or \
+         under the others; a right click: more",
+        if kind == Kind::Map && !active { ", its legend and statistics at the right" } else { "" }
     ));
     let row = if row.dragged() { row } else { row.on_hover_cursor(egui::CursorIcon::Grab) };
     if row.clicked() {
@@ -465,19 +689,162 @@ fn layer_row(
     row.context_menu(|ui| menu(ui, s, asked));
     egui::Popup::menu(&dots).show(|ui| menu(ui, s, asked));
     let (started, released) = (row.drag_started(), row.drag_stopped());
-    // its legend and settings, under it
+    // its legend, under it (as a GIS has it)
     if open {
+        ui.add_space(1.0);
         ui.horizontal(|ui| {
-            ui.add_space(28.0);
+            ui.add_space(46.0);
             ui.vertical(|ui| {
-                settings(ui, s, sh, vectors, (i, kind), (active, table_open), look.as_ref(), salt, asked);
+                ui.spacing_mut().item_spacing.y = 1.0;
+                inline_legend(
+                    ui,
+                    s,
+                    &mut sh.layers[i],
+                    (kind, active),
+                    salt,
+                    look.as_ref(),
+                    made.as_deref(),
+                    features.as_deref(),
+                );
             });
         });
-        ui.add_space(3.0);
+        ui.add_space(4.0);
     }
     ui.data_mut(|d| d.insert_temp(open_id, open));
     let whole = Rect::from_min_max(Pos2::new(rect.left(), top), Pos2::new(rect.right(), ui.cursor().top()));
     (whole, started, released)
+}
+
+/// A layer's legend under its row: of a map, its classes (the first few) or its ramp and range; of a difference,
+/// its classes; of features, what they are.
+#[allow(clippy::too_many_arguments)]
+fn inline_legend(
+    ui: &mut Ui,
+    s: &Session,
+    l: &mut Layer,
+    (kind, active): (Kind, bool),
+    salt: &str,
+    look: Option<&LayerLook>,
+    made: Option<&crate::difference::Made>,
+    features: Option<&terraflux_raster::vector::Vector>,
+) {
+    let small = |t: String| RichText::new(t).size(11.0);
+    let classes_of = |ui: &mut Ui, lines: Vec<(Color32, String, usize)>| {
+        const MOST: usize = 10;
+        let text = ui.visuals().text_color();
+        let edge = egui::Stroke::new(1.0, ui.visuals().weak_text_color().gamma_multiply(0.5));
+        for (col, name, _) in lines.iter().take(MOST) {
+            let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 17.0), Sense::hover());
+            let sw = Rect::from_min_size(Pos2::new(r.left(), r.center().y - 5.0), Vec2::new(14.0, 10.0));
+            ui.painter().rect_filled(sw, 1.5, crate::palette::seen(*col));
+            ui.painter().rect_stroke(sw, 1.5, edge, egui::StrokeKind::Inside);
+            let mut job = egui::text::LayoutJob::single_section(
+                name.clone(),
+                egui::TextFormat { font_id: egui::FontId::proportional(11.5), color: text, ..Default::default() },
+            );
+            job.wrap = egui::text::TextWrapping {
+                max_width: (r.width() - 22.0).max(10.0),
+                max_rows: 1,
+                break_anywhere: true,
+                overflow_character: Some('…'),
+            };
+            let g = ui.fonts_mut(|f| f.layout_job(job));
+            ui.painter().galley(Pos2::new(sw.right() + 7.0, r.center().y - g.size().y / 2.0), g, text);
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, name));
+        }
+        if lines.len() > MOST {
+            ui.label(small(format!("+ {} more", lines.len() - MOST)).weak())
+                .on_hover_text("every class in the legend at the right, when this map is the one shown");
+        }
+    };
+    // of a stack, a series or rasters on disk not shown: the map it shows (the map shown: its steps at the right)
+    if kind == Kind::Map && !active {
+        let names = s.value_of(&l.node, &l.port).map(|v| maps_of(&v).1).unwrap_or_default();
+        if names.len() > 1 {
+            let raster_chosen = match s.value_of(&l.node, &l.port) {
+                Some(Value::Raster(r)) => r.chosen,
+                _ => 0,
+            };
+            let at = l.band.unwrap_or(raster_chosen).min(names.len() - 1);
+            egui::ComboBox::from_id_salt(("layer band", salt, &l.node, &l.port))
+                .selected_text(RichText::new(format!("map: {}", names[at])).size(11.5))
+                .width((ui.available_width() - 8.0).clamp(80.0, 220.0))
+                .show_ui(ui, |ui| {
+                    for (b, name) in names.iter().enumerate() {
+                        if ui.selectable_label(b == at, name).clicked() {
+                            l.band = Some(b);
+                        }
+                    }
+                })
+                .response
+                .on_hover_text("the map of the stack this layer shows");
+            ui.add_space(2.0);
+        }
+    }
+    match kind {
+        Kind::Map => match look {
+            Some((src, lk, _)) => match &lk.coloring {
+                Coloring::Classes(c) => {
+                    let names = crate::legend_view::legend_of(s, &l.node, &l.port, src);
+                    let lines = crate::map_view::legend_lines(c, &lk.counts, &|v| {
+                        crate::legend_view::name(lk, names.as_deref(), v)
+                    });
+                    classes_of(ui, lines);
+                }
+                Coloring::Continuous { min, max, ramp, log } => {
+                    let width = (ui.available_width() - 4.0).clamp(60.0, 180.0);
+                    let (r, _) = ui.allocate_exact_size(Vec2::new(width, 10.0), Sense::hover());
+                    let k = 40;
+                    for j in 0..k {
+                        let a = r.left() + r.width() * j as f32 / k as f32;
+                        let b = r.left() + r.width() * (j + 1) as f32 / k as f32;
+                        let c = crate::palette::seen(ramp.colour(j as f32 / (k - 1) as f32));
+                        ui.painter().rect_filled(
+                            Rect::from_min_max(Pos2::new(a, r.top()), Pos2::new(b + 0.5, r.bottom())),
+                            0.0,
+                            c,
+                        );
+                    }
+                    ui.allocate_ui(Vec2::new(width, 14.0), |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(small(cell_text(*min)).weak());
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(small(cell_text(*max)).weak());
+                                if *log {
+                                    ui.label(small("log".into()).weak());
+                                }
+                            });
+                        });
+                    });
+                }
+            },
+            None => {
+                let what = if s.value_of(&l.node, &l.port).is_some() { "its colours..." } else { "not run yet" };
+                ui.label(small(what.into()).weak());
+            }
+        },
+        Kind::Difference => match made {
+            Some(d) => match &d.coloring {
+                Coloring::Classes(c) => classes_of(ui, crate::map_view::legend_lines(c, &d.counts, &|v| d.name(v))),
+                Coloring::Continuous { .. } => {
+                    ui.label(small(d.summary.clone()).weak());
+                }
+            },
+            None => {
+                ui.label(small("the difference...".into()).weak());
+            }
+        },
+        Kind::Features => {
+            use terraflux_raster::vector::Geometry;
+            let what = match features.and_then(|v| v.geometries.iter().find(|g| !matches!(g, Geometry::Empty))) {
+                Some(Geometry::Point(_) | Geometry::MultiPoint(_)) => "points",
+                Some(Geometry::LineString(_) | Geometry::MultiLineString(_)) => "lines",
+                Some(_) => "polygons",
+                None => "no feature",
+            };
+            ui.label(small(what.into()).weak());
+        }
+    }
 }
 
 /// What a right click on a row (or its ⋯) gives.
@@ -544,110 +911,123 @@ fn layer_menu(
     }
 }
 
-/// A layer's legend and settings, under its row: of a map, its palette (a click on it gives the others), its
-/// classes or range, how opaque, which of its maps, its histogram (the range of its colours set there); of
-/// features, their style; of a difference, what it is.
+/// How opaque a layer is, as a percentage on a slider.
+fn opacity_slider(ui: &mut Ui, opacity: &mut f32) {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Opacity").size(11.5));
+        ui.spacing_mut().slider_width = (ui.available_width() - 56.0).clamp(40.0, 220.0);
+        ui.add(
+            egui::Slider::new(opacity, 0.0..=1.0)
+                .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
+                .custom_parser(|t| t.trim().trim_end_matches('%').trim().parse::<f64>().ok().map(|v| v / 100.0)),
+        )
+        .on_hover_text("how opaque the layer is over the ones under it");
+    });
+}
+
+/// The properties of the layer selected, under the list: its name and what it is, how opaque; of a map, which of
+/// its maps, its palette (a click on it gives the others) and its histogram (the range of its colours set there),
+/// or where they are when it is the map shown; of features, their style and table; of a difference, what it is.
 #[allow(clippy::too_many_arguments)]
-fn settings(
+fn properties(
     ui: &mut Ui,
     s: &mut Session,
     sh: &mut Shown,
     vectors: &[(String, String, Arc<terraflux_raster::vector::Vector>)],
     (i, kind): (usize, Kind),
-    (active, table_open): (bool, bool),
-    look: Option<&LayerLook>,
+    (node, port): (&str, &str),
     salt: &str,
     asked: &mut Asked,
 ) {
-    // (the slider, its number and its name in the room there is: wider, the panel would grow at every frame)
-    ui.spacing_mut().slider_width = (ui.available_width() - 130.0).clamp(40.0, 160.0);
-    let l = &mut sh.layers[i];
-    match kind {
-        Kind::Difference => {
-            ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity"));
-            match made_of(s, l) {
-                Some(d) => {
-                    ui.label(RichText::new(&d.summary).weak().size(11.0));
-                    legend(ui, &d.coloring, &d.counts, &|v| d.name(v));
-                }
-                None => {
-                    match s.layer_differences.get(&l.difference_key().unwrap_or_default()).and_then(|d| d.made.as_ref())
-                    {
-                        Some(Err(e)) => {
-                            ui.label(RichText::new(e).color(ui.visuals().error_fg_color).size(11.0));
+    let ctx = ui.ctx().clone();
+    let active = sh.layers[i].is(node, port);
+    let table_open = sh.attributes.as_ref().is_some_and(|o| o.is(&sh.layers[i].node, &sh.layers[i].port));
+    let made = made_of(s, &sh.layers[i]);
+    let name = sh.layers[i].name_by(made.as_deref(), |n, p, b| band_name(s, n, p, b));
+    let look = if kind == Kind::Map { layer_look(s, &ctx, &sh.layers[i]) } else { None };
+    egui::Frame::new()
+        .fill(ui.visuals().faint_bg_color)
+        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+        .corner_radius(4)
+        .inner_margin(Margin::symmetric(8, 6))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 5.0;
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("PROPERTIES").size(10.0).color(theme::weak()).strong());
+                ui.add(egui::Label::new(RichText::new(&name).strong()).truncate());
+            });
+            let l = &mut sh.layers[i];
+            match kind {
+                Kind::Difference => {
+                    opacity_slider(ui, &mut l.opacity);
+                    match made.as_deref() {
+                        Some(d) => {
+                            ui.label(RichText::new(&d.summary).weak().size(11.0));
                         }
-                        _ => {
-                            ui.horizontal(|ui| {
-                                ui.spinner();
-                                ui.label(RichText::new("the difference...").weak());
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        Kind::Features => {
-            if ui
-                .add(egui::Button::selectable(table_open, "Attribute table"))
-                .on_hover_text("the attributes of its features in a table under the map (again: closes it)")
-                .clicked()
-            {
-                asked.table = Some(i);
-            }
-            if let Some((vn, vp, v)) = vectors.iter().find(|(vn, vp, _)| l.is(vn, vp)) {
-                crate::vector_view::style_controls(ui, v, &mut l.style, egui::Id::new((vn, vp, salt)));
-            }
-        }
-        Kind::Map => {
-            let key = (l.node.clone(), l.port.clone());
-            if active {
-                ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity"));
-                ui.label(RichText::new("its legend and settings: at the right").weak().size(10.5));
-                return;
-            }
-            match look {
-                Some((src, lk, first)) => {
-                    let names = crate::legend_view::legend_of(s, &l.node, &l.port, src);
-                    palette_legend(ui, s, &key, lk, names.as_deref(), 8);
-                    ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity"));
-                    // of a stack, a series or rasters on disk: the map it shows
-                    let names = s.value_of(&l.node, &l.port).map(|v| maps_of(&v).1).unwrap_or_default();
-                    if names.len() > 1 {
-                        let raster_chosen = match s.value_of(&l.node, &l.port) {
-                            Some(Value::Raster(r)) => r.chosen,
-                            _ => 0,
-                        };
-                        let at = l.band.unwrap_or(raster_chosen).min(names.len() - 1);
-                        egui::ComboBox::from_id_salt(("layer band", salt, &l.node, &l.port))
-                            .selected_text(format!("map: {}", names[at]))
-                            .width(160.0)
-                            .show_ui(ui, |ui| {
-                                for (b, name) in names.iter().enumerate() {
-                                    if ui.selectable_label(b == at, name).clicked() {
-                                        l.band = Some(b);
-                                    }
+                        None => {
+                            match s
+                                .layer_differences
+                                .get(&l.difference_key().unwrap_or_default())
+                                .and_then(|d| d.made.as_ref())
+                            {
+                                Some(Err(e)) => {
+                                    ui.label(RichText::new(e).color(ui.visuals().error_fg_color).size(11.0));
                                 }
-                            });
-                    }
-                    // the values: their histogram, the range of the colours set on it
-                    if matches!(lk.coloring, Coloring::Continuous { .. }) {
-                        let id = egui::Id::new(("layer histogram", salt, &l.node, &l.port));
-                        egui::CollapsingHeader::new("histogram").id_salt(id).show(ui, |ui| {
-                            range_histogram(ui, s, &key, src, &lk.coloring, *first, id);
-                        });
+                                _ => {
+                                    ui.horizontal(|ui| {
+                                        ui.spinner();
+                                        ui.label(RichText::new("the difference...").weak());
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
-                None => {
-                    ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity"));
-                    if s.value_of(&l.node, &l.port).is_some() {
-                        ui.spinner();
-                    } else {
-                        ui.label(RichText::new("not run yet").weak().size(11.0));
+                Kind::Features => {
+                    if ui
+                        .add(egui::Button::selectable(table_open, "Attribute table"))
+                        .on_hover_text("the attributes of its features in a table under the map (again: closes it)")
+                        .clicked()
+                    {
+                        asked.table = Some(i);
+                    }
+                    if let Some((vn, vp, v)) = vectors.iter().find(|(vn, vp, _)| l.is(vn, vp)) {
+                        crate::vector_view::style_controls(ui, v, &mut l.style, egui::Id::new((vn, vp, salt)));
+                    }
+                }
+                Kind::Map => {
+                    let key = (l.node.clone(), l.port.clone());
+                    opacity_slider(ui, &mut l.opacity);
+                    if active {
+                        ui.label(
+                            RichText::new("the map shown: its legend, statistics and steps in the panel at the right")
+                                .weak()
+                                .size(11.0),
+                        );
+                        return;
+                    }
+                    match &look {
+                        Some((src, lk, first)) => {
+                            let named = crate::legend_view::legend_of(s, &l.node, &l.port, src);
+                            palette_legend(ui, s, &key, lk, named.as_deref(), 0);
+                            // the values: their histogram, the range of the colours set on it
+                            if matches!(lk.coloring, Coloring::Continuous { .. }) {
+                                let id = egui::Id::new(("layer histogram", salt, &l.node, &l.port));
+                                range_histogram(ui, s, &key, src, &lk.coloring, *first, id);
+                            }
+                        }
+                        None => {
+                            if s.value_of(&l.node, &l.port).is_some() {
+                                ui.spinner();
+                            } else {
+                                ui.label(RichText::new("not run yet").weak().size(11.0));
+                            }
+                        }
                     }
                 }
             }
-        }
-    }
+        });
 }
 
 /// A row's symbol: a map's ramp or first classes, features' colour as points, lines or polygons, a difference's

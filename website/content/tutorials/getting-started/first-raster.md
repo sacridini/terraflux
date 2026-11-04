@@ -235,7 +235,7 @@ Codes are hard to read: you will not remember that 24 is coniferous forest. A **
 and a colour. In Terraflux a legend is a node, [[raster.legend]], placed after the map; it carries the names
 with the map to everything downstream that keeps its classes, and into the GeoTIFF the map is written to.
 
-You rarely type it: under the legend beside the map, **Edit the legend** opens a colour and a name per class;
+You rarely type it: in the header of the legend beside the map, **Edit legend** opens a colour and a name per class;
 **Apply** writes them into the model as a `raster.legend` node after the node shown (or changes it, if the node
 shown is one). Here is the legend of Sibuyan's land use, as the model file keeps it:
 

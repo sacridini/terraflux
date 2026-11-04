@@ -164,7 +164,39 @@ struct Made {
     source: Source,
     values: Result<Arc<Vec<f32>>, String>,
     image: Option<egui::ColorImage>,
+    opaque: bool,
     colouring: u64,
+}
+
+/// Whether an image has no pixel seen through (no cell without a value, no colour made transparent).
+fn opaque(img: &egui::ColorImage) -> bool {
+    img.pixels.iter().all(|p| p.a() == 255)
+}
+
+/// What the layers over a source hide of the view: the screen rectangles of the tiles they drew opaque. A tile of
+/// the source there is neither drawn nor read (a stack of 40 years shows its top year alone), except the tile under
+/// the pointer (its value told). `opaque` gathers those the source draws, for the layers under it.
+#[derive(Default)]
+struct Cover {
+    hidden: Vec<Rect>,
+    opaque: Vec<Rect>,
+    pointer: Option<Pos2>,
+    /// the part of the view the source is drawn in (left or right of a curtain)
+    clip: Option<Rect>,
+}
+
+impl Cover {
+    /// Whether the part `r` of the view is hidden (inside one rectangle drawn opaque over it).
+    fn hides(&self, r: Rect) -> bool {
+        r.is_positive()
+            && !self.pointer.is_some_and(|p| r.contains(p))
+            && self.hidden.iter().any(|c| c.expand(0.5).contains_rect(r))
+    }
+
+    /// The source drawn: what it drew opaque hides what is under it too.
+    fn drawn(&mut self) {
+        self.hidden.append(&mut self.opaque);
+    }
 }
 
 /// The threads that make tiles: a queue the view replaces at every frame (what is in view, the most needed
@@ -199,8 +231,10 @@ impl Workers {
                     let (_, level, tx_, ty) = job.key;
                     let values = job.source.tile(level, tx_, ty).map(Arc::new);
                     let image = values.as_ref().ok().map(|v| image_f32(v, TILE, TILE, &job.coloring));
+                    let opaque = image.as_ref().is_some_and(opaque);
                     started.lock().unwrap().remove(&(job.key, job.colouring));
-                    let made = Made { key: job.key, source: job.source, values, image, colouring: job.colouring };
+                    let (key, source, colouring) = (job.key, job.source, job.colouring);
+                    let made = Made { key, source, values, image, opaque, colouring };
                     if tx.send(made).is_err() {
                         return;
                     }
@@ -366,6 +400,8 @@ const OTHER_GRID: &str = "the coordinate system of a map drawn with it is unknow
 struct Tile {
     values: Arc<Vec<f32>>,
     texture: Option<(u64, TextureHandle)>,
+    /// whether the texture has no pixel seen through
+    opaque: bool,
     used: u64,
     /// the source, held so that its key is not another's while the tile is kept
     _source: Source,
@@ -393,6 +429,8 @@ pub struct MapView {
     /// the pass of the context the view was last drawn in
     drawn_pass: u64,
     clock: u64,
+    /// the clock when the last frame was drawn: the tiles it used are kept
+    frame_clock: u64,
     /// the size of the map shown (cells), to fit it again when another comes
     size: (usize, usize),
     /// screen points per cell, and the cell at the centre of the view
@@ -666,11 +704,12 @@ impl MapView {
     /// Draw a source's tiles in view, placed on the view's grid (the finest kept over a tile still to come,
     /// stretched; a few tiles kept in another colouring coloured again); the tiles missing asked for. Held: only
     /// the tiles kept in that colouring, nothing asked. Whether every tile in view was drawn (stretched or not).
+    /// The tiles hidden by the layers over it ([`Cover`]) neither drawn nor asked; those it draws opaque told.
     #[allow(clippy::too_many_arguments)]
     fn draw_source(
         &mut self,
         ctx: &egui::Context,
-        painter: &egui::Painter,
+        out: &mut Vec<egui::Shape>,
         rect: Rect,
         source: &Source,
         paint: Paint<'_>,
@@ -678,6 +717,7 @@ impl MapView {
         place: Place,
         show: bool,
         wanted: &mut Vec<(f32, Job)>,
+        cover: &mut Cover,
     ) -> bool {
         let (w, h) = source.size();
         if w == 0 || h == 0 {
@@ -729,10 +769,17 @@ impl MapView {
         for ty in ty0..=(ty1.max(0) as usize) {
             for tx in tx0..=(tx1.max(0) as usize) {
                 let k = (src, top, tx, ty);
-                if let Some(c) = coloring
-                    && self.tiles.get(&k).is_none_or(|t| t.texture.as_ref().is_none_or(|(c, _)| *c != colouring))
-                {
-                    wanted.push((-1.0, job(k, c)));
+                if cover.hides(screen(top, tx, ty).intersect(rect)) {
+                    continue;
+                }
+                // (kept while in view: what is drawn while finer tiles come, never let go and asked again)
+                match self.tiles.get_mut(&k) {
+                    Some(t) if t.texture.as_ref().is_some_and(|(c, _)| *c == colouring) => t.used = clock,
+                    _ => {
+                        if let Some(c) = coloring {
+                            wanted.push((-1.0, job(k, c)));
+                        }
+                    }
                 }
             }
         }
@@ -743,6 +790,13 @@ impl MapView {
             for tx in x0..=x1 as usize {
                 let k = (src, level, tx, ty);
                 let r = screen(level, tx, ty);
+                // (hidden by the layers over it: neither drawn nor read)
+                let seen = r.intersect(rect);
+                if cover.hides(seen) {
+                    continue;
+                }
+                let seen = cover.clip.map_or(seen, |c| seen.intersect(c));
+                let covers = show && tint.a() == 255;
                 // a tile kept in another colouring is coloured again here (a few per frame)
                 if let Some(t) = self.tiles.get_mut(&k)
                     && t.texture.as_ref().is_none_or(|(c, _)| *c != colouring)
@@ -751,6 +805,7 @@ impl MapView {
                 {
                     recolour -= 1;
                     let img = image_f32(&t.values, TILE, TILE, coloring);
+                    t.opaque = opaque(&img);
                     t.texture = Some((
                         colouring,
                         ctx.load_texture(format!("tile-r-{clock}-{tx}-{ty}"), img, TextureOptions::NEAREST),
@@ -760,7 +815,10 @@ impl MapView {
                     Some(t) if t.texture.as_ref().is_some_and(|(c, _)| *c == colouring) => {
                         t.used = clock;
                         if show {
-                            painter.image(t.texture.as_ref().unwrap().1.id(), r, full, tint);
+                            out.push(egui::Shape::image(t.texture.as_ref().unwrap().1.id(), r, full, tint));
+                        }
+                        if covers && t.opaque {
+                            cover.opaque.push(seen);
                         }
                         true
                     }
@@ -787,7 +845,10 @@ impl MapView {
                         let (u, v) = ((tx - (ax << shift)) as f32 * f, (ty - (ay << shift)) as f32 * f);
                         let uv = Rect::from_min_size(Pos2::new(u, v), Vec2::splat(f));
                         if show {
-                            painter.image(tex.id(), r, uv, tint);
+                            out.push(egui::Shape::image(tex.id(), r, uv, tint));
+                        }
+                        if covers && t.opaque {
+                            cover.opaque.push(seen);
                         }
                         stretched = true;
                         break;
@@ -833,7 +894,7 @@ impl MapView {
     fn draw_at(
         &mut self,
         ctx: &egui::Context,
-        painter: &egui::Painter,
+        out: &mut Vec<egui::Shape>,
         rect: Rect,
         source: &Source,
         paint: Paint<'_>,
@@ -841,12 +902,13 @@ impl MapView {
         at: At,
         show: bool,
         wanted: &mut Vec<(f32, Job)>,
+        cover: &mut Cover,
     ) -> bool {
         match at {
-            At::Place(place) => self.draw_source(ctx, painter, rect, source, paint, tint, place, show, wanted),
+            At::Place(place) => self.draw_source(ctx, out, rect, source, paint, tint, place, show, wanted, cover),
             At::Warp => {
                 let Some(mut re) = self.reproj.remove(&source.key()) else { return true };
-                let done = self.draw_warped(ctx, painter, rect, source, paint, tint, &mut re, show, wanted);
+                let done = self.draw_warped(ctx, out, rect, source, paint, tint, &mut re, show, wanted);
                 self.reproj.insert(source.key(), re);
                 done
             }
@@ -859,7 +921,7 @@ impl MapView {
     fn draw_warped(
         &mut self,
         ctx: &egui::Context,
-        painter: &egui::Painter,
+        out: &mut Vec<egui::Shape>,
         rect: Rect,
         source: &Source,
         paint: Paint<'_>,
@@ -915,10 +977,14 @@ impl MapView {
         for ty in ty0..=(ty1.max(0) as usize) {
             for tx in tx0..=(tx1.max(0) as usize) {
                 let k = (src, top, tx, ty);
-                if let Some(c) = coloring
-                    && self.tiles.get(&k).is_none_or(|t| t.texture.as_ref().is_none_or(|(c, _)| *c != colouring))
-                {
-                    wanted.push((-1.0, job(k, c)));
+                // (kept while in view: what is drawn while finer tiles come, never let go and asked again)
+                match self.tiles.get_mut(&k) {
+                    Some(t) if t.texture.as_ref().is_some_and(|(c, _)| *c == colouring) => t.used = clock,
+                    _ => {
+                        if let Some(c) = coloring {
+                            wanted.push((-1.0, job(k, c)));
+                        }
+                    }
                 }
             }
         }
@@ -938,6 +1004,7 @@ impl MapView {
                 {
                     recolour -= 1;
                     let img = image_f32(&t.values, TILE, TILE, coloring);
+                    t.opaque = opaque(&img);
                     t.texture = Some((
                         colouring,
                         ctx.load_texture(format!("tile-r-{clock}-{tx}-{ty}"), img, TextureOptions::NEAREST),
@@ -948,7 +1015,7 @@ impl MapView {
                         t.used = clock;
                         if show {
                             let id = t.texture.as_ref().unwrap().1.id();
-                            painter.add(crate::reproject::mesh(&vs, id, full, tint, re.half, screen));
+                            out.push(crate::reproject::mesh(&vs, id, full, tint, re.half, screen).into());
                         }
                         true
                     }
@@ -981,7 +1048,7 @@ impl MapView {
                         let (u, v) = ((tx - (ax << shift)) as f32 * f, (ty - (ay << shift)) as f32 * f);
                         let uv = Rect::from_min_size(Pos2::new(u, v), Vec2::splat(f));
                         if show {
-                            painter.add(crate::reproject::mesh(&vs, tex.id(), uv, tint, re.half, screen));
+                            out.push(crate::reproject::mesh(&vs, tex.id(), uv, tint, re.half, screen).into());
                         }
                         stretched = true;
                         break;
@@ -1007,6 +1074,7 @@ impl MapView {
                 Err(e) => self.error = Some(e),
                 Ok(values) => {
                     self.clock += 1;
+                    let opaque = m.opaque;
                     let texture = m.image.map(|img| {
                         (m.colouring, ctx.load_texture(format!("tile-{}", self.clock), img, TextureOptions::NEAREST))
                     });
@@ -1015,19 +1083,26 @@ impl MapView {
                             t.values = values;
                             if texture.is_some() {
                                 t.texture = texture;
+                                t.opaque = opaque;
                             }
                         }
                         None => {
-                            self.tiles.insert(m.key, Tile { values, texture, used: self.clock, _source: m.source });
+                            let tile = Tile { values, texture, opaque, used: self.clock, _source: m.source };
+                            self.tiles.insert(m.key, tile);
                         }
                     }
                 }
             }
         }
+        // the oldest let go, never those of the last frame (many layers in view need more than KEPT: letting
+        // those go asked them again at once, without end)
         if self.tiles.len() > KEPT {
-            let mut by_age: Vec<(u64, TileKey)> = self.tiles.iter().map(|(k, t)| (t.used, *k)).collect();
+            let frame = self.frame_clock;
+            let mut by_age: Vec<(u64, TileKey)> =
+                self.tiles.iter().filter(|(_, t)| t.used < frame).map(|(k, t)| (t.used, *k)).collect();
             by_age.sort_unstable();
-            for (_, k) in by_age.into_iter().take(self.tiles.len() - KEPT) {
+            let over = self.tiles.len() - KEPT;
+            for (_, k) in by_age.into_iter().take(over) {
                 self.tiles.remove(&k);
             }
         }
@@ -1211,27 +1286,67 @@ impl MapView {
         // (the map shown as opaque as its layer is: the maps compared with it keep the data's)
         let own = tint.gamma_multiply(self.opacity.unwrap_or(1.0).clamp(0.0, 1.0));
         let ppp = ctx.pixels_per_point();
-        let mut wanted: Vec<(f32, Job)> = Vec::new();
         self.clock += 1;
-        // the maps under it first, placed by their coordinates on its grid (of its coordinate system)
-        let mut layer_errors = Vec::new();
-        for l in rasters.iter().filter(|l| l.below) {
+        self.frame_clock = self.clock;
+        // The maps are drawn from the top down, each into the place kept for it in the painter (the lowest
+        // first), so that what a map hides of those under it ([`Cover`]) is known before they are drawn: a
+        // stack of years shows its top one, and only its tiles are read. The tiles wanted from the top map down,
+        // each map's the nearest the centre first.
+        let mut cover = Cover { pointer: response.hover_pos(), ..Default::default() };
+        let mut ranked: Vec<(usize, f32, Job)> = Vec::new();
+        let mut wanted: Vec<(f32, Job)> = Vec::new();
+        let below: Vec<&RasterLayer> = rasters.iter().filter(|l| l.below).collect();
+        let over: Vec<&RasterLayer> = rasters.iter().filter(|l| !l.below).collect();
+        let below_at: Vec<egui::layers::ShapeIdx> = below.iter().map(|_| painter.add(egui::Shape::Noop)).collect();
+        // compared: this map left of the curtain, the other right of it, as opaque as this one
+        let (left_clip, right_clip) = match split {
+            Some(x) => (
+                Some(Rect::from_min_max(rect.min, Pos2::new(x, rect.max.y))),
+                Some(Rect::from_min_max(Pos2::new(x, rect.min.y), rect.max)),
+            ),
+            None => (None, None),
+        };
+        let left = left_clip.map_or_else(|| painter.clone(), |c| painter.with_clip_rect(c));
+        let right = right_clip.map_or_else(|| painter.clone(), |c| painter.with_clip_rect(c));
+        let (prior_at, source_at, compared_at) =
+            (left.add(egui::Shape::Noop), left.add(egui::Shape::Noop), right.add(egui::Shape::Noop));
+        let over_at: Vec<egui::layers::ShapeIdx> = over.iter().map(|_| painter.add(egui::Shape::Noop)).collect();
+        let mut rank = 0;
+        let mut rank_wanted = |wanted: &mut Vec<(f32, Job)>, ranked: &mut Vec<(usize, f32, Job)>| {
+            ranked.extend(wanted.drain(..).map(|(d, j)| (rank, d, j)));
+            rank += 1;
+        };
+        // the maps over it, the last on top
+        let (mut over_errors, mut below_errors) = (Vec::new(), Vec::new());
+        for (l, &at_slot) in over.iter().zip(&over_at).rev() {
             match self.layer_at(l, source.grid()) {
                 Ok(at) => {
                     let tint = Color32::from_white_alpha((l.opacity.clamp(0.0, 1.0) * 255.0).round() as u8);
                     let paint = Paint::Asked(&l.coloring);
-                    self.draw_at(&ctx, &painter, rect, &l.source, paint, tint, at, true, &mut wanted);
+                    let mut out = Vec::new();
+                    self.draw_at(&ctx, &mut out, rect, &l.source, paint, tint, at, true, &mut wanted, &mut cover);
+                    painter.set(at_slot, egui::Shape::Vec(out));
                 }
-                Err(e) => layer_errors.push(e),
+                Err(e) => over_errors.push(e),
             }
+            cover.drawn();
+            rank_wanted(&mut wanted, &mut ranked);
         }
         if !blank {
             let base = Place { offset: Vec2::ZERO, scale: Vec2::splat(1.0) };
-            // compared: this map left of the curtain, the other right of it, as opaque as this one
-            let left = match split {
-                Some(x) => painter.with_clip_rect(Rect::from_min_max(rect.min, Pos2::new(x, rect.max.y))),
-                None => painter.clone(),
-            };
+            let mut hidden_by_compared = Vec::new();
+            if let (Some((c, at)), Some(_)) = (compared, split) {
+                let l = &c.layer;
+                let paint = Paint::Asked(&l.coloring);
+                let mut out = Vec::new();
+                cover.clip = right_clip;
+                self.draw_at(&ctx, &mut out, rect, &l.source, paint, tint, at, show_data, &mut wanted, &mut cover);
+                right.set(compared_at, egui::Shape::Vec(out));
+                // (what the other map hides is right of the curtain: not over this one)
+                hidden_by_compared = std::mem::take(&mut cover.opaque);
+                rank_wanted(&mut wanted, &mut ranked);
+            }
+            cover.clip = left_clip;
             // another map than at the last frame (a series' next step), or other colours: the last one kept under
             // it while its tiles come, the new one fading in over it
             let now = (source.key(), coloring.key());
@@ -1247,17 +1362,21 @@ impl MapView {
                 }
                 _ => None,
             };
-            let fade = match under {
-                Some((was, colouring, fade)) => {
-                    let held = Paint::Held(colouring);
-                    self.draw_source(&ctx, &left, rect, &was, held, own, base, show_data, &mut wanted);
-                    fade
-                }
-                None => 1.0,
-            };
+            let fade = under.as_ref().map_or(1.0, |u| u.2);
             let asked = Paint::Asked(coloring);
             let faded = own.gamma_multiply(fade);
-            let complete = self.draw_source(&ctx, &left, rect, source, asked, faded, base, show_data, &mut wanted);
+            let mut out = Vec::new();
+            let complete =
+                self.draw_source(&ctx, &mut out, rect, source, asked, faded, base, show_data, &mut wanted, &mut cover);
+            left.set(source_at, egui::Shape::Vec(out));
+            cover.drawn();
+            if let Some((was, colouring, _)) = under {
+                let held = Paint::Held(colouring);
+                let mut out = Vec::new();
+                self.draw_source(&ctx, &mut out, rect, &was, held, own, base, show_data, &mut wanted, &mut cover);
+                left.set(prior_at, egui::Shape::Vec(out));
+                cover.opaque.clear();
+            }
             if self.prior.is_some() {
                 if complete && fade >= 1.0 {
                     self.prior = None;
@@ -1266,32 +1385,39 @@ impl MapView {
                 }
             }
             self.last = Some((source.clone(), now.1));
-            if let (Some((c, at)), Some(x)) = (compared, split) {
-                let right = painter.with_clip_rect(Rect::from_min_max(Pos2::new(x, rect.min.y), rect.max));
-                let l = &c.layer;
-                let paint = Paint::Asked(&l.coloring);
-                self.draw_at(&ctx, &right, rect, &l.source, paint, tint, at, show_data, &mut wanted);
-            }
+            cover.clip = None;
+            cover.hidden.append(&mut hidden_by_compared);
+            rank_wanted(&mut wanted, &mut ranked);
         }
-        // the maps over it
-        for l in rasters.iter().filter(|l| !l.below) {
+        // the maps under it, placed by their coordinates on its grid (of its coordinate system)
+        for (l, &at_slot) in below.iter().zip(&below_at).rev() {
             match self.layer_at(l, source.grid()) {
                 Ok(at) => {
                     let tint = Color32::from_white_alpha((l.opacity.clamp(0.0, 1.0) * 255.0).round() as u8);
                     let paint = Paint::Asked(&l.coloring);
-                    self.draw_at(&ctx, &painter, rect, &l.source, paint, tint, at, true, &mut wanted);
+                    let mut out = Vec::new();
+                    self.draw_at(&ctx, &mut out, rect, &l.source, paint, tint, at, true, &mut wanted, &mut cover);
+                    painter.set(at_slot, egui::Shape::Vec(out));
                 }
-                Err(e) => layer_errors.push(e),
+                Err(e) => below_errors.push(e),
             }
+            cover.drawn();
+            rank_wanted(&mut wanted, &mut ranked);
         }
+        below_errors.reverse();
+        over_errors.reverse();
+        let mut layer_errors = below_errors;
+        layer_errors.append(&mut over_errors);
         if curtain.is_some() && compared.is_none() {
             layer_errors.push(
                 "the coordinate system of the map compared is unknown or cannot be carried to this map's: put it on \
                  this map's grid (raster.match)",
             );
         }
-        // the workers' queue: what the view needs, the nearest the centre first; the rest let go
-        wanted.sort_by(|a, b| a.0.total_cmp(&b.0));
+        // the workers' queue: what the view needs, the top map's first, each map's nearest the centre first; the
+        // rest let go
+        ranked.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        let wanted = ranked.into_iter().map(|(_, d, j)| (d, j));
         if let Some(wk) = &self.workers {
             let started = wk.started.lock().unwrap().clone();
             let (lock, cv) = &*wk.queue;

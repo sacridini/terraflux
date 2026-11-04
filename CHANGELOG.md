@@ -6,6 +6,29 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- Viewer: **the legend of a map of classes is one table**. The legend and the *Area of the classes* were two
+  lists of the same classes, the second with a bar of the cells in each (a model of MSPA classes showed them
+  twice). Now one table: a row per class with its colour, its name, its area (of the whole map, the part in view,
+  the polygon measured or the polygons selected, in hectares, km² or cells), a bar of its share and the share; the
+  palette and *Edit legend* in its header.
+- Viewer: **the Layers panel redone as a GIS has it**: a bar of icons (add, remove, up, down, zoom to the layer, all
+  shown or hidden, every legend folded), the rows in a list that scrolls when long (the top layer first: an arrow
+  folding its legend under it, its box, its symbol, its name, what it is, and a ⋯ menu), then the properties of
+  the layer selected (opacity, the map of a stack, the palette and the histogram, the style of features). A click
+  selects a layer, a double click zooms to it, a drag puts it over or under the others, a right click or the ⋯
+  gives what can be done with it.
+
+### Fixed
+- Viewer: **many rasters at once draw quickly**. The 41 Landsat scenes of a folder dropped as 41 layers never
+  finished loading: more tiles and colourings were needed than were kept, so those let go were asked for again
+  without end. The tiles and looks of the last frame are now always kept; a map's tiles hidden under an opaque
+  layer are neither read nor drawn; the map shown and the top layers come first. A large GeoTIFF without
+  overviews of its own gets one in memory, made once (each strip read once), from which the whole map in view,
+  its colours and its histogram are taken, the same cells as from the file. The folder above: the map in view in
+  under a second and every layer in about 4 seconds (before: still loading after 20); as one stack, under a
+  second.
+
 ## [1.38.0] - 2026-11-04
 
 ### Changed
