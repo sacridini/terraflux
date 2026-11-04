@@ -18032,7 +18032,7 @@
     "name": "threads",
     "type": "number",
     "required": false,
-    "doc": "gurobi: the threads it uses (default every core but one, as landschaft)"
+    "doc": "gurobi: the threads it uses (default and most: Terraflux's threads, never every core)"
    }
   ],
   "access": "global",
