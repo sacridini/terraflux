@@ -6,6 +6,28 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- Viewer: **the transition matrix** of two maps of classes compared by *Difference*: *Transition matrix...* opens
+  every class before (rows) to every class after (columns) in hectares, km², a share of the landscape or of the
+  class it came from, or cells (areas geodesic on a grid in degrees, none without a coordinate system); each
+  class's gains, losses, net change and swap as bars; and the flows from before to after as a Sankey diagram.
+  A cell of the matrix (or a flow) clicked shows only that transition on the map, the other changes grey;
+  *Copy* (tab-separated) and *Save CSV*. The difference opened before the map was ever drawn is no longer blank.
+- Viewer: **the area of each class, and the statistics of a region**. Under the legend, *Area of the classes* (of a
+  map of classes: each class in hectares, km² or cells and its share) or *Statistics* (of a map of values: the
+  cells with a value, their area, mean, minimum, maximum, sum and standard deviation), of the whole map, of the
+  part in view (once the view rests), of the polygon drawn with *Measure* (three points or more) or of the
+  polygons selected in the table of attributes; a cell is in when its centre is. Worked out in a thread, from a
+  sample when the part has more than about 4 million cells; *Copy* gives the numbers.
+- Viewer: **the profile along a line**: the line of *Measure* (two points or more) samples the map about every half
+  cell (up to 2 000 points): a map of values as a chart of its values by the distance (with the minimum, maximum and
+  mean), a map of classes as a band of the classes crossed with the length in each; the place under the pointer on
+  the chart is marked on the map; *Copy* gives every point (distance, column, row, value).
+- Viewer: **the classes along the steps** of a series or a stack of classes (a `control.repeat`, CLUE-S, cellular
+  automata, the years of a file): a chart of the area of each class at every step beside *Play* (a click shows that
+  step, *Copy* the table), and *first to last...* opens the transitions from the first step to the last: the flows
+  as a Sankey diagram, the matrix, the gains and losses.
+
 ## [1.37.0] - 2026-11-04
 
 ### Changed

@@ -3220,6 +3220,10 @@ pub enum How {
     Difference,
 }
 
+/// A difference made, or why it could not be; as it comes from the thread making it.
+pub type DifferenceMade = Result<Arc<crate::difference::Made>, String>;
+type Making = Result<crate::difference::Made, String>;
+
 /// The difference of the maps compared, made in a thread: of which maps (their sources, and the names of their
 /// classes when of classes) and those maps, the one made or why not, the one being made, the cell last picked on
 /// it.
@@ -3230,6 +3234,14 @@ pub struct Difference {
     pub made: Option<Result<Arc<crate::difference::Made>, String>>,
     making: Option<Receiver<Result<crate::difference::Made, String>>>,
     picked: Option<(usize, usize)>,
+    /// Of maps of classes, a transition (from, to) singled out on the map (a cell of the matrix clicked); the
+    /// difference with only it, of which transition, made in a thread.
+    pub focus: Option<(i64, i64)>,
+    pub focused: Option<((i64, i64), DifferenceMade)>,
+    focusing: Option<((i64, i64), Receiver<Making>)>,
+    classes: Option<(crate::difference::Names, crate::difference::Names)>,
+    /// The window of the matrix of the transitions.
+    pub matrix: crate::transition_view::State,
 }
 
 impl Difference {
@@ -3254,6 +3266,8 @@ impl Difference {
             // (the maps held, so that their keys are no other's while the difference is theirs)
             self.held = Some((a.clone(), b.clone()));
             self.made = None;
+            (self.focus, self.focused, self.focusing) = (None, None, None);
+            self.classes = classes.clone();
             let (tx, rx) = channel();
             let (a, b, ctx) = (a.clone(), b.clone(), ctx.clone());
             let _ = std::thread::Builder::new().name("terraflux-difference".into()).spawn(move || {
@@ -3266,6 +3280,37 @@ impl Difference {
         if let Some(made) = self.making.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.made = Some(made.map(Arc::new));
             self.making = None;
+        }
+        // the transition singled out: the difference with only it, made in a thread when another is asked for
+        match (self.focus, &self.classes) {
+            (Some(f), Some(names)) => {
+                let made = self.focused.as_ref().is_some_and(|(g, _)| *g == f);
+                let making = self.focusing.as_ref().is_some_and(|(g, _)| *g == f);
+                if !made && !making {
+                    let (tx, rx) = channel();
+                    let (a, b, ctx, names) = (a.clone(), b.clone(), ctx.clone(), names.clone());
+                    let _ = std::thread::Builder::new().name("terraflux-transition".into()).spawn(move || {
+                        let _ = tx.send(crate::difference::focused(&a, &b, (&names.0, &names.1), f));
+                        ctx.request_repaint();
+                    });
+                    self.focusing = Some((f, rx));
+                }
+                if let Some((g, rx)) = &self.focusing
+                    && let Ok(made) = rx.try_recv()
+                {
+                    self.focused = Some((*g, made.map(Arc::new)));
+                    self.focusing = None;
+                }
+            }
+            _ => (self.focused, self.focusing) = (None, None),
+        }
+    }
+
+    /// The difference to draw: the one with the transition singled out once made, else the whole one.
+    pub fn shown(&self) -> Option<&Result<Arc<crate::difference::Made>, String>> {
+        match (&self.focus, &self.focused) {
+            (Some(f), Some((g, made))) if f == g => Some(made),
+            _ => self.made.as_ref(),
         }
     }
 }
@@ -3438,7 +3483,7 @@ pub(crate) fn layer_source(v: &Value, band: Option<usize>) -> Option<Source> {
     }
 }
 
-pub(crate) fn first_source(v: &Value) -> Option<Source> {
+pub fn first_source(v: &Value) -> Option<Source> {
     match v {
         Value::Map(m) => Some(Source::from(m)),
         Value::Stack(st) => st.layers.first().map(|l| Source::Map(Map { grid: st.grid.clone(), data: l.clone() })),
@@ -4317,6 +4362,13 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             b = at;
                         }
                     }
+                    // of classes: the area of each along the steps, and the transitions from the first to the last
+                    if let Some(l) = &look
+                        && let Some(at) = steps_section(ui, s, &maps, &names, k, l, legend_classes.as_deref(), salt)
+                    {
+                        b = at;
+                        sh.playing = None;
+                    }
                     sh.band = b;
                 }
                 ui.add_space(4.0);
@@ -4348,6 +4400,13 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             ui.label(RichText::new("the legend...").weak());
                         });
                     }
+                }
+                // the area of each class or the values' statistics, of the map or a part of it; the profile along
+                // the line measured
+                if let Some(l) = &look {
+                    ui.add_space(8.0);
+                    region_section(ui, s, sh, &maps[k], l, legend_classes.as_deref(), salt);
+                    profile_section(ui, s, sh, &maps[k], l, legend_classes.as_deref(), salt);
                 }
                 // the cell clicked in every map of the run (at the same place, by their coordinates); a name
                 // clicked shows that map
@@ -4528,7 +4587,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         beside_controls(ui, s, r, cmp, &sh.layers, &others, &names, k, salt);
                     }
                     if cmp.how == How::Difference {
-                        match &cmp.difference.made {
+                        match cmp.difference.made.clone() {
                             None => {
                                 ui.horizontal(|ui| {
                                     ui.spinner();
@@ -4542,6 +4601,26 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 ui.label(RichText::new(&d.summary).weak().size(11.0));
                                 ui.add_space(4.0);
                                 legend(ui, &d.coloring, &d.counts, &|v| d.name(v));
+                                // the matrix of every transition, in a window; one singled out on the map
+                                if let Some(m) = &d.matrix {
+                                    transition_controls(ui, &mut cmp.difference, m);
+                                    if cmp.difference.matrix.open {
+                                        let colours =
+                                            shared.clone().or_else(|| look.as_ref().map(|l| l.coloring.clone()));
+                                        let colour =
+                                            |v: i64| colours.as_ref().map_or(Color32::GRAY, |c| c.colour(v as f64));
+                                        let other = compared.as_ref().map_or(String::new(), |(_, n, _)| n.clone());
+                                        crate::transition_view::window(
+                                            ui.ctx(),
+                                            egui::Id::new(("transition matrix", salt)),
+                                            m,
+                                            (&main_name, &other),
+                                            &colour,
+                                            &mut cmp.difference.matrix,
+                                            Some(&mut cmp.difference.focus),
+                                        );
+                                    }
+                                }
                             }
                         }
                         let of = match &cmp.with {
@@ -4734,6 +4813,395 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         }
     }
     hover
+}
+
+/// The key of some maps (the steps of a series, the layers of a stack), to keep what is worked out of them by.
+fn maps_key(maps: &[Source]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    maps.iter().for_each(|m| m.key().hash(&mut h));
+    h.finish()
+}
+
+/// Of the steps of a map of classes (a series, a stack): the area of each class at every step as lines, the step
+/// shown marked (a click on the chart shows that step); and the transitions from the first step to the last, in the
+/// window of the transitions (the flows, the matrix, the gains and losses). Returns the step clicked.
+#[allow(clippy::too_many_arguments)]
+fn steps_section(
+    ui: &mut Ui,
+    s: &mut Session,
+    maps: &[Source],
+    names: &[String],
+    shown: usize,
+    l: &Look,
+    legend: Option<&[terraflux_ops::legend::Class]>,
+    salt: &str,
+) -> Option<usize> {
+    use egui_plot::{Line, Plot, VLine};
+    if !matches!(l.coloring, Coloring::Classes(_)) || maps.len() < 2 {
+        return None;
+    }
+    ui.add_space(6.0);
+    theme::section(ui, "Area of the classes along the steps");
+    let key = maps_key(maps);
+    let all = maps.to_vec();
+    let Some(steps) = s.steps_areas.get(ui.ctx(), &maps[0], key, move |_| {
+        all.iter().map(|m| crate::region::of(m, &crate::region::Part::Map, true)).collect::<Vec<_>>()
+    }) else {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(RichText::new("counting the classes of every step...").weak());
+        });
+        return None;
+    };
+    // (the steps by their names when they are numbers, as years are; else their order)
+    let numbers: Option<Vec<f64>> = names.iter().map(|n| n.trim().parse::<f64>().ok()).collect();
+    let xs: Vec<f64> = match numbers {
+        Some(x) if x.len() == maps.len() => x,
+        _ => (0..maps.len()).map(|i| i as f64).collect(),
+    };
+    let area = steps.iter().all(|st| st.area.is_some());
+    let mut classes: Vec<f64> = steps.iter().flat_map(|st| st.classes.iter().map(|c| c.value)).collect();
+    classes.sort_by(f64::total_cmp);
+    classes.dedup();
+    let amount = |st: &crate::region::Stats, v: f64| {
+        st.classes
+            .iter()
+            .find(|c| c.value == v)
+            .map_or(0.0, |c| if area { c.area.unwrap_or(0.0) / 1e4 } else { c.cells })
+    };
+    let mut clicked = None;
+    let weak = ui.visuals().weak_text_color();
+    let resp = crate::theme::plot(Plot::new(("class areas", salt)))
+        .height(160.0)
+        .allow_scroll(false)
+        .allow_drag(false)
+        .allow_zoom(false)
+        .show_background(false)
+        .y_axis_label(if area { "ha" } else { "cells" })
+        .show(ui, |p| {
+            for v in &classes {
+                let pts: Vec<[f64; 2]> = xs.iter().zip(steps.iter()).map(|(x, st)| [*x, amount(st, *v)]).collect();
+                let name = crate::legend_view::name(l, legend, *v);
+                p.line(Line::new(name, pts).color(crate::palette::seen(l.coloring.colour(*v))).width(1.8));
+            }
+            if let Some(x) = xs.get(shown) {
+                p.vline(VLine::new("shown", *x).color(weak));
+            }
+            if p.response().clicked()
+                && let Some(c) = p.pointer_coordinate()
+            {
+                clicked = xs
+                    .iter()
+                    .enumerate()
+                    .min_by(|a, b| (a.1 - c.x).abs().total_cmp(&(b.1 - c.x).abs()))
+                    .map(|(i, _)| i);
+            }
+        });
+    resp.response.on_hover_text("the area of each class at every step; click to show a step");
+    ui.horizontal(|ui| {
+        if ui.small_button("Copy").on_hover_text("the area of each class at every step, tab-separated").clicked() {
+            let unit = if area { "ha" } else { "cells" };
+            let mut t = format!(
+                "step\t{}\n",
+                classes
+                    .iter()
+                    .map(|v| format!("{} ({unit})", crate::legend_view::name(l, legend, *v)))
+                    .collect::<Vec<_>>()
+                    .join("\t")
+            );
+            for (n, st) in names.iter().zip(steps.iter()) {
+                let row: Vec<String> = classes.iter().map(|v| format!("{:.4}", amount(st, *v))).collect();
+                t.push_str(&format!("{n}\t{}\n", row.join("\t")));
+            }
+            ui.ctx().copy_text(t);
+        }
+        let last = maps.len() - 1;
+        if ui
+            .add(egui::Button::new(format!("{} to {}...", names[0], names[last])).selected(s.steps_window.open))
+            .on_hover_text(
+                "the transitions from the first step to the last: the flows, the matrix, the gains and losses",
+            )
+            .clicked()
+        {
+            s.steps_window.open = !s.steps_window.open;
+            // (the flows first: what changed along the steps reads best so)
+            if s.steps_window.open {
+                s.steps_window.tab = crate::transition_view::Tab::Sankey;
+            }
+        }
+    });
+    if s.steps_window.open {
+        let names_of: crate::difference::Names =
+            classes.iter().map(|v| (*v as i64, crate::legend_view::name(l, legend, *v))).collect();
+        let (first, last) = (maps[0].clone(), maps[maps.len() - 1].clone());
+        let made = s.steps_matrix.get(ui.ctx(), &maps[0], key, move |_| {
+            crate::difference::make(&first, &last, Some((&names_of, &names_of))).map(|d| d.matrix)
+        });
+        match made.as_deref() {
+            Some(Ok(Some(m))) => {
+                let colour = |v: i64| l.coloring.colour(v as f64);
+                let names = (names[0].as_str(), names[maps.len() - 1].as_str());
+                let id = egui::Id::new(("steps transitions", salt));
+                crate::transition_view::window(ui.ctx(), id, m, names, &colour, &mut s.steps_window, None);
+            }
+            Some(Err(e)) => {
+                ui.label(RichText::new(e).color(ui.visuals().error_fg_color).size(11.0));
+            }
+            _ => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(RichText::new("the transitions...").weak());
+                });
+            }
+        }
+    }
+    clicked
+}
+
+/// Which part of the map the area and statistics are of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Scope {
+    #[default]
+    Map,
+    View,
+    /// The polygon of the line measured (three points or more).
+    Drawn,
+    /// The polygons selected in the table of attributes.
+    Selected,
+}
+
+/// How areas are told in the side panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum AreaUnit {
+    #[default]
+    Hectares,
+    SquareKm,
+    Cells,
+}
+
+/// The polygons of the features selected in the table of attributes, as rings of cells of the map's grid (none
+/// while the layer is prepared, or when no polygon is selected).
+fn selected_rings(
+    s: &Session,
+    sh: &mut Shown,
+    ctx: &egui::Context,
+    grid: &terraflux_raster::Grid,
+) -> Option<Vec<Vec<[f64; 2]>>> {
+    let open = sh.attributes.as_ref().filter(|o| !o.pick.rows.is_empty())?;
+    let Some(Value::Vector(v)) = s.value_of(&open.node, &open.port) else { return None };
+    let layer = sh.view.vectors.layer(ctx, &v, grid).ok().flatten()?;
+    let mut rings = Vec::new();
+    for &k in &open.pick.rows {
+        if let Some((crate::vector_tiles::Kind::Polygon, parts)) = layer.shape(k) {
+            rings.extend(parts.into_iter().map(|p| p.to_vec()));
+        }
+    }
+    (!rings.is_empty()).then_some(rings)
+}
+
+/// The part in view once the view has rested a moment (none before it was drawn): panning does not ask for the
+/// statistics of every place it passes.
+fn settled_view(ui: &Ui, view: &crate::map_view::MapView, salt: &str) -> Option<[f64; 4]> {
+    let b = view.visible().map(|(_, b)| b.map(f64::from))?;
+    let id = egui::Id::new(("view settled", salt));
+    let now = ui.input(|i| i.time);
+    let (last, since, used): ([f64; 4], f64, Option<[f64; 4]>) =
+        ui.data(|d| d.get_temp(id)).unwrap_or(([f64::NAN; 4], now, None));
+    let (since, used) = if last != b {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(350));
+        (now, used)
+    } else if now - since >= 0.3 || used.is_none() {
+        (since, Some(b))
+    } else {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+        (since, used)
+    };
+    ui.data_mut(|d| d.insert_temp(id, (b, since, used)));
+    used
+}
+
+/// An area in square metres (or cells) in a unit, as text.
+fn area_in(m2: Option<f64>, cells: f64, unit: AreaUnit) -> String {
+    match (unit, m2) {
+        (AreaUnit::Hectares, Some(a)) => format!("{:.2} ha", a / 1e4),
+        (AreaUnit::SquareKm, Some(a)) => format!("{:.3} km²", a / 1e6),
+        _ => format!("{} cells", cells.round()),
+    }
+}
+
+/// The area of each class of the map (or its values' statistics) in a part of it: the whole map, the part in view,
+/// the polygon drawn with the Measure tool, or the polygons selected in the table of attributes; in hectares, km²
+/// or cells, and a share of the cells with a value.
+#[allow(clippy::too_many_arguments)]
+fn region_section(
+    ui: &mut Ui,
+    s: &mut Session,
+    sh: &mut Shown,
+    src: &Source,
+    l: &Look,
+    legend: Option<&[terraflux_ops::legend::Class]>,
+    salt: &str,
+) {
+    let classes = matches!(l.coloring, Coloring::Classes(_));
+    theme::section(ui, if classes { "Area of the classes" } else { "Statistics" });
+    let id = egui::Id::new(("region scope", salt));
+    let mut scope: Scope = ui.data(|d| d.get_temp(id)).unwrap_or_default();
+    let drawn = sh.view.measuring.as_ref().filter(|m| m.points.len() >= 3).map(|m| vec![m.points.clone()]);
+    let selected = selected_rings(s, sh, ui.ctx(), src.grid());
+    ui.horizontal_wrapped(|ui| {
+        ui.selectable_value(&mut scope, Scope::Map, "map").on_hover_text("the whole map");
+        ui.selectable_value(&mut scope, Scope::View, "view").on_hover_text("the part of the map in view");
+        ui.add_enabled_ui(drawn.is_some(), |ui| {
+            ui.selectable_value(&mut scope, Scope::Drawn, "polygon")
+                .on_hover_text("the polygon of the line measured (Measure, three points or more)")
+                .on_disabled_hover_text("draw a polygon with Measure (M): three points or more");
+        });
+        ui.add_enabled_ui(selected.is_some(), |ui| {
+            ui.selectable_value(&mut scope, Scope::Selected, "selected")
+                .on_hover_text("the polygons selected in the table of attributes")
+                .on_disabled_hover_text("select polygons in the table of attributes of a vector layer");
+        });
+    });
+    ui.data_mut(|d| d.insert_temp(id, scope));
+    let part = match scope {
+        Scope::Map => Some(crate::region::Part::Map),
+        Scope::View => settled_view(ui, &sh.view, salt).map(crate::region::Part::Window),
+        Scope::Drawn => drawn.map(crate::region::Part::Polygons),
+        Scope::Selected => selected.map(crate::region::Part::Polygons),
+    };
+    let Some(part) = part else {
+        let why = match scope {
+            Scope::View => "the map not drawn yet",
+            Scope::Drawn => "no polygon drawn: Measure (M), three points or more",
+            _ => "no polygon selected in the table of attributes",
+        };
+        ui.label(RichText::new(why).weak().size(11.0));
+        return;
+    };
+    let Some(st) = s.regions.get(ui.ctx(), src, &part, classes) else {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(RichText::new("counting...").weak());
+        });
+        return;
+    };
+    let uid = egui::Id::new(("region unit", salt));
+    let mut unit: AreaUnit = ui.data(|d| d.get_temp(uid)).unwrap_or_default();
+    if st.area.is_none() {
+        unit = AreaUnit::Cells;
+    }
+    let mut text = String::new();
+    if st.cells == 0.0 {
+        ui.label(RichText::new("no cell with a value here").weak());
+    } else if classes {
+        ui.horizontal(|ui| {
+            if st.area.is_some() {
+                ui.selectable_value(&mut unit, AreaUnit::Hectares, "ha");
+                ui.selectable_value(&mut unit, AreaUnit::SquareKm, "km²");
+            }
+            ui.selectable_value(&mut unit, AreaUnit::Cells, "cells");
+            ui.data_mut(|d| d.insert_temp(uid, unit));
+        });
+        text.push_str("class\tcells\tm2\tha\tkm2\tpercent\n");
+        for c in &st.classes {
+            let name = crate::legend_view::name(l, legend, c.value);
+            let share = st.share(c);
+            ui.horizontal(|ui| {
+                let (r, _) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
+                ui.painter().rect_filled(r, 2.0, l.coloring.colour(c.value));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(RichText::new(format!("{share:5.1}%")).monospace().size(11.0));
+                    ui.label(RichText::new(area_in(c.area, c.cells, unit)).monospace().size(11.0));
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.add(egui::Label::new(&name).truncate());
+                    });
+                });
+            });
+            let (m2, ha, km2) = match c.area {
+                Some(a) => (format!("{a:.1}"), format!("{:.4}", a / 1e4), format!("{:.6}", a / 1e6)),
+                None => Default::default(),
+            };
+            text.push_str(&format!("{name}\t{}\t{m2}\t{ha}\t{km2}\t{share:.3}\n", c.cells.round()));
+        }
+        ui.label(RichText::new(format!("all: {} with a value", area_in(st.area, st.cells, unit))).weak().size(11.0));
+    } else {
+        let c = crate::map_view::cell_text;
+        let rows = [
+            ("cells", format!("{}", st.cells.round())),
+            ("area", area_in(st.area, st.cells, if unit == AreaUnit::Cells { AreaUnit::Hectares } else { unit })),
+            ("average", c(st.mean)),
+            ("minimum", c(st.min)),
+            ("maximum", c(st.max)),
+            ("sum", c(st.sum)),
+            ("standard deviation", c(st.sd)),
+        ];
+        egui::Grid::new(("region values", salt)).num_columns(2).spacing([12.0, 2.0]).show(ui, |ui| {
+            for (k, v) in &rows {
+                if *k == "area" && st.area.is_none() {
+                    continue;
+                }
+                ui.label(RichText::new(*k).weak().size(11.0));
+                ui.label(RichText::new(v).monospace().size(11.0));
+                ui.end_row();
+            }
+        });
+        text = rows.iter().map(|(k, v)| format!("{k}\t{v}\n")).collect();
+    }
+    ui.horizontal(|ui| {
+        if st.cells > 0.0 && ui.small_button("Copy").on_hover_text("the numbers, tab-separated").clicked() {
+            ui.ctx().copy_text(text);
+        }
+        if st.empty > 0.0 {
+            ui.label(RichText::new(format!("{} cells without a value", st.empty.round())).weak().size(10.5));
+        }
+    });
+    if st.step > 1 {
+        ui.label(
+            RichText::new(format!("from a sample: a cell in every {} rows and columns", st.step)).weak().size(10.5),
+        );
+    }
+}
+
+/// The profile of the map along the line measured (two points or more): its values by the distance, or the classes
+/// crossed; the place under the pointer on the chart marked on the map.
+fn profile_section(
+    ui: &mut Ui,
+    s: &mut Session,
+    sh: &mut Shown,
+    src: &Source,
+    l: &Look,
+    legend: Option<&[terraflux_ops::legend::Class]>,
+    salt: &str,
+) {
+    let marked = egui::Id::new(("profile marks", salt));
+    let line = sh.view.measuring.as_ref().filter(|m| m.points.len() >= 2).map(|m| m.points.clone());
+    let mut mark = None;
+    if let Some(line) = line {
+        ui.add_space(8.0);
+        theme::section(ui, "Profile along the line");
+        let key = crate::profile::key(&line);
+        match s.profiles.get(ui.ctx(), src, key, move |src| crate::profile::of(src, &line)) {
+            Some(p) => {
+                let name = |v: f64| crate::legend_view::name(l, legend, v);
+                mark = crate::profile::show(ui, &p, &l.coloring, &name, egui::Id::new(("profile", salt)));
+            }
+            None => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(RichText::new("the profile...").weak());
+                });
+            }
+        }
+    }
+    // (the cross on the map only while the pointer is over the chart; let go once when it leaves)
+    let was: bool = ui.data(|d| d.get_temp(marked)).unwrap_or(false);
+    match mark {
+        Some(c) => sh.view.ghost = Some(Vec2::new(c[0] as f32, c[1] as f32)),
+        None if was => sh.view.ghost = None,
+        None => {}
+    }
+    ui.data_mut(|d| d.insert_temp(marked, mark.is_some()));
 }
 
 /// The maps compared that are other layers of the one shown (another step of a series...) one layer on with it,
@@ -5011,7 +5479,7 @@ fn show_difference(
     rasters: &[crate::map_view::RasterLayer],
     overlays: &[crate::vector_tiles::Overlay],
 ) -> Option<Hover> {
-    let d = match &sh.compare.difference.made {
+    let d = match sh.compare.difference.shown() {
         Some(Ok(d)) => d.clone(),
         Some(Err(e)) => {
             let e = e.clone();
@@ -5031,7 +5499,9 @@ fn show_difference(
     (v.basemap, v.transparency, v.hide_data) = (basemap, transparency, hide);
     v.hold(d.source.size());
     let at = link.to_own(center);
-    if at.x.is_finite() && at.y.is_finite() {
+    // (the map shown never drawn yet, as when the Viewer opens on the difference: this view fits itself, and the
+    // map's follows it)
+    if zoom > 0.0 && at.x.is_finite() && at.y.is_finite() {
         v.set_camera(zoom * link.scale_at(at), at);
     }
     let before = [sh.view.camera(), v.camera()];
@@ -5051,6 +5521,35 @@ fn show_difference(
         sh.view.trace_request = Some(t);
     }
     hover
+}
+
+/// Under the legend of a difference of classes: the button of the window of the matrix, and the transition singled
+/// out on the map (with a button to show them all again).
+fn transition_controls(ui: &mut Ui, d: &mut Difference, m: &crate::difference::Matrix) {
+    if ui
+        .add(egui::Button::new("Transition matrix...").selected(d.matrix.open))
+        .on_hover_text(
+            "every class before to every class after, in hectares or %, with the gains, losses, net change and swap \
+             of each; a cell clicked shows only that transition on the map",
+        )
+        .clicked()
+    {
+        d.matrix.open = !d.matrix.open;
+    }
+    if let Some((p, q)) = d.focus {
+        let name = |list: &[(i64, String)], v: i64| {
+            list.iter().find(|(k, _)| *k == v).map_or(v.to_string(), |(_, n)| n.clone())
+        };
+        ui.horizontal_wrapped(|ui| {
+            if !matches!(&d.focused, Some((g, _)) if *g == (p, q)) {
+                ui.spinner();
+            }
+            ui.label(RichText::new(format!("only {} -> {}", name(&m.from, p), name(&m.to, q))).size(11.0));
+            if ui.small_button("Show all").clicked() {
+                d.focus = None;
+            }
+        });
+    }
 }
 
 /// Two maps side by side, each in a view of its own, and up to two more (`more`: a map, or why there is none; an

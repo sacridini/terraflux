@@ -621,6 +621,14 @@ pub struct Session {
     pub looks: Looks,
     /// The histograms of the maps shown.
     pub histograms: crate::histogram::Histograms,
+    /// The area and statistics of parts of the maps shown, and the profiles along the lines measured on them.
+    pub regions: crate::region::Regions,
+    pub profiles: crate::region::Jobs<crate::profile::Profile>,
+    /// Of the steps of a map of classes shown: the area of each class at every step, the transitions from the first
+    /// step to the last, and their window.
+    pub steps_areas: crate::region::Jobs<Vec<crate::region::Stats>>,
+    pub steps_matrix: crate::region::Jobs<Result<Option<crate::difference::Matrix>, String>>,
+    pub steps_window: crate::transition_view::State,
     /// Outputs being saved (in threads): where, and what came of it; a word for the status bar and since when.
     saving: Vec<(PathBuf, Receiver<Result<PathBuf, String>>)>,
     pub notice: Option<(String, Instant)>,
@@ -785,6 +793,11 @@ impl Session {
             palettes: Default::default(),
             looks: Looks::default(),
             histograms: Default::default(),
+            regions: Default::default(),
+            profiles: Default::default(),
+            steps_areas: Default::default(),
+            steps_matrix: Default::default(),
+            steps_window: Default::default(),
             auto: true,
             edited_at: None,
             run_when_ready: false,

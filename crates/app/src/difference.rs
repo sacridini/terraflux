@@ -36,6 +36,8 @@ pub struct Made {
     pub names: Vec<(f64, String)>,
     pub step: usize,
     pub summary: String,
+    /// Of two maps of classes: every transition, the cells and the area from each class to each.
+    pub matrix: Option<Matrix>,
 }
 
 impl Made {
@@ -86,6 +88,22 @@ pub fn make(a: &Source, b: &Source, classes: Option<(&Names, &Names)>) -> Result
 
 /// The difference in a language: its summary and the transitions' names in it.
 pub fn make_in(a: &Source, b: &Source, classes: Option<(&Names, &Names)>, lang: Lang) -> Result<Made, String> {
+    make_focused(a, b, classes, None, lang)
+}
+
+/// The difference of two maps of classes with one transition (from, to) singled out: its cells in its colour, the
+/// other changes grey, the cells that kept their class (unless it is theirs) a light grey.
+pub fn focused(a: &Source, b: &Source, classes: (&Names, &Names), focus: (i64, i64)) -> Result<Made, String> {
+    make_focused(a, b, Some(classes), Some(focus), Lang::En)
+}
+
+fn make_focused(
+    a: &Source,
+    b: &Source,
+    classes: Option<(&Names, &Names)>,
+    focus: Option<(i64, i64)>,
+    lang: Lang,
+) -> Result<Made, String> {
     let (ga, gb) = (a.grid(), b.grid());
     // (a map of another coordinate system is carried to this one's cells; its transformation is made here, in the
     // thread that makes the difference, as the transformations are not shared between threads)
@@ -157,13 +175,16 @@ pub fn make_in(a: &Source, b: &Source, classes: Option<(&Names, &Names)>, lang: 
         Arc::new(g)
     };
     let every = if step > 1 { lang.f(" (every {} cells)", &[&step]) } else { String::new() };
-    let mut made = match classes {
-        Some((na, nb)) => transitions(&va, aw, ah, &other, na, nb, step, lang),
-        None => values(&va, aw, ah, &other, lang),
+    let (mut made, matrix) = match classes {
+        Some((na, nb)) => {
+            let (parts, matrix) = transitions(&va, (aw, ah, step), &grid, &other, (na, nb), focus, lang);
+            (parts, Some(matrix))
+        }
+        None => (values(&va, aw, ah, &other, lang), None),
     };
     made.0.push_str(&every);
     let (summary, data, coloring, counts, names) = made;
-    Ok(Made { source: Source::Map(Map::new(grid, data)), coloring, counts, names, step, summary })
+    Ok(Made { source: Source::Map(Map::new(grid, data)), coloring, counts, names, step, summary, matrix })
 }
 
 /// The other map (`vb`, `bw` by `bh` cells read every `bstep`) on this map's grid (`aw` by `ah` cells, every `step`),
@@ -251,38 +272,184 @@ fn short(v: f64) -> String {
     if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s }
 }
 
+/// Every transition of two maps of classes: the classes of this map (the rows, by value) and of the other (the
+/// columns), the cells that went from each to each (of the map shown, as many as a cell compared stands for) and
+/// their area in square metres (none on a grid with no coordinate system).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Matrix {
+    pub from: Vec<(i64, String)>,
+    pub to: Vec<(i64, String)>,
+    pub cells: Vec<Vec<f64>>,
+    pub area: Option<Vec<Vec<f64>>>,
+}
+
+/// What a class gained and lost between the two maps (in cells, or square metres): its amount in each, the gross
+/// gain and loss; the net change (gain minus loss) and the swap (twice the smaller of gain and loss: the change
+/// that moved the class without changing its amount).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Budget {
+    pub class: i64,
+    pub name: String,
+    pub before: f64,
+    pub after: f64,
+    pub gain: f64,
+    pub loss: f64,
+}
+
+impl Budget {
+    pub fn net(&self) -> f64 {
+        self.gain - self.loss
+    }
+
+    pub fn swap(&self) -> f64 {
+        2.0 * self.gain.min(self.loss)
+    }
+}
+
+impl Matrix {
+    /// The amounts: the areas when asked for and known, else the cells.
+    pub fn amounts(&self, area: bool) -> &Vec<Vec<f64>> {
+        match (&self.area, area) {
+            (Some(a), true) => a,
+            _ => &self.cells,
+        }
+    }
+
+    /// Everything compared: the cells (or area) with a class in both maps.
+    pub fn total(&self, area: bool) -> f64 {
+        self.amounts(area).iter().flatten().sum()
+    }
+
+    /// The amount that kept its class (a class of the same value in both maps).
+    pub fn kept(&self, area: bool) -> f64 {
+        let m = self.amounts(area);
+        let mut k = 0.0;
+        for (i, (p, _)) in self.from.iter().enumerate() {
+            if let Some(j) = self.to.iter().position(|(q, _)| q == p) {
+                k += m[i][j];
+            }
+        }
+        k
+    }
+
+    /// The gains and losses of every class of either map, by value.
+    pub fn budgets(&self, area: bool) -> Vec<Budget> {
+        let m = self.amounts(area);
+        let mut classes: Vec<(i64, String)> = self.from.clone();
+        for c in &self.to {
+            if !classes.iter().any(|(v, _)| *v == c.0) {
+                classes.push(c.clone());
+            }
+        }
+        classes.sort_by_key(|(v, _)| *v);
+        classes
+            .into_iter()
+            .map(|(class, name)| {
+                let i = self.from.iter().position(|(v, _)| *v == class);
+                let j = self.to.iter().position(|(v, _)| *v == class);
+                let before = i.map_or(0.0, |i| m[i].iter().sum());
+                let after = j.map_or(0.0, |j| m.iter().map(|r| r[j]).sum());
+                let stay = match (i, j) {
+                    (Some(i), Some(j)) => m[i][j],
+                    _ => 0.0,
+                };
+                Budget { class, name, before, after, gain: after - stay, loss: before - stay }
+            })
+            .collect()
+    }
+}
+
 /// The transitions: a class each, the most common first (value 1 on), the cells that kept their class
-/// [`UNCHANGED`], those without a value in either map none; beyond [`TRANSITIONS`] the others together.
-#[allow(clippy::too_many_arguments)]
+/// [`UNCHANGED`], those without a value in either map none; beyond [`TRANSITIONS`] the others together. With a
+/// transition singled out (`focus`), its cells (1), the other changes (2) and the cells kept [`UNCHANGED`]. And the
+/// matrix of every transition, the area of each cell by its row (`grid`: the grid the difference is made on).
 fn transitions(
     va: &[f64],
-    aw: usize,
-    ah: usize,
+    (aw, ah, step): (usize, usize, usize),
+    grid: &terraflux_raster::Grid,
     other: &dyn Fn(usize, usize) -> f64,
-    na: &Names,
-    nb: &Names,
-    step: usize,
+    (na, nb): (&Names, &Names),
+    focus: Option<(i64, i64)>,
     lang: Lang,
-) -> Parts {
+) -> (Parts, Matrix) {
     let mut pairs = Vec::with_capacity(aw * ah);
-    let mut count: HashMap<(i64, i64), usize> = HashMap::new();
+    let mut count: HashMap<(i64, i64), (usize, f64)> = HashMap::new();
+    let areas: Option<Vec<f64>> = (0..ah).map(|i| crate::measure::cell_area(grid, i)).collect();
     for i in 0..ah {
+        let area = areas.as_ref().map_or(0.0, |a| a[i]);
         for j in 0..aw {
             let (p, q) = (va[i * aw + j], other(i, j));
             let pair = (p.is_finite() && q.is_finite()).then_some((p as i64, q as i64));
             if let Some(k) = pair {
-                *count.entry(k).or_default() += 1;
+                let e = count.entry(k).or_default();
+                e.0 += 1;
+                e.1 += area;
             }
             pairs.push(pair);
         }
     }
-    let both: usize = count.values().sum();
-    let kept: usize = count.iter().filter(|((p, q), _)| p == q).map(|(_, n)| n).sum();
-    let mut changes: Vec<((i64, i64), usize)> = count.into_iter().filter(|((p, q), _)| p != q).collect();
+    let name = |names: &Names, v: i64| names.get(&v).cloned().unwrap_or_else(|| v.to_string());
+    let cells = step * step;
+    // the matrix: the classes of each map in the order of their values
+    let mut from: Vec<i64> = count.keys().map(|k| k.0).collect();
+    let mut to: Vec<i64> = count.keys().map(|k| k.1).collect();
+    for v in [&mut from, &mut to] {
+        v.sort_unstable();
+        v.dedup();
+    }
+    let mut mc = vec![vec![0.0; to.len()]; from.len()];
+    let mut ma = mc.clone();
+    for ((p, q), (n, a)) in &count {
+        let (i, j) = (from.binary_search(p).unwrap_or(0), to.binary_search(q).unwrap_or(0));
+        mc[i][j] = (n * cells) as f64;
+        ma[i][j] = *a;
+    }
+    let matrix = Matrix {
+        from: from.iter().map(|v| (*v, name(na, *v))).collect(),
+        to: to.iter().map(|v| (*v, name(nb, *v))).collect(),
+        cells: mc,
+        area: areas.is_some().then_some(ma),
+    };
+    let both: usize = count.values().map(|c| c.0).sum();
+    let kept: usize = count.iter().filter(|((p, q), _)| p == q).map(|(_, c)| c.0).sum();
+    let mut changes: Vec<((i64, i64), usize)> =
+        count.iter().filter(|((p, q), _)| p != q).map(|(k, c)| (*k, c.0)).collect();
     changes.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    // (a transition's class: its place in that order, the rest together after the named ones)
     let rest = changes.len() > TRANSITIONS;
     let named = if rest { TRANSITIONS - 1 } else { changes.len() };
+    if let Some(f) = focus {
+        // (in the colour the transition has among those named, when it is one)
+        let colour =
+            changes.iter().take(named).position(|(k, _)| *k == f).map_or(Color32::from_rgb(230, 85, 13), class_colour);
+        let data = pairs
+            .iter()
+            .map(|p| match p {
+                Some(k) if *k == f => 1.0,
+                Some((x, y)) if x != y => 2.0,
+                Some(_) => UNCHANGED,
+                None => f64::NAN,
+            })
+            .collect();
+        let n = count.get(&f).map_or(0, |c| c.0);
+        let others = both - kept - if f.0 != f.1 { n } else { 0 };
+        let label = if f.0 == f.1 {
+            lang.f("{} (kept)", &[&name(na, f.0)])
+        } else {
+            format!("{} -> {}", name(na, f.0), name(nb, f.1))
+        };
+        let names = vec![
+            (UNCHANGED, lang.t("unchanged").to_string()),
+            (1.0, label.clone()),
+            (2.0, lang.t("other changes").to_string()),
+        ];
+        let colours = vec![(UNCHANGED, Color32::from_gray(225)), (1.0, colour), (2.0, Color32::from_gray(140))];
+        let unchanged = kept - if f.0 == f.1 { n } else { 0 };
+        let counts = vec![(UNCHANGED, unchanged * cells), (1.0, n * cells), (2.0, others * cells)];
+        let share = if both > 0 { format!("{:.1}", 100.0 * n as f64 / both as f64) } else { "0".into() };
+        let summary = lang.f("{}: {} cells ({}%)", &[&label, &(n * cells), &share]);
+        return ((summary, data, Coloring::Classes(colours), counts, names), matrix);
+    }
+    // (a transition's class: its place in that order, the rest together after the named ones)
     let class: HashMap<(i64, i64), f64> =
         changes.iter().enumerate().map(|(i, (k, _))| (*k, (i.min(named) + 1) as f64)).collect();
     let data = pairs
@@ -293,10 +460,8 @@ fn transitions(
             None => f64::NAN,
         })
         .collect();
-    let name = |names: &Names, v: i64| names.get(&v).cloned().unwrap_or_else(|| v.to_string());
     let mut names = vec![(UNCHANGED, lang.t("unchanged").to_string())];
     let mut colours = vec![(UNCHANGED, Color32::from_gray(205))];
-    let cells = step * step;
     let mut counts = vec![(UNCHANGED, kept * cells)];
     for (i, ((p, q), n)) in changes.iter().take(named).enumerate() {
         let v = (i + 1) as f64;
@@ -323,7 +488,7 @@ fn transitions(
         let share = format!("{:.1}", 100.0 * changed as f64 / both as f64);
         lang.f(said, &[&(changed * cells), &(both * cells), &share, &changes.len()])
     };
-    (summary, data, Coloring::Classes(colours), counts, names)
+    ((summary, data, Coloring::Classes(colours), counts, names), matrix)
 }
 
 #[cfg(test)]
@@ -370,6 +535,50 @@ mod tests {
         assert_eq!(d.name(UNCHANGED), "unchanged");
         assert_eq!(d.counts, vec![(0.0, 1), (1.0, 2), (2.0, 1)]);
         assert!(d.summary.starts_with("3 of 4 cells changed class (75.0%), in 2 transitions"), "{}", d.summary);
+    }
+
+    #[test]
+    fn the_matrix_of_every_transition_with_gains_and_losses() {
+        // cells of 10 x 10 m (1 are) in a projected grid: forest 1 -> 1, 1 -> 2 twice; pasture 2 -> 1; 3 -> 2
+        let mut g = Grid::new(5, 1);
+        g.transform = [0.0, 10.0, 0.0, 10.0, 0.0, -10.0];
+        g.geo.geokeys = Some(vec![1, 1, 0, 2, 1024, 0, 1, 1, 3072, 0, 1, 32633]);
+        let a = Source::Map(Map::new(Arc::new(g.clone()), vec![1.0, 1.0, 1.0, 2.0, 3.0]));
+        let b = Source::Map(Map::new(Arc::new(g), vec![1.0, 2.0, 2.0, 1.0, 2.0]));
+        let na: Names = [(1, "forest".to_string()), (2, "pasture".to_string())].into();
+        let m = make(&a, &b, Some((&na, &na))).unwrap().matrix.unwrap();
+        assert_eq!(m.from, vec![(1, "forest".into()), (2, "pasture".into()), (3, "3".into())]);
+        assert_eq!(m.to, vec![(1, "forest".into()), (2, "pasture".into())]);
+        assert_eq!(m.cells, vec![vec![1.0, 2.0], vec![1.0, 0.0], vec![0.0, 1.0]]);
+        assert_eq!(m.area.as_ref().unwrap()[0][1], 200.0);
+        assert_eq!((m.total(false), m.kept(false), m.total(true)), (5.0, 1.0, 500.0));
+        let b = m.budgets(false);
+        let forest = &b[0];
+        assert_eq!((forest.before, forest.after, forest.gain, forest.loss), (3.0, 2.0, 1.0, 2.0));
+        assert_eq!((forest.net(), forest.swap()), (-1.0, 2.0));
+        let pasture = &b[1];
+        assert_eq!((pasture.gain, pasture.loss, pasture.net(), pasture.swap()), (3.0, 1.0, 2.0, 2.0));
+        assert_eq!((b[2].class, b[2].before, b[2].after, b[2].loss), (3, 1.0, 0.0, 1.0));
+        // values: no matrix
+        assert!(make(&a, &a, None).unwrap().matrix.is_none());
+    }
+
+    #[test]
+    fn a_transition_singled_out() {
+        let a = map(5, 1, T, vec![1.0, 1.0, 1.0, 2.0, 2.0]);
+        let b = map(5, 1, T, vec![1.0, 2.0, 2.0, 1.0, f64::NAN]);
+        let na: Names = [(1, "forest".to_string()), (2, "pasture".to_string())].into();
+        let d = focused(&a, &b, (&na, &na), (2, 1)).unwrap();
+        let v = data(&d.source);
+        assert!(v[4].is_nan());
+        assert_eq!(v[..4], [UNCHANGED, 2.0, 2.0, 1.0]);
+        assert_eq!(d.name(1.0), "pasture -> forest");
+        assert_eq!(d.counts, vec![(UNCHANGED, 1), (1.0, 1), (2.0, 2)]);
+        assert!(d.summary.starts_with("pasture -> forest: 1 cells (25.0%)"), "{}", d.summary);
+        // a class kept: its cells
+        let d = focused(&a, &b, (&na, &na), (1, 1)).unwrap();
+        assert_eq!(data(&d.source)[..4], [1.0, 2.0, 2.0, 2.0]);
+        assert_eq!(d.name(1.0), "forest (kept)");
     }
 
     #[test]

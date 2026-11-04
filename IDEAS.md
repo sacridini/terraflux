@@ -2145,3 +2145,53 @@ Falta:
   usam os campos; o texto continua para os outros.
 - **Guias em português**: os textos dos guias estão em inglês (como as instruções e os operadores); um
   `guide(topic, language: pt)` a partir de `pt.rs` para o assistente do app, que responde na língua do usuário.
+
+## O Viewer para análise: transições, áreas, regiões, perfis, séries e vistas
+
+Pedido de 2026-11-04 (um commit por item; release só quando pedido). O Viewer já mostra e compara mapas; faltava
+responder no próprio Viewer as perguntas de quem estuda mudança de uso, sem montar nós.
+
+1. **A matriz de transições** na diferença de dois mapas de classes: origem × destino em hectares, km², % da
+   paisagem, % da classe de origem ou células; ganhos, perdas, saldo e troca por classe em barras; um clique numa
+   casa destaca só aquela transição no mapa.
+   **Feito** (Unreleased): `difference::Matrix` (as classes de cada mapa, as células e a área de cada par, a área
+   de cada célula pela linha da grade, `measure::cell_area`: geodésica numa grade em graus, nenhuma sem sistema de
+   coordenadas) e `Matrix::budgets` (antes, depois, ganho, perda, `net`, `swap` = 2·min(ganho, perda), como em
+   Pontius). `difference::focused` refaz a diferença com um par destacado (1: o par, 2: as outras mudanças, 0: sem
+   mudança em cinza claro), numa thread (`Difference::focus`, `focused`, `shown`). A janela
+   (`transition_view.rs`): abas *Matrix*, *Gains and losses* e *Flows* (um Sankey de antes para depois, cada fluxo
+   da cor da classe de origem; o fluxo clicado também destaca), a unidade, *Copy* (TSV) e *Save CSV*. Corrigido
+   no caminho: aberta direto em *Difference* (sem o mapa desenhado antes), a vista da diferença herdava zoom 0 e
+   não aparecia. Testes: `the_matrix_of_every_transition_with_gains_and_losses`, `a_transition_singled_out`,
+   `amounts_in_each_unit`, `the_matrix_as_text`, `the_transition_matrix_of_a_difference` (UI).
+2. **A área de cada classe** na legenda: hectares, km² e % da paisagem, do mapa inteiro, da vista atual ou de uma
+   região.
+3. **Estatísticas de uma região**: um polígono desenhado (a linha da medição, de três pontos) ou as feições
+   selecionadas na tabela de atributos; classes: a área de cada uma dentro dela; valores: média, mínimo, máximo e
+   soma.
+   **2 e 3 feitos** (Unreleased): `region.rs`. `region::Part` (o mapa, uma caixa de células: a vista, ou polígonos
+   em células da grade; a célula entra pelo centro, par-ímpar, então buracos e multipolígonos valem) e
+   `region::of` (classes: células e área de cada uma; valores: células, área, média, mínimo, máximo, soma, desvio),
+   lido a cada `histogram::sample_step` quando a caixa passa de ~4 milhões de células, cada célula amostrada
+   valendo as em volta; a área pela linha (`measure::cell_area`). `region::Jobs<T>`: o cache genérico de trabalhos
+   numa thread por mapa e chave (as estatísticas, os perfis, as áreas dos passos). Na barra do Viewer, sob a
+   legenda: *map*, *view* (a vista só depois de parada ~0,3 s, `settled_view`), *polygon* (a linha da medição de
+   três pontos), *selected* (os polígonos selecionados na tabela de atributos, `selected_rings`, pela camada
+   preparada na grade do mapa); ha, km² ou células e a parte; *Copy*. Testes: `the_area_of_each_class`,
+   `a_polygon_takes_the_cells_whose_centres_are_in`, `values_mean_extremes_and_sum`,
+   `the_area_of_the_classes_in_a_region_and_a_profile` (UI).
+4. **Perfil ao longo de uma linha**: a linha da medição amostrada, os valores num gráfico pela distância.
+   **Feito** (Unreleased): `profile.rs`. Pontos a cada ~meia célula (no máximo 2 000) pela linha da medição, a
+   distância em metros pela `measure::cells_apart` (geodésica em graus); um raster em disco lido de uma vez pela
+   caixa da linha quando cabe, senão célula a célula. Valores: gráfico (egui_plot) pela distância, os vértices
+   marcados; classes: a faixa das classes cruzadas e o comprimento em cada (`class_lengths`). O ponto sob o ponteiro
+   no gráfico vira a cruz (`ghost`) no mapa. Testes: `values_along_a_line`, `the_length_in_each_class`.
+5. **A série no tempo** dos modelos com passos: a área de cada classe ao longo dos passos, ao lado do Play; o
+   Sankey do primeiro ao último passo.
+   **Feito** (Unreleased): `steps_section` (builder.rs): as áreas de cada passo (`region::of` de cada mapa, numa
+   thread, `Session::steps_areas`), uma linha por classe na cor dela, o passo mostrado marcado, o clique leva ao
+   passo; *Copy*; o botão "*primeiro* to *último*..." abre a janela das transições (`transition_view::window` sem
+   foco) com a matriz de `difference::make` do primeiro ao último passo (`Session::steps_matrix`), nos fluxos
+   primeiro. Teste: `the_area_of_the_classes_along_the_steps_and_the_flows_from_the_first` (UI).
+   Falta: o Sankey de todos os passos em sequência (hoje só o primeiro e o último).
+6. **Vistas salvas**: o enquadramento guardado no Plot, e a figura, o export e o Document no mesmo recorte.

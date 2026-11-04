@@ -117,6 +117,18 @@ fn drawn(h: &mut Harness<TerrafluxApp>) {
     until(h, "drawing the maps", |a| {
         a.session.as_ref().is_none_or(|s| !s.view.busy() && !s.preview_view.busy() && !s.running())
     });
+    // (and the numbers of the side panel worked out in threads, which make it longer when they come)
+    let t = Instant::now();
+    loop {
+        let s = h.state_mut().session.as_mut();
+        let busy = s.is_some_and(|s| s.regions.busy() || s.profiles.busy() || s.steps_areas.busy());
+        if !busy {
+            break;
+        }
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(120), "the side panel's numbers: too long");
+    }
     h.run_steps(2);
 }
 
@@ -851,6 +863,8 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
     // (a taller window: the side panel, with the choice of the compared map's band, is longer than the default one)
     h.set_size(egui::vec2(1280.0, 1100.0));
     h.run_steps(2);
+    h.get_by_label("📌 Keep as a layer").scroll_to_me();
+    h.run_steps(30);
     h.get_by_label("📌 Keep as a layer").click();
     h.run_steps(2);
     {
@@ -2846,8 +2860,15 @@ fn the_legend_is_edited_in_the_viewer() {
     h.run_steps(3);
     assert!(h.query_by_label("4723").is_none(), "the editor in the legend's place");
     // the first class's name field (the first text field of the editor): "1" replaced by "forest"
-    let field = h.query_all_by_value("1").last().expect("the name of class 1");
-    field.click();
+    fn field<'a>(h: &'a Harness<'static, TerrafluxApp>) -> egui_kittest::Node<'a> {
+        use egui_kittest::kittest::NodeT;
+        h.query_all_by_value("1")
+            .rfind(|n| n.accesskit_node().role() == egui::accesskit::Role::TextInput)
+            .expect("the name of class 1")
+    }
+    field(&h).scroll_to_me();
+    h.run_steps(30);
+    field(&h).click();
     h.run_steps(1);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
     h.event(egui::Event::Text("forest".into()));
@@ -2867,7 +2888,7 @@ fn the_legend_is_edited_in_the_viewer() {
     });
     drawn(&mut h);
     h.run_steps(5);
-    assert!(h.query_by_label("forest").is_some(), "the name in the legend");
+    assert!(h.query_all_by_label("forest").count() > 0, "the name in the legend");
     shot(&mut h, "30-legend");
 }
 
@@ -4872,6 +4893,8 @@ fn the_difference_of_two_bands_of_a_stack_is_a_layer() {
     until(&mut h, "the difference", |a| a.session.as_ref().unwrap().preview_compare.difference.made.is_some());
     drawn(&mut h);
     // kept as a layer: the third band minus the first, of the same stack
+    h.get_by_label("📌 Keep as a layer").scroll_to_me();
+    h.run_steps(30);
     h.get_by_label("📌 Keep as a layer").click();
     h.run_steps(2);
     {
@@ -5039,6 +5062,8 @@ fn comparing_with_a_band_of_another_stack() {
     // (a taller window: the side panel with the band choice is longer than the default one)
     h.set_size(egui::vec2(1280.0, 1100.0));
     h.run_steps(2);
+    h.get_by_label("📌 Keep as a layer").scroll_to_me();
+    h.run_steps(30);
     h.get_by_label("📌 Keep as a layer").click();
     h.run_steps(2);
     {
@@ -5135,6 +5160,8 @@ fn the_difference_of_maps_of_two_coordinate_systems_is_made() {
     // (the legend of many classes pushes the button down the side panel)
     h.get_by_label("📌 Keep as a layer").scroll_to_me();
     h.run_steps(20);
+    h.get_by_label("📌 Keep as a layer").scroll_to_me();
+    h.run_steps(30);
     h.get_by_label("📌 Keep as a layer").click();
     h.run_steps(2);
     until(&mut h, "the difference layer", |a| {
@@ -5400,4 +5427,185 @@ fn a_rotated_map_layer_is_drawn() {
     }
     assert!((160..1400).contains(&covered), "the layer covers part of the lattice: {covered} of {}", alone.len());
     assert!(agree as f32 / alone.len() as f32 > 0.9, "the pixels changed are the layer's: {agree} of {}", alone.len());
+}
+
+#[test]
+fn the_transition_matrix_of_a_difference() {
+    let mut h = harness(new_app(None));
+    h.set_size(egui::vec2(1280.0, 1000.0));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 1\n* -> 0".into())]).unwrap();
+        s.preview = Some(("raster_reclassify".into(), "map".into()));
+        s.preview_compare.with =
+            Some(terraflux_app::builder::CompareWith::Output("raster_read".into(), "raster".into()));
+        s.preview_compare.how = terraflux_app::builder::How::Difference;
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the difference", |a| {
+        matches!(a.session.as_ref().unwrap().preview_compare.difference.made, Some(Ok(_)))
+    });
+    h.run_steps(4);
+    // the matrix: rows the classes of the map shown (0 and 1), columns the land use's; the cells add up
+    let (m, total) = {
+        let s = h.state().session.as_ref().unwrap();
+        let d = s.preview_compare.difference.made.clone().unwrap().unwrap();
+        let m = d.matrix.clone().expect("maps of classes: a matrix");
+        let total: usize = d.counts.iter().map(|(_, n)| n).sum();
+        (m, total)
+    };
+    assert_eq!(m.from.iter().map(|(v, _)| *v).collect::<Vec<_>>(), vec![0, 1]);
+    assert!(m.to.len() > 2, "{:?}", m.to);
+    assert_eq!(m.total(false) as usize, total);
+    assert!(m.area.is_none(), "a map without a coordinate system: no area, the cells");
+    // (forest stays forest: class 1 of both)
+    let one = m.to.iter().position(|(v, _)| *v == 1).unwrap();
+    assert_eq!(m.cells[0][one], 0.0, "no cell of 0 is forest in the land use");
+    h.get_by_label("Transition matrix...").click();
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().preview_compare.difference.matrix.open);
+    h.get_by_label("Gains and losses").click();
+    h.run_steps(2);
+    shot(&mut h, "14c4-transition-budget");
+    h.get_by_label("Flows").click();
+    h.run_steps(2);
+    shot(&mut h, "14c5-transition-flows");
+    h.get_by_label("Matrix").click();
+    h.run_steps(2);
+    // a transition singled out: only its cells on the map
+    let pair = (0, m.to.iter().find(|(v, _)| *v != 1).unwrap().0);
+    h.state_mut().session.as_mut().unwrap().preview_compare.difference.focus = Some(pair);
+    until(&mut h, "the transition singled out", |a| {
+        a.session.as_ref().unwrap().preview_compare.difference.focused.as_ref().is_some_and(|(p, _)| *p == pair)
+    });
+    h.run_steps(4);
+    until(&mut h, "the transition drawn", |a| !a.session.as_ref().unwrap().preview_compare.view.busy());
+    h.run_steps(30);
+    shot(&mut h, "14c6-transition-singled-out");
+    let s = h.state().session.as_ref().unwrap();
+    let d = s.preview_compare.difference.shown().unwrap().as_ref().unwrap();
+    let i = m.from.iter().position(|(v, _)| *v == pair.0).unwrap();
+    let j = m.to.iter().position(|(v, _)| *v == pair.1).unwrap();
+    assert_eq!(d.counts[1], (1.0, m.cells[i][j] as usize));
+    h.get_by_label("Show all").scroll_to_me();
+    h.run_steps(30);
+    h.get_by_label("Show all").click();
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().preview_compare.difference.focus.is_none());
+}
+
+#[test]
+fn the_area_of_the_classes_in_a_region_and_a_profile() {
+    use terraflux_app::region::{Part, of};
+    let mut h = harness(new_app(None));
+    h.set_size(egui::vec2(1280.0, 1100.0));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        s.preview = Some(("raster_read".into(), "raster".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("raster_read", "raster").is_some()
+    });
+    drawn(&mut h);
+    let src = {
+        let s = h.state().session.as_ref().unwrap();
+        terraflux_app::builder::first_source(&s.value_of("raster_read", "raster").unwrap()).unwrap()
+    };
+    // the whole map: every class, its cells (no coordinate system: no area)
+    let whole = of(&src, &Part::Map, true);
+    assert_eq!(whole.classes.len(), 5);
+    let said = format!("all: {} cells with a value", whole.cells);
+    let t = Instant::now();
+    while h.query_by_label_contains(&said).is_none() {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(60), "{said}: not shown");
+    }
+    // a polygon drawn with Measure: only the cells inside it
+    let square = vec![[0.0, 0.0], [64.0, 0.0], [64.0, 54.0], [0.0, 54.0]];
+    {
+        let v = &mut h.state_mut().session.as_mut().unwrap().preview_view;
+        v.set_measuring(true);
+        for p in &square {
+            v.measure_click(*p);
+        }
+    }
+    h.run_steps(2);
+    h.get_by_label("polygon").click();
+    let inside = of(&src, &Part::Polygons(vec![square.clone()]), true);
+    assert!(inside.cells > 0.0 && inside.cells < whole.cells, "{} of {}", inside.cells, whole.cells);
+    let said = format!("all: {} cells with a value", inside.cells);
+    let t = Instant::now();
+    while h.query_by_label_contains(&said).is_none() {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(60), "{said}: not shown");
+    }
+    // the profile along the line (its four points), the classes crossed
+    let t = Instant::now();
+    while h.query_by_label_contains("along the line").is_none() {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(60), "no profile");
+    }
+    shot(&mut h, "14d1-area-and-profile");
+    let p = terraflux_app::profile::of(&src, &square);
+    assert!(p.dist.len() > 100 && p.values.iter().any(|v| v.is_finite()));
+    // the part in view
+    h.get_by_label("view").click();
+    let t = Instant::now();
+    while h.query_all_by_label_contains("cells with a value").count() == 0 {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(60), "the view's classes not counted");
+    }
+}
+
+#[test]
+fn the_area_of_the_classes_along_the_steps_and_the_flows_from_the_first() {
+    let mut h = harness(new_app(None));
+    h.set_size(egui::vec2(1280.0, 1300.0));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
+        s.preview = Some(("raster_read".into(), "raster".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("raster_read", "raster").is_some()
+    });
+    drawn(&mut h);
+    // the two years (1997 and 2011): the classes counted at each, then the window of the flows from 1997 to 2011
+    let t = Instant::now();
+    while h.query_by_label("1997 to 2011...").is_none() {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(60), "the steps' classes not counted");
+    }
+    h.get_by_label("1997 to 2011...").click();
+    let t = Instant::now();
+    while h.query_by_label_contains("Transitions: 1997 to 2011").is_none() {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(60), "no window of the transitions");
+    }
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.steps_window.open);
+    assert_eq!(s.steps_window.tab, terraflux_app::transition_view::Tab::Sankey, "the flows first");
+    shot(&mut h, "14k-steps-flows");
 }

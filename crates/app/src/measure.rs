@@ -131,6 +131,30 @@ fn shoelace(pts: &[[f64; 2]]) -> f64 {
     s.abs() / 2.0
 }
 
+/// The area in square metres of a cell of a grid in a row (the same along a row of an axis-aligned grid): its
+/// width by its height on a projected grid, the cell's polygon on the ellipsoid on a geographic one; none with no
+/// coordinate system.
+pub fn cell_area(g: &Grid, row: usize) -> Option<f64> {
+    match Frame::of(g) {
+        Frame::Projected(u) => {
+            let t = &g.transform;
+            Some((t[1] * t[5] - t[2] * t[4]).abs() * u * u)
+        }
+        Frame::Geographic => {
+            let r = row as f64;
+            let corners = [[0.0, r], [1.0, r], [1.0, r + 1.0], [0.0, r + 1.0]].map(|c| world(g, c));
+            Some(geodesic_area(&corners))
+        }
+        Frame::Plain => None,
+    }
+}
+
+/// The distance in metres between two cells (column, row) of a grid along a straight line (the grid's units with
+/// no coordinate system).
+pub fn cells_apart(g: &Grid, a: [f64; 2], b: [f64; 2]) -> f64 {
+    distance(Frame::of(g), world(g, a), world(g, b))
+}
+
 /// What a line measures.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Report {
@@ -395,6 +419,22 @@ mod tests {
         let unit = if unit_m == 1.0 { 9001 } else { 9003 };
         g.geo.geokeys = Some(vec![1, 1, 0, 3, 1024, 0, 1, 1, 3072, 0, 1, 32633, 3076, 0, 1, unit]);
         g
+    }
+
+    #[test]
+    fn the_area_of_a_cell() {
+        // 10 m cells: 100 m²; in feet, a tenth of it squared
+        assert_eq!(cell_area(&projected(1.0), 0), Some(100.0));
+        let ft = cell_area(&projected(0.3048), 0).unwrap();
+        assert!((ft / (100.0 * 0.3048 * 0.3048) - 1.0).abs() < 1e-5, "{ft}");
+        // a cell of 0.01 degrees at the equator: about 1.1132 km by 1.1057 km; smaller towards the poles
+        let g = geographic();
+        let at_equator = cell_area(&g, 99).unwrap();
+        assert!((at_equator - 1_113_195.0 * 1_105.74 / 1000.0).abs() / at_equator < 0.005, "{at_equator}");
+        let mut north = geographic();
+        north.transform[3] = 61.0;
+        assert!((cell_area(&north, 99).unwrap() / at_equator - 60f64.to_radians().cos()).abs() < 0.01);
+        assert_eq!(cell_area(&Grid::new(2, 2), 0), None);
     }
 
     fn geographic() -> Grid {
