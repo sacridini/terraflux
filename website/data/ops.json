@@ -28719,7 +28719,7 @@
  },
  {
   "name": "vector.read",
-  "doc": "Vector features from a file GDAL reads (GeoPackage, Shapefile, GeoJSON, FlatGeobuf, KML...): their geometries, attributes and coordinate system.",
+  "doc": "Vector features from a file GDAL reads (GeoPackage, Shapefile, GeoJSON, FlatGeobuf, KML...): their geometries, attributes and coordinate system. A folder or a pattern (roads/*.gpkg): the features of every file in it as one layer, in the coordinate system of the first (the others' carried to it), with every attribute of any of them and `file`, the name of the file each feature comes from.",
   "inputs": [],
   "outputs": [
    {
@@ -28740,7 +28740,7 @@
     "name": "path",
     "type": "text",
     "required": true,
-    "doc": "the file, relative to the model's folder"
+    "doc": "a file, a folder or a pattern (their features as one layer), relative to the model's folder"
    },
    {
     "name": "layer",
