@@ -1089,6 +1089,12 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    `labels.rs`, `a_layer_knows_where_its_features_are_labelled`, `the_labels_of_a_vector_layer`, o SVG da figura.
    Falta: o projeto do QGIS ainda tem os rótulos à parte (`VectorOptions`), não os do estilo; a prioridade pelo
    tamanho da feição.
+   **Exportar a vista feito** (Unreleased, por um sub-agente): `export_view.rs`. *Export the view...* ao lado de
+   *Figure...* grava o mapa mostrado com as camadas, os vetores e os rótulos como PNG (transparente sem valor) ou
+   GeoTIFF RGBA com a grade e o CRS do mapa (`tiff::write_rgba`), um pixel por célula ou ×2, ×4, no máximo
+   8 000 px no lado maior, numa thread. O desenho é o da figura (`figure::plain`, `pixels_on`). Testes: os de
+   `export_view.rs` (os pixels, o GeoTIFF lido de volta), `the_view_exported_as_a_picture`. Falta: exportar um
+   Plot pelo id no CLI e no MCP (o desenho depende das cores da sessão do app); a vista comparada; o basemap.
 
 ### Em aberto
 

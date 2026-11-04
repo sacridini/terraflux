@@ -36,6 +36,9 @@ minor versions.
   labelled at an inner point, lines at their middle, points beside them, on a thin halo; only the features in
   view and large enough for their label, none covering another, at most 2 000 at a time. Kept in the Plot's
   style and drawn in the figure too.
+- Viewer: **Export the view...**, beside *Figure...*, writes the map as shown (the layers under and over it at
+  their opacity, the vectors and their labels) as a PNG, or as an RGBA GeoTIFF on the map's grid that opens in
+  QGIS over other data: a pixel to a cell, or ×2 and ×4 (up to 8 000 px on the long side), in the background.
 
 ## [1.35.0] - 2026-11-04
 

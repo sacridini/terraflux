@@ -194,6 +194,12 @@ The *table* button of a vector layer's row in the Layers opens its attributes un
 sorted and filtered like the other tables, copied or saved as CSV. A row clicked outlines its feature on the map
 and takes the view to it; a feature clicked on the map selects its row.
 
+### Exporting the view
+
+*Export the view...*, beside *Figure...*, writes the map as the Viewer shows it, with its layers, vectors and
+labels and without a legend: a PNG, or a GeoTIFF of red, green, blue and alpha on the map's grid, which opens in
+QGIS where the map is. A pixel to a cell, or twice or four times as many.
+
 ### Measuring
 
 **Measure**, above the map (or M with the pointer over it), measures a line clicked point by point: each segment
