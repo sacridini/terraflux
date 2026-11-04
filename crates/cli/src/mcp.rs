@@ -322,6 +322,10 @@ impl Server {
                 let path = model_path(a)?;
                 tools::run_model(&self.engine, &load(&path)?, &folder(&path), a, watcher)
             }
+            "export_plot" => {
+                let path = model_path(a)?;
+                tools::export_plot(&self.engine, &load(&path)?, &folder(&path), a, watcher)
+            }
             "trace_cell" => {
                 let path = model_path(a)?;
                 tools::trace_cell_run(&self.engine, &load(&path)?, &folder(&path), a, watcher)

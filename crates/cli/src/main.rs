@@ -123,6 +123,32 @@ enum Command {
         #[arg(short, long, default_value = "en")]
         language: String,
     },
+    /// Run a model and write one of its Plots (`[[plots]]`, kept with the model) as a picture of its map: the layers at
+    /// their opacity, the features with their style and labels, as the Viewer draws it (no legend or decorations).
+    Plot {
+        model: PathBuf,
+        /// The id of the plot.
+        id: String,
+        /// The picture: a .png, or a .tif (a GeoTIFF of red, green, blue and alpha on the map's grid, to open in QGIS).
+        #[arg(short, long)]
+        out: PathBuf,
+        /// Pixels to a cell of the map: 1 (default), 2 or 4.
+        #[arg(long, default_value_t = 1)]
+        scale: u64,
+        /// png or tif (default: by the extension of the file).
+        #[arg(long)]
+        format: Option<String>,
+        /// Replace an input (`name=path` for a file, `name=value` (JSON) for a value) or a node's setting
+        /// (`node.setting=value`); e.g. `--set seed=7`.
+        #[arg(long = "set", value_name = "NAME=VALUE")]
+        set: Vec<String>,
+        /// Run a scenario of the model (its values, before any --set).
+        #[arg(long)]
+        scenario: Option<String>,
+        /// Print only errors.
+        #[arg(short, long)]
+        quiet: bool,
+    },
     /// Draft the methods section of a paper from a model: the methods it uses with the papers to cite, the model
     /// step by step and the references; or the references as BibTeX or RIS.
     Methods {
@@ -673,6 +699,45 @@ impl Observer for Progress {
     }
 }
 
+/// `terraflux plot`: the model run (its frozen nodes used, `set` and `scenario` as in `run`) and its Plot `id` written
+/// to `out` as the Viewer draws it; what was written and the layers drawn.
+#[allow(clippy::too_many_arguments)]
+fn plot(
+    model: &Path,
+    id: &str,
+    out: &Path,
+    scale: u64,
+    format: Option<&str>,
+    set: &[String],
+    scenario: Option<&str>,
+    quiet: bool,
+    engine: &Engine,
+) -> Result<String> {
+    let scale = terraflux_app::plot_export::check_scale(scale).map_err(anyhow::Error::msg)?;
+    let format = terraflux_app::plot_export::format_for(out, format).map_err(anyhow::Error::msg)?;
+    let mut m = read_model(model)?;
+    // (before the run, which can take long)
+    terraflux_app::plot_export::find(&m, id).map_err(anyhow::Error::msg)?;
+    if let Some(name) = scenario {
+        m = m.with_scenario(name)?;
+    }
+    let overrides = apply_set(&mut m, set, engine)?;
+    let dir = folder_of(model);
+    let t = Instant::now();
+    let inputs = load_inputs(&m, &dir, &overrides)?;
+    let mut progress = Progress { quiet, start: t };
+    let results = run_frozen(engine, model, &m, &inputs, &mut progress, quiet)?;
+    let value = |from: &str| match terraflux_graph::Ref::parse(from).ok()? {
+        terraflux_graph::Ref::Input(name) => inputs.get(&name).cloned(),
+        _ => results.get(from).cloned(),
+    };
+    let made = terraflux_app::plot_export::panel_of(&m, id, &value).map_err(anyhow::Error::msg)?;
+    if let Some(parent) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    }
+    terraflux_app::plot_export::write(&made, scale, format, out).map_err(anyhow::Error::msg)
+}
+
 /// A run with the nodes frozen in the application: their results kept next to the model (`<model>.frozen/`), used
 /// instead of running them (a node whose result cannot be read runs, with a note).
 fn run_frozen(
@@ -1096,6 +1161,10 @@ fn main() -> Result<()> {
                 .with_context(|| format!("writing {}", out.display()))?;
             eprintln!("wrote {}", out.display());
         }
+        Command::Plot { model, id, out, scale, format, set, scenario, quiet } => {
+            let said = plot(&model, &id, &out, scale, format.as_deref(), &set, scenario.as_deref(), quiet, &engine)?;
+            eprintln!("{said}");
+        }
         Command::Methods { model, language, format, out } => {
             let source = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
             let file = model.file_name().map(|f| f.to_string_lossy().into_owned());
@@ -1283,6 +1352,43 @@ mod tests {
         let e = reproduce(&manifest, None, true, false, &engine).unwrap_err().to_string();
         assert!(e.contains("not found") && e.contains("m.toml"), "{e}");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A Plot of a model written as a PNG and as a GeoTIFF by its id, with a scenario's and a --set's values.
+    #[test]
+    fn a_plot_is_written_by_its_id() {
+        let dir = std::env::temp_dir().join(format!("terraflux-plot-cmd-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let model = dir.join("m.toml");
+        std::fs::write(
+            &model,
+            "format = \"terraflux/1\"\n\n[inputs.cut]\nkind = \"value\"\nvalue = 0.5\n\n[[nodes]]\nid = \"land\"\n\
+             op = \"nlm.random\"\nparams = { rows = 10, columns = 14, seed = 2 }\n\n[[nodes]]\nid = \"high\"\n\
+             op = \"raster.calc\"\ninputs = { x = \"land.map\", k = \"$cut\" }\nparams = { expression = \"x > k\" }\n\n\
+             [[plots]]\nid = \"cover\"\n\n[[plots.layers]]\nfrom = \"land.map\"\npalette = \"grey\"\n\n\
+             [[plots.layers]]\nfrom = \"high.map\"\nopacity = 0.5\n",
+        )
+        .unwrap();
+        let engine = Engine::default();
+        let png = dir.join("out").join("cover.png");
+        let said = plot(&model, "cover", &png, 2, None, &["cut=0.8".into()], None, true, &engine).unwrap();
+        assert!(said.contains("28 x 20 px") && said.contains("high.map at 50%"), "{said}");
+        // (the size is in the PNG's header)
+        let head = std::fs::read(&png).unwrap();
+        let side = |at: usize| u32::from_be_bytes(head[at..at + 4].try_into().unwrap());
+        assert_eq!((side(16), side(20)), (28, 20));
+        let tif = dir.join("cover.tif");
+        plot(&model, "cover", &tif, 1, None, &[], None, true, &engine).unwrap();
+        let r = terraflux_raster::tiff::read(&tif).unwrap();
+        assert_eq!((r.bands.len(), r.grid.width, r.grid.height), (4, 14, 10));
+        // refused before the run: a plot the model has not, a scale, a file that is no picture
+        let e = plot(&model, "nope", &png, 1, None, &[], None, true, &engine).unwrap_err().to_string();
+        assert!(e.contains("its plots: cover"), "{e}");
+        assert!(plot(&model, "cover", &png, 3, None, &[], None, true, &engine).is_err());
+        assert!(plot(&model, "cover", &dir.join("c.jpg"), 1, None, &[], None, true, &engine).is_err());
+        assert!(plot(&model, "cover", &dir.join("c.jpg"), 1, Some("png"), &[], None, true, &engine).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

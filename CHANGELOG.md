@@ -51,6 +51,12 @@ minor versions.
   a feature and ctrl+click toggles it. All of them are outlined (those in view) in every view, side by side too;
   the table's header tells how many are selected, with *Zoom to selection*, *Clear selection* (or esc), and *Copy
   selected* and *Save selected* for their rows only.
+- CLI and MCP: **a Plot exported by its id**. `terraflux plot model.toml cover -o cover.png` (or `.tif`, `--scale
+  2`, `--set`, `--scenario`) and the tool `export_plot` run the model and write the Plot as the Viewer's *Export
+  the view* does, without the application: the first map, the maps over it at their opacity, the features with
+  their style and labels, each layer in the palette the Plot names, else the one the Viewer would choose, and the
+  classes in the model's legend colours. Hidden layers and differences are left out and said so; a Plot that
+  compares maps gives its map only.
 
 ## [1.35.0] - 2026-11-04
 

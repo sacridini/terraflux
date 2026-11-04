@@ -1103,8 +1103,8 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    *Figure...* grava o mapa mostrado com as camadas, os vetores e os rótulos como PNG (transparente sem valor) ou
    GeoTIFF RGBA com a grade e o CRS do mapa (`tiff::write_rgba`), um pixel por célula ou ×2, ×4, no máximo
    8 000 px no lado maior, numa thread. O desenho é o da figura (`figure::plain`, `pixels_on`). Testes: os de
-   `export_view.rs` (os pixels, o GeoTIFF lido de volta), `the_view_exported_as_a_picture`. Falta: exportar um
-   Plot pelo id no CLI e no MCP (o desenho depende das cores da sessão do app); a vista comparada; o basemap.
+   `export_view.rs` (os pixels, o GeoTIFF lido de volta), `the_view_exported_as_a_picture`. Falta: a vista
+   comparada; o basemap.
    **Reprojetar ao desenhar feito** (Unreleased, por um sub-agente): `reproject.rs`. Uma camada de mapa (ou o mapa
    da cortina) noutro CRS que o mapa mostrado não é mais pulada: cada tile, feito nas células do próprio mapa como
    qualquer outro, vira uma malha de 16 × 16 quads cujos vértices são os cantos das células levados à grade
@@ -1124,6 +1124,17 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    `the_attribute_table_of_a_vector_layer` (Ctrl, Shift, Esc). Falta: o Shift+clique no mapa (laço/retângulo para
    selecionar por área); selecionar por filtro ("select all shown"); a seleção guardada no Plot ou usada por
    `vector.filter`.
+   **Exportar um Plot pelo id feito** (Unreleased, por um sub-agente): `plot_export.rs`. `terraflux plot <modelo> <id>
+   -o f.png|f.tif [--scale 1|2|4] [--format] [--set] [--scenario]` e a ferramenta MCP `export_plot { model, id, file,
+   scale }` rodam o modelo e gravam o Plot sem o app: `panel_of` monta o `figure::Panel` (o primeiro mapa visível é
+   o mapa, opaco; os outros mapas por cima na opacidade de cada um; os vetores com o estilo e os rótulos; camadas
+   escondidas, diferenças (`minus`) e sem valor puladas, com o motivo na resposta) e `write` usa `export_view::save`.
+   As cores são as que o Viewer escolheria só pelo Plot: a `palette` da camada, senão `builder::default_palette`
+   (antes dentro do Viewer: o produtor do nó, os nomes, o `landschaft_product`), as classes pela legenda do modelo
+   (`legend_view::legend_in`, sem `Session`). Plot com `compare` grava só o mapa (dito na resposta). Testes: os de
+   `plot_export.rs`, `a_plot_is_exported_by_its_id`, `a_plot_is_written_by_its_id`. Falta: as diferenças (`minus`),
+   que no app rodam numa thread; a vista comparada; o gráfico de uma tabela; nós dentro de contêineres (só
+   `node.port` do topo e `$entrada`); a ferramenta do assistente dentro do app.
 
 ### Em aberto
 

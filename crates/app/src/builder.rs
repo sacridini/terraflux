@@ -548,10 +548,35 @@ pub fn output_look(s: &Session, node: &str, port: &str, map: &terraflux_ops::Map
 }
 
 fn producer(s: &Session, node: &str, port: &str) -> (Option<Product>, String) {
+    producer_in(&s.model.nodes, node, port)
+}
+
+/// The palette an output gets when nothing chooses one: by what made it (the operator, through the plots that
+/// show it), the names on the way and the output's own, and, for rasters on disk, what they say they are and
+/// where they are from. `shown` is the map drawn (none: not known).
+pub fn default_palette(nodes: &[terraflux_graph::Node], node: &str, port: &str, shown: Option<&Source>) -> Palette {
+    let (mut made, mut hint) = producer_in(nodes, node, port);
+    // rasters on disk that say what product they are (landschaft_product, as landschaft writes it)
+    if made.is_none()
+        && let Some(Source::Rasters(r, l)) = shown
+    {
+        made = r.grid_of(*l).geo.item("landschaft_product").and_then(Product::from_tag);
+    }
+    hint.push_str(port);
+    if let Some(Source::Rasters(r, l)) = shown {
+        hint.push(' ');
+        hint.push_str(&r.layers[*l].name);
+        hint.push(' ');
+        hint.push_str(&r.images[r.layers[*l].image].path().to_string_lossy());
+    }
+    Palette::of(made, &hint)
+}
+
+fn producer_in(nodes: &[terraflux_graph::Node], node: &str, port: &str) -> (Option<Product>, String) {
     let (mut id, mut port) = (node.to_string(), port.to_string());
     let mut names = String::new();
     for _ in 0..32 {
-        let Some(n) = s.model.nodes.iter().find(|n| n.id == id) else { break };
+        let Some(n) = nodes.iter().find(|n| n.id == id) else { break };
         names.push_str(&n.id);
         names.push(' ');
         let from = match n.inputs.get("value") {
@@ -2577,20 +2602,26 @@ fn figure_vectors(
             _ => None,
         }),
     );
-    styled
-        .filter_map(|(v, style)| {
-            let v = terraflux_ops::vector::on_grid(&v, grid).ok()?;
-            let colours = crate::vector_tiles::colours(&v, &style);
-            Some(crate::figure::Vectors {
-                vector: v,
-                colours,
-                fill: style.fill,
-                width: style.width * 0.6,
-                labels: style.labels.clone(),
-                label_size: style.label_size * 0.6,
-            })
-        })
-        .collect()
+    styled.filter_map(|(v, style)| figure_vector(&v, &style, grid)).collect()
+}
+
+/// Features drawn over a map as a figure or a picture keeps them: on the map's grid, with their colours, fill,
+/// width and labels (see [`figure_vectors`]).
+pub(crate) fn figure_vector(
+    v: &Arc<terraflux_raster::vector::Vector>,
+    style: &crate::vector_tiles::Style,
+    grid: &terraflux_raster::Grid,
+) -> Option<crate::figure::Vectors> {
+    let v = terraflux_ops::vector::on_grid(v, grid).ok()?;
+    let colours = crate::vector_tiles::colours(&v, style);
+    Some(crate::figure::Vectors {
+        vector: v,
+        colours,
+        fill: style.fill,
+        width: style.width * 0.6,
+        labels: style.labels.clone(),
+        label_size: style.label_size * 0.6,
+    })
 }
 
 /// A layer dragged in the Layers (its index).
@@ -3237,7 +3268,7 @@ fn layer_cells(s: &Session, l: &Layer, shown: &terraflux_raster::Grid) -> Option
 }
 
 /// The map a layer shows of a value: its band (the last when there are fewer), else the first.
-fn layer_source(v: &Value, band: Option<usize>) -> Option<Source> {
+pub(crate) fn layer_source(v: &Value, band: Option<usize>) -> Option<Source> {
     match band {
         Some(b) => {
             let mut maps = maps_of(v).0;
@@ -3798,22 +3829,12 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         l.band = (sh.band > 0 || sh.chosen).then_some(sh.band);
     }
     // the colours by what the values are: the operator that made them, the names they come by
-    let (mut made, mut hint) = producer(s, &node, &port);
-    // rasters on disk that say what product they are (landschaft_product, as landschaft writes it)
-    if made.is_none()
-        && let Some(Source::Rasters(r, l)) = maps.get(sh.band.min(maps.len().saturating_sub(1)))
-    {
-        made = r.grid_of(*l).geo.item("landschaft_product").and_then(Product::from_tag);
-    }
-    hint.push_str(&port);
-    if let Source::Rasters(r, l) = &maps[k] {
-        hint.push(' ');
-        hint.push_str(&r.layers[*l].name);
-        hint.push(' ');
-        hint.push_str(&r.images[r.layers[*l].image].path().to_string_lossy());
-    }
     // a palette chosen by hand for this output, else by what it is
-    let palette = s.palettes.get(&(node.clone(), port.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
+    let palette = s
+        .palettes
+        .get(&(node.clone(), port.clone()))
+        .copied()
+        .unwrap_or_else(|| default_palette(&s.model.nodes, &node, &port, Some(&maps[k])));
     let look = s.looks.get(ui.ctx(), &maps[k], palette);
     // while the look of another layer (a series' next step) is worked out, the last one: the map and its legend
     // stay, not a spinner in their place

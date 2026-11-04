@@ -28,6 +28,7 @@ problems found in it, and summaries of the results).
 | `methods` | Drafts the methods section of a paper from the model, with the papers to cite (in English or Portuguese), or its references as BibTeX or RIS |
 | `write_calc`, `explain_calc` | Writes a calculator's script ([raster.calc, vector.calc or vector.filter](../../calculators/)), checked and tried on a sample of its inputs before the model changes, and takes a script apart: what each name holds |
 | `run_model`, `inspect_file` | Runs the model, then summarises a result: a raster's classes or statistics, a table's first lines |
+| `export_plot` | Runs the model and writes one of its Plots by its id as a PNG or a GeoTIFF of the map (layers at their opacity, features and labels, no legend), and tells the layers drawn and left out |
 | `trace_cell`, `last_trace` | Tells why a cell of a result has its value, node by node back through the model; or reads the cell you traced last in the application (see [the tour](/tutorials/getting-started/tour/#why-a-cell-has-its-value-trace)) |
 | `open_in_app` | Opens the model in the application you have open (a new window when none is, or when yours has edits not saved) |
 

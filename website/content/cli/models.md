@@ -238,6 +238,27 @@ terraflux methods model.toml -f ris -o refs.ris    # for EndNote
 `-o`, `--out`
 :   A file to write instead of printing.
 
+## terraflux plot
+
+Runs a model and writes one of its Plots (the views kept with the model, see
+[Plots and tables](/tutorials/building-models/plots-and-tables/)) by its id as a picture of the map, the way
+*Export the view...* does in the application: the first map, the maps over it at their opacity, the features
+with their style and labels, no legend. Each layer is coloured by the palette the Plot names, else the one the
+Viewer would choose for that output, and the classes in the colours of the model's legend. Hidden layers and
+differences are left out (told on the screen); a Plot that compares maps gives its map only.
+
+```bash
+terraflux plot model.toml cover -o cover.png            # a pixel to a cell
+terraflux plot model.toml cover -o cover.tif --scale 2  # a GeoTIFF of red, green, blue and alpha, for QGIS
+terraflux plot model.toml cover -o cover.png --set seed=7 --scenario dry
+```
+
+```tfcli
+plot
+```
+
+`--set` and `--scenario` are those of [`terraflux run`](#terraflux-run).
+
 ## terraflux convert
 
 Writes a model in the other format, chosen by the extension: TOML (easy to read and edit) or JSON (easy for

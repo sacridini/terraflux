@@ -89,7 +89,8 @@ control.switch, control.group) hold a body: edit inside one with `scope` (guide 
 `request`, `summary` and `author` (set_model_info).
 - check_model checks the model and its data and advises on the method: follow its warnings. run_model runs it \
 and writes its outputs; a failed run says what does not fit: read it before changing anything. inspect_file looks \
-at a file, trace_cell explains a cell, methods drafts a paper's methods section.
+at a file, trace_cell explains a cell, methods drafts a paper's methods section, export_plot writes a Plot as a \
+PNG or a GeoTIFF.
 - open_in_app opens the model in Terraflux's application, which follows the file (the user can undo each edit).
 ";
 
@@ -175,7 +176,8 @@ pub fn catalogue(app: bool) -> Vec<Value> {
     if !app {
         return tools;
     }
-    tools.retain(|t| t["name"] != "open_in_app");
+    // (export_plot runs the model on its own: the application's assistant exports from the Viewer)
+    tools.retain(|t| t["name"] != "open_in_app" && t["name"] != "export_plot");
     for t in &mut tools {
         if let Some(p) = t["inputSchema"]["properties"].as_object_mut() {
             p.remove("model");
@@ -1192,6 +1194,41 @@ impl Observer for Watcher {
 /// Run a model (of the folder `dir`) and write its outputs (`out`, default: the folder `output` in `dir`; `set`:
 /// inputs and settings for this run only).
 pub fn run_model(engine: &Engine, source: &Model, dir: &Path, a: &Value, watcher: &mut Watcher) -> Reply {
+    let (m, inputs, results, seconds) = run_for(engine, source, dir, a, watcher)?;
+    let out = opt_text(a, "out").map(absolute).unwrap_or_else(|| dir.join("output"));
+    let files = write_outputs(&m, &results, &out).map_err(|e| e.to_string())?;
+    let mut s = format!("Ran in {seconds:.1} s.");
+    if files.is_empty() {
+        s.push_str(if m.outputs.is_empty() {
+            " The model has no outputs (set_output): nothing written but what its nodes write themselves."
+        } else {
+            " Nothing written."
+        });
+    } else {
+        s.push_str(" Wrote (inspect_file looks at them):");
+        for f in &files {
+            s.push_str(&format!("\n- {}", f.display()));
+        }
+    }
+    if !watcher.warnings.is_empty() {
+        s.push_str("\nWarnings:");
+        for w in &watcher.warnings {
+            s.push_str(&format!("\n- {w}"));
+        }
+    }
+    s.push_str(&crate::advice::after_run(&m, &engine.registry, dir, Some(&inputs)));
+    Ok(s)
+}
+
+/// Run a model for [`run_model`] and [`export_plot`] (`scenario` and `set` of `a`): the model as it ran, its
+/// inputs, its results and the seconds it took.
+fn run_for(
+    engine: &Engine,
+    source: &Model,
+    dir: &Path,
+    a: &Value,
+    watcher: &mut Watcher,
+) -> std::result::Result<(Model, BTreeMap<String, terraflux_ops::Value>, terraflux_exec::Results, f64), String> {
     let mut m = match opt_text(a, "scenario") {
         Some(name) => source.with_scenario(name).map_err(|e| e.to_string())?,
         None => source.clone(),
@@ -1241,29 +1278,30 @@ pub fn run_model(engine: &Engine, source: &Model, dir: &Path, a: &Value, watcher
             None => e,
         }
     })?;
-    let out = opt_text(a, "out").map(absolute).unwrap_or_else(|| dir.join("output"));
-    let files = write_outputs(&m, &results, &out).map_err(|e| e.to_string())?;
-    let mut s = format!("Ran in {:.1} s.", t.elapsed().as_secs_f64());
-    if files.is_empty() {
-        s.push_str(if m.outputs.is_empty() {
-            " The model has no outputs (set_output): nothing written but what its nodes write themselves."
-        } else {
-            " Nothing written."
-        });
-    } else {
-        s.push_str(" Wrote (inspect_file looks at them):");
-        for f in &files {
-            s.push_str(&format!("\n- {}", f.display()));
-        }
+    Ok((m, inputs, results, t.elapsed().as_secs_f64()))
+}
+
+/// Run a model and write one of its Plots (`id`) as a picture of the map (`file`: `.png` or `.tif`, a GeoTIFF of
+/// red, green, blue and alpha on the map's grid; `scale`: pixels to a cell, 1, 2 or 4): as the Viewer draws it
+/// from the Plot alone, without the application. What was written, the layers drawn and not drawn.
+pub fn export_plot(engine: &Engine, source: &Model, dir: &Path, a: &Value, watcher: &mut Watcher) -> Reply {
+    let id = text(a, "id")?;
+    let file = absolute(text(a, "file")?);
+    let scale = crate::plot_export::check_scale(a.get("scale").and_then(Value::as_u64).unwrap_or(1))?;
+    let format = crate::plot_export::format_for(&file, opt_text(a, "format"))?;
+    // (before the run, which can take long)
+    crate::plot_export::find(source, id)?;
+    let (m, inputs, results, seconds) = run_for(engine, source, dir, a, watcher)?;
+    let value = |from: &str| match Ref::parse(from).ok()? {
+        Ref::Input(name) => inputs.get(&name).cloned(),
+        _ => results.get(from).cloned(),
+    };
+    let made = crate::plot_export::panel_of(&m, id, &value)?;
+    if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    if !watcher.warnings.is_empty() {
-        s.push_str("\nWarnings:");
-        for w in &watcher.warnings {
-            s.push_str(&format!("\n- {w}"));
-        }
-    }
-    s.push_str(&crate::advice::after_run(&m, &engine.registry, dir, Some(&inputs)));
-    Ok(s)
+    let said = crate::plot_export::write(&made, scale, format, &file)?;
+    Ok(format!("Ran in {seconds:.1} s. The plot {id}, {said}"))
 }
 
 /// What a value an output gave is: a map's size and its classes or statistics, a table's columns and first rows,
@@ -1683,6 +1721,21 @@ fn all() -> Vec<Value> {
                 "scenario": { "type": "string", "description": "A scenario of the model (set_scenario) to run." },
             }),
             &["model"],
+            None,
+        ),
+        tool(
+            "export_plot",
+            "Run the model and write one of its Plots (set_plot) as a picture of the map, as the Viewer draws it from the Plot alone: the layers at their opacity, under or over the top map, the features with their style and labels; hidden layers and differences are skipped (said in the reply). Each layer in its palette (else the one its producer asks for), the classes in the colours of the model's legend. A Plot that compares maps gives its map only. No legend or decorations. Says the file, its size, the cells to a pixel, the layers drawn and not drawn.",
+            json!({
+                "model": model,
+                "id": { "type": "string", "description": "The plot's id." },
+                "file": { "type": "string", "description": "The picture to write (absolute path): .png, or .tif for a GeoTIFF of red, green, blue and alpha on the map's grid, to open in QGIS." },
+                "scale": { "type": "integer", "enum": [1, 2, 4], "description": "Pixels to a cell of the map (default 1)." },
+                "format": { "type": "string", "enum": ["png", "tif"], "description": "Else by the file's extension." },
+                "set": { "type": "object", "description": "For this run only: input -> value or file (`seed`), node.setting -> value." },
+                "scenario": { "type": "string", "description": "A scenario of the model (set_scenario) to run." },
+            }),
+            &["model", "id", "file"],
             None,
         ),
         tool(
@@ -2739,5 +2792,49 @@ mod plot_tests {
         super::edit("remove_plot", &mut m, &r, dir, &json!({ "id": "cover" })).unwrap();
         assert!(m.plots.is_empty());
         assert!(super::edit("remove_plot", &mut m, &r, dir, &json!({ "id": "cover" })).is_err());
+    }
+    /// A Plot exported by its id: the model run, the picture written as PNG and as GeoTIFF on the map's grid.
+    #[test]
+    fn a_plot_is_exported_by_its_id() {
+        let dir = std::env::temp_dir().join(format!("terraflux-export-plot-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut m = Model::new("exported");
+        m.nodes.push(Node::new("land", "nlm.random").param("rows", 8).param("columns", 12).param("seed", 3));
+        m.nodes.push(Node::new("high", "raster.calc").input("x", "land.map").param("expression", "x > 0.5"));
+        let r = terraflux_ops::Registry::standard();
+        let a = json!({
+            "id": "cover",
+            "layers": [{ "from": "land.map", "palette": "grey" }, { "from": "high.map", "opacity": 0.5 }],
+            "compare": { "with": "land.map" },
+        });
+        super::edit("set_plot", &mut m, &r, &dir, &a).unwrap();
+        let engine = terraflux_exec::Engine::default();
+        let mut w = super::Watcher::new(None, None);
+        let png = dir.join("cover.png");
+        let a = json!({ "id": "cover", "file": png.to_string_lossy(), "scale": 2 });
+        let said = super::export_plot(&engine, &m, &dir, &a, &mut w).unwrap();
+        assert!(said.contains("24 x 16 px") && said.contains("2 pixels to a cell"), "{said}");
+        assert!(said.contains("land.map") && said.contains("high.map at 50%"), "{said}");
+        assert!(said.contains("only the map is drawn"), "{said}");
+        let back = tiny_skia::Pixmap::load_png(&png).unwrap();
+        assert_eq!((back.width(), back.height()), (24, 16));
+        // a GeoTIFF of four bands on the map's grid, its cells half as large
+        let tif = dir.join("cover.tif");
+        let a = json!({ "id": "cover", "file": tif.to_string_lossy() });
+        let said = super::export_plot(&engine, &m, &dir, &a, &mut w).unwrap();
+        assert!(said.contains("12 x 8 px") && said.contains("1 pixel to a cell"), "{said}");
+        let t = terraflux_raster::tiff::read(&tif).unwrap();
+        assert_eq!(t.bands.len(), 4);
+        assert_eq!((t.grid.width, t.grid.height), (12, 8));
+        // refused: another scale, another extension, a plot the model has not
+        for (bad, why) in [
+            (json!({ "id": "cover", "file": png.to_string_lossy(), "scale": 3 }), "scale"),
+            (json!({ "id": "cover", "file": dir.join("c.jpg").to_string_lossy() }), "not a .png"),
+            (json!({ "id": "nope", "file": png.to_string_lossy() }), "no plot"),
+        ] {
+            let e = super::export_plot(&engine, &m, &dir, &bad, &mut w).unwrap_err();
+            assert!(e.contains(why), "{e}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

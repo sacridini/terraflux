@@ -206,6 +206,11 @@ rows (*Copy selected*, *Save selected*). The selection is outlined in every view
 labels and without a legend: a PNG, or a GeoTIFF of red, green, blue and alpha on the map's grid, which opens in
 QGIS where the map is. A pixel to a cell, or twice or four times as many.
 
+A saved Plot can be exported without the application, by its id: `terraflux plot model.toml cover -o cover.png`
+on the command line (`.tif` for the GeoTIFF, `--scale 2` or `4` for a larger picture), or the assistant's
+`export_plot` tool. It runs the model and draws the Plot's layers in their palettes; hidden layers and differences
+are left out, and a Plot that compares maps gives its map only.
+
 ### Measuring
 
 **Measure**, above the map (or M with the pointer over it), measures a line clicked point by point: each segment

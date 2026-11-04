@@ -14,9 +14,14 @@ use crate::palette::Coloring;
 /// The legend of an output: of a `raster.legend` node's settings (through the plots that show it), else the one
 /// the map carries.
 pub fn legend_of(s: &Session, node: &str, port: &str, shown: &Source) -> Option<Vec<Class>> {
+    legend_in(&s.source.nodes, node, port, shown)
+}
+
+/// [`legend_of`] on a model's nodes, without a session.
+pub fn legend_in(nodes: &[terraflux_graph::Node], node: &str, port: &str, shown: &Source) -> Option<Vec<Class>> {
     let mut at = (node.to_string(), port.to_string());
     for _ in 0..32 {
-        let n = s.source.nodes.iter().find(|n| n.id == at.0)?;
+        let n = nodes.iter().find(|n| n.id == at.0)?;
         match n.op.as_str() {
             "raster.legend" => return n.params.get("classes").and_then(|c| parse(c).ok()),
             "view.plot" => match n.inputs.get("value") {
