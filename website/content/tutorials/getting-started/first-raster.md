@@ -219,7 +219,7 @@ images:
   - { src: /img/tutorials/getting-started/first-raster/ndvi.png, caption: "NDVI" }
 ```
 
-You can override the choice under **Colours** beside the map: *by what they are* (the default), or a ramp by
+You can override the choice under **Colours**, under the map's row in **Layers**: *by what they are* (the default), or a ramp by
 name (*viridis*, *blue to red, centred on 0* for differences, *terrain*, *grey*, *red to green*, *rank*), each
 also on a logarithmic scale for values spread over orders of magnitude (distances, densities, current flows).
 The choice is remembered for that output.
@@ -235,7 +235,7 @@ Codes are hard to read: you will not remember that 24 is coniferous forest. A **
 and a colour. In Terraflux a legend is a node, [[raster.legend]], placed after the map; it carries the names
 with the map to everything downstream that keeps its classes, and into the GeoTIFF the map is written to.
 
-You rarely type it: in the header of the legend beside the map, **Edit legend** opens a colour and a name per class;
+You rarely type it: in **Layers**, under the row of the map shown, **Edit legend** opens a colour and a name per class;
 **Apply** writes them into the model as a `raster.legend` node after the node shown (or changes it, if the node
 shown is one). Here is the legend of Sibuyan's land use, as the model file keeps it:
 

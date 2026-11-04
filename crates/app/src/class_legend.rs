@@ -1,7 +1,6 @@
-//! The legend of a map of classes, one table: a row per class (its colour, its name, its area, a bar of its
-//! share and the share), of the whole map, the part in view, the polygon measured or the
-//! polygons selected, in hectares, km² or cells; the palette and the legend's editor in its header. It is both the
-//! legend and the area of the classes (they were two lists, the same classes twice).
+//! The area of the classes of a map, one table: a row per class (its colour, its name, its area, a bar of its
+//! share and the share), of the whole map, the part in view, the polygon measured or the polygons selected, in
+//! hectares, km² or cells. The legend itself (the palette, the editor) is in the Layers, under the map's row.
 
 use super::*;
 use egui::{FontId, Pos2, Sense};
@@ -155,43 +154,17 @@ fn row(
     resp
 }
 
-/// The legend of a map of classes with the area of each, as one table (see the module).
-#[allow(clippy::too_many_arguments)]
+/// The area of each class of a map, as one table (see the module).
 pub(super) fn section(
     ui: &mut Ui,
     s: &mut Session,
-    r: &Registry,
     sh: &mut Shown,
     src: &Source,
     look: &Look,
     legend: Option<&[terraflux_ops::legend::Class]>,
-    (node, port): (&str, &str),
     salt: &str,
 ) {
-    let key = (node.to_string(), port.to_string());
-    // the head: the title, the palette and the editor
-    ui.horizontal(|ui| {
-        theme::section(ui, "Legend");
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            theme::quiet(ui);
-            if !crate::legend_view::editing(ui, node, port)
-                && ui
-                    .small_button("Edit legend")
-                    .on_hover_text("the names and colours of the classes, kept in the model (a raster.legend node)")
-                    .clicked()
-            {
-                crate::legend_view::begin(ui, node, port, look, legend);
-            }
-            let colours = ui.small_button("Colours ⏷").on_hover_text("another palette");
-            egui::Popup::menu(&colours)
-                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                .show(|ui| layers_panel::palette_menu(ui, s, &key, &look.coloring));
-        });
-    });
-    if crate::legend_view::editing(ui, node, port) {
-        crate::legend_view::editor(ui, s, r, node, port, look, legend);
-        return;
-    }
+    theme::section(ui, "Area of the classes");
     // the part of the map, and the unit
     let id = egui::Id::new(("region scope", salt));
     let mut scope: Scope = ui.data(|d| d.get_temp(id)).unwrap_or_default();

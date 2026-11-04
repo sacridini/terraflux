@@ -2,7 +2,7 @@
 //! down, zoom to it, all shown or hidden, every legend folded) over a list of rows, the top layer first, that
 //! scrolls when long; then the properties of the layer selected. A row: its arrow (its legend folded under it, as
 //! in QGIS), whether it is shown (its box), its symbol, its name, what it is (how many maps, features) and its ⋯;
-//! a click selects it (a map: its legend and statistics at the right), a double click zooms to it, a drag puts it
+//! a click selects it (a map: it is shown, its statistics at the right), a double click zooms to it, a drag puts it
 //! over or under the others, a right click (or its ⋯) gives what can be done with it. The properties: how opaque,
 //! which map of a stack, the palette (a click on it gives the others) and the histogram, the style of features.
 
@@ -80,8 +80,17 @@ pub(super) fn layer_look(s: &mut Session, ctx: &egui::Context, l: &Layer) -> Opt
     Some((src, look, first))
 }
 
+/// The map shown, as the Viewer draws it: its legend under its row in the Layers (as a GIS has it), with its
+/// palette and the legend's editor.
+pub(super) struct ShownLegend<'a> {
+    pub r: &'a Registry,
+    pub look: &'a Look,
+    pub names: Option<&'a [terraflux_ops::legend::Class]>,
+}
+
 /// The Layers: their bar, their rows (the top layer first, in a list that scrolls when long), then the
 /// properties of the layer selected (see the module).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn layers_section(
     ui: &mut Ui,
     s: &mut Session,
@@ -89,6 +98,7 @@ pub(super) fn layers_section(
     sh: &mut Shown,
     others: &[(String, String)],
     main_name: &str,
+    shown: Option<&ShownLegend<'_>>,
     salt: &str,
 ) {
     let (node, port) = (sh.node.clone(), sh.port.clone());
@@ -151,8 +161,9 @@ pub(super) fn layers_section(
         ui.add_space(3.0);
     }
     let dragged_id = egui::Id::new(("layer dragged", salt));
-    // (the list takes at most about half the panel: the properties of the layer selected stay in sight)
-    let most = (ui.available_height() * 0.55).max(140.0);
+    // (the list, with the legends under the rows, takes at most three quarters of the panel: the properties of the
+    // layer selected stay in sight)
+    let most = (ui.available_height() * 0.75).max(140.0);
     let frame = egui::Frame::new()
         .fill(ui.visuals().extreme_bg_color)
         .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
@@ -169,6 +180,9 @@ pub(super) fn layers_section(
                     // the map shown that is no layer: a row of its own, kept by the pin
                     if !shown_is_layer {
                         shown_row(ui, main_name, &mut asked);
+                        if let Some(shown) = shown {
+                            indented(ui, |ui| shown_legend(ui, s, (&node, &port), shown));
+                        }
                     }
                     // the rows, the top layer first; where each is (its row, then its legend)
                     let mut rows: Vec<Rect> = Vec::new();
@@ -187,6 +201,7 @@ pub(super) fn layers_section(
                             (i, kind),
                             (&node, &port),
                             selected == Some(i),
+                            shown,
                             salt,
                             &mut asked,
                         );
@@ -553,6 +568,7 @@ fn layer_row(
     (i, kind): (usize, Kind),
     (node, port): (&str, &str),
     selected: bool,
+    shown: Option<&ShownLegend<'_>>,
     salt: &str,
     asked: &mut Asked,
 ) -> (Rect, bool, bool) {
@@ -566,7 +582,7 @@ fn layer_row(
     let open_id = row_id.with("open");
     // (every legend folded or unfolded from the bar; else each as it was, unfolded when there are a few layers)
     let all = ui.data(|d| d.get_temp::<bool>(egui::Id::new("layers unfolded")));
-    let mut open: bool = ui.data(|d| d.get_temp(open_id)).or(all).unwrap_or(n <= 6);
+    let mut open: bool = ui.data(|d| d.get_temp(open_id)).or(all).unwrap_or(n <= 6 || active);
     let table_open = sh.attributes.as_ref().is_some_and(|o| o.is(&sh.layers[i].node, &sh.layers[i].port));
     let features = vectors.iter().find(|(vn, vp, _)| sh.layers[i].is(vn, vp)).map(|(_, _, v)| v.clone());
     // what it is, at the right of its name: how many maps, features
@@ -587,7 +603,7 @@ fn layer_row(
     } else if row.hovered() {
         ui.painter().rect_filled(rect, 3.0, visuals.widgets.hovered.weak_bg_fill.gamma_multiply(0.7));
     }
-    // the map whose legend is at the right: a bar of the accent at its left
+    // the map shown: a bar of the accent at its left
     if active {
         let bar = Rect::from_min_size(rect.min + Vec2::new(0.0, 4.0), Vec2::new(2.5, rect.height() - 8.0));
         ui.painter().rect_filled(bar, 1.0, theme::accent());
@@ -670,7 +686,7 @@ fn layer_row(
     let row = row.on_hover_text(format!(
         "{name}: a click selects it (its properties under the list{}); a double click zooms to it; drag it over or \
          under the others; a right click: more",
-        if kind == Kind::Map && !active { ", its legend and statistics at the right" } else { "" }
+        if kind == Kind::Map && !active { ", it is shown, its statistics at the right" } else { "" }
     ));
     let row = if row.dragged() { row } else { row.on_hover_cursor(egui::CursorIcon::Grab) };
     if row.clicked() {
@@ -689,13 +705,11 @@ fn layer_row(
     row.context_menu(|ui| menu(ui, s, asked));
     egui::Popup::menu(&dots).show(|ui| menu(ui, s, asked));
     let (started, released) = (row.drag_started(), row.drag_stopped());
-    // its legend, under it (as a GIS has it)
+    // its legend, under it (as a GIS has it): the map shown's whole, with its palette and editor
     if open {
-        ui.add_space(1.0);
-        ui.horizontal(|ui| {
-            ui.add_space(46.0);
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 1.0;
+        match shown.filter(|_| active && kind == Kind::Map) {
+            Some(shown) => indented(ui, |ui| shown_legend(ui, s, (node, port), shown)),
+            None => indented(ui, |ui| {
                 inline_legend(
                     ui,
                     s,
@@ -706,13 +720,90 @@ fn layer_row(
                     made.as_deref(),
                     features.as_deref(),
                 );
-            });
-        });
-        ui.add_space(4.0);
+            }),
+        }
     }
     ui.data_mut(|d| d.insert_temp(open_id, open));
     let whole = Rect::from_min_max(Pos2::new(rect.left(), top), Pos2::new(rect.right(), ui.cursor().top()));
     (whole, started, released)
+}
+
+/// Classes as a legend has them, a line each: a swatch and the name (the first `most`, then how many more).
+fn class_lines(ui: &mut Ui, lines: &[(Color32, String, usize)], most: usize) {
+    let text = ui.visuals().text_color();
+
+    let edge = egui::Stroke::new(1.0, ui.visuals().weak_text_color().gamma_multiply(0.5));
+    for (col, name, _) in lines.iter().take(most) {
+        let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 17.0), Sense::hover());
+        let sw = Rect::from_min_size(Pos2::new(r.left(), r.center().y - 5.0), Vec2::new(14.0, 10.0));
+        ui.painter().rect_filled(sw, 1.5, crate::palette::seen(*col));
+        ui.painter().rect_stroke(sw, 1.5, edge, egui::StrokeKind::Inside);
+        let mut job = egui::text::LayoutJob::single_section(
+            name.clone(),
+            egui::TextFormat { font_id: egui::FontId::proportional(11.5), color: text, ..Default::default() },
+        );
+        job.wrap = egui::text::TextWrapping {
+            max_width: (r.width() - 22.0).max(10.0),
+            max_rows: 1,
+            break_anywhere: true,
+            overflow_character: Some('…'),
+        };
+        let g = ui.fonts_mut(|f| f.layout_job(job));
+        ui.painter().galley(Pos2::new(sw.right() + 7.0, r.center().y - g.size().y / 2.0), g, text);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, name));
+    }
+    if lines.len() > most {
+        ui.label(RichText::new(format!("+ {} more", lines.len() - most)).size(11.0).weak())
+            .on_hover_text("every class under its row when it is the map shown (a click on its row)");
+    }
+}
+
+/// A legend under its row, indented to its name.
+fn indented(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    ui.add_space(1.0);
+    ui.horizontal(|ui| {
+        ui.add_space(46.0);
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 1.0;
+            add(ui);
+        });
+    });
+    ui.add_space(4.0);
+}
+
+/// The legend of the map shown, under its row: every class (its palette and the legend's editor over them), or the
+/// ramp of its values (a click on it gives the others).
+fn shown_legend(ui: &mut Ui, s: &mut Session, (node, port): (&str, &str), shown: &ShownLegend<'_>) {
+    let key = (node.to_string(), port.to_string());
+    let look = shown.look;
+    match &look.coloring {
+        Coloring::Classes(c) => {
+            if crate::legend_view::editing(ui, node, port) {
+                crate::legend_view::editor(ui, s, shown.r, node, port, look, shown.names);
+                return;
+            }
+            ui.horizontal(|ui| {
+                theme::quiet(ui);
+                ui.spacing_mut().item_spacing.x = 4.0;
+                let colours = ui.small_button("Colours ⏷").on_hover_text("another palette");
+                egui::Popup::menu(&colours)
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                    .show(|ui| palette_menu(ui, s, &key, &look.coloring));
+                if ui
+                    .small_button("Edit legend")
+                    .on_hover_text("the names and colours of the classes, kept in the model (a raster.legend node)")
+                    .clicked()
+                {
+                    crate::legend_view::begin(ui, node, port, look, shown.names);
+                }
+            });
+            ui.add_space(2.0);
+            let lines =
+                crate::map_view::legend_lines(c, &look.counts, &|v| crate::legend_view::name(look, shown.names, v));
+            class_lines(ui, &lines, usize::MAX);
+        }
+        Coloring::Continuous { .. } => palette_legend(ui, s, &key, look, shown.names, 0),
+    }
 }
 
 /// A layer's legend under its row: of a map, its classes (the first few) or its ramp and range; of a difference,
@@ -729,34 +820,7 @@ fn inline_legend(
     features: Option<&terraflux_raster::vector::Vector>,
 ) {
     let small = |t: String| RichText::new(t).size(11.0);
-    let classes_of = |ui: &mut Ui, lines: Vec<(Color32, String, usize)>| {
-        const MOST: usize = 10;
-        let text = ui.visuals().text_color();
-        let edge = egui::Stroke::new(1.0, ui.visuals().weak_text_color().gamma_multiply(0.5));
-        for (col, name, _) in lines.iter().take(MOST) {
-            let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 17.0), Sense::hover());
-            let sw = Rect::from_min_size(Pos2::new(r.left(), r.center().y - 5.0), Vec2::new(14.0, 10.0));
-            ui.painter().rect_filled(sw, 1.5, crate::palette::seen(*col));
-            ui.painter().rect_stroke(sw, 1.5, edge, egui::StrokeKind::Inside);
-            let mut job = egui::text::LayoutJob::single_section(
-                name.clone(),
-                egui::TextFormat { font_id: egui::FontId::proportional(11.5), color: text, ..Default::default() },
-            );
-            job.wrap = egui::text::TextWrapping {
-                max_width: (r.width() - 22.0).max(10.0),
-                max_rows: 1,
-                break_anywhere: true,
-                overflow_character: Some('…'),
-            };
-            let g = ui.fonts_mut(|f| f.layout_job(job));
-            ui.painter().galley(Pos2::new(sw.right() + 7.0, r.center().y - g.size().y / 2.0), g, text);
-            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, name));
-        }
-        if lines.len() > MOST {
-            ui.label(small(format!("+ {} more", lines.len() - MOST)).weak())
-                .on_hover_text("every class in the legend at the right, when this map is the one shown");
-        }
-    };
+    let classes_of = |ui: &mut Ui, lines: Vec<(Color32, String, usize)>| class_lines(ui, &lines, 10);
     // of a stack, a series or rasters on disk not shown: the map it shows (the map shown: its steps at the right)
     if kind == Kind::Map && !active {
         let names = s.value_of(&l.node, &l.port).map(|v| maps_of(&v).1).unwrap_or_default();
@@ -1001,9 +1065,11 @@ fn properties(
                     opacity_slider(ui, &mut l.opacity);
                     if active {
                         ui.label(
-                            RichText::new("the map shown: its legend, statistics and steps in the panel at the right")
-                                .weak()
-                                .size(11.0),
+                            RichText::new(
+                                "the map shown: its legend under its row, its statistics and steps at the right",
+                            )
+                            .weak()
+                            .size(11.0),
                         );
                         return;
                     }

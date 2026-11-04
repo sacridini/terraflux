@@ -11,6 +11,9 @@ minor versions.
   4: 3; 2: 1), for every tool, run, solver and view: the settings, `--threads` and `TERRAFLUX_THREADS` may ask for
   fewer, never more. It was every core but one. A number of threads given to Gurobi, `batch.run`'s workers and the
   runs of a model over many files is held to it too.
+- Viewer: **the legend of the map shown is in Layers, under its row**, as in a GIS, for every kind of data: the
+  classes with their colours (with *Colours* and *Edit legend*), or the ramp of a continuous map. The panel at the
+  right keeps the *Area of the classes* or the histogram, the statistics and the steps.
 
 ### Fixed
 - Viewer: **the window stays fluid while many rasters load**. The rasters on disk are read for the view by a few

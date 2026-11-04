@@ -2853,9 +2853,12 @@ fn the_legend_is_edited_in_the_viewer() {
     h.state_mut().focus(Pane::Viewer);
     drawn(&mut h);
     h.run_steps(5);
+    // the legend under the map's row in the Layers, its editor there
+    assert!(h.query_by_label("Apply").is_none());
     h.get_by_label("Edit legend").click();
     h.run_steps(3);
-    assert!(h.query_by_label("4723").is_none(), "the editor in the legend's place");
+    assert!(h.query_by_label("Edit legend").is_none(), "the editor in the legend's place");
+    assert!(h.query_by_label("Apply").is_some(), "the editor in the legend's place");
     // the first class's name field (the first text field of the editor): "1" replaced by "forest"
     fn field<'a>(h: &'a Harness<'static, TerrafluxApp>) -> egui_kittest::Node<'a> {
         use egui_kittest::kittest::NodeT;

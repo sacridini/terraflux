@@ -4434,25 +4434,23 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 }
                 ui.add_space(4.0);
                 match &look {
-                    // of classes: one table, the legend and the area of each class in the part chosen
+                    // (the legend is in the Layers, under the map's row) of classes: the area of each in the part
+                    // chosen
                     Some(l) if matches!(l.coloring, Coloring::Classes(_)) => {
                         let named = legend_classes.as_deref();
-                        class_legend::section(ui, s, r, sh, &maps[k], l, named, (&node, &port), salt);
+                        class_legend::section(ui, s, sh, &maps[k], l, named, salt);
                     }
                     Some(l) => {
-                        // of values: the ramp (a click on it gives the others), the histogram under it, the
-                        // range of the colours set on it
-                        let named = legend_classes.as_deref();
+                        // of values: their histogram, the range of the colours set on it
+                        theme::section(ui, "Histogram");
                         let key = (node.clone(), port.clone());
-                        layers_panel::palette_legend(ui, s, &key, l, named, 0);
-                        ui.add_space(4.0);
                         let id = egui::Id::new(("histogram", salt, &node, &port));
                         layers_panel::range_histogram(ui, s, &key, &maps[k], &l.coloring, first_range, id);
                     }
                     None => {
                         ui.horizontal(|ui| {
                             ui.spinner();
-                            ui.label(RichText::new("the legend...").weak());
+                            ui.label(RichText::new("its colours...").weak());
                         });
                     }
                 }
@@ -4702,7 +4700,9 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::same(8)))
         .show_collapsible(ui, &mut layers_open, |ui| {
             egui::ScrollArea::vertical().id_salt(("layers scroll", salt)).show(ui, |ui| {
-                layers_section(ui, s, r, sh, &others, &main_name, salt);
+                let shown =
+                    look.as_ref().map(|l| layers_panel::ShownLegend { r, look: l, names: legend_classes.as_deref() });
+                layers_section(ui, s, r, sh, &others, &main_name, shown.as_ref(), salt);
             });
         });
     ui.data_mut(|d| d.insert_temp(id, layers_open));
