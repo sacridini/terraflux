@@ -2908,7 +2908,7 @@ fn plots_menu(ui: &mut Ui, s: &mut Session, sh: &Shown, top: bool, salt: &str) {
             if ui
                 .add_enabled(now.is_some(), egui::Button::new(keep))
                 .on_hover_text(
-                    "keep the frame of the map now in view (its centre and zoom, as a box of the map's coordinates) in                      the plot: the plot opens on it, and its figure, export and Document picture show only that part",
+                    "keep the frame of the map now in view (its centre and zoom, as a box of the map's coordinates) in the plot: the plot opens on it, and its figure, export and Document picture show only that part",
                 )
                 .clicked()
             {
@@ -4210,14 +4210,14 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             && ui
                                 .button("Figure...")
                                 .on_hover_text(
-                                    "this map as a figure for a paper: legend, scale bar, north arrow, coordinates;                                      PNG or SVG",
+                                    "this map as a figure for a paper: legend, scale bar, north arrow, coordinates; PNG or SVG",
                                 )
                                 .clicked();
                         let e = look.is_some()
                             && ui
                                 .button("Export the view...")
                                 .on_hover_text(
-                                    "the map as the Viewer shows it, with its layers, vectors and labels, as a PNG or                                      a GeoTIFF placed on the map",
+                                    "the map as the Viewer shows it, with its layers, vectors and labels, as a PNG or a GeoTIFF placed on the map",
                                 )
                                 .clicked();
                         (f, e)

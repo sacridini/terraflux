@@ -2195,3 +2195,16 @@ responder no próprio Viewer as perguntas de quem estuda mudança de uso, sem mo
    primeiro. Teste: `the_area_of_the_classes_along_the_steps_and_the_flows_from_the_first` (UI).
    Falta: o Sankey de todos os passos em sequência (hoje só o primeiro e o último).
 6. **Vistas salvas**: o enquadramento guardado no Plot, e a figura, o export e o Document no mesmo recorte.
+   **Feito** (Unreleased, por um sub-agente): `Plot.view: Option<PlotView { extent: [oeste, sul, leste, norte] }>`
+   nas coordenadas do mapa do Plot (não depende do tamanho da janela; omitido quando não há). `frame.rs`: `cells_of`
+   e `extent_of` (também em grades rotacionadas) e o recorte da fonte numa grade menor (`crop_map`, `crop_source`,
+   `crop_panel`, `crop_value`; um raster em disco vira um `Map` só da janela), então vetores, camadas, coordenadas,
+   escala e inset seguem `source.grid()` sem mudança nos desenhistas. Usado pela figura e por *Export the view* (o
+   Plot aberto), `plot_export` (`terraflux plot`, `export_plot`), o Document e o relatório. No menu Plots: *Keep
+   this view in the plot* / *Update the saved view*, *Go to the saved view*, *Forget the saved view*; abrir o Plot
+   leva o mapa ao quadro (`Session::plot_frame`, `MapView::show_extent`). `set_plot` aceita `view`; o check acusa
+   uma extensão vazia. Testes: os de `frame`, `a_saved_view_draws_only_its_part`,
+   `a_figure_shows_the_saved_view_of_its_plot`, `a_figure_carries_the_saved_view_of_its_plot`,
+   `a_plot_keeps_its_view`, `a_plot_keeps_the_frame_of_its_map` (UI). Falta: *Save as a new plot* não grava a vista;
+   `set_plot` sem `view` apaga a vista (o Plot é trocado inteiro); o recorte de um raster grande em disco é lido na
+   thread da interface ao abrir a figura; Python e QGIS não leem a vista; a figura do Document ainda sem vetores.
