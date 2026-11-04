@@ -176,6 +176,13 @@ scenario, another date, the observed map) or another layer of the same stack. Ch
 
 Both maps are drawn in the same colours, so that the same value is the same colour.
 
+### Measuring
+
+**Measure**, above the map (or M with the pointer over it), measures a line clicked point by point: each segment
+and the whole length, and from three points the area and perimeter of the polygon they close. On a grid in metres
+the lengths are in m and km and the areas in m², ha and km²; on a grid in degrees they are measured on the WGS84
+ellipsoid. A right click takes the last point away, a double click ends the line, and esc clears it.
+
 ### Saving a Plot
 
 What the Viewer shows is gone when you click another node and take the layers away. To keep it with the model,

@@ -1050,6 +1050,14 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
 5. **Depois** (a decidir, cada um à parte): reprojetar outro CRS por tile, ao desenhar; medir distância e área;
    soltar um arquivo no Viewer (o `raster.read` criado e a camada fixada); a tabela de atributos de uma camada de
    vetores; rótulos; o histograma de cada camada; exportar o Plot como PNG ou GeoTIFF composto.
+   **Medir feito** (Unreleased, por um sub-agente num worktree à parte): `measure.rs`, o botão *Measure* do Viewer
+   (ou M sobre o mapa) liga uma linha clicada ponto a ponto, com cada trecho e o total e, de três pontos, a área e
+   o perímetro, em m, km, m², ha e km². Em grades projetadas as contas são planas (com a unidade linear da grade);
+   em graus, geodésicas na elipsoide WGS84 (a distância de Vincenty, a área na esfera autálica); sem CRS, nas
+   unidades da grade e em células. Clique direito ou Backspace tira o último ponto, o duplo clique encerra, Esc
+   limpa, *Copy*; medir e desenhar feições são exclusivos. A caixa dos números no canto de baixo do mapa. Testes:
+   os de `measure.rs` (1° no equador, o caso de Vincenty, um octante da Terra) e `measuring_on_the_map_by_clicks`
+   (cliques de verdade). Falta: conferir com um arquivo em graus de verdade; a linha não segue as vistas lado a lado.
 
 ### Em aberto
 

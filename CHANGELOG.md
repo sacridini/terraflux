@@ -16,6 +16,10 @@ minor versions.
   (values: the other map minus this one; classes: the transitions, named): drawn with the other layers, at an
   opacity, its legend and summary in the Layers, kept in a Plot (`minus` of a layer, also in `set_plot`), and
   following its nodes renamed or removed.
+- Viewer: **measure on the map**. *Measure* (or M over the map) turns on a line clicked point by point: each
+  segment and the total length, and from three points the area and perimeter, in m, km, m², ha and km² (geodesic
+  on the WGS84 ellipsoid for grids in degrees; the grid's units and cells without a coordinate system), with
+  *Copy*. Right click or backspace takes the last point away, a double click ends the line, esc clears it.
 
 ## [1.35.0] - 2026-11-04
 
