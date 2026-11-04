@@ -4185,10 +4185,15 @@ fn the_attribute_table_of_a_vector_layer() {
     h.run_steps(3);
     assert!(open(&h).is_some_and(|o| o.is("vector_read", "vector") && o.pick.row.is_none()));
     assert!(h.query_by_label("Attributes of vector_read.vector").is_some());
+    // (the map drawn first: its view fitted, whatever the other tests keep the machine busy with)
+    until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().preview_view.camera().0 > 0.0);
     let before = h.state().session.as_ref().unwrap().preview_view.camera().0;
-    // a row clicked: the second feature selected, outlined on the map, the view on it
+    // a row clicked: the second feature selected, outlined on the map, the view on it (once the layer is ready)
     h.get_by_label("2 3 pasture").click();
-    h.run_steps(3);
+    until(&mut h, "the view on the feature", |a| {
+        let s = a.session.as_ref().unwrap();
+        s.preview_attributes.as_ref().is_some_and(|o| !o.zoom) && s.preview_view.camera().0 > before * 2.0
+    });
     let o = open(&h).unwrap();
     assert_eq!(o.pick.row, Some(1));
     assert!(!o.zoom, "zoomed");
