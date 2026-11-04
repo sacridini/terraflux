@@ -229,6 +229,10 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Asked> {
                             node_link(ui, node, &mut select);
                         }
                         ui.label(&a.message);
+                    });
+                    // (its button under it: after a text of several lines, it would be inside the text's box)
+                    ui.horizontal(|ui| {
+                        ui.add_space(14.0);
                         if ui
                             .small_button("Ask the assistant")
                             .on_hover_text("this advice to the assistant: to follow it in the model, or tell why not")
