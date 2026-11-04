@@ -533,6 +533,8 @@ pub struct Session {
     pub ask_calculator: bool,
     /// The Viewer asked for (a node double-clicked: its output shown there).
     pub ask_viewer: bool,
+    /// The nodes to run up to, one after the other, to show their outputs (files dropped on the Viewer).
+    pub show_queue: Vec<String>,
     /// How far the node running is, as its operator tells it (a solver's gap...).
     pub task: Option<(String, terraflux_ops::Progress)>,
     /// When Stop was pressed, while the run stops.
@@ -724,6 +726,7 @@ impl Session {
             ask_problems: false,
             ask_calculator: false,
             ask_viewer: false,
+            show_queue: Vec::new(),
             task: None,
             stopping: None,
             node: String::new(),
@@ -1153,6 +1156,15 @@ impl Session {
                 return;
             }
         }
+        // the outputs of files dropped on the Viewer, one run each
+        if self.can_run_to()
+            && let Some(n) = self.show_queue.first().cloned()
+        {
+            self.show_queue.remove(0);
+            let c = ctx.clone();
+            self.run_to_show(&n, Box::new(move || c.request_repaint()));
+            return;
+        }
         let Some(at) = self.edited_at else { return };
         if !self.auto || self.preview.is_none() || !self.can_run_to() {
             return;
@@ -1513,6 +1525,8 @@ pub struct TerrafluxApp {
     pub registry: Registry,
     pub library: Library,
     pub(crate) hover: Option<Hover>,
+    /// Where the Viewer was drawn last (none: not shown), to tell files dropped over it.
+    pub viewer_rect: Option<egui::Rect>,
     /// The style applied: the theme, the text's size and the zoom it was made for.
     styled: Option<(String, u32, u32)>,
     /// The settings' window is open.
@@ -1616,6 +1630,7 @@ impl TerrafluxApp {
             registry,
             library,
             hover: None,
+            viewer_rect: None,
             styled: None,
             settings_open: false,
             updater: crate::update::Updater::default(),
@@ -3399,20 +3414,34 @@ impl TerrafluxApp {
     }
 
     /// Files dragged from the system's file manager to a window: shown while they are over it, a node each that
-    /// reads it when they are let go (a model dropped is opened).
+    /// reads it when they are let go (a model dropped is opened); over the Viewer, each also a layer of it.
     fn take_dropped(&mut self, ui: &Ui) {
         let (dropped, over): (Vec<PathBuf>, usize) = ui.input(|i| {
             (i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect(), i.raw.hovered_files.len())
         });
+        // (only when files are there: the pointer from the system, else the last one the window was told)
+        let pointer = if over > 0 || !dropped.is_empty() {
+            system_pointer(ui.ctx()).or_else(|| ui.input(|i| i.pointer.latest_pos()))
+        } else {
+            None
+        };
+        let on_viewer = over_viewer(self.viewer_rect, pointer);
         if over > 0 {
+            // (drawn again and again while they are over the window: it is told of no move of the pointer then)
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
             let screen = ui.ctx().content_rect();
+            let area = if on_viewer { self.viewer_rect.unwrap_or(screen) } else { screen };
             let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("files over")));
-            p.rect_filled(screen, 0.0, Color32::from_black_alpha(110));
-            p.rect_stroke(screen.shrink(6.0), 8.0, (2.0, theme::accent()), egui::StrokeKind::Inside);
-            let text =
-                if over == 1 { "a node that reads it".to_string() } else { format!("{over} nodes that read them") };
+            p.rect_filled(area, 0.0, Color32::from_black_alpha(110));
+            p.rect_stroke(area.shrink(6.0), 8.0, (2.0, theme::accent()), egui::StrokeKind::Inside);
+            let text = match (on_viewer, over) {
+                (false, 1) => "a node that reads it".to_string(),
+                (false, n) => format!("{n} nodes that read them"),
+                (true, 1) => "a layer of the Viewer (a node that reads it)".to_string(),
+                (true, n) => format!("{n} layers of the Viewer (nodes that read them)"),
+            };
             p.text(
-                screen.center(),
+                area.center(),
                 egui::Align2::CENTER_CENTER,
                 format!("Drop: {text}"),
                 egui::FontId::proportional(20.0),
@@ -3423,7 +3452,12 @@ impl TerrafluxApp {
             return;
         }
         let Some(s) = &mut self.session else { return };
-        match crate::builder::add_files(s, &self.registry, &dropped) {
+        let model = if on_viewer {
+            crate::builder::drop_on_viewer(s, &self.registry, &dropped)
+        } else {
+            crate::builder::add_files(s, &self.registry, &dropped)
+        };
+        match model {
             Some(model) => self.open(&model),
             None => ui.ctx().request_repaint(),
         }
@@ -3702,6 +3736,7 @@ impl TerrafluxApp {
             Pane::Node => crate::builder::node_pane(ui, s, r),
             Pane::Prepare => crate::prepare_view::pane(ui, s, r),
             Pane::Viewer => {
+                self.viewer_rect = Some(ui.max_rect());
                 if let Some(h) = crate::builder::viewer_pane(ui, s, r) {
                     self.hover = Some(h);
                 }
@@ -4015,6 +4050,7 @@ impl TerrafluxApp {
         let mut dock = self.dock.take().unwrap_or_else(default_layout);
         let style = dock_style(ui);
         self.in_dock = true;
+        self.viewer_rect = None;
         egui_dock::DockArea::new(&mut dock)
             .id(egui::Id::new("main dock"))
             .style(style.clone())
@@ -4129,4 +4165,31 @@ fn hints(focused: Option<Pane>) -> String {
             "/: add an operator    F5: run all    {c}K: commands    Tab: the model and the last map    F1: shortcuts"
         ),
     }
+}
+
+/// Where the pointer is in the window, asked of the system: while files are dragged from the Explorer the window
+/// is told of no move of it (winit drops the place of a drag). None elsewhere than on Windows, or when the window's
+/// place on the screen is not known (the tests).
+fn system_pointer(ctx: &egui::Context) -> Option<egui::Pos2> {
+    #[cfg(windows)]
+    {
+        let inner = ctx.input(|i| i.viewport().inner_rect)?;
+        let mut p = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
+        // SAFETY: GetCursorPos writes the cursor's place (screen pixels) into the point given.
+        if unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut p) } == 0 {
+            return None;
+        }
+        let at = egui::pos2(p.x as f32, p.y as f32) / ctx.pixels_per_point();
+        Some(egui::pos2(at.x - inner.min.x, at.y - inner.min.y))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = ctx;
+        None
+    }
+}
+
+/// Whether the pointer is over the Viewer (where it was drawn last).
+pub fn over_viewer(rect: Option<egui::Rect>, pointer: Option<egui::Pos2>) -> bool {
+    rect.zip(pointer).is_some_and(|(r, p)| r.contains(p))
 }

@@ -4645,6 +4645,7 @@ dependencies = [
  "tokio",
  "toml",
  "ureq",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

@@ -4061,3 +4061,74 @@ fn a_preview_from_the_catalog() {
     assert!(made.said.contains("records with coordinates at GBIF"), "{}", made.said);
     shot(&mut h, "14h3-catalog-gbif");
 }
+
+/// A file dropped, as the window gives it.
+#[derive(Debug)]
+struct Dropped(PathBuf);
+
+impl egui::DroppedFile for Dropped {
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, String> {
+        std::fs::read(&self.0).map_err(|e| e.to_string())
+    }
+}
+
+/// Files let go at a place of the window (the pointer there).
+fn drop_files(h: &mut Harness<TerrafluxApp>, at: egui::Pos2, files: &[PathBuf]) {
+    h.input_mut().events.push(egui::Event::PointerMoved(at));
+    h.run_steps(1);
+    h.input_mut().dropped_files = files.iter().map(|p| std::sync::Arc::new(Dropped(p.clone())) as _).collect();
+    h.run_steps(1);
+    h.input_mut().dropped_files.clear();
+}
+
+#[test]
+fn over_the_viewer_is_told_by_where_it_was_drawn() {
+    use egui::{Rect, pos2};
+    let r = Rect::from_min_max(pos2(100.0, 100.0), pos2(400.0, 300.0));
+    assert!(terraflux_app::app::over_viewer(Some(r), Some(pos2(200.0, 200.0))));
+    assert!(!terraflux_app::app::over_viewer(Some(r), Some(pos2(50.0, 200.0))));
+    assert!(!terraflux_app::app::over_viewer(Some(r), None));
+    assert!(!terraflux_app::app::over_viewer(None, Some(pos2(200.0, 200.0))));
+}
+
+#[test]
+fn files_dropped_on_the_viewer_become_layers_of_it() {
+    let mut h = harness(new_app(Some(model())));
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Viewer);
+    drawn(&mut h);
+    let rect = h.state().viewer_rect.expect("the Viewer is drawn");
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview = None;
+        s.preview_layers.clear();
+    }
+    let nodes = h.state().session.as_ref().unwrap().source.nodes.len();
+    // outside the Viewer: nodes only
+    drop_files(&mut h, egui::pos2(2.0, 2.0), &[data("pie_landuse.tif")]);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(s.source.nodes.len(), nodes + 1);
+        assert!(s.preview_layers.is_empty() && s.show_queue.is_empty());
+    }
+    h.state_mut().session.as_mut().unwrap().preview = None;
+    // over it: nodes, layers in the order dropped, the first shown, and drawn after the runs
+    drop_files(&mut h, rect.center(), &[data("sibuyan_landuse.tif"), data("sibuyan_drivers.tif")]);
+    let ids: Vec<String> = {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(s.source.nodes.len(), nodes + 3);
+        let ids: Vec<String> = s.preview_layers.iter().map(|l| l.node.clone()).collect();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(s.preview.as_ref().map(|(n, _)| n), Some(&ids[0]));
+        ids
+    };
+    until(&mut h, "the runs", |a| {
+        let s = a.session.as_ref().unwrap();
+        s.show_queue.is_empty() && !s.running() && ids.iter().all(|id| s.value_of(id, "raster").is_some())
+    });
+    drawn(&mut h);
+}

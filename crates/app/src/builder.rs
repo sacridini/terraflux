@@ -1485,7 +1485,13 @@ pub fn add_file(s: &mut Session, r: &Registry, p: &Path, at: Option<[f32; 2]>) -
 /// Files dropped on a window (from the system's file manager): a node each that reads it, one under the other
 /// (the folders left out); a model (`.toml`) is not data, it is given back to be opened.
 pub fn add_files(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Option<PathBuf> {
+    add_files_made(s, r, files).0
+}
+
+/// [`add_files`], and the nodes made too.
+fn add_files_made(s: &mut Session, r: &Registry, files: &[PathBuf]) -> (Option<PathBuf>, Vec<String>) {
     let mut model = None;
+    let mut made = Vec::new();
     let selected = s.selected.clone();
     for p in files.iter().filter(|p| p.is_file()) {
         if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("toml")) {
@@ -1494,10 +1500,53 @@ pub fn add_files(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Option<Pat
         }
         // each beside the node that was selected, under the one before
         s.selected = selected.clone();
-        if let Err(e) = add_file(s, r, p, None) {
-            s.editor.message = Some(e);
+        match add_file(s, r, p, None) {
+            Ok(id) => made.push(id),
+            Err(e) => s.editor.message = Some(e),
         }
     }
+    (model, made)
+}
+
+/// Files dropped on the Viewer: [`add_files`], and the maps they read kept as layers (the features over them, in
+/// the order dropped), the first map shown when the Viewer shows nothing yet; the model runs up to each, one run
+/// after the other, to draw them.
+pub fn drop_on_viewer(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Option<PathBuf> {
+    // (each node added is selected and shown: what the Viewer showed is kept)
+    let before = (s.preview.clone(), s.preview_band, s.preview_chosen);
+    let showing = before.0.is_some();
+    let (model, made) = add_files_made(s, r, files);
+    if showing {
+        (s.preview, s.preview_band, s.preview_chosen) = before;
+    }
+    if made.is_empty() {
+        return model;
+    }
+    s.ask_viewer = true;
+    if !s.editor.path.is_empty() {
+        return model;
+    }
+    // (id, port, features)
+    let mut shown: Vec<(String, String, bool)> = Vec::new();
+    for id in &made {
+        let Some(n) = s.source.nodes.iter().find(|n| n.id == *id) else { continue };
+        let Some(port) = first_output(n, r) else { continue };
+        let kind = crate::editor::output_ports(n, r).into_iter().find(|(p, _)| *p == port).map(|(_, t)| t);
+        match kind {
+            Some(Type::Vector) => shown.push((id.clone(), port, true)),
+            Some(Type::Raster | Type::Map | Type::Stack | Type::Series) => shown.push((id.clone(), port, false)),
+            _ => {}
+        }
+    }
+    for vectors in [false, true] {
+        for (id, port, _) in shown.iter().filter(|(_, _, v)| *v == vectors) {
+            pin(&mut s.preview_layers, id, port);
+        }
+    }
+    if !showing && let Some((id, _, _)) = shown.iter().find(|(_, _, v)| !v).or(shown.first()) {
+        select(s, r, id);
+    }
+    s.show_queue.extend(shown.into_iter().map(|(id, _, _)| id));
     model
 }
 
