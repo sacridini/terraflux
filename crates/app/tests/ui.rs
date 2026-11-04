@@ -4419,17 +4419,17 @@ fn the_labels_of_a_vector_layer() {
     });
     h.run_steps(4);
     drawn(&mut h);
-    let placed = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().preview_view.vectors.labels_placed;
-    assert_eq!(placed(&h), 2, "the labels placed");
+    // (the layer's features are prepared for the map in a worker: waited for)
+    let placed = |a: &TerrafluxApp| a.session.as_ref().unwrap().preview_view.vectors.labels_placed;
+    until(&mut h, "the labels placed", |a| placed(a) == 2);
     shot(&mut h, "14g-labels");
     // by a number: the same two features, labelled
     h.state_mut().session.as_mut().unwrap().preview_layers[0].style.labels = Some("area".into());
     h.run_steps(3);
-    assert_eq!(placed(&h), 2);
+    until(&mut h, "the labels by a number", |a| placed(a) == 2);
     // by nothing: none
     h.state_mut().session.as_mut().unwrap().preview_layers[0].style.labels = None;
-    h.run_steps(3);
-    assert_eq!(placed(&h), 0);
+    until(&mut h, "no labels", |a| placed(a) == 0);
 }
 
 /// The Viewer's Export the view...: the map shown with a layer over it and a polygon, written as PNG and as GeoTIFF
