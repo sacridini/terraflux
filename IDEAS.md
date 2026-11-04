@@ -969,7 +969,23 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    `a_difference_is_a_layer`, `maps_compare_by_a_curtain_and_side_by_side` (o botão, o desenho, o Plot).
    Tocar a série junto (`step_together`): no *Play*, as vistas de outros passos da mesma série andam com ela, cada
    uma à sua distância (teste `views_play_together`).
-   Falta: cada vista com a sua lista de camadas (hoje todas desenham as camadas do Viewer).
+   Cada vista com as suas camadas feito (Unreleased, por um sub-agente): lado a lado, cada vista desenha as camadas
+   do Viewer (o que era) ou uma lista sua. `Compare::layers` (a vista do mapa comparado) e `Beside::layers` (as
+   vistas a mais) são `Option<Vec<Layer>>`, `None` as do Viewer; no Compare, uma dobra por vista (`view_layers`, em
+   `beside_controls`): "same as the map shown" / "its own" (começa como cópia das do Viewer), mostrar/esconder,
+   opacidade, tirar e *Add a layer* com os mapas e feições da corrida. As camadas de diferença (`Layer::minus`)
+   também valem na lista de uma vista (o mesmo `layer_difference`; `Session::layer_differences` só larga as que
+   nenhuma lista usa). `draw_layers` (tirado do `output`) monta os rasters e as feições de uma lista, e o
+   `side_by_side` recebe os das vistas com lista própria; o contorno da seleção (`MapView::selected`) só vai às
+   vistas que desenham as camadas do Viewer. No Plot, `PlotCompare::layers: Vec<Vec<PlotLayer>>` (serde default,
+   omitido quando vazio; uma lista por vista, a de `with` primeiro, depois as de `also`; lista vazia: as camadas do
+   Plot), levado por `plot_of`/`open_plot`, conferido no `check` (`plots.{id}.compare.layers[v][i]`), seguindo nós
+   renomeados e removidos (`PlotCompare::each_ref`/`retain_refs`, `preview_follow`, o `plots_follow` do Document) e
+   aceito pelo `set_plot` (`compare.layers`, sem `palette`: um mapa tem uma só em todas as vistas). Testes:
+   `a_view_has_layers_of_its_own`, `the_layers_of_the_views_are_kept_and_follow_the_nodes`,
+   `a_view_side_by_side_has_layers_of_its_own` (`MapView::layers_drawn`), `plots_read_what_the_model_has` e
+   `plots_are_set_and_removed`. Falta: uma lista própria sem camadas não é guardada no Plot (volta às camadas do
+   Plot); o estilo das feições e o histograma não aparecem na lista compacta de uma vista.
    A diferença de duas camadas de uma pilha feita (Unreleased, por um sub-agente): o *Keep as a layer* vale também
    para dois passos da mesma pilha ou série (`CompareWith::Layer`) e, nas saídas, usa a banda mostrada; a
    `Layer` ganha `minus_band` (a banda do mapa subtraído; `band` é a do outro), a `DifferenceKey` leva as duas

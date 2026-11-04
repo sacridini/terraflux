@@ -314,7 +314,8 @@ mod tests {
     #[test]
     fn a_comparison_leaves_the_map_alone() {
         let (mut m, v) = setup();
-        m.plots[0].compare = Some(PlotCompare { with: "land.over".into(), how: Some("curtain".into()), also: vec![] });
+        m.plots[0].compare =
+            Some(PlotCompare { with: "land.over".into(), how: Some("curtain".into()), ..Default::default() });
         let made = panel_of(&m, "all", &|from| v.get(from).cloned()).unwrap();
         let note = made.compare.unwrap();
         assert!(note.contains("land.over") && note.contains("curtain") && note.contains("only the map"), "{note}");

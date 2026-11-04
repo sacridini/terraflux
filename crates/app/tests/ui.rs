@@ -725,6 +725,7 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
                 with: "raster_read.raster".into(),
                 how: Some("side by side".into()),
                 also: vec!["raster_read.raster".into()],
+                ..Default::default()
             }),
             ..Default::default()
         });
@@ -4586,4 +4587,84 @@ fn the_difference_of_two_bands_of_a_stack_is_a_layer() {
     terraflux_app::builder::open_plot(s, &terraflux_ops::Registry::standard(), "plot_drivers");
     let back = s.preview_layers.iter().find(|l| l.minus.is_some()).expect("the difference back");
     assert_eq!(back.difference_key(), before);
+}
+
+/// A view side by side with layers of its own: drawn there and not in the others, kept in a Plot and back.
+#[test]
+fn a_view_side_by_side_has_layers_of_its_own() {
+    use terraflux_app::builder::{Beside, CompareWith, How, Layer};
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    let read = || CompareWith::Output("raster_read".into(), "raster".into());
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 1\n* -> 0".into())]).unwrap();
+        s.preview = Some(("raster_reclassify".into(), "map".into()));
+        s.preview_compare.with = Some(read());
+        s.preview_compare.how = How::SideBySide;
+        s.preview_compare.more.push(Beside::new(read()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running()
+            && s.value_of("raster_reclassify", "map").is_some()
+            && s.value_of("raster_read", "raster").is_some()
+    });
+    // the views draw the Viewer's layers (here none), then the compared one has a layer of its own
+    let drawn_in = |h: &Harness<TerrafluxApp>| {
+        let s = h.state().session.as_ref().unwrap();
+        [
+            s.preview_view.layers_drawn(),
+            s.preview_compare.view.layers_drawn(),
+            s.preview_compare.more[0].view.layers_drawn(),
+        ]
+    };
+    drawn(&mut h);
+    assert_eq!(drawn_in(&h), [(0, 0); 3]);
+    h.state_mut().session.as_mut().unwrap().preview_compare.layers = Some(vec![Layer::new("raster_reclassify", "map")]);
+    until(&mut h, "the layer of the view", |a| {
+        a.session.as_ref().unwrap().preview_compare.view.layers_drawn() == (1, 0)
+    });
+    drawn(&mut h);
+    shot(&mut h, "14c4-view-with-its-own-layers");
+    assert_eq!(drawn_in(&h), [(0, 0), (1, 0), (0, 0)], "drawn in that view only");
+    // kept in a Plot with the layers of the view
+    h.get_by_label("Plots").click();
+    h.run_steps(2);
+    h.get_by_label("Save as a new plot").click();
+    h.run_steps(2);
+    let id = "plot_raster_reclassify";
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let c = s.source.plot(id).expect("the Plot").compare.clone().expect("its comparison");
+        assert_eq!(c.also, ["raster_read.raster"]);
+        assert_eq!(c.layers.len(), 1, "the view more draws the Viewer's layers: none kept for it");
+        assert_eq!(c.layers[0].iter().map(|l| l.from.as_str()).collect::<Vec<_>>(), ["raster_reclassify.map"]);
+    }
+    // let go, and opened again: the view has its layers back
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_compare.layers = None;
+        s.preview_compare.more.clear();
+        s.preview_compare.with = None;
+        s.plot_to_open = Some(id.into());
+    }
+    until(&mut h, "the Plot", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.preview_compare.with.is_some() && s.preview_compare.layers.is_some()
+    });
+    let s = h.state().session.as_ref().unwrap();
+    let own = s.preview_compare.layers.as_ref().unwrap();
+    assert_eq!(
+        own.iter().map(|l| (l.node.as_str(), l.port.as_str())).collect::<Vec<_>>(),
+        [("raster_reclassify", "map")]
+    );
+    assert!(s.preview_compare.more[0].layers.is_none());
+    until(&mut h, "drawn again", |a| a.session.as_ref().unwrap().preview_compare.view.layers_drawn() == (1, 0));
+    drawn(&mut h);
+    assert_eq!(drawn_in(&h), [(0, 0), (1, 0), (0, 0)]);
 }

@@ -181,7 +181,11 @@ fn sinks(m: &Model) -> Vec<String> {
     // (what a Plot shows is read: by the Viewer, not where the model ends)
     let plotted = m.plots.iter().flat_map(|p| {
         let layers = p.layers.iter().flat_map(|l| std::iter::once(&l.from).chain(&l.minus));
-        layers.chain(p.compare.iter().flat_map(|c| std::iter::once(&c.with).chain(&c.also)))
+        let views = p.compare.iter().flat_map(|c| {
+            let own = c.layers.iter().flatten().flat_map(|l| std::iter::once(&l.from).chain(&l.minus));
+            std::iter::once(&c.with).chain(&c.also).chain(own)
+        });
+        layers.chain(views)
     });
     for from in m.outputs.values().map(|o| &o.from).chain(plotted) {
         if let Some((node, _)) = from.split_once('.') {

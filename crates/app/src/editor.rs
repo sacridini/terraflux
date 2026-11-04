@@ -553,8 +553,7 @@ fn for_each_ref(m: &mut Model, path: &[String], f: &mut dyn FnMut(&mut String)) 
                 }
             }
             if let Some(c) = &mut p.compare {
-                f(&mut c.with);
-                c.also.iter_mut().for_each(&mut *f);
+                c.each_ref(&mut *f);
             }
         }
     } else if let Some(container) = m.node_mut(&path.join("/"))
@@ -714,7 +713,7 @@ pub fn remove_node(m: &mut Model, path: &[String], id: &str) -> Result<()> {
                 p.compare = None;
             }
             if let Some(c) = &mut p.compare {
-                c.also.retain(|a| !a.starts_with(&from));
+                c.retain_refs(|r| !r.starts_with(&from));
             }
         }
     } else if let Some(c) = m.node_mut(&path.join("/"))

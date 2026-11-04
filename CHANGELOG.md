@@ -57,6 +57,11 @@ minor versions.
   their style and labels, each layer in the palette the Plot names, else the one the Viewer would choose, and the
   classes in the model's legend colours. Hidden layers and differences are left out and said so; a Plot that
   compares maps gives its map only.
+- Viewer: **each view side by side with layers of its own**. A view still draws the Viewer's layers, but under
+  *Compare* each view (the compared one and the views more) has a fold, "same as the map shown" or "its own": a
+  compact list started as a copy of the Viewer's, with show/hide, opacity, remove and *Add a layer* (differences
+  too). A Plot keeps them (`compare.layers`, a list of layers per view, also in `set_plot` and checked like the
+  Plot's layers); the features selected are outlined only in the views that draw the Viewer's layers.
 
 ## [1.35.0] - 2026-11-04
 

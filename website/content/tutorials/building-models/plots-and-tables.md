@@ -172,7 +172,10 @@ scenario, another date, the observed map) or another layer of the same stack. Ch
 - **Curtain**: the other map is right of a line you drag across the map;
 - **Side by side**: two views that zoom and pan together, the pointer marked in both. *Another view* adds a third
   and a fourth map (another output, or another layer of the one shown), four views in two rows, all moving
-  together;
+  together. Each view draws the Viewer's layers unless you give it layers of its own: under *Compare*, the fold
+  of the view says "same as the map shown" or "its own", a short list (started as a copy of the Viewer's) where
+  you hide a layer, set its opacity, remove it or add another map or features of the run, differences included.
+  The Plot keeps them;
 - **Difference**: for maps of values, the other map minus this one; for maps of classes, what each cell changed
   from and to. *Keep as a layer* makes it a layer of its own, drawn with the others and kept in a Plot. It works between two outputs and between two layers of one
   stack or steps of one series (the layer then says which band of each: "x.map step 5 minus step 1").
@@ -246,7 +249,7 @@ layers = [{ from = "named.map" }, { from = "forest_only.map", opacity = 0.6 }]
 | `id` | the Plot's name in the model |
 | `title` | its title, in the menu and over its figure (by default its `id`) |
 | `layers` | what it shows, the first at the bottom: each an output (`node.port`) with its `opacity` (0 to 1), `band` (the layer of a stack or the step of a loop), `style` (vector features'), `hidden`, `minus` (another output: the layer is the difference, `from` minus it, or the transitions from it to `from` for classes) and `minus_band` (the layer of the stack or the step of the loop that `minus` is, so that two layers of one stack make a difference) |
-| `compare` | a map compared with the top map: `{ with = "node.port", how = "curtain" }` (or `"side by side"`, `"difference"`); side by side, `also = ["node.port", ...]` adds up to two more views |
+| `compare` | a map compared with the top map: `{ with = "node.port", how = "curtain" }` (or `"side by side"`, `"difference"`); side by side, `also = ["node.port", ...]` adds up to two more views, and `layers = [[...], [...]]` gives the views side by side layers of their own (a list of layers like the Plot's, one per view: first the view of `with`, then those of `also`; an empty list is a view that draws the Plot's layers) |
 | `chart` | a table's chart: `{ kind = "bars", x = "...", y = "...", by = "..." }` |
 | `note`, `why` | what it shows and why, as a node's note |
 

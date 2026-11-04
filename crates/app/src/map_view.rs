@@ -443,6 +443,8 @@ pub struct MapView {
     reproj: HashMap<SourceKey, crate::reproject::Reproj>,
     /// The grid of the map drawn at the last frame.
     shown_grid: Option<terraflux_raster::Grid>,
+    /// The layers drawn with the map at the last frame: the maps and the vector layers.
+    layers_drawn: (usize, usize),
 }
 
 /// How long a map takes to fade in over the one shown before it (a series' next step), seconds.
@@ -480,6 +482,11 @@ impl MapView {
             (self.center.y + half.y).clamp(0.0, h),
         ];
         (b[2] > b[0] && b[3] > b[1]).then_some((g, b))
+    }
+
+    /// The layers drawn with the map at the last frame: how many maps (over or under it) and how many vector layers.
+    pub fn layers_drawn(&self) -> (usize, usize) {
+        self.layers_drawn
     }
 
     /// Fit the map in the view at the next frame.
@@ -1076,6 +1083,7 @@ impl MapView {
     ) -> Option<Hover> {
         let ctx = ui.ctx().clone();
         self.drawn_pass = ctx.cumulative_pass_nr();
+        self.layers_drawn = (rasters.len(), overlays.len());
         self.pointer = None;
         let blank = matches!(source, Source::Blank(_));
         if self.workers.is_none() {

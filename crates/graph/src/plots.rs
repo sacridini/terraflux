@@ -70,6 +70,48 @@ pub struct PlotCompare {
     pub how: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub also: Vec<String>,
+    /// The layers of the views side by side, the first the view of `with`, then those of `also`: a list each, the
+    /// first at the bottom; an empty list (or none) is a view drawing the Plot's layers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<Vec<PlotLayer>>,
+}
+
+impl PlotCompare {
+    /// Every reference of it (`with`, `also`, the layers of the views and what they subtract), to follow a node
+    /// renamed.
+    pub fn each_ref(&mut self, f: &mut dyn FnMut(&mut String)) {
+        f(&mut self.with);
+        self.also.iter_mut().for_each(&mut *f);
+        for l in self.layers.iter_mut().flatten() {
+            f(&mut l.from);
+            if let Some(m) = &mut l.minus {
+                f(m);
+            }
+        }
+    }
+
+    /// Takes away what `keep` refuses (it may change a reference too): the `also` maps with the layers of their
+    /// views, the layers of the views. `with` is left to the caller (the whole comparison goes with it).
+    pub fn retain_refs(&mut self, mut keep: impl FnMut(&mut String) -> bool) {
+        let kept: Vec<bool> = self.also.iter_mut().map(&mut keep).collect();
+        let mut i = 0;
+        self.also.retain(|_| {
+            i += 1;
+            kept[i - 1]
+        });
+        // (the layers of the view of `with` first, then those of each `also`)
+        let mut v = 0;
+        self.layers.retain(|_| {
+            v += 1;
+            v == 1 || kept.get(v - 2).copied().unwrap_or(true)
+        });
+        for l in &mut self.layers {
+            l.retain_mut(|l| keep(&mut l.from) && l.minus.as_mut().is_none_or(&mut keep));
+        }
+        while self.layers.last().is_some_and(|l| l.is_empty()) {
+            self.layers.pop();
+        }
+    }
 }
 
 /// A table's chart: `bars`, `lines`, `points` or `boxes` (default: suggested), the column along x, the columns
@@ -187,7 +229,7 @@ impl Model {
                 Some(Source::Ref(r)) => resolve(r).map(|with| PlotCompare {
                     with,
                     how: text(n, "compare").filter(|h| !h.is_empty()),
-                    also: Vec::new(),
+                    ..Default::default()
                 }),
                 _ => None,
             };
@@ -249,7 +291,7 @@ impl Model {
                 p.compare = None;
             }
             if let Some(c) = &mut p.compare {
-                c.also.retain_mut(|a| fix(a));
+                c.retain_refs(|r| fix(r));
             }
         }
         // (the parameters and scenarios of a plot's settings: a title is no scenario)
@@ -314,7 +356,7 @@ mod tests {
         );
         assert_eq!(
             top.compare,
-            Some(PlotCompare { with: "cover.raster".into(), how: Some("curtain".into()), also: Vec::new() })
+            Some(PlotCompare { with: "cover.raster".into(), how: Some("curtain".into()), ..Default::default() })
         );
         assert_eq!(top.note.as_deref(), Some("MSPA over the cover"));
         let chart = m.plot("chart").unwrap();
@@ -339,6 +381,48 @@ mod tests {
         assert_eq!(back.plots, m.plots);
         // a model without plots writes none
         assert!(!Model::new("none").to_toml().unwrap().contains("plots"));
+    }
+
+    #[test]
+    fn the_layers_of_the_views_are_kept_and_follow_the_nodes() {
+        let own = |from: &str| vec![PlotLayer::new(from)];
+        let mut m = model();
+        m.nodes.retain(|n| n.op != PLOT_OP);
+        m.plots.push(Plot {
+            id: "views".into(),
+            layers: vec![PlotLayer::new("cover.raster")],
+            compare: Some(PlotCompare {
+                with: "cover.raster".into(),
+                how: Some("side by side".into()),
+                also: vec!["mspa.map".into(), "cover.raster".into()],
+                layers: vec![own("roads.vector"), Vec::new(), own("mspa.map")],
+            }),
+            ..Default::default()
+        });
+        // the file keeps them
+        let text = m.to_toml().unwrap();
+        assert_eq!(Model::from_toml(&text).unwrap().plots, m.plots, "{text}");
+        // (a comparison without them writes no key, and reads as before)
+        let mut plain = m.clone();
+        plain.plots[0].compare.as_mut().unwrap().layers.clear();
+        let text = plain.to_toml().unwrap();
+        assert!(!text.contains("layers = [["), "{text}");
+        assert_eq!(Model::from_toml(&text).unwrap().plots, plain.plots);
+        let mut c = m.plots[0].compare.clone().unwrap();
+        // a node renamed
+        c.each_ref(&mut |r| {
+            if r.starts_with("mspa.") {
+                *r = r.replace("mspa", "seg");
+            }
+        });
+        assert_eq!(c.also, ["seg.map", "cover.raster"]);
+        assert_eq!(c.layers[2], own("seg.map"));
+        // a node taken away: its view goes with its layers, the others keep theirs
+        c.retain_refs(|r| !r.starts_with("seg."));
+        assert_eq!(c.also, ["cover.raster"]);
+        assert_eq!(c.layers, [own("roads.vector")]);
+        c.retain_refs(|r| !r.starts_with("roads."));
+        assert!(c.layers.is_empty());
     }
 
     #[test]

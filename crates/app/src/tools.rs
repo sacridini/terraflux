@@ -1636,7 +1636,7 @@ fn all() -> Vec<Value> {
                     "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), palette (viridis, cividis, blue, orange, terrain, grey, red, rank; \", logarithmic\" for a scale of logarithms; default: by what the map is), hidden, minus (node.port: the layer is the difference, from minus it for values, the transitions from it to from for classes), minus_band (the band or step of minus, 0-based: two layers of one stack or series) }.",
                     "items": {},
                 },
-                "compare": { "description": "A map compared with the top map: node.port, or { with, how, also } (how: curtain, side by side (default) or difference; also: up to 2 more maps (node.port) side by side, 4 views in all that move together)." },
+                "compare": { "description": "A map compared with the top map: node.port, or { with, how, also } (how: curtain, side by side (default) or difference; also: up to 2 more maps (node.port) side by side, 4 views in all that move together; layers: side by side, the layers each view draws instead of the Plot's, a list per view (first the view of `with`, then those of `also`) in the form of the Plot's layers but without palette, an empty list for a view that draws the Plot's layers)." },
                 "chart": { "type": "object", "description": "A table's chart: { kind (bars, lines, points, boxes), x (a column), y (columns, comma-separated), by (the column of the groups) }." },
                 "note": { "type": "string", "description": "What it shows and why (the record)." },
                 "why": { "type": "string" },
@@ -2436,10 +2436,10 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
             _ => Err(format!("{from:?}: give node.port of a top-level node, or $input")),
         }
     };
-    let list = a.get("layers").and_then(Value::as_array).ok_or("give `layers`: what it shows, the lowest first")?;
-    let mut layers = Vec::new();
-    for l in list {
-        let layer = match l {
+    // (a layer: node.port, or an object; the layers of a view side by side have no palette: a map has one in all
+    // the views)
+    let layer_of = |l: &Value, view: bool| -> std::result::Result<PlotLayer, String> {
+        Ok(match l {
             Value::String(from) => PlotLayer::new(&checked(from)?),
             Value::Object(o) => {
                 let from = o.get("from").and_then(Value::as_str).ok_or("a layer as an object needs `from`")?;
@@ -2448,6 +2448,9 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                     return Err(format!("{from}: opacity is 0 to 1"));
                 }
                 let palette = o.get("palette").and_then(Value::as_str).filter(|p| !p.trim().is_empty());
+                if view && palette.is_some() {
+                    return Err(format!("{from}: a view's layer has no palette (the Plot's layer of it sets it)"));
+                }
                 if let Some(p) = palette
                     && crate::builder::palette_named(p).is_none()
                 {
@@ -2478,9 +2481,10 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                 }
             }
             other => return Err(format!("a layer is node.port or an object with `from`, not {other}")),
-        };
-        layers.push(layer);
-    }
+        })
+    };
+    let list = a.get("layers").and_then(Value::as_array).ok_or("give `layers`: what it shows, the lowest first")?;
+    let layers = list.iter().map(|l| layer_of(l, false)).collect::<std::result::Result<Vec<_>, _>>()?;
     if layers.is_empty() {
         return Err("give at least one layer".into());
     }
@@ -2514,7 +2518,37 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
             if also.len() > 2 {
                 return Err(format!("compare's also has at most 2 maps (4 views in all), not {}", also.len()));
             }
-            Some(PlotCompare { with: checked(with)?, how, also })
+            // (the layers of the views: a list each, the view of `with` first)
+            let mut views: Vec<Vec<PlotLayer>> = Vec::new();
+            match o.get("layers") {
+                None | Some(Value::Null) => {}
+                Some(Value::Array(lists)) => {
+                    if lists.len() > also.len() + 1 {
+                        return Err(format!(
+                            "compare's layers has a list for each view (with, then also): at most {}, not {}",
+                            also.len() + 1,
+                            lists.len()
+                        ));
+                    }
+                    for (v, list) in lists.iter().enumerate() {
+                        let list = list.as_array().ok_or("compare's layers is a list of lists of layers")?;
+                        let layers = list.iter().map(|l| layer_of(l, true));
+                        views.push(
+                            layers
+                                .collect::<std::result::Result<_, _>>()
+                                .map_err(|e| format!("compare.layers[{v}]: {e}"))?,
+                        );
+                    }
+                    if how.as_deref().is_some_and(|h| h != "side by side") && views.iter().any(|v| !v.is_empty()) {
+                        return Err("compare's layers are the layers of views side by side: how is side by side".into());
+                    }
+                    while views.last().is_some_and(|v| v.is_empty()) {
+                        views.pop();
+                    }
+                }
+                Some(other) => return Err(format!("compare's layers is a list of lists of layers, not {other}")),
+            }
+            Some(PlotCompare { with: checked(with)?, how, also, layers: views })
         }
         Some(other) => return Err(format!("compare is node.port or {{ with, how, also }}, not {other}")),
     };
@@ -2748,6 +2782,21 @@ mod plot_tests {
         });
         super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
         assert_eq!(m.plot("cover").unwrap().compare.as_ref().unwrap().also, ["land.map", "forest.map"]);
+        // ... each view with layers of its own (an empty list: the Plot's layers)
+        let a = json!({
+            "id": "cover",
+            "layers": ["land.map"],
+            "compare": { "with": "forest.map", "also": ["land.map"], "layers": [
+                ["forest.map", { "from": "land.map", "opacity": 0.5, "minus": "forest.map" }],
+                [],
+            ] },
+        });
+        super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
+        let c = m.plot("cover").unwrap().compare.clone().unwrap();
+        assert_eq!(c.layers.len(), 1, "the empty list at the end is not kept");
+        assert_eq!(c.layers[0][0], PlotLayer::new("forest.map"));
+        assert_eq!((c.layers[0][1].opacity, c.layers[0][1].minus.as_deref()), (Some(0.5), Some("forest.map")));
+        assert!(terraflux_graph::check(&m, &r).iter().all(|i| !i.at.starts_with("plots.")));
         // a layer that is a difference
         let a = json!({ "id": "cover", "layers": ["land.map", { "from": "forest.map", "minus": "land.map" }] });
         super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
@@ -2779,6 +2828,10 @@ mod plot_tests {
             json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "also": ["gone.map"] } }),
             json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "how": "curtain", "also": ["land.map"] } }),
             json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "also": ["land.map", "land.map", "land.map"] } }),
+            json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "layers": [["gone.map"]] } }),
+            json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "layers": [[], ["land.map"]] } }),
+            json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "layers": [["land.map"]], "how": "curtain" } }),
+            json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "layers": [[{ "from": "land.map", "palette": "viridis" }]] } }),
             json!({ "id": "x", "layers": [{ "from": "land.map", "palette": "rainbow" }] }),
             json!({ "id": "x", "layers": [{ "from": "land.map", "minus": "gone.map" }] }),
         ] {

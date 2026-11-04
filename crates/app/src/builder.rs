@@ -821,7 +821,7 @@ fn rename_box(ctx: &egui::Context, s: &mut Session, r: &Registry) {
             match crate::editor::rename_node(&mut s.source, &path, &id, &new) {
                 Ok(()) => {
                     if path.is_empty() {
-                        layers_follow(&mut s.preview_layers, &s.source, Some((&id, &new)));
+                        preview_follow(s, Some((&id, &new)));
                     }
                     if s.selected.as_deref() == Some(id.as_str()) {
                         select(s, r, &new);
@@ -2301,6 +2301,10 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
         playing: s.preview_playing,
         attributes: s.preview_attributes.take(),
     };
+    let cmp = &mut shown.compare;
+    for l in cmp.layers.iter_mut().chain(cmp.more.iter_mut().filter_map(|b| b.layers.as_mut())) {
+        layers_follow(l, &s.source, None);
+    }
     let before = s.preview.clone();
     let hover = output(ui, s, r, &mut shown, "viewer");
     shown.view.rest_unless_drawn(ui.ctx());
@@ -2642,23 +2646,7 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
         Ok(terraflux_graph::Ref::Port { node, port }) => Some((node, port)),
         _ => None,
     };
-    s.preview_layers = p
-        .layers
-        .iter()
-        .filter_map(|l| {
-            let (node, port) = port_of(&l.from)?;
-            Some(Layer {
-                node,
-                port,
-                visible: !l.hidden,
-                opacity: l.opacity.unwrap_or(1.0) as f32,
-                style: l.style.as_ref().map(crate::vector_tiles::Style::from_json).unwrap_or_default(),
-                band: l.band,
-                minus: l.minus.as_deref().and_then(port_of),
-                minus_band: l.minus_band,
-            })
-        })
-        .collect();
+    s.preview_layers = layers_of_plot(&p.layers);
     // the palettes the Plot asks for (none: by what the maps are)
     for l in &p.layers {
         let Some(key) = port_of(&l.from) else { continue };
@@ -2683,15 +2671,62 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
         Some("difference") => How::Difference,
         _ => How::SideBySide,
     };
+    // (the layers of the views side by side: the compared one's first, an empty list is the Viewer's)
+    let view = |v: usize| {
+        let list = p.compare.as_ref().and_then(|c| c.layers.get(v)).filter(|l| !l.is_empty());
+        list.map(|l| layers_of_plot(l))
+    };
+    s.preview_compare.layers = view(0);
     s.preview_compare.more = p
         .compare
         .iter()
         .flat_map(|c| &c.also)
-        .filter_map(|a| port_of(a))
-        .map(|(n, q)| Beside::new(CompareWith::Output(n, q)))
+        .enumerate()
+        .filter_map(|(i, a)| {
+            let (n, q) = port_of(a)?;
+            Some(Beside { layers: view(1 + i), ..Beside::new(CompareWith::Output(n, q)) })
+        })
         .collect();
     s.plot_open = Some(p.id.clone());
     s.ask_viewer = true;
+}
+
+/// A layer of the Viewer as a Plot keeps it (its `band` and `palette` given).
+fn plot_layer(l: &Layer, band: Option<usize>, palette: Option<String>) -> terraflux_graph::PlotLayer {
+    let style = l.style != crate::vector_tiles::Style::default();
+    terraflux_graph::PlotLayer {
+        from: format!("{}.{}", l.node, l.port),
+        opacity: (l.opacity != 1.0).then_some(l.opacity as f64),
+        palette,
+        band,
+        style: style.then(|| l.style.to_json()),
+        hidden: !l.visible,
+        minus: l.minus.as_ref().map(|(n, p)| format!("{n}.{p}")),
+        minus_band: l.minus.as_ref().and(l.minus_band),
+    }
+}
+
+/// The layers a Plot keeps, as the Viewer has them (those with a reference that is no output are left out).
+fn layers_of_plot(list: &[terraflux_graph::PlotLayer]) -> Vec<Layer> {
+    let port_of = |from: &str| match terraflux_graph::Ref::parse(from) {
+        Ok(terraflux_graph::Ref::Port { node, port }) => Some((node, port)),
+        _ => None,
+    };
+    list.iter()
+        .filter_map(|l| {
+            let (node, port) = port_of(&l.from)?;
+            Some(Layer {
+                node,
+                port,
+                visible: !l.hidden,
+                opacity: l.opacity.unwrap_or(1.0) as f32,
+                style: l.style.as_ref().map(crate::vector_tiles::Style::from_json).unwrap_or_default(),
+                band: l.band,
+                minus: l.minus.as_deref().and_then(port_of),
+                minus_band: l.minus_band,
+            })
+        })
+        .collect()
 }
 
 /// What the Viewer shows, as a Plot: the layers (the map shown on top when it is not one of them, its band), the
@@ -2712,17 +2747,8 @@ fn plot_of(
         .layers
         .iter()
         .map(|l| {
-            let style = l.style != crate::vector_tiles::Style::default();
-            PlotLayer {
-                from: format!("{}.{}", l.node, l.port),
-                opacity: (l.opacity != 1.0).then_some(l.opacity as f64),
-                palette: palette(&l.node, &l.port),
-                band: if l.is(&sh.node, &sh.port) { shown_band } else { l.band },
-                style: style.then(|| l.style.to_json()),
-                hidden: !l.visible,
-                minus: l.minus.as_ref().map(|(n, p)| format!("{n}.{p}")),
-                minus_band: l.minus.as_ref().and(l.minus_band),
-            }
+            let band = if l.is(&sh.node, &sh.port) { shown_band } else { l.band };
+            plot_layer(l, band, palette(&l.node, &l.port))
         })
         .collect();
     if !sh.layers.iter().any(|l| l.is(&sh.node, &sh.port)) {
@@ -2733,30 +2759,40 @@ fn plot_of(
         });
     }
     let compare = match &sh.compare.with {
-        Some(CompareWith::Output(n, p)) => Some(PlotCompare {
-            with: format!("{n}.{p}"),
-            how: Some(
-                match sh.compare.how {
-                    How::Curtain => "curtain",
-                    How::SideBySide => "side by side",
-                    How::Difference => "difference",
+        Some(CompareWith::Output(n, p)) => {
+            // (side by side, the views more of other outputs, each with the layers of its own, those of the
+            // compared view first)
+            let own = |l: &Option<Vec<Layer>>| -> Vec<PlotLayer> {
+                l.iter().flatten().map(|l| plot_layer(l, l.band, None)).collect()
+            };
+            let (mut also, mut views) = (Vec::new(), vec![own(&sh.compare.layers)]);
+            if sh.compare.how == How::SideBySide {
+                for b in &sh.compare.more {
+                    if let Some(CompareWith::Output(n, p)) = &b.with {
+                        also.push(format!("{n}.{p}"));
+                        views.push(own(&b.layers));
+                    }
                 }
-                .into(),
-            ),
-            // (side by side, the views more of other outputs)
-            also: match sh.compare.how {
-                How::SideBySide => sh
-                    .compare
-                    .more
-                    .iter()
-                    .filter_map(|b| match &b.with {
-                        Some(CompareWith::Output(n, p)) => Some(format!("{n}.{p}")),
-                        _ => None,
-                    })
-                    .collect(),
-                _ => Vec::new(),
-            },
-        }),
+            } else {
+                views.clear();
+            }
+            while views.last().is_some_and(|v| v.is_empty()) {
+                views.pop();
+            }
+            Some(PlotCompare {
+                with: format!("{n}.{p}"),
+                how: Some(
+                    match sh.compare.how {
+                        How::Curtain => "curtain",
+                        How::SideBySide => "side by side",
+                        How::Difference => "difference",
+                    }
+                    .into(),
+                ),
+                also,
+                layers: views,
+            })
+        }
         _ => None,
     };
     terraflux_graph::Plot {
@@ -2993,6 +3029,88 @@ fn band_name(s: &Session, node: &str, port: &str, band: usize) -> String {
 /// and name.
 type LayerMap = (Source, f32, String, String, Option<(Coloring, String)>);
 
+/// What a view draws of a list of layers: the maps (under and over the map of the view), the vector features, and
+/// the place among them of the layer whose attributes are open.
+struct Drawn {
+    rasters: Vec<crate::map_view::RasterLayer>,
+    overlays: Vec<crate::vector_tiles::Overlay>,
+    table_at: Option<usize>,
+}
+
+/// The `layers` of a view drawn with its map (the first at the bottom): the one at `at` is the map itself; those
+/// under it come before it, those over it after (`over` first, the maps a plot stacks), the vectors on top of all.
+/// `overlays` are vectors drawn before the layers' own, `attributes` the table open (its layer's place noted).
+fn draw_layers(
+    s: &mut Session,
+    ctx: &egui::Context,
+    layers: &[Layer],
+    at: Option<usize>,
+    attributes: Option<&crate::attribute_table::Open>,
+    mut overlays: Vec<crate::vector_tiles::Overlay>,
+    mut over: Vec<LayerMap>,
+) -> Drawn {
+    // (the place of the layer whose attributes are in the table among the features drawn)
+    let mut table_at: Option<usize> = None;
+    let mut under: Vec<LayerMap> = Vec::new();
+    let mut above: Vec<LayerMap> = Vec::new();
+    for (i, l) in layers.iter().enumerate() {
+        if !l.visible || Some(i) == at {
+            continue;
+        }
+        if l.minus.is_some() {
+            if let Some(Ok(d)) = layer_difference(s, ctx, l) {
+                let item = (
+                    d.source.clone(),
+                    l.opacity,
+                    l.node.clone(),
+                    l.port.clone(),
+                    Some((d.coloring.clone(), l.name_by(Some(&d), |n, p, b| band_name(s, n, p, b)))),
+                );
+                if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
+            }
+            continue;
+        }
+        match s.value_of(&l.node, &l.port) {
+            Some(Value::Vector(v)) => {
+                if attributes.is_some_and(|o| o.is(&l.node, &l.port)) {
+                    table_at = Some(overlays.len());
+                }
+                overlays.push(crate::vector_tiles::Overlay {
+                    vector: v,
+                    style: l.style.clone(),
+                    name: output_name(&l.node, &l.port),
+                });
+            }
+            Some(v) => {
+                if let Some(src) = layer_source(&v, l.band) {
+                    let item = (src, l.opacity, l.node.clone(), l.port.clone(), None);
+                    if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
+                }
+            }
+            None => {}
+        }
+    }
+    over.extend(above);
+    let below = under.len();
+    let rasters: Vec<crate::map_view::RasterLayer> = under
+        .into_iter()
+        .chain(over)
+        .enumerate()
+        .filter_map(|(i, (src, opacity, n, p, difference))| {
+            if let Some((coloring, name)) = difference {
+                return Some(crate::map_view::RasterLayer { source: src, coloring, opacity, below: i < below, name });
+            }
+            let (made, mut hint) = producer(s, &n, &p);
+            hint.push_str(&p);
+            let palette = s.palettes.get(&(n.clone(), p.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
+            let look = s.looks.get(ctx, &src, palette)?;
+            let name = output_name(&n, &p);
+            Some(crate::map_view::RasterLayer { source: src, coloring: look.coloring, opacity, below: i < below, name })
+        })
+        .collect();
+    Drawn { rasters, overlays, table_at }
+}
+
 /// The difference a layer is, when made.
 fn made_of(s: &Session, l: &Layer) -> Option<Arc<crate::difference::Made>> {
     match s.layer_differences.get(&l.difference_key()?)?.made.as_ref()? {
@@ -3036,6 +3154,16 @@ pub fn layers_follow(layers: &mut Vec<Layer>, m: &terraflux_graph::Model, rename
     layers.retain(|l| here(&l.node) && l.minus.as_ref().is_none_or(|(n, _)| here(n)));
 }
 
+/// The layers of the Viewer and those of the views side by side that have their own, following the model (see
+/// [`layers_follow`]).
+pub fn preview_follow(s: &mut Session, renamed: Option<(&str, &str)>) {
+    layers_follow(&mut s.preview_layers, &s.source, renamed);
+    let cmp = &mut s.preview_compare;
+    for l in cmp.layers.iter_mut().chain(cmp.more.iter_mut().filter_map(|b| b.layers.as_mut())) {
+        layers_follow(l, &s.source, renamed);
+    }
+}
+
 /// A comparison of the map shown with another: which, and how (by a curtain, side by side, the other in a view of
 /// its own following this one's, or their difference, in that view too).
 #[derive(Default)]
@@ -3046,6 +3174,8 @@ pub struct Compare {
     pub difference: Difference,
     /// Side by side, more maps beside the two (up to four views), each in a view of its own following the others.
     pub more: Vec<Beside>,
+    /// Side by side, the layers the view of the map compared draws instead of the Viewer's (none: the Viewer's).
+    pub layers: Option<Vec<Layer>>,
 }
 
 /// The most views side by side: the map shown, the one compared and two more.
@@ -3056,11 +3186,13 @@ pub const MOST_VIEWS: usize = 4;
 pub struct Beside {
     pub with: Option<CompareWith>,
     pub view: crate::map_view::MapView,
+    /// The layers this view draws instead of the Viewer's (none: the Viewer's).
+    pub layers: Option<Vec<Layer>>,
 }
 
 impl Beside {
     pub fn new(with: CompareWith) -> Beside {
-        Beside { with: Some(with), view: Default::default() }
+        Beside { with: Some(with), view: Default::default(), layers: None }
     }
 }
 
@@ -3898,7 +4030,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         };
         sh.compare.difference.want(ui.ctx(), &maps[k], src, classes);
     }
-    let mut overlays: Vec<crate::vector_tiles::Overlay> = plot_vectors
+    let overlays: Vec<crate::vector_tiles::Overlay> = plot_vectors
         .iter()
         .map(|v| crate::vector_tiles::Overlay { vector: v.clone(), style: Default::default(), name: String::new() })
         .collect();
@@ -3906,67 +4038,38 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     // the layers kept (the first at the bottom): those under the map shown drawn before it, those over it after (the
     // plot's own maps over it first); the map shown over them all when it is not one of them
     let at = sh.layers.iter().position(|l| l.is(&node, &port));
-    // (the place of the layer whose attributes are in the table among the features drawn)
-    let mut table_at: Option<usize> = None;
-    let mut under: Vec<LayerMap> = Vec::new();
-    let mut above: Vec<LayerMap> = Vec::new();
-    // (the differences no layer is any longer let go)
-    s.layer_differences.retain(|k, _| sh.layers.iter().any(|l| l.difference_key().as_ref() == Some(k)));
-    for (i, l) in sh.layers.iter().enumerate() {
-        if !l.visible || Some(i) == at {
-            continue;
-        }
-        if l.minus.is_some() {
-            if let Some(Ok(d)) = layer_difference(s, ui.ctx(), l) {
-                let item = (
-                    d.source.clone(),
-                    l.opacity,
-                    l.node.clone(),
-                    l.port.clone(),
-                    Some((d.coloring.clone(), l.name_by(Some(&d), |n, p, b| band_name(s, n, p, b)))),
-                );
-                if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
-            }
-            continue;
-        }
-        match s.value_of(&l.node, &l.port) {
-            Some(Value::Vector(v)) => {
-                if sh.attributes.as_ref().is_some_and(|o| o.is(&l.node, &l.port)) {
-                    table_at = Some(overlays.len());
-                }
-                overlays.push(crate::vector_tiles::Overlay {
-                    vector: v,
-                    style: l.style.clone(),
-                    name: output_name(&l.node, &l.port),
-                });
-            }
-            Some(v) => {
-                if let Some(src) = layer_source(&v, l.band) {
-                    let item = (src, l.opacity, l.node.clone(), l.port.clone(), None);
-                    if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
-                }
-            }
-            None => {}
-        }
+    // (the differences no layer, of the Viewer or of a view, is any longer let go)
+    {
+        let own = sh.compare.layers.iter().chain(sh.compare.more.iter().filter_map(|b| b.layers.as_ref()));
+        let own: Vec<&Layer> = own.flatten().collect();
+        s.layer_differences
+            .retain(|k, _| sh.layers.iter().chain(own.iter().copied()).any(|l| l.difference_key().as_ref() == Some(k)));
     }
-    over.extend(above);
-    let below = under.len();
-    let rasters: Vec<crate::map_view::RasterLayer> = under
-        .into_iter()
-        .chain(over)
-        .enumerate()
-        .filter_map(|(i, (src, opacity, n, p, difference))| {
-            if let Some((coloring, name)) = difference {
-                return Some(crate::map_view::RasterLayer { source: src, coloring, opacity, below: i < below, name });
-            }
-            let (made, mut hint) = producer(s, &n, &p);
-            hint.push_str(&p);
-            let palette = s.palettes.get(&(n.clone(), p.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
-            let look = s.looks.get(ui.ctx(), &src, palette)?;
-            let name = output_name(&n, &p);
-            Some(crate::map_view::RasterLayer { source: src, coloring: look.coloring, opacity, below: i < below, name })
-        })
-        .collect();
+    let Drawn { rasters, overlays, table_at } =
+        draw_layers(s, ui.ctx(), &sh.layers, at, sh.attributes.as_ref(), overlays, over);
+    // the layers of the views side by side that have layers of their own (the compared one first, then the views
+    // more), drawn on the map of each
+    let own_layers: Vec<Option<Drawn>> = if sh.compare.how == How::SideBySide && compared.is_some() {
+        let views: Vec<(Option<CompareWith>, Option<Vec<Layer>>)> =
+            std::iter::once((&sh.compare.with, &sh.compare.layers))
+                .chain(sh.compare.more.iter().map(|b| (&b.with, &b.layers)))
+                .map(|(w, l)| (w.clone(), l.clone()))
+                .collect();
+        views
+            .into_iter()
+            .map(|(w, l)| {
+                let l = l?;
+                // (a view's own map among them is drawn as its map, at its place)
+                let at = match &w {
+                    Some(CompareWith::Output(n, p)) => l.iter().position(|x| x.is(n, p)),
+                    _ => None,
+                };
+                Some(draw_layers(s, ui.ctx(), &l, at, None, Vec::new(), Vec::new()))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     egui::Panel::right(egui::Id::new(("output side", salt)))
         .resizable(true)
         .default_size(260.0)
@@ -4386,7 +4489,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         );
                     });
                     if cmp.how == How::SideBySide {
-                        beside_controls(ui, cmp, &others, &names, k, salt);
+                        beside_controls(ui, s, r, cmp, &sh.layers, &others, &names, k, salt);
                     }
                     if cmp.how == How::Difference {
                         match &cmp.difference.made {
@@ -4537,8 +4640,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     (&maps[k], &l.coloring, &main_name),
                     (&src, &coloring, &name),
                     &more,
-                    &rasters,
-                    &overlays,
+                    (&rasters, &overlays),
+                    &own_layers,
                 );
             }
         }
@@ -4593,15 +4696,21 @@ pub fn step_together(cmp: &mut Compare, layers: usize) {
 }
 
 /// Side by side, the views more (up to [`MOST_VIEWS`] in all): the map of each (another output of the run, or
-/// another layer of the map shown, of its `names`), taken away; another view added, with a map not shown yet.
+/// another layer of the map shown, of its `names`), taken away; another view added, with a map not shown yet. The
+/// layers of each view (the compared one too): the Viewer's `main`, or a list of its own.
+#[allow(clippy::too_many_arguments)]
 fn beside_controls(
     ui: &mut Ui,
+    s: &Session,
+    r: &Registry,
     cmp: &mut Compare,
+    main: &[Layer],
     others: &[(String, String)],
     names: &[String],
     k: usize,
     salt: &str,
 ) {
+    view_layers(ui, s, r, &mut cmp.layers, main, "view 2", salt);
     // (a view's map gone from the run, or a layer the map no longer has: to be chosen again)
     for b in &mut cmp.more {
         match &b.with {
@@ -4644,6 +4753,7 @@ fn beside_controls(
                     });
             });
         });
+        view_layers(ui, s, r, &mut b.layers, main, &format!("view {}", i + 3), salt);
     }
     if let Some(i) = gone {
         cmp.more.remove(i);
@@ -4669,6 +4779,81 @@ fn beside_controls(
             cmp.more.push(Beside::new(w));
         }
     }
+}
+
+/// The layers a view side by side draws, compactly: the Viewer's (`main`, the default), or a list of its own
+/// (started as a copy of the Viewer's): shown or hidden, opacity, taken away, and the run's maps and features to add.
+fn view_layers(
+    ui: &mut Ui,
+    s: &Session,
+    r: &Registry,
+    own: &mut Option<Vec<Layer>>,
+    main: &[Layer],
+    view: &str,
+    salt: &str,
+) {
+    let text = match own {
+        None => format!("{view}: the layers of the map shown"),
+        Some(l) => format!("{view}: its own layers ({})", l.len()),
+    };
+    egui::CollapsingHeader::new(RichText::new(text).size(11.5)).id_salt(("view layers", salt, view)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            if ui.selectable_label(own.is_none(), "same as the map shown").clicked() {
+                *own = None;
+            }
+            if ui
+                .selectable_label(own.is_some(), "its own")
+                .on_hover_text("this view draws a list of layers of its own, started as a copy of the map shown's")
+                .clicked()
+                && own.is_none()
+            {
+                *own = Some(main.to_vec());
+            }
+        });
+        let Some(list) = own else { return };
+        let vectors = vector_values(s, r);
+        let mut gone = None;
+        for i in (0..list.len()).rev() {
+            let vector = vectors.iter().any(|(n, p, _)| list[i].is(n, p));
+            let name = list[i].name_by(made_of(s, &list[i]).as_deref(), |n, p, b| band_name(s, n, p, b));
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("x").on_hover_text("no longer a layer of this view").clicked() {
+                        gone = Some(i);
+                    }
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.checkbox(&mut list[i].visible, "").on_hover_text("shown in this view, or hidden");
+                        ui.add(egui::Label::new(name).truncate());
+                    });
+                });
+            });
+            if list[i].visible && !vector {
+                ui.indent(("view layer", salt, view, i), |ui| {
+                    ui.spacing_mut().slider_width = (ui.available_width() - 110.0).clamp(40.0, 160.0);
+                    ui.add(egui::Slider::new(&mut list[i].opacity, 0.0..=1.0).text("opacity"));
+                });
+            }
+        }
+        if let Some(i) = gone {
+            list.remove(i);
+        }
+        // the run's maps and features not in the list yet
+        let more: Vec<(String, String)> = map_values(s, r, ("", ""))
+            .into_iter()
+            .chain(vectors.iter().map(|(n, p, _)| (n.clone(), p.clone())))
+            .filter(|(n, p)| !list.iter().any(|l| l.is(n, p)))
+            .collect();
+        ui.add_enabled_ui(!more.is_empty(), |ui| {
+            ui.menu_button("Add a layer", |ui| {
+                for (n, p) in &more {
+                    if ui.button(output_name(n, p)).clicked() {
+                        list.push(Layer::new(n, p));
+                        ui.close();
+                    }
+                }
+            });
+        });
+    });
 }
 
 /// A map compared with the one shown: its source, its name, its look (none while it is being made).
@@ -4762,15 +4947,17 @@ fn show_difference(
 
 /// Two maps side by side, each in a view of its own, and up to two more (`more`: a map, or why there is none; an
 /// empty why while its colours are made): the views moving together (the pointer over one marked in the others),
-/// each named at its top; two or three in a row, four in two rows. What is under the pointer, over any.
+/// each named at its top; two or three in a row, four in two rows. What is under the pointer, over any. The views
+/// draw the layers of the Viewer (`shared`: maps, then vector features) unless they have layers of their own
+/// (`own`: the compared view's, then the views more's).
 fn side_by_side(
     ui: &mut Ui,
     sh: &mut Shown,
     left: (&Source, &Coloring, &str),
     right: (&Source, &Coloring, &str),
     more: &[Result<(Source, Coloring, String), String>],
-    rasters: &[crate::map_view::RasterLayer],
-    overlays: &[crate::vector_tiles::Overlay],
+    shared: (&[crate::map_view::RasterLayer], &[crate::vector_tiles::Overlay]),
+    own: &[Option<Drawn>],
 ) -> Option<Hover> {
     let Some(place) = crate::map_view::place_on(right.0.grid(), left.0.grid()) else {
         ui.centered_and_justified(|ui| {
@@ -4802,12 +4989,14 @@ fn side_by_side(
     let (zoom, center) = sh.view.camera();
     let Compare { view: compared, more: views, .. } = &mut sh.compare;
     (compared.basemap, compared.transparency, compared.hide_data) = (basemap, transparency, hide);
-    // (every view draws the same vector layers: the features selected are outlined in each)
-    compared.selected = sh.view.selected.clone();
+    // (the views that draw the Viewer's vector layers outline the features selected; one with layers of its own
+    // draws other vectors)
+    let has_own = |i: usize| own.get(i).is_some_and(|o| o.is_some());
+    compared.selected = if has_own(0) { None } else { sh.view.selected.clone() };
     let mut places = vec![SAME_PLACE, place];
     // the views more drawn (their places on this map's grid), or why not
     let mut drawn: Vec<Result<crate::map_view::Place, String>> = Vec::new();
-    for (m, b) in more.iter().zip(views.iter_mut()) {
+    for (i, (m, b)) in more.iter().zip(views.iter_mut()).enumerate() {
         let p = match m {
             Ok((src, _, _)) => crate::map_view::place_on(src.grid(), left.0.grid()).ok_or_else(|| {
                 "another coordinate system, or rotated: put it on this map's grid (raster.match)".to_string()
@@ -4817,7 +5006,7 @@ fn side_by_side(
         if let (Ok(p), Ok((src, _, _))) = (&p, m) {
             let v = &mut b.view;
             (v.basemap, v.transparency, v.hide_data) = (basemap, transparency, hide);
-            v.selected = sh.view.selected.clone();
+            v.selected = if has_own(1 + i) { None } else { sh.view.selected.clone() };
             v.hold(src.size());
             v.set_camera(zoom * p.scale.x.abs().max(1e-12), p.to_source(center));
             places.push(*p);
@@ -4843,6 +5032,11 @@ fn side_by_side(
                     i: usize,
                     (src, coloring, name): (&Source, &Coloring, &str),
                     view: &mut crate::map_view::MapView| {
+        // (view 0 is the map shown, the layers of the Viewer's; the next ones the compared and the views more)
+        let (rasters, overlays) = match i.checked_sub(1).and_then(|j| own.get(j)).and_then(|o| o.as_ref()) {
+            Some(d) => (&d.rasters[..], &d.overlays[..]),
+            None => shared,
+        };
         let h = ui
             .scope_builder(egui::UiBuilder::new().max_rect(rect).id_salt(("side by side", i)), |ui| {
                 let h = view.show_stacked(ui, src, coloring, rasters, overlays);
@@ -5679,6 +5873,73 @@ params = { expression = "x * 0 + k" }
         assert_eq!(kept, [("x.map", Some(4), Some("x.map"), Some(0)), ("x.map", Some(4), Some("x.map"), Some(2))]);
         assert!(p.layers[2].minus_band.is_none(), "the map shown has none");
         // (back from the Plot: see the UI test of the difference of two steps)
+    }
+
+    /// A view side by side with layers of its own: kept in the Plot (the views that draw the Viewer's layers none),
+    /// back from it, following the nodes renamed and removed.
+    #[test]
+    fn a_view_has_layers_of_its_own() {
+        use terraflux_graph::{Model, Node};
+        let r = Registry::standard();
+        let mut m = Model::new("m");
+        for id in ["a", "b", "c", "d"] {
+            m.nodes.push(Node::new(id, "nlm.random"));
+        }
+        let mut s = Session::from_model(m).unwrap();
+        let out = |n: &str| Some(CompareWith::Output(n.into(), "map".into()));
+        let mut sh = Shown { node: "a".into(), port: "map".into(), ..Default::default() };
+        sh.layers.push(Layer::new("a", "map"));
+        sh.compare.with = out("b");
+        sh.compare.how = How::SideBySide;
+        sh.compare.layers =
+            Some(vec![Layer::new("c", "map"), Layer { opacity: 0.5, visible: false, ..Layer::new("d", "map") }]);
+        // (a view more that draws the Viewer's layers, and one with a difference of its own)
+        sh.compare.more.push(Beside::new(CompareWith::Output("c".into(), "map".into())));
+        let diff = Layer::difference("c", "map", ("a", "map"));
+        sh.compare
+            .more
+            .push(Beside { layers: Some(vec![diff]), ..Beside::new(CompareWith::Output("d".into(), "map".into())) });
+        let p = plot_of(&sh, &Default::default(), None, "p", None);
+        let c = p.compare.as_ref().unwrap();
+        assert_eq!(c.also, ["c.map", "d.map"]);
+        assert_eq!(c.layers.len(), 3);
+        assert_eq!(
+            c.layers[0].iter().map(|l| (l.from.as_str(), l.opacity, l.hidden)).collect::<Vec<_>>(),
+            [("c.map", None, false), ("d.map", Some(0.5), true)]
+        );
+        assert!(c.layers[1].is_empty(), "the Viewer's layers: none kept");
+        assert_eq!((c.layers[2][0].from.as_str(), c.layers[2][0].minus.as_deref()), ("c.map", Some("a.map")));
+        // by a curtain the views have no use for them
+        let mut curtain = Shown { node: "a".into(), port: "map".into(), ..Default::default() };
+        curtain.compare.with = out("b");
+        curtain.compare.how = How::Curtain;
+        curtain.compare.layers = sh.compare.layers.clone();
+        assert!(plot_of(&curtain, &Default::default(), None, "p", None).compare.unwrap().layers.is_empty());
+        // back from the Plot
+        s.source.plots.push(p);
+        open_plot(&mut s, &r, "p");
+        let names = |l: &Option<Vec<Layer>>| l.iter().flatten().map(|l| l.name(None)).collect::<Vec<_>>();
+        assert_eq!(names(&s.preview_compare.layers), ["c.map", "d.map"]);
+        assert_eq!(s.preview_compare.layers.as_ref().unwrap()[1].opacity, 0.5);
+        assert!(!s.preview_compare.layers.as_ref().unwrap()[1].visible);
+        assert!(s.preview_compare.more[0].layers.is_none(), "an empty list is the Viewer's layers");
+        assert_eq!(names(&s.preview_compare.more[1].layers), ["c.map minus a.map"]);
+        // a node renamed: the Plot and the Viewer's lists follow it
+        crate::editor::rename_node(&mut s.source, &[], "c", "z").unwrap();
+        preview_follow(&mut s, Some(("c", "z")));
+        let c = s.source.plot("p").unwrap().compare.clone().unwrap();
+        assert_eq!(c.also, ["z.map", "d.map"]);
+        assert_eq!(c.layers[0][0].from, "z.map");
+        assert_eq!(names(&s.preview_compare.layers), ["z.map", "d.map"]);
+        assert_eq!(names(&s.preview_compare.more[1].layers), ["z.map minus a.map"]);
+        // a node removed: its layers go, and the view it was the map of with them
+        crate::editor::remove_node(&mut s.source, &[], "z").unwrap();
+        preview_follow(&mut s, None);
+        let c = s.source.plot("p").unwrap().compare.clone().unwrap();
+        assert_eq!(c.also, ["d.map"]);
+        assert_eq!(c.layers.len(), 1, "the view of z went with its list, the difference of z with its own");
+        assert_eq!(c.layers[0].iter().map(|l| l.from.as_str()).collect::<Vec<_>>(), ["d.map"]);
+        assert_eq!(names(&s.preview_compare.layers), ["d.map"]);
     }
 
     #[test]

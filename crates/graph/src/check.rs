@@ -605,6 +605,16 @@ pub fn check(model: &Model, catalog: &dyn Catalog) -> Vec<Issue> {
             for (i, a) in cmp.also.iter().enumerate() {
                 c.check_ref(&format!("plots.{}.compare.also[{i}]", p.id), a, Type::Any, &scopes, false);
             }
+            // (the layers of the views side by side: the first the view of `with`, then those of `also`)
+            for (v, layers) in cmp.layers.iter().enumerate() {
+                for (i, l) in layers.iter().enumerate() {
+                    let at = format!("plots.{}.compare.layers[{v}][{i}]", p.id);
+                    c.check_ref(&at, &l.from, Type::Any, &scopes, false);
+                    if let Some(m) = &l.minus {
+                        c.check_ref(&format!("{at}.minus"), m, Type::Any, &scopes, false);
+                    }
+                }
+            }
         }
     }
     // what the parameters and scenarios change: a warning when it is not in the model (a node renamed away)
@@ -732,9 +742,20 @@ from = "sim.maps"
         assert!(errors(&model(&good)).is_empty(), "{:?}", errors(&model(&good)));
         let kept = &model(&good).plots[0].layers[2];
         assert_eq!((kept.band, kept.minus_band), (Some(4), Some(0)));
+        // views with layers of their own
+        let own = format!(
+            "{GOOD}\n[[plots]]\nid = \"maps\"\nlayers = [{{ from = \"$t0\" }}]\n\
+             compare = {{ with = \"$t0\", also = [\"$t0\"], layers = [[{{ from = \"$t0\", opacity = 0.5 }}], \
+             [{{ from = \"woe.model\", minus = \"$t0\" }}]] }}\n"
+        );
+        assert!(errors(&model(&own)).is_empty(), "{:?}", errors(&model(&own)));
+        let cmp = model(&own).plots[0].compare.clone().unwrap();
+        assert_eq!(cmp.layers.len(), 2);
+        assert_eq!(cmp.layers[0][0].opacity, Some(0.5));
         let bad = format!(
             "{GOOD}\n[[plots]]\nid = \"maps\"\nlayers = [{{ from = \"gone.map\" }}, {{ from = \"$t0\", minus = \"no.map\" }}]\n\
-             compare = {{ with = \"$none\", also = [\"$t0\", \"gone.too\"] }}\n\
+             compare = {{ with = \"$none\", also = [\"$t0\", \"gone.too\"], \
+             layers = [[{{ from = \"gone.view\" }}], [{{ from = \"$t0\", minus = \"no.view\" }}]] }}\n\
              [[plots]]\nid = \"maps\"\n"
         );
         let e = errors(&model(&bad));
@@ -743,6 +764,8 @@ from = "sim.maps"
         assert!(e.iter().any(|x| x.contains("plots.maps.compare.also[1]")), "{e:?}");
         assert!(!e.iter().any(|x| x.contains("plots.maps.compare.also[0]")), "{e:?}");
         assert!(e.iter().any(|x| x.contains("plots.maps.compare")), "{e:?}");
+        assert!(e.iter().any(|x| x.contains("plots.maps.compare.layers[0][0]")), "{e:?}");
+        assert!(e.iter().any(|x| x.contains("plots.maps.compare.layers[1][0].minus")), "{e:?}");
         assert!(e.iter().any(|x| x.contains("two plots are named")), "{e:?}");
     }
 
