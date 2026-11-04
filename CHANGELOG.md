@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.37.0] - 2026-11-04
+
 ### Changed
 - Viewer: **rotated grids and maps across the antimeridian are drawn reprojected**. A map layer, the curtain's or a
   side-by-side view's map whose grid is rotated (of the map's coordinate system or another) is no longer skipped
