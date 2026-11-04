@@ -2269,3 +2269,56 @@ responder no próprio Viewer as perguntas de quem estuda mudança de uso, sem mo
    `vector::the_vectors_of_a_folder_are_one_layer` (ops) e `files_dropped_on_the_viewer_become_layers_of_it` (UI,
    dois gpkg na pasta). Falta: o export Python do `vector.read` de uma pasta (o `ls.load_vector` do landschaft lê um
    arquivo só).
+
+## O canvas: qualidade de vida ao montar modelos
+
+Pedido de 2026-11-04: "esses detalhes de qualidade de vida ainda são muito necessários no terraflux". Os gestos
+que um modelo de verdade pede muitas vezes, hoje feitos um nó (ou uma conexão) por vez. Um commit por item; release
+só quando pedido.
+
+1. **Ligar os nós selecionados de uma vez.** **Feito** (Unreleased): a conexão puxada da saída de um nó
+   selecionado leva os outros selecionados junto (os fios deles desenhados, "3 connections" no ponteiro); solta num
+   nó que aceita qualquer número (`stack.of`), cada um vira uma entrada nova, na ordem em que estão no canvas;
+   solta em outro nó, preenchem as entradas livres que servem, em ordem. O menu do nó faz o mesmo (*Connect the 3
+   nodes selected here*, todas as saídas de um grupo selecionado). Um passo de desfazer
+   (`editor::connect_many`, `Scene::along`, `Scene::links_into`). Teste: `the_nodes_selected_are_connected_together`.
+2. **Um grupo que se conecta ao resto.** **Feito** (Unreleased): o grupo dá como saídas os resultados dos seus
+   últimos nós (os que nenhum outro do grupo lê): rasters agrupados sem ninguém que os lesse, o fim de uma cadeia
+   (`editor::last_outputs`). Um grupo já feito os ganha pelo menu, *Give it the outputs of its last nodes*
+   (`editor::expose_last`). Teste: `a_group_gives_the_results_of_its_last_nodes`. Falta: criar uma saída (ou uma
+   entrada) do grupo arrastando um fio até a borda do grupo aberto, como o *Group Output* do Blender; renomear e
+   reordenar as saídas no painel do grupo.
+3. **O grupo com cara de grupo, e a entrada e a saída animadas.** Uma caixa que se lê como "vários nós dentro"
+   (cartões empilhados, o número de nós, um ícone) e, ao entrar ou sair, o zoom para dentro da caixa e de volta.
+   Em andamento.
+4. **Soltar um fio no vazio abre a busca de operadores**, só os que aceitam aquele tipo, e o nó escolhido nasce ali,
+   já ligado (como no Blender, Houdini e Unreal).
+5. **Inserir um nó num fio**: arrastar um nó sobre uma conexão e soltar o coloca no meio (a entrada e a saída que
+   servem); alt+arrastar o tira de lá ligando de novo o que ele ligava.
+6. **O menu da seleção**: botão direito com vários nós selecionados dá apagar, duplicar, desligar tudo, agrupar,
+   rodar até eles, congelar, alinhar; hoje o menu é de um nó só.
+7. **Mudar uma configuração em vários nós de uma vez**: com nós do mesmo operador selecionados, o painel Node mostra
+   as configurações em comum ("vários valores" onde diferem) e muda todas de uma vez (por exemplo o `nodata` de 20
+   `raster.read`).
+8. **Alinhar e distribuir** os selecionados (à esquerda, centro, em coluna com o mesmo espaço), além do *Arrange* do
+   modelo inteiro.
+9. **Duplicar arrastando** (ctrl+arrastar) e **duplicar com as entradas** (ctrl+shift+D: a cópia lê o mesmo que o
+   original), útil para um ramo de análise paralelo.
+10. **Desligar todas as entradas** de um nó (ou da seleção) pelo menu, e **trocar dois fios** de lugar arrastando
+    um sobre o outro.
+11. **Trocar o arquivo de um `raster.read`** pelo menu ou soltando um arquivo em cima do nó, mantendo os fios (hoje
+    se apaga e refaz).
+12. **Buscar um nó do modelo** (ctrl+F no canvas): pelo id, operador ou arquivo, a câmera vai até ele (dentro de
+    grupos também, abrindo o grupo).
+13. **Minimapa** no canto do canvas para modelos grandes, com o retângulo da vista arrastável.
+14. **Enquadrar a seleção** (F) além do modelo inteiro (Home).
+15. **Renomear em lote**: os selecionados com um padrão (`land_{n}`, `{file}`), e o id seguindo o arquivo quando ele
+    muda.
+16. **Do Viewer ao nó**: no menu de uma camada dos Layers, "Show its node" seleciona e enquadra o nó que a deu
+    (abrindo o grupo se preciso).
+17. **Paleta e faixa para todas as camadas**: aplicar a paleta (ou a faixa de valores) de uma camada a todas as
+    camadas do mesmo tipo de uma vez, para comparar anos lado a lado.
+18. **Fios com redirecionamento** (um ponto no meio do fio, arrastável) e fios que desviam das caixas em modelos
+    densos.
+19. **Ver o tipo e o valor numa conexão**: passar o ponteiro sobre um fio mostra o tipo e um resumo do último valor
+    (um mapa: tamanho e faixa; um número: ele).
