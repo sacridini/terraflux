@@ -368,6 +368,12 @@ pub(crate) fn crs_of(g: &terraflux_raster::Grid) -> Option<String> {
     g.geo.wkt.clone().or_else(|| g.geo.epsg().map(|c| format!("EPSG:{c}")))
 }
 
+/// What the pointer on a mark is told: the place and, when it is off the map, so.
+fn mark_text(m: &Mark) -> String {
+    let out = if m.inside { "" } else { " (outside the map)" };
+    format!("Go to: {}{out}", m.text)
+}
+
 /// A map drawn with another: its colours, how opaque it is (0 to 1), whether it is drawn under the map shown
 /// (else over it), its name (its value under the pointer told by it) and how it is mixed with what is under it.
 #[derive(Clone)]
@@ -475,8 +481,44 @@ const OUTLINE_SIDES: usize = 60_000;
 /// The most features selected outlined at once (those in view).
 const SELECTED_DRAWN: usize = 500;
 
+/// What is drawn over the map to find one's way: the scale bar and the coordinate grid. They start as the settings
+/// have them (the bar on, the grid off unless turned on before).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Aids {
+    pub scale_bar: bool,
+    pub grid: bool,
+}
+
+impl Default for Aids {
+    fn default() -> Aids {
+        let s = crate::settings::get();
+        Aids { scale_bar: s.scale_bar, grid: s.map_grid }
+    }
+}
+
+/// A place *Go to* found, marked on the map until escape or another place: a cell of the map shown (fractional),
+/// its coordinates as text, and whether it is inside the map.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Mark {
+    pub cell: [f64; 2],
+    pub text: String,
+    pub inside: bool,
+}
+
+/// How near the pointer must be to a mark for its coordinates to be told, screen points.
+const MARK_NEAR: f32 = 14.0;
+
 #[derive(Default)]
 pub struct MapView {
+    /// The scale bar and the coordinate grid over the map.
+    pub aids: Aids,
+    /// The views the map settled on, to go back and forward along (alt+left, alt+right, the mouse's buttons).
+    history: crate::nav::History,
+    /// The scale bar drawn at the last frame (none: not drawn).
+    scale_drawn: Option<crate::nav::Bar>,
+    /// The box of *Go to* while it is open, and the place it found (marked until escape).
+    pub goto: Option<crate::goto::GoTo>,
+    pub mark: Option<Mark>,
     tiles: HashMap<TileKey, Tile>,
     workers: Option<Workers>,
     /// the tiles asked of the workers and not come yet
@@ -731,6 +773,70 @@ impl MapView {
         self.zoom = zoom;
         self.center = center;
         self.fitted = true;
+    }
+
+    /// Whether there is a view to go back to.
+    pub fn can_back(&self) -> bool {
+        self.history.can_back(self.camera())
+    }
+
+    /// Whether there is a view to go forward to.
+    pub fn can_forward(&self) -> bool {
+        self.history.can_forward()
+    }
+
+    /// The view before this one (the last that settled); nothing pushed.
+    pub fn back(&mut self) {
+        if let Some((zoom, center)) = self.history.back(self.camera()) {
+            self.set_camera(zoom, center);
+        }
+    }
+
+    /// The view after, when one went back.
+    pub fn forward(&mut self) {
+        if let Some((zoom, center)) = self.history.forward() {
+            self.set_camera(zoom, center);
+        }
+    }
+
+    /// How many views the history keeps.
+    pub fn history_len(&self) -> usize {
+        self.history.len()
+    }
+
+    /// The scale bar drawn at the last frame: its length on the screen and its text.
+    pub fn scale_bar(&self) -> Option<&crate::nav::Bar> {
+        self.scale_drawn.as_ref()
+    }
+
+    /// The *Go to* box open (or closed, when it is).
+    pub fn toggle_goto(&mut self) {
+        self.goto = match self.goto {
+            Some(_) => None,
+            None => Some(crate::goto::GoTo::new(self.shown_grid.as_ref())),
+        };
+    }
+
+    /// Go to the place a text names (degrees, or the map's units): the view centred on it at the same zoom, a mark
+    /// on it. Whether it is inside the map; a place outside it is gone to all the same.
+    pub fn go_to(&mut self, text: &str, degrees: bool) -> Result<bool, String> {
+        let grid = self.shown_grid.as_ref().ok_or("no map is shown")?;
+        let target = crate::goto::parse(text, degrees)?;
+        let (cell, inside) = crate::goto::locate(grid, target)?;
+        let label = crate::goto::place_text(grid, cell);
+        let text = match target {
+            // (what was typed, as the map's system has it, and in degrees when they were typed)
+            crate::goto::Target::Degrees { lon, lat }
+                if crate::measure::Frame::of(grid) != crate::measure::Frame::Geographic =>
+            {
+                format!("{}  ({label})", crate::goto::degrees_text(lon, lat))
+            }
+            _ => label,
+        };
+        self.mark = Some(Mark { cell, text, inside });
+        self.center = Vec2::new(cell[0] as f32, cell[1] as f32);
+        self.fitted = true;
+        Ok(inside)
     }
 
     /// The view on a box of cells of the map shown (`[x0, y0, x1, y1]`), at the size the view was drawn last;
@@ -1246,6 +1352,177 @@ impl MapView {
         }
     }
 
+    /// The coordinate grid over the map: thin light lines at round values of its own coordinates, their values at
+    /// the view's top (columns) and left (rows) edges, in white with a dark halo.
+    fn paint_graticule(&self, painter: &egui::Painter, rect: Rect, grid: &terraflux_raster::Grid) {
+        let Some(g) = crate::nav::graticule(grid, self.center, self.zoom, rect.size()) else { return };
+        let (dark, light) = (Color32::from_black_alpha(70), Color32::from_white_alpha(150));
+        let font = egui::FontId::proportional(10.5);
+        let c = rect.center();
+        let label = |at: Pos2, text: &str, anchor: egui::Align2| {
+            let halo = painter.layout_no_wrap(text.to_string(), font.clone(), Color32::from_black_alpha(210));
+            let ink = painter.layout_no_wrap(text.to_string(), font.clone(), Color32::WHITE);
+            let min = anchor.anchor_size(at, ink.size()).min;
+            for d in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+                painter.galley(min + Vec2::new(d.0, d.1), halo.clone(), Color32::BLACK);
+            }
+            painter.galley(min, ink, Color32::WHITE);
+        };
+        for (dx, text) in &g.xs {
+            let x = c.x + dx;
+            let line = [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())];
+            painter.line_segment(line, egui::Stroke::new(2.0, dark));
+            painter.line_segment(line, egui::Stroke::new(0.8, light));
+            label(Pos2::new(x + 2.0, rect.top() + 2.0), text, egui::Align2::LEFT_TOP);
+        }
+        for (dy, text) in &g.ys {
+            let y = c.y + dy;
+            let line = [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)];
+            painter.line_segment(line, egui::Stroke::new(2.0, dark));
+            painter.line_segment(line, egui::Stroke::new(0.8, light));
+            label(Pos2::new(rect.left() + 3.0, y - 1.0), text, egui::Align2::LEFT_BOTTOM);
+        }
+    }
+
+    /// The place found by *Go to*: a ring and a crosshair in the accent over a white and dark outline, seen on any
+    /// colour; a word beside it when it is outside the map.
+    fn paint_mark(&self, painter: &egui::Painter, rect: Rect) {
+        let Some(m) = &self.mark else { return };
+        let p = rect.center() + (Vec2::new(m.cell[0] as f32, m.cell[1] as f32) - self.center) * self.zoom;
+        if !rect.expand(20.0).contains(p) {
+            return;
+        }
+        for stroke in [
+            egui::Stroke::new(4.5, Color32::from_black_alpha(160)),
+            egui::Stroke::new(3.0, Color32::WHITE),
+            egui::Stroke::new(1.5, crate::theme::accent()),
+        ] {
+            painter.circle_stroke(p, 7.0, stroke);
+            for s in [-1.0f32, 1.0] {
+                painter.line_segment([p + Vec2::new(s * 7.0, 0.0), p + Vec2::new(s * 15.0, 0.0)], stroke);
+                painter.line_segment([p + Vec2::new(0.0, s * 7.0), p + Vec2::new(0.0, s * 15.0)], stroke);
+            }
+        }
+        if !m.inside {
+            let galley =
+                painter.layout_no_wrap("outside the map".into(), egui::FontId::proportional(11.0), Color32::WHITE);
+            let at = p + Vec2::new(18.0, -galley.size().y / 2.0);
+            let back = Rect::from_min_size(at, galley.size()).expand2(Vec2::new(4.0, 2.0));
+            painter.rect_filled(back, 3.0, Color32::from_black_alpha(170));
+            painter.galley(at, galley, Color32::WHITE);
+        }
+    }
+
+    /// The scale bar, at the view's lower left (the right while a line is measured: its numbers are at the left),
+    /// on the theme's colours over a translucent ground: a round length of 60 to 150 points, in kilometres, metres
+    /// or cells.
+    fn paint_scale(&mut self, ui: &Ui, painter: &egui::Painter, rect: Rect, grid: &terraflux_raster::Grid) {
+        self.scale_drawn = None;
+        if !self.aids.scale_bar || rect.width() < 200.0 || rect.height() < 120.0 {
+            return;
+        }
+        let Some(bar) = crate::nav::scale_bar(grid, self.center, self.zoom) else { return };
+        let visuals = ui.visuals();
+        let ink = visuals.text_color();
+        let galley = painter.layout_no_wrap(bar.label.clone(), egui::FontId::proportional(11.0), ink);
+        let width = bar.px.max(galley.size().x) + 12.0;
+        let height = galley.size().y + 14.0;
+        // (above the pointer's coordinates, which are at the very bottom)
+        let corner = if self.measuring.is_some() {
+            Pos2::new(rect.right() - 8.0 - width, rect.bottom() - 26.0 - height)
+        } else {
+            Pos2::new(rect.left() + 8.0, rect.bottom() - 26.0 - height)
+        };
+        let back = Rect::from_min_size(corner, Vec2::new(width, height));
+        painter.rect_filled(back, 3.0, visuals.window_fill().gamma_multiply(0.78));
+        painter.galley(corner + Vec2::new(6.0, 3.0), galley, ink);
+        let y = back.bottom() - 6.0;
+        let (x0, x1) = (corner.x + 6.0, corner.x + 6.0 + bar.px);
+        let stroke = egui::Stroke::new(2.0, ink);
+        painter.line_segment([Pos2::new(x0, y), Pos2::new(x1, y)], stroke);
+        for x in [x0, x1] {
+            painter.line_segment([Pos2::new(x, y - 5.0), Pos2::new(x, y + 1.0)], stroke);
+        }
+        self.scale_drawn = Some(bar);
+    }
+
+    /// The box of *Go to*, at the view's top while it is open: a place typed, in degrees or the map's units; enter
+    /// or Go goes there, escape closes it.
+    fn goto_box(&mut self, ui: &Ui, rect: Rect, grid: &terraflux_raster::Grid) {
+        let Some(mut b) = self.goto.take() else { return };
+        // (escape first, so that the text field does not take it)
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            return;
+        }
+        let plain = crate::measure::Frame::of(grid) == crate::measure::Frame::Plain;
+        if plain {
+            b.degrees = false;
+        }
+        let (mut go, mut close) = (false, false);
+        egui::Area::new(ui.id().with("goto box"))
+            .order(egui::Order::Foreground)
+            .pivot(egui::Align2::CENTER_TOP)
+            .fixed_pos(rect.center_top() + Vec2::new(0.0, 10.0))
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_max_width(400.0);
+                    ui.strong("Go to");
+                    ui.horizontal(|ui| {
+                        let hint = if b.degrees { "12.5, 122.25" } else { "x y" };
+                        let edit = ui.add(egui::TextEdit::singleline(&mut b.text).desired_width(240.0).hint_text(hint));
+                        if b.focus {
+                            edit.request_focus();
+                            b.focus = false;
+                        }
+                        if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            go = true;
+                        }
+                        if ui.button("Go").clicked() {
+                            go = true;
+                        }
+                        if ui.small_button("Close").clicked() {
+                            close = true;
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add_enabled_ui(!plain, |ui| {
+                            ui.selectable_value(&mut b.degrees, true, "degrees");
+                        });
+                        ui.selectable_value(&mut b.degrees, false, "map units");
+                    });
+                    let help = if b.degrees {
+                        crate::goto::HINT.to_string()
+                    } else {
+                        "x y in the coordinates of the map (its system's units)".to_string()
+                    };
+                    ui.label(egui::RichText::new(help).weak().size(10.5));
+                    if let Some(e) = &b.error {
+                        ui.colored_label(ui.visuals().error_fg_color, e);
+                    }
+                    if let Some(n) = &b.note {
+                        ui.label(egui::RichText::new(n).size(11.0));
+                    }
+                });
+            });
+        if go {
+            match self.go_to(&b.text, b.degrees) {
+                Ok(true) => close = true,
+                Ok(false) => {
+                    b.error = None;
+                    b.note = Some("outside the map: gone there all the same".into());
+                }
+                Err(e) => {
+                    b.error = Some(e);
+                    b.note = None;
+                    b.focus = true;
+                }
+            }
+        }
+        if !close {
+            self.goto = Some(b);
+        }
+    }
+
     fn take_made(&mut self, ctx: &egui::Context) {
         let Some(w) = &self.workers else { return };
         // (a few textures a frame: hundreds made at once, a folder of rasters opened, would hold the window)
@@ -1400,6 +1677,9 @@ impl MapView {
             self.size = (w, h);
             self.fitted = false;
             self.error = None;
+            // (another map: its views, and the place found on the last, are not this one's)
+            self.history.clear();
+            self.mark = None;
         }
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         self.rect = Some(rect);
@@ -1488,6 +1768,44 @@ impl MapView {
                 self.zoom = (self.zoom * factor).clamp(least.min(self.zoom), MAX_ZOOM);
                 self.center = under - (p - rect.center()) / self.zoom;
             }
+        }
+        // alt+left, alt+right, the mouse's back and forward buttons: the view before, the view after
+        let (back, forward) = if response.hovered() && !typing {
+            ui.input_mut(|i| {
+                let back = i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowLeft)
+                    | i.pointer.button_pressed(egui::PointerButton::Extra1);
+                let forward = i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowRight)
+                    | i.pointer.button_pressed(egui::PointerButton::Extra2);
+                (back, forward)
+            })
+        } else {
+            (false, false)
+        };
+        if back {
+            self.back();
+        }
+        if forward {
+            self.forward();
+        }
+        // Ctrl+G over the map: the box to go to a place
+        if response.hovered() && !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::G)) {
+            self.toggle_goto();
+        }
+        // escape over the map lets the place found go (not while the box, a line or a shape wants it)
+        if self.mark.is_some()
+            && self.goto.is_none()
+            && self.measuring.is_none()
+            && self.drawing.is_none()
+            && !self.selecting
+            && response.hovered()
+            && !typing
+            && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            self.mark = None;
+        }
+        // the view as it stands: kept in the history once it has been still for a while
+        if self.history.watch((self.zoom, self.center), crate::nav::now()) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(450));
         }
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
@@ -1755,6 +2073,13 @@ impl MapView {
                 }
             }
         }
+        // finding one's way: the coordinate grid, the place found, the scale bar
+        if self.aids.grid {
+            self.paint_graticule(&painter, rect, source.grid());
+        }
+        self.paint_mark(&painter, rect);
+        self.paint_scale(ui, &painter, rect, source.grid());
+        self.goto_box(ui, rect, source.grid());
         if let Some(e) = vector_errors.first() {
             painter.text(
                 rect.left_top() + Vec2::new(8.0, 26.0),
@@ -1955,8 +2280,16 @@ impl MapView {
             self.vectors.pick_all(&ctx, overlays, source.grid(), [f64::from(c.x), f64::from(c.y)], tolerance)
         };
         let feature = features.first().copied();
-        if !features.is_empty() {
-            let texts: Vec<String> = features.iter().map(|&(l, k)| feature_text(&overlays[l], k)).collect();
+        // (the place found, when the pointer is on its mark, told before the features')
+        let mut texts: Vec<String> = Vec::new();
+        if let Some(m) = &self.mark {
+            let at = rect.center() + (Vec2::new(m.cell[0] as f32, m.cell[1] as f32) - self.center) * self.zoom;
+            if at.distance(p) <= MARK_NEAR {
+                texts.push(mark_text(m));
+            }
+        }
+        texts.extend(features.iter().map(|&(l, k)| feature_text(&overlays[l], k)));
+        if !texts.is_empty() {
             response.clone().on_hover_text_at_pointer(texts.join("\n\n"));
         }
         if response.clicked() {

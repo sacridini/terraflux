@@ -4202,9 +4202,10 @@ fn hints(focused: Option<Pane>) -> String {
              operator    {c}enter: run to it    {c}K: commands    F1: shortcuts"
         ),
         Some(Pane::Viewer | Pane::Simulation) => {
-            "wheel: zoom    drag: move    double click: the whole map    B: satellite under the map    space: hide the \
-             map    M: measure    F1: shortcuts"
-                .to_string()
+            format!(
+                "wheel: zoom    drag: move    double click: the whole map    B: satellite under the map    space: hide \
+                 the map    M: measure    {c}G: go to    alt+left, alt+right: the view before, after    F1: shortcuts"
+            )
         }
         _ => format!(
             "/: add an operator    F5: run all    {c}K: commands    Tab: the model and the last map    F1: shortcuts"

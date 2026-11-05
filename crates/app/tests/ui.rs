@@ -6888,3 +6888,274 @@ fn a_group_looks_like_one_and_going_in_and_out_is_a_zoom() {
     shot(&mut h, "14o-group-left");
     assert!(h.state().session.as_ref().unwrap().editor.path.is_empty());
 }
+
+/// A raster file read by a node (named as its file) and shown in the Viewer, drawn.
+fn viewed(file: &std::path::Path, node: &str) -> Harness<'static, TerrafluxApp> {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = file.to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        s.preview = Some((node.to_string(), "raster".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of(node, "raster").is_some()
+    });
+    h.run_steps(4);
+    drawn(&mut h);
+    h
+}
+
+/// The Viewer's map view in a test.
+fn map<'a>(h: &'a mut Harness<'_, TerrafluxApp>) -> &'a mut terraflux_app::map_view::MapView {
+    &mut h.state_mut().session.as_mut().unwrap().preview_view
+}
+
+/// Step for a while (real time: the view's history counts settled views by the clock).
+fn wait(h: &mut Harness<TerrafluxApp>, seconds: f64) {
+    let t = Instant::now();
+    while t.elapsed().as_secs_f64() < seconds {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn near(a: egui::Vec2, b: egui::Vec2, tol: f32) -> bool {
+    (a - b).length() <= tol
+}
+
+/// The test data given a place in UTM 51N by GDAL (128 x 108 cells of 30 m) in a file of its own.
+fn in_utm(name: &str) -> PathBuf {
+    let out = tmp(name);
+    let args = ["-a_srs", "EPSG:32651", "-a_ullr", "450000", "1380000", "453840", "1376760"];
+    terraflux_gdal::translate(&data("sibuyan_landuse.tif"), &out, &args.map(String::from)).unwrap();
+    out
+}
+
+/// The scale bar of the live map: a label in km or m on a projected map, its length in points standing for those
+/// metres at the zoom; shorter when zoomed in; gone when turned off. The coordinate grid draws over it.
+#[test]
+fn the_scale_bar_on_the_live_map() {
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let mut h = viewed(&in_utm("nav_utm.tif"), "nav_utm");
+    h.run_steps(2);
+    let (g, zoom, center) = {
+        let v = map(&mut h);
+        let (zoom, center) = v.camera();
+        (v.shown_grid().unwrap().clone(), zoom, center)
+    };
+    assert!(
+        matches!(terraflux_app::measure::Frame::of(&g), terraflux_app::measure::Frame::Projected(_)),
+        "the test map is projected"
+    );
+    let bar = map(&mut h).scale_bar().cloned().expect("a scale bar");
+    assert!(bar.label.ends_with(" km") || bar.label.ends_with(" m"), "{}", bar.label);
+    assert!((60.0..=150.0).contains(&bar.px), "{} points", bar.px);
+    let cell = g.transform[1].abs() * g.geo.linear_unit();
+    let per_point = bar.metres.unwrap() / f64::from(bar.px);
+    assert!((per_point - cell / f64::from(zoom)).abs() / per_point < 1e-3, "{per_point} m a point, zoom {zoom}");
+    shot(&mut h, "14p-scale-bar");
+    // zoomed in eight times: a shorter bar, in the same range of points
+    map(&mut h).set_camera(zoom * 8.0, center);
+    h.run_steps(2);
+    let closer = map(&mut h).scale_bar().cloned().expect("a scale bar");
+    assert!(closer.metres.unwrap() < bar.metres.unwrap(), "{} then {}", bar.label, closer.label);
+    assert!((60.0..=150.0).contains(&closer.px), "{} points", closer.px);
+    // the grid over the map, and the bar still there
+    map(&mut h).aids.grid = true;
+    h.run_steps(2);
+    shot(&mut h, "14q-coordinate-grid");
+    assert!(map(&mut h).scale_bar().is_some());
+    map(&mut h).aids.grid = false;
+    // off: none
+    map(&mut h).aids.scale_bar = false;
+    h.run_steps(2);
+    assert!(map(&mut h).scale_bar().is_none());
+    map(&mut h).aids.scale_bar = true;
+    h.run_steps(2);
+    assert!(map(&mut h).scale_bar().is_some());
+}
+
+/// On a map in degrees the bar is in metres at the centre's latitude (a degree of longitude is 111.3 km times the
+/// cosine of the latitude on a sphere), whatever the cell size says.
+#[test]
+fn the_scale_bar_of_a_map_in_degrees_is_in_metres() {
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let mut h = viewed(&in_degrees("nav_degrees.tif"), "nav_degrees");
+    h.run_steps(2);
+    let (zoom, center) = map(&mut h).camera();
+    let bar = map(&mut h).scale_bar().cloned().expect("a scale bar");
+    assert!(bar.label.ends_with(" m") || bar.label.ends_with(" km"), "{}", bar.label);
+    assert!((60.0..=150.0).contains(&bar.px), "{} points", bar.px);
+    // the cell of the middle: 0.0025 degrees of longitude at its latitude, on the sphere of a mean radius
+    let lat = (12.60 - 0.0025 * f64::from(center.y)).to_radians();
+    let cell = 6_371_008.8 * 0.0025f64.to_radians() * lat.cos();
+    let per_point = bar.metres.unwrap() / f64::from(bar.px);
+    let want = cell / f64::from(zoom);
+    assert!((per_point - want).abs() / want < 0.005, "{per_point} m a point against {want}");
+}
+
+/// Back and forward along the views: a view that has been still for a moment is kept; alt+left and alt+right bring
+/// the one before and the one after (going back keeps nothing new), as do the mouse's buttons and the header's
+/// arrows.
+#[test]
+fn back_and_forward_along_the_views() {
+    let mut h = viewed(&data("sibuyan_landuse.tif"), "sibuyan_landuse");
+    until(&mut h, "the first view settling", |a| a.session.as_ref().unwrap().preview_view.history_len() >= 1);
+    let (z0, c0) = map(&mut h).camera();
+    assert!(!map(&mut h).can_back(), "one view, none before it");
+    // a zoom that settles
+    map(&mut h).set_camera(z0 * 3.0, c0 + egui::vec2(5.0, 4.0));
+    let (z1, c1) = map(&mut h).camera();
+    until(&mut h, "the zoomed view settling", |a| a.session.as_ref().unwrap().preview_view.history_len() >= 2);
+    assert!(map(&mut h).can_back() && !map(&mut h).can_forward());
+    let rect = map(&mut h).rect().expect("drawn");
+    h.event(egui::Event::PointerMoved(rect.center()));
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::ALT, egui::Key::ArrowLeft);
+    h.run_steps(2);
+    let (z, c) = map(&mut h).camera();
+    assert!((z / z0 - 1.0).abs() < 1e-4 && near(c, c0, 1e-3), "alt+left: back to {z0} {c0:?}, at {z} {c:?}");
+    // (it settles on the view kept: nothing is pushed, the forward stays)
+    wait(&mut h, 0.7);
+    assert_eq!(map(&mut h).history_len(), 2, "going back pushes nothing");
+    assert!(map(&mut h).can_forward() && !map(&mut h).can_back());
+    h.key_press_modifiers(egui::Modifiers::ALT, egui::Key::ArrowRight);
+    h.run_steps(2);
+    let (z, c) = map(&mut h).camera();
+    assert!((z / z1 - 1.0).abs() < 1e-4 && near(c, c1, 1e-3), "alt+right: forward to {z1} {c1:?}, at {z} {c:?}");
+    // the mouse's back button, and the header's arrows
+    let button = |h: &mut Harness<TerrafluxApp>, b: egui::PointerButton| {
+        for pressed in [true, false] {
+            let pos = rect.center();
+            h.event(egui::Event::PointerButton { pos, button: b, pressed, modifiers: egui::Modifiers::NONE });
+            h.run_steps(1);
+        }
+        h.run_steps(1);
+    };
+    button(&mut h, egui::PointerButton::Extra1);
+    assert!((map(&mut h).zoom() / z0 - 1.0).abs() < 1e-4, "the mouse's back button");
+    button(&mut h, egui::PointerButton::Extra2);
+    assert!((map(&mut h).zoom() / z1 - 1.0).abs() < 1e-4, "the mouse's forward button");
+    h.get_by_label("‹").click();
+    h.run_steps(2);
+    assert!((map(&mut h).zoom() / z0 - 1.0).abs() < 1e-4, "the back arrow");
+    h.get_by_label("›").click();
+    h.run_steps(2);
+    assert!((map(&mut h).zoom() / z1 - 1.0).abs() < 1e-4, "the forward arrow");
+    // a new view after going back cuts off the one ahead (the pointer back on the map: the arrows had it)
+    h.event(egui::Event::PointerMoved(rect.center()));
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::ALT, egui::Key::ArrowLeft);
+    h.run_steps(2);
+    map(&mut h).set_camera(z0 * 6.0, c0);
+    wait(&mut h, 0.6);
+    assert!(!map(&mut h).can_forward(), "the branch is cut");
+    assert_eq!(map(&mut h).history_len(), 2);
+}
+
+/// Go to a coordinate: degrees reach a map in degrees as they are and a projected one through GDAL; the view
+/// centres there, a mark stays until escape, a place off the map is gone to all the same; the box opens with ctrl+G,
+/// takes the text, and enter goes.
+#[test]
+fn go_to_a_coordinate_with_a_mark() {
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    // a map in degrees: cell (40.5, 30.5) is at 12.60 - 0.0025 * 30.5 north, 122.30 + 0.0025 * 40.5 east
+    let mut h = viewed(&in_degrees("nav_goto.tif"), "nav_goto");
+    h.run_steps(2);
+    let zoom = map(&mut h).zoom();
+    assert_eq!(map(&mut h).go_to("12.52375, 122.40125", true), Ok(true));
+    h.run_steps(2);
+    let (z, c) = map(&mut h).camera();
+    assert!(near(c, egui::vec2(40.5, 30.5), 1e-3) && z == zoom, "the view at {c:?}, zoom {z}");
+    let mark = map(&mut h).mark.clone().expect("a mark");
+    assert!(mark.inside && mark.text.contains("12.52375") && mark.text.contains("122.40125"), "{mark:?}");
+    shot(&mut h, "14r-go-to");
+    // (hemispheres and DMS name the same place; an error is told)
+    assert_eq!(map(&mut h).go_to("122.40125E 12.52375N", true), Ok(true));
+    assert!(map(&mut h).go_to("12\u{b0}31'25.5\"N 122\u{b0}24'4.5\"E", true).is_ok());
+    assert!(near(map(&mut h).camera().1, egui::vec2(40.5, 30.5), 0.01));
+    assert!(map(&mut h).go_to("200, 12", true).unwrap_err().contains("latitude"));
+    // escape over the map lets the mark go
+    let rect = map(&mut h).rect().expect("drawn");
+    h.event(egui::Event::PointerMoved(rect.center() + egui::vec2(60.0, 60.0)));
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(map(&mut h).mark.is_none(), "escape lets the mark go");
+    // outside the map: gone there, said
+    assert_eq!(map(&mut h).go_to("20, 130", true), Ok(false));
+    assert!(!map(&mut h).mark.clone().unwrap().inside);
+    // map units: the cell (10.5, 20.5) by the grid's own coordinates
+    let units = format!("{} {}", 122.30 + 0.0025 * 10.5, 12.60 - 0.0025 * 20.5);
+    assert_eq!(map(&mut h).go_to(&units, false), Ok(true));
+    assert!(near(map(&mut h).camera().1, egui::vec2(10.5, 20.5), 1e-3));
+    // the box: ctrl+G with the pointer over the map, the text typed, enter
+    map(&mut h).mark = None;
+    h.event(egui::Event::PointerMoved(rect.center()));
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::G);
+    h.run_steps(3);
+    assert!(map(&mut h).goto.is_some(), "ctrl+G opens the box");
+    h.event(egui::Event::Text("12.52375, 122.40125".into()));
+    h.run_steps(2);
+    shot(&mut h, "14s-go-to-box");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert!(map(&mut h).goto.is_none(), "enter goes, the box closes");
+    assert!(near(map(&mut h).camera().1, egui::vec2(40.5, 30.5), 0.01), "{:?}", map(&mut h).camera());
+    assert!(map(&mut h).mark.is_some());
+
+    // a projected map: the degrees go through GDAL (EPSG:4326 to the map's system, x first)
+    let mut h = viewed(&in_utm("nav_utm_goto.tif"), "nav_utm_goto");
+    h.run_steps(2);
+    let g = map(&mut h).shown_grid().unwrap().clone();
+    let crs = format!("EPSG:{}", g.geo.epsg().expect("an EPSG code"));
+    let t = g.transform;
+    let (cx, cy) = (100.5, 80.5);
+    let (mut xs, mut ys) = ([t[0] + cx * t[1]], [t[3] + cy * t[5]]);
+    terraflux_gdal::Transform::new(&crs, "EPSG:4326").unwrap().points(&mut xs, &mut ys);
+    let (lon, lat) = (xs[0], ys[0]);
+    assert!((121.0..124.0).contains(&lon) && (12.0..13.0).contains(&lat), "{lon} {lat}: Sibuyan");
+    assert_eq!(map(&mut h).go_to(&format!("{lat:.7}, {lon:.7}"), true), Ok(true));
+    assert!(near(map(&mut h).camera().1, egui::vec2(cx as f32, cy as f32), 0.05), "{:?}", map(&mut h).camera());
+    // the same, lon lat by the ranges
+    assert_eq!(map(&mut h).go_to(&format!("{lon:.7} {lat:.7}"), true), Ok(true));
+    assert!(near(map(&mut h).camera().1, egui::vec2(cx as f32, cy as f32), 0.05));
+    // far away: outside the map, marked all the same
+    assert_eq!(map(&mut h).go_to("0, 0", true), Ok(false));
+    assert!(map(&mut h).mark.as_ref().is_some_and(|m| !m.inside));
+}
+
+/// A map with no coordinate system has its bar in cells.
+#[test]
+fn the_scale_bar_without_a_crs_is_in_cells() {
+    let mut h = viewed(&data("sibuyan_landuse.tif"), "sibuyan_landuse");
+    h.run_steps(2);
+    let g = map(&mut h).shown_grid().unwrap().clone();
+    assert_eq!(terraflux_app::measure::Frame::of(&g), terraflux_app::measure::Frame::Plain, "the test map has no CRS");
+    let bar = map(&mut h).scale_bar().cloned().expect("a scale bar");
+    assert!(bar.label.ends_with(" cells") || bar.label == "1 cell", "{}", bar.label);
+    assert_eq!(bar.metres, None);
+    assert!((60.0..=150.0).contains(&bar.px), "{} points", bar.px);
+    // go to by the map's own units on it
+    assert_eq!(
+        map(&mut h).go_to(
+            &format!("{} {}", g.transform[0] + 10.5 * g.transform[1], g.transform[3] + 20.5 * g.transform[5]),
+            false
+        ),
+        Ok(true)
+    );
+    assert!(near(map(&mut h).camera().1, egui::vec2(10.5, 20.5), 1e-3));
+    assert!(map(&mut h).go_to("12.5, 122.5", true).unwrap_err().contains("no coordinate system"));
+}

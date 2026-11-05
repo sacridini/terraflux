@@ -262,6 +262,11 @@ pub fn shortcuts() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
                 ("B".into(), "the satellite under the map"),
                 ("space".into(), "hide the map, or show it again"),
                 ("M".into(), "measure: click points for lengths, area and perimeter (esc ends)"),
+                (format!("{c}G"), "go to a coordinate (degrees or the map's units) and mark it (esc lets the mark go)"),
+                (
+                    "alt+left, alt+right".into(),
+                    "the view before, the view after (the mouse's back and forward buttons too)",
+                ),
                 ("left, right".into(), "the step before, after (Simulation)"),
             ],
         ),

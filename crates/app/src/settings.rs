@@ -75,6 +75,9 @@ pub struct Settings {
     /// The remote libraries of nodes, by address: git repositories, folders on the web (only read; their copies
     /// pulled when the application starts).
     pub node_remotes: Vec<String>,
+    /// On the Viewer's map: the scale bar (on unless turned off) and the coordinate grid (off unless turned on).
+    pub scale_bar: bool,
+    pub map_grid: bool,
 }
 
 impl Default for Settings {
@@ -106,6 +109,8 @@ impl Default for Settings {
             update_tried: None,
             node_libraries: Vec::new(),
             node_remotes: Vec::new(),
+            scale_bar: true,
+            map_grid: false,
         }
     }
 }

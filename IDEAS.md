@@ -2397,6 +2397,19 @@ item, na ordem; release só quando pedido.
 5. **Orientar-se no mapa ao vivo.** A barra de escala e, opcional, a grade de coordenadas sobre o mapa (não só na
    *Figure*); voltar e avançar no zoom (Alt+← / Alt+→, botões); *Go to...*: uma coordenada (lat/lon em graus
    decimais ou GMS, ou x/y no CRS do mapa) centrada no mapa com um marcador.
+   **Feito** (Unreleased, por um sub-agente): `nav.rs` (`nice_length`, `scale_bar` pelo `measure::cells_apart`,
+   `graticule` com `figure::nice_step`, `History`: 50 vistas, guardada depois de 0,4 s parada, o ramo cortado) e
+   `goto.rs` (`parse`: com vírgula "lat, lon", sem ela "lon lat" salvo um valor além de ±90, N/S/E/W, GMS; `locate`
+   pelo `terraflux_gdal::Transform` de EPSG:4326). `MapView`: `Aids` (das configurações `scale_bar`, `map_grid`),
+   `back`/`forward`, `go_to`, a `Mark`; ‹ › e *Go to...* no cabeçalho, *On the map* no painel; F1 e a barra de
+   status com Ctrl+G e Alt+←/→. Testes: os de `nav.rs` e `goto.rs`, `the_scale_bar_on_the_live_map`,
+   `the_scale_bar_of_a_map_in_degrees_is_in_metres`, `the_scale_bar_without_a_crs_is_in_cells`,
+   `back_and_forward_along_the_views`, `go_to_a_coordinate_with_a_mark`. Falta: a grade em lat/lon sobre um mapa
+   projetado; a marca nas vistas ao lado; *Go to* com zoom; o datum de um mapa geográfico que não é WGS 84.
+   **A investigar:** a suíte `--test ui` caiu duas vezes em doze rodadas com `STATUS_ACCESS_VIOLATION` (o processo
+   inteiro, sem dizer o teste), as duas enquanto rodavam `templates_run`, `the_methods_and_citations_of_a_model` e
+   `the_model_as_a_python_script`, não os testes novos; sem o item 5, nenhuma em três. Código nativo em paralelo (GDAL,
+   landschaft, o GPU): um despejo do Windows (WER LocalDumps) diria onde.
 6. **O Viewer numa janela à parte**, para um segundo monitor (`show_viewport_immediate`, como as outras janelas
    soltas), e de volta ao dock.
 7. **Dados remotos como camada.** *Add a layer from a URL...*: um COG ou qualquer raster que o GDAL abre por

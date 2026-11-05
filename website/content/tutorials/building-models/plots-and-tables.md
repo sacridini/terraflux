@@ -264,6 +264,16 @@ on the command line (`.tif` for the GeoTIFF, `--scale 2` or `4` for a larger pic
 `export_plot` tool. It runs the model and draws the Plot's layers in their palettes; hidden layers and differences
 are left out, and a Plot that compares maps gives its map only.
 
+### Finding your way on the map
+
+A **scale bar** sits at the bottom left of the map, in m or km (on a grid in degrees, metres at the latitude of the
+view's centre; "cells" on a grid without a coordinate system); *On the map*, in the panel beside it, turns it off
+and turns on a **coordinate grid** in the map's own coordinates. **‹** and **›** above the map (or alt+← and alt+→,
+or the mouse's back and forward buttons) go back and forth along the views you stopped at. **Go to...** (ctrl+G)
+centres the map on a coordinate and marks it until esc: `12.52, 122.40` (latitude, longitude, as web maps give
+them), `122.40 12.52` (longitude first without a comma), `12°31'26"N 122°24'05"E`, or x and y in the map's
+coordinates.
+
 ### Measuring
 
 **Measure**, above the map (or M with the pointer over it), measures a line clicked point by point: each segment

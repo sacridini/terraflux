@@ -199,7 +199,7 @@ impl Type {
 }
 
 /// A nice step for about `n` ticks over `span`: 1, 2 or 5 times a power of ten.
-fn nice_step(span: f64, n: f64) -> f64 {
+pub(crate) fn nice_step(span: f64, n: f64) -> f64 {
     if span <= 0.0 || !span.is_finite() {
         return 1.0;
     }
@@ -218,7 +218,7 @@ fn nice_step(span: f64, n: f64) -> f64 {
 }
 
 /// A coordinate as a label: degrees with their hemisphere, or map units (thousands spaced).
-fn coordinate(v: f64, step: f64, geographic: bool, east: bool) -> String {
+pub(crate) fn coordinate(v: f64, step: f64, geographic: bool, east: bool) -> String {
     let decimals = if step >= 1.0 { 0 } else { (-step.log10()).ceil() as usize };
     if geographic {
         let h = match (east, v < 0.0) {

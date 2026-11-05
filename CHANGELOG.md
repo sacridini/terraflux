@@ -34,6 +34,12 @@ minor versions.
   blends with those under it as *normal*, *multiply* or *screen* (drawn by the GPU with its own blend state). Kept in
   the Plot (`blend`, `shade = { azimuth, altitude, z, strength }`, also through the MCP's `set_plot`), drawn by the
   figure, the export, the animation and `terraflux plot`.
+- Viewer: **finding one's way on the live map**. A scale bar (m or km; geodesic metres at the view's latitude on
+  grids in degrees; cells without a coordinate system) and, when asked, a coordinate grid in the map's own
+  coordinates, in every view side by side (*On the map* in the panel, kept in the settings). Back and forward along
+  the views stopped at (‹ ›, alt+← alt+→, the mouse's back and forward buttons). *Go to...* (ctrl+G): a coordinate in
+  decimal degrees ("lat, lon" with a comma, "lon lat" without), degrees-minutes-seconds with hemispheres, or x y in
+  the map's units, centred and marked until esc.
 
 ## [1.40.0] - 2026-11-04
 

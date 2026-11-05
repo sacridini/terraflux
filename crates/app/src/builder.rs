@@ -4017,6 +4017,34 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 {
                     sh.view.set_measuring(sh.view.measuring.is_none());
                 }
+                // finding one's way: a place by its coordinates; back and forward along the views (the arrows left
+                // of it, back first)
+                if drawn {
+                    let c = crate::commands::cmd();
+                    if ui
+                        .add(egui::Button::new("Go to...").selected(sh.view.goto.is_some()))
+                        .on_hover_text(format!(
+                            "a coordinate (degrees, or the map's units) found on the map and marked ({c}G over the map)"
+                        ))
+                        .clicked()
+                    {
+                        sh.view.toggle_goto();
+                    }
+                    if ui
+                        .add_enabled(sh.view.can_forward(), egui::Button::new("›").small())
+                        .on_hover_text("the view after (alt+right, the mouse's forward button)")
+                        .clicked()
+                    {
+                        sh.view.forward();
+                    }
+                    if ui
+                        .add_enabled(sh.view.can_back(), egui::Button::new("‹").small())
+                        .on_hover_text("the view before (alt+left, the mouse's back button)")
+                        .clicked()
+                    {
+                        sh.view.back();
+                    }
+                }
                 plots_menu(ui, s, sh, inner.is_none(), salt);
                 // what is shown, saved: a file only, or a file and a node that writes it at every run
                 let maps = matches!(&value, Some(Value::Map(_) | Value::Stack(_) | Value::Raster(_)))
@@ -4681,6 +4709,18 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     ui.spacing_mut().slider_width = (ui.available_width() - 110.0).clamp(40.0, 160.0);
                     ui.add_enabled(show, egui::Slider::new(&mut opacity, 0.0..=1.0).text("opacity"));
                     v.transparency = 1.0 - opacity;
+                }
+                // what is drawn over the map to find one's way (kept in the settings)
+                ui.add_space(8.0);
+                theme::section(ui, "On the map");
+                let aids = v.aids;
+                ui.checkbox(&mut v.aids.scale_bar, "Scale bar")
+                    .on_hover_text("a round length in metres or kilometres (cells, with no coordinate system)");
+                ui.checkbox(&mut v.aids.grid, "Coordinate grid")
+                    .on_hover_text("lines at round values of the map's own coordinates, their values at the edges");
+                if v.aids != aids {
+                    let now = v.aids;
+                    crate::settings::update(|st| (st.scale_bar, st.map_grid) = (now.scale_bar, now.grid));
                 }
                 // another map compared with this one: another output of the run, or another layer of this one
                 ui.add_space(8.0);
@@ -5701,6 +5741,7 @@ fn show_difference(
     let (zoom, center) = sh.view.camera();
     let v = &mut sh.compare.view;
     (v.basemap, v.transparency, v.hide_data) = (basemap, transparency, hide);
+    v.aids = sh.view.aids;
     v.hold(d.source.size());
     let at = link.to_own(center);
     // (the map shown never drawn yet, as when the Viewer opens on the difference: this view fits itself, and the
@@ -5800,6 +5841,7 @@ fn side_by_side(
     let (zoom, center) = sh.view.camera();
     let Compare { view: compared, more: views, .. } = &mut sh.compare;
     (compared.basemap, compared.transparency, compared.hide_data) = (basemap, transparency, hide);
+    compared.aids = sh.view.aids;
     // (the views that draw the Viewer's vector layers outline the features selected; one with layers of its own
     // draws other vectors)
     let has_own = |i: usize| own.get(i).is_some_and(|o| o.is_some());
@@ -5820,6 +5862,7 @@ fn side_by_side(
         if let (Ok(p), Ok((src, _, _))) = (&p, m) {
             let v = &mut b.view;
             (v.basemap, v.transparency, v.hide_data) = (basemap, transparency, hide);
+            v.aids = sh.view.aids;
             v.selected = if has_own(1 + i) { None } else { sh.view.selected.clone() };
             v.hold(src.size());
             let at = p.to_own(center);
