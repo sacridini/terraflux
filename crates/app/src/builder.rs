@@ -3976,6 +3976,17 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // the Viewer out of the dock into a window of its own (for another screen), and back
+                if salt == "viewer" {
+                    let (label, tip) = if s.viewer_out {
+                        ("Back into the window", "the Viewer back into the dock, where it was")
+                    } else {
+                        ("Pop out", "the Viewer in a window of its own, to take to another screen")
+                    };
+                    if ui.button(label).on_hover_text(tip).clicked() {
+                        s.viewer_toggle = true;
+                    }
+                }
                 // what the rasters or features are (their coordinate system, cells, extent...)
                 let has = value.as_ref().is_some_and(|v| !crate::metadata::facts(v).is_empty());
                 let id = egui::Id::new(("metadata open", salt, &node, &port));

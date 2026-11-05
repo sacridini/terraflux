@@ -40,6 +40,11 @@ minor versions.
   the views stopped at (‹ ›, alt+← alt+→, the mouse's back and forward buttons). *Go to...* (ctrl+G): a coordinate in
   decimal degrees ("lat, lon" with a comma, "lon lat" without), degrees-minutes-seconds with hemispheres, or x y in
   the map's units, centred and marked until esc.
+- Viewer: **in a window of its own**, for a second screen: *Pop out* in its header or *View > Viewer in a window of
+  its own*, back by *Back into the window* or by closing it. Files dropped on it, its shortcuts, Figure and Export
+  work there, and a double click on a node brings that window forward. Its place and size are kept (back on a
+  visible screen when the remembered one is gone), and it opens out again at the next start (the layout's version
+  12; layouts of 11 still load).
 
 ## [1.40.0] - 2026-11-04
 

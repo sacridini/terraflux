@@ -78,6 +78,9 @@ pub struct Settings {
     /// On the Viewer's map: the scale bar (on unless turned off) and the coordinate grid (off unless turned on).
     pub scale_bar: bool,
     pub map_grid: bool,
+    /// The Viewer's window of its own, where it was last: its place on the screen and its size (x, y, width,
+    /// height, in points).
+    pub viewer_window: Option<[f32; 4]>,
 }
 
 impl Default for Settings {
@@ -111,6 +114,7 @@ impl Default for Settings {
             node_remotes: Vec::new(),
             scale_bar: true,
             map_grid: false,
+            viewer_window: None,
         }
     }
 }

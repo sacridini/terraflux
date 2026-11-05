@@ -7159,3 +7159,133 @@ fn the_scale_bar_without_a_crs_is_in_cells() {
     assert!(near(map(&mut h).camera().1, egui::vec2(10.5, 20.5), 1e-3));
     assert!(map(&mut h).go_to("12.5, 122.5", true).unwrap_err().contains("no coordinate system"));
 }
+
+/// The app with a template started, its Viewer open in the dock.
+fn with_viewer() -> Harness<'static, TerrafluxApp> {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    h.run_steps(4);
+    assert!(h.state().is_open(Pane::Viewer) && h.state().detached().is_empty(), "the Viewer in the dock");
+    h
+}
+
+fn in_the_dock(h: &Harness<TerrafluxApp>, pane: Pane) -> bool {
+    h.state().dock.as_ref().unwrap().find_tab(&pane).is_some()
+}
+
+/// The Viewer taken out of the dock by its button into a window of its own, shown there, brought to the front when
+/// asked for (no tab again), and back into the dock by the button.
+#[test]
+fn the_viewer_pops_out_into_a_window_and_back() {
+    let mut h = with_viewer();
+    let tab = h.state().dock.as_ref().unwrap().find_tab(&Pane::Viewer).unwrap();
+    // the button of the Viewer's header (its tab in front)
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(3);
+    h.get_by_label("Pop out").click();
+    h.run_steps(4);
+    assert_eq!(h.state().detached(), [Pane::Viewer]);
+    assert!(!in_the_dock(&h, Pane::Viewer), "no tab of it in the dock");
+    assert!(h.state().viewer_out, "it opens out from now on");
+    h.run_steps(2);
+    assert!(h.state().viewer_rect.is_some(), "the Viewer is drawn, in its window");
+    assert!(h.query_by_label("Back into the window").is_some(), "its header's button is the way back");
+    // asked for (a node double-clicked): its window to the front, not a tab in the dock
+    let raised = h.state().raised.1;
+    h.state_mut().session.as_mut().unwrap().ask_viewer = true;
+    h.run_steps(3);
+    assert!(h.state().raised.1 > raised, "its window brought to the front");
+    assert_eq!(h.state().detached(), [Pane::Viewer]);
+    assert!(!in_the_dock(&h, Pane::Viewer));
+    // back into the dock, where it was
+    h.get_by_label("Back into the window").click();
+    h.run_steps(4);
+    assert!(h.state().detached().is_empty() && !h.state().viewer_out);
+    let back = h.state().dock.as_ref().unwrap().find_tab(&Pane::Viewer).expect("its tab is back");
+    assert_eq!((back.surface, back.node), (tab.surface, tab.node), "in the leaf it was in");
+}
+
+/// The View menu's item does the same; closing the window by its own close puts the Viewer back in the dock.
+#[test]
+fn the_viewer_out_by_the_view_menu_and_in_by_closing_its_window() {
+    let mut h = with_viewer();
+    h.get_by_label("View").click();
+    h.run_steps(2);
+    h.get_by_label("Viewer in a window of its own").click();
+    h.run_steps(4);
+    assert_eq!(h.state().detached(), [Pane::Viewer]);
+    assert!(!in_the_dock(&h, Pane::Viewer));
+    // the window's tab, taken back by its menu (the window closed: the same way back)
+    h.state_mut().attach(Pane::Viewer);
+    h.run_steps(3);
+    assert!(h.state().detached().is_empty() && in_the_dock(&h, Pane::Viewer));
+    assert!(!h.state().viewer_out);
+}
+
+/// The Viewer left out comes out when it comes, and a layout kept says so: on the next start, out again; an old
+/// layout (without that) opens it in the dock.
+#[test]
+fn the_viewer_out_is_kept_between_sessions() {
+    let file = tmp("viewer-out-layout.json");
+    let _ = std::fs::remove_file(&file);
+    let mut a = new_app(None);
+    a.restore_layout(file.clone());
+    let mut h = harness(a);
+    h.run_steps(2);
+    h.state_mut().set_viewer_out(true);
+    h.run_steps(2);
+    // (the layout is kept once a second at most)
+    std::thread::sleep(Duration::from_millis(1100));
+    h.run_steps(2);
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains(r#""viewer_out":true"#), "{text}");
+    drop(h);
+    // the next start: nothing yet, then the data comes and the Viewer with it, out
+    let mut b = new_app(None);
+    b.restore_layout(file.clone());
+    assert!(b.viewer_out);
+    let mut h = harness(b);
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    h.run_steps(4);
+    assert_eq!(h.state().detached(), [Pane::Viewer], "the Viewer comes in its window");
+    assert!(!in_the_dock(&h, Pane::Viewer));
+    drop(h);
+    // a layout of the version before: the Viewer in the dock
+    let dock = serde_json::to_string(&terraflux_app::app::default_layout())
+        .unwrap()
+        .replace(r#""x":null"#, r#""x":0.0"#)
+        .replace(r#""y":null"#, r#""y":0.0"#);
+    std::fs::write(&file, format!(r#"{{"version":11,"main":{dock},"windows":[]}}"#)).unwrap();
+    let mut c = new_app(None);
+    c.restore_layout(file.clone());
+    assert!(!c.viewer_out);
+    let mut h = harness(c);
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    h.run_steps(4);
+    assert!(h.state().detached().is_empty() && in_the_dock(&h, Pane::Viewer), "an old layout: the Viewer in the dock");
+    let _ = std::fs::remove_file(&file);
+}
+
+/// Files let go over the Viewer in its window of its own: layers of it, as over the dock's.
+#[test]
+fn files_dropped_on_the_viewer_in_its_window() {
+    let mut h = with_viewer();
+    h.state_mut().set_viewer_out(true);
+    drawn(&mut h);
+    let rect = h.state().viewer_rect.expect("the Viewer is drawn");
+    let layers = h.state().session.as_ref().unwrap().preview_layers.len();
+    let nodes = h.state().session.as_ref().unwrap().source.nodes.len();
+    drop_files(&mut h, rect.center(), &[data("pie_restrictions.tif")]);
+    drawn(&mut h);
+    let s = h.state().session.as_ref().unwrap();
+    // (a layer of the Viewer only comes of a drop on it. The test's window shows the other window embedded, so the
+    // main one reads the same files too: a node more than in two real windows)
+    assert!(s.source.nodes.len() > nodes, "a node that reads it");
+    assert!(s.preview_layers.len() > layers, "and a layer of the Viewer");
+}

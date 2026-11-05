@@ -264,6 +264,13 @@ on the command line (`.tif` for the GeoTIFF, `--scale 2` or `4` for a larger pic
 `export_plot` tool. It runs the model and draws the Plot's layers in their palettes; hidden layers and differences
 are left out, and a Plot that compares maps gives its map only.
 
+### The Viewer in a window of its own
+
+**Pop out**, in the Viewer's header (or *View > Viewer in a window of its own*), moves the Viewer into a window of
+its own, to put on a second screen beside the model; everything of it works there, files dropped on it too, and
+what brings the Viewer forward (a double click on a node) brings that window. *Back into the window*, or closing it,
+puts it back where it was. The window keeps its place and size, and the Viewer comes out again at the next start.
+
 ### Finding your way on the map
 
 A **scale bar** sits at the bottom left of the map, in m or km (on a grid in degrees, metres at the latitude of the

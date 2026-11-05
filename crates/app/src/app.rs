@@ -158,7 +158,10 @@ fn retain_panes(dock: &mut DockState<Pane>, keep: impl FnMut(&mut Pane) -> bool)
 }
 
 /// The version of the layout kept (a layout of another version is let go).
-const LAYOUT_VERSION: u32 = 11;
+const LAYOUT_VERSION: u32 = 12;
+
+/// The oldest version of the layout still read (12 added `viewer_out`, which an older one reads as false).
+const OLDEST_LAYOUT: u32 = 11;
 
 /// A window of its own (another screen): its panes in a dock.
 pub struct Detached {
@@ -166,7 +169,13 @@ pub struct Detached {
     pub dock: DockState<Pane>,
     /// Where it opens on the screen (where its tab was dropped), the first time.
     pub at: Option<egui::Pos2>,
+    /// How big it opens.
+    pub size: egui::Vec2,
 }
+
+/// How big a window of its own opens, and the Viewer's (when nothing is remembered of it).
+const WINDOW_SIZE: egui::Vec2 = egui::vec2(960.0, 720.0);
+const VIEWER_SIZE: egui::Vec2 = egui::vec2(1100.0, 750.0);
 
 /// The layout kept between sessions: the main dock, and the panes of each window of their own.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -175,6 +184,59 @@ struct Layout {
     version: u32,
     main: DockState<Pane>,
     windows: Vec<Vec<Pane>>,
+    /// The Viewer is in a window of its own (it opens there when it comes).
+    #[serde(default)]
+    viewer_out: bool,
+}
+
+/// A layout read from its text: none when it is not one, or of a version too old or too new.
+fn read_layout(text: &str) -> Option<Layout> {
+    let l: Layout = serde_json::from_str(text).ok()?;
+    (OLDEST_LAYOUT..=LAYOUT_VERSION).contains(&l.version).then_some(l)
+}
+
+/// The place and size the Viewer's window opens with, from what was kept (x, y, width, height): the size
+/// (at least a small window, at most the screen's) and the place, when the window's top-left corner is on a screen
+/// (`screen`: the virtual screen's rectangle in points, if known).
+fn viewer_window_at(kept: Option<[f32; 4]>, screen: Option<egui::Rect>) -> (egui::Vec2, Option<egui::Pos2>) {
+    let Some([x, y, w, h]) = kept.filter(|k| k.iter().all(|v| v.is_finite())) else { return (VIEWER_SIZE, None) };
+    let size = match screen {
+        Some(s) => egui::vec2(w.clamp(320.0, s.width().max(320.0)), h.clamp(240.0, s.height().max(240.0))),
+        None => egui::vec2(w.max(320.0), h.max(240.0)),
+    };
+    // (a corner of its title bar on a screen: the window can be taken by it)
+    let corner = egui::pos2(x + 60.0, y + 12.0);
+    let seen = screen.is_none_or(|s| s.contains(corner));
+    (size, seen.then_some(egui::pos2(x, y)))
+}
+
+/// The screens together (all the monitors), in points, as the system tells; none where it is not asked.
+fn virtual_screen(ctx: &egui::Context) -> Option<egui::Rect> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+        };
+        // SAFETY: GetSystemMetrics only reads a number of the system.
+        let (x, y, w, h) = unsafe {
+            (
+                GetSystemMetrics(SM_XVIRTUALSCREEN),
+                GetSystemMetrics(SM_YVIRTUALSCREEN),
+                GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                GetSystemMetrics(SM_CYVIRTUALSCREEN),
+            )
+        };
+        if w <= 0 || h <= 0 {
+            return None;
+        }
+        let k = ctx.pixels_per_point();
+        Some(egui::Rect::from_min_size(egui::pos2(x as f32, y as f32) / k, egui::vec2(w as f32, h as f32) / k))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = ctx;
+        None
+    }
 }
 
 /// Where the layout is kept (the user's application data; on macOS `~/Library/Application Support`).
@@ -533,6 +595,10 @@ pub struct Session {
     pub ask_calculator: bool,
     /// The Viewer asked for (a node double-clicked: its output shown there).
     pub ask_viewer: bool,
+    /// The Viewer is in a window of its own (told by the application each frame), and the Viewer's button asked to
+    /// take it out of the dock or back into it.
+    pub viewer_out: bool,
+    pub viewer_toggle: bool,
     /// The nodes to run up to, one after the other, to show their outputs (files dropped on the Viewer).
     pub show_queue: Vec<String>,
     /// The nodes of rasters dropped at once (two or more), a layer each, that the Layers offer to join as one
@@ -749,6 +815,8 @@ impl Session {
             ask_problems: false,
             ask_calculator: false,
             ask_viewer: false,
+            viewer_out: false,
+            viewer_toggle: false,
             show_queue: Vec::new(),
             dropped_rasters: Vec::new(),
             task: None,
@@ -1561,6 +1629,20 @@ pub struct TerrafluxApp {
     pub(crate) hover: Option<Hover>,
     /// Where the Viewer was drawn last (none: not shown), to tell files dropped over it.
     pub viewer_rect: Option<egui::Rect>,
+    /// The window (viewport) the Viewer was drawn in last.
+    viewer_viewport: Option<egui::ViewportId>,
+    /// The Viewer is to be in a window of its own: kept between sessions, and where it opens.
+    pub viewer_out: bool,
+    /// A window of its own to bring to the front (a pane asked for in it).
+    raise: Option<egui::ViewportId>,
+    /// The window brought to the front last, and how many times one was.
+    pub raised: (Option<egui::ViewportId>, u32),
+    /// The Viewer's window where it is now (x, y, width, height), kept in the settings once it stays still.
+    viewer_geometry: Option<[f32; 4]>,
+    viewer_geometry_kept: Option<[f32; 4]>,
+    viewer_geometry_at: Instant,
+    /// All the screens together, in points (none: not known).
+    screen: Option<egui::Rect>,
     /// The style applied: the theme, the text's size and the zoom it was made for.
     styled: Option<(String, u32, u32)>,
     /// The settings' window is open.
@@ -1665,6 +1747,14 @@ impl TerrafluxApp {
             library,
             hover: None,
             viewer_rect: None,
+            viewer_viewport: None,
+            viewer_out: false,
+            raise: None,
+            raised: (None, 0),
+            viewer_geometry: None,
+            viewer_geometry_kept: crate::settings::get().viewer_window,
+            viewer_geometry_at: Instant::now(),
+            screen: None,
             styled: None,
             settings_open: false,
             updater: crate::update::Updater::default(),
@@ -2014,7 +2104,16 @@ impl TerrafluxApp {
             }
         }
         ui.separator();
+        // the Viewer on another screen, or back in the dock
+        let out = self.detached().contains(&Pane::Viewer);
+        let label = if out { "Viewer back into the window" } else { "Viewer in a window of its own" };
+        if ui.button(label).on_hover_text("the Viewer out of the dock, to take to another screen (and back)").clicked()
+        {
+            self.set_viewer_out(!out);
+            ui.close();
+        }
         if ui.button("Reset the layout").clicked() {
+            self.viewer_out = false;
             self.windows.clear();
             self.dock = Some(default_layout());
             self.panes_due_again();
@@ -3461,7 +3560,9 @@ impl TerrafluxApp {
         } else {
             None
         };
-        let on_viewer = over_viewer(self.viewer_rect, pointer);
+        // (the rectangle is in the window the Viewer is drawn in: not the pointer of another one)
+        let here = self.viewer_viewport.is_none_or(|v| v == ui.ctx().viewport_id());
+        let on_viewer = here && over_viewer(self.viewer_rect, pointer);
         if over > 0 {
             // (drawn again and again while they are over the window: it is told of no move of the pointer then)
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
@@ -3637,9 +3738,20 @@ impl TerrafluxApp {
         if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.ask_calculator)) {
             self.focus(Pane::Calculator);
         }
+        // the Viewer's button: out of the dock into a window of its own, or back
+        if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.viewer_toggle)) {
+            let out = !self.detached().contains(&Pane::Viewer);
+            self.set_viewer_out(out);
+        }
         if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.ask_viewer)) {
             self.focus(Pane::Viewer);
         }
+        let out = self.detached().contains(&Pane::Viewer);
+        if let Some(s) = &mut self.session {
+            s.viewer_out = out;
+        }
+        self.screen = virtual_screen(ui.ctx());
+        self.keep_viewer_geometry(ui.ctx());
         self.open_due();
         // a review begun by another program (or asked for): its pane in front
         if self.session.as_mut().and_then(|s| s.review.as_mut()).is_some_and(|r| std::mem::take(&mut r.show)) {
@@ -3734,8 +3846,11 @@ impl TerrafluxApp {
             crate::qgis::window(ui.ctx(), s);
             crate::catalog::window(ui.ctx(), s, &self.registry);
             crate::python::window(ui.ctx(), s);
-            crate::figure::window(ui.ctx(), s);
-            crate::export_view::window(ui.ctx(), s);
+            // (the figure's and the export's dialogs open in the Viewer's window when it has one)
+            if !out {
+                crate::figure::window(ui.ctx(), s);
+                crate::export_view::window(ui.ctx(), s);
+            }
         }
         if self.commands.is_some() {
             let all = self.command_list();
@@ -3750,6 +3865,11 @@ impl TerrafluxApp {
         let area = ui.available_rect_before_wrap();
         egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::bar())).show(ui, |ui| self.docks(ui));
         self.drawer(ui.ctx(), area, strip);
+        // a pane asked for that is in a window of its own: the window to the front
+        if let Some(id) = self.raise.take() {
+            ui.ctx().send_viewport_cmd_to(id, egui::ViewportCommand::Focus);
+            self.raised = (Some(id), self.raised.1 + 1);
+        }
         // Tab is ours: no field keeps the focus egui gave it
         if std::mem::take(&mut self.tabbed) {
             ui.ctx().memory_mut(|m| {
@@ -3782,6 +3902,7 @@ impl TerrafluxApp {
             Pane::Prepare => crate::prepare_view::pane(ui, s, r),
             Pane::Viewer => {
                 self.viewer_rect = Some(ui.max_rect());
+                self.viewer_viewport = Some(ui.ctx().viewport_id());
                 if let Some(h) = crate::builder::viewer_pane(ui, s, r) {
                     self.hover = Some(h);
                 }
@@ -3891,8 +4012,15 @@ impl TerrafluxApp {
         for w in &mut self.windows {
             if let Some(path) = w.dock.find_tab(&pane) {
                 let _ = w.dock.set_active_tab(path);
+                // (its window to the front, from the next frame)
+                self.raise = Some(w.id);
                 return;
             }
+        }
+        // the Viewer comes in the window of its own it was left in
+        if pane == Pane::Viewer && self.viewer_out {
+            self.detach(pane);
+            return;
         }
         // beside the pane it goes with: the maps and results by the viewer (else the model), the viewer by the model
         let dock = self.dock.get_or_insert_with(default_layout);
@@ -3985,7 +4113,44 @@ impl TerrafluxApp {
         });
         self.window_count += 1;
         let id = egui::ViewportId::from_hash_of(("terraflux window", self.window_count));
-        self.windows.push(Detached { id, dock: DockState::new(vec![pane]), at: None });
+        let (mut size, mut at) = (WINDOW_SIZE, None);
+        if pane == Pane::Viewer {
+            // where it was last (on a screen that is there), else its own size
+            self.viewer_out = true;
+            (size, at) = viewer_window_at(self.viewer_geometry_kept, self.screen);
+        }
+        self.windows.push(Detached { id, dock: DockState::new(vec![pane]), at, size });
+    }
+
+    /// The Viewer's window kept in the settings once it has stayed where it is for a moment (not at every step of
+    /// a drag).
+    fn keep_viewer_geometry(&mut self, ctx: &egui::Context) {
+        let Some(now) = self.viewer_geometry else { return };
+        if Some(now) == self.viewer_geometry_kept {
+            return;
+        }
+        let wait = Duration::from_millis(600);
+        if self.viewer_geometry_at.elapsed() < wait {
+            ctx.request_repaint_after(wait);
+            return;
+        }
+        self.viewer_geometry_at = Instant::now();
+        self.viewer_geometry_kept = Some(now);
+        crate::settings::update(|s| s.viewer_window = Some(now));
+    }
+
+    /// The Viewer out of the dock into a window of its own, or back (it opens there from then on).
+    pub fn set_viewer_out(&mut self, out: bool) {
+        if out {
+            if !self.detached().contains(&Pane::Viewer) {
+                self.detach(Pane::Viewer);
+            }
+        } else {
+            self.viewer_out = false;
+            if self.detached().contains(&Pane::Viewer) {
+                self.attach(Pane::Viewer);
+            }
+        }
     }
 
     /// Tabs dragged out of a dock: a window of their own each, where the pointer let them go (on the screen).
@@ -4004,7 +4169,10 @@ impl TerrafluxApp {
                 dock.push_to_first_leaf(t);
             }
             let at = origin + (pointer - egui::Pos2::ZERO) - egui::vec2(40.0, 12.0);
-            self.windows.push(Detached { id, dock, at: Some(at) });
+            if dock.find_tab(&Pane::Viewer).is_some() {
+                self.viewer_out = true;
+            }
+            self.windows.push(Detached { id, dock, at: Some(at), size: WINDOW_SIZE });
         }
     }
 
@@ -4021,6 +4189,9 @@ impl TerrafluxApp {
 
     /// A pane in the main window again: where it was, if that place is still there.
     fn put_back(&mut self, pane: Pane) {
+        if pane == Pane::Viewer {
+            self.viewer_out = false;
+        }
         let dock = self.dock.get_or_insert_with(default_layout);
         if dock.find_tab(&pane).is_some() {
             return;
@@ -4042,9 +4213,10 @@ impl TerrafluxApp {
     /// Read the layout kept, if any (the panes in windows of their own open again).
     pub fn restore_layout(&mut self, path: PathBuf) {
         if let Ok(text) = std::fs::read_to_string(&path)
-            && let Ok(mut l) = serde_json::from_str::<Layout>(&text)
-            && l.version == LAYOUT_VERSION
+            && let Some(mut l) = read_layout(&text)
         {
+            // (the Viewer opens in its window when it comes, if it was in one)
+            self.viewer_out = l.viewer_out;
             // the maps of nodes were of the last session; the viewer, the node's pane, the document, the
             // preparation and the calculator come when they make sense
             let kept = |t: &Pane| !comes_when_due(t);
@@ -4077,8 +4249,10 @@ impl TerrafluxApp {
             version: u32,
             main: &'a DockState<Pane>,
             windows: Vec<Vec<Pane>>,
+            viewer_out: bool,
         }
-        let Ok(text) = serde_json::to_string(&Out { version: LAYOUT_VERSION, main, windows }) else { return };
+        let out = Out { version: LAYOUT_VERSION, main, windows, viewer_out: self.viewer_out };
+        let Ok(text) = serde_json::to_string(&out) else { return };
         if text != self.layout_text {
             if let Some(dir) = path.parent() {
                 let _ = std::fs::create_dir_all(dir);
@@ -4096,6 +4270,7 @@ impl TerrafluxApp {
         let style = dock_style(ui);
         self.in_dock = true;
         self.viewer_rect = None;
+        self.viewer_viewport = None;
         egui_dock::DockArea::new(&mut dock)
             .id(egui::Id::new("main dock"))
             .style(style.clone())
@@ -4117,9 +4292,15 @@ impl TerrafluxApp {
         let mut window_keys: Vec<Keys> = Vec::new();
         for (k, w) in windows.iter_mut().enumerate() {
             let title = w.dock.iter_all_tabs().map(|(_, t)| t.title()).collect::<Vec<_>>().join(", ");
+            let viewer = w.dock.find_tab(&Pane::Viewer).is_some();
+            let title = if title == Pane::Viewer.title() {
+                "Terraflux · Viewer".to_string()
+            } else {
+                format!("Terraflux - {title}")
+            };
             let mut builder = egui::ViewportBuilder::default()
-                .with_title(format!("Terraflux - {title}"))
-                .with_inner_size([960.0, 720.0])
+                .with_title(title)
+                .with_inner_size(w.size)
                 .with_icon(crate::logo::window_icon());
             if let Some(at) = w.at.take() {
                 builder = builder.with_position(at);
@@ -4150,6 +4331,23 @@ impl TerrafluxApp {
                         .show_leaf_collapse_buttons(false)
                         .show_inside(ui, &mut Panes { app, moves, detached: true });
                 });
+                if viewer {
+                    // the dialogs of the Viewer, in the window the Viewer is in
+                    if let Some(s) = &mut app.session {
+                        crate::figure::window(ui.ctx(), s);
+                        crate::export_view::window(ui.ctx(), s);
+                    }
+                    // where the window is, to open there next time
+                    let (outer, inner, away) = ui.input(|i| {
+                        let v = i.viewport();
+                        (v.outer_rect, v.inner_rect, v.minimized == Some(true) || v.maximized == Some(true))
+                    });
+                    if let (Some(o), Some(n)) = (outer, inner)
+                        && !away
+                    {
+                        app.viewer_geometry = Some([o.min.x, o.min.y, n.width(), n.height()]);
+                    }
+                }
                 app.take_dropped(ui);
                 ui.input(|i| i.viewport().close_requested())
             });
@@ -4238,4 +4436,75 @@ fn system_pointer(ctx: &egui::Context) -> Option<egui::Pos2> {
 /// Whether the pointer is over the Viewer (where it was drawn last).
 pub fn over_viewer(rect: Option<egui::Rect>, pointer: Option<egui::Pos2>) -> bool {
     rect.zip(pointer).is_some_and(|(r, p)| r.contains(p))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn layout(version: u32, extra: &str) -> String {
+        // (a dock not drawn yet has no sizes: null, which a drawn one never has)
+        let dock = serde_json::to_string(&default_layout())
+            .unwrap()
+            .replace(r#""x":null"#, r#""x":0.0"#)
+            .replace(r#""y":null"#, r#""y":0.0"#);
+        format!(r#"{{"version":{version},"main":{dock},"windows":[]{extra}}}"#)
+    }
+
+    #[test]
+    fn a_layout_with_the_viewer_out_is_read_out() {
+        let l = read_layout(&layout(LAYOUT_VERSION, r#","viewer_out":true"#)).unwrap();
+        assert!(l.viewer_out);
+        let l = read_layout(&layout(LAYOUT_VERSION, "")).unwrap();
+        assert!(!l.viewer_out);
+    }
+
+    #[test]
+    fn an_older_layout_is_read_with_the_viewer_in_the_dock() {
+        let l = read_layout(&layout(OLDEST_LAYOUT, "")).unwrap();
+        assert!(!l.viewer_out);
+        assert!(read_layout(&layout(OLDEST_LAYOUT - 1, "")).is_none(), "too old");
+        assert!(read_layout(&layout(LAYOUT_VERSION + 1, "")).is_none(), "from the future");
+        assert!(read_layout("not a layout").is_none());
+    }
+
+    #[test]
+    fn the_layout_written_is_the_one_read() {
+        #[derive(serde::Serialize)]
+        struct Out {
+            version: u32,
+            main: DockState<Pane>,
+            windows: Vec<Vec<Pane>>,
+            viewer_out: bool,
+        }
+        let out = Out { version: LAYOUT_VERSION, main: default_layout(), windows: vec![], viewer_out: true };
+        let text = serde_json::to_string(&out)
+            .unwrap()
+            .replace(r#""x":null"#, r#""x":0.0"#)
+            .replace(r#""y":null"#, r#""y":0.0"#);
+        let l = read_layout(&text).unwrap();
+        assert!(l.viewer_out && l.main.find_tab(&Pane::Model).is_some());
+    }
+
+    #[test]
+    fn the_viewers_window_opens_where_it_was_if_that_is_on_a_screen() {
+        let screen = egui::Rect::from_min_size(egui::pos2(-1920.0, 0.0), egui::vec2(3840.0, 1080.0));
+        // nothing kept: its own size, the system's place
+        assert_eq!(viewer_window_at(None, Some(screen)), (VIEWER_SIZE, None));
+        // on the second monitor, at the left of the first
+        let (size, at) = viewer_window_at(Some([-1800.0, 100.0, 1200.0, 800.0]), Some(screen));
+        assert_eq!((size, at), (egui::vec2(1200.0, 800.0), Some(egui::pos2(-1800.0, 100.0))));
+        // that monitor gone: the size kept, the system's place
+        let one = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0));
+        assert_eq!(
+            viewer_window_at(Some([-1800.0, 100.0, 1200.0, 800.0]), Some(one)),
+            (egui::vec2(1200.0, 800.0), None)
+        );
+        // never a window bigger than the screens, nor a sliver
+        let (size, _) = viewer_window_at(Some([0.0, 0.0, 9000.0, 10.0]), Some(one));
+        assert_eq!(size, egui::vec2(1920.0, 240.0));
+        // not told where the screens are: the place kept; a broken number is let go
+        assert!(viewer_window_at(Some([-1800.0, 100.0, 1200.0, 800.0]), None).1.is_some());
+        assert_eq!(viewer_window_at(Some([f32::NAN, 0.0, 1.0, 1.0]), None), (VIEWER_SIZE, None));
+    }
 }

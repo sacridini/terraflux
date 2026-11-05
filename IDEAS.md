@@ -2412,6 +2412,16 @@ item, na ordem; release só quando pedido.
    landschaft, o GPU): um despejo do Windows (WER LocalDumps) diria onde.
 6. **O Viewer numa janela à parte**, para um segundo monitor (`show_viewport_immediate`, como as outras janelas
    soltas), e de volta ao dock.
+   **Feito** (Unreleased, por um sub-agente): sobre o `detach`/`attach` que já havia. *Pop out* / *Back into the
+   window* no cabeçalho (`Session::viewer_toggle`) e no menu View; `TerrafluxApp::viewer_out` guardado no layout
+   (`LAYOUT_VERSION` 12, `read_layout` aceita 11 e 12), a janela "Terraflux · Viewer" com o tamanho e o lugar das
+   configurações (`viewer_window`, gravados 600 ms depois de parada; `viewer_window_at` com `virtual_screen` traz de
+   volta uma janela fora das telas); `focus` sobe a janela (`ViewportCommand::Focus`); Figure e Export na janela do
+   Viewer; o arquivo solto pela viewport do Viewer. Testes: `the_viewer_pops_out_into_a_window_and_back`,
+   `the_viewer_out_by_the_view_menu_and_in_by_closing_its_window`, `the_viewer_out_is_kept_between_sessions`,
+   `files_dropped_on_the_viewer_in_its_window`. Falta: conferir com o aplicativo de verdade (o kittest desenha as
+   viewports dentro da raiz): os callbacks da GPU numa viewport do sistema, o arraste do Explorer na outra janela,
+   monitores de DPI diferentes; o Ctrl+W na janela fecha a aba em vez de voltar ao dock.
 7. **Dados remotos como camada.** *Add a layer from a URL...*: um COG ou qualquer raster que o GDAL abre por
    `/vsicurl/`, lido por janelas à medida que o mapa pede (as overviews no zoom de longe), e um XYZ/WMTS qualquer
    como basemap (a URL com `{z}/{x}/{y}`).
