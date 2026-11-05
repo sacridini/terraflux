@@ -86,6 +86,10 @@ pub struct PlotLayer {
     /// Drawn as a colour composite of three of its maps (bands of a stack, steps of a loop, bands of a raster).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rgb: Option<PlotRgb>,
+    /// The features of a vector layer selected in the Viewer's attribute table, by their numbers (from 1, as the
+    /// table shows them); the Viewer opens the table with them selected.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected: Vec<usize>,
 }
 
 /// A layer drawn in colour from three maps: the band of each channel and the range of its values (the part of the

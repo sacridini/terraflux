@@ -15,6 +15,12 @@ minor versions.
   transparent. The legend under its row tells the bands and ranges, the pointer the three values. Kept in the Plot
   (`rgb = { bands, red, green, blue, gamma }`, also through the MCP's `set_plot`), drawn by the figure, *Export the
   view*, the animation and `terraflux plot` / `export_plot`.
+- Viewer: **features selected by area, and the selection in the model**. Shift+drag on the map selects the features
+  of a vector layer that meet a rectangle, shift+alt+drag a lasso (exactly, not by their boxes), ctrl too adds them;
+  the table of attributes follows (opened for the topmost vector layer when none is). A Plot keeps the selection
+  (`selected = [..]`, the features' numbers). *Filter the selection* adds a `vector.filter` that keeps exactly the
+  features selected (`feature == 1 or 3 <= feature <= 9`, compact for thousands), with its note, drawn over the map.
+  Ctrl+A selects every row with the keyboard in the table, not only the pointer.
 
 ## [1.40.0] - 2026-11-04
 

@@ -5,6 +5,7 @@
 pub mod advice;
 pub mod animation;
 pub mod app;
+pub mod area;
 pub mod attribute_table;
 pub mod basemap;
 pub mod batch_view;

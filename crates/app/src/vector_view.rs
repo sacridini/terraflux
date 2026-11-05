@@ -162,8 +162,15 @@ pub fn show(ui: &mut Ui, v: &Arc<Vector>, view: &mut MapView, id: egui::Id) {
     egui::CentralPanel::default().frame(egui::Frame::new().fill(crate::theme::well())).show(ui, |ui| {
         view.show_layers(ui, &Source::Blank(grid), &Coloring::Classes(Vec::new()), &overlays);
     });
+    // (a shape dragged on the map opens the table, to hold the selection)
+    if open.is_none() && view.area_done.is_some() {
+        open = Some(crate::attribute_table::Open::default());
+    }
     match &mut open {
-        Some(o) => crate::attribute_table::clicked(o, view, Some(0)),
+        Some(o) => {
+            crate::attribute_table::clicked(o, view, Some(0));
+            crate::attribute_table::area(o, view, ui.ctx(), v, Some(0));
+        }
         None => view.feature_clicked.clear(),
     }
     ui.data_mut(|d| match open {

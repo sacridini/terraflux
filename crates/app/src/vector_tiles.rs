@@ -268,6 +268,18 @@ impl Layer {
         found
     }
 
+    /// The features that meet a polygon of cells (see [`crate::area::hits`]), in their order: those whose boxes
+    /// meet its box first, then the exact test.
+    pub fn in_shape(&self, shape: &[[f64; 2]]) -> Vec<usize> {
+        let Some(b) = crate::attribute_table::union_box(shape.iter().map(|p| [p[0], p[1], p[0], p[1]])) else {
+            return Vec::new();
+        };
+        self.within([b[0], b[1]], [b[2], b[3]])
+            .into_iter()
+            .filter(|&k| self.shape(k).is_some_and(|(kind, parts)| crate::area::hits(kind, &parts, shape)))
+            .collect()
+    }
+
     /// The box of a feature in cells (`[x0, y0, x1, y1]`); none when it has no vertex.
     pub fn feature_box(&self, k: usize) -> Option<[f64; 4]> {
         let b = self.features.get(k)?.bbox;

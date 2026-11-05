@@ -493,14 +493,13 @@ fn a_map_kept_as_a_plot_without_writing_and_saved() {
         s.edited();
     }
     h.run_steps(1);
-    until(&mut h, "the new map", |a| {
-        let s = a.session.as_ref().unwrap();
-        !s.running() && s.status.contains_key("raster_reclassify")
-    });
-    let s = h.state().session.as_ref().unwrap();
-    let Some(terraflux_ops::Value::Map(m)) = s.value_of("raster_reclassify", "map") else { panic!() };
     let ones = |m: &terraflux_ops::Map| m.data.iter().filter(|v| **v == 1.0).count();
-    assert!(ones(&m) > ones(&forest), "class 2 joined the ones");
+    // (the map of the run before stays until the new run is done: waited for by its cells, not by the status)
+    until(&mut h, "class 2 joined the ones", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running()
+            && matches!(s.value_of("raster_reclassify", "map"), Some(terraflux_ops::Value::Map(m)) if ones(&m) > ones(&forest))
+    });
     // the node renamed: the Plot follows it
     {
         let s = h.state_mut().session.as_mut().unwrap();
@@ -2733,15 +2732,23 @@ fn rename_metadata_and_the_operators_menu() {
     h.get_by_label("Metadata").click();
     h.run_steps(2);
     // Operators > Data preparation > reclassify
-    h.get_by_label("Operators").click();
-    h.run_steps(2);
-    shot(&mut h, "26-operators-menu");
-    // the menu's, over the operators' pane's
-    h.query_all_by_label_contains("Data preparation").last().expect("the subject's submenu").click();
-    h.run_steps(2);
-    shot(&mut h, "26-operators-menu");
-    h.query_all_by_label_contains("reclassify").last().expect("the submenu's operator").click();
-    h.run_steps(3);
+    // (again while the menu, laid out among what threads still bring, missed the click)
+    let added = |h: &Harness<TerrafluxApp>| {
+        h.state().session.as_ref().unwrap().source.nodes.iter().any(|n| n.op == "raster.reclassify")
+    };
+    let t = Instant::now();
+    while !added(&h) {
+        h.get_by_label("Operators").click();
+        h.run_steps(2);
+        shot(&mut h, "26-operators-menu");
+        // the menu's, over the operators' pane's
+        h.query_all_by_label_contains("Data preparation").last().expect("the subject's submenu").click();
+        h.run_steps(2);
+        shot(&mut h, "26-operators-menu");
+        h.query_all_by_label_contains("reclassify").last().expect("the submenu's operator").click();
+        h.run_steps(3);
+        assert!(t.elapsed() < Duration::from_secs(120), "the operator from the menu: too long");
+    }
     let s = h.state().session.as_ref().unwrap();
     let n = s.source.nodes.iter().find(|n| n.op == "raster.reclassify").expect("added");
     assert_eq!(n.inputs["map"], terraflux_graph::Source::Ref("land.raster".into()));
@@ -4349,11 +4356,17 @@ fn a_study_area_drawn_on_the_map() {
         !s.running() && s.value_of("pie_landuse", "raster").is_some()
     });
     drawn(&mut h);
-    // (scrolled to, at the bottom of the panel beside the map)
-    h.get_by_label("polygons").scroll_to_me();
-    h.run_steps(3);
-    h.get_by_label("polygons").click();
-    until(&mut h, "drawing turned on", |a| a.session.as_ref().unwrap().preview_view.drawing.is_some());
+    // (scrolled to, at the bottom of the panel beside the map; again while what threads make, a histogram, still
+    // moves it between the scroll and the click)
+    let t = Instant::now();
+    while h.state().session.as_ref().unwrap().preview_view.drawing.is_none() {
+        h.get_by_label("polygons").scroll_to_me();
+        h.run_steps(3);
+        h.get_by_label("polygons").click();
+        h.run_steps(2);
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(120), "drawing turned on: too long");
+    }
     let rect = h.state().session.as_ref().unwrap().preview_view.rect().unwrap();
     let c = rect.center();
     let click = |h: &mut Harness<TerrafluxApp>, at: egui::Pos2| {
@@ -5022,6 +5035,250 @@ fn the_attribute_table_of_a_vector_layer() {
     assert!(open(&h).is_none());
     assert!(h.query_by_label("Attributes of attributes_plots.vector").is_none());
     assert_eq!(h.state().session.as_ref().unwrap().preview_view.selected, None);
+}
+
+/// Features selected by area on the map: shift+drag a rectangle (ctrl too: added), shift+alt a lasso, escape lets a
+/// shape go; the table follows and the view stays. Then *Filter the selection* makes a `vector.filter` node, and
+/// ctrl+A selects the rows with the keyboard focus in the table.
+#[test]
+fn features_selected_by_area_on_the_map() {
+    use egui::{Modifiers, Pos2};
+    use egui_kittest::kittest::NodeT;
+    use terraflux_raster::vector::{Column, Geometry, Vector};
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    let g = terraflux_gdal::Dataset::open(data("sibuyan_landuse.tif")).unwrap().meta.grid.clone();
+    let t = g.transform;
+    let (w, ht) = (g.width as f64 * t[1], g.height as f64 * -t[5]);
+    // the world at a share of the map's width from the left and of its height from the top
+    let world = |fx: f64, fy: f64| [t[0] + w * fx, t[3] - ht * fy];
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        let square = |a: f64, b: f64| {
+            let (p, q) = (world(a, b), world(a + 0.2, b + 0.2));
+            Geometry::Polygon(vec![vec![p, [q[0], p[1]], q, [p[0], q[1]], p]])
+        };
+        // 1 and 2: squares (upper left, lower right); 3: a point (upper right); 4: a line along the lower part,
+        // reaching into the second square
+        let v = Vector {
+            geometries: vec![
+                square(0.2, 0.2),
+                square(0.5, 0.7),
+                Geometry::Point(world(0.8, 0.2)),
+                Geometry::LineString(vec![world(0.1, 0.8), world(0.55, 0.8)]),
+            ],
+            attributes: vec![
+                ("area".into(), Column::Numbers(vec![12.5, 3.0, 7.0, 1.5])),
+                ("use".into(), Column::Texts(vec!["forest".into(), "pasture".into(), "urban".into(), "road".into()])),
+            ],
+            crs: g.geo.wkt.clone(),
+        };
+        let gpkg = tmp("area-features.gpkg");
+        let _ = std::fs::remove_file(&gpkg);
+        terraflux_gdal::write_vector(&gpkg, "features", &v).unwrap();
+        terraflux_app::builder::add(s, &r, "vector.read", &[("path", gpkg.to_string_lossy().into_owned().into())])
+            .unwrap();
+        s.preview_layers = vec![terraflux_app::builder::Layer::new("area_features", "vector")];
+        s.preview = Some(("sibuyan_landuse".into(), "raster".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running()
+            && s.value_of("sibuyan_landuse", "raster").is_some()
+            && s.value_of("area_features", "vector").is_some()
+    });
+    h.run_steps(4);
+    drawn(&mut h);
+    let open = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().preview_attributes.clone();
+    let rows = |h: &Harness<TerrafluxApp>| -> Vec<usize> {
+        open(h).map(|o| o.pick.rows.iter().copied().collect()).unwrap_or_default()
+    };
+    let selected = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().preview_view.selected.clone();
+    // a shape dragged with no table open opens the table of the topmost vector layer, with what it met
+    let at = |h: &Harness<TerrafluxApp>, fx: f64, fy: f64| -> Pos2 {
+        let v = &h.state().session.as_ref().unwrap().preview_view;
+        let (zoom, center) = v.camera();
+        let cell = egui::vec2((fx * g.width as f64) as f32, (fy * g.height as f64) as f32);
+        v.rect().expect("the map is drawn").center() + (cell - center) * zoom
+    };
+    let drag = |h: &mut Harness<TerrafluxApp>, path: &[(f64, f64)], keys: Modifiers| {
+        let pts: Vec<Pos2> = path.iter().map(|&(x, y)| at(h, x, y)).collect();
+        h.event(egui::Event::PointerMoved(pts[0]));
+        h.run_steps(1);
+        h.event(egui::Event::PointerButton {
+            pos: pts[0],
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: keys,
+        });
+        h.run_steps(1);
+        for w in pts.windows(2) {
+            for k in 1..=4 {
+                h.event(egui::Event::PointerMoved(w[0] + (w[1] - w[0]) * (k as f32 / 4.0)));
+                h.run_steps(1);
+            }
+        }
+        h.event(egui::Event::PointerButton {
+            pos: *pts.last().unwrap(),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: keys,
+        });
+        h.run_steps(3);
+    };
+    assert!(open(&h).is_none());
+    // (a rectangle is its first corner and where the pointer is: two corners are enough)
+    drag(&mut h, &[(0.1, 0.1), (0.45, 0.45)], Modifiers::SHIFT);
+    until(&mut h, "the table opened by the shape", |a| {
+        a.session.as_ref().unwrap().preview_attributes.as_ref().is_some_and(|o| o.pick.rows.len() == 1)
+    });
+    h.run_steps(3);
+    assert!(open(&h).is_some_and(|o| o.is("area_features", "vector")));
+    assert_eq!(rows(&h), [0], "the first square");
+    assert!(h.query_by_label("Attributes of area_features.vector").is_some());
+    assert!(h.query_by_label("1 selected").is_some());
+    // (the table took room: the view of the map is fitted again before the next shapes)
+    h.state_mut().session.as_mut().unwrap().preview_view.fit();
+    drawn(&mut h);
+    h.run_steps(3);
+    let camera2 = h.state().session.as_ref().unwrap().preview_view.camera();
+    assert_ne!(camera2.0, 0.0);
+    assert_eq!(selected(&h), Some((0, vec![0])));
+    // shift+ctrl adds: the rectangle around the point
+    drag(&mut h, &[(0.7, 0.1), (0.9, 0.3)], Modifiers::SHIFT | Modifiers::COMMAND);
+    until(&mut h, "the point added", |a| {
+        a.session.as_ref().unwrap().preview_attributes.as_ref().is_some_and(|o| o.pick.rows.len() == 2)
+    });
+    assert_eq!(rows(&h), [0, 2]);
+    assert_eq!(selected(&h), Some((0, vec![0, 2])));
+    assert!(h.query_by_label("2 selected").is_some());
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.camera(), camera2, "the map did not move");
+    shot(&mut h, "14g-selected-by-area");
+    // *Filter the selection*: a vector.filter node after the layer that keeps the features 1 and 3
+    let nodes = h.state().session.as_ref().unwrap().source.nodes.len();
+    let before = h.state().session.as_ref().unwrap().preview.clone();
+    assert!(!h.get_by_label("Filter the selection").accesskit_node().is_disabled());
+    h.get_by_label("Filter the selection").click();
+    h.run_steps(3);
+    let id = {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(s.source.nodes.len(), nodes + 1, "{:?}", s.editor.message);
+        let n = s.source.nodes.last().unwrap();
+        assert_eq!(n.op, "vector.filter");
+        assert_eq!(n.params["expression"].as_str(), Some("feature == 1 or feature == 3"));
+        assert!(
+            n.inputs
+                .get("vector")
+                .is_some_and(|i| matches!(i, terraflux_graph::Source::Ref(r) if r == "area_features.vector"))
+        );
+        assert!(n.note.as_deref().is_some_and(|t| t.contains("2 features")) && n.why.is_some());
+        assert_eq!(s.selected.as_deref(), Some(n.id.as_str()), "the node is selected");
+        assert_eq!(s.preview, before, "the map shown stays");
+        assert!(s.preview_layers.iter().any(|l| l.node == n.id), "shown in the Viewer, over the map");
+        n.id.clone()
+    };
+    until(&mut h, "the filter run", |a| {
+        let s = a.session.as_ref().unwrap();
+        s.show_queue.is_empty() && !s.running() && s.value_of(&id, "vector").is_some()
+    });
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let Some(terraflux_ops::Value::Vector(v)) = s.value_of(&id, "vector") else { panic!("the features kept") };
+        assert_eq!(v.len(), 2, "exactly the selected features");
+        assert_eq!(v.column("use").map(|c| c.numbers().len()), Some(2));
+        let Some(Column::Texts(uses)) = v.column("use") else { panic!("texts") };
+        assert_eq!(uses, &["forest".to_string(), "urban".to_string()]);
+    }
+    drawn(&mut h);
+    // one undo step takes the node away
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::undo_redo(s, false);
+        assert_eq!(s.source.nodes.len(), nodes);
+    }
+    h.run_steps(3);
+    drawn(&mut h);
+    // shift alone replaces: the rectangle around the second square and the end of the line
+    drag(&mut h, &[(0.45, 0.75), (0.6, 0.85)], Modifiers::SHIFT);
+    until(&mut h, "the rectangle's features", |a| {
+        a.session
+            .as_ref()
+            .unwrap()
+            .preview_attributes
+            .as_ref()
+            .is_some_and(|o| o.pick.rows.len() == 2 && o.pick.rows.contains(&3))
+    });
+    assert_eq!(rows(&h), [1, 3], "the square and the line that reaches into the rectangle");
+    // a lasso (shift+alt) round the point: a triangle of whose box the point is in, but not of the triangle: none
+    drag(&mut h, &[(0.6, 0.4), (0.95, 0.4), (0.95, 0.1), (0.61, 0.4)], Modifiers::SHIFT | Modifiers::ALT);
+    h.run_steps(3);
+    assert_eq!(rows(&h), Vec::<usize>::new(), "the point is in the lasso's box, not in the lasso");
+    assert_eq!(selected(&h), None);
+    assert!(h.get_by_label("Filter the selection").accesskit_node().is_disabled(), "nothing to filter by");
+    // a lasso that holds it
+    drag(&mut h, &[(0.65, 0.1), (0.95, 0.1), (0.95, 0.3), (0.7, 0.3), (0.66, 0.11)], Modifiers::SHIFT | Modifiers::ALT);
+    until(&mut h, "the lasso's feature", |a| {
+        a.session.as_ref().unwrap().preview_attributes.as_ref().is_some_and(|o| o.pick.rows.len() == 1)
+    });
+    assert_eq!(rows(&h), [2]);
+    // escape lets a shape go: the selection stays, whatever the pointer does after it
+    h.event(egui::Event::PointerMoved(at(&h, 0.1, 0.1)));
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton {
+        pos: at(&h, 0.1, 0.1),
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::SHIFT,
+    });
+    h.run_steps(1);
+    for k in 1..=4 {
+        h.event(egui::Event::PointerMoved(at(&h, 0.1 + 0.1 * k as f64, 0.1 + 0.1 * k as f64)));
+        h.run_steps(1);
+    }
+    assert!(h.state().session.as_ref().unwrap().preview_view.area.is_some(), "the shape is being dragged");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(1);
+    assert!(h.state().session.as_ref().unwrap().preview_view.area.is_none());
+    h.event(egui::Event::PointerMoved(at(&h, 0.8, 0.8)));
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton {
+        pos: at(&h, 0.8, 0.8),
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::SHIFT,
+    });
+    h.run_steps(3);
+    assert_eq!(rows(&h), [2], "the selection stays");
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.camera(), camera2, "the map did not move");
+    // ctrl+A with the keyboard focus in the table, the pointer on the map; not with a box focused
+    h.get_by_label("2 3 pasture").click();
+    h.run_steps(2);
+    assert_eq!(rows(&h), [1]);
+    let below = h.state().session.as_ref().unwrap().preview_view.rect().unwrap().bottom();
+    let filter = h
+        .query_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().bounding_box().is_some_and(|b| b.y0 as f32 > below))
+        .expect("the table's filter box");
+    filter.click();
+    h.run_steps(2);
+    h.key_press_modifiers(Modifiers::COMMAND, egui::Key::A);
+    h.run_steps(3);
+    assert_eq!(rows(&h), [1], "ctrl+A in a box is the box's");
+    h.get_by_label("2 3 pasture").click();
+    h.run_steps(2);
+    let centre = h.state().session.as_ref().unwrap().preview_view.rect().unwrap().center();
+    h.event(egui::Event::PointerMoved(centre));
+    h.run_steps(2);
+    h.key_press_modifiers(Modifiers::COMMAND, egui::Key::A);
+    until(&mut h, "all selected by ctrl+A with the focus in the table", |a| {
+        a.session.as_ref().unwrap().preview_attributes.as_ref().is_some_and(|o| o.pick.rows.len() == 4)
+    });
+    assert_eq!(rows(&h), [0, 1, 2, 3]);
 }
 
 /// The histogram of the map shown: bars of its values under the legend, the numbers under them; a map of classes

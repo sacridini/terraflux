@@ -2351,6 +2351,19 @@ item, na ordem; release só quando pedido.
 2. **Selecionar por área e usar a seleção no modelo.** Shift+arrastar no mapa seleciona as feições de uma camada de
    vetores por um retângulo (Shift+Alt: um laço); a seleção guardada no Plot; *Filter the selection* cria um nó
    `vector.filter` com as feições escolhidas; Ctrl+A com o foco do teclado na tabela (não só o ponteiro).
+   **Feito** (Unreleased, por um sub-agente): `area.rs` (`Drag`, `Done`, `hits`: o ponto dentro, uma aresta que cruza,
+   o polígono que contém a forma), `vector_tiles::Layer::in_shape` (o índice das caixas, depois `hits`),
+   `MapView::select_area` antes do pan (Shift+arrastar, Alt um laço, Ctrl soma; Esc solta; nada medindo ou
+   desenhando), `Pick::area` (sem levar a vista), na tabela aberta ou na da camada de vetores mais alta.
+   `PlotLayer.selected` (os números a partir de 1), de volta no `open_plot`. *Filter the selection*
+   (`builder::filter_selection`, `attribute_table::filter_expression`: faixas `a <= feature <= b` ligadas por `or`,
+   `not (...)` quando as não escolhidas são menos faixas), um passo de desfazer, o nó fixado por cima do mapa.
+   Ctrl+A com o foco do teclado na tabela. Testes: os de `area.rs` e `attribute_table.rs`,
+   `the_selection_is_kept_in_the_plot`, `features_selected_by_area_on_the_map`. Também: três testes de UI que
+   falhavam às vezes sob carga ficaram firmes (`a_study_area_drawn_on_the_map`, `rename_metadata_and_the_operators_menu`
+   repetem o clique; `a_map_kept_as_a_plot_without_writing_and_saved` espera o mapa novo, não o status). Falta: a
+   seleção no Plot só da tabela aberta (fechada, o *Update the plot* a perde); o `set_plot` do MCP sem `selected`; o
+   laço sem preenchimento (o egui só preenche formas convexas).
 3. **A simbologia dos vetores.** Colorir por um atributo com a rampa escolhida (as do Viewer) e as quebras
    (contínua, intervalos iguais, quantis, Jenks; o número de classes), o tamanho dos pontos por um atributo e
    símbolos de ponto além do círculo (quadrado, triângulo, cruz). A legenda dos vetores nos Layers. Guardada no

@@ -472,6 +472,13 @@ pub struct MapView {
     pub selected: Option<(usize, Vec<usize>)>,
     pub feature_clicked: Vec<(usize, usize)>,
     pub feature_toggle: bool,
+    /// A shape being dragged to select features by area (shift+drag a rectangle, shift+alt+drag a lasso), the
+    /// shape finished and not yet used (`area_done`), whether the drag in hand is one (escape lets the shape go, the
+    /// drag goes on without moving the map), and the keys held at the last press.
+    pub area: Option<crate::area::Drag>,
+    pub area_done: Option<crate::area::Done>,
+    selecting: bool,
+    press: egui::Modifiers,
     /// The trace of the cell picked asked for from its menu (a right click), and who explains it.
     pub trace_request: Option<crate::trace_view::Explain>,
     /// Where the view was drawn last.
@@ -1082,6 +1089,56 @@ impl MapView {
         self.center + (p - rect.center()) / self.zoom
     }
 
+    /// Selecting by area: a drag with shift down begins a rectangle (with alt too: a lasso), the pointer shapes
+    /// it, a release ends it (`area_done`: with ctrl held, to add), escape lets it go. `allowed`: no drawing or
+    /// measuring, and vector layers to select from.
+    fn select_area(&mut self, ui: &Ui, response: &egui::Response, rect: Rect, allowed: bool) {
+        // (the keys held at the last press on the map: the events' own, as a click's)
+        let pressed = ui.input(|i| {
+            i.events.iter().rev().find_map(|e| match e {
+                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers }
+                    if rect.contains(*pos) =>
+                {
+                    Some(*modifiers)
+                }
+                _ => None,
+            })
+        });
+        if let Some(m) = pressed {
+            self.press = m;
+        }
+        let now = ui.input(|i| i.modifiers);
+        let cell = |s: &Self, p: Pos2| {
+            let c = s.to_cell(rect, p);
+            [f64::from(c.x), f64::from(c.y)]
+        };
+        if allowed && response.drag_started_by(egui::PointerButton::Primary) && (self.press.shift || now.shift) {
+            let origin = ui.input(|i| i.pointer.press_origin()).or_else(|| response.interact_pointer_pos());
+            if let Some(p) = origin {
+                self.selecting = true;
+                self.area = Some(crate::area::Drag::new(self.press.alt || now.alt, cell(self, p)));
+            }
+        }
+        if !self.selecting {
+            return;
+        }
+        if self.area.is_some() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            self.area = None;
+        }
+        if let Some(p) = response.interact_pointer_pos() {
+            let (c, step) = (cell(self, p), f64::from(2.0 / self.zoom.max(1e-6)));
+            if let Some(d) = self.area.as_mut() {
+                d.push(c, step);
+            }
+        }
+        if response.drag_stopped() || !ui.input(|i| i.pointer.any_down()) {
+            self.selecting = false;
+            if let Some(shape) = self.area.take().and_then(|d| d.polygon()) {
+                self.area_done = Some(crate::area::Done { shape, add: self.press.command || now.command });
+            }
+        }
+    }
+
     fn take_made(&mut self, ctx: &egui::Context) {
         let Some(w) = &self.workers else { return };
         // (a few textures a frame: hundreds made at once, a folder of rasters opened, would hold the window)
@@ -1285,7 +1342,15 @@ impl MapView {
             }
             None => false,
         };
-        if response.dragged() && !editing {
+        // shift+drag: a rectangle of features to select (shift+alt: a lasso); not while features are drawn or a
+        // line measured; ctrl adds them to the selection
+        self.select_area(
+            ui,
+            &response,
+            rect,
+            !overlays.is_empty() && self.drawing.is_none() && self.measuring.is_none(),
+        );
+        if response.dragged() && !editing && !self.selecting {
             self.center -= response.drag_delta() / self.zoom;
         }
         // B over the map: the satellite's imagery under it, or none
@@ -1684,6 +1749,11 @@ impl MapView {
                     ui.close();
                 }
             });
+        }
+        // the shape being dragged, translucent in the accent
+        if let Some(d) = &self.area {
+            let (zoom, center) = (self.zoom, self.center);
+            d.paint(&painter, |p| rect.center() + (Vec2::new(p[0] as f32, p[1] as f32) - center) * zoom);
         }
         if let Some(mut sketch) = self.drawing.take() {
             let (zoom, center) = (self.zoom, self.center);

@@ -2624,6 +2624,16 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
         _ => None,
     };
     s.preview_layers = layers_of_plot(&p.layers);
+    // the features selected (one layer has a selection at a time: the first): its table of attributes open with them
+    s.preview_attributes = p.layers.iter().find_map(|l| {
+        let (node, port) = port_of(&l.from)?;
+        let rows: std::collections::BTreeSet<usize> = l.selected.iter().filter(|&&k| k > 0).map(|k| k - 1).collect();
+        (!rows.is_empty()).then(|| {
+            let mut open = crate::attribute_table::Open::of(&node, &port);
+            open.pick.area(&rows.into_iter().collect::<Vec<_>>(), false);
+            open
+        })
+    });
     // the palettes the Plot asks for (none: by what the maps are)
     for l in &p.layers {
         let Some(key) = port_of(&l.from) else { continue };
@@ -2696,6 +2706,7 @@ fn plot_layer(
         minus: l.minus.as_ref().map(|(n, p)| format!("{n}.{p}")),
         minus_band: l.minus.as_ref().and(l.minus_band),
         rgb: l.rgb.as_ref().filter(|_| l.minus.is_none()).map(crate::rgb::Rgb::to_plot),
+        selected: Vec::new(),
     }
 }
 
@@ -2751,6 +2762,12 @@ fn plot_of(
             plot_layer(l, band, palette(&l.node, &l.port), range(&l.node, &l.port))
         })
         .collect();
+    // (the features selected in the table of attributes: kept with their layer, by their numbers from 1)
+    if let Some(o) = sh.attributes.as_ref().filter(|o| !o.pick.rows.is_empty())
+        && let Some((pl, _)) = layers.iter_mut().zip(&sh.layers).find(|(_, l)| l.is(&o.node, &o.port))
+    {
+        pl.selected = o.pick.rows.iter().map(|k| k + 1).collect();
+    }
     if !sh.layers.iter().any(|l| l.is(&sh.node, &sh.port)) {
         layers.push(PlotLayer {
             band: shown_band,
@@ -3201,6 +3218,50 @@ pub fn pin(layers: &mut Vec<Layer>, node: &str, port: &str) {
     if !layers.iter().any(|l| l.is(node, port)) {
         layers.push(Layer::new(node, port));
     }
+}
+
+/// *Filter the selection* of a table of attributes: a `vector.filter` node after the layer (`total` features) that
+/// keeps the features selected, by their numbers ([`crate::attribute_table::filter_expression`]), with a note of
+/// what it keeps and why. It is one step of undo, becomes the node selected, is run and drawn as a layer over the
+/// others; the map shown stays. The node's id.
+fn filter_selection(
+    s: &mut Session,
+    r: &Registry,
+    layers: &mut Vec<Layer>,
+    open: &crate::attribute_table::Open,
+    total: usize,
+) -> Result<String, String> {
+    let top: &[String] = &[];
+    if !s.source.nodes.iter().any(|n| n.id == open.node) {
+        return Err(format!("{} is not a node of the model's top level: no filter can follow it", open.node));
+    }
+    let from = format!("{}.{}", open.node, open.port);
+    let n = open.pick.rows.iter().filter(|&&k| k < total).count();
+    let expression = crate::attribute_table::filter_expression(&open.pick.rows, total);
+    let pos = beside(&s.source.nodes, Some(&open.node));
+    let id = crate::editor::add_node(&mut s.source, r, top, "vector.filter", pos)?;
+    let made = (|| {
+        crate::editor::connect(&mut s.source, r, top, &from, &id, "vector")?;
+        crate::editor::set_param(&mut s.source, top, &id, "expression", &expression)?;
+        let note =
+            format!("The {n} feature{} selected in the attribute table of {from}.", if n == 1 { "" } else { "s" });
+        crate::editor::set_note(&mut s.source, top, &id, &note)?;
+        let why = "Chosen on the map or in the table and kept by their number in that layer: if its features change \
+                   (another input or setting upstream), choose them again.";
+        crate::editor::set_why(&mut s.source, top, &id, why)
+    })();
+    if let Err(e) = made {
+        s.source.nodes.retain(|x| x.id != id);
+        return Err(e);
+    }
+    s.edited();
+    // (selected, but the map shown stays: the features go over it)
+    let shown = (s.preview.clone(), s.preview_band, s.preview_chosen);
+    select(s, r, &id);
+    (s.preview, s.preview_band, s.preview_chosen) = shown;
+    pin(layers, &id, "vector");
+    s.show_queue.push(id.clone());
+    Ok(id)
 }
 
 /// The layers kept for outputs of the model as it is now: those of nodes no longer there taken away, those of a node
@@ -4767,6 +4828,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     // the table of a layer's attributes under the map (closed with the layer): its feature selected outlined on
     // the map, the view brought to it
     let mut table = sh.attributes.take();
+    let mut table_v: Option<Arc<terraflux_raster::vector::Vector>> = None;
     if let Some(open) = &mut table {
         let value = s.value_of(&open.node, &open.port);
         match value {
@@ -4775,6 +4837,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 let name = output_name(&open.node, &open.port);
                 if crate::attribute_table::panel(ui, id, &v, &name, open) {
                     crate::attribute_table::link(open, &mut sh.view, ui.ctx(), &v, table_at);
+                    table_v = Some(v);
                 } else {
                     sh.view.selected = None;
                     table = None;
@@ -4844,21 +4907,47 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     let Compare { view: compared_view, layers: compared_own, more: views, .. } = &mut sh.compare;
     let mut beside_views: Vec<(&mut crate::map_view::MapView, bool)> = vec![(compared_view, compared_own.is_some())];
     beside_views.extend(views.iter_mut().map(|b| (&mut b.view, b.layers.is_some())));
-    match &mut table {
-        Some(open) => {
+    // a shape dragged on a map (shift+drag) with no table open: the table of the topmost visible vector layer
+    // opens, to hold the selection
+    let mut table_at = table_at;
+    if table.is_none()
+        && (sh.view.area_done.is_some() || beside_views.iter().any(|(v, own)| side && !own && v.area_done.is_some()))
+        && let Some((n, p, v)) = sh.layers.iter().rev().find_map(|l| match s.value_of(&l.node, &l.port) {
+            Some(Value::Vector(v)) if l.visible && l.minus.is_none() => Some((l.node.clone(), l.port.clone(), v)),
+            _ => None,
+        })
+    {
+        table = Some(crate::attribute_table::Open::of(&n, &p));
+        table_v = Some(v);
+        // (it was the last of the vectors drawn)
+        table_at = overlays.len().checked_sub(1);
+    }
+    match (&mut table, &table_v) {
+        (Some(open), Some(v)) => {
+            let ctx = ui.ctx().clone();
             crate::attribute_table::clicked(open, &mut sh.view, table_at);
-            for (v, own) in beside_views {
+            crate::attribute_table::area(open, &mut sh.view, &ctx, v, table_at);
+            for (view, own) in beside_views {
                 if side && !own {
-                    crate::attribute_table::clicked(open, v, table_at);
+                    crate::attribute_table::clicked(open, view, table_at);
+                    crate::attribute_table::area(open, view, &ctx, v, table_at);
                 } else {
-                    v.feature_clicked.clear();
+                    view.feature_clicked.clear();
+                    view.area_done = None;
                 }
             }
+            if std::mem::take(&mut open.filter)
+                && let Err(e) = filter_selection(s, r, &mut sh.layers, open, v.len())
+            {
+                s.editor.message = Some(e);
+            }
         }
-        None => {
+        _ => {
             sh.view.feature_clicked.clear();
+            sh.view.area_done = None;
             for (v, _) in beside_views {
                 v.feature_clicked.clear();
+                v.area_done = None;
             }
         }
     }
@@ -6564,6 +6653,51 @@ params = { expression = "x * 0 + k" }
         m.nodes.retain(|n| n.id != "c");
         layers_follow(&mut sh.layers, &m, None);
         assert!(sh.layers.is_empty());
+    }
+
+    /// The features selected in the table of attributes: kept in the Plot by their numbers (from 1), back in the
+    /// table when the Plot is opened; an older Plot (no `selected`) loads with none.
+    #[test]
+    fn the_selection_is_kept_in_the_plot() {
+        use terraflux_graph::{Model, Node, Plot, PlotLayer};
+        let mut m = Model::new("m");
+        m.nodes.push(Node::new("a", "nlm.random"));
+        m.nodes.push(Node::new("v", "vector.read"));
+        m.plots.push(Plot {
+            id: "p".into(),
+            layers: vec![
+                PlotLayer::new("a.map"),
+                PlotLayer { selected: vec![3, 1, 2, 7, 0], ..PlotLayer::new("v.vector") },
+            ],
+            ..Default::default()
+        });
+        // (the file: `selected` written only when there is one, and an older Plot reads)
+        let json = serde_json::to_value(&m.plots[0]).unwrap();
+        assert!(json["layers"][0].get("selected").is_none());
+        assert_eq!(json["layers"][1]["selected"], serde_json::json!([3, 1, 2, 7, 0]));
+        let back: Plot = serde_json::from_value(json).unwrap();
+        assert_eq!(back, m.plots[0]);
+        let old: PlotLayer = serde_json::from_str(r#"{ "from": "v.vector" }"#).unwrap();
+        assert!(old.selected.is_empty());
+        // opened: the table of the layer open, rows (from 0) selected, the zeros that are no feature left out
+        let r = Registry::standard();
+        let mut s = Session::from_model(m).unwrap();
+        open_plot(&mut s, &r, "p");
+        let open = s.preview_attributes.clone().expect("the table opens");
+        assert!(open.is("v", "vector"));
+        assert_eq!(open.pick.rows.iter().copied().collect::<Vec<_>>(), [0, 1, 2, 6]);
+        assert!(!open.zoom && !open.pick.clicked, "the view stays");
+        // kept again from the Viewer: the numbers of the rows
+        let mut sh = Shown { node: "a".into(), port: "map".into(), ..Default::default() };
+        sh.layers = layers_of_plot(&s.source.plots[0].layers);
+        sh.attributes = Some(open);
+        let p = plot_of(&sh, (&Default::default(), &Default::default()), None, "p", None);
+        assert!(p.layers[0].selected.is_empty());
+        assert_eq!(p.layers[1].selected, [1, 2, 3, 7]);
+        // no table open: no selection kept
+        sh.attributes = None;
+        let p = plot_of(&sh, (&Default::default(), &Default::default()), None, "p", None);
+        assert!(p.layers.iter().all(|l| l.selected.is_empty()));
     }
 
     /// Two layers of one stack make a difference: kept apart by their bands, named once, kept in a Plot and back.

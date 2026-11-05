@@ -224,6 +224,15 @@ row the filter leaves. A ctrl+click that leaves one row selected does not move t
 The selection is outlined in every view, side by side too, and a feature clicked in a view side by side that
 draws the Viewer's layers selects its row as in the main one (a view with layers of its own draws other features).
 
+Features are also selected by area: **shift+drag** on the map draws a rectangle, **shift+alt+drag** a lasso, and
+on release the features of the layer whose table is open (else the topmost vector layer shown, whose table then
+opens) that meet the shape are selected: a point inside it, a line or a polygon that crosses it, or a polygon that
+holds it. With ctrl held too, they are added to the selection; esc lets go of a shape still dragged. Ctrl+A selects
+every row shown also when the keyboard is in the table. A saved Plot keeps the selection and opens the table with
+it. **Filter the selection**, in the table's header, adds a [[vector.filter]] after the layer that keeps exactly the
+features selected (by their number, `feature`, so that a change upstream asks for choosing them again), with a note
+of what it keeps; it is drawn over the map, and one undo takes it away.
+
 ### Exporting the view
 
 *Export the view...*, beside *Figure...*, writes the map as the Viewer shows it, with its layers, vectors and

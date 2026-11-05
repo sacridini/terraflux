@@ -187,6 +187,20 @@ impl Pick {
         self.rows.len() == 1 && self.plain
     }
 
+    /// The rows a shape drawn on the map met: they are the selection, or join it (`add`); none found and not
+    /// adding: the selection let go. No click on a row: the view stays.
+    pub fn area(&mut self, found: &[usize], add: bool) {
+        if !add {
+            self.clear();
+        }
+        self.rows.extend(found.iter().copied());
+        self.plain = false;
+        self.clicked = false;
+        if let Some(&k) = found.last() {
+            (self.row, self.anchor) = (Some(k), Some(k));
+        }
+    }
+
     /// Only this row selected (a feature clicked on the map).
     pub fn only(&mut self, k: usize) {
         self.clear();
@@ -302,6 +316,8 @@ pub fn show_picking(ui: &mut Ui, t: &Table, id: egui::Id, mut pick: Option<&mut 
                 {
                     let m = click_modifiers(ui);
                     p.click(&rows, rows[k], m.command, m.shift);
+                    // (the keyboard is the table's now: ctrl+A selects its rows)
+                    resp.request_focus();
                 }
                 let mut x = rect.left() + 4.0;
                 for (j, &w) in widths.iter().enumerate() {

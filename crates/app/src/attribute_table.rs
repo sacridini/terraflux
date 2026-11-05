@@ -2,8 +2,9 @@
 //! attributes), sorted and filtered as the app's other tables are ([`crate::table_view`]). A row clicked selects
 //! its feature, outlined on the map in the accent and zoomed to; a feature clicked on the map selects its row and
 //! scrolls to it. Several are selected with ctrl+click (toggled) and shift+click (the range from the last row
-//! clicked), on the table or on the map; escape lets them go, and the header zooms to all of them, copies or
-//! saves only their rows.
+//! clicked), on the table or on the map; a shape dragged on the map (shift: a rectangle, shift+alt: a lasso)
+//! selects the features it meets (ctrl adds them). Escape lets them go, and the header zooms to all of them,
+//! copies or saves only their rows, or makes a `vector.filter` node that keeps them.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -16,7 +17,9 @@ use crate::map_view::MapView;
 use crate::table_view::Pick;
 
 /// A table of attributes opened: of which layer (an output of the run, empty for features shown alone), the rows
-/// selected, and whether the view is to zoom to the row clicked (`zoom`) or to all the rows selected (`zoom_all`).
+/// selected, whether the view is to zoom to the row clicked (`zoom`) or to all the rows selected (`zoom_all`),
+/// whether *Filter the selection* was clicked (`filter`), and whether a shape is being dragged on the map
+/// (`dragging`: escape is for the shape, not for the selection).
 #[derive(Debug, Clone, Default)]
 pub struct Open {
     pub node: String,
@@ -24,6 +27,8 @@ pub struct Open {
     pub pick: Pick,
     pub zoom: bool,
     pub zoom_all: bool,
+    pub filter: bool,
+    pub dragging: bool,
 }
 
 impl Open {
@@ -116,16 +121,23 @@ pub fn panel(ui: &mut Ui, id: egui::Id, v: &Arc<Vector>, name: &str, open: &mut 
         .min_size(90.0)
         .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(egui::Margin::same(8)))
         .show(ui, |ui| {
-            // escape lets the selection go (when no box has the focus)
+            // escape lets the selection go (when no box has the focus, and no shape is being dragged on the map)
             if !open.pick.rows.is_empty()
+                && !open.dragging
                 && !ui.ctx().text_edit_focused()
                 && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
             {
                 open.pick.clear();
             }
-            // ctrl+A selects the rows shown (when the pointer is on the table and no box has the focus)
+            // ctrl+A selects the rows shown (when the pointer is on the table, or the keyboard focus is in it, and
+            // no box has the focus)
             let table_id = id.with("table");
-            if ui.ui_contains_pointer()
+            let focus_here = ui
+                .ctx()
+                .memory(|m| m.focused())
+                .and_then(|f| ui.ctx().read_response(f))
+                .is_some_and(|r| ui.max_rect().contains(r.rect.center()));
+            if (ui.ui_contains_pointer() || focus_here)
                 && !ui.ctx().text_edit_focused()
                 && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::A))
             {
@@ -176,6 +188,11 @@ pub fn panel(ui: &mut Ui, id: egui::Id, v: &Arc<Vector>, name: &str, open: &mut 
                 });
             });
             ui.horizontal(|ui| {
+                // (first: where it is whatever the selection, and not pushed out of a narrow panel)
+                let (can, why) = can_filter(open, v, n);
+                if ui.add_enabled(can, egui::Button::new("Filter the selection").small()).on_hover_text(why).clicked() {
+                    open.filter = true;
+                }
                 if n > 0 {
                     if ui
                         .small_button("Zoom to selection")
@@ -214,6 +231,7 @@ pub fn panel(ui: &mut Ui, id: egui::Id, v: &Arc<Vector>, name: &str, open: &mut 
 /// the layer is not drawn), and the view brought to them when asked.
 pub fn link(open: &mut Open, view: &mut MapView, ctx: &egui::Context, v: &Arc<Vector>, at: Option<usize>) {
     view.selected = at.zip(Some(open.pick.rows.iter().copied().collect::<Vec<_>>())).filter(|(_, r)| !r.is_empty());
+    open.dragging = view.area.is_some();
     if open.zoom_all {
         let rows: Vec<usize> = open.pick.rows.iter().copied().collect();
         open.zoom_all = !zoom_to(view, ctx, v, &rows);
@@ -242,6 +260,79 @@ pub fn clicked(open: &mut Open, view: &mut MapView, at: Option<usize>) {
         }
         open.pick.scroll = open.pick.rows.contains(&k);
     }
+}
+
+/// A shape dragged on the map (shift+drag) selects the features of the table's layer that it meets: they replace
+/// the selection, or join it when ctrl was held. Waits (and asks for a frame) while the layer is prepared for the
+/// map; the shape of a layer not drawn is let go. The view stays where it is.
+pub fn area(open: &mut Open, view: &mut MapView, ctx: &egui::Context, v: &Arc<Vector>, at: Option<usize>) {
+    let Some(done) = view.area_done.take() else { return };
+    let (Some(_), Some(grid)) = (at, view.shown_grid().cloned()) else { return };
+    match view.vectors.layer(ctx, v, &grid) {
+        Ok(Some(layer)) => open.pick.area(&layer.in_shape(&done.shape), done.add),
+        Ok(None) => {
+            view.area_done = Some(done);
+            ctx.request_repaint();
+        }
+        Err(_) => {}
+    }
+}
+
+/// Whether the selection can be made a `vector.filter` (the layer an output of the model, a selection, no
+/// attribute named `feature`, which the filter would read instead of the feature's number), and what the button
+/// says.
+fn can_filter(open: &Open, v: &Vector, selected: usize) -> (bool, &'static str) {
+    if open.node.is_empty() {
+        (false, "the features are not an output of the model: there is nothing to put a filter after")
+    } else if v.column("feature").is_some() {
+        (false, "the features have an attribute named feature, which a filter would read instead of their number")
+    } else if selected == 0 {
+        (false, "select features first (on the table, or shift+drag on the map)")
+    } else {
+        (true, "a vector.filter node after this layer that keeps the selected features, shown in the Viewer")
+    }
+}
+
+/// The condition of a `vector.filter` that keeps exactly the features of the rows `rows` (from 0) among `total`: by
+/// their numbers (`feature`, from 1), as ranges (`3 <= feature <= 9`, `feature == 12`) joined by `or`, in a
+/// balanced tree of brackets when they are many; the ranges of the other features under `not` when they are
+/// fewer. Rows past `total` are left out.
+pub fn filter_expression(rows: &BTreeSet<usize>, total: usize) -> String {
+    let ranges = |numbers: &mut dyn Iterator<Item = usize>| -> Vec<(usize, usize)> {
+        let mut out: Vec<(usize, usize)> = Vec::new();
+        for k in numbers {
+            match out.last_mut() {
+                Some((_, b)) if *b + 1 == k => *b = k,
+                _ => out.push((k, k)),
+            }
+        }
+        out
+    };
+    let chosen = ranges(&mut rows.iter().filter(|&&k| k < total).map(|&k| k + 1));
+    let others = ranges(&mut (1..=total).filter(|k| !rows.contains(&(k - 1))));
+    let text = |r: &[(usize, usize)]| {
+        let terms: Vec<String> = r
+            .iter()
+            .map(|&(a, b)| if a == b { format!("feature == {a}") } else { format!("{a} <= feature <= {b}") })
+            .collect();
+        join_or(&terms)
+    };
+    match (chosen.len(), others.len()) {
+        (0, _) => "feature < 0".into(),
+        (_, 0) => "feature >= 1".into(),
+        (c, o) if o < c => format!("not ({})", text(&others)),
+        _ => text(&chosen),
+    }
+}
+
+/// Conditions joined by `or`: in one line when few, else halves in brackets, so that a long list is a shallow
+/// tree for the calculator.
+fn join_or(terms: &[String]) -> String {
+    if terms.len() <= 8 {
+        return terms.join(" or ");
+    }
+    let (a, b) = terms.split_at(terms.len() / 2);
+    format!("({}) or ({})", join_or(a), join_or(b))
 }
 
 /// The view on features, with room around them (more for a point, which has no size). True when done: false while
@@ -399,6 +490,69 @@ mod tests {
         assert_eq!(union_box([a, b]), Some([-1.0, 1.0, 2.0, 5.0]));
         assert_eq!(union_box([a]), Some(a));
         assert_eq!(union_box([]), None);
+    }
+
+    #[test]
+    fn a_shape_selects_or_adds() {
+        let mut p = Pick::default();
+        p.click(&[0, 1, 2, 3], 3, false, false);
+        // replaces: the rows found, the view stays (no click, no zoom)
+        p.area(&[0, 1], false);
+        assert_eq!((rows(&p), p.row, p.clicked, p.zooms()), (vec![0, 1], Some(1), false, false));
+        // adds
+        p.area(&[3], true);
+        assert_eq!(rows(&p), [0, 1, 3]);
+        // adds none: as it was; replaces with none: let go
+        p.area(&[], true);
+        assert_eq!(rows(&p), [0, 1, 3]);
+        p.area(&[], false);
+        assert_eq!((rows(&p), p.row, p.anchor), (vec![], None, None));
+    }
+
+    /// The rows a condition keeps, by the calculator of vector.filter.
+    fn kept(expression: &str, n: usize) -> Vec<usize> {
+        let v = Vector {
+            geometries: vec![Geometry::Point([0.0, 0.0]); n],
+            attributes: vec![("a".into(), Column::Numbers(vec![1.0; n]))],
+            crs: None,
+        };
+        let script = terraflux_ops::algebra::parse_script(expression).unwrap();
+        terraflux_ops::vector_algebra::kept(&v, &Default::default(), &script).unwrap()
+    }
+
+    #[test]
+    fn the_filter_keeps_the_selected_features() {
+        let set = |k: &[usize]| k.iter().copied().collect::<BTreeSet<usize>>();
+        // numbers from 1, a range where they run, one alone as ==
+        assert_eq!(filter_expression(&set(&[2]), 10), "feature == 3");
+        assert_eq!(filter_expression(&set(&[0, 1, 2, 3, 4, 7]), 10), "1 <= feature <= 5 or feature == 8");
+        assert_eq!(
+            filter_expression(&set(&[0, 1, 5, 6, 9]), 20),
+            "1 <= feature <= 2 or 6 <= feature <= 7 or feature == 10"
+        );
+        // most of them: the others under not; all: every feature; none: none; rows past the end are none
+        assert_eq!(filter_expression(&set(&[0, 1, 2, 4, 5, 6, 8, 9]), 10), "not (feature == 4 or feature == 8)");
+        assert_eq!(filter_expression(&set(&[0, 1, 2]), 3), "feature >= 1");
+        assert_eq!(filter_expression(&set(&[]), 3), "feature < 0");
+        assert_eq!(filter_expression(&set(&[12]), 3), "feature < 0");
+        // each condition keeps exactly its rows, as the calculator reads it
+        for (rows, n) in [
+            (vec![2], 10),
+            (vec![0, 1, 2, 3, 4, 7], 10),
+            (vec![0, 1, 5, 6, 9], 20),
+            (vec![0, 1, 2, 4, 5, 6, 8, 9], 10),
+            (vec![0, 1, 2], 3),
+            (vec![], 3),
+        ] {
+            assert_eq!(kept(&filter_expression(&set(&rows), n), n), rows, "{rows:?} of {n}");
+        }
+        // a large selection stays compact (ranges), also scattered ones: bracketed halves, read as they are
+        let many: Vec<usize> = (0..5000).filter(|k| k % 3 != 0).collect();
+        let text = filter_expression(&set(&many), 5000);
+        assert!(text.len() < 5000 * 12, "{} characters", text.len());
+        assert_eq!(kept(&text, 5000), many);
+        let block: Vec<usize> = (100..90_000).collect();
+        assert_eq!(filter_expression(&set(&block), 100_000), "101 <= feature <= 90000");
     }
 
     #[test]

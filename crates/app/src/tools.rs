@@ -2499,6 +2499,7 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                             )
                         })?),
                     },
+                    selected: Vec::new(),
                 }
             }
             other => return Err(format!("a layer is node.port or an object with `from`, not {other}")),
