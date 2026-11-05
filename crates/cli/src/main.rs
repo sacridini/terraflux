@@ -727,10 +727,7 @@ fn plot(
     let inputs = load_inputs(&m, &dir, &overrides)?;
     let mut progress = Progress { quiet, start: t };
     let results = run_frozen(engine, model, &m, &inputs, &mut progress, quiet)?;
-    let value = |from: &str| match terraflux_graph::Ref::parse(from).ok()? {
-        terraflux_graph::Ref::Input(name) => inputs.get(&name).cloned(),
-        _ => results.get(from).cloned(),
-    };
+    let value = |from: &str| terraflux_app::plot_export::lookup(&inputs, &results, from);
     let made = terraflux_app::plot_export::panel_of(&m, id, &value).map_err(anyhow::Error::msg)?;
     if let Some(parent) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;

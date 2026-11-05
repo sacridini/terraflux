@@ -1674,13 +1674,13 @@ pub(super) fn range_histogram(
     first: Option<(f64, f64)>,
     id: egui::Id,
 ) {
-    let Coloring::Continuous { min, max, .. } = *coloring else { return };
+    let Coloring::Continuous { min, max, log, .. } = *coloring else { return };
     let held = id.with("span");
     let span = ui.data(|d| d.get_temp::<(f64, f64)>(held)).unwrap_or_else(|| {
         let (a, b) = first.unwrap_or((min, max));
         (a.min(min), b.max(max))
     });
-    match s.histograms.get(ui.ctx(), src, span.0, span.1) {
+    match s.histograms.get(ui.ctx(), src, span.0, span.1, log) {
         Some(h) => {
             let (asked, dragging) = crate::histogram::show_ranged(ui, &h, coloring, id);
             ui.data_mut(|d| {

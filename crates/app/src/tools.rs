@@ -1292,10 +1292,7 @@ pub fn export_plot(engine: &Engine, source: &Model, dir: &Path, a: &Value, watch
     // (before the run, which can take long)
     crate::plot_export::find(source, id)?;
     let (m, inputs, results, seconds) = run_for(engine, source, dir, a, watcher)?;
-    let value = |from: &str| match Ref::parse(from).ok()? {
-        Ref::Input(name) => inputs.get(&name).cloned(),
-        _ => results.get(from).cloned(),
-    };
+    let value = |from: &str| crate::plot_export::lookup(&inputs, &results, from);
     let made = crate::plot_export::panel_of(&m, id, &value)?;
     if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -3057,16 +3054,21 @@ mod plot_tests {
         let png = dir.join("cover.png");
         let a = json!({ "id": "cover", "file": png.to_string_lossy(), "scale": 2 });
         let said = super::export_plot(&engine, &m, &dir, &a, &mut w).unwrap();
-        assert!(said.contains("24 x 16 px") && said.contains("2 pixels to a cell"), "{said}");
+        // (the Plot compares side by side: the PNG has the two views, the map and the one compared, apart by the gutter)
+        let g = crate::export_view::GUTTER as u32;
+        assert!(said.contains(&format!("{} x 16 px", 24 + g + 24)) && said.contains("2 pixels to a cell"), "{said}");
         assert!(said.contains("land.map") && said.contains("high.map at 50%"), "{said}");
-        assert!(said.contains("only the map is drawn"), "{said}");
+        assert!(said.contains("2 views side by side") && said.contains("GeoTIFF only the map"), "{said}");
         let back = tiny_skia::Pixmap::load_png(&png).unwrap();
-        assert_eq!((back.width(), back.height()), (24, 16));
+        assert_eq!((back.width(), back.height()), (24 + g + 24, 16));
         // a GeoTIFF of four bands on the map's grid, its cells half as large
         let tif = dir.join("cover.tif");
         let a = json!({ "id": "cover", "file": tif.to_string_lossy() });
         let said = super::export_plot(&engine, &m, &dir, &a, &mut w).unwrap();
-        assert!(said.contains("12 x 8 px") && said.contains("1 pixel to a cell"), "{said}");
+        assert!(
+            said.contains("12 x 8 px") && said.contains("1 pixel to a cell") && said.contains("one grid"),
+            "{said}"
+        );
         let t = terraflux_raster::tiff::read(&tif).unwrap();
         assert_eq!(t.bands.len(), 4);
         assert_eq!((t.grid.width, t.grid.height), (12, 8));

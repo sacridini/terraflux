@@ -599,6 +599,10 @@ pub struct MapView {
     pub drawing: Option<crate::draw::Sketch>,
     /// A line being measured (clicks add its points instead of picking a cell); not while drawing.
     pub measuring: Option<crate::measure::Measure>,
+    /// Without the box of numbers while measuring (of views side by side, those not being measured), and Esc
+    /// pressed over the view (read and cleared by whoever keeps the views together: every view then stops).
+    pub hide_measure_box: bool,
+    pub measure_stopped: bool,
     /// The name of the map shown, its value under the pointer told by it beside those of the maps drawn with it.
     pub name: String,
     /// The map drawn at the last frame and its colouring; the one shown before the map now, while it fades in.
@@ -1776,8 +1780,11 @@ impl MapView {
             self.measuring = None;
         }
         // M over the map: measuring, or not (not while drawing)
+        // (what was asked of the views side by side by the last frame has been done by now)
+        self.measure_stopped = false;
         if response.hovered() && !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::M)) {
             self.set_measuring(self.measuring.is_none());
+            self.measure_stopped = self.measuring.is_none();
         }
         // space over the map: the map hidden (what is under it and over it seen alone), or shown again
         if response.hovered() && !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Space)) {
@@ -2288,11 +2295,14 @@ impl MapView {
                 &response,
                 source.grid(),
                 typing,
+                !self.hide_measure_box,
                 |p| self.to_cell(rect, p),
                 |c| rect.center() + (c - center) * zoom,
             );
             if wish == crate::measure::Wish::Keep {
                 self.measuring = Some(line);
+            } else {
+                self.measure_stopped = true;
             }
         }
         let p = response.hover_pos()?;

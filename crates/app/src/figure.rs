@@ -514,10 +514,37 @@ fn picture(p: &Panel, px: usize) -> Result<(Arc<Vec<u8>>, usize, usize), String>
 /// when that passes `max_side` pixels): the cells coloured with the layers under and over them, the vectors and
 /// their labels. A point of the drawing is a pixel.
 pub fn plain(p: &Panel, scale: usize, max_side: usize) -> Result<Drawing, String> {
+    plain_over(p, scale, max_side, None)
+}
+
+/// What a map is drawn over: a picture made for the size asked (width and height in pixels; premultiplied RGBA,
+/// the map's own extent), and how opaque the map is over it (0 to 1).
+pub struct Under<'a> {
+    pub make: &'a dyn Fn(usize, usize) -> Result<Vec<u8>, String>,
+    pub opacity: f32,
+}
+
+/// [`plain`] over a picture (a basemap): the cells at `under.opacity`, the vectors and labels as they are.
+pub fn plain_over(p: &Panel, scale: usize, max_side: usize, under: Option<&Under>) -> Result<Drawing, String> {
     let k = scale.max(1);
-    let (rgba, iw, ih) = picture(p, max_side / k)?;
+    let (mut rgba, iw, ih) = picture(p, max_side / k)?;
     let (w, h) = ((iw * k) as f32, (ih * k) as f32);
-    let mut shapes = vec![Shape::Image { x: 0.0, y: 0.0, w, h, rgba, iw, ih }];
+    let mut shapes = Vec::new();
+    if let Some(u) = under {
+        let (pw, ph) = (iw * k, ih * k);
+        let base = (u.make)(pw, ph)?;
+        if base.len() != pw * ph * 4 {
+            return Err("the picture under the map is not of its size".into());
+        }
+        shapes.push(Shape::Image { x: 0.0, y: 0.0, w, h, rgba: Arc::new(base), iw: pw, ih: ph });
+        let o = u.opacity.clamp(0.0, 1.0);
+        if o < 1.0 {
+            // (premultiplied: every channel scales with the alpha)
+            let faded: Vec<u8> = rgba.iter().map(|&c| (f32::from(c) * o).round() as u8).collect();
+            rgba = Arc::new(faded);
+        }
+    }
+    shapes.push(Shape::Image { x: 0.0, y: 0.0, w, h, rgba, iw, ih });
     let g = p.source.grid();
     let (west, south, east, north) = extent(g);
     let north_up = g.transform[2] == 0.0 && g.transform[4] == 0.0 && g.transform[5] < 0.0;
@@ -589,10 +616,10 @@ fn labels(out: &mut Vec<Shape>, v: &Vectors, attr: &str, at: &dyn Fn(f64, f64) -
     use terraflux_raster::vector::Geometry;
     let size = v.label_size.max(2.0);
     let mut placed = crate::labels::Placed::default();
+    // the features, the larger first (so that when labels collide the big ones win), as the Viewer places them
+    type Candidate<'a> = (usize, Kind, Vec<&'a [[f64; 2]]>, crate::labels::Rank);
+    let mut order: Vec<Candidate> = Vec::new();
     for (k, g) in v.vector.geometries.iter().enumerate() {
-        if placed.len() >= crate::labels::MAX {
-            break;
-        }
         let (kind, parts): (Kind, Vec<&[[f64; 2]]>) = match g {
             Geometry::Polygon(_) | Geometry::MultiPolygon(_) => {
                 (Kind::Polygon, g.polygons().into_iter().flatten().map(|r| &r[..]).collect())
@@ -603,6 +630,18 @@ fn labels(out: &mut Vec<Shape>, v: &Vectors, attr: &str, at: &dyn Fn(f64, f64) -
             Geometry::MultiPoint(ps) => (Kind::Point, ps.iter().map(std::slice::from_ref).collect()),
             Geometry::Empty => continue,
         };
+        let mut bx = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+        for p in parts.iter().flat_map(|part| part.iter()) {
+            bx = [bx[0].min(p[0]), bx[1].min(p[1]), bx[2].max(p[0]), bx[3].max(p[1])];
+        }
+        let rank = crate::labels::rank(kind, bx);
+        order.push((k, kind, parts, rank));
+    }
+    order.sort_by(|a, b| crate::labels::by_rank(&a.3, &b.3));
+    for (k, kind, parts, _) in order {
+        if placed.len() >= crate::labels::MAX {
+            break;
+        }
         let (Some(c), Some(text)) = (crate::labels::anchor(kind, &parts), crate::labels::text(&v.vector, attr, k))
         else {
             continue;
@@ -1863,6 +1902,64 @@ mod tests {
         // without the inset: no land
         let l = Layout { inset: false, ..l };
         assert!(!lay_out(&[a], &l, 2.0).unwrap().svg(120.0).contains("#cdcdc8"));
+    }
+
+    /// Where labels collide the larger feature's wins, whatever the order of the layer: a polygon before a line before
+    /// a point, the larger first, points in their order.
+    #[test]
+    fn a_label_collision_keeps_the_larger_feature() {
+        use terraflux_raster::vector::{Column, Geometry, Vector};
+        let square = |r: f64| Geometry::Polygon(vec![vec![[-r, -r], [r, -r], [r, r], [-r, r], [-r, -r]]]);
+        let v = Vector {
+            // the small ones first in the layer, all labelled at the same point (0, 0)
+            geometries: vec![
+                Geometry::Point([0.0, 0.0]),
+                square(1.0),
+                Geometry::LineString(vec![[-2.0, 0.0], [2.0, 0.0]]),
+                square(8.0),
+                square(4.0),
+            ],
+            attributes: vec![(
+                "name".into(),
+                Column::Texts(vec!["point".into(), "small".into(), "line".into(), "big".into(), "middle".into()]),
+            )],
+            crs: None,
+        };
+        let layer = Vectors {
+            vector: Arc::new(v),
+            colours: Vec::new(),
+            fill: 0.0,
+            width: 1.0,
+            labels: Some("name".into()),
+            label_size: 6.0,
+            sizes: Vec::new(),
+            symbol: Default::default(),
+            legend: Default::default(),
+        };
+        let mut out = Vec::new();
+        // (one unit is 10 points: the labels of a few characters are wider than a unit, so they cover each other)
+        labels(&mut out, &layer, "name", &|x, y| ((x * 10.0) as f32, (y * 10.0) as f32));
+        let drawn: Vec<&str> = out
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Text { text, colour, .. } if *colour == INK => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(drawn, ["big"], "the larger polygon's label, the others covered");
+        // the order of the others when the big one is not there: the larger polygon, then the line, then the point
+        let order = |names: &[&str]| {
+            let mut ranks: Vec<(usize, crate::labels::Rank)> = vec![
+                (0, crate::labels::rank(crate::vector_tiles::Kind::Point, [0.0; 4])),
+                (1, crate::labels::rank(crate::vector_tiles::Kind::Polygon, [-1.0, -1.0, 1.0, 1.0])),
+                (2, crate::labels::rank(crate::vector_tiles::Kind::Line, [-2.0, 0.0, 2.0, 0.0])),
+                (3, crate::labels::rank(crate::vector_tiles::Kind::Polygon, [-8.0, -8.0, 8.0, 8.0])),
+                (4, crate::labels::rank(crate::vector_tiles::Kind::Polygon, [-4.0, -4.0, 4.0, 4.0])),
+            ];
+            ranks.sort_by(|a, b| crate::labels::by_rank(&a.1, &b.1));
+            ranks.iter().map(|(i, _)| names[*i].to_string()).collect::<Vec<_>>()
+        };
+        assert_eq!(order(&["point", "small", "line", "big", "middle"]), ["big", "middle", "small", "line", "point"]);
     }
 
     #[test]

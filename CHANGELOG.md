@@ -53,6 +53,18 @@ minor versions.
   as it is (not made relative, not checked as a file). *Custom...* basemaps: any XYZ tile service by its template
   (`{z}/{x}/{y}`), with its attribution and deepest zoom, the last five kept, cached on disk as the others.
 
+### Changed
+- Viewer: the **histogram** of a map coloured on a logarithmic scale has its bars equal in the logarithm.
+- Viewer: ***Export the view*** puts the views compared side by side in one PNG (*with the views side by side*; a
+  GeoTIFF keeps the map alone and says so) and draws the basemap shown under the map (*with the basemap*, from the
+  tiles on disk or fetched).
+- `terraflux plot` / `export_plot`: difference layers are made and drawn as in the Viewer, a Plot that compares
+  side by side is written with its views side by side (PNG), and a node inside a container is found by its name.
+- Viewer: **measuring** with views side by side, each view measures its own line (drawn in the others too), and the
+  box of numbers is in the view last measured in only.
+- Viewer: where **labels** collide the larger feature keeps its own (polygons by size, then lines by length, then
+  points), in the view and the figure; the project for QGIS labels a layer by its style's attribute and size.
+
 ## [1.40.0] - 2026-11-04
 
 ### Added

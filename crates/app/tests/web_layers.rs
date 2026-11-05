@@ -479,6 +479,58 @@ fn a_custom_basemap_of_xyz_tiles_is_fetched_and_drawn() {
     let _ = std::fs::remove_dir_all(&cache);
 }
 
+/// The view exported over a basemap of the user's own: its tiles fetched from the server on this computer (once,
+/// kept on disk) and the second export read from the disk.
+#[test]
+fn the_view_exported_over_a_custom_basemap_fetches_its_tiles() {
+    setup();
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let png = tile_png([40, 120, 200]);
+    let web = Web::new(move |p| p.starts_with("/export/").then(|| png.clone()));
+    let template = format!("http://127.0.0.1:{}/export/${{z}}/${{x}}/${{y}}.png", web.port);
+    let basemap = {
+        let _one = CUSTOMS.lock().unwrap_or_else(|e| e.into_inner());
+        terraflux_app::basemap::register(&template, "(c) export", 1).unwrap()
+    };
+    let cache = terraflux_app::basemap::cache_dir(basemap);
+    let _ = std::fs::remove_dir_all(&cache);
+    // a map of one cell in the world's middle, in web Mercator
+    let e = 20037508.342789244;
+    let mut g = terraflux_raster::Grid::new(4, 4);
+    g.transform = [-e, e / 2.0, 0.0, e, 0.0, -e / 2.0];
+    g.geo.geokeys = Some(vec![1, 1, 0, 2, 1024, 0, 1, 1, 3072, 0, 1, 3857]);
+    let data = (0..16).map(|i| if i == 5 { 1.0 } else { f64::NAN }).collect();
+    let map = terraflux_ops::Map::new(std::sync::Arc::new(g), data);
+    let panel = terraflux_app::figure::Panel {
+        source: terraflux_app::map_view::Source::Map(map),
+        coloring: terraflux_app::palette::Coloring::Classes(vec![(1.0, egui::Color32::from_rgb(250, 250, 250))]),
+        names: Vec::new(),
+        caption: String::new(),
+        vectors: Vec::new(),
+        rasters: Vec::new(),
+    };
+    let mut o = terraflux_app::export_view::Options::scaled(1);
+    o.basemap = basemap;
+    let file = std::env::temp_dir().join(format!("terraflux-export-tiles-{}.png", std::process::id()));
+    let said =
+        terraflux_app::export_view::save_with(&panel, &o, terraflux_app::export_view::Format::Png, &file).unwrap();
+    assert!(!said.contains("basemap"), "{said}");
+    let back = image::open(&file).unwrap().to_rgba8();
+    assert_eq!(back.dimensions(), (4, 4));
+    assert_eq!(back.get_pixel(1, 1).0, [250, 250, 250, 255], "the map's cell");
+    assert_eq!(back.get_pixel(0, 0).0, [40, 120, 200, 255], "the basemap's tile");
+    assert_eq!(back.get_pixel(3, 3).0, [40, 120, 200, 255]);
+    let asked = web.hits();
+    assert!(!asked.is_empty() && asked.iter().all(|h| h.method == "GET" && h.status == 200), "{asked:?}");
+    // again: the tiles come from the disk, nothing more is fetched
+    terraflux_app::export_view::save_with(&panel, &o, terraflux_app::export_view::Format::Png, &file).unwrap();
+    assert_eq!(web.hits().len(), asked.len());
+    std::fs::remove_file(&file).ok();
+    let _ = std::fs::remove_dir_all(&cache);
+}
+
 /// The basemaps of the user's own are kept in the settings file: the last used first, five at most, and what is
 /// read back is what was kept.
 #[test]

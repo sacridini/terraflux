@@ -229,8 +229,9 @@ graduated renderer, its symbol and a size by expression.
 
 *labels*, in a vector layer's style, writes an attribute of its features over them: polygons at a point inside
 them, lines at their middle, points beside them. Only the features large enough for their label are labelled,
-and a label that would cover another is left out; zoom in to see more of them. A Plot keeps the labels, and the
-figure draws them.
+and a label that would cover another is left out, the larger feature's kept first (polygons by their size, then
+lines by their length, then points); zoom in to see more of them. A Plot keeps the labels, the figure draws them,
+and the project for QGIS labels the features by the same attribute and size.
 
 ### The attributes of vector features
 
@@ -257,12 +258,15 @@ of what it keeps; it is drawn over the map, and one undo takes it away.
 
 *Export the view...*, beside *Figure...*, writes the map as the Viewer shows it, with its layers, vectors and
 labels and without a legend: a PNG, or a GeoTIFF of red, green, blue and alpha on the map's grid, which opens in
-QGIS where the map is. A pixel to a cell, or twice or four times as many.
+QGIS where the map is. A pixel to a cell, or twice or four times as many. *with the views side by side* puts the
+views compared side by side in one PNG (a GeoTIFF has one grid: the map alone), and *with the basemap* draws the
+basemap shown under the map, at the map's transparency.
 
 A saved Plot can be exported without the application, by its id: `terraflux plot model.toml cover -o cover.png`
 on the command line (`.tif` for the GeoTIFF, `--scale 2` or `4` for a larger picture), or the assistant's
-`export_plot` tool. It runs the model and draws the Plot's layers in their palettes; hidden layers and differences
-are left out, and a Plot that compares maps gives its map only.
+`export_plot` tool. It runs the model and draws the Plot's layers in their palettes, the differences made as the
+Viewer makes them; hidden layers are left out. A Plot that compares side by side gives its views side by side in a
+PNG (its map only in a GeoTIFF, and with a curtain or a difference).
 
 ### Maps on the web
 
@@ -296,7 +300,9 @@ coordinates.
 **Measure**, above the map (or M with the pointer over it), measures a line clicked point by point: each segment
 and the whole length, and from three points the area and perimeter of the polygon they close. On a grid in metres
 the lengths are in m and km and the areas in m², ha and km²; on a grid in degrees they are measured on the WGS84
-ellipsoid. A right click takes the last point away, a double click ends the line, and esc clears it.
+ellipsoid. A right click takes the last point away, a double click ends the line, and esc clears it. With views
+side by side each measures its own line, drawn in the others too; the numbers are those of the view last measured
+in.
 
 ### Saving a Plot
 

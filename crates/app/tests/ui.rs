@@ -777,6 +777,120 @@ fn the_measure_line_follows_into_the_views_side_by_side() {
     shot(&mut h, "14d-measure-side-by-side");
 }
 
+/// Measuring in views side by side: every view measures on its own (a click in the one beside makes its line there,
+/// in its own grid), the line of one followed into the others, and the box of numbers only in the view worked on
+/// last; Esc over any view stops all of them.
+#[test]
+fn measuring_in_the_views_side_by_side_each_with_its_own_line() {
+    use terraflux_app::builder::{CompareWith, How};
+    use terraflux_graph::Node;
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let d = tmp("measure_each_view");
+    std::fs::create_dir_all(&d).unwrap();
+    let (land, geo) = (d.join("land.tif"), d.join("land_geo.tif"));
+    terraflux_gdal::translate(&data("sibuyan_landuse.tif"), &land, &["-a_srs".to_string(), "EPSG:32651".to_string()])
+        .unwrap();
+    terraflux_gdal::warp(&[&land], &geo, &["-t_srs".into(), "EPSG:4326".into(), "-r".into(), "near".into()]).unwrap();
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let read = |id: &str, p: &std::path::Path| {
+            Node::new(id, "raster.read").param("path", p.to_string_lossy().as_ref()).param("band", "0")
+        };
+        s.source.nodes = vec![read("land", &land), read("geo", &geo)];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && ["land", "geo"].iter().all(|n| s.value_of(n, "raster").is_some())
+    });
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview = Some(("land".into(), "raster".into()));
+        s.preview_compare.with = Some(CompareWith::Output("geo".into(), "raster".into()));
+        s.preview_compare.how = How::SideBySide;
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "both views drawn", |a| {
+        let s = a.session.as_ref().unwrap();
+        s.preview_view.shown_grid().is_some() && s.preview_compare.view.shown_grid().is_some()
+    });
+    drawn(&mut h);
+    // measuring on in the map shown: the view beside measures too, and only the first has the box
+    h.state_mut().session.as_mut().unwrap().preview_view.set_measuring(true);
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert!(s.preview_compare.view.measuring.is_some(), "the view beside measures with it");
+        assert!(!s.preview_view.hide_measure_box && s.preview_compare.view.hide_measure_box);
+    }
+    assert_eq!(h.query_all_by_label("click the map to add points").count(), 1, "one box, in the map shown");
+    // a line in the map shown (cells of the map in UTM): its numbers in its box, the line in the view beside
+    {
+        let v = &mut h.state_mut().session.as_mut().unwrap().preview_view;
+        v.measure_click([30.0, 20.0]);
+        v.measure_click([100.0, 80.0]);
+    }
+    h.run_steps(3);
+    assert_eq!(h.query_all_by_label_contains("Length:").count(), 1);
+    // a click in the view beside: a line of its own, in its own grid (cells of the map in WGS 84)
+    {
+        let v = &mut h.state_mut().session.as_mut().unwrap().preview_compare.view;
+        v.measure_click([20.0, 15.0]);
+        v.measure_click([60.0, 50.0]);
+    }
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let (a, b) = (s.preview_view.measuring.as_ref().unwrap(), s.preview_compare.view.measuring.as_ref().unwrap());
+        assert_eq!((a.points.len(), b.points.len()), (2, 2), "each view its own line");
+        assert_eq!(b.points, [[20.0, 15.0], [60.0, 50.0]]);
+        // (the one worked on last has the box)
+        assert!(s.preview_view.hide_measure_box && !s.preview_compare.view.hide_measure_box);
+        let (ra, rb) = (s.preview_view.measured().unwrap(), s.preview_compare.view.measured().unwrap());
+        assert!(
+            ra.length > 0.0 && rb.length > 0.0 && (ra.length - rb.length).abs() > 1.0,
+            "{} {}",
+            ra.length,
+            rb.length
+        );
+    }
+    assert_eq!(h.query_all_by_label_contains("Length:").count(), 1, "the box only in the view worked on");
+    // both lines are drawn in both views (the line's colour, in each view's rectangle)
+    let ink = |h: &mut Harness<TerrafluxApp>, rect: egui::Rect| {
+        let img = h.render().expect("the window drawn by wgpu");
+        let mut n = 0;
+        for y in rect.top() as u32..rect.bottom() as u32 {
+            for x in rect.left() as u32..rect.right() as u32 {
+                let p = img.get_pixel(x, y).0;
+                if p[0] < 40 && p[1] > 200 && p[2] > 230 {
+                    n += 1;
+                }
+            }
+        }
+        n
+    };
+    let (shown, beside) = {
+        let s = h.state().session.as_ref().unwrap();
+        (s.preview_view.rect().unwrap(), s.preview_compare.view.rect().unwrap())
+    };
+    let (a, b) = (ink(&mut h, shown), ink(&mut h, beside));
+    assert!(a > 150 && b > 150, "the lines in both views: {a} {b} pixels");
+    // Esc over a view stops them all
+    {
+        let v = &mut h.state_mut().session.as_mut().unwrap().preview_compare.view;
+        v.measure_stopped = true;
+    }
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.preview_view.measuring.is_none() && s.preview_compare.view.measuring.is_none());
+    shot(&mut h, "14e-measure-each-view");
+}
+
 #[test]
 fn maps_compare_by_a_curtain_and_side_by_side() {
     let mut h = harness(new_app(None));
@@ -4072,9 +4186,11 @@ fn a_right_click_traces_a_cell() {
     h.get_by_label("Ask the assistant why").click();
     h.run_steps(4);
     assert!(h.state().is_open(Pane::Trace) && h.state().is_open(Pane::Assistant));
-    assert!(h.state().trace.trace.is_some());
-    let last = terraflux_app::trace::last().expect("the last trace kept");
-    assert!(last.contains("Here field.map is"), "{last}");
+    // (the app's own trace: the file of the last one is shared by the tests that trace at the same time)
+    let t = h.state().trace.trace.as_ref().expect("the cell traced");
+    let words = format!("{}\n\n{}", t.sentence(), t.text());
+    assert!(words.contains("Here field.map is"), "{words}");
+    assert!(terraflux_app::trace::last().is_some(), "the last trace kept");
 }
 
 /// A run that fails: the status bar says so, the Problems pane explains it (what the node was given side by side,
@@ -4582,13 +4698,19 @@ fn a_study_area_drawn_on_the_map() {
     // moves it between the scroll and the click)
     let t = Instant::now();
     while h.state().session.as_ref().unwrap().preview_view.drawing.is_none() {
-        h.get_by_label("polygons").scroll_to_me();
+        // (a frame without the button, the panel still laid out: the next one)
+        if let Some(b) = h.query_by_label("polygons") {
+            b.scroll_to_me();
+        }
         h.run_steps(3);
-        h.get_by_label("polygons").click();
+        if let Some(b) = h.query_by_label("polygons") {
+            b.click();
+        }
         h.run_steps(2);
         std::thread::sleep(Duration::from_millis(10));
         assert!(t.elapsed() < Duration::from_secs(120), "drawing turned on: too long");
     }
+    until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().preview_view.rect().is_some());
     let rect = h.state().session.as_ref().unwrap().preview_view.rect().unwrap();
     let c = rect.center();
     let click = |h: &mut Harness<TerrafluxApp>, at: egui::Pos2| {

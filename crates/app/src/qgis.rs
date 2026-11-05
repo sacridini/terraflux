@@ -332,9 +332,9 @@ fn quoted(text: &str) -> String {
     format!("'{}'", text.replace('\'', "''"))
 }
 
-/// A vector layer's labels in QGIS: the attribute's values, dark on a light halo, placed as its geometry takes
-/// them (around a point, along a line, over a polygon's middle).
-fn labeling(geometry: &str, attr: &str) -> String {
+/// A vector layer's labels in QGIS: the attribute's values at `size` points, dark on a light halo, placed as its
+/// geometry takes them (around a point, along a line, over a polygon's middle).
+fn labeling(geometry: &str, attr: &str, size: f32) -> String {
     let placement = match geometry {
         "Point" => 6,
         "Line" => 2,
@@ -342,13 +342,14 @@ fn labeling(geometry: &str, attr: &str) -> String {
     };
     format!(
         "<labeling type=\"simple\"><settings calloutType=\"simple\"><text-style fieldName=\"{}\" isExpression=\"0\" \
-         fontSize=\"9\" fontSizeUnit=\"Point\" textColor=\"35,35,35,255\" textOpacity=\"1\" fontWeight=\"50\" \
+         fontSize=\"{size}\" fontSizeUnit=\"Point\" textColor=\"35,35,35,255\" textOpacity=\"1\" fontWeight=\"50\" \
          fontItalic=\"0\" multilineHeight=\"1\"><text-buffer bufferDraw=\"1\" bufferSize=\"0.8\" \
          bufferSizeUnits=\"MM\" bufferColor=\"255,255,255,255\" bufferOpacity=\"1\" bufferJoinStyle=\"128\"/>\
          </text-style><text-format wrapChar=\"\" multilineAlign=\"0\"/><placement placement=\"{placement}\" dist=\"1\" \
          distUnits=\"MM\" priority=\"5\"/><rendering obstacle=\"1\" drawLabels=\"1\" labelPerPart=\"0\" \
          displayAll=\"0\" limitNumLabels=\"0\" scaleVisibility=\"0\"/></settings></labeling>",
-        esc(attr)
+        esc(attr),
+        size = crate::animation::short(f64::from(size.clamp(1.0, 72.0)))
     )
 }
 
@@ -688,9 +689,11 @@ pub fn export(picks: &[Pick], dir: &Path, title: &str, plain: bool) -> Result<Pa
                 Some(style) => styled_renderer(geometry, v, style, o),
                 None => vector_renderer(geometry, VECTOR_COLOURS[vectors.len() % VECTOR_COLOURS.len()], o),
             };
-            // (labelled by an attribute it has)
-            let labeling = match &o.label {
-                Some(attr) if v.column(attr).is_some() => labeling(geometry, attr),
+            // (labelled as the layer's style in the Viewer says, its attribute and size; else by the attribute the
+            // export's options chose, at the usual size; an attribute the layer has)
+            let styled = p.style.as_ref().and_then(|s| Some((s.labels.as_ref()?, s.label_size)));
+            let labeling = match styled.filter(|(a, _)| v.column(a).is_some()).or(o.label.as_ref().map(|a| (a, 9.0))) {
+                Some((attr, size)) if v.column(attr).is_some() => labeling(geometry, attr, size),
                 _ => String::new(),
             };
             vectors.push(Written {
@@ -1041,6 +1044,55 @@ mod tests {
         assert!(r.contains("<item value=\"10\" ") && r.contains("<item value=\"100000\" "), "{r}");
     }
 
+    /// The labels of a layer in the project are its style's in the Viewer (the attribute and the size), the export's
+    /// own option only when the style has none.
+    #[test]
+    fn the_labels_of_the_style_go_to_qgis() {
+        use crate::vector_tiles::Style;
+        let dir = std::env::temp_dir().join(format!("terraflux-qgis-labels-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let pts = terraflux_raster::vector::Vector {
+            geometries: vec![Geometry::Point([10.0, 20.0]), Geometry::Point([11.0, 21.0])],
+            attributes: vec![
+                ("name".into(), terraflux_raster::vector::Column::Texts(vec!["a".into(), "b".into()])),
+                ("other".into(), terraflux_raster::vector::Column::Numbers(vec![1.0, 2.0])),
+            ],
+            crs: None,
+        };
+        let pts = Arc::new(pts);
+        let pick = |style: Option<Style>, label: Option<&str>| Pick {
+            name: "plots".into(),
+            value: Value::Vector(pts.clone()),
+            palette: Palette::Auto,
+            range: None,
+            legend: None,
+            band: 0,
+            style,
+            options: VectorOptions { label: label.map(String::from), marker: 0, rules: false },
+        };
+        let write = |p: Pick| std::fs::read_to_string(export(&[p], &dir, "labels", true).unwrap()).unwrap();
+        // the style's attribute and size, over the option's
+        let labelled = Style { labels: Some("name".into()), label_size: 14.0, ..Style::default() };
+        let x = write(pick(Some(labelled.clone()), Some("other")));
+        assert!(x.contains("labelsEnabled=\"1\"") && x.contains("<labeling type=\"simple\">"), "{x}");
+        assert!(x.contains("fieldName=\"name\"") && x.contains("fontSize=\"14\""), "{x}");
+        assert!(!x.contains("fieldName=\"other\""), "{x}");
+        // a size between whole points
+        let x = write(pick(Some(Style { label_size: 10.5, ..labelled.clone() }), None));
+        assert!(x.contains("fontSize=\"10.5\""), "{x}");
+        // a style without labels: the option's, at the usual size
+        let x = write(pick(Some(Style::default()), Some("other")));
+        assert!(x.contains("fieldName=\"other\"") && x.contains("fontSize=\"9\""), "{x}");
+        // a style whose attribute the layer has not: the option's; none at all: no labels
+        let x = write(pick(Some(Style { labels: Some("gone".into()), ..labelled.clone() }), Some("other")));
+        assert!(x.contains("fieldName=\"other\""), "{x}");
+        let x = write(pick(Some(Style { labels: Some("gone".into()), ..labelled }), None));
+        assert!(!x.contains("<labeling") && !x.contains("labelsEnabled"), "{x}");
+        let x = write(pick(None, None));
+        assert!(!x.contains("<labeling"), "{x}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_project_of_maps_and_features() {
         let dir = std::env::temp_dir().join(format!("terraflux-qgis-{}", std::process::id()));
@@ -1206,8 +1258,8 @@ mod tests {
         // the marker chosen; a polygon's labels over its middle, a line's along it
         let star = VectorOptions { marker: 4, ..plain };
         assert!(styled_renderer("Point", &v, &one, &star).contains("value=\"star\""));
-        assert!(labeling("Polygon", "use").contains("placement=\"1\""));
-        assert!(labeling("Line", "use").contains("placement=\"2\""));
+        assert!(labeling("Polygon", "use", 9.0).contains("placement=\"1\""));
+        assert!(labeling("Line", "use", 9.0).contains("placement=\"2\""));
     }
 
     #[test]

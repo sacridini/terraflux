@@ -2445,3 +2445,21 @@ item, na ordem; release só quando pedido.
    - `terraflux plot` / `export_plot`: as diferenças (`minus`), a vista comparada, nós dentro de contêineres.
    - Medir: a caixa dos números só na vista medida; clicar numa vista ao lado mede ali, com a sua própria linha.
    - Rótulos: a prioridade pelo tamanho da feição; o projeto do QGIS com os rótulos do estilo.
+   **Feito** (Unreleased, por um sub-agente): o histograma em log (`Histogram.log`, as barras iguais no log, a chave
+   do cache com a escala); o nodata que não é NaN já ficava de fora (`Rasters::sample` o troca por NaN: a nota estava
+   velha; teste `a_raster_on_disk_leaves_out_its_no_data`). *Export the view*: `export_view::Options` (`beside`,
+   `basemap`, `opacity`), as vistas lado a lado num PNG (`GUTTER` de 8 px), `basemap::picture` (o basemap na grade
+   do mapa, na CPU, por uma malha de 8 px; os tiles do disco ou baixados), `figure::plain_over`. `plot_export`: a
+   diferença por `difference::make`, `Made.beside` (as vistas de `compare`), `place_of`/`lookup` para um nó dentro
+   de contêiner (também em `tools.rs` e no `cli`). Medir: `measure::together`, cada vista a sua `Measure`, a caixa só
+   na última mexida (`Measure.touched`). Rótulos: `labels::rank`/`by_rank`; `qgis::labeling` com o `label_size` do
+   estilo. Testes: os de `histogram.rs`, `export_view.rs`, `plot_export.rs`, `labels.rs`, `figure.rs`, `qgis.rs`,
+   `the_view_exported_over_a_custom_basemap_fetches_its_tiles`, `measuring_in_the_views_side_by_side_each_with_its_own_line`.
+   Também: `a_study_area_drawn_on_the_map` e `a_right_click_traces_a_cell` firmes sob carga (o botão buscado de novo;
+   o rastro conferido no estado do app, não no arquivo do último, que os testes dividem). Falta: um Plot com uma
+   camada de dentro de contêiner (`g.inner.map`) é recusado pelo `terraflux_graph::check`/`Ref::parse` (o `set_plot`
+   do MCP e o `open_plot` a perdem; o `plot_export` só a acha quando o modelo passa na checagem); a cortina dividida
+   no PNG; o basemap do export é lento num PNG de 8 000 px (não medido); no `plot_export` a vista comparada nas
+   cores do mapa principal; com medir ligado, o polígono e o perfil olham só a vista principal.
+
+Fim do bloco (2026-11-06): os oito itens feitos, um commit cada.

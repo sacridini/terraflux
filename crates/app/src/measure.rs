@@ -254,6 +254,15 @@ pub struct Measure {
     pub points: Vec<[f64; 2]>,
     /// Ended by a double click: no more points until one is taken away.
     pub ended: bool,
+    /// When it was last changed (a counter over every line: the greatest is the line last worked on, the one
+    /// whose view shows the numbers among views side by side).
+    pub touched: u64,
+}
+
+/// A number that grows with every change of any line.
+fn stamp() -> u64 {
+    static CLOCK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    CLOCK.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// What the keys and clicks over the map ask of the measuring.
@@ -283,10 +292,44 @@ pub fn paint_line(painter: &egui::Painter, pts: &[Pos2], ended: bool) {
     }
 }
 
+/// Views side by side measure together: when one is measuring (and none was stopped by Esc or M, or the button) all
+/// are, each with its own line in its own grid; when one was stopped all stop. The box of numbers is only in the
+/// view worked on last (the first while there is no point yet); the others show the lines only.
+pub fn together(views: &mut [&mut crate::map_view::MapView]) {
+    let stopped = views.iter().any(|v| v.measure_stopped);
+    for v in views.iter_mut() {
+        v.measure_stopped = false;
+    }
+    if stopped {
+        for v in views.iter_mut() {
+            v.measuring = None;
+            v.hide_measure_box = false;
+        }
+        return;
+    }
+    if views.iter().any(|v| v.measuring.is_some()) {
+        for v in views.iter_mut() {
+            if v.measuring.is_none() && v.drawing.is_none() {
+                v.measuring = Some(Measure::default());
+            }
+        }
+    }
+    let last = views
+        .iter()
+        .enumerate()
+        .filter_map(|(i, v)| v.measuring.as_ref().filter(|m| !m.points.is_empty()).map(|m| (m.touched, i)))
+        .max()
+        .map_or(0, |(_, i)| i);
+    for (i, v) in views.iter_mut().enumerate() {
+        v.hide_measure_box = i != last;
+    }
+}
+
 impl Measure {
     pub fn click(&mut self, cell: [f64; 2]) {
         if !self.ended {
             self.points.push(cell);
+            self.touched = stamp();
         }
     }
 
@@ -294,6 +337,7 @@ impl Measure {
     pub fn undo(&mut self) {
         self.points.pop();
         self.ended = false;
+        self.touched = stamp();
     }
 
     /// Ends the line (a double click: its second click added a point on the first one's place, taken away).
@@ -303,6 +347,7 @@ impl Measure {
                 self.points.pop();
             }
             self.ended = true;
+            self.touched = stamp();
         }
     }
 
@@ -311,13 +356,16 @@ impl Measure {
     }
 
     /// The clicks and keys over the map while measuring (taking the place of the cell picked), the line over
-    /// it and the box of numbers at its corner: `to_cell` and `to_screen` between the screen and the grid's cells.
+    /// it and the box of numbers at its corner (only with `boxed`: of views side by side, the one being measured
+    /// has it): `to_cell` and `to_screen` between the screen and the grid's cells.
+    #[allow(clippy::too_many_arguments)]
     pub fn interact(
         &mut self,
         ui: &Ui,
         response: &Response,
         grid: &Grid,
         typing: bool,
+        boxed: bool,
         to_cell: impl Fn(Pos2) -> Vec2,
         to_screen: impl Fn(Vec2) -> Pos2,
     ) -> Wish {
@@ -374,6 +422,9 @@ impl Measure {
             }
         }
         // the numbers, in a box at the map's lower corner (it takes the clicks over it: no point under it)
+        if !boxed {
+            return wish;
+        }
         let report = self.report(grid);
         let mut clear = false;
         egui::Area::new(response.id.with("measure box"))
@@ -402,6 +453,7 @@ impl Measure {
         if clear {
             self.points.clear();
             self.ended = false;
+            self.touched = stamp();
         }
         wish
     }

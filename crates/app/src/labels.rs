@@ -161,6 +161,25 @@ pub fn text(v: &Vector, attr: &str, k: usize) -> Option<String> {
     (!t.trim().is_empty()).then_some(t)
 }
 
+/// How soon a feature's label is placed: its kind (polygons, then lines, then points) and its size.
+pub type Rank = (u8, f64);
+
+/// The rank of a feature of a kind in a box (x0, y0, x1, y1): a polygon by the area of its box, a line by the length
+/// of its box's diagonal (the larger first), a point none (it keeps its place in the layer's order).
+pub fn rank(kind: Kind, bx: [f64; 4]) -> Rank {
+    let (w, h) = (bx[2] - bx[0], bx[3] - bx[1]);
+    match kind {
+        Kind::Polygon => (0, w * h),
+        Kind::Line => (1, w.hypot(h)),
+        Kind::Point => (2, 0.0),
+    }
+}
+
+/// The order of two ranks: the kind first, then the larger first (ties keep their order in a stable sort).
+pub fn by_rank(a: &Rank, b: &Rank) -> std::cmp::Ordering {
+    a.0.cmp(&b.0).then_with(|| b.1.total_cmp(&a.1))
+}
+
 /// The labels of the layers over the view, the topmost layer's first: the number placed.
 pub fn draw(painter: &egui::Painter, cam: Camera, layers: &[(&Overlay, &Layer)], placed: &mut Placed) -> usize {
     let (a, b) = (
@@ -172,11 +191,22 @@ pub fn draw(painter: &egui::Painter, cam: Camera, layers: &[(&Overlay, &Layer)],
         let Some(attr) = &o.style.labels else { continue };
         let size = o.style.label_size.clamp(6.0, 40.0);
         let font = egui::FontId::proportional(size);
+        // the features in view, the larger first (so that when labels collide the big ones win)
+        let mut order: Vec<(usize, Rank)> = Vec::new();
         for k in layer.within([f64::from(a.x), f64::from(a.y)], [f64::from(b.x), f64::from(b.y)]) {
-            if placed.len() >= MAX || looked >= LOOKED {
+            if looked + order.len() >= LOOKED {
+                break;
+            }
+            if let (Some(kind), Some(bx)) = (layer.kind(k), layer.feature_box(k)) {
+                order.push((k, rank(kind, bx)));
+            }
+        }
+        looked += order.len();
+        order.sort_by(|p, q| by_rank(&p.1, &q.1));
+        for (k, _) in order {
+            if placed.len() >= MAX {
                 return drawn;
             }
-            looked += 1;
             let (Some(c), Some(kind), Some(bx)) = (layer.anchor(k), layer.kind(k), layer.feature_box(k)) else {
                 continue;
             };
@@ -274,6 +304,62 @@ mod tests {
         assert!(p.take(rect(100.0, 0.0, 200.0, 12.0)));
         assert_eq!(p.len(), 4);
         assert!(p.covers(Pos2::new(10.0, 5.0)) && !p.covers(Pos2::new(10.0, 15.0)));
+    }
+
+    /// Two polygons labelled at the same point, the small one first in the layer: the label of the large one is drawn,
+    /// the small one's is left out (and the other way round with the layer's order reversed).
+    #[test]
+    fn where_labels_collide_the_larger_feature_keeps_its_own() {
+        use crate::vector_tiles::{Camera, Overlay, Style};
+        use terraflux_raster::vector::Geometry;
+        let square = |r: f64| {
+            Geometry::Polygon(vec![vec![
+                [20.0 - r, 20.0 - r],
+                [20.0 + r, 20.0 - r],
+                [20.0 + r, 20.0 + r],
+                [20.0 - r, 20.0 + r],
+                [20.0 - r, 20.0 - r],
+            ]])
+        };
+        let mut grid = terraflux_raster::Grid::new(64, 64);
+        grid.transform = [0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        let texts = |small_first: bool| {
+            let (geometries, names) = if small_first {
+                (vec![square(3.0), square(10.0)], vec!["small".to_string(), "big".to_string()])
+            } else {
+                (vec![square(10.0), square(3.0)], vec!["big".to_string(), "small".to_string()])
+            };
+            let vector = std::sync::Arc::new(Vector {
+                geometries,
+                attributes: vec![("name".into(), Column::Texts(names))],
+                crs: None,
+            });
+            let layer = crate::vector_tiles::prepare(&vector, &grid).unwrap();
+            let style = Style { labels: Some("name".into()), label_size: 12.0, ..Style::default() };
+            let overlay = Overlay { vector, style, name: String::new() };
+            let rect = Rect::from_min_size(Pos2::ZERO, Vec2::splat(512.0));
+            let cam = Camera { center: Vec2::splat(32.0), zoom: 8.0, rect, pixels_per_point: 1.0 };
+            let ctx = egui::Context::default();
+            let mut placed = 0;
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let painter = ui.ctx().layer_painter(egui::LayerId::background());
+                placed = draw(&painter, cam, &[(&overlay, &layer)], &mut Placed::default());
+            });
+            let mut seen: Vec<String> = out
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                    _ => None,
+                })
+                .collect();
+            seen.sort();
+            seen.dedup();
+            out.textures_delta.clear();
+            (placed, seen)
+        };
+        assert_eq!(texts(true), (1, vec!["big".to_string()]));
+        assert_eq!(texts(false), (1, vec!["big".to_string()]));
     }
 
     #[test]

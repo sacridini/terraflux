@@ -136,6 +136,15 @@ pub fn register(template: &str, attribution: &str, max_zoom: u32) -> Result<Base
     Ok(Basemap::Custom(id))
 }
 
+/// A basemap of the user's own for a test: known, but not kept in the settings.
+#[cfg(test)]
+pub(crate) fn known_for_test(template: &str, max_zoom: u32) -> Basemap {
+    let c = Custom { template: validate(template).unwrap(), attribution: String::new(), max_zoom };
+    let id = c.id();
+    registry().write().unwrap().insert(id, c);
+    Basemap::Custom(id)
+}
+
 /// The basemaps of the user's own in the settings (the last used first), known from now on.
 pub fn customs() -> Vec<Basemap> {
     let kept = crate::settings::get().custom_basemaps;
@@ -642,6 +651,143 @@ fn mesh(vertices: &[[f64; 2]], texture: egui::TextureId, v: &View) -> Mesh {
         }
     }
     m
+}
+
+/// The threads fetching the tiles of a picture of a basemap.
+const PICTURE_THREADS: usize = 6;
+/// The most tiles a picture of a basemap is made of (a deeper level is left for a coarser one beyond this).
+const PICTURE_TILES: u64 = 400;
+/// The pixels between the points of a picture carried to web Mercator (between them the places are interpolated).
+const LATTICE: usize = 8;
+
+/// A basemap as pixels: premultiplied RGBA, transparent where the service has nothing, and how many tiles were
+/// wanted and not had.
+pub struct Picture {
+    pub rgba: Vec<u8>,
+    pub missing: usize,
+}
+
+/// The basemap `b` as a picture of `w` x `h` pixels over the extent of `grid`, as the live view shows it under the
+/// map: each pixel's place carried to web Mercator (exactly at a lattice of points, between them interpolated: the
+/// live view does the same with its tiles' vertices) and the colour of the tile there, at the level whose pixels
+/// are about the picture's. The tiles are read from the disk cache, else fetched (and kept), by a few threads.
+pub fn picture(b: Basemap, grid: &terraflux_raster::Grid, w: usize, h: usize) -> Result<Picture, String> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let Some((_, levels)) = b.url() else { return Err("no basemap is chosen".into()) };
+    let crs = crate::map_view::crs_of(grid).ok_or("the map has no CRS: no basemap")?;
+    let to_web = terraflux_gdal::Transform::new(&crs, "EPSG:3857")?;
+    let (w, h) = (w.max(1), h.max(1));
+    // the lattice of the picture's points (in pixel edges), carried to web Mercator
+    let (nx, ny) = (w.div_ceil(LATTICE) + 1, h.div_ceil(LATTICE) + 1);
+    let t = grid.transform;
+    let (fx, fy) = (grid.width as f64 / w as f64, grid.height as f64 / h as f64);
+    let (mut xs, mut ys) = (Vec::with_capacity(nx * ny), Vec::with_capacity(nx * ny));
+    for k in 0..ny {
+        for i in 0..nx {
+            let (cx, cy) = ((i * LATTICE) as f64 * fx, (k * LATTICE) as f64 * fy);
+            xs.push(t[0] + cx * t[1] + cy * t[2]);
+            ys.push(t[3] + cx * t[4] + cy * t[5]);
+        }
+    }
+    to_web.points(&mut xs, &mut ys);
+    let at = |i: usize, k: usize| (xs[k * nx + i], ys[k * nx + i]);
+    let finite = |p: (f64, f64)| p.0.is_finite() && p.1.is_finite();
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    let (mut across, mut pairs) = (0.0, 0usize);
+    for k in 0..ny {
+        for i in 0..nx {
+            let p = at(i, k);
+            if !finite(p) {
+                continue;
+            }
+            (x0, x1, y0, y1) = (x0.min(p.0), x1.max(p.0), y0.min(p.1), y1.max(p.1));
+            if i + 1 < nx && finite(at(i + 1, k)) {
+                let q = at(i + 1, k);
+                across += (q.0 - p.0).hypot(q.1 - p.1);
+                pairs += 1;
+            }
+        }
+    }
+    let (x0, x1, y0, y1) = (x0.max(-E), x1.min(E), y0.max(-E), y1.min(E));
+    if !(x1 > x0 && y1 > y0) {
+        return Err("the map is outside the world of the basemap".into());
+    }
+    // the level whose pixels are about the picture's, as the live view picks it
+    let mpp = if pairs > 0 { across / pairs as f64 / LATTICE as f64 } else { (x1 - x0) / w as f64 };
+    let mut z = ((2.0 * E / (SIDE * mpp)).log2() + 0.2).ceil().clamp(0.0, levels as f64) as u8;
+    let range = |z: u8| {
+        let size = 2.0 * E / (1u64 << z) as f64;
+        let last = (1u64 << z) as f64 - 1.0;
+        let tx = |m: f64| ((m + E) / size).floor().clamp(0.0, last) as u32;
+        let ty = |m: f64| ((E - m) / size).floor().clamp(0.0, last) as u32;
+        (tx(x0), tx(x1), ty(y1), ty(y0))
+    };
+    while z > 0 {
+        let (a, b2, c, d) = range(z);
+        if u64::from(b2 - a + 1) * u64::from(d - c + 1) <= PICTURE_TILES {
+            break;
+        }
+        z -= 1;
+    }
+    let (a, b2, c, d) = range(z);
+    let keys: Vec<WebKey> = (c..=d).flat_map(|y| (a..=b2).map(move |x| (b, z, x, y))).collect();
+    // the tiles: from the disk, else the web, a few at a time
+    let (next, tiles, error) = (AtomicUsize::new(0), Mutex::new(HashMap::new()), Mutex::new(None::<String>));
+    std::thread::scope(|s| {
+        for _ in 0..PICTURE_THREADS.min(keys.len()) {
+            s.spawn(|| {
+                while let Some(&k) = keys.get(next.fetch_add(1, Ordering::Relaxed)) {
+                    match load(k) {
+                        Ok(img) => {
+                            tiles.lock().unwrap().insert(k, img);
+                        }
+                        Err(e) => {
+                            error.lock().unwrap().get_or_insert(e);
+                        }
+                    }
+                }
+            });
+        }
+    });
+    let tiles = tiles.into_inner().unwrap();
+    if tiles.values().all(Option::is_none)
+        && let Some(e) = error.into_inner().unwrap()
+    {
+        return Err(e);
+    }
+    let missing = keys.len() - tiles.values().filter(|t| t.is_some()).count();
+    // each pixel's place in web Mercator by the lattice, then its colour in the tile there
+    let size = 2.0 * E / (1u64 << z) as f64;
+    let last = (1u64 << z) as i64 - 1;
+    let mut rgba = vec![0u8; w * h * 4];
+    for j in 0..h {
+        let v = (j as f64 + 0.5) / LATTICE as f64;
+        let (k0, ty) = ((v as usize).min(ny - 2), v - (v as usize).min(ny - 2) as f64);
+        for i in 0..w {
+            let u = (i as f64 + 0.5) / LATTICE as f64;
+            let (i0, tx) = ((u as usize).min(nx - 2), u - (u as usize).min(nx - 2) as f64);
+            let (p00, p10, p01, p11) = (at(i0, k0), at(i0 + 1, k0), at(i0, k0 + 1), at(i0 + 1, k0 + 1));
+            if ![p00, p10, p01, p11].into_iter().all(finite) {
+                continue;
+            }
+            let mix = |f: fn(&(f64, f64)) -> f64| {
+                (f(&p00) * (1.0 - tx) + f(&p10) * tx) * (1.0 - ty) + (f(&p01) * (1.0 - tx) + f(&p11) * tx) * ty
+            };
+            let (mx, my) = (mix(|p| p.0), mix(|p| p.1));
+            let (fx, fy) = ((mx + E) / size, (E - my) / size);
+            let (tile_x, tile_y) = (fx.floor() as i64, fy.floor() as i64);
+            if !(0..=last).contains(&tile_x) || !(0..=last).contains(&tile_y) {
+                continue;
+            }
+            let Some(Some(img)) = tiles.get(&(b, z, tile_x as u32, tile_y as u32)) else { continue };
+            let [tw, th] = img.size;
+            let px = (((fx - tile_x as f64) * tw as f64) as usize).min(tw - 1);
+            let py = (((fy - tile_y as f64) * th as f64) as usize).min(th - 1);
+            let o = (j * w + i) * 4;
+            rgba[o..o + 4].copy_from_slice(&img.pixels[py * tw + px].to_array());
+        }
+    }
+    Ok(Picture { rgba, missing })
 }
 
 /// The side of a grid's cell in web Mercator metres at its centre (how many cells the world spans), when its

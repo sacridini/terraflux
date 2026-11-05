@@ -3270,7 +3270,7 @@ fn made_of(s: &Session, l: &Layer) -> Option<Arc<crate::difference::Made>> {
 }
 
 /// The names of the classes of a map's colouring, by its legend (as a difference names its transitions).
-fn class_names(
+pub(crate) fn class_names(
     c: &[(f64, Color32)],
     lk: &Look,
     legend: Option<&[terraflux_ops::legend::Class]>,
@@ -4055,6 +4055,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         .clicked()
                 {
                     sh.view.set_measuring(sh.view.measuring.is_none());
+                    // (views side by side stop with it)
+                    sh.view.measure_stopped = sh.view.measuring.is_none();
                 }
                 // finding one's way: a place by its coordinates; back and forward along the views (the arrows left
                 // of it, back first)
@@ -4462,7 +4464,11 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             vectors: vectors.clone(),
                             rasters: rasters.clone(),
                         };
-                        s.export = Some(crate::export_view::Export::new(cut(panel)));
+                        // (the basemap under the map, the data as opaque over it as the Viewer shows it)
+                        // (data hidden over no basemap would be a blank picture: it is kept)
+                        let hidden = sh.view.hide_data && sh.view.basemap != crate::map_view::Basemap::None;
+                        let opacity = if hidden { 0.0 } else { 1.0 - sh.view.transparency.clamp(0.0, 1.0) };
+                        s.export = Some(crate::export_view::Export::new(cut(panel)).under(sh.view.basemap, opacity));
                     }
                     let panel =
                         |src: &Source, lk: &Look, legend: Option<&[terraflux_ops::legend::Class]>, caption: String| {
@@ -4501,6 +4507,15 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 Some(panel(src, &bl, None, name.clone()))
                             })
                             .collect();
+                        // (the export may put the views side by side in its picture)
+                        if export
+                            && sh.compare.how == How::SideBySide
+                            && let Some(e) = &mut s.export
+                        {
+                            let mut views = vec![panel(src, &other, None, name.clone())];
+                            views.extend(more.iter().cloned());
+                            e.beside = views;
+                        }
                         if sh.compare.how == How::SideBySide && !more.is_empty() {
                             let mut all = vec![
                                 panel(&maps[k], l, legend, main_name.clone()),
@@ -4963,6 +4978,10 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         }
     } else {
         sh.view.selected = None;
+    }
+    // (only views side by side share the box of numbers of a measure out)
+    if other.is_none() || sh.compare.how != How::SideBySide {
+        sh.view.hide_measure_box = false;
     }
     egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::well())).show(ui, |ui| {
         let Some(l) = &look else {
@@ -5909,6 +5928,13 @@ fn side_by_side(
         }
         drawn.push(p);
     }
+    // measuring: every view measures on its own (a click in one makes its line there), the box of numbers only in the
+    // one worked on last
+    {
+        let mut all: Vec<&mut crate::map_view::MapView> = vec![&mut sh.view, &mut *compared];
+        all.extend(views.iter_mut().zip(&drawn).filter(|(_, p)| p.is_ok()).map(|(b, _)| &mut b.view));
+        crate::measure::together(&mut all);
+    }
     let mut before = vec![sh.view.camera(), compared.camera()];
     before.extend(views.iter().zip(&drawn).filter(|(_, p)| p.is_ok()).map(|(b, _)| b.view.camera()));
     let named = |ui: &mut Ui, rect: Rect, name: &str| {
@@ -5928,8 +5954,8 @@ fn side_by_side(
                     i: usize,
                     (src, coloring, name): (&Source, &Coloring, &str),
                     view: &mut crate::map_view::MapView,
-                    // (the line measured on the map shown, drawn over a view beside, carried by its link)
-                    line: Option<(&crate::measure::Measure, &Link)>| {
+                    // (the lines measured in the other views, drawn over this one, each carried by a link)
+                    lines: &[(&crate::measure::Measure, Link)]| {
         // (view 0 is the map shown, the layers of the Viewer's; the next ones the compared and the views more)
         let (rasters, overlays) = match i.checked_sub(1).and_then(|j| own.get(j)).and_then(|o| o.as_ref()) {
             Some(d) => (&d.rasters[..], &d.overlays[..]),
@@ -5938,7 +5964,7 @@ fn side_by_side(
         let h = ui
             .scope_builder(egui::UiBuilder::new().max_rect(rect).id_salt(("side by side", i)), |ui| {
                 let h = view.show_stacked(ui, src, coloring, rasters, overlays);
-                if let Some((l, link)) = line {
+                for (l, link) in lines {
                     view.paint_measure(ui, l, link);
                 }
                 named(ui, rect, name);
@@ -5947,14 +5973,36 @@ fn side_by_side(
             .inner;
         hover = hover.take().or(h);
     };
-    draw(ui, rects[0], 0, left, &mut sh.view, None);
-    let line = sh.view.measuring.clone().filter(|l| !l.points.is_empty());
-    draw(ui, rects[1], 1, right, compared, line.as_ref().map(|l| (l, &places[1])));
+    // the lines measured, one per view that has points (as the view's own: cells of its grid), followed into the
+    // others by the link between their grids
+    let grids: Vec<Option<&terraflux_raster::Grid>> = [Some(left.0.grid()), Some(right.0.grid())]
+        .into_iter()
+        .chain(more.iter().map(|m| m.as_ref().ok().map(|(s, _, _)| s.grid())))
+        .collect();
+    let measured: Vec<(usize, crate::measure::Measure)> = std::iter::once(&sh.view)
+        .chain(std::iter::once(&*compared))
+        .chain(views.iter().map(|b| &b.view))
+        .enumerate()
+        .filter_map(|(i, v)| v.measuring.clone().filter(|l| !l.points.is_empty()).map(|l| (i, l)))
+        .collect();
+    let lines_for = |i: usize| -> Vec<(&crate::measure::Measure, Link)> {
+        let Some(own) = grids.get(i).copied().flatten() else { return Vec::new() };
+        measured
+            .iter()
+            .filter(|(from, _)| *from != i)
+            .filter_map(|(from, l)| {
+                let link = Link::between(own, grids.get(*from).copied().flatten()?)?;
+                Some((l, link))
+            })
+            .collect()
+    };
+    draw(ui, rects[0], 0, left, &mut sh.view, &lines_for(0));
+    draw(ui, rects[1], 1, right, compared, &lines_for(1));
     for (i, ((m, p), b)) in more.iter().zip(&drawn).zip(views.iter_mut()).enumerate() {
         let rect = rects[2 + i];
         match (m, p) {
-            (Ok((src, coloring, name)), Ok(link)) => {
-                draw(ui, rect, 2 + i, (src, coloring, name), &mut b.view, line.as_ref().map(|l| (l, link)))
+            (Ok((src, coloring, name)), Ok(_)) => {
+                draw(ui, rect, 2 + i, (src, coloring, name), &mut b.view, &lines_for(2 + i))
             }
             (_, Err(e)) => {
                 ui.scope_builder(egui::UiBuilder::new().max_rect(rect).id_salt(("side by side", 2 + i)), |ui| {
