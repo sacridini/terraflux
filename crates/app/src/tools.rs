@@ -1633,7 +1633,7 @@ fn all() -> Vec<Value> {
                 "title": { "type": "string", "description": "Its title, the figure's caption (default: what it shows)." },
                 "layers": {
                     "type": "array",
-                    "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), palette (viridis, cividis, blue, orange, terrain, grey, red, rank; \", logarithmic\" for a scale of logarithms; default: by what the map is), range ([least, most] of the colours of a map of values; default: its 2nd to 98th percentiles), hidden, minus (node.port: the layer is the difference, from minus it for values, the transitions from it to from for classes), minus_band (the band or step of minus, 0-based: two layers of one stack or series) }.",
+                    "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), palette (viridis, cividis, blue, orange, terrain, grey, red, rank; \", logarithmic\" for a scale of logarithms; default: by what the map is), range ([least, most] of the colours of a map of values; default: its 2nd to 98th percentiles), hidden, minus (node.port: the layer is the difference, from minus it for values, the transitions from it to from for classes), minus_band (the band or step of minus, 0-based: two layers of one stack or series), style (of vector features: { colour (\"#rrggbbaa\"), by (an attribute: the colours of its values; a text always as categories), ramp (of a number attribute: as palette, without \", logarithmic\"; default viridis), breaks (continuous (default: a ramp along the values, a few whole numbers a class each), equal, quantiles, natural (Jenks)), classes (2 to 12 of equal, quantiles or natural breaks; default 5), categories (true: a number attribute as categories, a colour each value), size_by (a number attribute that sizes the points, the area as the value), size_min and size_max (their size in pixels across; default 3 and 18), symbol (circle (default), square, triangle, diamond, cross), fill (0 to 1, of polygons), width (pixels), labels (an attribute), label_size (points) }) }.",
                     "items": {},
                 },
                 "compare": { "description": "A map compared with the top map: node.port, or { with, how, also } (how: curtain, side by side (default) or difference; also: up to 2 more maps (node.port) side by side, 4 views in all that move together; band: the band of the stack or the step of the loop `with` is (from 0, default the first); also_bands: the same for each map of also (a number each, 0 or null for the first); layers: side by side, the layers each view draws instead of the Plot's, a list per view (first the view of `with`, then those of `also`) in the form of the Plot's layers but without palette, an empty list for a view that draws the Plot's layers)." },
@@ -2476,6 +2476,29 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                     Some(m) => Some(checked(m)?),
                     None => None,
                 };
+                if let Some(st) = o.get("style").filter(|s| !s.is_null()) {
+                    // (the symbology of vectors: a word it does not know is refused, not drawn as the default)
+                    let word = |k: &str| st.get(k).and_then(Value::as_str);
+                    if let Some(b) = word("breaks").filter(|b| crate::vector_tiles::Breaks::named(b).is_none()) {
+                        return Err(format!(
+                            "{from}: style.breaks {b:?}; one of continuous, equal, quantiles, natural"
+                        ));
+                    }
+                    if let Some(s) = word("symbol").filter(|s| crate::vector_tiles::Symbol::named(s).is_none()) {
+                        return Err(format!(
+                            "{from}: style.symbol {s:?}; one of circle, square, triangle, diamond, cross"
+                        ));
+                    }
+                    if let Some(p) = word("ramp")
+                        && !matches!(crate::builder::palette_named(p), Some(crate::builder::Palette::Chosen(..)))
+                    {
+                        let names: Vec<&str> = crate::builder::RAMPS.iter().map(|(n, _)| *n).collect();
+                        return Err(format!("{from}: style.ramp {p:?}; one of {}", names.join("; ")));
+                    }
+                    if let Some(c) = st.get("classes").filter(|c| c.as_u64().is_none_or(|c| !(2..=12).contains(&c))) {
+                        return Err(format!("{from}: style.classes is a whole number from 2 to 12, not {c}"));
+                    }
+                }
                 PlotLayer {
                     from: checked(from)?,
                     opacity: opacity.filter(|x| *x != 1.0),
@@ -2836,6 +2859,42 @@ mod plot_tests {
         let a = json!({ "id": "cover", "layers": ["land.map"] });
         super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
         assert!(m.plot("cover").unwrap().view.is_none());
+    }
+
+    /// The symbology of a vector layer in set_plot: its style kept as given (and read by the Viewer), a word the Viewer
+    /// does not know refused.
+    #[test]
+    fn a_plot_keeps_the_symbology_of_its_vectors() {
+        let r = terraflux_ops::Registry::standard();
+        let dir = std::path::Path::new(".");
+        let mut m = model();
+        let style = json!({
+            "by": "area", "ramp": "cividis", "breaks": "quantiles", "classes": 4,
+            "size_by": "pop", "size_min": 4, "size_max": 20, "symbol": "triangle",
+        });
+        let a = json!({ "id": "v", "layers": ["land.map", { "from": "land.map", "style": style }] });
+        super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
+        let kept = m.plot("v").unwrap().layers[1].style.clone().expect("the style kept");
+        let s = crate::vector_tiles::Style::from_json(&kept);
+        assert_eq!(
+            (s.ramp, s.breaks, s.classes, s.symbol, s.size_by.as_deref()),
+            (
+                crate::palette::Ramp::Cividis,
+                crate::vector_tiles::Breaks::Quantiles,
+                4,
+                crate::vector_tiles::Symbol::Triangle,
+                Some("pop")
+            )
+        );
+        for bad in [
+            json!({ "breaks": "wavy" }),
+            json!({ "symbol": "star" }),
+            json!({ "ramp": "rainbow" }),
+            json!({ "classes": 40 }),
+        ] {
+            let a = json!({ "id": "v", "layers": [{ "from": "land.map", "style": bad }] });
+            assert!(super::edit("set_plot", &mut m, &r, dir, &a).is_err(), "{bad}");
+        }
     }
 
     /// A Plot added and replaced by set_plot, its references checked; removed by remove_plot; no view.plot node.

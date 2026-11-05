@@ -5376,6 +5376,154 @@ fn the_labels_of_a_vector_layer() {
     until(&mut h, "no labels", |a| placed(a) == 0);
 }
 
+/// The symbology of a vector layer: six squares coloured by a number in three classes of quantiles, the legend under
+/// the layer's row naming them, the exported view with the class colours, and the style kept in a Plot and back.
+#[test]
+fn the_symbology_of_a_vector_layer() {
+    use terraflux_app::vector_tiles::{Breaks, Style, Swatches, class_of_ramp};
+    use terraflux_raster::vector::{Column, Geometry, Vector};
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    let g = terraflux_gdal::Dataset::open(data("sibuyan_landuse.tif")).unwrap().meta.grid.clone();
+    let t = g.transform;
+    let (w, ht) = (g.width as f64 * t[1], g.height as f64 * -t[5]);
+    // the squares' places: a share of the width from the left, of the height from the top (0.25 across)
+    let at = [(0.05, 0.1), (0.37, 0.1), (0.69, 0.1), (0.05, 0.55), (0.37, 0.55), (0.69, 0.55)];
+    let pop = vec![5.0, 8.0, 12.0, 15.0, 30.0, 50.0];
+    let style = Style {
+        by: Some("pop".into()),
+        breaks: Breaks::Quantiles,
+        classes: 3,
+        fill: 1.0,
+        width: 0.0,
+        ..Style::default()
+    };
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        let square = |(a, b): (f64, f64)| {
+            let (x0, y0, x1, y1) = (t[0] + w * a, t[3] - ht * b, t[0] + w * (a + 0.25), t[3] - ht * (b + 0.25));
+            Geometry::Polygon(vec![vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]])
+        };
+        let v = Vector {
+            geometries: at.iter().map(|p| square(*p)).collect(),
+            attributes: vec![("pop".into(), Column::Numbers(pop.clone()))],
+            crs: g.geo.wkt.clone(),
+        };
+        let gpkg = tmp("symbology-squares.gpkg");
+        let _ = std::fs::remove_file(&gpkg);
+        terraflux_gdal::write_vector(&gpkg, "squares", &v).unwrap();
+        terraflux_app::builder::add(s, &r, "vector.read", &[("path", gpkg.to_string_lossy().into_owned().into())])
+            .unwrap();
+        let mut layer = terraflux_app::builder::Layer::new("symbology_squares", "vector");
+        layer.style = style.clone();
+        s.preview_layers = vec![layer];
+        s.preview = Some(("sibuyan_landuse".into(), "raster".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running()
+            && s.value_of("sibuyan_landuse", "raster").is_some()
+            && s.value_of("symbology_squares", "vector").is_some()
+    });
+    h.run_steps(4);
+    drawn(&mut h);
+    // the legend under the layer's row: the attribute and a range each class
+    h.run_steps(3);
+    assert!(h.query_by_label("by pop").is_some());
+    for range in ["5 \u{2013} 8", "8 \u{2013} 15", "15 \u{2013} 50"] {
+        assert!(h.query_by_label(range).is_some(), "the class {range} in the legend");
+    }
+    shot(&mut h, "14s-symbology-classes");
+    // the layer selected: its properties have the style's editor (the ramp, the breaks, the classes)
+    {
+        use egui_kittest::kittest::NodeT;
+        let row = h
+            .query_all_by_label_contains("symbology_squares")
+            .find(|n| n.accesskit_node().label().is_some_and(|l| !l.contains("its menu")))
+            .expect("the layer's row");
+        row.click();
+    }
+    h.run_steps(3);
+    assert!(h.query_all_by_label("ramp").count() >= 1, "the ramp bar");
+    shot(&mut h, "14s-symbology-editor");
+    // the classes' colours by the legend's own look
+    let look = {
+        let s = h.state().session.as_ref().unwrap();
+        let Some(terraflux_ops::Value::Vector(v)) = s.value_of("symbology_squares", "vector") else { panic!() };
+        terraflux_app::vector_tiles::look(&v, &style)
+    };
+    let Swatches::Classes { bounds, .. } = &look.legend.swatches else { panic!("{:?}", look.legend.swatches) };
+    assert_eq!(bounds, &vec![5.0, 8.0, 15.0, 50.0]);
+    let class = |i: usize| class_of_ramp(style.ramp, i, 3);
+    assert_eq!((look.colours[0], look.colours[3], look.colours[5]), (class(0), class(1), class(2)));
+    // the exported view: a pixel in the middle of the first and the last square is the class colour
+    for _ in 0..400 {
+        if h.query_by_label("Export the view...").is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+        h.run_steps(1);
+    }
+    h.get_by_label("Export the view...").click();
+    h.run_steps(4);
+    let png = tmp("symbology-view.png");
+    {
+        let e = h.state().session.as_ref().unwrap().export.as_ref().expect("the export's window");
+        assert_eq!(e.panel.vectors.len(), 1);
+        terraflux_app::export_view::save(&e.panel, 1, terraflux_app::export_view::Format::Png, &png).unwrap();
+    }
+    let pm = tiny_skia::Pixmap::load_png(&png).unwrap();
+    let pixel = |k: usize| {
+        let (fx, fy) = at[k];
+        let (col, row) = (((fx + 0.125) * g.width as f64) as u32, ((fy + 0.125) * g.height as f64) as u32);
+        let c = pm.pixel(col, row).unwrap();
+        [c.red(), c.green(), c.blue()]
+    };
+    let rgb = |c: egui::Color32| [c.r(), c.g(), c.b()];
+    assert_eq!(pixel(0), rgb(class(0)), "the least class");
+    assert_eq!(pixel(3), rgb(class(1)), "the middle class");
+    assert_eq!(pixel(5), rgb(class(2)), "the greatest class");
+    // kept in a Plot: the style with its breaks and classes, and back from it
+    h.get_by_label("Plots").click();
+    h.run_steps(2);
+    h.get_by_label("Save as a new plot").click();
+    h.run_steps(2);
+    let s = h.state_mut().session.as_mut().unwrap();
+    let id = s.source.plots.last().expect("the Plot").id.clone();
+    let kept =
+        s.source.plot(&id).unwrap().layers.iter().find(|l| l.from == "symbology_squares.vector").unwrap().clone();
+    let json = kept.style.expect("the style kept in the Plot");
+    assert_eq!(
+        (json["breaks"].as_str(), json["classes"].as_u64(), json["by"].as_str()),
+        (Some("quantiles"), Some(3), Some("pop"))
+    );
+    // (written to the model's file and read back)
+    let text = s.source.to_toml().unwrap();
+    assert_eq!(terraflux_graph::Model::from_toml(&text).unwrap().plots, s.source.plots);
+    s.preview_layers.clear();
+    terraflux_app::builder::open_plot(s, &r, &id);
+    let back = s.preview_layers.iter().find(|l| l.node == "symbology_squares").expect("the layer");
+    assert_eq!(back.style, style);
+    // the CLI's and the MCP tool's picture of the Plot: the same colours (a figure's vectors take them too)
+    let made = {
+        let s = h.state().session.as_ref().unwrap();
+        let value = |from: &str| {
+            let (n, p) = from.split_once('.')?;
+            s.value_of(n, p)
+        };
+        terraflux_app::plot_export::panel_of(&s.source, &id, &value).unwrap()
+    };
+    assert_eq!(made.panel.vectors.len(), 1);
+    let drawn_by = &made.panel.vectors[0];
+    assert_eq!((drawn_by.colours[0], drawn_by.colours[5]), (class(0), class(2)));
+    assert!(matches!(drawn_by.legend.swatches, Swatches::Classes { .. }));
+}
+
 /// The Viewer's Export the view...: the map shown with a layer over it and a polygon, written as PNG and as GeoTIFF
 /// on the map's grid, a cell to a pixel and magnified.
 #[test]

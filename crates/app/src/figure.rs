@@ -39,6 +39,33 @@ pub struct Vectors {
     /// The attribute whose values label the features (none: no labels), and their size, points.
     pub labels: Option<String>,
     pub label_size: f32,
+    /// A point's diameter by feature, points (empty: all of the width's size), the points' shape.
+    pub sizes: Vec<f32>,
+    pub symbol: crate::vector_tiles::Symbol,
+    /// What the colours and sizes are by, for the legend.
+    pub legend: crate::vector_tiles::Legend,
+}
+
+impl Vectors {
+    /// Features in the colours and sizes of a look in the Viewer ([`crate::vector_tiles::look`]), widths and sizes
+    /// in the figure's points (0.6 of the Viewer's pixels).
+    pub fn of(
+        vector: Arc<terraflux_raster::vector::Vector>,
+        look: crate::vector_tiles::Look,
+        style: &crate::vector_tiles::Style,
+    ) -> Vectors {
+        Vectors {
+            vector,
+            colours: look.colours,
+            fill: style.fill,
+            width: style.width * 0.6,
+            labels: style.labels.clone(),
+            label_size: style.label_size * 0.6,
+            sizes: look.sizes.iter().map(|d| d * 0.6).collect(),
+            symbol: style.symbol,
+            legend: look.legend,
+        }
+    }
 }
 
 /// How the figure is laid out.
@@ -234,8 +261,139 @@ fn georeferenced(g: &terraflux_raster::Grid) -> bool {
     g.geo.wkt.is_some() || g.geo.epsg().is_some() || g.geo.is_geographic().is_some()
 }
 
-/// The legend of a colouring: its height at `x`, `y` (top) when drawn, and its width.
+/// The legend of a colouring: its height at `x`, `y` (top) when drawn, and its width; under it the legends of the
+/// vector layers' colours and sizes by an attribute.
 fn legend(t: &Type, out: &mut Vec<Shape>, p: &Panel, x: f32, y: f32) -> (f32, f32) {
+    let (mut w, mut h) = raster_legend(t, out, p, x, y);
+    for v in p.vectors.iter().filter(|v| !v.legend.is_plain()) {
+        let gap = if h > 0.0 { 6.0 } else { 0.0 };
+        let (vw, vh) = vector_legend(t, out, v, x, y + h + gap);
+        w = w.max(vw);
+        h += gap + vh;
+    }
+    (w, h)
+}
+
+/// A ramp upwards from the least to the greatest, labelled with `values` (the greatest, the middle, the least):
+/// its width and height.
+fn ramp_bar(
+    t: &Type,
+    out: &mut Vec<Shape>,
+    x: f32,
+    y: f32,
+    ramp: crate::palette::Ramp,
+    values: [f64; 3],
+) -> (f32, f32) {
+    const SIZE: f32 = 7.5;
+    let (bw, bh) = (8.0, 72.0);
+    let n = 64;
+    for k in 0..n {
+        let t0 = k as f32 / n as f32;
+        out.push(Shape::Rect {
+            x,
+            y: y + bh * (1.0 - t0 - 1.0 / n as f32),
+            w: bw,
+            // (each a little over the one under it: no seam between them where they are smoothed)
+            h: bh / n as f32 + if k == 0 { 0.0 } else { 0.6 },
+            fill: Some(ramp.colour(t0 + 0.5 / n as f32)),
+            stroke: None,
+        });
+    }
+    out.push(Shape::Rect { x, y, w: bw, h: bh, fill: None, stroke: Some((Color32::from_gray(110), 0.4)) });
+    let mut w: f32 = 0.0;
+    for (v, at) in [(values[0], 0.0), (values[1], 0.5), (values[2], 1.0)] {
+        let label = crate::animation::short(v);
+        out.push(Shape::Line {
+            points: vec![(x + bw, y + bh * at), (x + bw + 2.5, y + bh * at)],
+            colour: INK,
+            width: 0.4,
+        });
+        out.push(Shape::Text {
+            x: x + bw + 4.0,
+            y: y + bh * at + 2.6,
+            size: SIZE,
+            text: label.clone(),
+            anchor: Anchor::Start,
+            colour: INK,
+            up: false,
+        });
+        w = w.max(bw + 4.0 + t.width(SIZE, &label));
+    }
+    (w, bh)
+}
+
+/// The legend of a vector layer's colours and sizes: the attribute that colours it over a line each category or
+/// class (at most 12, then "and k more") or the ramp; the attribute that sizes its points over a few of the sizes.
+fn vector_legend(t: &Type, out: &mut Vec<Shape>, v: &Vectors, x: f32, y: f32) -> (f32, f32) {
+    use crate::vector_tiles::Swatches;
+    const SIZE: f32 = 7.5;
+    const MAX: usize = 12;
+    let row = 11.0;
+    let (mut w, mut h): (f32, f32) = (0.0, 0.0);
+    let text = |out: &mut Vec<Shape>, s: String, x: f32, y: f32| {
+        out.push(Shape::Text { x, y, size: SIZE, text: s.clone(), anchor: Anchor::Start, colour: INK, up: false });
+        t.width(SIZE, &s)
+    };
+    let l = &v.legend;
+    if let (Some(a), false) = (&l.attribute, matches!(l.swatches, Swatches::One)) {
+        w = w.max(text(out, a.clone(), x, y + 7.0));
+        h += row;
+        match &l.swatches {
+            Swatches::Ramp { ramp, min, max } => {
+                let (rw, rh) = ramp_bar(t, out, x, y + h, *ramp, [*max, (min + max) / 2.0, *min]);
+                w = w.max(rw);
+                h += rh + 2.0;
+            }
+            _ => {
+                let rows = l.rows();
+                for (c, name) in rows.iter().take(MAX) {
+                    out.push(Shape::Rect {
+                        x,
+                        y: y + h,
+                        w: 8.0,
+                        h: 8.0,
+                        fill: Some(*c),
+                        stroke: Some((Color32::from_gray(110), 0.4)),
+                    });
+                    w = w.max(12.0 + text(out, name.clone(), x + 12.0, y + h + 7.0));
+                    h += row;
+                }
+                let more = rows.len().saturating_sub(MAX) + l.more();
+                if more > 0 {
+                    w = w.max(text(out, format!("and {more} more"), x, y + h + 7.0));
+                    h += row;
+                }
+            }
+        }
+    }
+    if let (Some(a), false) = (&l.size_by, l.sizes.is_empty()) {
+        if h > 0.0 {
+            h += 4.0;
+        }
+        w = w.max(text(out, format!("size: {a}"), x, y + h + 7.0));
+        h += row;
+        // (the diameters in points, 0.6 of the Viewer's pixels)
+        let biggest = l.sizes.iter().map(|(d, _)| d * 0.6).fold(0.0, f32::max);
+        for (d, label) in &l.sizes {
+            let r = d * 0.6 / 2.0;
+            let line = (r * 2.0 + 2.0).max(row);
+            let (cx, cy) = (x + biggest / 2.0, y + h + line / 2.0);
+            let ring = v.symbol.outline(r).into_iter().map(|(dx, dy)| (cx + dx, cy + dy)).collect();
+            out.push(Shape::Path {
+                rings: vec![ring],
+                closed: true,
+                fill: Some(Color32::from_gray(150)),
+                stroke: Some((Color32::from_gray(60), 0.4)),
+            });
+            w = w.max(biggest + 4.0 + text(out, label.clone(), x + biggest + 4.0, cy + 2.6));
+            h += line;
+        }
+    }
+    (w, h)
+}
+
+/// The legend of a map's colouring: its height at `x`, `y` (top) when drawn, and its width.
+fn raster_legend(t: &Type, out: &mut Vec<Shape>, p: &Panel, x: f32, y: f32) -> (f32, f32) {
     const SIZE: f32 = 7.5;
     const MAX: usize = 20;
     match &p.coloring {
@@ -314,41 +472,8 @@ fn legend(t: &Type, out: &mut Vec<Shape>, p: &Panel, x: f32, y: f32) -> (f32, f3
         }
         Coloring::Continuous { min, max, ramp, log } => {
             // the ramp upwards, from the minimum to the maximum, labelled at both ends and the middle
-            let (bw, bh) = (8.0, 72.0);
-            let n = 64;
-            for k in 0..n {
-                let t0 = k as f32 / n as f32;
-                out.push(Shape::Rect {
-                    x,
-                    y: y + bh * (1.0 - t0 - 1.0 / n as f32),
-                    w: bw,
-                    // (each a little over the one under it: no seam between them where they are smoothed)
-                    h: bh / n as f32 + if k == 0 { 0.0 } else { 0.6 },
-                    fill: Some(ramp.colour(t0 + 0.5 / n as f32)),
-                    stroke: None,
-                });
-            }
-            out.push(Shape::Rect { x, y, w: bw, h: bh, fill: None, stroke: Some((Color32::from_gray(110), 0.4)) });
             let mid = if *log && *min > 0.0 { (min * max).sqrt() } else { (min + max) / 2.0 };
-            let mut w: f32 = 0.0;
-            for (v, at) in [(*max, 0.0), (mid, 0.5), (*min, 1.0)] {
-                let label = crate::animation::short(v);
-                out.push(Shape::Line {
-                    points: vec![(x + bw, y + bh * at), (x + bw + 2.5, y + bh * at)],
-                    colour: INK,
-                    width: 0.4,
-                });
-                out.push(Shape::Text {
-                    x: x + bw + 4.0,
-                    y: y + bh * at + 2.6,
-                    size: SIZE,
-                    text: label.clone(),
-                    anchor: Anchor::Start,
-                    colour: INK,
-                    up: false,
-                });
-                w = w.max(bw + 4.0 + t.width(SIZE, &label));
-            }
+            let (w, bh) = ramp_bar(t, out, x, y, *ramp, [*max, mid, *min]);
             if *log {
                 out.push(Shape::Text {
                     x,
@@ -400,7 +525,12 @@ pub fn plain(p: &Panel, scale: usize, max_side: usize) -> Result<Drawing, String
         // (a panel keeps the widths and sizes in the figure's points, 0.6 of the Viewer's pixels)
         let to_px = k as f32 / 0.6;
         for v in &p.vectors {
-            let v = Vectors { width: v.width * to_px, label_size: v.label_size * to_px, ..v.clone() };
+            let v = Vectors {
+                width: v.width * to_px,
+                label_size: v.label_size * to_px,
+                sizes: v.sizes.iter().map(|d| d * to_px).collect(),
+                ..v.clone()
+            };
             vectors(&mut shapes, &v, &at);
         }
     }
@@ -434,18 +564,12 @@ fn vectors(out: &mut Vec<Shape>, v: &Vectors, at: &dyn Fn(f64, f64) -> (f32, f32
                 out.push(Shape::Path { rings, closed: false, fill: None, stroke: Some((c, v.width.max(0.3))) });
             }
             Geometry::Point(_) | Geometry::MultiPoint(_) => {
-                let r = 1.2 + v.width / 2.0;
+                let r = v.sizes.get(k).map_or(1.2 + v.width / 2.0, |d| d / 2.0);
+                let shape = v.symbol.outline(r);
                 let mut rings = Vec::new();
                 g.points(&mut |p| {
                     let (x, y) = at(p[0], p[1]);
-                    rings.push(
-                        (0..16)
-                            .map(|i| {
-                                let a = i as f32 / 16.0 * std::f32::consts::TAU;
-                                (x + r * a.cos(), y + r * a.sin())
-                            })
-                            .collect(),
-                    );
+                    rings.push(shape.iter().map(|(dx, dy)| (x + dx, y + dy)).collect());
                 });
                 out.push(Shape::Path { rings, closed: true, fill: Some(c), stroke: Some((Color32::WHITE, 0.3)) });
             }
@@ -1611,6 +1735,53 @@ mod tests {
     }
 
     #[test]
+    fn the_legend_of_vectors_colours_and_sizes() {
+        use crate::vector_tiles::{Breaks, Style, Symbol, look};
+        use terraflux_raster::vector::{Column, Geometry, Vector};
+        let n = [1.5, 2.5, 3.5, 4.5, 8.0, 9.0, 10.0, 12.0];
+        let v = Arc::new(Vector {
+            geometries: (0..8).map(|i| Geometry::Point([500000.0 + 300.0 * i as f64, 8999000.0])).collect(),
+            attributes: vec![
+                ("area".into(), Column::Numbers(n.to_vec())),
+                ("use".into(), Column::Texts((0..8).map(|i| ["wood", "farm"][i % 2].to_string()).collect())),
+            ],
+            crs: None,
+        });
+        let with = |style: Style| {
+            let mut p = panel("map", |i| 1.0 + (i % 2) as f64, classes());
+            p.vectors = vec![Vectors::of(v.clone(), look(&v, &style), &style)];
+            p
+        };
+        let l = Layout { columns: 1, grid: false, ..Default::default() };
+        // classes of a number: a range each, in its colour
+        let s = Style { by: Some("area".into()), breaks: Breaks::Quantiles, classes: 4, ..Style::default() };
+        let p = with(s.clone());
+        let svg = lay_out(std::slice::from_ref(&p), &l, 1.0).unwrap().svg(180.0);
+        assert!(svg.contains(">area</text>") && svg.contains(">1.5 \u{2013} 2.5</text>"), "{svg}");
+        assert!(svg.contains(">forest</text>"), "the map's own legend stays");
+        let c0 = crate::vector_tiles::class_of_ramp(s.ramp, 0, 4);
+        assert!(svg.contains(&format!("#{:02x}{:02x}{:02x}", c0.r(), c0.g(), c0.b())));
+        // categories of a text, sizes by an attribute: circles with their values
+        let s =
+            Style { by: Some("use".into()), size_by: Some("area".into()), symbol: Symbol::Square, ..Style::default() };
+        let svg = lay_out(&[with(s)], &l, 1.0).unwrap().svg(180.0);
+        assert!(
+            svg.contains(">farm</text>") && svg.contains(">wood</text>") && svg.contains(">size: area</text>"),
+            "{svg}"
+        );
+        assert!(svg.contains(">1.5</text>") && svg.contains(">12</text>"), "{svg}");
+        // the ramp: its ends
+        let r = Style { by: Some("area".into()), ..Style::default() };
+        let svg = lay_out(&[with(r)], &l, 1.0).unwrap().svg(180.0);
+        assert!(svg.contains(">area</text>") && svg.contains(">12</text>") && svg.contains(">1.5</text>"), "{svg}");
+        // one colour and one size: nothing but the map's legend
+        let svg = lay_out(&[with(Style::default())], &l, 1.0).unwrap().svg(180.0);
+        assert!(!svg.contains("size:") && !svg.contains(">area</text>"));
+        // and as a PNG too (no panic: drawn)
+        assert!(lay_out(&[p], &l, 1.0).unwrap().pixels(72).is_ok());
+    }
+
+    #[test]
     fn vectors_over_the_map_an_inset_and_a_pdf() {
         use terraflux_raster::vector::{Geometry, Vector};
         let mut g = terraflux_raster::Grid::new(60, 40);
@@ -1644,6 +1815,9 @@ mod tests {
                 width: 1.0,
                 labels: None,
                 label_size: 6.0,
+                sizes: Vec::new(),
+                symbol: Default::default(),
+                legend: crate::vector_tiles::Look::default().legend,
             }],
             rasters: Vec::new(),
         };

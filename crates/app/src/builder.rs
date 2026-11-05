@@ -2597,15 +2597,8 @@ pub(crate) fn figure_vector(
     grid: &terraflux_raster::Grid,
 ) -> Option<crate::figure::Vectors> {
     let v = terraflux_ops::vector::on_grid(v, grid).ok()?;
-    let colours = crate::vector_tiles::colours(&v, style);
-    Some(crate::figure::Vectors {
-        vector: v,
-        colours,
-        fill: style.fill,
-        width: style.width * 0.6,
-        labels: style.labels.clone(),
-        label_size: style.label_size * 0.6,
-    })
+    let look = crate::vector_tiles::look(&v, style);
+    Some(crate::figure::Vectors::of(v, look, style))
 }
 
 /// What a Plot shows first, its legend and settings in the Viewer: its top map (a layer not hidden that is not

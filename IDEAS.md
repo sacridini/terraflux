@@ -2368,6 +2368,17 @@ item, na ordem; release só quando pedido.
    (contínua, intervalos iguais, quantis, Jenks; o número de classes), o tamanho dos pontos por um atributo e
    símbolos de ponto além do círculo (quadrado, triângulo, cruz). A legenda dos vetores nos Layers. Guardada no
    Plot, na figura, no export e no projeto do QGIS.
+   **Feito** (Unreleased, por um sub-agente): `vector_tiles.rs`. `Style` com `ramp`, `breaks` (`Breaks`: contínua,
+   iguais, quantis, Jenks), `classes`, `categories`, `size_by`, `size_min`/`size_max`, `symbol` (`Symbol`), o JSON só
+   com o que difere do padrão. `look(v, style) -> Look { colours, sizes, legend }`, a única conta das cores e tamanhos,
+   usada pelos tiles (o cache solto com mais de 64 estilos), pela legenda dos Layers, pela figura (`Vectors::of`, a
+   legenda dos vetores sob a do mapa), pelo export, pelo `plot_export` e pelo `qgis.rs` (categorizado, graduado, o
+   marcador e o tamanho por expressão). `natural_breaks`: Fisher-Jenks ótimo numa amostra de até 1 500 valores
+   distintos. O editor em `vector_view::style_controls`. Testes: os de `vector_tiles.rs`,
+   `the_legend_of_vectors_colours_and_sizes`, `vector_symbology_in_qgis`, `a_plot_keeps_the_symbology_of_its_vectors`,
+   `the_symbology_of_a_vector_layer`. Falta: conferir no QGIS de verdade (`a_project_for_pyqgis`); as quebras numa
+   thread (hoje na da janela, uma vez por estilo); a legenda dos tamanhos na cor da classe; numa figura de vários
+   painéis, só a legenda dos vetores do primeiro.
 4. **O relevo sombreado sob o mapa.** Um modo de mistura por camada (normal, multiplicar, tela) e, numa camada de
    terreno, *Shade with this elevation*: o hillshade feito do próprio mapa (azimute e altura do sol, exagero
    vertical) multiplicado sob as cores. Guardado no Plot, na figura e no export.

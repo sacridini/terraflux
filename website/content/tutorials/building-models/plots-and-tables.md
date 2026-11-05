@@ -205,6 +205,17 @@ runs from black at the 2nd percentile of its band to full colour at the 98th; it
 is transparent. The legend under the row tells each channel's band and range, the pointer over the map the three
 values. The Plot keeps the composite, and the figure, *Export the view* and `terraflux plot` draw it.
 
+### The style of vector features
+
+A vector layer's style colours its features with one colour or **by an attribute**. Text, and numbers asked to be
+*each value a category*, give a colour per value; other numbers run along a ramp (a click on it gives the Viewer's
+others), continuously or in **classes**: equal intervals, quantiles (as many features in each) or natural breaks
+(Jenks: the least variance within the classes), 2 to 12 of them. Points can be a circle, a square, a triangle, a
+diamond or a cross, and **sized by** an attribute (their area grows with the value, between the two sizes set).
+The legend under the layer's row tells the categories, the classes' ranges or the ramp, and the sizes; the figure
+draws it under the map's. A Plot keeps the style, and the project written for QGIS has it as a categorized or a
+graduated renderer, its symbol and a size by expression.
+
 ### Labels
 
 *labels*, in a vector layer's style, writes an attribute of its features over them: polygons at a point inside

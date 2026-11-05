@@ -198,17 +198,19 @@ fn geometry_of(v: &terraflux_raster::vector::Vector) -> &'static str {
 }
 
 /// How a vector layer is drawn: its colour, the polygons' fill (0 to 1), the lines' width (millimetres), the
-/// points' marker.
+/// points' marker, size (millimetres across; by an expression when that is given).
 #[derive(Clone, Copy)]
-struct VectorLook {
+struct VectorLook<'a> {
     colour: Color32,
     fill: f32,
     width_mm: f32,
     marker: &'static str,
+    size_mm: f32,
+    size_expr: Option<&'a str>,
 }
 
 /// A symbol of a vector layer, named `name`.
-fn symbol(name: &str, geometry: &str, l: VectorLook) -> String {
+fn symbol(name: &str, geometry: &str, l: VectorLook<'_>) -> String {
     let c = l.colour;
     let rgb = format!("{},{},{}", c.r(), c.g(), c.b());
     let opt = |k: &str, v: &str| format!("<Option name=\"{k}\" type=\"QString\" value=\"{v}\"/>");
@@ -221,7 +223,7 @@ fn symbol(name: &str, geometry: &str, l: VectorLook) -> String {
                 opt("name", l.marker),
                 opt("color", &format!("{rgb},255")),
                 opt("outline_color", "35,35,35,255"),
-                opt("size", &format!("{:.2}", 1.6 + l.width_mm * 2.0)),
+                opt("size", &format!("{:.2}", l.size_mm)),
             ]
             .concat(),
         ),
@@ -243,9 +245,21 @@ fn symbol(name: &str, geometry: &str, l: VectorLook) -> String {
             )
         }
     };
+    // (a point's size by an expression: QGIS's data defined property of the marker's size)
+    let defined = match l.size_expr.filter(|_| geometry == "Point") {
+        Some(e) => format!(
+            "<data_defined_properties><Option type=\"Map\"><Option name=\"name\" type=\"QString\" value=\"\"/>\
+             <Option name=\"properties\" type=\"Map\"><Option name=\"size\" type=\"Map\">\
+             <Option name=\"active\" type=\"bool\" value=\"true\"/><Option name=\"expression\" type=\"QString\" \
+             value=\"{}\"/><Option name=\"type\" type=\"int\" value=\"3\"/></Option></Option>\
+             <Option name=\"type\" type=\"QString\" value=\"collection\"/></Option></data_defined_properties>",
+            esc(e)
+        ),
+        None => String::new(),
+    };
     format!(
         "<symbol type=\"{kind}\" name=\"{}\" alpha=\"1\" clip_to_extent=\"1\" force_rhr=\"0\"><layer class=\"{class}\" \
-         enabled=\"1\" locked=\"0\" pass=\"0\"><Option type=\"Map\">{options}</Option></layer></symbol>",
+         enabled=\"1\" locked=\"0\" pass=\"0\"><Option type=\"Map\">{options}</Option>{defined}</layer></symbol>",
         esc(name)
     )
 }
@@ -257,11 +271,18 @@ fn marker_of(o: &VectorOptions) -> &'static str {
 
 /// A vector layer's renderer: one symbol, of the colour given (polygons filled half transparent).
 fn vector_renderer(geometry: &str, c: Color32, o: &VectorOptions) -> String {
-    let l = VectorLook { colour: c, fill: 90.0 / 255.0, width_mm: 0.4, marker: marker_of(o) };
+    let l = VectorLook {
+        colour: c,
+        fill: 90.0 / 255.0,
+        width_mm: 0.4,
+        marker: marker_of(o),
+        size_mm: 1.6 + 0.4 * 2.0,
+        size_expr: None,
+    };
     if o.rules { rules(geometry, &[], l) } else { single(geometry, l) }
 }
 
-fn single(geometry: &str, l: VectorLook) -> String {
+fn single(geometry: &str, l: VectorLook<'_>) -> String {
     format!(
         "<renderer-v2 type=\"singleSymbol\" symbollevels=\"0\" enableorderby=\"0\" forceraster=\"0\"><symbols>{}\
          </symbols></renderer-v2>",
@@ -270,15 +291,15 @@ fn single(geometry: &str, l: VectorLook) -> String {
 }
 
 /// A rule of a rule-based renderer: its filter (an expression of QGIS's), its label, how its features are drawn.
-struct Rule {
+struct Rule<'a> {
     filter: String,
     label: String,
-    look: VectorLook,
+    look: VectorLook<'a>,
 }
 
 /// QGIS's rule-based renderer of rules: theirs, then one for the features of none (`ELSE`, drawn as `other`); of
 /// no rules, one that draws every feature.
-fn rules(geometry: &str, given: &[Rule], other: VectorLook) -> String {
+fn rules(geometry: &str, given: &[Rule<'_>], other: VectorLook<'_>) -> String {
     let mut out = String::new();
     let mut symbols = String::new();
     for (i, r) in given.iter().enumerate() {
@@ -329,32 +350,73 @@ fn labeling(geometry: &str, attr: &str) -> String {
     )
 }
 
-/// The ranges of a graduated renderer of values (the Viewer's sequential ramp across them).
+/// The ranges of a graduated renderer of values along a ramp (the Viewer's, when its colours are not by classes).
 const RANGES: usize = 7;
 
-/// A vector layer's renderer in its style in the Viewer: one colour, or by an attribute (its classes, a colour
-/// each, as the Viewer gives them; a range of numbers in ranges along the ramp); as rules when the options say.
+/// The pixels of the Viewer in millimetres: about a quarter each.
+const MM: f32 = 0.26;
+
+/// A point's size by an attribute as an expression of QGIS's, in millimetres: the Viewer's
+/// ([`crate::vector_tiles::size_of`]) between the least and the greatest value; none when the style does not size
+/// by a number attribute, or the values are all alike.
+fn size_expression(v: &terraflux_raster::vector::Vector, style: &crate::vector_tiles::Style) -> Option<String> {
+    use terraflux_raster::vector::Column;
+    let attr = style.size_by.as_ref()?;
+    let Some(Column::Numbers(x)) = v.column(attr) else { return None };
+    let finite = x.iter().copied().filter(|v| v.is_finite());
+    let (lo, hi) = (finite.clone().fold(f64::INFINITY, f64::min), finite.fold(f64::NEG_INFINITY, f64::max));
+    if hi.partial_cmp(&lo) != Some(std::cmp::Ordering::Greater) {
+        return None;
+    }
+    let (mn, mx) = (style.size_min * MM, style.size_max.max(style.size_min) * MM);
+    let (lo, span) = (tidy(lo), tidy(hi - lo));
+    Some(format!(
+        "{mn:.2} + ({mx:.2} - {mn:.2}) * sqrt(max(0, min(1, (coalesce({}, {}) - {}) / {})))",
+        field(attr),
+        num(lo),
+        num(lo),
+        num(span)
+    ))
+}
+
+/// A vector layer's renderer in its style in the Viewer: one colour; a colour for each category of an attribute
+/// (its text, or its numbers when asked or when they are a few whole ones), as the Viewer gives them; ranges of
+/// numbers (the classes of the breaks, or along the ramp); the points' shape and size (by an attribute: data
+/// defined); as rules when the options say.
 fn styled_renderer(
     geometry: &str,
     v: &terraflux_raster::vector::Vector,
     style: &crate::vector_tiles::Style,
     o: &VectorOptions,
 ) -> String {
+    use crate::vector_tiles::{Swatches, Symbol};
     use terraflux_raster::vector::Column;
-    // (the Viewer's widths in pixels: about a quarter of a millimetre each)
-    let base =
-        VectorLook { colour: style.colour, fill: style.fill, width_mm: style.width * 0.26, marker: marker_of(o) };
-    let Some((attr, column)) = style.by.as_ref().and_then(|b| v.column(b).map(|c| (b, c))) else {
-        return if o.rules { rules(geometry, &[], base) } else { single(geometry, base) };
+    let size_expr = size_expression(v, style);
+    // (the Viewer's widths in pixels: about a quarter of a millimetre each; a point's size the diameter)
+    let width_mm = style.width * MM;
+    let size_mm = if style.size_by.is_some() { style.size_min * MM } else { (2.0 + style.width) * 2.0 * MM };
+    let marker = if style.symbol == Symbol::Circle { marker_of(o) } else { style.symbol.key() };
+    let base = VectorLook {
+        colour: style.colour,
+        fill: style.fill,
+        width_mm,
+        marker,
+        size_mm,
+        size_expr: size_expr.as_deref(),
     };
-    let colours = crate::vector_tiles::colours(v, style);
+    let look = crate::vector_tiles::look(v, style);
+    let (attr, column) = match style.by.as_ref().and_then(|b| v.column(b).map(|c| (b, c))) {
+        Some(found) if !matches!(look.legend.swatches, Swatches::One) => found,
+        _ => return if o.rules { rules(geometry, &[], base) } else { single(geometry, base) },
+    };
+    let colours = &look.colours;
     let head = |kind: &str, extra: &str| {
         format!(
             "<renderer-v2 type=\"{kind}\" attr=\"{}\"{extra} symbollevels=\"0\" enableorderby=\"0\" forceraster=\"0\">",
             esc(attr)
         )
     };
-    // classes: each value its colour (that of its first feature)
+    // categories: each value its colour (that of its first feature)
     let categorized = |values: Vec<String>, numbers: bool| {
         if o.rules {
             let mut given: Vec<Rule> = Vec::new();
@@ -393,60 +455,58 @@ fn styled_renderer(
             head("categorizedSymbol", "")
         )
     };
-    match column {
-        Column::Texts(t) => categorized(t.clone(), false),
-        Column::Numbers(x) => {
-            let mut distinct: Vec<f64> = x.iter().copied().filter(|v| !v.is_nan()).collect();
-            distinct.sort_by(f64::total_cmp);
-            distinct.dedup();
-            if distinct.len() <= 24 && distinct.iter().all(|v| v.fract() == 0.0) {
-                return categorized(x.iter().map(|v| if v.is_nan() { String::new() } else { num(*v) }).collect(), true);
-            }
-            let (lo, hi) = (distinct.first().copied().unwrap_or(0.0), distinct.last().copied().unwrap_or(1.0));
-            let span = if hi > lo { hi - lo } else { 1.0 };
-            if o.rules {
-                // (as QGIS's ranges: above the lower bound, up to the upper; the first from its lower bound)
-                let given: Vec<Rule> = (0..RANGES)
-                    .map(|i| {
-                        let (a, b) = (
-                            tidy(lo + span * i as f64 / RANGES as f64),
-                            tidy(lo + span * (i + 1) as f64 / RANGES as f64),
-                        );
-                        let above = if i == 0 { ">=" } else { ">" };
-                        let f = field(attr);
-                        Rule {
-                            filter: format!("{f} {above} {} AND {f} <= {}", num(a), num(b)),
-                            label: format!("{} - {}", crate::animation::short(a), crate::animation::short(b)),
-                            look: VectorLook {
-                                colour: crate::palette::sequential((i as f32 + 0.5) / RANGES as f32),
-                                ..base
-                            },
-                        }
-                    })
-                    .collect();
-                return rules(geometry, &given, base);
-            }
-            let mut ranges = String::new();
-            let mut symbols = String::new();
-            for i in 0..RANGES {
-                let (a, b) =
-                    (tidy(lo + span * i as f64 / RANGES as f64), tidy(lo + span * (i + 1) as f64 / RANGES as f64));
-                let mid = (i as f32 + 0.5) / RANGES as f32;
-                ranges.push_str(&format!(
-                    "<range lower=\"{}\" upper=\"{}\" label=\"{} - {}\" symbol=\"{i}\" render=\"true\"/>",
-                    num(a),
-                    num(b),
-                    esc(&crate::animation::short(a)),
-                    esc(&crate::animation::short(b))
-                ));
-                let colour = crate::palette::sequential(mid);
-                symbols.push_str(&symbol(&i.to_string(), geometry, VectorLook { colour, ..base }));
-            }
-            format!(
-                "{}<ranges>{ranges}</ranges><symbols>{symbols}</symbols></renderer-v2>",
-                head("graduatedSymbol", " graduatedMethod=\"GraduatedColor\"")
-            )
+    // ranges: class `i` from `bounds[i]` to `bounds[i + 1]` in `colours[i]`
+    let graduated = |bounds: &[f64], palette: &[Color32]| {
+        let bounds: Vec<f64> = bounds.iter().map(|b| tidy(*b)).collect();
+        if o.rules {
+            // (as QGIS's ranges: above the lower bound, up to the upper; the first from its lower bound)
+            let given: Vec<Rule> = palette
+                .iter()
+                .enumerate()
+                .map(|(i, colour)| {
+                    let (a, b) = (bounds[i], bounds[i + 1]);
+                    let above = if i == 0 { ">=" } else { ">" };
+                    let f = field(attr);
+                    Rule {
+                        filter: format!("{f} {above} {} AND {f} <= {}", num(a), num(b)),
+                        label: format!("{} - {}", crate::animation::short(a), crate::animation::short(b)),
+                        look: VectorLook { colour: *colour, ..base },
+                    }
+                })
+                .collect();
+            return rules(geometry, &given, base);
         }
+        let mut ranges = String::new();
+        let mut symbols = String::new();
+        for (i, colour) in palette.iter().enumerate() {
+            let (a, b) = (bounds[i], bounds[i + 1]);
+            ranges.push_str(&format!(
+                "<range lower=\"{}\" upper=\"{}\" label=\"{} - {}\" symbol=\"{i}\" render=\"true\"/>",
+                num(a),
+                num(b),
+                esc(&crate::animation::short(a)),
+                esc(&crate::animation::short(b))
+            ));
+            symbols.push_str(&symbol(&i.to_string(), geometry, VectorLook { colour: *colour, ..base }));
+        }
+        format!(
+            "{}<ranges>{ranges}</ranges><symbols>{symbols}</symbols></renderer-v2>",
+            head("graduatedSymbol", " graduatedMethod=\"GraduatedColor\"")
+        )
+    };
+    match (&look.legend.swatches, column) {
+        (Swatches::Categories { .. }, Column::Texts(t)) => categorized(t.clone(), false),
+        (Swatches::Categories { .. }, Column::Numbers(x)) => {
+            categorized(x.iter().map(|v| if v.is_nan() { String::new() } else { num(*v) }).collect(), true)
+        }
+        (Swatches::Classes { bounds, colours }, _) => graduated(bounds, colours),
+        (Swatches::Ramp { ramp, min, max }, _) => {
+            let span = if max > min { max - min } else { 1.0 };
+            let bounds: Vec<f64> = (0..=RANGES).map(|i| min + span * i as f64 / RANGES as f64).collect();
+            let palette: Vec<Color32> = (0..RANGES).map(|i| ramp.colour((i as f32 + 0.5) / RANGES as f32)).collect();
+            graduated(&bounds, &palette)
+        }
+        _ => single(geometry, base),
     }
 }
 
@@ -1146,6 +1206,78 @@ mod tests {
         assert!(styled_renderer("Point", &v, &one, &star).contains("value=\"star\""));
         assert!(labeling("Polygon", "use").contains("placement=\"1\""));
         assert!(labeling("Line", "use").contains("placement=\"2\""));
+    }
+
+    #[test]
+    fn vector_symbology_in_qgis() {
+        use crate::vector_tiles::{Breaks, Style, Symbol};
+        use terraflux_raster::vector::{Column, Vector};
+        let n = vec![0.1, 0.2, 0.3, 0.45, 0.5, 0.8, 0.9, 1.0];
+        let v = Vector {
+            geometries: (0..8).map(|i| Geometry::Point([i as f64, i as f64])).collect(),
+            attributes: vec![
+                ("area".into(), Column::Numbers(n.clone())),
+                ("pop".into(), Column::Numbers(vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 100.0])),
+                ("code".into(), Column::Numbers(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])),
+            ],
+            crs: None,
+        };
+        let plain = VectorOptions::default();
+        let rgb = |c: Color32| format!("{},{},{},255", c.r(), c.g(), c.b());
+        // quantiles: a graduated renderer of their classes (bounds and the ramp's colours)
+        let q = Style { by: Some("area".into()), breaks: Breaks::Quantiles, classes: 4, ..Style::default() };
+        let r = styled_renderer("Point", &v, &q, &plain);
+        assert!(r.contains("type=\"graduatedSymbol\" attr=\"area\""), "{r}");
+        assert_eq!(r.matches("<range ").count(), 4);
+        assert!(r.contains("lower=\"0.1\" upper=\"0.2\"") && r.contains("lower=\"0.2\" upper=\"0.45\""), "{r}");
+        assert!(r.contains("lower=\"0.8\" upper=\"1\""), "{r}");
+        for i in 0..4 {
+            assert!(r.contains(&rgb(crate::vector_tiles::class_of_ramp(q.ramp, i, 4))), "{i}");
+        }
+        // as rules: a filter each class
+        let as_rules = VectorOptions { rules: true, ..plain.clone() };
+        let r = styled_renderer("Point", &v, &q, &as_rules);
+        assert_eq!(r.matches("<rule ").count(), 5);
+        assert!(r.contains("&quot;area&quot; &gt; 0.2 AND &quot;area&quot; &lt;= 0.45"), "{r}");
+        // another ramp: continuous, in ranges along it
+        let c = Style { by: Some("area".into()), ramp: crate::palette::Ramp::Cividis, ..Style::default() };
+        let r = styled_renderer("Point", &v, &c, &plain);
+        assert_eq!(r.matches("<range ").count(), RANGES);
+        assert!(r.contains(&rgb(crate::palette::Ramp::Cividis.colour(0.5 / RANGES as f32))), "{r}");
+        // numbers as categories when asked
+        let k = Style { by: Some("code".into()), categories: true, ..Style::default() };
+        let r = styled_renderer("Point", &v, &k, &plain);
+        assert!(r.contains("type=\"categorizedSymbol\" attr=\"code\""), "{r}");
+        assert_eq!(r.matches("<category ").count(), 8);
+        // the symbol and the size by an attribute: the marker and a data defined size (sqrt between the sizes, mm)
+        let p = Style {
+            symbol: Symbol::Diamond,
+            size_by: Some("pop".into()),
+            size_min: 5.0,
+            size_max: 20.0,
+            ..Style::default()
+        };
+        let r = styled_renderer("Point", &v, &p, &plain);
+        assert!(r.contains("name=\"name\" type=\"QString\" value=\"diamond\""), "{r}");
+        assert!(r.contains("name=\"size\" type=\"QString\" value=\"1.30\""), "{r}");
+        assert!(
+            r.contains(
+                "value=\"1.30 + (5.20 - 1.30) * sqrt(max(0, min(1, (coalesce(&quot;pop&quot;, 10) - 10) / 90)))\""
+            ),
+            "{r}"
+        );
+        assert!(r.contains("<data_defined_properties>") && r.contains("name=\"size\" type=\"Map\""), "{r}");
+        // by size and by colour: every class's symbol sized
+        let both = Style { by: Some("area".into()), ..p.clone() };
+        let r = styled_renderer("Point", &v, &both, &plain);
+        assert_eq!(r.matches("<data_defined_properties>").count(), RANGES);
+        // a polygon has no marker to size; without the attribute no expression
+        assert!(!styled_renderer("Polygon", &v, &p, &plain).contains("<data_defined_properties>"));
+        assert!(!styled_renderer("Point", &v, &Style::default(), &plain).contains("<data_defined_properties>"));
+        // a circle in the Style leaves the marker of the options
+        let star = VectorOptions { marker: 4, ..plain };
+        assert!(styled_renderer("Point", &v, &Style::default(), &star).contains("value=\"star\""));
+        assert!(styled_renderer("Point", &v, &p, &star).contains("value=\"diamond\""));
     }
 
     /// A `.qgz` of a map of classes, points labelled as squares and features styled as rules, written to the folder

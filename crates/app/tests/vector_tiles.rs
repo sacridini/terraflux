@@ -56,7 +56,7 @@ fn features_are_picked() {
     assert_eq!(pick(&layer, cell(35.0, 5.0), tol), None);
     // a tile over the features has them drawn; one away from them is none
     let style = Style::default();
-    let colours = vec![style.colour; 3];
+    let colours = terraflux_app::vector_tiles::look(&layer.vector, &style);
     let img = rasterize(&layer, &colours, &style, 8, 0, 0).expect("the layer in one tile");
     assert!(img.pixels.iter().any(|p| p.a() > 0));
     assert!(rasterize(&layer, &colours, &style, 0, 1000, 1000).is_none());
@@ -108,7 +108,7 @@ fn a_large_layer_is_quick() {
     let layer = prepare(&v, &grid).unwrap();
     let prepared = t0.elapsed();
     let style = Style { by: Some("row".into()), ..Style::default() };
-    let colours = terraflux_app::vector_tiles::colours(&v, &style);
+    let colours = terraflux_app::vector_tiles::look(&v, &style);
     // the whole layer in one tile (every feature a dot), then a tile of the finest level in view
     let t1 = Instant::now();
     let top = rasterize(&layer, &colours, &style, 8, 0, 0).unwrap();
@@ -146,7 +146,7 @@ fn a_tile_of_a_large_polygon_draws_what_is_over_it() {
     let grid = grid_over(&v);
     let layer = prepare(&v, &grid).unwrap();
     let style = Style { fill: 1.0, width: 0.0, ..Style::default() };
-    let colours = vec![style.colour];
+    let colours = terraflux_app::vector_tiles::look(&layer.vector, &style);
     let t = grid.transform;
     // a tile of the level -4 (16 cells), deep in: its runs off it drawn as lines, its fill the same
     let tile = |x: f64, y: f64| {

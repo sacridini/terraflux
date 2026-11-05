@@ -907,6 +907,132 @@ fn inline_legend(
                 None => "no feature",
             };
             ui.label(small(what.into()).weak());
+            if let Some(v) = features {
+                vector_legend(ui, v, &l.style, egui::Id::new(("vector legend", &l.node, &l.port, salt)));
+            }
+        }
+    }
+}
+
+/// A symbol of radius `r` points at `at`.
+fn paint_marker(
+    p: &egui::Painter,
+    symbol: crate::vector_tiles::Symbol,
+    at: Pos2,
+    r: f32,
+    fill: Color32,
+    edge: Color32,
+) {
+    use crate::vector_tiles::Symbol;
+    let stroke = egui::Stroke::new(1.0, edge);
+    match symbol {
+        Symbol::Circle => {
+            p.circle_filled(at, r, fill);
+            p.circle_stroke(at, r, stroke);
+        }
+        // (two bars: the egui fills convex shapes only)
+        Symbol::Cross => {
+            let t = r * 0.38;
+            for size in [Vec2::new(2.0 * r, 2.0 * t), Vec2::new(2.0 * t, 2.0 * r)] {
+                p.rect_filled(Rect::from_center_size(at, size), 0.0, fill);
+            }
+            p.rect_stroke(
+                Rect::from_center_size(at, Vec2::new(2.0 * r, 2.0 * t)),
+                0.0,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            p.rect_stroke(
+                Rect::from_center_size(at, Vec2::new(2.0 * t, 2.0 * r)),
+                0.0,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+        }
+        _ => {
+            let points = symbol.outline(r).into_iter().map(|(dx, dy)| at + Vec2::new(dx, dy)).collect();
+            p.add(egui::Shape::convex_polygon(points, fill, stroke));
+        }
+    }
+}
+
+/// The legend of a vector layer under its row: the attribute that colours it over a line each category or class
+/// ("0.2 – 0.5": about 12, then "and k more"), or its ramp with the least and the greatest value; the attribute that
+/// sizes the points over two or three of the sizes. Worked out once per style (kept while it is the same).
+fn vector_legend(ui: &mut Ui, v: &terraflux_raster::vector::Vector, style: &crate::vector_tiles::Style, id: egui::Id) {
+    use crate::vector_tiles::Swatches;
+    const MOST: usize = 12;
+    let key = (v as *const _ as usize, style.key());
+    let legend = match ui.data(|d| d.get_temp::<(usize, u64, std::sync::Arc<crate::vector_tiles::Legend>)>(id)) {
+        Some((p, k, l)) if (p, k) == key => l,
+        _ => {
+            let l = std::sync::Arc::new(crate::vector_tiles::look(v, style).legend);
+            ui.data_mut(|d| d.insert_temp(id, (key.0, key.1, l.clone())));
+            l
+        }
+    };
+    let small = |t: String| RichText::new(t).size(11.0);
+    if let (Some(attr), false) = (&legend.attribute, matches!(legend.swatches, Swatches::One)) {
+        ui.label(small(format!("by {attr}")).weak());
+        match &legend.swatches {
+            Swatches::Ramp { ramp, min, max } => {
+                let width = (ui.available_width() - 4.0).clamp(60.0, 180.0);
+                let (r, _) = ui.allocate_exact_size(Vec2::new(width, 10.0), Sense::hover());
+                let k = 40;
+                for j in 0..k {
+                    let a = r.left() + r.width() * j as f32 / k as f32;
+                    let b = r.left() + r.width() * (j + 1) as f32 / k as f32;
+                    let c = crate::palette::seen(ramp.colour(j as f32 / (k - 1) as f32));
+                    ui.painter().rect_filled(
+                        Rect::from_min_max(Pos2::new(a, r.top()), Pos2::new(b + 0.5, r.bottom())),
+                        0.0,
+                        c,
+                    );
+                }
+                ui.allocate_ui(Vec2::new(width, 14.0), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(small(cell_text(*min)).weak());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(small(cell_text(*max)).weak());
+                        });
+                    });
+                });
+            }
+            _ => {
+                let rows = legend.rows();
+                let lines: Vec<(Color32, String, usize)> =
+                    rows.iter().take(MOST).map(|(c, t)| (*c, t.clone(), 0)).collect();
+                class_lines(ui, &lines, usize::MAX);
+                let more = rows.len().saturating_sub(MOST) + legend.more();
+                if more > 0 {
+                    ui.label(small(format!("and {more} more")).weak());
+                }
+            }
+        }
+    }
+    if let (Some(attr), false) = (&legend.size_by, legend.sizes.is_empty()) {
+        ui.label(small(format!("size by {attr}")).weak());
+        let (fill, edge) = (crate::palette::seen(style.colour), Color32::from_black_alpha(160));
+        let widest = legend.sizes.iter().map(|(d, _)| *d).fold(0.0, f32::max).max(6.0);
+        for (d, text) in &legend.sizes {
+            let (r, resp) =
+                ui.allocate_exact_size(Vec2::new(ui.available_width(), (widest + 3.0).max(17.0)), Sense::hover());
+            paint_marker(
+                ui.painter(),
+                style.symbol,
+                Pos2::new(r.left() + widest / 2.0, r.center().y),
+                d / 2.0,
+                fill,
+                edge,
+            );
+            ui.painter().text(
+                Pos2::new(r.left() + widest + 6.0, r.center().y),
+                egui::Align2::LEFT_CENTER,
+                text,
+                egui::FontId::proportional(11.5),
+                ui.visuals().text_color(),
+            );
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
         }
     }
 }
@@ -1220,7 +1346,11 @@ fn paint_symbol(
             match v.geometries.iter().find(|g| !matches!(g, Geometry::Empty)) {
                 Some(Geometry::Point(_) | Geometry::MultiPoint(_)) => {
                     for (dx, dy) in [(-4.0, 2.0), (1.0, -3.0), (5.0, 3.0)] {
-                        p.circle_filled(r.center() + Vec2::new(dx, dy), 2.5, c);
+                        if style.symbol == crate::vector_tiles::Symbol::Circle {
+                            p.circle_filled(r.center() + Vec2::new(dx, dy), 2.5, c);
+                        } else {
+                            paint_marker(p, style.symbol, r.center() + Vec2::new(dx, dy), 3.0, c, c);
+                        }
                     }
                 }
                 Some(Geometry::LineString(_) | Geometry::MultiLineString(_)) => {

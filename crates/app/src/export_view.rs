@@ -207,6 +207,9 @@ mod tests {
                 width: 0.0,
                 labels: None,
                 label_size: 6.0,
+                sizes: Vec::new(),
+                symbol: Default::default(),
+                legend: Default::default(),
             }],
             rasters: vec![RasterLayer {
                 source: Source::Map(layer),

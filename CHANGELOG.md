@@ -21,6 +21,13 @@ minor versions.
   (`selected = [..]`, the features' numbers). *Filter the selection* adds a `vector.filter` that keeps exactly the
   features selected (`feature == 1 or 3 <= feature <= 9`, compact for thousands), with its note, drawn over the map.
   Ctrl+A selects every row with the keyboard in the table, not only the pointer.
+- Viewer: **the symbology of vector features**. Coloured by an attribute along a ramp chosen among the Viewer's,
+  continuously or in 2 to 12 classes by equal intervals, quantiles or natural breaks (Fisher-Jenks); numbers as
+  categories when asked. Points as a circle, square, triangle, diamond or cross, sized by an attribute (the area by
+  the value). The legend under the layer's row and in the figure (PNG and SVG) tells categories, classes, ramp and
+  sizes. Kept in the Plot (`ramp`, `breaks`, `classes`, `categories`, `size_by`, `size_min`, `size_max`, `symbol`,
+  also through the MCP's `set_plot`), drawn by the export and `terraflux plot`, and written to QGIS as a
+  categorized or graduated renderer with the symbol and a data-defined size.
 
 ## [1.40.0] - 2026-11-04
 
