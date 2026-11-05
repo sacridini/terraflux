@@ -61,7 +61,7 @@ impl Histogram {
     /// them when it has more (every few rows and columns; a raster on disk read at a coarser step).
     pub fn of_source(source: &Source, lo: f64, hi: f64) -> Histogram {
         let (w, h) = source.size();
-        let step = sample_step(w, h);
+        let step = source_step(source, w, h);
         let sampled = step > 1;
         match source {
             Source::Map(m) if !sampled => Histogram::of(m.data.iter().copied(), lo, hi, false),
@@ -89,12 +89,27 @@ impl Histogram {
 
 /// How many rows and columns apart the cells of a sample are, for a map `w` x `h`: 1 up to `SAMPLE` cells.
 pub fn sample_step(w: usize, h: usize) -> usize {
+    step_for(w, h, SAMPLE)
+}
+
+/// The most cells the statistics of a raster on the web are worked out from: a sample read from its overview, a
+/// fraction of the bytes of a file of [`SAMPLE`] cells.
+pub const REMOTE_SAMPLE: usize = 1_000_000;
+
+/// [`sample_step`] for a source: a raster on the web is sampled more coarsely ([`REMOTE_SAMPLE`]), so that its
+/// numbers come from an overview, not from every cell of a file far away.
+pub fn source_step(source: &Source, w: usize, h: usize) -> usize {
+    step_for(w, h, if source.is_remote() { REMOTE_SAMPLE } else { SAMPLE })
+}
+
+/// How many rows and columns apart the cells of a sample of at most `limit` cells are (about `limit` of them).
+fn step_for(w: usize, h: usize, limit: usize) -> usize {
     let n = w.saturating_mul(h);
-    if n <= SAMPLE {
+    if n <= limit {
         return 1;
     }
-    let mut step = ((n as f64 / SAMPLE as f64).sqrt().ceil() as usize).max(2);
-    while (w.div_ceil(step)) * (h.div_ceil(step)) > SAMPLE {
+    let mut step = ((n as f64 / limit as f64).sqrt().ceil() as usize).max(2);
+    while (w.div_ceil(step)) * (h.div_ceil(step)) > limit {
         step += 1;
     }
     step

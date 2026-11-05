@@ -57,6 +57,12 @@ pub enum File {
 
 impl File {
     pub fn open(path: &Path) -> Result<File> {
+        // on the web: GDAL alone (its /vsicurl/ reads the windows asked for, by ranges of bytes, not the whole file)
+        let name = path.to_string_lossy();
+        if terraflux_graph::is_remote(&name) {
+            let at = terraflux_graph::remote_path(&name).unwrap_or_else(|| name.trim().to_string());
+            return terraflux_gdal::Dataset::open(&at).map(File::Gdal).map_err(Error::msg);
+        }
         let tiff = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("tif") || e.eq_ignore_ascii_case("tiff"));
         let own = if tiff { Some(Image::open(path)) } else { None };
         match own {
@@ -243,6 +249,10 @@ pub(crate) fn matches(pattern: &str, name: &str) -> bool {
 /// The files a path names: itself, the rasters of a folder, or those matching a pattern (`*` and `?` in the
 /// file's name or in its folders' names: `runs/*/landuse.tif`, a file of each run).
 pub fn files_of(path: &str) -> Result<Vec<PathBuf>> {
+    // (a file on the web: its address, not a pattern, whatever `?` it holds)
+    if let Some(at) = terraflux_graph::remote_path(path) {
+        return Ok(vec![PathBuf::from(at)]);
+    }
     let p = Path::new(path);
     let raster = |q: &Path| {
         q.extension().is_some_and(|e| {
@@ -401,6 +411,11 @@ impl Rasters {
 
     pub fn cells(&self) -> usize {
         self.grid.width * self.grid.height
+    }
+
+    /// Whether the files are on the web (read over the network, by windows).
+    pub fn is_remote(&self) -> bool {
+        self.images.iter().any(|i| terraflux_graph::is_remote(&i.path().to_string_lossy()))
     }
 
     /// The grid of a layer (its file's).

@@ -81,6 +81,18 @@ pub struct Settings {
     /// The Viewer's window of its own, where it was last: its place on the screen and its size (x, y, width,
     /// height, in points).
     pub viewer_window: Option<[f32; 4]>,
+    /// The basemaps of the user's own (web tiles by an address template), the last used first; at most
+    /// [`crate::basemap::MOST_CUSTOM`].
+    pub custom_basemaps: Vec<CustomBasemap>,
+}
+
+/// A basemap of the user's: where its tiles are (`https://host/{z}/{x}/{y}.png`), whose map it is, its deepest zoom.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CustomBasemap {
+    pub template: String,
+    #[serde(default)]
+    pub attribution: String,
+    pub max_zoom: u32,
 }
 
 impl Default for Settings {
@@ -115,6 +127,7 @@ impl Default for Settings {
             scale_bar: true,
             map_grid: false,
             viewer_window: None,
+            custom_basemaps: Vec::new(),
         }
     }
 }

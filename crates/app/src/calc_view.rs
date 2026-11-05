@@ -198,7 +198,10 @@ fn header(c: &mut Calculator, s: &Session, path: &[String], src: &Source) -> Inp
     let Source::Ref(r) = src else { return Input::Unknown };
     let Ok(Ref::Port { node, .. }) = Ref::parse(r) else { return Input::Unknown };
     let Some(n) = s.source.scope(path).and_then(|v| v.iter().find(|n| n.id == node)) else { return Input::Unknown };
-    let Some(file) = n.params.get("path").and_then(|p| p.as_str()).filter(|_| n.op == "raster.read") else {
+    // (a file on the web is not asked for its header here: this runs in the window's thread)
+    let Some(file) =
+        n.params.get("path").and_then(|p| p.as_str()).filter(|p| n.op == "raster.read" && !terraflux_graph::is_sent(p))
+    else {
         return Input::Unknown;
     };
     let band = n.params.get("band").map(|b| b.as_str().map_or(b.to_string(), String::from));

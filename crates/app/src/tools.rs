@@ -585,7 +585,7 @@ fn calc_inputs(
                 run.then(|| known(&r)).flatten().or_else(|| {
                     let Ref::Port { node, .. } = &r else { return None };
                     let read = nodes.iter().find(|n| n.id == *node && n.op == "raster.read")?;
-                    let file = read.params.get("path")?.as_str()?;
+                    let file = read.params.get("path")?.as_str().filter(|p| !terraflux_graph::is_sent(p))?;
                     let band = read.params.get("band").map(|b| b.as_str().map_or(b.to_string(), String::from));
                     let at = dir.join(file).to_string_lossy().into_owned();
                     let r = terraflux_ops::files::Rasters::open(&at, band.as_deref(), None).ok()?;

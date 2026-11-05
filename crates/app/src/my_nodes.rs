@@ -387,7 +387,12 @@ fn header(s: &Session, path: &[String], src: &Source) -> Option<Value> {
     let file = match Ref::parse(r).ok()? {
         Ref::Port { node, .. } => {
             let n = s.source.scope(path)?.iter().find(|n| n.id == node)?;
-            let p = n.params.get("path").and_then(|p| p.as_str()).filter(|_| n.op == "raster.read")?;
+            // (not a file on the web: its header would be asked for in the window's thread)
+            let p = n
+                .params
+                .get("path")
+                .and_then(|p| p.as_str())
+                .filter(|p| n.op == "raster.read" && !terraflux_graph::is_sent(p))?;
             let band = n.params.get("band").map(|b| b.as_str().map_or(b.to_string(), String::from));
             (s.base().join(p), band)
         }

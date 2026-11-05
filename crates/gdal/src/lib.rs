@@ -177,6 +177,7 @@ struct Api {
     CPLGetLastErrorMsg: unsafe extern "C" fn() -> *const c_char,
     CPLErrorReset: unsafe extern "C" fn(),
     CPLSetConfigOption: unsafe extern "C" fn(*const c_char, *const c_char),
+    CPLSetThreadLocalConfigOption: unsafe extern "C" fn(*const c_char, *const c_char),
     CPLSetErrorHandler: unsafe extern "C" fn(*const c_void) -> *const c_void,
     CPLQuietErrorHandler: *const c_void,
     OSRSetPROJSearchPaths: unsafe extern "C" fn(*const *const c_char),
@@ -422,6 +423,7 @@ impl Gdal {
             CPLGetLastErrorMsg: f!(CPLGetLastErrorMsg),
             CPLErrorReset: f!(CPLErrorReset),
             CPLSetConfigOption: f!(CPLSetConfigOption),
+            CPLSetThreadLocalConfigOption: f!(CPLSetThreadLocalConfigOption),
             CPLSetErrorHandler: f!(CPLSetErrorHandler),
             CPLQuietErrorHandler: *quiet,
             OSRSetPROJSearchPaths: f!(OSRSetPROJSearchPaths),
@@ -458,6 +460,19 @@ impl Gdal {
             }
             let agent = format!("Terraflux/{} (https://github.com/sacridini/terraflux)", env!("CARGO_PKG_VERSION"));
             (api.CPLSetConfigOption)(cstr("GDAL_HTTP_USERAGENT").as_ptr(), cstr(&agent).as_ptr());
+            // rasters on the web (/vsicurl/, /vsis3/...) are read by windows: ranges of bytes of larger chunks than
+            // GDAL's 16 KB (a COG's tile is some hundreds of KB), kept in a cache of 64 MB, the requests that
+            // hang or fail given up on rather than waited for
+            for (k, v) in [
+                ("CPL_VSIL_CURL_CHUNK_SIZE", "131072"),
+                ("CPL_VSIL_CURL_CACHE_SIZE", "67108864"),
+                ("GDAL_HTTP_CONNECTTIMEOUT", "10"),
+                ("GDAL_HTTP_TIMEOUT", "30"),
+                ("GDAL_HTTP_MAX_RETRY", "2"),
+                ("GDAL_HTTP_RETRY_DELAY", "1"),
+            ] {
+                (api.CPLSetConfigOption)(cstr(k).as_ptr(), cstr(v).as_ptr());
+            }
             (api.GDALAllRegister)();
         }
         let version = text(unsafe { (api.GDALVersionInfo)(cstr("RELEASE_NAME").as_ptr()) });
@@ -474,9 +489,20 @@ impl Gdal {
         // GDAL_OF_RASTER, and GDAL_OF_UPDATE to change it
         let flags: c_uint = 0x02 | if update { 0x01 } else { 0 };
         unsafe { (self.api.CPLErrorReset)() };
+        // a file on the web: its folder is not listed for the files that go with it (sidecars, overviews): a
+        // request for nothing, and a 404 or a 403 where the server lists no folders; this open only, so that the
+        // local files keep theirs
+        let web = path.starts_with("/vsicurl") || path.starts_with("/vsis3/") || path.starts_with("/vsigs/");
+        let readdir = cstr("GDAL_DISABLE_READDIR_ON_OPEN");
+        if web {
+            unsafe { (self.api.CPLSetThreadLocalConfigOption)(readdir.as_ptr(), cstr("EMPTY_DIR").as_ptr()) };
+        }
         let h = unsafe {
             (self.api.GDALOpenEx)(cstr(path).as_ptr(), flags, std::ptr::null(), std::ptr::null(), std::ptr::null())
         };
+        if web {
+            unsafe { (self.api.CPLSetThreadLocalConfigOption)(readdir.as_ptr(), std::ptr::null()) };
+        }
         if h.is_null() { Err(self.last_error(&format!("{path}: GDAL cannot open it"))) } else { Ok(h) }
     }
 }

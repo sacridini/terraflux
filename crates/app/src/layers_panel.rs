@@ -34,6 +34,8 @@ struct Asked {
     /// Files read by new nodes, their layers on top (none: chosen in a dialog).
     files: Option<Vec<PathBuf>>,
     pick_files: bool,
+    /// The window that adds a layer from an address on the web.
+    url: bool,
     /// The rasters dropped at once joined as one stack, or the offer let go.
     join: bool,
     no_join: bool,
@@ -510,6 +512,17 @@ fn toolbar(
                     .clicked()
                 {
                     asked.pick_files = true;
+                    ui.close();
+                }
+                if ui
+                    .button("A URL...")
+                    .on_hover_text(
+                        "a COG or any raster GDAL reads over the web (read by windows, as the map asks), or vector \
+                         features: https://..., s3://..., gs://..., /vsicurl/...",
+                    )
+                    .clicked()
+                {
+                    asked.url = true;
                     ui.close();
                 }
             });
@@ -1780,6 +1793,9 @@ fn act(
     if let Some((n, p)) = asked.add {
         sh.layers.push(Layer::new(&n, &p));
         ui.data_mut(|d| d.insert_temp(selected_id, format!("{n}.{p}")));
+    }
+    if asked.url && s.url_layer.is_none() {
+        s.url_layer = Some(crate::remote::Dialog::default());
     }
     if asked.no_join {
         s.dropped_rasters.clear();

@@ -1375,7 +1375,8 @@ fn bands_of(s: &Session, id: &str) -> Option<usize> {
         return Some(r.layers.len());
     }
     let n = s.source.nodes.iter().find(|n| n.id == id)?;
-    let path = std::path::PathBuf::from(n.params.get("path")?.as_str()?);
+    // (not a file on the web: its header is not read in the window's thread)
+    let path = std::path::PathBuf::from(n.params.get("path")?.as_str().filter(|p| !terraflux_graph::is_sent(p))?);
     let path = match (&s.path, path.is_relative()) {
         (Some(model), true) => model.parent()?.join(path),
         _ => path,
@@ -1727,6 +1728,33 @@ pub fn drop_on_viewer(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Optio
     s.ask_viewer = true;
     as_layers(s, r, &made, showing);
     model
+}
+
+/// A raster or vector features on the web (`https://...`, `s3://...`, `/vsicurl/...`) made a layer of the Viewer, as
+/// a file dropped on it is: a node that reads it (noted "read from <address>"), one step of undo, kept as a layer on
+/// top of the others, the model run up to it to draw it. The node's id. The address is not opened here (the
+/// window checks it in a thread first, see [`crate::remote`]); the run reads its header, the tiles its windows.
+pub fn add_url(s: &mut Session, r: &Registry, address: &str) -> Result<String, String> {
+    let address = address.trim();
+    let path = terraflux_graph::remote_path(address).ok_or_else(|| {
+        format!("{address}: not an address on the web (https://..., s3://..., gs://... or /vsicurl/...)")
+    })?;
+    let op = match crate::remote::kind_of(&path) {
+        crate::remote::Kind::Vector => "vector.read",
+        crate::remote::Kind::Raster => "raster.read",
+    };
+    let before = (s.preview.clone(), s.preview_band, s.preview_chosen);
+    let showing = before.0.is_some();
+    let id = add_named_at(s, r, op, &[("path", path.into())], None, None)?;
+    let scope = s.editor.path.clone();
+    crate::editor::set_note(&mut s.source, &scope, &id, &format!("read from {address}"))?;
+    s.edited();
+    if showing {
+        (s.preview, s.preview_band, s.preview_chosen) = before;
+    }
+    s.ask_viewer = true;
+    as_layers(s, r, std::slice::from_ref(&id), showing);
+    Ok(id)
 }
 
 /// Nodes that read files, made layers of the Viewer: the maps first, then the features over them, in the order
@@ -4699,12 +4727,9 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 let v = &mut sh.view;
                 egui::ComboBox::from_id_salt(("basemap", salt)).selected_text(v.basemap.name()).width(150.0).show_ui(
                     ui,
-                    |ui| {
-                        for b in crate::map_view::Basemap::ALL {
-                            ui.selectable_value(&mut v.basemap, b, b.name());
-                        }
-                    },
+                    |ui| crate::basemap::choices(ui, egui::Id::new(("basemap", salt)), &mut v.basemap),
                 );
+                crate::basemap::custom_window(ui.ctx(), egui::Id::new(("basemap", salt)), &mut v.basemap);
                 // (the map hidden by space: here too, to show it again)
                 if v.basemap == crate::map_view::Basemap::None && v.hide_data {
                     let mut show = false;

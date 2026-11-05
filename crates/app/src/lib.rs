@@ -61,6 +61,7 @@ pub mod pt;
 pub mod python;
 pub mod qgis;
 pub mod region;
+pub mod remote;
 pub mod report;
 pub mod reproject;
 pub mod review;

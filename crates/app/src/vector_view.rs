@@ -245,11 +245,8 @@ pub fn show(ui: &mut Ui, v: &Arc<Vector>, view: &mut MapView, id: egui::Id) {
             if v.crs.is_some() {
                 egui::ComboBox::from_id_salt(id.with("basemap"))
                     .selected_text(format!("basemap: {}", view.basemap.name()))
-                    .show_ui(ui, |ui| {
-                        for b in crate::map_view::Basemap::ALL {
-                            ui.selectable_value(&mut view.basemap, b, b.name());
-                        }
-                    });
+                    .show_ui(ui, |ui| crate::basemap::choices(ui, id.with("basemap"), &mut view.basemap));
+                crate::basemap::custom_window(ui.ctx(), id.with("basemap"), &mut view.basemap);
             }
         });
     ui.data_mut(|d| d.insert_temp(id.with("style"), style.clone()));

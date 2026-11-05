@@ -129,7 +129,7 @@ fn grids(nodes: &[&Node], dir: &Path, inputs: Option<&BTreeMap<String, Value>>) 
     }
     for n in nodes.iter().filter(|n| n.op == "raster.read") {
         let Some(p) = n.params.get("path").and_then(|v| v.as_str()) else { continue };
-        if p.starts_with('$') || p.starts_with('@') {
+        if p.starts_with('$') || p.starts_with('@') || terraflux_graph::is_sent(p) {
             continue;
         }
         let path = if Path::new(p).is_absolute() { Path::new(p).to_path_buf() } else { dir.join(p) };

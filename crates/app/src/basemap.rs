@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock};
 
 use egui::{Color32, ColorImage, Mesh, Pos2, Rect, Shape, TextureHandle, TextureOptions, Vec2};
 
@@ -22,6 +22,220 @@ const DECODED: usize = 600;
 const THREADS: usize = 12;
 /// A tile's vertices along each side.
 const STEPS: usize = 8;
+
+/// The most basemaps of the user's own kept in the settings.
+pub const MOST_CUSTOM: usize = 5;
+
+/// A tile's address: the template's `{z}`, `{x}` and `{y}` (also written `${z}`...) replaced by its level and place.
+pub fn tile_url(template: &str, z: u8, x: u32, y: u32) -> String {
+    template
+        .replace("${z}", &z.to_string())
+        .replace("${x}", &x.to_string())
+        .replace("${y}", &y.to_string())
+        .replace("{z}", &z.to_string())
+        .replace("{x}", &x.to_string())
+        .replace("{y}", &y.to_string())
+}
+
+/// A basemap of the user's own: web tiles by an address template.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Custom {
+    /// The address, with `{z}`, `{x}` and `{y}` (checked by [`validate`]).
+    pub template: String,
+    pub attribution: String,
+    /// The deepest zoom level the service has.
+    pub max_zoom: u32,
+}
+
+impl Custom {
+    /// What names it in the basemap chooser: its host.
+    pub fn name(&self) -> String {
+        format!("Custom: {}", host_of(&self.template))
+    }
+
+    /// What tells it apart (FNV-1a of its template: stable, it names the folder of its tiles on disk).
+    pub fn id(&self) -> u64 {
+        self.template.bytes().fold(0xcbf29ce484222325u64, |h, c| (h ^ c as u64).wrapping_mul(0x100000001b3))
+    }
+}
+
+/// The host of an address (`tiles.example.org` of `https://www.tiles.example.org:8080/{z}/{x}/{y}.png`).
+pub fn host_of(address: &str) -> String {
+    let rest = address.split_once("://").map_or(address, |(_, r)| r);
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = host.rsplit_once('@').map_or(host, |(_, h)| h);
+    let host = host.rsplit_once(':').filter(|(_, p)| p.chars().all(|c| c.is_ascii_digit())).map_or(host, |(h, _)| h);
+    host.strip_prefix("www.").unwrap_or(host).to_string()
+}
+
+/// A template of tiles checked and made canonical: `http://` or `https://`, with `{z}`, `{x}` and `{y}` (`${z}`
+/// too, as the services' documents write it). `{s}` (the subdomains of a service: a, b, c) is taken as `a`; any
+/// other `{...}` is refused, not guessed.
+pub fn validate(template: &str) -> Result<String, String> {
+    let t = template.trim();
+    let lower = t.to_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Err("the address starts with http:// or https://".into());
+    }
+    if t.chars().any(char::is_whitespace) {
+        return Err("the address has a space in it".into());
+    }
+    let t = t.replace("${", "{").replace("{s}", "a");
+    for (k, what) in [("{z}", "the zoom level"), ("{x}", "the column"), ("{y}", "the row")] {
+        if !t.contains(k) {
+            return Err(format!("the address has no {k} for {what}"));
+        }
+    }
+    let rest = t.replace("{z}", "").replace("{x}", "").replace("{y}", "");
+    if let Some(i) = rest.find('{') {
+        let end = rest[i..].find('}').map_or(rest.len(), |e| i + e + 1);
+        return Err(format!("{} is not known: only {{z}}, {{x}} and {{y}}", &rest[i..end]));
+    }
+    if rest.contains('}') {
+        return Err("a } with no { before it".into());
+    }
+    if host_of(&t).is_empty() {
+        return Err("the address has no host".into());
+    }
+    Ok(t)
+}
+
+fn registry() -> &'static RwLock<HashMap<u64, Custom>> {
+    static R: OnceLock<RwLock<HashMap<u64, Custom>>> = OnceLock::new();
+    R.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// The basemap of the user's with this number, when it is known (made by [`register`] or [`customs`]).
+pub fn custom(id: u64) -> Option<Custom> {
+    registry().read().unwrap().get(&id).cloned()
+}
+
+/// Make a basemap of the user's own: its template checked, the deepest zoom kept within 0 and 24; kept in the
+/// settings as the first of at most [`MOST_CUSTOM`] (the same template again: moved first, its attribution and zoom
+/// renewed).
+pub fn register(template: &str, attribution: &str, max_zoom: u32) -> Result<Basemap, String> {
+    let c = Custom {
+        template: validate(template)?,
+        attribution: attribution.trim().to_string(),
+        max_zoom: max_zoom.min(24),
+    };
+    let id = c.id();
+    registry().write().unwrap().insert(id, c.clone());
+    crate::settings::update(|s| {
+        s.custom_basemaps.retain(|k| k.template != c.template);
+        s.custom_basemaps.insert(
+            0,
+            crate::settings::CustomBasemap {
+                template: c.template.clone(),
+                attribution: c.attribution.clone(),
+                max_zoom: c.max_zoom,
+            },
+        );
+        s.custom_basemaps.truncate(MOST_CUSTOM);
+    });
+    Ok(Basemap::Custom(id))
+}
+
+/// The basemaps of the user's own in the settings (the last used first), known from now on.
+pub fn customs() -> Vec<Basemap> {
+    let kept = crate::settings::get().custom_basemaps;
+    let mut r = registry().write().unwrap();
+    kept.into_iter()
+        .filter_map(|k| {
+            let c = Custom {
+                template: validate(&k.template).ok()?,
+                attribution: k.attribution,
+                max_zoom: k.max_zoom.min(24),
+            };
+            let id = c.id();
+            r.insert(id, c);
+            Some(Basemap::Custom(id))
+        })
+        .collect()
+}
+
+/// The form of a basemap of the user's own, as it is typed.
+#[derive(Clone)]
+struct Form {
+    template: String,
+    attribution: String,
+    zoom: u32,
+    error: Option<String>,
+}
+
+/// The choices of a basemap chooser (inside its combo box): none, the services, the user's own, and *Custom...*
+/// that opens the window of [`custom_window`] (kept under `id`).
+pub fn choices(ui: &mut egui::Ui, id: egui::Id, current: &mut Basemap) {
+    for b in Basemap::ALL {
+        ui.selectable_value(current, b, b.name());
+    }
+    let own = customs();
+    if !own.is_empty() {
+        ui.separator();
+        for b in own {
+            ui.selectable_value(current, b, b.name()).on_hover_text(b.url().map_or(String::new(), |u| u.0));
+        }
+    }
+    ui.separator();
+    if ui
+        .button("Custom...")
+        .on_hover_text("tiles by an address with {z}/{x}/{y} in it (the standard XYZ tiles of OpenStreetMap, QGIS...)")
+        .clicked()
+    {
+        let form = Form { template: String::new(), attribution: String::new(), zoom: 19, error: None };
+        ui.data_mut(|d| d.insert_temp(id.with("custom basemap"), form));
+        ui.close();
+    }
+}
+
+/// The window that makes a basemap of the user's own, open after *Custom...*: its address, its attribution (written
+/// on the map), its deepest zoom; *Use* checks the address and makes it the basemap.
+pub fn custom_window(ctx: &egui::Context, id: egui::Id, current: &mut Basemap) {
+    let key = id.with("custom basemap");
+    let Some(mut f) = ctx.data(|d| d.get_temp::<Form>(key)) else { return };
+    let mut open = true;
+    let mut done = false;
+    egui::Window::new("Custom basemap").id(key).open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
+        ui.label("Tiles by an address, with {z} (zoom), {x} (column) and {y} (row) in it.");
+        ui.add(
+            egui::TextEdit::singleline(&mut f.template)
+                .hint_text("https://tiles.example.org/{z}/{x}/{y}.png")
+                .desired_width(380.0),
+        );
+        ui.horizontal(|ui| {
+            ui.label("Attribution");
+            ui.add(egui::TextEdit::singleline(&mut f.attribution).hint_text("whose map it is").desired_width(260.0));
+        });
+        ui.horizontal(|ui| {
+            ui.label("Deepest zoom");
+            ui.add(egui::DragValue::new(&mut f.zoom).range(0..=24));
+        });
+        if let Some(e) = &f.error {
+            ui.label(egui::RichText::new(e.as_str()).color(ui.visuals().error_fg_color));
+        }
+        ui.horizontal(|ui| {
+            if ui.button("Use").clicked() {
+                match register(&f.template, &f.attribution, f.zoom) {
+                    Ok(b) => {
+                        *current = b;
+                        done = true;
+                    }
+                    Err(e) => f.error = Some(e),
+                }
+            }
+            if ui.button("Cancel").clicked() {
+                done = true;
+            }
+        });
+    });
+    ctx.data_mut(|d| {
+        if open && !done {
+            d.insert_temp(key, f);
+        } else {
+            d.remove::<Form>(key);
+        }
+    });
+}
 
 /// A web tile: the service, its zoom level and place.
 pub type WebKey = (Basemap, u8, u32, u32);
@@ -114,7 +328,7 @@ fn next(s: &mut State) -> Option<WebKey> {
 }
 
 /// Where a service's tiles are kept on disk (on macOS `~/Library/Caches`).
-fn cache_dir(b: Basemap) -> PathBuf {
+pub fn cache_dir(b: Basemap) -> PathBuf {
     let root = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .or_else(|| {
@@ -122,7 +336,12 @@ fn cache_dir(b: Basemap) -> PathBuf {
             Some(PathBuf::from(home).join("Library").join("Caches"))
         })
         .unwrap_or_else(std::env::temp_dir);
-    root.join("Terraflux").join("web-tiles").join(format!("{b:?}"))
+    // (a service of the user's: its folder named by a hash of its template, so another template is another cache)
+    let name = match b {
+        Basemap::Custom(id) => format!("custom-{id:016x}"),
+        b => format!("{b:?}"),
+    };
+    root.join("Terraflux").join("web-tiles").join(name)
 }
 
 /// A tile from the disk, else from the web (then kept on disk), decoded; none where the service has none.
@@ -132,8 +351,7 @@ fn load((b, z, x, y): WebKey) -> Result<Option<ColorImage>, String> {
     let bytes = match std::fs::read(&file) {
         Ok(bytes) => bytes,
         Err(_) => {
-            let url =
-                url.replace("${z}", &z.to_string()).replace("${x}", &x.to_string()).replace("${y}", &y.to_string());
+            let url = tile_url(&url, z, x, y);
             let agent = format!("USERAGENT=Terraflux/{}", env!("CARGO_PKG_VERSION"));
             let (status, bytes) = terraflux_gdal::fetch(&url, &[&agent, "TIMEOUT=20", "MAX_RETRY=2", "RETRY_DELAY=1"])?;
             if status == 404 || status == 204 || bytes.is_empty() {
@@ -450,4 +668,88 @@ pub fn cell_metres(crs: &str, transform: [f64; 6], width: usize, height: usize) 
 /// The cells the world spans across in web Mercator, for a grid's cell of `metres`.
 pub fn world_cells(metres: f64) -> f64 {
     2.0 * E / metres
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_template_is_checked_and_made_canonical() {
+        let ok = |t: &str| validate(t).unwrap();
+        assert_eq!(ok("https://tiles.example.org/{z}/{x}/{y}.png"), "https://tiles.example.org/{z}/{x}/{y}.png");
+        // the services' documents write ${z}; spaces around are not part of it; {s} is a
+        assert_eq!(ok("  http://${s}.t.org/${z}/${y}/${x}  "), "http://a.t.org/{z}/{y}/{x}");
+        assert_eq!(ok("HTTPS://t.org/{z}/{x}/{y}?key=1"), "HTTPS://t.org/{z}/{x}/{y}?key=1");
+        for (bad, why) in [
+            ("ftp://t.org/{z}/{x}/{y}", "http"),
+            ("t.org/{z}/{x}/{y}", "http"),
+            ("https://t.org/{z}/{x}.png", "{y}"),
+            ("https://t.org/{x}/{y}", "{z}"),
+            ("https://t.org/{z}/{x}/{y}/{r}.png", "{r}"),
+            ("https://t.org/{z}/{x}/{y}/{", "{"),
+            ("https://t.org/{z}/{x}/{y}}", "}"),
+            ("https://t.org/ {z}/{x}/{y}", "space"),
+            ("https:///{z}/{x}/{y}", "host"),
+            ("", "http"),
+        ] {
+            let e = validate(bad).unwrap_err();
+            assert!(e.contains(why), "{bad:?}: {e}");
+        }
+    }
+
+    #[test]
+    fn a_tile_has_its_place_in_the_address() {
+        assert_eq!(tile_url("https://t.org/{z}/{x}/{y}.png", 7, 12, 99), "https://t.org/7/12/99.png");
+        assert_eq!(tile_url("https://t.org/tile/${z}/${y}/${x}", 3, 1, 2), "https://t.org/tile/3/2/1");
+        assert_eq!(tile_url("https://t.org/{z}/{z}/{x}/{y}", 3, 1, 2), "https://t.org/3/3/1/2");
+    }
+
+    #[test]
+    fn a_custom_basemap_is_named_by_its_host() {
+        assert_eq!(host_of("https://www.tiles.example.org:8080/{z}/{x}/{y}.png"), "tiles.example.org");
+        assert_eq!(host_of("http://u:p@127.0.0.1:5000/t/{z}/{x}/{y}"), "127.0.0.1");
+        assert_eq!(host_of("https://a.b?x=1"), "a.b");
+        let c = Custom {
+            template: "https://tiles.example.org/{z}/{x}/{y}".into(),
+            attribution: String::new(),
+            max_zoom: 12,
+        };
+        assert_eq!(c.name(), "Custom: tiles.example.org");
+    }
+
+    #[test]
+    fn a_templates_number_is_stable_and_tells_templates_apart() {
+        let of = |t: &str| Custom { template: t.into(), attribution: "a".into(), max_zoom: 5 }.id();
+        assert_eq!(of("https://t.org/{z}/{x}/{y}"), of("https://t.org/{z}/{x}/{y}"));
+        assert_ne!(of("https://t.org/{z}/{x}/{y}"), of("https://t.org/{z}/{y}/{x}"));
+        // (FNV-1a of the text, fixed: it names a folder of tiles kept on disk between versions)
+        assert_eq!(of("a"), 0xaf63dc4c8601ec8c);
+        // the cache folder of a custom basemap is its own
+        assert!(cache_dir(Basemap::Custom(255)).ends_with("custom-00000000000000ff"));
+        assert!(cache_dir(Basemap::OpenStreetMap).ends_with("OpenStreetMap"));
+    }
+
+    #[test]
+    fn the_custom_basemaps_round_trip_through_the_settings_file() {
+        let mut s = crate::settings::Settings::default();
+        assert!(s.custom_basemaps.is_empty());
+        s.custom_basemaps.push(crate::settings::CustomBasemap {
+            template: "https://t.org/{z}/{x}/{y}.png".into(),
+            attribution: "© me".into(),
+            max_zoom: 14,
+        });
+        let text = serde_json::to_string(&s).unwrap();
+        let back: crate::settings::Settings = serde_json::from_str(&text).unwrap();
+        assert_eq!(back, s);
+        // settings written before there were custom basemaps still read
+        let old: crate::settings::Settings = serde_json::from_str(r#"{ "theme": "Default" }"#).unwrap();
+        assert!(old.custom_basemaps.is_empty());
+        // an entry with no attribution reads too
+        let some: crate::settings::Settings = serde_json::from_str(
+            r#"{ "custom_basemaps": [ { "template": "https://t.org/{z}/{x}/{y}", "max_zoom": 9 } ] }"#,
+        )
+        .unwrap();
+        assert_eq!((some.custom_basemaps[0].max_zoom, some.custom_basemaps[0].attribution.as_str()), (9, ""));
+    }
 }

@@ -87,9 +87,51 @@ pub fn file_settings(n: &mut Node) -> impl Iterator<Item = &mut String> {
     })
 }
 
-/// Whether a path names data sent to a coordinator (`bundle:<hash>/...`, `blob:<hash>`), not a file here.
+/// Whether a path names data that is not a file of this computer's disk: sent to a coordinator
+/// (`bundle:<hash>/...`, `blob:<hash>`), or on the web ([`is_remote`]). Such a path is never made relative to the
+/// model's folder, nor checked to exist.
 pub fn is_sent(path: &str) -> bool {
-    path.starts_with("bundle:") || path.starts_with("blob:")
+    path.starts_with("bundle:") || path.starts_with("blob:") || is_remote(path)
+}
+
+/// The prefixes of GDAL's virtual file systems that read over the network.
+const REMOTE_PREFIXES: [&str; 6] = ["/vsicurl/", "/vsicurl_streaming/", "/vsis3/", "/vsigs/", "/vsiaz/", "/vsiadls/"];
+
+/// Whether a path is data on the web, read by GDAL's network file systems (`/vsicurl/https://...`, `/vsis3/...`),
+/// or an address (`https://...`, `s3://...`) that [`remote_path`] makes one.
+pub fn is_remote(path: &str) -> bool {
+    let p = path.trim();
+    REMOTE_PREFIXES.iter().any(|x| p.starts_with(x)) || remote_path(p).is_some()
+}
+
+/// The path GDAL reads an address by: `https://host/a.tif` as `/vsicurl/https://host/a.tif`, `s3://bucket/a.tif` as
+/// `/vsis3/bucket/a.tif`, `gs://bucket/a.tif` as `/vsigs/bucket/a.tif`; a path of GDAL's network file systems as it
+/// is. None for anything else (a file of the disk).
+pub fn remote_path(address: &str) -> Option<String> {
+    let a = address.trim();
+    let after = |scheme: &str| {
+        let head = a.get(..scheme.len())?;
+        (head.eq_ignore_ascii_case(scheme) && a.len() > scheme.len()).then(|| &a[scheme.len()..])
+    };
+    if REMOTE_PREFIXES.iter().any(|x| a.starts_with(x)) {
+        return Some(a.to_string());
+    }
+    if let Some(rest) = after("https://") {
+        return Some(format!("/vsicurl/https://{rest}"));
+    }
+    if let Some(rest) = after("http://") {
+        return Some(format!("/vsicurl/http://{rest}"));
+    }
+    if let Some(rest) = after("ftp://") {
+        return Some(format!("/vsicurl/ftp://{rest}"));
+    }
+    if let Some(rest) = after("s3://") {
+        return Some(format!("/vsis3/{rest}"));
+    }
+    if let Some(rest) = after("gs://") {
+        return Some(format!("/vsigs/{rest}"));
+    }
+    None
 }
 
 /// Make the file paths of the nodes ([`FILE_OPS`]) relative to `dir` (the folder a model is saved in).
@@ -931,6 +973,39 @@ pub fn dependencies_among(node: &Node, scope: &std::collections::HashSet<&str>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn addresses_are_read_by_gdals_network_file_systems() {
+        for (given, path) in [
+            ("https://host.org/a/b.tif", "/vsicurl/https://host.org/a/b.tif"),
+            ("  http://127.0.0.1:80/b.tif?x=1 ", "/vsicurl/http://127.0.0.1:80/b.tif?x=1"),
+            ("HTTPS://Host.org/b.tif", "/vsicurl/https://Host.org/b.tif"),
+            ("ftp://host/b.tif", "/vsicurl/ftp://host/b.tif"),
+            ("s3://bucket/dir/b.tif", "/vsis3/bucket/dir/b.tif"),
+            ("gs://bucket/b.tif", "/vsigs/bucket/b.tif"),
+            ("/vsicurl/https://host/b.tif", "/vsicurl/https://host/b.tif"),
+            ("/vsis3/bucket/b.tif", "/vsis3/bucket/b.tif"),
+        ] {
+            assert_eq!(remote_path(given).as_deref(), Some(path), "{given}");
+            assert!(is_remote(given) && is_sent(given), "{given}");
+        }
+        // files of the disk, and addresses with nothing after the scheme
+        for local in ["data/b.tif", "C:\\data\\b.tif", "/home/me/b.tif", "https://", "s3://", "", "bundle:ab/c.tif"] {
+            assert_eq!(remote_path(local), None, "{local}");
+            assert!(!is_remote(local), "{local}");
+        }
+        assert!(is_sent("bundle:ab/c.tif") && is_sent("blob:ab") && !is_sent("data/b.tif"));
+    }
+
+    #[test]
+    fn a_remote_path_is_left_as_it_is_by_the_model() {
+        let url = "/vsicurl/https://host.org/b.tif";
+        let mut nodes = vec![Node::new("r", "raster.read").param("path", url)];
+        let dir = Path::new("models");
+        relative_paths(&mut nodes, dir);
+        assert_eq!(nodes[0].params["path"], url);
+        assert_eq!(file_settings(&mut nodes[0]).count(), 0, "not a file to move");
+    }
 
     #[test]
     fn a_raster_reads_map_and_stack_as_raster() {

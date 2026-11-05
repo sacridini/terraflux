@@ -109,6 +109,16 @@ impl Source {
         (g.width, g.height)
     }
 
+    /// Whether the cells are in a file on the web (read by windows, over the network).
+    pub fn is_remote(&self) -> bool {
+        match self {
+            Source::Rasters(r, _) => r.is_remote(),
+            Source::Rgb(r) => r.bands[0].is_remote(),
+            Source::Shade(s) => s.base.is_remote(),
+            Source::Map(_) | Source::Blank(_) => false,
+        }
+    }
+
     /// The level at which the whole map fits a tile.
     fn top(&self) -> u32 {
         let (w, h) = self.size();
@@ -310,6 +320,9 @@ pub enum Basemap {
     OpenStreetMap,
     OpenTopoMap,
     CartoLight,
+    /// A service of the user's: its address template is kept in [`crate::basemap`] under this number (a hash of
+    /// the template, which also names its folder of tiles on disk).
+    Custom(u64),
 }
 
 impl Basemap {
@@ -322,7 +335,7 @@ impl Basemap {
         Basemap::CartoLight,
     ];
 
-    pub fn name(self) -> &'static str {
+    pub fn name(self) -> String {
         match self {
             Basemap::None => "None",
             Basemap::EsriImagery => "Satellite (Esri)",
@@ -330,13 +343,18 @@ impl Basemap {
             Basemap::OpenStreetMap => "OpenStreetMap",
             Basemap::OpenTopoMap => "OpenTopoMap",
             Basemap::CartoLight => "Light (Carto)",
+            Basemap::Custom(id) => return crate::basemap::custom(id).map_or("Custom".into(), |c| c.name()),
         }
+        .into()
     }
 
     /// The tiles' address, with `${z}`, `${x}` and `${y}`; the deepest zoom level.
-    pub(crate) fn url(self) -> Option<(&'static str, u32)> {
-        Some(match self {
-            Basemap::None => return None,
+    pub(crate) fn url(self) -> Option<(String, u32)> {
+        if let Basemap::Custom(id) = self {
+            return crate::basemap::custom(id).map(|c| (c.template, c.max_zoom));
+        }
+        let (url, levels) = match self {
+            Basemap::None | Basemap::Custom(_) => return None,
             Basemap::EsriImagery => {
                 ("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}", 19)
             }
@@ -347,11 +365,12 @@ impl Basemap {
             Basemap::OpenStreetMap => ("https://tile.openstreetmap.org/${z}/${x}/${y}.png", 19),
             Basemap::OpenTopoMap => ("https://tile.opentopomap.org/${z}/${x}/${y}.png", 17),
             Basemap::CartoLight => ("https://basemaps.cartocdn.com/light_all/${z}/${x}/${y}.png", 19),
-        })
+        };
+        Some((url.to_string(), levels))
     }
 
     /// Whose map it is, written on it as the services ask.
-    pub fn attribution(self) -> &'static str {
+    pub fn attribution(self) -> String {
         match self {
             Basemap::None => "",
             Basemap::EsriImagery => "Esri, Maxar, Earthstar Geographics, and the GIS User Community",
@@ -359,7 +378,9 @@ impl Basemap {
             Basemap::OpenStreetMap => "© OpenStreetMap contributors",
             Basemap::OpenTopoMap => "© OpenStreetMap contributors, SRTM; style © OpenTopoMap (CC-BY-SA)",
             Basemap::CartoLight => "© OpenStreetMap contributors © CARTO",
+            Basemap::Custom(id) => return crate::basemap::custom(id).map_or(String::new(), |c| c.attribution),
         }
+        .into()
     }
 }
 
@@ -719,6 +740,11 @@ impl MapView {
     /// Whether basemap tiles are being fetched.
     pub fn base_busy(&self) -> bool {
         self.base.busy()
+    }
+
+    /// Why the map's tiles could not be read (a file that cannot be read, a server that failed), if so.
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
     }
 
     /// Screen points per cell.
@@ -2091,12 +2117,15 @@ impl MapView {
         }
         // whose map the basemap is, as the services ask; why there is none
         if self.basemap != Basemap::None {
-            let text = self.base.error.clone().unwrap_or_else(|| self.basemap.attribution().to_string());
-            let at = rect.right_bottom() - Vec2::new(6.0, 4.0);
-            let galley = painter.layout_no_wrap(text, egui::FontId::proportional(10.5), Color32::WHITE);
-            let back = Rect::from_min_size(at - galley.size(), galley.size()).expand2(Vec2::new(4.0, 2.0));
-            painter.rect_filled(back, 2.0, Color32::from_black_alpha(140));
-            painter.galley(at - galley.size(), galley, Color32::WHITE);
+            let text = self.base.error.clone().unwrap_or_else(|| self.basemap.attribution());
+            // (a service of the user's may have no attribution to write)
+            if !text.is_empty() {
+                let at = rect.right_bottom() - Vec2::new(6.0, 4.0);
+                let galley = painter.layout_no_wrap(text, egui::FontId::proportional(10.5), Color32::WHITE);
+                let back = Rect::from_min_size(at - galley.size(), galley.size()).expand2(Vec2::new(4.0, 2.0));
+                painter.rect_filled(back, 2.0, Color32::from_black_alpha(140));
+                painter.galley(at - galley.size(), galley, Color32::WHITE);
+            }
         }
         if let Some(e) = &self.error {
             painter.text(

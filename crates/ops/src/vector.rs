@@ -255,6 +255,10 @@ fn layers_of(args: &Args, port: &str) -> Result<(Layers, Option<usize>)> {
 /// The files of vector features a path names when it is a folder (its files of features, not `.json`) or a pattern
 /// of their names (`roads/*.gpkg`, `*` any text, `?` a character), in the order of their names; none for a file.
 pub fn vector_files_of(path: &str) -> Option<Result<Vec<PathBuf>>> {
+    // (a file on the web: one file, whatever `?` its address holds)
+    if terraflux_graph::is_remote(path) {
+        return None;
+    }
     let p = Path::new(path);
     let name = p.file_name()?.to_string_lossy().into_owned();
     let pattern = (!p.is_dir()).then_some(name);
@@ -368,7 +372,10 @@ impl Operator for Read {
         let layer: Option<String> = args.opt_param("layer")?;
         let layer = layer.as_deref().filter(|l| !l.is_empty());
         let v = match vector_files_of(&path) {
-            None => terraflux_gdal::read_vector(&path, layer).map_err(Error::msg)?,
+            None => {
+                let at = terraflux_graph::remote_path(&path).unwrap_or_else(|| path.clone());
+                terraflux_gdal::read_vector(&at, layer).map_err(Error::msg)?
+            }
             Some(files) => {
                 let parts = files?
                     .iter()

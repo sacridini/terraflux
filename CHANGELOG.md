@@ -45,6 +45,13 @@ minor versions.
   work there, and a double click on a node brings that window forward. Its place and size are kept (back on a
   visible screen when the remembered one is gone), and it opens out again at the next start (the layout's version
   12; layouts of 11 still load).
+- Viewer: **maps on the web as layers**. *A URL...* in the Layers' add menu checks an address in a thread (size,
+  bands, coordinate system, or the error) and adds a `raster.read` of it: a Cloud Optimized GeoTIFF or any raster
+  GDAL reads through `/vsicurl/` (`https://` given as it is, `s3://` and `gs://` as `/vsis3/` and `/vsigs/`), read
+  by ranges of bytes as the map asks, from its overviews when zoomed out (the whole view of a 22 MB COG read 6 MB),
+  an error of the server a layer's error; GeoJSON and FlatGeobuf as a `vector.read`. A model keeps such an address
+  as it is (not made relative, not checked as a file). *Custom...* basemaps: any XYZ tile service by its template
+  (`{z}/{x}/{y}`), with its attribution and deepest zoom, the last five kept, cached on disk as the others.
 
 ## [1.40.0] - 2026-11-04
 

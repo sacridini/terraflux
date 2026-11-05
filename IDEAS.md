@@ -2425,6 +2425,19 @@ item, na ordem; release só quando pedido.
 7. **Dados remotos como camada.** *Add a layer from a URL...*: um COG ou qualquer raster que o GDAL abre por
    `/vsicurl/`, lido por janelas à medida que o mapa pede (as overviews no zoom de longe), e um XYZ/WMTS qualquer
    como basemap (a URL com `{z}/{x}/{y}`).
+   **Feito** (Unreleased, por um sub-agente): `terraflux_graph::is_remote`/`remote_path` (e `is_sent`: o endereço
+   não é relativizado nem conferido como arquivo), o GDAL configurado para a web uma vez (blocos de 128 KB, cache de
+   64 MB, tempos de 10 e 30 s; `GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR` só ao abrir um remoto, por thread), `File::open`
+   de um remoto pelo GDAL (o `RasterIO` escolhe a overview). `remote.rs` (*A URL...*: `probe` numa thread),
+   `builder::add_url`; o histograma e as estatísticas de um remoto de uma amostra de 1 milhão de células; os
+   cabeçalhos de remotos fora da thread da janela. `basemap.rs`: `Basemap::Custom`, `validate`, `register` (5, o
+   último primeiro), `custom_window`, o cache por um hash da URL. Testes: `tests/web_layers.rs` (um servidor em
+   127.0.0.1 com faixas de bytes: o COG de 22 MB, 404, o servidor que passa a falhar, o GeoJSON, o XYZ próprio, as
+   configurações). Também: `every_test_file_runs` aceita os módulos de `ui.rs`. Falta: WMTS; um vetor remoto lido
+   por filtro espacial (hoje inteiro); `{s}` vira `a`; o cache de resultados não vê um remoto que mudou; credenciais
+   de S3/GS; *A URL...* também no cabeçalho do Viewer.
+   **Visto de passagem:** `surface::the_terrain_is_landschafts` (crates/ops) falha no VRM por 2e-16
+   (`0.008092000620180229` contra `...180007`), com ou sem este item: a paridade bit a bit do VRM com o numpy.
 8. **As sobras das partes já feitas.**
    - Histograma: as barras em escala logarítmica quando a cor é; o nodata que não é NaN de um raster em disco não
      conta como valor.

@@ -12,6 +12,8 @@ use terraflux_app::app::Pane;
 use terraflux_app::editor_view::NodeStatus;
 use terraflux_app::wizard::{Picked, Step, Wizard};
 
+mod web_layers;
+
 fn data(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs").join(name)
 }

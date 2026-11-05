@@ -589,6 +589,8 @@ pub struct Session {
     pub figure: Option<crate::figure::Composer>,
     /// The map shown being exported as a picture (the Viewer's Export the view...).
     pub export: Option<crate::export_view::Export>,
+    /// The window that adds a layer from an address on the web (the Layers' add menu).
+    pub url_layer: Option<crate::remote::Dialog>,
     /// The Problems pane asked for (why a node failed).
     pub ask_problems: bool,
     /// The calculator asked for (the script of the node selected).
@@ -812,6 +814,7 @@ impl Session {
             python: None,
             figure: None,
             export: None,
+            url_layer: None,
             ask_problems: false,
             ask_calculator: false,
             ask_viewer: false,
@@ -3850,6 +3853,7 @@ impl TerrafluxApp {
             if !out {
                 crate::figure::window(ui.ctx(), s);
                 crate::export_view::window(ui.ctx(), s);
+                crate::remote::window(ui.ctx(), s, &self.registry);
             }
         }
         if self.commands.is_some() {
@@ -4336,6 +4340,7 @@ impl TerrafluxApp {
                     if let Some(s) = &mut app.session {
                         crate::figure::window(ui.ctx(), s);
                         crate::export_view::window(ui.ctx(), s);
+                        crate::remote::window(ui.ctx(), s, &app.registry);
                     }
                     // where the window is, to open there next time
                     let (outer, inner, away) = ui.input(|i| {

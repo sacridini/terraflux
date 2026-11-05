@@ -264,6 +264,16 @@ on the command line (`.tif` for the GeoTIFF, `--scale 2` or `4` for a larger pic
 `export_plot` tool. It runs the model and draws the Plot's layers in their palettes; hidden layers and differences
 are left out, and a Plot that compares maps gives its map only.
 
+### Maps on the web
+
+*A URL...*, in the menu that adds a layer, reads a raster on the web without downloading it: a Cloud Optimized
+GeoTIFF (`https://.../scene.tif`), any file GDAL opens through `/vsicurl/`, or `s3://` and `gs://` (as `/vsis3/` and
+`/vsigs/`). *Check* opens it and tells its size, bands and coordinate system (or why it cannot); *Add as a layer*
+makes a [[raster.read]] of the address, drawn as any layer: only the parts of the file the map needs are read,
+from its overviews when zoomed out. A GeoJSON or FlatGeobuf address becomes a [[vector.read]] (read whole).
+*Custom...*, among the basemaps, takes any tile service by its address with `{z}`, `{x}` and `{y}`, an attribution
+and the deepest zoom; the last five are kept.
+
 ### The Viewer in a window of its own
 
 **Pop out**, in the Viewer's header (or *View > Viewer in a window of its own*), moves the Viewer into a window of

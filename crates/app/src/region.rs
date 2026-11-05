@@ -142,7 +142,7 @@ pub fn of(source: &Source, part: &Part, classes: bool) -> Stats {
     let (w, h) = source.size();
     let Some([x0, y0, x1, y1]) = part.bounds(w, h) else { return Stats::none(1) };
     let (bw, bh) = (x1 - x0, y1 - y0);
-    let step = crate::histogram::sample_step(bw, bh);
+    let step = crate::histogram::source_step(source, bw, bh);
     let sw = bw.div_ceil(step);
     let values: Vec<f64> = match source {
         Source::Map(m) => (y0..y1)
