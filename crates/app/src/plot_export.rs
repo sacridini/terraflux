@@ -117,7 +117,7 @@ fn made(m: &Model, plot: &Plot, value: &dyn Fn(&str) -> Option<Value>) -> Result
             Coloring::Classes(c) => {
                 c.iter().map(|(v, _)| (*v, crate::legend_view::name(&look, legend.as_deref(), *v))).collect()
             }
-            Coloring::Continuous { .. } | Coloring::Packed => Vec::new(),
+            Coloring::Continuous { .. } | Coloring::Packed | Coloring::Shade { .. } => Vec::new(),
         };
         (look.coloring, names)
     };
@@ -127,22 +127,56 @@ fn made(m: &Model, plot: &Plot, value: &dyn Fn(&str) -> Option<Value>) -> Result
     let mut drawn = Vec::new();
     let mut rasters = Vec::new();
     let mut vectors = Vec::new();
-    let at = |name: String, l: &terraflux_graph::PlotLayer| match l.opacity {
-        Some(o) if (o - 1.0).abs() > 1e-9 => format!("{name} at {:.0}%", o * 100.0),
-        _ => name,
+    let at = |name: String, l: &terraflux_graph::PlotLayer| {
+        let name = match l.opacity {
+            Some(o) if (o - 1.0).abs() > 1e-9 => format!("{name} at {:.0}%", o * 100.0),
+            _ => name,
+        };
+        match crate::blend::Blend::of_plot(l.blend.as_deref()) {
+            crate::blend::Blend::Normal => name,
+            b => format!("{name}, {}", b.key()),
+        }
+    };
+    // a layer's shade, as a layer over it (black as dark as the relief; none for a composite of three maps)
+    let shade_of = |l: &terraflux_graph::PlotLayer, src: &Source, name: &str| {
+        let shade = crate::shade::Shade::of_plot(l.shade.as_ref()?);
+        let source = crate::shade::ShadeSource::of(src, &shade)?;
+        let opacity = l.opacity.unwrap_or(1.0).clamp(0.0, 1.0) as f32;
+        let layer = RasterLayer {
+            source,
+            coloring: shade.coloring(),
+            opacity,
+            below: false,
+            name: String::new(),
+            blend: Default::default(),
+        };
+        Some((layer, format!("{name}: {}", shade.label())))
     };
     for (i, (l, node, port, k)) in kept.iter().enumerate() {
         let name = if node.is_empty() { format!("${port}") } else { output_name(node, port) };
         match k {
-            Kind::Map(_) if i == first => drawn.push(match l.opacity {
-                Some(o) if o < 1.0 => format!("{name} (the map, drawn opaque)"),
-                _ => format!("{name} (the map)"),
-            }),
+            Kind::Map(src) if i == first => {
+                drawn.push(match l.opacity {
+                    Some(o) if o < 1.0 => format!("{name} (the map, drawn opaque)"),
+                    _ => format!("{name} (the map)"),
+                });
+                // (its shade over it; the map is the base, so it is mixed with none)
+                if let Some((shade, line)) = shade_of(l, src, &name) {
+                    drawn.push(line);
+                    rasters.push(shade);
+                }
+            }
             Kind::Map(src) => {
                 let (coloring, _) = colour(l, node, port, src);
                 let opacity = l.opacity.unwrap_or(1.0).clamp(0.0, 1.0) as f32;
+                let blend = crate::blend::Blend::of_plot(l.blend.as_deref());
                 drawn.push(at(name.clone(), l));
-                rasters.push(RasterLayer { source: src.clone(), coloring, opacity, below: false, name });
+                let shade = shade_of(l, src, &name);
+                rasters.push(RasterLayer { source: src.clone(), coloring, opacity, below: false, name, blend });
+                if let Some((shade, line)) = shade {
+                    drawn.push(line);
+                    rasters.push(shade);
+                }
             }
             Kind::Features(f) => {
                 let style = l.style.as_ref().map(crate::vector_tiles::Style::from_json).unwrap_or_default();
@@ -312,6 +346,46 @@ mod tests {
         assert!(made.skipped[1].contains("forest.diff") && made.skipped[1].contains("difference"));
         assert!(made.skipped[2].contains("land.missing") && made.skipped[2].contains("no value"));
         assert!(made.compare.is_none());
+    }
+
+    /// A layer's blend mode and its relief, as the Plot keeps them, are in the picture `terraflux plot` writes.
+    #[test]
+    fn the_blend_and_the_shade_of_a_layer_are_drawn() {
+        let mut m = Model::new("relief");
+        m.nodes.push(Node::new("dem", "nlm.random"));
+        m.nodes.push(Node::new("tint", "nlm.random"));
+        let shade = crate::shade::Shade { azimuth: 270.0, altitude: 30.0, z: 2.0, strength: 0.8 };
+        m.plots.push(Plot {
+            id: "relief".into(),
+            layers: vec![
+                PlotLayer { shade: Some(shade.to_plot()), ..PlotLayer::new("dem.map") },
+                PlotLayer { blend: Some("multiply".into()), ..PlotLayer::new("tint.map") },
+                PlotLayer { blend: Some("overlay".into()), shade: Some(shade.to_plot()), ..PlotLayer::new("dem.over") },
+            ],
+            ..Default::default()
+        });
+        let mut v = HashMap::new();
+        v.insert("dem.map".to_string(), map(8, 8, |i| (i % 8) as f64 * 0.7 + (i / 8) as f64 * 0.3));
+        v.insert("tint.map".to_string(), map(8, 8, |i| i as f64 * 0.1));
+        v.insert("dem.over".to_string(), map(8, 8, |i| (i % 5) as f64 * 0.37));
+        let made = panel_of(&m, "relief", &|from| v.get(from).cloned()).unwrap();
+        // the map's shade over it, the multiplied layer, then the layer a mode this does not know (normal) and its shade
+        let r = &made.panel.rasters;
+        assert_eq!(r.len(), 4);
+        assert!(matches!(r[0].source, Source::Shade(_)) && r[0].coloring == shade.coloring());
+        assert_eq!(r[1].blend, crate::blend::Blend::Multiply);
+        assert_eq!(r[2].blend, crate::blend::Blend::Normal);
+        assert!(matches!(r[3].source, Source::Shade(_)));
+        assert_eq!(
+            made.drawn,
+            [
+                "dem.map (the map)",
+                "dem.map: shaded: 270°, 30°, ×2",
+                "tint.map, multiply",
+                "dem.over",
+                "dem.over: shaded: 270°, 30°, ×2"
+            ]
+        );
     }
 
     #[test]

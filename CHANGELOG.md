@@ -28,6 +28,12 @@ minor versions.
   sizes. Kept in the Plot (`ramp`, `breaks`, `classes`, `categories`, `size_by`, `size_min`, `size_max`, `symbol`,
   also through the MCP's `set_plot`), drawn by the export and `terraflux plot`, and written to QGIS as a
   categorized or graduated renderer with the symbol and a data-defined size.
+- Viewer: **relief under the colours, and blend modes**. *Shade with this elevation* on a map layer of values draws
+  its colours over its own hillshade (Horn's, as `gdaldem`; azimuth, sun altitude, exaggeration, strength; metres
+  per degree on geographic grids), made tile by tile by the Viewer's threads with a halo, without seams. A layer
+  blends with those under it as *normal*, *multiply* or *screen* (drawn by the GPU with its own blend state). Kept in
+  the Plot (`blend`, `shade = { azimuth, altitude, z, strength }`, also through the MCP's `set_plot`), drawn by the
+  figure, the export, the animation and `terraflux plot`.
 
 ## [1.40.0] - 2026-11-04
 

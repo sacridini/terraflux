@@ -106,7 +106,7 @@ pub fn of(source: &Source, line: &[[f64; 2]]) -> Profile {
                 .collect()
         }
         // (a colour composite is not profiled: its bands are)
-        Source::Blank(_) | Source::Rgb(_) => vec![f64::NAN; cells.len()],
+        Source::Blank(_) | Source::Rgb(_) | Source::Shade(_) => vec![f64::NAN; cells.len()],
     };
     Profile { dist, cells, values, vertices, frame: Frame::of(grid) }
 }
@@ -195,7 +195,7 @@ pub fn show(
                 });
             }
         }
-        Coloring::Continuous { .. } | Coloring::Packed => {
+        Coloring::Continuous { .. } | Coloring::Packed | Coloring::Shade { .. } => {
             use egui_plot::{Line, Plot, VLine};
             let pts: Vec<[f64; 2]> =
                 p.dist.iter().zip(&p.values).filter(|(_, v)| v.is_finite()).map(|(d, v)| [*d, *v]).collect();

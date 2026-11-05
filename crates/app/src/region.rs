@@ -157,6 +157,7 @@ pub fn of(source: &Source, part: &Part, classes: bool) -> Stats {
         Source::Blank(_) => vec![f64::NAN; sw * bh.div_ceil(step)],
         // (a colour composite: the statistics of its first band)
         Source::Rgb(r) => return of(&r.bands[0], part, classes),
+        Source::Shade(s) => return of(&s.base, part, classes),
     };
     let grid = source.grid();
     let weight = (step * step) as f64;

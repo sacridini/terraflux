@@ -76,6 +76,7 @@ impl Histogram {
             }
             Source::Blank(_) => Histogram::of(std::iter::empty(), lo, hi, false),
             Source::Rgb(r) => Histogram::of_source(&r.bands[0], lo, hi),
+            Source::Shade(s) => Histogram::of_source(&s.base, lo, hi),
         }
     }
 

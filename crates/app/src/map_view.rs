@@ -19,6 +19,7 @@ use terraflux_ops::Map;
 use terraflux_ops::files::Rasters;
 use terraflux_raster::tiff::Window;
 
+use crate::blend::Blend;
 use crate::palette::{Coloring, image, image_f32};
 
 /// The side of a tile, pixels.
@@ -66,6 +67,8 @@ pub enum Source {
     Blank(Arc<terraflux_raster::Grid>),
     /// Three maps drawn as one colour image (see [`crate::rgb`]): its tiles hold packed colours.
     Rgb(Arc<crate::rgb::RgbSource>),
+    /// A map's hillshade (see [`crate::shade`]): its tiles hold the brightness, 0 to 1.
+    Shade(Arc<crate::shade::ShadeSource>),
 }
 
 impl From<&Map> for Source {
@@ -87,6 +90,7 @@ impl Source {
             }
             Source::Blank(g) => (Arc::as_ptr(g) as usize, usize::MAX),
             Source::Rgb(r) => r.key(),
+            Source::Shade(s) => s.key(),
         }
     }
 
@@ -96,6 +100,7 @@ impl Source {
             Source::Rasters(r, l) => r.grid_of(*l),
             Source::Blank(g) => g,
             Source::Rgb(r) => r.bands[0].grid(),
+            Source::Shade(s) => s.base.grid(),
         }
     }
 
@@ -149,6 +154,43 @@ impl Source {
                     [r.bands[0].tile(level, tx, ty)?, r.bands[1].tile(level, tx, ty)?, r.bands[2].tile(level, tx, ty)?];
                 Ok(r.pack_values([&t[0], &t[1], &t[2]]))
             }
+            // (the brightness of the map's cells, from a window with a cell around the tile)
+            Source::Shade(s) => s.tile(level, tx, ty),
+        }
+    }
+
+    /// A tile's values with `halo` cells more on every side (of the same level): `(TILE + 2 * halo)` squared, by rows,
+    /// NaN outside the map. For what is worked out of a cell and its neighbours (a shade), so that tiles join.
+    pub fn halo(&self, level: u32, tx: usize, ty: usize, halo: usize) -> Result<Vec<f32>, String> {
+        let step = 1usize << level;
+        let side = TILE + 2 * halo;
+        let (x0, y0) =
+            ((tx * TILE * step) as i64 - (halo * step) as i64, (ty * TILE * step) as i64 - (halo * step) as i64);
+        match self {
+            Source::Map(m) => {
+                let (w, h) = (m.grid.width as i64, m.grid.height as i64);
+                let mut v = vec![f32::NAN; side * side];
+                for i in 0..side {
+                    let y = y0 + (i * step) as i64;
+                    if y < 0 || y >= h {
+                        continue;
+                    }
+                    let row = &m.data[(y * w) as usize..((y + 1) * w) as usize];
+                    for j in 0..side {
+                        let x = x0 + (j * step) as i64;
+                        if x >= 0 && x < w {
+                            v[i * side + j] = row[x as usize] as f32;
+                        }
+                    }
+                }
+                Ok(v)
+            }
+            Source::Rasters(r, l) => {
+                let win = Window { x0, y0, width: side * step, height: side * step };
+                r.sample(*l, win, step).map_err(|e| e.to_string())
+            }
+            Source::Blank(_) => Ok(vec![f32::NAN; side * side]),
+            Source::Rgb(_) | Source::Shade(_) => Err("no window of a derived map".into()),
         }
     }
 
@@ -156,7 +198,7 @@ impl Source {
     fn value(&self, x: usize, y: usize) -> Option<f64> {
         match self {
             Source::Map(m) => m.data.get(y * m.grid.width + x).copied(),
-            Source::Rasters(..) | Source::Blank(_) | Source::Rgb(_) => None,
+            Source::Rasters(..) | Source::Blank(_) | Source::Rgb(_) | Source::Shade(_) => None,
         }
     }
 }
@@ -327,7 +369,7 @@ pub(crate) fn crs_of(g: &terraflux_raster::Grid) -> Option<String> {
 }
 
 /// A map drawn with another: its colours, how opaque it is (0 to 1), whether it is drawn under the map shown
-/// (else over it), and its name (its value under the pointer told by it).
+/// (else over it), its name (its value under the pointer told by it) and how it is mixed with what is under it.
 #[derive(Clone)]
 pub struct RasterLayer {
     pub source: Source,
@@ -335,6 +377,7 @@ pub struct RasterLayer {
     pub opacity: f32,
     pub below: bool,
     pub name: String,
+    pub blend: crate::blend::Blend,
 }
 
 /// Another map compared with the one shown, right of a curtain dragged across the view: the map, and the names
@@ -522,6 +565,42 @@ struct Prior {
     source: Source,
     colouring: u64,
     since: std::time::Instant,
+}
+
+/// A tile drawn in a blend mode by the GPU ([`crate::blend::Tile`]): its values in the colouring, the part `seen` of
+/// its screen rectangle `r` (where `uv` of its texture is), at the opacity of `tint`.
+fn blend_tile(
+    mode: Blend,
+    coloring: Arc<Coloring>,
+    (values, key): (&Arc<Vec<f32>>, (TileKey, u64)),
+    (r, uv, seen): (Rect, Rect, Rect),
+    tint: Color32,
+    frame: u64,
+) -> egui::Shape {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    key.hash(&mut h);
+    // (the part seen of the tile's rectangle: its place on the texture)
+    let at = |v: f32, lo: f32, size: f32, a: f32, b: f32| a + (b - a) * ((v - lo) / size);
+    let (u0, u1) = (
+        at(seen.min.x, r.min.x, r.width(), uv.min.x, uv.max.x),
+        at(seen.max.x, r.min.x, r.width(), uv.min.x, uv.max.x),
+    );
+    let (v0, v1) = (
+        at(seen.min.y, r.min.y, r.height(), uv.min.y, uv.max.y),
+        at(seen.max.y, r.min.y, r.height(), uv.min.y, uv.max.y),
+    );
+    let tile = crate::blend::Tile {
+        id: h.finish(),
+        frame,
+        values: values.clone(),
+        coloring,
+        side: TILE,
+        uv: [u0, v0, u1, v1],
+        opacity: f32::from(tint.a()) / 255.0,
+        mode,
+    };
+    egui::Shape::from(eframe::egui_wgpu::Callback::new_paint_callback(seen, tile))
 }
 
 /// How a source's tiles are drawn: in a colouring, the tiles missing asked for; or only those kept in a colouring.
@@ -739,7 +818,7 @@ impl MapView {
         paint: Paint<'_>,
         tint: Color32,
         place: Place,
-        show: bool,
+        (show, blend): (bool, crate::blend::Blend),
         wanted: &mut Vec<(f32, Job)>,
         cover: &mut Cover,
     ) -> bool {
@@ -788,6 +867,12 @@ impl MapView {
             colouring,
         };
         let mut recolour = if coloring.is_some() { 8 } else { 0 };
+        // a layer in a blend mode is drawn by the GPU from the tiles' values in its colouring (a tile drawn in the
+        // colouring it was not made in, or kept without one, is drawn the normal way)
+        let blended = match (blend, coloring) {
+            (Blend::Normal, _) | (_, None) => None,
+            (mode, Some(c)) => Some((mode, Arc::new(c.clone()))),
+        };
         // the top tiles over the view first: something to show at once
         let (tx0, ty0, tx1, ty1) = range(top);
         for ty in ty0..=(ty1.max(0) as usize) {
@@ -820,7 +905,7 @@ impl MapView {
                     continue;
                 }
                 let seen = cover.clip.map_or(seen, |c| seen.intersect(c));
-                let covers = show && tint.a() == 255;
+                let covers = show && tint.a() == 255 && blend == Blend::Normal;
                 // a tile kept in another colouring is coloured again here (a few per frame)
                 if let Some(t) = self.tiles.get_mut(&k)
                     && t.texture.as_ref().is_none_or(|(c, _)| *c != colouring)
@@ -839,7 +924,19 @@ impl MapView {
                     Some(t) if t.texture.as_ref().is_some_and(|(c, _)| *c == colouring) => {
                         t.used = clock;
                         if show {
-                            out.push(egui::Shape::image(t.texture.as_ref().unwrap().1.id(), r, full, tint));
+                            let id = t.texture.as_ref().unwrap().1.id();
+                            match blended.as_ref().filter(|_| seen.is_positive()) {
+                                Some((mode, c)) => out.push(blend_tile(
+                                    *mode,
+                                    c.clone(),
+                                    (&t.values, (k, colouring)),
+                                    (r, full, seen),
+                                    tint,
+                                    clock,
+                                )),
+                                None if blended.is_some() => {}
+                                None => out.push(egui::Shape::image(id, r, full, tint)),
+                            }
                         }
                         if covers && t.opaque {
                             cover.opaque.push(seen);
@@ -869,7 +966,14 @@ impl MapView {
                         let (u, v) = ((tx - (ax << shift)) as f32 * f, (ty - (ay << shift)) as f32 * f);
                         let uv = Rect::from_min_size(Pos2::new(u, v), Vec2::splat(f));
                         if show {
-                            out.push(egui::Shape::image(tex.id(), r, uv, tint));
+                            match blended.as_ref().filter(|_| seen.is_positive()) {
+                                Some((mode, c)) => {
+                                    let key = ((src, up, ax, ay), colouring);
+                                    out.push(blend_tile(*mode, c.clone(), (&t.values, key), (r, uv, seen), tint, clock))
+                                }
+                                None if blended.is_some() => {}
+                                None => out.push(egui::Shape::image(tex.id(), r, uv, tint)),
+                            }
                         }
                         if covers && t.opaque {
                             cover.opaque.push(seen);
@@ -924,12 +1028,15 @@ impl MapView {
         paint: Paint<'_>,
         tint: Color32,
         at: At,
-        show: bool,
+        (show, blend): (bool, crate::blend::Blend),
         wanted: &mut Vec<(f32, Job)>,
         cover: &mut Cover,
     ) -> bool {
         match at {
-            At::Place(place) => self.draw_source(ctx, out, rect, source, paint, tint, place, show, wanted, cover),
+            At::Place(place) => {
+                self.draw_source(ctx, out, rect, source, paint, tint, place, (show, blend), wanted, cover)
+            }
+            // (a layer carried from another coordinate system is drawn as a mesh, mixed in the normal way)
             At::Warp => {
                 let Some(mut re) = self.reproj.remove(&source.key()) else { return true };
                 let done = self.draw_warped(ctx, out, rect, source, paint, tint, &mut re, show, wanted);
@@ -1431,7 +1538,18 @@ impl MapView {
                     let tint = Color32::from_white_alpha((l.opacity.clamp(0.0, 1.0) * 255.0).round() as u8);
                     let paint = Paint::Asked(&l.coloring);
                     let mut out = Vec::new();
-                    self.draw_at(&ctx, &mut out, rect, &l.source, paint, tint, at, true, &mut wanted, &mut cover);
+                    self.draw_at(
+                        &ctx,
+                        &mut out,
+                        rect,
+                        &l.source,
+                        paint,
+                        tint,
+                        at,
+                        (true, l.blend),
+                        &mut wanted,
+                        &mut cover,
+                    );
                     painter.set(at_slot, egui::Shape::Vec(out));
                 }
                 Err(e) => over_errors.push(e),
@@ -1447,7 +1565,18 @@ impl MapView {
                 let paint = Paint::Asked(&l.coloring);
                 let mut out = Vec::new();
                 cover.clip = right_clip;
-                self.draw_at(&ctx, &mut out, rect, &l.source, paint, tint, at, show_data, &mut wanted, &mut cover);
+                self.draw_at(
+                    &ctx,
+                    &mut out,
+                    rect,
+                    &l.source,
+                    paint,
+                    tint,
+                    at,
+                    (show_data, Blend::Normal),
+                    &mut wanted,
+                    &mut cover,
+                );
                 right.set(compared_at, egui::Shape::Vec(out));
                 // (what the other map hides is right of the curtain: not over this one)
                 hidden_by_compared = std::mem::take(&mut cover.opaque);
@@ -1473,14 +1602,35 @@ impl MapView {
             let asked = Paint::Asked(coloring);
             let faded = own.gamma_multiply(fade);
             let mut out = Vec::new();
-            let complete =
-                self.draw_source(&ctx, &mut out, rect, source, asked, faded, base, show_data, &mut wanted, &mut cover);
+            let complete = self.draw_source(
+                &ctx,
+                &mut out,
+                rect,
+                source,
+                asked,
+                faded,
+                base,
+                (show_data, Blend::Normal),
+                &mut wanted,
+                &mut cover,
+            );
             left.set(source_at, egui::Shape::Vec(out));
             cover.drawn();
             if let Some((was, colouring, _)) = under {
                 let held = Paint::Held(colouring);
                 let mut out = Vec::new();
-                self.draw_source(&ctx, &mut out, rect, &was, held, own, base, show_data, &mut wanted, &mut cover);
+                self.draw_source(
+                    &ctx,
+                    &mut out,
+                    rect,
+                    &was,
+                    held,
+                    own,
+                    base,
+                    (show_data, Blend::Normal),
+                    &mut wanted,
+                    &mut cover,
+                );
                 left.set(prior_at, egui::Shape::Vec(out));
                 cover.opaque.clear();
             }
@@ -1503,7 +1653,18 @@ impl MapView {
                     let tint = Color32::from_white_alpha((l.opacity.clamp(0.0, 1.0) * 255.0).round() as u8);
                     let paint = Paint::Asked(&l.coloring);
                     let mut out = Vec::new();
-                    self.draw_at(&ctx, &mut out, rect, &l.source, paint, tint, at, true, &mut wanted, &mut cover);
+                    self.draw_at(
+                        &ctx,
+                        &mut out,
+                        rect,
+                        &l.source,
+                        paint,
+                        tint,
+                        at,
+                        (true, l.blend),
+                        &mut wanted,
+                        &mut cover,
+                    );
                     painter.set(at_slot, egui::Shape::Vec(out));
                 }
                 Err(e) => below_errors.push(e),
@@ -1988,6 +2149,7 @@ pub fn legend(ui: &mut Ui, coloring: &Coloring, counts: &[(f64, usize)], names: 
         Coloring::Packed => {
             ui.label("a colour composite of three bands");
         }
+        Coloring::Shade { .. } => {}
     }
 }
 

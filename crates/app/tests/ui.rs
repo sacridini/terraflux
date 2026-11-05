@@ -3268,6 +3268,226 @@ fn a_stack_shown_as_rgb() {
     shot(&mut h, "14r-rgb");
 }
 
+/// The Viewer's picture of the map shown with its layers (the button "Export the view..."): the pixel at `at`.
+fn view_pixel(h: &mut Harness<TerrafluxApp>, at: (u32, u32)) -> [u8; 4] {
+    for _ in 0..400 {
+        if h.query_by_label("Export the view...").is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+        h.run_steps(1);
+    }
+    h.get_by_label("Export the view...").click();
+    h.run_steps(4);
+    let e = h.state().session.as_ref().unwrap().export.as_ref().expect("the export's window");
+    let pm = terraflux_app::export_view::picture(&e.panel, 1).unwrap();
+    let c = pm.pixel(at.0, at.1).unwrap();
+    [c.red(), c.green(), c.blue(), c.alpha()]
+}
+
+/// An elevation shaded with its own relief: the box "Shade with this elevation" on its layer (the sun at 315 and 45
+/// degrees, the exaggeration 1, 0.6 strong), a legend line that says so, the picture of the Viewer with each cell's
+/// colour times `1 - strength + strength * shade` (the shade made of the whole map, so the tiles join); the Plot
+/// keeps it and opens again with it, and `plot_export` draws the same.
+#[test]
+fn a_map_shaded_with_its_own_relief() {
+    use terraflux_app::builder::Layer;
+    use terraflux_app::export_view::{Format, save};
+    use terraflux_app::shade::{Shade, cell_metres, shade_all};
+    use terraflux_graph::Node;
+    // a terrain of the midpoint displacement
+    let mut m = terraflux_graph::Model::new("relief");
+    m.nodes.push(Node::new("dem", "nlm.mpd").param("rows", 40).param("columns", 56).param("seed", 3));
+    let path = tmp("ui-relief.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("dem", "map").is_some()
+    });
+    h.state_mut().session.as_mut().unwrap().preview_layers = vec![Layer::new("dem", "map")];
+    show(&mut h, "dem", "map");
+    drawn(&mut h);
+    // the box of the layer of values; the sun's controls come with it
+    assert!(h.query_by_label("Shade with this elevation").is_some(), "the box of a map of values");
+    assert!(h.state().session.as_ref().unwrap().preview_layers[0].shade.is_none());
+    h.get_by_label("Shade with this elevation").click();
+    h.run_steps(3);
+    assert_eq!(h.state().session.as_ref().unwrap().preview_layers[0].shade, Some(Shade::default()));
+    drawn(&mut h);
+    for text in ["azimuth", "sun altitude", "exaggeration", "strength"] {
+        assert!(h.query_by_label_contains(text).is_some(), "{text}");
+    }
+    // the legend says where the sun is
+    assert!(h.query_by_label("shaded: 315°, 45°, ×1").is_some(), "the legend line");
+    // the sun and the strength by hand
+    let shade = Shade { azimuth: 250.0, altitude: 35.0, z: 2.0, strength: 0.7 };
+    h.state_mut().session.as_mut().unwrap().preview_layers[0].shade = Some(shade);
+    drawn(&mut h);
+    assert!(h.query_by_label("shaded: 250°, 35°, ×2").is_some(), "the legend line follows the sun");
+    // the picture of the Viewer: a cell's colour times the shade worked out from the whole map
+    let (col, row) = (30usize, 17usize);
+    let (base, bright) = {
+        let s = h.state().session.as_ref().unwrap();
+        let Some(terraflux_ops::Value::Map(dem)) = s.value_of("dem", "map") else { panic!("a map") };
+        let all: Vec<f32> = dem.data.iter().map(|v| *v as f32).collect();
+        let (w, ht) = (dem.grid.width, dem.grid.height);
+        let b = shade_all(&all, w, ht, &shade.sun(), cell_metres(&dem.grid));
+        (dem.data[row * w + col], b[row * w + col])
+    };
+    let pixel = view_pixel(&mut h, (col as u32, row as u32));
+    let png = tmp("relief-view.png");
+    let colour = {
+        let e = h.state().session.as_ref().unwrap().export.as_ref().unwrap();
+        assert_eq!(e.panel.rasters.len(), 1, "the shade is a layer over the map");
+        assert!(matches!(e.panel.rasters[0].source, terraflux_app::map_view::Source::Shade(_)));
+        save(&e.panel, 1, Format::Png, &png).unwrap();
+        e.panel.coloring.colour(base)
+    };
+    let k = 1.0 - shade.strength + shade.strength * bright;
+    let want = |c: u8| (f32::from(c) * k).round();
+    for (got, c) in [(pixel[0], colour.r()), (pixel[1], colour.g()), (pixel[2], colour.b())] {
+        assert!((f32::from(got) - want(c)).abs() <= 1.0, "{pixel:?} vs {colour:?} x {k}");
+    }
+    assert_eq!(pixel[3], 255);
+    // the Plot keeps it, and opening it gives it back
+    h.get_by_label("Plots").click();
+    h.run_steps(2);
+    h.get_by_label("Save as a new plot").click();
+    h.run_steps(2);
+    let s = h.state_mut().session.as_mut().unwrap();
+    let id = s.source.plots.last().expect("the Plot").id.clone();
+    let kept = s.source.plot(&id).unwrap().layers.iter().find(|l| l.from == "dem.map").unwrap().shade.clone();
+    let kept = kept.expect("the relief kept in the Plot");
+    assert_eq!(Shade::of_plot(&kept), shade);
+    let text = s.source.to_toml().unwrap();
+    assert!(text.contains("shade") && text.contains("azimuth"), "{text}");
+    assert_eq!(terraflux_graph::Model::from_toml(&text).unwrap().plots, s.source.plots);
+    s.preview_layers.clear();
+    terraflux_app::builder::open_plot(s, &terraflux_ops::Registry::standard(), &id);
+    let back = s.preview_layers.iter().find(|l| l.node == "dem").expect("the layer");
+    assert_eq!(back.shade, Some(shade));
+    // the CLI's and the MCP tool's picture of the Plot: the same colours
+    let made = {
+        let s = h.state().session.as_ref().unwrap();
+        let value = |from: &str| {
+            let (n, p) = from.split_once('.')?;
+            s.value_of(n, p)
+        };
+        terraflux_app::plot_export::panel_of(&s.source, &id, &value).unwrap()
+    };
+    let png2 = tmp("relief-plot.png");
+    save(&made.panel, 1, Format::Png, &png2).unwrap();
+    let at = |p: &std::path::Path| {
+        let c = tiny_skia::Pixmap::load_png(p).unwrap().pixel(col as u32, row as u32).unwrap();
+        [c.red(), c.green(), c.blue()]
+    };
+    assert_eq!(at(&png2), at(&png), "the plot's picture is the Viewer's");
+    shot(&mut h, "14s-relief");
+}
+
+/// A layer set to multiply over another darkens it (each channel the product of the two), screen lightens it, in
+/// the picture of the Viewer and in the live view as the GPU draws it; the Plot keeps the mode (`blend = "multiply"`)
+/// and opens again with it.
+#[test]
+fn a_layer_blended_with_the_one_under_it() {
+    use terraflux_app::blend::Blend;
+    use terraflux_app::builder::Layer;
+    use terraflux_graph::Node;
+    // two maps of one class each: the same colour, so that a mix of it with itself is told at once
+    let mut m = terraflux_graph::Model::new("blend");
+    m.nodes.push(Node::new("land", "nlm.random").param("rows", 12).param("columns", 16).param("seed", 1));
+    m.nodes.push(Node::new("under", "raster.calc").param("expression", "land * 0 + 1").input("land", "land.map"));
+    m.nodes.push(Node::new("top", "raster.calc").param("expression", "land * 0 + 1").input("land", "land.map"));
+    let path = tmp("ui-blend.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("top", "map").is_some() && s.value_of("under", "map").is_some()
+    });
+    let set = |h: &mut Harness<TerrafluxApp>, blend: Blend| {
+        h.state_mut().session.as_mut().unwrap().preview_layers =
+            vec![Layer::new("under", "map"), Layer { blend, ..Layer::new("top", "map") }];
+    };
+    set(&mut h, Blend::Normal);
+    show(&mut h, "under", "map");
+    drawn(&mut h);
+    let normal = view_pixel(&mut h, (5, 5));
+    assert_eq!(normal[3], 255);
+    let c = [normal[0], normal[1], normal[2]];
+    let product = |a: [u8; 3], b: [u8; 3]| [0, 1, 2].map(|i| (f32::from(a[i]) * f32::from(b[i]) / 255.0).round() as u8);
+    let screen = |a: [u8; 3], b: [u8; 3]| {
+        [0, 1, 2].map(|i| {
+            let (x, y) = (f32::from(a[i]) / 255.0, f32::from(b[i]) / 255.0);
+            ((x + y - x * y) * 255.0).round() as u8
+        })
+    };
+    let near = |a: [u8; 3], b: [u8; 3], by: i32| (0..3).all(|i| (i32::from(a[i]) - i32::from(b[i])).abs() <= by);
+    // multiplied: the colour times itself, darker than it was
+    set(&mut h, Blend::Multiply);
+    drawn(&mut h);
+    let multiplied = view_pixel(&mut h, (5, 5));
+    assert!(near([multiplied[0], multiplied[1], multiplied[2]], product(c, c), 1), "{multiplied:?} vs {c:?}");
+    assert!(multiplied[0] < normal[0] || multiplied[1] < normal[1] || multiplied[2] < normal[2]);
+    // the live view: the pixels the GPU drew (the colour times itself somewhere on the window)
+    let live = |h: &mut Harness<TerrafluxApp>, want: [u8; 3]| -> Option<bool> {
+        drawn(h);
+        let img = h.render().ok()?;
+        Some(img.pixels().any(|p| near([p[0], p[1], p[2]], want, 2)))
+    };
+    match live(&mut h, product(c, c)) {
+        Some(found) => assert!(found, "the multiplied colour {:?} is on the screen", product(c, c)),
+        None => eprintln!("no renderer: the live view is not looked at"),
+    }
+    // screened: lighter
+    set(&mut h, Blend::Screen);
+    drawn(&mut h);
+    let screened = view_pixel(&mut h, (5, 5));
+    assert!(near([screened[0], screened[1], screened[2]], screen(c, c), 1), "{screened:?} vs {c:?}");
+    match live(&mut h, screen(c, c)) {
+        Some(found) => assert!(found, "the screened colour {:?} is on the screen", screen(c, c)),
+        None => eprintln!("no renderer: the live view is not looked at"),
+    }
+    // the Plot keeps the mode, and opening it gives it back
+    set(&mut h, Blend::Multiply);
+    drawn(&mut h);
+    h.get_by_label("Plots").click();
+    h.run_steps(2);
+    h.get_by_label("Save as a new plot").click();
+    h.run_steps(2);
+    let s = h.state_mut().session.as_mut().unwrap();
+    let id = s.source.plots.last().expect("the Plot").id.clone();
+    let layers = s.source.plot(&id).unwrap().layers.clone();
+    assert_eq!(layers.iter().find(|l| l.from == "top.map").unwrap().blend.as_deref(), Some("multiply"));
+    assert!(layers.iter().find(|l| l.from == "under.map").unwrap().blend.is_none());
+    let text = s.source.to_toml().unwrap();
+    assert!(text.contains("blend = \"multiply\""), "{text}");
+    assert_eq!(terraflux_graph::Model::from_toml(&text).unwrap().plots, s.source.plots);
+    s.preview_layers.clear();
+    terraflux_app::builder::open_plot(s, &terraflux_ops::Registry::standard(), &id);
+    let back = s.preview_layers.iter().find(|l| l.node == "top").expect("the layer");
+    assert_eq!(back.blend, Blend::Multiply);
+    // the CLI's and the MCP tool's picture of the Plot: the same colours
+    let made = {
+        let s = h.state().session.as_ref().unwrap();
+        let value = |from: &str| {
+            let (n, p) = from.split_once('.')?;
+            s.value_of(n, p)
+        };
+        terraflux_app::plot_export::panel_of(&s.source, &id, &value).unwrap()
+    };
+    let png = tmp("blend-plot.png");
+    terraflux_app::export_view::save(&made.panel, 1, terraflux_app::export_view::Format::Png, &png).unwrap();
+    let p = tiny_skia::Pixmap::load_png(&png).unwrap().pixel(5, 5).unwrap();
+    assert!(near([p.red(), p.green(), p.blue()], product(c, c), 1), "the plot's picture is multiplied too");
+    shot(&mut h, "14b-blend");
+}
+
 /// A Plot's saved view: kept from what the Viewer has in view, left alone by Update the plot, brought back when the
 /// Plot is opened, and forgotten.
 #[test]

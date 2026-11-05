@@ -444,6 +444,7 @@ fn raster_legend(t: &Type, out: &mut Vec<Shape>, p: &Panel, x: f32, y: f32) -> (
             (w, h)
         }
         // a colour composite: a line for each channel, its band and the range it is drawn over
+        Coloring::Shade { .. } => (0.0, 0.0),
         Coloring::Packed => {
             let Source::Rgb(r) = &p.source else { return (0.0, 0.0) };
             let (mut w, row): (f32, f32) = (0.0, 11.0);

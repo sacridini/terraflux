@@ -217,6 +217,7 @@ mod tests {
                 opacity: 0.5,
                 below: false,
                 name: "layer".into(),
+                blend: Default::default(),
             }],
         }
     }

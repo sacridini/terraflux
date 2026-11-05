@@ -70,7 +70,7 @@ pub(super) fn layer_look(s: &mut Session, ctx: &egui::Context, l: &Layer) -> Opt
     let look = s.looks.get(ctx, &src, palette)?;
     let first = match look.coloring {
         Coloring::Continuous { min, max, .. } => Some((min, max)),
-        Coloring::Classes(_) | Coloring::Packed => None,
+        Coloring::Classes(_) | Coloring::Packed | Coloring::Shade { .. } => None,
     };
     let look = ranged(look, s.ranges.get(&key).copied());
     let look = match crate::legend_view::legend_of(s, &l.node, &l.port, &src) {
@@ -721,6 +721,12 @@ fn layer_row(
             }),
         }
     }
+    // (its relief, under its legend: where the sun is)
+    if open && let Some(shade) = sh.layers[i].shade.filter(|_| kind == Kind::Map) {
+        indented(ui, |ui| {
+            ui.label(RichText::new(shade.label()).weak().size(11.0));
+        });
+    }
     ui.data_mut(|d| d.insert_temp(open_id, open));
     let whole = Rect::from_min_max(Pos2::new(rect.left(), top), Pos2::new(rect.right(), ui.cursor().top()));
     (whole, started, released)
@@ -801,7 +807,7 @@ fn shown_legend(ui: &mut Ui, s: &mut Session, (node, port): (&str, &str), shown:
             class_lines(ui, &lines, usize::MAX);
         }
         Coloring::Continuous { .. } => palette_legend(ui, s, &key, look, shown.names, 0),
-        Coloring::Packed => {}
+        Coloring::Packed | Coloring::Shade { .. } => {}
     }
 }
 
@@ -880,7 +886,7 @@ fn inline_legend(
                         });
                     });
                 }
-                Coloring::Packed => {}
+                Coloring::Packed | Coloring::Shade { .. } => {}
             },
             None => {
                 let what = if s.value_of(&l.node, &l.port).is_some() { "its colours..." } else { "not run yet" };
@@ -890,7 +896,7 @@ fn inline_legend(
         Kind::Difference => match made {
             Some(d) => match &d.coloring {
                 Coloring::Classes(c) => classes_of(ui, crate::map_view::legend_lines(c, &d.counts, &|v| d.name(v))),
-                Coloring::Continuous { .. } | Coloring::Packed => {
+                Coloring::Continuous { .. } | Coloring::Packed | Coloring::Shade { .. } => {
                     ui.label(small(d.summary.clone()).weak());
                 }
             },
@@ -1115,6 +1121,72 @@ fn opacity_slider(ui: &mut Ui, opacity: &mut f32) {
     });
 }
 
+/// How a layer is mixed with the ones under it (see [`crate::blend`]); the map shown is the base of the picture, so
+/// it has none.
+fn blend_combo(ui: &mut Ui, l: &mut Layer, salt: &str, active: bool) {
+    use crate::blend::Blend;
+    if active {
+        return;
+    }
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Blend").size(11.5));
+        egui::ComboBox::from_id_salt(("blend", salt, &l.node, &l.port, &l.minus))
+            .selected_text(RichText::new(l.blend.key()).size(11.5))
+            .show_ui(ui, |ui| {
+                for b in Blend::ALL {
+                    ui.selectable_value(&mut l.blend, b, b.key()).on_hover_text(b.about());
+                }
+            })
+            .response
+            .on_hover_text(
+                "how the layer is mixed with the ones under it: normal, multiply (darkens) or screen (lightens)",
+            );
+    });
+}
+
+/// The relief of a map of values drawn under its colours: a box "Shade with this elevation" (`can`: the layer is a
+/// map of values; one already shaded can always be turned off), once on the sun's azimuth and altitude, the vertical
+/// exaggeration and how strong the shade is.
+fn shade_controls(ui: &mut Ui, l: &mut Layer, can: bool) {
+    use crate::shade::{EXAGGERATIONS, Shade};
+    let mut on = l.shade.is_some();
+    if ui
+        .add_enabled(can || on, egui::Checkbox::new(&mut on, "Shade with this elevation"))
+        .on_hover_text(
+            "draw the relief of its values (a hillshade made of them) darkening its colours, as the sun lights it",
+        )
+        .changed()
+    {
+        l.shade = on.then(Shade::default);
+    }
+    let Some(sh) = &mut l.shade else { return };
+    ui.spacing_mut().slider_width = (ui.available_width() - 120.0).clamp(40.0, 160.0);
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("azimuth").size(11.5));
+        ui.add(egui::Slider::new(&mut sh.azimuth, 0.0..=360.0).suffix("°").max_decimals(0))
+            .on_hover_text("where the sun is, degrees clockwise from north (315: the north-west, as maps are shaded)");
+    });
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("sun altitude").size(11.5));
+        ui.add(egui::Slider::new(&mut sh.altitude, 0.0..=90.0).suffix("°").max_decimals(0))
+            .on_hover_text("how high the sun is over the horizon: low makes long shadows");
+    });
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("exaggeration").size(11.5));
+        ui.add(egui::Slider::new(&mut sh.z, EXAGGERATIONS).logarithmic(true).prefix("×").max_decimals(2))
+            .on_hover_text("the vertical exaggeration of the heights (a grid in degrees is taken in metres)");
+    });
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("strength").size(11.5));
+        ui.add(
+            egui::Slider::new(&mut sh.strength, 0.0..=1.0)
+                .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
+                .custom_parser(|t| t.trim().trim_end_matches('%').trim().parse::<f64>().ok().map(|v| v / 100.0)),
+        )
+        .on_hover_text("how much the shade darkens the colours: 0 none, 100% the shade alone");
+    });
+}
+
 /// The colour composite of a layer of three maps or more (a stack, a series, a raster of bands): its box "RGB"; once
 /// on, the bands the names say (a preset of the satellite's, else the first three), the band of each channel with the
 /// range of its values ("auto": the 2nd to 98th percentiles of the band) and the gamma.
@@ -1253,6 +1325,7 @@ fn properties(
             match kind {
                 Kind::Difference => {
                     opacity_slider(ui, &mut l.opacity);
+                    blend_combo(ui, l, salt, active);
                     match made.as_deref() {
                         Some(d) => {
                             ui.label(RichText::new(&d.summary).weak().size(11.0));
@@ -1291,7 +1364,12 @@ fn properties(
                 Kind::Map => {
                     let key = (l.node.clone(), l.port.clone());
                     opacity_slider(ui, &mut l.opacity);
+                    blend_combo(ui, l, salt, active);
                     rgb_controls(ui, s, l, salt);
+                    // (a map of values, not of classes and not a composite: it can be shaded with its own relief)
+                    let values =
+                        look.as_ref().is_some_and(|(_, lk, _)| matches!(lk.coloring, Coloring::Continuous { .. }));
+                    shade_controls(ui, l, values && l.rgb.is_none());
                     if active {
                         ui.label(
                             RichText::new(
@@ -1443,7 +1521,7 @@ fn palette_bar(ui: &mut Ui, coloring: &Coloring, width: f32) -> egui::Response {
                 );
             }
         }
-        Coloring::Packed => {}
+        Coloring::Packed | Coloring::Shade { .. } => {}
     }
     let stroke = if resp.hovered() {
         ui.visuals().widgets.hovered.fg_stroke
@@ -1498,7 +1576,7 @@ pub(super) fn palette_legend(
                 ui.label(RichText::new(format!("and {} more", lines.len() - most)).weak().size(11.0));
             }
         }
-        Coloring::Packed => {}
+        Coloring::Packed | Coloring::Shade { .. } => {}
     }
 }
 
@@ -1509,7 +1587,7 @@ pub(super) fn palette_menu(ui: &mut Ui, s: &mut Session, key: &(String, String),
     let chosen = s.palettes.get(key).copied();
     let (ramp_now, log_now) = match now {
         Coloring::Continuous { ramp, log, .. } => (Some(*ramp), *log),
-        Coloring::Classes(_) | Coloring::Packed => (None, false),
+        Coloring::Classes(_) | Coloring::Packed | Coloring::Shade { .. } => (None, false),
     };
     if ui
         .add(egui::Button::selectable(chosen.is_none(), "by what they are"))

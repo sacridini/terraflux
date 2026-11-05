@@ -2382,6 +2382,18 @@ item, na ordem; release só quando pedido.
 4. **O relevo sombreado sob o mapa.** Um modo de mistura por camada (normal, multiplicar, tela) e, numa camada de
    terreno, *Shade with this elevation*: o hillshade feito do próprio mapa (azimute e altura do sol, exagero
    vertical) multiplicado sob as cores. Guardado no Plot, na figura e no export.
+   **Feito** (Unreleased, por um sub-agente): `blend.rs` (`Blend`: normal, multiply, screen; `mix` na CPU, em cores
+   premultiplicadas; na vista um paint callback do egui_wgpu com pipelines de blend próprios, `blend::install` em
+   `canvas_gpu::install`) e `shade.rs` (`Shade`, Horn como o gdaldem, `cell_metres` em graus, `ShadeSource`: cada tile
+   de uma janela com uma célula de halo, `Source::halo`). O sombreado é preto com alfa `força*(1-brilho)`
+   (`Coloring::Shade`) logo acima da camada: o alfa comum dá `cor*(1-força+força*sombra)`. `PlotLayer.blend` e
+   `PlotShade`; `animation::composed`, `plot_export` e o `set_plot` do MCP. Testes: os de `blend.rs` e `shade.rs` (sem
+   emenda entre tiles, igual ao gdaldem no interior), `a_map_shaded_with_its_own_relief`,
+   `a_layer_blended_with_the_one_under_it`. Falta: camadas reprojetadas (a malha) desenhadas em normal na vista (o
+   export mistura); o blend no mapa mostrado; com opacidade abaixo de 1 o sombreado escurece também o que está
+   embaixo; num alvo sRGB a GPU mistura em luz linear (o screen difere um pouco do export); a borda do mapa (o
+   vizinho que falta conta como a própria célula, o gdaldem `-compute_edges` replica a borda); o blend e o sombreado
+   no projeto do QGIS.
 5. **Orientar-se no mapa ao vivo.** A barra de escala e, opcional, a grade de coordenadas sobre o mapa (não só na
    *Figure*); voltar e avançar no zoom (Alt+← / Alt+→, botões); *Go to...*: uma coordenada (lat/lon em graus
    decimais ou GMS, ou x/y no CRS do mapa) centrada no mapa com um marcador.

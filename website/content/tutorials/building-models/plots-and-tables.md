@@ -205,6 +205,15 @@ runs from black at the 2nd percentile of its band to full colour at the 98th; it
 is transparent. The legend under the row tells each channel's band and range, the pointer over the map the three
 values. The Plot keeps the composite, and the figure, *Export the view* and `terraflux plot` draw it.
 
+### Relief and blending
+
+*Shade with this elevation*, in the settings of a map layer of values, draws its colours over the relief the map
+itself makes (Horn's hillshade, as `gdaldem hillshade`): the sun's azimuth (315°, from the north-west) and
+altitude (45°), the vertical exaggeration and how strong the shade is. On a grid in degrees the cells are measured in
+metres. A layer can also be **blended** with those under it: *multiply* darkens them by its colours (a hillshade
+layer multiplied over a land cover map gives its relief), *screen* lightens them. The Plot keeps both, and the
+figure, *Export the view* and `terraflux plot` draw them.
+
 ### The style of vector features
 
 A vector layer's style colours its features with one colour or **by an attribute**. Text, and numbers asked to be

@@ -244,6 +244,9 @@ pub enum Coloring {
     /// Each value is a colour (the red, green and blue channels packed in it, see [`crate::rgb::pack`]): the
     /// composite of three bands.
     Packed,
+    /// Each value is a brightness (0 dark to 1 lit, see [`crate::shade`]): black, the more opaque the darker it is,
+    /// up to `strength` (0 to 1), so that drawn over a map it darkens its colours by `1 - strength * (1 - value)`.
+    Shade { strength: f32 },
 }
 
 /// The values' 2nd and 98th percentiles (numpy's, by linear interpolation) of the finite ones, of a sample of
@@ -369,6 +372,10 @@ impl Coloring {
                 log.hash(&mut h);
             }
             Coloring::Packed => 2u8.hash(&mut h),
+            Coloring::Shade { strength } => {
+                3u8.hash(&mut h);
+                strength.to_bits().hash(&mut h);
+            }
         }
         h.finish()
     }
@@ -426,6 +433,10 @@ impl Coloring {
                 Some([r, g, b]) => Color32::from_rgb(r, g, b),
                 None => return Color32::TRANSPARENT,
             },
+            Coloring::Shade { strength } => {
+                let dark = f64::from(strength.clamp(0.0, 1.0)) * (1.0 - v.clamp(0.0, 1.0));
+                return Color32::from_black_alpha((dark * 255.0).round() as u8);
+            }
         })
     }
 }
@@ -454,7 +465,7 @@ impl Lut {
                 }
                 Lut { classes: None, ramp: Some((*min, *max, *log, t)) }
             }
-            Coloring::Packed => Lut { classes: None, ramp: None },
+            Coloring::Packed | Coloring::Shade { .. } => Lut { classes: None, ramp: None },
         }
     }
 

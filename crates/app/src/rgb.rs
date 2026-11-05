@@ -311,6 +311,7 @@ pub fn percentiles(src: &Source) -> (f64, f64) {
             r.sample(*l, win, step).map(|v| v.into_iter().map(f64::from).collect()).unwrap_or_default()
         }
         Source::Rgb(r) => return percentiles(&r.bands[0]),
+        Source::Shade(s) => return percentiles(&s.base),
         Source::Blank(_) => Vec::new(),
     };
     let (lo, hi) = values

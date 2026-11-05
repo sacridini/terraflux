@@ -2523,6 +2523,23 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                         })?),
                     },
                     selected: Vec::new(),
+                    blend: match o.get("blend") {
+                        None | Some(Value::Null) => None,
+                        Some(Value::String(b)) => match crate::blend::Blend::named(b) {
+                            Some(crate::blend::Blend::Normal) => None,
+                            Some(m) => Some(m.key().to_string()),
+                            None => return Err(format!("{from}: blend is normal, multiply or screen, not {b:?}")),
+                        },
+                        Some(b) => return Err(format!("{from}: blend is normal, multiply or screen, not {b}")),
+                    },
+                    shade: match o.get("shade") {
+                        None | Some(Value::Null) => None,
+                        Some(v) => Some(serde_json::from_value(v.clone()).map_err(|e| {
+                            format!(
+                                "{from}: shade is {{ \"azimuth\": 315, \"altitude\": 45, \"z\": 1, \"strength\": 0.6 }}: {e}"
+                            )
+                        })?),
+                    },
                 }
             }
             other => return Err(format!("a layer is node.port or an object with `from`, not {other}")),

@@ -647,6 +647,7 @@ pub(crate) fn look_of(source: &Source, palette: Palette) -> Look {
         Source::Blank(_) => palette.look(&[]),
         // (a colour composite has no ramp: the look of its first band)
         Source::Rgb(r) => look_of(&r.bands[0], palette),
+        Source::Shade(s) => look_of(&s.base, palette),
     }
 }
 
@@ -2700,6 +2701,8 @@ fn plot_layer(
         minus_band: l.minus.as_ref().and(l.minus_band),
         rgb: l.rgb.as_ref().filter(|_| l.minus.is_none()).map(crate::rgb::Rgb::to_plot),
         selected: Vec::new(),
+        blend: l.blend.to_plot(),
+        shade: l.shade.as_ref().filter(|_| l.minus.is_none() && l.rgb.is_none()).map(crate::shade::Shade::to_plot),
     }
 }
 
@@ -2722,6 +2725,8 @@ fn layers_of_plot(list: &[terraflux_graph::PlotLayer]) -> Vec<Layer> {
                 minus: l.minus.as_deref().and_then(port_of),
                 minus_band: l.minus_band,
                 rgb: l.rgb.as_ref().map(crate::rgb::Rgb::of_plot),
+                blend: crate::blend::Blend::of_plot(l.blend.as_deref()),
+                shade: l.shade.as_ref().map(crate::shade::Shade::of_plot),
             })
         })
         .collect()
@@ -2982,6 +2987,11 @@ pub struct Layer {
     pub minus_band: Option<usize>,
     /// Drawn as colour, a composite of three of its maps (see [`crate::rgb`]); only a layer of three maps or more.
     pub rgb: Option<crate::rgb::Rgb>,
+    /// How it is mixed with the layers under it (see [`crate::blend`]); the map shown is the base and takes none.
+    pub blend: crate::blend::Blend,
+    /// Shaded with its own relief, a hillshade of its values multiplied under its colours (see [`crate::shade`]);
+    /// only a layer of values.
+    pub shade: Option<crate::shade::Shade>,
 }
 
 /// The maps a difference is of: the one subtracted (node, port, band), then the other.
@@ -2999,6 +3009,8 @@ impl Layer {
             minus: None,
             minus_band: None,
             rgb: None,
+            blend: Default::default(),
+            shade: None,
         }
     }
 
@@ -3086,9 +3098,24 @@ fn band_name(s: &Session, node: &str, port: &str, band: usize) -> String {
     names.get(band).cloned().unwrap_or_else(|| format!("band {}", band + 1))
 }
 
-/// A map drawn with the one shown: its source, opacity, node and port, and when it is a difference its colouring
-/// and name.
-type LayerMap = (Source, f32, String, String, Option<(Coloring, String)>);
+/// A map drawn with the one shown: its source, opacity, node and port, when it is a difference (or a shade) its
+/// colouring and name, and how it is mixed with the ones under it.
+type LayerMap = (Source, f32, String, String, Option<(Coloring, String)>, crate::blend::Blend);
+
+/// The shade of a layer as a layer of its own, drawn right over it: black as dark as the relief is, at the layer's
+/// opacity (see [`crate::shade`]); none for a layer without a shade or whose map is not of values.
+fn shade_layer(l: &Layer, src: &Source) -> Option<LayerMap> {
+    let shade = l.shade.as_ref()?;
+    let shaded = crate::shade::ShadeSource::of(src, shade)?;
+    Some((
+        shaded,
+        l.opacity,
+        l.node.clone(),
+        l.port.clone(),
+        Some((shade.coloring(), String::new())),
+        Default::default(),
+    ))
+}
 
 /// What a view draws of a list of layers: the maps (under and over the map of the view), the vector features, and
 /// the place among them of the layer whose attributes are open.
@@ -3100,7 +3127,9 @@ struct Drawn {
 
 /// The `layers` of a view drawn with its map (the first at the bottom): the one at `at` is the map itself; those
 /// under it come before it, those over it after (`over` first, the maps a plot stacks), the vectors on top of all.
-/// `overlays` are vectors drawn before the layers' own, `attributes` the table open (its layer's place noted).
+/// `overlays` are vectors drawn before the layers' own, `attributes` the table open (its layer's place noted); `main`
+/// the map the view shows, whose shade (when its layer has one) goes right over it.
+#[allow(clippy::too_many_arguments)]
 fn draw_layers(
     s: &mut Session,
     ctx: &egui::Context,
@@ -3109,12 +3138,19 @@ fn draw_layers(
     attributes: Option<&crate::attribute_table::Open>,
     mut overlays: Vec<crate::vector_tiles::Overlay>,
     mut over: Vec<LayerMap>,
+    main: Option<&Source>,
 ) -> Drawn {
     // (the place of the layer whose attributes are in the table among the features drawn)
     let mut table_at: Option<usize> = None;
     let mut under: Vec<LayerMap> = Vec::new();
     let mut above: Vec<LayerMap> = Vec::new();
     for (i, l) in layers.iter().enumerate() {
+        if l.visible && Some(i) == at && l.minus.is_none() && l.rgb.is_none() {
+            // (the map shown: its shade goes first of those over it)
+            if let Some(shaded) = main.and_then(|m| shade_layer(l, m)) {
+                over.insert(0, shaded);
+            }
+        }
         if !l.visible || Some(i) == at {
             continue;
         }
@@ -3126,6 +3162,7 @@ fn draw_layers(
                     l.node.clone(),
                     l.port.clone(),
                     Some((d.coloring.clone(), l.name_by(Some(&d), |n, p, b| band_name(s, n, p, b)))),
+                    l.blend,
                 );
                 if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
             }
@@ -3152,12 +3189,17 @@ fn draw_layers(
                 if let Some(src) = rgb {
                     if let Some(src) = src {
                         let name = output_name(&l.node, &l.port);
-                        let item = (src, l.opacity, l.node.clone(), l.port.clone(), Some((Coloring::Packed, name)));
+                        let item =
+                            (src, l.opacity, l.node.clone(), l.port.clone(), Some((Coloring::Packed, name)), l.blend);
                         if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
                     }
                 } else if let Some(src) = layer_source(&v, l.band) {
-                    let item = (src, l.opacity, l.node.clone(), l.port.clone(), None);
-                    if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
+                    let shaded = shade_layer(l, &src);
+                    let item = (src, l.opacity, l.node.clone(), l.port.clone(), None, l.blend);
+                    let list = if at.is_none_or(|a| i < a) { &mut under } else { &mut above };
+                    list.push(item);
+                    // (its shade right over it)
+                    list.extend(shaded);
                 }
             }
             None => {}
@@ -3169,9 +3211,10 @@ fn draw_layers(
         .into_iter()
         .chain(over)
         .enumerate()
-        .filter_map(|(i, (src, opacity, n, p, difference))| {
+        .filter_map(|(i, (src, opacity, n, p, difference, blend))| {
             if let Some((coloring, name)) = difference {
-                return Some(crate::map_view::RasterLayer { source: src, coloring, opacity, below: i < below, name });
+                let below = i < below;
+                return Some(crate::map_view::RasterLayer { source: src, coloring, opacity, below, name, blend });
             }
             // (in the colours of its legend in the Layers: as it is shown)
             let key = (n.clone(), p.clone());
@@ -3183,7 +3226,8 @@ fn draw_layers(
                 None => look,
             };
             let name = output_name(&n, &p);
-            Some(crate::map_view::RasterLayer { source: src, coloring: look.coloring, opacity, below: i < below, name })
+            let below = i < below;
+            Some(crate::map_view::RasterLayer { source: src, coloring: look.coloring, opacity, below, name, blend })
         })
         .collect();
     Drawn { rasters, overlays, table_at }
@@ -4088,7 +4132,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     Some(v) if base.is_none() && first_source(&v).is_some() => base = Some(v),
                     Some(v) => {
                         if let Some(src) = first_source(&v) {
-                            over.push((src, *o, n.clone(), p.clone(), None));
+                            over.push((src, *o, n.clone(), p.clone(), None, Default::default()));
                         }
                     }
                     None => {}
@@ -4190,7 +4234,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     let range = s.ranges.get(&(node.clone(), port.clone())).copied();
     let first_range = look.as_ref().and_then(|l| match l.coloring {
         Coloring::Continuous { min, max, .. } => Some((min, max)),
-        Coloring::Classes(_) | Coloring::Packed => None,
+        Coloring::Classes(_) | Coloring::Packed | Coloring::Shade { .. } => None,
     });
     let look = look.map(|l| ranged(l, range));
     // the map compared with it: its source, its name and its look; the two in one colouring (the same value the
@@ -4266,7 +4310,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             .retain(|k, _| sh.layers.iter().chain(own.iter().copied()).any(|l| l.difference_key().as_ref() == Some(k)));
     }
     let Drawn { rasters, overlays, table_at } =
-        draw_layers(s, ui.ctx(), &sh.layers, at, sh.attributes.as_ref(), overlays, over);
+        draw_layers(s, ui.ctx(), &sh.layers, at, sh.attributes.as_ref(), overlays, over, Some(&maps[k]));
     // the layers of the views side by side that have layers of their own (the compared one first, then the views
     // more), drawn on the map of each
     let own_layers: Vec<Option<Drawn>> = if sh.compare.how == How::SideBySide && compared.is_some() {
@@ -4284,7 +4328,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     Some(CompareWith::Output(n, p)) => l.iter().position(|x| x.is(n, p)),
                     _ => None,
                 };
-                Some(draw_layers(s, ui.ctx(), &l, at, None, Vec::new(), Vec::new()))
+                Some(draw_layers(s, ui.ctx(), &l, at, None, Vec::new(), Vec::new(), None))
             })
             .collect()
     } else {
@@ -4359,7 +4403,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 Coloring::Classes(c) => {
                                     c.iter().map(|(v, _)| (*v, crate::legend_view::name(lk, legend, *v))).collect()
                                 }
-                                Coloring::Continuous { .. } | Coloring::Packed => Vec::new(),
+                                Coloring::Continuous { .. } | Coloring::Packed | Coloring::Shade { .. } => Vec::new(),
                             };
                             cut(crate::figure::Panel {
                                 source: src.clone(),
@@ -4866,6 +4910,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     opacity: 1.0,
                     below: false,
                     name: String::new(),
+                    blend: Default::default(),
                 };
                 let curtain = crate::map_view::Curtain { layer, names: [main_name.clone(), name] };
                 hover = sh.view.show_compared(ui, &maps[k], &l.coloring, &rasters, &overlays, Some(&curtain));
@@ -5956,6 +6001,7 @@ pub fn series_at(maps: &[Source], row: usize, col: usize) -> Vec<f64> {
             }
             Source::Blank(_) => f64::NAN,
             Source::Rgb(r) => series_at(&r.bands[..1], row, col)[0],
+            Source::Shade(s) => series_at(std::slice::from_ref(&s.base), row, col)[0],
         })
         .collect()
 }
@@ -6226,7 +6272,7 @@ pub(crate) fn reclassify_rules(ui: &mut Ui, s: &mut Session, n: &Node, path: &[S
                             commit = true;
                         }
                     }
-                    Coloring::Packed => {}
+                    Coloring::Packed | Coloring::Shade { .. } => {}
                 },
             }
         });
@@ -6691,6 +6737,39 @@ params = { expression = "x * 0 + k" }
         sh.attributes = None;
         let p = plot_of(&sh, (&Default::default(), &Default::default()), None, "p", None);
         assert!(p.layers.iter().all(|l| l.selected.is_empty()));
+    }
+
+    /// A layer's blend mode and its relief are kept in the Plot and back (the defaults written as nothing); an older
+    /// Plot, without them, loads as `normal` and unshaded.
+    #[test]
+    fn the_blend_and_the_shade_are_kept_in_the_plot() {
+        use crate::blend::Blend;
+        use crate::shade::Shade;
+        let shade = Shade { azimuth: 200.0, altitude: 35.0, z: 3.0, strength: 0.5 };
+        let mut sh = Shown { node: "a".into(), port: "map".into(), ..Default::default() };
+        sh.layers = vec![
+            Layer { blend: Blend::Multiply, shade: Some(shade), ..Layer::new("a", "map") },
+            Layer { blend: Blend::Screen, ..Layer::new("b", "map") },
+            Layer::new("c", "map"),
+        ];
+        let p = plot_of(&sh, (&Default::default(), &Default::default()), None, "p", None);
+        assert_eq!(p.layers[0].blend.as_deref(), Some("multiply"));
+        assert_eq!(p.layers[1].blend.as_deref(), Some("screen"));
+        assert_eq!((p.layers[2].blend.clone(), p.layers[2].shade.clone()), (None, None));
+        // (the file: written only when set)
+        let json = serde_json::to_value(&p).unwrap();
+        assert!(json["layers"][2].get("blend").is_none() && json["layers"][2].get("shade").is_none());
+        assert_eq!(json["layers"][0]["shade"]["z"], 3.0);
+        let back: terraflux_graph::Plot = serde_json::from_value(json).unwrap();
+        // back in the Viewer's layers
+        let layers = layers_of_plot(&back.layers);
+        assert_eq!((layers[0].blend, layers[0].shade), (Blend::Multiply, Some(shade)));
+        assert_eq!((layers[1].blend, layers[1].shade), (Blend::Screen, None));
+        assert_eq!((layers[2].blend, layers[2].shade), (Blend::Normal, None));
+        // an older Plot
+        let old: terraflux_graph::PlotLayer = serde_json::from_str(r#"{ "from": "a.map", "opacity": 0.5 }"#).unwrap();
+        let l = layers_of_plot(&[old]);
+        assert_eq!((l[0].blend, l[0].shade, l[0].opacity), (Blend::Normal, None, 0.5));
     }
 
     /// Two layers of one stack make a difference: kept apart by their bands, named once, kept in a Plot and back.

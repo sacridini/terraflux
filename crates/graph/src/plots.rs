@@ -90,6 +90,30 @@ pub struct PlotLayer {
     /// table shows them); the Viewer opens the table with them selected.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub selected: Vec<usize>,
+    /// How the layer is mixed with the ones under it: `normal` (default, left out), `multiply` or `screen`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blend: Option<String>,
+    /// A map of values shaded as a relief made of itself (a hillshade multiplied under its colours).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shade: Option<PlotShade>,
+}
+
+/// A map of values shaded with its own relief: where the sun is (degrees clockwise from north, degrees over the
+/// horizon), how much the heights are exaggerated and how strong the shade is.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PlotShade {
+    /// The sun's azimuth (default 315).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub azimuth: Option<f64>,
+    /// The sun's altitude over the horizon (default 45).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub altitude: Option<f64>,
+    /// The vertical exaggeration (default 1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub z: Option<f64>,
+    /// How strong the shade is, 0 to 1 (default 0.6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strength: Option<f64>,
 }
 
 /// A layer drawn in colour from three maps: the band of each channel and the range of its values (the part of the

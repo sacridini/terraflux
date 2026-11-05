@@ -113,6 +113,10 @@ pub fn crop_source(s: &Source, extent: [f64; 4]) -> Result<Source, String> {
             Source::Map(Map::new(Arc::new(grid_of(g, c)), data))
         }
         Source::Blank(_) => Source::Blank(Arc::new(grid_of(g, c))),
+        // (a shade: its map cut, the sun kept)
+        Source::Shade(sh) => {
+            Source::Shade(Arc::new(crate::shade::ShadeSource { base: crop_source(&sh.base, extent)?, sun: sh.sun }))
+        }
         // (a colour composite: each band cut, the ranges kept)
         Source::Rgb(r) => {
             let cut = |b: &Source| crop_source(b, extent);

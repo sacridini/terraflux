@@ -173,6 +173,12 @@ pub(crate) fn values(src: &Source, max_side: usize) -> Result<(Vec<f32>, usize, 
             Ok((v, ow, oh))
         }
         Source::Blank(_) => Err("no map".into()),
+        // (a map's shade: its cells read the same way, the shade made of them with cells as wide as they are apart)
+        Source::Shade(s) => {
+            let (v, w, h) = values(&s.base, max_side)?;
+            let step = fitted(src.size(), max_side).0;
+            Ok((s.of_values(&v, w, h, step), w, h))
+        }
         // (a colour composite: its three bands read the same way, packed into colours)
         Source::Rgb(r) => {
             let (a, b, c) =
@@ -187,7 +193,8 @@ pub(crate) fn values(src: &Source, max_side: usize) -> Result<(Vec<f32>, usize, 
 
 /// A map's picture as [`values`] takes its cells, with the maps drawn with it: those `below` under it, the
 /// others over it, each at its opacity and placed by its grid (one of another coordinate system carried to the
-/// map's; one that cannot be carried left out); premultiplied colours, transparent where nothing is.
+/// map's; one that cannot be carried left out), each mixed with what is under it in its blend mode; premultiplied
+/// colours, transparent where nothing is.
 pub(crate) fn composed(
     src: &Source,
     coloring: &Coloring,
@@ -247,7 +254,10 @@ pub(crate) fn composed(
                     continue;
                 }
                 let top = img.pixels[pr * lw + pc].gamma_multiply(opacity);
-                out[r * w + c] = over(out[r * w + c], top);
+                out[r * w + c] = match l.blend {
+                    crate::blend::Blend::Normal => over(out[r * w + c], top),
+                    mode => mode.mix(out[r * w + c], top),
+                };
             }
         }
     };
@@ -367,6 +377,7 @@ fn key(coloring: &Coloring, source: &Source) -> Key {
             Source::Rgb(r) => Key::Classes(r.legend().into_iter().map(|(c, t)| (rgb(c), t)).collect()),
             _ => Key::Classes(Vec::new()),
         },
+        Coloring::Shade { .. } => Key::Classes(Vec::new()),
         Coloring::Classes(c) => {
             let mut v: Vec<_> = c
                 .iter()
@@ -630,6 +641,7 @@ mod tests {
             opacity,
             below,
             name: String::new(),
+            blend: Default::default(),
         };
         let under = layer(map(2, 4, |_| 2.0), 2.0, red, 1.0, true);
         let coloring = Coloring::Classes(vec![(1.0, green)]);
@@ -646,6 +658,75 @@ mod tests {
     }
 
     /// A layer in WGS 84 under a map in UTM 51N: its pixel found through the transformation, not by the cells' places.
+    /// A layer in a blend mode is mixed with what is under it as the formulas say, in the picture.
+    #[test]
+    fn a_layer_multiplied_or_screened_is_mixed_with_the_map() {
+        let (under, top) = (Color32::from_rgb(200, 100, 50), Color32::from_rgb(102, 204, 255));
+        let main = map(2, 1, |_| 1.0);
+        let coloring = Coloring::Classes(vec![(1.0, under)]);
+        let layer = |blend: crate::blend::Blend, opacity: f32| crate::map_view::RasterLayer {
+            source: map(2, 1, |_| 1.0),
+            coloring: Coloring::Classes(vec![(1.0, top)]),
+            opacity,
+            below: false,
+            name: String::new(),
+            blend,
+        };
+        for blend in crate::blend::Blend::ALL {
+            for opacity in [1.0, 0.5] {
+                let img = composed(&main, &coloring, &[layer(blend, opacity)], 100).unwrap();
+                let want = blend.mix(under, top.gamma_multiply(opacity));
+                assert_eq!(img.pixels, vec![want, want], "{blend:?} at {opacity}");
+            }
+        }
+        // multiplied: each channel the product of the two
+        let img = composed(&main, &coloring, &[layer(crate::blend::Blend::Multiply, 1.0)], 100).unwrap();
+        assert_eq!(img.pixels[0], Color32::from_rgb(80, 80, 50));
+        // screened: never darker than the map, and normal hides it
+        let img = composed(&main, &coloring, &[layer(crate::blend::Blend::Screen, 1.0)], 100).unwrap();
+        assert!(img.pixels[0].r() >= under.r() && img.pixels[0].g() >= under.g() && img.pixels[0].b() >= under.b());
+        let img = composed(&main, &coloring, &[layer(crate::blend::Blend::Normal, 1.0)], 100).unwrap();
+        assert_eq!(img.pixels[0], top);
+    }
+
+    /// A map shaded with its own relief: its colours times `1 - strength + strength * shade`, the shade made of the
+    /// map's cells; a cell without a value stays transparent.
+    #[test]
+    fn a_shaded_map_is_its_colours_times_the_shade() {
+        let (w, h) = (24, 20);
+        let height = |i: usize| 100.0 + 8.0 * ((i % w) as f64 / 3.0).sin() + 3.0 * (i / w) as f64;
+        let dem = map(w, h, |i| if i == 5 * w + 5 { f64::NAN } else { height(i) });
+        let ramp = Coloring::Continuous { min: 90.0, max: 180.0, ramp: crate::palette::Ramp::Terrain, log: false };
+        let shade = crate::shade::Shade { strength: 0.7, ..Default::default() };
+        let layer = crate::map_view::RasterLayer {
+            source: crate::shade::ShadeSource::of(&dem, &shade).unwrap(),
+            coloring: shade.coloring(),
+            opacity: 1.0,
+            below: false,
+            name: String::new(),
+            blend: Default::default(),
+        };
+        let plain = composed(&dem, &ramp, &[], 100).unwrap();
+        let shaded = composed(&dem, &ramp, &[layer], 100).unwrap();
+        let Source::Map(m) = &dem else { unreachable!() };
+        let all: Vec<f32> = m.data.iter().map(|v| *v as f32).collect();
+        let bright = crate::shade::shade_all(&all, w, h, &shade.sun(), crate::shade::cell_metres(&m.grid));
+        for (i, (p, s)) in plain.pixels.iter().zip(&shaded.pixels).enumerate() {
+            if i == 5 * w + 5 {
+                assert_eq!(*s, Color32::TRANSPARENT, "no value, no shade");
+                continue;
+            }
+            let k = 1.0 - shade.strength + shade.strength * bright[i];
+            let want = |c: u8| (f32::from(c) * k).round();
+            for (got, c) in [(s.r(), p.r()), (s.g(), p.g()), (s.b(), p.b())] {
+                assert!((f32::from(got) - want(c)).abs() <= 1.0, "cell {i}: {got} vs {}", want(c));
+            }
+            assert_eq!(s.a(), 255);
+        }
+        // (the shade changes the picture)
+        assert_ne!(plain.pixels, shaded.pixels);
+    }
+
     #[test]
     fn a_layer_of_another_coordinate_system_is_carried_to_the_map() {
         if terraflux_gdal::gdal().is_err() {
@@ -668,6 +749,7 @@ mod tests {
             opacity: 1.0,
             below: true,
             name: String::new(),
+            blend: Default::default(),
         };
         let coloring = Coloring::Classes(vec![(1.0, Color32::GREEN)]);
         let img = composed(&main, &coloring, &[layer], 1000).unwrap();
@@ -698,6 +780,7 @@ mod tests {
             opacity: 1.0,
             below: true,
             name: String::new(),
+            blend: Default::default(),
         };
         let coloring = Coloring::Classes(vec![(1.0, Color32::GREEN)]);
         let img = composed(&main, &coloring, &[layer], 100).unwrap();

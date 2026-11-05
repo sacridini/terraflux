@@ -228,7 +228,7 @@ fn fs_edge(in: EdgeOut) -> @location(0) vec4<f32> {
 }
 "#;
 
-/// Make the canvas's pipelines in egui's renderer (once, at the start).
+/// Make the canvas's pipelines (and those of the map's blend modes) in egui's renderer (once, at the start).
 pub fn install(rs: &egui_wgpu::RenderState) {
     let device = &rs.device;
     let format = rs.target_format;
@@ -336,6 +336,8 @@ pub fn install(rs: &egui_wgpu::RenderState) {
         generation: u64::MAX,
         segments: 24,
     });
+    // (the map's layers drawn in a blend mode share this renderer: see [`crate::blend`])
+    crate::blend::install(rs);
 }
 
 /// Write instances into a buffer, made larger when they do not fit.
