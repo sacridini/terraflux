@@ -78,6 +78,8 @@ fn read(src: &Source, step: usize) -> Result<(Arc<Vec<f64>>, usize), String> {
             Ok((Arc::new(v.into_iter().map(f64::from).collect()), sw))
         }
         Source::Blank(_) => Ok((Arc::new(vec![f64::NAN; sw * sh]), sw)),
+        // (a colour composite: its first band)
+        Source::Rgb(r) => read(&r.bands[0], step),
     }
 }
 

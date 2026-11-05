@@ -241,6 +241,9 @@ pub enum Coloring {
     /// From `min` to `max` along a ramp, on a scale of logarithms when `log` (values at or below 0 the first
     /// colour).
     Continuous { min: f64, max: f64, ramp: Ramp, log: bool },
+    /// Each value is a colour (the red, green and blue channels packed in it, see [`crate::rgb::pack`]): the
+    /// composite of three bands.
+    Packed,
 }
 
 /// The values' 2nd and 98th percentiles (numpy's, by linear interpolation) of the finite ones, of a sample of
@@ -365,6 +368,7 @@ impl Coloring {
                 ramp.hash(&mut h);
                 log.hash(&mut h);
             }
+            Coloring::Packed => 2u8.hash(&mut h),
         }
         h.finish()
     }
@@ -418,6 +422,10 @@ impl Coloring {
         seen(match self {
             Coloring::Classes(c) => c.iter().find(|(k, _)| *k == v).map_or(Color32::GRAY, |(_, col)| *col),
             Coloring::Continuous { min, max, ramp, log } => ramp.colour(Coloring::position(*min, *max, *log, v)),
+            Coloring::Packed => match crate::rgb::unpack(v as f32) {
+                Some([r, g, b]) => Color32::from_rgb(r, g, b),
+                None => return Color32::TRANSPARENT,
+            },
         })
     }
 }
@@ -446,6 +454,7 @@ impl Lut {
                 }
                 Lut { classes: None, ramp: Some((*min, *max, *log, t)) }
             }
+            Coloring::Packed => Lut { classes: None, ramp: None },
         }
     }
 

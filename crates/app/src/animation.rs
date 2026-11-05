@@ -173,6 +173,15 @@ pub(crate) fn values(src: &Source, max_side: usize) -> Result<(Vec<f32>, usize, 
             Ok((v, ow, oh))
         }
         Source::Blank(_) => Err("no map".into()),
+        // (a colour composite: its three bands read the same way, packed into colours)
+        Source::Rgb(r) => {
+            let (a, b, c) =
+                (values(&r.bands[0], max_side)?, values(&r.bands[1], max_side)?, values(&r.bands[2], max_side)?);
+            if a.1 != b.1 || a.1 != c.1 || a.2 != b.2 || a.2 != c.2 {
+                return Err("the bands are not of one size".into());
+            }
+            Ok((r.pack_values([&a.0, &b.0, &c.0]), a.1, a.2))
+        }
     }
 }
 
@@ -350,9 +359,14 @@ enum Key {
     Ramp(Coloring, String, String),
 }
 
-fn key(coloring: &Coloring) -> Key {
+fn key(coloring: &Coloring, source: &Source) -> Key {
     let rgb = |c: Color32| [c.r(), c.g(), c.b()];
     match coloring {
+        // (a colour composite: a line for each channel, its band and range)
+        Coloring::Packed => match source {
+            Source::Rgb(r) => Key::Classes(r.legend().into_iter().map(|(c, t)| (rgb(c), t)).collect()),
+            _ => Key::Classes(Vec::new()),
+        },
         Coloring::Classes(c) => {
             let mut v: Vec<_> = c
                 .iter()
@@ -440,10 +454,10 @@ fn layout_of(size: (usize, usize), max_side: usize) -> (usize, usize, usize, f32
 }
 
 /// The lines of the legend of a colouring under a map `zw` pixels wide.
-fn legend_lines(coloring: &Coloring, zw: usize, px: f32) -> usize {
+fn legend_lines(coloring: &Coloring, source: &Source, zw: usize, px: f32) -> usize {
     let mut none = [];
     let c = Canvas { rgba: &mut none, w: zw, h: 0, font: font() };
-    key_lines(&c, px, zw, &key(coloring)).len()
+    key_lines(&c, px, zw, &key(coloring, source)).len()
 }
 
 /// A frame as pixels, its legend at least `lines_high` lines high (the most of all the frames, so that they are
@@ -453,7 +467,7 @@ fn picture(f: &Frame, max_side: usize, lines_high: usize) -> Result<(Vec<u8>, us
     let w = img.size[0];
     let (zoom, zw, zh, px) = layout_of(f.source.size(), max_side);
     let font = font();
-    let key = key(&f.coloring);
+    let key = key(&f.coloring, &f.source);
     let lines = {
         let mut none = [];
         let c = Canvas { rgba: &mut none, w: zw, h: 0, font: font.clone() };
@@ -519,7 +533,7 @@ pub fn mp4(frames: &[Frame], delay: u16, max_side: usize, path: &Path) -> Result
         return Err(format!("the maps are not of one size ({} x {}, then {} x {})", a.0, a.1, b.0, b.1));
     }
     let (_, zw, _, px) = layout_of(size, max_side);
-    let lines = frames.iter().map(|f| legend_lines(&f.coloring, zw, px)).max().unwrap_or(1);
+    let lines = frames.iter().map(|f| legend_lines(&f.coloring, &f.source, zw, px)).max().unwrap_or(1);
     let delay = u32::from(delay.max(1));
     let mut video = crate::mp4::Video::default();
     let mut encoder: Option<(Encoder, usize, usize)> = None;
@@ -571,7 +585,7 @@ fn encode<W: std::io::Write>(frames: &[Frame], delay: u16, max_side: usize, to: 
         return Err(format!("the maps are not of one size ({} x {}, then {} x {})", a.0, a.1, b.0, b.1));
     }
     let (_, zw, _, px) = layout_of(size, max_side);
-    let lines = frames.iter().map(|f| legend_lines(&f.coloring, zw, px)).max().unwrap_or(1);
+    let lines = frames.iter().map(|f| legend_lines(&f.coloring, &f.source, zw, px)).max().unwrap_or(1);
     let mut out: Option<(gif::Encoder<W>, usize, usize)> = None;
     let mut file = Some(to);
     for (k, f) in frames.iter().enumerate() {

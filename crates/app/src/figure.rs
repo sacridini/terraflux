@@ -285,6 +285,33 @@ fn legend(t: &Type, out: &mut Vec<Shape>, p: &Panel, x: f32, y: f32) -> (f32, f3
             }
             (w, h)
         }
+        // a colour composite: a line for each channel, its band and the range it is drawn over
+        Coloring::Packed => {
+            let Source::Rgb(r) = &p.source else { return (0.0, 0.0) };
+            let (mut w, row): (f32, f32) = (0.0, 11.0);
+            for (i, (c, text)) in r.legend().into_iter().enumerate() {
+                let yy = y + i as f32 * row;
+                out.push(Shape::Rect {
+                    x,
+                    y: yy,
+                    w: 8.0,
+                    h: 8.0,
+                    fill: Some(c),
+                    stroke: Some((Color32::from_gray(110), 0.4)),
+                });
+                out.push(Shape::Text {
+                    x: x + 12.0,
+                    y: yy + 7.0,
+                    size: SIZE,
+                    text: text.clone(),
+                    anchor: Anchor::Start,
+                    colour: INK,
+                    up: false,
+                });
+                w = w.max(12.0 + t.width(SIZE, &text));
+            }
+            (w, 3.0 * row)
+        }
         Coloring::Continuous { min, max, ramp, log } => {
             // the ramp upwards, from the minimum to the maximum, labelled at both ends and the middle
             let (bw, bh) = (8.0, 72.0);

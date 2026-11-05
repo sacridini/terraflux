@@ -173,6 +173,10 @@ pub fn renderer(look: &Look, legend: Option<&[Class]>, band: usize) -> String {
                  maximumValue=\"{hi}\" labelPrecision=\"4\">{items}</colorrampshader></rastershader></rasterrenderer>"
             )
         }
+        // (a colour composite is not a look of a band: the file's first three bands as colour)
+        Coloring::Packed => "<rasterrenderer type=\"multibandcolor\" redBand=\"1\" greenBand=\"2\" blueBand=\"3\" \
+                             opacity=\"1\" alphaBand=\"-1\"/>"
+            .to_string(),
     }
 }
 

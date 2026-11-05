@@ -38,6 +38,7 @@ pub fn legend_in(nodes: &[terraflux_graph::Node], node: &str, port: &str, shown:
         Source::Map(m) => of_grid(&m.grid),
         Source::Rasters(r, l) => of_grid(r.grid_of(*l)),
         Source::Blank(_) => None,
+        Source::Rgb(r) => of_grid(r.bands[0].grid()),
     }
 }
 

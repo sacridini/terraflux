@@ -193,6 +193,18 @@ Both maps are drawn in the same colours, so that the same value is the same colo
 Under the legend of a map of values, its histogram: the values in bars coloured as the map is, with the
 minimum, maximum and mean, and how many cells have a value. A layer's settings have one too, folded.
 
+### Three bands as one colour image
+
+A layer of three maps or more (a stack, a series, a raster of several bands, such as a Sentinel-2 or Landsat
+scene) can be drawn as a colour image: check **RGB** in its settings and choose the band of the red, green and
+blue channels. When the bands' names tell them (`B4`, `SR_B4`, `B04`...), *composites* offers the satellite's
+natural colour (B4 B3 B2), colour infrared (B8 B4 B3 for Sentinel-2, B5 B4 B3 for Landsat 8/9) and short-wave
+infrared; switched on, the layer starts in natural colour when it can, else with its first three maps. Each channel
+runs from black at the 2nd percentile of its band to full colour at the 98th; its two values can be set by hand
+(*auto* goes back), and the gamma brightens or darkens the middle tones. A cell without a value in any of the three
+is transparent. The legend under the row tells each channel's band and range, the pointer over the map the three
+values. The Plot keeps the composite, and the figure, *Export the view* and `terraflux plot` draw it.
+
 ### Labels
 
 *labels*, in a vector layer's style, writes an attribute of its features over them: polygons at a point inside

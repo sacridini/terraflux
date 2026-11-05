@@ -70,7 +70,7 @@ pub(super) fn layer_look(s: &mut Session, ctx: &egui::Context, l: &Layer) -> Opt
     let look = s.looks.get(ctx, &src, palette)?;
     let first = match look.coloring {
         Coloring::Continuous { min, max, .. } => Some((min, max)),
-        Coloring::Classes(_) => None,
+        Coloring::Classes(_) | Coloring::Packed => None,
     };
     let look = ranged(look, s.ranges.get(&key).copied());
     let look = match crate::legend_view::legend_of(s, &l.node, &l.port, &src) {
@@ -640,15 +640,9 @@ fn layer_row(
     .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, l.visible, format!("show {name}")));
     x += 22.0;
     let symbol = Rect::from_min_size(Pos2::new(x, rect.center().y - 7.0), Vec2::new(18.0, 14.0));
-    paint_symbol(
-        ui,
-        symbol,
-        kind,
-        look.as_ref().map(|x| &x.1.coloring),
-        made.as_deref(),
-        features.as_deref(),
-        &l.style,
-    );
+    let packed = Coloring::Packed;
+    let by = if kind == Kind::Map && l.rgb.is_some() { Some(&packed) } else { look.as_ref().map(|x| &x.1.coloring) };
+    paint_symbol(ui, symbol, kind, by, made.as_deref(), features.as_deref(), &l.style);
     x += 24.0;
     // its ⋯ at the right (seen on the row hovered or selected): what can be done with it
     let dots_rect = Rect::from_center_size(Pos2::new(rect.right() - 12.0, rect.center().y), Vec2::new(20.0, 20.0));
@@ -708,6 +702,10 @@ fn layer_row(
     // its legend, under it (as a GIS has it): the map shown's whole, with its palette and editor
     if open {
         match shown.filter(|_| active && kind == Kind::Map) {
+            // (shown as colour: the three bands and their ranges instead of the ramp)
+            _ if kind == Kind::Map && sh.layers[i].rgb.is_some() => {
+                indented(ui, |ui| rgb_legend(ui, s, &sh.layers[i]));
+            }
             Some(shown) => indented(ui, |ui| shown_legend(ui, s, (node, port), shown)),
             None => indented(ui, |ui| {
                 inline_legend(
@@ -803,6 +801,7 @@ fn shown_legend(ui: &mut Ui, s: &mut Session, (node, port): (&str, &str), shown:
             class_lines(ui, &lines, usize::MAX);
         }
         Coloring::Continuous { .. } => palette_legend(ui, s, &key, look, shown.names, 0),
+        Coloring::Packed => {}
     }
 }
 
@@ -881,6 +880,7 @@ fn inline_legend(
                         });
                     });
                 }
+                Coloring::Packed => {}
             },
             None => {
                 let what = if s.value_of(&l.node, &l.port).is_some() { "its colours..." } else { "not run yet" };
@@ -890,7 +890,7 @@ fn inline_legend(
         Kind::Difference => match made {
             Some(d) => match &d.coloring {
                 Coloring::Classes(c) => classes_of(ui, crate::map_view::legend_lines(c, &d.counts, &|v| d.name(v))),
-                Coloring::Continuous { .. } => {
+                Coloring::Continuous { .. } | Coloring::Packed => {
                     ui.label(small(d.summary.clone()).weak());
                 }
             },
@@ -989,6 +989,108 @@ fn opacity_slider(ui: &mut Ui, opacity: &mut f32) {
     });
 }
 
+/// The colour composite of a layer of three maps or more (a stack, a series, a raster of bands): its box "RGB"; once
+/// on, the bands the names say (a preset of the satellite's, else the first three), the band of each channel with the
+/// range of its values ("auto": the 2nd to 98th percentiles of the band) and the gamma.
+fn rgb_controls(ui: &mut Ui, s: &Session, l: &mut Layer, salt: &str) {
+    use crate::rgb::{CHANNELS, GAMMAS, Rgb};
+    let Some(v) = s.value_of(&l.node, &l.port) else { return };
+    let (maps, names) = maps_of(&v);
+    if !Rgb::applicable(&maps) {
+        return;
+    }
+    let count = maps.len();
+    let name = |b: usize| names.get(b).cloned().unwrap_or_else(|| format!("band {}", b + 1));
+    let mut on = l.rgb.is_some();
+    if ui
+        .checkbox(&mut on, "RGB")
+        .on_hover_text("show three of its maps as one colour image: natural or false colour, a band for each of red, green and blue")
+        .changed()
+    {
+        l.rgb = on.then(|| Rgb::first(&names));
+    }
+    let Some(rgb) = &mut l.rgb else { return };
+    let used = rgb.used(ui.ctx(), &s.rgb_ranges, &maps);
+    // the satellites' usual composites, when the names of the bands tell them
+    let presets = crate::rgb::presets(&names);
+    egui::ComboBox::from_id_salt(("rgb preset", salt, &l.node, &l.port))
+        .selected_text(RichText::new("composites").size(11.5))
+        .width((ui.available_width() - 8.0).clamp(80.0, 220.0))
+        .show_ui(ui, |ui| {
+            for (label, bands) in &presets {
+                if ui.selectable_label(rgb.bands == *bands, label).clicked() {
+                    rgb.bands = *bands;
+                    rgb.ranges = [None; 3];
+                }
+            }
+        })
+        .response
+        .on_hover_text("the bands of a satellite's natural colour, infrared and short-wave infrared, by their names");
+    for i in 0..3 {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.label(RichText::new(CHANNELS[i]).strong().size(11.5));
+            let mut b = rgb.bands[i].min(count - 1);
+            egui::ComboBox::from_id_salt(("rgb band", salt, &l.node, &l.port, i))
+                .selected_text(RichText::new(name(b)).size(11.5))
+                .width(96.0)
+                .show_ui(ui, |ui| {
+                    for k in 0..count {
+                        ui.selectable_value(&mut b, k, name(k));
+                    }
+                });
+            // (another band: its own range)
+            if b != rgb.bands[i] {
+                rgb.bands[i] = b;
+                rgb.ranges[i] = None;
+            }
+            let (mut lo, mut hi) = rgb.ranges[i].or(used.map(|u| u[i])).unwrap_or((0.0, 1.0));
+            let speed = ((hi - lo).abs() / 200.0).max(1e-6);
+            let a = ui
+                .add(egui::DragValue::new(&mut lo).speed(speed).max_decimals(4))
+                .on_hover_text("the value shown black");
+            let z = ui
+                .add(egui::DragValue::new(&mut hi).speed(speed).max_decimals(4))
+                .on_hover_text("the value shown in the full colour");
+            if a.changed() || z.changed() {
+                rgb.ranges[i] = Some((lo, hi));
+            }
+            if ui
+                .add_enabled(rgb.ranges[i].is_some(), egui::Button::new(RichText::new("auto").size(10.5)).small())
+                .on_hover_text("the 2nd to the 98th percentile of the band")
+                .clicked()
+            {
+                rgb.ranges[i] = None;
+            }
+        });
+    }
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("gamma").size(11.5));
+        ui.spacing_mut().slider_width = (ui.available_width() - 60.0).clamp(40.0, 180.0);
+        ui.add(egui::Slider::new(&mut rgb.gamma, GAMMAS).logarithmic(true).max_decimals(2))
+            .on_hover_text("above 1 brightens the middle tones, below 1 darkens them");
+    });
+}
+
+/// The legend of a layer shown as colour, under its row: a line for each channel, its band and the range it is drawn
+/// over ("R B4 0.01–0.18").
+fn rgb_legend(ui: &mut Ui, s: &Session, l: &Layer) {
+    let (Some(rgb), Some(v)) = (&l.rgb, s.value_of(&l.node, &l.port)) else { return };
+    let (maps, names) = maps_of(&v);
+    match rgb.used(ui.ctx(), &s.rgb_ranges, &maps) {
+        Some(ranges) => {
+            let lines: Vec<(Color32, String, usize)> = crate::rgb::legend(&rgb.names(&names, maps.len()), &ranges)
+                .into_iter()
+                .map(|(c, t)| (c, t, 0))
+                .collect();
+            class_lines(ui, &lines, 3);
+        }
+        None => {
+            ui.label(RichText::new("its colours...").weak().size(11.0));
+        }
+    }
+}
+
 /// The properties of the layer selected, under the list: its name and what it is, how opaque; of a map, which of
 /// its maps, its palette (a click on it gives the others) and its histogram (the range of its colours set there),
 /// or where they are when it is the map shown; of features, their style and table; of a difference, what it is.
@@ -1063,6 +1165,7 @@ fn properties(
                 Kind::Map => {
                     let key = (l.node.clone(), l.port.clone());
                     opacity_slider(ui, &mut l.opacity);
+                    rgb_controls(ui, s, l, salt);
                     if active {
                         ui.label(
                             RichText::new(
@@ -1156,6 +1259,17 @@ fn paint_symbol(
             }
             p.rect_stroke(r, 1.0, edge, egui::StrokeKind::Inside);
         }
+        // a colour composite: the red, green and blue in thirds
+        (_, Some(Coloring::Packed), _) => {
+            let thirds =
+                [Color32::from_rgb(230, 40, 40), Color32::from_rgb(40, 190, 60), Color32::from_rgb(60, 100, 240)];
+            for (j, c) in thirds.into_iter().enumerate() {
+                let a = r.left() + r.width() * j as f32 / 3.0;
+                let b = r.left() + r.width() * (j + 1) as f32 / 3.0;
+                p.rect_filled(Rect::from_min_max(Pos2::new(a, r.top()), Pos2::new(b + 0.5, r.bottom())), 0.0, c);
+            }
+            p.rect_stroke(r, 1.0, edge, egui::StrokeKind::Inside);
+        }
         (Kind::Difference, None, _) => {
             p.text(
                 r.center(),
@@ -1199,6 +1313,7 @@ fn palette_bar(ui: &mut Ui, coloring: &Coloring, width: f32) -> egui::Response {
                 );
             }
         }
+        Coloring::Packed => {}
     }
     let stroke = if resp.hovered() {
         ui.visuals().widgets.hovered.fg_stroke
@@ -1253,6 +1368,7 @@ pub(super) fn palette_legend(
                 ui.label(RichText::new(format!("and {} more", lines.len() - most)).weak().size(11.0));
             }
         }
+        Coloring::Packed => {}
     }
 }
 
@@ -1263,7 +1379,7 @@ pub(super) fn palette_menu(ui: &mut Ui, s: &mut Session, key: &(String, String),
     let chosen = s.palettes.get(key).copied();
     let (ramp_now, log_now) = match now {
         Coloring::Continuous { ramp, log, .. } => (Some(*ramp), *log),
-        Coloring::Classes(_) => (None, false),
+        Coloring::Classes(_) | Coloring::Packed => (None, false),
     };
     if ui
         .add(egui::Button::selectable(chosen.is_none(), "by what they are"))

@@ -60,6 +60,7 @@ pub mod region;
 pub mod report;
 pub mod reproject;
 pub mod review;
+pub mod rgb;
 pub mod runner;
 pub mod search;
 pub mod series_drop;

@@ -3142,6 +3142,125 @@ fn a_layers_band_and_palette_are_kept_in_its_plot() {
     assert_eq!(h.state().session.as_ref().unwrap().plot_open.as_deref(), Some("plot_land"));
 }
 
+/// A stack of three bands shown as colour: the box "RGB" of its layer takes the natural colour of the bands' names
+/// (B4, B3, B2), the legend tells each channel's band and range, the picture of the Viewer (its export) has the
+/// colours the ranges give, the Plot keeps it and opens again with it, and `plot_export` draws it the same.
+#[test]
+fn a_stack_shown_as_rgb() {
+    use terraflux_app::builder::Layer;
+    use terraflux_app::export_view::{Format, save};
+    use terraflux_app::rgb::{Rgb, channel};
+    use terraflux_graph::Node;
+    // bands of one random map: B4 twice it, B3 itself, B2 its complement (the names order the stack: B2, B3, B4)
+    let mut m = terraflux_graph::Model::new("rgb");
+    m.nodes.push(Node::new("land", "nlm.random").param("rows", 6).param("columns", 8).param("seed", 1));
+    for (id, e) in [("red", "land * 2"), ("green", "land"), ("blue", "1 - land")] {
+        m.nodes.push(Node::new(id, "raster.calc").param("expression", e).input("land", "land.map"));
+    }
+    m.nodes
+        .push(Node::new("scene", "stack.of").input("B2", "blue.map").input("B3", "green.map").input("B4", "red.map"));
+    let path = tmp("ui-rgb.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("scene", "stack").is_some()
+    });
+    h.state_mut().session.as_mut().unwrap().preview_layers = vec![Layer::new("scene", "stack")];
+    show(&mut h, "scene", "stack");
+    drawn(&mut h);
+    let wait = |h: &mut Harness<TerrafluxApp>, text: &str| {
+        let t = Instant::now();
+        while h.query_by_label_contains(text).is_none() {
+            h.step();
+            std::thread::sleep(Duration::from_millis(10));
+            assert!(t.elapsed() < Duration::from_secs(120), "{text}: not shown");
+        }
+    };
+    // the box: the natural colour of the names (the red channel is B4, the third map)
+    assert!(h.query_by_label("RGB").is_some(), "the box of a stack of three maps");
+    h.get_by_label("RGB").click();
+    h.run_steps(3);
+    assert_eq!(h.state().session.as_ref().unwrap().preview_layers[0].rgb.as_ref().unwrap().bands, [2, 1, 0]);
+    // (the ranges by the percentiles come from a thread: the legend when they are there)
+    wait(&mut h, "R B4 ");
+    wait(&mut h, "B B2 ");
+    assert!(h.query_by_label_contains("G B3 ").is_some());
+    // ranges chosen by hand, the gamma 1: the legend tells them
+    let ranges = [Some((0.0, 2.0)), Some((0.0, 1.0)), Some((0.25, 0.75))];
+    let rgb = Rgb { bands: [2, 1, 0], ranges, gamma: 1.0 };
+    h.state_mut().session.as_mut().unwrap().preview_layers[0].rgb = Some(rgb.clone());
+    wait(&mut h, "R B4 0–2");
+    assert!(h.query_by_label("G B3 0–1").is_some() && h.query_by_label("B B2 0.25–0.75").is_some());
+    drawn(&mut h);
+    // the picture the Viewer shows: its export, the cell at column 3, row 2 in the colours of the formula
+    for _ in 0..400 {
+        if h.query_by_label("Export the view...").is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+        h.run_steps(1);
+    }
+    h.get_by_label("Export the view...").click();
+    h.run_steps(4);
+    let (col, row) = (3usize, 2usize);
+    let expected = {
+        let s = h.state().session.as_ref().unwrap();
+        let Some(terraflux_ops::Value::Stack(st)) = s.value_of("scene", "stack") else { panic!("a stack") };
+        let at = row * st.grid.width + col;
+        // (the stack's order: B2, B3, B4; the channels R, G, B are B4, B3, B2)
+        let v = |band: usize| st.layers[band][at];
+        let c = |i: usize| channel(v(rgb.bands[i]), ranges[i].unwrap().0, ranges[i].unwrap().1, 1.0).unwrap();
+        [c(0), c(1), c(2)]
+    };
+    let pixel = |p: &std::path::Path| {
+        let pm = tiny_skia::Pixmap::load_png(p).unwrap();
+        let c = pm.pixel(col as u32, row as u32).unwrap();
+        [c.red(), c.green(), c.blue(), c.alpha()]
+    };
+    let png = tmp("rgb-view.png");
+    {
+        let e = h.state().session.as_ref().unwrap().export.as_ref().expect("the export's window");
+        assert!(matches!(e.panel.coloring, terraflux_app::palette::Coloring::Packed), "drawn as colour");
+        save(&e.panel, 1, Format::Png, &png).unwrap();
+    }
+    assert_eq!(pixel(&png), [expected[0], expected[1], expected[2], 255], "a cell of the picture");
+    // the Plot keeps it, and opening it gives it back
+    h.get_by_label("Plots").click();
+    h.run_steps(2);
+    h.get_by_label("Save as a new plot").click();
+    h.run_steps(2);
+    let s = h.state_mut().session.as_mut().unwrap();
+    let id = s.source.plots.last().expect("the Plot").id.clone();
+    let kept = s.source.plot(&id).unwrap().layers.iter().find(|l| l.from == "scene.stack").unwrap().rgb.clone();
+    let kept = kept.expect("the composite kept in the Plot");
+    assert_eq!((kept.bands, kept.red, kept.blue, kept.gamma), ([2, 1, 0], Some([0.0, 2.0]), Some([0.25, 0.75]), None));
+    // (written to the model's file and read back: the plot's `rgb` is a table of its layer)
+    let text = s.source.to_toml().unwrap();
+    assert!(text.contains("rgb"), "{text}");
+    assert_eq!(terraflux_graph::Model::from_toml(&text).unwrap().plots, s.source.plots);
+    s.preview_layers.clear();
+    terraflux_app::builder::open_plot(s, &terraflux_ops::Registry::standard(), &id);
+    let back = s.preview_layers.iter().find(|l| l.node == "scene").expect("the layer");
+    assert_eq!(back.rgb.as_ref(), Some(&rgb));
+    // the CLI's and the MCP tool's picture of the Plot: the same colours
+    let made = {
+        let s = h.state().session.as_ref().unwrap();
+        let value = |from: &str| {
+            let (n, p) = from.split_once('.')?;
+            s.value_of(n, p)
+        };
+        terraflux_app::plot_export::panel_of(&s.source, &id, &value).unwrap()
+    };
+    assert!(matches!(made.panel.coloring, terraflux_app::palette::Coloring::Packed));
+    let png2 = tmp("rgb-plot.png");
+    save(&made.panel, 1, Format::Png, &png2).unwrap();
+    assert_eq!(pixel(&png2), pixel(&png), "the plot's picture is the Viewer's");
+    shot(&mut h, "14r-rgb");
+}
+
 /// A Plot's saved view: kept from what the Viewer has in view, left alone by Update the plot, brought back when the
 /// Plot is opened, and forgotten.
 #[test]

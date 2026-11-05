@@ -113,6 +113,14 @@ pub fn crop_source(s: &Source, extent: [f64; 4]) -> Result<Source, String> {
             Source::Map(Map::new(Arc::new(grid_of(g, c)), data))
         }
         Source::Blank(_) => Source::Blank(Arc::new(grid_of(g, c))),
+        // (a colour composite: each band cut, the ranges kept)
+        Source::Rgb(r) => {
+            let cut = |b: &Source| crop_source(b, extent);
+            Source::Rgb(Arc::new(crate::rgb::RgbSource {
+                bands: [cut(&r.bands[0])?, cut(&r.bands[1])?, cut(&r.bands[2])?],
+                ..(**r).clone()
+            }))
+        }
     })
 }
 

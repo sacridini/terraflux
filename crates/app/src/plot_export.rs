@@ -78,10 +78,17 @@ fn made(m: &Model, plot: &Plot, value: &dyn Fn(&str) -> Option<Value>) -> Result
         };
         match &v {
             Value::Vector(f) => kept.push((l, node, port, Kind::Features(f.clone()))),
-            other => match layer_source(other, l.band) {
-                Some(src) => kept.push((l, node, port, Kind::Map(src))),
-                None => skipped.push(format!("{}: not a map or features", l.from)),
-            },
+            other => {
+                // (a composite of three maps: its ranges worked out here, there is no window to keep waiting)
+                let composite = l.rgb.as_ref().map(crate::rgb::Rgb::of_plot).and_then(|rgb| {
+                    let (maps, names) = crate::builder::maps_of(other);
+                    rgb.source_now(&maps, &names)
+                });
+                match composite.or_else(|| layer_source(other, l.band)) {
+                    Some(src) => kept.push((l, node, port, Kind::Map(src))),
+                    None => skipped.push(format!("{}: not a map or features", l.from)),
+                }
+            }
         }
     }
     // the map is the bottom one (opaque, its grid the picture's); the other maps go over it, each at its opacity
@@ -91,6 +98,10 @@ fn made(m: &Model, plot: &Plot, value: &dyn Fn(&str) -> Option<Value>) -> Result
         .position(|(.., k)| matches!(k, Kind::Map(_)))
         .ok_or_else(|| format!("the plot {:?} has no map to draw (only features or nothing)", plot.id))?;
     let colour = |l: &terraflux_graph::PlotLayer, node: &str, port: &str, src: &Source| {
+        // (a composite of three maps: its pixels are colours already)
+        if matches!(src, Source::Rgb(_)) {
+            return (Coloring::Packed, Vec::new());
+        }
         let palette = l
             .palette
             .as_deref()
@@ -106,7 +117,7 @@ fn made(m: &Model, plot: &Plot, value: &dyn Fn(&str) -> Option<Value>) -> Result
             Coloring::Classes(c) => {
                 c.iter().map(|(v, _)| (*v, crate::legend_view::name(&look, legend.as_deref(), *v))).collect()
             }
-            Coloring::Continuous { .. } => Vec::new(),
+            Coloring::Continuous { .. } | Coloring::Packed => Vec::new(),
         };
         (look.coloring, names)
     };

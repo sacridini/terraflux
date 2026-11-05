@@ -75,6 +75,7 @@ impl Histogram {
                 Histogram::of(values.into_iter().map(f64::from), lo, hi, sampled)
             }
             Source::Blank(_) => Histogram::of(std::iter::empty(), lo, hi, false),
+            Source::Rgb(r) => Histogram::of_source(&r.bands[0], lo, hi),
         }
     }
 

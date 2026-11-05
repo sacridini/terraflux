@@ -633,6 +633,8 @@ pub struct Session {
     /// Of the steps of a map of classes shown: the area of each class at every step, the transitions from the first
     /// step to the last, and their window.
     pub steps_areas: crate::region::Jobs<Vec<crate::region::Stats>>,
+    /// The ranges of the bands of the layers shown as colour (2nd to 98th percentiles), worked out by threads.
+    pub rgb_ranges: crate::rgb::Ranges,
     pub steps_matrix: crate::region::Jobs<Result<Option<crate::difference::Matrix>, String>>,
     pub steps_window: crate::transition_view::State,
     /// Outputs being saved (in threads): where, and what came of it; a word for the status bar and since when.
@@ -805,6 +807,7 @@ impl Session {
             regions: Default::default(),
             profiles: Default::default(),
             steps_areas: Default::default(),
+            rgb_ranges: Default::default(),
             steps_matrix: Default::default(),
             steps_window: Default::default(),
             auto: true,

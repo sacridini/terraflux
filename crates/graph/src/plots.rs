@@ -83,6 +83,27 @@ pub struct PlotLayer {
     /// Kept in the Plot without being drawn.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
+    /// Drawn as a colour composite of three of its maps (bands of a stack, steps of a loop, bands of a raster).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rgb: Option<PlotRgb>,
+}
+
+/// A layer drawn in colour from three maps: the band of each channel and the range of its values (the part of the
+/// values that goes from black to the full colour).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PlotRgb {
+    /// The maps of the red, green and blue channels (from 0).
+    pub bands: [usize; 3],
+    /// The range of each channel's values, least and most (default: over its band's 2nd to 98th percentiles).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub red: Option<[f64; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub green: Option<[f64; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blue: Option<[f64; 2]>,
+    /// The gamma of the three channels (default 1: values brighter as it grows).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gamma: Option<f64>,
 }
 
 /// A map compared with a Plot's top map, and how: `curtain`, `side by side` (default) or `difference`; side by

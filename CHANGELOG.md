@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Viewer: **three bands as one colour image**. A layer of three maps or more (a stack, a series, a raster of
+  bands) checked **RGB** in its settings is drawn as colour, a band for each of red, green and blue: natural colour,
+  colour infrared and short-wave infrared of Sentinel-2 and Landsat 8/9 offered when the bands' names tell them
+  (`B4`, `SR_B4`, `B04`, `band 4`), else the first three. Each channel from its band's 2nd to 98th percentile
+  (worked out by a thread from a sample) or a range set by hand, with a gamma; a cell without a value in any band
+  transparent. The legend under its row tells the bands and ranges, the pointer the three values. Kept in the Plot
+  (`rgb = { bands, red, green, blue, gamma }`, also through the MCP's `set_plot`), drawn by the figure, *Export the
+  view*, the animation and `terraflux plot` / `export_plot`.
+
 ## [1.40.0] - 2026-11-04
 
 ### Added

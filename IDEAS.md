@@ -2327,3 +2327,49 @@ só quando pedido.
     densos.
 19. **Ver o tipo e o valor numa conexão**: passar o ponteiro sobre um fio mostra o tipo e um resumo do último valor
     (um mapa: tamanho e faixa; um número: ele).
+
+## O Viewer como um SIG: o que ainda falta
+
+Pedido de 2026-11-05: "Gostei de todas as ideias. Pode anotar tudo no IDEAS. Depois pode começar a implementar
+todas as ideias." As lacunas do Viewer frente a um SIG e as sobras anotadas nas partes já feitas. Um commit por
+item, na ordem; release só quando pedido.
+
+1. **Composição RGB de três bandas.** Uma camada de mapa de uma pilha (ou de um raster de várias bandas) mostrada
+   como cor natural ou falsa-cor: a banda do vermelho, do verde e do azul escolhidas na linha da camada, cada uma
+   com o seu contraste (percentis 2–98 por padrão, mínimo e máximo à mão, gama). Atalhos para Landsat 8/9 e
+   Sentinel-2 (4-3-2, 5-4-3, 8-4-3) quando os nomes das bandas os dizem. Guardada no Plot, na figura e no export.
+   **Feito** (Unreleased, por um sub-agente): `rgb.rs`. `Layer.rgb` (`Rgb { bands, ranges, gamma }`), a fonte
+   `map_view::Source::Rgb` (os três tiles da banda feitos pelas threads de sempre, as cores empacotadas num f32 de
+   24 bits, `Coloring::Packed`), as faixas dos percentis 2–98 por banda numa thread (`rgb::Ranges`,
+   `Session::rgb_ranges`). *RGB* nas propriedades da camada: *composites* (`rgb::presets`: cor natural, infravermelho
+   e SWIR do Sentinel-2 e do Landsat 8/9 pelos nomes, um sensor só quando o B8A/B12 ou o B10/`SR_` o dizem; senão as
+   três primeiras), a banda de cada canal, mínimo e máximo à mão com *auto*, a gama. A legenda de três linhas sob a
+   linha, os três valores sob o cursor. No Plot `PlotLayer.rgb` (`PlotRgb`), na figura, no export, na animação, no
+   `plot_export` e no `set_plot` do MCP. Testes: os de `rgb.rs`, `a_stack_shown_as_rgb`. Falta: o mapa mostrado sem
+   ser camada (é preciso fixá-lo); a comparação (cortina, lado a lado, diferença) usa a banda; sob o cursor, uma
+   camada RGB por cima diz só o canal R; o histograma de cada banda.
+2. **Selecionar por área e usar a seleção no modelo.** Shift+arrastar no mapa seleciona as feições de uma camada de
+   vetores por um retângulo (Shift+Alt: um laço); a seleção guardada no Plot; *Filter the selection* cria um nó
+   `vector.filter` com as feições escolhidas; Ctrl+A com o foco do teclado na tabela (não só o ponteiro).
+3. **A simbologia dos vetores.** Colorir por um atributo com a rampa escolhida (as do Viewer) e as quebras
+   (contínua, intervalos iguais, quantis, Jenks; o número de classes), o tamanho dos pontos por um atributo e
+   símbolos de ponto além do círculo (quadrado, triângulo, cruz). A legenda dos vetores nos Layers. Guardada no
+   Plot, na figura, no export e no projeto do QGIS.
+4. **O relevo sombreado sob o mapa.** Um modo de mistura por camada (normal, multiplicar, tela) e, numa camada de
+   terreno, *Shade with this elevation*: o hillshade feito do próprio mapa (azimute e altura do sol, exagero
+   vertical) multiplicado sob as cores. Guardado no Plot, na figura e no export.
+5. **Orientar-se no mapa ao vivo.** A barra de escala e, opcional, a grade de coordenadas sobre o mapa (não só na
+   *Figure*); voltar e avançar no zoom (Alt+← / Alt+→, botões); *Go to...*: uma coordenada (lat/lon em graus
+   decimais ou GMS, ou x/y no CRS do mapa) centrada no mapa com um marcador.
+6. **O Viewer numa janela à parte**, para um segundo monitor (`show_viewport_immediate`, como as outras janelas
+   soltas), e de volta ao dock.
+7. **Dados remotos como camada.** *Add a layer from a URL...*: um COG ou qualquer raster que o GDAL abre por
+   `/vsicurl/`, lido por janelas à medida que o mapa pede (as overviews no zoom de longe), e um XYZ/WMTS qualquer
+   como basemap (a URL com `{z}/{x}/{y}`).
+8. **As sobras das partes já feitas.**
+   - Histograma: as barras em escala logarítmica quando a cor é; o nodata que não é NaN de um raster em disco não
+     conta como valor.
+   - *Export the view*: a vista comparada (lado a lado, como a figura) e o basemap.
+   - `terraflux plot` / `export_plot`: as diferenças (`minus`), a vista comparada, nós dentro de contêineres.
+   - Medir: a caixa dos números só na vista medida; clicar numa vista ao lado mede ali, com a sua própria linha.
+   - Rótulos: a prioridade pelo tamanho da feição; o projeto do QGIS com os rótulos do estilo.

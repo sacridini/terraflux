@@ -645,6 +645,8 @@ pub(crate) fn look_of(source: &Source, palette: Palette) -> Look {
             look
         }
         Source::Blank(_) => palette.look(&[]),
+        // (a colour composite has no ramp: the look of its first band)
+        Source::Rgb(r) => look_of(&r.bands[0], palette),
     }
 }
 
@@ -2693,6 +2695,7 @@ fn plot_layer(
         hidden: !l.visible,
         minus: l.minus.as_ref().map(|(n, p)| format!("{n}.{p}")),
         minus_band: l.minus.as_ref().and(l.minus_band),
+        rgb: l.rgb.as_ref().filter(|_| l.minus.is_none()).map(crate::rgb::Rgb::to_plot),
     }
 }
 
@@ -2714,6 +2717,7 @@ fn layers_of_plot(list: &[terraflux_graph::PlotLayer]) -> Vec<Layer> {
                 band: l.band,
                 minus: l.minus.as_deref().and_then(port_of),
                 minus_band: l.minus_band,
+                rgb: l.rgb.as_ref().map(crate::rgb::Rgb::of_plot),
             })
         })
         .collect()
@@ -2966,6 +2970,8 @@ pub struct Layer {
     /// The map of `minus` it subtracts: a band of its stack or a step of its series (default the first), so that
     /// two layers of one stack make a difference.
     pub minus_band: Option<usize>,
+    /// Drawn as colour, a composite of three of its maps (see [`crate::rgb`]); only a layer of three maps or more.
+    pub rgb: Option<crate::rgb::Rgb>,
 }
 
 /// The maps a difference is of: the one subtracted (node, port, band), then the other.
@@ -2982,6 +2988,7 @@ impl Layer {
             band: None,
             minus: None,
             minus_band: None,
+            rgb: None,
         }
     }
 
@@ -3126,7 +3133,19 @@ fn draw_layers(
                 });
             }
             Some(v) => {
-                if let Some(src) = layer_source(&v, l.band) {
+                // (a composite of three of its maps: drawn from the three, packed in colours; not at all while the
+                // ranges of its bands are worked out)
+                let rgb = l.rgb.as_ref().and_then(|rgb| {
+                    let (maps, names) = maps_of(&v);
+                    crate::rgb::Rgb::applicable(&maps).then(|| rgb.source(ctx, &s.rgb_ranges, &maps, &names))
+                });
+                if let Some(src) = rgb {
+                    if let Some(src) = src {
+                        let name = output_name(&l.node, &l.port);
+                        let item = (src, l.opacity, l.node.clone(), l.port.clone(), Some((Coloring::Packed, name)));
+                        if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
+                    }
+                } else if let Some(src) = layer_source(&v, l.band) {
                     let item = (src, l.opacity, l.node.clone(), l.port.clone(), None);
                     if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
                 }
@@ -4117,7 +4136,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     let range = s.ranges.get(&(node.clone(), port.clone())).copied();
     let first_range = look.as_ref().and_then(|l| match l.coloring {
         Coloring::Continuous { min, max, .. } => Some((min, max)),
-        Coloring::Classes(_) => None,
+        Coloring::Classes(_) | Coloring::Packed => None,
     });
     let look = look.map(|l| ranged(l, range));
     // the map compared with it: its source, its name and its look; the two in one colouring (the same value the
@@ -4176,6 +4195,15 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     // the layers kept (the first at the bottom): those under the map shown drawn before it, those over it after (the
     // plot's own maps over it first); the map shown over them all when it is not one of them
     let at = sh.layers.iter().position(|l| l.is(&node, &port));
+    // the map shown as colour when its layer is a composite of three maps (none while the ranges of the bands are
+    // worked out: the map is drawn as it is meanwhile)
+    let shown_rgb: Option<Source> = sh
+        .layers
+        .iter()
+        .find(|l| l.is(&node, &port))
+        .and_then(|l| l.rgb.as_ref())
+        .filter(|_| crate::rgb::Rgb::applicable(&maps))
+        .and_then(|rgb| rgb.source(ui.ctx(), &s.rgb_ranges, &maps, &names));
     // (the differences no layer, of the Viewer or of a view, is any longer let go)
     {
         let own = sh.compare.layers.iter().chain(sh.compare.more.iter().filter_map(|b| b.layers.as_ref()));
@@ -4255,10 +4283,15 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         Some(e) => crate::frame::crop_panel(&p, e).unwrap_or(p),
                         None => p,
                     };
+                    // (the map shown as colour: its picture is the composite)
+                    let (shown_src, shown_col) = match &shown_rgb {
+                        Some(src) => (src.clone(), Coloring::Packed),
+                        None => (maps[k].clone(), l.coloring.clone()),
+                    };
                     if export {
                         let panel = crate::figure::Panel {
-                            source: maps[k].clone(),
-                            coloring: l.coloring.clone(),
+                            source: shown_src.clone(),
+                            coloring: shown_col.clone(),
                             names: Vec::new(),
                             caption: String::new(),
                             vectors: vectors.clone(),
@@ -4272,7 +4305,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 Coloring::Classes(c) => {
                                     c.iter().map(|(v, _)| (*v, crate::legend_view::name(lk, legend, *v))).collect()
                                 }
-                                Coloring::Continuous { .. } => Vec::new(),
+                                Coloring::Continuous { .. } | Coloring::Packed => Vec::new(),
                             };
                             cut(crate::figure::Panel {
                                 source: src.clone(),
@@ -4284,7 +4317,9 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             })
                         };
                     let legend = legend_classes.as_deref();
-                    let mut choices = vec![("this map".to_string(), vec![panel(&maps[k], l, legend, String::new())])];
+                    let shown_look = Look { coloring: shown_col.clone(), ..l.clone() };
+                    let mut choices =
+                        vec![("this map".to_string(), vec![panel(&shown_src, &shown_look, legend, String::new())])];
                     if let Some((src, name, Some(cl))) = &compared {
                         // (in the colours they share)
                         let other = Look { coloring: l.coloring.clone(), ..cl.clone() };
@@ -4759,7 +4794,12 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             return;
         };
         match other {
-            None => hover = sh.view.show_stacked(ui, &maps[k], &l.coloring, &rasters, &overlays),
+            None => {
+                hover = match &shown_rgb {
+                    Some(src) => sh.view.show_stacked(ui, src, &Coloring::Packed, &rasters, &overlays),
+                    None => sh.view.show_stacked(ui, &maps[k], &l.coloring, &rasters, &overlays),
+                };
+            }
             Some(_) if sh.compare.how == How::Difference => {
                 hover = show_difference(ui, sh, &maps[k], &rasters, &overlays);
             }
@@ -5833,6 +5873,7 @@ pub fn series_at(maps: &[Source], row: usize, col: usize) -> Vec<f64> {
                 r.window(*l, win).ok().and_then(|v| v.first().copied()).unwrap_or(f64::NAN)
             }
             Source::Blank(_) => f64::NAN,
+            Source::Rgb(r) => series_at(&r.bands[..1], row, col)[0],
         })
         .collect()
 }
@@ -6103,6 +6144,7 @@ pub(crate) fn reclassify_rules(ui: &mut Ui, s: &mut Session, n: &Node, path: &[S
                             commit = true;
                         }
                     }
+                    Coloring::Packed => {}
                 },
             }
         });

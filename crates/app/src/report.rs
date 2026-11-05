@@ -232,6 +232,7 @@ fn compared(a: &Value, b: &Value, names: [String; 2], difference: bool, side: us
                         (rgb(ramp.colour(0.5)), lang.t("the same").into()),
                         (rgb(ramp.colour(1.0)), lang.f("higher, to {}", &[&cell(*max)])),
                     ],
+                    Coloring::Packed => Vec::new(),
                 };
             }
             Err(e) => said = Some(e),

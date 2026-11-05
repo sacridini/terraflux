@@ -30,7 +30,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 pub use check::{Catalog, Issue, Severity, check, script_types};
-pub use plots::{PLOT_OP, Plot, PlotChart, PlotCompare, PlotLayer, PlotView};
+pub use plots::{PLOT_OP, Plot, PlotChart, PlotCompare, PlotLayer, PlotRgb, PlotView};
 pub use types::{Access, OpSignature, PortSpec, Type, declared_outputs};
 pub use user_node::{UserInput, UserNode, UserOutput, Uses};
 

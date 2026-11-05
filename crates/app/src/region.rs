@@ -155,6 +155,8 @@ pub fn of(source: &Source, part: &Part, classes: bool) -> Stats {
             r.sample(*l, win, step).map(|v| v.into_iter().map(f64::from).collect()).unwrap_or_default()
         }
         Source::Blank(_) => vec![f64::NAN; sw * bh.div_ceil(step)],
+        // (a colour composite: the statistics of its first band)
+        Source::Rgb(r) => return of(&r.bands[0], part, classes),
     };
     let grid = source.grid();
     let weight = (step * step) as f64;

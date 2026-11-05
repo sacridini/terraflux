@@ -2491,6 +2491,14 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                     palette: palette.and_then(crate::builder::palette_named).and_then(crate::builder::palette_name),
                     range,
                     minus,
+                    rgb: match o.get("rgb") {
+                        None | Some(Value::Null) => None,
+                        Some(v) => Some(serde_json::from_value(v.clone()).map_err(|e| {
+                            format!(
+                                "{from}: rgb is {{ \"bands\": [r, g, b], \"red\": [least, most], \"gamma\": 1 }}: {e}"
+                            )
+                        })?),
+                    },
                 }
             }
             other => return Err(format!("a layer is node.port or an object with `from`, not {other}")),

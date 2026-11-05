@@ -64,6 +64,8 @@ pub enum Source {
     Map(Map),
     Rasters(Arc<Rasters>, usize),
     Blank(Arc<terraflux_raster::Grid>),
+    /// Three maps drawn as one colour image (see [`crate::rgb`]): its tiles hold packed colours.
+    Rgb(Arc<crate::rgb::RgbSource>),
 }
 
 impl From<&Map> for Source {
@@ -84,6 +86,7 @@ impl Source {
                 (Arc::as_ptr(&r.images[layer.image]) as usize, layer.band)
             }
             Source::Blank(g) => (Arc::as_ptr(g) as usize, usize::MAX),
+            Source::Rgb(r) => r.key(),
         }
     }
 
@@ -92,6 +95,7 @@ impl Source {
             Source::Map(m) => &m.grid,
             Source::Rasters(r, l) => r.grid_of(*l),
             Source::Blank(g) => g,
+            Source::Rgb(r) => r.bands[0].grid(),
         }
     }
 
@@ -139,6 +143,12 @@ impl Source {
                 r.sample(*l, win, step).map_err(|e| e.to_string())
             }
             Source::Blank(_) => Ok(vec![f32::NAN; TILE * TILE]),
+            // (the three bands' tiles, as the threads make any: packed into colours)
+            Source::Rgb(r) => {
+                let t =
+                    [r.bands[0].tile(level, tx, ty)?, r.bands[1].tile(level, tx, ty)?, r.bands[2].tile(level, tx, ty)?];
+                Ok(r.pack_values([&t[0], &t[1], &t[2]]))
+            }
         }
     }
 
@@ -146,7 +156,7 @@ impl Source {
     fn value(&self, x: usize, y: usize) -> Option<f64> {
         match self {
             Source::Map(m) => m.data.get(y * m.grid.width + x).copied(),
-            Source::Rasters(..) | Source::Blank(_) => None,
+            Source::Rasters(..) | Source::Blank(_) | Source::Rgb(_) => None,
         }
     }
 }
@@ -489,7 +499,12 @@ pub struct MapView {
     layers_drawn: (usize, usize),
     /// A box (west, south, east, north) to bring the view to when the next map is drawn: a Plot's saved view.
     frame: Option<[f64; 4]>,
+    /// The bands' values at the cell last read of a colour composite (its key, column, row, values).
+    rgb_memo: Mutex<Option<RgbCell>>,
 }
+
+/// A colour composite's bands' values at a cell: its key, column, row and the values.
+type RgbCell = (SourceKey, usize, usize, [f64; 3]);
 
 /// How long a map takes to fade in over the one shown before it (a series' next step), seconds.
 const FADE: f32 = 0.18;
@@ -1114,8 +1129,29 @@ impl MapView {
         }
     }
 
+    /// The values of a colour composite's three bands at a cell, read once for the cell the pointer stays on (on
+    /// disk each is a window read).
+    fn rgb_cell(&self, r: &crate::rgb::RgbSource, x: usize, y: usize) -> [f64; 3] {
+        let key = r.key();
+        let mut m = self.rgb_memo.lock().unwrap();
+        if let Some((k, mx, my, v)) = *m
+            && k == key
+            && (mx, my) == (x, y)
+        {
+            return v;
+        }
+        let v = r.cell(x, y);
+        *m = Some((key, x, y, v));
+        v
+    }
+
     /// The value of a cell from the finest tile kept over it (a map in memory: the cell itself).
     fn value_at(&self, source: &Source, x: usize, y: usize) -> f64 {
+        // (a colour composite: the red channel's value, none when a band has none)
+        if let Source::Rgb(r) = source {
+            let v = self.rgb_cell(r, x, y);
+            return if v.iter().any(|x| x.is_nan()) { f64::NAN } else { v[0] };
+        }
         if let Some(v) = source.value(x, y) {
             return v;
         }
@@ -1728,7 +1764,11 @@ impl MapView {
             let mut text = format!("x {x:.digits$}   y {y:.digits$}");
             let said = |v: f64| if v.is_nan() { "no value".to_string() } else { terraflux_ops::value::class_label(v) };
             if inside && !blank {
-                let v = said(self.value_at(source, c.x as usize, c.y as usize));
+                let v = match source {
+                    // (a colour composite: each channel's band and value)
+                    Source::Rgb(r) => r.text(self.rgb_cell(r, c.x as usize, c.y as usize)),
+                    _ => said(self.value_at(source, c.x as usize, c.y as usize)),
+                };
                 text.push_str(&format!("   ·   row {}  column {}", c.y as usize, c.x as usize));
                 // compared: the values of both, by their names
                 match compared {
@@ -1873,6 +1913,10 @@ pub fn legend(ui: &mut Ui, coloring: &Coloring, counts: &[(f64, usize)], names: 
             }
             let scale = if *log { "   (logarithmic)" } else { "" };
             ui.label(format!("{min:.4} to {max:.4}{scale}"));
+        }
+        // (a colour composite: its channels are told by its layer's legend)
+        Coloring::Packed => {
+            ui.label("a colour composite of three bands");
         }
     }
 }
