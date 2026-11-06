@@ -2733,6 +2733,19 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    `the_end_of_a_run_is_told_when_terraflux_is_not_in_front`; `notify::by_hand` (ignorado) mostra uma de verdade.
    Falta: um clique na notificação trazer o Terraflux para a frente (pede um ativador COM no Windows); conferir no
    macOS e num Linux com área de trabalho (o WSL não tem servidor de notificações).
+   **Feito** (Unreleased), o clique, sem ativador COM: no Windows o toast com `activationType='protocol'` e
+   `launch='terraflux-front:<processo>'`, o protocolo registrado pelo próprio script do toast em
+   `HKCU\Software\Classes\terraflux-front` (o `terraflux.exe` que roda, `front "%1"`; só quando o programa é o
+   `terraflux`, não o de um teste); `terraflux front` (escondido) pede à aplicação daquele processo, pelo `handoff`
+   (`Request::path` agora `Option`: nenhum, só vir para a frente), que venha para a frente. No Linux,
+   `notify-send --action=default=Open --wait` primeiro (diz "default" na saída quando clicado: `Minimized(false)` e
+   `Focus` mandados de lá), depois o `notify-send` de antes e o `gdbus`. O script do toast tem uma instrução por
+   linha: lido da entrada, o PowerShell só roda um bloco de várias linhas depois de uma linha vazia (o primeiro
+   teste de verdade não registrou nada por isso). Testes: `notify::tests::the_ways_of_each_system` (o protocolo, o
+   `--wait`, o `front_of`), o `handoff` com o pedido de vir para a frente e `notify::by_hand::a_click_on_a_toast_
+   reaches_terraflux` (ignorado; rodado aqui com o `terraflux.exe` de debug: o toast, o protocolo aberto como o
+   clique abre, o pedido chegando). O `notify-send` 0.8.3 do Ubuntu 24.04 tem `--action` e `--wait`. Ficou de
+   fora: o macOS (o `osascript` não diz o clique; pediria um app empacotado com `UNUserNotificationCenter`).
 7. **Não deixar o computador dormir durante uma execução** (Windows, Linux, macOS). `awake.rs`: um guarda segurado
    enquanto uma execução, um lote ou o empréstimo deste computador a outro trabalha. Windows:
    `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` (windows-sys, `Win32_System_Power`), pedido e

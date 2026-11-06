@@ -29,6 +29,11 @@ minor versions.
 - Application: **when a run will end, by the clock**. The tooltip of the run's progress bar says when the time left
   runs out: "ends about 14:32", "ends about 09:10 tomorrow", "ends about 09:10 in 3 days" (the computer's own time
   zone and summer time, on Windows, Linux and macOS).
+- Application: **a click on the notification of a run that ended brings Terraflux to the front**. On Windows the
+  toast opens `terraflux-front:`, a protocol registered in the user's registry (`HKCU\Software\Classes`) that runs
+  `terraflux front`, which asks the Terraflux that told it to come forward; on Linux `notify-send` waits for the
+  click (an older `notify-send` shows the notification as before). On macOS a click still does nothing
+  (`osascript`'s notifications cannot tell it).
 
 ## [1.43.0] - 2026-11-06
 

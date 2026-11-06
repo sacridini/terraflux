@@ -2129,12 +2129,15 @@ impl TerrafluxApp {
     /// A model handed by `terraflux mcp`: opened in a tab (its tab when open already), the answer sent; whether it
     /// was.
     pub fn handle_handoff(&mut self, r: crate::handoff::Request) -> bool {
-        let answer = if self.wizard.is_some() {
-            Err("Terraflux has a wizard open".to_string())
-        } else {
-            self.message = None;
-            self.open(&r.path);
-            self.message.clone().map_or(Ok(()), Err)
+        let answer = match &r.path {
+            // (a click on a notification: only to the front)
+            None => Ok(()),
+            Some(_) if self.wizard.is_some() => Err("Terraflux has a wizard open".to_string()),
+            Some(p) => {
+                self.message = None;
+                self.open(p);
+                self.message.clone().map_or(Ok(()), Err)
+            }
         };
         let ok = answer.is_ok();
         let _ = r.answer.send(answer);
@@ -2336,7 +2339,13 @@ impl TerrafluxApp {
             egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational),
         );
         if self.notifications {
-            crate::notify::send(&title, &body);
+            // (clicked: Terraflux to the front)
+            let c = ctx.clone();
+            crate::notify::send(&title, &body, move || {
+                c.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Minimized(false));
+                c.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Focus);
+                c.request_repaint();
+            });
         }
         self.told.push((title, body));
     }

@@ -77,6 +77,9 @@ enum Command {
     },
     /// Check a model and its data without running it.
     Check { model: PathBuf },
+    /// Bring a Terraflux to the front: what a click on one of its notifications runs (`terraflux-front:<process>`).
+    #[command(hide = true)]
+    Front { uri: String },
     /// Find again the files a model reads that are not where it says (a model from another computer, a folder moved
     /// or renamed) and make it read them from there: each by the longest end of its old path found in a folder, else
     /// by its name, else by the change of folder of those found (Windows and Unix paths alike). The model's file is
@@ -1232,6 +1235,13 @@ fn main() -> Result<()> {
             }
             m.save(out)?;
             eprintln!("wrote {}", out.display());
+        }
+        Command::Front { uri } => {
+            hide_own_console();
+            if let Some(pid) = terraflux_app::notify::front_of(&uri) {
+                // (that Terraflux closed since: nothing to do)
+                let _ = terraflux_app::handoff::front(pid);
+            }
         }
         Command::Relink { model, folders, dry_run } => {
             if let Some(gone) = folders.iter().find(|f| !f.is_dir()) {

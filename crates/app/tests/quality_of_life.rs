@@ -130,7 +130,7 @@ fn models_open_in_tabs_run_behind_and_close() {
     assert!(h.state().tab(0).unwrap().outputs.contains_key("a"), "ran behind");
     // the MCP's open_in_app of a model open: its tab
     let (tx, rx) = std::sync::mpsc::channel();
-    h.state_mut().handle_handoff(terraflux_app::handoff::Request { path: first.clone(), answer: tx });
+    h.state_mut().handle_handoff(terraflux_app::handoff::Request { path: Some(first.clone()), answer: tx });
     h.run_steps(2);
     assert_eq!(rx.try_recv().unwrap(), Ok(()));
     assert_eq!((h.state().tab_count(), h.state().front), (2, 0));

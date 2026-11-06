@@ -1,7 +1,8 @@
 //! A model handed to the application already open (open_in_app of `terraflux mcp`), not opened in a new window:
 //! each application listens on a port of this computer only, written with a secret in a file of the application's
 //! data (`instances/<process>`). The asker gives the secret and the model's file; the application opens it in a tab
-//! (its tab when it is open already), unless a wizard is open.
+//! (its tab when it is open already), unless a wizard is open. Or only to come to the front (a click on one of its
+//! notifications, through `terraflux front`).
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
@@ -11,9 +12,9 @@ use std::time::{Duration, SystemTime};
 
 use serde_json::{Value, json};
 
-/// A model to open, and where the answer goes: opened, or why not.
+/// A model to open (none: only to come to the front), and where the answer goes: opened, or why not.
 pub struct Request {
-    pub path: PathBuf,
+    pub path: Option<PathBuf>,
     pub answer: mpsc::Sender<Result<(), String>>,
 }
 
@@ -58,7 +59,7 @@ fn listen_in(dir: &Path, wake: impl Fn() + Send + 'static) -> Option<Listener> {
     Some(Listener { requests, file })
 }
 
-/// One asker: a line of JSON (`secret`, `open`), a line of JSON answered (`opened`, else `why`).
+/// One asker: a line of JSON (`secret`, `open` or `front`), a line of JSON answered (`opened`, else `why`).
 fn serve(conn: TcpStream, secret: &str, tx: &mpsc::Sender<Request>, wake: &dyn Fn()) -> std::io::Result<()> {
     conn.set_read_timeout(Some(Duration::from_secs(2)))?;
     let mut line = String::new();
@@ -67,9 +68,12 @@ fn serve(conn: TcpStream, secret: &str, tx: &mpsc::Sender<Request>, wake: &dyn F
     let given = asked["secret"].as_str().unwrap_or_default();
     let answer = if !terraflux_dist::secure::same(given.as_bytes(), secret.as_bytes()) {
         Err("not this application's secret".to_string())
-    } else if let Some(path) = asked["open"].as_str() {
+    } else if let Some(path) = asked["open"].as_str().map(PathBuf::from).map(Some).or_else(|| {
+        // (to come to the front only)
+        (asked["front"].as_bool() == Some(true)).then_some(None)
+    }) {
         let (answer, answered) = mpsc::channel();
-        let _ = tx.send(Request { path: PathBuf::from(path), answer });
+        let _ = tx.send(Request { path, answer });
         wake();
         answered.recv_timeout(Duration::from_secs(10)).unwrap_or_else(|_| Err("the application did not answer".into()))
     } else {
@@ -113,14 +117,30 @@ fn open_in(dir: &Path, model: &Path) -> Result<u32, String> {
     Err(if whys.is_empty() { "no Terraflux open".to_string() } else { whys.join("; ") })
 }
 
+/// Bring the application of the process `pid` to the front (a click on one of its notifications).
+pub fn front(pid: u32) -> Result<(), String> {
+    front_in(&dir(), pid)
+}
+
+fn front_in(dir: &Path, pid: u32) -> Result<(), String> {
+    ask_to(&dir.join(pid.to_string()), json!({ "front": true }))
+        .unwrap_or_else(|| Err("that Terraflux is closed".into()))
+}
+
 /// Ask the application of a file to open the model: None when it is not there.
 fn ask(file: &Path, model: &Path) -> Option<Result<(), String>> {
+    ask_to(file, json!({ "open": model }))
+}
+
+/// Ask the application of a file (`what`, with its secret): None when it is not there.
+fn ask_to(file: &Path, mut what: Value) -> Option<Result<(), String>> {
     let text = std::fs::read_to_string(file).ok()?;
     let (port, secret) = text.trim().split_once(' ')?;
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port.parse().ok()?));
     let conn = TcpStream::connect_timeout(&addr, Duration::from_secs(1)).ok()?;
     conn.set_read_timeout(Some(Duration::from_secs(15))).ok()?;
-    writeln!(&conn, "{}", json!({ "secret": secret, "open": model })).ok()?;
+    what["secret"] = json!(secret);
+    writeln!(&conn, "{what}").ok()?;
     let mut line = String::new();
     BufReader::new(&conn).read_line(&mut line).ok()?;
     let reply: Value = serde_json::from_str(&line).ok()?;
@@ -145,7 +165,7 @@ mod tests {
             std::thread::spawn(move || (open_in(&dir, &model), open_in(&dir, &model)))
         };
         let r = listener.requests.recv().unwrap();
-        assert_eq!(r.path, model);
+        assert_eq!(r.path.as_deref(), Some(model.as_path()));
         r.answer.send(Ok(())).unwrap();
         listener.requests.recv().unwrap().answer.send(Err("edits not saved".into())).unwrap();
         let (first, second) = asker.join().unwrap();
@@ -159,8 +179,21 @@ mod tests {
         std::fs::write(dir.join("1"), "1 x").unwrap();
         assert!(open_in(&dir, &model).is_err());
         assert!(!dir.join("1").exists());
+        // only to come to the front: no model (refused with the wrong secret too)
+        assert!(front_in(&dir, std::process::id()).is_err(), "a wrong secret");
         drop(listener);
         assert!(!file.exists());
+        let listener = listen_in(&dir, || {}).unwrap();
+        let asker = {
+            let dir = dir.clone();
+            std::thread::spawn(move || front_in(&dir, std::process::id()))
+        };
+        let r = listener.requests.recv().unwrap();
+        assert!(r.path.is_none());
+        r.answer.send(Ok(())).unwrap();
+        assert_eq!(asker.join().unwrap(), Ok(()));
+        drop(listener);
+        assert!(front_in(&dir, std::process::id()).is_err(), "that one closed");
         assert_eq!(open_in(&dir, &model), Err("no Terraflux open".to_string()));
         let _ = std::fs::remove_dir_all(&dir);
     }
