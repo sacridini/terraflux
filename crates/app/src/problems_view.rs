@@ -108,7 +108,8 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Asked> {
             let (errors, warnings) = counts(s);
             let advice = s.advice();
             theme::section(ui, "Problems");
-            if errors + warnings == 0 && advice.is_empty() {
+            crate::relink::strip(ui, s);
+            if errors + warnings == 0 && advice.is_empty() && s.relink.missing.is_empty() {
                 ui.label(weak("No problems: the graph is checked at every edit, the data when it is read, and a run's failure shows here, explained."));
                 return;
             }

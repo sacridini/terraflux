@@ -328,3 +328,48 @@ fn the_history_goes_back_and_forward_to_any_step() {
     let s = h.state().session.as_ref().unwrap();
     assert_eq!(terraflux_app::review::changes(s).len(), 3, "three nodes added since it was opened");
 }
+
+#[test]
+fn the_files_not_found_are_located_again() {
+    // a model written on another computer (Windows paths), its data now in a folder beside it
+    let dir = tmp("relink");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("copied").join("inputs")).unwrap();
+    std::fs::write(dir.join("copied").join("inputs").join("land.tif"), b"x").unwrap();
+    std::fs::write(dir.join("copied").join("inputs").join("roads.tif"), b"x").unwrap();
+    let file = dir.join("model.toml");
+    let mut m = terraflux_graph::Model::new("from another computer");
+    m.nodes.push(terraflux_graph::Node::new("land", "raster.read").param("path", r"D:\work\inputs\land.tif"));
+    m.nodes.push(terraflux_graph::Node::new("roads", "raster.read").param("path", r"D:\work\inputs\roads.tif"));
+    m.nodes.push(terraflux_graph::Node::new("out", "raster.write").param("path", r"D:\work\out.tif"));
+    m.save(&file).unwrap();
+    let mut h = harness(new_app(Some(file.clone())));
+    h.run_steps(3);
+    assert!(h.query_by_label("2 files of the model are not found.").is_some(), "the file written is not asked for");
+    h.get_all_by_label("Locate them...").next().unwrap().click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Files not found").is_some());
+    // the folder chosen (the dialog of the system stands for it here)
+    let s = h.state_mut().session.as_mut().unwrap();
+    let olds: Vec<String> = s.relink.missing.iter().map(|(p, _)| p.clone()).collect();
+    let found = terraflux_app::relink::locate(&olds, &dir);
+    assert_eq!(found.len(), 2);
+    s.relink.dialog.found = found;
+    h.run_steps(2);
+    if let Ok(img) = h.render() {
+        img.save(tmp("ui-relink.png")).unwrap();
+    }
+    h.get_by_label("Apply (2 found)").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.nodes[0].params["path"], serde_json::json!("copied/inputs/land.tif"));
+    assert_eq!(s.source.nodes[1].params["path"], serde_json::json!("copied/inputs/roads.tif"));
+    assert_eq!(s.source.nodes[2].params["path"], serde_json::json!(r"D:\work\out.tif"), "the file written left");
+    assert!(s.dirty);
+    assert!(h.query_by_label_contains("not found.").is_none(), "the strip gone");
+    // one step of undo, named
+    assert_eq!(s.history.steps().0.last().map(String::as_str), Some("2 files located again"));
+    terraflux_app::builder::undo_redo(h.state_mut().session.as_mut().unwrap(), false);
+    h.run_steps(3);
+    assert!(h.query_by_label("2 files of the model are not found.").is_some());
+}

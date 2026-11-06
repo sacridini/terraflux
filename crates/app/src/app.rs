@@ -746,6 +746,8 @@ pub struct Session {
     pub ended: Option<Ended>,
     /// The History window of the edits open.
     pub history_open: bool,
+    /// The files the model reads that are not found, and the window that finds them again.
+    pub relink: crate::relink::Relink,
     /// How long each node took in the runs of the sessions before (kept per model, [`crate::eta`]), and when the
     /// top-level node running began.
     pub times_before: BTreeMap<String, f64>,
@@ -948,6 +950,7 @@ impl Session {
             untitled: crate::recovery::next_untitled(),
             ended: None,
             history_open: false,
+            relink: Default::default(),
             times_before: BTreeMap::new(),
             node_began: None,
         })
@@ -961,6 +964,12 @@ impl Session {
             let _ = tx.send(Loaded::read(&m, &base));
         });
         self.loading = Some(rx);
+    }
+
+    /// The files the model reads that are not found, worked out again after an edit or a reading of the data.
+    pub fn follow_files(&mut self) {
+        let base = self.base();
+        self.relink.follow(&self.source, &base, (self.revision, self.loads));
     }
 
     /// The folder the model's paths are relative to.
@@ -4380,6 +4389,8 @@ impl TerrafluxApp {
             crate::catalog::window(ui.ctx(), s, &self.registry);
             crate::python::window(ui.ctx(), s);
             crate::undo::window(ui.ctx(), s);
+            s.follow_files();
+            crate::relink::window(ui.ctx(), s);
             // (the figure's and the export's dialogs open in the Viewer's window when it has one)
             if !out {
                 crate::figure::window(ui.ctx(), s);

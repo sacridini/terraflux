@@ -2460,6 +2460,8 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
             }
         });
     }
+    // files the model reads not found (a model from another computer, a folder moved)
+    crate::relink::strip(ui, s);
     ui.horizontal_wrapped(|ui| {
         // where in the model: inside a container, a button back up and its kind; the levels above, each a button
         // back to it; the level shown, in bold (on a second line what a narrow pane has no room for)

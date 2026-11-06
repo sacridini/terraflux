@@ -43,6 +43,14 @@ minor versions.
   "renamed 4 by a pattern", "the assistant: edit_node"), the model as it was opened first, the step it is at
   marked and those undone faint. A click goes back or forward to any step at once; "compare" opens the Changes with
   the model as it was then.
+- Application: **the files a model reads that are not found are located again**, as for a model from another
+  computer or a folder moved: a strip over the canvas and in Problems says "2 files of the model are not found",
+  and *Locate them...* lists each with the nodes and inputs that read it. *Look in a folder...* finds them by the
+  longest end of their old path that is there, else by their name (four levels down); once one is found, the same
+  change of folder is tried on all the others; *Choose...* points to one by hand. *Apply* changes them all at once,
+  one step of undo, relative to the model's folder, and reads the data again. The old paths are cut at `/` and at
+  `\` alike, so a model written on Windows relinks on Linux and macOS, and the other way round. The files written
+  are never asked for; a folder or a pattern (`*.tif`) is found when its folder is.
 
 ## [1.42.0] - 2026-11-06
 

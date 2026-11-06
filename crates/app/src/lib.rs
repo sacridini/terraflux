@@ -66,6 +66,7 @@ pub mod python;
 pub mod qgis;
 pub mod recovery;
 pub mod region;
+pub mod relink;
 pub mod remote;
 pub mod report;
 pub mod reproject;

@@ -2642,6 +2642,16 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    de desfazer, os caminhos relativos à pasta do modelo quando ele tem arquivo, e lê os dados de novo. Também os
    `raster.read` de uma pasta ou de um padrão (a pasta que falta). Testes: a cauda nos dois separadores, a troca de
    prefixo, a busca por nome, o desfazer, um modelo com caminhos do Windows lido no Linux (WSL).
+   **Feito** (Unreleased): `relink.rs` (`paths`: as entradas `Map`/`Stack` e os `file_settings` dos nós, nos corpos
+   também, menos os de quem escreve, `*.write`, e os enviados ou na web; `missing`, `parts`, `by_end`, `by_name`,
+   `locate` com a troca de prefixo, `replace` pelo `relative_path`). `Relink` na `Session`, refeito a cada edição, a
+   cada leitura dos dados e a cada 5 s (arquivos copiados nesse meio tempo); a faixa (`strip`) no `builder::bar` e no
+   Problems, a janela "Files not found" (um "Choose..." por arquivo, de pasta para um padrão ou um caminho sem
+   extensão, e a mesma troca tentada nos outros). O Apply é um passo de desfazer nomeado ("2 files located again") e
+   lê os dados de novo. Testes: `relink::tests` (os dois separadores, a cauda, o nome e a troca, o modelo, o padrão),
+   `the_files_not_found_are_located_again` (a imagem `ui-relink.png`) e os testes puros compilados no Linux do WSL
+   (caminhos do Windows achados lá). Ficou de fora: a busca por nome numa thread (até 20 000 entradas leva menos de
+   um segundo; o diálogo de pasta já bloqueia).
 4. **O histórico do desfazer.** O `History` guarda um nome por passo, feito quando o passo fecha (`tick`): o
    `review::diff` do antes e do depois resumido ("raster.calc added: suit", "setting threshold of reclass: 3 → 4",
    "3 nodes moved", "2 nodes deleted", "connected a.map → b.x"), ou o nome dado por quem editou (o Assistant, o
