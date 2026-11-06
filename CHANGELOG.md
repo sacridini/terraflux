@@ -34,6 +34,10 @@ minor versions.
   runs before (kept per model between sessions, in the user's application data, the last 200 models), the node
   running counted by how far it says it is (a loop by its steps); a model never run gets "about 3 min left", guessed
   from how far the run is once it has gone a few seconds.
+- Canvas: **how long each node took**, under its box once the model has run ("2.4 s", "3 min", "cache" for one taken
+  from the cache; a container its body summed), with what it took and the memory of what it gave in the tooltip.
+  **Times** in the canvas bar washes each box in a warm colour by its share of the run's time and lists the five
+  slowest in the corner, a click taking the view to one.
 
 ## [1.42.0] - 2026-11-06
 

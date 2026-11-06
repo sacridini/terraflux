@@ -2523,6 +2523,15 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
         }
         ui.checkbox(&mut s.auto, "update after every edit")
             .on_hover_text("run up to the node shown after every change of the model");
+        let ran = !s.timings.is_empty();
+        if ui
+            .add_enabled(ran, egui::Button::new("Times").selected(s.editor.times_shown))
+            .on_hover_text("the boxes coloured by their share of the last run's time, the slowest listed")
+            .on_disabled_hover_text("how long each node took, once the model has run")
+            .clicked()
+        {
+            s.editor.times_shown = !s.editor.times_shown;
+        }
         let label = if s.editor.text { "Diagram" } else { "Text" };
         if ui
             .add(egui::Button::new(label).selected(s.editor.text))
@@ -2593,6 +2602,23 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                     }
                     as_layers(s, r, &made, showing.is_some());
                 }
+            }
+        }
+    }
+    // how long each node of the scope took when it last ran (a container: its body summed), from the cache or not
+    let prefix: String = s.editor.path.iter().map(|p| format!("{p}/")).collect();
+    s.editor.times = s
+        .timings
+        .iter()
+        .filter_map(|(at, (t, bytes))| {
+            let id = at.strip_prefix(&prefix).filter(|id| !id.contains('/'))?;
+            Some((id.to_string(), (*t, *bytes, false)))
+        })
+        .collect();
+    if prefix.is_empty() {
+        for (id, st) in &s.status {
+            if matches!(st, crate::editor_view::NodeStatus::Done { cached: true }) {
+                s.editor.times.entry(id.clone()).or_insert((0.0, 0, true)).2 = true;
             }
         }
     }

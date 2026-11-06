@@ -255,3 +255,37 @@ fn the_time_left_comes_from_the_runs_before() {
     let h = harness(new_app(Some(path)));
     assert!(h.state().session.as_ref().unwrap().times_before.contains_key("years"));
 }
+
+#[test]
+fn the_canvas_tells_how_long_each_node_took() {
+    use terraflux_graph::{Model, Node};
+    let mut m = Model::new("times");
+    let mut big = Node::new("big", "nlm.random").param("rows", 600).param("columns", 600).param("seed", 3);
+    big.pos = Some([0.0, 0.0]);
+    let mut small = Node::new("small", "nlm.random").param("rows", 5).param("columns", 5).param("seed", 3);
+    small.pos = Some([0.0, 200.0]);
+    m.nodes = vec![big, small];
+    let path = tmp("times.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    h.run_steps(3);
+    // (nothing run yet: Times does nothing)
+    h.get_by_label("Times").click();
+    h.run_steps(2);
+    assert!(!h.state().session.as_ref().unwrap().editor.times_shown);
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    run_to_the_end(&mut h);
+    let times = h.state().session.as_ref().unwrap().editor.times.clone();
+    assert!(times.contains_key("big") && times.contains_key("small"), "{times:?}");
+    h.get_by_label("Times").click();
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().editor.times_shown);
+    assert!(h.query_by_label("The slowest").is_some());
+    if let Ok(img) = h.render() {
+        img.save(tmp("ui-times.png")).unwrap();
+    }
+    let first = terraflux_app::editor_view::slowest_of(&times)[0].0.clone();
+    h.get_by_label(&format!("1. {first}")).click();
+    h.run_steps(3);
+    assert_eq!(h.state().session.as_ref().unwrap().selected.as_deref(), Some(first.as_str()));
+}

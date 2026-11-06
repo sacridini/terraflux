@@ -2702,6 +2702,11 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    "Times" na barra do canvas pinta as caixas pela parte do tempo total (as mais lentas na cor quente, as rápidas
    sem cor) e lista no canto os 5 nós mais lentos, cada um levando a câmera até ele. Testes: o texto do tempo, a
    escala de cores, a lista dos mais lentos.
+   **Feito** (Unreleased): `EditorState::times` (os do escopo, dados pelo `builder::canvas` a cada quadro a partir
+   de `Session::timings`; no alto, os nós do cache como "cache") e `times_shown`; o tempo sob o canto direito da
+   caixa (fora dela: não cobre o arquivo) com o tooltip; `heat`, `slowest_of` e a lista (`egui::Area` no canto,
+   um clique seleciona e centra); `eta::took`. Teste: `the_canvas_tells_how_long_each_node_took` (a imagem
+   `ui-times.png`). Falta: os tempos antes de rodar nesta sessão (os de `times_before` poderiam aparecer em cinza).
 9. **Notas e molduras no canvas.** No modelo (`terraflux_graph`): `[[notes]]`, cada uma com `id`, o `scope` (o
    contêiner onde está), o texto, a cor, e o lugar (uma nota solta) ou os nós que emoldura (uma moldura: o retângulo
    é o dos seus nós mais uma margem, então segue o *Arrange* e os arrastes). Fora do grafo: o `check` e a execução

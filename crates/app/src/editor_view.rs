@@ -646,6 +646,11 @@ pub struct EditorState {
     pub batch: Option<(String, Vec<String>)>,
     /// The node running and its share done, as its operator tells it (a line along its bottom).
     pub progress: Option<(String, f32)>,
+    /// How long each node of the scope shown took when it last ran (seconds, the bytes of what it gave, whether it
+    /// came from the cache), given by the application each frame; the boxes coloured by their share of the time
+    /// and the slowest listed (the canvas bar's Times).
+    pub times: HashMap<String, (f64, usize, bool)>,
+    pub times_shown: bool,
     /// The nodes whose optional inputs are unfolded, and a counter of their changes (the scene made again then).
     pub unfolded: HashSet<String>,
     folds: u64,
@@ -1185,6 +1190,75 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
         rects.push(RectInstance::new([c.x - 4.0, c.y - 4.0], [8.0; 2], 4.0, colour, Color32::TRANSPARENT, 0.0));
     }
     rects
+}
+
+/// The warm colour of a node's share of the time: from amber (a small share) to red (most of it).
+pub fn heat(share: f32) -> Color32 {
+    Color32::from_rgb(240, 170, 40).lerp_to_gamma(Color32::from_rgb(230, 60, 50), share.clamp(0.0, 1.0).sqrt())
+}
+
+fn share_of(t: f64, all: f64) -> String {
+    let p = 100.0 * t / all.max(f64::MIN_POSITIVE);
+    if p < 1.0 { "under 1 % of the time".into() } else { format!("{p:.0} % of the time") }
+}
+
+fn bytes_text(b: usize) -> String {
+    let b = b as f64;
+    if b >= 1e9 {
+        format!("{:.1} GB", b / 1e9)
+    } else if b >= 1e6 {
+        format!("{:.1} MB", b / 1e6)
+    } else if b >= 1e3 {
+        format!("{:.0} kB", b / 1e3)
+    } else {
+        format!("{b:.0} bytes")
+    }
+}
+
+/// The slowest nodes of the scope (at most five), the slowest first.
+pub fn slowest_of(times: &HashMap<String, (f64, usize, bool)>) -> Vec<(String, f64)> {
+    let mut all: Vec<(String, f64)> =
+        times.iter().filter(|(_, (t, _, c))| !c && *t > 0.0).map(|(k, (t, _, _))| (k.clone(), *t)).collect();
+    all.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    all.truncate(5);
+    all
+}
+
+/// The slowest nodes listed in the canvas's top right corner (Times): a click selects one and takes the view to it.
+fn slowest(ui: &mut Ui, times: &HashMap<String, (f64, usize, bool)>, rect: Rect, all: f64) -> Option<String> {
+    let list = slowest_of(times);
+    if list.is_empty() {
+        return None;
+    }
+    let mut go = None;
+    egui::Area::new(egui::Id::new("slowest nodes"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(rect.right_top() + Vec2::new(-250.0, 10.0))
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.set_width(230.0);
+                ui.label(egui::RichText::new("The slowest").strong());
+                for (k, (id, t)) in list.iter().enumerate() {
+                    let share = (*t / all) as f32;
+                    ui.horizontal(|ui| {
+                        let (r, _) = ui.allocate_exact_size(Vec2::new(8.0, 8.0), egui::Sense::hover());
+                        ui.painter().circle_filled(r.center(), 4.0, heat(share));
+                        let text = format!("{}. {id}", k + 1);
+                        if ui.link(text).on_hover_text("select it and take the view to it").clicked() {
+                            go = Some(id.clone());
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                egui::RichText::new(format!("{} · {:.0} %", crate::eta::took(*t), 100.0 * share))
+                                    .monospace()
+                                    .size(11.0),
+                            );
+                        });
+                    });
+                }
+            });
+        });
+    go
 }
 
 /// A scope laid out: its boxes, a grid of them, and the shapes the GPU draws (each box's rectangles at
@@ -3045,6 +3119,19 @@ pub fn show(
     let v = ui.visuals().clone();
     // the weak texts on a box: between the weak and the plain text, to read on the box's lighter grey
     let faint = v.weak_text_color().lerp_to_gamma(v.text_color(), 0.5);
+    // Times: each box washed in a warm colour by its share of the scope's time (the slowest the warmest)
+    let in_scope: f64 = st.times.values().map(|(t, _, _)| *t).sum();
+    if st.times_shown && in_scope > 0.0 {
+        let radius = crate::theme::shape().node_radius * cam.zoom;
+        for b in &scene.boxes {
+            let Some((t, _, _)) = st.times.get(&b.key) else { continue };
+            let share = (*t / in_scope) as f32;
+            let on_screen = Rect::from_min_max(screen(b.rect.min), screen(b.rect.max));
+            if share >= 0.01 && on_screen.intersects(rect) {
+                painter.rect_filled(on_screen, radius, heat(share).gamma_multiply(0.15 + 0.4 * share.sqrt()));
+            }
+        }
+    }
     // the texts of the boxes in view: the nodes' names never smaller than can be read (in the middle of their
     // boxes when the ports' names are not written), cut to their boxes; the operators and the ports' names when
     // the zoom makes them readable
@@ -3233,6 +3320,42 @@ pub fn show(
                 crate::theme::accent(),
             );
         }
+    }
+    // how long each node took when it last ran: under its box, at the right (from the cache: fainter); the memory of
+    // what it gave in the tooltip
+    if cam.zoom >= 0.35 {
+        let pointer = ui.input(|i| i.pointer.hover_pos());
+        for &i in &in_view {
+            let b = &scene.boxes[i];
+            let Some((t, bytes, cached)) = st.times.get(&b.key) else { continue };
+            let text = if *cached { "cache".to_string() } else { crate::eta::took(*t) };
+            let colour = if *cached { v.weak_text_color() } else { faint };
+            let at = screen(b.rect.right_bottom() + Vec2::new(-4.0, 3.0));
+            let drawn = painter.text(at, Align2::RIGHT_TOP, &text, FontId::monospace(size(10.5).max(9.0)), colour);
+            if pointer.is_some_and(|p| drawn.expand(2.0).contains(p)) {
+                let tip = if *cached {
+                    format!("{}: taken from the cache in the last run", b.key)
+                } else {
+                    format!(
+                        "{}: ran in {} ({}), gave {}",
+                        b.key,
+                        crate::eta::took(*t),
+                        share_of(*t, in_scope),
+                        bytes_text(*bytes)
+                    )
+                };
+                egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), egui::Id::new("node time"), drawn)
+                    .show(|ui| ui.label(tip));
+            }
+        }
+    }
+    if st.times_shown
+        && in_scope > 0.0
+        && let Some(id) = slowest(ui, &st.times, rect, in_scope)
+    {
+        st.chosen = [id.clone()].into();
+        st.centre = Some(id.clone());
+        actions.push(Action::Select(id));
     }
     // zoomed out, the model's stages (each framed and named); the groups' notes
     stages_and_notes(&painter, scene, &screen, view, cam.zoom < STAGES_UNDER, &v);

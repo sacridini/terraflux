@@ -64,6 +64,27 @@ pub fn words(l: Left) -> String {
     if l.by_times { format!("~{t} left") } else { format!("about {t} left") }
 }
 
+/// How long something took, short: "<0.1 s", "0.3 s", "2.4 s", "45 s", "3 min", "1 h 5 min".
+pub fn took(seconds: f64) -> String {
+    let s = seconds.max(0.0);
+    if s < 0.05 {
+        "<0.1 s".into()
+    } else if s < 10.0 {
+        format!("{s:.1} s")
+    } else if s < 60.0 {
+        format!("{s:.0} s")
+    } else {
+        let m = (s / 60.0).round() as u64;
+        if m < 60 {
+            format!("{m} min")
+        } else if m.is_multiple_of(60) {
+            format!("{} h", m / 60)
+        } else {
+            format!("{} h {} min", m / 60, m % 60)
+        }
+    }
+}
+
 fn file() -> PathBuf {
     crate::settings::data_dir().join("run-times.json")
 }
@@ -157,6 +178,17 @@ mod tests {
         assert_eq!(words(Left { seconds: 14.0 * 60.0 + 10.0, by_times: false }), "about 14 min left");
         assert_eq!(words(Left { seconds: 7800.0, by_times: true }), "~2 h 10 min left");
         assert_eq!(words(Left { seconds: 7200.0, by_times: true }), "~2 h left");
+    }
+
+    #[test]
+    fn how_long_it_took_short() {
+        assert_eq!(took(0.01), "<0.1 s");
+        assert_eq!(took(0.26), "0.3 s");
+        assert_eq!(took(2.4), "2.4 s");
+        assert_eq!(took(45.2), "45 s");
+        assert_eq!(took(185.0), "3 min");
+        assert_eq!(took(3900.0), "1 h 5 min");
+        assert_eq!(took(7200.0), "2 h");
     }
 
     #[test]
