@@ -669,6 +669,28 @@ pub struct EditorState {
     /// Why the selection's menu cannot freeze nodes, and run up to them (told by the application each frame).
     pub no_freeze: Option<&'static str>,
     pub no_run: Option<&'static str>,
+    /// The connection the pointer rests on (a value asked for to tell about it), and the canvas's response its
+    /// tooltip hangs from; where the pointer was when it was looked for, and what it found.
+    pub wire_ask: Option<WireAsk>,
+    canvas_resp: Option<egui::Response>,
+    wire_hit: Option<(Pos2, u64, Option<usize>)>,
+    /// The words told about a connection, by what they were worked out for.
+    pub wire_text: Option<(u64, u64, WireAsk, String)>,
+}
+
+/// The pointer rests this long (seconds) before the connection under it is looked for.
+const WIRE_REST: f32 = 0.3;
+
+/// An output a connection under the pointer comes from: where its value is kept (`node` is the place, `group/node`
+/// inside a group; a model input's name for a `source`), the port, its type, and whether the node ran since the
+/// last change of the model.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WireAsk {
+    pub node: String,
+    pub port: String,
+    pub ty: Type,
+    pub source: bool,
+    pub fresh: bool,
 }
 
 /// The inputs of a node a connection may go to, offered where it was let go.
@@ -681,6 +703,16 @@ struct Pick {
 }
 
 impl EditorState {
+    /// Tell about the connection the pointer rests on, in a tooltip at the pointer (the canvas's own tooltip).
+    pub fn wire_tooltip(&self, text: &str) {
+        if let Some(r) = &self.canvas_resp {
+            r.clone().on_hover_ui_at_pointer(|ui| {
+                ui.set_max_width(ui.spacing().tooltip_width);
+                ui.add(egui::Label::new(text));
+            });
+        }
+    }
+
     /// Unfold a node's optional inputs, or fold them.
     pub fn toggle_fold(&mut self, node: &str) {
         if !self.unfolded.remove(node) {
@@ -3395,6 +3427,7 @@ pub fn show(
         ui.ctx().request_repaint();
     }
     // the note of the node under the pointer; how to take a connection off an input
+    let mut wire_ask = None;
     if st.drag.is_none()
         && let Some(p) = resp.hover_pos()
     {
@@ -3465,9 +3498,42 @@ pub fn show(
             Some(Hit::Input(i, k)) if scene.boxes[i].inputs[k].name.is_empty() => {
                 resp.clone().on_hover_text_at_pointer("drop a connection here (or on the node) for one more input");
             }
+            // on a connection (nothing else under the pointer): its type and value, once the pointer has rested
+            None if near.is_none() => {
+                let still = ui.input(|i| i.pointer.time_since_last_movement());
+                if still < WIRE_REST {
+                    ui.ctx().request_repaint_after_secs(WIRE_REST - still);
+                } else {
+                    // (looked for once per place the pointer rests at)
+                    let found = match st.wire_hit {
+                        Some((q, g, e)) if q == p && g == st.generation => e,
+                        _ => {
+                            let e = scene.wire_at(to_world(p, &cam), reach(&cam)).map(|(e, _)| e);
+                            st.wire_hit = Some((p, st.generation, e));
+                            e
+                        }
+                    };
+                    if let Some(e) = found {
+                        let b = &scene.boxes[scene.edges[e].from.0];
+                        let (port, ty) = &b.outputs[scene.edges[e].from.1];
+                        let place: String = path.iter().map(|q| format!("{q}/")).collect::<String>() + &b.key;
+                        let top = path.first().unwrap_or(&b.key);
+                        let ran = matches!(status.get(top), Some(NodeStatus::Done { .. }));
+                        wire_ask = Some(WireAsk {
+                            node: if b.source && !path.is_empty() { String::new() } else { place },
+                            port: port.clone(),
+                            ty: *ty,
+                            source: b.source,
+                            fresh: ran || b.source,
+                        });
+                    }
+                }
+            }
             _ => {}
         }
     }
+    st.wire_ask = wire_ask;
+    st.canvas_resp = Some(resp.clone());
     // a connection let go on a node several of whose inputs fit: the input chosen in a list
     if let Some(pick) = st.picking.clone() {
         let area = egui::Area::new(egui::Id::new("pick an input"))

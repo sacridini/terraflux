@@ -63,6 +63,11 @@ minor versions.
   part of what the cache sees), copied with the nodes, kept in a group made, dropped with the connection and by
   *Arrange*. And **connections go around the boxes**: one without points whose curve would cross another node bends
   above or below it (Settings: *wires go around the boxes*).
+- Canvas: **a connection tells its type and its value**. The pointer resting on a connection shows its type and a
+  summary of what went through it in the last run: a map's cells, bands, cell size, coordinate system, range and
+  cells without a value (the range up to 20 million cells), the first map of a stack, a table's rows × columns,
+  vector features' count and geometry, a number itself; "not run yet" or "changed since the last run" otherwise.
+  Inside groups too; never while dragging.
 - Viewer: **from a layer to its node**. *Show its node* in a layer's menu (Layers) brings the model's canvas forward
   (the main window too, with the Viewer in a window of its own), opens the group, loop or switch it is in, selects
   the node and frames it with the glide of F; greyed, with the reason, for a difference of two maps.

@@ -2541,6 +2541,24 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
     });
 }
 
+/// What a connection carries, in words: its type, and what its output gave in the last run (a map's size, cells,
+/// system and range of values; a number; a table's size...), or that it has not run, or changed since.
+fn wire_text(s: &Session, a: &crate::editor_view::WireAsk) -> String {
+    let value = if a.node.is_empty() {
+        None
+    } else if a.source {
+        s.inputs.as_ref().and_then(|i| i.get(&a.node)).cloned()
+    } else {
+        s.value_of(&a.node, &a.port)
+    };
+    let what = match value {
+        Some(v) if a.fresh => crate::metadata::brief(&v),
+        Some(_) => "changed since the last run".to_string(),
+        None => "not run yet".to_string(),
+    };
+    format!("{}\n{what}", a.ty.name())
+}
+
 fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
     let shown = s.preview.clone();
     // the node running's share done, drawn along its bottom
@@ -2609,6 +2627,19 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
         &checks,
         &breakpoints,
     );
+    // the type and value of the connection the pointer rests on
+    if let Some(ask) = s.editor.wire_ask.clone() {
+        let key = (s.revision, s.status_rev);
+        let text = match &s.editor.wire_text {
+            Some((r, st, a, t)) if (*r, *st) == key && *a == ask => t.clone(),
+            _ => {
+                let t = wire_text(s, &ask);
+                s.editor.wire_text = Some((key.0, key.1, ask.clone(), t.clone()));
+                t
+            }
+        };
+        s.editor.wire_tooltip(&text);
+    }
     if let (Some((last, _)), Some(rect)) = (s.editor.path.split_last(), s.editor.canvas()) {
         inside(ui, rect, last, container_kind(s).as_deref().unwrap_or("a container"));
         let typing = ui.ctx().memory(|m| m.focused().is_some());

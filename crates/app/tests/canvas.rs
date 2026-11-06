@@ -2220,3 +2220,126 @@ fn a_wire_across_a_box_goes_around_it() {
     drag(&mut h, from, from + egui::vec2(0.0, 400.0));
     assert_eq!(editor(&h).bends("b", "map"), 0, "nothing in the way now");
 }
+
+/// Run the model open and step until it is done.
+fn run_model(h: &mut Harness<TerrafluxApp>) {
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    let t = Instant::now();
+    while h.state().session.as_ref().unwrap().running() {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(120), "the run took too long");
+    }
+    h.run_steps(3);
+}
+
+/// Where a wire is on the screen: the middle of its two ends (a connection's curve goes through it).
+fn on_wire(h: &Harness<TerrafluxApp>, from: (&str, &str), to: (&str, &str)) -> egui::Pos2 {
+    let e = editor(h);
+    let (a, b) = (e.screen_of_output(from.0, from.1).unwrap(), e.screen_of_input(to.0, to.1).unwrap());
+    a + (b - a) / 2.0
+}
+
+/// The pointer rests on the wire for `steps` frames of a sixtieth of a second.
+fn rest_on(h: &mut Harness<TerrafluxApp>, at: egui::Pos2, steps: usize) {
+    h.hover_at(at);
+    h.run_steps(steps);
+}
+
+fn map_model(inside: bool) -> Model {
+    let mut calc = Node::new("calc", "raster.calc").param("expression", "a * 2").input("a", "read.raster");
+    calc.pos = Some([450.0, 0.0]);
+    let nodes = vec![reader("read", [0.0, 0.0]).param("band", "0"), calc];
+    let mut m = Model::new("tip");
+    if inside {
+        let body = terraflux_graph::Body {
+            nodes,
+            outputs: [("map".to_string(), "calc.map".to_string())].into(),
+            ..Default::default()
+        };
+        m.nodes.push(Node::new("grp", terraflux_graph::GROUP).body(body));
+    } else {
+        m.nodes = nodes;
+    }
+    m
+}
+
+/// The pointer resting on a connection: a tooltip with its type and a summary of its last value (a map's size, cells
+/// and range); before a run it says it did not run, after an edit that it changed; in a group the same; not
+/// while dragging.
+#[test]
+fn a_connection_tells_its_type_and_value() {
+    use egui_kittest::kittest::Queryable;
+    for inside in [false, true] {
+        let mut h = harness(open(&map_model(inside), "canvas-wire-tip.toml"));
+        h.run_steps(3);
+        if inside {
+            h.state_mut().session.as_mut().unwrap().editor.path = vec!["grp".into()];
+            h.run_steps(40);
+        }
+        let at = on_wire(&h, ("read", "raster"), ("calc", "a"));
+        // before a run
+        rest_on(&mut h, at, 3);
+        assert!(h.query_by_label_contains("not run yet").is_none(), "not before the pointer rests");
+        rest_on(&mut h, at, 60);
+        assert!(h.query_by_label_contains("not run yet").is_some(), "inside {inside}: before a run");
+        // after one: the type of the wire and the map's size
+        h.hover_at(at + egui::vec2(0.0, 300.0));
+        h.run_steps(2);
+        run_model(&mut h);
+        let s = h.state().session.as_ref().unwrap();
+        let place = if inside { "grp/read" } else { "read" };
+        let Some(terraflux_ops::Value::Raster(r)) = s.value_of(place, "raster") else {
+            panic!("inside {inside}: the value of {place} is not kept")
+        };
+        let g = r.grid_of(r.chosen);
+        let size = format!("{} × {} cells", g.width, g.height);
+        rest_on(&mut h, at, 60);
+        assert!(h.query_by_label_contains(&size).is_some(), "inside {inside}: the size {size}");
+        assert!(h.query_by_label_contains("cell size").is_some());
+        // not while dragging (the pointer pressed and moved on the background)
+        h.hover_at(at + egui::vec2(0.0, 300.0));
+        h.run_steps(2);
+        assert!(h.query_by_label_contains(&size).is_none(), "gone when the pointer leaves");
+        h.hover_at(at);
+        h.run_steps(1);
+        h.drag_at(at);
+        h.run_steps(1);
+        for k in 1..=4 {
+            h.hover_at(at + egui::vec2(0.0, 6.0 * k as f32));
+            h.run_steps(1);
+        }
+        h.hover_at(at + egui::vec2(0.0, 24.0));
+        h.run_steps(60);
+        assert!(h.query_by_label_contains(&size).is_none(), "inside {inside}: no tooltip while dragging");
+        h.drop_at(at + egui::vec2(0.0, 24.0));
+        h.run_steps(2);
+    }
+}
+
+/// A connection that carries a number shows the number; after an edit it says the value is out of date.
+#[test]
+fn a_connection_of_a_number_shows_the_number() {
+    use egui_kittest::kittest::Queryable;
+    let mut a = Node::new("a", "value.calc").param("expression", "6 * 7");
+    a.pos = Some([0.0, 0.0]);
+    let mut b = Node::new("b", "value.calc").input("v", "a.value").param("expression", "v + 1");
+    b.pos = Some([450.0, 0.0]);
+    let mut m = Model::new("number");
+    m.nodes = vec![a, b];
+    let mut h = harness(open(&m, "canvas-wire-number.toml"));
+    h.run_steps(3);
+    run_model(&mut h);
+    let at = on_wire(&h, ("a", "value"), ("b", "v"));
+    rest_on(&mut h, at, 60);
+    assert!(h.query_by_label_contains("42").is_some(), "the number");
+    assert!(h.query_by_label_contains("number\n42").is_some(), "its type and the number");
+    // an edit: what the nodes gave may be out of date
+    h.hover_at(at + egui::vec2(0.0, 300.0));
+    h.run_steps(2);
+    h.state_mut().session.as_mut().unwrap().edited();
+    h.run_steps(3);
+    rest_on(&mut h, at, 60);
+    assert!(h.query_by_label_contains("changed since the last run").is_some());
+    assert!(h.query_by_label_contains("42").is_none());
+}

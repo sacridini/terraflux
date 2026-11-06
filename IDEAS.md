@@ -2424,6 +2424,15 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     dica ao passar sobre um fio (o item 19).
 19. **Ver o tipo e o valor numa conexão**: passar o ponteiro sobre um fio mostra o tipo e um resumo do último valor
     (um mapa: tamanho e faixa; um número: ele).
+    **Feito** (Unreleased, por um sub-agente): `metadata::brief` (o texto; a faixa até 20 milhões de células),
+    `builder::wire_text` (o valor pelo `value_of`, "not run yet" / "changed since the last run"), em editor_view.rs
+    `WireAsk`, `WIRE_REST` (0,3 s parado antes do `wire_at`, uma vez por posição) e `EditorState::wire_tooltip`; o
+    texto em cache por revisão, execução e fio. Testes: `a_connection_tells_its_type_and_value`,
+    `a_connection_of_a_number_shows_the_number`. Falta: toda edição faz todos os fios dizerem "changed" (mesmo os não
+    afetados); dentro de um grupo a frescura é a do grupo inteiro; a faixa varrida na thread da UI (uma vez por fio
+    e execução).
+
+Fim do bloco do canvas (2026-11-06): itens 4-19 feitos; os itens 1-3 já estavam.
 
 ## O Viewer como um SIG: o que ainda falta
 

@@ -218,7 +218,9 @@ Press ++f5++ to run the whole model. Then save it: **Save as...**, `core-forest.
     reads (the values typed stay); a connection taken off an input and let go on another one already connected
     ("swap with b") exchanges the two, when each fits where the other was. A double click on a connection puts a
     point on it, to drag where the connection should pass (a double click on the point removes it); connections
-    without points go around the boxes in their way (Settings: *wires go around the boxes*).
+    without points go around the boxes in their way (Settings: *wires go around the boxes*). The pointer resting on
+    a connection tells its type and what went through it in the last run: a map's size, cell size, coordinate
+    system and range, a table's rows and columns, the number itself.
 
 ## Read the results
 
