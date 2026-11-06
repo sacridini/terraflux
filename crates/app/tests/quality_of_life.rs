@@ -20,26 +20,35 @@ fn has_node(h: &Harness<TerrafluxApp>, id: &str) -> bool {
 fn edits_not_saved_are_asked_about_before_they_are_put_aside() {
     let mut h = harness(new_app(None));
     h.run_steps(3);
-    // a new model with nothing done to it: no question
+    // a new model with nothing done to it: replaced, no question, one tab
     h.state_mut().ask_new();
     assert!(h.state().confirm.is_none());
+    assert_eq!(h.state().tab_count(), 1);
     add_node(&mut h, "land");
     h.run_steps(2);
-    // a new model asked for: the question, the model kept until it is answered
+    // a new model asked for: in a tab of its own, the edited one kept in its tab
     h.state_mut().ask_new();
     h.run_steps(3);
-    assert_eq!(h.state().confirm, Some(Then::New));
+    assert!(h.state().confirm.is_none());
+    assert_eq!((h.state().tab_count(), h.state().front), (2, 1));
+    assert!(h.state().tab(0).unwrap().source.nodes.iter().any(|n| n.id == "land"));
+    // its tab closed: the question, the model kept until it is answered
+    h.state_mut().close_tab(0);
+    h.run_steps(3);
+    assert_eq!(h.state().confirm, Some(Then::Close));
     assert!(h.query_by_label_contains("Save the changes to").is_some());
     h.get_by_label("Cancel").click();
     h.run_steps(3);
     assert!(h.state().confirm.is_none());
-    assert!(has_node(&h, "land"), "Cancel keeps the model");
-    // Don't save: the new model
-    h.state_mut().ask_new();
+    assert_eq!(h.state().tab_count(), 2);
+    assert!(has_node(&h, "land"), "Cancel keeps the model, in front");
+    // Don't save: closed, the other in front
+    h.state_mut().close_tab(0);
     h.run_steps(3);
     h.get_by_label("Don't save").click();
     h.run_steps(3);
     assert!(h.state().confirm.is_none());
+    assert_eq!(h.state().tab_count(), 1);
     assert!(!has_node(&h, "land"), "the edits thrown away");
     assert!(!h.state().session.as_ref().unwrap().dirty);
 }
@@ -55,6 +64,82 @@ fn a_template_only_started_is_not_asked_about() {
     h.state_mut().ask_new();
     assert!(h.state().confirm.is_none());
     assert!(h.state().session.as_ref().unwrap().source.nodes.is_empty(), "the new model at once");
+    // the template's tab closed: no question either
+    h.state_mut().close_tab(0);
+    h.run_steps(2);
+    assert!(h.state().confirm.is_none());
+    assert_eq!(h.state().tab_count(), 1);
+}
+
+/// Two models open in tabs: switched by the strip and ctrl+Tab, each with its own panes' states, a model open
+/// already gone to its tab (by the MCP's open_in_app too), one behind running to its end, closed by its ×.
+#[test]
+fn models_open_in_tabs_run_behind_and_close() {
+    let dir = tmp("tabs");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = |name: &str, node: &str| {
+        let mut m = terraflux_graph::Model::new(name);
+        m.nodes.push(terraflux_graph::Node::new(node, "nlm.random").param("rows", 40).param("cols", 40));
+        let p = dir.join(format!("{name}.toml"));
+        m.save(&p).unwrap();
+        p
+    };
+    let (first, second) = (file("first", "a"), file("second", "b"));
+    let mut h = harness(new_app(Some(first.clone())));
+    h.run_steps(3);
+    h.state_mut().ask_open(&second);
+    h.run_steps(3);
+    assert_eq!((h.state().tab_count(), h.state().front), (2, 1));
+    assert!(has_node(&h, "b"));
+    assert!(h.query_by_label("first").is_some(), "the strip of the tabs");
+    assert_eq!(h.query_all_by_label("×").count(), 2);
+    if let Ok(img) = h.render() {
+        img.save(tmp("ui-tabs.png")).unwrap();
+    }
+    // the first by its tab; the second by ctrl+Tab; the first open again: its tab, not a third
+    h.get_by_label("first").click();
+    h.run_steps(3);
+    assert!(has_node(&h, "a") && h.state().front == 0);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Tab);
+    h.run_steps(3);
+    assert!(has_node(&h, "b"));
+    h.state_mut().ask_open(&first);
+    h.run_steps(2);
+    assert_eq!(h.state().tab_count(), 2);
+    assert!(has_node(&h, "a"));
+    // the panes' states go with their models
+    h.state_mut().params.filter = "only the first's".into();
+    h.state_mut().switch_to(1);
+    assert_eq!(h.state().params.filter, "");
+    h.state_mut().switch_to(0);
+    assert_eq!(h.state().params.filter, "only the first's");
+    // the first run behind the second: it runs to its end
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.outputs.clear();
+        s.start(Box::new(|| {}));
+    }
+    h.state_mut().switch_to(1);
+    let t = Instant::now();
+    while h.state().tab(0).unwrap().running() || h.state().tab(0).unwrap().outputs.is_empty() {
+        h.step();
+        assert!(t.elapsed() < Duration::from_secs(60), "the run behind did not end");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(h.state().tab(0).unwrap().outputs.contains_key("a"), "ran behind");
+    // the MCP's open_in_app of a model open: its tab
+    let (tx, rx) = std::sync::mpsc::channel();
+    h.state_mut().handle_handoff(terraflux_app::handoff::Request { path: first.clone(), answer: tx });
+    h.run_steps(2);
+    assert_eq!(rx.try_recv().unwrap(), Ok(()));
+    assert_eq!((h.state().tab_count(), h.state().front), (2, 0));
+    // closed by its ×: the other in front, the strip gone
+    h.get_all_by_label("×").next().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(h.state().tab_count(), 1);
+    assert!(has_node(&h, "b"));
+    assert_eq!(h.query_all_by_label("×").count(), 0, "no strip for one model");
 }
 
 #[test]

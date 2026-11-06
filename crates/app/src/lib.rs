@@ -79,6 +79,7 @@ pub mod series_drop;
 pub mod settings;
 pub mod shade;
 pub mod table_view;
+pub mod tabs;
 pub mod templates;
 pub mod theme;
 pub mod tools;

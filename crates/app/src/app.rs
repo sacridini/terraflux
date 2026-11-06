@@ -1768,6 +1768,10 @@ impl Session {
 /// The application.
 pub struct TerrafluxApp {
     pub session: Option<Session>,
+    /// The other models open, behind the one in front ([`crate::tabs`]), and the place of the one in front among
+    /// the tabs.
+    pub others: Vec<crate::tabs::Parked>,
+    pub front: usize,
     pub wizard: Option<Wizard>,
     /// The panes of the main window, and the windows of their own.
     pub dock: Option<DockState<Pane>>,
@@ -1887,6 +1891,8 @@ pub enum Then {
     Open(PathBuf),
     Start(Box<Model>),
     Recover(crate::recovery::Found),
+    /// The tab in front closed.
+    Close,
 }
 
 /// The answers to the question on the edits not saved (and to the offer of a copy recovered: Recover, Discard,
@@ -1983,6 +1989,8 @@ impl TerrafluxApp {
             notifications: false,
             told: Vec::new(),
             batch_began: None,
+            others: Vec::new(),
+            front: 0,
         };
         if let Some(p) = model {
             app.open(&p);
@@ -1991,10 +1999,16 @@ impl TerrafluxApp {
     }
 
     pub fn open(&mut self, path: &Path) {
+        if let Some(k) = self.tab_of(path) {
+            self.switch_to(k);
+            self.message = None;
+            self.focus(Pane::Model);
+            return;
+        }
         match Session::open(path) {
             Ok(s) => {
                 crate::settings::opened_model(path);
-                self.session = Some(s);
+                self.put_in_front(s);
                 self.message = None;
                 self.focus(Pane::Model);
                 // a model of data: its viewer beside it, the graph in front; its nodes in the node's pane
@@ -2036,7 +2050,7 @@ impl TerrafluxApp {
         s.history = crate::undo::History::new(&s.source);
         ctx.request_repaint();
         self.wizard = None;
-        self.session = Some(s);
+        self.put_in_front(s);
         self.message = None;
         self.focus(Pane::Model);
         // what it makes, in the viewer (behind the graph); the node selected in its pane
@@ -2066,7 +2080,7 @@ impl TerrafluxApp {
     /// A new model in the builder.
     fn new_model(&mut self) {
         self.wizard = None;
-        self.session = Some(Session::blank());
+        self.put_in_front(Session::blank());
         self.panes_due_again();
         self.focus(Pane::Model);
     }
@@ -2082,37 +2096,35 @@ impl TerrafluxApp {
         }
     }
 
-    /// The models handed by `terraflux mcp` (open_in_app): opened here and the window brought to the front, unless
-    /// the model open has edits not saved or a wizard is open (the answer says why, and it opens a window of its own).
+    /// The models handed by `terraflux mcp` (open_in_app): opened here in a tab (its tab when open already) and the
+    /// window brought to the front, unless a wizard is open (the answer says why, and it opens a window of its own).
     fn take_handoffs(&mut self, ctx: &egui::Context) {
         let Some(h) = &self.handoff else { return };
         let asked: Vec<_> = h.requests.try_iter().collect();
         for r in asked {
-            let wanted = std::fs::canonicalize(&r.path).ok();
-            let open_already = self
-                .session
-                .as_ref()
-                .and_then(|s| s.path.as_ref())
-                .is_some_and(|p| wanted.is_some() && std::fs::canonicalize(p).ok() == wanted);
-            let answer = match &self.session {
-                _ if open_already => Ok(()),
-                _ if self.wizard.is_some() => Err("Terraflux has a wizard open".to_string()),
-                Some(s) if s.dirty => Err(format!("the model open in Terraflux ({}) has edits not saved", s.title())),
-                _ => {
-                    self.message = None;
-                    self.open(&r.path);
-                    self.message.clone().map_or(Ok(()), Err)
-                }
-            };
-            if answer.is_ok() {
+            if self.handle_handoff(r) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(
                     egui::UserAttentionType::Informational,
                 ));
             }
-            let _ = r.answer.send(answer);
         }
+    }
+
+    /// A model handed by `terraflux mcp`: opened in a tab (its tab when open already), the answer sent; whether it
+    /// was.
+    pub fn handle_handoff(&mut self, r: crate::handoff::Request) -> bool {
+        let answer = if self.wizard.is_some() {
+            Err("Terraflux has a wizard open".to_string())
+        } else {
+            self.message = None;
+            self.open(&r.path);
+            self.message.clone().map_or(Ok(()), Err)
+        };
+        let ok = answer.is_ok();
+        let _ = r.answer.send(answer);
+        ok
     }
 
     /// Open a model chosen in a dialog.
@@ -2134,34 +2146,33 @@ impl TerrafluxApp {
         }
     }
 
-    /// A new model, the edits not saved of the one open asked about first.
+    /// A new model, in a tab of its own (the one open stays in its tab: nothing to ask).
     pub fn ask_new(&mut self) {
-        if self.may_leave(Then::New) {
-            self.new_model();
-        }
+        self.new_model();
     }
 
-    /// A model opened, the edits not saved of the one open asked about first.
+    /// A model opened, in a tab of its own.
     pub fn ask_open(&mut self, path: &Path) {
-        if self.may_leave(Then::Open(path.to_path_buf())) {
-            self.open(path);
-        }
+        self.open(path);
     }
 
-    /// A model to start from (a template's), the edits not saved of the one open asked about first.
+    /// A model to start from (a template's), in a tab of its own.
     pub fn ask_start(&mut self, ctx: &egui::Context, model: Model) {
-        if self.may_leave(Then::Start(Box::new(model.clone()))) {
-            self.start_model(ctx, model);
-        }
+        self.start_model(ctx, model);
     }
 
     /// Do what waited for the user's word.
     fn go(&mut self, ctx: &egui::Context, then: Then) {
         match then {
             Then::Quit => {
+                // (another model with edits not saved: asked about too)
+                if !self.may_quit() {
+                    return;
+                }
                 self.quitting = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
+            Then::Close => self.drop_front(),
             Then::New => self.new_model(),
             Then::Open(p) => self.open(&p),
             Then::Start(m) => self.start_model(ctx, *m),
@@ -2176,7 +2187,7 @@ impl TerrafluxApp {
         match crate::recovery::read(&dir, &f.key).and_then(|m| Session::recovered(m, f.note.path.clone())) {
             Ok(s) => {
                 self.wizard = None;
-                self.session = Some(s);
+                self.put_in_front(s);
                 self.message = None;
                 self.focus(Pane::Model);
                 self.panes_due_again();
@@ -2272,7 +2283,7 @@ impl TerrafluxApp {
         if !ctx.input(|i| i.viewport().close_requested()) || self.quitting {
             return;
         }
-        if !self.may_leave(Then::Quit) {
+        if !self.may_quit() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
     }
@@ -2834,6 +2845,8 @@ impl TerrafluxApp {
             action("Settings", String::new(), Do::Settings),
             action("Keyboard shortcuts", "F1".into(), Do::Shortcuts),
             action("History of the edits", String::new(), Do::History),
+            action("Next model open (its tab)", format!("{c}Tab"), Do::NextTab),
+            action("Close the model in front (its tab)", format!("{c}shift+W"), Do::CloseTab),
             action("Methods and citations: the model as a paper's methods", String::new(), Do::Methods),
             action("Export to QGIS: the run's maps as a QGIS project", String::new(), Do::Qgis),
             action("Data catalog: climate, terrain, soil, land cover, rivers to download", String::new(), Do::Catalog),
@@ -2884,6 +2897,12 @@ impl TerrafluxApp {
             Do::Stop => self.stop_run(),
             Do::Settings => self.settings_open = true,
             Do::Shortcuts => self.shortcuts_open = true,
+            Do::NextTab => self.next_tab(1),
+            Do::CloseTab => {
+                if self.session.is_some() {
+                    self.close_tab(self.front);
+                }
+            }
             Do::History => {
                 if let Some(s) = &mut self.session {
                     s.history_open = true;
@@ -4210,9 +4229,11 @@ impl TerrafluxApp {
             self.styled = Some(key);
         }
         self.closing(ui.ctx());
-        if let (Some(k), Some(s)) = (&mut self.recovery, &mut self.session) {
-            k.tick(&mut [s]);
+        if let Some(mut k) = self.recovery.take() {
+            k.tick(&mut self.sessions_mut());
+            self.recovery = Some(k);
         }
+        let behind = self.poll_behind(ui.ctx());
         if let Some(s) = &mut self.session {
             s.poll();
             crate::watch::follow(s, ui.ctx());
@@ -4266,8 +4287,11 @@ impl TerrafluxApp {
             ui.ctx().request_repaint_after(Duration::from_millis(500));
         }
         // the end of a long run, or of a batch, told when Terraflux is not in front
-        if let Some(e) = self.session.as_mut().and_then(|s| s.ended.take()) {
+        let front = self.session.as_mut().and_then(|s| s.ended.take()).map(|e| {
             let model = self.session.as_ref().map(Session::title).unwrap_or_default();
+            (model, e)
+        });
+        for (model, e) in front.into_iter().chain(behind) {
             if crate::notify::worth_telling(
                 st.notify_runs,
                 e.quiet,
@@ -4300,7 +4324,10 @@ impl TerrafluxApp {
         // the computer kept awake while a model runs, a batch goes on, or it works for another's batch
         if let Some(a) = &mut self.awake {
             let lent = self.computers.lender.as_ref().is_some_and(|l| l.status.lock().is_ok_and(|s| s.task.is_some()));
-            let working = self.session.as_ref().is_some_and(Session::running) || self.batch.running() || lent;
+            let working = self.session.as_ref().is_some_and(Session::running)
+                || self.others.iter().any(|p| p.session.running())
+                || self.batch.running()
+                || lent;
             a.want(working && st.keep_awake);
         }
         // a comparison of the Parameters pane run in Many runs: its runs back there
@@ -4312,6 +4339,7 @@ impl TerrafluxApp {
         // the cell under the pointer, from the map that has it this frame
         self.hover = None;
         if self.wizard.is_none() {
+            self.tab_keys(ui);
             self.keys(ui);
             let canvas = self.focused() == Some(Pane::Model);
             let mut show = false;
@@ -4328,6 +4356,12 @@ impl TerrafluxApp {
         let bar = egui::Frame::new().fill(theme::bar()).inner_margin(Margin::symmetric(8, 5));
         let top = if theme::modern() { bar.inner_margin(Margin::symmetric(10, 7)) } else { bar };
         egui::Panel::top("toolbar").frame(top).show(ui, |ui| self.toolbar(ui));
+        // two models or more open: their tabs
+        if self.wizard.is_none() && self.tab_count() >= 2 {
+            egui::Panel::top("model tabs")
+                .frame(egui::Frame::new().fill(theme::bar()).inner_margin(Margin::symmetric(8, 2)))
+                .show(ui, |ui| self.tabs_strip(ui));
+        }
         let focused = self.focused();
         let problems = egui::Panel::bottom("status")
             .frame(bar.inner_margin(Margin::symmetric(8, 3)))

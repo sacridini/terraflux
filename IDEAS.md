@@ -2760,3 +2760,19 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
     guardam algo de um modelo (Trace, Parameters, Calculator, a revisão, a conversa do Assistant) seguem a aba da
     frente. Copiar nós numa aba e colar em outra. Testes: abrir dois, trocar, rodar um atrás, fechar perguntando,
     colar de um no outro.
+    **Feito** (Unreleased): `tabs.rs`. `TerrafluxApp::others: Vec<Parked>` (a `Session` com os estados do Trace, do
+    Parameters, do Calculator e do `Chat`, trocados com os do aplicativo ao trocar de aba) e `front`, o lugar da da
+    frente entre as abas. `put_in_front` (o `open`, o `start_model`, o `new_model` e o `recover` passam por ele: aba
+    nova depois da da frente, ou troca o modelo vazio sem nada feito), `tab_of` (o `open` de um modelo aberto vai à
+    aba dele), `switch_to`, `next_tab`, `close_tab` (pergunta pelo item 1 com o novo `Then::Close`; `drop_front` traz
+    a vizinha), `may_quit` (cada modelo com edições é trazido à frente e perguntado, um depois do outro: o
+    `Then::Quit` confere de novo). Os `ask_new`, `ask_open` e `ask_start` não perguntam mais (nada é posto de lado).
+    A cada quadro, `poll_behind`: `poll`, `watch::follow`, `auto_run`, o `Chat`, a revisão das de trás, e o aviso do
+    item 6 com o nome do modelo; o `Keeper` do item 1 copia todos; o `awake` vale para todos. O `open_in_app`
+    (`handle_handoff`) abre numa aba e não recusa mais um modelo com edições (só com o wizard aberto). A faixa
+    (`tabs_strip`): nome, ponto, girador, ×, botão do meio; ctrl+Tab, ctrl+shift+Tab, ctrl+shift+W; na paleta e no
+    F1. Copiar e colar entre abas já funcionava (a área de transferência do sistema). Testes:
+    `models_open_in_tabs_run_behind_and_close` (abrir dois, a faixa, trocar por ela e por ctrl+Tab, abrir de novo vai
+    à aba, os estados dos painéis por aba, uma execução atrás até o fim, o `open_in_app`, fechar pelo ×; a imagem
+    `ui-tabs.png`) e os do item 1 refeitos (fechar a aba é que pergunta). Mudou do plano: fechar a aba é
+    ctrl+shift+W, porque o ctrl+W já fecha o painel da frente.

@@ -41,6 +41,9 @@ pub enum Do {
     Redo,
     /// The History window: the model's edits by name, to go back or forward to any.
     History,
+    /// The next model open (its tab), and the model in front closed.
+    NextTab,
+    CloseTab,
     Text,
     Settings,
     Shortcuts,
@@ -230,7 +233,9 @@ pub fn shortcuts() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
                 (format!("{c}S, {c}shift+S"), "save the model, save it as"),
                 (format!("{c}Z, {c}shift+Z"), "undo, do again"),
                 ("Tab".into(), "to the model and to the last map seen"),
-                (format!("{c}W"), "close the tab"),
+                (format!("{c}W"), "close the pane in front"),
+                (format!("{c}Tab, {c}shift+Tab"), "the next model open, the one before (their tabs)"),
+                (format!("{c}shift+W"), "close the model in front (its tab)"),
                 ("F1".into(), "these shortcuts"),
             ],
         ),

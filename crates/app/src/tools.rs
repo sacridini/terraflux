@@ -1921,7 +1921,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "open_in_app",
-            "Open the model in Terraflux's application, for the user to see it, run it and change it: in the one already open (its model replaced, unless it has edits not saved), else in a new window. The application follows the file: later edits appear there as they are made.",
+            "Open the model in Terraflux's application, for the user to see it, run it and change it: in the one already open (in a tab of its own, or its tab when open there already), else in a new window. The application follows the file: later edits appear there as they are made.",
             json!({ "model": model }),
             &["model"],
             None,

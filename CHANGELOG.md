@@ -58,6 +58,15 @@ minor versions.
   away, the menu gives the colour; each a step of undo. They are kept in the model's file (`[[notes]]`), outside the
   graph: never checked nor run. The Document puts the steps of a frame under its title, and the MCP sets and
   removes them (`set_note`, `remove_note`; `show_model` lists them).
+- Application: **several models open, in tabs**. *Open*, *Open recent*, *New model*, a template, the wizard, a
+  model recovered and the MCP's `open_in_app` open a model in a tab of its own (an empty model nothing was done to
+  is replaced; a model open already goes to its tab), instead of putting the one open aside. With two models or
+  more a strip of tabs under the toolbar: each model's name, a dot when it has edits not saved, a spinner while it
+  runs, its × (or the middle button) closing it. ctrl+Tab and ctrl+shift+Tab go to the next and the one before,
+  ctrl+shift+W closes the model in front (ctrl+W still closes the pane in front); both are in the commands too. The
+  models behind go on running, and the end of a long run says which model it was; the Trace, the Parameters, the
+  Calculator and the Assistant's conversation follow the model in front. Closing a tab, or Terraflux, asks about
+  each model with edits not saved. Nodes copied in one tab are pasted in another as before.
 
 ## [1.42.0] - 2026-11-06
 

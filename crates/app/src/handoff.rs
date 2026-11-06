@@ -1,7 +1,7 @@
 //! A model handed to the application already open (open_in_app of `terraflux mcp`), not opened in a new window:
 //! each application listens on a port of this computer only, written with a secret in a file of the application's
-//! data (`instances/<process>`). The asker gives the secret and the model's file; the application opens it, unless
-//! the model it has open has edits not saved.
+//! data (`instances/<process>`). The asker gives the secret and the model's file; the application opens it in a tab
+//! (its tab when it is open already), unless a wizard is open.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
@@ -83,7 +83,7 @@ fn serve(conn: TcpStream, secret: &str, tx: &mpsc::Sender<Request>, wake: &dyn F
 }
 
 /// Open the model in an application already open, the one started last first: Ok(process) where it was opened,
-/// Err(why not) when none did (none open, or each with edits not saved). The files of those gone are removed.
+/// Err(why not) when none did (none open, or each with a wizard open). The files of those gone are removed.
 pub fn open_in_running(model: &Path) -> Result<u32, String> {
     open_in(&dir(), model)
 }
