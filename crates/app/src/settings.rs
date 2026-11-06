@@ -55,6 +55,8 @@ pub struct Settings {
     pub node_colours: bool,
     /// On the model's canvas, a minimap in the corner when the model does not fit the view (on unless turned off).
     pub minimap: bool,
+    /// On the model's canvas, a wire that crosses another node's box goes around it (on unless turned off).
+    pub wires_around: bool,
     /// The models opened or saved last, the last first.
     pub recent_models: Vec<PathBuf>,
     /// The assistant's servers of chat models (their keys in the system's store of credentials), and the one
@@ -117,6 +119,7 @@ impl Default for Settings {
             files_recent: Vec::new(),
             node_colours: false,
             minimap: true,
+            wires_around: true,
             recent_models: Vec::new(),
             providers: crate::llm::presets(),
             provider: None,

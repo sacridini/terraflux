@@ -662,6 +662,7 @@ fn relink(n: &mut Node, new: &HashMap<String, String>, shadow: &HashSet<String>,
         Source::Ref(r) => relinked(r, new, shadow, outside, inner),
         Source::Literal(_) => true,
     });
+    prune_wires(n);
     n.params
         .retain(|_, v| terraflux_graph::setting_ref_mut(v).is_none_or(|r| relinked(r, new, shadow, outside, inner)));
     if let Some(b) = &mut n.body {
@@ -714,6 +715,10 @@ pub fn paste_nodes(
         let mut c = n.clone();
         c.id = id.clone();
         c.pos = n.pos.map(|p| [p[0] + offset[0], p[1] + offset[1]]);
+        // (the reroute points of its wires go with it)
+        for p in c.wires.values_mut().flatten() {
+            *p = [p[0] + offset[0], p[1] + offset[1]];
+        }
         relink(&mut c, &new, &HashSet::new(), outside, false);
         nodes.push(c);
     }
@@ -847,6 +852,7 @@ pub fn remove_node(m: &mut Model, path: &[String], id: &str) -> Result<()> {
     let reads = |s: &Source| matches!(s, Source::Ref(r) if r.starts_with(&from));
     for n in scope_mut(m, path)?.iter_mut() {
         n.inputs.retain(|_, s| !reads(s));
+        prune_wires(n);
         // (a setting that read it goes back to its default)
         n.params.retain(|_, v| !terraflux_graph::setting_ref(v).is_some_and(|r| r.starts_with(&from)));
     }
@@ -879,7 +885,10 @@ pub fn connect(m: &mut Model, r: &Registry, path: &[String], reference: &str, no
     }
     let at = format!("{}{node}", prefix(path));
     guarded(m, r, &[format!("{at}.{port}"), at.clone()], |c| {
-        node_mut(c, path, node)?.inputs.insert(port.to_string(), Source::Ref(reference.to_string()));
+        let n = node_mut(c, path, node)?;
+        n.inputs.insert(port.to_string(), Source::Ref(reference.to_string()));
+        // (a wire moved here comes without its points)
+        n.wires.remove(port);
         Ok(())
     })
 }
@@ -906,6 +915,7 @@ pub fn connect_many(
         let n = node_mut(c, path, node)?;
         for (reference, port) in links {
             n.inputs.insert(port.clone(), Source::Ref(reference.clone()));
+            n.wires.remove(port);
         }
         Ok(())
     })
@@ -936,8 +946,12 @@ pub fn insert_between(
     let checked =
         [at(node, input), at(to, to_port), format!("{}{node}", prefix(path)), format!("{}{to}", prefix(path))];
     guarded(m, r, &checked, |c| {
-        node_mut(c, path, node)?.inputs.insert(input.to_string(), Source::Ref(from.to_string()));
-        node_mut(c, path, to)?.inputs.insert(to_port.to_string(), Source::Ref(format!("{node}.{out}")));
+        let n = node_mut(c, path, node)?;
+        n.inputs.insert(input.to_string(), Source::Ref(from.to_string()));
+        n.wires.remove(input);
+        let t = node_mut(c, path, to)?;
+        t.inputs.insert(to_port.to_string(), Source::Ref(format!("{node}.{out}")));
+        t.wires.remove(to_port);
         Ok(())
     })
 }
@@ -948,13 +962,16 @@ pub fn lift_out(m: &mut Model, path: &[String], node: &str, rewire: &[(String, S
     // (nothing to check: the sources were chosen to fit, and a node out of the chain makes no cycle; what the
     // node lacks now is the checks' to tell)
     let mut copy = m.clone();
-    node_mut(&mut copy, path, node)?.inputs.retain(|_, s| !matches!(s, Source::Ref(_)));
+    let own = node_mut(&mut copy, path, node)?;
+    own.inputs.retain(|_, s| !matches!(s, Source::Ref(_)));
+    own.wires.clear();
     for (n, port, source) in rewire {
         let n = node_mut(&mut copy, path, n)?;
         match source {
             Some(s) => n.inputs.insert(port.clone(), Source::Ref(s.clone())),
             None => n.inputs.remove(port),
         };
+        n.wires.remove(port);
     }
     *m = copy;
     Ok(())
@@ -1014,15 +1031,90 @@ pub fn swap_wires(
     let checked =
         [at(from.0, from.1), at(node, port), format!("{}{}", prefix(path), from.0), format!("{}{node}", prefix(path))];
     guarded(m, r, &checked, |c| {
-        node_mut(c, path, node)?.inputs.insert(port.to_string(), Source::Ref(reference.to_string()));
-        node_mut(c, path, from.0)?.inputs.insert(from.1.to_string(), Source::Ref(other));
+        let n = node_mut(c, path, node)?;
+        n.inputs.insert(port.to_string(), Source::Ref(reference.to_string()));
+        n.wires.remove(port);
+        let f = node_mut(c, path, from.0)?;
+        f.inputs.insert(from.1.to_string(), Source::Ref(other));
+        f.wires.remove(from.1);
         Ok(())
     })
 }
 
-/// Remove what a node's input port reads.
+/// Let go the reroute points of the wires a node no longer reads (a port that reads no node has none).
+fn prune_wires(n: &mut Node) {
+    let Node { inputs, wires, .. } = n;
+    wires.retain(|port, pts| !pts.is_empty() && matches!(inputs.get(port), Some(Source::Ref(_))));
+}
+
+/// The reroute points of a node's wires moved by `by` (a node taken to another scope's coordinates), those of the
+/// wires that read a node `keep` says only: the others read from another scope, where the points mean nothing.
+fn shift_wires(n: &mut Node, by: [f32; 2], keep: impl Fn(&str) -> bool) {
+    let Node { inputs, wires, .. } = n;
+    wires.retain(|port, _| match inputs.get(port) {
+        Some(Source::Ref(rf)) => matches!(Ref::parse(rf), Ok(Ref::Port { node, .. }) if keep(&node)),
+        _ => false,
+    });
+    for p in wires.values_mut().flatten() {
+        *p = [p[0] + by[0], p[1] + by[1]];
+    }
+}
+
+/// The points of a node's wire into `port` (a connection that is there), to change.
+fn wire_points<'a>(m: &'a mut Model, path: &[String], node: &str, port: &str) -> Result<&'a mut Vec<[f32; 2]>> {
+    let n = node_mut(m, path, node)?;
+    if !matches!(n.inputs.get(port), Some(Source::Ref(_))) {
+        return Err(format!("{node}.{port} reads no node"));
+    }
+    Ok(n.wires.entry(port.to_string()).or_default())
+}
+
+/// A reroute point added to the wire into a node's input, as the `index`th (from the output): drawing only.
+pub fn add_wire_point(
+    m: &mut Model,
+    path: &[String],
+    node: &str,
+    port: &str,
+    index: usize,
+    at: [f32; 2],
+) -> Result<()> {
+    let pts = wire_points(m, path, node, port)?;
+    pts.insert(index.min(pts.len()), at);
+    Ok(())
+}
+
+/// The `index`th reroute point of the wire into a node's input moved.
+pub fn move_wire_point(
+    m: &mut Model,
+    path: &[String],
+    node: &str,
+    port: &str,
+    index: usize,
+    to: [f32; 2],
+) -> Result<()> {
+    let p = wire_points(m, path, node, port)?
+        .get_mut(index)
+        .ok_or_else(|| format!("{node}.{port} has no point {index}"))?;
+    *p = to;
+    Ok(())
+}
+
+/// The `index`th reroute point of the wire into a node's input taken away (the wire's last: it is straight again).
+pub fn remove_wire_point(m: &mut Model, path: &[String], node: &str, port: &str, index: usize) -> Result<()> {
+    let pts = wire_points(m, path, node, port)?;
+    if index >= pts.len() {
+        return Err(format!("{node}.{port} has no point {index}"));
+    }
+    pts.remove(index);
+    prune_wires(node_mut(m, path, node)?);
+    Ok(())
+}
+
+/// Remove what a node's input port reads (and the reroute points of its wire).
 pub fn disconnect(m: &mut Model, path: &[String], node: &str, port: &str) -> Result<()> {
-    node_mut(m, path, node)?.inputs.remove(port);
+    let n = node_mut(m, path, node)?;
+    n.inputs.remove(port);
+    n.wires.remove(port);
     Ok(())
 }
 
@@ -1034,6 +1126,7 @@ pub fn disconnect_all(m: &mut Model, path: &[String], ids: &[String]) -> Result<
         let n = node_mut(m, path, id)?;
         let before = n.inputs.len();
         n.inputs.retain(|_, s| !matches!(s, Source::Ref(_)));
+        n.wires.clear();
         gone += before - n.inputs.len();
     }
     Ok(gone)
@@ -1051,7 +1144,9 @@ pub fn set_literal(m: &mut Model, r: &Registry, path: &[String], node: &str, por
     }
     let at = format!("{}{node}", prefix(path));
     guarded(m, r, &[format!("{at}.{port}"), at.clone()], |c| {
-        node_mut(c, path, node)?.inputs.insert(port.to_string(), Source::Literal(value_of(text)));
+        let n = node_mut(c, path, node)?;
+        n.inputs.insert(port.to_string(), Source::Literal(value_of(text)));
+        n.wires.remove(port);
         Ok(())
     })
 }
@@ -1238,6 +1333,8 @@ pub fn group_nodes(
         for n in body.iter_mut() {
             let p = place[&n.id];
             n.pos = Some([p[0] - corner[0], p[1] - corner[1]]);
+            // (the points of the wires among the grouped nodes follow; those of wires from outside are let go)
+            shift_wires(n, [-corner[0], -corner[1]], |k| moved.contains(k));
         }
         let mut g = Node::new(id, GROUP).body(Body { nodes: body, outputs, ..Default::default() });
         g.note = note.map(String::from);
@@ -1323,6 +1420,7 @@ pub fn ungroup(m: &mut Model, r: &Registry, path: &[String], id: &str) -> Result
     let given = g.inputs.clone();
     let corner = g.pos.unwrap_or([0.0, 0.0]);
     let moved: Vec<String> = body.nodes.iter().map(|n| prefix(path) + &n.id).collect();
+    let own: HashSet<String> = body.nodes.iter().map(|n| n.id.clone()).collect();
     /// The group's inputs given in place of `@name`, in the body's own containers too unless one gives its own.
     fn give(n: &mut Node, given: &std::collections::BTreeMap<String, Source>) {
         for s in n.inputs.values_mut() {
@@ -1358,6 +1456,9 @@ pub fn ungroup(m: &mut Model, r: &Registry, path: &[String], id: &str) -> Result
         nodes.remove(at);
         let mut out = body.nodes.clone();
         for n in out.iter_mut() {
+            // (the points of the wires among the nodes of the body follow; those of wires from outside the body,
+            // read through the group's inputs, are let go)
+            shift_wires(n, corner, |k| own.contains(k));
             give(n, &given);
             let p = n.pos.unwrap_or([0.0, 0.0]);
             n.pos = Some([p[0] + corner[0], p[1] + corner[1]]);
@@ -1863,6 +1964,37 @@ out big = img > 5",
         let e = group_nodes(&mut c, &r, &[], &ends, "ends", None).unwrap_err();
         assert!(e.contains("cycle"), "{e}");
         assert_eq!(c, before);
+    }
+
+    /// The reroute points of the wires among nodes grouped go with them (into the group's coordinates and out again);
+    /// those of wires from outside are let go; a disconnected input has none.
+    #[test]
+    fn reroute_points_follow_a_group_and_a_connection() {
+        let r = Registry::standard();
+        let mut m = model();
+        add_node(&mut m, &r, &[], "raster.calc", [300.0, 100.0]).unwrap();
+        add_node(&mut m, &r, &[], "raster.calc", [500.0, 100.0]).unwrap();
+        connect(&mut m, &r, &[], "$t0", "raster_calc", "a").unwrap();
+        connect(&mut m, &r, &[], "raster_calc.map", "raster_calc_2", "b").unwrap();
+        add_wire_point(&mut m, &[], "raster_calc_2", "b", 0, [400.0, 60.0]).unwrap();
+        add_wire_point(&mut m, &[], "raster_calc_2", "b", 1, [450.0, 70.0]).unwrap();
+        add_wire_point(&mut m, &[], "raster_calc", "a", 0, [100.0, 100.0]).unwrap();
+        assert!(add_wire_point(&mut m, &[], "raster_calc_2", "a", 0, [0.0, 0.0]).is_err(), "no connection there");
+        move_wire_point(&mut m, &[], "raster_calc_2", "b", 1, [460.0, 80.0]).unwrap();
+        remove_wire_point(&mut m, &[], "raster_calc_2", "b", 0).unwrap();
+        assert_eq!(m.node("raster_calc_2").unwrap().wires["b"], vec![[460.0, 80.0]]);
+        add_wire_point(&mut m, &[], "raster_calc_2", "b", 0, [400.0, 60.0]).unwrap();
+        let ids = vec!["raster_calc".to_string(), "raster_calc_2".to_string()];
+        group_nodes(&mut m, &r, &[], &ids, "prepare", None).unwrap();
+        let body = m.node("prepare").unwrap().body.as_ref().unwrap();
+        assert_eq!(body.nodes[1].wires["b"], vec![[100.0, -40.0], [160.0, -20.0]]);
+        assert!(body.nodes[0].wires.is_empty(), "the wire from the model's input is out of the group's scope");
+        ungroup(&mut m, &r, &[], "prepare").unwrap();
+        assert_eq!(m.node("raster_calc_2").unwrap().wires["b"], vec![[400.0, 60.0], [460.0, 80.0]]);
+        assert!(m.node("raster_calc").unwrap().wires.is_empty());
+        // taken off its input, the wire has no points
+        disconnect(&mut m, &[], "raster_calc_2", "b").unwrap();
+        assert!(m.node("raster_calc_2").unwrap().wires.is_empty());
     }
 
     /// Rasters grouped that nothing read yet: the group gives each as an output, to connect on (a reclassify, a

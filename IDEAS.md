@@ -2413,6 +2413,15 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     desfazer (as paletas não têm undo hoje); camadas ainda sem dados não contam.
 18. **Fios com redirecionamento** (um ponto no meio do fio, arrastável) e fios que desviam das caixas em modelos
     densos.
+    **Feito** (Unreleased, por um sub-agente): `Node.wires` (graph, por porta de entrada, fora do TOML quando vazio;
+    os `bare()` do exec e do user_node o tiram); `editor::add_wire_point`/`move_wire_point`/`remove_wire_point`,
+    `prune_wires` em toda troca de ligação, `shift_wires` nas cópias e no agrupar; em editor_view.rs o fio como
+    cadeia de béziers (`wire_path`), `Drag::Point`, `menu_point`, o desvio (`Scene::detour`: 48 amostras, dois pontos
+    acima ou abaixo por caixa, só fios sem pontos, refeito ao mover uma caixa); `settings.wires_around`; o *Arrange*
+    (canvas e MCP) limpa os pontos. Testes: cinco em canvas.rs (`a_wire_gets_reroute_points_...`,
+    `a_wire_across_a_box_goes_around_it`...) e `reroute_points_are_saved_only_when_there_are_some`. Falta: o teste do
+    desvio e o do minimapa mudam a mesma `settings` global (frágil em paralelo); não medido com milhares de nós; sem
+    dica ao passar sobre um fio (o item 19).
 19. **Ver o tipo e o valor numa conexão**: passar o ponteiro sobre um fio mostra o tipo e um resumo do último valor
     (um mapa: tamanho e faixa; um número: ele).
 

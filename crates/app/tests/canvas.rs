@@ -1991,3 +1991,232 @@ fn the_minimap_shows_a_large_model_and_moves_the_view() {
     assert_eq!(editor(&h).path, ["grp"]);
     terraflux_app::settings::update(|s| s.minimap = true);
 }
+
+/// The reroute points of a node's wires, by input.
+fn points_of(h: &Harness<TerrafluxApp>, inside: bool, id: &str) -> std::collections::BTreeMap<String, Vec<[f32; 2]>> {
+    nodes_now(h, inside).into_iter().find(|n| n.id == id).unwrap().wires
+}
+
+/// The graph point halfway along the wire into `node.port`, as it is drawn.
+fn wire_mid(h: &Harness<TerrafluxApp>, node: &str, port: &str) -> egui::Pos2 {
+    let w = editor(h).wire(node, port).expect("the wire is drawn");
+    w[w.len() / 2]
+}
+
+fn graph_to_screen(h: &Harness<TerrafluxApp>, p: egui::Pos2) -> egui::Pos2 {
+    editor(h).screen_at(p).unwrap()
+}
+
+/// A double click at a graph point.
+fn double_click_graph(h: &mut Harness<TerrafluxApp>, p: egui::Pos2) {
+    // (a pause first: clicks close to the last ones would be a triple click)
+    h.run_steps(30);
+    let at = graph_to_screen(h, p);
+    double_click(h, at);
+}
+
+/// A double click halfway along the wire into `node.port`.
+fn double_click_wire(h: &mut Harness<TerrafluxApp>, node: &str, port: &str) {
+    let mid = wire_mid(h, node, port);
+    double_click_graph(h, mid);
+}
+
+fn is_near(a: [f32; 2], b: egui::Pos2, within: f32) -> bool {
+    egui::pos2(a[0], a[1]).distance(b) <= within
+}
+
+/// A double click on a wire adds a reroute point there, dragging it moves it, a double click on it (or right click,
+/// "Remove point") takes it away: each one step of undo, and the wire is drawn through it. In a group too.
+#[test]
+fn a_wire_gets_reroute_points_that_are_added_moved_and_removed() {
+    use egui_kittest::kittest::Queryable;
+    for inside in [false, true] {
+        let mut h = scoped_model(inside, "canvas-points.toml");
+        assert!(points_of(&h, inside, "b").is_empty());
+        // added: a double click on the wire
+        let mid = wire_mid(&h, "b", "map");
+        double_click_graph(&mut h, mid);
+        let pts = points_of(&h, inside, "b");
+        assert_eq!(pts["map"].len(), 1, "inside {inside}: {pts:?}");
+        let p = pts["map"][0];
+        assert!(is_near(p, mid, 12.0), "{p:?} near {mid:?}");
+        assert!(h.state().session.as_ref().unwrap().editor.message.is_none());
+        assert!(
+            editor(&h).wire("b", "map").unwrap().iter().any(|q| q.distance(egui::pos2(p[0], p[1])) < 1.0),
+            "the wire goes through the point"
+        );
+        // one step of undo takes it away
+        undo(&mut h);
+        assert!(points_of(&h, inside, "b").is_empty(), "inside {inside}");
+        double_click_wire(&mut h, "b", "map");
+        let p = points_of(&h, inside, "b")["map"][0];
+        // moved: dragged, one step of undo for the whole drag
+        let z = editor(&h).zoom();
+        let from = graph_to_screen(&h, egui::pos2(p[0], p[1]));
+        drag(&mut h, from, from + egui::vec2(40.0, 60.0));
+        let moved = points_of(&h, inside, "b")["map"][0];
+        assert_eq!(points_of(&h, inside, "b")["map"].len(), 1);
+        assert!(
+            (moved[0] - p[0] - 40.0 / z).abs() < 2.0 && (moved[1] - p[1] - 60.0 / z).abs() < 2.0,
+            "{p:?} -> {moved:?} at zoom {z}"
+        );
+        undo(&mut h);
+        assert!(is_near(points_of(&h, inside, "b")["map"][0], egui::pos2(p[0], p[1]), 0.01), "one undo for the drag");
+        // removed: a double click on it, then the menu's "Remove point"; each one step of undo
+        double_click_graph(&mut h, egui::pos2(p[0], p[1]));
+        assert!(points_of(&h, inside, "b").is_empty(), "inside {inside}");
+        undo(&mut h);
+        assert_eq!(points_of(&h, inside, "b")["map"].len(), 1);
+        let at = graph_to_screen(&h, egui::pos2(p[0], p[1]));
+        right_click(&mut h, at);
+        pick(&mut h, "Remove point");
+        assert!(points_of(&h, inside, "b").is_empty(), "inside {inside}");
+        undo(&mut h);
+        assert_eq!(points_of(&h, inside, "b")["map"].len(), 1);
+        // (the menu is gone)
+        assert!(h.query_by_label("Remove point").is_none());
+    }
+}
+
+/// The points are saved with the model (the node's `wires`) and drawn again when it is opened; a model without
+/// points has no `wires` in its text.
+#[test]
+fn reroute_points_are_saved_and_loaded() {
+    let mut m = selection_model();
+    assert!(!m.to_toml().unwrap().contains("wires"));
+    m.nodes[1].wires.insert("map".into(), vec![[250.0, -40.0], [280.0, 60.0]]);
+    let text = m.to_toml().unwrap();
+    assert!(text.contains("wires"), "{text}");
+    let back = Model::from_toml(&text).unwrap();
+    assert_eq!(back.nodes[1].wires["map"], vec![[250.0, -40.0], [280.0, 60.0]]);
+    let mut h = harness(open(&back, "canvas-points-saved.toml"));
+    h.run_steps(3);
+    let path = editor(&h).wire("b", "map").unwrap();
+    for p in [[250.0, -40.0], [280.0, 60.0]] {
+        assert!(path.iter().any(|q| q.distance(egui::pos2(p[0], p[1])) < 1.0), "through {p:?}");
+    }
+}
+
+/// A connection taken away, or a wire moved to another input, loses its points; so does a swap.
+#[test]
+fn a_wire_taken_off_loses_its_points() {
+    for inside in [false, true] {
+        let mut h = scoped_model(inside, "canvas-points-gone.toml");
+        double_click_wire(&mut h, "b", "map");
+        assert_eq!(points_of(&h, inside, "b")["map"].len(), 1);
+        // the connection taken off its input (a right click on the input): the points go with it
+        let at = editor(&h).screen_of_input("b", "map").unwrap();
+        right_click(&mut h, at);
+        assert!(source_of(&h, inside, "b", "map").is_none());
+        assert!(points_of(&h, inside, "b").is_empty(), "inside {inside}");
+        // undone, the wire and its points are back (they are the model's)
+        undo(&mut h);
+        assert_eq!(points_of(&h, inside, "b")["map"].len(), 1);
+    }
+    // two wires swapped by dragging one over the other's input: neither keeps points it had
+    for inside in [false, true] {
+        let mut h = wired_model(inside, "canvas-points-swap.toml");
+        double_click_wire(&mut h, "calc", "map");
+        assert_eq!(points_of(&h, inside, "calc")["map"].len(), 1, "inside {inside}");
+        let from = editor(&h).screen_of_input("calc", "map").unwrap();
+        let to = editor(&h).screen_of_input("other", "map").unwrap();
+        drag(&mut h, from, to);
+        assert_eq!(source_of(&h, inside, "calc", "map").as_deref(), Some("r2.raster"));
+        assert!(points_of(&h, inside, "calc").is_empty(), "inside {inside}");
+        assert!(points_of(&h, inside, "other").is_empty());
+    }
+}
+
+/// A duplicate (ctrl+D) carries the points of its wires, moved with the copy.
+#[test]
+fn a_duplicate_carries_the_reroute_points() {
+    for inside in [false, true] {
+        let mut m = selection_model();
+        m.nodes[1].wires.insert("map".into(), vec![[250.0, -40.0]]);
+        let nodes = std::mem::take(&mut m.nodes);
+        if inside {
+            m.nodes.push(
+                Node::new("grp", terraflux_graph::GROUP).body(terraflux_graph::Body { nodes, ..Default::default() }),
+            );
+        } else {
+            m.nodes = nodes;
+        }
+        let mut h = harness(open(&m, "canvas-points-copy.toml"));
+        h.run_steps(3);
+        if inside {
+            h.state_mut().session.as_mut().unwrap().editor.path = vec!["grp".into()];
+            h.run_steps(40);
+        }
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.selected = Some("b".into());
+        s.editor.chosen = ["b".to_string()].into();
+        h.run_steps(2);
+        let centre = editor(&h).canvas().unwrap().center();
+        h.hover_at(centre);
+        h.run_steps(2);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+        h.run_steps(3);
+        let v = nodes_now(&h, inside);
+        let (b, c) = (v.iter().find(|n| n.id == "b").unwrap(), v.iter().find(|n| n.id == "b_2").expect("the copy"));
+        assert_eq!(b.wires["map"], vec![[250.0, -40.0]], "the original keeps its point");
+        let (pb, pc) = (b.pos.unwrap(), c.pos.unwrap());
+        let by = [pc[0] - pb[0], pc[1] - pb[1]];
+        assert!(by != [0.0, 0.0], "the copy is moved");
+        let got = c.wires["map"][0];
+        assert!((got[0] - 250.0 - by[0]).abs() < 0.01 && (got[1] + 40.0 - by[1]).abs() < 0.01, "{got:?} by {by:?}");
+    }
+}
+
+/// A box on a wire's way: `a -> b` far apart at the same height with `block` between.
+fn blocked_model() -> Model {
+    let mut b = Node::new("b", "raster.reclassify").input("map", "a.raster");
+    b.pos = Some([900.0, 0.0]);
+    let mut m = Model::new("blocked");
+    m.nodes = vec![reader("a", [0.0, 0.0]), b, reader("block", [420.0, 0.0])];
+    m
+}
+
+fn crosses(path: &[egui::Pos2], r: egui::Rect) -> bool {
+    path.iter().any(|q| r.contains(*q))
+}
+
+/// A wire that would cross another node's box goes around it (above or below, by the shorter way) unless it has
+/// points of its own or the setting is off, when it is the plain curve.
+#[test]
+fn a_wire_across_a_box_goes_around_it() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    std::fs::create_dir_all(&dir).unwrap();
+    unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("minimap-settings.json")) };
+    terraflux_app::settings::update(|s| s.wires_around = true);
+    let mut h = harness(open(&blocked_model(), "canvas-around.toml"));
+    h.run_steps(3);
+    let block = editor(&h).rects_of(&["block".to_string()])[0].1;
+    // on: bent, and the path it is drawn along clears the box, from the output to the input
+    assert!(editor(&h).bends("b", "map") > 0, "bent");
+    let path = editor(&h).wire("b", "map").unwrap();
+    assert!(!crosses(&path, block), "the path crosses {block:?}");
+    let (a_out, b_in) = (path[0], *path.last().unwrap());
+    assert!(a_out.x < block.left() && b_in.x > block.right());
+    // off: the plain curve, straight across the box
+    terraflux_app::settings::update(|s| s.wires_around = false);
+    h.run_steps(3);
+    assert_eq!(editor(&h).bends("b", "map"), 0);
+    let plain = editor(&h).wire("b", "map").unwrap();
+    assert!(crosses(&plain, block), "the plain wire crosses the box");
+    assert!(plain.iter().all(|q| (q.y - plain[0].y).abs() < 1.0), "a straight wire");
+    // a wire with a point of its own is left as drawn, even when the setting is on
+    terraflux_app::settings::update(|s| s.wires_around = true);
+    h.run_steps(3);
+    assert!(editor(&h).bends("b", "map") > 0);
+    double_click_wire(&mut h, "b", "map");
+    let s = h.state().session.as_ref().unwrap();
+    let own = s.source.nodes.iter().find(|n| n.id == "b").unwrap().wires.get("map").map_or(0, Vec::len);
+    assert_eq!(own, 1, "a point of its own was added: {:?}", s.source.nodes[1].wires);
+    assert_eq!(editor(&h).bends("b", "map"), 0, "its own points replace the bends");
+    // the box dragged out of the way: the wire is straight again
+    undo(&mut h);
+    assert!(editor(&h).bends("b", "map") > 0);
+    let from = editor(&h).screen_of("block").unwrap();
+    drag(&mut h, from, from + egui::vec2(0.0, 400.0));
+    assert_eq!(editor(&h).bends("b", "map"), 0, "nothing in the way now");
+}

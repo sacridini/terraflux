@@ -349,6 +349,25 @@ pub enum Action {
     DisconnectChosen,
     /// One node's menu: every connection into the node taken off.
     DisconnectAll(String),
+    /// A reroute point added to the wire into a node's input (the `index`th from the output), at a place (graph
+    /// units); one moved (dragged: in the scene already); one taken away.
+    AddWirePoint {
+        node: String,
+        port: String,
+        index: usize,
+        at: [f32; 2],
+    },
+    MoveWirePoint {
+        node: String,
+        port: String,
+        index: usize,
+        to: [f32; 2],
+    },
+    RemoveWirePoint {
+        node: String,
+        port: String,
+        index: usize,
+    },
     /// A connection carried (`reference`) off the input `from` (node, port) let go on the connected input `port` of
     /// `node`: the two connections exchanged.
     Swap {
@@ -570,6 +589,9 @@ enum Drag {
     Resize(String, f32, f32),
     /// A box of selection from a corner (graph units).
     Select(Pos2),
+    /// A reroute point of a wire moved: the wire (its edge in the scene), the point's index, the node and input
+    /// the wire goes into.
+    Point(usize, usize, String, String),
 }
 
 /// The editor's state between frames.
@@ -642,6 +664,8 @@ pub struct EditorState {
     /// The open menu is the selection's (a right click on a node of two or more selected, or on the background
     /// with them selected), not one node's.
     menu_many: bool,
+    /// The open menu is a reroute point's (right-clicked): the node and input its wire goes into, and its index.
+    menu_point: Option<(String, String, usize)>,
     /// Why the selection's menu cannot freeze nodes, and run up to them (told by the application each frame).
     pub no_freeze: Option<&'static str>,
     pub no_run: Option<&'static str>,
@@ -700,6 +724,26 @@ impl EditorState {
     /// The boxes of the scene shown (what the scope reads, then its nodes).
     pub fn boxes(&self) -> usize {
         self.scene.as_ref().map_or(0, |s| s.boxes.len())
+    }
+
+    /// The wire into a node's input as it is drawn (graph units), sampled: through its reroute points, or bent
+    /// around the boxes it would cross, else the plain curve. None when it is not on the canvas.
+    pub fn wire(&self, node: &str, port: &str) -> Option<Vec<Pos2>> {
+        let s = self.scene.as_ref()?;
+        (0..s.edges.len()).find(|&e| s.wire_into(e) == (node.to_string(), port.to_string())).map(|e| s.path(e))
+    }
+
+    /// The waypoints a wire is bent through around the boxes, none when it is plain or has points of its own.
+    pub fn bends(&self, node: &str, port: &str) -> usize {
+        let Some(s) = self.scene.as_ref() else { return 0 };
+        (0..s.edges.len())
+            .find(|&e| s.wire_into(e) == (node.to_string(), port.to_string()))
+            .map_or(0, |e| if s.edges[e].via.is_empty() { s.edges[e].bend.len() } else { 0 })
+    }
+
+    /// Where a point of the graph is on the screen, as the canvas was last drawn.
+    pub fn screen_at(&self, p: Pos2) -> Option<Pos2> {
+        self.on_screen(p)
     }
 
     fn on_screen(&self, p: Pos2) -> Option<Pos2> {
@@ -974,10 +1018,55 @@ struct Insert {
     to_port: String,
 }
 
-/// A connection: from a box's output to a box's input.
+/// A connection: from a box's output to a box's input, through the reroute points the model keeps for it (`via`,
+/// graph units), else the waypoints that take it around the boxes it would cross (`bend`).
 struct EdgeAt {
     from: (usize, usize),
     to: (usize, usize),
+    via: Vec<Pos2>,
+    bend: Vec<Pos2>,
+    colour: [u8; 4],
+}
+
+/// How far a wire bent around a box keeps from it (graph units).
+const AROUND: f32 = 18.0;
+/// The points a wire's curve is sampled at, per piece.
+const SAMPLES: usize = 24;
+
+/// The cubic curve of a wire piece between two points, leaving and arriving horizontally (as the GPU draws it).
+fn wire_curve(a: Pos2, b: Pos2) -> [Pos2; 4] {
+    let dx = ((b.x - a.x).abs() * 0.5).max(30.0);
+    [a, a + Vec2::new(dx, 0.0), b - Vec2::new(dx, 0.0), b]
+}
+
+/// The point of a cubic curve at `t`.
+fn bezier_at(c: &[Pos2; 4], t: f32) -> Pos2 {
+    let u = 1.0 - t;
+    (c[0].to_vec2() * (u * u * u)
+        + c[1].to_vec2() * (3.0 * u * u * t)
+        + c[2].to_vec2() * (3.0 * u * t * t)
+        + c[3].to_vec2() * (t * t * t))
+        .to_pos2()
+}
+
+/// A wire drawn through `route` (its output, its waypoints, its input), as a chain of curves, sampled: each piece
+/// `SAMPLES` points after the first.
+fn wire_path(route: &[Pos2]) -> Vec<Pos2> {
+    let mut out = Vec::with_capacity(route.len() * SAMPLES + 1);
+    for (k, w) in route.windows(2).enumerate() {
+        let c = wire_curve(w[0], w[1]);
+        let from = if k == 0 { 0 } else { 1 };
+        out.extend((from..=SAMPLES).map(|i| bezier_at(&c, i as f32 / SAMPLES as f32)));
+    }
+    out
+}
+
+/// The distance of a point to a segment.
+fn segment_distance(p: Pos2, a: Pos2, b: Pos2) -> f32 {
+    let ab = b - a;
+    let len2 = ab.length_sq();
+    let t = if len2 <= f32::EPSILON { 0.0 } else { ((p - a).dot(ab) / len2).clamp(0.0, 1.0) };
+    p.distance(a + ab * t)
 }
 
 /// The rectangles the GPU draws of a box: the box, its header's colour, the line over its file, its ports and the
@@ -1067,9 +1156,9 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
 }
 
 /// A scope laid out: its boxes, a grid of them, and the shapes the GPU draws (each box's rectangles at
-/// `ranges[box]`, the connections touching each box in `touching[box]`, to move a box alone).
+/// `ranges[box]`; the connections, as curves through their points, are made again when a box moves).
 struct Scene {
-    key: (u64, Vec<String>, u64, &'static str, bool, u64),
+    key: (u64, Vec<String>, u64, &'static str, bool, u64, bool),
     boxes: Vec<BoxAt>,
     index: HashMap<String, usize>,
     grid: HashMap<(i32, i32), Vec<usize>>,
@@ -1077,7 +1166,10 @@ struct Scene {
     shapes: Arc<Shapes>,
     ranges: Vec<std::ops::Range<usize>>,
     edges: Vec<EdgeAt>,
-    touching: Vec<Vec<usize>>,
+    /// The thinner lines of what a container's body reads around it (drawn after the connections).
+    extra: Vec<EdgeInstance>,
+    /// Whether wires go around the boxes they would cross.
+    around: bool,
     /// The stage of each box of the top level, when it has no groups (the model's inputs are data): what the
     /// canvas frames when zoomed out.
     stage_of: Vec<Option<crate::document::Stage>>,
@@ -1245,6 +1337,7 @@ impl Scene {
         v: &egui::Visuals,
         colours: bool,
         unfolded: &HashSet<String>,
+        around: bool,
         measure: &mut dyn FnMut(&str, &FontId) -> f32,
     ) -> Scene {
         let ids: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
@@ -1364,9 +1457,8 @@ impl Scene {
             bounds = Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0));
         }
         // the shapes: connections, then boxes, then ports and lights
-        let mut edges = Vec::new();
+        let mut extra = Vec::new();
         let mut edges_at = Vec::new();
-        let mut touching: Vec<Vec<usize>> = vec![Vec::new(); boxes.len()];
         let line = v.weak_text_color();
         for (k, n) in nodes.iter().enumerate() {
             let b = &boxes[sources.len() + k];
@@ -1384,22 +1476,18 @@ impl Scene {
                 };
                 if let Some((s, o)) = from {
                     let to_box = sources.len() + k;
-                    touching[s].push(edges.len());
-                    if s != to_box {
-                        touching[to_box].push(edges.len());
-                    }
-                    edges_at.push(EdgeAt { from: (s, o), to: (to_box, i) });
-                    let from = boxes[s].output_at(o);
-                    let to = b.input_at(i);
                     // the type of what flows: the output's, else (an output of any type) the input's
                     let colour = type_colour(boxes[s].outputs[o].1, v.dark_mode)
                         .or_else(|| type_colour(b.inputs[i].ty, v.dark_mode))
                         .unwrap_or(line);
-                    edges.push(EdgeInstance {
-                        from: [from.x, from.y],
-                        to: [to.x, to.y],
-                        color: colour.to_array(),
-                        width: 1.6,
+                    let via: Vec<Pos2> =
+                        n.wires.get(port).map_or_else(Vec::new, |w| w.iter().map(|p| Pos2::new(p[0], p[1])).collect());
+                    edges_at.push(EdgeAt {
+                        from: (s, o),
+                        to: (to_box, i),
+                        via,
+                        bend: Vec::new(),
+                        colour: colour.to_array(),
                     });
                 }
             }
@@ -1429,7 +1517,7 @@ impl Scene {
                 let b = &boxes[sources.len() + k];
                 let from = boxes[s].output_at(o);
                 let to = Pos2::new(b.rect.left(), b.rect.top() + HEAD / 2.0);
-                edges.push(EdgeInstance {
+                extra.push(EdgeInstance {
                     from: [from.x, from.y],
                     to: [to.x, to.y],
                     color: line.gamma_multiply(0.55).to_array(),
@@ -1454,18 +1542,124 @@ impl Scene {
         } else {
             vec![None; boxes.len()]
         };
-        Scene {
-            key: (0, Vec::new(), 0, "", false, 0),
+        let mut scene = Scene {
+            key: (0, Vec::new(), 0, "", false, 0, around),
             boxes,
             index,
             grid,
             bounds,
-            shapes: Arc::new(Shapes { generation: 0, rects, edges }),
+            shapes: Arc::new(Shapes { generation: 0, rects, edges: Vec::new() }),
             ranges,
             edges: edges_at,
-            touching,
+            extra,
+            around,
             stage_of,
+        };
+        if around {
+            for e in 0..scene.edges.len() {
+                scene.edges[e].bend = scene.detour(e, None);
+            }
         }
+        Arc::make_mut(&mut scene.shapes).edges = scene.edge_shapes();
+        scene
+    }
+
+    /// The waypoints of a wire, from its output to its input: the reroute points it was given, else those that
+    /// take it around the boxes (when they are on).
+    fn route(&self, e: usize) -> Vec<Pos2> {
+        self.route_with(e, true)
+    }
+
+    /// The same, the bends around the boxes left out when `bends` is false (the wire as a node dragged over it
+    /// finds it).
+    fn route_with(&self, e: usize, bends: bool) -> Vec<Pos2> {
+        let ed = &self.edges[e];
+        let mut out = Vec::with_capacity(ed.via.len() + ed.bend.len() + 2);
+        out.push(self.boxes[ed.from.0].output_at(ed.from.1));
+        if !ed.via.is_empty() {
+            out.extend(&ed.via);
+        } else if bends {
+            out.extend(&ed.bend);
+        }
+        out.push(self.boxes[ed.to.0].input_at(ed.to.1));
+        out
+    }
+
+    /// The curve of a wire as it is drawn, sampled.
+    fn path(&self, e: usize) -> Vec<Pos2> {
+        wire_path(&self.route(e))
+    }
+
+    /// The wires go around the boxes again, a box that was being dragged (and left alone then) included.
+    fn settle(&mut self, generation: u64) {
+        if !self.around {
+            return;
+        }
+        for e in 0..self.edges.len() {
+            self.edges[e].bend = self.detour(e, None);
+        }
+        let edges = self.edge_shapes();
+        let shapes = Arc::make_mut(&mut self.shapes);
+        shapes.edges = edges;
+        shapes.generation = generation;
+    }
+
+    /// What the GPU draws of the wires: a curve for each piece of each, then the thinner lines.
+    fn edge_shapes(&self) -> Vec<EdgeInstance> {
+        let mut out = Vec::with_capacity(self.edges.len() + self.extra.len());
+        for (e, ed) in self.edges.iter().enumerate() {
+            for w in self.route(e).windows(2) {
+                out.push(EdgeInstance { from: [w[0].x, w[0].y], to: [w[1].x, w[1].y], color: ed.colour, width: 1.6 });
+            }
+        }
+        out.extend(self.extra.iter().cloned());
+        out
+    }
+
+    /// The waypoints that take a wire without points of its own around the boxes its straight curve crosses: for
+    /// each box (the first four met), two points above it or two below it, whichever side makes the shorter way.
+    /// Few samples of the curve, looked up in the grid: cheap for the wires of a few hundred nodes. None when it
+    /// crosses no box, or runs backwards (its ends are close: not worth it). The box `skip` (one being dragged)
+    /// is not gone around.
+    fn detour(&self, e: usize, skip: Option<usize>) -> Vec<Pos2> {
+        let ed = &self.edges[e];
+        let (p0, p3) = (self.boxes[ed.from.0].output_at(ed.from.1), self.boxes[ed.to.0].input_at(ed.to.1));
+        if !ed.via.is_empty() || p3.x - p0.x < 4.0 * AROUND {
+            return Vec::new();
+        }
+        let curve = wire_curve(p0, p3);
+        let mut hits: Vec<usize> = Vec::new();
+        for k in 1..48 {
+            let q = bezier_at(&curve, k as f32 / 48.0);
+            for &j in self.grid.get(&cell(q)).into_iter().flatten() {
+                if j != ed.from.0
+                    && j != ed.to.0
+                    && Some(j) != skip
+                    && self.boxes[j].rect.expand(4.0).contains(q)
+                    && !hits.contains(&j)
+                {
+                    hits.push(j);
+                }
+            }
+        }
+        hits.truncate(4);
+        let (lo, hi) = (p0.x + AROUND, p3.x - AROUND);
+        let mut out: Vec<Pos2> = Vec::new();
+        for j in hits {
+            let r = self.boxes[j].rect;
+            let last = out.last().copied().unwrap_or(p0);
+            let (above, below) = (r.top() - AROUND, r.bottom() + AROUND);
+            let way = |y: f32| Pos2::new(r.center().x, y).distance(last) + Pos2::new(r.center().x, y).distance(p3);
+            let y = if way(above) <= way(below) { above } else { below };
+            let (a, b) = ((r.left() - AROUND).max(lo), (r.right() + AROUND).min(hi));
+            for x in [a, b] {
+                // (the points keep going to the right, or the curve would turn back on itself)
+                if x > out.last().map_or(lo - 1.0, |l| l.x) && x <= hi {
+                    out.push(Pos2::new(x, y));
+                }
+            }
+        }
+        out
     }
 
     /// Move a box to a corner (graph units): its rectangles, its connections and its place in the grid, the rest
@@ -1475,13 +1669,14 @@ impl Scene {
         if d == Vec2::ZERO {
             return;
         }
-        self.reshape(i, self.boxes[i].rect.translate(d));
+        let old = self.boxes[i].rect;
+        self.reshape(i, old.translate(d));
         let shapes = Arc::make_mut(&mut self.shapes);
         for r in &mut shapes.rects[self.ranges[i].clone()] {
             r.min[0] += d.x;
             r.min[1] += d.y;
         }
-        self.follow(i, generation);
+        self.follow(i, old, generation);
     }
 
     /// Give a box a width (graph units): its rectangles drawn again, its connections and its place in the grid
@@ -1499,7 +1694,7 @@ impl Scene {
         if rects.len() == range.len() {
             shapes.rects[range].copy_from_slice(&rects);
         }
-        self.follow(i, generation);
+        self.follow(i, b, generation);
     }
 
     /// A box's new rectangle, and its place in the grid.
@@ -1520,14 +1715,40 @@ impl Scene {
     }
 
     /// The connections of a box to where its ports are now.
-    fn follow(&mut self, i: usize, generation: u64) {
-        let shapes = Arc::make_mut(&mut self.shapes);
-        for &e in &self.touching[i] {
-            let EdgeAt { from, to } = self.edges[e];
-            let (f, t) = (self.boxes[from.0].output_at(from.1), self.boxes[to.0].input_at(to.1));
-            shapes.edges[e].from = [f.x, f.y];
-            shapes.edges[e].to = [t.x, t.y];
+    /// `old` is where the box was: the wires near it, there or now, go around the boxes again.
+    fn follow(&mut self, i: usize, old: Rect, generation: u64) {
+        if self.around {
+            let near = old.union(self.boxes[i].rect).expand(AROUND);
+            for e in 0..self.edges.len() {
+                let ed = &self.edges[e];
+                if !ed.via.is_empty() {
+                    continue;
+                }
+                let ends = Rect::from_two_pos(
+                    self.boxes[ed.from.0].output_at(ed.from.1),
+                    self.boxes[ed.to.0].input_at(ed.to.1),
+                );
+                if ed.from.0 == i || ed.to.0 == i || ends.expand(AROUND).intersects(near) || !ed.bend.is_empty() {
+                    self.edges[e].bend = self.detour(e, Some(i));
+                }
+            }
         }
+        let edges = self.edge_shapes();
+        let shapes = Arc::make_mut(&mut self.shapes);
+        shapes.edges = edges;
+        shapes.generation = generation;
+    }
+
+    /// A reroute point of a wire moved (graph units): the wire drawn again.
+    fn move_point(&mut self, e: usize, k: usize, to: Pos2, generation: u64) {
+        let Some(p) = self.edges.get_mut(e).and_then(|ed| ed.via.get_mut(k)) else { return };
+        if *p == to {
+            return;
+        }
+        *p = to;
+        let edges = self.edge_shapes();
+        let shapes = Arc::make_mut(&mut self.shapes);
+        shapes.edges = edges;
         shapes.generation = generation;
     }
 
@@ -1690,22 +1911,14 @@ impl Scene {
             if ed.from.0 == i || ed.to.0 == i {
                 continue;
             }
-            let (p0, p3) = (self.boxes[ed.from.0].output_at(ed.from.1), self.boxes[ed.to.0].input_at(ed.to.1));
-            if !Rect::from_two_pos(p0, p3).expand(30.0).intersects(b.rect) {
+            // (the wire through its points, not bent around the box dragged over it)
+            let route = self.route_with(e, false);
+            let ends = route.iter().fold(Rect::NOTHING, |r, p| r.union(Rect::from_min_max(*p, *p)));
+            if !ends.expand(30.0).intersects(b.rect) {
                 continue;
             }
-            let dx = ((p3.x - p0.x).abs() * 0.5).max(30.0);
-            let (p1, p2) = (p0 + Vec2::new(dx, 0.0), p3 - Vec2::new(dx, 0.0));
-            let near = (0..=32)
-                .map(|k| {
-                    let t = k as f32 / 32.0;
-                    let u = 1.0 - t;
-                    let at = p0.to_vec2() * (u * u * u)
-                        + p1.to_vec2() * (3.0 * u * u * t)
-                        + p2.to_vec2() * (3.0 * u * t * t)
-                        + p3.to_vec2() * (t * t * t);
-                    at.to_pos2()
-                })
+            let near = wire_path(&route)
+                .into_iter()
                 .filter(|q| b.rect.contains(*q))
                 .map(|q| q.distance(p))
                 .min_by(f32::total_cmp);
@@ -1788,6 +2001,47 @@ impl Scene {
             rewire.push((self.boxes[ed.to.0].key.clone(), to.name.clone(), source.map(|(r, _)| r.clone())));
         }
         Some(rewire)
+    }
+
+    /// The reroute point (wire, its index) under a point (graph units), the nearest within `reach`.
+    fn point_at(&self, p: Pos2, reach: f32) -> Option<(usize, usize)> {
+        self.edges
+            .iter()
+            .enumerate()
+            .flat_map(|(e, ed)| ed.via.iter().enumerate().map(move |(k, q)| (e, k, q.distance(p))))
+            .filter(|(_, _, d)| *d <= reach)
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+            .map(|(e, k, _)| (e, k))
+    }
+
+    /// The wire under a point (graph units), as it is drawn, the nearest within `reach`: its edge, and the index a
+    /// point added there takes among its points (the first when it has none: a wire bent around boxes gives up
+    /// its bends to the point).
+    fn wire_at(&self, p: Pos2, reach: f32) -> Option<(usize, usize)> {
+        let mut best: Option<(f32, usize, usize)> = None;
+        for (e, ed) in self.edges.iter().enumerate() {
+            let route = self.route(e);
+            let area = route.iter().fold(Rect::NOTHING, |r, q| r.union(Rect::from_min_max(*q, *q)));
+            if !area.expand(reach).contains(p) {
+                continue;
+            }
+            let path = wire_path(&route);
+            for (k, w) in path.windows(2).enumerate() {
+                let d = segment_distance(p, w[0], w[1]);
+                if d <= reach && best.is_none_or(|(b, _, _)| d < b) {
+                    // (the piece of the chain the segment is in, `SAMPLES` segments to a piece)
+                    let at = if ed.via.is_empty() { 0 } else { (k / SAMPLES).min(ed.via.len()) };
+                    best = Some((d, e, at));
+                }
+            }
+        }
+        best.map(|(_, e, at)| (e, at))
+    }
+
+    /// The node and input a wire goes into.
+    fn wire_into(&self, e: usize) -> (String, String) {
+        let to = self.edges[e].to;
+        (self.boxes[to.0].key.clone(), self.boxes[to.0].inputs[to.1].name.clone())
     }
 
     fn hit(&self, p: Pos2, reach: f32) -> Option<Hit> {
@@ -2061,17 +2315,17 @@ pub fn show(
         }
     }
     // (built again when the model, the place in it, the nodes' states or the theme change)
-    let (colours, minimap_on) = {
+    let (colours, minimap_on, around) = {
         let s = crate::settings::get();
-        (s.node_colours, s.minimap)
+        (s.node_colours, s.minimap, s.wires_around)
     };
-    let key = (revision, st.path.clone(), status_rev, crate::theme::current().name, colours, st.folds);
+    let key = (revision, st.path.clone(), status_rev, crate::theme::current().name, colours, st.folds, around);
     if st.scene.as_ref().is_none_or(|s| s.key != key) {
         // the texts measured in the fonts they are written in
         let v = ui.visuals().clone();
         let mut scene = ui.ctx().fonts_mut(|f| {
             let mut measure = |s: &str, font: &FontId| s.chars().map(|c| f.glyph_width(font, c)).sum::<f32>();
-            Scene::build(model, nodes, r, &st.path, status, &v, colours, &st.unfolded, &mut measure)
+            Scene::build(model, nodes, r, &st.path, status, &v, colours, &st.unfolded, around, &mut measure)
         });
         st.generation = next_generation();
         scene.key = key;
@@ -2234,59 +2488,69 @@ pub fn show(
         && let Some(o) = ui.input(|i| i.pointer.press_origin())
     {
         let w = to_world(o, cam);
-        st.drag = Some(match scene.hit(w, reach(cam)) {
-            Some(Hit::Output(i, k)) => {
-                let b = &scene.boxes[i];
-                Drag::Connect(b.reference(k), b.output_at(k), scene.along(&st.chosen, i, k), false)
-            }
-            // a connection taken off an input, carried by the pointer (dropped on an input: moved there)
-            Some(Hit::Input(i, k)) if scene.boxes[i].inputs[k].connected => match scene.feeding(i, k) {
-                Some((j, o)) => {
+        // a reroute point: moved
+        let point = scene.point_at(w, reach(cam)).map(|(e, k)| {
+            let ed = &scene.edges[e];
+            let (b, p) = (&scene.boxes[ed.to.0], &scene.boxes[ed.to.0].inputs[ed.to.1]);
+            Drag::Point(e, k, b.key.clone(), p.name.clone())
+        });
+        st.drag = Some(if let Some(d) = point {
+            d
+        } else {
+            match scene.hit(w, reach(cam)) {
+                Some(Hit::Output(i, k)) => {
                     let b = &scene.boxes[i];
-                    actions.push(Action::Disconnect { node: b.key.clone(), port: b.inputs[k].name.clone() });
-                    st.carried = Some((b.key.clone(), b.inputs[k].name.clone(), b.inputs[k].ty));
-                    Drag::Connect(scene.boxes[j].reference(o), scene.boxes[j].output_at(o), Vec::new(), true)
+                    Drag::Connect(b.reference(k), b.output_at(k), scene.along(&st.chosen, i, k), false)
                 }
-                None => Drag::Select(w),
-            },
-            // a node's right edge: its width
-            Some(Hit::Edge(i)) => {
-                let b = &scene.boxes[i];
-                Drag::Resize(b.key.clone(), b.rect.left(), b.fitted)
-            }
-            // a node, or the box of something the scope reads: moved
-            Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i)) => {
-                let key = &scene.boxes[i].key;
-                // ctrl held (the drag has begun: a ctrl+click was a click): copies dragged, the originals stay;
-                // a node out of the selection alone
-                let (ctrl, alt) = ui.input(|i| (i.modifiers.command, i.modifiers.alt));
-                if ctrl && !alt && !scene.boxes[i].source {
-                    let keys: Vec<&String> =
-                        if st.chosen.contains(key) { st.chosen.iter().collect() } else { vec![key] };
-                    let corners: Vec<(String, Pos2)> = keys
-                        .into_iter()
-                        .filter_map(|k| scene.index.get(k).map(|&j| (j, k)))
-                        .filter(|(j, _)| !scene.boxes[*j].source)
-                        .map(|(j, k)| (k.clone(), scene.boxes[j].rect.min))
-                        .collect();
-                    Drag::Copy(w, corners)
-                } else {
-                    if !st.chosen.contains(key) {
-                        if !adding {
-                            st.chosen.clear();
-                        }
-                        st.chosen.insert(key.clone());
-                        actions.push(Action::Select(key.clone()));
+                // a connection taken off an input, carried by the pointer (dropped on an input: moved there)
+                Some(Hit::Input(i, k)) if scene.boxes[i].inputs[k].connected => match scene.feeding(i, k) {
+                    Some((j, o)) => {
+                        let b = &scene.boxes[i];
+                        actions.push(Action::Disconnect { node: b.key.clone(), port: b.inputs[k].name.clone() });
+                        st.carried = Some((b.key.clone(), b.inputs[k].name.clone(), b.inputs[k].ty));
+                        Drag::Connect(scene.boxes[j].reference(o), scene.boxes[j].output_at(o), Vec::new(), true)
                     }
-                    let corners = st
-                        .chosen
-                        .iter()
-                        .filter_map(|k| scene.index.get(k).map(|&j| (k.clone(), scene.boxes[j].rect.min)))
-                        .collect();
-                    Drag::Move(w, corners, alt)
+                    None => Drag::Select(w),
+                },
+                // a node's right edge: its width
+                Some(Hit::Edge(i)) => {
+                    let b = &scene.boxes[i];
+                    Drag::Resize(b.key.clone(), b.rect.left(), b.fitted)
                 }
+                // a node, or the box of something the scope reads: moved
+                Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i)) => {
+                    let key = &scene.boxes[i].key;
+                    // ctrl held (the drag has begun: a ctrl+click was a click): copies dragged, the originals stay;
+                    // a node out of the selection alone
+                    let (ctrl, alt) = ui.input(|i| (i.modifiers.command, i.modifiers.alt));
+                    if ctrl && !alt && !scene.boxes[i].source {
+                        let keys: Vec<&String> =
+                            if st.chosen.contains(key) { st.chosen.iter().collect() } else { vec![key] };
+                        let corners: Vec<(String, Pos2)> = keys
+                            .into_iter()
+                            .filter_map(|k| scene.index.get(k).map(|&j| (j, k)))
+                            .filter(|(j, _)| !scene.boxes[*j].source)
+                            .map(|(j, k)| (k.clone(), scene.boxes[j].rect.min))
+                            .collect();
+                        Drag::Copy(w, corners)
+                    } else {
+                        if !st.chosen.contains(key) {
+                            if !adding {
+                                st.chosen.clear();
+                            }
+                            st.chosen.insert(key.clone());
+                            actions.push(Action::Select(key.clone()));
+                        }
+                        let corners = st
+                            .chosen
+                            .iter()
+                            .filter_map(|k| scene.index.get(k).map(|&j| (k.clone(), scene.boxes[j].rect.min)))
+                            .collect();
+                        Drag::Move(w, corners, alt)
+                    }
+                }
+                _ => Drag::Select(w),
             }
-            _ => Drag::Select(w),
         });
     }
     if resp.dragged_by(egui::PointerButton::Middle) || resp.dragged_by(egui::PointerButton::Secondary) {
@@ -2302,6 +2566,15 @@ pub fn show(
     }
     let mut moved = Vec::new();
     let mut resized = None;
+    // a reroute point dragged: moved in the model and (below) in the scene at once
+    let mut moved_point = None;
+    if let (Some(Drag::Point(e, k, node, port)), Some(q)) = (&st.drag, pointer)
+        && resp.dragged()
+    {
+        let p = to_world(q, cam);
+        actions.push(Action::MoveWirePoint { node: node.clone(), port: port.clone(), index: *k, to: [p.x, p.y] });
+        moved_point = Some((*e, *k, p));
+    }
     if let (Some(Drag::Resize(id, left, need)), Some(q)) = (&st.drag, pointer)
         && resp.dragged()
     {
@@ -2327,6 +2600,8 @@ pub fn show(
         (Some(Drag::Select(from)), Some(q)) => Some(Rect::from_two_pos(*from, to_world(q, cam))),
         _ => None,
     };
+    // nodes let go: the wires go around them too then (not while they were dragged)
+    let settle = resp.drag_stopped() && matches!(st.drag, Some(Drag::Move(..) | Drag::Resize(..)));
     if resp.drag_stopped() {
         // copies dragged, let go: made there, selected
         if let (Some(Drag::Copy(from, corners)), Some(q)) = (&st.drag, pointer) {
@@ -2521,6 +2796,13 @@ pub fn show(
         let b = &scene.boxes[i];
         actions.push(Action::Disconnect { node: b.key.clone(), port: b.inputs[k].name.clone() });
     }
+    // a right click on a reroute point: its menu (its wire's node and input, its index)
+    if resp.secondary_clicked() {
+        st.menu_point = at.and_then(|w| scene.point_at(w, reach(cam))).map(|(e, k)| {
+            let (node, port) = scene.wire_into(e);
+            (node, port, k)
+        });
+    }
     // a right click on a node, or on the box of something the scope reads: its menu (elsewhere none)
     if resp.secondary_clicked() {
         let hit = at.and_then(|w| match scene.hit(w, reach(cam)) {
@@ -2541,6 +2823,19 @@ pub fn show(
             };
     }
     resp.context_menu(|ui| {
+        if let Some((node, port, index)) = st.menu_point.clone() {
+            if ui
+                .button("Remove point")
+                .on_hover_text(
+                    "the wire's reroute point taken away; the wire is drawn plain again (or through the points left)",
+                )
+                .clicked()
+            {
+                actions.push(Action::RemoveWirePoint { node, port, index });
+                ui.close();
+            }
+            return;
+        }
         if st.menu_many {
             let links = st.menu_links.clone().zip(st.menu.clone()).map(|(l, (k, _))| (k, l));
             let why = (st.path.is_empty(), st.no_run, st.no_freeze);
@@ -2631,7 +2926,18 @@ pub fn show(
                 let b = &scene.boxes[i];
                 actions.push(if b.container { Action::Enter(b.key.clone()) } else { Action::Open(b.key.clone()) });
             }
-            _ => {}
+            // on a reroute point: taken away; on a wire (nothing else under the pointer): a point there
+            _ => {
+                if let Some((e, k)) = scene.point_at(w, reach(cam)) {
+                    let (node, port) = scene.wire_into(e);
+                    actions.push(Action::RemoveWirePoint { node, port, index: k });
+                } else if scene.hit(w, reach(cam)).is_none()
+                    && let Some((e, k)) = scene.wire_at(w, reach(cam))
+                {
+                    let (node, port) = scene.wire_into(e);
+                    actions.push(Action::AddWirePoint { node, port, index: k, at: [w.x, w.y] });
+                }
+            }
         }
     }
     // the pointer over a right edge, or dragging it: a cursor that says so
@@ -2677,6 +2983,16 @@ pub fn show(
         for (i, p) in moved {
             scene.move_box(i, p, generation);
         }
+    }
+    if settle {
+        st.generation = next_generation();
+        let generation = st.generation;
+        st.scene.as_mut().unwrap().settle(generation);
+    }
+    if let Some((e, k, p)) = moved_point {
+        st.generation = next_generation();
+        let generation = st.generation;
+        st.scene.as_mut().unwrap().move_point(e, k, p, generation);
     }
     // the node resized changes in the scene at once too
     if let Some((i, w)) = resized {
@@ -3029,17 +3345,40 @@ pub fn show(
         && let Some(&i) = scene.index.get(id)
         && let Some(at) = scene.insertion(i, to_world(q, &cam))
     {
-        let ed = &scene.edges[at.edge];
-        let (p0, p3) =
-            (screen(scene.boxes[ed.from.0].output_at(ed.from.1)), screen(scene.boxes[ed.to.0].input_at(ed.to.1)));
-        let dx = ((p3.x - p0.x).abs() * 0.5).max(30.0 * cam.zoom);
-        painter.add(egui::epaint::CubicBezierShape::from_points_stroke(
-            [p0, p0 + Vec2::new(dx, 0.0), p3 - Vec2::new(dx, 0.0), p3],
-            false,
-            Color32::TRANSPARENT,
-            Stroke::new(4.5, crate::theme::accent()),
-        ));
+        // (as it is drawn: through its points, or around the boxes)
+        let path: Vec<Pos2> = wire_path(&scene.route_with(at.edge, false)).into_iter().map(screen).collect();
+        painter.add(egui::epaint::PathShape::line(path, Stroke::new(4.5, crate::theme::accent())));
         ui.ctx().request_repaint();
+    }
+    // the reroute points: a dot on each wire's way, larger under the pointer or while dragged
+    let held = match &st.drag {
+        Some(Drag::Point(e, k, ..)) => Some((*e, *k)),
+        _ => None,
+    };
+    let near = pointer.filter(|_| st.drag.is_none()).and_then(|q| scene.point_at(to_world(q, &cam), reach(&cam)));
+    for (e, ed) in scene.edges.iter().enumerate() {
+        for (k, p) in ed.via.iter().enumerate() {
+            let c = screen(*p);
+            if !rect.expand(8.0).contains(c) {
+                continue;
+            }
+            let [r, g, b, a] = ed.colour;
+            let colour = Color32::from_rgba_premultiplied(r, g, b, a);
+            let lit = held == Some((e, k)) || near == Some((e, k));
+            painter.circle(
+                c,
+                if lit { 6.0 } else { 4.5 },
+                v.extreme_bg_color,
+                Stroke::new(if lit { 2.4 } else { 1.8 }, colour),
+            );
+        }
+    }
+    if held.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    } else if near.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+        resp.clone()
+            .on_hover_text_at_pointer("a reroute point: drag to move it; double-click or right-click to take it away");
     }
     // copies dragged: an outline of each where it would be let go
     if let (Some(Drag::Copy(from, corners)), Some(q)) = (&st.drag, pointer) {

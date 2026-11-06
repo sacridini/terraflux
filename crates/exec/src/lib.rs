@@ -666,6 +666,7 @@ fn user_inputs(u: &terraflux_graph::Uses, values: &mut BTreeMap<String, Value>, 
 fn bare(n: &Node) -> Node {
     let mut n = n.unrecorded();
     n.pos = None;
+    n.wires.clear();
     n.width = None;
     n.frozen = false;
     if let Some(b) = &mut n.body {

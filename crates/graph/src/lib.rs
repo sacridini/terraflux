@@ -437,6 +437,11 @@ pub struct Node {
     /// Where the node editor draws it (its scope's coordinates).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pos: Option<[f32; 2]>,
+    /// Reroute points of the wires this node reads, by input port: where the node editor draws each wire through
+    /// (its scope's coordinates, from the output to the input). Drawing only: the engine ignores them, and they
+    /// go with the connection (none when the port reads nothing).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub wires: BTreeMap<String, Vec<[f32; 2]>>,
     /// The width its box was given in the node editor (dragged by its right edge); never narrower than its
     /// texts need. None: as wide as they need.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -470,6 +475,7 @@ impl Node {
             alternatives: Vec::new(),
             body: None,
             pos: None,
+            wires: BTreeMap::new(),
             width: None,
             bypass: false,
             frozen: false,
@@ -1169,6 +1175,22 @@ op = "stack.layer"
         assert_eq!(Model::from_toml(&t).unwrap(), m, "{t}");
         let j = m.to_json().unwrap();
         assert_eq!(Model::from_json(&j).unwrap(), m);
+    }
+
+    #[test]
+    fn reroute_points_are_saved_only_when_there_are_some() {
+        let mut m = sample();
+        let before = m.to_toml().unwrap();
+        assert!(!before.contains("wires"), "{before}");
+        // an old model (no `wires`) loads with none, and serialises as it was
+        let old = Model::from_toml(&before).unwrap();
+        assert!(old.nodes.iter().all(|n| n.wires.is_empty()));
+        assert_eq!(old.to_toml().unwrap(), before);
+        m.nodes[1].wires.insert("raster".into(), vec![[10.0, 20.5], [30.0, -4.0]]);
+        let t = m.to_toml().unwrap();
+        assert!(t.contains("wires"), "{t}");
+        assert_eq!(Model::from_toml(&t).unwrap(), m, "{t}");
+        assert_eq!(Model::from_json(&m.to_json().unwrap()).unwrap(), m);
     }
 
     #[test]

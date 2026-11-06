@@ -57,6 +57,12 @@ minor versions.
   name previewed and the wrong ones (taken, repeated, invalid, no file) said, OK only when all are right; one step of
   undo, the connections following, inside groups too. And **a read node's id follows its file**: when its file is
   changed and its id is still the old file's name, it takes the new one's (made unique), in the same step.
+- Canvas: **reroute points on a connection**. A double click on a connection adds a point, dragged to where it should
+  pass; a double click on it (or *Remove point* in its menu) removes it; each one step of undo, inside groups too.
+  They are saved on the node the connection goes into (`wires = { port = [[x, y]] }`, absent when there are none, not
+  part of what the cache sees), copied with the nodes, kept in a group made, dropped with the connection and by
+  *Arrange*. And **connections go around the boxes**: one without points whose curve would cross another node bends
+  above or below it (Settings: *wires go around the boxes*).
 - Viewer: **from a layer to its node**. *Show its node* in a layer's menu (Layers) brings the model's canvas forward
   (the main window too, with the Viewer in a window of its own), opens the group, loop or switch it is in, selects
   the node and frames it with the glide of F; greyed, with the reason, for a difference of two maps.

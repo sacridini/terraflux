@@ -216,7 +216,9 @@ Press ++f5++ to run the whole model. Then save it: **Save as...**, `core-forest.
     lights up, and its connections and settings stay (a node still named after its old file takes the new file's
     name). *Disconnect all inputs* in a node's menu frees it of what it
     reads (the values typed stay); a connection taken off an input and let go on another one already connected
-    ("swap with b") exchanges the two, when each fits where the other was.
+    ("swap with b") exchanges the two, when each fits where the other was. A double click on a connection puts a
+    point on it, to drag where the connection should pass (a double click on the point removes it); connections
+    without points go around the boxes in their way (Settings: *wires go around the boxes*).
 
 ## Read the results
 
@@ -340,7 +342,8 @@ Line by line:
   name or its number from 0).
 
 The order of the nodes in the file does not matter: Terraflux runs them in the order of their connections. In the
-application, a node's place on the canvas is saved as `pos = [x, y]`. Notes are shown in the Node pane under
+application, a node's place on the canvas is saved as `pos = [x, y]`, and the points a connection was bent through
+as `wires = { raster = [[x, y]] }` on the node it goes into (both ignored when the model runs). Notes are shown in the Node pane under
 **Why** and when the pointer rests on a node's header; you write them in the model file with any text editor.
 
 !!! tip "A model is text: keep it with your data"

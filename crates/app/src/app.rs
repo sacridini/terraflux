@@ -2756,6 +2756,10 @@ impl TerrafluxApp {
                         "a small map in the canvas's corner when the model does not fit the view: click or drag \
                          on it to move the view",
                     );
+                    ui.checkbox(&mut st.wires_around, "wires go around the boxes").on_hover_text(
+                        "a wire that would cross another node's box is bent above or below it (a wire with \
+                         points of your own is left as you drew it)",
+                    );
                 });
                 ui.end_row();
                 ui.label("Threads");

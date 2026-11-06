@@ -2282,6 +2282,10 @@ pub fn arrange(s: &mut Session, r: &Registry) {
     for (id, p) in crate::editor_view::arrange(&nodes, r) {
         let _ = crate::editor::move_node(&mut s.source, &path, &id, p);
     }
+    // (the points of the wires were set for the old places: the wires are drawn plain again)
+    if let Some(nodes) = s.source.scope_mut(&path) {
+        nodes.iter_mut().for_each(|n| n.wires.clear());
+    }
     s.dirty = true;
     s.revision += 1;
     s.editor.fit();
@@ -2790,6 +2794,20 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 crate::editor::disconnect_all(&mut s.source, &path, &ids).map(|k| k > 0)
             }
             Action::DisconnectAll(id) => crate::editor::disconnect_all(&mut s.source, &path, &[id]).map(|k| k > 0),
+            Action::AddWirePoint { node, port, index, at } => {
+                crate::editor::add_wire_point(&mut s.source, &path, &node, &port, index, at).map(|_| true)
+            }
+            // (the canvas moved the point in its scene already: no new layout, as a node dragged)
+            Action::MoveWirePoint { node, port, index, to } => {
+                crate::editor::move_wire_point(&mut s.source, &path, &node, &port, index, to).map(|_| {
+                    s.history.changed(&s.source);
+                    s.dirty = true;
+                    false
+                })
+            }
+            Action::RemoveWirePoint { node, port, index } => {
+                crate::editor::remove_wire_point(&mut s.source, &path, &node, &port, index).map(|_| true)
+            }
             // (the connection was taken off its input when picked up: the swap puts it where it goes and what was
             // there where it came from; when the swap is refused, as any connection let go on that input)
             Action::Swap { reference, from, node, port } => {

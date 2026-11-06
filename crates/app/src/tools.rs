@@ -2730,6 +2730,7 @@ pub fn arrange(nodes: &mut [Node], r: &Registry) {
     for n in nodes.iter_mut() {
         if let Some(p) = places.get(&n.id) {
             n.pos = Some(*p);
+            n.wires.clear();
         }
         if let Some(b) = &mut n.body {
             arrange(&mut b.nodes, r);

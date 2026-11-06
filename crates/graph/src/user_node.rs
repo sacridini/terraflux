@@ -217,6 +217,7 @@ fn bare(b: &Body) -> Body {
     fn strip(nodes: &mut [Node]) {
         for n in nodes {
             n.pos = None;
+            n.wires.clear();
             n.width = None;
             if let Some(b) = &mut n.body {
                 strip(&mut b.nodes);
