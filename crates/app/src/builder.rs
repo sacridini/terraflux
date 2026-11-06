@@ -886,6 +886,7 @@ pub fn model_pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
             .show(ui, |ui| canvas(ui, s, r));
     }
     rename_box(ui.ctx(), s, r);
+    batch_rename(ui.ctx(), s, r);
     crate::my_nodes::dialog(ui.ctx(), s, r);
 }
 
@@ -1849,16 +1850,89 @@ fn file_dialog_for(op: &str) -> rfd::FileDialog {
 }
 
 /// A read node made to read another file, as a setting changed (one step of undo): its id, links and other
-/// settings stay, and its result is read again at the next run. The path is kept as [`add_file`] keeps it.
+/// settings stay, and its result is read again at the next run. The path is kept as [`add_file`] keeps it. The id
+/// follows the file, in the same step of undo, when it was the one the old file gave it ([`add_file`]'s); an id
+/// chosen by hand stays.
 pub fn change_file(s: &mut Session, r: &Registry, id: &str, p: &Path) {
     let path = s.editor.path.clone();
     let text = p.to_string_lossy().into_owned();
+    let nodes = s.source.scope(&path).cloned().unwrap_or_default();
+    let old = nodes.iter().find(|n| n.id == id).and_then(|n| n.params.get("path")?.as_str().map(str::to_string));
     match crate::editor::set_param_many(&mut s.source, r, &path, &[id.to_string()], "path", &text) {
         Ok(()) => {
             s.editor.message = None;
+            let new = old.and_then(|o| crate::editor::id_after_file(&nodes, id, &o, &text));
+            if let Some(new) = new {
+                renamed(s, r, &[(id.to_string(), new)]);
+            }
             s.edited();
         }
         Err(e) => s.editor.message = Some(e),
+    }
+}
+
+/// Rename the nodes of the scope shown, (old, new) each, together (no step of undo: the caller's `edited`); the
+/// selection, the layers shown and the settings typed follow. Whether it was done (else the message tells why).
+fn renamed(s: &mut Session, r: &Registry, pairs: &[(String, String)]) -> bool {
+    let path = s.editor.path.clone();
+    match crate::editor::rename_many(&mut s.source, &path, pairs) {
+        Ok(steps) => {
+            if path.is_empty() {
+                for (from, to) in &steps {
+                    preview_follow(s, Some((from, to)));
+                }
+            }
+            let to = |id: &String| pairs.iter().find(|(o, _)| o == id).map(|(_, n)| n.clone());
+            s.editor.chosen = s.editor.chosen.iter().map(|id| to(id).unwrap_or_else(|| id.clone())).collect();
+            if let Some(new) = s.selected.as_ref().and_then(to) {
+                select(s, r, &new);
+            }
+            s.fields.clear();
+            true
+        }
+        Err(e) => {
+            s.editor.message = Some(e);
+            false
+        }
+    }
+}
+
+/// The window of the selection's "Rename...": a pattern, and what each node would be named (`old -> new`, or why
+/// not: that blocks the button). One step of undo.
+fn batch_rename(ctx: &egui::Context, s: &mut Session, r: &Registry) {
+    let Some((mut pattern, ids)) = s.editor.batch.take() else { return };
+    let path = s.editor.path.clone();
+    let nodes = s.source.scope(&path).cloned().unwrap_or_default();
+    let names = crate::editor::batch_names(&nodes, &ids, &pattern);
+    let ok = !names.is_empty() && names.iter().all(|(_, n)| n.is_ok());
+    let (mut go, mut stay) = (false, true);
+    egui::Window::new("Rename the nodes selected").collapsible(false).resizable(true).show(ctx, |ui| {
+        ui.label("{n} their number on the canvas, {id} the id now, {op} the operator, {file} the name of its file");
+        let out = ui.add(egui::TextEdit::singleline(&mut pattern).desired_width(280.0).hint_text("land_{n}"));
+        let enter = out.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Enter));
+        egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+            for (old, new) in &names {
+                match new {
+                    Ok(new) => ui.label(format!("{old} -> {new}")),
+                    Err(why) => ui.colored_label(ui.visuals().error_fg_color, format!("{old}: {why}")),
+                };
+            }
+        });
+        ui.horizontal(|ui| {
+            go = ui.add_enabled(ok, egui::Button::new("OK")).clicked() || enter && ok;
+            if ui.button("Cancel").clicked() || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                stay = false;
+            }
+        });
+    });
+    if go {
+        let pairs: Vec<(String, String)> = names.into_iter().filter_map(|(o, n)| Some((o, n.ok()?))).collect();
+        if renamed(s, r, &pairs) {
+            s.editor.message = None;
+            s.edited();
+        }
+    } else if stay {
+        s.editor.batch = Some((pattern, ids));
     }
 }
 
@@ -2692,6 +2766,10 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             // the selection's menu: each one step of undo
             Action::DeleteChosen => {
                 delete_chosen(s);
+                Ok(false)
+            }
+            Action::RenameChosen => {
+                s.editor.batch = Some(("{id}".to_string(), chosen_ids(s)));
                 Ok(false)
             }
             Action::DuplicateChosen => {

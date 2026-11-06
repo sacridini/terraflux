@@ -2389,6 +2389,13 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     destino.
 15. **Renomear em lote**: os selecionados com um padrão (`land_{n}`, `{file}`), e o id seguindo o arquivo quando ele
     muda.
+    **Feito** (Unreleased, por um sub-agente): `editor::batch_names` (`{n}` na ordem do canvas, `{id}`, `{op}` como
+    o `fresh_id`, `{file}` pelo `id_of_file`; os erros por nó), `rename_many` (por ids temporários: trocas e
+    cadeias; tudo ou nada), `id_after_file` (só quando o id é o do arquivo antigo); `builder::batch_rename` (a janela
+    com a prévia), `renamed` (a seleção e as camadas acompanham), `change_file` renomeando no mesmo passo. Testes:
+    `the_selections_rename_follows_a_pattern`, `the_selections_rename_checks_its_names`,
+    `the_id_follows_the_file_when_it_changes`. Falta: um id `foo_2` (desempate) não segue o arquivo; o Esc que fecha
+    a janela pode chegar ao canvas; um atalho.
 16. **Do Viewer ao nó**: no menu de uma camada dos Layers, "Show its node" seleciona e enquadra o nó que a deu
     (abrindo o grupo se preciso).
     **Feito** (Unreleased, por um sub-agente): `find::of_layer` (a camada de um nó aninhado é `node = <container>`

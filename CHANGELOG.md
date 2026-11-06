@@ -52,6 +52,11 @@ minor versions.
   the corner shows all its nodes, the selected ones lit, and the view's rectangle: a click centres the view there, a
   drag pans it live, and the canvas behind gets neither clicks nor the wheel. × hides it (Settings: *a minimap of a
   large model on the canvas*).
+- Canvas: **the nodes selected renamed with a pattern**. *Rename...* in the selection's menu: `{n}` (1, 2, 3 in
+  their order on the canvas, top to bottom), `{id}`, `{op}` and `{file}` (the stem of the file it reads), each new
+  name previewed and the wrong ones (taken, repeated, invalid, no file) said, OK only when all are right; one step of
+  undo, the connections following, inside groups too. And **a read node's id follows its file**: when its file is
+  changed and its id is still the old file's name, it takes the new one's (made unique), in the same step.
 - Viewer: **from a layer to its node**. *Show its node* in a layer's menu (Layers) brings the model's canvas forward
   (the main window too, with the Viewer in a window of its own), opens the group, loop or switch it is in, selects
   the node and frames it with the glide of F; greyed, with the reason, for a difference of two maps.

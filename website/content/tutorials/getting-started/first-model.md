@@ -208,11 +208,13 @@ Press ++f5++ to run the whole model. Then save it: **Save as...**, `core-forest.
     their settings once ("several values" where they differ) and a change goes to all of them, in one undo. A
     right click on them (or on the empty canvas) gives the selection's menu: delete, duplicate, disconnect their
     inputs, group, run to them, freeze, bypass, and *Align* (by their edges or centres, spread with equal gaps, or
-    stacked in a column or a row). **Ctrl+drag** copies a node (or the selection) to where it is let
+    stacked in a column or a row), and *Rename...* (a pattern for all of them, such as `land_{n}` or `{file}`,
+    with each new name previewed). **Ctrl+drag** copies a node (or the selection) to where it is let
     go, the originals staying put (Esc cancels); like **ctrl+D**, the copies read what the originals read, a
     quick start for a parallel branch of the analysis. To read another file in a `raster.read` (or a vector or
     table read), use *Change file...* in its menu, or drop the file from the file manager onto the node: the node
-    lights up, and its connections and settings stay. *Disconnect all inputs* in a node's menu frees it of what it
+    lights up, and its connections and settings stay (a node still named after its old file takes the new file's
+    name). *Disconnect all inputs* in a node's menu frees it of what it
     reads (the values typed stay); a connection taken off an input and let go on another one already connected
     ("swap with b") exchanges the two, when each fits where the other was.
 

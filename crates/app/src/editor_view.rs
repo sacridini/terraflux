@@ -337,6 +337,8 @@ pub enum Action {
     /// taken off, frozen (`true`) or thawed, turned off or on, run up to.
     DeleteChosen,
     DuplicateChosen,
+    /// The nodes selected renamed by a pattern (its window opens).
+    RenameChosen,
     /// Copies of the nodes right-clicked (one node's menu): they read what the originals read, as ctrl+D.
     DuplicateNodes(Vec<String>),
     /// Copies of the nodes made by dragging them (ctrl+drag), let go `by` graph units from where they were.
@@ -618,6 +620,8 @@ pub struct EditorState {
     /// The node renamed is a group just made: its name asked for, and whether to save it as a node of the user's
     /// then (the box's tick).
     pub naming_group: Option<bool>,
+    /// The selection being renamed by a pattern (its menu's "Rename..."): the pattern typed, and the nodes.
+    pub batch: Option<(String, Vec<String>)>,
     /// The node running and its share done, as its operator tells it (a line along its bottom).
     pub progress: Option<(String, f32)>,
     /// The nodes whose optional inputs are unfolded, and a counter of their changes (the scene made again then).
@@ -1916,6 +1920,7 @@ fn stages_and_notes(
 }
 
 /// What the entries of the selection's menu do.
+const RENAME_MANY_HELP: &str = "all their ids from a pattern: {n} the number on the canvas, {id}, {op}, {file}";
 const DELETE_MANY_HELP: &str = "the nodes selected taken away, with the connections into and out of them";
 const DUPLICATE_MANY_HELP: &str = "a copy of each node, a step down and to the right, reading what the originals \
      read (the links among the copied nodes go to the copies), the same as ctrl+D; the copies selected";
@@ -1978,6 +1983,7 @@ fn selection_menu(
     entry(ui, &format!("Duplicate    {c}D"), DUPLICATE_MANY_HELP, None, Action::DuplicateChosen);
     let reads = chosen.iter().any(|n| n.inputs.values().any(|s| matches!(s, Source::Ref(_))));
     let none = (!reads).then_some("none of them reads anything from another node: nothing to disconnect");
+    entry(ui, "Rename...", RENAME_MANY_HELP, None, Action::RenameChosen);
     entry(ui, "Disconnect all their inputs", DISCONNECT_MANY_HELP, none, Action::DisconnectChosen);
     entry(ui, &format!("Group    {c}G"), GROUP_HELP, None, Action::Group);
     ui.menu_button("Align", |ui| {

@@ -1500,6 +1500,163 @@ fn a_read_nodes_file_is_changed_keeping_its_links() {
     }
 }
 
+/// The pattern typed in the window of "Rename...".
+fn pattern(h: &mut Harness<TerrafluxApp>, text: &str) {
+    h.state_mut().session.as_mut().unwrap().editor.batch.as_mut().unwrap().0 = text.to_string();
+    h.run_steps(2);
+}
+
+/// Whether some text on screen has `text` (the preview says each node's name twice: the label and its text run).
+fn shows(h: &Harness<TerrafluxApp>, text: &str) -> bool {
+    use egui_kittest::kittest::Queryable;
+    h.query_all_by_label_contains(text).count() > 0
+}
+
+fn ids_now(h: &Harness<TerrafluxApp>, inside: bool) -> Vec<String> {
+    nodes_now(h, inside).iter().map(|n| n.id.clone()).collect()
+}
+
+/// The selection's "Rename..." names the nodes by a pattern in the order of the canvas, each `old -> new` in a
+/// preview; the links follow, one step of undo; a name that clashes (among the new ones or with a node outside the
+/// selection) or is not an id blocks the button; a chain or a swap works. At the top level and in a group.
+#[test]
+fn the_selections_rename_follows_a_pattern() {
+    use terraflux_graph::Source;
+    for inside in [false, true] {
+        let mut h = scoped_model(inside, "canvas-batch-rename.toml");
+        let find = |v: &[Node], id: &str| v.iter().find(|n| n.id == id).cloned().unwrap();
+        // `land_{n}`: a, b, c are in the order of the canvas (z is lower), the links follow
+        menu_of(&mut h, &["c", "a", "b"], "b");
+        pick(&mut h, "Rename...");
+        pattern(&mut h, "land_{n}");
+        for l in ["a -> land_1", "b -> land_2", "c -> land_3"] {
+            assert!(shows(&h, l), "preview {l}, inside {inside}");
+        }
+        pick(&mut h, "OK");
+        assert_eq!(ids_now(&h, inside), ["land_1", "land_2", "land_3", "z"], "inside {inside}");
+        let v = nodes_now(&h, inside);
+        assert_eq!(find(&v, "land_2").inputs["map"], Source::Ref("land_1.raster".into()));
+        assert_eq!(find(&v, "land_3").inputs["map"], Source::Ref("land_2.map".into()));
+        assert!(h.state().session.as_ref().unwrap().editor.batch.is_none(), "the window closed");
+        assert_eq!(chosen_now(&h), ["land_1", "land_2", "land_3"]);
+        undo(&mut h);
+        assert_eq!(ids_now(&h, inside), ["a", "b", "c", "z"], "one step of undo");
+        assert_eq!(find(&nodes_now(&h, inside), "c").inputs["map"], Source::Ref("b.map".into()));
+        // a swap, and a chain (a to b, b to c, c to d): no name is met taken midway
+        let chain = |h: &mut Harness<TerrafluxApp>, names: &[(&str, &str)]| {
+            let s = h.state_mut().session.as_mut().unwrap();
+            let pairs: Vec<(String, String)> = names.iter().map(|(o, n)| (o.to_string(), n.to_string())).collect();
+            let path = s.editor.path.clone();
+            terraflux_app::editor::rename_many(&mut s.source, &path, &pairs).unwrap();
+            s.edited();
+            h.run_steps(2);
+        };
+        chain(&mut h, &[("a", "b"), ("b", "a")]);
+        let v = nodes_now(&h, inside);
+        assert_eq!(find(&v, "a").op, "raster.reclassify", "the swap, inside {inside}");
+        assert_eq!(find(&v, "b").op, "raster.read");
+        assert_eq!(find(&v, "a").inputs["map"], Source::Ref("b.raster".into()), "links follow the swap");
+        assert_eq!(find(&v, "c").inputs["map"], Source::Ref("a.map".into()));
+        undo(&mut h);
+        chain(&mut h, &[("a", "b"), ("b", "c"), ("c", "d")]);
+        assert_eq!(ids_now(&h, inside), ["b", "c", "d", "z"], "the chain");
+        let v = nodes_now(&h, inside);
+        assert_eq!(find(&v, "c").inputs["map"], Source::Ref("b.raster".into()));
+        assert_eq!(find(&v, "d").inputs["map"], Source::Ref("c.map".into()));
+        undo(&mut h);
+        assert_eq!(ids_now(&h, inside), ["a", "b", "c", "z"]);
+    }
+}
+
+/// `{file}` is the stem of the file each node reads (as a node made by dropping the file is named); a node without a
+/// file is an error under it; two nodes of one file, a name of a node outside, and a name that is no id block OK
+/// with the reason, and nothing changes.
+#[test]
+fn the_selections_rename_checks_its_names() {
+    let other = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs/sibuyan_drivers.tif");
+    let mut h = scoped_model(false, "canvas-batch-names.toml");
+    let r = h.state().registry.clone();
+    terraflux_app::builder::change_file(h.state_mut().session.as_mut().unwrap(), &r, "z", &other);
+    h.run_steps(2);
+    menu_of(&mut h, &["a", "z"], "a");
+    pick(&mut h, "Rename...");
+    pattern(&mut h, "{file}");
+    assert!(shows(&h, "a -> sibuyan_landuse"));
+    assert!(shows(&h, "z -> sibuyan_drivers"));
+    pick(&mut h, "OK");
+    assert_eq!(ids_now(&h, false), ["sibuyan_landuse", "b", "c", "sibuyan_drivers"]);
+    undo(&mut h);
+    // blocked: the same name twice, a node outside, no id, and a node without a file under `{file}`
+    let before = ids_now(&h, false);
+    for (ids, text, why) in [
+        (vec!["a", "z"], "same", "another node of the selection"),
+        (vec!["a", "z"], "b", "already named"),
+        (vec!["a", "z"], "1{id}", "not a valid id"),
+        (vec!["a", "b"], "{file}", "reads no file"),
+    ] {
+        menu_of(&mut h, &ids, "a");
+        pick(&mut h, "Rename...");
+        pattern(&mut h, text);
+        assert!(shows(&h, why), "{text}: {why}");
+        pick(&mut h, "OK");
+        assert_eq!(ids_now(&h, false), before, "{text}: blocked");
+        assert!(h.state().session.as_ref().unwrap().editor.batch.is_some(), "{text}: the window stays");
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        assert!(h.state().session.as_ref().unwrap().editor.batch.is_none(), "escape closes it");
+    }
+    // the names the pattern gives, without the window
+    let nodes = h.state().session.as_ref().unwrap().source.nodes.clone();
+    let ids: Vec<String> = ["b", "c"].map(String::from).to_vec();
+    let names = terraflux_app::editor::batch_names(&nodes, &ids, "{op}_{id}");
+    assert_eq!(names[0].1.as_deref(), Ok("raster_reclassify_b"));
+    assert_eq!(names[1].1.as_deref(), Ok("landscape_mspa_c"));
+}
+
+/// A read node whose id is the one its file gave it follows the file when it changes (the menu's and the drop's
+/// `change_file`), in the same step of undo; an id chosen by hand stays. At the top level and in a group.
+#[test]
+fn the_id_follows_the_file_when_it_changes() {
+    use terraflux_graph::Source;
+    let other = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs/sibuyan_drivers.tif");
+    for inside in [false, true] {
+        let mut h = scoped_model(inside, "canvas-id-follows.toml");
+        let r = h.state().registry.clone();
+        let path = if inside { vec!["grp".to_string()] } else { vec![] };
+        let old = path_of(&h, inside, "a");
+        // named after its file: renamed to the new file's name
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::editor::rename_node(&mut s.source, &path, "a", "sibuyan_landuse").unwrap();
+        s.edited();
+        h.run_steps(2);
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::change_file(s, &r, "sibuyan_landuse", &other);
+        h.run_steps(2);
+        assert_eq!(ids_now(&h, inside), ["sibuyan_drivers", "b", "c", "z"], "inside {inside}");
+        assert_eq!(path_of(&h, inside, "sibuyan_drivers"), other.to_string_lossy());
+        let v = nodes_now(&h, inside);
+        assert_eq!(v[1].inputs["map"], Source::Ref("sibuyan_drivers.raster".into()), "the link follows");
+        undo(&mut h);
+        assert_eq!(ids_now(&h, inside), ["sibuyan_landuse", "b", "c", "z"], "one step of undo");
+        assert_eq!(path_of(&h, inside, "sibuyan_landuse"), old, "both restored");
+        // a name chosen by hand stays (`z` reads the same file)
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::change_file(s, &r, "z", &other);
+        h.run_steps(2);
+        assert_eq!(ids_now(&h, inside), ["sibuyan_landuse", "b", "c", "z"], "inside {inside}");
+        assert_eq!(path_of(&h, inside, "z"), other.to_string_lossy());
+        // the name taken by another node: made unique
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::editor::rename_node(&mut s.source, &path, "z", "sibuyan_drivers").unwrap();
+        s.edited();
+        h.run_steps(2);
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::change_file(s, &r, "sibuyan_landuse", &other);
+        h.run_steps(2);
+        assert_eq!(ids_now(&h, inside), ["sibuyan_drivers_2", "b", "c", "sibuyan_drivers"], "inside {inside}");
+    }
+}
+
 /// A single file let go on a read node of its kind replaces that node's file (connections kept), the node lit while
 /// the file hovers; a file of another kind, or several, add nodes as before. At the top level and in a group.
 #[test]

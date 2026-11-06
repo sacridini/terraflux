@@ -741,6 +741,100 @@ pub fn rename_node(m: &mut Model, path: &[String], old: &str, new: &str) -> Resu
     Ok(())
 }
 
+/// The names a pattern gives the nodes `ids` of a scope, in the order of the canvas (top to bottom, then left to
+/// right): `{n}` their number from 1, `{id}` the id now, `{op}` the operator's whole name as the ids made by default
+/// have it (`raster_read`), `{file}` the name [`id_of_file`] gives the file of the node's `path` setting. Each one is
+/// the new id or why it cannot be: not a valid id, no file, the name of a node outside the selection, or of another
+/// one of the selection.
+pub fn batch_names(nodes: &[Node], ids: &[String], pattern: &str) -> Vec<(String, Result<String>)> {
+    let auto = crate::editor_view::auto_positions(nodes);
+    let at = |n: &Node| n.pos.or_else(|| auto.get(&n.id).copied()).unwrap_or([0.0, 0.0]);
+    let mut chosen: Vec<&Node> = nodes.iter().filter(|n| ids.contains(&n.id)).collect();
+    chosen.sort_by(|a, b| {
+        let (a, b) = (at(a), at(b));
+        a[1].total_cmp(&b[1]).then(a[0].total_cmp(&b[0]))
+    });
+    let mut out: Vec<(String, Result<String>)> = chosen
+        .iter()
+        .enumerate()
+        .map(|(k, n)| {
+            let name = if pattern.contains("{file}") {
+                match n.params.get("path").and_then(|p| p.as_str()).and_then(id_of_file) {
+                    Some(f) => Ok(pattern.replace("{file}", &f)),
+                    None => Err("it reads no file for {file}".to_string()),
+                }
+            } else {
+                Ok(pattern.to_string())
+            };
+            let op: String = n.op.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+            let name = name.map(|t| t.replace("{n}", &(k + 1).to_string()).replace("{id}", &n.id).replace("{op}", &op));
+            (n.id.clone(), name)
+        })
+        .collect();
+    let outside: HashSet<&str> = nodes.iter().filter(|n| !ids.contains(&n.id)).map(|n| n.id.as_str()).collect();
+    let mut count: HashMap<String, usize> = HashMap::new();
+    for name in out.iter().filter_map(|(_, r)| r.as_ref().ok()) {
+        *count.entry(name.clone()).or_default() += 1;
+    }
+    for (_, r) in out.iter_mut() {
+        if let Ok(name) = r.as_ref() {
+            *r = if !valid_id(name) {
+                Err(format!("{name:?} is not a valid id (a letter, then letters, digits, _ or -)"))
+            } else if outside.contains(name.as_str()) {
+                Err(format!("a node is already named {name:?}"))
+            } else if count[name] > 1 {
+                Err(format!("{name:?} is the name of another node of the selection too"))
+            } else {
+                Ok(name.clone())
+            };
+        }
+    }
+    out
+}
+
+/// Rename several nodes of a scope at once, (old, new) each, references to them following: through temporary ids,
+/// so a chain (`a` to `b`, `b` to `c`) or a swap never meets a name taken. None renamed when one fails. The
+/// renames made one after the other, as steps (old, new) of what the layers shown must follow.
+pub fn rename_many(m: &mut Model, path: &[String], pairs: &[(String, String)]) -> Result<Vec<(String, String)>> {
+    let before = m.clone();
+    let mut taken: HashSet<String> = scope_mut(m, path)?.iter().map(|n| n.id.clone()).collect();
+    let mut steps = Vec::new();
+    let mut then = Vec::new();
+    let mut run = || -> Result<()> {
+        for (k, (old, new)) in pairs.iter().filter(|(o, n)| o != n).enumerate() {
+            let tmp = (k..).map(|j| format!("tf_tmp_{j}")).find(|t| !taken.contains(t)).unwrap();
+            taken.insert(tmp.clone());
+            rename_node(m, path, old, &tmp)?;
+            steps.push((old.clone(), tmp.clone()));
+            then.push((tmp, new.clone()));
+        }
+        for (tmp, new) in &then {
+            rename_node(m, path, tmp, new)?;
+            steps.push((tmp.clone(), new.clone()));
+        }
+        Ok(())
+    };
+    match run() {
+        Ok(()) => Ok(steps),
+        Err(e) => {
+            *m = before;
+            Err(e)
+        }
+    }
+}
+
+/// The id a read node takes when its file changes from `old` to `new`: only when its id is what [`add_node_named`]
+/// gives a node that reads `old` (a name chosen by hand stays), the name of the new file made unique among the other
+/// nodes. None: it stays.
+pub fn id_after_file(nodes: &[Node], id: &str, old: &str, new: &str) -> Option<String> {
+    if id_of_file(old).as_deref() != Some(id) {
+        return None;
+    }
+    let base = id_of_file(new)?;
+    let others: Vec<Node> = nodes.iter().filter(|n| n.id != id).cloned().collect();
+    Some(fresh_id(&others, &base)).filter(|n| n != id)
+}
+
 /// Remove a node: what read it reads nothing (its inputs, outputs and carried values go).
 pub fn remove_node(m: &mut Model, path: &[String], id: &str) -> Result<()> {
     let nodes = scope_mut(m, path)?;
