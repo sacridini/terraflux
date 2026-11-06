@@ -709,7 +709,7 @@ fn layer_row(
     }
     let coloring = look.as_ref().map(|x| x.1.coloring.clone());
     let menu = |ui: &mut Ui, s: &mut Session, asked: &mut Asked| {
-        layer_menu(ui, s, &sh.layers[i], (i, n, kind, active), coloring.as_ref(), table_open, asked);
+        layer_menu(ui, s, &sh.layers, (i, n, kind, active), coloring.as_ref(), table_open, asked);
     };
     row.context_menu(|ui| menu(ui, s, asked));
     egui::Popup::menu(&dots).show(|ui| menu(ui, s, asked));
@@ -1062,12 +1062,13 @@ fn vector_legend(ui: &mut Ui, v: &terraflux_raster::vector::Vector, style: &crat
 fn layer_menu(
     ui: &mut Ui,
     s: &mut Session,
-    l: &Layer,
+    layers: &[Layer],
     (i, n, kind, active): (usize, usize, Kind, bool),
     coloring: Option<&Coloring>,
     table_open: bool,
     asked: &mut Asked,
 ) {
+    let l = &layers[i];
     ui.set_min_width(200.0);
     if ui.button("🔍 Zoom to layer").clicked() {
         asked.zoom = Some(i);
@@ -1088,6 +1089,24 @@ fn layer_menu(
     }
     if let Some(c) = coloring {
         ui.menu_button("🎨 Colours", |ui| palette_menu(ui, s, &(l.node.clone(), l.port.clone()), c));
+        let same = similar(s, &ui.ctx().clone(), layers, i, c);
+        let hint = match same.len() {
+            0 => "no other layer is a map of the same kind (values with a ramp, or the same classes)".to_string(),
+            k => format!(
+                "this layer's palette{} copied to the {k} other layer{} of the same kind, so that the colours mean \
+                 the same",
+                if matches!(c, Coloring::Continuous { .. }) { " and range of values" } else { "" },
+                if k == 1 { "" } else { "s" }
+            ),
+        };
+        if ui
+            .add_enabled(!same.is_empty(), egui::Button::new("Same colours for all similar layers"))
+            .on_hover_text(hint)
+            .clicked()
+        {
+            same_colours(s, &(l.node.clone(), l.port.clone()), c, &same);
+            ui.close();
+        }
     }
     let at = (l.minus.is_none()).then(|| crate::find::of_layer(&s.source, &l.node, &l.port)).flatten();
     let hint = match &at {
@@ -1606,6 +1625,56 @@ pub(super) fn palette_legend(
             }
         }
         Coloring::Packed | Coloring::Shade { .. } => {}
+    }
+}
+
+/// The other layers whose map is of the kind of layer `i`'s (colouring `now`): values on a ramp with values on a ramp,
+/// classes with the same classes. Colour composites, shades and differences are left out.
+fn similar(s: &mut Session, ctx: &egui::Context, layers: &[Layer], i: usize, now: &Coloring) -> Vec<(String, String)> {
+    let own = (layers[i].node.clone(), layers[i].port.clone());
+    let mut found: Vec<(String, String)> = Vec::new();
+    if !matches!(now, Coloring::Continuous { .. } | Coloring::Classes(_)) {
+        return found;
+    }
+    for (j, other) in layers.iter().enumerate() {
+        let key = (other.node.clone(), other.port.clone());
+        if j == i || key == own || found.contains(&key) || other.minus.is_some() || other.rgb.is_some() {
+            continue;
+        }
+        let Some((_, look, _)) = layer_look(s, ctx, other) else { continue };
+        let same = match (now, &look.coloring) {
+            (Coloring::Continuous { .. }, Coloring::Continuous { .. }) => true,
+            (Coloring::Classes(a), Coloring::Classes(b)) => {
+                a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.0 == y.0)
+            }
+            _ => false,
+        };
+        if same {
+            found.push(key);
+        }
+    }
+    found
+}
+
+/// The colours of the layer `from` (shown as `now`) given to the layers `to`: the same palette, and for values the
+/// same range, kept as the ones chosen by hand are (in the Plots too).
+fn same_colours(s: &mut Session, from: &(String, String), now: &Coloring, to: &[(String, String)]) {
+    let palette = match now {
+        Coloring::Continuous { ramp, log, .. } => Some(Palette::Chosen(*ramp, *log)),
+        _ => s.palettes.get(from).copied(),
+    };
+    let range = match now {
+        Coloring::Continuous { min, max, .. } => Some((*min, *max)),
+        _ => None,
+    };
+    for key in to {
+        match palette {
+            Some(p) => s.palettes.insert(key.clone(), p),
+            None => s.palettes.remove(key),
+        };
+        if let Some(r) = range {
+            s.ranges.insert(key.clone(), r);
+        }
     }
 }
 

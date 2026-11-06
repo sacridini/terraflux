@@ -3293,6 +3293,86 @@ fn a_layers_menu_shows_its_node_on_the_canvas() {
     assert_eq!(h.state_mut().focused(), Some(Pane::Viewer), "the Viewer stays in front");
 }
 
+/// A layer's menu *Same colours for all similar layers*: its palette and range given to the other maps of values;
+/// a map of classes is left as it is; greyed out when no other layer is of its kind.
+#[test]
+fn a_layers_colours_are_given_to_all_similar_layers() {
+    use egui_kittest::kittest::NodeT;
+    use terraflux_app::builder::{Layer, Palette};
+    use terraflux_graph::Node;
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let drivers = data("sibuyan_drivers.tif").to_string_lossy().into_owned();
+        s.source.nodes = vec![
+            Node::new("land", "raster.read")
+                .param("path", data("sibuyan_landuse.tif").to_string_lossy().as_ref())
+                .param("band", "0"),
+            Node::new("a", "raster.read").param("path", drivers.as_str()).param("band", "0"),
+            Node::new("b", "raster.read").param("path", drivers.as_str()).param("band", "1"),
+            Node::new("c", "raster.read").param("path", drivers.as_str()).param("band", "1"),
+        ];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && ["land", "a", "b", "c"].iter().all(|n| s.value_of(n, "raster").is_some())
+    });
+    let key = |n: &str| (n.to_string(), "raster".to_string());
+    let terrain = Palette::Chosen(terraflux_app::palette::Ramp::Terrain, false);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_layers = vec![Layer::new("land", "raster"), Layer::new("b", "raster"), Layer::new("c", "raster")];
+        s.palettes.insert(key("a"), terrain);
+        s.ranges.insert(key("a"), (10.0, 20.0));
+    }
+    show(&mut h, "a", "raster");
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_layers.push(Layer::new("a", "raster"));
+    }
+    drawn(&mut h);
+    let menu = |h: &mut Harness<TerrafluxApp>, name: &str| {
+        let width = |n: &egui_kittest::Node| n.accesskit_node().bounding_box().map_or(0.0, |b| b.x1 - b.x0);
+        let n = h.query_all_by_label(name).max_by(|a, b| width(a).total_cmp(&width(b)));
+        let b = n.unwrap_or_else(|| panic!("{name}")).accesskit_node().bounding_box().unwrap();
+        let at = egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32);
+        h.event(egui::Event::PointerMoved(at));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: Default::default(),
+            });
+        }
+        h.run_steps(2);
+    };
+    menu(&mut h, "a");
+    let entry = h.get_by_label("Same colours for all similar layers");
+    assert!(!entry.accesskit_node().is_disabled());
+    entry.click();
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    for n in ["b", "c"] {
+        assert_eq!(s.palettes.get(&key(n)), Some(&terrain), "{n}");
+        assert_eq!(s.ranges.get(&key(n)), Some(&(10.0, 20.0)), "{n}");
+    }
+    assert_eq!(s.palettes.get(&key("land")), None, "the classes are left as they are");
+    assert_eq!(s.ranges.get(&key("land")), None);
+    // a single layer: nothing to give the colours to
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_layers.retain(|l| l.node == "a");
+    }
+    drawn(&mut h);
+    menu(&mut h, "a");
+    let entry = h.get_by_label("Same colours for all similar layers");
+    assert!(entry.accesskit_node().is_disabled(), "greyed out");
+}
+
 /// A layer's band and palette kept in a Plot, and given back when it opens; the Document's colours by the Plot.
 #[test]
 fn a_layers_band_and_palette_are_kept_in_its_plot() {

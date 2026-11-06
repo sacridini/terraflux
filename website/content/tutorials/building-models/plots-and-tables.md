@@ -144,7 +144,10 @@ cover. For each layer you can:
 - change a map's **opacity**, from 0 (invisible) to 1 (opaque), or the **style** of vector features;
 - remove it;
 - find the node that makes it: **Show its node** in its menu brings the canvas forward, opens the group (or loop)
-  it is in, selects it and frames it.
+  it is in, selects it and frames it;
+- give its colours to the others: **Same colours for all similar layers** sets its palette and range on every
+  other map of values (or its classes' colours on maps of the same classes), so that a colour means the same value
+  in each year compared.
 
 Keep `forest_only` too (📌) and set its opacity to 0.6: the forest's structure with its neighbours in view.
 **Add a layer** adds the run's other maps and vector features without clicking their nodes, and a click on a

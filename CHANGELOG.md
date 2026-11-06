@@ -43,6 +43,9 @@ minor versions.
 - Viewer: **from a layer to its node**. *Show its node* in a layer's menu (Layers) brings the model's canvas forward
   (the main window too, with the Viewer in a window of its own), opens the group, loop or switch it is in, selects
   the node and frames it with the glide of F; greyed, with the reason, for a difference of two maps.
+- Viewer: **the same colours for all similar layers**. From a layer's menu, its palette and range go to every other
+  layer of values (a map of classes: its colours to the maps of the same classes), the side-by-side views and the
+  Plot saved with them; the hover tells how many layers change, greyed when there is none.
 
 ## [1.41.0] - 2026-11-06
 

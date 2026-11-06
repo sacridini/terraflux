@@ -2383,6 +2383,11 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     janelas do SO).
 17. **Paleta e faixa para todas as camadas**: aplicar a paleta (ou a faixa de valores) de uma camada a todas as
     camadas do mesmo tipo de uma vez, para comparar anos lado a lado.
+    **Feito** (Unreleased, por um sub-agente): *Same colours for all similar layers* no menu de uma camada;
+    `layers_panel::similar` (contínuo com contínuo; classes com os mesmos valores; Packed, Shade, RGB, diferenças
+    e vetores fora) e `same_colours` (`s.palettes`/`s.ranges`, os mesmos da escolha à mão, gravados no Plot). Teste:
+    `a_layers_colours_are_given_to_all_similar_layers`. Falta: um teste de classes para classes; um passo de
+    desfazer (as paletas não têm undo hoje); camadas ainda sem dados não contam.
 18. **Fios com redirecionamento** (um ponto no meio do fio, arrastável) e fios que desviam das caixas em modelos
     densos.
 19. **Ver o tipo e o valor numa conexão**: passar o ponteiro sobre um fio mostra o tipo e um resumo do último valor
