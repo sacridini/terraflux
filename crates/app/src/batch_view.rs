@@ -478,6 +478,8 @@ pub struct BatchState {
     pub compared: Option<Vec<(String, crate::params_view::Compared)>>,
     /// The model's file and the model as written when the batch began, for the journal.
     journal_for: Option<(PathBuf, Model)>,
+    /// A batch held back because its files may not fit the disk: the window asks.
+    pub disk_ask: Option<crate::disk::Ask>,
     /// How many batches have been written to a journal (the Runs pane reads again when it changes).
     pub journaled: u64,
 }
@@ -516,6 +518,7 @@ impl Default for BatchState {
             compare: None,
             compared: None,
             journal_for: None,
+            disk_ask: None,
             journaled: 0,
         }
     }
@@ -891,6 +894,16 @@ fn cost_text(head: &str, runs: usize, one: Option<f64>, at_once: Option<usize>, 
     }
 }
 
+/// Whether a kind of batch keeps the files of its runs (a calibration and a sensitivity analysis keep numbers only).
+fn keeps_files(kind: Kind) -> bool {
+    !matches!(kind, Kind::Calibration | Kind::Sensitivity)
+}
+
+/// The folder a batch writes to (its results' folder, else beside the model).
+fn out_dir(st: &BatchState, s: &Session) -> PathBuf {
+    st.out.clone().unwrap_or_else(|| s.base())
+}
+
 /// The cost line for the batch chosen, with its warning hint when long.
 fn cost_ui(ui: &mut Ui, st: &BatchState, s: &Session, knobs: &[Knob], runs: usize) {
     let mut times = s.times_before.clone();
@@ -922,16 +935,30 @@ fn cost_ui(ui: &mut Ui, st: &BatchState, s: &Session, knobs: &[Knob], runs: usiz
     } else {
         String::new()
     };
-    let (text, long) = cost_text(&head, runs, one, at_once, &place);
-    if long {
+    let (mut text, long) = cost_text(&head, runs, one, at_once, &place);
+    // the files it keeps, against the disk's room
+    let tight = keeps_files(st.kind)
+        .then(|| crate::disk::cost_note(s.run_bytes() * runs as u64, &out_dir(st, s), s.disk_space))
+        .flatten()
+        .map(|(note, over)| {
+            text.push_str(&note);
+            over
+        })
+        .unwrap_or(false);
+    if long || tight {
         let warn = ui.visuals().warn_fg_color;
         ui.label(RichText::new(text).color(warn));
-        let hint = if st.kind == Kind::Sensitivity {
-            "That is long: fewer base points, or Morris first to keep only the factors that matter."
-        } else {
-            "That is long: fewer runs, or more computers (Computers)."
-        };
-        ui.label(RichText::new(hint).color(warn));
+        if long {
+            let hint = if st.kind == Kind::Sensitivity {
+                "That is long: fewer base points, or Morris first to keep only the factors that matter."
+            } else {
+                "That is long: fewer runs, or more computers (Computers)."
+            };
+            ui.label(RichText::new(hint).color(warn));
+        }
+        if tight {
+            ui.label(RichText::new("That may not fit the disk: Run asks first.").color(warn));
+        }
     } else {
         ui.label(RichText::new(text).weak());
     }
@@ -1393,7 +1420,7 @@ pub fn start(
         _ => None,
     };
     let out = st.out.clone().unwrap_or_else(|| next_out(s, st.kind));
-    let files = !matches!(st.kind, Kind::Calibration | Kind::Sensitivity);
+    let files = keeps_files(st.kind);
     let total = tasks.len();
     let b =
         Batch { name: format!("{} {}", s.title(), st.kind.name()), model, base: s.base(), tasks, files, evaluation };
@@ -2278,6 +2305,25 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
     }
 }
 
+/// Whether a batch may start as far as the disk goes: one that keeps files and may not fit asks first
+/// ([`BatchState::disk_ask`]); one that leaves little is told.
+fn disk_ok(st: &mut BatchState, s: &mut Session, runs: usize) -> bool {
+    if !keeps_files(st.kind) || s.path.is_none() {
+        return true;
+    }
+    match crate::disk::plan(s.run_bytes() * runs as u64, &out_dir(st, s), s.disk_space) {
+        crate::disk::Plan::Go => true,
+        crate::disk::Plan::Warn(text) => {
+            s.notice = Some((text, Instant::now()));
+            true
+        }
+        crate::disk::Plan::Ask(text) => {
+            st.disk_ask = Some(crate::disk::Ask { text });
+            false
+        }
+    }
+}
+
 /// The batch pane.
 pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, computers: &mut Computers) {
     st.follow(s);
@@ -2317,10 +2363,8 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
                 if let Err(e) = &count {
                     ui.label(RichText::new(e).color(ui.visuals().warn_fg_color));
                 }
-                if resp.clicked()
-                    && let Err(e) = start(st, s, r, computers, ui.ctx())
-                {
-                    st.error = Some(e);
+                if resp.clicked() && disk_ok(st, s, count.as_ref().map_or(0, |n| *n)) {
+                    st.error = start(st, s, r, computers, ui.ctx()).err();
                 }
             }
         });
@@ -2328,6 +2372,11 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
             && let Ok(n) = &count
         {
             cost_ui(ui, st, s, &knobs, *n);
+        }
+        match crate::disk::window(ui.ctx(), &mut st.disk_ask) {
+            Some(crate::disk::Answer::Anyway) => st.error = start(st, s, r, computers, ui.ctx()).err(),
+            Some(crate::disk::Answer::Clean) => s.open_clean(),
+            _ => {}
         }
         if let Some(run) = &st.running {
             running_ui(ui, run);

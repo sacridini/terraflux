@@ -210,6 +210,8 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry, batches:
             ui.selectable_value(&mut st.tab, Tab::Runs, "Runs");
             ui.selectable_value(&mut st.tab, Tab::Versions, "Versions")
                 .on_hover_text("the named versions of the model (File, Save a version...)");
+            ui.separator();
+            crate::clean_view::button(ui, s);
         });
         if st.tab == Tab::Versions {
             crate::versions_view::pane(ui, &mut st.versions, s);
@@ -368,7 +370,7 @@ fn when_of(e: &Entry) -> String {
     crate::eta::stamp(e.when).unwrap_or_else(|| e.when.to_string())
 }
 
-fn size_text(n: u64) -> String {
+pub(crate) fn size_text(n: u64) -> String {
     match n {
         n if n >= 1 << 30 => format!("{:.1} GB", n as f64 / (1u64 << 30) as f64),
         n if n >= 1 << 20 => format!("{:.1} MB", n as f64 / (1u64 << 20) as f64),

@@ -45,7 +45,7 @@ ureq = { version = "3", default-features = false, features = ["rustls", "platfor
 keyring = { version = "3", features = ["windows-native"] }
 # where the pointer is while files are dragged from the Explorer (the window is told no move then); the clock time a
 # run will end at
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Power", "Win32_System_Time"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Power", "Win32_System_Time", "Win32_Storage_FileSystem"] }
 
 # the clock time a run will end at (localtime_r)
 [target.'cfg(unix)'.dependencies]

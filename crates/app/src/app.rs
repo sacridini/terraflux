@@ -660,6 +660,12 @@ pub struct Session {
     pub journal_rev: u64,
     /// The window of *Save a version...*, while it is open.
     pub version_dialog: Option<crate::versions_view::Dialog>,
+    /// The window of *Clean outputs...*, while it is open.
+    pub clean: Option<crate::clean_view::State>,
+    /// A run held back because its outputs may not fit the disk (see [`crate::disk`]); the window asks.
+    pub disk_ask: Option<crate::disk::Ask>,
+    /// The disk's space, instead of the real one: for tests, to make a disk too small.
+    pub disk_space: Option<crate::disk::Space>,
     pub started: Option<Instant>,
     pub view: MapView,
     pub thumbs: Thumbs,
@@ -689,6 +695,8 @@ pub struct Session {
     /// ([`Session::advice`]).
     loads: u64,
     advice_of: Mutex<Option<(u64, u64, Vec<crate::advice::Advice>)>>,
+    /// What a whole run is expected to write, for the model's revision and the count of runs in the journal.
+    disk_of: Mutex<Option<((u64, u64), u64)>>,
     /// The node a run stops at (none: the whole model).
     pub target: Option<String>,
     /// What every top-level node gave in the runs so far (the cache keeps only what may be used again).
@@ -926,6 +934,9 @@ impl Session {
             compare_asked: None,
             journal_rev: 0,
             version_dialog: None,
+            clean: None,
+            disk_ask: None,
+            disk_space: None,
             started: None,
             view: MapView::default(),
             thumbs: Thumbs::default(),
@@ -947,6 +958,7 @@ impl Session {
             status_rev: 0,
             loads: 0,
             advice_of: Mutex::new(None),
+            disk_of: Mutex::new(None),
             target: None,
             outputs: BTreeMap::new(),
             preview: None,
@@ -1077,6 +1089,59 @@ impl Session {
         let a = crate::advice::advise(&self.model, &Registry::standard(), &self.base(), self.inputs.as_ref());
         *held = Some((self.revision, self.loads, a.clone()));
         a
+    }
+
+    /// The folder a whole run writes its outputs to.
+    pub fn output_dir(&self) -> PathBuf {
+        self.base().join("output")
+    }
+
+    /// The bytes a whole run is expected to write (about): those of the latest run in the journal, the model's own
+    /// when it has none, else worked out from its maps. Kept until the model or the journal changes.
+    pub fn run_bytes(&self) -> u64 {
+        let key = (self.revision, self.journal_rev);
+        let mut held = self.disk_of.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((k, bytes)) = held.as_ref()
+            && *k == key
+        {
+            return *bytes;
+        }
+        let kept = self.path.as_deref().and_then(terraflux_exec::journal::Journal::of).and_then(|j| {
+            crate::disk::from_journal(&j.entries(), terraflux_exec::journal::hash_of(&self.source).as_deref())
+        });
+        let bytes = kept.unwrap_or_else(|| crate::disk::from_model(&self.model, &Registry::standard(), &self.base()));
+        *held = Some((key, bytes));
+        bytes
+    }
+
+    /// Whether a run asked for may start as far as the disk goes: when its outputs may not fit it, the window asks
+    /// first ([`Session::disk_ask`]); when they leave little, that is told. Only for a run that writes outputs (the
+    /// whole model, saved).
+    pub fn disk_ok(&mut self) -> bool {
+        if self.path.is_none() || self.dirty {
+            return true;
+        }
+        match crate::disk::plan(self.run_bytes(), &self.output_dir(), self.disk_space) {
+            crate::disk::Plan::Go => true,
+            crate::disk::Plan::Warn(text) => {
+                self.notice = Some((text, Instant::now()));
+                true
+            }
+            crate::disk::Plan::Ask(text) => {
+                self.disk_ask = Some(crate::disk::Ask { text });
+                false
+            }
+        }
+    }
+
+    /// Open the window of *Clean outputs...*.
+    pub fn open_clean(&mut self) {
+        match &self.path {
+            Some(p) => self.clean = Some(crate::clean_view::State::open(p)),
+            None => {
+                self.notice = Some(("save the model first: its runs are kept beside its file".into(), Instant::now()))
+            }
+        }
     }
 
     /// After an edit of the source: the model run and its checks follow.
@@ -2522,7 +2587,13 @@ impl TerrafluxApp {
     /// Run the whole model.
     fn run_all(&mut self, ctx: &egui::Context) {
         let Some(s) = &mut self.session else { return };
+        if s.disk_ask.is_some() {
+            return;
+        }
         if s.ask_run() {
+            if !s.disk_ok() {
+                return;
+            }
             let ctx = ctx.clone();
             s.start(Box::new(move || ctx.request_repaint()));
         } else if s.unfilled_shown {
@@ -2599,6 +2670,16 @@ impl TerrafluxApp {
         {
             ui.close();
             self.ask_version();
+        }
+        if ui
+            .add_enabled(self.session.is_some(), egui::Button::new("Clean outputs..."))
+            .on_hover_text("delete the files and folders the runs of the model wrote")
+            .clicked()
+        {
+            ui.close();
+            if let Some(s) = &mut self.session {
+                s.open_clean();
+            }
         }
         ui.separator();
         if let Some(s) = &mut self.session
@@ -3042,6 +3123,7 @@ impl TerrafluxApp {
             action("Save the model", format!("{c}S"), Do::Save),
             action("Save the model as...", format!("{c}shift+S"), Do::SaveAs),
             action("Save a version of the model...", format!("{c}alt+S"), Do::Version),
+            action("Clean outputs...", String::new(), Do::Clean),
             action("New model", format!("{c}N"), Do::New),
             action("Open a model...", format!("{c}shift+O"), Do::Open),
             action("Open a raster or vectors...", format!("{c}O"), Do::OpenData),
@@ -3108,6 +3190,11 @@ impl TerrafluxApp {
             Do::Save => self.save(false),
             Do::SaveAs => self.save(true),
             Do::Version => self.ask_version(),
+            Do::Clean => {
+                if let Some(s) = &mut self.session {
+                    s.open_clean();
+                }
+            }
             Do::Run => self.run_all(ctx),
             Do::Stop => self.stop_run(),
             Do::Settings => self.settings_open = true,
@@ -4672,6 +4759,15 @@ impl TerrafluxApp {
         if let Some(s) = &mut self.session {
             crate::methods::window(ui.ctx(), s, &self.registry);
             crate::versions_view::window(ui.ctx(), s);
+            crate::clean_view::window(ui.ctx(), s);
+            match crate::disk::window(ui.ctx(), &mut s.disk_ask) {
+                Some(crate::disk::Answer::Anyway) if s.can_run() => {
+                    let ctx = ui.ctx().clone();
+                    s.start(Box::new(move || ctx.request_repaint()));
+                }
+                Some(crate::disk::Answer::Clean) => s.open_clean(),
+                _ => {}
+            }
             crate::qgis::window(ui.ctx(), s);
             crate::catalog::window(ui.ctx(), s, &self.registry);
             crate::python::window(ui.ctx(), s);

@@ -2943,6 +2943,34 @@ extensão); as versões de um modelo só existem pelo git (o `review.rs` compara
    (Windows, Linux e macOS) e avisar quando não cabe, ou quando sobra pouco, antes de começar e não no fim. O
    `check_model` diz o mesmo. *Clean outputs...* lista as saídas de um modelo (das execuções do diário, as que não
    são mais lidas, as de conferência) com o tamanho de cada uma e apaga as escolhidas, perguntando antes.
+   **Feito** (Unreleased): novo `disk.rs` (`space`, `free_space` pelo `GetDiskFreeSpaceExW` no Windows e `statvfs` no
+   Linux e macOS, da pasta mais próxima que existe; `fit`: estoura quando passa do livre menos a margem, max(1 GB, 5 %
+   do disco), apertado quando sobra menos de 10 %; `plan`: `Go`, `Warn` ou `Ask`; `cost_note`). A estimativa de uma
+   execução inteira (`Session::run_bytes`, guardada por revisão do modelo e do diário): `disk::from_journal` (as
+   saídas da última execução inteira concluída, a do mesmo modelo, pelo novo `journal::hash_of`, antes) ou
+   `disk::from_model` (células do maior raster que o modelo lê, só o cabeçalho, ou `rows` x `columns` dos `nlm.*`;
+   4 bytes ou o `dtype`/`type`; as camadas de cada mapa, série ou pilha das saídas e dos `raster.write` (as etapas vêm
+   do maior `times`/`steps` do modelo, 1 sem); metade pela compressão; tabelas valem zero). Antes de uma execução
+   pedida (`run_all`: o botão, F5 e a paleta; só a do modelo inteiro e salvo, a que grava saídas) e de um lote que
+   guarda arquivos (`batch_view::disk_ok`; estimativa por rodada x rodadas; calibração e sensibilidade guardam só
+   números, nada) a janela "Not much room on the disk" (*Run anyway*, *Clean outputs...*, *Cancel*); o que cabe mas
+   sobra pouco vira uma linha em `Session::notice`; sob o botão do Many runs `cost_ui` acrescenta ", about X on disk
+   (Y free)" (em aviso quando estoura). `check_model` e o painel Problems: um aviso do `advice::advise` (nível
+   Warning, guia `results`) pela estimativa do modelo, sem o diário (o `advise` só tem a pasta do modelo, não o
+   arquivo). *Clean outputs...* (`clean_view.rs`, `Session::open_clean`): menu File, paleta (`Do::Clean`), botão no
+   topo do painel Runs e a janela do disco; lista cada caminho uma vez (a execução mais nova que o escreveu; "the
+   latest run's" para as da execução mais nova), as pastas dos lotes, tamanho contado numa thread, estado (exists,
+   missing, kept); marcados por padrão os lotes e as saídas das execuções anteriores, nunca as da mais nova; pede
+   confirmação com a contagem e o tamanho e avisa que é definitivo (sem lixeira); `refuse` recusa o que não é caminho
+   completo (ou tem `..`), a raiz do disco, a pasta do usuário (ou acima), a pasta do modelo (ou acima), o arquivo do
+   modelo e a pasta `.terraflux`; o diário não é tocado. Para os testes, o campo `Session::disk_space` troca o espaço
+   real (para os testes). Testes: cinco em `disk::tests`, três em `clean_view::tests`,
+   `the_outputs_of_the_runs_are_cleaned_after_asking` e `a_run_that_may_not_fit_the_disk_asks_first` (ui.rs; as
+   imagens `ui-clean-1.png`, `-clean-2-asked`, `-disk-1` e `-disk-2-batch`). Ficou de fora: a estimativa por
+   `control.each` e laços aninhados além das etapas (usa o maior `times`/`steps`), as execuções de conferência (item
+   2, ainda não feito), "as que não são mais lidas" (a lista é só do diário, não do que o modelo lê agora), a
+   estimativa do `terraflux run` (a linha de comando não pergunta) e as execuções do Assistente (`chat.rs` chama
+   `Session::start` direto, sem a janela).
 5. **Atalhos de teclado configuráveis.** Uma tela no Settings com cada ação (as da paleta de comandos e as do F1),
    o atalho atual e um campo que grava a tecla apertada; conflitos avisados na hora (a mesma tecla em duas ações do
    mesmo lugar: canvas, Viewer, a janela toda), *Reset* por ação e para todas. Guardados no `settings.json`; o F1,

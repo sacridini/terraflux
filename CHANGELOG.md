@@ -43,6 +43,22 @@ minor versions.
   to read. A run's detail says which version its model is. The MCP tools `save_version` and `list_versions` (and the
   application's assistant) save and list them, so an agent can mark a point before a large change.
   (`terraflux_exec::journal`: `Version`, `Journal::save_version`, `versions`, `delete_version`.)
+- Application: **the disk checked before a run, and Clean outputs...**. Before a run you ask for (the Run button, F5,
+  the commands) and before a batch of Many runs that keeps its files, the application estimates what will be written
+  (the outputs of the latest whole run in the journal, the one of the same model first; else the model's: the cells
+  of the largest raster it reads, 4 bytes a cell or the output's type, the layers of each map, series and stack it
+  writes, halved for the compression) and measures the free space of the output's disk (Windows, Linux and macOS).
+  When it may not fit (more than the free space less 5 % of the disk, a gigabyte at least) a window says "The outputs
+  may take about 3.2 GB; the disk (D:) has 1.1 GB free" with *Run anyway*, *Clean outputs...* and *Cancel*; when it
+  fits but leaves under a tenth of the disk free, a line in the status says so. The Many runs line under the button
+  adds ", about 12 GB on disk (40 GB free)" for batches that keep files, in the warning colour when it does not fit.
+  `check_model` (the MCP, the assistant and the Problems pane) warns of the same. **File, Clean outputs...** (also
+  the commands, the Runs pane and the disk window) lists the files and folders the model's runs wrote, from the
+  journal, each with its size, date and whether it exists: the batch folders and the outputs of the runs before the
+  newest are chosen, the newest run's are not, and *Delete N items (X GB)...* asks first (the deletion is for good,
+  not to the recycle bin). Only what the journal lists is touched, never the model's folder, a drive's root or the
+  home folder; the journal keeps its runs, which then show the outputs missing. (`terraflux_app::disk`,
+  `clean_view`; `terraflux_exec::journal::hash_of`.)
 - Application: **a Sensitivity tab in Many runs**. Which settings matter to an output, without the command line: the
   factors are picked from the model's numeric settings (a range of 20 % either side of the value, whole numbers
   widened to whole numbers) and the method is one at a time (each factor at its ends, the others in the middle of

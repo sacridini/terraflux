@@ -377,6 +377,9 @@ pub fn advise(m: &Model, r: &Registry, dir: &Path, inputs: Option<&BTreeMap<Stri
         }
     }
 
+    // outputs that will not fit the disk
+    out.extend(crate::disk::advice(m, r, dir));
+
     out.sort_by_key(|a| std::cmp::Reverse(a.level));
     out
 }

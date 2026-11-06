@@ -219,6 +219,11 @@ fn sha_of(text: &str) -> String {
     Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// The hash a model is kept under in the journal ([`Entry::model`]): the SHA-256 of its JSON.
+pub fn hash_of(model: &Model) -> Option<String> {
+    model.to_json().ok().map(|t| sha_of(&t))
+}
+
 /// A model's journal.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Journal {

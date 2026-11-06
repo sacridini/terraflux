@@ -8765,3 +8765,181 @@ fn the_versions_are_saved_listed_reviewed_restored_and_deleted() {
     assert!(journal.model(&versions[0].model).is_some());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// *Clean outputs...* lists what the runs wrote, from the journal: the batch folders and the outputs of the runs
+/// before the newest are chosen, the newest run's are not; deleting asks first, takes the files away and leaves the
+/// journal, whose runs then show them missing.
+#[test]
+fn the_outputs_of_the_runs_are_cleaned_after_asking() {
+    use terraflux_exec::journal::{Entry, Journal, Kind, Written};
+    let dir = tmp("clean-outputs");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("output")).unwrap();
+    let mut w = Wizard::default();
+    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
+    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
+    w.increment = Some(250.0);
+    let file = w.save(&dir.join("ui-clean.toml")).unwrap();
+    let journal = Journal::of(&file).unwrap();
+    // a run from long ago, whose output is still there
+    let old = dir.join("output").join("old.tif");
+    std::fs::write(&old, vec![0u8; 4096]).unwrap();
+    let past = Entry {
+        id: 1000,
+        when: 1,
+        kind: Kind::Run,
+        outputs: vec![Written::of("old", &old, None, None).unwrap()],
+        ..Default::default()
+    };
+    journal.record(past, &terraflux_graph::Model::load(&file).unwrap()).unwrap();
+    let mut h = harness(new_app(Some(file.clone())));
+    loaded(&mut h);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.apply(&[("simulation.times".to_string(), serde_json::json!(2))].into()).unwrap();
+        s.edited();
+        s.save().unwrap();
+    }
+    run_all(&mut h, None);
+    // a batch of replicates, in its own folder
+    let batch = dir.join("batch");
+    h.state_mut().focus(Pane::Batch);
+    h.state_mut().computers.pool = None;
+    h.state_mut().computers.dir = Some(tmp("clean-outputs-pool"));
+    {
+        let b = &mut h.state_mut().batch;
+        b.runs = 2;
+        b.workers = 2;
+        b.out = Some(batch.clone());
+    }
+    h.run_steps(3);
+    h.get_by_label("Run 2 times").click();
+    h.run_steps(1);
+    assert!(h.state().batch.running(), "{:?}", h.state().batch.error);
+    until(&mut h, "the replicates", |a| !a.batch.running());
+    h.run_steps(2);
+    assert!(batch.join("tasks.csv").exists());
+    // the window, from the Runs pane's button
+    h.state_mut().focus(Pane::Runs);
+    h.run_steps(3);
+    h.get_by_label("Clean outputs...").click();
+    h.run_steps(3);
+    until(&mut h, "the sizes", |a| {
+        a.session.as_ref().unwrap().clean.as_ref().is_some_and(|c| c.items.iter().all(|i| i.size.is_some()))
+    });
+    h.run_steps(2);
+    let items = h.state().session.as_ref().unwrap().clean.as_ref().unwrap().items.clone();
+    let by = |name: &str| items.iter().find(|i| i.path.ends_with(name)).unwrap_or_else(|| panic!("{name} {items:?}"));
+    assert!(by("batch").checked && by("batch").batch, "the batch folder is chosen");
+    assert!(by("old.tif").checked && !by("old.tif").latest, "an output of a run before is chosen");
+    let latest: Vec<_> = items.iter().filter(|i| i.latest).collect();
+    assert!(!latest.is_empty() && latest.iter().all(|i| !i.checked), "the newest run's outputs are not: {latest:?}");
+    let chosen_bytes: u64 = items.iter().filter(|i| i.checked).map(|i| i.size.unwrap()).sum();
+    assert!(chosen_bytes >= 4096);
+    shot(&mut h, "clean-1");
+    // asking first: nothing is deleted until it is confirmed
+    h.get_by_label_contains("Delete 2 items").click();
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("for good").is_some());
+    assert!(batch.exists() && old.exists());
+    shot(&mut h, "clean-2-asked");
+    h.get_by_label("Delete").click();
+    h.run_steps(3);
+    assert!(!batch.exists() && !old.exists(), "the folder and the file are gone");
+    for i in latest {
+        assert!(i.path.exists(), "{:?} is the newest run's: kept", i.path);
+    }
+    // the journal keeps its runs, which now tell the file missing
+    let entries = journal.entries();
+    assert_eq!(entries.len(), 3);
+    assert_eq!(terraflux_app::runs_view::state_of(&entries[0].outputs[0]), "missing");
+    h.state_mut().session.as_mut().unwrap().clean = None;
+    h.state_mut().runs.select(entries[0].id, false);
+    h.run_steps(3);
+    assert!(h.get_all_by_label_contains("missing").count() >= 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A run whose outputs may not fit the disk asks first (the disk made small for the test): *Cancel* does not run it,
+/// *Run anyway* does, *Clean outputs...* opens the cleaning; a batch that keeps files asks the same, and its cost
+/// line tells the room.
+#[test]
+fn a_run_that_may_not_fit_the_disk_asks_first() {
+    use terraflux_app::disk::Space;
+    let dir = tmp("disk-asks");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut w = Wizard::default();
+    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
+    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
+    w.increment = Some(250.0);
+    let file = w.save(&dir.join("ui-disk.toml")).unwrap();
+    let mut h = harness(new_app(Some(file.clone())));
+    loaded(&mut h);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.apply(&[("simulation.times".to_string(), serde_json::json!(2))].into()).unwrap();
+        s.edited();
+        s.save().unwrap();
+        // a disk with 1 GB free of 10: the margin leaves nothing for any run
+        s.disk_space = Some(Space { free: 1 << 30, total: 10 << 30 });
+        assert!(s.run_bytes() > 0, "the model's maps give an estimate");
+    }
+    let journal = terraflux_exec::journal::Journal::of(&file).unwrap();
+    h.run_steps(3);
+    h.get_by_label("Run").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.disk_ask.is_some() && !s.running(), "the run waits for the answer");
+    assert!(h.query_by_label_contains("The outputs may take about").is_some());
+    assert!(h.query_by_label_contains("1.0 GB free").is_some());
+    shot(&mut h, "disk-1");
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.disk_ask.is_none() && !s.running() && journal.entries().is_empty(), "cancelled: nothing ran");
+    // Clean outputs... opens the cleaning
+    h.get_by_label("Run").click();
+    h.run_steps(3);
+    h.get_by_label("Clean outputs...").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.disk_ask.is_none() && s.clean.is_some() && !s.running());
+    h.state_mut().session.as_mut().unwrap().clean = None;
+    h.run_steps(2);
+    // run anyway
+    h.get_by_label("Run").click();
+    h.run_steps(3);
+    h.get_by_label("Run anyway").click();
+    h.run_steps(1);
+    until(&mut h, "the run", |a| !a.session.as_ref().unwrap().running());
+    h.run_steps(3);
+    assert_eq!(journal.entries().len(), 1, "run anyway ran");
+    // a batch that keeps files asks too, and the estimate now comes from that run
+    h.state_mut().focus(Pane::Batch);
+    h.state_mut().computers.pool = None;
+    h.state_mut().computers.dir = Some(tmp("disk-asks-pool"));
+    {
+        let b = &mut h.state_mut().batch;
+        b.runs = 2;
+        b.workers = 2;
+        b.out = Some(dir.join("batch"));
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("on disk (1.0 GB free)").is_some(), "the cost line tells the room");
+    shot(&mut h, "disk-2-batch");
+    h.get_by_label("Run 2 times").click();
+    h.run_steps(3);
+    assert!(h.state().batch.disk_ask.is_some() && !h.state().batch.running());
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    assert!(h.state().batch.disk_ask.is_none() && !h.state().batch.running());
+    // with room, nothing is asked
+    h.state_mut().session.as_mut().unwrap().disk_space = Some(Space { free: 500 << 30, total: 1000 << 30 });
+    h.run_steps(2);
+    h.get_by_label("Run 2 times").click();
+    h.run_steps(2);
+    assert!(h.state().batch.running() && h.state().batch.disk_ask.is_none());
+    until(&mut h, "the replicates", |a| !a.batch.running());
+    let _ = std::fs::remove_dir_all(&dir);
+}

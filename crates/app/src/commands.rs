@@ -28,6 +28,8 @@ pub enum Do {
     SaveAs,
     /// Save a version...: the model kept under a name.
     Version,
+    /// Clean outputs...: delete the files the runs wrote.
+    Clean,
     OpenData,
     /// Process a folder...: every raster of a folder through an operator.
     ProcessFolder,
