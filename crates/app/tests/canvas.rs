@@ -1229,7 +1229,8 @@ fn the_selections_menu_acts_on_all_the_nodes_selected() {
     // the heading (the bar under the canvas says it too) and the entries
     menu_of(&mut h, &["a", "b", "c"], "b");
     assert_eq!(h.query_all_by_label("3 nodes selected").count(), 2, "the bar's and the menu's");
-    for l in ["Delete", "Duplicate", "Disconnect all their inputs", "Group    ", "Run to them", "Freeze", "Bypass"] {
+    for l in ["Delete", "Duplicate    ", "Disconnect all their inputs", "Group    ", "Run to them", "Freeze", "Bypass"]
+    {
         assert!(h.query_by_label_contains(l).is_some(), "{l}");
     }
     // a node outside them: its own menu, no heading
@@ -1242,7 +1243,7 @@ fn the_selections_menu_acts_on_all_the_nodes_selected() {
     h.run_steps(2);
     // duplicate: three copies, linked among themselves, selected, one step of undo
     menu_of(&mut h, &["a", "b", "c"], "c");
-    pick(&mut h, "Duplicate");
+    pick(&mut h, "Duplicate    ");
     let s = h.state().session.as_ref().unwrap();
     assert_eq!(s.source.nodes.len(), 7);
     let (a2, b2) = (s.source.node("a_2").unwrap(), s.source.node("b_2").unwrap());
@@ -1303,4 +1304,158 @@ fn the_selections_menu_acts_on_all_the_nodes_selected() {
     let s = h.state().session.as_ref().unwrap();
     assert_eq!(s.target.as_deref(), Some("c"), "{:?}", s.run_queue);
     assert_eq!(s.run_queue, ["z"]);
+}
+
+/// `selection_model`'s nodes at the top level, or in a group `grp` that is shown.
+fn scoped_model(inside: bool, name: &str) -> Harness<'static, TerrafluxApp> {
+    let mut m = selection_model();
+    if inside {
+        let nodes = std::mem::take(&mut m.nodes);
+        m.nodes
+            .push(Node::new("grp", terraflux_graph::GROUP).body(terraflux_graph::Body { nodes, ..Default::default() }));
+    }
+    let mut h = harness(open(&m, name));
+    h.run_steps(3);
+    if inside {
+        h.state_mut().session.as_mut().unwrap().editor.path = vec!["grp".into()];
+        h.run_steps(40);
+    }
+    h
+}
+
+fn holding(h: &mut Harness<TerrafluxApp>, m: egui::Modifiers) {
+    h.event(egui::Event::ModifiersChanged(m));
+    h.run_steps(1);
+}
+
+fn chosen_now(h: &Harness<TerrafluxApp>) -> Vec<String> {
+    editor(h).chosen.iter().cloned().collect()
+}
+
+/// Ctrl+drag copies the nodes: outlines follow the pointer, the originals stay, and where it is let go the copies
+/// appear (the links among them kept, what they read kept), selected, in one step of undo; escape during the drag
+/// makes none; a ctrl+click, no drag, still toggles the selection. In a group too.
+#[test]
+fn nodes_dragged_with_ctrl_are_copied() {
+    use terraflux_graph::Source;
+    let find = |v: &[Node], id: &str| v.iter().find(|n| n.id == id).cloned();
+    for inside in [false, true] {
+        let mut h = scoped_model(inside, "canvas-copy-drag.toml");
+        let select = |h: &mut Harness<TerrafluxApp>, ids: &[&str]| {
+            let s = h.state_mut().session.as_mut().unwrap();
+            s.selected = ids.first().map(|s| s.to_string());
+            s.editor.chosen = ids.iter().map(|s| s.to_string()).collect();
+            h.run_steps(2);
+        };
+        // one node, selected or not: a copy at the drop point
+        select(&mut h, &[]);
+        let (from, to) =
+            (editor(&h).screen_of("z").unwrap(), editor(&h).screen_of("z").unwrap() + egui::vec2(220.0, 120.0));
+        let by = editor(&h).graph_at(to).unwrap() - editor(&h).graph_at(from).unwrap();
+        holding(&mut h, egui::Modifiers::COMMAND);
+        drag(&mut h, from, to);
+        holding(&mut h, egui::Modifiers::NONE);
+        let v = nodes_now(&h, inside);
+        assert_eq!(v.len(), 5, "inside {inside}: {v:?}");
+        assert_eq!(find(&v, "z").unwrap().pos, Some([0.0, 300.0]), "the original stays");
+        let p = find(&v, "z_2").expect("the copy").pos.unwrap();
+        assert!((p[0] - by.x).abs() < 1.0 && (p[1] - 300.0 - by.y).abs() < 1.0, "{p:?} by {by:?}");
+        assert_eq!(chosen_now(&h), ["z_2"]);
+        undo(&mut h);
+        assert_eq!(nodes_now(&h, inside).len(), 4, "one step of undo");
+        // two linked nodes selected: both copied, the copy of the second reads the copy of the first
+        select(&mut h, &["b", "c"]);
+        let from = editor(&h).screen_of("b").unwrap();
+        holding(&mut h, egui::Modifiers::COMMAND);
+        drag(&mut h, from, from + egui::vec2(0.0, 200.0));
+        holding(&mut h, egui::Modifiers::NONE);
+        let v = nodes_now(&h, inside);
+        assert_eq!(v.len(), 6, "inside {inside}");
+        assert_eq!(find(&v, "b").unwrap().pos, Some([350.0, 0.0]));
+        assert_eq!(find(&v, "b_2").unwrap().inputs["map"], Source::Ref("a.raster".into()));
+        assert_eq!(find(&v, "c_2").unwrap().inputs["map"], Source::Ref("b_2.map".into()));
+        assert_eq!(chosen_now(&h), ["b_2", "c_2"]);
+        undo(&mut h);
+        assert_eq!(nodes_now(&h, inside).len(), 4);
+        // escape during the drag: nothing copied
+        select(&mut h, &["z"]);
+        let from = editor(&h).screen_of("z").unwrap();
+        holding(&mut h, egui::Modifiers::COMMAND);
+        h.hover_at(from);
+        h.run_steps(1);
+        h.drag_at(from);
+        h.run_steps(1);
+        for k in 1..=4 {
+            h.hover_at(from + egui::vec2(40.0 * k as f32, 20.0 * k as f32));
+            h.run_steps(1);
+        }
+        h.key_press(egui::Key::Escape);
+        h.run_steps(1);
+        h.drop_at(from + egui::vec2(160.0, 80.0));
+        h.run_steps(2);
+        holding(&mut h, egui::Modifiers::NONE);
+        assert_eq!(nodes_now(&h, inside).len(), 4, "escape: no copies");
+        // a ctrl+click toggles the selection, copies nothing
+        select(&mut h, &["a"]);
+        let at = editor(&h).screen_of("b").unwrap();
+        holding(&mut h, egui::Modifiers::COMMAND);
+        click(&mut h, at);
+        holding(&mut h, egui::Modifiers::NONE);
+        assert_eq!(chosen_now(&h), ["a", "b"], "inside {inside}");
+        assert_eq!(nodes_now(&h, inside).len(), 4);
+    }
+}
+
+/// Ctrl+D duplicates with the inputs: the copy reads what the original read, the links among the nodes copied go
+/// to the copies; so do the entries in the menus. Inside a group too.
+#[test]
+fn a_duplicate_reads_what_the_original_read() {
+    use terraflux_graph::Source;
+    let find = |v: &[Node], id: &str| v.iter().find(|n| n.id == id).cloned().unwrap();
+    for inside in [false, true] {
+        let mut h = scoped_model(inside, "canvas-copy-inputs.toml");
+        let select = |h: &mut Harness<TerrafluxApp>, ids: &[&str]| {
+            let s = h.state_mut().session.as_mut().unwrap();
+            s.selected = ids.first().map(|s| s.to_string());
+            s.editor.chosen = ids.iter().map(|s| s.to_string()).collect();
+            h.run_steps(2);
+            let centre = editor(h).canvas().unwrap().center();
+            h.hover_at(centre);
+            h.run_steps(2);
+        };
+        let press = |h: &mut Harness<TerrafluxApp>| {
+            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+            h.run_steps(3);
+        };
+        select(&mut h, &["b"]);
+        press(&mut h);
+        let v = nodes_now(&h, inside);
+        assert_eq!(v.len(), 5, "inside {inside}");
+        assert_eq!(find(&v, "b_2").inputs["map"], Source::Ref("a.raster".into()));
+        assert_eq!(chosen_now(&h), ["b_2"]);
+        undo(&mut h);
+        assert_eq!(nodes_now(&h, inside).len(), 4);
+        select(&mut h, &["b", "c"]);
+        press(&mut h);
+        let v = nodes_now(&h, inside);
+        assert_eq!(v.len(), 6);
+        assert_eq!(find(&v, "b_2").inputs["map"], Source::Ref("a.raster".into()));
+        assert_eq!(find(&v, "c_2").inputs["map"], Source::Ref("b_2.map".into()));
+        assert_eq!(find(&v, "c").inputs["map"], Source::Ref("b.map".into()), "the originals as they were");
+        undo(&mut h);
+        // the entries of the one-node menu and of the selection's
+        select(&mut h, &["z"]);
+        let at = editor(&h).screen_of("c").unwrap();
+        right_click(&mut h, at);
+        pick(&mut h, "Duplicate    ");
+        let v = nodes_now(&h, inside);
+        assert_eq!(v.len(), 5);
+        assert_eq!(find(&v, "c_2").inputs["map"], Source::Ref("b.map".into()), "the copy reads what c read");
+        undo(&mut h);
+        menu_of(&mut h, &["b", "c"], "b");
+        pick(&mut h, "Duplicate    ");
+        let v = nodes_now(&h, inside);
+        assert_eq!(v.len(), 6);
+        assert_eq!(find(&v, "c_2").inputs["map"], Source::Ref("b_2.map".into()));
+    }
 }

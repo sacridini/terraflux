@@ -1278,6 +1278,15 @@ fn delete_chosen(s: &mut Session) {
     }
 }
 
+/// Copies of the nodes `ids` (they keep what they read, the links among them go to the copies; selected after),
+/// where they were moved by `by` (graph units), else a step down and to the right.
+fn copy_nodes(s: &mut Session, r: &Registry, ids: &[String], by: Option<[f32; 2]>) {
+    let ids: Vec<&String> = ids.iter().collect();
+    let nodes = placed(s, &ids);
+    let at = by.and_then(|d| nodes.first().and_then(|n| n.pos).map(|p| [p[0] + d[0], p[1] + d[1]]));
+    put(s, r, &nodes, at, true);
+}
+
 /// The nodes chosen of the scope shown, by id (the boxes of what the scope reads left out).
 fn chosen_ids(s: &Session) -> Vec<String> {
     let Some(nodes) = s.source.scope(&s.editor.path) else { return Vec::new() };
@@ -1336,11 +1345,18 @@ pub fn forget_missing(s: &mut Session) {
 
 /// The nodes selected in the scope shown (else the node selected), each with its place on the canvas.
 fn chosen(s: &Session) -> Vec<Node> {
-    let Some(nodes) = s.source.scope(&s.editor.path) else { return Vec::new() };
     let mut ids: Vec<&String> = s.editor.chosen.iter().collect();
     if ids.is_empty() {
         ids.extend(s.selected.as_ref());
     }
+    placed(s, &ids)
+}
+
+/// The nodes `ids` of the scope shown (the boxes of what the scope reads left out), each with its place on the
+/// canvas.
+fn placed(s: &Session, ids: &[&String]) -> Vec<Node> {
+    let Some(nodes) = s.source.scope(&s.editor.path) else { return Vec::new() };
+    let mut ids = ids.to_vec();
     ids.retain(|id| !crate::editor::is_source(id));
     let auto = crate::editor_view::auto_positions(nodes);
     nodes
@@ -2605,6 +2621,14 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             Action::DuplicateChosen => {
                 let nodes = chosen(s);
                 put(s, r, &nodes, None, true);
+                Ok(false)
+            }
+            Action::DuplicateNodes(ids) => {
+                copy_nodes(s, r, &ids, None);
+                Ok(false)
+            }
+            Action::DragCopy { ids, by } => {
+                copy_nodes(s, r, &ids, Some(by));
                 Ok(false)
             }
             Action::DisconnectChosen => {

@@ -2340,7 +2340,11 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
 8. **Alinhar e distribuir** os selecionados (à esquerda, centro, em coluna com o mesmo espaço), além do *Arrange* do
    modelo inteiro.
 9. **Duplicar arrastando** (ctrl+arrastar) e **duplicar com as entradas** (ctrl+shift+D: a cópia lê o mesmo que o
-   original), útil para um ramo de análise paralelo.
+   original), útil para um ramo de análise paralelo. **Feito** (Unreleased): ctrl+arrastar copia o nó (ou a
+   seleção, arrastada por um nó dela) para onde é solto, só contornos seguindo o ponteiro, num passo de desfazer;
+   Esc cancela; ctrl+clique continua alternando a seleção. O ctrl+D já duplicava lendo as mesmas entradas, então
+   não entrou um ctrl+shift+D (seria o mesmo); a ajuda do *Duplicate* nos menus diz isso. Falta: inserção em fio
+   e alt (lift) no ctrl+arrastar; uma dica de "copiando" no ponteiro.
 10. **Desligar todas as entradas** de um nó (ou da seleção) pelo menu, e **trocar dois fios** de lugar arrastando
     um sobre o outro.
 11. **Trocar o arquivo de um `raster.read`** pelo menu ou soltando um arquivo em cima do nó, mantendo os fios (hoje

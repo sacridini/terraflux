@@ -205,7 +205,9 @@ Press ++f5++ to run the whole model. Then save it: **Save as...**, `core-forest.
     With several nodes of one operator selected (a box dragged around them, or ctrl+click), the Node pane shows
     their settings once ("several values" where they differ) and a change goes to all of them, in one undo. A
     right click on them (or on the empty canvas) gives the selection's menu: delete, duplicate, disconnect their
-    inputs, group, run to them, freeze, bypass.
+    inputs, group, run to them, freeze, bypass. **Ctrl+drag** copies a node (or the selection) to where it is let
+    go, the originals staying put (Esc cancels); like **ctrl+D**, the copies read what the originals read, a
+    quick start for a parallel branch of the analysis.
 
 ## Read the results
 

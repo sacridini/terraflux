@@ -260,6 +260,13 @@ pub enum Action {
     /// taken off, frozen (`true`) or thawed, turned off or on, run up to.
     DeleteChosen,
     DuplicateChosen,
+    /// Copies of the nodes right-clicked (one node's menu): they read what the originals read, as ctrl+D.
+    DuplicateNodes(Vec<String>),
+    /// Copies of the nodes made by dragging them (ctrl+drag), let go `by` graph units from where they were.
+    DragCopy {
+        ids: Vec<String>,
+        by: [f32; 2],
+    },
     DisconnectChosen,
     FreezeChosen(bool),
     BypassChosen,
@@ -412,6 +419,9 @@ enum Drag {
     /// The nodes selected moved: where the pointer started and each node's corner then (graph units); whether
     /// alt was held (a node connected is lifted out of its connections when let go).
     Move(Pos2, Vec<(String, Pos2)>, bool),
+    /// The nodes copied by dragging (ctrl held): as `Move`, but the originals stay and only outlines follow the
+    /// pointer; the copies are made when it is let go (escape: none).
+    Copy(Pos2, Vec<(String, Pos2)>),
     /// A node made wider or narrower by its right edge: its id, its left edge and the width its texts need.
     Resize(String, f32, f32),
     /// A box of selection from a corner (graph units).
@@ -1697,8 +1707,8 @@ fn stages_and_notes(
 
 /// What the entries of the selection's menu do.
 const DELETE_MANY_HELP: &str = "the nodes selected taken away, with the connections into and out of them";
-const DUPLICATE_MANY_HELP: &str = "a copy of each node selected, a step down and to the right, the connections among \
-     them kept and what they read from outside too; the copies selected";
+const DUPLICATE_MANY_HELP: &str = "a copy of each node, a step down and to the right, reading what the originals \
+     read (the links among the copied nodes go to the copies), the same as ctrl+D; the copies selected";
 const DISCONNECT_MANY_HELP: &str = "every connection into the nodes selected taken off (what they read from the \
      others selected too); the values typed in stay";
 const RUN_MANY_HELP: &str = "the model run up to the nodes selected: what they need, nothing else (one run each of \
@@ -1934,19 +1944,34 @@ pub fn show(
             // a node, or the box of something the scope reads: moved
             Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i)) => {
                 let key = &scene.boxes[i].key;
-                if !st.chosen.contains(key) {
-                    if !adding {
-                        st.chosen.clear();
+                // ctrl held (the drag has begun: a ctrl+click was a click): copies dragged, the originals stay;
+                // a node out of the selection alone
+                let (ctrl, alt) = ui.input(|i| (i.modifiers.command, i.modifiers.alt));
+                if ctrl && !alt && !scene.boxes[i].source {
+                    let keys: Vec<&String> =
+                        if st.chosen.contains(key) { st.chosen.iter().collect() } else { vec![key] };
+                    let corners: Vec<(String, Pos2)> = keys
+                        .into_iter()
+                        .filter_map(|k| scene.index.get(k).map(|&j| (j, k)))
+                        .filter(|(j, _)| !scene.boxes[*j].source)
+                        .map(|(j, k)| (k.clone(), scene.boxes[j].rect.min))
+                        .collect();
+                    Drag::Copy(w, corners)
+                } else {
+                    if !st.chosen.contains(key) {
+                        if !adding {
+                            st.chosen.clear();
+                        }
+                        st.chosen.insert(key.clone());
+                        actions.push(Action::Select(key.clone()));
                     }
-                    st.chosen.insert(key.clone());
-                    actions.push(Action::Select(key.clone()));
+                    let corners = st
+                        .chosen
+                        .iter()
+                        .filter_map(|k| scene.index.get(k).map(|&j| (k.clone(), scene.boxes[j].rect.min)))
+                        .collect();
+                    Drag::Move(w, corners, alt)
                 }
-                let corners = st
-                    .chosen
-                    .iter()
-                    .filter_map(|k| scene.index.get(k).map(|&j| (k.clone(), scene.boxes[j].rect.min)))
-                    .collect();
-                Drag::Move(w, corners, ui.input(|i| i.modifiers.alt))
             }
             _ => Drag::Select(w),
         });
@@ -1956,6 +1981,12 @@ pub fn show(
         cam.pan += resp.drag_delta();
     }
     let pointer = resp.hover_pos().or(ui.input(|i| i.pointer.interact_pos()));
+    // escape while copies are dragged: no copies (and the selection stays)
+    if matches!(st.drag, Some(Drag::Copy(..)))
+        && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+    {
+        st.drag = None;
+    }
     let mut moved = Vec::new();
     let mut resized = None;
     if let (Some(Drag::Resize(id, left, need)), Some(q)) = (&st.drag, pointer)
@@ -1984,6 +2015,14 @@ pub fn show(
         _ => None,
     };
     if resp.drag_stopped() {
+        // copies dragged, let go: made there, selected
+        if let (Some(Drag::Copy(from, corners)), Some(q)) = (&st.drag, pointer) {
+            let d = to_world(q, cam) - *from;
+            if !corners.is_empty() && d.length() > 0.0 {
+                let ids = corners.iter().map(|(k, _)| k.clone()).collect();
+                actions.push(Action::DragCopy { ids, by: [d.x, d.y] });
+            }
+        }
         // a node let go over a connection goes in the middle of it; one dragged with alt is lifted out of its
         // connections (the connections it was in joined again)
         if let (Some(Drag::Move(_, corners, alt)), Some(q)) = (&st.drag, pointer)
@@ -2229,6 +2268,7 @@ pub fn show(
                 item(ui, "Save as my node...", SAVE_MINE_HELP, Action::SaveMine(key.clone()));
                 ui.separator();
             }
+            item(ui, &format!("Duplicate    {c}D"), DUPLICATE_MANY_HELP, Action::DuplicateNodes(vec![key.clone()]));
             item(ui, "Run on a folder...", crate::node_view::FOLDER_HELP, Action::RunOnFolder(key.clone()));
             if op == "raster.read" && st.path.is_empty() {
                 item(ui, "Make it an input of the model", MAKE_INPUT_HELP, Action::NodeToInput(key.clone()));
@@ -2636,6 +2676,20 @@ pub fn show(
             Color32::TRANSPARENT,
             Stroke::new(4.5, crate::theme::accent()),
         ));
+        ui.ctx().request_repaint();
+    }
+    // copies dragged: an outline of each where it would be let go
+    if let (Some(Drag::Copy(from, corners)), Some(q)) = (&st.drag, pointer) {
+        let d = to_world(q, &cam) - *from;
+        let accent = crate::theme::accent();
+        for (id, _) in corners {
+            if let Some(&i) = scene.index.get(id) {
+                let r = scene.boxes[i].rect.translate(d);
+                let r = Rect::from_min_max(screen(r.min), screen(r.max));
+                painter.rect_filled(r, 6.0, accent.gamma_multiply(0.15));
+                painter.rect_stroke(r, 6.0, Stroke::new(1.5, accent), egui::StrokeKind::Inside);
+            }
+        }
         ui.ctx().request_repaint();
     }
     // the note of the node under the pointer; how to take a connection off an input

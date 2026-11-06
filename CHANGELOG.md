@@ -32,6 +32,10 @@ minor versions.
   inputs* (the values typed kept), *Group*, *Run to them* (one run after the other up to those no other needs,
   the shared part from the cache), *Freeze* or *Unfreeze*, *Bypass* or *Turn them on*, and *Connect the others
   selected* to the node clicked; each one step of undo, those that do not apply greyed with the reason.
+- Canvas: **ctrl+drag duplicates** a node, or the selection when dragged by one of its nodes: outlines follow the
+  pointer while the originals stay, and on release the copies are made there, selected, in one step of undo, reading
+  what the originals read and linked among themselves as they were (inside groups too). Esc cancels; ctrl+click
+  still adds to or takes from the selection. A node's own menu gains *Duplicate* (ctrl+D), saying so.
 
 ## [1.41.0] - 2026-11-06
 
