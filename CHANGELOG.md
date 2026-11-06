@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.41.0] - 2026-11-06
+
 ### Added
 - Viewer: **three bands as one colour image**. A layer of three maps or more (a stack, a series, a raster of
   bands) checked **RGB** in its settings is drawn as colour, a band for each of red, green and blue: natural colour,
