@@ -594,6 +594,7 @@ fn change(s: &mut Session, r: &Registry, name: &str, a: &Value, stamp: &Stamp) -
     crate::review::begin(s, &stamp.who, false);
     s.source = m;
     crate::builder::forget_missing(s);
+    s.history.name(&format!("{}: {name}", stamp.who));
     s.edited();
     let touched = match name {
         "add_node" => s.source.nodes.iter().find(|n| !before.contains(&n.id)).map(|n| n.id.clone()),

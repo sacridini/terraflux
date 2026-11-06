@@ -289,3 +289,42 @@ fn the_canvas_tells_how_long_each_node_took() {
     h.run_steps(3);
     assert_eq!(h.state().session.as_ref().unwrap().selected.as_deref(), Some(first.as_str()));
 }
+
+#[test]
+fn the_history_goes_back_and_forward_to_any_step() {
+    let mut h = harness(new_app(None));
+    h.run_steps(3);
+    for id in ["a", "b", "c"] {
+        add_node(&mut h, id);
+        h.run_steps(2);
+    }
+    h.get_by_label("History").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("the model as it was opened").is_some());
+    assert!(h.query_by_label("3. added c (nlm.random)").is_some());
+    if let Ok(img) = h.render() {
+        img.save(tmp("ui-history.png")).unwrap();
+    }
+    // back to the first step: one node
+    h.get_by_label("1. added a (nlm.random)").click();
+    h.run_steps(3);
+    let ids = |h: &Harness<TerrafluxApp>| -> Vec<String> {
+        h.state().session.as_ref().unwrap().source.nodes.iter().map(|n| n.id.clone()).collect()
+    };
+    assert_eq!(ids(&h), ["a"]);
+    assert_eq!(h.state().session.as_ref().unwrap().history.steps().1, 1);
+    // forward to the last again
+    h.get_by_label("3. added c (nlm.random)").click();
+    h.run_steps(3);
+    assert_eq!(ids(&h), ["a", "b", "c"]);
+    // compared with the model as it was opened: the Changes
+    h.get_by_label("1. added a (nlm.random)").click();
+    h.run_steps(2);
+    h.get_by_label("3. added c (nlm.random)").click();
+    h.run_steps(2);
+    let first = h.get_all_by_label("compare").next().unwrap();
+    first.click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(terraflux_app::review::changes(s).len(), 3, "three nodes added since it was opened");
+}

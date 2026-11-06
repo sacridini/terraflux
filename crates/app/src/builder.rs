@@ -1929,6 +1929,7 @@ fn batch_rename(ctx: &egui::Context, s: &mut Session, r: &Registry) {
         let pairs: Vec<(String, String)> = names.into_iter().filter_map(|(o, n)| Some((o, n.ok()?))).collect();
         if renamed(s, r, &pairs) {
             s.editor.message = None;
+            s.history.name(&format!("renamed {} by a pattern", pairs.len()));
             s.edited();
         }
     } else if stay {
@@ -2520,6 +2521,13 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
             .clicked()
         {
             undo_redo(s, true);
+        }
+        if ui
+            .add_enabled(s.history.can_undo() || s.history.can_redo(), egui::Button::new("History"))
+            .on_hover_text("the edits by name: go back or forward to any of them")
+            .clicked()
+        {
+            s.history_open = !s.history_open;
         }
         ui.checkbox(&mut s.auto, "update after every edit")
             .on_hover_text("run up to the node shown after every change of the model");

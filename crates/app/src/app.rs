@@ -744,6 +744,8 @@ pub struct Session {
     pub untitled: u64,
     /// A run that just ended, until the application takes it (to tell it when it was long).
     pub ended: Option<Ended>,
+    /// The History window of the edits open.
+    pub history_open: bool,
     /// How long each node took in the runs of the sessions before (kept per model, [`crate::eta`]), and when the
     /// top-level node running began.
     pub times_before: BTreeMap<String, f64>,
@@ -945,6 +947,7 @@ impl Session {
             copied_at: None,
             untitled: crate::recovery::next_untitled(),
             ended: None,
+            history_open: false,
             times_before: BTreeMap::new(),
             node_began: None,
         })
@@ -2505,6 +2508,15 @@ impl TerrafluxApp {
             self.set_viewer_out(!out);
             ui.close();
         }
+        if let Some(s) = &mut self.session
+            && ui
+                .button("History of the edits")
+                .on_hover_text("the model's edits by name: go back or forward to any")
+                .clicked()
+        {
+            s.history_open = true;
+            ui.close();
+        }
         if ui.button("Reset the layout").clicked() {
             self.viewer_out = false;
             self.windows.clear();
@@ -2810,6 +2822,7 @@ impl TerrafluxApp {
             action("Wizard: a land change model from your maps", String::new(), Do::Wizard),
             action("Settings", String::new(), Do::Settings),
             action("Keyboard shortcuts", "F1".into(), Do::Shortcuts),
+            action("History of the edits", String::new(), Do::History),
             action("Methods and citations: the model as a paper's methods", String::new(), Do::Methods),
             action("Export to QGIS: the run's maps as a QGIS project", String::new(), Do::Qgis),
             action("Data catalog: climate, terrain, soil, land cover, rivers to download", String::new(), Do::Catalog),
@@ -2860,6 +2873,11 @@ impl TerrafluxApp {
             Do::Stop => self.stop_run(),
             Do::Settings => self.settings_open = true,
             Do::Shortcuts => self.shortcuts_open = true,
+            Do::History => {
+                if let Some(s) = &mut self.session {
+                    s.history_open = true;
+                }
+            }
             Do::Methods => {
                 if let Some(s) = &mut self.session {
                     s.methods_open = true;
@@ -4361,6 +4379,7 @@ impl TerrafluxApp {
             crate::qgis::window(ui.ctx(), s);
             crate::catalog::window(ui.ctx(), s, &self.registry);
             crate::python::window(ui.ctx(), s);
+            crate::undo::window(ui.ctx(), s);
             // (the figure's and the export's dialogs open in the Viewer's window when it has one)
             if !out {
                 crate::figure::window(ui.ctx(), s);

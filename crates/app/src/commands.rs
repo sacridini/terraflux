@@ -39,6 +39,8 @@ pub enum Do {
     GroupByStage,
     Undo,
     Redo,
+    /// The History window: the model's edits by name, to go back or forward to any.
+    History,
     Text,
     Settings,
     Shortcuts,

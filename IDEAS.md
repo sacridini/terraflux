@@ -2649,6 +2649,13 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    marcado, os desfeitos em cinza; um clique vai até ele (desfazer ou refazer vários de uma vez, uma ida só);
    "Compare with now" abre o Changes com aquele modelo (`review::compare`). Testes: os nomes dos passos, ir e voltar
    pelo painel.
+   **Feito** (Unreleased): `undo.rs` guarda os nomes ao lado dos modelos (`undo_names`, `redo_names`), feitos no
+   `tick` que fecha o passo (`describe`: o `review::diff` resumido; sem diferença de nós, o que moveu) ou dados por
+   quem editou (`History::name`: o Assistant com o nome da ferramenta, o rename em lote); `steps`, `model_at`,
+   `go_to` (vários `undo_redo` de uma vez) e a janela `undo::window` (uma janela, não um painel: abre por cima do
+   canvas; `Session::history_open`), com "compare". Testes: `undo::tests` e
+   `the_history_goes_back_and_forward_to_any_step` (a imagem `ui-history.png`). Falta: o MCP nomear os seus passos
+   (as edições dele chegam pelo arquivo, `watch::take`: hoje "added …" pelo diff).
 5. **O tempo que falta.** `eta.rs`: com os tempos de cada nó das execuções anteriores (`Session::timings`, agora
    também gravados por modelo em `data_dir()/run-times.json`, os últimos 200 modelos), o que falta é a soma dos nós
    ainda não feitos mais o resto do que roda (pela sua fração: um laço pelos passos, um operador pelo que ele

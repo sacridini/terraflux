@@ -38,6 +38,11 @@ minor versions.
   from the cache; a container its body summed), with what it took and the memory of what it gave in the tooltip.
   **Times** in the canvas bar washes each box in a warm colour by its share of the run's time and lists the five
   slowest in the corner, a click taking the view to one.
+- Canvas: **the History of the edits** (the canvas bar's History, View > History of the edits, ctrl+K): every step
+  named by what it changed ("added suit (raster.calc)", "reclass: setting threshold: 3 → 4", "3 nodes moved",
+  "renamed 4 by a pattern", "the assistant: edit_node"), the model as it was opened first, the step it is at
+  marked and those undone faint. A click goes back or forward to any step at once; "compare" opens the Changes with
+  the model as it was then.
 
 ## [1.42.0] - 2026-11-06
 
