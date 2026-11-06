@@ -64,6 +64,76 @@ pub fn words(l: Left) -> String {
     if l.by_times { format!("~{t} left") } else { format!("about {t} left") }
 }
 
+/// When a run with `l` left will end, by the computer's clock: "ends about 14:32", "ends about 09:10 tomorrow",
+/// "ends about 09:10 in 3 days"; none where the system does not tell the local time.
+pub fn ends_at(l: Left) -> Option<String> {
+    let now = std::time::SystemTime::now();
+    let then = now.checked_add(std::time::Duration::from_secs_f64(l.seconds.clamp(0.0, 1e9)))?;
+    let (a, b) = (local(now)?, local(then)?);
+    Some(end_words(a, b))
+}
+
+/// A local date and time: year, month (1-12), day, hour, minute.
+type Local = (i64, u32, u32, u32, u32);
+
+fn end_words(now: Local, then: Local) -> String {
+    let days = days_from_civil(then.0, then.1, then.2) - days_from_civil(now.0, now.1, now.2);
+    let clock = format!("{:02}:{:02}", then.3, then.4);
+    match days {
+        ..=0 => format!("ends about {clock}"),
+        1 => format!("ends about {clock} tomorrow"),
+        d => format!("ends about {clock} in {d} days"),
+    }
+}
+
+/// The days since 1970-01-01 of a date (the proleptic Gregorian calendar).
+fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let m = m as i64;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+fn unix_seconds(t: std::time::SystemTime) -> Option<i64> {
+    t.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs() as i64)
+}
+
+/// A moment by the computer's clock (its time zone and summer time), as the system tells it.
+#[cfg(unix)]
+fn local(t: std::time::SystemTime) -> Option<Local> {
+    let secs = unix_seconds(t)? as libc::time_t;
+    // SAFETY: `localtime_r` writes the broken-down time into `tm`, which lives through the call
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    let r = unsafe { libc::localtime_r(&secs, &mut tm) };
+    (!r.is_null()).then(|| {
+        (tm.tm_year as i64 + 1900, tm.tm_mon as u32 + 1, tm.tm_mday as u32, tm.tm_hour as u32, tm.tm_min as u32)
+    })
+}
+
+#[cfg(windows)]
+fn local(t: std::time::SystemTime) -> Option<Local> {
+    use windows_sys::Win32::Foundation::{FILETIME, SYSTEMTIME};
+    use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
+    // (100 ns ticks since 1601)
+    let ticks = (unix_seconds(t)? as u64 + 11_644_473_600) * 10_000_000;
+    let ft = FILETIME { dwLowDateTime: ticks as u32, dwHighDateTime: (ticks >> 32) as u32 };
+    // SAFETY: plain structs written by the calls; the null time zone is the computer's own
+    let (mut utc, mut here): (SYSTEMTIME, SYSTEMTIME) = unsafe { (std::mem::zeroed(), std::mem::zeroed()) };
+    let ok = unsafe {
+        FileTimeToSystemTime(&ft, &mut utc) != 0
+            && SystemTimeToTzSpecificLocalTime(std::ptr::null(), &utc, &mut here) != 0
+    };
+    ok.then_some((here.wYear as i64, here.wMonth as u32, here.wDay as u32, here.wHour as u32, here.wMinute as u32))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn local(_: std::time::SystemTime) -> Option<Local> {
+    None
+}
+
 /// How long something took, short: "<0.1 s", "0.3 s", "2.4 s", "45 s", "3 min", "1 h 5 min".
 pub fn took(seconds: f64) -> String {
     let s = seconds.max(0.0);
@@ -157,6 +227,25 @@ mod tests {
         // longer than before: none left, not less than none
         let g = Going { waiting: vec![], running: Some(("loop", None, 90.0)), fraction: 0.9, elapsed: 92.0 };
         assert_eq!(left(&g, &t).unwrap().seconds, 0.0);
+    }
+
+    /// The end by the clock: the day told when it is not today (across a month and a year too); the computer's clock
+    /// read.
+    #[test]
+    fn the_end_is_told_by_the_clock() {
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
+        assert_eq!(days_from_civil(2000, 3, 1), 11_017);
+        assert_eq!(days_from_civil(2024, 3, 1) - days_from_civil(2024, 2, 28), 2, "a leap year");
+        assert_eq!(end_words((2026, 11, 6, 9, 5), (2026, 11, 6, 14, 32)), "ends about 14:32");
+        assert_eq!(end_words((2026, 11, 30, 23, 50), (2026, 12, 1, 0, 10)), "ends about 00:10 tomorrow");
+        assert_eq!(end_words((2026, 12, 30, 8, 0), (2027, 1, 2, 9, 7)), "ends about 09:07 in 3 days");
+        // the local time as the system tells it: the same minute as now, and a day later the day after
+        let now = std::time::SystemTime::now();
+        let (a, b) = (local(now).unwrap(), local(now + std::time::Duration::from_secs(86_400)).unwrap());
+        assert_eq!(days_from_civil(b.0, b.1, b.2) - days_from_civil(a.0, a.1, a.2), 1);
+        assert!(a.3 < 24 && a.4 < 60);
+        let s = ends_at(Left { seconds: 90.0, by_times: true }).unwrap();
+        assert!(s.starts_with("ends about ") && s.contains(':'), "{s}");
     }
 
     #[test]

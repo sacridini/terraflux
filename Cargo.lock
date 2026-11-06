@@ -4628,6 +4628,7 @@ dependencies = [
  "hex",
  "image",
  "keyring",
+ "libc",
  "miniz_oxide 0.8.9",
  "openh264",
  "rfd",

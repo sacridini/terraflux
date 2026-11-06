@@ -2812,12 +2812,17 @@ impl TerrafluxApp {
                             }
                         } else if s.running() && s.stopping.is_none() {
                             let (frac, mut text) = s.run_progress();
+                            let mut tip = Vec::new();
                             if let Some(l) = s.time_left() {
                                 text = format!("{text} · {}", crate::eta::words(l));
+                                tip.extend(crate::eta::ends_at(l));
+                            }
+                            if self.awake.as_ref().is_some_and(crate::awake::Awake::held) {
+                                tip.push("the computer is kept awake until the run ends".to_string());
                             }
                             let bar = theme::progress(ui, Some(frac), &text, 140.0);
-                            if self.awake.as_ref().is_some_and(crate::awake::Awake::held) {
-                                bar.on_hover_text("the computer is kept awake until the run ends");
+                            if !tip.is_empty() {
+                                bar.on_hover_text(tip.join("\n"));
                             }
                         }
                         if s.stopping.is_some() {

@@ -26,6 +26,9 @@ minor versions.
   `terraflux mcp`, the step that reads the file again is named by the tools it used ("the MCP: add_node, connect"),
   no longer guessed from the difference. The MCP tells them in the user's application data (`agent-edits.json`)
   before writing the file; the application takes them when it reads it.
+- Application: **when a run will end, by the clock**. The tooltip of the run's progress bar says when the time left
+  runs out: "ends about 14:32", "ends about 09:10 tomorrow", "ends about 09:10 in 3 days" (the computer's own time
+  zone and summer time, on Windows, Linux and macOS).
 
 ## [1.43.0] - 2026-11-06
 

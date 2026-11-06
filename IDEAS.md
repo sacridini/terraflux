@@ -2704,6 +2704,11 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    cada execução; o que roda pela fração que diz, desde `node_began`), `run_going` dá a fração do nó que roda. Testes:
    `eta::tests`, `the_time_left_comes_from_the_runs_before`. Falta: a hora prevista do fim (sem um relógio local no
    std; o `chrono` não está no app); os nós que virão do cache contam o tempo de antes (não se sabe antes de rodar).
+   **Feito** (Unreleased), a hora do fim: `eta::ends_at` ("ends about 14:32", "... tomorrow", "... in 3 days") no
+   tooltip da barra, junto com o "kept awake". A hora local sem crate novo: `localtime_r` do `libc` no Linux e no
+   macOS, `FileTimeToSystemTime` + `SystemTimeToTzSpecificLocalTime` do `windows-sys` no Windows (a feature
+   `Win32_System_Time`); os dias pelo `days_from_civil`. Teste: `eta::tests::the_end_is_told_by_the_clock`; o
+   código do Unix rodado no Linux do WSL e o do Windows aqui, os dois com a hora certa.
 6. **Aviso ao fim de uma execução longa** (Windows, Linux, macOS). Quando uma execução pedida (não as quietas) ou um
    lote do Many runs termina depois de mais de 10 s (configuração "Tell when a run ends": ligada, e os segundos) e a
    janela não tem o foco: `RequestUserAttention` (pisca na barra no Windows, salta no Dock do macOS, a dica de
