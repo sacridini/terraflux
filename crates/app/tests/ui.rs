@@ -4248,6 +4248,93 @@ fn a_sensitivity_analysis_runs_replicates_at_each_point() {
 }
 
 #[test]
+fn the_model_suggests_the_factors_it_assumes() {
+    use terraflux_app::batch_view::Kind;
+    let mut h = harness(new_app(Some(model())));
+    loaded(&mut h);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let patches = s.source.nodes.iter_mut().find(|n| n.id == "patches").unwrap();
+        patches.assumptions = vec!["The isometry of the patches is a guess".into()];
+        s.edited();
+    }
+    h.state_mut().focus(Pane::Batch);
+    h.state_mut().batch.kind = Kind::Sensitivity;
+    h.run_steps(3);
+    assert!(h.query_by_label("Suggested").is_some(), "the assumed setting is suggested");
+    assert!(h.query_by_label_contains("patches.isometry").is_some());
+    assert!(h.state().batch.sens.factors.is_empty());
+    h.get_by_label("+").click();
+    h.run_steps(3);
+    let f = &h.state().batch.sens.factors;
+    assert_eq!(f.len(), 1, "{f:?}");
+    assert_eq!(f[0].key, "patches.isometry");
+    assert!(!f[0].from.is_empty() && !f[0].to.is_empty(), "with a range: {f:?}");
+    assert!(h.query_by_label("Suggested").is_none(), "what is taken is not suggested again");
+    // the parameters with a range, all at once
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.parameters = ["simulation.times", "patches.rows"]
+            .iter()
+            .map(|k| terraflux_graph::Parameter {
+                key: k.to_string(),
+                min: Some(1.0),
+                max: Some(9.0),
+                ..Default::default()
+            })
+            .collect();
+        s.edited();
+    }
+    h.run_steps(3);
+    h.get_by_label("Add all").click();
+    h.run_steps(3);
+    let f = &h.state().batch.sens.factors;
+    assert!(f.iter().any(|x| x.key == "simulation.times" && x.from == "1.0" && x.to == "9.0"), "{f:?}");
+}
+
+#[test]
+fn a_setting_is_varied_from_its_menu_and_the_parameters_pane() {
+    use terraflux_app::batch_view::Kind;
+    let mut h = harness(new_app(Some(model())));
+    loaded(&mut h);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "patches");
+    }
+    h.state_mut().focus(Pane::Node);
+    h.run_steps(4);
+    h.get_by_label("Isometry").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Vary in a sensitivity analysis").click();
+    h.run_steps(4);
+    let b = &h.state().batch;
+    assert_eq!(b.kind, Kind::Sensitivity);
+    assert!(b.sens.factors.iter().any(|f| f.key == "patches.isometry" && !f.from.is_empty()), "{:?}", b.sens.factors);
+    assert_eq!(h.state_mut().focused(), Some(Pane::Batch), "Many runs to the front");
+    // a parameter of the model: its own range
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.parameters = vec![terraflux_graph::Parameter {
+            key: "simulation.times".into(),
+            min: Some(2.0),
+            max: Some(6.0),
+            ..Default::default()
+        }];
+        s.edited();
+    }
+    h.state_mut().batch.sens.factors.clear();
+    h.state_mut().focus(Pane::Parameters);
+    h.run_steps(4);
+    h.get_by_label("Sensitivity of these parameters...").click();
+    h.run_steps(4);
+    let b = &h.state().batch;
+    assert_eq!(b.kind, Kind::Sensitivity);
+    assert_eq!(b.sens.factors.len(), 1, "{:?}", b.sens.factors);
+    assert_eq!((b.sens.factors[0].from.as_str(), b.sens.factors[0].to.as_str()), ("2.0", "6.0"));
+    assert_eq!(h.state_mut().focused(), Some(Pane::Batch));
+}
+
+#[test]
 fn the_cost_of_a_batch_is_told_before_it_runs() {
     use terraflux_app::batch_view::{Kind, Range};
     use terraflux_dist::sensitivity::Method;

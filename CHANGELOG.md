@@ -33,6 +33,12 @@ minor versions.
   before divided by the runs at once here (or the workers of the cluster chosen). A sensitivity analysis names its
   design ("Sobol of 6 factors, N=256: 3584 runs, about 5 h here"). Over 2 hours the line turns to the warning
   colour and suggests fewer runs, or fewer base points and Morris first.
+- Application: **the factors of a sensitivity analysis marked in the model**. Right-click a numeric setting in the Node
+  pane and choose *Vary in a sensitivity analysis* (a setting that reads an input offers that input): the factor is
+  added to the Sensitivity tab, 20 % either side, and Many runs comes to the front. The Parameters pane has a *Vary*
+  button on each number (its range, when it has one) and *Sensitivity of these parameters...* for all of them. The tab
+  lists *Suggested* factors, with a hover saying why and *Add all*: the parameters with a `min` and a `max`, and the
+  settings (or `$inputs`) that the nodes' `assumptions` speak of, as they are the ones assumed, not measured.
 - `terraflux sensitivity --method oat`, and the new `terraflux_ops::sensitivity::oat_sample` and `oat_analyze`.
   The design, the candidates, the indices and their CSV files are now `terraflux_dist::sensitivity`, shared by the
   command and the application (the files and columns of Morris and Sobol are the same as before).

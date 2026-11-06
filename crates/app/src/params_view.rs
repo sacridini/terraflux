@@ -583,6 +583,31 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
     asked
 }
 
+/// The range a parameter gives a sensitivity analysis: its least to its most, when both are given.
+fn range_of(p: &Parameter) -> Option<(f64, f64)> {
+    match (p.min, p.max) {
+        (Some(lo), Some(hi)) if hi > lo => Some((lo, hi)),
+        _ => None,
+    }
+}
+
+/// The parameters that are numbers, as factors asked for (those with a range first, in the form's order).
+fn numeric_parameters(m: &Model, r: &Registry) -> Vec<(String, Option<(f64, f64)>)> {
+    let mut out: Vec<(String, Option<(f64, f64)>)> = m
+        .parameters
+        .iter()
+        .filter(|p| match current(m, &p.key) {
+            Some(v) => v.is_number(),
+            None => doc_of(m, r, &p.key)
+                .1
+                .is_some_and(|sp| matches!(sp.ty, terraflux_graph::Type::Number | terraflux_graph::Type::Integer)),
+        })
+        .map(|p| (p.key.clone(), range_of(p)))
+        .collect();
+    out.sort_by_key(|(_, range)| range.is_none());
+    out
+}
+
 fn parameters_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) {
     let mut change: Option<(String, Json)> = None;
     let mut described: Option<(usize, Parameter)> = None;
@@ -592,7 +617,13 @@ fn parameters_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) {
     for k in 0..n {
         let p = s.source.parameters[k].clone();
         let now = current(&s.source, &p.key);
-        let (doc, _) = doc_of(&s.source, r, &p.key);
+        let (doc, spec) = doc_of(&s.source, r, &p.key);
+        let numeric = match &now {
+            Some(v) => v.is_number(),
+            None => spec
+                .as_ref()
+                .is_some_and(|sp| matches!(sp.ty, terraflux_graph::Type::Number | terraflux_graph::Type::Integer)),
+        };
         let default = crate::node_view::default_of(&doc);
         let hint = if default.is_empty() { "default".to_string() } else { default };
         egui::Frame::new()
@@ -617,6 +648,16 @@ fn parameters_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) {
                         }
                         if k > 0 && ui.small_button("⏶").on_hover_text("up").clicked() {
                             moved = Some((k, k - 1));
+                        }
+                        if numeric
+                            && ui
+                                .small_button("Vary")
+                                .on_hover_text(
+                                    "a factor of a sensitivity analysis (Many runs), in its range, else 20 % either side",
+                                )
+                                .clicked()
+                        {
+                            s.ask_vary.push((p.key.clone(), range_of(&p)));
                         }
                     });
                 });
@@ -653,6 +694,16 @@ fn parameters_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) {
         let p = parameter(&s.source, r, &key);
         s.source.parameters.push(p);
         s.edited();
+    }
+    // every number of the form as a factor of a sensitivity analysis, those with a range first
+    let numbers = numeric_parameters(&s.source, r);
+    if !numbers.is_empty()
+        && ui
+            .button("Sensitivity of these parameters...")
+            .on_hover_text("the numbers of the form as the factors of a sensitivity analysis (Many runs), those with a range first")
+            .clicked()
+    {
+        s.ask_vary.extend(numbers);
     }
     if let Some((key, v)) = change
         && let Err(e) = set(s, &[(key, v)].into())

@@ -1030,6 +1030,7 @@ fn name_cell(
     doc: &str,
     width: f32,
     readable: &[String],
+    vary: Option<&str>,
 ) -> Option<Result<(), String>> {
     let given = n.params.contains_key(name);
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, 20.0), egui::Sense::click());
@@ -1058,6 +1059,9 @@ fn name_cell(
     } else {
         "\n\nRight-click: read a value of the model instead (an input, a loop's step, a node's number)"
     });
+    if vary.is_some() {
+        hover.push_str("\nA number too: right-click to vary it in a sensitivity analysis");
+    }
     let mut out = None;
     resp.on_hover_text(hover).context_menu(|ui| {
         if ui.add_enabled(given, egui::Button::new("Back to the default")).clicked() {
@@ -1079,8 +1083,47 @@ fn name_cell(
                 }
             });
         });
+        // a number: a factor of a sensitivity analysis (what a setting reads, if it reads an input)
+        if let Some(key) = vary {
+            let label = if key.starts_with('$') {
+                format!("Vary {key} in a sensitivity analysis")
+            } else {
+                "Vary in a sensitivity analysis".to_string()
+            };
+            if ui.button(label).clicked() {
+                s.ask_vary.push((key.to_string(), None));
+                ui.close();
+            }
+        }
     });
     out
+}
+
+/// The key of a numeric setting that a sensitivity analysis may vary: the setting's own (`node.setting`, with the
+/// containers' path) or, when it reads an input of the model that is a number, that input's (`$name`).
+fn vary_key(
+    s: &Session,
+    n: &Node,
+    path: &[String],
+    name: &str,
+    spec: Option<&terraflux_graph::PortSpec>,
+) -> Option<String> {
+    use terraflux_graph::{Input, Type};
+    if let Some(r) = n.params.get(name).and_then(terraflux_graph::setting_ref) {
+        let input = r.strip_prefix('$')?;
+        return match s.source.inputs.get(input) {
+            Some(Input::Value { value, .. }) if value.is_number() => Some(format!("${input}")),
+            _ => None,
+        };
+    }
+    let numeric = n.params.get(name).map_or_else(
+        || spec.is_some_and(|p| matches!(p.ty, Type::Number | Type::Integer)),
+        serde_json::Value::is_number,
+    );
+    numeric.then(|| match path.is_empty() {
+        true => format!("{}.{name}", n.id),
+        false => format!("{}/{}.{name}", path.join("/"), n.id),
+    })
 }
 
 /// A setting of a node of the user's (an input of a value, not fed by another node), a row: its name at the left,
@@ -1165,7 +1208,7 @@ fn script(
 ) -> Option<Result<(), String>> {
     let mut change = None;
     ui.horizontal(|ui| {
-        if let Some(c) = name_cell(ui, s, n, path, name, doc, label_w, readable) {
+        if let Some(c) = name_cell(ui, s, n, path, name, doc, label_w, readable, None) {
             change = Some(c);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1215,11 +1258,12 @@ fn setting(
     label_w: f32,
     readable: &[String],
 ) -> Option<Result<(), String>> {
+    let vary = vary_key(s, n, path, name, spec);
     // a setting that reads a value of the model: what it reads, and a button for a value of its own instead
     if let Some(r) = n.params.get(name).and_then(terraflux_graph::setting_ref).map(String::from) {
         let mut change = None;
         ui.horizontal_top(|ui| {
-            if let Some(c) = name_cell(ui, s, n, path, name, doc, label_w, readable) {
+            if let Some(c) = name_cell(ui, s, n, path, name, doc, label_w, readable, vary.as_deref()) {
                 change = Some(c);
             }
             ui.label(RichText::new(format!("← {r}")).monospace().color(crate::theme::accent()))
@@ -1253,7 +1297,7 @@ fn setting(
     let list = n.params.get(name).filter(|v| editable(v)).cloned();
     let mut change = None;
     ui.horizontal_top(|ui| {
-        if let Some(c) = name_cell(ui, s, n, path, name, doc, label_w, readable) {
+        if let Some(c) = name_cell(ui, s, n, path, name, doc, label_w, readable, vary.as_deref()) {
             change = Some(c);
         }
         ui.vertical(|ui| {

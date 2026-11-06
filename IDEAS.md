@@ -2967,6 +2967,16 @@ min ou max de um mapa). Falta tudo na interface: só quem usa a linha de comando
    sensitivity analysis* (abre a aba com o fator posto, ±20 %); um parâmetro do modelo também. A aba propõe como
    fatores as configurações citadas nas `assumptions` dos nós (o que foi suposto é o que mais vale variar) e os
    parâmetros do modelo com faixa (`min`/`max`).
+   **Feito** (Unreleased): `Session::ask_vary` (chave e faixa) leva o pedido do painel Node e do Parameters ao app,
+   que o entrega a `batch_view::vary` (põe o fator uma vez, faixa dada ou ±20 %, muda para `Kind::Sensitivity`) e traz o
+   Many runs à frente. Node: `vary_key` e o item *Vary in a sensitivity analysis* no menu de `name_cell` (número, ou
+   `$entrada` numérica quando a configuração lê `← $x`). Parameters: o botão *Vary* em cada número (faixa `min`..`max`
+   se há as duas) e *Sensitivity of these parameters...* (os com faixa primeiro). Na aba: `batch_view::suggestions`
+   (parâmetros com `min` e `max`, depois configurações numéricas citadas, como palavra inteira, nas `assumptions` do
+   próprio nó, e `$entradas` citadas nas de qualquer nó; `_` vale espaço) e a lista *Suggested* com "+", a dica do
+   porquê, *Add all* e "and N more" depois de 8. Testes: `the_model_suggests_its_ranged_parameters_and_assumed_settings`
+   (batch_view), `the_model_suggests_the_factors_it_assumes` e `a_setting_is_varied_from_its_menu_and_the_parameters_pane`
+   (ui.rs, com o clique direito no kittest). Falta: o item 6.
 6. **Os gráficos e o registro.** O tornado (OAT), o μ*–σ (Morris, os fatores acima da diagonal não lineares ou com
    interações), as barras de S1 e ST com os intervalos (Sobol), e a convergência (os índices com metade, um quarto
    das rodadas: estáveis ou não, um aviso quando não). Exportados como PNG e CSV; a análise vai para o diário das

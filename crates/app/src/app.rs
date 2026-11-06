@@ -599,6 +599,9 @@ pub struct Session {
     pub ask_calculator: bool,
     /// The Viewer asked for (a node double-clicked: its output shown there).
     pub ask_viewer: bool,
+    /// Factors asked for a sensitivity analysis (a setting's or a parameter's menu): the key (`node.setting`,
+    /// `$input`) and its range (none: 20 % either side). Many runs takes them and comes to the front.
+    pub ask_vary: Vec<(String, Option<(f64, f64)>)>,
     /// The canvas asked for (a layer's node shown: the model's pane to the front, the main window too).
     pub ask_model: bool,
     /// The Viewer is in a window of its own (told by the application each frame), and the Viewer's button asked to
@@ -871,6 +874,7 @@ impl Session {
             ask_problems: false,
             ask_calculator: false,
             ask_viewer: false,
+            ask_vary: Vec::new(),
             ask_model: false,
             viewer_out: false,
             viewer_toggle: false,
@@ -4356,6 +4360,20 @@ impl TerrafluxApp {
         }
         if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.ask_calculator)) {
             self.focus(Pane::Calculator);
+        }
+        // factors asked for a sensitivity analysis: taken, Many runs to the front
+        if let Some(s) = self.session.as_mut()
+            && !s.ask_vary.is_empty()
+        {
+            let asked = std::mem::take(&mut s.ask_vary);
+            let knobs = crate::batch_view::knobs(&s.model, &self.registry);
+            let mut any = false;
+            for (key, range) in asked {
+                any |= crate::batch_view::vary(&mut self.batch, &knobs, &key, range);
+            }
+            if any {
+                self.focus(Pane::Batch);
+            }
         }
         // the Viewer's button: out of the dock into a window of its own, or back
         if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.viewer_toggle)) {

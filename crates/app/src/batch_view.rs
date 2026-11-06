@@ -405,6 +405,8 @@ pub struct SensitivityState {
     pub metric: String,
     /// What a single map's `changed` is against (none: guessed, as the calibration's).
     pub start: Option<String>,
+    /// Every suggested factor shown, not only the first few.
+    pub more: bool,
 }
 
 impl Default for SensitivityState {
@@ -420,6 +422,7 @@ impl Default for SensitivityState {
             class: String::new(),
             metric: "np".into(),
             start: None,
+            more: false,
         }
     }
 }
@@ -998,6 +1001,105 @@ fn default_range(k: &Knob) -> (String, String) {
     }
 }
 
+/// A factor the model itself points to, with the range it would start in and why.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Suggested {
+    pub key: String,
+    pub from: String,
+    pub to: String,
+    pub why: String,
+}
+
+/// Whether `word` is in `text` as a word of its own (both lower case): not inside a longer one.
+fn has_word(text: &str, word: &str) -> bool {
+    if word.is_empty() {
+        return false;
+    }
+    let edge = |c: Option<char>| c.is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
+    text.match_indices(word)
+        .any(|(i, w)| edge(text[..i].chars().next_back()) && edge(text[i + w.len()..].chars().next()))
+}
+
+/// Whether an assumption speaks of a setting: by its name, or by its words (`_` as spaces).
+fn mentions(assumption: &str, name: &str) -> bool {
+    let (text, name) = (assumption.to_lowercase(), name.to_lowercase());
+    has_word(&text, &name) || has_word(&text, &name.replace('_', " "))
+}
+
+/// The factors a model points to that are not taken yet: its parameters with a range (that range), then the
+/// numeric settings its nodes' assumptions speak of (the node's own, and the model's inputs any node's
+/// assumptions speak of), with the default range.
+pub fn suggestions(m: &Model, knobs: &[Knob], taken: &[Range]) -> Vec<Suggested> {
+    let mut out: Vec<Suggested> = Vec::new();
+    let free = |out: &[Suggested], key: &str| !taken.iter().any(|t| t.key == key) && !out.iter().any(|o| o.key == key);
+    for p in &m.parameters {
+        if let (Some(lo), Some(hi)) = (p.min, p.max)
+            && hi > lo
+            && knobs.iter().any(|k| k.key == p.key && k.numeric)
+            && free(&out, &p.key)
+        {
+            out.push(Suggested {
+                key: p.key.clone(),
+                from: shown(&Json::from(lo)),
+                to: shown(&Json::from(hi)),
+                why: "a parameter of the model, in its range".into(),
+            });
+        }
+    }
+    fn walk(nodes: &[Node], prefix: &str, all: &mut Vec<(String, String, String)>) {
+        for n in nodes {
+            let at = format!("{prefix}{}", n.id);
+            for a in &n.assumptions {
+                all.push((at.clone(), n.id.clone(), a.clone()));
+            }
+            if let Some(b) = &n.body {
+                walk(&b.nodes, &format!("{at}/"), all);
+            }
+        }
+    }
+    // (the path of a node, its id, an assumption)
+    let mut assumed = Vec::new();
+    walk(&m.nodes, "", &mut assumed);
+    for k in knobs.iter().filter(|k| k.numeric) {
+        let found = if let Some(name) = k.key.strip_prefix('$') {
+            assumed.iter().find(|(_, _, a)| mentions(a, name))
+        } else {
+            assumed.iter().find(|(at, _, a)| {
+                k.key
+                    .strip_prefix(&format!("{at}."))
+                    .is_some_and(|name| !name.contains(['.', '/']) && mentions(a, name))
+            })
+        };
+        if let Some((_, id, a)) = found
+            && free(&out, &k.key)
+        {
+            let (from, to) = default_range(k);
+            out.push(Suggested {
+                key: k.key.clone(),
+                from,
+                to,
+                why: format!("assumed, not measured: worth varying\n{id}: {a}"),
+            });
+        }
+    }
+    out
+}
+
+/// Take a factor in a sensitivity analysis (once), in `range` or else the start range of its setting, and show
+/// the Sensitivity tab. False when the model has no such number to vary.
+pub fn vary(st: &mut BatchState, knobs: &[Knob], key: &str, range: Option<(f64, f64)>) -> bool {
+    let Some(k) = knobs.iter().find(|k| k.key == key && k.numeric) else { return false };
+    st.kind = Kind::Sensitivity;
+    if !st.sens.factors.iter().any(|x| x.key == key) {
+        let (from, to) = match range {
+            Some((lo, hi)) => (shown(&Json::from(lo)), shown(&Json::from(hi))),
+            None => default_range(k),
+        };
+        st.sens.factors.push(Range { key: key.to_string(), from, to, points: String::new() });
+    }
+    true
+}
+
 /// The output scored by default: a simulation's maps, else the first series or map of the nodes where the
 /// model ends.
 fn default_output(m: &Model, r: &Registry) -> Option<String> {
@@ -1477,6 +1579,42 @@ fn calibration_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry, k
     });
 }
 
+/// The factors the model points to (see [`suggestions`]), a few at first, each with a button to take it.
+fn suggested_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, knobs: &[Knob]) {
+    const FIRST: usize = 8;
+    let list = suggestions(&s.source, knobs, &st.sens.factors);
+    if list.is_empty() {
+        return;
+    }
+    let mut take: Vec<Suggested> = Vec::new();
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Suggested").strong()).on_hover_text(
+            "the parameters of the model with a range, and the settings its nodes' assumptions speak of",
+        );
+        if ui.small_button("Add all").on_hover_text("take every one suggested, in the range shown").clicked() {
+            take.extend(list.iter().cloned());
+        }
+    });
+    let shown_n = if st.sens.more { list.len() } else { list.len().min(FIRST) };
+    for sg in &list[..shown_n] {
+        ui.horizontal(|ui| {
+            if ui.small_button("+").on_hover_text(&sg.why).clicked() {
+                take.push(sg.clone());
+            }
+            let range = if sg.from.is_empty() { String::new() } else { format!("  {} to {}", sg.from, sg.to) };
+            ui.label(RichText::new(format!("{}{range}", sg.key)).monospace()).on_hover_text(&sg.why);
+        });
+    }
+    if list.len() > shown_n && ui.small_button(format!("and {} more", list.len() - shown_n)).clicked() {
+        st.sens.more = true;
+    }
+    for sg in take {
+        if !st.sens.factors.iter().any(|x| x.key == sg.key) {
+            st.sens.factors.push(Range { key: sg.key, from: sg.from, to: sg.to, points: String::new() });
+        }
+    }
+}
+
 fn sensitivity_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry, knobs: &[Knob]) {
     ui.label(
         RichText::new(
@@ -1523,6 +1661,7 @@ fn sensitivity_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry, k
     if let Some(i) = drop {
         st.sens.factors.remove(i);
     }
+    suggested_ui(ui, st, s, knobs);
     // a number is a factor (not a yes or no, nor a text)
     let numeric: Vec<Knob> = knobs.iter().filter(|k| k.numeric).cloned().collect();
     let mut key = String::new();
@@ -2128,6 +2267,57 @@ mod tests {
         assert_eq!(default_range(&k(Json::from(0), true, None)), (String::new(), String::new()));
         assert_eq!(doc_default("the levels (default 4)"), Some(4.0));
         assert_eq!(doc_default("no value here"), None);
+    }
+
+    #[test]
+    fn the_model_suggests_its_ranged_parameters_and_assumed_settings() {
+        let r = Registry::standard();
+        let mut m = Model::new("m");
+        m.inputs.insert("share".into(), Input::Value { value: 0.5.into(), note: None });
+        let mut noise = Node::new("noise", "nlm.random").param("rows", 10).param("columns", 12);
+        noise.assumptions = vec!["The grid is 10 ROWS tall, a guess".into(), "Nothing about the shape".into()];
+        let mut other = Node::new("other", "nlm.random").param("rows", 8);
+        other.assumptions = vec!["Drawn at random, with $share of the cells filled (assumed)".into()];
+        m.nodes.push(noise);
+        m.nodes.push(other);
+        m.parameters.push(terraflux_graph::Parameter {
+            key: "noise.columns".into(),
+            min: Some(5.0),
+            max: Some(20.0),
+            ..Default::default()
+        });
+        m.parameters.push(terraflux_graph::Parameter {
+            key: "other.rows".into(),
+            min: Some(1.0),
+            ..Default::default()
+        });
+        let k = knobs(&m, &r);
+        let got = suggestions(&m, &k, &[]);
+        let keys: Vec<&str> = got.iter().map(|g| g.key.as_str()).collect();
+        assert_eq!(keys, ["noise.columns", "$share", "noise.rows"], "ranged parameters first, then the assumed");
+        assert_eq!((got[0].from.as_str(), got[0].to.as_str()), ("5.0", "20.0"));
+        assert_eq!(got[0].why, "a parameter of the model, in its range");
+        assert_eq!((got[1].from.as_str(), got[1].to.as_str()), ("0.4", "0.6"));
+        assert!(got[2].why.contains("assumed, not measured") && got[2].why.contains("10 ROWS"), "{}", got[2].why);
+        assert!(!keys.contains(&"other.rows"), "a parameter without both ends, and no assumption of its own");
+        // what is taken is not suggested again
+        let taken = [Range { key: "noise.rows".into(), ..Default::default() }];
+        assert_eq!(suggestions(&m, &k, &taken).len(), 2);
+        // a word inside another is not a mention
+        assert!(
+            mentions("the rows are many", "rows")
+                && !mentions("arrows", "rows")
+                && mentions("the Grid size", "grid_size")
+        );
+        // varying a setting takes it once, and shows the tab
+        let mut st = BatchState::default();
+        assert!(vary(&mut st, &k, "noise.rows", None) && vary(&mut st, &k, "noise.rows", None));
+        assert_eq!(st.kind, Kind::Sensitivity);
+        assert_eq!(st.sens.factors.len(), 1);
+        assert_eq!((st.sens.factors[0].from.as_str(), st.sens.factors[0].to.as_str()), ("8", "12"));
+        assert!(vary(&mut st, &k, "noise.columns", Some((5.0, 20.0))));
+        assert_eq!(st.sens.factors[1].to, "20.0");
+        assert!(!vary(&mut st, &k, "nowhere.x", None));
     }
 
     #[test]
