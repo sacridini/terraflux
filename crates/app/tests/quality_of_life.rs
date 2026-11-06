@@ -507,10 +507,17 @@ fn the_last_session_comes_back_with_each_models_view() {
     h.run_steps(3);
     h.state_mut().remember();
     drop(h);
-    // Terraflux again: both open, the first in front with its view
+    // Terraflux again with a model given, or with the setting off: only that model, or a new one
+    let mut app = new_app(Some(two.clone()));
+    app.start_restoring(store.clone(), true, true);
+    assert_eq!(app.tab_count(), 1, "a model given: it alone");
     let mut app = new_app(None);
-    app.restore = Some(store.clone());
-    app.reopen_last();
+    app.start_restoring(store.clone(), false, false);
+    assert_eq!(app.tab_count(), 1, "turned off: a new model");
+    assert!(app.session.as_ref().unwrap().path.is_none());
+    // and without either: both open, the first in front with its view
+    let mut app = new_app(None);
+    app.start_restoring(store.clone(), false, true);
     let mut h = harness(app);
     h.run_steps(2);
     assert_eq!((h.state().tab_count(), h.state().front), (2, 0));

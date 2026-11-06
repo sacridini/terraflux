@@ -143,10 +143,7 @@ pub fn run(model: Option<PathBuf>) -> eframe::Result<()> {
             let given = model.is_some();
             let mut app = TerrafluxApp::new(model);
             // each model's view kept, and the models open last opened again (no model given, unless turned off)
-            app.restore = Some(restore::Store::new(settings::data_dir()));
-            if !given && settings::get().reopen_last {
-                app.reopen_last();
-            }
+            app.start_restoring(restore::Store::new(settings::data_dir()), given, settings::get().reopen_last);
             // the edits not saved copied now and then, and those of a Terraflux that ended without saving offered
             app.recovery = Some(recovery::Keeper::new(recovery::dir()));
             // the computer kept from sleeping while a model runs (unless turned off)

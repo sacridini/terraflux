@@ -2645,6 +2645,9 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    arquivo sumido) e `the_last_session_comes_back_with_each_models_view` (duas abas, a da frente com a câmera, a
    seleção e o Viewer de antes, só o nó mostrado rodado). Ficou de fora: um teste da configuração desligada (ela só
    age no `lib::run`, que os testes não abrem).
+   **Feito** (Unreleased), o teste que faltava: o começo saiu do `lib::run` para `TerrafluxApp::start_restoring`
+   (a `Store`, se um modelo foi dado, a configuração), e o `the_last_session_comes_back_with_each_models_view` abre
+   com um modelo dado (só ele) e com a configuração desligada (um modelo novo) antes de reabrir.
 3. **Localizar arquivos ausentes** (Windows, Linux, macOS). `relink.rs`. Ao ler os dados: os caminhos que o modelo
    lê (as entradas `$` com arquivo e as configurações de arquivo dos nós, `terraflux_graph::file_settings`, nos corpos
    dos contêineres também) que não existem. Uma faixa no alto do canvas e no Problems: "12 files not found: Locate

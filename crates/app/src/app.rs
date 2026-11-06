@@ -2178,6 +2178,15 @@ impl TerrafluxApp {
     }
 
     /// The models open when Terraflux closed opened again, the one in front in front.
+    /// At the start: each model's view kept in `store`, and the models open last opened again when no model was
+    /// `given` and the setting `reopen` (Settings > Start) is on.
+    pub fn start_restoring(&mut self, store: crate::restore::Store, given: bool, reopen: bool) {
+        self.restore = Some(store);
+        if !given && reopen {
+            self.reopen_last();
+        }
+    }
+
     pub fn reopen_last(&mut self) {
         let Some(st) = self.restore.clone() else { return };
         let last = st.last();
