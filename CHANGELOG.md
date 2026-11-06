@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.44.1] - 2026-11-06
+
 ### Changed
 - Application: **the tabs of the models open stand out**, each model in a colour of its own (its tab washed in it,
   a band of it at its left, the one in front stronger and outlined), "2 models open" before them, and the model in
