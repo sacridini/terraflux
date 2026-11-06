@@ -201,7 +201,7 @@ Press ++f5++ to run the whole model. Then save it: **Save as...**, `core-forest.
     already connected (the connections of several nodes selected go into it together). A node not yet connected,
     dragged over a connection (it lights up) and let go, goes in its middle; alt+drag takes a node out of its
     connections, joining again what it joined. **Ctrl+F** on the canvas finds a node by its name, operator, note or
-    file, inside groups too, and takes the view to it.
+    file, inside groups too, and takes the view to it. **F** frames the nodes selected, **Home** the whole model.
 
 ## Read the results
 

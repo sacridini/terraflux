@@ -1106,3 +1106,70 @@ fn a_node_of_the_model_is_found_inside_groups_and_the_camera_goes_to_it() {
     assert_eq!(s.selected.as_deref(), Some("inner"));
     assert!(centred_on(&h, "inner"));
 }
+
+/// Frames: F over the canvas fits the nodes selected (their boxes whole on the canvas, closer than Home); nothing
+/// selected, it is Home; a lone small node is not zoomed in past 1.75; inside a group it frames within the scope.
+#[test]
+fn f_frames_the_nodes_selected_and_home_the_whole_model() {
+    use terraflux_graph::Body;
+    let inside = |h: &Harness<TerrafluxApp>, ids: &[&str]| {
+        let e = editor(h);
+        let canvas = e.canvas().unwrap();
+        ids.iter().all(|id| e.screen_rect_of(id).is_some_and(|r| canvas.contains_rect(r)))
+    };
+    let choose = |h: &mut Harness<TerrafluxApp>, ids: &[&str]| {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.selected = ids.first().map(|s| s.to_string());
+        s.editor.chosen = ids.iter().map(|s| s.to_string()).collect();
+        h.run_steps(2);
+    };
+    let press = |h: &mut Harness<TerrafluxApp>, key: egui::Key| {
+        h.key_press(key);
+        h.run_steps(40);
+    };
+    let mut h = harness(open(&graph(200, true), "canvas-frame.toml"));
+    h.run_steps(3);
+    let centre = editor(&h).canvas().unwrap().center();
+    h.hover_at(centre);
+    h.run_steps(2);
+    press(&mut h, egui::Key::Home);
+    let (home_zoom, home_at) = (editor(&h).zoom(), editor(&h).screen_of("n3"));
+    choose(&mut h, &["n0", "n10"]);
+    press(&mut h, egui::Key::F);
+    assert!(inside(&h, &["n0", "n10"]), "{:?} {:?}", editor(&h).screen_rect_of("n0"), editor(&h).screen_rect_of("n10"));
+    assert!(editor(&h).zoom() > home_zoom * 2.0, "{} against {home_zoom}", editor(&h).zoom());
+    // a lone node: not closer than 1.75
+    choose(&mut h, &["n5"]);
+    press(&mut h, egui::Key::F);
+    assert!(editor(&h).zoom() <= 1.75 + 1e-3 && editor(&h).zoom() > home_zoom);
+    assert!(inside(&h, &["n5"]));
+    // nothing selected: the whole graph, as Home did
+    let s = h.state_mut().session.as_mut().unwrap();
+    s.selected = None;
+    s.editor.chosen.clear();
+    h.run_steps(2);
+    press(&mut h, egui::Key::F);
+    assert!((editor(&h).zoom() - home_zoom).abs() < 1e-4);
+    let (a, b) = (editor(&h).screen_of("n3").unwrap(), home_at.unwrap());
+    assert!((a - b).length() < 1.0, "{a:?} {b:?}");
+    // inside a group
+    let mut m = Model::new("frame-in");
+    let body = Body {
+        nodes: vec![reader("a", [0.0, 0.0]), reader("b", [3000.0, 0.0]), reader("c", [0.0, 1800.0])],
+        ..Default::default()
+    };
+    m.nodes.push(Node::new("grp", terraflux_graph::GROUP).body(body));
+    let mut h = harness(open(&m, "canvas-frame-in.toml"));
+    h.run_steps(3);
+    h.state_mut().session.as_mut().unwrap().editor.path = vec!["grp".into()];
+    h.run_steps(40);
+    let centre = editor(&h).canvas().unwrap().center();
+    h.hover_at(centre);
+    h.run_steps(2);
+    let home_zoom = editor(&h).zoom();
+    choose(&mut h, &["a", "c"]);
+    press(&mut h, egui::Key::F);
+    assert!(inside(&h, &["a", "c"]));
+    assert!(editor(&h).zoom() > home_zoom, "{} against {home_zoom}", editor(&h).zoom());
+    assert_eq!(editor(&h).path, ["grp"]);
+}

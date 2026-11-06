@@ -2341,6 +2341,11 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     Falta: a câmera indo até o nó com animação; um comando "Find a node" na paleta.
 13. **Minimapa** no canto do canvas para modelos grandes, com o retângulo da vista arrastável.
 14. **Enquadrar a seleção** (F) além do modelo inteiro (Home).
+    **Feito** (Unreleased, pelo mesmo sub-agente do 12): `Camera::fitting_to` (o zoom máximo: 1 no Home, 1,75 no F),
+    `EditorState::framing` e `glide` (a câmera desenhada interpolada por 3 × `animation_time`, ease-out cúbico; a
+    guardada vai direto; roda ou arrasto cancelam); F na lista do F1. Teste:
+    `f_frames_the_nodes_selected_and_home_the_whole_model`. Falta: durante o plano, os cliques usam a câmera de
+    destino.
 15. **Renomear em lote**: os selecionados com um padrão (`land_{n}`, `{file}`), e o id seguindo o arquivo quando ele
     muda.
 16. **Do Viewer ao nó**: no menu de uma camada dos Layers, "Show its node" seleciona e enquadra o nó que a deu

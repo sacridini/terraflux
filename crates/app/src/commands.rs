@@ -240,6 +240,7 @@ pub fn shortcuts() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
                 ("right or middle drag".into(), "move the view"),
                 ("wheel".into(), "zoom"),
                 ("Home".into(), "the whole graph in view"),
+                ("F".into(), "the nodes selected in view (none selected: the whole graph)"),
                 ("double click".into(), "a node's output in the Viewer; a container: its body"),
                 ("arrows, enter".into(), "go to the node beside, show what it gives"),
                 (format!("{c}enter"), "run up to the node selected"),

@@ -318,8 +318,13 @@ pub struct Camera {
 impl Camera {
     /// The camera that shows `bounds` in `rect` (no closer than 1:1).
     fn fitting(bounds: Rect, size: Vec2) -> Camera {
+        Camera::fitting_to(bounds, size, 1.0)
+    }
+
+    /// The camera that shows `bounds` in a canvas of `size` with a margin, no closer than `most`.
+    fn fitting_to(bounds: Rect, size: Vec2, most: f32) -> Camera {
         let zoom = (size.x / bounds.width().max(1.0)).min(size.y / bounds.height().max(1.0)) * 0.92;
-        let zoom = zoom.clamp(0.04, 1.0);
+        let zoom = zoom.clamp(0.04, most);
         Camera { pan: size / 2.0 - bounds.center().to_vec2() * zoom, zoom }
     }
 }
@@ -426,6 +431,11 @@ pub struct EditorState {
     shown: Vec<String>,
     transit: Option<Transit>,
     fit: bool,
+    /// F: fit the camera to the nodes selected at the next frame.
+    framing: bool,
+    /// A camera move on its way (a fit, a node centred): the camera it left, when it began (egui's time), how long
+    /// it lasts and the scope it is of. The camera kept is the one it ends at; only the drawing glides.
+    glide: Option<(Camera, f64, f32, Vec<String>)>,
     scene: Option<Scene>,
     generation: u64,
     /// Where the canvas was drawn last.
@@ -1749,9 +1759,23 @@ pub fn show(
     let adding = ui.input(|i| i.modifiers.shift || i.modifiers.command);
     let scene = st.scene.as_ref().unwrap();
     let path = st.path.clone();
+    // F: the nodes selected in view (none selected: the whole graph, as Home)
+    let mut framed = None;
+    if std::mem::take(&mut st.framing) {
+        let union =
+            st.chosen.iter().filter_map(|k| scene.index.get(k).map(|&i| scene.boxes[i].rect)).reduce(|a, b| a.union(b));
+        match union {
+            Some(u) => framed = Some(Camera::fitting_to(u, rect.size(), 1.75)),
+            None => st.fit = true,
+        }
+    }
+    let before = st.cameras.get(&path).copied();
     if st.fit || !st.cameras.contains_key(&path) {
         st.cameras.insert(path.clone(), Camera::fitting(scene.bounds, rect.size()));
         st.fit = false;
+    }
+    if let Some(c) = framed {
+        st.cameras.insert(path.clone(), c);
     }
     // a node asked for (found, gone to): its box in the middle of the canvas, at least at a readable zoom
     if let Some(id) = st.centre.take()
@@ -1760,6 +1784,25 @@ pub fn show(
         let cam = st.cameras.get_mut(&path).unwrap();
         cam.zoom = cam.zoom.clamp(0.7, 3.0);
         cam.pan = rect.size() / 2.0 - scene.boxes[i].rect.center().to_vec2() * cam.zoom;
+    }
+    // the move glides (as long as egui's animations: none when they are off); a scope entered or left has its zoom
+    let secs = ui.style().animation_time * 3.0;
+    if let Some(b) = before
+        && zoom_to.is_none()
+        && secs > 0.0
+        && st.cameras[&path] != b
+    {
+        let now = ui.input(|i| i.time);
+        // (a move begun while another glides starts from where that one is)
+        let from = match &st.glide {
+            Some((f, t, d, p)) if *p == path => {
+                let e = 1.0 - (1.0 - ((now - t) as f32 / d).clamp(0.0, 1.0)).powi(3);
+                let to = b;
+                Camera { pan: f.pan + (to.pan - f.pan) * e, zoom: f.zoom + (to.zoom - f.zoom) * e }
+            }
+            _ => b,
+        };
+        st.glide = Some((from, now, secs, path.clone()));
     }
     if let Some((entering, id, boxed)) = zoom_to {
         // (as long as egui's animations: none when they are off)
@@ -1776,6 +1819,7 @@ pub fn show(
         let (scroll, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
         let factor = pinch * (scroll / 300.0).exp();
         if factor != 1.0 {
+            st.glide = None;
             let under = (p - rect.min - cam.pan) / cam.zoom;
             cam.zoom = (cam.zoom * factor).clamp(0.03, 3.0);
             cam.pan = p - rect.min - under * cam.zoom;
@@ -1829,6 +1873,7 @@ pub fn show(
         });
     }
     if resp.dragged_by(egui::PointerButton::Middle) || resp.dragged_by(egui::PointerButton::Secondary) {
+        st.glide = None;
         cam.pan += resp.drag_delta();
     }
     let pointer = resp.hover_pos().or(ui.input(|i| i.pointer.interact_pos()));
@@ -2129,6 +2174,19 @@ pub fn show(
                 ui.ctx().request_repaint();
             }
             None => st.transit = None,
+        }
+    }
+    // a move of the camera going on: drawn from a camera on its way, easing out
+    if st.transit.is_none()
+        && let Some((from, start, secs, p)) = &st.glide
+    {
+        let t = ((ui.input(|i| i.time) - start) as f32 / secs).clamp(0.0, 1.0);
+        if t >= 1.0 || *p != path {
+            st.glide = None;
+        } else {
+            let e = 1.0 - (1.0 - t).powi(3);
+            cam = Camera { pan: from.pan + (cam.pan - from.pan) * e, zoom: from.zoom + (cam.zoom - from.zoom) * e };
+            ui.ctx().request_repaint();
         }
     }
     // the nodes dragged move in the scene at once (the model's places follow through the actions)
@@ -2603,8 +2661,21 @@ pub fn show(
         painter.rect_filled(frame, 8.0, accent.gamma_multiply(0.07 * glow));
         painter.rect_stroke(frame, 8.0, Stroke::new(2.5, accent.gamma_multiply(glow)), egui::StrokeKind::Inside);
     }
-    if ui.input(|i| i.key_pressed(egui::Key::Home)) && ui.ctx().memory(|m| m.focused().is_none()) {
+    let idle = ui.ctx().memory(|m| m.focused().is_none());
+    if ui.input(|i| i.key_pressed(egui::Key::Home)) && idle {
         st.fit = true;
+        ui.ctx().request_repaint();
+    }
+    // F frames the nodes selected, with the pointer over the canvas (not in the boxes that take the keyboard)
+    if idle
+        && resp.hovered()
+        && st.quick.is_none()
+        && st.find.is_none()
+        && st.renaming.is_none()
+        && ui.input(|i| i.key_pressed(egui::Key::F) && !i.modifiers.any())
+    {
+        st.framing = true;
+        ui.ctx().request_repaint();
     }
     actions
 }

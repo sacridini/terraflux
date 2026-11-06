@@ -20,6 +20,9 @@ minor versions.
   operator, note or a file of its settings: the list tells each one's place (`group > inner`) and the file that
   matched; choosing one opens the containers on its way, selects it and centres the view on it. The command
   palette's *Go to* reaches nested nodes too (`Go to group/inner`).
+- Canvas: **F frames the nodes selected** (none selected: the whole model, as Home), within the group open, zoomed
+  in at most 1.75 for a single small node. The view glides there (about a quarter of a second, easing out), for
+  Home and ctrl+F too.
 
 ## [1.41.0] - 2026-11-06
 
