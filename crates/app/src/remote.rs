@@ -128,6 +128,10 @@ pub fn probe(address: &str) -> Result<Info, String> {
     }
 }
 
+/// The help of *A URL...* (the Layers panel and the Viewer's header).
+pub const URL_HELP: &str = "a COG or any raster GDAL reads over the web (read by windows, as the map asks), or vector \
+                            features: https://..., s3://..., gs://..., /vsicurl/...";
+
 /// The window that adds a layer from an address: what is typed, the address being checked, what was found.
 #[derive(Default)]
 pub struct Dialog {

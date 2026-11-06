@@ -275,9 +275,9 @@ PNG (its map only in a GeoTIFF, and with a curtain or a difference).
 
 ### Maps on the web
 
-*A URL...*, in the menu that adds a layer, reads a raster on the web without downloading it: a Cloud Optimized
-GeoTIFF (`https://.../scene.tif`), any file GDAL opens through `/vsicurl/`, or `s3://` and `gs://` (as `/vsis3/` and
-`/vsigs/`). *Check* opens it and tells its size, bands and coordinate system (or why it cannot); *Add as a layer*
+*A URL...*, in the menu that adds a layer and in the Viewer's header, reads a raster on the web without downloading
+it: a Cloud Optimized GeoTIFF (`https://.../scene.tif`), any file GDAL opens through `/vsicurl/`, or `s3://` and
+`gs://` (as `/vsis3/` and `/vsigs/`). *Check* opens it and tells its size, bands and coordinate system (or why it cannot); *Add as a layer*
 makes a [[raster.read]] of the address, drawn as any layer: only the parts of the file the map needs are read,
 from its overviews when zoomed out. A GeoJSON or FlatGeobuf address becomes a [[vector.read]] (read whole).
 *Custom...*, among the basemaps, takes any tile service by its address with `{z}`, `{x}` and `{y}`, an attribution

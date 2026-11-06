@@ -516,14 +516,7 @@ fn toolbar(
                     asked.pick_files = true;
                     ui.close();
                 }
-                if ui
-                    .button("A URL...")
-                    .on_hover_text(
-                        "a COG or any raster GDAL reads over the web (read by windows, as the map asks), or vector \
-                         features: https://..., s3://..., gs://..., /vsicurl/...",
-                    )
-                    .clicked()
-                {
+                if ui.button("A URL...").on_hover_text(crate::remote::URL_HELP).clicked() {
                     asked.url = true;
                     ui.close();
                 }

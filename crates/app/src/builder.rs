@@ -4485,6 +4485,15 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     // (views side by side stop with it)
                     sh.view.measure_stopped = sh.view.measuring.is_none();
                 }
+                // a layer from the web: the dialog of the layers panel's *A URL...* (shown in the Viewer's own window too)
+                if drawn
+                    && ui
+                        .add_enabled(s.url_layer.is_none(), egui::Button::new("A URL..."))
+                        .on_hover_text(crate::remote::URL_HELP)
+                        .clicked()
+                {
+                    s.url_layer = Some(crate::remote::Dialog::default());
+                }
                 // finding one's way: a place by its coordinates; back and forward along the views (the arrows left
                 // of it, back first)
                 if drawn {

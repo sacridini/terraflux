@@ -306,6 +306,22 @@ fn the_dialog_of_a_url_says_what_is_there_and_why_not() {
     let _ = std::fs::remove_file(plain);
 }
 
+/// *A URL...* in the Viewer's header opens the same dialog as the layers panel's (one at a time).
+#[test]
+fn a_url_from_the_viewers_header_opens_the_dialog() {
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let mut h = viewed(&in_degrees("web_header.tif"), "web_header");
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().url_layer.is_none());
+    h.get_by_label("A URL...").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.url_layer.as_ref().is_some_and(|d| d.url.is_empty()), "the dialog is open and empty");
+    h.get_by_label("Check");
+}
+
 /// A server that stops answering the windows (after the file was opened): the layer says so (its error), nothing
 /// crashes, and the window goes on.
 #[test]

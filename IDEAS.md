@@ -2541,7 +2541,8 @@ item, na ordem; release só quando pedido.
    127.0.0.1 com faixas de bytes: o COG de 22 MB, 404, o servidor que passa a falhar, o GeoJSON, o XYZ próprio, as
    configurações). Também: `every_test_file_runs` aceita os módulos de `ui.rs`. Falta: WMTS; um vetor remoto lido
    por filtro espacial (hoje inteiro); `{s}` vira `a`; o cache de resultados não vê um remoto que mudou; credenciais
-   de S3/GS; *A URL...* também no cabeçalho do Viewer.
+   de S3/GS; ~~*A URL...* também no cabeçalho do Viewer~~ (feito: o botão no cabeçalho abre o mesmo `remote::Dialog`,
+   `remote::URL_HELP` comum; teste `a_url_from_the_viewers_header_opens_the_dialog`).
    **Visto de passagem:** `surface::the_terrain_is_landschafts` (crates/ops) falha no VRM por 2e-16
    (`0.008092000620180229` contra `...180007`), com ou sem este item: a paridade bit a bit do VRM com o numpy.
 8. **As sobras das partes já feitas.**
