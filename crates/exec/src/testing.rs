@@ -129,7 +129,13 @@ pub fn hash(path: &Path) -> Result<Hashed> {
 /// The files the nodes name (`path` of the [`FILE_OPS`], the [`FILE_SETTINGS`]), those read and those written, by
 /// `node.setting` (`container/node.setting` inside containers), found from `base` when relative. Those not there
 /// (a pattern, a file a step names) are left out.
-fn files_of(nodes: &[Node], prefix: &str, base: &Path, reads: &mut BTreeMap<String, Hashed>, writes: &mut Vec<(String, PathBuf)>) {
+fn files_of(
+    nodes: &[Node],
+    prefix: &str,
+    base: &Path,
+    reads: &mut BTreeMap<String, Hashed>,
+    writes: &mut Vec<(String, PathBuf)>,
+) {
     for n in nodes {
         let at = if prefix.is_empty() { n.id.clone() } else { format!("{prefix}/{}", n.id) };
         for (k, v) in &n.params {
