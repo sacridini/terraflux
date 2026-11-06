@@ -545,6 +545,9 @@ pub struct MapView {
     pub mark_new: bool,
     pub mark_stopped: bool,
     pub mark_beside: bool,
+    /// A digit pressed over the view: the slot of a place (1 to 9) and whether it was saved (ctrl) or gone to. Taken
+    /// by whoever keeps the places ([`crate::places`]).
+    pub place_key: Option<(u8, bool)>,
     tiles: HashMap<TileKey, Tile>,
     workers: Option<Workers>,
     /// the tiles asked of the workers and not come yet
@@ -723,6 +726,32 @@ impl MapView {
             (self.center.y + half.y).clamp(0.0, h),
         ];
         (b[2] > b[0] && b[3] > b[1]).then_some((g, b))
+    }
+
+    /// The part of the map in view as a box of its coordinates (west, south, east, north), not cut to the map: what
+    /// a place keeps. None before a map was drawn.
+    pub fn view_extent(&self) -> Option<[f64; 4]> {
+        let (g, rect) = (self.shown_grid.as_ref()?, self.rect?);
+        if !self.fitted || self.zoom <= 0.0 || g.width == 0 || g.height == 0 {
+            return None;
+        }
+        let half = rect.size() / (2.0 * self.zoom);
+        let (c, h) = (self.center, half);
+        let e = crate::frame::extent_of(g, [c.x - h.x, c.y - h.y, c.x + h.x, c.y + h.y]);
+        e.iter().all(|v| v.is_finite()).then_some(e)
+    }
+
+    /// The view on a box of the map's coordinates now (a place gone to), at the size the view was drawn last; false
+    /// when no map was drawn or the box has no cells on it.
+    pub fn go_extent(&mut self, extent: [f64; 4]) -> bool {
+        let Some(cells) = self.shown_grid.as_ref().and_then(|g| crate::frame::exact_cells(g, extent)) else {
+            return false;
+        };
+        if self.rect.is_none() {
+            return false;
+        }
+        self.zoom_to(cells);
+        true
     }
 
     /// The layers drawn with the map at the last frame: how many maps (over or under it) and how many vector layers.
@@ -1927,6 +1956,10 @@ impl MapView {
         }
         if forward {
             self.forward();
+        }
+        // 1 to 9 over the map: the place of that slot; with ctrl: this view kept in it
+        if response.hovered() && !typing {
+            self.place_key = ui.input_mut(crate::places::read_key).or(self.place_key);
         }
         // Ctrl+G over the map: the box to go to a place
         if response.hovered() && !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::G)) {

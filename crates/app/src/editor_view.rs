@@ -391,6 +391,8 @@ pub enum Action {
     AddNote([f32; 2]),
     /// A frame around the nodes selected, its title asked for at once.
     FrameChosen,
+    /// The canvas' Places menu: a place gone to, kept, renamed, given a slot or deleted.
+    Place(crate::places::Ask),
     /// A note dragged to a place (in the model at once: it is drawn from it).
     MoveNote(String, [f32; 2]),
     /// A note's text asked for (a double click, its menu), given, its colour, the note taken away.
@@ -3054,6 +3056,10 @@ pub fn show(
                         actions.push(Action::AddNote([w.x, w.y]));
                         ui.close();
                     }
+                    // the views kept by name in the model (1 to 9 over the canvas)
+                    let mut asks = Vec::new();
+                    crate::places::menu_button(ui, model, false, true, &mut asks);
+                    actions.extend(asks.into_iter().map(Action::Place));
                 }
                 None => ui.close(),
             }

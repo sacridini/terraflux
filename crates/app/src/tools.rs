@@ -1178,7 +1178,25 @@ fn set_note(m: &mut Model, a: &Value) -> Reply {
 }
 
 pub fn show_model(m: &Model, dir: &Path, r: &Registry) -> Reply {
-    Ok(format!("{}\n{}", m.to_toml().map_err(|e| e.to_string())?, problems(m, dir, r)))
+    let mut text = format!("{}\n{}", m.to_toml().map_err(|e| e.to_string())?, problems(m, dir, r));
+    // (the places kept, a line each, besides the [[bookmarks]] above)
+    if !m.bookmarks.is_empty() {
+        text.push_str("\nPlaces kept:");
+        for p in &m.bookmarks {
+            let slot = p.slot.map(|k| format!(", slot {k}")).unwrap_or_default();
+            let what = match &p.view {
+                terraflux_graph::PlaceView::Map { extent, crs, .. } => {
+                    format!("Viewer, extent {extent:?} in {}", crs.as_deref().unwrap_or("the map's cells"))
+                }
+                terraflux_graph::PlaceView::Canvas { scope, x, y, zoom } => {
+                    let at = if scope.is_empty() { "the top level" } else { scope.as_str() };
+                    format!("canvas of {at}, at ({x:.0}, {y:.0}), zoom {zoom:.2}")
+                }
+            };
+            text.push_str(&format!("\n- {}: {what}{slot}", p.name));
+        }
+    }
+    Ok(text)
 }
 
 /// The errors and warnings of a model (its submodels expanded, from the model's folder `dir`).
@@ -1772,6 +1790,7 @@ fn all() -> Vec<Value> {
                 "compare": { "description": "A map compared with the top map: node.port, or { with, how, also } (how: curtain, side by side (default) or difference; also: up to 2 more maps (node.port) side by side, 4 views in all that move together; band: the band of the stack or the step of the loop `with` is (from 0, default the first); also_bands: the same for each map of also (a number each, 0 or null for the first); layers: side by side, the layers each view draws instead of the Plot's, a list per view (first the view of `with`, then those of `also`) in the form of the Plot's layers but without palette, an empty list for a view that draws the Plot's layers)." },
                 "chart": { "type": "object", "description": "A table's chart: { kind (bars, lines, points, boxes), x (a column), y (columns, comma-separated), by (the column of the groups) }." },
                 "view": { "type": "object", "description": "The saved view, the frame the plot is drawn at: { extent: [west, south, east, north] } in the coordinates of its map (the map's coordinate system). The Viewer opens on it, and the figure, the export (export_plot, `terraflux plot`) and the Document show only that part of the map. A plot set again without `view` loses its frame; in the Viewer, *Keep this view in the plot* sets it from what is in view." },
+                "place": { "type": "string", "description": "The name of a place of the Viewer's map kept in the model (show_model lists them under [[bookmarks]]): its extent becomes the plot's saved view (in the place's own coordinates, so it fits when the plot's map has the place's coordinate system). Ignored when `view` is given." },
                 "note": { "type": "string", "description": "What it shows and why (the record)." },
                 "why": { "type": "string" },
             }),
@@ -2981,7 +3000,23 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
         PlotChart { kind: s("kind"), x: s("x"), y: s("y"), by: s("by") }
     });
     let view = match a.get("view") {
-        None | Some(Value::Null) => None,
+        None | Some(Value::Null) => match opt_text(a, "place") {
+            // the extent of a place of the Viewer's map kept in the model
+            Some(name) => {
+                let place = m.bookmarks_of(true).find(|p| p.name == name).ok_or_else(|| {
+                    let known: Vec<&str> = m.bookmarks_of(true).map(|p| p.name.as_str()).collect();
+                    format!("no place of the Viewer named {name:?} (the model's: {})", known.join(", "))
+                })?;
+                match &place.view {
+                    terraflux_graph::PlaceView::Map { extent, .. } => {
+                        let [w, s, e, n] = *extent;
+                        Some(PlotView::new(w, s, e, n).ok_or("the place has no area")?)
+                    }
+                    _ => None,
+                }
+            }
+            None => None,
+        },
         Some(v) => {
             let list = v.get("extent").and_then(Value::as_array);
             let nums: Option<Vec<f64>> = list.and_then(|l| l.iter().map(Value::as_f64).collect());
@@ -3382,6 +3417,38 @@ mod plot_tests {
         let a = json!({ "id": "cover", "layers": ["land.map"] });
         super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
         assert!(m.plot("cover").unwrap().view.is_none());
+    }
+
+    /// A place of the Viewer's map names the plot's saved view; show_model lists the places; an unknown place, or one
+    /// of the canvas, is refused.
+    #[test]
+    fn a_plot_takes_the_view_of_a_place() {
+        use terraflux_graph::{Place, PlaceView};
+        let r = terraflux_ops::Registry::standard();
+        let dir = std::path::Path::new(".");
+        let mut m = model();
+        let map = PlaceView::Map { extent: [1.0, 2.0, 3.0, 4.0], crs: Some("EPSG:4326".into()), layers: None };
+        m.save_bookmark(Place { name: "Lake".into(), slot: Some(2), view: map });
+        m.save_bookmark(Place {
+            name: "Inputs".into(),
+            slot: None,
+            view: PlaceView::Canvas { scope: String::new(), x: 1.0, y: 2.0, zoom: 1.0 },
+        });
+        let a = json!({ "id": "cover", "layers": ["land.map"], "place": "Lake" });
+        super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
+        assert_eq!(m.plot("cover").unwrap().view, terraflux_graph::PlotView::new(1.0, 2.0, 3.0, 4.0));
+        // (an explicit view wins)
+        let a = json!({ "id": "cover", "layers": ["land.map"], "place": "Lake", "view": { "extent": [5, 6, 7, 8] } });
+        super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
+        assert_eq!(m.plot("cover").unwrap().view, terraflux_graph::PlotView::new(5.0, 6.0, 7.0, 8.0));
+        for bad in ["Nowhere", "Inputs"] {
+            let a = json!({ "id": "cover", "layers": ["land.map"], "place": bad });
+            let e = super::edit("set_plot", &mut m, &r, dir, &a).unwrap_err();
+            assert!(e.contains("Lake"), "{e}");
+        }
+        let shown = super::show_model(&m, dir, &r).unwrap();
+        assert!(shown.contains("[[bookmarks]]") && shown.contains("- Lake: Viewer, extent"), "{shown}");
+        assert!(shown.contains("slot 2") && shown.contains("- Inputs: canvas of the top level"), "{shown}");
     }
 
     /// The symbology of a vector layer in set_plot: its style kept as given (and read by the Viewer), a word the Viewer

@@ -8029,6 +8029,156 @@ fn back_and_forward_along_the_views() {
     assert_eq!(map(&mut h).history_len(), 2);
 }
 
+/// Places kept with the model: ctrl+1 keeps the Viewer's view in slot 1 and 1 goes back to it (the pointer over the
+/// map); the Places menu keeps one under a name; they are in the model's file; ctrl+Z takes a saved place back; the
+/// canvas has its own with the same keys; a digit typed in a field is the field's.
+#[test]
+fn places_are_kept_with_the_model_and_gone_back_to() {
+    use egui::accesskit::Role;
+    use egui_kittest::kittest::NodeT;
+    let mut h = viewed(&data("sibuyan_landuse.tif"), "sibuyan_landuse");
+    until(&mut h, "the first view settling", |a| a.session.as_ref().unwrap().preview_view.history_len() >= 1);
+    let (z0, c0) = map(&mut h).camera();
+    let rect = map(&mut h).rect().expect("drawn");
+    // zoomed in somewhere, kept in slot 1 with ctrl+1
+    map(&mut h).set_camera(z0 * 4.0, c0 + egui::vec2(8.0, -6.0));
+    h.run_steps(2);
+    let (z1, c1) = map(&mut h).camera();
+    let e1 = map(&mut h).view_extent().expect("a view");
+    h.event(egui::Event::PointerMoved(rect.center()));
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num1);
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let p = s.source.bookmark_at(true, 1).expect("the place of slot 1");
+        assert_eq!(p.name, "Place 1");
+        let terraflux_graph::PlaceView::Map { extent, layers, .. } = &p.view else { panic!("{p:?}") };
+        assert!(layers.is_none());
+        for k in 0..4 {
+            assert!((extent[k] - e1[k]).abs() < 1e-6 * e1[k].abs().max(1.0), "{extent:?} against {e1:?}");
+        }
+        assert!(s.dirty, "a place is an edit of the model");
+    }
+    // away, then 1 brings the view back
+    map(&mut h).set_camera(z0, c0);
+    h.run_steps(2);
+    h.key_press(egui::Key::Num1);
+    h.run_steps(3);
+    let (z, c) = map(&mut h).camera();
+    assert!((z / z1 - 1.0).abs() < 1e-3 && near(c, c1, 0.05), "back to {z1} {c1:?}, at {z} {c:?}");
+    // a digit typed in a field is the field's: the map stays where it is (a text field clicked, the pointer back
+    // over the map)
+    map(&mut h).set_camera(z0, c0);
+    h.run_steps(2);
+    let field = h
+        .query_all_by_role(Role::TextInput)
+        .find(|n| {
+            n.accesskit_node().bounding_box().is_some_and(|b| b.x1 as f32 <= rect.left() || b.y0 as f32 > rect.bottom())
+        })
+        .expect("a text field outside the map");
+    field.click();
+    h.run_steps(2);
+    h.event(egui::Event::PointerMoved(rect.center()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Num1);
+    h.event(egui::Event::Text("1".into()));
+    h.run_steps(3);
+    assert_eq!(map(&mut h).camera(), (z0, c0), "1 typed in a field went to the field");
+    // (the field let go)
+    h.event(egui::Event::PointerMoved(egui::pos2(rect.center().x, rect.top() + 40.0)));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    // the Places menu of the Viewer's header keeps one under a name
+    let button = h.get_all_by_role_and_label(Role::Button, "Places").last().expect("the Places menu").rect();
+    h.get_all_by_role_and_label(Role::Button, "Places").last().unwrap().click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Place 1   [1]").is_some(), "slot 1's place listed with its slot");
+    let name = h
+        .query_all_by_role(Role::TextInput)
+        .find(|n| {
+            n.accesskit_node()
+                .bounding_box()
+                .is_some_and(|b| b.y0 as f32 > button.bottom() && b.x0 as f32 > button.left() - 200.0)
+        })
+        .expect("the name field of the menu");
+    name.click();
+    h.run_steps(1);
+    h.event(egui::Event::Text("Lake".into()));
+    h.run_steps(2);
+    shot(&mut h, "places-menu");
+    h.get_by_label("Save this place...").click();
+    h.run_steps(4);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let p = s.source.bookmarks_of(true).find(|p| p.name == "Lake").expect("the place Lake");
+        assert_eq!(p.slot, None);
+        assert_eq!(s.source.bookmarks_of(true).count(), 2);
+        assert!(s.history.steps().0.iter().any(|n| n == "Save the place Lake"), "{:?}", s.history.steps().0);
+    }
+    // in the model's file, read back
+    let file = tmp("places-model.toml");
+    h.state_mut().session.as_mut().unwrap().save_as(&file).unwrap();
+    let back = terraflux_graph::Model::load(&file).unwrap();
+    assert_eq!(back.bookmarks, h.state().session.as_ref().unwrap().source.bookmarks);
+    assert!(std::fs::read_to_string(&file).unwrap().contains("[[bookmarks]]"));
+    // ctrl+Z takes Lake back
+    h.event(egui::Event::PointerMoved(egui::pos2(rect.center().x, rect.center().y)));
+    h.run_steps(3);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.source.bookmarks_of(true).all(|p| p.name != "Lake") && s.source.bookmark_at(true, 1).is_some());
+
+    // the canvas: ctrl+2 keeps where it looks, 2 goes back; its places are apart from the Viewer's
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(4);
+    let canvas = h.state().session.as_ref().unwrap().editor.canvas().expect("the canvas drawn");
+    let cam = h.state().session.as_ref().unwrap().editor.camera().expect("a camera");
+    let look = |h: &mut Harness<TerrafluxApp>, pan: egui::Vec2, zoom: f32| {
+        h.state_mut().session.as_mut().unwrap().editor.set_camera(pan, zoom);
+        h.run_steps(2);
+    };
+    look(&mut h, cam.pan + egui::vec2(60.0, 25.0), cam.zoom * 1.5);
+    let moved = h.state().session.as_ref().unwrap().editor.camera().unwrap();
+    h.event(egui::Event::PointerMoved(canvas.center()));
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num2);
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert!(s.source.bookmark_at(false, 2).is_some() && s.source.bookmark_at(true, 2).is_none());
+    }
+    look(&mut h, cam.pan, cam.zoom);
+    h.event(egui::Event::PointerMoved(canvas.center()));
+    h.key_press(egui::Key::Num2);
+    h.run_steps(3);
+    let now = h.state().session.as_ref().unwrap().editor.camera().unwrap();
+    assert!(near(now.pan, moved.pan, 0.5) && (now.zoom / moved.zoom - 1.0).abs() < 1e-3, "{moved:?} against {now:?}");
+    // 1 has no place on the canvas: nothing moves (the Viewer's slot 1 is not the canvas')
+    h.key_press(egui::Key::Num1);
+    h.run_steps(3);
+    assert_eq!(h.state().session.as_ref().unwrap().editor.camera().unwrap(), now);
+    // the right-click menu of the empty canvas lists them
+    h.event(egui::Event::PointerButton {
+        pos: canvas.left_bottom() + egui::vec2(30.0, -30.0),
+        button: egui::PointerButton::Secondary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.event(egui::Event::PointerButton {
+        pos: canvas.left_bottom() + egui::vec2(30.0, -30.0),
+        button: egui::PointerButton::Secondary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(3);
+    h.get_by_label_contains("Places").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Place 2   [2]").is_some());
+    shot(&mut h, "places-canvas-menu");
+}
+
 /// Go to at a zoom: a scale (chosen or typed after an `@`) or a width of view sets the metres per screen point;
 /// without one the zoom is kept; the jump is one view of the history.
 #[test]

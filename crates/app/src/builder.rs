@@ -1206,6 +1206,13 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
     if ungroup {
         ungroup_selected(s, r);
     }
+    // 1 to 9 over the canvas: the place of that slot; with ctrl: where the canvas looks kept in it
+    if here
+        && over
+        && let Some(k) = ui.input_mut(crate::places::read_key)
+    {
+        crate::places::canvas_key(s, k);
+    }
     let (duplicate, copy, paste) = ui.input_mut(|i| {
         if !here {
             return (false, false, None);
@@ -3071,6 +3078,10 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 crate::my_nodes::begin(s, r, &id);
                 Ok(false)
             }
+            Action::Place(ask) => {
+                crate::places::canvas_ask(s, ask);
+                Ok(false)
+            }
             a @ (Action::AddNote(_)
             | Action::FrameChosen
             | Action::MoveNote(..)
@@ -3195,6 +3206,10 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
     }
     let before = s.preview.clone();
     let hover = output(ui, s, r, &mut shown, "viewer");
+    // a digit over the map: the place of that slot gone to, or the view kept in it (ctrl)
+    if let Some(k) = shown.view.place_key.take() {
+        crate::places::map_key(s, &mut shown.view, &mut shown.layers, k);
+    }
     shown.view.rest_unless_drawn(ui.ctx());
     // (a node selected meanwhile, by what the viewer shows: that node's output shown now)
     if s.preview == before {
@@ -4810,6 +4825,16 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         .clicked()
                     {
                         sh.view.back();
+                    }
+                    // the views kept by name in the model, to go back to (1 to 9 over the map)
+                    let mut asks = Vec::new();
+                    let can_save = sh.view.view_extent().is_some();
+                    let at = crate::places::menu_button(ui, &s.source, true, can_save, &mut asks);
+                    at.on_hover_text(format!(
+                        "views of the map kept by name in the model; {c}1 to {c}9 over the map keep the view in a slot, 1 to 9 go to it"
+                    ));
+                    for a in asks {
+                        crate::places::map_ask(s, &mut sh.view, &mut sh.layers, a);
                     }
                 }
                 plots_menu(ui, s, sh, inner.is_none(), salt);

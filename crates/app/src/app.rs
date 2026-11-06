@@ -3305,6 +3305,17 @@ impl TerrafluxApp {
             for (at, n) in crate::find::walk(&s.source) {
                 all.push(Command::new(format!("Go to {}", at.join("/")), "node", n.op.clone(), Do::GoTo(at)));
             }
+            // (the places kept: "Go to place 2: Lake", a slot's digit in its detail)
+            for p in &s.source.bookmarks {
+                let map = p.is_map();
+                let label = match p.slot {
+                    Some(k) => format!("Go to place {k}: {}", p.name),
+                    None => format!("Go to place: {}", p.name),
+                };
+                let kind = if map { "map place" } else { "canvas place" };
+                let key = p.slot.map(|k| k.to_string()).unwrap_or_default();
+                all.push(Command::new(label, kind, key, Do::Place { map, name: p.name.clone() }));
+            }
         }
         for e in &self.library.entries {
             all.push(Command::new(format!("Add {}", e.name), "operator", e.doc.clone(), Do::Add(e.name.clone())));
@@ -3393,7 +3404,13 @@ impl TerrafluxApp {
                         | Do::Ungroup
                         | Do::GroupByStage
                 );
+                let place_pane = match &d {
+                    Do::Place { map: true, .. } => Some(Pane::Viewer),
+                    Do::Place { .. } => Some(Pane::Model),
+                    _ => None,
+                };
                 match d {
+                    Do::Place { map, name } => crate::places::go_named(s, map, &name),
                     Do::OpenData => crate::builder::open_data(s, r),
                     Do::RunToHere => crate::builder::run_selected(ctx, s),
                     Do::Arrange => crate::builder::arrange(s, r),
@@ -3425,6 +3442,9 @@ impl TerrafluxApp {
                 }
                 if model {
                     self.focus(Pane::Model);
+                }
+                if let Some(p) = place_pane {
+                    self.focus(p);
                 }
             }
         }

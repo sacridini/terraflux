@@ -67,6 +67,25 @@ pub fn view_cells(g: &Grid, extent: [f64; 4]) -> Option<[f32; 4]> {
     Some([c.x0 as f32, c.y0 as f32, (c.x0 + c.w) as f32, (c.y0 + c.h) as f32])
 }
 
+/// The cells `[x0, y0, x1, y1]` (fractional, not cut to the grid) that a box covers: where a view kept as a box
+/// goes back to, even when it reached beyond the map. None for a grid without cells' size.
+pub fn exact_cells(g: &Grid, extent: [f64; 4]) -> Option<[f32; 4]> {
+    let t = g.transform;
+    let det = t[1] * t[5] - t[2] * t[4];
+    if det == 0.0 || !det.is_finite() {
+        return None;
+    }
+    let [west, south, east, north] = extent;
+    let (mut c0, mut c1, mut r0, mut r1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+    for (x, y) in [(west, south), (east, south), (west, north), (east, north)] {
+        let (dx, dy) = (x - t[0], y - t[3]);
+        let col = (t[5] * dx - t[2] * dy) / det;
+        let row = (t[1] * dy - t[4] * dx) / det;
+        (c0, c1, r0, r1) = (c0.min(col), c1.max(col), r0.min(row), r1.max(row));
+    }
+    [c0, c1, r0, r1].iter().all(|v| v.is_finite()).then_some([c0 as f32, r0 as f32, c1 as f32, r1 as f32])
+}
+
 /// The grid of a part of `g`: the same cells, the origin moved.
 fn grid_of(g: &Grid, c: Cells) -> Grid {
     let t = g.transform;
@@ -184,6 +203,19 @@ mod tests {
         let e = extent_of(&m.grid, [2.0, 1.0, 5.0, 3.0]);
         assert_eq!(e, [120.0, 470.0, 150.0, 490.0]);
         assert_eq!(view_cells(&m.grid, e), Some([2.0, 1.0, 5.0, 3.0]));
+    }
+
+    #[test]
+    fn a_box_beyond_the_map_keeps_its_cells() {
+        let m = map();
+        // the view reached two cells west and a cell and a half north of the map
+        let e = extent_of(&m.grid, [-2.0, -1.5, 4.0, 3.0]);
+        assert_eq!(exact_cells(&m.grid, e), Some([-2.0, -1.5, 4.0, 3.0]));
+        // (cells_of would cut it to the map)
+        assert_eq!(view_cells(&m.grid, e), Some([0.0, 0.0, 4.0, 3.0]));
+        let mut g = Grid::new(2, 2);
+        g.transform = [0.0; 6];
+        assert_eq!(exact_cells(&g, [0.0, 0.0, 1.0, 1.0]), None);
     }
 
     #[test]

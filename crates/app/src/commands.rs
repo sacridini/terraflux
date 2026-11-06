@@ -77,6 +77,11 @@ pub enum Do {
     AddMine(String),
     /// Select a node (the containers' ids from the top, then its own), opening its containers, and look at it.
     GoTo(Vec<String>),
+    /// Go to a place kept in the model, of the Viewer's map or of the canvas, by its name.
+    Place {
+        map: bool,
+        name: String,
+    },
 }
 
 /// A command: what it is called, what it is (an action, a template, a node, an operator), its key or what it does.
@@ -271,6 +276,8 @@ pub fn shortcuts() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
                 (format!("{c}shift+G"), "ungroup the group selected"),
                 ("B".into(), "turn the nodes selected off or on again (bypass: their inputs passed on)"),
                 (format!("{c}A, Esc"), "select all, none"),
+                (format!("{c}1 to {c}9"), "keep where the canvas looks in a slot, as a place saved with the model"),
+                ("1 to 9".into(), "go to the place in that slot (the Viewer has its own)"),
             ],
         ),
         (
@@ -280,6 +287,8 @@ pub fn shortcuts() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
                 ("double click".into(), "the whole map in view"),
                 ("B".into(), "the satellite under the map"),
                 ("space".into(), "hide the map, or show it again"),
+                (format!("{c}1 to {c}9"), "keep the view in a slot, as a place saved with the model (Places)"),
+                ("1 to 9".into(), "go to the place in that slot"),
                 ("M".into(), "measure: click points for lengths, area and perimeter (esc ends)"),
                 (format!("{c}G"), "go to a coordinate (degrees or the map's units) and mark it (esc lets the mark go)"),
                 (

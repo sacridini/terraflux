@@ -60,6 +60,7 @@ pub mod op_notes;
 pub mod palette;
 pub mod params_view;
 pub mod phrases;
+pub mod places;
 pub mod plot_export;
 pub mod prepare;
 pub mod prepare_view;

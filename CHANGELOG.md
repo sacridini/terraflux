@@ -7,6 +7,20 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Application and MCP: **saved places** in the Viewer and on the canvas. The *Places* menu in the Viewer's header
+  lists the places of the map, keeps the part of the map in view under a name (*Save this place...*, with an option
+  to keep the layers shown too, which going there then shows and hides the others), and renames, gives a slot to or
+  deletes each; the same menu is in the right-click menu of the empty canvas, keeping where the canvas looks (its
+  container, centre and zoom). With the pointer over the Viewer or the canvas and no field being typed in,
+  ctrl+1 to ctrl+9 keep the view in a slot (replacing the slot's place, which keeps its name; a new one is "Place
+  N") and 1 to 9 go to it; the Viewer and the canvas have their own slots, and the palette has "Go to place N:
+  name". A place of the map is a box in the map's coordinate system (kept as an EPSG code or WKT), carried to the
+  map shown when it is another system, or refused with the reason; the view comes back as it was, even beyond the
+  map's edge. Places are kept in the model (`[[bookmarks]]`, skipped when none), so they travel with the file; each
+  save, rename, slot and delete is a step of undo with its name. The MCP's `set_plot` takes `place` (a place of the
+  map's name) for the plot's saved view, and `show_model` lists the places. (`terraflux_graph::{Place, PlaceView}`,
+  `Model::bookmarks` and its `save_bookmark`, `save_bookmark_slot`, `rename_bookmark`, `set_bookmark_slot`,
+  `remove_bookmark`; `Model::places` stays where the canvas draws the boxes of what a scope reads.)
 - Application, `terraflux sensitivity` and the MCP: **maps of sensitivity, cell by cell**. For an output that is a
   map, series or stack, *Maps of sensitivity, cell by cell* in Many runs > Sensitivity (and `--maps`, or `maps:
   true` in the MCP tool `sensitivity`) makes each run keep the last map of that output (and nothing else of the

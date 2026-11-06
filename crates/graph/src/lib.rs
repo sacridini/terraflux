@@ -17,6 +17,7 @@
 //! ([`Model::load`], [`Model::save`]); [`check`] validates it against the
 //! operators' signatures before anything runs.
 
+pub mod bookmarks;
 mod check;
 pub mod old_algebra;
 pub mod plots;
@@ -29,6 +30,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+pub use bookmarks::{Place, PlaceView};
 pub use check::{Catalog, Issue, Severity, check, script_types};
 pub use plots::{PLOT_OP, Plot, PlotChart, PlotCompare, PlotLayer, PlotRgb, PlotShade, PlotView};
 pub use types::{Access, OpSignature, PortSpec, Type, declared_outputs};
@@ -218,6 +220,10 @@ pub struct Model {
     /// The notes and frames of the canvas ([`Note`]): for whoever reads the model, never checked nor run.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<Note>,
+    /// The places kept by name ([`bookmarks`]): views of the Viewer's map and of the canvas, to go back to (the digit
+    /// of a slot goes to one). (Not `places`: that is where the canvas draws boxes.)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bookmarks: Vec<Place>,
 }
 
 /// A note of the canvas: a text put somewhere (`at`, graph units), or a frame around nodes (`nodes`: the frame is
@@ -658,6 +664,7 @@ impl Model {
             plots: Vec::new(),
             places: BTreeMap::new(),
             notes: Vec::new(),
+            bookmarks: Vec::new(),
         }
     }
 

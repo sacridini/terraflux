@@ -3018,6 +3018,33 @@ extensão); as versões de um modelo só existem pelo git (o `review.rs` compara
    vão até eles (animado, como o *Go to*), uma lista no menu da vista renomeia e apaga. Guardados com o modelo
    (os do canvas e os do Viewer), para valerem em outro computador; o `set_plot` do MCP pode usar um lugar pelo
    nome.
+   **Feito** (Unreleased): novo `terraflux_graph::bookmarks` (`Place { name, slot, view }`, `PlaceView::Map { extent,
+   crs, layers }` ou `Canvas { scope, x, y, zoom }`, `SLOTS`) e `Model::bookmarks` (`#[serde(default,
+   skip_serializing_if)]`, `[[bookmarks]]` no TOML; `save_bookmark`, `save_bookmark_slot`, `slot_name`,
+   `rename_bookmark`, `set_bookmark_slot`, `remove_bookmark`, `bookmarks_of`, `bookmark_at`). Decidido: o campo se
+   chama `bookmarks` e não `places`, porque `Model::places` já existe (onde o canvas desenha as caixas do que um
+   escopo lê). Um nome repetido de um tipo troca o lugar; um slot é de um lugar por tipo (o Viewer e o canvas têm
+   os seus 1 a 9); a tecla guarda como "Place N" (N o slot) ou com o nome que o slot já tinha. Aplicativo: novo
+   `places.rs` (`Ask`, `menu_button`/`menu`, `map_ask`, `map_key`, `canvas_ask`, `canvas_key`, `go_map`, `go_canvas`,
+   `go_named`, `extent_in`, `read_key`). O menu *Places* no cabeçalho do Viewer (junto de *Go to...*) e como submenu
+   do clique direito no canvas vazio: a lista (um clique vai até o lugar; "..." renomeia, dá o slot ou apaga), o
+   nome e *Save this place...* (no Viewer, a caixa "with the layers shown"). O menu fica aberto até um clique fora
+   (`CloseOnClickOutside`, senão o clique no campo do nome o fechava). Cada gravação, renomeação, slot e remoção é
+   uma edição do modelo com o passo "Save the place X", "Rename the place A to B", "Put the place X in slot N",
+   "Delete the place X" (ctrl+Z desfaz). Viewer: a extensão é a vista sem cortar no mapa (`MapView::view_extent`,
+   `go_extent`, `frame::exact_cells`), então um lugar além da borda volta igual; vai-se até ela de uma vez (o *Go
+   to* não anima, então o lugar também não: decidido); em outro CRS a caixa é levada pelo GDAL (`extent_in`, 36
+   pontos da caixa) ou recusada dizendo o porquê (mapa sem CRS de um lado só). Teclas: `MapView::place_key` (com o
+   ponteiro sobre o mapa e nenhum campo em foco, lido na hora de desenhar e aplicado em `builder::preview`) e em
+   `builder::keys` para o canvas (com o ponteiro sobre ele); ctrl+1 a 9 guardam, 1 a 9 vão; alt e shift sozinhos não
+   valem. No F1 (Maps e canvas) e na paleta ("Go to place 2: Lake", `Do::Place`; o foco vai para o Viewer ou o
+   modelo). MCP: `set_plot` com `place` (a extensão de um lugar do mapa, na CRS do lugar; `view` explícito vence) e o
+   `show_model` com uma linha por lugar. Testes: três em `graph::bookmarks::tests`, quatro em `places::tests`, um em
+   `frame::tests`, `a_plot_takes_the_view_of_a_place` (tools.rs) e
+   `places_are_kept_with_the_model_and_gone_back_to` (ui.rs; as imagens `ui-places-menu.png` e
+   `ui-places-canvas-menu.png`). Ficou de fora: uma animação da câmera, o lugar do canvas só no escopo do contêiner
+   (o escopo some do modelo: o aviso diz), as camadas do lugar só pelas que já estão na lista do Viewer (as que o
+   lugar guardou e a lista não tem não voltam) e um *Go to* de lugar no Viewer sem mapa.
 
 ## A análise de sensibilidade no aplicativo
 
