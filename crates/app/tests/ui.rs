@@ -8628,3 +8628,140 @@ fn the_runs_are_shown_restored_and_compared() {
     shot(&mut h, "runs-maps");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Named versions of a model: *Save a version...* keeps the model as it is on screen; the Versions tab lists them
+/// newest first with what changed from the one before; one is reviewed against the model open (a change rejected
+/// brings the version's value back), restored (one named step of undo) or deleted after asking; a run's detail
+/// names the version of its model.
+#[test]
+fn the_versions_are_saved_listed_reviewed_restored_and_deleted() {
+    use terraflux_app::review::{self, Target};
+    use terraflux_app::runs_view::Tab;
+    use terraflux_app::versions_view::Dialog;
+    use terraflux_exec::journal::Journal;
+    let dir = tmp("versions");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut w = Wizard::default();
+    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
+    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
+    w.increment = Some(250.0);
+    let file = w.save(&dir.join("ui-versions.toml")).unwrap();
+    let mut h = harness(new_app(Some(file.clone())));
+    loaded(&mut h);
+    let journal = Journal::of(&file).unwrap();
+    let isometry = |h: &Harness<TerrafluxApp>| {
+        h.state().session.as_ref().unwrap().source.setting("patches.isometry").cloned().unwrap()
+    };
+    let set = |h: &mut Harness<TerrafluxApp>, v: f64, save: bool| {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.apply(&[("patches.isometry".to_string(), serde_json::json!(v))].into()).unwrap();
+        s.edited();
+        if save {
+            s.save().unwrap();
+        }
+    };
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.parameters.push(terraflux_graph::Parameter { key: "patches.isometry".into(), ..Default::default() });
+        s.source.apply(&[("simulation.times".to_string(), serde_json::json!(2))].into()).unwrap();
+        s.edited();
+        s.save().unwrap();
+    }
+    set(&mut h, 1.5, true);
+    // the shortcut opens the window; a label is required
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::S);
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().version_dialog.is_some(), "ctrl+alt+S opens the window");
+    h.state_mut().session.as_mut().unwrap().version_dialog =
+        Some(Dialog { label: "before".into(), note: "the first isometry".into() });
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("edits not saved").is_none());
+    h.get_by_label("Save version").click();
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().version_dialog.is_none());
+    assert_eq!(journal.versions().len(), 1);
+    run_all(&mut h, None);
+    // the second, of what is on screen with an edit not saved: the window says so
+    set(&mut h, 3.5, false);
+    h.state_mut().session.as_mut().unwrap().version_dialog =
+        Some(Dialog { label: "after".into(), note: String::new() });
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("edits not saved").is_some());
+    h.get_by_label("Save version").click();
+    h.run_steps(3);
+    h.state_mut().session.as_mut().unwrap().save().unwrap();
+    let versions = journal.versions();
+    assert_eq!(versions.iter().map(|v| v.label.as_str()).collect::<Vec<_>>(), ["before", "after"]);
+    assert_eq!(versions[0].note.as_deref(), Some("the first isometry"));
+    assert_eq!(versions[1].from, "app");
+    assert_eq!(journal.model(&versions[1].model).unwrap().setting("patches.isometry"), Some(&serde_json::json!(3.5)));
+    // the tab: two rows, the newest first, the change told
+    h.state_mut().focus(Pane::Runs);
+    h.run_steps(3);
+    h.get_by_label("Versions").click();
+    h.run_steps(3);
+    assert_eq!(h.state().runs.tab, Tab::Versions);
+    assert_eq!(h.state().runs.versions.list.len(), 2);
+    assert!(h.get_by_label("after").rect().min.y < h.get_by_label("before").rect().min.y, "the newest first");
+    assert!(h.query_by_label("1 node changed").is_some());
+    shot(&mut h, "versions");
+    // the run's detail names the version of its model
+    let run = journal.entries()[0].id;
+    h.state_mut().runs.tab = Tab::Runs;
+    h.state_mut().runs.select(run, false);
+    h.run_steps(3);
+    assert!(h.query_by_label("The model of version before").is_some());
+    h.state_mut().runs.tab = Tab::Versions;
+    h.run_steps(3);
+    // review against the model open: rejecting the change brings the version's value back
+    let ids: Vec<u64> = versions.iter().map(|v| v.id).collect();
+    h.state_mut().runs.versions.select(ids[0], false);
+    h.run_steps(3);
+    h.get_by_label("Review against the model open").click();
+    h.run_steps(3);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let r = s.review.as_ref().expect("a review of the version against the model open");
+        assert!(r.after.is_none());
+        let target = Target::Node("patches".into());
+        assert!(review::changes(s).iter().any(|c| c.target == target), "{:?}", review::changes(s));
+        review::reject(s, &target);
+        review::follow(s);
+    }
+    assert_eq!(isometry(&h), serde_json::json!(1.5));
+    // the version "after" restored: one named step, undone by ctrl+Z
+    h.state_mut().runs.versions.select(ids[1], false);
+    h.run_steps(3);
+    let steps = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().history.steps();
+    let done = steps(&h).0.len();
+    h.get_by_label("Restore this version").click();
+    h.run_steps(3);
+    assert_eq!(isometry(&h), serde_json::json!(3.5));
+    let (names, at) = steps(&h);
+    assert_eq!((names.len(), at), (done + 1, done + 1), "{names:?}");
+    assert_eq!(names[done], "Restore the version after");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(isometry(&h), serde_json::json!(1.5));
+    // two selected: their differences to read
+    h.state_mut().runs.versions.select(ids[0], false);
+    h.state_mut().runs.versions.select(ids[1], true);
+    h.run_steps(3);
+    h.get_by_label("Review the differences").click();
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().review.as_ref().is_some_and(|r| r.after.is_some()));
+    // "before" deleted, after asking
+    h.state_mut().runs.versions.select(ids[0], false);
+    h.run_steps(3);
+    h.get_by_label("Delete...").click();
+    h.run_steps(3);
+    assert_eq!(journal.versions().len(), 2, "not before the answer");
+    h.get_by_label("Delete the version").click();
+    h.run_steps(3);
+    assert_eq!(journal.versions().iter().map(|v| v.id).collect::<Vec<_>>(), vec![ids[1]]);
+    assert_eq!(h.state().runs.versions.list.len(), 1);
+    // (a run ran the model of "before": its snapshot stays)
+    assert!(journal.model(&versions[0].model).is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}

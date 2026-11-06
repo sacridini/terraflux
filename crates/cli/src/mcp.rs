@@ -338,6 +338,8 @@ impl Server {
                 .ok_or_else(|| "no cell traced yet in the application (a right click on a cell of a map)".to_string()),
             "inspect_file" => tools::inspect_file(a),
             "list_runs" => tools::list_runs(Some(&model_path(a)?), a),
+            "save_version" => tools::save_version(Some(&model_path(a)?), None, a, "mcp"),
+            "list_versions" => tools::list_versions(Some(&model_path(a)?)),
             "open_in_app" => open_in_app(a),
             "explain_calc" => {
                 let path = model_path(a)?;
@@ -997,6 +999,21 @@ mod tests {
         assert!(!e && t.contains("(1 of 2)") && !t.contains("| done"), "{t}");
         let (t, e) = call(&s, "list_runs", json!({ "model": model, "id": 7 }));
         assert!(e && t.contains("no run 7"), "{t}");
+        // a version saved before a change, then listed with what changed from the one before
+        let (t, e) =
+            call(&s, "save_version", json!({ "model": model, "label": "with the bad node", "note": "a test" }));
+        assert!(!e && t.contains("saved"), "{t}");
+        m.nodes.pop();
+        m.save(&model).unwrap();
+        let (t, e) = call(&s, "save_version", json!({ "model": model, "label": "without it" }));
+        assert!(!e, "{t}");
+        let (t, e) = call(&s, "save_version", json!({ "model": model }));
+        assert!(e && t.contains("label"), "{t}");
+        let (t, e) = call(&s, "list_versions", json!({ "model": model }));
+        assert!(!e && t.contains("(2)") && t.contains("1 node removed"), "{t}");
+        assert!(t.find("without it").unwrap() < t.find("with the bad node").unwrap(), "newest first: {t}");
+        let versions = journal.versions();
+        assert_eq!((versions.len(), versions[0].from.as_str()), (2, "mcp"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

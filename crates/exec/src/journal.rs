@@ -282,6 +282,86 @@ impl Journal {
         let text = std::fs::read_to_string(self.snapshot(sha)).ok()?;
         Model::from_json(&text).ok()
     }
+
+    fn versions_file(&self) -> PathBuf {
+        self.dir.join("versions.jsonl")
+    }
+
+    /// Save a version: the model as it is now kept (once for each hash, beside the runs' snapshots) under a label.
+    /// A model equal to the newest version's is saved again: a version is a named point in time.
+    pub fn save_version(&self, label: &str, note: Option<&str>, model: &Model, from: &str) -> Result<Version> {
+        let label = label.trim();
+        if label.is_empty() {
+            return Err(Error::Model("a version needs a label".into()));
+        }
+        let text = model.to_json().map_err(|e| Error::Model(e.to_string()))?;
+        let sha = sha_of(&text);
+        let snap = self.snapshot(&sha);
+        if !snap.exists() {
+            std::fs::create_dir_all(self.dir.join("models"))?;
+            std::fs::write(&snap, text)?;
+        }
+        let mut id = now_ms();
+        let known: Vec<u64> = self.versions().iter().map(|v| v.id).collect();
+        while known.contains(&id) {
+            id += 1;
+        }
+        let note = note.map(str::trim).filter(|n| !n.is_empty()).map(String::from);
+        let v = Version { id, when: id / 1000, label: label.to_string(), model: sha, note, from: from.to_string() };
+        let line = serde_json::to_string(&v).map_err(|e| Error::Model(e.to_string()))?;
+        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(self.versions_file())?;
+        writeln!(file, "{line}")?;
+        Ok(v)
+    }
+
+    /// The versions saved, the oldest first; a line that does not read is skipped.
+    pub fn versions(&self) -> Vec<Version> {
+        let Ok(text) = std::fs::read_to_string(self.versions_file()) else { return Vec::new() };
+        text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
+    }
+
+    /// The size of the versions' file: to tell, cheaply, that another program wrote to it.
+    pub fn versions_size(&self) -> u64 {
+        std::fs::metadata(self.versions_file()).map_or(0, |m| m.len())
+    }
+
+    /// Delete a version. Its snapshot goes with it unless a run or another version has that model.
+    pub fn delete_version(&self, id: u64) -> Result<()> {
+        let all = self.versions();
+        let Some(gone) = all.iter().find(|v| v.id == id) else { return Ok(()) };
+        let sha = gone.model.clone();
+        let rest: Vec<&Version> = all.iter().filter(|v| v.id != id).collect();
+        let mut text = String::new();
+        for v in &rest {
+            text.push_str(&serde_json::to_string(v).map_err(|e| Error::Model(e.to_string()))?);
+            text.push('\n');
+        }
+        std::fs::write(self.versions_file(), text)?;
+        if !rest.iter().any(|v| v.model == sha) && !self.entries().iter().any(|e| e.model == sha) {
+            let _ = std::fs::remove_file(self.snapshot(&sha));
+        }
+        Ok(())
+    }
+}
+
+/// A named version of a model. Every field but the first has a default: the format can grow.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Version {
+    /// Unique: the time it was saved in milliseconds.
+    pub id: u64,
+    /// When it was saved (seconds since 1970).
+    #[serde(default)]
+    pub when: u64,
+    #[serde(default)]
+    pub label: String,
+    /// The SHA-256 of the model saved ([`Journal::model`] has it).
+    #[serde(default)]
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// Where it was saved: `app`, `cli` or `mcp`.
+    #[serde(default)]
+    pub from: String,
 }
 
 #[cfg(test)]
@@ -383,6 +463,41 @@ mod tests {
         std::fs::remove_file(&out).unwrap();
         assert!(!w.unchanged());
         assert!(Written::of("land", &out, None, None).is_none());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn versions_are_saved_listed_and_deleted() {
+        let d = dir("versions");
+        let j = Journal::of(&d.join("m.toml")).unwrap();
+        assert!(j.versions().is_empty());
+        assert!(j.save_version("  ", None, &model(10), "app").is_err());
+        let a = j.save_version("before", Some("the first"), &model(10), "app").unwrap();
+        // (the same model as the newest: saved again, under its own label)
+        let b = j.save_version("again", Some("  "), &model(10), "mcp").unwrap();
+        let c = j.save_version("after", None, &model(12), "cli").unwrap();
+        let all = j.versions();
+        assert_eq!(all.iter().map(|v| v.label.as_str()).collect::<Vec<_>>(), ["before", "again", "after"]);
+        assert_eq!((a.model.clone(), b.note.clone()), (b.model.clone(), None));
+        assert_ne!(a.model, c.model);
+        assert!(a.id < b.id && b.id < c.id);
+        assert_eq!(all[0].note.as_deref(), Some("the first"));
+        assert_eq!(all[1].from, "mcp");
+        assert_eq!(j.model(&c.model).unwrap(), model(12));
+        let snaps = d.join(FOLDER).join("m.toml").join("models");
+        assert_eq!(std::fs::read_dir(&snaps).unwrap().count(), 2);
+        // the snapshot stays while another version has it, and goes with the last
+        j.delete_version(a.id).unwrap();
+        assert_eq!(j.versions().len(), 2);
+        assert!(j.model(&a.model).is_some());
+        j.delete_version(b.id).unwrap();
+        assert!(j.model(&a.model).is_none());
+        assert_eq!(j.versions()[0].label, "after");
+        // a snapshot a run uses stays
+        j.record(Entry::new(Kind::Run, "app", 0.0), &model(12)).unwrap();
+        j.delete_version(c.id).unwrap();
+        assert!(j.versions().is_empty());
+        assert!(j.model(&c.model).is_some());
         let _ = std::fs::remove_dir_all(&d);
     }
 

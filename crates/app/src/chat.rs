@@ -384,6 +384,15 @@ impl Chat {
             "new_model" => Answer::Done(new_model(s, r, &a.args, &self.stamp)),
             "sensitivity" => Answer::Done(set_up_sensitivity(s, r, &a.args)),
             "list_runs" => Answer::Done(tools::list_runs(s.path.as_deref(), &a.args)),
+            "list_versions" => Answer::Done(tools::list_versions(s.path.as_deref())),
+            "save_version" => {
+                // (the model as it is on screen, unsaved edits included)
+                let r = tools::save_version(s.path.as_deref(), Some(&s.source), &a.args, "mcp");
+                if r.is_ok() {
+                    s.journal_rev += 1;
+                }
+                Answer::Done(r)
+            }
             // the values of the last run in the application (inside the loops: the Trace pane's run)
             "trace_cell" => {
                 let values = |n: &str, p: &str| s.value_of(n, p);

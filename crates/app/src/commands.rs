@@ -26,6 +26,8 @@ pub enum Do {
     OpenRecent(PathBuf),
     Save,
     SaveAs,
+    /// Save a version...: the model kept under a name.
+    Version,
     OpenData,
     /// Process a folder...: every raster of a folder through an operator.
     ProcessFolder,
@@ -231,6 +233,7 @@ pub fn shortcuts() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
                 (format!("{c}shift+O"), "open a model"),
                 (format!("{c}O"), "open a raster or vectors (a node that reads it)"),
                 (format!("{c}S, {c}shift+S"), "save the model, save it as"),
+                (format!("{c}alt+S"), "save a version of the model, under a name"),
                 (format!("{c}Z, {c}shift+Z"), "undo, do again"),
                 ("Tab".into(), "to the model and to the last map seen"),
                 (format!("{c}W"), "close the pane in front"),

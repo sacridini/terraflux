@@ -2876,7 +2876,7 @@ extensão); as versões de um modelo só existem pelo git (o `review.rs` compara
    em dois testes do MCP. Ficou de fora: o cenário aplicado no aplicativo (o app não guarda o nome do cenário
    aplicado; o campo `scenario` só vem do CLI e do MCP, o resto está em `values`), o diário do `submit` e do
    `calibrate`, a falha do `terraflux run` fora da execução (leitura das entradas, `--set` errado) e `--tiled`, e as
-   rodadas retomadas depois de fechar o aplicativo. Falta: as versões com nome (item 3).
+   rodadas retomadas depois de fechar o aplicativo. As versões com nome são o item 3 (feito).
    **Feito** (Unreleased), as ações do painel: abaixo da tabela, a execução escolhida em detalhe (todos os valores, as
    saídas com caminho, tamanho e a marca "as written", "overwritten since" ou "missing", os avisos, a mensagem da
    falha, o manifesto, a versão e de onde rodou; um lote com a pasta e, na sensibilidade, os fatores ordenados com o
@@ -2915,6 +2915,28 @@ extensão); as versões de um modelo só existem pelo git (o `review.rs` compara
    passo de desfazer). Guardadas junto do diário (item 1), que já guarda o modelo de cada execução: uma execução
    também é uma versão, sem rótulo. No MCP, `save_version` e `list_versions`, para o agente marcar um ponto antes
    de uma mudança grande.
+   **Feito** (Unreleased): `terraflux_exec::journal` ganha `Version` (`id`, `when`, `label`, `model`, `note`, `from`,
+   tudo com `#[serde(default)]` menos o id), `Journal::save_version` (o instantâneo no mesmo `models/`, uma vez por
+   hash; um modelo igual ao da versão mais nova é guardado de novo, a versão é um ponto no tempo), `versions` (a mais
+   antiga primeiro), `versions_size` e `delete_version` (reescreve `versions.jsonl`; o instantâneo fica se uma
+   execução ou outra versão o usa). Aplicativo: novo `versions_view.rs`: *Save a version...* no menu File, na paleta e
+   no F1 (ctrl+alt+S, lida antes do ctrl+S, que pega a tecla com alt também), uma janela com o rótulo (obrigatório) e
+   a nota, que avisa quando o modelo tem edições não salvas (a versão é do que está na tela) e pede para salvar o
+   modelo antes quando não tem arquivo. O painel Runs ganha as abas **Runs** e **Versions** (`runs_view::Tab`): as
+   versões da mais nova para a mais antiga, com a data, a nota e o que mudou em relação à anterior
+   (`versions_view::Counts`, contado do `review::diff` ao ler a lista, não a cada quadro: "1 node changed", "2 nodes
+   added", "1 other change" para entradas, saídas e o registro do modelo). Uma escolhida: *Review against the model
+   open* (o `review::compare`, o mesmo caminho de "outro arquivo": rejeitar uma mudança traz o valor da versão),
+   *Restore this version* (`runs_view::restore_named`, um passo de desfazer "Restore the version <rótulo>") e
+   *Delete...* (pergunta antes). Duas: *Review the differences* (`review::compare_two`, só leitura). O detalhe de uma
+   execução diz "The model of version <rótulo>" quando o modelo dela é o de uma versão. MCP: `save_version` e
+   `list_versions` (`tools::save_version`, `tools::list_versions`; no `terraflux mcp` e no Assistente, que guarda o
+   modelo da tela; `from: mcp`), um item no guia `results` e uma linha na tabela de `assistants.md`. Testes: um em
+   `exec::journal::tests`, dois em `versions_view::tests`, um em `tools`, as asserções no teste do MCP e
+   `the_versions_are_saved_listed_reviewed_restored_and_deleted` (ui.rs; a imagem `ui-versions.png`). Ficou de fora:
+   os mapas antes e depois na revisão de uma versão (o `compare` não guarda as saídas de antes, como no "outro
+   arquivo"), o `terraflux version save|list` na linha de comando e um rótulo repetido (permitido: as versões se
+   distinguem pelo id e pela hora).
 4. **O espaço em disco antes de rodar, e limpar as saídas.** Antes de uma execução (e de um lote), estimar o que
    será escrito: as células × o tipo × a compressão esperada de cada saída, vezes as iterações dos laços
    (`control.repeat`, `control.each`) e as rodadas do lote; medir o espaço livre do disco de cada pasta de saída

@@ -265,7 +265,10 @@ graph's checks and the data's findings, each a click away from its node. The ass
 long, how it ended, the values it ran with, the outputs it wrote and the model as it was. The **Runs** pane lists
 them, newest first, with what changed since the run before; a run selected shows its outputs in the Viewer or
 restores its model (one step of undo), and two compare (their values, their models, their maps). `terraflux run` and
-the MCP's `run_model` write to it too (`--no-journal` leaves a run out), and the MCP's `list_runs` reads it.
+the MCP's `run_model` write to it too (`--no-journal` leaves a run out), and the MCP's `list_runs` reads it. **File,
+Save a version...** (ctrl+alt+S) keeps the model under a name, with no git: the Runs pane's Versions tab lists them,
+reviews one against the model open, restores it or deletes it, and the MCP's `save_version` marks one before a large
+change.
 
 **Is the model healthy?** The model's own checks (`check.assert`: the demand met, the areas summing to the total,
 the probabilities between 0 and 1) carry a badge of how they fared in the last run: green when it passed, amber

@@ -2014,6 +2014,24 @@ fn all() -> Vec<Value> {
             Some(&read_only),
         ),
         tool(
+            "save_version",
+            "Save the model as it is now as a named version, kept beside its file (in the .terraflux folder, with the journal of the runs): a point to go back to or to review against, with no git. Do it before a large change; the user sees the versions in the Runs pane's Versions tab and can restore one or review what changed since. A version of a model unchanged since the newest one is saved too.",
+            json!({
+                "model": model,
+                "label": { "type": "string", "description": "The version's name, e.g. \"before changing the scenario\"." },
+                "note": { "type": "string", "description": "Optional: why, in a sentence." },
+            }),
+            &["model", "label"],
+            None,
+        ),
+        tool(
+            "list_versions",
+            "The named versions of the model (save_version, the application's Save a version...), newest first: id, label, when, note, where it was saved from and what changed from the version before (nodes added, removed and changed, other changes).",
+            json!({ "model": model }),
+            &["model"],
+            Some(&read_only),
+        ),
+        tool(
             "inspect_file",
             "Look at a file: a raster's size, georeference and, band by band, its statistics or the cells of each class; the first lines of a table or text.",
             json!({ "path": { "type": "string" } }),
@@ -3047,6 +3065,60 @@ pub fn arrange(nodes: &mut [Node], r: &Registry) {
     }
 }
 
+/// Save a named version of the model (`label`, `note`): `open`, the model as the application has it on screen, else
+/// the model's file as written. Kept beside the file, with the journal of the runs.
+pub fn save_version(model_file: Option<&Path>, open: Option<&Model>, a: &Value, from: &str) -> Reply {
+    use terraflux_exec::journal::Journal;
+    let file = model_file.ok_or("the model has no file yet: save it first (versions are kept beside the file)")?;
+    let journal = Journal::of(file).ok_or("the model has no file name")?;
+    let label = a.get("label").and_then(Value::as_str).map(str::trim).filter(|l| !l.is_empty());
+    let label = label.ok_or("`label` is the version's name (a text)")?;
+    let note = a.get("note").and_then(Value::as_str);
+    let loaded;
+    let model = match open {
+        Some(m) => m,
+        None => {
+            loaded = Model::load(file).map_err(|e| format!("{}: {e}", file.display()))?;
+            &loaded
+        }
+    };
+    let v = journal.save_version(label, note, model, from).map_err(|e| e.to_string())?;
+    let n = journal.versions().len();
+    Ok(format!(
+        "Version \"{}\" saved (id {}, {n} version(s) of {}). The user sees it in the Runs pane's Versions tab and can restore it or review what changed since.",
+        v.label,
+        v.id,
+        file.display()
+    ))
+}
+
+/// The named versions of the model, newest first: each with when, its note, where it was saved from and what changed
+/// from the version before. Read-only.
+pub fn list_versions(model_file: Option<&Path>) -> Reply {
+    use terraflux_exec::journal::Journal;
+    let file = model_file.ok_or("the model has no file yet: save it first (versions are kept beside the file)")?;
+    let journal = Journal::of(file).ok_or("the model has no file name")?;
+    let rows = crate::versions_view::rows(&journal);
+    if rows.is_empty() {
+        return Ok(format!("No version saved yet for {} (save_version saves one).", file.display()));
+    }
+    let mut t = format!("Versions of {}, newest first ({}).\n", file.display(), rows.len());
+    for row in rows.iter().rev() {
+        let v = &row.version;
+        let when = crate::eta::stamp(v.when).unwrap_or_else(|| v.when.to_string());
+        t.push_str(&format!("- id {} | \"{}\" | {when} | from the {}\n", v.id, v.label, v.from));
+        if let Some(n) = &v.note {
+            t.push_str(&format!("  note: {n}\n"));
+        }
+        match (row.changes, row.kept) {
+            (Some(c), _) => t.push_str(&format!("  changed from the version before: {}\n", c.text())),
+            (None, false) => t.push_str("  (its snapshot is gone)\n"),
+            (None, true) => t.push_str("  (the first version)\n"),
+        }
+    }
+    Ok(t)
+}
+
 /// The runs the model's journal has kept (`.terraflux` beside its file), newest first: each in a few lines (when, how
 /// long, how it ended, what it was, the scenario, the values changed from the run before, the outputs and whether
 /// they are still as written). `limit` of them (default 20); with `id`, that one in full. Read-only.
@@ -3665,6 +3737,36 @@ mod sensitivity_tests {
         let app = catalogue(true).into_iter().find(|t| t["name"] == "list_runs").unwrap();
         assert!(app["inputSchema"]["properties"].get("model").is_none());
         assert!(catalogue(false).iter().any(|t| t["name"] == "list_runs"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn versions_are_saved_and_listed_newest_first() {
+        use super::{list_versions, save_version};
+        let d = std::env::temp_dir().join(format!("terraflux-versions-tool-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let file = d.join("m.toml");
+        assert!(list_versions(None).is_err() && save_version(None, None, &json!({ "label": "a" }), "mcp").is_err());
+        assert!(list_versions(Some(&file)).unwrap().starts_with("No version saved yet"));
+        let mut model = Model::from_toml("format = \"terraflux/1\"").unwrap();
+        model.save(&file).unwrap();
+        // (from the file as written, when no model is on screen)
+        let said = save_version(Some(&file), None, &json!({ "label": "before", "note": "the first" }), "mcp").unwrap();
+        assert!(said.contains("\"before\" saved"), "{said}");
+        assert!(save_version(Some(&file), None, &json!({}), "mcp").unwrap_err().contains("label"));
+        assert!(save_version(Some(&file), None, &json!({ "label": "  " }), "mcp").is_err());
+        // (the model on screen, not the file)
+        model.nodes.push(terraflux_graph::Node::new("land", "nlm.random"));
+        save_version(Some(&file), Some(&model), &json!({ "label": "after" }), "mcp").unwrap();
+        let t = list_versions(Some(&file)).unwrap();
+        assert!(t.contains("(2)") && t.find("\"after\"").unwrap() < t.find("\"before\"").unwrap(), "{t}");
+        assert!(t.contains("note: the first") && t.contains("(the first version)"), "{t}");
+        assert!(t.contains("changed from the version before: 1 node added"), "{t}");
+        let app = catalogue(true).into_iter().find(|t| t["name"] == "save_version").unwrap();
+        assert!(app["inputSchema"]["properties"].get("model").is_none());
+        assert_eq!(app["inputSchema"]["required"], json!(["label"]));
+        assert!(catalogue(false).iter().any(|t| t["name"] == "list_versions"));
         let _ = std::fs::remove_dir_all(&d);
     }
 

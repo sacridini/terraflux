@@ -265,6 +265,7 @@ struct Keys {
     run: bool,
     save: bool,
     save_as: bool,
+    version: bool,
     open: bool,
     open_model: bool,
     new: bool,
@@ -281,6 +282,8 @@ impl Keys {
         let shift = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
         // (with shift first: a shortcut without it takes the key with shift too)
         ui.input_mut(|i| Keys {
+            // (before ctrl+S, which takes the key with alt too)
+            version: i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::S),
             run: i.consume_key(egui::Modifiers::NONE, egui::Key::F5),
             save_as: i.consume_key(shift, egui::Key::S),
             save: i.consume_key(egui::Modifiers::COMMAND, egui::Key::S),
@@ -655,6 +658,8 @@ pub struct Session {
     pub compare_asked: Option<(String, String, crate::builder::How)>,
     /// How many runs this session has written to the journal (the Runs pane reads it again when it changes).
     pub journal_rev: u64,
+    /// The window of *Save a version...*, while it is open.
+    pub version_dialog: Option<crate::versions_view::Dialog>,
     pub started: Option<Instant>,
     pub view: MapView,
     pub thumbs: Thumbs,
@@ -920,6 +925,7 @@ impl Session {
             scenario_applied: None,
             compare_asked: None,
             journal_rev: 0,
+            version_dialog: None,
             started: None,
             view: MapView::default(),
             thumbs: Thumbs::default(),
@@ -2525,6 +2531,15 @@ impl TerrafluxApp {
         }
     }
 
+    /// Open the window that asks for a version's label.
+    fn ask_version(&mut self) {
+        if self.wizard.is_none()
+            && let Some(s) = &mut self.session
+        {
+            s.version_dialog = Some(Default::default());
+        }
+    }
+
     /// Stop the run.
     fn stop_run(&mut self) {
         if let Some(s) = &mut self.session
@@ -2571,6 +2586,19 @@ impl TerrafluxApp {
         if ui.add_enabled(editing, egui::Button::new("Save as...").shortcut_text(format!("{c}shift+S"))).clicked() {
             *save = Some(true);
             ui.close();
+        }
+        if ui
+            .add_enabled(
+                self.session.is_some() && editing,
+                egui::Button::new("Save a version...").shortcut_text(format!("{c}alt+S")),
+            )
+            .on_hover_text(
+                "the model as it is now, kept under a name: to review against or go back to (Runs, Versions)",
+            )
+            .clicked()
+        {
+            ui.close();
+            self.ask_version();
         }
         ui.separator();
         if let Some(s) = &mut self.session
@@ -3013,6 +3041,7 @@ impl TerrafluxApp {
             action("Stop the run", String::new(), Do::Stop),
             action("Save the model", format!("{c}S"), Do::Save),
             action("Save the model as...", format!("{c}shift+S"), Do::SaveAs),
+            action("Save a version of the model...", format!("{c}alt+S"), Do::Version),
             action("New model", format!("{c}N"), Do::New),
             action("Open a model...", format!("{c}shift+O"), Do::Open),
             action("Open a raster or vectors...", format!("{c}O"), Do::OpenData),
@@ -3078,6 +3107,7 @@ impl TerrafluxApp {
             }
             Do::Save => self.save(false),
             Do::SaveAs => self.save(true),
+            Do::Version => self.ask_version(),
             Do::Run => self.run_all(ctx),
             Do::Stop => self.stop_run(),
             Do::Settings => self.settings_open = true,
@@ -4176,6 +4206,9 @@ impl TerrafluxApp {
         if keys.save || keys.save_as {
             self.save(keys.save_as);
         }
+        if keys.version {
+            self.ask_version();
+        }
         if keys.new {
             self.ask_new();
         }
@@ -4638,6 +4671,7 @@ impl TerrafluxApp {
         self.shortcuts_open = shortcuts;
         if let Some(s) = &mut self.session {
             crate::methods::window(ui.ctx(), s, &self.registry);
+            crate::versions_view::window(ui.ctx(), s);
             crate::qgis::window(ui.ctx(), s);
             crate::catalog::window(ui.ctx(), s, &self.registry);
             crate::python::window(ui.ctx(), s);

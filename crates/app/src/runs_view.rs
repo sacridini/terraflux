@@ -40,6 +40,35 @@ pub struct State {
     /// What was read: the model's file, the count of runs the session and the batches wrote, the file's size.
     read: Option<(PathBuf, u64, u64)>,
     checked: Option<Instant>,
+    /// The tab shown: the runs, or the named versions of the model.
+    pub tab: Tab,
+    pub versions: crate::versions_view::State,
+}
+
+/// The pane's two tabs.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Tab {
+    #[default]
+    Runs,
+    Versions,
+}
+
+/// Select an item (alone), or with ctrl add it to the selection (two at most: the one picked first goes) or take it
+/// out.
+pub fn pick(selected: &mut Vec<u64>, id: u64, add: bool) {
+    let at = selected.iter().position(|s| *s == id);
+    match (add, at) {
+        (_, Some(k)) if add || selected.len() == 1 => {
+            selected.remove(k);
+        }
+        (true, None) => {
+            if selected.len() == 2 {
+                selected.remove(0);
+            }
+            selected.push(id);
+        }
+        _ => *selected = vec![id],
+    }
 }
 
 impl State {
@@ -81,19 +110,7 @@ impl State {
     /// Select a run (alone), or with ctrl add it to the selection (two at most: the one picked first goes) or
     /// take it out.
     pub fn select(&mut self, id: u64, add: bool) {
-        let at = self.selected.iter().position(|s| *s == id);
-        match (add, at) {
-            (_, Some(k)) if add || self.selected.len() == 1 => {
-                self.selected.remove(k);
-            }
-            (true, None) => {
-                if self.selected.len() == 2 {
-                    self.selected.remove(0);
-                }
-                self.selected.push(id);
-            }
-            _ => self.selected = vec![id],
-        }
+        pick(&mut self.selected, id, add);
     }
 }
 
@@ -180,10 +197,22 @@ fn kind_hover(k: &Kind) -> String {
 /// The Runs pane.
 pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry, batches: u64) {
     st.refresh(s.path.as_deref(), s.journal_rev + batches);
+    st.versions.refresh(s.path.as_deref(), s.journal_rev);
     egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| {
         theme::section(ui, "Runs");
         if s.path.is_none() {
-            ui.label(RichText::new("Save the model to keep a record of its runs.").color(theme::weak()));
+            ui.label(
+                RichText::new("Save the model to keep a record of its runs and its versions.").color(theme::weak()),
+            );
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut st.tab, Tab::Runs, "Runs");
+            ui.selectable_value(&mut st.tab, Tab::Versions, "Versions")
+                .on_hover_text("the named versions of the model (File, Save a version...)");
+        });
+        if st.tab == Tab::Versions {
+            crate::versions_view::pane(ui, &mut st.versions, s);
             return;
         }
         if st.entries.is_empty() {
@@ -431,10 +460,15 @@ fn restorable(s: &Session, journal: Option<&Journal>, e: &Entry) -> Result<Model
 
 /// The model of a run put in place of the open one: one edit, one step of undo.
 pub fn restore(s: &mut Session, m: Model, e: &Entry) {
+    restore_named(s, m, &format!("Restore the model of the run of {}", when_of(e)));
+}
+
+/// A model put in place of the open one: one edit, one step of undo, with this name.
+pub fn restore_named(s: &mut Session, m: Model, name: &str) {
     let inputs = m.inputs != s.source.inputs;
     s.source = m;
     crate::builder::forget_missing(s);
-    s.history.name(&format!("Restore the model of the run of {}", when_of(e)));
+    s.history.name(name);
     s.edited();
     if inputs {
         s.read_data();
@@ -471,16 +505,20 @@ fn detail(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) {
         st.selected.iter().filter_map(|id| st.entries.iter().find(|e| e.id == *id).cloned()).collect();
     picked.sort_by_key(|e| e.id);
     let journal = s.path.as_deref().and_then(Journal::of);
+    // (the newest version that saved the model the run ran)
+    let version = picked.first().filter(|_| picked.len() == 1).and_then(|e| {
+        st.versions.list.iter().rev().find(|row| row.version.model == e.model).map(|row| row.version.label.clone())
+    });
     egui::ScrollArea::vertical().id_salt("runs detail").auto_shrink([false, false]).show(ui, |ui| {
         match picked.as_slice() {
-            [e] => one(ui, s, r, journal.as_ref(), e),
+            [e] => one(ui, s, r, journal.as_ref(), e, version.as_deref()),
             [a, b] => two(ui, s, r, journal.as_ref(), &mut st.all_values, a, b),
             _ => {}
         }
     });
 }
 
-fn one(ui: &mut Ui, s: &mut Session, r: &Registry, journal: Option<&Journal>, e: &Entry) {
+fn one(ui: &mut Ui, s: &mut Session, r: &Registry, journal: Option<&Journal>, e: &Entry, version: Option<&str>) {
     let (error, warn, weak) = (ui.visuals().error_fg_color, ui.visuals().warn_fg_color, theme::weak());
     ui.label(RichText::new(format!("Run of {}", when_of(e))).strong());
     let how = match &e.status {
@@ -502,6 +540,9 @@ fn one(ui: &mut Ui, s: &mut Session, r: &Registry, journal: Option<&Journal>, e:
     ));
     if let Some(sc) = &e.scenario {
         ui.label(format!("Scenario: {sc}"));
+    }
+    if let Some(label) = version {
+        ui.label(format!("The model of version {label}"));
     }
     if let Status::Failed(m) = &e.status {
         ui.label(RichText::new(m).color(error));

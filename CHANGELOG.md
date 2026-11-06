@@ -33,6 +33,16 @@ minor versions.
   the Parameters pane is recorded with its name by the runs that follow, until a value it set changes. The MCP tool
   `list_runs` (and the application's assistant) reads the journal: newest first, with `limit`, each run's values
   changed from the run before and its outputs' state, and with `id` one run in full.
+- Application: **named versions of a model, without git**. *Save a version...* (File menu, the commands, ctrl+alt+S;
+  listed in F1) keeps the model as it is on screen under a label and an optional note (the window says so when it has
+  edits not saved), beside the runs' journal (`versions.jsonl`, the model in the same `models/` folder). The Runs
+  pane has two tabs, **Runs** and **Versions**: the versions newest first, each with its date, its note and what
+  changed from the version before (nodes added, removed and changed). A version selected can be reviewed against the
+  model open (*Review against the model open*, in the Changes pane, to accept or reject each change), restored (one
+  step of undo named "Restore the version ...") or deleted after asking; two selected have their differences shown,
+  to read. A run's detail says which version its model is. The MCP tools `save_version` and `list_versions` (and the
+  application's assistant) save and list them, so an agent can mark a point before a large change.
+  (`terraflux_exec::journal`: `Version`, `Journal::save_version`, `versions`, `delete_version`.)
 - Application: **a Sensitivity tab in Many runs**. Which settings matter to an output, without the command line: the
   factors are picked from the model's numeric settings (a range of 20 % either side of the value, whole numbers
   widened to whole numbers) and the method is one at a time (each factor at its ends, the others in the middle of

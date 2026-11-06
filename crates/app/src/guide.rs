@@ -99,6 +99,8 @@ what the model should do.
 - The runs already made: list_runs gives the model's journal, newest first (when, how long, how it ended, the \
 scenario, the values changed from the run before, the outputs and whether they are still as written; `id`: one \
 run in full). Read it before running again, to see what was tried and which run wrote a file.
+- Before a large change, save a version (save_version with a label and a note): a named point the user can go \
+back to or review against, with no git (list_versions tells them, with what changed from the one before).
 - A figure of the results is a Plot, kept with the model outside the graph (set_plot: its layers, the lowest \
 first, a map compared, a table's chart, a title, a saved view; remove_plot): the application's Viewer opens it, \
 the Document and the report show it. The saved view (`view: { extent: [west, south, east, north] }`, in the map's \
