@@ -980,6 +980,21 @@ pub fn set_param(m: &mut Model, path: &[String], node: &str, name: &str, text: &
     Ok(())
 }
 
+/// Set a setting of several nodes of a scope at once (empty text: remove it from each), checked: when the checker
+/// refuses it on any of them, on none, and the model stays as it was.
+pub fn set_param_many(
+    m: &mut Model,
+    r: &Registry,
+    path: &[String],
+    nodes: &[String],
+    name: &str,
+    text: &str,
+) -> Result<()> {
+    let pre = prefix(path);
+    let at: Vec<String> = nodes.iter().flat_map(|id| [format!("{pre}{id}.{name}"), format!("{pre}{id}")]).collect();
+    guarded(m, r, &at, |c| nodes.iter().try_for_each(|id| set_param(c, path, id, name, text)))
+}
+
 /// Set a setting to a text as it is (a script: not read as a number or as JSON).
 pub fn set_text_param(m: &mut Model, path: &[String], node: &str, name: &str, text: &str) -> Result<()> {
     let n = node_mut(m, path, node)?;

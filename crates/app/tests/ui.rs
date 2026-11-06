@@ -7413,3 +7413,78 @@ fn files_dropped_on_the_viewer_in_its_window() {
     assert!(s.source.nodes.len() > nodes, "a node that reads it");
     assert!(s.preview_layers.len() > layers, "and a layer of the Viewer");
 }
+
+/// A setting changed in several nodes of one operator at once: the pane of the nodes selected shows what they have in
+/// common ("several values" where they differ), a change goes into all of them in one step of undo, and one the
+/// checker refuses on any of them goes into none. Nodes of several operators are listed.
+#[test]
+fn a_setting_is_changed_in_the_nodes_selected_at_once() {
+    use terraflux_graph::{Model, Node};
+    let path = tmp("ui-set-many.toml");
+    let mut m = Model::new("set many");
+    let file = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+    for (k, (id, nodata)) in [("a", Some(0)), ("b", Some(255)), ("c", None)].into_iter().enumerate() {
+        let mut n = Node::new(id, "raster.read").param("path", file.clone());
+        if let Some(v) = nodata {
+            n = n.param("nodata", v);
+        }
+        n.pos = Some([0.0, 160.0 * k as f32]);
+        m.nodes.push(n);
+    }
+    let mut rc = Node::new("rc", "raster.reclassify").input("raster", "a.raster");
+    rc.pos = Some([420.0, 0.0]);
+    m.nodes.push(rc);
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(3);
+    let choose = |h: &mut Harness<TerrafluxApp>, ids: &[&str]| {
+        h.state_mut().session.as_mut().unwrap().editor.chosen = ids.iter().map(|s| s.to_string()).collect();
+        h.run_steps(3);
+    };
+    let nodata = |h: &Harness<TerrafluxApp>| -> Vec<Option<serde_json::Value>> {
+        let s = h.state().session.as_ref().unwrap();
+        ["a", "b", "c"].iter().map(|id| s.source.node(id).unwrap().params.get("nodata").cloned()).collect()
+    };
+    choose(&mut h, &["a", "b", "c"]);
+    assert!(h.query_by_label("3 raster.read selected").is_some());
+    // (the nodata differs: said so, the values listed; the path is the same: its value shown)
+    assert!(h.query_by_label_contains("several values: 0, 255, default").is_some());
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.fields.get("many.nodata").map(String::as_str), Some(""));
+    assert_eq!(s.fields.get("many.path"), Some(&file));
+    assert_eq!(h.get_all_by_label_contains("several values").count(), 1, "only the setting that differs");
+    // a value for all of them: one step of undo
+    {
+        let r = terraflux_ops::Registry::standard();
+        let s = h.state_mut().session.as_mut().unwrap();
+        let ids: Vec<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
+        terraflux_app::editor::set_param_many(&mut s.source, &r, &[], &ids, "nodata", "-9999").unwrap();
+        s.edited();
+    }
+    h.run_steps(3);
+    assert_eq!(nodata(&h), vec![Some(serde_json::json!(-9999)); 3]);
+    assert!(h.query_by_label_contains("several values: ").is_none());
+    assert_eq!(h.state().session.as_ref().unwrap().fields.get("many.nodata"), Some(&"-9999".to_string()));
+    terraflux_app::builder::undo_redo(h.state_mut().session.as_mut().unwrap(), false);
+    h.run_steps(3);
+    assert_eq!(nodata(&h), vec![Some(serde_json::json!(0)), Some(serde_json::json!(255)), None]);
+    // a value the checker refuses on any of them: on none
+    {
+        let r = terraflux_ops::Registry::standard();
+        let s = h.state_mut().session.as_mut().unwrap();
+        let ids: Vec<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
+        let e = terraflux_app::editor::set_param_many(&mut s.source, &r, &[], &ids, "nodata", "$nothing");
+        assert!(e.is_err(), "{e:?}");
+    }
+    assert_eq!(nodata(&h), vec![Some(serde_json::json!(0)), Some(serde_json::json!(255)), None]);
+    // nodes of two operators: listed, a click on one selecting it alone
+    choose(&mut h, &["a", "b", "rc"]);
+    assert!(h.query_by_label("2 raster.read, 1 raster.reclassify").is_some());
+    h.get_by_label("rc").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.selected.as_deref(), Some("rc"));
+    assert_eq!(s.editor.chosen.iter().map(String::as_str).collect::<Vec<_>>(), ["rc"]);
+}

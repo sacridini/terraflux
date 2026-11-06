@@ -2324,6 +2324,12 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
 7. **Mudar uma configuração em vários nós de uma vez**: com nós do mesmo operador selecionados, o painel Node mostra
    as configurações em comum ("vários valores" onde diferem) e muda todas de uma vez (por exemplo o `nodata` de 20
    `raster.read`).
+   **Feito** (Unreleased, por um sub-agente): `editor::set_param_many` (em `guarded`: recusado num, em nenhum);
+   `node_view::many_panel` e `many_setting` (o valor comum ou "several values: …", escolhas e booleanos num ComboBox,
+   o texto confirmado ao perder o foco; operadores misturados listados, um clique seleciona um). Teste:
+   `a_setting_is_changed_in_the_nodes_selected_at_once`. Falta: o teste digitar no campo de verdade (sem rótulo
+   acessível); as listas, regras e scripts editados como no painel de um nó; uma nota para todos; o painel de um nó
+   ainda aceita um valor que o checker recusaria (o de vários recusa).
 8. **Alinhar e distribuir** os selecionados (à esquerda, centro, em coluna com o mesmo espaço), além do *Arrange* do
    modelo inteiro.
 9. **Duplicar arrastando** (ctrl+arrastar) e **duplicar com as entradas** (ctrl+shift+D: a cópia lê o mesmo que o

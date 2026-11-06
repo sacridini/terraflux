@@ -108,8 +108,217 @@ pub const CHAIN_HELP: &str = "the folder read by a raster.read, the operator a n
      pane, its maps seen), what it gives written by raster.write and table.write: run file by file as here, the \
      files done before not run again";
 
+/// The nodes of the scope on the canvas that are selected (two or more: the pane of several).
+fn chosen_nodes(s: &Session) -> Vec<Node> {
+    if s.editor.chosen.len() < 2 {
+        return Vec::new();
+    }
+    let Some(scope) = s.source.scope(&s.editor.path) else { return Vec::new() };
+    scope.iter().filter(|n| s.editor.chosen.contains(&n.id)).cloned().collect()
+}
+
+/// A setting's value as its row shows it: a text as it is, any other value as JSON.
+fn shown_value(v: &serde_json::Value) -> String {
+    v.as_str().map_or_else(|| v.to_string(), String::from)
+}
+
+/// The pane of two or more nodes selected: of one operator, the settings they have in common (a value they
+/// differ in: "several values"), changed in all of them at once, in one step of undo; of several, the list of
+/// them, a click on one selecting it alone.
+fn many_panel(ui: &mut Ui, s: &mut Session, r: &Registry, nodes: &[Node]) {
+    let path = s.editor.path.clone();
+    // (the text typed so far belongs to these nodes)
+    let ids: Vec<String> = nodes.iter().map(|n| n.id.clone()).collect();
+    if s.fields.get("many.ids").map(String::as_str) != Some(ids.join("\n").as_str()) {
+        s.fields.clear();
+        s.fields.insert("many.ids".into(), ids.join("\n"));
+    }
+    let mut kinds: Vec<(String, usize)> = Vec::new();
+    for n in nodes {
+        let op = crate::editor_view::op_label(n);
+        match kinds.iter_mut().find(|(k, _)| *k == op) {
+            Some((_, c)) => *c += 1,
+            None => kinds.push((op, 1)),
+        }
+    }
+    let same = kinds.len() == 1 && nodes.iter().all(|n| n.uses.is_none() && n.body.is_none());
+    let title = if kinds.len() == 1 {
+        format!("{} {} selected", nodes.len(), kinds[0].0)
+    } else {
+        kinds.iter().map(|(k, c)| format!("{c} {k}")).collect::<Vec<_>>().join(", ")
+    };
+    ui.label(RichText::new(title).strong().size(egui::TextStyle::Body.resolve(ui.style()).size * 1.25));
+    let mut change: Option<Result<(), String>> = None;
+    let weak = ui.visuals().weak_text_color();
+    match r.sig(&nodes[0].op).filter(|_| same) {
+        None => {
+            ui.label(RichText::new("Click one to select it alone, with its own pane.").color(weak));
+            for n in nodes {
+                ui.horizontal(|ui| {
+                    if ui.link(RichText::new(&n.id).monospace()).clicked() {
+                        s.editor.chosen = [n.id.clone()].into();
+                        s.selected = Some(n.id.clone());
+                        s.fields.clear();
+                    }
+                    ui.label(RichText::new(crate::editor_view::op_label(n)).monospace().color(weak));
+                });
+            }
+        }
+        Some(sig) => {
+            ui.label(
+                RichText::new("A setting changed here is changed in all of them; the inputs and notes of each are in its own pane.")
+                    .color(weak),
+            );
+            let mut params: Vec<(String, String, Option<terraflux_graph::PortSpec>)> =
+                sig.params.iter().map(|p| (p.name.clone(), p.doc.clone(), Some(p.clone()))).collect();
+            for k in nodes.iter().flat_map(|n| n.params.keys()) {
+                if !params.iter().any(|(p, _, _)| p == k) {
+                    params.push((k.clone(), String::new(), None));
+                }
+            }
+            let essentials = terraflux_ops::essentials::essentials(&nodes[0].op);
+            let input = |name: &str| sig.inputs.iter().any(|i| i.name == name);
+            let (main, advanced): (Vec<_>, Vec<_>) = params.into_iter().partition(|(name, _, spec)| {
+                essentials.is_none()
+                    || spec.as_ref().is_none_or(|p| p.required)
+                    || (essentials.is_some_and(|e| e.contains(&name.as_str())) && !input(name))
+            });
+            let label_w = (ui.available_width() * 0.4).clamp(60.0, 150.0);
+            let mut edit: Option<(String, String)> = None;
+            crate::theme::card(ui, "Settings", |ui| {
+                for (name, doc, spec) in &main {
+                    if let Some(e) = many_setting(ui, s, nodes, name, doc, spec.as_ref(), label_w) {
+                        edit = Some(e);
+                    }
+                }
+                if !advanced.is_empty() {
+                    ui.add_space(2.0);
+                    egui::CollapsingHeader::new(RichText::new(format!("Advanced ({})", advanced.len())).size(11.5))
+                        .id_salt(("advanced settings of many", &nodes[0].op))
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            for (name, doc, spec) in &advanced {
+                                if let Some(e) = many_setting(ui, s, nodes, name, doc, spec.as_ref(), label_w) {
+                                    edit = Some(e);
+                                }
+                            }
+                        });
+                }
+            });
+            if let Some((name, text)) = edit {
+                change = Some(crate::editor::set_param_many(&mut s.source, r, &path, &ids, &name, &text));
+            }
+        }
+    }
+    match change {
+        Some(Ok(())) => {
+            s.fields.clear();
+            s.editor.message = None;
+            s.edited();
+        }
+        Some(Err(e)) => s.editor.message = Some(e),
+        None => {}
+    }
+}
+
+/// A setting of the nodes selected, a row: its name, and what edits its value in all of them (a list to choose
+/// from, or a text, when it is left). The value they all have, or "several values" (the first of them listed). The
+/// name and the text to give them all, when it was edited.
+fn many_setting(
+    ui: &mut Ui,
+    s: &mut Session,
+    nodes: &[Node],
+    name: &str,
+    doc: &str,
+    spec: Option<&terraflux_graph::PortSpec>,
+    label_w: f32,
+) -> Option<(String, String)> {
+    let mut seen: Vec<Option<&serde_json::Value>> = Vec::new();
+    for n in nodes {
+        let v = n.params.get(name);
+        if !seen.contains(&v) {
+            seen.push(v);
+        }
+    }
+    let several = seen.len() > 1;
+    let init = if several { String::new() } else { seen[0].map(shown_value).unwrap_or_default() };
+    let mut out = None;
+    ui.horizontal_top(|ui| {
+        let given = seen.iter().any(|v| v.is_some());
+        ui.allocate_ui_with_layout(egui::vec2(label_w, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.set_min_width(label_w);
+            let words = if given { format!("• {}", label_of(name)) } else { label_of(name) };
+            let hover = if doc.is_empty() { name.to_string() } else { format!("{name}: {doc}") };
+            ui.add(egui::Label::new(words).truncate()).on_hover_text(hover);
+        });
+        ui.vertical(|ui| {
+            ui.set_width(ui.available_width());
+            let options: Option<Vec<String>> = spec.and_then(|p| match (p.ty, p.choices.is_empty()) {
+                (_, false) => Some(p.choices.clone()),
+                (terraflux_graph::Type::Bool, _) => Some(vec!["true".into(), "false".into()]),
+                _ => None,
+            });
+            if let Some(options) = options {
+                let shown = if several {
+                    "several values".to_string()
+                } else if init.is_empty() {
+                    "default".to_string()
+                } else {
+                    init.clone()
+                };
+                egui::ComboBox::from_id_salt(("many param", name))
+                    .selected_text(shown)
+                    .width(ui.available_width() - 8.0)
+                    .show_ui(ui, |ui| {
+                        if spec.is_some_and(|p| !p.required)
+                            && ui.selectable_label(!several && init.is_empty(), "default").clicked()
+                        {
+                            out = Some((name.to_string(), String::new()));
+                        }
+                        for o in &options {
+                            if ui.selectable_label(!several && init == *o, o).clicked() {
+                                out = Some((name.to_string(), o.clone()));
+                            }
+                        }
+                    });
+            } else {
+                let key = format!("many.{name}");
+                let mut text = field(s, &key, init.clone());
+                let hint = if several { "several values".to_string() } else { default_of(doc) };
+                let resp =
+                    ui.add(egui::TextEdit::singleline(&mut text).desired_width(ui.available_width()).hint_text(hint));
+                s.fields.insert(key, text.clone());
+                if resp.lost_focus() && text != init {
+                    out = Some((name.to_string(), text));
+                }
+            }
+            if several {
+                let mut list: Vec<String> =
+                    seen.iter().take(3).map(|v| v.map_or("default".to_string(), shown_value)).collect();
+                if seen.len() > 3 {
+                    list.push("…".into());
+                }
+                ui.label(
+                    RichText::new(format!("several values: {}", list.join(", ")))
+                        .small()
+                        .color(ui.visuals().weak_text_color()),
+                );
+            }
+            if given && ui.small_button("x").on_hover_text("back to the default, in all of them").clicked() {
+                out = Some((name.to_string(), String::new()));
+            }
+        });
+    });
+    out
+}
+
 pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     let path = s.editor.path.clone();
+    let nodes = chosen_nodes(s);
+    if nodes.len() >= 2 {
+        many_panel(ui, s, r, &nodes);
+        return;
+    }
     let Some(id) = s.selected.clone() else {
         ui.label(
             RichText::new(

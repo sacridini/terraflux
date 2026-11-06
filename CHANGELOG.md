@@ -23,6 +23,10 @@ minor versions.
 - Canvas: **F frames the nodes selected** (none selected: the whole model, as Home), within the group open, zoomed
   in at most 1.75 for a single small node. The view glides there (about a quarter of a second, easing out), for
   Home and ctrl+F too.
+- Node pane: **a setting changed in all the nodes selected at once**. With nodes of one operator selected it shows
+  "5 raster.read selected" and their settings once: the value where they agree, "several values: 0, 255, default"
+  where they differ; a change goes to every one in one step of undo, and a value refused for any is set on none.
+  Nodes of different operators are listed, each a click away.
 
 ## [1.41.0] - 2026-11-06
 
