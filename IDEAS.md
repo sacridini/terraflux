@@ -2375,6 +2375,12 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     muda.
 16. **Do Viewer ao nó**: no menu de uma camada dos Layers, "Show its node" seleciona e enquadra o nó que a deu
     (abrindo o grupo se preciso).
+    **Feito** (Unreleased, por um sub-agente): `find::of_layer` (a camada de um nó aninhado é `node = <container>`
+    com `port = "inner.port"`; um id com `/` ou único em qualquer profundidade também), `EditorState::frame` (o F,
+    sem o centrar de `find::go`), `Session.ask_model` (o painel Model à frente e a janela principal erguida),
+    `Asked.node` em layers_panel.rs. Testes: `a_layers_menu_shows_its_node_on_the_canvas`,
+    `a_layer_is_mapped_to_the_path_of_its_node`. Falta: o erguer da janela principal testado (o harness não tem
+    janelas do SO).
 17. **Paleta e faixa para todas as camadas**: aplicar a paleta (ou a faixa de valores) de uma camada a todas as
     camadas do mesmo tipo de uma vez, para comparar anos lado a lado.
 18. **Fios com redirecionamento** (um ponto no meio do fio, arrastável) e fios que desviam das caixas em modelos

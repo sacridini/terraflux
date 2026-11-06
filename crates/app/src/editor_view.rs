@@ -607,6 +607,12 @@ impl EditorState {
         self.centre = Some(node.to_string());
     }
 
+    /// Frame the nodes selected at the next frame, gliding, as F does (instead of a centring asked before).
+    pub fn frame(&mut self) {
+        self.centre = None;
+        self.framing = true;
+    }
+
     /// Keep a node in view: the camera moved just enough that its box is on the canvas (with a margin).
     pub fn reveal(&mut self, node: &str) {
         let (Some(s), Some(rect)) = (self.scene.as_ref(), self.rect) else { return };

@@ -597,6 +597,8 @@ pub struct Session {
     pub ask_calculator: bool,
     /// The Viewer asked for (a node double-clicked: its output shown there).
     pub ask_viewer: bool,
+    /// The canvas asked for (a layer's node shown: the model's pane to the front, the main window too).
+    pub ask_model: bool,
     /// The Viewer is in a window of its own (told by the application each frame), and the Viewer's button asked to
     /// take it out of the dock or back into it.
     pub viewer_out: bool,
@@ -820,6 +822,7 @@ impl Session {
             ask_problems: false,
             ask_calculator: false,
             ask_viewer: false,
+            ask_model: false,
             viewer_out: false,
             viewer_toggle: false,
             show_queue: Vec::new(),
@@ -3808,6 +3811,13 @@ impl TerrafluxApp {
         }
         if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.ask_viewer)) {
             self.focus(Pane::Viewer);
+        }
+        // a layer's node shown: the canvas to the front, and the main window when the Viewer is out in its own
+        if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.ask_model)) {
+            self.focus(Pane::Model);
+            if self.detached().contains(&Pane::Viewer) {
+                self.raise = Some(egui::ViewportId::ROOT);
+            }
         }
         let out = self.detached().contains(&Pane::Viewer);
         if let Some(s) = &mut self.session {

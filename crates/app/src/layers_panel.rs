@@ -41,6 +41,8 @@ struct Asked {
     no_join: bool,
     /// Every legend folded (true) or unfolded (false).
     fold: Option<bool>,
+    /// A layer's node to show on the canvas: its path, the containers' ids first.
+    node: Option<Vec<String>>,
 }
 
 /// What a row is: a map (of values or classes), vector features, a difference of two maps.
@@ -1087,6 +1089,20 @@ fn layer_menu(
     if let Some(c) = coloring {
         ui.menu_button("🎨 Colours", |ui| palette_menu(ui, s, &(l.node.clone(), l.port.clone()), c));
     }
+    let at = (l.minus.is_none()).then(|| crate::find::of_layer(&s.source, &l.node, &l.port)).flatten();
+    let hint = match &at {
+        Some(at) => {
+            format!("the canvas brought forward on {}, its groups opened, the node selected and framed", at.join("/"))
+        }
+        None => {
+            "no node of the model makes this layer (a file dropped, a node removed, a map from the web, a difference)"
+                .into()
+        }
+    };
+    if ui.add_enabled(at.is_some(), egui::Button::new("Show its node")).on_hover_text(hint).clicked() {
+        asked.node = at;
+        ui.close();
+    }
     ui.separator();
     if ui.button("Show only this layer").clicked() {
         asked.solo = Some(i);
@@ -1735,6 +1751,13 @@ fn act(
     selected_id: egui::Id,
 ) {
     let n = sh.layers.len();
+    // a layer's node: its groups opened, selected, framed with the glide of F, the canvas to the front
+    if let Some(at) = asked.node {
+        crate::find::go(s, r, &at);
+        s.editor.frame();
+        s.ask_model = true;
+        ui.ctx().request_repaint();
+    }
     if let Some(i) = asked.table.filter(|i| *i < n) {
         let l = &sh.layers[i];
         let was = sh.attributes.as_ref().is_some_and(|o| o.is(&l.node, &l.port));

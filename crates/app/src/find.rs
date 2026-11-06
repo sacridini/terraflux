@@ -124,6 +124,32 @@ pub fn go(s: &mut Session, r: &Registry, at: &[String]) {
     s.editor.centre_on(id);
 }
 
+/// The node a layer (an output `port` of `node`) comes from, as a path for [`go`]: a path-like id (`grp/inner`), a
+/// node of the top, the node of a loop's body a port names (`inner.port` of the loop), else the one node of that id
+/// at any depth. None when the model has no such node (a file dropped, a node removed, a layer from the web).
+pub fn of_layer(m: &Model, node: &str, port: &str) -> Option<Vec<String>> {
+    let has = |at: &[String]| {
+        at.split_last().is_some_and(|(id, p)| m.scope(p).is_some_and(|v| v.iter().any(|n| n.id == *id)))
+    };
+    // (a loop's `inner.port` names a node of its body, before the loop itself)
+    if let Some((inner, _)) = port.split_once('.') {
+        let mut at: Vec<String> = node.split('/').map(String::from).collect();
+        at.push(inner.to_string());
+        if has(&at) {
+            return Some(at);
+        }
+    }
+    let by_path: Vec<String> = node.split('/').map(String::from).collect();
+    if has(&by_path) {
+        return Some(by_path);
+    }
+    let mut found = walk(m).into_iter().filter(|(_, n)| n.id == node);
+    match (found.next(), found.next()) {
+        (Some((at, _)), None) => Some(at),
+        _ => None,
+    }
+}
+
 /// The search box over the canvas's top, while it is open; its keys taken before the panes'.
 pub fn show(ctx: &egui::Context, s: &mut Session, r: &Registry) {
     let Some(mut f) = s.editor.find.take() else { return };
@@ -229,6 +255,22 @@ mod tests {
         group.note = Some("terrain steps".into());
         m.nodes.extend([read, group]);
         m
+    }
+
+    #[test]
+    fn a_layer_is_mapped_to_the_path_of_its_node() {
+        let m = model();
+        let at = |n: &str, p: &str| of_layer(&m, n, p);
+        assert_eq!(at("dem", "raster"), Some(vec!["dem".to_string()]));
+        // a path-like id, the group's output, and a node found by its id alone
+        assert_eq!(at("prep/slope", "raster"), Some(vec!["prep".to_string(), "slope".to_string()]));
+        assert_eq!(at("prep", "raster"), Some(vec!["prep".to_string()]));
+        assert_eq!(at("slope", "raster"), Some(vec!["prep".to_string(), "slope".to_string()]));
+        // a loop's `inner.port`
+        assert_eq!(at("prep", "slope.raster"), Some(vec!["prep".to_string(), "slope".to_string()]));
+        // none: a node removed, a file layer
+        assert_eq!(at("gone", "raster"), None);
+        assert_eq!(at("", "raster"), None);
     }
 
     #[test]

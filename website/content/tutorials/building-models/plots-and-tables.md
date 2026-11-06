@@ -142,7 +142,9 @@ cover. For each layer you can:
 - show or hide it;
 - move it **up** or **down**: the layers listed under the map shown are drawn under it, those over it over it;
 - change a map's **opacity**, from 0 (invisible) to 1 (opaque), or the **style** of vector features;
-- remove it.
+- remove it;
+- find the node that makes it: **Show its node** in its menu brings the canvas forward, opens the group (or loop)
+  it is in, selects it and frames it.
 
 Keep `forest_only` too (📌) and set its opacity to 0.6: the forest's structure with its neighbours in view.
 **Add a layer** adds the run's other maps and vector features without clicking their nodes, and a click on a

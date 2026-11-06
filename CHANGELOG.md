@@ -40,6 +40,9 @@ minor versions.
   `vector.read` or `table.read`, or a file of that kind dropped from the file manager onto the node (it lights up:
   "Drop: the file of a (its connections kept)"), sets its `path` keeping its id, connections and other settings,
   in one step of undo, inside groups too. A file of another kind, or several, is added as before.
+- Viewer: **from a layer to its node**. *Show its node* in a layer's menu (Layers) brings the model's canvas forward
+  (the main window too, with the Viewer in a window of its own), opens the group, loop or switch it is in, selects
+  the node and frames it with the glide of F; greyed, with the reason, for a difference of two maps.
 
 ## [1.41.0] - 2026-11-06
 

@@ -3195,6 +3195,104 @@ fn the_layers_as_a_gis_has_them() {
     shot(&mut h, "layers-gis");
 }
 
+/// A layer's menu *Show its node*: the canvas to the front, the groups on the way opened, the node selected and
+/// the camera on it; greyed out (with its reason) for a layer no node of the model makes.
+#[test]
+fn a_layers_menu_shows_its_node_on_the_canvas() {
+    use egui_kittest::kittest::NodeT;
+    use terraflux_app::builder::Layer;
+    use terraflux_graph::{Body, Node};
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let land = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        let read = |id: &str, pos: [f32; 2]| {
+            let mut n = Node::new(id, "raster.read").param("path", land.as_str()).param("band", "0");
+            n.pos = Some(pos);
+            n
+        };
+        s.source.nodes = vec![read("land", [0.0, 0.0]), read("drivers", [300.0, 0.0])];
+        s.edited();
+        s.start(Box::new(|| {}));
+        // (a loop added after the run: the layers of its body are named by the loop and the port `inner.raster`; the
+        // layers are keyed by the nodes at the top)
+        let body = Body { nodes: vec![read("inner", [900.0, 700.0])], ..Default::default() };
+        s.source.nodes.push(Node::new("lp", "control.repeat").body(body));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("land", "raster").is_some()
+    });
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        // (a difference of two maps: no one node makes it)
+        let diff = Layer { minus: Some(("drivers".into(), "raster".into())), ..Layer::new("land", "raster") };
+        s.preview_layers = vec![Layer::new("land", "raster"), Layer::new("lp", "inner.raster"), diff];
+    }
+    show(&mut h, "land", "raster");
+    drawn(&mut h);
+    let row = |h: &Harness<TerrafluxApp>, name: &str| -> egui::Pos2 {
+        let width = |n: &egui_kittest::Node| n.accesskit_node().bounding_box().map_or(0.0, |b| b.x1 - b.x0);
+        let n = h.query_all_by_label(name).max_by(|a, b| width(a).total_cmp(&width(b)));
+        let b = n.unwrap_or_else(|| panic!("{name}")).accesskit_node().bounding_box().unwrap();
+        egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+    };
+    let menu = |h: &mut Harness<TerrafluxApp>, name: &str| {
+        let at = row(h, name);
+        h.event(egui::Event::PointerMoved(at));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: Default::default(),
+            });
+        }
+        h.run_steps(2);
+    };
+    let centred = |h: &Harness<TerrafluxApp>, id: &str| {
+        let e = &h.state().session.as_ref().unwrap().editor;
+        e.screen_rect_of(id).is_some_and(|r| r.contains(e.canvas().unwrap().center()))
+    };
+    // a layer of a node at the top: the canvas in front, the node selected and framed
+    menu(&mut h, "land");
+    h.get_by_label("Show its node").click();
+    h.run_steps(40);
+    assert_eq!(h.state_mut().focused(), Some(Pane::Model));
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert!(s.editor.path.is_empty());
+        assert_eq!(s.selected.as_deref(), Some("land"));
+        assert!(s.editor.chosen.contains("land"));
+    }
+    assert!(centred(&h, "land"));
+    // a layer of a node inside a loop: the loop opened, the node selected, the camera on it
+    show(&mut h, "land", "raster");
+    drawn(&mut h);
+    menu(&mut h, "lp.inner.raster");
+    h.get_by_label("Show its node").click();
+    h.run_steps(40);
+    assert_eq!(h.state_mut().focused(), Some(Pane::Model));
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(s.editor.path, ["lp"]);
+        assert_eq!(s.selected.as_deref(), Some("inner"));
+        assert!(s.editor.chosen.contains("inner"));
+    }
+    assert!(centred(&h, "inner"));
+    // a layer no node makes (the Viewer keeps layers of the nodes at the top only, so a node removed takes its layers
+    // with it; `of_layer` has its unit test): the entry greyed out, and nothing happens
+    show(&mut h, "land", "raster");
+    drawn(&mut h);
+    menu(&mut h, "drivers to land");
+    let entry = h.get_by_label("Show its node");
+    assert!(entry.accesskit_node().is_disabled(), "greyed out");
+    entry.click();
+    h.run_steps(2);
+    assert_eq!(h.state_mut().focused(), Some(Pane::Viewer), "the Viewer stays in front");
+}
+
 /// A layer's band and palette kept in a Plot, and given back when it opens; the Document's colours by the Plot.
 #[test]
 fn a_layers_band_and_palette_are_kept_in_its_plot() {
