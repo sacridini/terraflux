@@ -442,6 +442,97 @@ pub fn write_indices(dir: &std::path::Path, i: &Indices) -> Result<()> {
     Ok(())
 }
 
+// -- maps of sensitivity, cell by cell ---------------------------------------------------------------------------------
+
+/// The bands of the maps of sensitivity: `mean` and `sd` of the cell across the design's points, then an index per
+/// factor: OAT `swing_<factor>`, Morris `mu_star_<factor>`, Sobol `s1_<factor>` of every factor and then `st_<factor>`.
+pub fn map_bands(method: Method, keys: &[String]) -> Vec<String> {
+    let each = |p: &str| keys.iter().map(move |k| format!("{p}_{k}")).collect::<Vec<_>>();
+    let mut names = vec!["mean".to_string(), "sd".to_string()];
+    match method {
+        Method::Oat => names.extend(each("swing")),
+        Method::Morris => names.extend(each("mu_star")),
+        Method::Sobol => {
+            names.extend(each("s1"));
+            names.extend(each("st"));
+        }
+    }
+    names
+}
+
+/// The cells of a block for each point of the design: the runs' cells (none for a run that gave no map), `r`
+/// consecutive runs per point as [`replicated`] takes them, averaged over the replicates that gave a value in the
+/// cell (NaN when none did).
+pub fn average_replicates(runs: &[Option<Vec<f64>>], r: usize, cells: usize) -> Vec<Vec<f64>> {
+    runs.chunks(r.max(1))
+        .map(|point| {
+            (0..cells)
+                .map(|c| {
+                    let (mut sum, mut n) = (0.0, 0usize);
+                    for v in point.iter().flatten().map(|run| run[c]).filter(|v| v.is_finite()) {
+                        sum += v;
+                        n += 1;
+                    }
+                    if n == 0 { f64::NAN } else { sum / n as f64 }
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// One cell's bands from its output at every point of the design: the mean, the standard deviation, the indices. All
+/// NaN when a point has no value; a cell that does not change at all has no sensitivity (the indices 0).
+fn cell_values(method: Method, rows: &[Vec<f64>], col: &[f64], d: &Design, k: usize) -> Result<Vec<f64>> {
+    let nb = map_bands(method, &vec![String::new(); k]).len();
+    if col.iter().any(|v| !v.is_finite()) {
+        return Ok(vec![f64::NAN; nb]);
+    }
+    let n = col.len() as f64;
+    let mean = col.iter().sum::<f64>() / n;
+    let sd = (n >= 2.0).then(|| (col.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0)).sqrt());
+    let mut out = vec![mean, sd.unwrap_or(f64::NAN)];
+    let flat = col.iter().all(|v| *v == col[0]);
+    match method {
+        Method::Oat => out.extend(sens::oat_analyze(col, k).map_err(Error::Other)?.swing),
+        Method::Morris => {
+            out.extend(sens::morris_analyze(rows, col, d.levels, 0, 0.95, d.seed).map_err(Error::Other)?.mu_star)
+        }
+        Method::Sobol if flat => out.extend(vec![0.0; 2 * k]),
+        Method::Sobol => {
+            let s = sens::sobol_analyze(col, k, d.second_order, 0, 0.95, d.seed).map_err(Error::Other)?;
+            out.extend(s.s1);
+            out.extend(s.st);
+        }
+    }
+    Ok(out)
+}
+
+/// The maps of sensitivity of a block of cells: `points[p][c]` is the output of cell `c` at the design's point `p`
+/// (`rows[p]` its factors); the result is a band per [`map_bands`], each with the block's cells. No bootstrap: the
+/// intervals are for the number of the analysis, not for every cell.
+pub fn cell_bands(
+    method: Method,
+    rows: &[Vec<f64>],
+    points: &[Vec<f64>],
+    d: &Design,
+    cells: usize,
+) -> Result<Vec<Vec<f64>>> {
+    use rayon::prelude::*;
+    let k = rows.first().map_or(0, Vec::len);
+    if points.len() != rows.len() || points.iter().any(|p| p.len() != cells) {
+        return Err(Error::Other(format!("{} points of cells for a design of {} runs", points.len(), rows.len())));
+    }
+    let per_cell: Vec<Vec<f64>> = (0..cells)
+        .into_par_iter()
+        .map(|c| {
+            let col: Vec<f64> = points.iter().map(|p| p[c]).collect();
+            cell_values(method, rows, &col, d, k)
+        })
+        .collect::<Result<_>>()?;
+    let nb = map_bands(method, &vec![String::new(); k]).len();
+    Ok((0..nb).map(|b| per_cell.iter().map(|v| v[b]).collect()).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use std::f64::consts::PI;
@@ -638,6 +729,87 @@ mod tests {
         // a record from before the check still opens
         let old = r#"{"method":"oat","columns":[],"factors":[],"rows":[],"base":null,"s2":null}"#;
         assert!(serde_json::from_str::<Indices>(old).unwrap().convergence.is_none());
+    }
+
+    /// A map of 6 cells: the left three follow the first factor, the right three the second (and a flat cell).
+    fn halves(r: &[f64]) -> Vec<f64> {
+        vec![r[0], 2.0 * r[0], r[0] + 0.01 * r[1], r[1], 3.0 * r[1], 5.0]
+    }
+
+    fn cells_of(method: Method, d: &Design) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
+        let bounds = [(0.0, 1.0), (0.0, 1.0)];
+        let r = rows(method, &bounds, d).unwrap();
+        let points: Vec<Vec<f64>> = r.iter().map(|r| halves(r)).collect();
+        let bands = cell_bands(method, &r, &points, d, 6).unwrap();
+        assert_eq!(bands.len(), map_bands(method, &keys()).len());
+        (r, bands)
+    }
+
+    #[test]
+    fn the_total_order_maps_show_where_each_factor_rules() {
+        let d = Design { n: 128, ..Design::new(Method::Sobol) };
+        let (_, b) = cells_of(Method::Sobol, &d);
+        assert_eq!(map_bands(Method::Sobol, &keys()), ["mean", "sd", "s1_a.x", "s1_b.y", "st_a.x", "st_b.y"]);
+        let (st_x, st_y) = (&b[4], &b[5]);
+        for c in 0..2 {
+            assert!(st_x[c] > 0.95 && st_y[c] < 0.05, "left cell {c}: {} {}", st_x[c], st_y[c]);
+        }
+        for c in 3..5 {
+            assert!(st_y[c] > 0.95 && st_x[c] < 0.05, "right cell {c}: {} {}", st_x[c], st_y[c]);
+        }
+        // the third cell mostly follows the first factor
+        assert!(st_x[2] > 0.9 && st_y[2] < 0.1);
+        // a cell that does not change has no sensitivity, and no spread
+        assert_eq!((b[4][5], b[5][5], b[1][5]), (0.0, 0.0, 0.0));
+        assert_eq!(b[0][5], 5.0);
+        // the mean and the spread across the points: the first cell is the first factor, a column of the design
+        let r = rows(Method::Sobol, &[(0.0, 1.0); 2], &d).unwrap();
+        let col: Vec<f64> = r.iter().map(|r| r[0]).collect();
+        let m = col.iter().sum::<f64>() / col.len() as f64;
+        let sd = (col.iter().map(|v| (v - m).powi(2)).sum::<f64>() / (col.len() - 1) as f64).sqrt();
+        assert!((b[0][0] - m).abs() < 1e-12 && (b[1][0] - sd).abs() < 1e-12);
+    }
+
+    #[test]
+    fn the_swing_and_mu_star_maps_show_where_each_factor_rules() {
+        let (_, o) = cells_of(Method::Oat, &Design::new(Method::Oat));
+        assert_eq!(map_bands(Method::Oat, &keys()), ["mean", "sd", "swing_a.x", "swing_b.y"]);
+        // y = 2 x on the left: a swing of 2 over the range 0..1; the other factor does nothing there
+        assert!((o[2][1] - 2.0).abs() < 1e-12 && o[3][1] == 0.0);
+        assert!((o[3][4] - 3.0).abs() < 1e-12 && o[2][4] == 0.0);
+        let d = Design { n: 10, ..Design::new(Method::Morris) };
+        let (_, m) = cells_of(Method::Morris, &d);
+        assert_eq!(map_bands(Method::Morris, &keys())[2], "mu_star_a.x");
+        // the effect of a linear cell is its slope
+        assert!((m[2][1] - 2.0).abs() < 1e-9 && m[3][1].abs() < 1e-9, "{} {}", m[2][1], m[3][1]);
+        assert!((m[3][4] - 3.0).abs() < 1e-9 && m[2][4].abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_cell_without_a_value_at_a_point_is_nan_in_every_band() {
+        let d = Design::new(Method::Oat);
+        let r = rows(Method::Oat, &[(0.0, 1.0), (0.0, 1.0)], &d).unwrap();
+        let mut points: Vec<Vec<f64>> = r.iter().map(|r| vec![r[0], r[1], r[0] + r[1]]).collect();
+        points[3][1] = f64::NAN;
+        let b = cell_bands(Method::Oat, &r, &points, &d, 3).unwrap();
+        assert!(b.iter().all(|band| band[1].is_nan()), "{b:?}");
+        assert!(b.iter().all(|band| band[0].is_finite() && band[2].is_finite()));
+        // a design and a block that do not fit are refused
+        assert!(cell_bands(Method::Oat, &r, &points[..4], &d, 3).is_err());
+        assert!(cell_bands(Method::Oat, &r, &points, &d, 2).is_err());
+    }
+
+    #[test]
+    fn the_replicates_of_a_point_are_averaged_cell_by_cell() {
+        // 2 points of 2 replicates; the second replicate of the first point failed, and a cell of the second is NaN
+        let runs = vec![Some(vec![1.0, 4.0]), None, Some(vec![2.0, f64::NAN]), Some(vec![4.0, 6.0])];
+        let p = average_replicates(&runs, 2, 2);
+        assert_eq!(p, [vec![1.0, 4.0], vec![3.0, 6.0]]);
+        // a point with no replicate at all is NaN
+        let none = average_replicates(&[None, None], 2, 2);
+        assert!(none[0].iter().all(|v| v.is_nan()));
+        // one replicate: the runs themselves
+        assert_eq!(average_replicates(&[Some(vec![7.0]), Some(vec![8.0])], 1, 1), [vec![7.0], vec![8.0]]);
     }
 
     #[test]

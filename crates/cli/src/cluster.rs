@@ -429,6 +429,20 @@ pub async fn calibrate(a: &Calibrate) -> Result<()> {
     Ok(())
 }
 
+/// The maps of sensitivity of `terraflux sensitivity` (a struct of their own: the flags in the command's frame
+/// overflowed the main thread's stack in the debug build).
+#[derive(Args)]
+pub struct MapsArgs {
+    /// Maps of sensitivity, cell by cell, of an output that is a map, series or stack: each run keeps the last map,
+    /// and `sensitivity_maps.tif` has the mean and spread of every cell across the design and the index of each
+    /// factor (OAT's swing, Morris's mu*, Sobol's S1 and ST) as its bands.
+    #[arg(long = "maps", id = "maps")]
+    pub on: bool,
+    /// With --maps: leave each run's map in its folder (they are deleted once the maps are made).
+    #[arg(long, requires = "maps")]
+    pub keep_run_maps: bool,
+}
+
 #[derive(Args)]
 pub struct Sensitivity {
     /// The model (.toml or .json).
@@ -473,6 +487,8 @@ pub struct Sensitivity {
     /// share of its variance that is chance is told. For a model that draws at random (3 to 5 is usual).
     #[arg(long, default_value_t = 1)]
     pub replicates: usize,
+    #[command(flatten)]
+    pub maps: MapsArgs,
     #[arg(short, long, default_value = "sensitivity")]
     pub out: PathBuf,
     #[command(flatten)]
@@ -496,6 +512,10 @@ pub struct Spec {
     pub model_seed: i64,
     pub seed_input: String,
     pub replicates: usize,
+    /// The maps of sensitivity, cell by cell (the output must be a map, series or stack), and whether the runs' maps
+    /// are left in place after.
+    pub maps: bool,
+    pub keep_run_maps: bool,
     pub out: PathBuf,
 }
 
@@ -515,6 +535,8 @@ impl Spec {
             model_seed: a.model_seed,
             seed_input: a.seed_input.clone(),
             replicates: a.replicates,
+            maps: a.maps.on,
+            keep_run_maps: a.maps.keep_run_maps,
             out: a.out.clone(),
         }
     }
@@ -558,6 +580,8 @@ pub struct Analysis {
     pub failed: usize,
     /// The files written, in `out`.
     pub files: Vec<PathBuf>,
+    /// The maps of sensitivity, when asked for.
+    pub maps: Option<terraflux_dist::sens_maps::Made>,
     /// The text of `methods.md`.
     pub methods: String,
     /// What went wrong without stopping the analysis.
@@ -622,6 +646,13 @@ pub fn plan(spec: &Spec) -> Result<Plan> {
         ));
     }
     let tasks = batch::calibration_tasks(&candidates, &sens::seeds(spec.model_seed, replicates), &keys);
+    let mut model = model;
+    if spec.maps {
+        if !terraflux_app::batch_view::is_map_output(&model, &terraflux_ops::Registry::standard(), &spec.output) {
+            bail!("--maps needs an output that is a map, series or stack: {} is not", spec.output);
+        }
+        terraflux_dist::sens_maps::keep_last_map(&mut model, &spec.output);
+    }
     Ok(Plan { spec: spec.clone(), model, base, factors, method, design, rows, tasks, replicates, eval, notes })
 }
 
@@ -641,10 +672,12 @@ pub async fn execute(
         model: p.model.clone(),
         base: p.base.clone(),
         tasks: p.tasks.clone(),
-        files: false,
+        files: spec.maps,
         evaluation: Some(p.eval.clone()),
     };
-    let o = run::run(&run::Start::New(Box::new(b)), place, None, stop, progress).await?;
+    // (with maps, the files of the runs come back to the results' folder)
+    let o =
+        run::run(&run::Start::New(Box::new(b)), place, spec.maps.then_some(spec.out.as_path()), stop, progress).await?;
     let metrics = batch::metrics_of(&labels, &o.results);
     let rep = sens::replicated(&metrics.iter().map(|m| m.as_ref().map(|m| m.value)).collect::<Vec<_>>(), p.replicates);
     let y = rep.mean.clone();
@@ -662,6 +695,39 @@ pub async fn execute(
     }
     let indices = sens::analyze(p.method, &keys, &p.rows, &y, &p.design, spec.resamples)?.with_replicates(&rep);
     sens::write_indices(&spec.out, &indices)?;
+    let mut notes = Vec::new();
+    let maps = if spec.maps {
+        let file = terraflux_dist::sens_maps::run_file(&spec.output);
+        let m = terraflux_dist::sens_maps::Spec {
+            method: p.method,
+            keys: &keys,
+            rows: &p.rows,
+            design: &p.design,
+            replicates: p.replicates,
+            labels: &labels,
+            runs: &spec.out,
+            file: &file,
+            out: &spec.out,
+            keep_runs: spec.keep_run_maps,
+        };
+        let mut last = -1i64;
+        let made = terraflux_dist::sens_maps::make(&m, &mut |share| {
+            let percent = (share * 100.0) as i64;
+            if percent / 10 != last / 10 {
+                last = percent;
+                progress(Progress::Cluster(format!("making the maps of sensitivity: {percent} %")));
+            }
+        });
+        match made {
+            Ok(m) => Some(m),
+            Err(e) => {
+                notes.push(format!("the maps of sensitivity were not made: {e} (the runs' maps are kept)"));
+                None
+            }
+        }
+    } else {
+        None
+    };
     let bounds = p.bounds();
     let described = terraflux_app::sens_methods::Run {
         indices: &indices,
@@ -670,21 +736,29 @@ pub async fn execute(
         output: &spec.output,
         statistic: spec.statistic.as_deref(),
         resamples: spec.resamples,
+        maps: maps.is_some(),
         version: env!("CARGO_PKG_VERSION"),
     };
     let methods = terraflux_app::sens_methods::text(&described);
     terraflux_app::sens_methods::write(&spec.out, &described)?;
-    let mut notes = Vec::new();
     if let Err(e) = terraflux_app::sens_chart::write(&spec.out, &indices) {
         notes.push(format!("the chart was not written: {e}"));
     }
-    let files =
-        ["design.csv", "indices.csv", "s2.csv", "convergence.csv", "methods.md", "sensitivity.svg", "sensitivity.png"]
-            .iter()
-            .map(|f| spec.out.join(f))
-            .filter(|f| f.exists())
-            .collect();
-    Ok(Analysis { indices, runs: metrics.len(), failed: rep.failed, files, methods, notes })
+    let files = [
+        "design.csv",
+        "indices.csv",
+        "s2.csv",
+        "convergence.csv",
+        "methods.md",
+        "sensitivity.svg",
+        "sensitivity.png",
+        terraflux_dist::sens_maps::FILE,
+    ]
+    .iter()
+    .map(|f| spec.out.join(f))
+    .filter(|f| f.exists())
+    .collect();
+    Ok(Analysis { indices, runs: metrics.len(), failed: rep.failed, files, maps, methods, notes })
 }
 
 /// An analysis that ran, recorded in its model's journal as one entry (`from`: `cli` or `mcp`); a journal that cannot
@@ -736,6 +810,9 @@ pub async fn sensitivity(a: &Sensitivity) -> Result<()> {
     }
     for n in &r.notes {
         eprintln!("note: {n}");
+    }
+    if let Some(m) = &r.maps {
+        eprintln!("maps of sensitivity: {} bands ({})", m.bands.len(), m.bands.join(", "));
     }
     eprintln!(
         "wrote {}",

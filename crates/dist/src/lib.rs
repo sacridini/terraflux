@@ -21,6 +21,7 @@ pub mod pool;
 pub mod remote;
 pub mod run;
 pub mod secure;
+pub mod sens_maps;
 pub mod sensitivity;
 pub mod store;
 pub mod tiles;

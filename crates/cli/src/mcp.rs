@@ -404,6 +404,8 @@ fn sensitivity(r: &Registry, a: &Value, watcher: &mut Watcher) -> Reply {
         model_seed: 1,
         seed_input: "seed".into(),
         replicates: ask.replicates,
+        maps: ask.maps,
+        keep_run_maps: ask.keep_run_maps,
         out: out.clone(),
     };
     let plan = cluster::plan(&spec).map_err(|e| e.to_string())?;
@@ -474,6 +476,9 @@ fn sensitivity(r: &Registry, a: &Value, watcher: &mut Watcher) -> Reply {
     }
     if let Some((verdict, _)) = terraflux_app::sens_chart::verdict(i) {
         s.push_str(&format!("\nConvergence: {verdict}\n"));
+    }
+    if let Some(m) = &done.maps {
+        s.push_str(&format!("\nMaps of sensitivity (sensitivity_maps.tif), a band each: {}.\n", m.bands.join(", ")));
     }
     s.push_str(&format!("\nMethods paragraph (methods.md):\n{}\n", done.methods.trim_end()));
     s.push_str("\nWrote:");
@@ -1211,6 +1216,27 @@ mod tests {
         assert!(t.contains("elementary effects method of Morris (1991)"), "{t}");
         let md = std::fs::read_to_string(dir.join("morris").join("methods.md")).unwrap();
         assert!(md.contains("field.range [6\u{2013}10]"), "{md}");
+        // maps of sensitivity, cell by cell: each run keeps its map, the maps are made and the runs' maps deleted
+        let maps = dir.join("maps");
+        let args = json!({ "model": model, "method": "oat", "output": "field.map", "out": maps.to_string_lossy(),
+            "maps": true, "factors": [{ "key": "field.range", "from": 4, "to": 12 }] });
+        let (t, e) = call(&s, "sensitivity", args);
+        assert!(!e, "{t}");
+        assert!(
+            t.contains("Maps of sensitivity (sensitivity_maps.tif), a band each: mean, sd, swing_field.range"),
+            "{t}"
+        );
+        assert!(t.contains("sensitivity_maps.tif") && maps.join("sensitivity_maps.tif").exists(), "{t}");
+        let stack = terraflux_raster::Raster::read(maps.join("sensitivity_maps.tif")).unwrap();
+        assert_eq!(stack.band_names(), ["mean", "sd", "swing_field.range"]);
+        // the swing of the field is real in at least one cell
+        assert!(stack.bands[2].data.iter().any(|v| *v > 0.0), "{t}");
+        assert!(std::fs::read_dir(&maps).unwrap().flatten().all(|e| !e.path().is_dir()), "the runs' folders: {t}");
+        let md = std::fs::read_to_string(maps.join("methods.md")).unwrap();
+        assert!(
+            md.contains("Cell by cell, the standard deviation of the output across the design and the swing"),
+            "{md}"
+        );
         // the folder by default, beside the model
         let args = json!({ "model": model, "method": "oat", "output": "field.map", "factors": ["field.range"] });
         let (t, e) = call(&s, "sensitivity", args);

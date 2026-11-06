@@ -302,6 +302,12 @@ pub fn from_model(m: &Model, r: &Registry, dir: &Path) -> u64 {
     (bytes * (1.0 - COMPRESSED)) as u64
 }
 
+/// The bytes of one map of the model (its largest raster's cells, 4 bytes a cell, compressed): what each run of a
+/// sensitivity analysis keeps for the maps of sensitivity. 0 when the model reads no raster to size it by.
+pub fn map_bytes(m: &Model, dir: &Path) -> u64 {
+    (largest(m, dir) as f64 * CELL as f64 * (1.0 - COMPRESSED)) as u64
+}
+
 /// The advice for check_model and the Problems pane: a warning when what a run writes (about, from the model) will
 /// not fit the disk of its output folder (`dir`/output). None when it fits or nothing says how much it writes.
 pub fn advice(m: &Model, r: &Registry, dir: &Path) -> Option<crate::advice::Advice> {
@@ -447,6 +453,15 @@ mod tests {
 
     fn data(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs").join(name)
+    }
+
+    #[test]
+    fn a_map_kept_by_a_run_is_one_layer_of_the_largest_raster() {
+        let mut m = Model::new("sized");
+        assert_eq!(map_bytes(&m, Path::new(".")), 0, "no raster to size it by");
+        m.nodes.push(Node::new("land", "raster.read").param("path", data("sibuyan_landuse.tif").to_string_lossy()));
+        let cells = largest(&m, Path::new("."));
+        assert_eq!(map_bytes(&m, Path::new(".")), cells * CELL / 2);
     }
 
     #[test]

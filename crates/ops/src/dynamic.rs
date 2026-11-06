@@ -302,10 +302,14 @@ impl Operator for Layer {
 }
 
 /// One layer of a value as a map: by its name (a stack's key, a band's name, a step of a series: 1..), else by its
-/// 0-based number.
+/// 0-based number; `last` is the last one when no layer is named so.
 pub fn layer_of(v: &Value, layer: &str) -> Result<Map> {
     let pick = |names: &[String]| {
-        names.iter().position(|n| n == layer).or_else(|| layer.parse::<usize>().ok().filter(|&i| i < names.len()))
+        names
+            .iter()
+            .position(|n| n == layer)
+            .or_else(|| layer.parse::<usize>().ok().filter(|&i| i < names.len()))
+            .or_else(|| (layer == "last" && !names.is_empty()).then(|| names.len() - 1))
     };
     let missing = |names: &[String]| {
         let shown: Vec<&str> = names.iter().take(12).map(String::as_str).collect();
@@ -329,7 +333,7 @@ pub fn layer_of(v: &Value, layer: &str) -> Result<Map> {
             let Value::Map(m) = &items[i] else { unreachable!() };
             Ok(m.clone())
         }
-        Value::Map(m) if layer == "0" => Ok(m.clone()),
+        Value::Map(m) if layer == "0" || layer == "last" => Ok(m.clone()),
         other => Err(Error::msg(format!("a {:?} has no layers", other.ty()))),
     }
 }
@@ -427,5 +431,21 @@ impl Operator for Of {
         }
         let grid = grid.ok_or_else(|| Error::msg(format!("node {:?}: no maps", args.node)))?;
         Ok(outputs([("stack", Value::Stack(Stack { grid, keys, layers }))]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn last_names_the_last_layer_unless_a_layer_is_called_so() {
+        let grid = Arc::new(terraflux_raster::Grid::new(2, 1));
+        let step = |x: f64| Value::Map(Map::new(grid.clone(), vec![x, x]));
+        let series = Value::Series(vec![step(1.0), step(2.0), step(3.0)]);
+        assert_eq!(layer_of(&series, "last").unwrap().data[0], 3.0);
+        assert_eq!(layer_of(&series, "1").unwrap().data[0], 1.0);
+        assert_eq!(layer_of(&step(5.0), "last").unwrap().data[0], 5.0);
+        assert!(layer_of(&Value::Series(Vec::new()), "last").is_err());
     }
 }

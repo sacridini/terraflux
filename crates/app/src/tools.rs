@@ -1914,6 +1914,8 @@ fn all() -> Vec<Value> {
                 "replicates": { "type": "integer", "description": "Runs of each design point with other seeds, the output their mean (default 1; 3 to 5 for a stochastic model). Needs a seed in the model." },
                 "output": { "type": "string", "description": "What is measured, `node.port`: a number, a table's column, or a map (default: where the model ends)." },
                 "statistic": { "type": "string", "description": "Of a map: mean (default), sum, min, max, cells:<class>, share:<class>, area:<class>, changed, metric:<np|pland|ed|area_mn|lpi>:<class>; of a table: its column." },
+                "maps": { "type": "boolean", "description": "Maps of sensitivity, cell by cell, of an output that is a map, series or stack: `sensitivity_maps.tif` with the mean and spread of each cell across the design and the index of each factor (OAT's swing, Morris's mu*, Sobol's S1 and ST) as bands. Each run keeps its last map until the maps are made. Default false." },
+                "keep_run_maps": { "type": "boolean", "description": "With `maps`: leave each run's map in its folder (default: deleted once the maps are made)." },
                 "out": { "type": "string", "description": "The folder of the results (default: `<model> runs/sensitivity N` beside the model)." },
                 "confirm": { "type": "boolean", "description": "Run a design of more than 500 runs." },
             }),
@@ -2078,6 +2080,9 @@ pub struct SensitivityAsk {
     pub statistic: Option<String>,
     pub out: Option<PathBuf>,
     pub confirm: bool,
+    /// The maps of sensitivity, cell by cell, and whether the runs' maps stay.
+    pub maps: bool,
+    pub keep_run_maps: bool,
 }
 
 impl SensitivityAsk {
@@ -2145,6 +2150,8 @@ pub fn sensitivity_ask(a: &Value) -> std::result::Result<SensitivityAsk, String>
         statistic: opt_text(a, "statistic").map(str::trim).filter(|s| !s.is_empty()).map(String::from),
         out: opt_text(a, "out").map(absolute),
         confirm: a.get("confirm").and_then(Value::as_bool).unwrap_or(false),
+        maps: a.get("maps").and_then(Value::as_bool).unwrap_or(false),
+        keep_run_maps: a.get("keep_run_maps").and_then(Value::as_bool).unwrap_or(false),
     })
 }
 

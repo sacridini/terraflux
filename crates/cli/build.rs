@@ -12,6 +12,13 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", icon.display());
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        // the main thread's stack as on Linux and macOS (8 MB, not Windows' 1 MB): the debug build of `main`, with
+        // every command's arguments parsed there, overflowed 1 MB
+        match std::env::var("CARGO_CFG_TARGET_ENV").as_deref() {
+            Ok("msvc") => println!("cargo:rustc-link-arg-bin=terraflux=/STACK:8388608"),
+            Ok("gnu") => println!("cargo:rustc-link-arg-bin=terraflux=-Wl,--stack,8388608"),
+            _ => {}
+        }
         let mut res = winresource::WindowsResource::new();
         res.set_icon(icon.to_str().expect("a path in UTF-8"));
         res.compile().expect("the icon in terraflux.exe (rc.exe of the Windows SDK)");

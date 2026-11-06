@@ -3158,6 +3158,35 @@ min ou max de um mapa). Falta tudo na interface: só quem usa a linha de comando
    o resultado é incerto) e, com Sobol, o S1 e o ST de cada fator por célula (onde cada fator manda), como uma
    pilha que o Viewer mostra. Pede guardar os mapas de cada rodada (ou acumulá-los nos workers): o mais caro, o
    último.
+   **Feito** (Unreleased): `terraflux_dist::sensitivity::{map_bands, average_replicates, cell_bands}` (a conta, pura:
+   `y[ponto][célula]` vira uma banda por `mean`, `sd` e, por fator, o `swing_` do OAT, o `mu_star_` do Morris, o `s1_` e
+   o `st_` do Sobol; sem bootstrap por célula (`resamples = 0`, as funções do `ops` aceitam); NaN onde um ponto não tem
+   valor, 0 numa célula que não muda; em rayon sobre as células) e o novo `terraflux_dist::sens_maps` (`Spec`, `make`,
+   `make_within`, `block_rows`, `run_file`, `keep_last_map`, `Made`, `FILE`: abre o mapa de cada rodada, lê por blocos
+   de linhas com `Image::read_window` (as células de todas as rodadas de um bloco em até 256 MB), as células sem valor
+   do arquivo viram NaN, escreve `sensitivity_maps.tif` em float32 com nodata NaN e as bandas nomeadas, e só então apaga
+   os mapas das rodadas, salvo `keep_runs`). Cada rodada guarda só a última camada da saída medida
+   (`Output::layer = "last"`, novo em `ops::dynamic::layer_of`, vale também no `stack.extract_layer`) e as saídas do
+   modelo ficam de fora. No `batch_view.rs`: `SensitivityState::{maps, keep_run_maps}`, `maps_ui` (a caixa *Maps of
+   sensitivity, cell by cell* para saída mapa, série ou pilha, a conta do disco em rodadas x um mapa e *Keep each run's
+   map*), `maps_of`, `batch_bytes` (a linha de custo e o aviso de disco contam os mapas, `disk::map_bytes`),
+   `SensitivityPlan::maps` (`MapsPlan`, `#[serde(default)]`: o lote retomado também faz os mapas), `Making` e
+   `make_maps` (uma thread; o progresso em milésimos, "making the maps of sensitivity: 40 %" no `finished_ui`),
+   `poll_maps` (põe o `Made` em `Finished::maps` e reescreve o `methods.md` com a frase nova de `sens_methods::Run::maps`),
+   e em `finished_ui` o arquivo, as bandas e *Show in the Viewer* (`drop_on_viewer`). `terraflux sensitivity --maps` e
+   `--keep-run-maps` (`cluster::MapsArgs`, numa struct à parte: duas flags a mais direto em `Sensitivity` estouraram a
+   pilha da thread principal do build debug) e `maps`/`keep_run_maps` na ferramenta `sensitivity` do MCP
+   (`SensitivityAsk`, `Spec`, `Analysis::maps`); o assistente do aplicativo põe a caixa no `set_asked`. O
+   `sensitivity_command` saiu do `main` pelo mesmo motivo. Testes: os de `dist::sensitivity::tests` e
+   `sens_maps::tests` (metades esquerda e direita do mapa, ST/swing/mu*, NaN, réplicas, bloco que não divide as linhas,
+   rodada que falhou, apagar ou guardar os mapas), `last_names_the_last_layer...` (ops),
+   `the_maps_of_sensitivity_are_told_only_when_made`, `a_plan_kept_before_the_maps_still_opens_and_keeps_them_after` e
+   `a_map_kept_by_a_run_is_one_layer...` (app), `a_sensitivity_analysis_makes_maps_of_sensitivity` (ui.rs: OAT de 2
+   fatores no Sibuyan, 4 bandas, mapas das rodadas apagados e guardados, o Viewer; imagens
+   `ui-batch-10-sensitivity-maps.png` e `ui-batch-11-sensitivity-maps-viewer.png`) e `maps: true` em
+   `a_sensitivity_analysis_is_run_and_told` (mcp). Ficou de fora: a pilha inteira fica na memória (bandas x células x 8
+   bytes) até a escrita, só a leitura é em blocos; o Viewer abre a pilha com a banda `mean` à frente (as outras pelo
+   seletor); os nós `raster.write` do modelo ainda escrevem na pasta de cada rodada; os mapas não entram no diário.
 
 **A ordem (2026-11-06)** das duas seções, as que dependem de outras depois delas: a sensibilidade 1, 2 e 3 (a
 análise inteira no aplicativo com o motor que existe), 4 (réplicas), 5 e 6 (sem o diário); depois o diário das

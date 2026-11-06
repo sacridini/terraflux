@@ -4769,7 +4769,7 @@ impl TerrafluxApp {
         }
         // a batch goes on whether its pane is shown or not
         self.batch.poll();
-        if self.batch.running() {
+        if self.batch.running() || self.batch.making.is_some() {
             ui.ctx().request_repaint_after(Duration::from_millis(500));
         }
         // the end of a long run, or of a batch, told when Terraflux is not in front

@@ -20,6 +20,8 @@ pub struct Run<'a> {
     pub statistic: Option<&'a str>,
     /// The bootstraps of the intervals.
     pub resamples: usize,
+    /// The maps of sensitivity, cell by cell, were made.
+    pub maps: bool,
     pub version: &'a str,
 }
 
@@ -158,6 +160,17 @@ pub fn paragraph(r: &Run) -> String {
             ));
         }
     }
+    if r.maps {
+        let index = match i.method {
+            Method::Oat => "swing",
+            Method::Morris => "\u{3bc}*",
+            Method::Sobol => "first-order and total-order indices",
+        };
+        t.push_str(&format!(
+            " Cell by cell, the standard deviation of the output across the design and the {index} of each \
+             parameter were mapped."
+        ));
+    }
     t.push_str(&format!(" Computed with Terraflux {} (Lacerda, 2026)", r.version));
     match i.method {
         Method::Oat => t.push('.'),
@@ -207,7 +220,36 @@ mod tests {
     }
 
     fn run<'a>(i: &'a Indices, d: &'a Design, b: &'a [(f64, f64)], statistic: Option<&'a str>) -> Run<'a> {
-        Run { indices: i, design: d, bounds: b, output: "sim.map", statistic, resamples: 100, version: "9.9.9" }
+        Run {
+            indices: i,
+            design: d,
+            bounds: b,
+            output: "sim.map",
+            statistic,
+            resamples: 100,
+            maps: false,
+            version: "9.9.9",
+        }
+    }
+
+    #[test]
+    fn the_maps_of_sensitivity_are_told_only_when_made() {
+        let d = Design::new(Method::Sobol);
+        for (m, index) in
+            [(Method::Oat, "the swing"), (Method::Morris, "the \u{3bc}*"), (Method::Sobol, "the first-order")]
+        {
+            let i = indices(m, 2);
+            let mut r = run(&i, &d, &B, None);
+            assert!(!paragraph(&r).contains("Cell by cell"));
+            r.maps = true;
+            let p = paragraph(&r);
+            assert!(
+                p.contains("Cell by cell, the standard deviation of the output across the design and ")
+                    && p.contains(index),
+                "{p}"
+            );
+            assert!(p.contains("were mapped. Computed with Terraflux"), "{p}");
+        }
     }
 
     const B: [(f64, f64); 2] = [(0.8, 1.2), (3.0, 7.0)];

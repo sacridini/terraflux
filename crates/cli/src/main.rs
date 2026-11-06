@@ -1083,6 +1083,12 @@ fn size(bytes: usize) -> String {
     }
 }
 
+/// `terraflux sensitivity`, out of `main`: its future is large (the debug build keeps every command's locals in
+/// `main`'s frame, and overflowed the main thread's stack).
+fn sensitivity_command(a: &cluster::Sensitivity) -> Result<()> {
+    tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(cluster::sensitivity(a))
+}
+
 fn main() -> Result<()> {
     // a model file alone: the application with it
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
@@ -1131,7 +1137,7 @@ fn main() -> Result<()> {
             rt()?.block_on(cluster::submit(&model, tasks, &out, &at, detach))?;
         }
         Command::Calibrate(a) => rt()?.block_on(cluster::calibrate(&a))?,
-        Command::Sensitivity(a) => rt()?.block_on(cluster::sensitivity(&a))?,
+        Command::Sensitivity(a) => sensitivity_command(&a)?,
         Command::App { model } => app(model)?,
         command @ Command::Run { .. } => run_command(command, engine)?,
         Command::Reproduce { manifest, out, quiet, thaw } => reproduce(&manifest, out, quiet, thaw, &engine)?,

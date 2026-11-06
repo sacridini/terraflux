@@ -7,6 +7,24 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Application, `terraflux sensitivity` and the MCP: **maps of sensitivity, cell by cell**. For an output that is a
+  map, series or stack, *Maps of sensitivity, cell by cell* in Many runs > Sensitivity (and `--maps`, or `maps:
+  true` in the MCP tool `sensitivity`) makes each run keep the last map of that output (and nothing else of the
+  model's outputs), and when the analysis ends writes one GeoTIFF, `sensitivity_maps.tif`, in the results' folder,
+  on the grid of the runs' maps (float32, no-data NaN): the bands `mean` and `sd` (the mean and standard deviation
+  of the cell across the design's points, replicates averaged first) and an index per factor, the swing for one at
+  a time (`swing_<factor>`), mu* for Morris (`mu_star_<factor>`), S1 and ST for Sobol (`s1_<factor>`,
+  `st_<factor>`); NaN where a point has no value, 0 for a cell that does not change at all. It is read in blocks of
+  rows (the runs' cells of a block within 256 MB) and computed in a thread of its own (the share done is shown),
+  with no bootstrap per cell (the intervals stay for the number of the analysis). The runs' maps are deleted once
+  the maps are made, unless *Keep each run's map* (`--keep-run-maps`) is on; the tab tells the disk they take
+  (runs x one map) and the cost line and the disk check count it. The results show the file, its bands and *Show
+  in the Viewer*, and the methods paragraph adds "Cell by cell, the standard deviation of the output across the
+  design and the swing (mu*, first-order and total-order indices) of each parameter were mapped." An analysis taken
+  up again after the application closed still makes its maps. (`terraflux_dist::sens_maps::{make, Spec, Made}` and
+  `sensitivity::{map_bands, cell_bands, average_replicates}`, shared by the application and the command line.) An
+  output's `layer` may now be `last` (the last step of a series, the last band of a stack), also for
+  `stack.extract_layer`.
 - Application and `terraflux run`: **check runs**, the model on a small part of the map or at a coarser resolution,
   to see in seconds whether it is right before a run of hours. The menu next to the Run button (and the palette)
   has *Check run on the view* (the part of the map the Viewer shows, in its coordinate system), *Check run at 1/2,

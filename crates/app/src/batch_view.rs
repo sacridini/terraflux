@@ -7,6 +7,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use egui::{RichText, Ui};
@@ -18,6 +20,7 @@ use terraflux_dist::client::TaskOf;
 use terraflux_dist::evaluate::Evaluation;
 use terraflux_dist::proto::JobStatus;
 use terraflux_dist::run::{Batch, Event, Handle, Place, Progress, Start};
+use terraflux_dist::sens_maps::{self, Made};
 use terraflux_dist::sensitivity::{self as sens, Design, Indices, Method};
 use terraflux_exec::journal::{self, Entry, Journal, Status};
 use terraflux_graph::{Input, Model, Node, Source, Type};
@@ -362,6 +365,61 @@ pub struct SensitivityPlan {
     bounds: Vec<(f64, f64)>,
     #[serde(default)]
     statistic: Option<String>,
+    /// The maps of sensitivity to make at the end, cell by cell (none: only the numbers).
+    #[serde(default)]
+    maps: Option<MapsPlan>,
+}
+
+/// The maps of sensitivity asked for: the file each run kept and whether the runs' maps stay after the maps are made.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MapsPlan {
+    file: String,
+    keep_runs: bool,
+}
+
+/// The maps of sensitivity being made in a thread of their own, from the maps the runs kept.
+pub struct Making {
+    rx: std::sync::mpsc::Receiver<Result<Made, String>>,
+    /// Thousandths of the rows done.
+    done: Arc<AtomicU32>,
+    plan: SensitivityPlan,
+    out: PathBuf,
+}
+
+impl Making {
+    /// The share done (0 to 1).
+    pub fn share(&self) -> f32 {
+        self.done.load(Ordering::Relaxed) as f32 / 1000.0
+    }
+}
+
+/// Make the maps of sensitivity of a finished analysis (its runs' maps in `out/<label>/`) in a thread: the share
+/// done goes to the `Making`, the maps (or why not) come through its channel.
+fn make_maps(plan: &SensitivityPlan, out: &Path) -> Option<Making> {
+    let m = plan.maps.clone()?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let done = Arc::new(AtomicU32::new(0));
+    let (p, dir, share) = (plan.clone(), out.to_path_buf(), done.clone());
+    std::thread::Builder::new()
+        .name("terraflux-sensitivity-maps".into())
+        .spawn(move || {
+            let spec = sens_maps::Spec {
+                method: p.method,
+                keys: &p.keys,
+                rows: &p.rows,
+                design: &p.design,
+                replicates: p.replicates,
+                labels: &p.labels,
+                runs: &dir,
+                file: &m.file,
+                out: &dir,
+                keep_runs: m.keep_runs,
+            };
+            let made = sens_maps::make(&spec, &mut |f| share.store((f * 1000.0) as u32, Ordering::Relaxed));
+            let _ = tx.send(made.map_err(|e| e.to_string()));
+        })
+        .ok()?;
+    Some(Making { rx, done, plan: plan.clone(), out: out.to_path_buf() })
 }
 
 fn one() -> usize {
@@ -394,6 +452,8 @@ pub struct Finished {
     pub sensitivity: Option<Indices>,
     /// The text of its `methods.md`.
     pub methods: Option<String>,
+    /// Its maps of sensitivity, once made.
+    pub maps: Option<Made>,
 }
 
 /// What a sensitivity analysis varies and measures.
@@ -415,6 +475,11 @@ pub struct SensitivityState {
     pub start: Option<String>,
     /// Every suggested factor shown, not only the first few.
     pub more: bool,
+    /// Maps of sensitivity, cell by cell, of a map, series or stack measured: each run keeps its last map, and the
+    /// maps are made when the analysis ends.
+    pub maps: bool,
+    /// The runs' maps left in place once the maps of sensitivity are made.
+    pub keep_run_maps: bool,
 }
 
 impl Default for SensitivityState {
@@ -431,6 +496,8 @@ impl Default for SensitivityState {
             metric: "np".into(),
             start: None,
             more: false,
+            maps: false,
+            keep_run_maps: false,
         }
     }
 }
@@ -465,6 +532,8 @@ pub struct BatchState {
     pub filter: String,
     pub running: Option<Running>,
     pub finished: Option<Finished>,
+    /// The maps of sensitivity of the analysis that ended, being made.
+    pub making: Option<Making>,
     pub error: Option<String>,
     /// A batch that stopped before its end (the application closed), to take up again.
     pub interrupted: Option<Record>,
@@ -511,6 +580,7 @@ impl Default for BatchState {
             filter: String::new(),
             running: None,
             finished: None,
+            making: None,
             error: None,
             interrupted: None,
             model_of: None,
@@ -539,8 +609,48 @@ impl BatchState {
         self.running.is_some()
     }
 
+    /// The maps of sensitivity, once their thread has made them (or failed): put in the analysis's results, and
+    /// `methods.md` written again with the sentence about them.
+    fn poll_maps(&mut self) {
+        let Some(m) = &self.making else { return };
+        let made = match m.rx.try_recv() {
+            Ok(made) => made,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("the thread stopped before the end".to_string()),
+        };
+        let m = self.making.take().unwrap();
+        match made {
+            Ok(made) => {
+                if let Some(f) = &mut self.finished {
+                    let p = &m.plan;
+                    if let Some(i) = f.sensitivity.as_ref().filter(|i| p.bounds.len() == i.factors.len()) {
+                        let run = crate::sens_methods::Run {
+                            indices: i,
+                            design: &p.design,
+                            bounds: &p.bounds,
+                            output: &p.output,
+                            statistic: p.statistic.as_deref(),
+                            resamples: p.resamples,
+                            maps: true,
+                            version: env!("CARGO_PKG_VERSION"),
+                        };
+                        f.methods = Some(crate::sens_methods::text(&run));
+                        if let Err(e) = crate::sens_methods::write(&m.out, &run) {
+                            self.error = Some(format!("methods.md was not written: {e}"));
+                        }
+                    }
+                    f.maps = Some(made);
+                }
+            }
+            Err(e) => {
+                self.error = Some(format!("the maps of sensitivity were not made: {e} (the runs' maps are kept)"));
+            }
+        }
+    }
+
     /// What the batch running sent.
     pub fn poll(&mut self) {
+        self.poll_maps();
         let Some(r) = &mut self.running else { return };
         let mut done = None;
         while let Ok(e) = r.handle.rx.try_recv() {
@@ -641,6 +751,7 @@ impl BatchState {
                     }
                 });
                 let mut methods = None;
+                let mut making = None;
                 let sensitivity = r.record.sensitivity.as_ref().and_then(|p| {
                     let metrics = batch::metrics_of(&p.labels, &o.results);
                     let values: Vec<Option<f64>> = metrics.iter().map(|m| m.as_ref().map(|m| m.value)).collect();
@@ -673,8 +784,11 @@ impl BatchState {
                                 output: &p.output,
                                 statistic: p.statistic.as_deref(),
                                 resamples: p.resamples,
+                                maps: false,
                                 version: env!("CARGO_PKG_VERSION"),
                             };
+                            // (the maps of sensitivity come after, from the maps the runs kept)
+                            making = make_maps(p, &r.out);
                             // (an analysis resumed from an older record has no ranges: no methods text)
                             if p.bounds.len() == i.factors.len() {
                                 methods = Some(crate::sens_methods::text(&run));
@@ -708,7 +822,9 @@ impl BatchState {
                     ranked,
                     sensitivity,
                     methods,
+                    maps: None,
                 });
+                self.making = making;
             }
         }
     }
@@ -756,6 +872,7 @@ impl BatchState {
                 workers: self.workers,
                 running: self.running.take(),
                 finished: self.finished.take(),
+                making: self.making.take(),
                 interrupted: self.interrupted.take(),
                 on: self.on.take(),
                 compare: self.compare.take(),
@@ -894,9 +1011,34 @@ fn cost_text(head: &str, runs: usize, one: Option<f64>, at_once: Option<usize>, 
     }
 }
 
-/// Whether a kind of batch keeps the files of its runs (a calibration and a sensitivity analysis keep numbers only).
+/// Whether a kind of batch keeps the files of its runs (a calibration and a sensitivity analysis keep numbers only,
+/// unless the analysis makes maps of sensitivity: see [`maps_of`]).
 fn keeps_files(kind: Kind) -> bool {
     !matches!(kind, Kind::Calibration | Kind::Sensitivity)
+}
+
+/// Whether an output of a model is a map, series or stack: what has a last map to make maps of sensitivity from.
+pub fn is_map_output(m: &Model, r: &Registry, output: &str) -> bool {
+    measurable(m, r).iter().any(|(k, t)| k == output && matches!(t, Type::Map | Type::Series | Type::Stack))
+}
+
+/// The output whose last map each run keeps for the maps of sensitivity, when the analysis asks for them and the
+/// output measured is a map, series or stack.
+fn maps_of(st: &BatchState, s: &Session, r: &Registry) -> Option<String> {
+    let out = st.sens.output.clone().or_else(|| default_measure(&s.model, r))?;
+    (st.kind == Kind::Sensitivity && st.sens.maps && is_map_output(&s.model, r, &out)).then_some(out)
+}
+
+/// The bytes the files of a batch of `runs` runs may take: the runs' outputs, or the one map each run keeps for the
+/// maps of sensitivity.
+fn batch_bytes(st: &BatchState, s: &Session, r: &Registry, runs: usize) -> u64 {
+    if keeps_files(st.kind) {
+        s.run_bytes() * runs as u64
+    } else if maps_of(st, s, r).is_some() {
+        crate::disk::map_bytes(&s.model, &s.base()) * runs as u64
+    } else {
+        0
+    }
 }
 
 /// The folder a batch writes to (its results' folder, else beside the model).
@@ -905,7 +1047,7 @@ fn out_dir(st: &BatchState, s: &Session) -> PathBuf {
 }
 
 /// The cost line for the batch chosen, with its warning hint when long.
-fn cost_ui(ui: &mut Ui, st: &BatchState, s: &Session, knobs: &[Knob], runs: usize) {
+fn cost_ui(ui: &mut Ui, st: &BatchState, s: &Session, r: &Registry, knobs: &[Knob], runs: usize) {
     let mut times = s.times_before.clone();
     times.extend(s.timings.iter().map(|(at, (secs, _))| (at.clone(), *secs)));
     let one = one_run_time(&times);
@@ -937,9 +1079,7 @@ fn cost_ui(ui: &mut Ui, st: &BatchState, s: &Session, knobs: &[Knob], runs: usiz
     };
     let (mut text, long) = cost_text(&head, runs, one, at_once, &place);
     // the files it keeps, against the disk's room
-    let tight = keeps_files(st.kind)
-        .then(|| crate::disk::cost_note(s.run_bytes() * runs as u64, &out_dir(st, s), s.disk_space))
-        .flatten()
+    let tight = crate::disk::cost_note(batch_bytes(st, s, r, runs), &out_dir(st, s), s.disk_space)
         .map(|(note, over)| {
             text.push_str(&note);
             over
@@ -1055,6 +1195,7 @@ fn tasks(st: &BatchState, knobs: &[Knob]) -> Result<Planned, String> {
                 resamples: st.sens.resamples,
                 bounds,
                 statistic: None,
+                maps: None,
             };
             Ok((t, None, Some(plan)))
         }
@@ -1305,6 +1446,8 @@ pub fn set_asked(st: &mut BatchState, ranges: &[(String, f64, f64)], ask: &crate
     if let Some(t) = &ask.statistic {
         set_statistic(&mut st.sens, t);
     }
+    st.sens.maps = ask.maps;
+    st.sens.keep_run_maps = ask.keep_run_maps;
 }
 
 /// The output scored by default: a simulation's maps, else the first series or map of the nodes where the
@@ -1356,7 +1499,7 @@ pub fn start(
         return Err("no run to do".into());
     }
     let mut model = s.model.clone();
-    // (a sensitivity analysis keeps nothing: only its numbers come back)
+    // (a sensitivity analysis keeps nothing: only its numbers come back, unless it makes maps of sensitivity)
     let keep = if st.kind == Kind::Sensitivity {
         BTreeSet::new()
     } else {
@@ -1365,6 +1508,15 @@ pub fn start(
     for key in keep {
         let name = key.replace(['.', '/'], "_");
         model.outputs.insert(name, terraflux_graph::Output { from: key, path: None, dtype: None, layer: None });
+    }
+    // the maps of sensitivity: each run keeps the last map of the output measured, and nothing else of the model's
+    // outputs
+    let maps = maps_of(st, s, r);
+    if let Some(key) = &maps {
+        sens_maps::keep_last_map(&mut model, key);
+        if let Some(p) = sensitivity.as_mut() {
+            p.maps = Some(MapsPlan { file: sens_maps::run_file(key), keep_runs: st.sens.keep_run_maps });
+        }
     }
     // every run must apply to the model
     for (label, o) in &tasks {
@@ -1420,7 +1572,7 @@ pub fn start(
         _ => None,
     };
     let out = st.out.clone().unwrap_or_else(|| next_out(s, st.kind));
-    let files = keeps_files(st.kind);
+    let files = keeps_files(st.kind) || maps.is_some();
     let total = tasks.len();
     let b =
         Batch { name: format!("{} {}", s.title(), st.kind.name()), model, base: s.base(), tasks, files, evaluation };
@@ -1473,6 +1625,7 @@ fn launch(st: &mut BatchState, start: Start, record: Record, place: Place, ctx: 
     });
     st.interrupted = None;
     st.finished = None;
+    st.making = None;
     st.error = None;
 }
 
@@ -2037,6 +2190,7 @@ fn sensitivity_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry, k
             }
         }
     });
+    maps_ui(ui, st, s, r, knobs);
     let hint = if st.seeds.clone().unwrap_or_else(|| default_seeds(knobs)).is_empty() {
         "the model has no seed: every run of a point is the same"
     } else {
@@ -2044,6 +2198,25 @@ fn sensitivity_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry, k
     };
     ui.label(RichText::new(hint).weak());
     seeds_ui(ui, st, knobs);
+}
+
+/// The choice of maps of sensitivity, cell by cell, under the output measured (when it is a map, series or stack).
+fn maps_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry, knobs: &[Knob]) {
+    let Some(out) = st.sens.output.clone().filter(|o| is_map_output(&s.model, r, o)) else { return };
+    ui.checkbox(&mut st.sens.maps, "Maps of sensitivity, cell by cell").on_hover_text(
+        "the standard deviation of the output across the design and the index of each factor, in every cell, as \
+         the bands of one GeoTIFF (sensitivity_maps.tif) for the Viewer",
+    );
+    if !st.sens.maps {
+        return;
+    }
+    let runs = sensitivity_runs(st, knobs).unwrap_or(0);
+    let bytes = crate::disk::map_bytes(&s.model, &s.base()) * runs as u64;
+    let size = if bytes > 0 { format!(", about {} on disk", crate::disk::size_text(bytes)) } else { String::new() };
+    let after = if st.sens.keep_run_maps { "and stay after" } else { "until the maps are made, then are deleted" };
+    ui.label(RichText::new(format!("Each run keeps the last map of {out} ({runs} maps{size}) {after}.")).weak());
+    ui.checkbox(&mut st.sens.keep_run_maps, "Keep each run's map")
+        .on_hover_text("leave the runs' maps in their folders once the maps of sensitivity are made");
 }
 
 fn keep_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry) {
@@ -2148,6 +2321,7 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
     let mut add_series = None;
     let mut apply = None;
     let mut st_error = None;
+    let mut show_maps = None;
     if let Some((ranked, keys, metric)) = &f.ranked {
         if let Some(best) = ranked.first() {
             ui.label(RichText::new(format!("Best: {} = {:.4}", metric, best.score)).strong());
@@ -2256,6 +2430,37 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
             )
             .weak(),
         );
+        if let Some(m) = &st.making {
+            let share = m.share();
+            theme::progress(
+                ui,
+                Some(share),
+                &format!("making the maps of sensitivity: {:.0} %", share * 100.0),
+                (ui.available_width() - 120.0).max(80.0),
+            );
+        }
+        if let Some(m) = &f.maps {
+            let name = m.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!("Maps of sensitivity: {name}"));
+                if ui
+                    .button("Show in the Viewer")
+                    .on_hover_text(
+                        "the bands as layers of the Viewer: the mean, the spread and the index of each factor",
+                    )
+                    .clicked()
+                {
+                    show_maps = Some(m.path.clone());
+                }
+            });
+            ui.label(RichText::new(format!("Bands: {}", m.bands.join(", "))).weak());
+            if m.missing > 0 {
+                ui.label(format!(
+                    "{} runs kept no map; their points are the mean of the replicates that did.",
+                    m.missing
+                ));
+            }
+        }
     } else {
         for name in f.files.iter().filter(|n| n.ends_with(".tif")) {
             if ui
@@ -2289,6 +2494,9 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
     if st_error.is_some() {
         st.error = st_error;
     }
+    if let Some(p) = show_maps {
+        crate::builder::drop_on_viewer(s, r, &[p]);
+    }
     if let Some(p) = add_series
         && let Err(e) = crate::builder::add(s, r, "raster.read", &[("path", p.to_string_lossy().into_owned().into())])
     {
@@ -2307,11 +2515,12 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
 
 /// Whether a batch may start as far as the disk goes: one that keeps files and may not fit asks first
 /// ([`BatchState::disk_ask`]); one that leaves little is told.
-fn disk_ok(st: &mut BatchState, s: &mut Session, runs: usize) -> bool {
-    if !keeps_files(st.kind) || s.path.is_none() {
+fn disk_ok(st: &mut BatchState, s: &mut Session, r: &Registry, runs: usize) -> bool {
+    let bytes = batch_bytes(st, s, r, runs);
+    if bytes == 0 || s.path.is_none() {
         return true;
     }
-    match crate::disk::plan(s.run_bytes() * runs as u64, &out_dir(st, s), s.disk_space) {
+    match crate::disk::plan(bytes, &out_dir(st, s), s.disk_space) {
         crate::disk::Plan::Go => true,
         crate::disk::Plan::Warn(text) => {
             s.notice = Some((text, Instant::now()));
@@ -2363,7 +2572,7 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
                 if let Err(e) = &count {
                     ui.label(RichText::new(e).color(ui.visuals().warn_fg_color));
                 }
-                if resp.clicked() && disk_ok(st, s, count.as_ref().map_or(0, |n| *n)) {
+                if resp.clicked() && disk_ok(st, s, r, count.as_ref().map_or(0, |n| *n)) {
                     st.error = start(st, s, r, computers, ui.ctx()).err();
                 }
             }
@@ -2371,7 +2580,7 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
         if st.running.is_none()
             && let Ok(n) = &count
         {
-            cost_ui(ui, st, s, &knobs, *n);
+            cost_ui(ui, st, s, r, &knobs, *n);
         }
         match crate::disk::window(ui.ctx(), &mut st.disk_ask) {
             Some(crate::disk::Answer::Anyway) => st.error = start(st, s, r, computers, ui.ctx()).err(),
@@ -2493,6 +2702,18 @@ mod tests {
         assert_eq!(statistic_of(Some(Type::Map), &s), Ok(Some("metric:pland:3".into())));
         s.statistic = "changed".into();
         assert_eq!(statistic_of(Some(Type::Map), &s), Ok(Some("changed".into())));
+    }
+
+    #[test]
+    fn a_plan_kept_before_the_maps_still_opens_and_keeps_them_after() {
+        let old = r#"{"method":"oat","design":{"n":1,"levels":4,"second_order":false,"seed":1},"keys":["a.b"],
+            "rows":[[1.0]],"labels":["x"],"output":"m.o","resamples":10}"#;
+        let p: SensitivityPlan = serde_json::from_str(old).unwrap();
+        assert!(p.maps.is_none());
+        let p = SensitivityPlan { maps: Some(MapsPlan { file: "m_o.tif".into(), keep_runs: true }), ..p };
+        let back: SensitivityPlan = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        let m = back.maps.unwrap();
+        assert_eq!((m.file.as_str(), m.keep_runs), ("m_o.tif", true));
     }
 
     #[test]

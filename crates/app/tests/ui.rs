@@ -4332,6 +4332,131 @@ fn a_morris_analysis_checks_its_convergence() {
 }
 
 #[test]
+fn a_sensitivity_analysis_makes_maps_of_sensitivity() {
+    use terraflux_app::batch_view::{Kind, Range};
+    use terraflux_dist::sensitivity::Method;
+    let mut h = harness(new_app(Some(model())));
+    loaded(&mut h);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.apply(&[("simulation.times".to_string(), serde_json::json!(1))].into()).unwrap();
+        s.edited();
+    }
+    h.state_mut().focus(Pane::Batch);
+    let out = tmp("ui-sensitivity-maps");
+    let _ = std::fs::remove_dir_all(&out);
+    let _ = std::fs::remove_dir_all(tmp("ui-sensitivity-maps-pool"));
+    h.state_mut().computers.pool = None;
+    h.state_mut().computers.dir = Some(tmp("ui-sensitivity-maps-pool"));
+    {
+        let b = &mut h.state_mut().batch;
+        b.kind = Kind::Sensitivity;
+        b.workers = 2;
+        b.out = Some(out.clone());
+        b.sens.method = Method::Oat;
+        b.sens.output = Some("simulation.maps".into());
+        b.sens.factors = vec![
+            Range { key: "patches.isometry".into(), from: "0.5".into(), to: "2.5".into(), points: String::new() },
+            Range {
+                key: "simulation/allocate.prune_factor".into(),
+                from: "5".into(),
+                to: "15".into(),
+                points: String::new(),
+            },
+        ];
+    }
+    h.run_steps(3);
+    // the choice is offered for a series, off; on, it says what the runs keep
+    assert!(h.query_by_label("Maps of sensitivity, cell by cell").is_some());
+    assert!(h.query_by_label("Keep each run's map").is_none() && !h.state().batch.sens.maps);
+    h.get_by_label("Maps of sensitivity, cell by cell").click();
+    h.run_steps(3);
+    assert!(h.state().batch.sens.maps);
+    assert!(h.query_by_label("Keep each run's map").is_some());
+    assert!(h.query_by_label_contains("Each run keeps the last map of simulation.maps (5 maps").is_some());
+    shot(&mut h, "batch-10-sensitivity-maps");
+    h.get_by_label("Run 5 times").click();
+    h.run_steps(1);
+    assert!(h.state().batch.running(), "{:?}", h.state().batch.error);
+    until(&mut h, "the sensitivity analysis and its maps", |a| !a.batch.running() && a.batch.making.is_none());
+    h.run_steps(3);
+    let b = &h.state().batch;
+    assert!(b.error.is_none(), "{:?}", b.error);
+    let f = b.finished.as_ref().unwrap();
+    assert!(f.sensitivity.is_some(), "{:?}", f.errors);
+    // the indices are the numbers as before; the maps are the bands of one file
+    let made = f.maps.as_ref().expect("the maps of sensitivity");
+    assert_eq!(made.path, out.join("sensitivity_maps.tif"));
+    assert_eq!(made.bands, ["mean", "sd", "swing_patches.isometry", "swing_simulation/allocate.prune_factor"]);
+    assert_eq!((made.read, made.missing), (5, 0));
+    let stack = terraflux_raster::Raster::read(&made.path).unwrap();
+    assert_eq!(stack.band_names(), made.bands);
+    assert!(stack.bands[0].data.iter().any(|v| v.is_finite()), "cells with a mean");
+    // the sentence of the methods text, in the file and on screen
+    let methods = std::fs::read_to_string(out.join("methods.md")).unwrap();
+    assert!(
+        methods.contains("Cell by cell, the standard deviation of the output across the design and the swing"),
+        "{methods}"
+    );
+    assert_eq!(f.methods.as_deref(), Some(methods.as_str()));
+    // the runs' maps are gone: only the maps of sensitivity are left as rasters
+    let tifs: Vec<_> = walk(&out).into_iter().filter(|p| p.extension().is_some_and(|e| e == "tif")).collect();
+    assert_eq!(tifs, [out.join("sensitivity_maps.tif")], "{tifs:?}");
+    h.get_by_label("Show in the Viewer").scroll_to_me();
+    h.run_steps(30);
+    assert!(h.query_by_label_contains("Maps of sensitivity: sensitivity_maps.tif").is_some());
+    assert!(h.query_by_label_contains("Bands: mean, sd, swing_patches.isometry").is_some());
+    let layers = h.state().session.as_ref().unwrap().preview_layers.len();
+    h.get_by_label("Show in the Viewer").click();
+    h.run_steps(2);
+    until(&mut h, "the maps shown", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.show_queue.is_empty()
+    });
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().preview_layers.len() > layers, "the maps are a layer of the Viewer");
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(3);
+    shot(&mut h, "batch-11-sensitivity-maps-viewer");
+
+    // with the runs' maps kept, they stay
+    let out = tmp("ui-sensitivity-maps-kept");
+    let _ = std::fs::remove_dir_all(&out);
+    h.state_mut().focus(Pane::Batch);
+    {
+        let b = &mut h.state_mut().batch;
+        b.out = Some(out.clone());
+        b.sens.keep_run_maps = true;
+        b.sens.factors.truncate(1);
+    }
+    h.run_steps(3);
+    h.get_by_label("Run 3 times").click();
+    h.run_steps(1);
+    assert!(h.state().batch.running(), "{:?}", h.state().batch.error);
+    until(&mut h, "the maps with the runs' maps kept", |a| !a.batch.running() && a.batch.making.is_none());
+    h.run_steps(2);
+    let b = &h.state().batch;
+    assert!(b.error.is_none(), "{:?}", b.error);
+    assert_eq!(b.finished.as_ref().unwrap().maps.as_ref().unwrap().bands.len(), 3);
+    let tifs = walk(&out).into_iter().filter(|p| p.extension().is_some_and(|e| e == "tif")).count();
+    assert_eq!(tifs, 1 + 3, "the maps and the 3 runs' maps");
+}
+
+/// Every file under a folder.
+fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            out.extend(walk(&p));
+        } else {
+            out.push(p);
+        }
+    }
+    out
+}
+
+#[test]
 fn the_model_suggests_the_factors_it_assumes() {
     use terraflux_app::batch_view::Kind;
     let mut h = harness(new_app(Some(model())));
