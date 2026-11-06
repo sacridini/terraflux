@@ -6370,6 +6370,8 @@ fn side_by_side(
         let mut all: Vec<&mut crate::map_view::MapView> = vec![&mut sh.view, &mut *compared];
         all.extend(views.iter_mut().zip(&drawn).filter(|(_, p)| p.is_ok()).map(|(b, _)| &mut b.view));
         crate::measure::together(&mut all);
+        // (the place *Go to* found: in one view at a time, drawn in the others)
+        crate::goto::together(&mut all);
     }
     let mut before = vec![sh.view.camera(), compared.camera()];
     before.extend(views.iter().zip(&drawn).filter(|(_, p)| p.is_ok()).map(|(b, _)| b.view.camera()));
@@ -6391,7 +6393,9 @@ fn side_by_side(
                     (src, coloring, name): (&Source, &Coloring, &str),
                     view: &mut crate::map_view::MapView,
                     // (the lines measured in the other views, drawn over this one, each carried by a link)
-                    lines: &[(&crate::measure::Measure, Link)]| {
+                    lines: &[(&crate::measure::Measure, Link)],
+                    // (the places found by *Go to* in the other views, carried the same way)
+                    marks: &[(crate::map_view::Mark, Link)]| {
         // (view 0 is the map shown, the layers of the Viewer's; the next ones the compared and the views more)
         let (rasters, overlays) = match i.checked_sub(1).and_then(|j| own.get(j)).and_then(|o| o.as_ref()) {
             Some(d) => (&d.rasters[..], &d.overlays[..]),
@@ -6402,6 +6406,9 @@ fn side_by_side(
                 let h = view.show_stacked(ui, src, coloring, rasters, overlays);
                 for (l, link) in lines {
                     view.paint_measure(ui, l, link);
+                }
+                for (m, link) in marks {
+                    view.paint_mark_beside(ui, m, link);
                 }
                 named(ui, rect, name);
                 h
@@ -6432,13 +6439,30 @@ fn side_by_side(
             })
             .collect()
     };
-    draw(ui, rects[0], 0, left, &mut sh.view, &lines_for(0));
-    draw(ui, rects[1], 1, right, compared, &lines_for(1));
+    let marked: Vec<(usize, crate::map_view::Mark)> = std::iter::once(&sh.view)
+        .chain(std::iter::once(&*compared))
+        .chain(views.iter().map(|b| &b.view))
+        .enumerate()
+        .filter_map(|(i, v)| v.mark.clone().map(|m| (i, m)))
+        .collect();
+    let marks_for = |i: usize| -> Vec<(crate::map_view::Mark, Link)> {
+        let Some(own) = grids.get(i).copied().flatten() else { return Vec::new() };
+        marked
+            .iter()
+            .filter(|(from, _)| *from != i)
+            .filter_map(|(from, m)| {
+                let link = Link::between(own, grids.get(*from).copied().flatten()?)?;
+                Some((m.clone(), link))
+            })
+            .collect()
+    };
+    draw(ui, rects[0], 0, left, &mut sh.view, &lines_for(0), &marks_for(0));
+    draw(ui, rects[1], 1, right, compared, &lines_for(1), &marks_for(1));
     for (i, ((m, p), b)) in more.iter().zip(&drawn).zip(views.iter_mut()).enumerate() {
         let rect = rects[2 + i];
         match (m, p) {
             (Ok((src, coloring, name)), Ok(_)) => {
-                draw(ui, rect, 2 + i, (src, coloring, name), &mut b.view, &lines_for(2 + i))
+                draw(ui, rect, 2 + i, (src, coloring, name), &mut b.view, &lines_for(2 + i), &marks_for(2 + i))
             }
             (_, Err(e)) => {
                 ui.scope_builder(egui::UiBuilder::new().max_rect(rect).id_salt(("side by side", 2 + i)), |ui| {

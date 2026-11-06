@@ -540,6 +540,11 @@ pub struct MapView {
     /// The box of *Go to* while it is open, and the place it found (marked until escape).
     pub goto: Option<crate::goto::GoTo>,
     pub mark: Option<Mark>,
+    /// The mark was just set here (views side by side drop the marks of the others), escape was pressed over this view
+    /// (they drop it everywhere), and a view beside has a mark (escape lets it go from here too).
+    pub mark_new: bool,
+    pub mark_stopped: bool,
+    pub mark_beside: bool,
     tiles: HashMap<TileKey, Tile>,
     workers: Option<Workers>,
     /// the tiles asked of the workers and not come yet
@@ -850,9 +855,25 @@ impl MapView {
     /// Go to the place a text names (degrees, or the map's units): the view centred on it at the same zoom, a mark
     /// on it. Whether it is inside the map; a place outside it is gone to all the same.
     pub fn go_to(&mut self, text: &str, degrees: bool) -> Result<bool, String> {
+        self.go_to_zoom(text, degrees, crate::goto::Zoom::Keep)
+    }
+
+    /// `go_to` at a zoom: the map's scale or the width of ground in view (`zoom`, unless the text has its own after an
+    /// `@`), else the zoom as it is. The jump (centre and zoom) is one view of the history.
+    pub fn go_to_zoom(&mut self, text: &str, degrees: bool, zoom: crate::goto::Zoom) -> Result<bool, String> {
         let grid = self.shown_grid.as_ref().ok_or("no map is shown")?;
-        let target = crate::goto::parse(text, degrees)?;
+        let (target, typed) = crate::goto::parse_with_zoom(text, degrees)?;
+        let zoom = if typed == crate::goto::Zoom::Keep { zoom } else { typed };
         let (cell, inside) = crate::goto::locate(grid, target)?;
+        let new_zoom = match zoom.metres_per_point(self.rect.map_or(800.0, |r| r.width())) {
+            None => None,
+            Some(per_pt) => {
+                let at = Vec2::new(cell[0] as f32, cell[1] as f32);
+                let per_cell = crate::nav::metres_per_point(grid, at, 1.0)
+                    .ok_or("the map has no units to take a scale or a width in: keep the zoom")?;
+                Some(((per_cell / per_pt) as f32).clamp(1e-6, MAX_ZOOM))
+            }
+        };
         let label = crate::goto::place_text(grid, cell);
         let text = match target {
             // (what was typed, as the map's system has it, and in degrees when they were typed)
@@ -864,6 +885,10 @@ impl MapView {
             _ => label,
         };
         self.mark = Some(Mark { cell, text, inside });
+        (self.mark_new, self.mark_stopped) = (true, false);
+        if let Some(z) = new_zoom {
+            self.zoom = z;
+        }
         self.center = Vec2::new(cell[0] as f32, cell[1] as f32);
         self.fitted = true;
         Ok(inside)
@@ -1418,7 +1443,23 @@ impl MapView {
     /// colour; a word beside it when it is outside the map.
     fn paint_mark(&self, painter: &egui::Painter, rect: Rect) {
         let Some(m) = &self.mark else { return };
-        let p = rect.center() + (Vec2::new(m.cell[0] as f32, m.cell[1] as f32) - self.center) * self.zoom;
+        self.paint_mark_at(painter, rect, m.cell, m.inside);
+    }
+
+    /// The mark of a view beside, at the same ground: its cell carried to this view's grid by the link between them.
+    pub fn paint_mark_beside(&self, ui: &Ui, mark: &Mark, link: &crate::reproject::Link) {
+        let Some(rect) = self.rect else { return };
+        let c = link.to_own(Vec2::new(mark.cell[0] as f32, mark.cell[1] as f32));
+        if c.x.is_finite() && c.y.is_finite() {
+            let inside = self.shown_grid.as_ref().is_none_or(|g| {
+                c.x >= 0.0 && c.y >= 0.0 && (c.x as f64) < g.width as f64 && (c.y as f64) < g.height as f64
+            });
+            self.paint_mark_at(&ui.painter_at(rect), rect, [f64::from(c.x), f64::from(c.y)], inside);
+        }
+    }
+
+    fn paint_mark_at(&self, painter: &egui::Painter, rect: Rect, cell: [f64; 2], inside: bool) {
+        let p = rect.center() + (Vec2::new(cell[0] as f32, cell[1] as f32) - self.center) * self.zoom;
         if !rect.expand(20.0).contains(p) {
             return;
         }
@@ -1433,7 +1474,7 @@ impl MapView {
                 painter.line_segment([p + Vec2::new(0.0, s * 7.0), p + Vec2::new(0.0, s * 15.0)], stroke);
             }
         }
-        if !m.inside {
+        if !inside {
             let galley =
                 painter.layout_no_wrap("outside the map".into(), egui::FontId::proportional(11.0), Color32::WHITE);
             let at = p + Vec2::new(18.0, -galley.size().y / 2.0);
@@ -1519,6 +1560,23 @@ impl MapView {
                             ui.selectable_value(&mut b.degrees, true, "degrees");
                         });
                         ui.selectable_value(&mut b.degrees, false, "map units");
+                        // (a scale needs units on the ground)
+                        ui.add_enabled_ui(!plain, |ui| {
+                            egui::ComboBox::from_id_salt("goto zoom")
+                                .selected_text(b.zoom.label())
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut b.zoom, crate::goto::Zoom::Keep, "keep the zoom");
+                                    for n in crate::goto::SCALES {
+                                        let z = crate::goto::Zoom::Scale(n);
+                                        ui.selectable_value(&mut b.zoom, z, z.label());
+                                    }
+                                })
+                                .response
+                                .on_hover_text(
+                                    "the zoom after going: as it is, or a scale (a width of view or another scale \
+                                     can be typed after an @: -15.8, -47.9 @ 1:50000, or @ 5 km)",
+                                );
+                        });
                     });
                     let help = if b.degrees {
                         crate::goto::HINT.to_string()
@@ -1535,7 +1593,7 @@ impl MapView {
                 });
             });
         if go {
-            match self.go_to(&b.text, b.degrees) {
+            match self.go_to_zoom(&b.text, b.degrees, b.zoom) {
                 Ok(true) => close = true,
                 Ok(false) => {
                     b.error = None;
@@ -1825,7 +1883,7 @@ impl MapView {
             self.toggle_goto();
         }
         // escape over the map lets the place found go (not while the box, a line or a shape wants it)
-        if self.mark.is_some()
+        if (self.mark.is_some() || self.mark_beside)
             && self.goto.is_none()
             && self.measuring.is_none()
             && self.drawing.is_none()
@@ -1835,7 +1893,10 @@ impl MapView {
             && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
         {
             self.mark = None;
+            self.mark_stopped = true;
         }
+        // (set again every frame by views side by side)
+        self.mark_beside = false;
         // the view as it stands: kept in the history once it has been still for a while
         if self.history.watch((self.zoom, self.center), crate::nav::now()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(450));

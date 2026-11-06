@@ -22,7 +22,7 @@ pub enum Target {
 
 /// What the hint of the box says.
 pub const HINT: &str = "lat, lon (a comma, as Google Maps copies it)  ·  lon lat (a space)  ·  12°20'30\"S 122°30'E  ·  \
-                        N S E W tell which is which";
+                        N S E W tell which is which  ·  add @ 1:50000 or @ 5 km for the zoom";
 
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
@@ -235,6 +235,90 @@ pub fn parse(text: &str, degrees_mode: bool) -> Result<Target, String> {
     degrees(a, b, comma)
 }
 
+/// How far in the view is after going: the zoom as it is, a map scale, or the ground the view's width shows.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum Zoom {
+    #[default]
+    Keep,
+    /// 1:n, a screen point taken as 1/96 inch (as CSS and the scale bars of GIS tools do).
+    Scale(f64),
+    /// Metres across the width of the view.
+    Width(f64),
+}
+
+/// Metres in a screen point (egui's points are 1/96 inch).
+const POINT_METRES: f64 = 0.0254 / 96.0;
+
+/// The scales the box offers.
+pub const SCALES: [f64; 4] = [5_000.0, 25_000.0, 100_000.0, 1_000_000.0];
+
+impl Zoom {
+    /// What the box shows for it.
+    pub fn label(self) -> String {
+        match self {
+            Zoom::Keep => "keep the zoom".into(),
+            Zoom::Scale(n) => format!("1:{}", spaced(n)),
+            Zoom::Width(m) if m >= 1000.0 => format!("{} km wide", plain(m / 1000.0)),
+            Zoom::Width(m) => format!("{} m wide", plain(m)),
+        }
+    }
+
+    /// Metres on the ground per screen point this asks for, in a view `width` points wide (none: keep the zoom).
+    pub fn metres_per_point(self, width: f32) -> Option<f64> {
+        match self {
+            Zoom::Keep => None,
+            Zoom::Scale(n) => Some(n * POINT_METRES),
+            Zoom::Width(m) => Some(m / f64::from(width.max(1.0))),
+        }
+    }
+}
+
+/// 25000 as `25 000`.
+fn spaced(n: f64) -> String {
+    let t = format!("{n:.0}");
+    let mut out = String::new();
+    for (i, c) in t.chars().enumerate() {
+        if i > 0 && (t.len() - i).is_multiple_of(3) {
+            out.push(' ');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// A zoom as typed: `1:50000` (spaces allowed in the number), `keep`, or a width of view: `5 km`, `800 m`.
+pub fn parse_zoom(text: &str) -> Result<Zoom, String> {
+    let t = text.trim().to_lowercase();
+    if t.is_empty() || t == "keep" {
+        return Ok(Zoom::Keep);
+    }
+    let number = |s: &str| {
+        let s: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+        match s.parse::<f64>() {
+            Ok(v) if v.is_finite() && v > 0.0 => Ok(v),
+            _ => Err(format!("\"{s}\" is not a size above zero")),
+        }
+    };
+    if let Some(n) = t.strip_prefix("1:").or_else(|| t.strip_prefix("1/")) {
+        return Ok(Zoom::Scale(number(n)?));
+    }
+    if let Some(n) = t.strip_suffix("km") {
+        return Ok(Zoom::Width(number(n)? * 1000.0));
+    }
+    if let Some(n) = t.strip_suffix('m') {
+        return Ok(Zoom::Width(number(n)?));
+    }
+    Err("a zoom is a scale (1:50000) or a width of view (5 km, 800 m)".into())
+}
+
+/// A place and, after an `@`, the zoom to go there at: `-15.8, -47.9 @ 1:50000`, `450000 1300000 @ 2 km`.
+pub fn parse_with_zoom(text: &str, degrees_mode: bool) -> Result<(Target, Zoom), String> {
+    match text.split_once('@') {
+        None => Ok((parse(text, degrees_mode)?, Zoom::Keep)),
+        Some((place, zoom)) => Ok((parse(place, degrees_mode)?, parse_zoom(zoom)?)),
+    }
+}
+
 /// A place as text in the map's own system: degrees with hemispheres on a geographic map, else x and y.
 pub fn place_text(g: &Grid, c: [f64; 2]) -> String {
     let t = &g.transform;
@@ -289,6 +373,24 @@ pub fn locate(g: &Grid, target: Target) -> Result<([f64; 2], bool), String> {
     Ok((cell, inside))
 }
 
+/// Views side by side share the place found: the one that just went somewhere (`mark_new`) keeps its mark and the
+/// others lose theirs; escape over any (`mark_stopped`) lets it go everywhere; the views are told one is marked.
+pub fn together(views: &mut [&mut crate::map_view::MapView]) {
+    let stopped = views.iter().any(|v| v.mark_stopped);
+    let newest = views.iter().rposition(|v| v.mark_new);
+    for (i, v) in views.iter_mut().enumerate() {
+        v.mark_stopped = false;
+        v.mark_new = false;
+        if stopped || newest.is_some_and(|n| n != i) {
+            v.mark = None;
+        }
+    }
+    let any = views.iter().any(|v| v.mark.is_some());
+    for v in views.iter_mut() {
+        v.mark_beside = any;
+    }
+}
+
 /// The box of *Go to*: what is typed, in which units, and what came of the last try.
 #[derive(Debug, Clone)]
 pub struct GoTo {
@@ -299,13 +401,15 @@ pub struct GoTo {
     /// A word that is not an error ("outside the map": it went there all the same).
     pub note: Option<String>,
     pub focus: bool,
+    /// The zoom chosen in the box (an `@` in the text overrides it).
+    pub zoom: Zoom,
 }
 
 impl GoTo {
     /// A box open on degrees when the map has a coordinate system to carry them, else on map units.
     pub fn new(g: Option<&Grid>) -> GoTo {
         let degrees = g.is_none_or(|g| Frame::of(g) != Frame::Plain);
-        GoTo { text: String::new(), degrees, error: None, note: None, focus: true }
+        GoTo { text: String::new(), degrees, error: None, note: None, focus: true, zoom: Zoom::Keep }
     }
 }
 
@@ -341,6 +445,35 @@ mod tests {
         assert_eq!(parse("40.5 -20.5", true), deg(40.5, -20.5));
         // (the minus sign of the unicode)
         assert_eq!(parse("\u{2212}12.5, 122.25", true), deg(122.25, -12.5));
+    }
+
+    #[test]
+    fn a_zoom_after_an_at_sign() {
+        assert_eq!(parse_zoom("1:50000"), Ok(Zoom::Scale(50_000.0)));
+        assert_eq!(parse_zoom(" 1:25 000 "), Ok(Zoom::Scale(25_000.0)));
+        assert_eq!(parse_zoom("5 km"), Ok(Zoom::Width(5000.0)));
+        assert_eq!(parse_zoom("800m"), Ok(Zoom::Width(800.0)));
+        assert_eq!(parse_zoom("keep"), Ok(Zoom::Keep));
+        assert!(parse_zoom("50000").unwrap_err().contains("scale"));
+        assert!(parse_zoom("1:0").is_err() && parse_zoom("-2 km").is_err());
+        assert_eq!(
+            parse_with_zoom("-15.8, -47.9 @ 1:50000", true),
+            Ok((Target::Degrees { lon: -47.9, lat: -15.8 }, Zoom::Scale(50_000.0)))
+        );
+        assert_eq!(
+            parse_with_zoom("450000 1300000 @ 2 km", false),
+            Ok((Target::Map { x: 450_000.0, y: 1_300_000.0 }, Zoom::Width(2000.0)))
+        );
+        assert_eq!(parse_with_zoom("12.5, 122.25", true), Ok((Target::Degrees { lon: 122.25, lat: 12.5 }, Zoom::Keep)));
+        // (the place's own errors stay)
+        assert!(parse_with_zoom("@ 1:5000", true).is_err());
+        // metres per screen point: a point is 1/96 inch
+        let m = Zoom::Scale(1000.0).metres_per_point(800.0).unwrap();
+        assert!((m - 0.264583).abs() < 1e-5, "{m}");
+        assert_eq!(Zoom::Width(800.0).metres_per_point(400.0), Some(2.0));
+        assert_eq!(Zoom::Keep.metres_per_point(400.0), None);
+        assert_eq!(Zoom::Scale(25_000.0).label(), "1:25 000");
+        assert_eq!(Zoom::Width(5000.0).label(), "5 km wide");
     }
 
     #[test]

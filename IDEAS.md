@@ -2511,7 +2511,10 @@ item, na ordem; release só quando pedido.
    status com Ctrl+G e Alt+←/→. Testes: os de `nav.rs` e `goto.rs`, `the_scale_bar_on_the_live_map`,
    `the_scale_bar_of_a_map_in_degrees_is_in_metres`, `the_scale_bar_without_a_crs_is_in_cells`,
    `back_and_forward_along_the_views`, `go_to_a_coordinate_with_a_mark`. Falta: a grade em lat/lon sobre um mapa
-   projetado; a marca nas vistas ao lado; *Go to* com zoom; o datum de um mapa geográfico que não é WGS 84.
+   projetado; ~~a marca nas vistas ao lado; *Go to* com zoom~~ (feitos: `goto::Zoom`, `parse_with_zoom`, o `@`
+   no texto e o combo de escalas, `nav::metres_per_point`; `goto::together` e `MapView::paint_mark_beside` pelo
+   `Link::between`; testes `go_to_at_a_scale_or_a_width`, `the_go_to_mark_is_in_the_views_side_by_side`; falta a
+   marca no comparar com cortina/diferença); o datum de um mapa geográfico que não é WGS 84.
    **A investigar:** a suíte `--test ui` caiu duas vezes em doze rodadas com `STATUS_ACCESS_VIOLATION` (o processo
    inteiro, sem dizer o teste), as duas enquanto rodavam `templates_run`, `the_methods_and_citations_of_a_model` e
    `the_model_as_a_python_script`, não os testes novos; sem o item 5, nenhuma em três. Código nativo em paralelo (GDAL,

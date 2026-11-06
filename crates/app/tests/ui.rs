@@ -7364,6 +7364,165 @@ fn back_and_forward_along_the_views() {
     assert_eq!(map(&mut h).history_len(), 2);
 }
 
+/// Go to at a zoom: a scale (chosen or typed after an `@`) or a width of view sets the metres per screen point;
+/// without one the zoom is kept; the jump is one view of the history.
+#[test]
+fn go_to_at_a_scale_or_a_width() {
+    use terraflux_app::goto::Zoom;
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    // cells of 30 m (UTM 51N): the cell (64, 54) is at (451935, 1378365)
+    let mut h = viewed(&in_utm("goto_zoom.tif"), "goto_zoom");
+    h.run_steps(2);
+    let per_point = |h: &mut Harness<TerrafluxApp>| {
+        let v = map(h);
+        let (z, c) = v.camera();
+        terraflux_app::nav::metres_per_point(v.shown_grid().unwrap(), c, z).unwrap()
+    };
+    let zoom0 = map(&mut h).zoom();
+    // keep: the zoom is the same
+    assert_eq!(map(&mut h).go_to_zoom("451935 1378365", false, Zoom::Keep), Ok(true));
+    assert_eq!(map(&mut h).zoom(), zoom0, "keep the zoom");
+    assert!(near(map(&mut h).camera().1, egui::vec2(64.5, 54.5), 1e-3));
+    // a scale chosen: 1:25 000, a screen point being 1/96 inch
+    assert_eq!(map(&mut h).go_to_zoom("451935 1378365", false, Zoom::Scale(25_000.0)), Ok(true));
+    let want = 25_000.0 * 0.0254 / 96.0;
+    let got = per_point(&mut h);
+    assert!((got / want - 1.0).abs() < 0.01, "{got} m per point, wanted {want}");
+    // typed: it wins over the one chosen
+    assert_eq!(map(&mut h).go_to_zoom("451935 1378365 @ 1:5000", false, Zoom::Scale(100_000.0)), Ok(true));
+    let want = 5_000.0 * 0.0254 / 96.0;
+    let got = per_point(&mut h);
+    assert!((got / want - 1.0).abs() < 0.01, "{got} m per point, wanted {want}");
+    // a width of view: 1 km across the view
+    assert_eq!(map(&mut h).go_to("451935 1378365 @ 1 km", false), Ok(true));
+    let width = map(&mut h).rect().unwrap().width();
+    let want = 1000.0 / f64::from(width);
+    let got = per_point(&mut h);
+    assert!((got / want - 1.0).abs() < 0.01, "{got} m per point, wanted {want}");
+    // (an error in the zoom is told, the view stays)
+    let before = map(&mut h).camera();
+    assert!(map(&mut h).go_to("451935 1378365 @ 50000", false).unwrap_err().contains("scale"));
+    assert_eq!(map(&mut h).camera(), before);
+    // the box offers it too: Ctrl+G, the text, and a scale in the box
+    wait(&mut h, 0.7);
+    let zoom_before = map(&mut h).zoom();
+    let rect = map(&mut h).rect().expect("drawn");
+    h.event(egui::Event::PointerMoved(rect.center()));
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::G);
+    h.run_steps(3);
+    {
+        let b = map(&mut h).goto.as_mut().expect("the box");
+        (b.zoom, b.degrees) = (Zoom::Scale(100_000.0), false);
+    }
+    h.event(egui::Event::Text("451935 1378365".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert!(map(&mut h).goto.is_none(), "enter goes, the box closes");
+    let want = 100_000.0 * 0.0254 / 96.0;
+    let got = per_point(&mut h);
+    assert!((got / want - 1.0).abs() < 0.01, "{got} m per point, wanted {want}");
+    // one view of the history: the jump (centre and zoom), settled; back goes to the view before it
+    wait(&mut h, 0.7);
+    assert!(map(&mut h).can_back());
+    map(&mut h).back();
+    assert!((map(&mut h).zoom() / zoom_before - 1.0).abs() < 1e-3, "back to {zoom_before}");
+}
+
+/// Go to in views side by side (two coordinate systems): the mark is drawn in the other view too, at the same
+/// ground, and escape lets it go from both.
+#[test]
+fn the_go_to_mark_is_in_the_views_side_by_side() {
+    use terraflux_app::builder::{CompareWith, How};
+    use terraflux_app::reproject::Link;
+    use terraflux_graph::Node;
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let d = tmp("goto_side_by_side");
+    std::fs::create_dir_all(&d).unwrap();
+    // (cells of 30 m: a scale has metres to use)
+    let (land, geo) = (in_utm("goto_sbs_land.tif"), d.join("land_geo.tif"));
+    terraflux_gdal::warp(&[&land], &geo, &["-t_srs".into(), "EPSG:4326".into(), "-r".into(), "near".into()]).unwrap();
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let read = |id: &str, p: &std::path::Path| {
+            Node::new(id, "raster.read").param("path", p.to_string_lossy().as_ref()).param("band", "0")
+        };
+        s.source.nodes = vec![read("land", &land), read("geo", &geo)];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && ["land", "geo"].iter().all(|n| s.value_of(n, "raster").is_some())
+    });
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview = Some(("land".into(), "raster".into()));
+        s.preview_compare.with = Some(CompareWith::Output("geo".into(), "raster".into()));
+        s.preview_compare.how = How::SideBySide;
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "both views drawn", |a| {
+        let s = a.session.as_ref().unwrap();
+        s.preview_view.shown_grid().is_some() && s.preview_compare.view.shown_grid().is_some()
+    });
+    drawn(&mut h);
+    // go to a cell of the UTM map (in map units), at a scale: the view beside follows
+    let (x, y) = {
+        let g = map(&mut h).shown_grid().unwrap().clone();
+        (g.transform[0] + 60.5 * g.transform[1], g.transform[3] + 40.5 * g.transform[5])
+    };
+    assert_eq!(map(&mut h).go_to_zoom(&format!("{x} {y}"), false, terraflux_app::goto::Zoom::Scale(5_000.0)), Ok(true));
+    h.run_steps(4);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.preview_view.mark.is_some() && s.preview_compare.view.mark.is_none());
+    let link = Link::between(s.preview_compare.view.shown_grid().unwrap(), s.preview_view.shown_grid().unwrap())
+        .expect("a link");
+    assert!(matches!(link, Link::Warp(_)), "two coordinate systems");
+    // the view beside is centred on the place, carried: its mark is drawn at its centre
+    let (zoom, centre) = s.preview_compare.view.camera();
+    let at = link.to_own(egui::vec2(60.5, 40.5));
+    assert!((at - centre).length() < 1.0, "the place carried {at:?} is the view's centre {centre:?}");
+    let beside = s.preview_compare.view.rect().unwrap();
+    assert!(zoom > 0.0);
+    // the mark in the picture: pixels near the centre that are not the map's (a plain class there)
+    let img = h.render().expect("the window drawn by wgpu");
+    let ink = |img: &image::RgbaImage, c: egui::Pos2| {
+        let mut n = 0;
+        for y in c.y as u32 - 16..c.y as u32 + 16 {
+            for x in c.x as u32 - 16..c.x as u32 + 16 {
+                let p = img.get_pixel(x, y).0;
+                if p[0].abs_diff(0) > 40 || p[1].abs_diff(114) > 40 || p[2].abs_diff(178) > 40 {
+                    n += 1;
+                }
+            }
+        }
+        n
+    };
+    let shown = h.state().session.as_ref().unwrap().preview_view.rect().unwrap();
+    let (a, b) = (ink(&img, shown.center()), ink(&img, beside.center()));
+    assert!(a > 40, "the mark in the view it was made in: {a} pixels");
+    assert!(b > 40, "and in the view beside, of another coordinate system: {b} pixels");
+    shot(&mut h, "14t-go-to-side-by-side");
+    // escape over the view beside (it has no mark of its own) lets it go from both
+    h.event(egui::Event::PointerMoved(beside.center() + egui::vec2(80.0, 60.0)));
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(4);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.preview_view.mark.is_none() && s.preview_compare.view.mark.is_none(), "no mark in either");
+    let img = h.render().expect("the window drawn by wgpu");
+    let (a2, b2) = (ink(&img, shown.center()), ink(&img, beside.center()));
+    assert!(a2 == 0 && b2 == 0, "the marks are gone: {a2} {b2}");
+}
+
 /// Go to a coordinate: degrees reach a map in degrees as they are and a projected one through GDAL; the view
 /// centres there, a mark stays until escape, a place off the map is gone to all the same; the box opens with ctrl+G,
 /// takes the text, and enter goes.

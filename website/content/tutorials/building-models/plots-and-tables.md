@@ -298,7 +298,8 @@ and turns on a **coordinate grid** in the map's own coordinates. **‹** and **�
 or the mouse's back and forward buttons) go back and forth along the views you stopped at. **Go to...** (ctrl+G)
 centres the map on a coordinate and marks it until esc: `12.52, 122.40` (latitude, longitude, as web maps give
 them), `122.40 12.52` (longitude first without a comma), `12°31'26"N 122°24'05"E`, or x and y in the map's
-coordinates.
+coordinates. It keeps the zoom, or zooms to a scale chosen beside it (1:25 000...) or typed after an `@`
+(`12.52, 122.40 @ 1:50000`, `@ 2 km` for the width of the view); with views side by side the mark is in all of them.
 
 ### Measuring
 

@@ -73,6 +73,10 @@ minor versions.
   the node and frames it with the glide of F; greyed, with the reason, for a difference of two maps.
 - Viewer: *A URL...* also in the Viewer's header (the same dialog as the Layers panel's, in the Viewer's own window
   too).
+- Viewer: **Go to... with a zoom**: "keep the zoom" (as before) or a scale beside the coordinate (1:5 000 to
+  1:1 000 000), or typed after an `@` (`-15.8, -47.9 @ 1:50000`, `@ 2 km` for the width of the view), one step of
+  back and forward; and **its mark in the views side by side**, at the same place in each (across coordinate
+  systems), esc on any of them removing it from all.
 - Viewer: **the same colours for all similar layers**. From a layer's menu, its palette and range go to every other
   layer of values (a map of classes: its colours to the maps of the same classes), the side-by-side views and the
   Plot saved with them; the hover tells how many layers change, greyed when there is none.
