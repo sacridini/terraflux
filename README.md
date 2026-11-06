@@ -264,12 +264,15 @@ graph's checks and the data's findings, each a click away from its node. The ass
 **What did I run last week?** Each run you ask for is kept in a journal beside the model (`.terraflux`): when, how
 long, how it ended, the values it ran with, the outputs it wrote and the model as it was. The **Runs** pane lists
 them, newest first, with what changed since the run before; a run selected shows its outputs in the Viewer or
-restores its model (one step of undo), and two compare (their values, their models, their maps). `terraflux run` and
+restores its model (one step of undo), and two compare (their values, their models, their maps). The small
+outputs are copied with each run (50 MB a run, 1 GB in all, in Settings), so a run's maps can still be seen after
+a later run writes over the files; the journal's folder ignores itself in git, and several windows can write to it
+at once. `terraflux run` and
 the MCP's `run_model` write to it too (`--no-journal` leaves a run out), and the MCP's `list_runs` reads it. **File,
 Save a version...** (ctrl+alt+S) keeps the model under a name, with no git: the Runs pane's Versions tab lists them,
 reviews one against the model open, restores it or deletes it, and the MCP's `save_version` marks one before a large
 change. Before a run or a batch the disk is checked (the outputs' estimated size against the free space, asked about when it
-may not fit), and **File, Clean outputs...** deletes the files the runs wrote, after asking. The **▾** beside Run starts a **check run**: the model
+may not fit), and **File, Clean outputs...** deletes the files the runs wrote, after asking. The **Check run** menu beside Run starts a **check run**: the model
 on the part of the map in view, or at 1/2, 1/4 or 1/8 of the resolution, to see in seconds whether it is right before a run of hours (its outputs
 apart from the real ones, its results marked; `terraflux run --coarsen N --window ...` does the same).
 

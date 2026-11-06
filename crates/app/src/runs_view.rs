@@ -5,6 +5,9 @@
 //! under the table, one run is told in full (its values, outputs, warnings) with the actions *Show its outputs* (as
 //! layers of the Viewer) and *Restore this model* (one step of undo); two runs are compared (their values side by
 //! side, their models through the Review pane, their maps in the Viewer's comparison).
+//! An output written over by a later run, or deleted, is still shown and compared from the copy the journal kept
+//! with its run (when it was small enough, see [`terraflux_exec::journal::Keep`]); one with no copy is told as
+//! overwritten or missing.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -33,6 +36,8 @@ pub struct State {
     pub entries: Vec<Entry>,
     /// The outputs written over since, by the run's id (their names).
     pub over: BTreeMap<u64, Vec<String>>,
+    /// Of those, the outputs a copy is kept of (the journal's), by the run's id.
+    pub copied: BTreeMap<u64, Vec<String>>,
     /// The runs selected (one or two, by id); the actions that come next take them.
     pub selected: Vec<u64>,
     /// Two runs compared: every value, not only those that differ.
@@ -97,12 +102,21 @@ impl State {
             self.entries = journal.entries();
             self.selected.retain(|id| self.entries.iter().any(|e| e.id == *id));
         }
-        self.over = self
-            .entries
-            .iter()
-            .map(|e| (e.id, e.outputs.iter().filter(|w| !w.unchanged()).map(|w| w.name.clone()).collect::<Vec<_>>()))
-            .filter(|(_, o)| !o.is_empty())
-            .collect();
+        self.over.clear();
+        self.copied.clear();
+        for e in &self.entries {
+            let gone: Vec<&Written> = e.outputs.iter().filter(|w| !w.unchanged()).collect();
+            let names = |keep: &dyn Fn(&Written) -> bool| -> Vec<String> {
+                gone.iter().filter(|w| keep(w)).map(|w| w.name.clone()).collect()
+            };
+            let (over, copied) = (names(&|_| true), names(&|w| journal.kept(w).is_some()));
+            if !over.is_empty() {
+                self.over.insert(e.id, over);
+            }
+            if !copied.is_empty() {
+                self.copied.insert(e.id, copied);
+            }
+        }
         self.read = Some((file.to_path_buf(), rev, size));
         self.checked = Some(Instant::now());
     }
@@ -344,11 +358,23 @@ fn table(ui: &mut Ui, st: &mut State, height: f32) {
                     let names: Vec<String> = e.outputs.iter().map(|w| w.name.clone()).collect();
                     let mut hover = names.join("\n");
                     let mut text = format!("{}", e.outputs.len());
+                    let mut all = false;
                     if let Some(o) = over {
                         hover.push_str(&format!("\n\noverwritten since: {}", o.join(", ")));
-                        text.push_str(" (overwritten since)");
+                        let copies = st.copied.get(&e.id);
+                        match copies {
+                            Some(c) => hover.push_str(&format!("\ncopies kept: {}", c.join(", "))),
+                            None => hover.push_str("\nno copy kept"),
+                        }
+                        all = copies.is_some_and(|c| c.len() == o.len());
+                        text.push_str(if all { " (overwritten since, copies kept)" } else { " (overwritten since)" });
                     }
-                    let l = RichText::new(text).color(if over.is_some() { warn } else { ui.visuals().text_color() });
+                    let colour = match over {
+                        Some(_) if all => weak,
+                        Some(_) => warn,
+                        None => ui.visuals().text_color(),
+                    };
+                    let l = RichText::new(text).color(colour);
                     ui.label(l).on_hover_text(hover);
                 }
                 match before {
@@ -417,15 +443,24 @@ pub(crate) fn size_text(n: u64) -> String {
     }
 }
 
-/// What became of an output file: as written, written over since, or gone.
-pub fn state_of(w: &Written) -> &'static str {
+/// What became of an output file: as written, written over since or gone (each with "a copy kept" when the journal
+/// has the run's copy).
+pub fn state_of(w: &Written, journal: Option<&Journal>) -> &'static str {
+    let copy = journal.is_some_and(|j| j.kept(w).is_some());
     if w.unchanged() {
         "as written"
     } else if Path::new(&w.path).exists() {
-        "overwritten since"
+        if copy { "overwritten since, a copy kept" } else { "overwritten since" }
+    } else if copy {
+        "missing, a copy kept"
     } else {
         "missing"
     }
+}
+
+/// The file to read for an output: the file itself when as written, else the copy kept, else none.
+pub fn readable(w: &Written, journal: Option<&Journal>) -> Option<PathBuf> {
+    if w.unchanged() { Some(PathBuf::from(&w.path)) } else { journal.and_then(|j| j.kept(w)) }
 }
 
 /// Whether a file is one the Viewer reads as a layer (a map, features, a table), or a folder of them.
@@ -433,8 +468,8 @@ fn viewable(p: &Path) -> bool {
     p.is_dir() || crate::builder::is_raster(p) || crate::builder::is_vector(p) || crate::builder::is_table(p)
 }
 
-/// The outputs of a run that can be opened in the Viewer (as written, of a kind it reads), and how many were left
-/// out: written over since, missing, not of a kind it shows.
+/// The outputs of a run that can be opened in the Viewer (as written, or their copy kept, of a kind it reads), and
+/// how many were left out: written over since, missing (with no copy), not of a kind it shows.
 pub struct Openable {
     pub paths: Vec<PathBuf>,
     pub over: usize,
@@ -442,15 +477,14 @@ pub struct Openable {
     pub other: usize,
 }
 
-pub fn openable(e: &Entry) -> Openable {
+pub fn openable(e: &Entry, journal: Option<&Journal>) -> Openable {
     let mut o = Openable { paths: Vec::new(), over: 0, missing: 0, other: 0 };
     for w in &e.outputs {
-        let p = PathBuf::from(&w.path);
-        match state_of(w) {
-            "overwritten since" => o.over += 1,
-            "missing" => o.missing += 1,
-            _ if viewable(&p) => o.paths.push(p),
-            _ => o.other += 1,
+        match (readable(w, journal), state_of(w, journal)) {
+            (Some(p), _) if viewable(&p) => o.paths.push(p),
+            (Some(_), _) => o.other += 1,
+            (None, "overwritten since") => o.over += 1,
+            _ => o.missing += 1,
         }
     }
     o
@@ -473,16 +507,17 @@ impl Openable {
     }
 }
 
-/// The maps two runs wrote under the same name, both files as written and rasters: (name, older's, newer's).
-pub fn common_maps(older: &Entry, newer: &Entry) -> Vec<(String, PathBuf, PathBuf)> {
+/// The maps two runs wrote under the same name, each readable (as written, or its copy kept) and a raster, in
+/// different files: (name, older's, newer's).
+pub fn common_maps(older: &Entry, newer: &Entry, journal: Option<&Journal>) -> Vec<(String, PathBuf, PathBuf)> {
     older
         .outputs
         .iter()
         .filter_map(|a| {
             let b = newer.outputs.iter().find(|b| b.name == a.name)?;
-            let (pa, pb) = (PathBuf::from(&a.path), PathBuf::from(&b.path));
+            let (pa, pb) = (readable(a, journal)?, readable(b, journal)?);
             let maps = crate::builder::is_raster(&pa) && crate::builder::is_raster(&pb);
-            (maps && pa != pb && a.unchanged() && b.unchanged()).then(|| (a.name.clone(), pa, pb))
+            (maps && pa != pb).then(|| (a.name.clone(), pa, pb))
         })
         .collect()
 }
@@ -517,7 +552,8 @@ pub fn restore_named(s: &mut Session, m: Model, name: &str) {
 
 /// The outputs of a run opened as layers of the Viewer; what was left out is told.
 pub fn show_outputs(s: &mut Session, r: &Registry, e: &Entry) {
-    let o = openable(e);
+    let journal = s.path.as_deref().and_then(Journal::of);
+    let o = openable(e, journal.as_ref());
     let left = o.left_out();
     let text = match (o.paths.len(), left.is_empty()) {
         (0, _) => format!("no output of this run can be opened ({left})"),
@@ -592,7 +628,7 @@ fn one(ui: &mut Ui, s: &mut Session, r: &Registry, journal: Option<&Journal>, e:
     }
     ui.add_space(4.0);
     // the actions
-    let open = openable(e);
+    let open = openable(e, journal);
     let restore_to = restorable(s, journal, e);
     ui.horizontal_wrapped(|ui| {
         let text = if open.paths.is_empty() {
@@ -602,7 +638,7 @@ fn one(ui: &mut Ui, s: &mut Session, r: &Registry, journal: Option<&Journal>, e:
         };
         let shown = ui
             .add_enabled(!open.paths.is_empty(), egui::Button::new("Show its outputs"))
-            .on_hover_text("the outputs still as written, as layers of the Viewer")
+            .on_hover_text("the outputs still as written, or their copy kept, as layers of the Viewer")
             .on_disabled_hover_text(format!("{text} ({})", open.left_out()))
             .clicked();
         if shown {
@@ -669,11 +705,16 @@ fn one(ui: &mut Ui, s: &mut Session, r: &Registry, journal: Option<&Journal>, e:
             }
             egui::Grid::new("run outputs grid").num_columns(4).spacing([14.0, 3.0]).striped(true).show(ui, |ui| {
                 for w in &e.outputs {
-                    let state = state_of(w);
+                    let state = state_of(w, journal);
                     ui.label(&w.name);
                     ui.label(RichText::new(&w.path).small());
                     ui.label(size_text(w.size));
-                    ui.label(RichText::new(state).color(if state == "as written" { weak } else { warn }));
+                    let copy = journal.and_then(|j| j.kept(w));
+                    let calm = state == "as written" || copy.is_some();
+                    let l = ui.label(RichText::new(state).color(if calm { weak } else { warn }));
+                    if let Some(c) = copy {
+                        l.on_hover_text(format!("the copy kept with the run: {}", c.display()));
+                    }
                     ui.end_row();
                 }
             });
@@ -766,11 +807,11 @@ fn two(
         }
     });
     // the maps both runs wrote
-    let maps = common_maps(older, newer);
+    let maps = common_maps(older, newer, journal);
     ui.horizontal_wrapped(|ui| match maps.first() {
         None => {
             ui.add_enabled(false, egui::Button::new("Compare the maps"))
-                .on_disabled_hover_text("no map both runs wrote, still as written, in different files");
+                .on_disabled_hover_text("no map both runs wrote, as written or with a copy kept, in different files");
         }
         Some((name, a, b)) => {
             if ui.button(format!("Compare the maps ({name})")).on_hover_text("side by side in the Viewer").clicked() {
@@ -870,18 +911,57 @@ mod tests {
         older.outputs = vec![wrote("land", &a1), wrote("risk", &a2), wrote("notes", &notes)];
         let mut newer = Entry::new(Kind::Run, "app", 1.0);
         newer.outputs = vec![wrote("land", &b1), wrote("risk", &a2)];
-        let o = openable(&older);
+        let o = openable(&older, None);
         assert_eq!(o.paths, vec![a1.clone(), a2.clone()]);
         assert_eq!((o.over, o.missing, o.other), (0, 0, 1));
         // (the same file for both runs is not two maps)
-        assert_eq!(common_maps(&older, &newer), vec![("land".to_string(), a1.clone(), b1.clone())]);
+        assert_eq!(common_maps(&older, &newer, None), vec![("land".to_string(), a1.clone(), b1.clone())]);
         // an output written over, one gone
         std::fs::write(&a1, "another map").unwrap();
         std::fs::remove_file(&a2).unwrap();
-        let o = openable(&older);
+        let o = openable(&older, None);
         assert!(o.paths.is_empty());
         assert_eq!(o.left_out(), "1 overwritten since, 1 missing, 1 not a map, features or table");
-        assert!(common_maps(&older, &newer).is_empty());
+        assert!(common_maps(&older, &newer, None).is_empty());
+        assert_eq!(state_of(&older.outputs[0], None), "overwritten since");
+        assert_eq!(state_of(&older.outputs[1], None), "missing");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn an_output_written_over_is_read_from_its_copy() {
+        let d = std::env::temp_dir().join(format!("terraflux-runs-copy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let model = terraflux_graph::Model::from_toml("format = \"terraflux/1\"").unwrap();
+        let j = Journal::of(&d.join("m.toml")).unwrap();
+        let land = d.join("land.tif");
+        for (k, text) in ["first", "the second"].into_iter().enumerate() {
+            std::fs::write(&land, text).unwrap();
+            let mut e = Entry::new(Kind::Run, "app", 1.0);
+            e.id = 1000 * (k as u64 + 1);
+            e.outputs = vec![Written::of("land", &land, None, None).unwrap()];
+            j.record(e, &model).unwrap();
+        }
+        let all = j.entries();
+        let (first, second) = (&all[0], &all[1]);
+        let copy = j.kept(&first.outputs[0]).unwrap();
+        assert_eq!(std::fs::read_to_string(&copy).unwrap(), "first");
+        assert_eq!(state_of(&first.outputs[0], Some(&j)), "overwritten since, a copy kept");
+        assert_eq!(state_of(&second.outputs[0], Some(&j)), "as written");
+        assert_eq!(readable(&first.outputs[0], Some(&j)), Some(copy.clone()));
+        assert_eq!(readable(&second.outputs[0], Some(&j)), Some(land.clone()));
+        assert_eq!(common_maps(first, second, Some(&j)), vec![("land".to_string(), copy.clone(), land.clone())]);
+        assert!(common_maps(first, second, None).is_empty());
+        let o = openable(first, Some(&j));
+        assert_eq!((o.paths, o.over, o.missing), (vec![copy.clone()], 0, 0));
+        // (the file gone: the copy still there)
+        std::fs::remove_file(&land).unwrap();
+        assert_eq!(state_of(&first.outputs[0], Some(&j)), "missing, a copy kept");
+        assert_eq!(openable(first, Some(&j)).paths, vec![copy]);
+        // (the second run's file is gone as well, and its own copy is there; without the journal, missing)
+        assert_eq!(openable(second, Some(&j)).paths, vec![j.kept(&second.outputs[0]).unwrap()]);
+        assert_eq!(openable(second, None).missing, 1);
         let _ = std::fs::remove_dir_all(&d);
     }
 

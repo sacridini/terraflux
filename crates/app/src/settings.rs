@@ -62,6 +62,10 @@ pub struct Settings {
     /// The computer kept from sleeping while a model runs, a batch goes on or it works for another's (on unless
     /// turned off).
     pub keep_awake: bool,
+    /// The small outputs of each run copied into the journal: the most one run's copies take, in megabytes (0: none
+    /// is copied), and the most all the copies take, the oldest going first.
+    pub keep_outputs_mb: u32,
+    pub keep_outputs_total_mb: u32,
     /// The models open when Terraflux closed opened again when it starts without one given (on unless turned off).
     pub reopen_last: bool,
     /// The end of a run asked for, or of a batch, told (the system's notification, the window's button in the
@@ -134,6 +138,8 @@ impl Default for Settings {
             wires_around: true,
             recent_models: Vec::new(),
             keep_awake: true,
+            keep_outputs_mb: 50,
+            keep_outputs_total_mb: 1024,
             reopen_last: true,
             notify_runs: true,
             notify_after: 10.0,
@@ -219,6 +225,15 @@ pub fn update(f: impl FnOnce(&mut Settings)) {
 /// The folder of the user's application data (where the settings are).
 pub fn data_dir() -> PathBuf {
     file().and_then(|f| f.parent().map(PathBuf::from)).unwrap_or_else(|| std::env::temp_dir().join("Terraflux"))
+}
+
+/// How much of a run's outputs the journal copies, from the settings (megabytes to bytes).
+pub fn keep() -> terraflux_exec::journal::Keep {
+    let s = get();
+    terraflux_exec::journal::Keep {
+        per_run: u64::from(s.keep_outputs_mb) << 20,
+        total: u64::from(s.keep_outputs_total_mb) << 20,
+    }
 }
 
 /// The models opened or saved last, the last first (those whose file is gone left out).

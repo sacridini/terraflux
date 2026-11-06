@@ -3,12 +3,18 @@
 //! application, `terraflux run` and the MCP write it; the application's Runs pane reads it.
 //!
 //! `runs.jsonl` holds an [`Entry`] a line, appended (a line that does not read is skipped); `models/<sha256>.json`
-//! the model as it ran, once for each hash. The outputs are not copied, only recorded: an output written over
-//! since is told by [`Written::unchanged`].
+//! the model as it ran, once for each hash. The small outputs are copied with the run (`outputs/<id>/<k>/`, within
+//! the limits of [`Keep`]), so they can be seen after a later run writes over them; the rest is only recorded, and
+//! an output written over since is told by [`Written::unchanged`].
+//!
+//! Several programs may write one journal at once: every write holds a lock on `<journal>/lock` ([`Journal::lock`])
+//! and the files that are replaced are written aside and renamed, so a reader (which takes no lock) never sees half
+//! a file. The folder `.terraflux/` keeps a `.gitignore` of its own: the journals are not committed.
 
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -98,6 +104,24 @@ pub struct Written {
     /// Its SHA-256, when the run's manifest has it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    /// The copy kept with the run: its path in the journal's folder, with `/` ([`Journal::kept`] has the file).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept: Option<String>,
+}
+
+/// How much of the outputs a journal copies, in bytes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Keep {
+    /// The most the copies of one run take (0: none is copied).
+    pub per_run: u64,
+    /// The most all the copies of the journal take: the oldest runs' copies are dropped first.
+    pub total: u64,
+}
+
+impl Default for Keep {
+    fn default() -> Keep {
+        Keep { per_run: 50 << 20, total: 1 << 30 }
+    }
 }
 
 fn stat(path: &Path) -> Option<(u64, u64, bool)> {
@@ -118,6 +142,7 @@ impl Written {
             size: size.unwrap_or(len),
             modified,
             sha256,
+            kept: None,
         })
     }
 
@@ -239,6 +264,54 @@ pub fn hash_of(model: &Model) -> Option<String> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Journal {
     dir: PathBuf,
+    keep: Keep,
+}
+
+const IGNORE: &str =
+    "# Terraflux's journal of runs (see terraflux_exec::journal): kept on this machine, not committed\n*\n";
+
+static TEMPS: AtomicU64 = AtomicU64::new(0);
+
+/// Write a file aside, in its folder, then rename it over the target: a reader never sees half of it.
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    let n = TEMPS.fetch_add(1, Ordering::Relaxed);
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let tmp = path.with_file_name(format!(".{name}.{}.{n}.tmp", std::process::id()));
+    let done = std::fs::write(&tmp, bytes).and_then(|_| std::fs::rename(&tmp, path));
+    if done.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    Ok(done?)
+}
+
+/// The bytes of a file or of everything under a folder (links are not followed).
+fn tree_bytes(path: &Path) -> u64 {
+    let Ok(m) = std::fs::symlink_metadata(path) else { return 0 };
+    if m.is_dir() {
+        let Ok(rd) = std::fs::read_dir(path) else { return 0 };
+        rd.flatten().map(|e| tree_bytes(&e.path())).sum()
+    } else if m.is_file() {
+        m.len()
+    } else {
+        0
+    }
+}
+
+/// The files beside an output that belong to it (those that exist).
+fn sidecars(path: &Path) -> Vec<PathBuf> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let mut all = vec![path.with_file_name(format!("{name}.aux.xml")), path.with_file_name(format!("{name}.ovr"))];
+    match ext.as_str() {
+        "shp" => {
+            all.extend(["shx", "dbf", "prj", "cpg", "qix", "sbn", "sbx"].map(|e| path.with_extension(e)));
+            all.push(path.with_file_name(format!("{name}.xml")));
+        }
+        "tif" | "tiff" => all.extend(["tfw", "tifw", "wld"].map(|e| path.with_extension(e))),
+        _ => {}
+    }
+    all.retain(|p| p.is_file());
+    all
 }
 
 impl Journal {
@@ -246,7 +319,35 @@ impl Journal {
     pub fn of(model_file: &Path) -> Option<Journal> {
         let name = model_file.file_name()?;
         let parent = model_file.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-        Some(Journal { dir: parent.join(FOLDER).join(name) })
+        Some(Journal { dir: parent.join(FOLDER).join(name), keep: Keep::default() })
+    }
+
+    /// The journal copying the outputs within `keep`.
+    pub fn keeping(mut self, keep: Keep) -> Journal {
+        self.keep = keep;
+        self
+    }
+
+    /// Take the journal's lock, across programs (waits for it): the folder and its `.gitignore` made, `<journal>/lock`
+    /// held until the file returned is dropped.
+    fn lock(&self) -> Result<std::fs::File> {
+        std::fs::create_dir_all(&self.dir)?;
+        if let Some(top) = self.dir.parent() {
+            // (never over one that is there)
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(top.join(".gitignore")) {
+                Ok(mut f) => f.write_all(IGNORE.as_bytes())?,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(self.dir.join("lock"))?;
+        file.lock()?;
+        Ok(file)
     }
 
     /// The journal's folder.
@@ -263,23 +364,103 @@ impl Journal {
     }
 
     /// Add a run: the model as it ran kept (once for each hash), the entry appended with its model's hash.
+    /// The small outputs are copied (see [`Keep`]) unless it is a batch.
     pub fn record(&self, mut entry: Entry, model: &Model) -> Result<()> {
         let text = model.to_json().map_err(|e| Error::Model(e.to_string()))?;
         entry.model = sha_of(&text);
+        let _lock = self.lock()?;
         let snap = self.snapshot(&entry.model);
         if !snap.exists() {
             std::fs::create_dir_all(self.dir.join("models"))?;
-            std::fs::write(&snap, text)?;
+            write_atomic(&snap, text.as_bytes())?;
         }
         // (an id another run has: one more)
         let known: Vec<u64> = self.entries().iter().map(|e| e.id).collect();
         while known.contains(&entry.id) {
             entry.id += 1;
         }
+        if !matches!(entry.kind, Kind::Batch(_)) && self.keep.per_run > 0 {
+            self.copy_outputs(&mut entry);
+        }
         let line = serde_json::to_string(&entry).map_err(|e| Error::Model(e.to_string()))?;
         let mut file = std::fs::OpenOptions::new().create(true).append(true).open(self.runs())?;
         writeln!(file, "{line}")?;
+        drop(file);
+        self.prune(entry.id);
         Ok(())
+    }
+
+    fn outputs_dir(&self) -> PathBuf {
+        self.dir.join("outputs")
+    }
+
+    /// Copy the outputs that are files, with their sidecars, while they fit in `keep.per_run`; `kept` set on each.
+    fn copy_outputs(&self, entry: &mut Entry) {
+        let mut left = self.keep.per_run;
+        for (k, w) in entry.outputs.iter_mut().enumerate() {
+            let path = Path::new(&w.path);
+            let Some(file) = path.file_name().filter(|_| path.is_file()) else { continue };
+            let mut files = vec![path.to_path_buf()];
+            files.extend(sidecars(path));
+            let bytes: u64 = files.iter().map(|f| std::fs::metadata(f).map_or(0, |m| m.len())).sum();
+            if bytes > left {
+                continue;
+            }
+            let to = self.outputs_dir().join(entry.id.to_string()).join(k.to_string());
+            let copied = std::fs::create_dir_all(&to).and_then(|_| {
+                files.iter().try_for_each(|f| std::fs::copy(f, to.join(f.file_name().unwrap_or_default())).map(|_| ()))
+            });
+            if copied.is_ok() {
+                left -= bytes;
+                w.kept = Some(format!("outputs/{}/{k}/{}", entry.id, file.to_string_lossy()));
+            } else {
+                let _ = std::fs::remove_dir_all(&to);
+            }
+        }
+    }
+
+    /// Drop the oldest runs' copies while all take more than `keep.total`; never those of run `current`.
+    fn prune(&self, current: u64) {
+        let Ok(rd) = std::fs::read_dir(self.outputs_dir()) else { return };
+        let mut runs: Vec<(u64, u64)> =
+            rd.flatten().filter_map(|e| Some((e.file_name().to_str()?.parse().ok()?, tree_bytes(&e.path())))).collect();
+        runs.sort_unstable();
+        let mut total: u64 = runs.iter().map(|r| r.1).sum();
+        for (id, bytes) in runs {
+            if total <= self.keep.total {
+                break;
+            }
+            if id != current && std::fs::remove_dir_all(self.outputs_dir().join(id.to_string())).is_ok() {
+                total -= bytes;
+            }
+        }
+    }
+
+    /// The copy kept of an output, when it has one and the file is there.
+    pub fn kept(&self, w: &Written) -> Option<PathBuf> {
+        let rel = w.kept.as_deref()?;
+        if rel.split('/').any(|p| p == "..") {
+            return None;
+        }
+        let path = self.dir.join(rel);
+        path.is_file().then_some(path)
+    }
+
+    /// The bytes of all the copies kept.
+    pub fn kept_bytes(&self) -> u64 {
+        tree_bytes(&self.outputs_dir())
+    }
+
+    /// Remove all the copies kept; the bytes removed. The entries keep their `kept` (see [`Journal::kept`]).
+    pub fn clear_kept(&self) -> Result<u64> {
+        let _lock = self.lock()?;
+        let bytes = self.kept_bytes();
+        match std::fs::remove_dir_all(self.outputs_dir()) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+        Ok(bytes)
     }
 
     /// The runs, the oldest first; a line that does not read is skipped.
@@ -312,10 +493,11 @@ impl Journal {
         }
         let text = model.to_json().map_err(|e| Error::Model(e.to_string()))?;
         let sha = sha_of(&text);
+        let _lock = self.lock()?;
         let snap = self.snapshot(&sha);
         if !snap.exists() {
             std::fs::create_dir_all(self.dir.join("models"))?;
-            std::fs::write(&snap, text)?;
+            write_atomic(&snap, text.as_bytes())?;
         }
         let mut id = now_ms();
         let known: Vec<u64> = self.versions().iter().map(|v| v.id).collect();
@@ -343,6 +525,7 @@ impl Journal {
 
     /// Delete a version. Its snapshot goes with it unless a run or another version has that model.
     pub fn delete_version(&self, id: u64) -> Result<()> {
+        let _lock = self.lock()?;
         let all = self.versions();
         let Some(gone) = all.iter().find(|v| v.id == id) else { return Ok(()) };
         let sha = gone.model.clone();
@@ -352,7 +535,7 @@ impl Journal {
             text.push_str(&serde_json::to_string(v).map_err(|e| Error::Model(e.to_string()))?);
             text.push('\n');
         }
-        std::fs::write(self.versions_file(), text)?;
+        write_atomic(&self.versions_file(), text.as_bytes())?;
         if !rest.iter().any(|v| v.model == sha) && !self.entries().iter().any(|e| e.model == sha) {
             let _ = std::fs::remove_file(self.snapshot(&sha));
         }
@@ -514,6 +697,147 @@ mod tests {
         j.delete_version(c.id).unwrap();
         assert!(j.versions().is_empty());
         assert!(j.model(&c.model).is_some());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// An entry with one output per path, with the id given.
+    fn entry_with(id: u64, kind: Kind, paths: &[&Path]) -> Entry {
+        let mut e = Entry::new(kind, "app", 0.0);
+        e.id = id;
+        e.outputs = paths.iter().map(|p| Written::of("o", p, None, None).unwrap()).collect();
+        e
+    }
+
+    #[test]
+    fn the_gitignore_is_made_once_and_ignores_itself() {
+        let d = dir("ignore");
+        let j = Journal::of(&d.join("m.toml")).unwrap();
+        j.record(Entry::new(Kind::Run, "app", 0.0), &model(10)).unwrap();
+        let ignore = d.join(FOLDER).join(".gitignore");
+        let text = std::fs::read_to_string(&ignore).unwrap();
+        assert!(text.lines().any(|l| l == "*"));
+        // (one that is there is left as it is)
+        std::fs::write(&ignore, "mine\n").unwrap();
+        j.record(Entry::new(Kind::Run, "app", 0.0), &model(10)).unwrap();
+        assert_eq!(std::fs::read_to_string(&ignore).unwrap(), "mine\n");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn journals_of_one_file_written_at_once_keep_every_run() {
+        let d = dir("threads");
+        let file = d.join("m.toml");
+        let threads: Vec<_> = (0..4)
+            .map(|_| {
+                let file = file.clone();
+                std::thread::spawn(move || {
+                    let j = Journal::of(&file).unwrap();
+                    for _ in 0..20 {
+                        j.record(Entry::new(Kind::Run, "app", 0.0), &model(10)).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
+        let mut ids: Vec<u64> = Journal::of(&file).unwrap().entries().iter().map(|e| e.id).collect();
+        assert_eq!(ids.len(), 80);
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 80);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn an_output_is_kept_after_it_is_written_over() {
+        let d = dir("kept");
+        let out = d.join("land.tif");
+        std::fs::write(&out, "one").unwrap();
+        let j = Journal::of(&d.join("m.toml")).unwrap();
+        j.record(entry_with(1000, Kind::Run, &[&out]), &model(10)).unwrap();
+        std::fs::write(&out, "another one").unwrap();
+        let w = j.entries()[0].outputs[0].clone();
+        assert_eq!(w.kept.as_deref(), Some("outputs/1000/0/land.tif"));
+        assert!(!w.unchanged());
+        assert_eq!(std::fs::read(j.kept(&w).unwrap()).unwrap(), b"one");
+        assert_eq!(j.kept_bytes(), 3);
+        // (an old journal's entry has no `kept`)
+        let old: Written = serde_json::from_str("{\"name\":\"n\",\"path\":\"p\"}").unwrap();
+        assert!(old.kept.is_none() && j.kept(&old).is_none());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn an_output_over_the_limit_is_skipped_and_the_next_tried() {
+        let d = dir("limit");
+        let (big, small, folder) = (d.join("big.tif"), d.join("small.tif"), d.join("folder"));
+        std::fs::write(&big, vec![1u8; 100]).unwrap();
+        std::fs::write(&small, vec![2u8; 10]).unwrap();
+        std::fs::create_dir_all(&folder).unwrap();
+        let j = Journal::of(&d.join("m.toml")).unwrap().keeping(Keep { per_run: 50, total: 1000 });
+        j.record(entry_with(1000, Kind::Run, &[&big, &folder, &small]), &model(10)).unwrap();
+        let e = &j.entries()[0];
+        assert!(e.outputs[0].kept.is_none() && e.outputs[1].kept.is_none());
+        assert_eq!(e.outputs[2].kept.as_deref(), Some("outputs/1000/2/small.tif"));
+        assert_eq!(j.kept_bytes(), 10);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_batch_or_a_zero_limit_copies_nothing() {
+        let d = dir("none");
+        let out = d.join("land.tif");
+        std::fs::write(&out, "one").unwrap();
+        let j = Journal::of(&d.join("m.toml")).unwrap();
+        j.record(entry_with(1000, Kind::Batch(Batch::default()), &[&out]), &model(10)).unwrap();
+        let none = j.clone().keeping(Keep { per_run: 0, total: 1 << 20 });
+        none.record(entry_with(2000, Kind::Run, &[&out]), &model(10)).unwrap();
+        assert!(j.entries().iter().all(|e| e.outputs[0].kept.is_none()));
+        assert!(!d.join(FOLDER).join("m.toml").join("outputs").exists());
+        assert_eq!(j.kept_bytes(), 0);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_shapefile_is_kept_with_its_sidecars() {
+        let d = dir("shp");
+        let shp = d.join("roads.shp");
+        for ext in ["shp", "shx", "dbf", "prj"] {
+            std::fs::write(d.join(format!("roads.{ext}")), ext).unwrap();
+        }
+        std::fs::write(d.join("other.dbf"), "no").unwrap();
+        let j = Journal::of(&d.join("m.toml")).unwrap();
+        j.record(entry_with(1000, Kind::Run, &[&shp]), &model(10)).unwrap();
+        let w = j.entries()[0].outputs[0].clone();
+        let copy = j.kept(&w).unwrap();
+        let mut names: Vec<String> = std::fs::read_dir(copy.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["roads.dbf", "roads.prj", "roads.shp", "roads.shx"]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_total_drops_the_oldest_copies_and_clear_empties() {
+        let d = dir("total");
+        let out = d.join("land.tif");
+        let j = Journal::of(&d.join("m.toml")).unwrap().keeping(Keep { per_run: 1000, total: 150 });
+        for id in [1000, 2000] {
+            std::fs::write(&out, vec![1u8; 100]).unwrap();
+            j.record(entry_with(id, Kind::Run, &[&out]), &model(10)).unwrap();
+        }
+        let all = j.entries();
+        assert!(j.kept(&all[0].outputs[0]).is_none());
+        assert!(j.kept(&all[1].outputs[0]).is_some());
+        assert_eq!(j.kept_bytes(), 100);
+        assert_eq!(j.clear_kept().unwrap(), 100);
+        assert_eq!(j.kept_bytes(), 0);
+        assert!(j.kept(&all[1].outputs[0]).is_none());
+        assert_eq!(j.clear_kept().unwrap(), 0);
+        assert!(j.entries()[1].outputs[0].kept.is_some());
         let _ = std::fs::remove_dir_all(&d);
     }
 

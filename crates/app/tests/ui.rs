@@ -8942,11 +8942,12 @@ fn the_runs_are_shown_restored_and_compared() {
         assert!(s.preview_layers.len() > layers, "and keeps it as a layer");
         assert!(s.notice.as_ref().is_some_and(|(t, _)| t.contains("opened in the Viewer")), "{:?}", s.notice);
     }
-    // the first run's outputs were written over by the next: nothing to open there
+    // the first run's outputs were written over by the next: the copies kept with the run are what it opens
     h.state_mut().focus(Pane::Runs);
     h.state_mut().runs.select(ids[0], false);
     h.run_steps(3);
-    assert!(h.query_all_by_label_contains("left out: ").next().is_some());
+    assert!(h.query_all_by_label_contains("overwritten since, a copy kept").next().is_some());
+    assert!(h.query_all_by_label_contains("left out: ").next().is_none());
     // two selected: the values side by side, then the models' differences in the Review pane
     h.state_mut().runs.select(ids[2], true);
     h.run_steps(3);
@@ -9011,6 +9012,43 @@ fn the_runs_are_shown_restored_and_compared() {
         assert!(s.preview.is_some());
     }
     shot(&mut h, "runs-maps");
+    // two runs that wrote the same file: the second wrote over the first's, which is compared from its copy
+    let same = dir.join("same.tif");
+    {
+        let source = h.state().session.as_ref().unwrap().source.clone();
+        for (k, from) in ["sibuyan_landuse.tif", "sibuyan_drivers.tif"].into_iter().enumerate() {
+            std::fs::copy(data(from), &same).unwrap();
+            let mut e = Entry::new(Kind::Run, "app", 1.0);
+            e.id = ids[2] + 10_000 * (k as u64 + 1);
+            e.when = e.id / 1000;
+            e.outputs = vec![Written::of("land", &same, None, None).unwrap()];
+            journal.record(e, &source).unwrap();
+        }
+    }
+    h.state_mut().focus(Pane::Runs);
+    h.run_steps(2);
+    std::thread::sleep(Duration::from_millis(2100));
+    h.run_steps(3);
+    let all = journal.entries();
+    assert_eq!(all.len(), 7);
+    let copy = journal.kept(&all[5].outputs[0]).expect("the first run's copy");
+    assert!(copy.is_file() && journal.kept(&all[6].outputs[0]).is_some());
+    h.state_mut().runs.select(all[5].id, false);
+    h.state_mut().runs.select(all[6].id, true);
+    h.run_steps(3);
+    assert!(h.query_all_by_label_contains("overwritten since, copies kept").next().is_some());
+    h.get_by_label("Compare the maps (land)").click();
+    h.run_steps(2);
+    until(&mut h, "the copy and the file compared", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.compare_asked.is_none() && s.show_queue.is_empty()
+    });
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert!(matches!(s.preview_compare.with, Some(terraflux_app::builder::CompareWith::Output(..))));
+        assert!(s.preview.is_some());
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -9237,7 +9275,10 @@ fn the_outputs_of_the_runs_are_cleaned_after_asking() {
     // the journal keeps its runs, which now tell the file missing
     let entries = journal.entries();
     assert_eq!(entries.len(), 3);
-    assert_eq!(terraflux_app::runs_view::state_of(&entries[0].outputs[0]), "missing");
+    assert_eq!(terraflux_app::runs_view::state_of(&entries[0].outputs[0], None), "missing");
+    // (the copy kept with the run stays: the cleaning leaves it unless asked)
+    let state = terraflux_app::runs_view::state_of(&entries[0].outputs[0], Some(&journal));
+    assert_eq!(state, "missing, a copy kept");
     h.state_mut().session.as_mut().unwrap().clean = None;
     h.state_mut().runs.select(entries[0].id, false);
     h.run_steps(3);

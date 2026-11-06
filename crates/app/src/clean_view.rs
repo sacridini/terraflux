@@ -4,7 +4,8 @@
 //! batch folders and the outputs the newest run did not write are chosen, never the newest run's. The deletion is
 //! permanent (there is no recycle bin) and asked about first; only paths the journal lists are touched, and never the
 //! model's own folder, a drive's root or the user's home. The journal keeps its entries: what was deleted shows as
-//! missing in the Runs pane.
+//! missing in the Runs pane. The copies of the outputs the journal keeps with the runs are a choice of their own,
+//! off by default, with their size.
 
 use std::path::{Component, Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
@@ -153,18 +154,25 @@ pub struct State {
     pub confirm: bool,
     /// What the last deletion did.
     pub said: Option<String>,
+    /// The bytes of the copies of outputs the journal keeps (counted when the window opens and after a deletion).
+    pub kept_bytes: u64,
+    /// The copies are to be deleted too.
+    pub clear_kept: bool,
     sizes: Option<Receiver<(usize, u64)>>,
 }
 
 impl State {
     /// The window for a model's runs: the journal read, the sizes counted in a thread.
     pub fn open(model_file: &Path) -> State {
-        let entries = Journal::of(model_file).map(|j| j.entries()).unwrap_or_default();
+        let journal = Journal::of(model_file);
+        let entries = journal.as_ref().map(|j| j.entries()).unwrap_or_default();
         let mut st = State {
             model_file: model_file.to_path_buf(),
             items: items(&entries),
             confirm: false,
             said: None,
+            kept_bytes: journal.as_ref().map_or(0, |j| j.kept_bytes()),
+            clear_kept: false,
             sizes: None,
         };
         st.look();
@@ -212,15 +220,26 @@ impl State {
         self.items.iter().filter(|i| i.checked && i.exists && i.kept.is_none()).collect()
     }
 
-    /// The bytes of the items chosen, and whether all their sizes are known.
+    /// Whether the copies kept with the runs are chosen (and there are some).
+    pub fn copies_chosen(&self) -> bool {
+        self.clear_kept && self.kept_bytes > 0
+    }
+
+    /// How many things are chosen: the items, and the copies kept as one more.
+    pub fn count(&self) -> usize {
+        self.chosen().len() + usize::from(self.copies_chosen())
+    }
+
+    /// The bytes of the items chosen (and the copies kept, when chosen), and whether all their sizes are known.
     pub fn total(&self) -> (u64, bool) {
         let c = self.chosen();
-        (c.iter().filter_map(|i| i.size).sum(), c.iter().all(|i| i.size.is_some()))
+        let copies = if self.copies_chosen() { self.kept_bytes } else { 0 };
+        (c.iter().filter_map(|i| i.size).sum::<u64>() + copies, c.iter().all(|i| i.size.is_some()))
     }
 
     /// "Delete 3 items (1.2 GB)...".
     pub fn button(&self) -> String {
-        let n = self.chosen().len();
+        let n = self.count();
         let (bytes, known) = self.total();
         let size = if known { crate::disk::size_text(bytes) } else { "counting".into() };
         format!("Delete {n} {} ({size})...", if n == 1 { "item" } else { "items" })
@@ -229,7 +248,19 @@ impl State {
     /// Delete the items chosen, and look again.
     pub fn delete_chosen(&mut self) -> String {
         let paths: Vec<PathBuf> = self.chosen().iter().map(|i| i.path.clone()).collect();
-        let (gone, bytes, failed) = delete(&paths, &self.model_file);
+        let (mut gone, mut bytes, mut failed) = delete(&paths, &self.model_file);
+        if self.copies_chosen() {
+            match Journal::of(&self.model_file).map(|j| j.clear_kept()) {
+                Some(Ok(n)) => {
+                    gone += 1;
+                    bytes += n;
+                }
+                Some(Err(e)) => failed.push((PathBuf::from("the copies kept"), e.to_string())),
+                None => {}
+            }
+        }
+        self.kept_bytes = Journal::of(&self.model_file).map_or(0, |j| j.kept_bytes());
+        self.clear_kept = self.clear_kept && self.kept_bytes > 0;
         let mut said =
             format!("Deleted {gone} {} ({})", if gone == 1 { "item" } else { "items" }, crate::disk::size_text(bytes));
         if let Some((p, why)) = failed.first() {
@@ -324,11 +355,22 @@ pub fn window(ctx: &egui::Context, s: &mut Session) {
                     },
                 );
             }
+            if st.kept_bytes > 0 {
+                ui.add_space(4.0);
+                ui.checkbox(
+                    &mut st.clear_kept,
+                    format!("the copies kept with the runs (in .terraflux), {}", crate::disk::size_text(st.kept_bytes)),
+                )
+                .on_hover_text(
+                    "the small outputs of each run, copied so the Runs pane can still show and compare them after \
+                     a later run writes over the files; deleting them leaves the runs in the journal",
+                );
+            }
             ui.add_space(4.0);
             if let Some(said) = &st.said {
                 ui.label(said);
             }
-            let n = st.chosen().len();
+            let n = st.count();
             if st.confirm {
                 let (bytes, _) = st.total();
                 ui.label(
@@ -457,6 +499,36 @@ mod tests {
         assert!(said.starts_with("Deleted 2 items"), "{said}");
         assert!(!folder.exists() && !output.join("old.tif").exists() && output.join("new.tif").exists());
         assert!(st.chosen().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_copies_kept_are_counted_once_and_deleted_only_when_chosen() {
+        let dir = std::env::temp_dir().join("terraflux-clean-copies");
+        let _ = std::fs::remove_dir_all(&dir);
+        let (model, output) = (dir.join("m.toml"), dir.join("output"));
+        std::fs::create_dir_all(&output).unwrap();
+        let file = output.join("a.tif");
+        std::fs::write(&file, vec![0u8; 100]).unwrap();
+        let journal = Journal::of(&model).unwrap();
+        let m = terraflux_graph::Model::new("m");
+        let mut e = run(1, Kind::Run, &[&file.to_string_lossy()]);
+        e.outputs[0].size = 100;
+        journal.record(e, &m).unwrap();
+        let mut st = State::open(&model);
+        while st.poll() {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(st.kept_bytes, 100);
+        // (unchecked by default, the newest run's file is not chosen either: nothing to delete)
+        assert!(!st.clear_kept && st.count() == 0);
+        st.clear_kept = true;
+        assert_eq!((st.count(), st.total()), (1, (100, true)));
+        assert_eq!(st.button(), "Delete 1 item (100 B)...");
+        let said = st.delete_chosen();
+        assert!(said.starts_with("Deleted 1 item"), "{said}");
+        assert!(file.exists() && journal.kept_bytes() == 0);
+        assert_eq!((st.kept_bytes, st.clear_kept, st.count()), (0, false, 0));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

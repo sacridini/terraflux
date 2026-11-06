@@ -7,6 +7,22 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Application, `terraflux run` and the MCP: **a copy of each run's small outputs, kept in the journal**, so a run's
+  maps can still be shown and compared after a later run writes over the same files. Each run's output files (not
+  folders, not a batch's), with their sidecars (`.aux.xml`, `.ovr`, a shapefile's `.shx`, `.dbf`, `.prj`...), are
+  copied into `.terraflux/<model file>/outputs/<run>/` while they fit in 50 MB a run; all the copies of a model take
+  1 GB at most, the oldest runs' going first. Both are in Settings, Runs ("keep a copy of each run's outputs up to
+  N MB", 0 for none; the command line and the MCP keep the defaults). The Runs pane opens a copy where the file was
+  written over or deleted ("overwritten since, a copy kept"), and *Compare the maps* and *Their difference* work
+  for two runs that wrote the same file (the older's copy against the newer's file). *Clean outputs...* can delete
+  the copies too (a box, off by default). (`terraflux_exec::journal::{Keep, Journal::keeping, kept, kept_bytes,
+  clear_kept}`, `Written::kept`.)
+- **Several windows, `terraflux run` and the MCP writing one model's journal at once**: every write to the journal
+  (a run recorded, a version saved or deleted, the copies pruned or cleared) holds a lock on `<journal>/lock`, so
+  runs ended at the same moment in different windows are all kept, each with its own id, and the files replaced
+  (the models' snapshots, `versions.jsonl`) are written aside and renamed, never seen half written.
+- The journals' folder, `.terraflux/`, has a `.gitignore` of its own (`*`), written with the folder: a model kept
+  in a git repository does not get its journal committed. Terraflux's repository ignores `.terraflux/` too.
 - Application: **configurable keyboard shortcuts**, the canvas', Viewer's and panes' own keys too. Frame the
   selection (F), home, run up to the node, delete, duplicate, find, rename, arrange, group, ungroup, bypass and select
   all on the canvas; satellite, hide the map, measure, go to, the view before and after and the simulation's steps in
@@ -88,7 +104,7 @@ minor versions.
   date and time, the duration, the status (the failure's message in the hover), what it was, what the values changed
   from the run before ("patches.isometry 1.5 -> 2"), the outputs (marked "overwritten since" when a later run or
   anything else wrote over their files), a "model changed" mark and a button to open the folder. One or two runs
-  can be selected (click, ctrl+click). The outputs are not copied, only recorded. `terraflux run` records its run
+  can be selected (click, ctrl+click). The small outputs are copied with the run (see the copies kept, above). `terraflux run` records its run
   too (`--no-journal` leaves it out), as does `terraflux sensitivity` and the MCP's `run_model` and `sensitivity`.
   (`terraflux_exec::journal`: `Journal`, `Entry`, `Written`, `record_run`.)
 - Application: **the Runs pane's actions**. A run selected is told in full under the table (every value as it ran,

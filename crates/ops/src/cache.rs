@@ -28,7 +28,7 @@ pub fn limit_gb() -> f64 {
 /// The size a cache is held under, in bytes (none: no limit).
 pub fn limit() -> Option<u64> {
     let gb = limit_gb();
-    (gb > 0.0).then(|| (gb * 1e9) as u64)
+    (gb > 0.0).then_some((gb * 1e9) as u64)
 }
 
 /// The caches the application empties on demand: the rasters made without a path, the data downloaded.

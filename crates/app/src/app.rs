@@ -177,6 +177,11 @@ pub struct Detached {
     pub size: egui::Vec2,
 }
 
+/// What the settings of the copies of a run's outputs tell when the pointer is over them.
+const KEEP_HOVER: &str = "the small outputs of each run are copied into the .terraflux folder beside the model, so \
+     the Runs pane can still show and compare them after a later run writes over the files; the oldest copies go \
+     first; 0 copies nothing";
+
 /// How big a window of its own opens, and the Viewer's (when nothing is remembered of it).
 const WINDOW_SIZE: egui::Vec2 = egui::vec2(960.0, 720.0);
 const VIEWER_SIZE: egui::Vec2 = egui::vec2(1100.0, 750.0);
@@ -1817,7 +1822,8 @@ impl Session {
     }
 
     /// A run asked for that ended, written to the model's journal (with the outputs and the manifest a whole run
-    /// of the model as saved wrote). A plain append: it does not wait.
+    /// of the model as saved wrote), its small outputs copied (Settings, Runs: 50 MB at most by default, a
+    /// moment's copy).
     fn journal_ended(&mut self, ended: &Result<terraflux_exec::Results, String>) {
         use terraflux_exec::journal::{Entry, Journal, Kind, Status, values_of};
         let Some((model, target, scenario)) = self.journal_run.take() else { return };
@@ -1842,7 +1848,7 @@ impl Session {
         {
             entry = entry.with_manifest(&manifest, file);
         }
-        if journal.record(entry, &model).is_ok() {
+        if journal.keeping(crate::settings::keep()).record(entry, &model).is_ok() {
             self.journal_rev += 1;
         }
     }
@@ -3675,6 +3681,18 @@ impl TerrafluxApp {
                     if let Some(e) = self.awake.as_ref().and_then(|a| a.failed.as_ref()) {
                         ui.label(RichText::new(e).color(ui.visuals().warn_fg_color).size(11.0));
                     }
+                    ui.horizontal(|ui| {
+                        ui.label("keep a copy of each run's outputs up to").on_hover_text(KEEP_HOVER);
+                        ui.add(egui::DragValue::new(&mut st.keep_outputs_mb).range(0..=100_000).speed(1.0).suffix(" MB"))
+                            .on_hover_text(KEEP_HOVER);
+                        ui.label("(all copies up to");
+                        ui.add_enabled(
+                            st.keep_outputs_mb > 0,
+                            egui::DragValue::new(&mut st.keep_outputs_total_mb).range(1..=1_000_000).speed(10.0).suffix(" MB"),
+                        )
+                        .on_hover_text(KEEP_HOVER);
+                        ui.label(")");
+                    });
                     ui.horizontal(|ui| {
                         ui.checkbox(&mut st.notify_runs, "tell when a run of more than").on_hover_text(
                             "when a run you asked for, or a batch of Many runs, ends while Terraflux is not in \

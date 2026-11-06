@@ -319,8 +319,11 @@ pub struct Rasters {
     pub mixed: bool,
     /// The bands read whole so far, by file and band: shared by the views of the same rasters (another layer
     /// chosen, the chosen layer alone), so a band is read once whichever port asks for it.
-    whole: Arc<Mutex<HashMap<(usize, usize), Arc<Vec<f64>>>>>,
+    whole: Whole,
 }
+
+/// The bands read whole, by file and band, shared by the views of the same rasters.
+type Whole = Arc<Mutex<HashMap<(usize, usize), Arc<Vec<f64>>>>>;
 
 impl std::fmt::Debug for Rasters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

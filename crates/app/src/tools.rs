@@ -911,6 +911,9 @@ fn with_texts(n: &Node, mut values: BTreeMap<String, terraflux_ops::Value>) -> B
     values
 }
 
+/// What [`features_sample`] gives: the attributes by name, and the sample in words.
+type FeaturesSample = (Vec<(String, Column)>, String);
+
 /// A script over features (`vector.calc`, `vector.filter`) run on a sample of them (with `every_name`, what each
 /// name it gives a value holds, [`vector_algebra::every_name`]): the attributes it gives by name, and the sample in
 /// words. None when the features, or another input of the node, are not known.
@@ -919,7 +922,7 @@ fn features_sample(
     n: &Node,
     values: &BTreeMap<String, terraflux_ops::Value>,
     every_name: bool,
-) -> Option<std::result::Result<(Vec<(String, Column)>, String), String>> {
+) -> Option<std::result::Result<FeaturesSample, String>> {
     let Some(terraflux_ops::Value::Vector(v)) = values.get("vector") else { return None };
     if n.inputs.keys().any(|port| !values.contains_key(port)) {
         return None;
@@ -3184,7 +3187,7 @@ pub fn list_runs(model_file: Option<&Path>, a: &Value) -> Reply {
     let outputs = |e: &terraflux_exec::journal::Entry| -> String {
         e.outputs
             .iter()
-            .map(|w| format!("{} ({}, {})", w.name, w.path, crate::runs_view::state_of(w)))
+            .map(|w| format!("{} ({}, {})", w.name, w.path, crate::runs_view::state_of(w, Some(&journal))))
             .collect::<Vec<_>>()
             .join("; ")
     };
@@ -3228,7 +3231,13 @@ pub fn list_runs(model_file: Option<&Path>, a: &Value) -> Reply {
         }
         t.push_str("outputs:\n");
         for w in &e.outputs {
-            t.push_str(&format!("  {}: {} ({} bytes, {})\n", w.name, w.path, w.size, crate::runs_view::state_of(w)));
+            t.push_str(&format!(
+                "  {}: {} ({} bytes, {})\n",
+                w.name,
+                w.path,
+                w.size,
+                crate::runs_view::state_of(w, Some(&journal))
+            ));
         }
         if !e.warnings.is_empty() {
             t.push_str(&format!("warnings:\n  {}\n", e.warnings.join("\n  ")));
