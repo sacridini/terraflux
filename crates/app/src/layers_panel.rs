@@ -479,11 +479,21 @@ fn toolbar(
     asked: &mut Asked,
 ) {
     let n = sh.layers.len();
-    ui.horizontal(|ui| {
+    let title = |ui: &mut Ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         ui.label(RichText::new("Layers").strong());
         if n > 0 {
             ui.label(RichText::new(n.to_string()).weak().size(11.0));
+        }
+    };
+    // (a narrow panel: the title on a line of its own, the buttons under it)
+    let narrow = ui.available_width() < 250.0;
+    if narrow {
+        ui.horizontal(title);
+    }
+    ui.horizontal(|ui| {
+        if !narrow {
+            title(ui);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 1.0;

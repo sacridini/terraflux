@@ -4676,9 +4676,21 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         ),
     };
     let value = s.value_of(&node, &port);
-    // the header: the node, its outputs, how it did
+    // the header: the node, its outputs, how it did; its buttons on a row of their own (wrapped) when the Viewer is
+    // too narrow for one row (by the width they needed in one row last time), never over the panes beside it
+    let need_id = egui::Id::new(("viewer header width", salt));
+    let need: f32 = ui.data(|d| d.get_temp(need_id)).unwrap_or(0.0);
     egui::Frame::new().fill(theme::bar()).inner_margin(Margin::symmetric(8, 4)).show(ui, |ui| {
-        ui.horizontal(|ui| {
+        let two_rows = need > ui.available_width();
+        let outer = if two_rows {
+            egui::Layout::top_down(egui::Align::Min)
+        } else {
+            egui::Layout::left_to_right(egui::Align::Center)
+        };
+        // (a row high, as `horizontal` is: grown by what is in it)
+        let row = |ui: &Ui| egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+        ui.allocate_ui_with_layout(row(ui), outer, |ui| {
+            let left = ui.allocate_ui_with_layout(row(ui), egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(two_rows), |ui| {
             ui.label(RichText::new(&title).strong());
             ui.label(RichText::new(&op).monospace().weak());
             if let Some((lop, times)) = &top_loop {
@@ -4695,7 +4707,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     }
                 }
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            });
+            let buttons = ui.allocate_ui_with_layout(row(ui), egui::Layout::right_to_left(egui::Align::Center).with_main_wrap(two_rows), |ui| {
                 // the Viewer out of the dock into a window of its own (for another screen), and back
                 if salt == "viewer" {
                     let (label, tip) = if s.viewer_out {
@@ -4874,7 +4887,13 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     }
                     None => {}
                 }
+                ui.min_rect().width()
             });
+            // (measured in one row only: the width the two parts take side by side)
+            if !two_rows {
+                let need = left.response.rect.width() + ui.spacing().item_spacing.x + buttons.inner;
+                ui.data_mut(|d| d.insert_temp(need_id, need));
+            }
         });
     });
     let Some(value) = value else {
@@ -5104,9 +5123,11 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     } else {
         Vec::new()
     };
+    // (the panels beside the map narrower in a narrow Viewer: the map keeps room)
     egui::Panel::right(egui::Id::new(("output side", salt)))
         .resizable(true)
         .default_size(300.0)
+        .max_size((ui.available_width() * 0.35).max(200.0))
         .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::same(8)))
         .show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -5635,6 +5656,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     egui::Panel::left(egui::Id::new(("layers side", salt)))
         .resizable(true)
         .default_size(270.0)
+        .max_size((ui.available_width() * 0.4).max(170.0))
         .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::same(8)))
         .show_collapsible(ui, &mut layers_open, |ui| {
             egui::ScrollArea::vertical().id_salt(("layers scroll", salt)).show(ui, |ui| {

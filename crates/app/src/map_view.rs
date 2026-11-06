@@ -1583,6 +1583,7 @@ impl MapView {
             .order(egui::Order::Foreground)
             .pivot(egui::Align2::CENTER_TOP)
             .fixed_pos(rect.center_top() + Vec2::new(0.0, 10.0))
+            .constrain_to(rect)
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.set_max_width(400.0);

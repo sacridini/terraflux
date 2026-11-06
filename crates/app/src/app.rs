@@ -320,6 +320,8 @@ impl egui_dock::TabViewer for Panes<'_> {
     }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Pane) {
+        // (what a pane draws stays in it: never over the panes beside it, however narrow it is)
+        ui.shrink_clip_rect(ui.max_rect());
         self.app.pane(ui, *tab);
     }
 
@@ -1808,6 +1810,8 @@ pub struct TerrafluxApp {
     /// The Viewer's window where it is now (x, y, width, height), kept in the settings once it stays still.
     viewer_geometry: Option<[f32; 4]>,
     viewer_geometry_kept: Option<[f32; 4]>,
+    /// The place of the Viewer's window seen last, and since when it has been there.
+    viewer_geometry_seen: Option<[f32; 4]>,
     viewer_geometry_at: Instant,
     /// All the screens together, in points (none: not known).
     screen: Option<egui::Rect>,
@@ -1956,6 +1960,7 @@ impl TerrafluxApp {
             raised: (None, 0),
             viewer_geometry: None,
             viewer_geometry_kept: crate::settings::get().viewer_window,
+            viewer_geometry_seen: None,
             viewer_geometry_at: Instant::now(),
             screen: None,
             styled: None,
@@ -2783,8 +2788,15 @@ impl TerrafluxApp {
                 if let Some(s) = &self.session
                     && self.wizard.is_none()
                 {
+                    let tabs = self.tab_count();
+                    let colour = self.tab_colour(self.front);
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         theme::pill(ui, |ui| {
+                        // (several models open: the one in front in its tab's colour)
+                        if tabs >= 2 {
+                            let (r, _) = ui.allocate_exact_size(Vec2::new(4.0, 16.0), egui::Sense::hover());
+                            ui.painter().rect_filled(r, 2.0, colour);
+                        }
                         // the model's name, a dot when it has edits not saved
                         // (cut short when the bar has no room for it)
                         let title = ui
@@ -4794,19 +4806,24 @@ impl TerrafluxApp {
         self.windows.push(Detached { id, dock: DockState::new(vec![pane]), at, size });
     }
 
-    /// The Viewer's window kept in the settings once it has stayed where it is for a moment (not at every step of
-    /// a drag).
+    /// The Viewer's window kept in the settings once it has stayed where it is for a moment: once at the end of a
+    /// drag, not while it goes (the settings' file written on the way made the drag stutter).
     fn keep_viewer_geometry(&mut self, ctx: &egui::Context) {
         let Some(now) = self.viewer_geometry else { return };
+        // (moved or resized: the wait starts again)
+        if self.viewer_geometry_seen != Some(now) {
+            self.viewer_geometry_seen = Some(now);
+            self.viewer_geometry_at = Instant::now();
+        }
         if Some(now) == self.viewer_geometry_kept {
             return;
         }
         let wait = Duration::from_millis(600);
-        if self.viewer_geometry_at.elapsed() < wait {
-            ctx.request_repaint_after(wait);
+        let still = self.viewer_geometry_at.elapsed();
+        if still < wait {
+            ctx.request_repaint_after(wait - still);
             return;
         }
-        self.viewer_geometry_at = Instant::now();
         self.viewer_geometry_kept = Some(now);
         crate::settings::update(|s| s.viewer_window = Some(now));
     }

@@ -6,6 +6,20 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- Application: **the tabs of the models open stand out**, each model in a colour of its own (its tab washed in it,
+  a band of it at its left, the one in front stronger and outlined), "2 models open" before them, and the model in
+  front marked in its colour by its name in the toolbar.
+
+### Fixed
+- Application: **no pane draws over the others any more**. A narrow Viewer (the Trace opened beside it, say) put
+  its buttons and its Layers panel over the panes at its left; now its buttons go to a row of their own when one
+  row is too narrow, the panels beside the map narrow with the Viewer, the Layers' title goes over its buttons, and
+  every pane of the dock is cut at its sides. The boxes floating over a pane (the slowest nodes, Go to, Measure, the
+  input to choose) stay inside it.
+- Application: **dragging the Viewer's own window no longer stutters**. Its place was written to the settings every
+  0.6 s while it moved (a file written in the middle of the drag); now once, when it stops.
+
 ## [1.44.0] - 2026-11-06
 
 ### Added

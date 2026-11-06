@@ -217,12 +217,20 @@ impl TerrafluxApp {
 
     /// The strip of the tabs, under the toolbar, when two models or more are open: each its name, a dot when it has
     /// edits not saved, a spinner while it runs, and its × (the middle button closes it too).
+    /// The colour of the model of tab `k` (by its place among the tabs): the tabs' and the toolbar's.
+    pub fn tab_colour(&self, k: usize) -> egui::Color32 {
+        tint(k)
+    }
+
     pub(crate) fn tabs_strip(&mut self, ui: &mut Ui) {
         let mut go = None;
         let mut close = None;
+        let n = self.tab_count();
         ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            for k in 0..self.tab_count() {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.label(RichText::new(format!("{n} models open")).weak().size(12.0))
+                .on_hover_text("each in its colour; ctrl+Tab and ctrl+shift+Tab go from one to the next");
+            for k in 0..n {
                 let Some(s) = self.tab(k) else { continue };
                 let front = k == self.front;
                 let mut text = s.title();
@@ -231,21 +239,28 @@ impl TerrafluxApp {
                 }
                 let file = s.path.as_ref().map_or("not saved yet".to_string(), |p| p.display().to_string());
                 let running = s.running();
-                egui::Frame::new()
-                    .fill(if front { ui.visuals().panel_fill } else { ui.visuals().faint_bg_color })
-                    .stroke(if front { egui::Stroke::new(1.0, crate::theme::accent()) } else { egui::Stroke::NONE })
+                // each model its colour: the tab washed in it (the one in front more), a band of it at the left
+                let colour = tint(k);
+                let fill = ui.visuals().panel_fill.lerp_to_gamma(colour, if front { 0.42 } else { 0.16 });
+                let frame = egui::Frame::new()
+                    .fill(fill)
+                    .stroke(if front {
+                        egui::Stroke::new(1.5, colour)
+                    } else {
+                        egui::Stroke::new(1.0, colour.gamma_multiply(0.45))
+                    })
                     .corner_radius(crate::theme::rounded(4.0))
-                    .inner_margin(egui::Margin::symmetric(10, 3))
+                    .inner_margin(egui::Margin { left: 14, right: 10, top: 4, bottom: 4 })
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 8.0;
                             if running {
                                 ui.add(egui::Spinner::new().size(11.0)).on_hover_text("running");
                             }
-                            let label = RichText::new(&text);
-                            let r = ui
-                                .add(egui::Button::new(if front { label.strong() } else { label }).frame(false))
-                                .on_hover_text(file);
+                            let label = RichText::new(&text).size(13.5);
+                            let label =
+                                if front { label.strong().color(ui.visuals().strong_text_color()) } else { label };
+                            let r = ui.add(egui::Button::new(label).frame(false)).on_hover_text(file);
                             if r.clicked() {
                                 go = Some(k);
                             }
@@ -258,6 +273,14 @@ impl TerrafluxApp {
                             }
                         });
                     });
+                let r = frame.response.rect;
+                let band = egui::Rect::from_min_max(r.min, egui::pos2(r.min.x + 5.0, r.max.y));
+                let radius = crate::theme::rounded(4.0);
+                ui.painter().rect_filled(
+                    band,
+                    egui::CornerRadius { nw: radius as u8, sw: radius as u8, ne: 0, se: 0 },
+                    colour,
+                );
             }
         });
         if let Some(k) = close {
@@ -266,4 +289,21 @@ impl TerrafluxApp {
             self.switch_to(k);
         }
     }
+}
+
+/// The colours of the models open, by their tab: told apart at a glance, on a dark or a light theme.
+const TINTS: [egui::Color32; 8] = [
+    egui::Color32::from_rgb(86, 156, 214),
+    egui::Color32::from_rgb(222, 140, 60),
+    egui::Color32::from_rgb(98, 184, 112),
+    egui::Color32::from_rgb(196, 104, 186),
+    egui::Color32::from_rgb(64, 184, 184),
+    egui::Color32::from_rgb(214, 88, 88),
+    egui::Color32::from_rgb(184, 164, 76),
+    egui::Color32::from_rgb(140, 124, 226),
+];
+
+/// The colour of the model of tab `k`.
+pub fn tint(k: usize) -> egui::Color32 {
+    TINTS[k % TINTS.len()]
 }

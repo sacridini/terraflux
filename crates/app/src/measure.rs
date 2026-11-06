@@ -431,6 +431,7 @@ impl Measure {
             .order(egui::Order::Foreground)
             .pivot(egui::Align2::LEFT_BOTTOM)
             .fixed_pos(response.rect.left_bottom() + Vec2::new(8.0, -8.0))
+            .constrain_to(response.rect)
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.strong("Measure");

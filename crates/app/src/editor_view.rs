@@ -1272,6 +1272,7 @@ fn slowest(ui: &mut Ui, times: &HashMap<String, (f64, usize, bool)>, rect: Rect,
     egui::Area::new(egui::Id::new("slowest nodes"))
         .order(egui::Order::Foreground)
         .fixed_pos(rect.right_top() + Vec2::new(-250.0, 10.0))
+        .constrain_to(rect)
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_width(230.0);
@@ -3811,6 +3812,7 @@ pub fn show(
         let area = egui::Area::new(egui::Id::new("pick an input"))
             .order(egui::Order::Foreground)
             .fixed_pos(pick.at)
+            .constrain_to(resp.rect)
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.label(egui::RichText::new(format!("{} into {}'s", pick.reference, pick.node)).strong());
