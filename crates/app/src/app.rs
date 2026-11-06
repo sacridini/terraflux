@@ -1044,6 +1044,8 @@ impl Session {
     pub fn edited(&mut self) {
         // (a view.plot added, by the assistant or an agent: a Plot)
         self.source.plots_from_nodes();
+        // (the frames of nodes deleted, grouped, taken away with them)
+        self.source.tidy_notes();
         self.history.changed(&self.source);
         self.dirty = true;
         self.fields.clear();

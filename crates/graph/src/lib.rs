@@ -215,6 +215,80 @@ pub struct Model {
     /// `loop|@step`). Those not given are drawn in a column at the scope's left.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub places: BTreeMap<String, [f32; 2]>,
+    /// The notes and frames of the canvas ([`Note`]): for whoever reads the model, never checked nor run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<Note>,
+}
+
+/// A note of the canvas: a text put somewhere (`at`, graph units), or a frame around nodes (`nodes`: the frame is
+/// their boxes' rectangle, so it follows them), its text the frame's title. Of a scope (`scope`: the containers' ids
+/// from the top; none, the top level), in a colour (`amber`, `blue`, `green`, `red`, `purple`, `grey`; none: the
+/// note's own). Outside the graph: the checks and the runs never see them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct Note {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scope: Vec<String>,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colour: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<[f32; 2]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nodes: Vec<String>,
+}
+
+/// The colours a note may have, by name.
+pub const NOTE_COLOURS: [&str; 6] = ["amber", "blue", "green", "red", "purple", "grey"];
+
+impl Note {
+    /// A frame (around nodes), not a note put somewhere.
+    pub fn is_frame(&self) -> bool {
+        !self.nodes.is_empty()
+    }
+
+    /// The first line of its text: a frame's title.
+    pub fn title(&self) -> &str {
+        self.text.lines().next().unwrap_or("").trim()
+    }
+}
+
+impl Model {
+    /// The notes and frames of a scope.
+    pub fn notes_of<'a>(&'a self, scope: &'a [String]) -> impl Iterator<Item = &'a Note> + 'a {
+        self.notes.iter().filter(move |n| n.scope == scope)
+    }
+
+    /// A new id for a note: `note1`, `note2`... (`frame1`... for a frame), not taken.
+    pub fn new_note_id(&self, frame: bool) -> String {
+        let stem = if frame { "frame" } else { "note" };
+        (1..).map(|k| format!("{stem}{k}")).find(|id| !self.notes.iter().any(|n| &n.id == id)).unwrap()
+    }
+
+    /// A node of a scope renamed: the frames around it follow.
+    pub fn notes_renamed(&mut self, scope: &[String], old: &str, new: &str) {
+        for n in self.notes.iter_mut().filter(|n| n.scope == scope) {
+            for id in n.nodes.iter_mut().filter(|id| *id == old) {
+                *id = new.to_string();
+            }
+        }
+    }
+
+    /// The frames' nodes that are no longer in their scope taken off them, the frames left empty taken away (and
+    /// the notes of a scope that is gone).
+    pub fn tidy_notes(&mut self) {
+        let mut notes = std::mem::take(&mut self.notes);
+        notes.retain_mut(|n| {
+            let Some(nodes) = self.scope(&n.scope) else { return false };
+            if n.nodes.is_empty() {
+                return true;
+            }
+            n.nodes.retain(|id| nodes.iter().any(|x| &x.id == id));
+            !n.nodes.is_empty()
+        });
+        self.notes = notes;
+    }
 }
 
 /// The key of the place of a box of what a scope reads ([`Model::places`]): the scope's containers joined by `/`,
@@ -583,6 +657,7 @@ impl Model {
             tests: Vec::new(),
             plots: Vec::new(),
             places: BTreeMap::new(),
+            notes: Vec::new(),
         }
     }
 
@@ -979,6 +1054,43 @@ pub fn dependencies_among(node: &Node, scope: &std::collections::HashSet<&str>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_notes_and_frames_are_kept_with_the_model() {
+        let mut m = Model::new("noted");
+        m.nodes.push(Node::new("a", "nlm.random"));
+        m.nodes.push(Node::new("b", "nlm.random"));
+        m.notes.push(Note {
+            id: m.new_note_id(false),
+            text: "Read me first\nthen run".into(),
+            at: Some([10.0, -20.0]),
+            ..Default::default()
+        });
+        m.notes.push(Note {
+            id: m.new_note_id(true),
+            text: "Inputs".into(),
+            colour: Some("blue".into()),
+            nodes: vec!["a".into(), "b".into()],
+            ..Default::default()
+        });
+        let text = m.to_toml().unwrap();
+        assert!(text.contains("[[notes]]"), "{text}");
+        let back = Model::from_toml(&text).unwrap();
+        assert_eq!(back.notes, m.notes);
+        assert_eq!(back.notes[0].id, "note1");
+        assert_eq!(back.notes[1].id, "frame1");
+        assert!(back.notes[1].is_frame() && back.notes[1].title() == "Inputs");
+        assert_eq!(back.notes_of(&[]).count(), 2);
+        // a node renamed: its frame follows; one deleted: taken off it; the last deleted: the frame gone
+        m.notes_renamed(&[], "a", "land");
+        assert_eq!(m.notes[1].nodes, ["land", "b"]);
+        m.nodes.retain(|n| n.id == "b");
+        m.tidy_notes();
+        assert_eq!(m.notes[1].nodes, ["b"]);
+        m.nodes.clear();
+        m.tidy_notes();
+        assert_eq!(m.notes.len(), 1, "the note put somewhere stays");
+    }
 
     #[test]
     fn addresses_are_read_by_gdals_network_file_systems() {

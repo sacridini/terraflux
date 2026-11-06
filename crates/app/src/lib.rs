@@ -51,6 +51,7 @@ pub mod my_nodes;
 pub mod nav;
 pub mod node_remotes;
 pub mod node_view;
+pub mod notes;
 pub mod notify;
 pub mod op_notes;
 pub mod palette;

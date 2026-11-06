@@ -216,10 +216,12 @@ pub struct Section {
     pub stage: Stage,
     /// The stage's title (the preparation is the analysis when there is no model), or the group's.
     pub title: String,
-    /// The group it is (its id), and its note.
+    /// The group it is (its id), and its note (a frame's: the lines of its text after its title).
     pub group: Option<String>,
     pub note: Option<String>,
     pub steps: Vec<Step>,
+    /// The frame of the canvas it is (its id): the stage's nodes in a frame, under the frame's title.
+    pub frame: Option<String>,
 }
 
 /// An input of the model.
@@ -740,6 +742,8 @@ impl Document {
     pub fn of_in(m: &Model, r: &Registry, lang: Lang) -> Document {
         let stage = stages(&m.nodes);
         let order = reading_order(&m.nodes);
+        let frames: Vec<&terraflux_graph::Note> = m.notes_of(&[]).filter(|n| n.is_frame()).collect();
+        let frame_of = |id: &str| frames.iter().find(|f| f.nodes.iter().any(|k| k == id)).copied();
         let mut sections: Vec<Section> = Vec::new();
         for st in Stage::ALL {
             // the stage's nodes outside groups, a section; each group, a section of its own; in the reading order
@@ -751,13 +755,29 @@ impl Document {
                 .filter(|(_, n)| stage[&n.id] == st && n.op != GROUP)
                 .map(|(k, n)| (k, *n))
                 .collect();
+            // (the nodes of a frame of the canvas: a section of their own, under the frame's title)
+            let (framed, loose): (Vec<_>, Vec<_>) = loose.into_iter().partition(|(_, n)| frame_of(&n.id).is_some());
+            let top_step = |n: &Node| step(n, &[], st, r, Some((n.id.clone(), String::new())), lang);
             if let Some((first, _)) = loose.first() {
-                let steps =
-                    loose.iter().map(|(_, n)| step(n, &[], st, r, Some((n.id.clone(), String::new())), lang)).collect();
-                parts.push((
-                    *first,
-                    Section { stage: st, title: lang.t(st.title()).to_string(), group: None, note: None, steps },
-                ));
+                let steps = loose.iter().map(|(_, n)| top_step(n)).collect();
+                let title = lang.t(st.title()).to_string();
+                parts.push((*first, Section { stage: st, title, group: None, note: None, steps, frame: None }));
+            }
+            for f in &frames {
+                let of: Vec<&(usize, &Node)> =
+                    framed.iter().filter(|(_, n)| frame_of(&n.id).is_some_and(|g| g.id == f.id)).collect();
+                let Some((first, _)) = of.first() else { continue };
+                let rest: Vec<&str> = f.text.lines().skip(1).map(str::trim).filter(|l| !l.is_empty()).collect();
+                let title = if f.title().is_empty() { label_of(&f.id) } else { f.title().to_string() };
+                let section = Section {
+                    stage: st,
+                    title,
+                    group: None,
+                    note: (!rest.is_empty()).then(|| rest.join(" ")),
+                    steps: of.iter().map(|(_, n)| top_step(n)).collect(),
+                    frame: Some(f.id.clone()),
+                };
+                parts.push((*first, section));
             }
             for (k, g) in order.iter().enumerate().filter(|(_, n)| stage[&n.id] == st && n.op == GROUP) {
                 let at = vec![g.id.clone()];
@@ -771,6 +791,7 @@ impl Document {
                     group: Some(g.id.clone()),
                     note: g.note.clone().filter(|t| !t.trim().is_empty()),
                     steps,
+                    frame: None,
                 };
                 parts.push((k, section));
             }
@@ -779,7 +800,8 @@ impl Document {
         }
         // without a model, what is done to the data is the analysis
         if !sections.iter().any(|s| s.stage == Stage::Model)
-            && let Some(p) = sections.iter_mut().find(|s| s.stage == Stage::Preparation && s.group.is_none())
+            && let Some(p) =
+                sections.iter_mut().find(|s| s.stage == Stage::Preparation && s.group.is_none() && s.frame.is_none())
         {
             p.title = lang.t("Analysis").into();
         }
@@ -1105,6 +1127,36 @@ mod tests {
 
     fn ids(sec: &Section) -> Vec<&str> {
         sec.steps.iter().map(|s| s.id.as_str()).collect()
+    }
+
+    #[test]
+    fn a_frame_of_the_canvas_is_a_section_under_its_title() {
+        let mut m = template("CLUE-S");
+        let stage = stages(&m.nodes);
+        let loose: Vec<&Node> = m.nodes.iter().filter(|n| n.op != GROUP).collect();
+        let (a, b) = loose
+            .iter()
+            .flat_map(|a| loose.iter().map(move |b| (a, b)))
+            .find(|(a, b)| a.id != b.id && stage[&a.id] == stage[&b.id])
+            .map(|(a, b)| (a.id.clone(), b.id.clone()))
+            .expect("two nodes of a stage outside groups");
+        m.notes.push(terraflux_graph::Note {
+            id: "frame1".into(),
+            text: "The demand\nwhat each year needs".into(),
+            nodes: vec![a.clone(), b.clone()],
+            ..Default::default()
+        });
+        let d = Document::of(&m, &Registry::standard());
+        let f = d.sections.iter().find(|s| s.frame.as_deref() == Some("frame1")).expect("the frame's section");
+        assert_eq!(f.title, "The demand");
+        assert_eq!(f.note.as_deref(), Some("what each year needs"));
+        assert_eq!(f.stage, stage[&a]);
+        let mut got = ids(f);
+        got.sort();
+        let mut want = vec![a.as_str(), b.as_str()];
+        want.sort();
+        assert_eq!(got, want);
+        assert!(d.sections.iter().filter(|s| s.frame.is_none()).all(|s| !ids(s).contains(&a.as_str())), "once only");
     }
 
     #[test]

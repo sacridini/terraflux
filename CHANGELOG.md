@@ -51,6 +51,13 @@ minor versions.
   one step of undo, relative to the model's folder, and reads the data again. The old paths are cut at `/` and at
   `\` alike, so a model written on Windows relinks on Linux and macOS, and the other way round. The files written
   are never asked for; a folder or a pattern (`*.tif`) is found when its folder is.
+- Canvas: **notes and frames**. A right click on the empty canvas, *Add a note here*: a card with a text, for
+  whoever reads the model. The selection's menu, *Frame them*: a rectangle around the nodes with a title, which
+  follows them (*Arrange*, drags); dragging its title drags its nodes, a node let go in it joins it, a node's menu
+  takes it out. A double click edits the text (a frame's title is its first line), Delete takes the one selected
+  away, the menu gives the colour; each a step of undo. They are kept in the model's file (`[[notes]]`), outside the
+  graph: never checked nor run. The Document puts the steps of a frame under its title, and the MCP sets and
+  removes them (`set_note`, `remove_note`; `show_model` lists them).
 
 ## [1.42.0] - 2026-11-06
 

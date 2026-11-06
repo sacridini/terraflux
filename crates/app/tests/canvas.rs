@@ -2343,3 +2343,75 @@ fn a_connection_of_a_number_shows_the_number() {
     assert!(h.query_by_label_contains("changed since the last run").is_some());
     assert!(h.query_by_label_contains("number\n42").is_none());
 }
+
+/// A note put on the empty canvas and a frame around two nodes: the frame dragged by its title drags its nodes, a
+/// node let go in it joins it, a note selected is deleted by Delete, each a step of undo.
+#[test]
+fn notes_and_frames_are_put_on_the_canvas_and_follow_their_nodes() {
+    use egui_kittest::kittest::Queryable;
+    let mut m = Model::new("noted");
+    m.nodes = vec![reader("a", [0.0, 0.0]), reader("b", [0.0, 220.0]), reader("z", [700.0, 0.0])];
+    let mut h = harness(open(&m, "canvas-notes.toml"));
+    h.run_steps(3);
+    let source = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().source.clone();
+    let pos = |h: &Harness<TerrafluxApp>, id: &str| source(h).nodes.iter().find(|n| n.id == id).unwrap().pos.unwrap();
+    let typed = |h: &mut Harness<TerrafluxApp>, text: &str| {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.note_editing.as_mut().expect("the text asked for").1 = text.to_string();
+        h.run_steps(1);
+        h.get_by_label("OK").click();
+        h.run_steps(3);
+    };
+    // a note on the empty canvas, its text typed at once
+    let empty = editor(&h).screen_at(egui::pos2(300.0, 520.0)).unwrap();
+    right_click(&mut h, empty);
+    h.get_by_label("Add a note here").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("For a frame, the first line is its title.").is_some());
+    typed(&mut h, "Read the land first");
+    let notes = source(&h).notes;
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0].text, "Read the land first");
+    let at = notes[0].at.unwrap();
+    assert!((at[0] - 300.0).abs() < 2.0 && (at[1] - 520.0).abs() < 2.0, "{at:?}");
+    // a frame around a and b, from the selection's menu
+    h.state_mut().session.as_mut().unwrap().editor.chosen = ["a".to_string(), "b".to_string()].into();
+    h.run_steps(1);
+    let a = editor(&h).screen_of("a").unwrap();
+    right_click(&mut h, a);
+    h.get_by_label("Frame them").click();
+    h.run_steps(3);
+    typed(&mut h, "Inputs");
+    let frame = source(&h).notes.into_iter().find(|n| n.is_frame()).expect("a frame");
+    assert_eq!((frame.title(), frame.nodes.clone()), ("Inputs", vec!["a".to_string(), "b".to_string()]));
+    h.state_mut().session.as_mut().unwrap().editor.chosen.clear();
+    h.run_steps(2);
+    if let Ok(img) = h.render() {
+        img.save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("ui-notes.png")).unwrap();
+    }
+    // dragged by its title: a and b with it, z where it was
+    let (a0, b0, z0) = (pos(&h, "a"), pos(&h, "b"), pos(&h, "z"));
+    let title = editor(&h).screen_at(egui::pos2(a0[0] + 30.0, a0[1] - 28.0)).unwrap();
+    drag(&mut h, title, title + egui::vec2(120.0, 60.0));
+    let (a1, b1) = (pos(&h, "a"), pos(&h, "b"));
+    assert!(a1[0] > a0[0] + 20.0 && a1[1] > a0[1] + 10.0, "{a0:?} -> {a1:?}");
+    assert_eq!([a1[0] - a0[0], a1[1] - a0[1]], [b1[0] - b0[0], b1[1] - b0[1]], "the frame's nodes moved together");
+    assert_eq!(pos(&h, "z"), z0);
+    // z let go between a and b: in the frame
+    let z = editor(&h).screen_of("z").unwrap();
+    let into = editor(&h).screen_at(egui::pos2(a1[0] + 40.0, a1[1] + 120.0)).unwrap();
+    drag(&mut h, z, into);
+    let frame = source(&h).notes.into_iter().find(|n| n.is_frame()).unwrap();
+    assert!(frame.nodes.contains(&"z".to_string()), "{:?} at {:?}", frame.nodes, pos(&h, "z"));
+    // the note clicked, Delete: gone, not the nodes
+    let note = editor(&h).screen_at(egui::pos2(at[0] + 40.0, at[1] + 12.0)).unwrap();
+    click(&mut h, note);
+    assert_eq!(editor(&h).note_chosen.as_deref(), Some("note1"));
+    h.key_press(egui::Key::Delete);
+    h.run_steps(3);
+    assert_eq!(source(&h).notes.len(), 1);
+    assert_eq!(source(&h).nodes.len(), 3);
+    // undone: back
+    undo(&mut h);
+    assert_eq!(source(&h).notes.len(), 2);
+}

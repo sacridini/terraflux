@@ -387,6 +387,20 @@ pub enum Action {
     ExposeLast(String),
     /// A group or a calculator saved as a node of the user's library (its dialog).
     SaveMine(String),
+    /// A note put at a place (graph units), its text asked for at once ([`crate::notes`]).
+    AddNote([f32; 2]),
+    /// A frame around the nodes selected, its title asked for at once.
+    FrameChosen,
+    /// A note dragged to a place (in the model at once: it is drawn from it).
+    MoveNote(String, [f32; 2]),
+    /// A note's text asked for (a double click, its menu), given, its colour, the note taken away.
+    EditNote(String),
+    SetNote(String, String),
+    NoteColour(String, Option<String>),
+    RemoveNote(String),
+    /// A node let go in a frame it was not in: it joins it (frame, node); one taken out of its frame.
+    JoinFrame(String, String),
+    LeaveFrame(String, String),
 }
 
 /// What "Group the nodes selected" does.
@@ -592,6 +606,8 @@ enum Drag {
     /// A reroute point of a wire moved: the wire (its edge in the scene), the point's index, the node and input
     /// the wire goes into.
     Point(usize, usize, String, String),
+    /// A note moved: its id, where the pointer started and where the note was (graph units).
+    Note(String, Pos2, Pos2),
 }
 
 /// The editor's state between frames.
@@ -651,6 +667,14 @@ pub struct EditorState {
     /// and the slowest listed (the canvas bar's Times).
     pub times: HashMap<String, (f64, usize, bool)>,
     pub times_shown: bool,
+    /// The note or frame selected (a click on it: Delete takes it away), the one whose menu is open, where the
+    /// menu was opened (graph units: "Add a note here"), and the note whose text is being edited (its id, the
+    /// text, whether the field was given the focus) with where its window opens (on the screen).
+    pub note_chosen: Option<String>,
+    menu_note: Option<String>,
+    menu_at: Option<Pos2>,
+    pub note_editing: Option<(String, String, bool)>,
+    pub note_window_at: Pos2,
     /// The nodes whose optional inputs are unfolded, and a counter of their changes (the scene made again then).
     pub unfolded: HashSet<String>,
     folds: u64,
@@ -2346,6 +2370,7 @@ fn selection_menu(
     entry(ui, "Rename...", RENAME_MANY_HELP, None, Action::RenameChosen);
     entry(ui, "Disconnect all their inputs", DISCONNECT_MANY_HELP, none, Action::DisconnectChosen);
     entry(ui, &format!("Group    {c}G"), GROUP_HELP, None, Action::Group);
+    entry(ui, "Frame them", crate::notes::FRAME_HELP, None, Action::FrameChosen);
     ui.menu_button("Align", |ui| {
         let few = (n < 3).then_some("needs three nodes or more selected");
         for (text, how, off) in [
@@ -2459,10 +2484,17 @@ pub fn show(
     }
     if !typing && none {
         st.chosen.clear();
+        st.note_chosen = None;
     }
     let adding = ui.input(|i| i.modifiers.shift || i.modifiers.command);
     let scene = st.scene.as_ref().unwrap();
     let path = st.path.clone();
+    // the notes and frames of the scope where they are as the frame begins (what the pointer holds)
+    let notes_now = {
+        let painter = ui.painter_at(rect);
+        let measure = crate::notes::measurer(&painter);
+        crate::notes::layout(model, &path, &|id| scene.index.get(id).map(|&i| scene.boxes[i].rect), &measure, None)
+    };
     // F: the nodes selected in view (none selected: the whole graph, as Home)
     let mut framed = None;
     if std::mem::take(&mut st.framing) {
@@ -2655,7 +2687,19 @@ pub fn show(
                         Drag::Move(w, corners, alt)
                     }
                 }
-                _ => Drag::Select(w),
+                // a frame held by its title: its nodes moved; a note: moved
+                _ => match crate::notes::hit(&notes_now, w) {
+                    Some(l) if l.frame => Drag::Move(
+                        w,
+                        l.nodes
+                            .iter()
+                            .filter_map(|k| scene.index.get(k).map(|&j| (k.clone(), scene.boxes[j].rect.min)))
+                            .collect(),
+                        false,
+                    ),
+                    Some(l) => Drag::Note(l.id.clone(), w, l.rect.min),
+                    None => Drag::Select(w),
+                },
             }
         });
     }
@@ -2702,6 +2746,15 @@ pub fn show(
             }
         }
     }
+    // a note dragged: in the model, and drawn there at once
+    let mut note_moving = None;
+    if let (Some(Drag::Note(id, from, was)), Some(q)) = (&st.drag, pointer) {
+        let p = *was + (to_world(q, cam) - *from);
+        if resp.dragged() {
+            actions.push(Action::MoveNote(id.clone(), [p.x, p.y]));
+        }
+        note_moving = Some((id.clone(), p));
+    }
     let boxed = match (&st.drag, pointer) {
         (Some(Drag::Select(from)), Some(q)) => Some(Rect::from_two_pos(*from, to_world(q, cam))),
         _ => None,
@@ -2709,6 +2762,18 @@ pub fn show(
     // nodes let go: the wires go around them too then (not while they were dragged)
     let settle = resp.drag_stopped() && matches!(st.drag, Some(Drag::Move(..) | Drag::Resize(..)));
     if resp.drag_stopped() {
+        // nodes in no frame let go in one: they join it
+        if let Some(Drag::Move(_, corners, _)) = &st.drag {
+            let framed: HashSet<&str> =
+                notes_now.iter().filter(|l| l.frame).flat_map(|l| l.nodes.iter().map(String::as_str)).collect();
+            for (id, _) in corners.iter().filter(|(k, _)| !framed.contains(k.as_str())) {
+                if let Some(&i) = scene.index.get(id)
+                    && let Some(f) = crate::notes::frame_at(&notes_now, scene.boxes[i].rect.center(), &[])
+                {
+                    actions.push(Action::JoinFrame(f.id.clone(), id.clone()));
+                }
+            }
+        }
         // copies dragged, let go: made there, selected
         if let (Some(Drag::Copy(from, corners)), Some(q)) = (&st.drag, pointer) {
             let d = to_world(q, cam) - *from;
@@ -2862,6 +2927,11 @@ pub fn show(
     if resp.clicked()
         && let Some(w) = at
     {
+        // a note or a frame's title: selected (Delete takes it away)
+        st.note_chosen = match scene.hit(w, reach(cam)) {
+            None => crate::notes::hit(&notes_now, w).map(|l| l.id.clone()),
+            Some(_) => None,
+        };
         match scene.hit(w, reach(cam)) {
             Some(Hit::Output(i, k)) if !scene.boxes[i].source => {
                 actions.push(Action::Preview(scene.boxes[i].key.clone(), scene.boxes[i].outputs[k].0.clone()));
@@ -2916,6 +2986,12 @@ pub fn show(
             _ => None,
         });
         st.menu = hit.map(|i| (scene.boxes[i].key.clone(), scene.boxes[i].op.clone()));
+        // on the empty canvas: a note there, or the menu of the note or frame under the pointer
+        st.menu_at = at;
+        st.menu_note = at
+            .filter(|w| scene.hit(*w, reach(cam)).is_none())
+            .and_then(|w| crate::notes::hit(&notes_now, w))
+            .map(|l| l.id.clone());
         st.menu_links = hit.and_then(|i| {
             let all = scene.chosen_outputs(&st.chosen, i);
             if all.is_empty() { None } else { scene.links_into(i, &all, false) }
@@ -2942,6 +3018,13 @@ pub fn show(
             }
             return;
         }
+        if let Some(id) = st.menu_note.clone() {
+            match model.notes.iter().find(|n| n.id == id) {
+                Some(n) => crate::notes::menu(ui, n, &mut actions),
+                None => ui.close(),
+            }
+            return;
+        }
         if st.menu_many {
             let links = st.menu_links.clone().zip(st.menu.clone()).map(|(l, (k, _))| (k, l));
             let why = (st.path.is_empty(), st.no_run, st.no_freeze);
@@ -2949,7 +3032,16 @@ pub fn show(
             return;
         }
         let Some((key, op)) = st.menu.clone() else {
-            ui.close();
+            // the empty canvas: a note there
+            match st.menu_at {
+                Some(w) => {
+                    if ui.button("Add a note here").on_hover_text(crate::notes::ADD_HELP).clicked() {
+                        actions.push(Action::AddNote([w.x, w.y]));
+                        ui.close();
+                    }
+                }
+                None => ui.close(),
+            }
             return;
         };
         let mut item = |ui: &mut Ui, text: &str, help: &str, action: Action| {
@@ -3004,6 +3096,16 @@ pub fn show(
             if op == "raster.read" && st.path.is_empty() {
                 item(ui, "Make it an input of the model", MAKE_INPUT_HELP, Action::NodeToInput(key.clone()));
             }
+            // in a frame: taken out of it
+            if let Some(f) = model.notes_of(&st.path).find(|n| n.nodes.contains(&key)) {
+                let title = if f.title().is_empty() { f.id.clone() } else { f.title().to_string() };
+                item(
+                    ui,
+                    &format!("Take it out of the frame \"{title}\""),
+                    "the frame goes around the others only; the node stays where it is",
+                    Action::LeaveFrame(f.id.clone(), key.clone()),
+                );
+            }
             // (greyed when it reads nothing from another node)
             let reads = nodes
                 .iter()
@@ -3034,7 +3136,12 @@ pub fn show(
             }
             // on a reroute point: taken away; on a wire (nothing else under the pointer): a point there
             _ => {
-                if let Some((e, k)) = scene.point_at(w, reach(cam)) {
+                // a note or a frame's title: its text edited
+                if scene.hit(w, reach(cam)).is_none()
+                    && let Some(l) = crate::notes::hit(&notes_now, w)
+                {
+                    actions.push(Action::EditNote(l.id.clone()));
+                } else if let Some((e, k)) = scene.point_at(w, reach(cam)) {
                     let (node, port) = scene.wire_into(e);
                     actions.push(Action::RemoveWirePoint { node, port, index: k });
                 } else if scene.hit(w, reach(cam)).is_none()
@@ -3110,6 +3217,16 @@ pub fn show(
     }
     let scene = st.scene.as_ref().unwrap();
     let screen = |p: Pos2| rect.min + cam.pan + p.to_vec2() * cam.zoom;
+    // the notes and frames, behind the boxes: a frame around its nodes where they are now, a note dragged where it is
+    {
+        let painter = ui.painter_at(rect);
+        let measure = crate::notes::measurer(&painter);
+        let moving = note_moving.as_ref().map(|(id, p): &(String, Pos2)| (id.as_str(), *p));
+        let boxed = |id: &str| scene.index.get(id).map(|&i| scene.boxes[i].rect);
+        let laid = crate::notes::layout(model, &path, &boxed, &measure, moving);
+        crate::notes::draw(&painter, &laid, &screen, cam.zoom, ui.visuals(), st.note_chosen.as_deref());
+    }
+    crate::notes::editor(ui.ctx(), &mut st.note_editing, st.note_window_at, &mut actions);
     // the GPU draws the boxes, ports and connections
     ui.painter().add(egui_wgpu::Callback::new_paint_callback(
         rect,

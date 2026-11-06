@@ -737,6 +737,7 @@ pub fn rename_node(m: &mut Model, path: &[String], old: &str, new: &str) -> Resu
         return Err(format!("a node is already named {new:?}"));
     }
     node_mut(m, path, old)?.id = new.to_string();
+    m.notes_renamed(path, old, new);
     let from = format!("{old}.");
     for_each_ref(m, path, &mut |r| {
         if let Some(port) = r.strip_prefix(&from) {

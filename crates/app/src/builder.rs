@@ -1248,9 +1248,110 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
         arrange(s, r);
     }
     if delete {
-        delete_chosen(s);
+        // a note or a frame selected: it, not the nodes
+        match s.editor.note_chosen.take() {
+            Some(id) => note_action(ui, s, Action::RemoveNote(id)),
+            None => delete_chosen(s),
+        }
     }
     show
+}
+
+/// What the canvas asked of its notes and frames ([`crate::notes`]): in the model, a step of undo each (a drag one
+/// step), named. Not an edit of the graph: the nodes' results stay up to date.
+fn note_action(ui: &Ui, s: &mut Session, a: Action) {
+    let path = s.editor.path.clone();
+    let at = ui.ctx().pointer_latest_pos().unwrap_or_default() + Vec2::new(16.0, 16.0);
+    let open = |s: &mut Session, id: &str| {
+        let text = s.source.notes.iter().find(|n| n.id == id).map(|n| n.text.clone()).unwrap_or_default();
+        s.editor.note_editing = Some((id.to_string(), text, false));
+        s.editor.note_window_at = at;
+    };
+    let name = match a {
+        Action::AddNote(p) => {
+            let id = s.source.new_note_id(false);
+            s.source.notes.push(terraflux_graph::Note {
+                id: id.clone(),
+                scope: path,
+                at: Some(p),
+                ..Default::default()
+            });
+            s.editor.note_chosen = Some(id.clone());
+            open(s, &id);
+            "added a note"
+        }
+        Action::FrameChosen => {
+            let nodes: Vec<String> = chosen_ids(s).into_iter().filter(|k| !crate::editor::is_source(k)).collect();
+            if nodes.is_empty() {
+                return;
+            }
+            // (out of the frames they were in)
+            for n in s.source.notes.iter_mut().filter(|n| n.scope == path) {
+                n.nodes.retain(|k| !nodes.contains(k));
+            }
+            let id = s.source.new_note_id(true);
+            let text = "A frame".to_string();
+            s.source.notes.push(terraflux_graph::Note {
+                id: id.clone(),
+                scope: path,
+                text,
+                nodes,
+                ..Default::default()
+            });
+            s.source.tidy_notes();
+            s.editor.note_chosen = Some(id.clone());
+            open(s, &id);
+            "added a frame"
+        }
+        Action::EditNote(id) => {
+            open(s, &id);
+            return;
+        }
+        Action::MoveNote(id, p) => {
+            let Some(n) = s.source.notes.iter_mut().find(|n| n.id == id) else { return };
+            n.at = Some(p);
+            "a note moved"
+        }
+        Action::SetNote(id, text) => {
+            let Some(n) = s.source.notes.iter_mut().find(|n| n.id == id) else { return };
+            if n.text == text {
+                return;
+            }
+            n.text = text;
+            if n.is_frame() { "the title of a frame" } else { "the text of a note" }
+        }
+        Action::NoteColour(id, c) => {
+            let Some(n) = s.source.notes.iter_mut().find(|n| n.id == id) else { return };
+            n.colour = c;
+            if n.is_frame() { "the colour of a frame" } else { "the colour of a note" }
+        }
+        Action::RemoveNote(id) => {
+            let Some(k) = s.source.notes.iter().position(|n| n.id == id) else { return };
+            let gone = s.source.notes.remove(k);
+            if s.editor.note_editing.as_ref().is_some_and(|(e, _, _)| *e == id) {
+                s.editor.note_editing = None;
+            }
+            if gone.is_frame() { "deleted a frame" } else { "deleted a note" }
+        }
+        Action::JoinFrame(f, id) => {
+            let Some(n) = s.source.notes.iter_mut().find(|n| n.id == f) else { return };
+            if n.nodes.contains(&id) {
+                return;
+            }
+            n.nodes.push(id);
+            "a node into a frame"
+        }
+        Action::LeaveFrame(f, id) => {
+            let Some(n) = s.source.notes.iter_mut().find(|n| n.id == f) else { return };
+            n.nodes.retain(|k| *k != id);
+            s.source.tidy_notes();
+            "a node out of a frame"
+        }
+        _ => return,
+    };
+    s.history.name(name);
+    s.history.changed(&s.source);
+    s.dirty = true;
 }
 
 /// Delete the nodes selected (those chosen, else the one in the inspector): one step of undo.
@@ -2910,6 +3011,18 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             }
             Action::SaveMine(id) => {
                 crate::my_nodes::begin(s, r, &id);
+                Ok(false)
+            }
+            a @ (Action::AddNote(_)
+            | Action::FrameChosen
+            | Action::MoveNote(..)
+            | Action::EditNote(_)
+            | Action::SetNote(..)
+            | Action::NoteColour(..)
+            | Action::RemoveNote(_)
+            | Action::JoinFrame(..)
+            | Action::LeaveFrame(..)) => {
+                note_action(ui, s, a);
                 Ok(false)
             }
             Action::ExposeLast(id) => match crate::editor::expose_last(&mut s.source, r, &path, &id) {

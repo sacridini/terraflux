@@ -2593,8 +2593,8 @@ dos nós (`Session::timings`) só aparecem no painel Node e se perdem ao fechar;
 sem nome de passo nem lista; o aplicativo segura um modelo só (`session: Option<Session>`); o `pt.rs` traduz só o
 que o Terraflux escreve (relatório, documento), a interface é toda em inglês.
 
-A ordem: 1, 7, 6, 5, 8, 4, 3, 9, 10, 2, 11 (o 2 depois das abas, para reabrir todas; o 11, o maior, por último e
-em fases). Cada item: testes (unitários e, quando há interface, do kittest), clippy, fmt, CHANGELOG (Unreleased),
+A ordem: 1, 7, 6, 5, 8, 4, 3, 9, 10, 2 (o 2 depois das abas, para reabrir todas). O 11 (a interface em português)
+saiu do plano a pedido (2026-11-06). Cada item: testes (unitários e, quando há interface, do kittest), clippy, fmt, CHANGELOG (Unreleased),
 README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local; release só quando pedido. Os itens
 3, 6 e 7 também compilados e testados no Linux (WSL); o macOS pelo CI do release.
 
@@ -2733,6 +2733,24 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    menu. Desfazer, copiar e colar, o documento (as molduras como subtítulos dos passos) e o MCP (`set_note`,
    `remove_note`; o `show_model` as lista). Testes: o modelo gravado e lido, a moldura seguindo os nós, arrastar o
    título, entrar e sair, o desfazer.
+   **Feito** (Unreleased): `terraflux_graph::Note` (`id`, `scope`, `text`, `colour` por nome, `at` ou `nodes`) em
+   `Model::notes`, com `notes_of`, `new_note_id`, `notes_renamed` (chamado pelo `editor::rename_node`) e
+   `tidy_notes` (no `Session::edited`: os nós apagados ou agrupados saem das molduras, a vazia some). `notes.rs`:
+   `layout` (a moldura é o retângulo dos nós na cena mais a margem e o título, então segue os arrastes ao vivo),
+   `hit` (a nota inteira, a moldura só pelo título), `frame_at`, `draw` (antes do callback da GPU: atrás das
+   caixas), o menu e a janela do texto. No `editor_view`: o `Drag::Note`; o título de uma moldura começa um
+   `Drag::Move` dos seus nós (o mesmo caminho do arraste de nós); soltar nós fora de molduras dentro de uma:
+   `JoinFrame`; clique seleciona (`note_chosen`), Delete apaga (no `builder`, antes dos nós), duplo clique edita,
+   botão direito no vazio *Add a note here*, no menu da seleção *Frame them*, no de um nó *Take it out of the
+   frame*. As ações das notas (`builder::note_action`) não são uma edição do grafo: `history.changed` e um nome
+   ("added a frame", "a note moved"), sem apagar o estado dos nós. O Document: as molduras do nível de cima viram
+   seções do seu estágio com o título e o resto do texto como nota (`Section::frame`). O MCP: `set_note` (cria ou
+   muda; sem lugar, acima dos nós à esquerda) e `remove_note`; o guia do MCP fala delas. Testes:
+   `the_notes_and_frames_are_kept_with_the_model` (graph), `notes::tests`, `notes_and_frames_are_set_and_removed`
+   (tools), `a_frame_of_the_canvas_is_a_section_under_its_title` (document) e o do canvas
+   `notes_and_frames_are_put_on_the_canvas_and_follow_their_nodes` (a imagem `ui-notes.png`). Mudou do plano: sair
+   da moldura é pelo menu do nó, não por arrastar com alt (o alt já tira o nó das conexões). Ficou de fora: copiar e
+   colar levar as notas e molduras junto com os nós.
 10. **Vários modelos abertos em abas.** `TerrafluxApp` com o modelo da frente em `session` (o resto do código não
     muda) e os outros em `others: Vec<Session>`; trocar de aba troca os dois. Uma faixa de abas sob a barra quando há
     dois ou mais: o nome, o ponto de não salvo, um girador quando roda, o x (e o botão do meio) que fecha (pergunta
@@ -2742,16 +2760,3 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
     guardam algo de um modelo (Trace, Parameters, Calculator, a revisão, a conversa do Assistant) seguem a aba da
     frente. Copiar nós numa aba e colar em outra. Testes: abrir dois, trocar, rodar um atrás, fechar perguntando,
     colar de um no outro.
-11. **A interface em português.** `i18n.rs`: a língua da interface nas configurações (English, Português; de início
-    a do sistema: `LANG`/`LC_ALL` no Linux e no macOS, `GetUserDefaultLocaleName` no Windows), `tr("Save as...")`
-    devolvendo o texto na língua escolhida (uma tabela inglês → português, procurada pelo inglês como o `pt.rs`;
-    sem tradução fica o inglês) e `trf("done in {}", [..])` para os textos com valores. O `pt.rs` continua sendo o
-    da língua do relatório (escolhida ao exportar). Em fases, um commit cada: (a) a barra, os menus, a barra de
-    status, os títulos dos painéis, as configurações, os diálogos dos itens 1 a 10; (b) o canvas (`builder.rs`,
-    `editor_view.rs`); (c) o Viewer e o Layers; (d) Node, Document, Problems, Parameters, Many runs, Computers,
-    Trace, Calculator, Prepare, Files, Operators, Changes, Assistant, o wizard; (e) as descrições e as ajudas dos
-    operadores (no `terraflux-ops`, ~430), que o MCP também mostraria em português se pedido. Um teste varre as
-    fontes: todo `tr("…")` tem português; uma ferramenta (`tools/untranslated.py`) lista por arquivo os textos de
-    `button`, `label`, `menu_button`, `on_hover_text`... ainda sem `tr`, a medida do que falta. Os testes do kittest
-    rodam em inglês (a língua forçada nos testes). Testes: a troca de língua sem reiniciar, um painel em português
-    num kittest, a tabela sem chaves repetidas.

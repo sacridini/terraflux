@@ -196,6 +196,8 @@ fn moved(before: &Model, after: &Model) -> String {
         "the Plots changed".into()
     } else if before.parameters != after.parameters || before.scenarios != after.scenarios {
         "the parameters changed".into()
+    } else if before.notes != after.notes {
+        "the notes changed".into()
     } else {
         "an edit".into()
     }

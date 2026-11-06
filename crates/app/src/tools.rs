@@ -129,7 +129,7 @@ built or changed the model, give it a `summary` of what was asked and done (set_
 );
 
 /// The tools that change a model.
-pub const EDITS: [&str; 21] = [
+pub const EDITS: [&str; 23] = [
     "set_model_info",
     "set_input",
     "remove_input",
@@ -141,6 +141,8 @@ pub const EDITS: [&str; 21] = [
     "remove_output",
     "set_plot",
     "remove_plot",
+    "set_note",
+    "remove_note",
     "arrange",
     "group_nodes",
     "ungroup",
@@ -336,6 +338,16 @@ pub fn edit(name: &str, m: &mut Model, r: &Registry, dir: &Path, a: &Value) -> R
                 return Err(format!("the model has no plot {id:?}"));
             }
             Ok(format!("removed the plot {id}"))
+        }
+        "set_note" => set_note(m, a),
+        "remove_note" => {
+            let id = text(a, "id")?;
+            let before = m.notes.len();
+            m.notes.retain(|n| n.id != id);
+            if m.notes.len() == before {
+                return Err(format!("the model has no note {id:?}"));
+            }
+            Ok(format!("removed the note {id}"))
         }
         "remove_output" => {
             let name = text(a, "name")?;
@@ -1070,6 +1082,81 @@ pub fn template_next(m: &Model) -> String {
 }
 
 /// The model as text (TOML) and the problems it has.
+/// A note or frame of the canvas added or changed ([`terraflux_graph::Note`]).
+fn set_note(m: &mut Model, a: &Value) -> Reply {
+    let scope = scope(a);
+    let nodes = m.scope(&scope).ok_or_else(|| format!("the model has no container {:?}", scope.join("/")))?;
+    let framed: Option<Vec<String>> = match a.get("nodes") {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(v)) => {
+            let ids: Vec<String> = v.iter().filter_map(|x| x.as_str().map(String::from)).collect();
+            if let Some(gone) = ids.iter().find(|id| !nodes.iter().any(|n| &n.id == *id)) {
+                return Err(format!("no node {gone:?} in the scope to frame"));
+            }
+            if ids.is_empty() {
+                return Err("nodes: the ids of the nodes it frames (none: leave it out for a note)".into());
+            }
+            Some(ids)
+        }
+        Some(_) => return Err("nodes: a list of node ids".into()),
+    };
+    let at = match a.get("at") {
+        None | Some(Value::Null) => None,
+        Some(v) => match v.as_array().map(|v| v.iter().filter_map(Value::as_f64).collect::<Vec<f64>>()).as_deref() {
+            Some([x, y]) => Some([*x as f32, *y as f32]),
+            _ => return Err("at: [x, y], two numbers".into()),
+        },
+    };
+    let colour = opt_text(a, "colour").map(String::from);
+    if let Some(c) = &colour
+        && !terraflux_graph::NOTE_COLOURS.contains(&c.as_str())
+    {
+        return Err(format!("the colour {c:?}: one of {}", terraflux_graph::NOTE_COLOURS.join(", ")));
+    }
+    // (a note put nowhere: above the scope's nodes, at the left)
+    let auto = crate::editor_view::auto_positions(nodes);
+    let corner = nodes
+        .iter()
+        .filter_map(|n| n.pos.or_else(|| auto.get(&n.id).copied()))
+        .reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1])])
+        .map_or([0.0, -140.0], |p| [p[0], p[1] - 140.0]);
+    let id = opt_text(a, "id").map(String::from);
+    match id.as_ref().and_then(|id| m.notes.iter_mut().find(|n| &n.id == id)) {
+        Some(n) => {
+            if let Some(t) = opt_text(a, "text") {
+                n.text = t.to_string();
+            }
+            if let Some(ids) = framed {
+                n.nodes = ids;
+                n.at = None;
+            }
+            if at.is_some() {
+                n.at = at;
+                n.nodes.clear();
+            }
+            if colour.is_some() {
+                n.colour = colour;
+            }
+            n.scope = scope;
+            Ok(format!("changed the {} {}", if n.is_frame() { "frame" } else { "note" }, n.id))
+        }
+        None => {
+            let frame = framed.is_some();
+            let id = id.unwrap_or_else(|| m.new_note_id(frame));
+            if !terraflux_graph::valid_id(&id) {
+                return Err(format!("{id:?} is not a valid id (a letter, then letters, digits, _ or -)"));
+            }
+            let at = if frame { None } else { at.or(Some(corner)) };
+            let text = opt_text(a, "text").unwrap_or_default().to_string();
+            let n =
+                terraflux_graph::Note { id: id.clone(), scope, text, colour, at, nodes: framed.unwrap_or_default() };
+            let what = if n.is_frame() { format!("a frame around {}", n.nodes.join(", ")) } else { "a note".into() };
+            m.notes.push(n);
+            Ok(format!("added {what} ({id}): on the canvas, outside the graph"))
+        }
+    }
+}
+
 pub fn show_model(m: &Model, dir: &Path, r: &Registry) -> Reply {
     Ok(format!("{}\n{}", m.to_toml().map_err(|e| e.to_string())?, problems(m, dir, r)))
 }
@@ -1645,6 +1732,28 @@ fn all() -> Vec<Value> {
         tool(
             "remove_plot",
             "Remove a Plot of the model.",
+            json!({ "model": model, "id": { "type": "string" } }),
+            &["model", "id"],
+            None,
+        ),
+        tool(
+            "set_note",
+            "Add or change a note of the canvas: a text put beside the nodes (for whoever reads the model), or a frame around nodes with a title (its text's first line), the frame following them. Outside the graph: never checked nor run. With the id of one, changes what is given; without, adds one.",
+            json!({
+                "model": model,
+                "id": { "type": "string", "description": "The note's id (show_model lists them under [[notes]]); none: a new one (note1, frame1...)." },
+                "text": { "type": "string", "description": "What it says; a frame's title is its first line." },
+                "nodes": { "type": "array", "items": { "type": "string" }, "description": "The ids of the nodes it frames (of its scope): a frame. Not given: a note put somewhere." },
+                "at": { "type": "array", "items": { "type": "number" }, "description": "Where a note is put, [x, y] in the canvas's units (default: above the scope's nodes, at the left)." },
+                "colour": { "type": "string", "enum": terraflux_graph::NOTE_COLOURS },
+                "scope": { "type": "string", "description": "The container it is in (its ids from the top joined by /); none: the top level." },
+            }),
+            &["model"],
+            None,
+        ),
+        tool(
+            "remove_note",
+            "Remove a note or a frame of the canvas (a frame's nodes stay).",
             json!({ "model": model, "id": { "type": "string" } }),
             &["model", "id"],
             None,
@@ -3116,5 +3225,31 @@ mod plot_tests {
             assert!(e.contains(why), "{e}");
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A note put by an agent (above the nodes when not placed), a frame around nodes, changed, refused when it
+    /// frames a node not there or has a colour not known, removed.
+    #[test]
+    fn notes_and_frames_are_set_and_removed() {
+        let r = terraflux_ops::Registry::standard();
+        let dir = std::path::Path::new(".");
+        let mut m = model();
+        let ids: Vec<String> = m.nodes.iter().map(|n| n.id.clone()).collect();
+        let said = super::edit("set_note", &mut m, &r, dir, &json!({ "text": "Start here" })).unwrap();
+        assert!(said.contains("note1"), "{said}");
+        assert!(m.notes[0].at.is_some() && !m.notes[0].is_frame());
+        let a = json!({ "text": "Inputs", "nodes": [ids[0]], "colour": "blue" });
+        super::edit("set_note", &mut m, &r, dir, &a).unwrap();
+        assert_eq!(m.notes[1].id, "frame1");
+        assert_eq!(m.notes[1].nodes, [ids[0].clone()]);
+        super::edit("set_note", &mut m, &r, dir, &json!({ "id": "frame1", "text": "The inputs" })).unwrap();
+        assert_eq!((m.notes[1].title(), m.notes[1].colour.as_deref()), ("The inputs", Some("blue")));
+        assert!(super::edit("set_note", &mut m, &r, dir, &json!({ "nodes": ["gone"] })).is_err());
+        assert!(super::edit("set_note", &mut m, &r, dir, &json!({ "colour": "pink" })).is_err());
+        assert!(terraflux_graph::check(&m, &r).iter().all(|i| !i.at.contains("note")), "never checked");
+        assert!(super::show_model(&m, dir, &r).unwrap().contains("[[notes]]"));
+        super::edit("remove_note", &mut m, &r, dir, &json!({ "id": "note1" })).unwrap();
+        assert_eq!(m.notes.len(), 1);
+        assert!(super::edit("remove_note", &mut m, &r, dir, &json!({ "id": "note1" })).is_err());
     }
 }
