@@ -44,6 +44,10 @@ minor versions.
   right edges, top edges, middles, bottom edges; *Distribute* across or down (equal gaps between the boxes, the two
   outermost staying, three nodes or more); *In a column* or *In a row* (stacked from the first). Each one step of
   undo, inside groups too, by the boxes' real sizes.
+- Canvas: **disconnect all the inputs of a node** from its menu (the values typed kept; greyed when it reads no
+  node), and **two connections swapped**: one taken off its input and let go on another input already connected
+  shows "swap with b" and exchanges them when each fits where the other was (else as before), with its taking off
+  one step of undo, inside groups too.
 - Viewer: **from a layer to its node**. *Show its node* in a layer's menu (Layers) brings the model's canvas forward
   (the main window too, with the Viewer in a window of its own), opens the group, loop or switch it is in, selects
   the node and frames it with the glide of F; greyed, with the reason, for a difference of two maps.

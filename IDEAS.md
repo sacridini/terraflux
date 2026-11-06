@@ -2352,6 +2352,12 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
    e alt (lift) no ctrl+arrastar; uma dica de "copiando" no ponteiro.
 10. **Desligar todas as entradas** de um nó (ou da seleção) pelo menu, e **trocar dois fios** de lugar arrastando
     um sobre o outro.
+    **Feito** (Unreleased, por um sub-agente): *Disconnect all inputs* no menu de um nó (`Action::DisconnectAll`);
+    a troca: o fio pego de uma entrada (`EditorState.carried`) solto noutra ligada, `Scene::swap_with` (os tipos nos
+    dois sentidos), `editor::swap_wires` (em `guarded`), `History::join` (pegar e trocar num passo). Teste:
+    `a_nodes_menu_disconnects_all_and_wires_swap`. Falta: com tipos que só servem num sentido o fio substitui o do
+    alvo, como antes (o outro nó perde a ligação, um desfazer volta); nas portas dinâmicas (`raster.calc`) as
+    entradas se reorganizam quando o fio é pego.
 11. **Trocar o arquivo de um `raster.read`** pelo menu ou soltando um arquivo em cima do nó, mantendo os fios (hoje
     se apaga e refaz).
     **Feito** (Unreleased, por um sub-agente): `Action::ChangeFile`/`SetFile`, *Change file...* no menu dos

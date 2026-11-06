@@ -901,6 +901,31 @@ pub fn wire_links(n: &Node, r: &Registry, refs: &[(String, Option<Type>)]) -> Ve
     links
 }
 
+/// Exchange two connections, checked, as one change: `reference` (what the connection carried off the input `from`
+/// read) goes into `node`'s `port`, and what that port read goes into `from`. Nothing is made when a type does
+/// not fit or a cycle would be made, or when `port` reads no node.
+pub fn swap_wires(
+    m: &mut Model,
+    r: &Registry,
+    path: &[String],
+    reference: &str,
+    from: (&str, &str),
+    (node, port): (&str, &str),
+) -> Result<()> {
+    Ref::parse(reference).map_err(|e| e.to_string())?;
+    let Some(Source::Ref(other)) = node_mut(m, path, node)?.inputs.get(port).cloned() else {
+        return Err(format!("{node}.{port} reads no node"));
+    };
+    let at = |id: &str, port: &str| format!("{}{id}.{port}", prefix(path));
+    let checked =
+        [at(from.0, from.1), at(node, port), format!("{}{}", prefix(path), from.0), format!("{}{node}", prefix(path))];
+    guarded(m, r, &checked, |c| {
+        node_mut(c, path, node)?.inputs.insert(port.to_string(), Source::Ref(reference.to_string()));
+        node_mut(c, path, from.0)?.inputs.insert(from.1.to_string(), Source::Ref(other));
+        Ok(())
+    })
+}
+
 /// Remove what a node's input port reads.
 pub fn disconnect(m: &mut Model, path: &[String], node: &str, port: &str) -> Result<()> {
     node_mut(m, path, node)?.inputs.remove(port);

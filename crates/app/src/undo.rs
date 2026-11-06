@@ -35,6 +35,14 @@ impl History {
         self.redo.clear();
     }
 
+    /// The last step joined to the one before it, when `m` (the model the last step began from) is where the one
+    /// before ended: a connection taken off an input and let go on another is one step, not two.
+    pub fn join(&mut self, m: &Model) {
+        if self.undo.len() >= 2 && self.undo.last() == Some(m) {
+            self.undo.pop();
+        }
+    }
+
     /// Once a frame, before the edits: a step ends unless a button of the mouse is `held`.
     pub fn tick(&mut self, m: &Model, held: bool) {
         if self.last.is_none() && !held {

@@ -1626,3 +1626,85 @@ fn the_selections_menu_aligns_and_distributes() {
         assert!(!h.get_by_label_contains("In a row").accesskit_node().is_disabled());
     }
 }
+
+/// `r1` and `r2` into a `calc`'s `a` and `b`; a table and `r2` into a `fit`'s `table` and `target` (types that do
+/// not swap); at the top level, or in a group `grp` that is shown.
+fn wired_model(inside: bool, name: &str) -> Harness<'static, TerrafluxApp> {
+    let mut calc = Node::new("calc", "raster.reclassify").input("map", "r1.raster");
+    let mut other = Node::new("other", "raster.reclassify").input("map", "r2.raster");
+    other.pos = Some([500.0, 150.0]);
+    calc.pos = Some([500.0, 0.0]);
+    let mut fit = Node::new("fit", "ml.fit").input("table", "tb.table").input("target", "r2.raster");
+    fit.pos = Some([500.0, 400.0]);
+    let mut tb = Node::new("tb", "table.read");
+    tb.pos = Some([0.0, 600.0]);
+    let nodes = vec![reader("r1", [0.0, 0.0]), reader("r2", [0.0, 300.0]), calc, other, fit, tb];
+    let mut m = Model::new("wired");
+    if inside {
+        m.nodes
+            .push(Node::new("grp", terraflux_graph::GROUP).body(terraflux_graph::Body { nodes, ..Default::default() }));
+    } else {
+        m.nodes = nodes;
+    }
+    let mut h = harness(open(&m, name));
+    h.run_steps(3);
+    if inside {
+        h.state_mut().session.as_mut().unwrap().editor.path = vec!["grp".into()];
+        h.run_steps(40);
+    }
+    h
+}
+
+fn source_of(h: &Harness<TerrafluxApp>, inside: bool, id: &str, port: &str) -> Option<String> {
+    use terraflux_graph::Source;
+    let n = nodes_now(h, inside).into_iter().find(|n| n.id == id)?;
+    match n.inputs.get(port)? {
+        Source::Ref(r) => Some(r.clone()),
+        _ => None,
+    }
+}
+
+/// A node's menu: "Disconnect all inputs" takes off every connection into it in one step of undo (greyed when it
+/// has none). A connection picked up from an input and let go on another connected one swaps the two (one step of
+/// undo); when the types do not fit both ways it replaces, as on any input, and the error says why. In a group too.
+#[test]
+fn a_nodes_menu_disconnects_all_and_wires_swap() {
+    use egui_kittest::kittest::{NodeT, Queryable};
+    for inside in [false, true] {
+        let mut h = wired_model(inside, "canvas-swap.toml");
+        // disconnect all: both inputs of fit, one undo
+        let at = editor(&h).screen_of("fit").unwrap();
+        right_click(&mut h, at);
+        assert!(!h.get_by_label_contains("Disconnect all inputs").accesskit_node().is_disabled());
+        pick(&mut h, "Disconnect all inputs");
+        assert_eq!(source_of(&h, inside, "fit", "table"), None, "inside {inside}");
+        assert_eq!(source_of(&h, inside, "fit", "target"), None);
+        undo(&mut h);
+        assert_eq!(source_of(&h, inside, "fit", "table").as_deref(), Some("tb.table"));
+        assert_eq!(source_of(&h, inside, "fit", "target").as_deref(), Some("r2.raster"));
+        // greyed: a node that reads nothing
+        let at = editor(&h).screen_of("r1").unwrap();
+        right_click(&mut h, at);
+        assert!(h.get_by_label_contains("Disconnect all inputs").accesskit_node().is_disabled());
+        // (a click on the background closes the menu; escape would leave the group)
+        let canvas = editor(&h).canvas().unwrap();
+        click(&mut h, canvas.left_bottom() + egui::vec2(60.0, -60.0));
+        h.run_steps(2);
+        // swap the two reclassify nodes' inputs
+        let from = editor(&h).screen_of_input("calc", "map").unwrap();
+        let to = editor(&h).screen_of_input("other", "map").unwrap();
+        drag(&mut h, from, to);
+        assert_eq!(source_of(&h, inside, "calc", "map").as_deref(), Some("r2.raster"), "inside {inside}");
+        assert_eq!(source_of(&h, inside, "other", "map").as_deref(), Some("r1.raster"));
+        undo(&mut h);
+        assert_eq!(source_of(&h, inside, "calc", "map").as_deref(), Some("r1.raster"), "one undo restores both");
+        assert_eq!(source_of(&h, inside, "other", "map").as_deref(), Some("r2.raster"));
+        // a table over a map's input: no swap; refused, the target keeps what it had
+        let from = editor(&h).screen_of_input("fit", "table").unwrap();
+        let to = editor(&h).screen_of_input("fit", "target").unwrap();
+        drag(&mut h, from, to);
+        assert_eq!(source_of(&h, inside, "fit", "target").as_deref(), Some("r2.raster"), "inside {inside}");
+        assert_eq!(source_of(&h, inside, "fit", "table"), None, "taken off, as when dropped nowhere");
+        assert!(editor(&h).message.is_some(), "the refusal said why");
+    }
+}

@@ -2711,6 +2711,22 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 let ids = chosen_ids(s);
                 crate::editor::disconnect_all(&mut s.source, &path, &ids).map(|k| k > 0)
             }
+            Action::DisconnectAll(id) => crate::editor::disconnect_all(&mut s.source, &path, &[id]).map(|k| k > 0),
+            // (the connection was taken off its input when picked up: the swap puts it where it goes and what was
+            // there where it came from; when the swap is refused, as any connection let go on that input)
+            Action::Swap { reference, from, node, port } => {
+                let before = s.source.clone();
+                let swapped =
+                    crate::editor::swap_wires(&mut s.source, r, &path, &reference, (&from.0, &from.1), (&node, &port));
+                let done =
+                    swapped.or_else(|_| crate::editor::connect(&mut s.source, r, &path, &reference, &node, &port));
+                // (with the connection's taking off, one step of undo)
+                done.map(|_| {
+                    s.edited();
+                    s.history.join(&before);
+                    false
+                })
+            }
             Action::FreezeChosen(on) => freeze_chosen(s, on),
             Action::BypassChosen => {
                 bypass_selected(s);

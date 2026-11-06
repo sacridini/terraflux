@@ -345,6 +345,16 @@ pub enum Action {
         by: [f32; 2],
     },
     DisconnectChosen,
+    /// One node's menu: every connection into the node taken off.
+    DisconnectAll(String),
+    /// A connection carried (`reference`) off the input `from` (node, port) let go on the connected input `port` of
+    /// `node`: the two connections exchanged.
+    Swap {
+        reference: String,
+        from: (String, String),
+        node: String,
+        port: String,
+    },
     FreezeChosen(bool),
     BypassChosen,
     /// The selection's menu: the nodes selected aligned, spread or stacked.
@@ -513,6 +523,8 @@ pub struct EditorState {
     /// The scope edited: the containers' ids from the top.
     pub path: Vec<String>,
     drag: Option<Drag>,
+    /// The input (node, port, type) a connection being carried was taken off.
+    carried: Option<(String, String, Type)>,
     /// The search of the operators' library.
     pub search: String,
     /// The search of the operators from the keyboard ("/"), while it is open.
@@ -1559,6 +1571,26 @@ impl Scene {
         self.boxes[i].outputs.get(k).map(|(_, t)| *t)
     }
 
+    /// A connection carried off the input `from` (node, port) and over another input that is connected (graph
+    /// units `w`): the connection of that input swaps with it, when each fits the other's input by type. The
+    /// input's node and port, and what feeds it.
+    fn swap_with(
+        &self,
+        from: &(String, String, Type),
+        reference: &str,
+        w: Pos2,
+        reach: f32,
+    ) -> Option<(String, String, String)> {
+        let Some(Hit::Input(i, k)) = self.hit(w, reach) else { return None };
+        let (b, p) = (&self.boxes[i], &self.boxes[i].inputs[k]);
+        if b.source || p.name.is_empty() || !p.connected || (b.key == from.0 && p.name == from.1) {
+            return None;
+        }
+        let (j, o) = self.feeding(i, k)?;
+        let (a, other) = (self.output_type(reference)?, self.boxes[j].outputs.get(o)?.1);
+        (a.fits(p.ty) && other.fits(from.2)).then(|| (b.key.clone(), p.name.clone(), self.boxes[j].key.clone()))
+    }
+
     /// Whether box `to` is read, through connections, by box `from` (a box reads itself), the connection `skip`
     /// left out.
     fn reaches(&self, from: usize, to: usize, skip: usize) -> bool {
@@ -1829,6 +1861,8 @@ const CHANGE_FILE_HELP: &str = "the file this node reads, chosen in a dialog; it
      (a file let go on the node does the same)";
 const DISCONNECT_MANY_HELP: &str = "every connection into the nodes selected taken off (what they read from the \
      others selected too); the values typed in stay";
+const DISCONNECT_ONE_HELP: &str = "every connection into this node taken off (what it reads from other nodes); the \
+     values typed in stay";
 const RUN_MANY_HELP: &str = "the model run up to the nodes selected: what they need, nothing else (one run each of \
      those that no other selected needs, one after the other)";
 const FREEZE_MANY_HELP: &str = "their results kept on disk next to the model and used instead of running them; \
@@ -2082,6 +2116,7 @@ pub fn show(
                 Some((j, o)) => {
                     let b = &scene.boxes[i];
                     actions.push(Action::Disconnect { node: b.key.clone(), port: b.inputs[k].name.clone() });
+                    st.carried = Some((b.key.clone(), b.inputs[k].name.clone(), b.inputs[k].ty));
                     Drag::Connect(scene.boxes[j].reference(o), scene.boxes[j].output_at(o), Vec::new(), true)
                 }
                 None => Drag::Select(w),
@@ -2215,7 +2250,21 @@ pub fn show(
         } else if let (Some(Drag::Connect(reference, _, along, carried)), Some(q)) = (&st.drag, pointer) {
             // on an input; on a node that takes any (its place of a new input, or anywhere on it): a new one,
             // named as what it reads
+            // a connection carried off an input and let go on a connected one that it and the one there fit each
+            // other's: the two are exchanged (else it replaces the one there, as any connection let go on an input)
+            let swap = st.carried.as_ref().filter(|_| *carried).and_then(|f| {
+                scene.swap_with(f, reference, to_world(q, cam), reach(cam)).map(|s| ((f.0.clone(), f.1.clone()), s))
+            });
+            if let Some((from, (node, port, _))) = &swap {
+                actions.push(Action::Swap {
+                    reference: reference.clone(),
+                    from: from.clone(),
+                    node: node.clone(),
+                    port: port.clone(),
+                });
+            }
             let port = match scene.hit(to_world(q, cam), reach(cam)) {
+                _ if swap.is_some() => None,
                 Some(Hit::Input(i, k)) if !scene.boxes[i].inputs[k].name.is_empty() => {
                     Some((i, scene.boxes[i].inputs[k].name.clone()))
                 }
@@ -2425,6 +2474,22 @@ pub fn show(
             }
             if op == "raster.read" && st.path.is_empty() {
                 item(ui, "Make it an input of the model", MAKE_INPUT_HELP, Action::NodeToInput(key.clone()));
+            }
+            // (greyed when it reads nothing from another node)
+            let reads = nodes
+                .iter()
+                .find(|n| n.id == key)
+                .is_some_and(|n| n.inputs.values().any(|s| matches!(s, Source::Ref(_))));
+            let b =
+                ui.add_enabled(reads, egui::Button::new("Disconnect all inputs")).on_hover_text(DISCONNECT_ONE_HELP);
+            let b = if reads {
+                b
+            } else {
+                b.on_disabled_hover_text("it reads nothing from another node: nothing to disconnect")
+            };
+            if b.clicked() {
+                actions.push(Action::DisconnectAll(key.clone()));
+                ui.close();
             }
         }
     });
@@ -2781,7 +2846,7 @@ pub fn show(
         }
     }
     // a connection being drawn
-    if let (Some(Drag::Connect(reference, from, along, _)), Some(q)) = (&st.drag, pointer) {
+    if let (Some(Drag::Connect(reference, from, along, carried)), Some(q)) = (&st.drag, pointer) {
         let p0 = screen(*from);
         // in the colour of the output it comes from
         let of = scene.index.get(reference.as_str()).map(|&i| (i, 0)).or_else(|| {
@@ -2805,6 +2870,21 @@ pub fn show(
             painter.add(wire(screen(*p), colour.gamma_multiply(0.55)));
         }
         painter.add(wire(p0, colour));
+        // over a connected input it can swap with: said
+        let swap = st
+            .carried
+            .as_ref()
+            .filter(|_| *carried)
+            .and_then(|f| scene.swap_with(f, reference, to_world(q, &cam), PORT + 3.0));
+        if let Some((_, _, with)) = swap {
+            let at = q + Vec2::new(14.0, -14.0);
+            let galley =
+                painter.layout_no_wrap(format!("swap with {with}"), FontId::proportional(12.0), v.strong_text_color());
+            let back = Rect::from_min_size(at, galley.size()).expand2(Vec2::new(6.0, 3.0));
+            painter.rect_filled(back, 4.0, v.extreme_bg_color);
+            painter.rect_stroke(back, 4.0, Stroke::new(1.0, colour), egui::StrokeKind::Outside);
+            painter.galley(at, galley, v.strong_text_color());
+        }
         if !along.is_empty() {
             let text = format!("{} connections", along.len() + 1);
             let at = q + Vec2::new(14.0, -14.0);

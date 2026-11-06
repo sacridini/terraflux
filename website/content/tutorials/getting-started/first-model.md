@@ -210,7 +210,9 @@ Press ++f5++ to run the whole model. Then save it: **Save as...**, `core-forest.
     go, the originals staying put (Esc cancels); like **ctrl+D**, the copies read what the originals read, a
     quick start for a parallel branch of the analysis. To read another file in a `raster.read` (or a vector or
     table read), use *Change file...* in its menu, or drop the file from the file manager onto the node: the node
-    lights up, and its connections and settings stay.
+    lights up, and its connections and settings stay. *Disconnect all inputs* in a node's menu frees it of what it
+    reads (the values typed stay); a connection taken off an input and let go on another one already connected
+    ("swap with b") exchanges the two, when each fits where the other was.
 
 ## Read the results
 
