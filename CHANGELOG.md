@@ -30,6 +30,10 @@ minor versions.
   the name Terraflux (registered for the user, as applications not from the Store do), on macOS the Notification
   Center, on Linux the desktop's notifications (`notify-send`, else `gdbus`). While a model runs, the window's title
   starts with how far it is ("[42%] land - Terraflux"), seen on its button in the taskbar.
+- Application: **the time a run has left**, beside its progress: "~14 min left" from how long each node took in the
+  runs before (kept per model between sessions, in the user's application data, the last 200 models), the node
+  running counted by how far it says it is (a loop by its steps); a model never run gets "about 3 min left", guessed
+  from how far the run is once it has gone a few seconds.
 
 ## [1.42.0] - 2026-11-06
 

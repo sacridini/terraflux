@@ -2655,6 +2655,11 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    diz); sem tempos antigos, pela fração e o tempo passado (só depois de 5 s e de 3 % feitos, para não chutar). Na
    pílula do progresso: "~14 min left", e no tooltip a hora prevista do fim; "about" quando a conta é pela fração.
    Os nós do cache não contam. Testes: a conta com e sem tempos antigos, um laço pela metade, nós do cache.
+   **Feito** (Unreleased): `eta.rs` (`left`, `words`, `Kept`), `Session::time_left` (os nós de cima ainda não
+   feitos pelos tempos desta sessão, senão os de antes: `times_before`, lidos ao abrir o modelo e gravados ao fim de
+   cada execução; o que roda pela fração que diz, desde `node_began`), `run_going` dá a fração do nó que roda. Testes:
+   `eta::tests`, `the_time_left_comes_from_the_runs_before`. Falta: a hora prevista do fim (sem um relógio local no
+   std; o `chrono` não está no app); os nós que virão do cache contam o tempo de antes (não se sabe antes de rodar).
 6. **Aviso ao fim de uma execução longa** (Windows, Linux, macOS). Quando uma execução pedida (não as quietas) ou um
    lote do Many runs termina depois de mais de 10 s (configuração "Tell when a run ends": ligada, e os segundos) e a
    janela não tem o foco: `RequestUserAttention` (pisca na barra no Windows, salta no Dock do macOS, a dica de

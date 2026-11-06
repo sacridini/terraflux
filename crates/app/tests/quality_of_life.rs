@@ -204,3 +204,54 @@ fn the_end_of_a_run_is_told_when_terraflux_is_not_in_front() {
     });
     assert_eq!(h.state().told.len(), 1);
 }
+
+#[test]
+fn the_time_left_comes_from_the_runs_before() {
+    use std::sync::atomic::Ordering;
+    use terraflux_graph::{Body, Model, Node};
+    let mut m = Model::new("eta");
+    m.nodes.push(Node::new("first", "nlm.random").param("rows", 20).param("columns", 30).param("seed", 2));
+    m.nodes.push(Node::new("years", "control.repeat").literal("times", 4).body(Body {
+        nodes: vec![Node::new("land", "nlm.random").param("rows", 20).param("columns", 30).param("seed", 1)],
+        collect: [("maps".to_string(), "land.map".to_string())].into(),
+        ..Default::default()
+    }));
+    let path = tmp("eta.toml");
+    let _ = std::fs::remove_file(terraflux_app::settings::data_dir().join("run-times.json"));
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path.clone())));
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().times_before.is_empty(), "never run");
+    // a whole run: the nodes' times known
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    run_to_the_end(&mut h);
+    // again from nothing, paused after the loop's first step: the time left by the times of the run before
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.cache.lock().unwrap().clear();
+        s.gate.stepping.store(true, Ordering::Relaxed);
+        s.start(Box::new(|| {}));
+    }
+    let t = Instant::now();
+    while !h.state().session.as_ref().unwrap().gate.paused() {
+        h.step();
+        assert!(t.elapsed() < Duration::from_secs(60), "never paused");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let left = h.state().session.as_ref().unwrap().time_left().expect("a time left");
+    assert!(left.by_times && left.seconds >= 0.0, "{left:?}");
+    h.state_mut().session.as_mut().unwrap().gate.resume();
+    run_to_the_end(&mut h);
+    assert!(h.state().session.as_ref().unwrap().time_left().is_none(), "nothing left once it ended");
+    // kept for the next session of the model
+    let t = Instant::now();
+    while terraflux_app::eta::times_of(&path).is_empty() {
+        assert!(t.elapsed() < Duration::from_secs(10), "the times not kept");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let times = terraflux_app::eta::times_of(&path);
+    assert!(times.contains_key("first") && times.contains_key("years"), "{times:?}");
+    drop(h);
+    let h = harness(new_app(Some(path)));
+    assert!(h.state().session.as_ref().unwrap().times_before.contains_key("years"));
+}

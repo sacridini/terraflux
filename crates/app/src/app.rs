@@ -744,6 +744,10 @@ pub struct Session {
     pub untitled: u64,
     /// A run that just ended, until the application takes it (to tell it when it was long).
     pub ended: Option<Ended>,
+    /// How long each node took in the runs of the sessions before (kept per model, [`crate::eta`]), and when the
+    /// top-level node running began.
+    pub times_before: BTreeMap<String, f64>,
+    node_began: Option<Instant>,
 }
 
 /// A run that ended: how long it took, why it failed (none: it did its work), whether the application started it
@@ -760,6 +764,7 @@ impl Session {
     pub fn open(path: &Path) -> Result<Session, String> {
         let (source, notes) = Model::load_noting(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let mut s = Session::new(source, Some(path.to_path_buf()))?;
+        s.times_before = crate::eta::times_of(path);
         // map algebra of the old syntax, rewritten: told, and to be saved
         if !notes.is_empty() {
             s.dirty = true;
@@ -940,6 +945,8 @@ impl Session {
             copied_at: None,
             untitled: crate::recovery::next_untitled(),
             ended: None,
+            times_before: BTreeMap::new(),
+            node_began: None,
         })
     }
 
@@ -1483,6 +1490,7 @@ impl Session {
                     let top = at.split('/').next().unwrap_or(&at).to_string();
                     if self.status.insert(top, NodeStatus::Running) != Some(NodeStatus::Running) {
                         self.status_rev += 1;
+                        self.node_began = Some(Instant::now());
                     }
                     self.task = None;
                     self.node = at;
@@ -1551,6 +1559,16 @@ impl Session {
             self.elapsed = self.started.map(|t| t.elapsed());
             self.status.retain(|_, st| *st != NodeStatus::Running);
             self.status_rev += 1;
+            // the nodes' times kept for the next sessions (a model with a file)
+            if let Some(p) = &self.path
+                && !self.timings.is_empty()
+            {
+                for (at, (secs, _)) in &self.timings {
+                    self.times_before.insert(at.clone(), *secs);
+                }
+                crate::eta::keep(p, self.times_before.clone());
+            }
+            self.node_began = None;
             self.ended = Some(Ended {
                 seconds: self.elapsed.map_or(0.0, |e| e.as_secs_f64()),
                 failed: r.as_ref().err().cloned(),
@@ -1572,14 +1590,22 @@ impl Session {
     /// How far the run is (0 to 1) and in words: the top-level nodes done, with the share of the one running (a
     /// loop's steps, or what its operator tells), and what runs.
     pub fn run_progress(&self) -> (f32, String) {
+        let (frac, text, _) = self.run_going();
+        (frac, text)
+    }
+
+    /// How far the run is (0 to 1), in words, and the share of the top-level node running when it tells it.
+    fn run_going(&self) -> (f32, String, Option<f32>) {
         let top = |at: &str| at.split('/').next().unwrap_or(at).to_string();
         let running = top(&self.node);
+        let mut told = None;
         let mut part = 0.0;
         let mut text = if self.node.is_empty() { "starting".to_string() } else { self.node.clone() };
         if let Some((at, step, of)) = &self.progress
             && top(at) == running
         {
             part = *step as f32 / (*of).max(1) as f32;
+            told = Some(part);
             text = format!("{at}: step {step} of {of}");
         }
         if let Some((at, p)) = &self.task
@@ -1587,6 +1613,7 @@ impl Session {
         {
             if let Some(f) = p.fraction {
                 part = f as f32;
+                told = Some(part);
             }
             if !p.text.is_empty() {
                 text = format!("{at}: {}", p.text);
@@ -1594,7 +1621,36 @@ impl Session {
         }
         let total = self.run_total.max(1) as f32;
         let done = (self.run_done as f32 + part.clamp(0.0, 1.0)).min(total);
-        (done / total, format!("{text} ({} of {} nodes)", self.run_done.min(self.run_total), self.run_total))
+        (done / total, format!("{text} ({} of {} nodes)", self.run_done.min(self.run_total), self.run_total), told)
+    }
+
+    /// The time the run has left ([`crate::eta`]): by how long its nodes took before (in this session, else in the
+    /// ones before), else guessed from how far it is.
+    pub fn time_left(&self) -> Option<crate::eta::Left> {
+        if !self.running() {
+            return None;
+        }
+        let (fraction, _, told) = self.run_going();
+        let running = self.node.split('/').next().unwrap_or(&self.node).to_string();
+        let all: Vec<String> = match &self.target {
+            None => self.model.nodes.iter().map(|n| n.id.clone()).collect(),
+            Some(t) => self.needed(t).into_iter().collect(),
+        };
+        let waiting: Vec<&str> = all
+            .iter()
+            .map(String::as_str)
+            .filter(|n| *n != running && !matches!(self.status.get(*n), Some(NodeStatus::Done { .. })))
+            .collect();
+        let mut times = self.times_before.clone();
+        times.extend(self.timings.iter().map(|(at, (s, _))| (at.clone(), *s)));
+        let since = self.node_began.map_or(0.0, |t| t.elapsed().as_secs_f64());
+        let g = crate::eta::Going {
+            waiting,
+            running: (!running.is_empty()).then_some((running.as_str(), told, since)),
+            fraction,
+            elapsed: self.started.map_or(0.0, |t| t.elapsed().as_secs_f64()),
+        };
+        crate::eta::left(&g, &times)
     }
 
     /// The cells of each class at each step (rows: steps).
@@ -2665,7 +2721,10 @@ impl TerrafluxApp {
                                 }
                             }
                         } else if s.running() && s.stopping.is_none() {
-                            let (frac, text) = s.run_progress();
+                            let (frac, mut text) = s.run_progress();
+                            if let Some(l) = s.time_left() {
+                                text = format!("{text} · {}", crate::eta::words(l));
+                            }
                             let bar = theme::progress(ui, Some(frac), &text, 140.0);
                             if self.awake.as_ref().is_some_and(crate::awake::Awake::held) {
                                 bar.on_hover_text("the computer is kept awake until the run ends");
