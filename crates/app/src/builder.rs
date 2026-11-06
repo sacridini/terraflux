@@ -2976,6 +2976,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
         compare: std::mem::take(&mut s.preview_compare),
         playing: s.preview_playing,
         attributes: s.preview_attributes.take(),
+        kept: std::mem::take(&mut s.preview_kept),
     };
     let cmp = &mut shown.compare;
     for l in cmp.layers.iter_mut().chain(cmp.more.iter_mut().filter_map(|b| b.layers.as_mut())) {
@@ -2999,6 +3000,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
     s.preview_compare = shown.compare;
     s.preview_playing = shown.playing;
     s.preview_attributes = shown.attributes;
+    s.preview_kept = shown.kept;
     hover
 }
 
@@ -3019,6 +3021,35 @@ pub struct Shown {
     pub playing: Option<std::time::Instant>,
     /// The table of attributes open under the map: of a vector layer, with the feature selected.
     pub attributes: Option<crate::attribute_table::Open>,
+    /// The features selected of each vector layer (node, port), by their rows from 0, kept while its table is closed.
+    pub kept: Selections,
+}
+
+/// The features selected of vector layers (node, port), by their rows from 0.
+pub type Selections = std::collections::HashMap<(String, String), std::collections::BTreeSet<usize>>;
+
+impl Shown {
+    /// The table of the layer `node.port` opened, with the features kept selected of it.
+    pub fn open_table(&self, node: &str, port: &str) -> crate::attribute_table::Open {
+        Self::open_with(&self.kept, node, port)
+    }
+
+    /// The same, from the selections kept alone (while other fields of the Viewer are borrowed).
+    fn open_with(kept: &Selections, node: &str, port: &str) -> crate::attribute_table::Open {
+        let mut open = crate::attribute_table::Open::of(node, port);
+        if let Some(rows) = kept.get(&(node.to_string(), port.to_string())) {
+            open.pick.area(&rows.iter().copied().collect::<Vec<_>>(), false);
+        }
+        open
+    }
+
+    /// The rows selected of the layer `node.port`: those of its table when open, else the ones kept.
+    fn selection_of(&self, node: &str, port: &str) -> Vec<usize> {
+        match self.attributes.as_ref().filter(|o| o.is(node, port)) {
+            Some(o) => o.pick.rows.iter().copied().collect(),
+            None => self.kept.get(&(node.to_string(), port.to_string())).into_iter().flatten().copied().collect(),
+        }
+    }
 }
 
 #[path = "class_legend.rs"]
@@ -3074,6 +3105,17 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
     };
     s.preview_layers = layers_of_plot(&p.layers);
     // the features selected (one layer has a selection at a time: the first): its table of attributes open with them
+    // (all the layers' selections are kept, the table closed or not)
+    s.preview_kept = p
+        .layers
+        .iter()
+        .filter_map(|l| {
+            let key = port_of(&l.from)?;
+            let rows: std::collections::BTreeSet<usize> =
+                l.selected.iter().filter(|&&k| k > 0).map(|k| k - 1).collect();
+            (!rows.is_empty()).then_some((key, rows))
+        })
+        .collect();
     s.preview_attributes = p.layers.iter().find_map(|l| {
         let (node, port) = port_of(&l.from)?;
         let rows: std::collections::BTreeSet<usize> = l.selected.iter().filter(|&&k| k > 0).map(|k| k - 1).collect();
@@ -3216,10 +3258,9 @@ fn plot_of(
         })
         .collect();
     // (the features selected in the table of attributes: kept with their layer, by their numbers from 1)
-    if let Some(o) = sh.attributes.as_ref().filter(|o| !o.pick.rows.is_empty())
-        && let Some((pl, _)) = layers.iter_mut().zip(&sh.layers).find(|(_, l)| l.is(&o.node, &o.port))
-    {
-        pl.selected = o.pick.rows.iter().map(|k| k + 1).collect();
+    // (also while the table is closed: the ones kept)
+    for (pl, l) in layers.iter_mut().zip(&sh.layers) {
+        pl.selected = sh.selection_of(&l.node, &l.port).iter().map(|k| k + 1).collect();
     }
     if !sh.layers.iter().any(|l| l.is(&sh.node, &sh.port)) {
         layers.push(PlotLayer {
@@ -5486,7 +5527,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             _ => None,
         })
     {
-        table = Some(crate::attribute_table::Open::of(&n, &p));
+        table = Some(Shown::open_with(&sh.kept, &n, &p));
         table_v = Some(v);
         // (it was the last of the vectors drawn)
         table_at = overlays.len().checked_sub(1);
@@ -5518,6 +5559,15 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 v.feature_clicked.clear();
                 v.area_done = None;
             }
+        }
+    }
+    // (the selection of the table open is the one kept; a table closed leaves what it had selected)
+    if let Some(o) = &table {
+        let key = (o.node.clone(), o.port.clone());
+        if o.pick.rows.is_empty() {
+            sh.kept.remove(&key);
+        } else {
+            sh.kept.insert(key, o.pick.rows.clone());
         }
     }
     sh.attributes = table;
@@ -7320,10 +7370,17 @@ params = { expression = "x * 0 + k" }
         let p = plot_of(&sh, (&Default::default(), &Default::default()), None, "p", None);
         assert!(p.layers[0].selected.is_empty());
         assert_eq!(p.layers[1].selected, [1, 2, 3, 7]);
-        // no table open: no selection kept
+        // no table open and nothing kept: no selection
         sh.attributes = None;
         let p = plot_of(&sh, (&Default::default(), &Default::default()), None, "p", None);
         assert!(p.layers.iter().all(|l| l.selected.is_empty()));
+        // the table closed, the selection kept: still in the Plot, and the table opens with it again
+        sh.kept = s.preview_kept.clone();
+        let p = plot_of(&sh, (&Default::default(), &Default::default()), None, "p", None);
+        assert_eq!(p.layers[1].selected, [1, 2, 3, 7]);
+        let again = sh.open_table("v", "vector");
+        assert_eq!(again.pick.rows.iter().copied().collect::<Vec<_>>(), [0, 1, 2, 6]);
+        assert!(sh.open_table("a", "map").pick.rows.is_empty());
     }
 
     /// A layer's blend mode and its relief are kept in the Plot and back (the defaults written as nothing); an older

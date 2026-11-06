@@ -77,6 +77,10 @@ minor versions.
   1:1 000 000), or typed after an `@` (`-15.8, -47.9 @ 1:50000`, `@ 2 km` for the width of the view), one step of
   back and forward; and **its mark in the views side by side**, at the same place in each (across coordinate
   systems), esc on any of them removing it from all.
+- Viewer: **the features selected kept with the attribute table closed**: each layer's selection outlives its
+  table (reopened, the table shows it again), and *Update the plot* keeps the selection of every layer of the Plot,
+  not only of the table open; a Plot opened selects in all its layers. The MCP's `set_plot` takes `selected` per
+  layer (the features' numbers from 1).
 - Viewer: **the same colours for all similar layers**. From a layer's menu, its palette and range go to every other
   layer of values (a map of classes: its colours to the maps of the same classes), the side-by-side views and the
   Plot saved with them; the hover tells how many layers change, greyed when there is none.

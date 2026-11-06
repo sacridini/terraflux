@@ -1823,7 +1823,7 @@ fn act(
     if let Some(i) = asked.table.filter(|i| *i < n) {
         let l = &sh.layers[i];
         let was = sh.attributes.as_ref().is_some_and(|o| o.is(&l.node, &l.port));
-        sh.attributes = (!was).then(|| crate::attribute_table::Open::of(&l.node, &l.port));
+        sh.attributes = (!was).then(|| sh.open_table(&l.node, &l.port));
     }
     if let Some(i) = asked.zoom.filter(|i| *i < n) {
         let l = &sh.layers[i];

@@ -3858,6 +3858,80 @@ fn a_plot_keeps_the_frame_of_its_map() {
     assert!(h.state().session.as_ref().unwrap().source.plot("framed").unwrap().view.is_none());
 }
 
+/// The features selected of a vector layer stay selected when its table is closed: *Update the plot* keeps them in the
+/// Plot, a layer's table opens with them again.
+#[test]
+fn the_selection_outlives_the_table() {
+    use terraflux_graph::{Node, Plot, PlotLayer};
+    use terraflux_raster::vector::{Column, Geometry, Vector};
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let g = terraflux_gdal::Dataset::open(data("sibuyan_landuse.tif")).unwrap().meta.grid.clone();
+    let t = g.transform;
+    let (w, ht) = (g.width as f64 * t[1], g.height as f64 * -t[5]);
+    let square = |a: f64, b: f64| {
+        let p = [t[0] + w * a, t[3] - ht * b];
+        let q = [t[0] + w * (a + 0.2), t[3] - ht * (b + 0.2)];
+        Geometry::Polygon(vec![vec![p, [q[0], p[1]], q, [p[0], q[1]], p]])
+    };
+    let v = Vector {
+        geometries: vec![square(0.1, 0.1), square(0.4, 0.4), square(0.7, 0.7)],
+        attributes: vec![("area".into(), Column::Numbers(vec![1.0, 2.0, 3.0]))],
+        crs: g.geo.wkt.clone(),
+    };
+    let gpkg = tmp("kept-selection.gpkg");
+    let _ = std::fs::remove_file(&gpkg);
+    terraflux_gdal::write_vector(&gpkg, "features", &v).unwrap();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.nodes = vec![
+            Node::new("land", "raster.read").param("path", data("sibuyan_landuse.tif").to_string_lossy().as_ref()),
+            Node::new("feat", "vector.read").param("path", gpkg.to_string_lossy().as_ref()),
+        ];
+        s.source.plots = vec![Plot {
+            id: "sel".into(),
+            layers: vec![
+                PlotLayer::new("land.raster"),
+                PlotLayer { selected: vec![1, 3], ..PlotLayer::new("feat.vector") },
+            ],
+            ..Default::default()
+        }];
+        s.edited();
+        assert!(s.issues.is_empty(), "{:?}", s.issues);
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("land", "raster").is_some() && s.value_of("feat", "vector").is_some()
+    });
+    open_plot(&mut h, "sel");
+    drawn(&mut h);
+    h.run_steps(3);
+    let rows = |h: &Harness<TerrafluxApp>| -> Option<Vec<usize>> {
+        let o = h.state().session.as_ref().unwrap().preview_attributes.clone()?;
+        Some(o.pick.rows.iter().copied().collect())
+    };
+    assert_eq!(rows(&h), Some(vec![0, 2]), "the table opens with the selection");
+    // closed: the selection is not lost
+    h.get_by_label("x").click();
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().preview_attributes.is_none(), "the table is closed");
+    assert!(h.query_by_label("Attributes of feat.vector").is_none());
+    // (what the Plot had is taken away, to see Update the plot write it back from what is kept)
+    h.state_mut().session.as_mut().unwrap().source.plots[0].layers[1].selected.clear();
+    h.get_by_label("Plot: sel").click();
+    h.run_steps(2);
+    h.get_by_label("Update the plot").click();
+    h.run_steps(2);
+    let p = h.state().session.as_ref().unwrap().source.plot("sel").unwrap().clone();
+    assert!(p.layers[0].selected.is_empty());
+    assert_eq!(p.layers[1].selected, [1, 3], "the selection is in the Plot, the table closed");
+    // (kept in the session for the table to show again: `Shown::open_table` is tested in the builder)
+    let s = h.state().session.as_ref().unwrap();
+    let kept = s.preview_kept.get(&("feat".to_string(), "vector".to_string())).cloned();
+    assert_eq!(kept.map(|k| k.into_iter().collect::<Vec<_>>()), Some(vec![0, 2]));
+}
+
 /// A table plotted (in the Viewer, as the chart its settings ask) and written to a file.
 #[test]
 fn a_table_is_plotted_and_written() {

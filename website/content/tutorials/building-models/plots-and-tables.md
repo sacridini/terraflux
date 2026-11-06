@@ -321,7 +321,7 @@ The **Plots** menu lists the model's Plots. A click opens one: its layers, the m
 chart. With a Plot open, the menu shows its title, which you can edit, and two more items:
 
 - **Update the plot** keeps in it what the Viewer shows now (after you added a layer, changed an opacity or a
-  comparison);
+  comparison), the features selected in each layer too, with its attribute table open or closed;
 - **Remove the plot** takes it away from the model; its layers stay in the Viewer.
 
 In the model file, the Plots are kept outside the graph, as `[[plots]]`, the first layer at the bottom:

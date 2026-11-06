@@ -1630,7 +1630,7 @@ fn all() -> Vec<Value> {
                 "title": { "type": "string", "description": "Its title, the figure's caption (default: what it shows)." },
                 "layers": {
                     "type": "array",
-                    "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), palette (viridis, cividis, blue, orange, terrain, grey, red, rank; \", logarithmic\" for a scale of logarithms; default: by what the map is), range ([least, most] of the colours of a map of values; default: its 2nd to 98th percentiles), hidden, minus (node.port: the layer is the difference, from minus it for values, the transitions from it to from for classes), minus_band (the band or step of minus, 0-based: two layers of one stack or series), style (of vector features: { colour (\"#rrggbbaa\"), by (an attribute: the colours of its values; a text always as categories), ramp (of a number attribute: as palette, without \", logarithmic\"; default viridis), breaks (continuous (default: a ramp along the values, a few whole numbers a class each), equal, quantiles, natural (Jenks)), classes (2 to 12 of equal, quantiles or natural breaks; default 5), categories (true: a number attribute as categories, a colour each value), size_by (a number attribute that sizes the points, the area as the value), size_min and size_max (their size in pixels across; default 3 and 18), symbol (circle (default), square, triangle, diamond, cross), fill (0 to 1, of polygons), width (pixels), labels (an attribute), label_size (points) }) }.",
+                    "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), palette (viridis, cividis, blue, orange, terrain, grey, red, rank; \", logarithmic\" for a scale of logarithms; default: by what the map is), range ([least, most] of the colours of a map of values; default: its 2nd to 98th percentiles), hidden, minus (node.port: the layer is the difference, from minus it for values, the transitions from it to from for classes), minus_band (the band or step of minus, 0-based: two layers of one stack or series), selected (of vector features: the numbers of the features selected, from 1, as the attribute table shows them; the Viewer opens the table with them selected), style (of vector features: { colour (\"#rrggbbaa\"), by (an attribute: the colours of its values; a text always as categories), ramp (of a number attribute: as palette, without \", logarithmic\"; default viridis), breaks (continuous (default: a ramp along the values, a few whole numbers a class each), equal, quantiles, natural (Jenks)), classes (2 to 12 of equal, quantiles or natural breaks; default 5), categories (true: a number attribute as categories, a colour each value), size_by (a number attribute that sizes the points, the area as the value), size_min and size_max (their size in pixels across; default 3 and 18), symbol (circle (default), square, triangle, diamond, cross), fill (0 to 1, of polygons), width (pixels), labels (an attribute), label_size (points) }) }.",
                     "items": {},
                 },
                 "compare": { "description": "A map compared with the top map: node.port, or { with, how, also } (how: curtain, side by side (default) or difference; also: up to 2 more maps (node.port) side by side, 4 views in all that move together; band: the band of the stack or the step of the loop `with` is (from 0, default the first); also_bands: the same for each map of also (a number each, 0 or null for the first); layers: side by side, the layers each view draws instead of the Plot's, a list per view (first the view of `with`, then those of `also`) in the form of the Plot's layers but without palette, an empty list for a view that draws the Plot's layers)." },
@@ -2496,6 +2496,18 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                         return Err(format!("{from}: style.classes is a whole number from 2 to 12, not {c}"));
                     }
                 }
+                // (the features selected: their numbers from 1)
+                let selected = match o.get("selected") {
+                    None | Some(Value::Null) => Vec::new(),
+                    Some(Value::Array(v)) => v
+                        .iter()
+                        .map(|k| k.as_u64().filter(|k| *k > 0).map(|k| k as usize))
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or_else(|| format!("{from}: selected is a list of feature numbers from 1"))?,
+                    Some(other) => {
+                        return Err(format!("{from}: selected is a list of feature numbers from 1, not {other}"));
+                    }
+                };
                 PlotLayer {
                     from: checked(from)?,
                     opacity: opacity.filter(|x| *x != 1.0),
@@ -2519,7 +2531,7 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                             )
                         })?),
                     },
-                    selected: Vec::new(),
+                    selected,
                     blend: match o.get("blend") {
                         None | Some(Value::Null) => None,
                         Some(Value::String(b)) => match crate::blend::Blend::named(b) {
@@ -2908,6 +2920,27 @@ mod plot_tests {
             json!({ "classes": 40 }),
         ] {
             let a = json!({ "id": "v", "layers": [{ "from": "land.map", "style": bad }] });
+            assert!(super::edit("set_plot", &mut m, &r, dir, &a).is_err(), "{bad}");
+        }
+    }
+
+    /// The features selected of a layer in set_plot: their numbers from 1 kept in the Plot; none by default; a zero or
+    /// a word refused.
+    #[test]
+    fn a_plot_keeps_the_selected_features() {
+        let r = terraflux_ops::Registry::standard();
+        let dir = std::path::Path::new(".");
+        let mut m = model();
+        let a = json!({ "id": "s", "layers": ["land.map", { "from": "land.map", "selected": [3, 1, 2] }] });
+        super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
+        let p = m.plot("s").unwrap();
+        assert!(p.layers[0].selected.is_empty());
+        assert_eq!(p.layers[1].selected, [3, 1, 2]);
+        let a = json!({ "id": "s", "layers": [{ "from": "land.map" }] });
+        super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
+        assert!(m.plot("s").unwrap().layers[0].selected.is_empty());
+        for bad in [json!([0]), json!(["a"]), json!(-1), json!([1.5])] {
+            let a = json!({ "id": "s", "layers": [{ "from": "land.map", "selected": bad }] });
             assert!(super::edit("set_plot", &mut m, &r, dir, &a).is_err(), "{bad}");
         }
     }

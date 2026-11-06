@@ -2467,9 +2467,13 @@ item, na ordem; release só quando pedido.
    Ctrl+A com o foco do teclado na tabela. Testes: os de `area.rs` e `attribute_table.rs`,
    `the_selection_is_kept_in_the_plot`, `features_selected_by_area_on_the_map`. Também: três testes de UI que
    falhavam às vezes sob carga ficaram firmes (`a_study_area_drawn_on_the_map`, `rename_metadata_and_the_operators_menu`
-   repetem o clique; `a_map_kept_as_a_plot_without_writing_and_saved` espera o mapa novo, não o status). Falta: a
-   seleção no Plot só da tabela aberta (fechada, o *Update the plot* a perde); o `set_plot` do MCP sem `selected`; o
-   laço sem preenchimento (o egui só preenche formas convexas).
+   repetem o clique; `a_map_kept_as_a_plot_without_writing_and_saved` espera o mapa novo, não o status). Falta: ~~a
+   seleção no Plot só da tabela aberta; o `set_plot` do MCP sem `selected`~~ (feitos: `Session.preview_kept` /
+   `Shown.kept` por (nó, porta), `Shown::open_table`/`open_with`/`selection_of`, `plot_of` e `open_plot` com todas
+   as camadas; `selected` no `set_plot`; testes `the_selection_outlives_the_table`,
+   `a_plot_keeps_the_selected_features`; faltam: o mapa destacar a seleção com a tabela fechada, a área medida
+   pela seleção guardada, o `kept` limpo quando a camada sai ou o vetor muda, o `selected` das vistas lado a
+   lado gravado do Viewer); o laço sem preenchimento (o egui só preenche formas convexas).
 3. **A simbologia dos vetores.** Colorir por um atributo com a rampa escolhida (as do Viewer) e as quebras
    (contínua, intervalos iguais, quantis, Jenks; o número de classes), o tamanho dos pontos por um atributo e
    símbolos de ponto além do círculo (quadrado, triângulo, cruz). A legenda dos vetores nos Layers. Guardada no
