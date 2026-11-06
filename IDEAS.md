@@ -2746,6 +2746,11 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    caixa (fora dela: não cobre o arquivo) com o tooltip; `heat`, `slowest_of` e a lista (`egui::Area` no canto,
    um clique seleciona e centra); `eta::took`. Teste: `the_canvas_tells_how_long_each_node_took` (a imagem
    `ui-times.png`). Falta: os tempos antes de rodar nesta sessão (os de `times_before` poderiam aparecer em cinza).
+   **Feito** (Unreleased), o que faltava: `EditorState::times_before` (os do escopo mostrado que não rodaram nesta
+   sessão, dados pelo `builder::canvas` a partir de `Session::times_before`), escritos mais apagados e com `~`
+   ("~2.4 s"; "<0.1 s" sem), com o seu tooltip. Teste: o fim de `the_time_left_comes_from_the_runs_before` (a
+   imagem `ui-times-before.png`), que agora usa um caminho só da sua execução (o `run-times.json` é de todos os
+   testes, e apagá-lo corria com o outro teste de tempos).
 9. **Notas e molduras no canvas.** No modelo (`terraflux_graph`): `[[notes]]`, cada uma com `id`, o `scope` (o
    contêiner onde está), o texto, a cor, e o lugar (uma nota solta) ou os nós que emoldura (uma moldura: o retângulo
    é o dos seus nós mais uma margem, então segue o *Arrange* e os arrastes). Fora do grafo: o `check` e a execução

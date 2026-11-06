@@ -2770,6 +2770,15 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             }
         }
     }
+    // and how long those not run in this session took in the runs before (kept with the model)
+    s.editor.times_before = s
+        .times_before
+        .iter()
+        .filter_map(|(at, t)| {
+            let id = at.strip_prefix(&prefix).filter(|id| !id.contains('/'))?;
+            (!s.editor.times.contains_key(id)).then(|| (id.to_string(), *t))
+        })
+        .collect();
     let problems = problems(s);
     let layers = per_layer(s, r);
     let checks = crate::checks::badges(&crate::checks::of(s), &s.editor.path);

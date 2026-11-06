@@ -301,8 +301,8 @@ fn the_time_left_comes_from_the_runs_before() {
         collect: [("maps".to_string(), "land.map".to_string())].into(),
         ..Default::default()
     }));
-    let path = tmp("eta.toml");
-    let _ = std::fs::remove_file(terraflux_app::settings::data_dir().join("run-times.json"));
+    // (a path of this run alone: the times kept are shared by the tests, and by the runs before of this one)
+    let path = tmp(&format!("eta-{}.toml", std::process::id()));
     m.save(&path).unwrap();
     let mut h = harness(new_app(Some(path.clone())));
     h.run_steps(3);
@@ -337,8 +337,17 @@ fn the_time_left_comes_from_the_runs_before() {
     let times = terraflux_app::eta::times_of(&path);
     assert!(times.contains_key("first") && times.contains_key("years"), "{times:?}");
     drop(h);
-    let h = harness(new_app(Some(path)));
+    let mut h = harness(new_app(Some(path)));
     assert!(h.state().session.as_ref().unwrap().times_before.contains_key("years"));
+    // and on the canvas before running (fainter): the nodes of the scope shown, by their ids
+    h.run_steps(3);
+    let e = &h.state().session.as_ref().unwrap().editor;
+    assert!(e.times.is_empty(), "nothing run in this session");
+    assert!(e.times_before.contains_key("first") && e.times_before.contains_key("years"), "{:?}", e.times_before);
+    assert!(!e.times_before.contains_key("years/land"), "only the scope shown");
+    if let Ok(img) = h.render() {
+        img.save(tmp("ui-times-before.png")).unwrap();
+    }
 }
 
 #[test]

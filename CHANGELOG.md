@@ -19,6 +19,9 @@ minor versions.
 - Canvas: **notes and frames go with the nodes copied**. Copying, duplicating (ctrl+D, the menu) or ctrl-dragging
   nodes takes the frames around them all along, the copy around the copies; a frame selected is copied with its
   nodes, a note selected by itself. Pasted in another scope, model or window, they come with new ids.
+- Canvas: **how long each node took before, from the first moment**. A model opened again shows under each box,
+  fainter and with a `~`, how long it took when it last ran (in the sessions before, as the time left of a run
+  already uses), until it runs in this one; the tooltip says so.
 
 ## [1.43.0] - 2026-11-06
 

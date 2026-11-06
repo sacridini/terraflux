@@ -667,6 +667,9 @@ pub struct EditorState {
     /// and the slowest listed (the canvas bar's Times).
     pub times: HashMap<String, (f64, usize, bool)>,
     pub times_shown: bool,
+    /// How long the nodes of the scope shown that have not run in this session took in the runs before (seconds,
+    /// kept with the model): written fainter, as what to expect.
+    pub times_before: HashMap<String, f64>,
     /// The note or frame selected (a click on it: Delete takes it away), the one whose menu is open, where the
     /// menu was opened (graph units: "Add a note here"), and the note whose text is being edited (its id, the
     /// text, whether the field was given the focus) with where its window opens (on the screen).
@@ -3472,6 +3475,24 @@ pub fn show(
                         bytes_text(*bytes)
                     )
                 };
+                egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), egui::Id::new("node time"), drawn)
+                    .show(|ui| ui.label(tip));
+            }
+        }
+        // (not run in this session: how long it took before, fainter, as what to expect)
+        for &i in &in_view {
+            let b = &scene.boxes[i];
+            if st.times.contains_key(&b.key) {
+                continue;
+            }
+            let Some(t) = st.times_before.get(&b.key) else { continue };
+            let took = crate::eta::took(*t);
+            let text = if took.starts_with('<') { took } else { format!("~{took}") };
+            let colour = v.weak_text_color().gamma_multiply(0.75);
+            let at = screen(b.rect.right_bottom() + Vec2::new(-4.0, 3.0));
+            let drawn = painter.text(at, Align2::RIGHT_TOP, &text, FontId::monospace(size(10.5).max(9.0)), colour);
+            if pointer.is_some_and(|p| drawn.expand(2.0).contains(p)) {
+                let tip = format!("{}: took {} when it last ran, before this session", b.key, crate::eta::took(*t));
                 egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), egui::Id::new("node time"), drawn)
                     .show(|ui| ui.label(tip));
             }
