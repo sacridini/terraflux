@@ -21,6 +21,11 @@ minor versions.
   cells that changed (`changed`: first against last map of a series or stack, a single map against the start map
   chosen in the pane) and a landscape metric of a class (`metric:<np|pland|ed|area_mn|lpi>:<class>`). In the
   Sensitivity tab and in `terraflux sensitivity --statistic` (`terraflux_dist::evaluate::measure_from`).
+- Application: **the cost of a batch before it runs**. Under the run button of Many runs (replicates, scenarios,
+  calibration and sensitivity), the runs and about how long they take, from the times of the nodes in the runs
+  before divided by the runs at once here (or the workers of the cluster chosen). A sensitivity analysis names its
+  design ("Sobol of 6 factors, N=256: 3584 runs, about 5 h here"). Over 2 hours the line turns to the warning
+  colour and suggests fewer runs, or fewer base points and Morris first.
 - `terraflux sensitivity --method oat`, and the new `terraflux_ops::sensitivity::oat_sample` and `oat_analyze`.
   The design, the candidates, the indices and their CSV files are now `terraflux_dist::sensitivity`, shared by the
   command and the application (the files and columns of Morris and Sobol are the same as before).

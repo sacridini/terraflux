@@ -4193,6 +4193,44 @@ fn a_sensitivity_analysis_runs_from_its_pane() {
 }
 
 #[test]
+fn the_cost_of_a_batch_is_told_before_it_runs() {
+    use terraflux_app::batch_view::{Kind, Range};
+    use terraflux_dist::sensitivity::Method;
+    let mut h = harness(new_app(Some(model())));
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Batch);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.times_before.clear();
+        s.timings.clear();
+        let b = &mut h.state_mut().batch;
+        b.kind = Kind::Sensitivity;
+        b.workers = 2;
+        b.on = None;
+        b.sens.method = Method::Oat;
+        b.sens.output = Some("simulation.maps".into());
+        b.sens.factors =
+            vec![Range { key: "patches.isometry".into(), from: "0.5".into(), to: "2.5".into(), points: String::new() }];
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("known once the model has run").is_some(), "no times yet");
+    assert!(h.query_by_label_contains("That is long").is_none());
+    // a run of 4 s: 3 runs at 2 at once are 2 rounds
+    h.state_mut().session.as_mut().unwrap().times_before.insert("simulation".into(), 4.0);
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("3 runs, about 8.0 s here (2 at once; a run took about 4.0 s)").is_some());
+    assert!(h.query_by_label_contains("That is long").is_none());
+    // a run of 3 h: the warning, with the hint of a sensitivity analysis
+    h.state_mut().session.as_mut().unwrap().times_before.insert("simulation".into(), 10800.0);
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("about 6 h here").is_some());
+    assert!(h.query_by_label_contains("to keep only the factors that matter").is_some());
+    h.state_mut().batch.kind = Kind::Replicates;
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("more computers (Computers)").is_some());
+}
+
+#[test]
 fn a_batch_stopped_half_way_goes_on() {
     // a batch of three runs submitted to the application's pool, closed before any ran: its job kept in the
     // pool's folder

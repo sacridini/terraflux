@@ -735,6 +735,82 @@ fn sensitivity_runs(st: &BatchState, knobs: &[Knob]) -> Result<usize, String> {
     Ok(sens::runs(st.sens.method, params.len(), &st.sens.design))
 }
 
+/// The time of a batch: the runs in rounds of `at_once`, each round as long as one run.
+fn batch_time(runs: usize, one_run: f64, at_once: usize) -> f64 {
+    runs.div_ceil(at_once.max(1)) as f64 * one_run
+}
+
+/// The time of one run from the nodes' times of the run before: their sum (it overstates a run whose nodes ran
+/// side by side). None when no node has a time.
+fn one_run_time(times: &BTreeMap<String, f64>) -> Option<f64> {
+    let t: f64 = times.values().filter(|t| t.is_finite()).sum();
+    (!times.is_empty() && t > 0.0).then_some(t)
+}
+
+/// A batch longer than this (seconds) gets a warning.
+const LONG_BATCH: f64 = 7200.0;
+
+/// The line under the run button: the runs, how long they take, and whether that is long.
+/// `at_once` is the runs in parallel where they go (none: not known), `place` says where ("here" or "on name").
+fn cost_text(head: &str, runs: usize, one: Option<f64>, at_once: Option<usize>, place: &str) -> (String, bool) {
+    let n = if runs == 1 { "1 run".to_string() } else { format!("{runs} runs") };
+    let Some(one) = one else {
+        return (format!("{head}{n}; how long each takes is known once the model has run"), false);
+    };
+    let each = format!("a run took about {}", crate::eta::took(one));
+    match at_once {
+        Some(w) => {
+            let total = batch_time(runs, one, w);
+            (format!("{head}{n}, about {} {place} ({w} at once; {each})", crate::eta::took(total)), total > LONG_BATCH)
+        }
+        None => (format!("{head}{n} {place}; {each}, divided by the workers there"), one * runs as f64 > LONG_BATCH),
+    }
+}
+
+/// The cost line for the batch chosen, with its warning hint when long.
+fn cost_ui(ui: &mut Ui, st: &BatchState, s: &Session, runs: usize) {
+    let mut times = s.times_before.clone();
+    times.extend(s.timings.iter().map(|(at, (secs, _))| (at.clone(), *secs)));
+    let one = one_run_time(&times);
+    let (place, at_once) = match &st.on {
+        None => ("here".to_string(), Some(st.workers.max(1))),
+        Some(name) => {
+            let w = terraflux_dist::remote::load(&crate::settings::data_dir())
+                .into_iter()
+                .find(|c| &c.name == name)
+                .map(|c| match c.scheduler {
+                    terraflux_dist::remote::Scheduler::Host { workers } => workers,
+                    terraflux_dist::remote::Scheduler::Slurm { nodes, workers, .. } => nodes * workers,
+                });
+            (format!("on {name}"), w.map(|w| w.max(1)))
+        }
+    };
+    let head = if st.kind == Kind::Sensitivity {
+        let k = st.sens.factors.len();
+        let f = if k == 1 { "factor" } else { "factors" };
+        match st.sens.method {
+            Method::Oat => format!("One at a time of {k} {f}: "),
+            Method::Morris => format!("Morris of {k} {f}, r={}: ", st.sens.design.n),
+            Method::Sobol => format!("Sobol of {k} {f}, N={}: ", st.sens.design.n),
+        }
+    } else {
+        String::new()
+    };
+    let (text, long) = cost_text(&head, runs, one, at_once, &place);
+    if long {
+        let warn = ui.visuals().warn_fg_color;
+        ui.label(RichText::new(text).color(warn));
+        let hint = if st.kind == Kind::Sensitivity {
+            "That is long: fewer base points, or Morris first to keep only the factors that matter."
+        } else {
+            "That is long: fewer runs, or more computers (Computers)."
+        };
+        ui.label(RichText::new(hint).color(warn));
+    } else {
+        ui.label(RichText::new(text).weak());
+    }
+}
+
 /// The tasks of the batch chosen, with what a calibration needs to rank them or a sensitivity analysis to analyse.
 type Planned = (Vec<TaskOf>, Option<Plan>, Option<SensitivityPlan>);
 
@@ -1803,6 +1879,10 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
     // what the batch is, and its button and progress, always in view
     egui::Frame::new().inner_margin(egui::Margin::same(8)).show(ui, |ui| {
         interrupted_ui(ui, st, computers);
+        let count = match st.kind {
+            Kind::Sensitivity => sensitivity_runs(st, &knobs),
+            _ => tasks(st, &knobs).map(|(t, ..)| t.len()),
+        };
         ui.horizontal(|ui| {
             ui.add_enabled_ui(!busy, |ui| {
                 for (k, name) in [
@@ -1815,10 +1895,6 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
                 }
             });
             ui.separator();
-            let count = match st.kind {
-                Kind::Sensitivity => sensitivity_runs(st, &knobs),
-                _ => tasks(st, &knobs).map(|(t, ..)| t.len()),
-            };
             if let Some(run) = &st.running {
                 if ui.button("Stop").clicked() {
                     run.handle.stop();
@@ -1840,6 +1916,11 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
                 }
             }
         });
+        if st.running.is_none()
+            && let Ok(n) = &count
+        {
+            cost_ui(ui, st, s, *n);
+        }
         if let Some(run) = &st.running {
             running_ui(ui, run);
             let helpers = computers.helpers().len();
@@ -1924,6 +2005,22 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_batch_takes_rounds_of_runs_at_once() {
+        assert_eq!(batch_time(5, 4.0, 2), 12.0);
+        assert_eq!(batch_time(4, 4.0, 2), 8.0);
+        assert_eq!(batch_time(1, 4.0, 8), 4.0);
+        assert_eq!(batch_time(3, 4.0, 0), 12.0);
+        assert_eq!(one_run_time(&BTreeMap::new()), None);
+        assert_eq!(one_run_time(&[("a".to_string(), 1.5), ("b".to_string(), 2.5)].into()), Some(4.0));
+        let (t, long) = cost_text("", 12, Some(60.0), Some(2), "here");
+        assert!(t.starts_with("12 runs, about 6 min here (2 at once"), "{t}");
+        assert!(!long);
+        assert!(cost_text("", 12, Some(3600.0), Some(2), "here").1);
+        let (t, long) = cost_text("", 3, None, Some(2), "here");
+        assert!(t.contains("known once the model has run") && !long, "{t}");
+    }
 
     #[test]
     fn a_maps_statistic_is_composed_from_its_kind_and_class() {

@@ -2938,6 +2938,13 @@ min ou max de um mapa). Falta tudo na interface: só quem usa a linha de comando
 3. **O custo antes de rodar.** As rodadas do desenho (OAT 2k+1, Morris r(k+1), Sobol N(2k+2) ou N(k+2)) vezes as
    réplicas, e o tempo pelo `eta.rs` (a soma dos tempos dos nós das execuções anteriores) dividido pelos workers:
    "Sobol of 6 factors, N=256: 3 584 runs, about 5 h here". Um aviso quando passa de algumas horas.
+   **Feito** (Unreleased): no `batch_view.rs`, `batch_time` (rodadas = ceil(rodadas / ao mesmo tempo) × uma rodada),
+   `one_run_time` (a soma dos tempos dos nós; `times_before` com `timings` da sessão por cima; nenhum sem tempos),
+   `cost_text` (a linha, "about", e se passa de 2 h) e `cost_ui` sob o botão de todos os tipos (aqui: os workers do
+   controle; num cluster salvo: nós × workers do `Scheduler`; cor `warn_fg_color` e a dica, de Morris primeiro na
+   sensibilidade, de menos rodadas ou mais computadores nos outros). Ainda não multiplica por réplicas (item 4).
+   Testes: `a_batch_takes_rounds_of_runs_at_once` e `the_cost_of_a_batch_is_told_before_it_runs` (ui.rs). Falta: os
+   itens 4 a 6.
 4. **Modelos estocásticos: réplicas em cada ponto do desenho.** Com um seed no modelo (`batch::seed_keys`), cada
    ponto roda com R seeds (padrão 1; o texto sugere 3 a 5 num simulador de mudança de uso) e a saída é a média das
    réplicas; a variância entre as réplicas é mostrada ao lado da dos fatores, para dizer quanto do resultado é
