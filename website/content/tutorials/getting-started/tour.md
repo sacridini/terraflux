@@ -455,6 +455,73 @@ commit of the model's file in git, or with another model file (**File > Compare*
 map or table before and now, side by side. [AI assistants](/cli/assistants/#the-changes-pane-what-the-assistant-changed)
 explains it.
 
+## Working day to day
+
+### Several models at once
+
+*Open...* or *New model* with a model already open puts the new one in a tab of its own: a strip of tabs appears
+under the toolbar (*2 models open*), each model in a colour of its own, the one in front stronger and outlined, and
+its colour beside its name in the toolbar. Click a tab to bring its model to the front; ++ctrl+tab++ and
+++ctrl+shift+tab++ go from one to the next, and ++ctrl+shift+w++ (or the tab's **×**, or a middle click on it)
+closes the one in front. The models behind keep running: a long run goes on while you work on another model. Each
+tab keeps its own canvas, selection and Viewer. Nodes copied in one tab paste in another.
+
+When Terraflux starts without a model given, the models that were open when it closed open again, in their tabs,
+each with its view as you left it: where the canvas looked, the node selected, what the Viewer showed (run again
+the quick way, only what it needs). A model opened later from *Open recent* gets its view back too.
+
+### Going back: the History
+
+**History**, in the Model pane's bar, lists the edits of the model by name (*added suit (raster.calc)*,
+*reclass: setting threshold: 3 → 4*, *3 nodes moved*, *the MCP: add_node, connect* for an assistant's), the one you
+are at marked and those undone faint. A click goes back, or forward, to any of them at once; *compare* opens the
+Changes pane with the model as it was then. ++ctrl+z++ and ++ctrl+shift+z++ still go one step at a time.
+
+### Edits never lost
+
+Closing the window, *New model*, *Open...* or a template with edits not saved first asks *Save the changes to …?*
+(*Save*, *Don't save*, *Cancel*). While a model has edits not saved, a copy of it is kept every half a minute in
+your application data; if Terraflux ends without saving (a crash, the power gone), the next time it opens a strip
+offers them: *Recover* opens the model with those edits, *Discard* throws them away, *Later* asks again next time.
+
+### Files not found
+
+A model written on another computer, or whose data folder moved, reads files that are not where it says. A strip
+over the canvas (and the Problems pane) says so: *2 files of the model are not found*. When the model is saved
+in a folder, Terraflux first looks for them around it by itself (its folder and the one above), so a project
+copied whole is found at once: *2 found beside the model*, and **Apply** makes the model read them from there.
+Otherwise **Locate them...** lists each file with the nodes that read it: *Look in a folder...* finds them by the
+end of their old path or by their name, and once one is found the same change of folder is tried on the others;
+*Choose...* points to one by hand. Windows paths and Unix paths are read alike, so a model made on Windows finds
+its data on Linux or macOS, and the other way round. The paths are written relative to the model's folder, in one
+step of undo. On the command line, [`terraflux relink`](/cli/models/#terraflux-relink) does the same.
+
+### Notes and frames on the canvas
+
+A right click on the empty canvas, *Add a note here*: a card with a text, for whoever reads the model. Select
+nodes and choose *Frame them* in their menu: a rectangle around them with a title (the text's first line), which
+follows them when they move. Drag a frame by its title to move its nodes; a node let go inside a frame joins it,
+and its menu's *Take it out of the frame* takes it out. A double click edits the text, the menu gives the colour,
+++delete++ removes the note or frame selected (a frame's nodes stay). Copying, duplicating or dragging with ++ctrl++
+nodes takes the frames around them along. Notes and frames are kept in the model's file; the frames of the whole
+model become the sections of [its document](../../building-models/the-model-document/).
+
+### How long things take
+
+After a run, each box tells under its corner how long it took (*2.4 s*, *cache* when it came from the cache).
+**Times**, in the Model pane's bar, washes the boxes in a warm colour by their share of the run and lists the five
+slowest, each a click away. A model opened again shows the times of its runs before, fainter (*~2.4 s*), until it
+runs again. While a model runs, the progress bar in the toolbar says the time left (*~14 min left*, from the times
+of the runs before; *about* when it is guessed from how far the run is), and its tooltip when it will end by the
+clock (*ends about 14:32*).
+
+### Long runs
+
+While a model runs, the computer is kept from going to sleep (the screen may still go dark). When a run of more
+than 10 seconds ends while Terraflux is not in front, the system shows a notification (*land: done*, or *failed*
+and why) and the window's button in the taskbar lights up; on Windows and Linux, a click on the notification
+brings Terraflux to the front. Both can be turned off in the settings.
+
 ## Settings
 
 **⚙** at the right of the toolbar opens the settings, a small window:
@@ -463,8 +530,11 @@ explains it.
   *Angst Robot*, *Twenty Four Carat*) keep the square look; the modern ones (*Slate*, dark; *Paper*, light, in the
   colours of this website; *Canopy*, dark green) have rounded panes and cards, switches and a font of their own;
 - **Text size** and **Interface zoom**: for a small laptop screen or a projector;
-- **Threads**: how many of the computer's cores the operators use. By default all the cores but one, so that the
-  computer stays usable while a model runs; the change takes effect at the next start.
+- **Start**: *reopen the models open last* (on at first);
+- **Runs**: *keep the computer awake while a model runs*, and *tell when a run of more than 10 s ends* (a
+  notification when Terraflux is not in front; the seconds can be changed);
+- **Threads**: how many of the computer's cores the operators use. By default three quarters of them (a quarter
+  left free), so that the computer stays usable while a model runs; the change takes effect at the next start.
 
 Settings, favourites and the layout are kept in your user's application data (`%APPDATA%\Terraflux` on Windows,
 `~/Library/Application Support/Terraflux` on macOS, `~/.config/Terraflux` on Linux).
@@ -482,7 +552,10 @@ Settings, favourites and the layout are kept in your user's application data (`%
 | ++ctrl+r++ | rename the node selected |
 | ++delete++ or ++backspace++ | delete the nodes selected |
 | ++tab++ | go to the Model pane, and ++tab++ again back to where you were |
-| ++ctrl+w++ | close the tab in front |
+| ++ctrl+w++ | close the pane's tab in front |
+| ++ctrl+tab++, ++ctrl+shift+tab++ | the next model open, the one before |
+| ++ctrl+shift+w++ | close the model in front (asked first when it has edits not saved) |
+| ++ctrl+k++ | the commands: anything of the application by its name (*History*, a pane, a node...) |
 | ++home++ | fit the whole graph in the canvas |
 | ++b++ (over a map) | satellite imagery under the map, or none |
 | arrows (over the canvas) | go to the node beside the one selected; ++enter++ shows its output |

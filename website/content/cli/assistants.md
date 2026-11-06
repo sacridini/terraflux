@@ -30,7 +30,9 @@ problems found in it, and summaries of the results).
 | `run_model`, `inspect_file` | Runs the model, then summarises a result: a raster's classes or statistics, a table's first lines |
 | `export_plot` | Runs the model and writes one of its Plots by its id as a PNG or a GeoTIFF of the map (layers at their opacity, features and labels, no legend), and tells the layers drawn and left out |
 | `trace_cell`, `last_trace` | Tells why a cell of a result has its value, node by node back through the model; or reads the cell you traced last in the application (see [the tour](/tutorials/getting-started/tour/#why-a-cell-has-its-value-trace)) |
-| `open_in_app` | Opens the model in the application you have open (a new window when none is, or when yours has edits not saved) |
+| `set_note`, `remove_note` | Puts a note on the canvas for whoever reads the model, or a frame with a title around nodes; changes or removes it |
+| `locate_files` | Finds again the files the model reads that are not where it says (a model from another computer, a folder moved), in the model's folder and the one above or the folders given, and makes the model read them from there |
+| `open_in_app` | Opens the model in the application you have open (in a tab of its own, or in its tab when it is open already) |
 
 Every edit is checked the way the application checks the edits you make yourself. A connection of the wrong
 type (a table into an input that takes a map), a setting the operator does not have, or a loop of nodes reading
@@ -141,8 +143,8 @@ Claude Desktop tab for where it is installed).
 ## Work with it
 
 Start by opening the application, or ask the assistant to open the model there (`open_in_app`): the model opens in
-the Terraflux you have open, in place of its own, and the window comes to the front. A new window opens only when
-none is open, or when the model in yours has edits not saved (they are never lost). Then ask for what you want, as
+the Terraflux you have open, in a tab of its own (its tab, when it is open already), and the window comes to the
+front; the models open there stay open. A new window opens only when none is open. Then ask for what you want, as
 you would ask a colleague who knows Terraflux:
 
 > Make a model in `D:\forest\fragmentation.toml` that reads `D:\forest\landcover_2020.tif`, where class 3 is
@@ -166,7 +168,9 @@ A good way to work:
 
 !!! tip "Undo what the assistant did"
     An edit made by the assistant is an edit like yours: ++ctrl+z++ in the application undoes it, and
-    ++ctrl+shift+z++ makes it again. Save the model afterwards to keep the version you want.
+    ++ctrl+shift+z++ makes it again. The Model pane's **History** names each of its steps by the tools it used
+    (*the MCP: add_node, connect*), to go back to any of them at once. Save the model afterwards to keep the version
+    you want.
 
 !!! warning "Your edits and the assistant's at the same time"
     If you change the model in the application and have not saved it when the assistant changes the file, the
