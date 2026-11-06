@@ -27,6 +27,11 @@ minor versions.
   "5 raster.read selected" and their settings once: the value where they agree, "several values: 0, 255, default"
   where they differ; a change goes to every one in one step of undo, and a value refused for any is set on none.
   Nodes of different operators are listed, each a click away.
+- Canvas: **the selection's menu**. A right click on a node of a selection (or on the empty canvas) with several
+  selected, headed "3 nodes selected": *Delete*, *Duplicate* (the links among them copied), *Disconnect all their
+  inputs* (the values typed kept), *Group*, *Run to them* (one run after the other up to those no other needs,
+  the shared part from the cache), *Freeze* or *Unfreeze*, *Bypass* or *Turn them on*, and *Connect the others
+  selected* to the node clicked; each one step of undo, those that do not apply greyed with the reason.
 
 ## [1.41.0] - 2026-11-06
 

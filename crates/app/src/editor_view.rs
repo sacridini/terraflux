@@ -256,6 +256,14 @@ pub enum Action {
     RemoveSource(String),
     /// The nodes selected put in a new group (its name asked for at once).
     Group,
+    /// The selection's menu: the nodes selected deleted, duplicated (links among them kept), all their connections
+    /// taken off, frozen (`true`) or thawed, turned off or on, run up to.
+    DeleteChosen,
+    DuplicateChosen,
+    DisconnectChosen,
+    FreezeChosen(bool),
+    BypassChosen,
+    RunToChosen,
     /// A group's nodes taken out into the scope shown.
     Ungroup(String),
     /// A group given the results of its last nodes as outputs.
@@ -467,6 +475,12 @@ pub struct EditorState {
     menu: Option<(String, String)>,
     /// What connecting the nodes selected to the box of the menu would do (its menu offers it then).
     menu_links: Option<Vec<(String, String)>>,
+    /// The open menu is the selection's (a right click on a node of two or more selected, or on the background
+    /// with them selected), not one node's.
+    menu_many: bool,
+    /// Why the selection's menu cannot freeze nodes, and run up to them (told by the application each frame).
+    pub no_freeze: Option<&'static str>,
+    pub no_run: Option<&'static str>,
 }
 
 /// The inputs of a node a connection may go to, offered where it was let go.
@@ -1681,6 +1695,71 @@ fn stages_and_notes(
     }
 }
 
+/// What the entries of the selection's menu do.
+const DELETE_MANY_HELP: &str = "the nodes selected taken away, with the connections into and out of them";
+const DUPLICATE_MANY_HELP: &str = "a copy of each node selected, a step down and to the right, the connections among \
+     them kept and what they read from outside too; the copies selected";
+const DISCONNECT_MANY_HELP: &str = "every connection into the nodes selected taken off (what they read from the \
+     others selected too); the values typed in stay";
+const RUN_MANY_HELP: &str = "the model run up to the nodes selected: what they need, nothing else (one run each of \
+     those that no other selected needs, one after the other)";
+const FREEZE_MANY_HELP: &str = "their results kept on disk next to the model and used instead of running them; \
+     thaw: they run again";
+const BYPASS_MANY_HELP: &str = "the nodes turned off, their inputs passed on; on again when all were off";
+
+/// The selection's menu (two or more nodes selected): what can be done to all of them at once, each in one step of
+/// undo; an entry that does not fit says why when the pointer is over it. `link`: the box right-clicked and what
+/// connecting the others selected to it would do.
+/// `top`: the scope is the model's top level; `no_run` and `no_freeze`: why not (see [`EditorState`]).
+fn selection_menu(
+    ui: &mut Ui,
+    chosen: &BTreeSet<String>,
+    nodes: &[Node],
+    (top, no_run, no_freeze): (bool, Option<&str>, Option<&str>),
+    link: Option<(String, Vec<(String, String)>)>,
+    actions: &mut Vec<Action>,
+) {
+    let n = chosen.iter().filter(|k| !editor::is_source(k)).count();
+    let chosen: Vec<&Node> = nodes.iter().filter(|n| chosen.contains(&n.id)).collect();
+    let c = crate::commands::cmd();
+    let mut entry = |ui: &mut Ui, text: &str, help: &str, off: Option<&str>, action: Action| {
+        let b = ui.add_enabled(off.is_none(), egui::Button::new(text)).on_hover_text(help);
+        let b = match off {
+            Some(why) => b.on_disabled_hover_text(why),
+            None => b,
+        };
+        if b.clicked() {
+            actions.push(action);
+            ui.close();
+        }
+    };
+    ui.label(egui::RichText::new(format!("{n} nodes selected")).strong());
+    ui.separator();
+    entry(ui, "Delete    Del", DELETE_MANY_HELP, None, Action::DeleteChosen);
+    entry(ui, &format!("Duplicate    {c}D"), DUPLICATE_MANY_HELP, None, Action::DuplicateChosen);
+    let reads = chosen.iter().any(|n| n.inputs.values().any(|s| matches!(s, Source::Ref(_))));
+    let none = (!reads).then_some("none of them reads anything from another node: nothing to disconnect");
+    entry(ui, "Disconnect all their inputs", DISCONNECT_MANY_HELP, none, Action::DisconnectChosen);
+    entry(ui, &format!("Group    {c}G"), GROUP_HELP, None, Action::Group);
+    ui.separator();
+    let off = (!top).then_some("only the nodes of the top level run on their own");
+    let off = off.or(no_run);
+    entry(ui, "Run to them", RUN_MANY_HELP, off, Action::RunToChosen);
+    // freeze when any is not frozen, else thaw
+    let freeze = chosen.iter().any(|n| !n.frozen);
+    let off = if freeze { no_freeze } else { None };
+    let text = if freeze { "Freeze" } else { "Unfreeze" };
+    entry(ui, text, FREEZE_MANY_HELP, off, Action::FreezeChosen(freeze));
+    let text = if chosen.iter().all(|n| n.bypass) { "Turn them on    B" } else { "Bypass    B" };
+    entry(ui, text, BYPASS_MANY_HELP, None, Action::BypassChosen);
+    // (the others selected connected to the box right-clicked, as its own menu offers)
+    if let Some((key, links)) = link {
+        ui.separator();
+        let text = format!("Connect the others selected to {key}");
+        entry(ui, &text, CONNECT_MANY_HELP, None, Action::ConnectMany { node: key, links });
+    }
+}
+
 /// Draw the scope; what the user did. `revision` and `status_rev` change when the model and the nodes' states
 /// do (the scene is made again then only).
 #[allow(clippy::too_many_arguments)]
@@ -2087,8 +2166,21 @@ pub fn show(
             let all = scene.chosen_outputs(&st.chosen, i);
             if all.is_empty() { None } else { scene.links_into(i, &all, false) }
         });
+        // two or more selected: a node of them, or the background, opens the selection's menu
+        let many = st.chosen.iter().filter(|k| !crate::editor::is_source(k)).count() >= 2;
+        st.menu_many = many
+            && match hit {
+                Some(i) => st.chosen.contains(&scene.boxes[i].key),
+                None => at.is_some_and(|w| scene.hit(w, reach(cam)).is_none()),
+            };
     }
     resp.context_menu(|ui| {
+        if st.menu_many {
+            let links = st.menu_links.clone().zip(st.menu.clone()).map(|(l, (k, _))| (k, l));
+            let why = (st.path.is_empty(), st.no_run, st.no_freeze);
+            selection_menu(ui, &st.chosen, nodes, why, links, &mut actions);
+            return;
+        }
         let Some((key, op)) = st.menu.clone() else {
             ui.close();
             return;

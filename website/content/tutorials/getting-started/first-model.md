@@ -203,7 +203,9 @@ Press ++f5++ to run the whole model. Then save it: **Save as...**, `core-forest.
     connections, joining again what it joined. **Ctrl+F** on the canvas finds a node by its name, operator, note or
     file, inside groups too, and takes the view to it. **F** frames the nodes selected, **Home** the whole model.
     With several nodes of one operator selected (a box dragged around them, or ctrl+click), the Node pane shows
-    their settings once ("several values" where they differ) and a change goes to all of them, in one undo.
+    their settings once ("several values" where they differ) and a change goes to all of them, in one undo. A
+    right click on them (or on the empty canvas) gives the selection's menu: delete, duplicate, disconnect their
+    inputs, group, run to them, freeze, bypass.
 
 ## Read the results
 

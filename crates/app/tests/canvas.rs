@@ -1173,3 +1173,134 @@ fn f_frames_the_nodes_selected_and_home_the_whole_model() {
     assert!(editor(&h).zoom() > home_zoom, "{} against {home_zoom}", editor(&h).zoom());
     assert_eq!(editor(&h).path, ["grp"]);
 }
+
+/// A right click (press and release of the secondary button) at a point.
+fn right_click(h: &mut Harness<TerrafluxApp>, at: egui::Pos2) {
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+}
+
+/// `a -> b -> c` (a chain) and a free `z`, as the selection's menu finds them.
+fn selection_model() -> Model {
+    let mut m = Model::new("many");
+    let mut b = Node::new("b", "raster.reclassify").input("map", "a.raster");
+    let mut c = Node::new("c", "landscape.mspa").input("map", "b.map");
+    (b.pos, c.pos) = (Some([350.0, 0.0]), Some([700.0, 0.0]));
+    m.nodes = vec![reader("a", [0.0, 0.0]), b, c, reader("z", [0.0, 300.0])];
+    m
+}
+
+/// Select `ids` (the first one in the inspector), right click `on`, the menu open.
+fn menu_of(h: &mut Harness<TerrafluxApp>, ids: &[&str], on: &str) {
+    let s = h.state_mut().session.as_mut().unwrap();
+    s.selected = ids.first().map(|s| s.to_string());
+    s.editor.chosen = ids.iter().map(|s| s.to_string()).collect();
+    h.run_steps(2);
+    let at = editor(h).screen_of(on).unwrap();
+    right_click(h, at);
+}
+
+fn pick(h: &mut Harness<TerrafluxApp>, label: &str) {
+    use egui_kittest::kittest::Queryable;
+    h.get_by_label_contains(label).click();
+    h.run_steps(3);
+}
+
+/// Right click with several nodes selected: the selection's menu, headed by their number (a right click on a
+/// node outside them keeps the node's own menu). Duplicate copies them with the links among them, selected;
+/// delete, disconnect, freeze and group are each one step of undo; run to them runs the last ones one by one.
+#[test]
+fn the_selections_menu_acts_on_all_the_nodes_selected() {
+    use egui_kittest::kittest::Queryable;
+    use terraflux_graph::Source;
+    let mut h = harness(open(&selection_model(), "canvas-selection-menu.toml"));
+    h.run_steps(3);
+    let count = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().source.nodes.len();
+    // the heading (the bar under the canvas says it too) and the entries
+    menu_of(&mut h, &["a", "b", "c"], "b");
+    assert_eq!(h.query_all_by_label("3 nodes selected").count(), 2, "the bar's and the menu's");
+    for l in ["Delete", "Duplicate", "Disconnect all their inputs", "Group    ", "Run to them", "Freeze", "Bypass"] {
+        assert!(h.query_by_label_contains(l).is_some(), "{l}");
+    }
+    // a node outside them: its own menu, no heading
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    menu_of(&mut h, &["a", "b", "c"], "z");
+    assert!(h.query_by_label_contains("Run to them").is_none());
+    assert!(h.query_by_label_contains("Run on a folder").is_some(), "one node's menu");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    // duplicate: three copies, linked among themselves, selected, one step of undo
+    menu_of(&mut h, &["a", "b", "c"], "c");
+    pick(&mut h, "Duplicate");
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.nodes.len(), 7);
+    let (a2, b2) = (s.source.node("a_2").unwrap(), s.source.node("b_2").unwrap());
+    assert!(a2.inputs.is_empty());
+    assert_eq!(b2.inputs["map"], Source::Ref("a_2.raster".into()));
+    assert_eq!(s.source.node("c_2").unwrap().inputs["map"], Source::Ref("b_2.map".into()));
+    let want: std::collections::BTreeSet<String> = ["a_2", "b_2", "c_2"].map(String::from).into();
+    assert_eq!(s.editor.chosen, want);
+    undo(&mut h);
+    assert_eq!(count(&h), 4);
+    // delete: three nodes, one step of undo
+    menu_of(&mut h, &["a", "b", "c"], "a");
+    pick(&mut h, "Delete");
+    assert_eq!(count(&h), 1);
+    assert!(h.state().session.as_ref().unwrap().editor.chosen.is_empty());
+    undo(&mut h);
+    assert_eq!(count(&h), 4);
+    // the background of the canvas with them selected: the same menu
+    // (escape would let the nodes selected go first)
+    h.state_mut().session.as_mut().unwrap().editor.chosen = ["b", "c"].map(String::from).into();
+    h.run_steps(2);
+    let canvas = editor(&h).canvas().unwrap();
+    right_click(&mut h, canvas.left_bottom() + egui::vec2(60.0, -60.0));
+    assert!(h.query_by_label_contains("Run to them").is_some(), "the background's menu");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    // disconnect their inputs (b reads a, c reads b), one step of undo
+    menu_of(&mut h, &["b", "c"], "b");
+    pick(&mut h, "Disconnect all their inputs");
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.source.node("b").unwrap().inputs.is_empty() && s.source.node("c").unwrap().inputs.is_empty());
+    undo(&mut h);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.node("b").unwrap().inputs["map"], Source::Ref("a.raster".into()));
+    assert_eq!(s.source.node("c").unwrap().inputs["map"], Source::Ref("b.map".into()));
+    // freeze toggles them all (a, then all frozen: unfreeze)
+    menu_of(&mut h, &["a", "b", "z"], "a");
+    pick(&mut h, "Freeze");
+    let frozen = |h: &Harness<TerrafluxApp>| {
+        let s = h.state().session.as_ref().unwrap();
+        ["a", "b", "c", "z"].map(|id| s.source.node(id).unwrap().frozen)
+    };
+    assert_eq!(frozen(&h), [true, true, false, true]);
+    menu_of(&mut h, &["a", "b", "z"], "a");
+    pick(&mut h, "Unfreeze");
+    assert_eq!(frozen(&h), [false; 4]);
+    // group: one group of the three
+    menu_of(&mut h, &["a", "b", "c"], "b");
+    pick(&mut h, "Group    ");
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.nodes.len(), 2, "{:?}", s.source.nodes.iter().map(|n| &n.id).collect::<Vec<_>>());
+    assert_eq!(s.source.nodes.iter().filter(|n| n.op == terraflux_graph::GROUP).count(), 1);
+    undo(&mut h);
+    assert_eq!(count(&h), 4);
+    // run to them: the two that nothing else selected needs, one after the other (b and c: only c)
+    menu_of(&mut h, &["a", "c", "z"], "a");
+    pick(&mut h, "Run to them");
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.target.as_deref(), Some("c"), "{:?}", s.run_queue);
+    assert_eq!(s.run_queue, ["z"]);
+}

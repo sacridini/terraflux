@@ -2321,6 +2321,13 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
    movimento (o passo do arrasto já fechado, `undo.rs`); a inserção de vários nós; um teste da mensagem de corte.
 6. **O menu da seleção**: botão direito com vários nós selecionados dá apagar, duplicar, desligar tudo, agrupar,
    rodar até eles, congelar, alinhar; hoje o menu é de um nó só.
+   **Feito** (Unreleased, por um sub-agente): `editor_view::selection_menu` (as `Action`s `DeleteChosen`,
+   `DuplicateChosen`, `DisconnectChosen`, `FreezeChosen`, `BypassChosen`, `RunToChosen`; os motivos em
+   `EditorState::no_freeze`/`no_run`), `builder::delete_chosen`/`freeze_chosen`, `editor::disconnect_all` (só as
+   `Ref`), `Session::start_to_many` e `run_queue` (o motor para num alvo: os últimos um após o outro). Teste:
+   `the_selections_menu_acts_on_all_the_nodes_selected`. Falta: alinhar (o item 8); o clique direito num nó fora
+   da seleção não o seleciona (o item 1 depende disso); o Esc solta a seleção antes de fechar o menu; uma edição
+   no meio do "Run to them" não esvazia a fila.
 7. **Mudar uma configuração em vários nós de uma vez**: com nós do mesmo operador selecionados, o painel Node mostra
    as configurações em comum ("vários valores" onde diferem) e muda todas de uma vez (por exemplo o `nodata` de 20
    `raster.read`).

@@ -603,6 +603,8 @@ pub struct Session {
     pub viewer_toggle: bool,
     /// The nodes to run up to, one after the other, to show their outputs (files dropped on the Viewer).
     pub show_queue: Vec<String>,
+    /// The nodes still to run up to, one run each, after the one going on (the selection's "Run to them").
+    pub run_queue: Vec<String>,
     /// The nodes of rasters dropped at once (two or more), a layer each, that the Layers offer to join as one
     /// stack (see `series_drop`).
     pub dropped_rasters: Vec<String>,
@@ -821,6 +823,7 @@ impl Session {
             viewer_out: false,
             viewer_toggle: false,
             show_queue: Vec::new(),
+            run_queue: Vec::new(),
             dropped_rasters: Vec::new(),
             task: None,
             stopping: None,
@@ -1157,6 +1160,27 @@ impl Session {
         self.start_with(target, repaint, false);
     }
 
+    /// Run up to several top-level nodes: the engine stops at one target, so those that no other of them needs (the
+    /// last ones) run one after the other, in the model's order; what they share comes from the cache. The first
+    /// starts now, the others from `auto_run` as each run ends (a failure drops them).
+    pub fn start_to_many(&mut self, targets: &[String], ctx: &egui::Context) {
+        let mut last: Vec<String> = targets
+            .iter()
+            .filter(|t| self.model.nodes.iter().any(|n| &n.id == *t))
+            .filter(|t| !targets.iter().any(|o| o != *t && self.needed(o).contains(*t)))
+            .cloned()
+            .collect();
+        last.sort_by_key(|t| self.model.nodes.iter().position(|n| &n.id == t));
+        last.dedup();
+        if last.is_empty() {
+            return;
+        }
+        let first = last.remove(0);
+        self.run_queue = last;
+        let c = ctx.clone();
+        self.start_to(Some(first), Box::new(move || c.request_repaint()));
+    }
+
     /// The top-level nodes a node needs to run, itself among them.
     fn needed(&self, target: &str) -> std::collections::BTreeSet<String> {
         let among = terraflux_graph::ids(&self.model.nodes);
@@ -1258,6 +1282,17 @@ impl Session {
             if self.can_run() {
                 let c = ctx.clone();
                 self.start(Box::new(move || c.request_repaint()));
+                return;
+            }
+        }
+        // the next node of "Run to them" (the last run failed: none)
+        if self.can_run_to() && !self.run_queue.is_empty() {
+            let next = self.run_queue.remove(0);
+            if self.error.is_some() || !self.failures.is_empty() {
+                self.run_queue.clear();
+            } else {
+                let c = ctx.clone();
+                self.start_to(Some(next), Box::new(move || c.request_repaint()));
                 return;
             }
         }

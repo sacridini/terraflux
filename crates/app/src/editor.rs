@@ -907,6 +907,19 @@ pub fn disconnect(m: &mut Model, path: &[String], node: &str, port: &str) -> Res
     Ok(())
 }
 
+/// Remove every connection into the nodes `ids` (what they read from other nodes, inputs of the model or a group's
+/// carried values; their literal values stay). How many were taken away.
+pub fn disconnect_all(m: &mut Model, path: &[String], ids: &[String]) -> Result<usize> {
+    let mut gone = 0;
+    for id in ids {
+        let n = node_mut(m, path, id)?;
+        let before = n.inputs.len();
+        n.inputs.retain(|_, s| !matches!(s, Source::Ref(_)));
+        gone += before - n.inputs.len();
+    }
+    Ok(gone)
+}
+
 /// A value from what was typed: JSON when it reads as JSON, else text.
 pub fn value_of(text: &str) -> serde_json::Value {
     serde_json::from_str(text.trim()).unwrap_or_else(|_| serde_json::Value::String(text.trim().to_string()))

@@ -1247,30 +1247,55 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
         arrange(s, r);
     }
     if delete {
-        let mut gone: Vec<String> = s.editor.chosen.iter().cloned().collect();
-        if gone.is_empty() {
-            gone.extend(s.selected.clone());
-        }
-        let path = s.editor.path.clone();
-        let mut removed = false;
-        for id in &gone {
-            match crate::editor::remove_box(&mut s.source, &path, id) {
-                Ok(()) => removed = true,
-                Err(e) => s.editor.message = Some(e),
-            }
-        }
-        if removed {
-            if s.selected.as_ref().is_some_and(|x| gone.contains(x)) {
-                s.selected = None;
-            }
-            if s.preview.as_ref().is_some_and(|(n, _)| gone.contains(n)) {
-                s.preview = None;
-            }
-            s.editor.chosen.clear();
-            s.edited();
-        }
+        delete_chosen(s);
     }
     show
+}
+
+/// Delete the nodes selected (those chosen, else the one in the inspector): one step of undo.
+fn delete_chosen(s: &mut Session) {
+    let mut gone: Vec<String> = s.editor.chosen.iter().cloned().collect();
+    if gone.is_empty() {
+        gone.extend(s.selected.clone());
+    }
+    let path = s.editor.path.clone();
+    let mut removed = false;
+    for id in &gone {
+        match crate::editor::remove_box(&mut s.source, &path, id) {
+            Ok(()) => removed = true,
+            Err(e) => s.editor.message = Some(e),
+        }
+    }
+    if removed {
+        if s.selected.as_ref().is_some_and(|x| gone.contains(x)) {
+            s.selected = None;
+        }
+        if s.preview.as_ref().is_some_and(|(n, _)| gone.contains(n)) {
+            s.preview = None;
+        }
+        s.editor.chosen.clear();
+        s.edited();
+    }
+}
+
+/// The nodes chosen of the scope shown, by id (the boxes of what the scope reads left out).
+fn chosen_ids(s: &Session) -> Vec<String> {
+    let Some(nodes) = s.source.scope(&s.editor.path) else { return Vec::new() };
+    nodes.iter().filter(|n| s.editor.chosen.contains(&n.id)).map(|n| n.id.clone()).collect()
+}
+
+/// Freeze (`on`) or thaw the nodes chosen that are not so yet: the first one refused (the model not saved) stops it.
+fn freeze_chosen(s: &mut Session, on: bool) -> Result<bool, String> {
+    let path = s.editor.path.clone();
+    let mut any = false;
+    for id in chosen_ids(s) {
+        let was = s.source.scope(&path).and_then(|v| v.iter().find(|n| n.id == id)).is_some_and(|n| n.frozen);
+        if was != on {
+            s.freeze(&path, &id, on)?;
+            any = true;
+        }
+    }
+    Ok(any)
 }
 
 /// The model as it was before its last edit (`redo`: the edit undone last made again); the nodes selected or shown
@@ -2407,6 +2432,9 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
         .into_iter()
         .filter_map(|b| b.strip_prefix(&prefix).filter(|id| !id.contains('/')).map(String::from))
         .collect();
+    // what the selection's menu cannot do now, and why
+    s.editor.no_freeze = s.path.is_none().then_some("save the model first: a frozen result is kept next to its file");
+    s.editor.no_run = if !s.can_run_to() { Some("a run is going on") } else { None };
     // escape on the canvas, nothing selected (escape lets the nodes selected go first): back up a level
     let nothing_chosen = s.editor.chosen.is_empty();
     let mut actions = crate::editor_view::show(
@@ -2567,6 +2595,32 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             // (each edits and tells its error itself)
             Action::Group => {
                 group_selected(s, r);
+                Ok(false)
+            }
+            // the selection's menu: each one step of undo
+            Action::DeleteChosen => {
+                delete_chosen(s);
+                Ok(false)
+            }
+            Action::DuplicateChosen => {
+                let nodes = chosen(s);
+                put(s, r, &nodes, None, true);
+                Ok(false)
+            }
+            Action::DisconnectChosen => {
+                let ids = chosen_ids(s);
+                crate::editor::disconnect_all(&mut s.source, &path, &ids).map(|k| k > 0)
+            }
+            Action::FreezeChosen(on) => freeze_chosen(s, on),
+            Action::BypassChosen => {
+                bypass_selected(s);
+                Ok(false)
+            }
+            Action::RunToChosen => {
+                let ids = chosen_ids(s);
+                if path.is_empty() && s.can_run_to() {
+                    s.start_to_many(&ids, ui.ctx());
+                }
                 Ok(false)
             }
             Action::Ungroup(id) => {
