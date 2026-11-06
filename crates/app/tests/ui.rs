@@ -6277,6 +6277,94 @@ fn a_layer_of_another_coordinate_system_is_drawn_reprojected() {
     assert!(same(&picture(&mut h), &drivers_alone) > 0.99, "hidden");
 }
 
+/// A layer of another coordinate system drawn as a mesh honours its blend mode in the live view: the land in
+/// geographic coordinates multiplied over the land in UTM is each colour times itself (the layer is the land's own
+/// picture, so the product is told), screened it is lighter, and the normal way it is the land again.
+#[test]
+fn a_reprojected_layer_is_blended_in_the_live_view() {
+    use terraflux_app::blend::Blend;
+    use terraflux_app::builder::Layer;
+    use terraflux_graph::Node;
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let d = tmp("reprojected_blend");
+    std::fs::create_dir_all(&d).unwrap();
+    let (land, geo) = (d.join("land.tif"), d.join("land_geo.tif"));
+    terraflux_gdal::translate(&data("sibuyan_landuse.tif"), &land, &["-a_srs".to_string(), "EPSG:32651".to_string()])
+        .unwrap();
+    terraflux_gdal::warp(&[&land], &geo, &["-t_srs".into(), "EPSG:4326".into(), "-r".into(), "near".into()]).unwrap();
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let read = |id: &str, p: &std::path::Path| {
+            Node::new(id, "raster.read").param("path", p.to_string_lossy().as_ref()).param("band", "0")
+        };
+        s.source.nodes = vec![read("land", &land), read("geo", &geo)];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && ["land", "geo"].iter().all(|n| s.value_of(n, "raster").is_some())
+    });
+    // the middle of the map shown (a lattice of screen points), as the GPU drew it
+    let picture = |h: &mut Harness<TerrafluxApp>| -> Vec<[u8; 4]> {
+        drawn(h);
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_millis(500) {
+            h.step();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        drawn(h);
+        let s = h.state().session.as_ref().unwrap();
+        let (rect, (zoom, centre)) = (s.preview_view.rect().expect("the map drawn"), s.preview_view.camera());
+        let (w, ht) = s.preview_view.shown_grid().map(|g| (g.width as f32, g.height as f32)).unwrap();
+        let img = h.render().expect("the window drawn by wgpu");
+        let mut out = Vec::new();
+        for i in 0..40 {
+            for j in 0..40 {
+                let cell = egui::Vec2::new(w * (0.2 + 0.6 * j as f32 / 39.0), ht * (0.2 + 0.6 * i as f32 / 39.0));
+                let at = rect.center() + (cell - centre) * zoom;
+                out.push(img.get_pixel(at.x as u32, at.y as u32).0);
+            }
+        }
+        out
+    };
+    show(&mut h, "land", "raster");
+    let alone = picture(&mut h);
+    let blended = |h: &mut Harness<TerrafluxApp>, blend: Blend| {
+        h.state_mut().session.as_mut().unwrap().preview_layers =
+            vec![Layer::new("land", "raster"), Layer { blend, ..Layer::new("geo", "raster") }];
+        picture(h)
+    };
+    // normal: the layer's own colours over the land's (the same warp as the blended ones, so they line up)
+    let top = blended(&mut h, Blend::Normal);
+    // the share of the lattice where the picture is `f` of the land's colour and the layer's, within 6 per channel
+    let share = |got: &[[u8; 4]], f: &dyn Fn(f32, f32) -> f32| {
+        let hit = |(p, (a, n)): (&[u8; 4], (&[u8; 4], &[u8; 4]))| {
+            (0..3).all(|k| {
+                let want = f(f32::from(a[k]) / 255.0, f32::from(n[k]) / 255.0) * 255.0;
+                (f32::from(p[k]) - want).abs() <= 6.0
+            })
+        };
+        // (the cells with no value, the grey of the panel behind the map, have nothing to blend: left out)
+        let cells = || got.iter().zip(alone.iter().zip(&top)).filter(|(_, (a, _))| a[..3] != [40, 40, 40]);
+        cells().filter(|(p, e)| hit((*p, (e.0, e.1)))).count() as f32 / cells().count().max(1) as f32
+    };
+    // (the layer covers the land: most of the lattice is the layer's colours, and these are not white or black)
+    assert!(share(&top, &|_, n| n) > 0.99, "normal is the layer's colours");
+    let multiplied = blended(&mut h, Blend::Multiply);
+    let got = share(&multiplied, &|a, n| a * n);
+    assert!(got > 0.9, "the product of the two is on the lattice: {got}");
+    assert!(share(&multiplied, &|_, n| n) < 0.5, "darker than the layer");
+    let lighter = blended(&mut h, Blend::Screen);
+    let got = share(&lighter, &|a, n| a + n - a * n);
+    assert!(got > 0.9, "the screen of the two is on the lattice: {got}");
+    assert!(share(&lighter, &|_, n| n) < 0.5, "lighter than the layer");
+}
+
 /// Two maps of two coordinate systems side by side: each in a view of its own grid, the views following each other
 /// through the transformation (the centre of one is the other's, carried) when one is zoomed.
 #[test]

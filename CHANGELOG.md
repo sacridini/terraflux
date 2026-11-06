@@ -81,6 +81,8 @@ minor versions.
   table (reopened, the table shows it again), and *Update the plot* keeps the selection of every layer of the Plot,
   not only of the table open; a Plot opened selects in all its layers. The MCP's `set_plot` takes `selected` per
   layer (the features' numbers from 1).
+- Viewer: a layer in another coordinate system (drawn reprojected, as a mesh) is **blended** in the live view too
+  (multiply, screen), as the export already did.
 - Viewer: **the same colours for all similar layers**. From a layer's menu, its palette and range go to every other
   layer of values (a map of classes: its colours to the maps of the same classes), the side-by-side views and the
   Plot saved with them; the hover tells how many layers change, greyed when there is none.

@@ -2499,8 +2499,11 @@ item, na ordem; release só quando pedido.
    (`Coloring::Shade`) logo acima da camada: o alfa comum dá `cor*(1-força+força*sombra)`. `PlotLayer.blend` e
    `PlotShade`; `animation::composed`, `plot_export` e o `set_plot` do MCP. Testes: os de `blend.rs` e `shade.rs` (sem
    emenda entre tiles, igual ao gdaldem no interior), `a_map_shaded_with_its_own_relief`,
-   `a_layer_blended_with_the_one_under_it`. Falta: camadas reprojetadas (a malha) desenhadas em normal na vista (o
-   export mistura); o blend no mapa mostrado; com opacidade abaixo de 1 o sombreado escurece também o que está
+   `a_layer_blended_with_the_one_under_it`. Falta: ~~camadas reprojetadas (a malha) desenhadas em normal na vista~~
+   (feito: `blend::MeshTile`, `vs_mesh`, pipelines de malha com o mesmo `blend_color`, `MapView::blend_mesh`; testes
+   `a_mesh_tile_keeps_the_meshs_points_and_places`, `a_reprojected_layer_is_blended_in_the_live_view` com 90% do
+   reticulado dentro de 6 por canal, as bordas de classe fora; os buffers da malha refeitos a cada quadro, não
+   medido numa janela de verdade); o blend no mapa mostrado; com opacidade abaixo de 1 o sombreado escurece também o que está
    embaixo; num alvo sRGB a GPU mistura em luz linear (o screen difere um pouco do export); a borda do mapa (o
    vizinho que falta conta como a própria célula, o gdaldem `-compute_edges` replica a borda); o blend e o sombreado
    no projeto do QGIS.

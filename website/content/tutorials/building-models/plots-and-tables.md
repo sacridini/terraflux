@@ -216,7 +216,8 @@ values. The Plot keeps the composite, and the figure, *Export the view* and `ter
 itself makes (Horn's hillshade, as `gdaldem hillshade`): the sun's azimuth (315°, from the north-west) and
 altitude (45°), the vertical exaggeration and how strong the shade is. On a grid in degrees the cells are measured in
 metres. A layer can also be **blended** with those under it: *multiply* darkens them by its colours (a hillshade
-layer multiplied over a land cover map gives its relief), *screen* lightens them. The Plot keeps both, and the
+layer multiplied over a land cover map gives its relief), *screen* lightens them, a layer in another coordinate
+system as well. The Plot keeps both, and the
 figure, *Export the view* and `terraflux plot` draw them.
 
 ### The style of vector features

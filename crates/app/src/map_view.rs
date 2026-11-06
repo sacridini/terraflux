@@ -649,9 +649,6 @@ fn blend_tile(
     tint: Color32,
     frame: u64,
 ) -> egui::Shape {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::hash::DefaultHasher::new();
-    key.hash(&mut h);
     // (the part seen of the tile's rectangle: its place on the texture)
     let at = |v: f32, lo: f32, size: f32, a: f32, b: f32| a + (b - a) * ((v - lo) / size);
     let (u0, u1) = (
@@ -663,7 +660,7 @@ fn blend_tile(
         at(seen.max.y, r.min.y, r.height(), uv.min.y, uv.max.y),
     );
     let tile = crate::blend::Tile {
-        id: h.finish(),
+        id: tile_texture_id(key),
         frame,
         values: values.clone(),
         coloring,
@@ -673,6 +670,33 @@ fn blend_tile(
         mode,
     };
     egui::Shape::from(eframe::egui_wgpu::Callback::new_paint_callback(seen, tile))
+}
+
+/// What tells a tile's texture in a colouring from the others on the GPU.
+fn tile_texture_id(key: (TileKey, u64)) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    key.hash(&mut h);
+    h.finish()
+}
+
+/// A tile of a layer of another coordinate system drawn in a blend mode by the GPU ([`crate::blend::MeshTile`]): the
+/// `mesh` of its place on the view `rect` (its texture is the quad's, see [`blend_tile`]), at the opacity of `tint`.
+fn blend_mesh(
+    mode: Blend,
+    coloring: Arc<Coloring>,
+    (values, key): (&Arc<Vec<f32>>, (TileKey, u64)),
+    (mesh, rect): (&egui::Mesh, Rect),
+    tint: Color32,
+    frame: u64,
+) -> egui::Shape {
+    let tile = crate::blend::MeshTile::new(
+        (tile_texture_id(key), frame, mode, f32::from(tint.a()) / 255.0),
+        (values.clone(), coloring, TILE),
+        rect,
+        mesh,
+    );
+    egui::Shape::from(eframe::egui_wgpu::Callback::new_paint_callback(rect, tile))
 }
 
 /// How a source's tiles are drawn: in a colouring, the tiles missing asked for; or only those kept in a colouring.
@@ -1197,10 +1221,10 @@ impl MapView {
             At::Place(place) => {
                 self.draw_source(ctx, out, rect, source, paint, tint, place, (show, blend), wanted, cover)
             }
-            // (a layer carried from another coordinate system is drawn as a mesh, mixed in the normal way)
+            // (a layer carried from another coordinate system is drawn as a mesh, in its blend mode)
             At::Warp => {
                 let Some(mut re) = self.reproj.remove(&source.key()) else { return true };
-                let done = self.draw_warped(ctx, out, rect, source, paint, tint, &mut re, show, wanted);
+                let done = self.draw_warped(ctx, out, rect, source, paint, tint, &mut re, (show, blend), wanted);
                 self.reproj.insert(source.key(), re);
                 done
             }
@@ -1219,7 +1243,7 @@ impl MapView {
         paint: Paint<'_>,
         tint: Color32,
         re: &mut crate::reproject::Reproj,
-        show: bool,
+        (show, blend): (bool, Blend),
         wanted: &mut Vec<(f32, Job)>,
     ) -> bool {
         let (w, h) = source.size();
@@ -1264,6 +1288,12 @@ impl MapView {
         let full = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
         let mut complete = true;
         let mut recolour = if coloring.is_some() { 8 } else { 0 };
+        // a layer in a blend mode is drawn by the GPU from the tiles' values, as the flat tiles are (without a
+        // colouring to make them in, the normal way)
+        let blended = match (blend, coloring) {
+            (Blend::Normal, _) | (_, None) => None,
+            (mode, Some(c)) => Some((mode, Arc::new(c.clone()))),
+        };
         // the top tiles over the layer's cells in view first: something to show at once
         let (tx0, ty0, tx1, ty1) = range(top);
         for ty in ty0..=(ty1.max(0) as usize) {
@@ -1307,7 +1337,18 @@ impl MapView {
                         t.used = clock;
                         if show {
                             let id = t.texture.as_ref().unwrap().1.id();
-                            out.push(crate::reproject::mesh(&vs, id, full, tint, re.half, screen).into());
+                            let mesh = |texture| crate::reproject::mesh(&vs, texture, full, tint, re.half, screen);
+                            out.push(match blended.as_ref() {
+                                Some((mode, c)) => blend_mesh(
+                                    *mode,
+                                    c.clone(),
+                                    (&t.values, (k, colouring)),
+                                    (&mesh(egui::TextureId::default()), rect),
+                                    tint,
+                                    clock,
+                                ),
+                                None => mesh(id).into(),
+                            });
                         }
                         true
                     }
@@ -1340,7 +1381,15 @@ impl MapView {
                         let (u, v) = ((tx - (ax << shift)) as f32 * f, (ty - (ay << shift)) as f32 * f);
                         let uv = Rect::from_min_size(Pos2::new(u, v), Vec2::splat(f));
                         if show {
-                            out.push(crate::reproject::mesh(&vs, tex.id(), uv, tint, re.half, screen).into());
+                            let mesh = |texture| crate::reproject::mesh(&vs, texture, uv, tint, re.half, screen);
+                            out.push(match blended.as_ref() {
+                                Some((mode, c)) => {
+                                    let key = ((src, up, ax, ay), colouring);
+                                    let m = mesh(egui::TextureId::default());
+                                    blend_mesh(*mode, c.clone(), (&t.values, key), (&m, rect), tint, clock)
+                                }
+                                None => mesh(tex.id()).into(),
+                            });
                         }
                         stretched = true;
                         break;

@@ -116,6 +116,68 @@ impl Tile {
     }
 }
 
+/// A tile of a layer of another coordinate system drawn in a blend mode by the GPU: the tile's mesh on the view
+/// ([`crate::reproject::mesh`]: each vertex a screen point and a place on the texture) instead of a quad. Its texture
+/// is the one of a [`Tile`] with the same `id`.
+pub struct MeshTile {
+    /// What tells its texture from the others (the tile in a colouring), and the frame it is drawn in.
+    pub id: u64,
+    pub frame: u64,
+    pub values: Arc<Vec<f32>>,
+    pub coloring: Arc<Coloring>,
+    pub side: usize,
+    pub opacity: f32,
+    pub mode: Blend,
+    /// The screen rectangle the callback is given (the vertices are points of the screen).
+    pub view: egui::Rect,
+    /// Screen x and y, then the texture's u and v, of each vertex.
+    pub vertices: Vec<[f32; 4]>,
+    pub indices: Vec<u32>,
+    /// What tells this mesh from the others in the frame.
+    slot: u64,
+}
+
+impl MeshTile {
+    pub fn new(
+        (id, frame, mode, opacity): (u64, u64, Blend, f32),
+        (values, coloring, side): (Arc<Vec<f32>>, Arc<Coloring>, usize),
+        view: egui::Rect,
+        mesh: &egui::Mesh,
+    ) -> Self {
+        use std::hash::{Hash, Hasher};
+        let vertices: Vec<[f32; 4]> = mesh.vertices.iter().map(|v| [v.pos.x, v.pos.y, v.uv.x, v.uv.y]).collect();
+        let mut h = std::hash::DefaultHasher::new();
+        (id, frame).hash(&mut h);
+        vertices.iter().flatten().for_each(|v| v.to_bits().hash(&mut h));
+        MeshTile {
+            id,
+            frame,
+            values,
+            coloring,
+            side,
+            opacity,
+            mode,
+            view,
+            vertices,
+            indices: mesh.indices.clone(),
+            slot: h.finish(),
+        }
+    }
+
+    /// What tells this draw's bind group from the others: the texture, the opacity, the mode and the rectangle.
+    fn draw_id(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::hash::DefaultHasher::new();
+        (self.id, "mesh").hash(&mut h);
+        self.opacity.to_bits().hash(&mut h);
+        self.mode.hash(&mut h);
+        [self.view.min.x, self.view.min.y, self.view.width(), self.view.height()]
+            .iter()
+            .for_each(|v| v.to_bits().hash(&mut h));
+        h.finish()
+    }
+}
+
 /// The uniforms of a draw.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -125,6 +187,8 @@ struct Uniforms {
     linear: u32,
     mode: u32,
     pad: u32,
+    /// A mesh's rectangle on the screen: x, y, width, height (nothing for a quad).
+    view: [f32; 4],
 }
 
 /// A draw made ready: its bind group (uniforms, texture, sampler).
@@ -134,15 +198,45 @@ struct Draw {
     frame: u64,
 }
 
+/// A mesh's buffers, made for the frame.
+struct MeshBuffers {
+    vertices: wgpu::Buffer,
+    indices: wgpu::Buffer,
+    count: u32,
+    frame: u64,
+}
+
 struct Resources {
     multiply: wgpu::RenderPipeline,
     screen: wgpu::RenderPipeline,
+    multiply_mesh: wgpu::RenderPipeline,
+    screen_mesh: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     linear: bool,
     textures: HashMap<u64, (wgpu::TextureView, u64)>,
     draws: HashMap<u64, Draw>,
+    meshes: HashMap<u64, MeshBuffers>,
 }
+
+/// The colour part of the GPU's blend state of a mode (the pipelines of the quads and of the meshes alike).
+fn blend_color(mode: Blend) -> wgpu::BlendComponent {
+    match mode {
+        Blend::Multiply => wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::Dst,
+            dst_factor: wgpu::BlendFactor::Zero,
+            operation: wgpu::BlendOperation::Add,
+        },
+        _ => wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::One,
+            dst_factor: wgpu::BlendFactor::OneMinusSrc,
+            operation: wgpu::BlendOperation::Add,
+        },
+    }
+}
+
+/// A mesh vertex: the screen point, then the place on the texture.
+const MESH_ATTRS: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2];
 
 /// The most textures and draws kept (those not drawn in the last frames are let go beyond them).
 const KEPT: usize = 600;
@@ -154,6 +248,7 @@ struct Uniforms {
     linear: u32,
     mode: u32,
     pad: u32,
+    view: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var tex: texture_2d<f32>;
@@ -171,6 +266,21 @@ fn vs(@builtin(vertex_index) v: u32) -> VsOut {
     var out: VsOut;
     out.pos = vec4<f32>(unit.x * 2.0 - 1.0, 1.0 - unit.y * 2.0, 0.0, 1.0);
     out.uv = mix(u.uv.xy, u.uv.zw, unit);
+    return out;
+}
+
+struct MeshIn {
+    @location(0) pos: vec2<f32>,
+    @location(1) uv: vec2<f32>,
+};
+
+// a mesh: the vertices are points of the screen, within the rectangle the callback is given
+@vertex
+fn vs_mesh(in: MeshIn) -> VsOut {
+    let unit = (in.pos - u.view.xy) / u.view.zw;
+    var out: VsOut;
+    out.pos = vec4<f32>(unit.x * 2.0 - 1.0, 1.0 - unit.y * 2.0, 0.0, 1.0);
+    out.uv = in.uv;
     return out;
 }
 
@@ -240,17 +350,31 @@ pub fn install(rs: &egui_wgpu::RenderState) {
         bind_group_layouts: &[Some(&layout)],
         immediate_size: 0,
     });
-    let pipeline = |label: &str, color: wgpu::BlendComponent| {
+    let mesh_buffer = Some(wgpu::VertexBufferLayout {
+        array_stride: 16,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &MESH_ATTRS,
+    });
+    // (a quad: no buffers, a strip; a mesh: its vertices, a list of triangles)
+    let pipeline = |label: &str, mode: Blend, mesh: bool| {
+        let color = blend_color(mode);
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(label),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &module,
-                entry_point: Some("vs"),
+                entry_point: Some(if mesh { "vs_mesh" } else { "vs" }),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[],
+                buffers: if mesh { std::slice::from_ref(&mesh_buffer) } else { &[] },
             },
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleStrip, ..Default::default() },
+            primitive: wgpu::PrimitiveState {
+                topology: if mesh {
+                    wgpu::PrimitiveTopology::TriangleList
+                } else {
+                    wgpu::PrimitiveTopology::TriangleStrip
+                },
+                ..Default::default()
+            },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             fragment: Some(wgpu::FragmentState {
@@ -275,32 +399,147 @@ pub fn install(rs: &egui_wgpu::RenderState) {
             cache: None,
         })
     };
-    let multiply = pipeline(
-        "terraflux multiply",
-        wgpu::BlendComponent {
-            src_factor: wgpu::BlendFactor::Dst,
-            dst_factor: wgpu::BlendFactor::Zero,
-            operation: wgpu::BlendOperation::Add,
-        },
-    );
-    let screen = pipeline(
-        "terraflux screen",
-        wgpu::BlendComponent {
-            src_factor: wgpu::BlendFactor::One,
-            dst_factor: wgpu::BlendFactor::OneMinusSrc,
-            operation: wgpu::BlendOperation::Add,
-        },
-    );
+    let multiply = pipeline("terraflux multiply", Blend::Multiply, false);
+    let screen = pipeline("terraflux screen", Blend::Screen, false);
+    let multiply_mesh = pipeline("terraflux multiply mesh", Blend::Multiply, true);
+    let screen_mesh = pipeline("terraflux screen mesh", Blend::Screen, true);
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
     rs.renderer.write().callback_resources.insert(Resources {
         multiply,
         screen,
+        multiply_mesh,
+        screen_mesh,
         layout,
         sampler,
         linear: rs.target_format.is_srgb(),
         textures: HashMap::new(),
         draws: HashMap::new(),
+        meshes: HashMap::new(),
     });
+}
+
+/// The texture of a tile in its colouring (made once, kept while drawn).
+fn tile_view(
+    r: &mut Resources,
+    (device, queue): (&wgpu::Device, &wgpu::Queue),
+    (id, frame): (u64, u64),
+    (values, coloring, side): (&[f32], &Coloring, usize),
+) -> wgpu::TextureView {
+    use wgpu::util::DeviceExt;
+    // (what was not drawn in the last frames goes when there are many)
+    if r.textures.len() > KEPT || r.draws.len() > KEPT * 4 {
+        r.textures.retain(|_, (_, f)| *f + 2 >= frame);
+        r.draws.retain(|_, d| d.frame + 2 >= frame);
+    }
+    // (a mesh's buffers are of its frame only)
+    r.meshes.retain(|_, m| m.frame + 1 >= frame);
+    let (view, seen) = r.textures.entry(id).or_insert_with(|| {
+        let img = image_f32(values, side, side, coloring);
+        let bytes: Vec<u8> = img.pixels.iter().flat_map(|p| p.to_array()).collect();
+        let texture = device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("terraflux blend tile"),
+                size: wgpu::Extent3d { width: side as u32, height: side as u32, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            &bytes,
+        );
+        (texture.create_view(&wgpu::TextureViewDescriptor::default()), frame)
+    });
+    *seen = frame;
+    view.clone()
+}
+
+/// A draw's bind group (uniforms, texture, sampler), made once per draw.
+fn draw_of<'a>(
+    r: &'a mut Resources,
+    device: &wgpu::Device,
+    (id, mode, frame): (u64, Blend, u64),
+    view: &wgpu::TextureView,
+    u: &Uniforms,
+) -> &'a mut Draw {
+    use wgpu::util::DeviceExt;
+    let (layout, sampler) = (&r.layout, &r.sampler);
+    let draw = r.draws.entry(id).or_insert_with(|| {
+        let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("terraflux blend uniforms"),
+            contents: bytemuck::bytes_of(u),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("terraflux blend"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: uniforms.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(view) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(sampler) },
+            ],
+        });
+        Draw { bind_group, mode, frame }
+    });
+    draw.frame = frame;
+    draw
+}
+
+impl CallbackTrait for MeshTile {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        _screen: &egui_wgpu::ScreenDescriptor,
+        _encoder: &mut wgpu::CommandEncoder,
+        resources: &mut CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        use wgpu::util::DeviceExt;
+        let Some(r) = resources.get_mut::<Resources>() else { return Vec::new() };
+        let view = tile_view(r, (device, queue), (self.id, self.frame), (&self.values, &self.coloring, self.side));
+        let u = Uniforms {
+            uv: [0.0; 4],
+            opacity: self.opacity,
+            linear: u32::from(r.linear),
+            mode: if self.mode == Blend::Multiply { 1 } else { 2 },
+            pad: 0,
+            view: [self.view.min.x, self.view.min.y, self.view.width().max(1.0), self.view.height().max(1.0)],
+        };
+        draw_of(r, device, (self.draw_id(), self.mode, self.frame), &view, &u);
+        if !self.indices.is_empty() {
+            let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("terraflux blend mesh"),
+                contents: bytemuck::cast_slice(&self.vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+            let indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("terraflux blend mesh"),
+                contents: bytemuck::cast_slice(&self.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+            let count = self.indices.len() as u32;
+            r.meshes.insert(self.slot, MeshBuffers { vertices, indices, count, frame: self.frame });
+        }
+        Vec::new()
+    }
+
+    fn paint(
+        &self,
+        _info: egui::PaintCallbackInfo,
+        pass: &mut wgpu::RenderPass<'static>,
+        resources: &CallbackResources,
+    ) {
+        let Some(r) = resources.get::<Resources>() else { return };
+        let (Some(d), Some(m)) = (r.draws.get(&self.draw_id()), r.meshes.get(&self.slot)) else { return };
+        pass.set_pipeline(if d.mode == Blend::Multiply { &r.multiply_mesh } else { &r.screen_mesh });
+        pass.set_bind_group(0, &d.bind_group, &[]);
+        pass.set_vertex_buffer(0, m.vertices.slice(..));
+        pass.set_index_buffer(m.indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(0..m.count, 0, 0..1);
+    }
 }
 
 impl CallbackTrait for Tile {
@@ -312,64 +551,17 @@ impl CallbackTrait for Tile {
         _encoder: &mut wgpu::CommandEncoder,
         resources: &mut CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        use wgpu::util::DeviceExt;
         let Some(r) = resources.get_mut::<Resources>() else { return Vec::new() };
-        // (what was not drawn in the last frames goes when there are many)
-        if r.textures.len() > KEPT || r.draws.len() > KEPT * 4 {
-            r.textures.retain(|_, (_, f)| *f + 2 >= self.frame);
-            r.draws.retain(|_, d| d.frame + 2 >= self.frame);
-        }
-        let side = self.side as u32;
-        let (view, seen) = r.textures.entry(self.id).or_insert_with(|| {
-            let img = image_f32(&self.values, self.side, self.side, &self.coloring);
-            let bytes: Vec<u8> = img.pixels.iter().flat_map(|p| p.to_array()).collect();
-            let texture = device.create_texture_with_data(
-                queue,
-                &wgpu::TextureDescriptor {
-                    label: Some("terraflux blend tile"),
-                    size: wgpu::Extent3d { width: side, height: side, depth_or_array_layers: 1 },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                    view_formats: &[],
-                },
-                wgpu::util::TextureDataOrder::LayerMajor,
-                &bytes,
-            );
-            (texture.create_view(&wgpu::TextureViewDescriptor::default()), self.frame)
-        });
-        *seen = self.frame;
-        let view = view.clone();
-        let id = self.draw_id();
-        let linear = r.linear;
-        let (layout, sampler) = (&r.layout, &r.sampler);
-        let draw = r.draws.entry(id).or_insert_with(|| {
-            let u = Uniforms {
-                uv: self.uv,
-                opacity: self.opacity,
-                linear: u32::from(linear),
-                mode: if self.mode == Blend::Multiply { 1 } else { 2 },
-                pad: 0,
-            };
-            let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("terraflux blend uniforms"),
-                contents: bytemuck::bytes_of(&u),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("terraflux blend"),
-                layout,
-                entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: uniforms.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&view) },
-                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(sampler) },
-                ],
-            });
-            Draw { bind_group, mode: self.mode, frame: self.frame }
-        });
-        draw.frame = self.frame;
+        let view = tile_view(r, (device, queue), (self.id, self.frame), (&self.values, &self.coloring, self.side));
+        let u = Uniforms {
+            uv: self.uv,
+            opacity: self.opacity,
+            linear: u32::from(r.linear),
+            mode: if self.mode == Blend::Multiply { 1 } else { 2 },
+            pad: 0,
+            view: [0.0; 4],
+        };
+        draw_of(r, device, (self.draw_id(), self.mode, self.frame), &view, &u);
         Vec::new()
     }
 
@@ -393,6 +585,34 @@ mod tests {
 
     fn px(r: u8, g: u8, b: u8, a: u8) -> Color32 {
         Color32::from_rgba_premultiplied(r, g, b, a)
+    }
+
+    #[test]
+    fn a_mesh_tile_keeps_the_meshs_points_and_places() {
+        let mut m = egui::Mesh::default();
+        for (x, y) in [(0.0, 0.0), (8.0, 0.0), (0.0, 8.0)] {
+            m.vertices.push(egui::epaint::Vertex {
+                pos: egui::pos2(x, y),
+                uv: egui::pos2(x / 8.0, y / 8.0),
+                color: Color32::WHITE,
+            });
+        }
+        m.indices.extend([0, 1, 2]);
+        let view = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(100.0, 50.0));
+        let (values, coloring) = (Arc::new(vec![0.0; 4]), Arc::new(Coloring::Packed));
+        let make = |frame: u64, mode: Blend| {
+            MeshTile::new((7, frame, mode, 1.0), (values.clone(), coloring.clone(), 2), view, &m)
+        };
+        let t = make(1, Blend::Multiply);
+        assert_eq!(t.vertices, vec![[0.0, 0.0, 0.0, 0.0], [8.0, 0.0, 1.0, 0.0], [0.0, 8.0, 0.0, 1.0]]);
+        assert_eq!(t.indices, vec![0, 1, 2]);
+        // (a mode, a frame, or other vertices: another draw or slot)
+        assert_ne!(t.draw_id(), make(1, Blend::Screen).draw_id());
+        assert_ne!(t.slot, make(2, Blend::Multiply).slot);
+        assert_eq!(t.slot, make(1, Blend::Screen).slot);
+        // the quads' and the meshes' pipelines blend the same way
+        assert_eq!(blend_color(Blend::Multiply).src_factor, wgpu::BlendFactor::Dst);
+        assert_eq!(blend_color(Blend::Screen).dst_factor, wgpu::BlendFactor::OneMinusSrc);
     }
 
     #[test]
