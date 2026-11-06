@@ -248,6 +248,10 @@ pub enum Action {
     },
     /// A node run on every raster of a folder (chosen in a dialog): its menu's "Run on a folder...".
     RunOnFolder(String),
+    /// The file a read node reads asked for in a dialog (its menu's "Change file..."): [`Action::SetFile`] then.
+    ChangeFile(String),
+    /// A read node made to read another file; its links and other settings stay.
+    SetFile(String, std::path::PathBuf),
     /// An input of the model made a node (a `raster.read` of its file).
     InputToNode(String),
     /// A `raster.read` made an input of the model.
@@ -454,6 +458,8 @@ pub struct EditorState {
     /// A camera move on its way (a fit, a node centred): the camera it left, when it began (egui's time), how long
     /// it lasts and the scope it is of. The camera kept is the one it ends at; only the drawing glides.
     glide: Option<(Camera, f64, f32, Vec<String>)>,
+    /// The camera the last frame was drawn from (a glide or a transition on its way included).
+    drawn: Option<Camera>,
     scene: Option<Scene>,
     generation: u64,
     /// Where the canvas was drawn last.
@@ -582,6 +588,19 @@ impl EditorState {
         Some(((p - rect.min - cam.pan) / cam.zoom).to_pos2())
     }
 
+    /// The node of the scope shown under a point of the screen, as it was last drawn (the camera on its way
+    /// included): its id and operator. None for the background and for what the scope reads.
+    pub fn node_at(&self, p: Pos2) -> Option<(String, String)> {
+        let rect = self.rect.filter(|r| r.contains(p))?;
+        let cam = self.drawn.or_else(|| self.cameras.get(&self.path).copied())?;
+        let w = ((p - rect.min - cam.pan) / cam.zoom).to_pos2();
+        let scene = self.scene.as_ref()?;
+        let b = scene.boxes.get(match scene.hit(w, 0.0)? {
+            Hit::Output(i, _) | Hit::Input(i, _) | Hit::Edge(i) | Hit::Head(i) | Hit::Fold(i) | Hit::Body(i) => i,
+        })?;
+        (!b.source).then(|| (b.key.clone(), b.op.clone()))
+    }
+
     /// Centre the camera on a node of the scope shown at the next frame (the scene of a scope just entered is not
     /// built yet).
     pub fn centre_on(&mut self, node: &str) {
@@ -616,6 +635,16 @@ impl EditorState {
         let s = self.scene.as_ref()?;
         let b = &s.boxes[*s.index.get(node)?];
         self.on_screen(b.head().center())
+    }
+
+    /// Where a node's box is on the screen now: from the camera drawn (a glide on its way included), as
+    /// [`EditorState::node_at`] finds nodes.
+    pub fn drawn_rect_of(&self, node: &str) -> Option<Rect> {
+        let (s, rect) = (self.scene.as_ref()?, self.rect?);
+        let cam = self.drawn.or_else(|| self.cameras.get(&self.path).copied())?;
+        let b = s.boxes[*s.index.get(node)?].rect;
+        let at = |p: Pos2| rect.min + cam.pan + p.to_vec2() * cam.zoom;
+        Some(Rect::from_min_max(at(b.min), at(b.max)))
     }
 
     /// Where a node's box is on the screen (as last drawn).
@@ -1709,6 +1738,8 @@ fn stages_and_notes(
 const DELETE_MANY_HELP: &str = "the nodes selected taken away, with the connections into and out of them";
 const DUPLICATE_MANY_HELP: &str = "a copy of each node, a step down and to the right, reading what the originals \
      read (the links among the copied nodes go to the copies), the same as ctrl+D; the copies selected";
+const CHANGE_FILE_HELP: &str = "the file this node reads, chosen in a dialog; its connections and settings stay \
+     (a file let go on the node does the same)";
 const DISCONNECT_MANY_HELP: &str = "every connection into the nodes selected taken off (what they read from the \
      others selected too); the values typed in stay";
 const RUN_MANY_HELP: &str = "the model run up to the nodes selected: what they need, nothing else (one run each of \
@@ -2270,6 +2301,9 @@ pub fn show(
             }
             item(ui, &format!("Duplicate    {c}D"), DUPLICATE_MANY_HELP, Action::DuplicateNodes(vec![key.clone()]));
             item(ui, "Run on a folder...", crate::node_view::FOLDER_HELP, Action::RunOnFolder(key.clone()));
+            if crate::builder::reads_file(&op) {
+                item(ui, "Change file...", CHANGE_FILE_HELP, Action::ChangeFile(key.clone()));
+            }
             if op == "raster.read" && st.path.is_empty() {
                 item(ui, "Make it an input of the model", MAKE_INPUT_HELP, Action::NodeToInput(key.clone()));
             }
@@ -2321,6 +2355,8 @@ pub fn show(
             ui.ctx().request_repaint();
         }
     }
+    // (what is on the screen: a point is found in the nodes drawn, not where a glide is going to)
+    st.drawn = Some(cam);
     // the nodes dragged move in the scene at once (the model's places follow through the actions)
     if !moved.is_empty() {
         st.generation = next_generation();

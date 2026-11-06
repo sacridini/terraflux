@@ -2349,6 +2349,14 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     um sobre o outro.
 11. **Trocar o arquivo de um `raster.read`** pelo menu ou soltando um arquivo em cima do nó, mantendo os fios (hoje
     se apaga e refaz).
+    **Feito** (Unreleased, por um sub-agente): `Action::ChangeFile`/`SetFile`, *Change file...* no menu dos
+    `raster.read`/`vector.read`/`table.read`; `builder::change_file` (pelo `set_param_many`, um passo de desfazer),
+    `read_op_of`/`fits_read` (a detecção do `add_file`), `file_dialog_for`; `EditorState::node_at` e
+    `drawn_rect_of` (pela câmera desenhada, `EditorState::drawn`); em `app.rs::take_dropped` o nó acende e o
+    arquivo solto troca o dele. Testes: `a_read_nodes_file_is_changed_keeping_its_links`,
+    `a_file_dropped_on_a_read_node_replaces_its_file`. Falta: o id seguindo o arquivo (o item 15); uma asserção
+    sobre o brilho do hover; o caminho guardado pelo `value_of` (um nome sem extensão que pareça número seria lido
+    como número).
 12. **Buscar um nó do modelo** (ctrl+F no canvas): pelo id, operador ou arquivo, a câmera vai até ele (dentro de
     grupos também, abrindo o grupo).
     **Feito** (Unreleased, por um sub-agente): `find.rs` (`walk` em toda profundidade, `hits` pelo id, operador,

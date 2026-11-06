@@ -1459,3 +1459,87 @@ fn a_duplicate_reads_what_the_original_read() {
         assert_eq!(find(&v, "c_2").inputs["map"], Source::Ref("b_2.map".into()));
     }
 }
+
+/// The file a node reads, as the model says it.
+fn path_of(h: &Harness<TerrafluxApp>, inside: bool, id: &str) -> String {
+    nodes_now(h, inside).iter().find(|n| n.id == id).unwrap().params["path"].as_str().unwrap().to_string()
+}
+
+/// A read node's file changed (the menu's "Change file..." applies it through `change_file`; the dialog itself is the
+/// system's): the id, the links and the other settings stay, one step of undo; the entry is in the menu of the
+/// nodes that read a file only. At the top level and in a group.
+#[test]
+fn a_read_nodes_file_is_changed_keeping_its_links() {
+    use egui_kittest::kittest::Queryable;
+    use terraflux_graph::Source;
+    let other = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs/sibuyan_drivers.tif");
+    for inside in [false, true] {
+        let mut h = scoped_model(inside, "canvas-change-file.toml");
+        let old = path_of(&h, inside, "a");
+        // the menu: an entry on the reader, none on the node that calculates
+        for (on, entry) in [("a", true), ("b", false)] {
+            // (a node selected: escape closes the menu, it does not leave the group)
+            menu_of(&mut h, &["z"], on);
+            assert_eq!(h.query_by_label_contains("Change file...").is_some(), entry, "{on}");
+            h.key_press(egui::Key::Escape);
+            h.run_steps(2);
+        }
+        let r = h.state().registry.clone();
+        let s = h.state_mut().session.as_mut().unwrap();
+        let revision = s.revision;
+        terraflux_app::builder::change_file(s, &r, "a", &other);
+        h.run_steps(2);
+        assert_ne!(h.state().session.as_ref().unwrap().revision, revision, "seen as an edit");
+        assert_eq!(path_of(&h, inside, "a"), other.to_string_lossy());
+        let v = nodes_now(&h, inside);
+        assert_eq!(v.len(), 4, "inside {inside}");
+        assert_eq!(v.iter().find(|n| n.id == "b").unwrap().inputs["map"], Source::Ref("a.raster".into()));
+        assert_eq!(v.iter().find(|n| n.id == "a").unwrap().pos, Some([0.0, 0.0]));
+        undo(&mut h);
+        assert_eq!(path_of(&h, inside, "a"), old, "one step of undo");
+    }
+}
+
+/// A single file let go on a read node of its kind replaces that node's file (connections kept), the node lit while
+/// the file hovers; a file of another kind, or several, add nodes as before. At the top level and in a group.
+#[test]
+fn a_file_dropped_on_a_read_node_replaces_its_file() {
+    use terraflux_graph::Source;
+    let other = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs/sibuyan_drivers.tif");
+    let geojson = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-change-points.geojson");
+    std::fs::write(&geojson, r#"{"type":"FeatureCollection","features":[]}"#).unwrap();
+    for inside in [false, true] {
+        let mut h = scoped_model(inside, "canvas-drop-on-node.toml");
+        let old = path_of(&h, inside, "a");
+        // the hit test: the node under a point, none on the background
+        let at = editor(&h).screen_of("a").unwrap();
+        assert_eq!(editor(&h).node_at(at), Some(("a".to_string(), "raster.read".to_string())));
+        assert_eq!(editor(&h).node_at(editor(&h).screen_of("b").unwrap()).unwrap().0, "b");
+        let canvas = editor(&h).canvas().unwrap();
+        assert_eq!(editor(&h).node_at(canvas.left_bottom() + egui::vec2(5.0, -5.0)), None);
+        // a file of another kind over the raster: a node more, the file of `a` as it was
+        h.hover_at(at);
+        h.run_steps(2);
+        h.input_mut().dropped_files.push(std::sync::Arc::new(Dropped(geojson.clone())));
+        h.run_steps(3);
+        let v = nodes_now(&h, inside);
+        assert_eq!(v.len(), 5, "inside {inside}: {v:?}");
+        assert!(v.iter().any(|n| n.op == "vector.read"), "inside {inside}: {v:?}");
+        assert_eq!(path_of(&h, inside, "a"), old);
+        let after_wrong = nodes_now(&h, inside).len();
+        // a raster over the raster, the file hovering first: the node lit, then its file replaced
+        h.hover_at(at);
+        h.run_steps(2);
+        h.input_mut().hovered_files.push(egui::HoveredFile { path: Some(other.clone()), mime: String::new() });
+        h.run_steps(2);
+        h.input_mut().hovered_files.clear();
+        h.input_mut().dropped_files.push(std::sync::Arc::new(Dropped(other.clone())));
+        h.run_steps(3);
+        let v = nodes_now(&h, inside);
+        assert_eq!(v.len(), after_wrong, "no node added, inside {inside}");
+        assert_eq!(path_of(&h, inside, "a"), other.to_string_lossy());
+        assert_eq!(v.iter().find(|n| n.id == "b").unwrap().inputs["map"], Source::Ref("a.raster".into()));
+        undo(&mut h);
+        assert_eq!(path_of(&h, inside, "a"), old, "one step of undo");
+    }
+}

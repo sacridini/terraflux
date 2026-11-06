@@ -207,7 +207,9 @@ Press ++f5++ to run the whole model. Then save it: **Save as...**, `core-forest.
     right click on them (or on the empty canvas) gives the selection's menu: delete, duplicate, disconnect their
     inputs, group, run to them, freeze, bypass. **Ctrl+drag** copies a node (or the selection) to where it is let
     go, the originals staying put (Esc cancels); like **ctrl+D**, the copies read what the originals read, a
-    quick start for a parallel branch of the analysis.
+    quick start for a parallel branch of the analysis. To read another file in a `raster.read` (or a vector or
+    table read), use *Change file...* in its menu, or drop the file from the file manager onto the node: the node
+    lights up, and its connections and settings stay.
 
 ## Read the results
 

@@ -36,6 +36,10 @@ minor versions.
   pointer while the originals stay, and on release the copies are made there, selected, in one step of undo, reading
   what the originals read and linked among themselves as they were (inside groups too). Esc cancels; ctrl+click
   still adds to or takes from the selection. A node's own menu gains *Duplicate* (ctrl+D), saying so.
+- Canvas: **the file of a read node changed in place**. *Change file...* in the menu of a `raster.read`,
+  `vector.read` or `table.read`, or a file of that kind dropped from the file manager onto the node (it lights up:
+  "Drop: the file of a (its connections kept)"), sets its `path` keeping its id, connections and other settings,
+  in one step of undo, inside groups too. A file of another kind, or several, is added as before.
 
 ## [1.41.0] - 2026-11-06
 

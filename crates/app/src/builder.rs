@@ -1789,14 +1789,57 @@ pub fn add_file(s: &mut Session, r: &Registry, p: &Path, at: Option<[f32; 2]>) -
         }
         return add_at(s, r, "raster.read", &[("path", p.to_string_lossy().into_owned().into())], at);
     }
-    let op = if is_table(p) {
+    add_at(s, r, read_op_of(p), &[("path", p.to_string_lossy().into_owned().into())], at)
+}
+
+/// Whether an operator reads a file of a kind that can be changed (a node's menu offers "Change file...").
+pub fn reads_file(op: &str) -> bool {
+    matches!(op, "raster.read" | "vector.read" | "table.read")
+}
+
+/// The operator that reads a file, by its kind (as [`add_file`] chooses it).
+fn read_op_of(p: &Path) -> &'static str {
+    if is_table(p) {
         "table.read"
     } else if is_vector(p) {
         "vector.read"
     } else {
         "raster.read"
-    };
-    add_at(s, r, op, &[("path", p.to_string_lossy().into_owned().into())], at)
+    }
+}
+
+/// Whether a single file let go on a node would change the file that node reads: a data file (not a folder, not a
+/// model) of the kind its operator reads.
+pub fn fits_read(op: &str, p: &Path) -> bool {
+    reads_file(op)
+        && p.is_file()
+        && !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("toml"))
+        && read_op_of(p) == op
+}
+
+/// The dialog that picks the file of a read operator, with the filters of its kind.
+fn file_dialog_for(op: &str) -> rfd::FileDialog {
+    let d = rfd::FileDialog::new().set_title("The file to read");
+    match op {
+        "vector.read" => d.add_filter("Vectors", &VECTOR_EXTENSIONS),
+        "table.read" => d.add_filter("Tables", &["csv", "tsv", "txt", "json"]),
+        _ => d.add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS),
+    }
+    .add_filter("Every file", &["*"])
+}
+
+/// A read node made to read another file, as a setting changed (one step of undo): its id, links and other
+/// settings stay, and its result is read again at the next run. The path is kept as [`add_file`] keeps it.
+pub fn change_file(s: &mut Session, r: &Registry, id: &str, p: &Path) {
+    let path = s.editor.path.clone();
+    let text = p.to_string_lossy().into_owned();
+    match crate::editor::set_param_many(&mut s.source, r, &path, &[id.to_string()], "path", &text) {
+        Ok(()) => {
+            s.editor.message = None;
+            s.edited();
+        }
+        Err(e) => s.editor.message = Some(e),
+    }
 }
 
 /// The files of vector features in a folder, in the order of their names (not `.json`: often of something else).
@@ -2588,6 +2631,19 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                     .map(|_| true),
                 None => Ok(false),
             },
+            Action::ChangeFile(node) => {
+                if let Some(op) =
+                    s.source.scope(&path).and_then(|v| v.iter().find(|n| n.id == node)).map(|n| n.op.clone())
+                    && let Some(p) = file_dialog_for(&op).pick_file()
+                {
+                    change_file(s, r, &node, &p);
+                }
+                Ok(false)
+            }
+            Action::SetFile(node, p) => {
+                change_file(s, r, &node, &p);
+                Ok(false)
+            }
             Action::InputToNode(name) => crate::editor::input_to_node(&mut s.source, r, &name).map(|id| {
                 s.selected = Some(id.clone());
                 s.editor.chosen = [id].into();

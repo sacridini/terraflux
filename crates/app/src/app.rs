@@ -3595,32 +3595,63 @@ impl TerrafluxApp {
         // (the rectangle is in the window the Viewer is drawn in: not the pointer of another one)
         let here = self.viewer_viewport.is_none_or(|v| v == ui.ctx().viewport_id());
         let on_viewer = here && over_viewer(self.viewer_rect, pointer);
+        // one data file over a node that reads that kind of file: it replaces that node's file (what the system
+        // tells of a file hovering is its path, when it tells)
+        let single = match (dropped.as_slice(), over) {
+            ([one], _) => Some(one.clone()),
+            ([], 1) => ui.input(|i| i.raw.hovered_files.first().and_then(|f| f.path.clone())),
+            _ => None,
+        };
+        let target = single.filter(|_| here && !on_viewer).and_then(|f| {
+            let s = self.session.as_ref().filter(|s| !s.editor.text)?;
+            let (id, op) = s.editor.node_at(pointer?)?;
+            crate::builder::fits_read(&op, &f).then_some(id)
+        });
         if over > 0 {
             // (drawn again and again while they are over the window: it is told of no move of the pointer then)
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
-            let screen = ui.ctx().content_rect();
-            let area = if on_viewer { self.viewer_rect.unwrap_or(screen) } else { screen };
             let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("files over")));
-            p.rect_filled(area, 0.0, Color32::from_black_alpha(110));
-            p.rect_stroke(area.shrink(6.0), 8.0, (2.0, theme::accent()), egui::StrokeKind::Inside);
-            let text = match (on_viewer, over) {
-                (false, 1) => "a node that reads it".to_string(),
-                (false, n) => format!("{n} nodes that read them, layers of the Viewer"),
-                (true, 1) => "a layer of the Viewer (a node that reads it)".to_string(),
-                (true, n) => format!("{n} layers of the Viewer (nodes that read them)"),
-            };
-            p.text(
-                area.center(),
-                egui::Align2::CENTER_CENTER,
-                format!("Drop: {text}"),
-                egui::FontId::proportional(20.0),
-                Color32::WHITE,
-            );
+            let node = target.as_ref().and_then(|id| Some((id, self.session.as_ref()?.editor.drawn_rect_of(id)?)));
+            if let Some((id, r)) = node {
+                // (the node alone lit, not the window)
+                p.rect_filled(r, 4.0, theme::accent().gamma_multiply(0.25));
+                p.rect_stroke(r, 4.0, (2.5, theme::accent()), egui::StrokeKind::Outside);
+                let text = format!("Drop: the file of {id} (its connections kept)");
+                let galley = p.layout_no_wrap(text, egui::FontId::proportional(16.0), Color32::WHITE);
+                let at = r.center_top() - egui::vec2(galley.size().x / 2.0, galley.size().y + 12.0);
+                let back = egui::Rect::from_min_size(at, galley.size()).expand(4.0);
+                p.rect_filled(back, 4.0, Color32::from_black_alpha(200));
+                p.galley(at, galley, Color32::WHITE);
+            } else {
+                let screen = ui.ctx().content_rect();
+                let area = if on_viewer { self.viewer_rect.unwrap_or(screen) } else { screen };
+                p.rect_filled(area, 0.0, Color32::from_black_alpha(110));
+                p.rect_stroke(area.shrink(6.0), 8.0, (2.0, theme::accent()), egui::StrokeKind::Inside);
+                let text = match (on_viewer, over) {
+                    (false, 1) => "a node that reads it".to_string(),
+                    (false, n) => format!("{n} nodes that read them, layers of the Viewer"),
+                    (true, 1) => "a layer of the Viewer (a node that reads it)".to_string(),
+                    (true, n) => format!("{n} layers of the Viewer (nodes that read them)"),
+                };
+                p.text(
+                    area.center(),
+                    egui::Align2::CENTER_CENTER,
+                    format!("Drop: {text}"),
+                    egui::FontId::proportional(20.0),
+                    Color32::WHITE,
+                );
+            }
         }
         if dropped.is_empty() {
             return;
         }
         let Some(s) = &mut self.session else { return };
+        // a file on a node that reads that kind: the node's file changed, nothing added
+        if let (Some(id), [file]) = (&target, dropped.as_slice()) {
+            crate::builder::change_file(s, &self.registry, id, file);
+            ui.ctx().request_repaint();
+            return;
+        }
         // (several data files, wherever they go: all of them layers of the Viewer, not only the last one shown)
         let data = dropped.iter().filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("toml"))).count();
         let model = if on_viewer {
