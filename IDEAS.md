@@ -2835,3 +2835,108 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
     à aba, os estados dos painéis por aba, uma execução atrás até o fim, o `open_in_app`, fechar pelo ×; a imagem
     `ui-tabs.png`) e os do item 1 refeitos (fechar a aba é que pergunta). Mudou do plano: fechar a aba é
     ctrl+shift+W, porque o ctrl+W já fecha o painel da frente.
+
+## A aplicação: execuções, versões, disco, atalhos e lugares
+
+Pedido de 2026-11-06: "existe outras adições e modificações que poderíamos fazer para melhorar ainda mais a qualidade
+de vida do usuário?", e das ideias dadas, "gostei de todas [...] pode adicionar ao IDEAS.md" (as de número 1 a 4, 7 e
+8 da conversa; a página inicial e a pasta vigiada ficaram de fora). Conferido antes (grep em `crates/app/src`,
+`crates/exec`, `crates/ops`): nada guarda as execuções passadas (o `Session::timings` guarda só os tempos dos nós);
+não há execução de conferência numa parte do mapa nem em resolução menor (o `raster.read` não tem janela nem
+extensão); as versões de um modelo só existem pelo git (o `review.rs` compara com o arquivo, outro arquivo ou o
+último commit); nada mede o espaço livre do disco nem estima o tamanho das saídas; os atalhos estão fixos no código
+(86 `consume_key` em `crates/app/src`, listados no F1); não há lugares marcados no Viewer nem no canvas.
+
+1. **O diário das execuções (painel Runs).** Cada execução pedida (não as quietas) fica registrada ao lado do modelo:
+   quando começou, quanto levou, como terminou (fim, parada, erro), o cenário e os valores dos parâmetros, uma marca
+   da versão do modelo (o hash do modelo expandido, e o próprio modelo guardado quando muda), as saídas escritas
+   (caminho, tamanho, hash) e os avisos. Um painel lista as execuções; uma escolhida reabre as suas saídas no
+   Viewer, duas escolhidas se comparam (os parâmetros lado a lado, as diferenças do modelo pelo `review.rs`, os
+   mapas pela comparação do Viewer, `difference.rs`), e *Restore this model* volta o modelo ao daquela execução (um
+   passo de desfazer). Um lote do "Many runs" é uma entrada só, com as suas rodadas dentro. O `terraflux run` também
+   escreve no diário; o MCP lê dele. Em aberto: onde guardar (uma pasta `.terraflux/runs` ao lado do modelo, ou nos
+   dados do usuário) e quanto guardar (as saídas não são copiadas, só registradas; uma saída sobrescrita depois é
+   marcada como não mais aquela).
+2. **Rodar como conferência numa parte pequena.** *Run on the view* (só a extensão que o Viewer mostra) e *Run at ¼
+   resolution* (ou ½, ⅛): o modelo roda em segundos para mostrar se está certo antes de uma execução de horas. Pede
+   ao `exec` uma janela e um fator de reamostragem que todo `raster.read` aplica ao ler (lendo só a janela do
+   arquivo, as overviews do GDAL quando houver), e os rasters gerados (`nlm.*`) na mesma grade. É marcada como
+   conferência: as saídas vão para uma pasta temporária, não sobrescrevem as de verdade, e o Viewer, o canvas e o
+   diário dizem "check run, ¼ resolution". O aviso que vem junto: métricas de paisagem, distâncias e vizinhanças
+   mudam com a resolução e a borda, então o resultado confere o modelo, não o substitui. O mesmo no `terraflux run`
+   (`--window`, `--coarsen`).
+3. **Versões do modelo com nome, sem git.** *Save a version...* com um rótulo ("antes de trocar o cenário") guarda
+   o modelo como está; uma lista das versões (rótulo, hora, o resumo das mudanças) abre qualquer uma em revisão
+   contra a atual pelo `review.rs` (aceitar ou rejeitar cada mudança, os mapas antes e depois) ou a restaura (um
+   passo de desfazer). Guardadas junto do diário (item 1), que já guarda o modelo de cada execução: uma execução
+   também é uma versão, sem rótulo. No MCP, `save_version` e `list_versions`, para o agente marcar um ponto antes
+   de uma mudança grande.
+4. **O espaço em disco antes de rodar, e limpar as saídas.** Antes de uma execução (e de um lote), estimar o que
+   será escrito: as células × o tipo × a compressão esperada de cada saída, vezes as iterações dos laços
+   (`control.repeat`, `control.each`) e as rodadas do lote; medir o espaço livre do disco de cada pasta de saída
+   (Windows, Linux e macOS) e avisar quando não cabe, ou quando sobra pouco, antes de começar e não no fim. O
+   `check_model` diz o mesmo. *Clean outputs...* lista as saídas de um modelo (das execuções do diário, as que não
+   são mais lidas, as de conferência) com o tamanho de cada uma e apaga as escolhidas, perguntando antes.
+5. **Atalhos de teclado configuráveis.** Uma tela no Settings com cada ação (as da paleta de comandos e as do F1),
+   o atalho atual e um campo que grava a tecla apertada; conflitos avisados na hora (a mesma tecla em duas ações do
+   mesmo lugar: canvas, Viewer, a janela toda), *Reset* por ação e para todas. Guardados no `settings.json`; o F1,
+   os menus e a paleta mostram os atalhos escolhidos. Pede tirar os `consume_key` espalhados para uma tabela de
+   ações com o atalho padrão de cada uma.
+6. **Lugares marcados no Viewer e no canvas.** No Viewer, *Save this place...* guarda a extensão e o zoom com um
+   nome (e, opcional, as camadas visíveis); no canvas, a posição e o zoom da câmera. Ctrl+1 a ctrl+9 marcam, 1 a 9
+   vão até eles (animado, como o *Go to*), uma lista no menu da vista renomeia e apaga. Guardados com o modelo
+   (os do canvas e os do Viewer), para valerem em outro computador; o `set_plot` do MCP pode usar um lugar pelo
+   nome.
+
+## A análise de sensibilidade no aplicativo
+
+Pedido de 2026-11-06: "seria legal pensar em um modo que facilite a implementação de análises de sensibilidade nos
+modelos. Porque é algo que é bastante comum", e depois "quero que registre no IDEAS.md sim. E depois pode começar a
+implementar na melhor ordem". O motor já existe (0.94.0, item 6 de "O que ainda falta entre os operadores"):
+`terraflux_ops::sensitivity` (Morris e Sobol, iguais ao SALib 1.6), os nós `sensitivity.design` e
+`sensitivity.analyze` e o `terraflux sensitivity` (`crates/cli/src/cluster.rs`), que monta o desenho, roda nos lotes
+do `terraflux_dist` (aqui, em clusters, na nuvem) e mede uma saída (`Evaluation::measure`, com `statistic` mean, sum,
+min ou max de um mapa). Falta tudo na interface: só quem usa a linha de comando faz a análise.
+
+1. **A aba Sensitivity no Many runs** (`batch_view.rs`, um quarto `Kind` ao lado de réplicas, cenários e calibração),
+   com a tabela de faixas da calibração: cada fator um parâmetro do modelo (`$entrada` ou `nó.configuração`) com
+   mínimo e máximo, a faixa padrão ±20 % do valor atual (os inteiros arredondados). Três métodos: **OAT** (um fator
+   por vez, do mínimo ao máximo com a base no resto: o gráfico tornado, o mais pedido em ecologia; novo em
+   `terraflux_ops::sensitivity`, também no `terraflux sensitivity --method oat`), **Morris** (a triagem) e
+   **Sobol** (a variância repartida, S1 e ST com intervalos por bootstrap). O texto da aba sugere o caminho: Morris
+   primeiro, Sobol nos fatores que importaram. Os resultados na aba: a tabela dos índices e o CSV do desenho e dos
+   índices, como os do `terraflux sensitivity`, numa pasta escolhida.
+2. **O que medir, sem montar nós.** A saída é escolhida entre as do modelo (`nó.porta`); de um mapa, um resumo
+   pronto: média, soma, mínimo, máximo, a área (ou a fração) de uma classe, a fração das células que mudaram em
+   relação à rodada base, uma métrica de paisagem da classe. Os resumos novos em `terraflux_dist::evaluate` (o
+   `statistic`), valendo também no `terraflux sensitivity` e na calibração.
+3. **O custo antes de rodar.** As rodadas do desenho (OAT 2k+1, Morris r(k+1), Sobol N(2k+2) ou N(k+2)) vezes as
+   réplicas, e o tempo pelo `eta.rs` (a soma dos tempos dos nós das execuções anteriores) dividido pelos workers:
+   "Sobol of 6 factors, N=256: 3 584 runs, about 5 h here". Um aviso quando passa de algumas horas.
+4. **Modelos estocásticos: réplicas em cada ponto do desenho.** Com um seed no modelo (`batch::seed_keys`), cada
+   ponto roda com R seeds (padrão 1; o texto sugere 3 a 5 num simulador de mudança de uso) e a saída é a média das
+   réplicas; a variância entre as réplicas é mostrada ao lado da dos fatores, para dizer quanto do resultado é
+   acaso e não o parâmetro.
+5. **Os fatores marcados no modelo.** No painel Node, o clique direito numa configuração numérica dá *Vary in a
+   sensitivity analysis* (abre a aba com o fator posto, ±20 %); um parâmetro do modelo também. A aba propõe como
+   fatores as configurações citadas nas `assumptions` dos nós (o que foi suposto é o que mais vale variar) e os
+   parâmetros do modelo com faixa (`min`/`max`).
+6. **Os gráficos e o registro.** O tornado (OAT), o μ*–σ (Morris, os fatores acima da diagonal não lineares ou com
+   interações), as barras de S1 e ST com os intervalos (Sobol), e a convergência (os índices com metade, um quarto
+   das rodadas: estáveis ou não, um aviso quando não). Exportados como PNG e CSV; a análise vai para o diário das
+   execuções (item 1 da seção anterior) e o `methods.rs` escreve o seu parágrafo (o método, o desenho, N, as
+   réplicas, a referência do SALib, de Morris 1991, Saltelli 2002/2010). No MCP, uma ferramenta `sensitivity` que
+   monta e roda a análise e devolve os índices.
+7. **Mapas de sensibilidade.** De uma saída em mapa, por célula: o desvio padrão entre as rodadas do desenho (onde
+   o resultado é incerto) e, com Sobol, o S1 e o ST de cada fator por célula (onde cada fator manda), como uma
+   pilha que o Viewer mostra. Pede guardar os mapas de cada rodada (ou acumulá-los nos workers): o mais caro, o
+   último.
+
+**A ordem (2026-11-06)** das duas seções, as que dependem de outras depois delas: a sensibilidade 1, 2 e 3 (a
+análise inteira no aplicativo com o motor que existe), 4 (réplicas), 5 e 6 (sem o diário); depois o diário das
+execuções (1 da seção anterior), as versões com nome (3, guardadas com o diário), e o registro da análise no
+diário; o espaço em disco e *Clean outputs* (4); a execução de conferência (2, que mexe no `exec`); os mapas de
+sensibilidade (7); os lugares marcados (6); os atalhos configuráveis (5, por último: tira os `consume_key`
+espalhados para uma tabela). Cada item: testes (unitários e, quando há interface, do kittest), clippy, fmt,
+CHANGELOG (Unreleased), README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local; release só
+quando pedido.
