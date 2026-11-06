@@ -2580,3 +2580,123 @@ item, na ordem; release só quando pedido.
    cores do mapa principal; com medir ligado, o polígono e o perfil olham só a vista principal.
 
 Fim do bloco (2026-11-06): os oito itens feitos, um commit cada.
+
+## A aplicação: qualidade de vida fora do canvas e do Viewer
+
+Pedido de 2026-11-06: "quais outras melhorias de qualidade de vida para o usuário poderíamos adicionar na interface
+gráfica?", depois "gostaria de implementar todas elas [...] Quando terminar de implementar uma ideia, faça commit e
+passe para a próxima automaticamente". Os itens 3 e 7 (e o 6) devem funcionar no Windows, no Linux e no macOS.
+Conferido antes (grep em `crates/app/src`): não há autosave nem recuperação; fechar a janela, *New model*, *Open...*
+e *Open recent* descartam as edições não salvas sem perguntar (só o `open_in_app` do MCP recusa); o
+`RequestUserAttention` só é usado pelo `open_in_app`; o `run_progress` dá a fração, sem tempo restante; os tempos
+dos nós (`Session::timings`) só aparecem no painel Node e se perdem ao fechar; o `undo::History` guarda os modelos
+sem nome de passo nem lista; o aplicativo segura um modelo só (`session: Option<Session>`); o `pt.rs` traduz só o
+que o Terraflux escreve (relatório, documento), a interface é toda em inglês.
+
+A ordem: 1, 7, 6, 5, 8, 4, 3, 9, 10, 2, 11 (o 2 depois das abas, para reabrir todas; o 11, o maior, por último e
+em fases). Cada item: testes (unitários e, quando há interface, do kittest), clippy, fmt, CHANGELOG (Unreleased),
+README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local; release só quando pedido. Os itens
+3, 6 e 7 também compilados e testados no Linux (WSL); o macOS pelo CI do release.
+
+1. **Não perder edições: perguntar antes, salvar sozinho, recuperar depois de uma queda.**
+   - *Perguntar*: `close_requested` da janela principal com o modelo sujo manda `CancelClose` e abre "Save the
+     changes to X? Save / Don't save / Cancel"; o mesmo diante de *New model*, *Open...*, *Open recent*, um
+     template, o wizard criando um modelo, um arquivo `.toml` solto na janela. Um `TerrafluxApp::guard(Then)` guarda
+     a ação pedida e a faz depois da resposta (Save sem arquivo: o diálogo de salvar; cancelado, nada acontece).
+   - *Salvar sozinho*: `recovery.rs`. Com o modelo sujo, a cada 30 s depois de uma edição (revisão nova), o `source`
+     gravado em TOML numa thread em `data_dir()/recovery/<chave>.toml`, com um `<chave>.json` ao lado (o arquivo do
+     modelo ou nenhum, o título, a hora, a versão); a chave é o hash do caminho, ou `untitled-<pid>-<n>`. Os caminhos
+     ficam como o `source` os tem (relativos à pasta do modelo, que o `.json` guarda). Enquanto o aplicativo está
+     aberto, o `.json` é tocado a cada 30 s (o pulso). Apagados ao salvar, ao escolher *Don't save*, ao fechar normal.
+   - *Recuperar*: ao abrir, as cópias cujo pulso parou há mais de 2 min (não são de outra janela do Terraflux aberta)
+     viram uma faixa no alto: "Terraflux closed with edits not saved in X (hoje 14:32): Recover / Discard / Later".
+     Recover abre o modelo com o seu caminho de antes, sujo (o título com o ponto), um passo de desfazer até o
+     arquivo em disco. Funciona igual nos três sistemas (só arquivos e o mtime).
+   - Testes: a cópia escrita e lida de volta com o caminho; o pulso; um modelo sujo fechado pergunta (kittest); Don't
+     save fecha e apaga a cópia; Recover devolve o modelo sujo.
+2. **Reabrir a última sessão.** Configuração "Reopen the models open last" (ligada). Ao fechar (e a cada minuto), em
+   `data_dir()/last-session.json`: os modelos abertos (as abas do item 10) e o da frente; de cada modelo, por
+   caminho, em `data_dir()/views.json` (os últimos 100): a câmera do canvas (e o grupo aberto), o nó selecionado, o
+   que o Viewer mostra (a saída, as camadas, o enquadramento: o mesmo `Plot` que *Update the plot* guarda, sem
+   escrevê-lo no modelo) e o painel na frente. Ao abrir um modelo (também pelo *Open recent*) a vista dele volta; o
+   que o Viewer mostrava roda pelo caminho quieto (`run_to_show`, como um duplo clique), nunca o modelo inteiro.
+   Sem arquivo de modelo na linha de comando e com a configuração ligada, a sessão volta ao abrir. Testes: a vista
+   gravada e lida, um modelo reaberto com a câmera e a saída de antes, a configuração desligada.
+3. **Localizar arquivos ausentes** (Windows, Linux, macOS). `relink.rs`. Ao ler os dados: os caminhos que o modelo
+   lê (as entradas `$` com arquivo e as configurações de arquivo dos nós, `terraflux_graph::file_settings`, nos corpos
+   dos contêineres também) que não existem. Uma faixa no alto do canvas e no Problems: "12 files not found: Locate
+   them...". O diálogo: a lista (o caminho antigo, o achado ou não), "Look in a folder..." e "Locate this one...".
+   Achar: os componentes do caminho antigo separados por `/` e por `\` (um modelo do Windows aberto no Linux ou no
+   macOS tem `C:\dados\x.tif` como um nome só), a cauda mais longa que existe sob a pasta escolhida; senão o mesmo
+   nome procurado na pasta (até 4 níveis, até 20 000 arquivos, numa thread), em minúsculas no Windows e no macOS;
+   achado um, a mesma troca de prefixo é tentada em todos (como o Premiere). "Apply" troca todos de uma vez, um passo
+   de desfazer, os caminhos relativos à pasta do modelo quando ele tem arquivo, e lê os dados de novo. Também os
+   `raster.read` de uma pasta ou de um padrão (a pasta que falta). Testes: a cauda nos dois separadores, a troca de
+   prefixo, a busca por nome, o desfazer, um modelo com caminhos do Windows lido no Linux (WSL).
+4. **O histórico do desfazer.** O `History` guarda um nome por passo, feito quando o passo fecha (`tick`): o
+   `review::diff` do antes e do depois resumido ("raster.calc added: suit", "setting threshold of reclass: 3 → 4",
+   "3 nodes moved", "2 nodes deleted", "connected a.map → b.x"), ou o nome dado por quem editou (o Assistant, o
+   MCP, um rename em lote). Um painel History (View, ctrl+K, e o menu do botão de desfazer): os passos, o atual
+   marcado, os desfeitos em cinza; um clique vai até ele (desfazer ou refazer vários de uma vez, uma ida só);
+   "Compare with now" abre o Changes com aquele modelo (`review::compare`). Testes: os nomes dos passos, ir e voltar
+   pelo painel.
+5. **O tempo que falta.** `eta.rs`: com os tempos de cada nó das execuções anteriores (`Session::timings`, agora
+   também gravados por modelo em `data_dir()/run-times.json`, os últimos 200 modelos), o que falta é a soma dos nós
+   ainda não feitos mais o resto do que roda (pela sua fração: um laço pelos passos, um operador pelo que ele
+   diz); sem tempos antigos, pela fração e o tempo passado (só depois de 5 s e de 3 % feitos, para não chutar). Na
+   pílula do progresso: "~14 min left", e no tooltip a hora prevista do fim; "about" quando a conta é pela fração.
+   Os nós do cache não contam. Testes: a conta com e sem tempos antigos, um laço pela metade, nós do cache.
+6. **Aviso ao fim de uma execução longa** (Windows, Linux, macOS). Quando uma execução pedida (não as quietas) ou um
+   lote do Many runs termina depois de mais de 10 s (configuração "Tell when a run ends": ligada, e os segundos) e a
+   janela não tem o foco: `RequestUserAttention` (pisca na barra no Windows, salta no Dock do macOS, a dica de
+   urgência no Linux) e uma notificação do sistema ("model.toml: done in 12 min", ou a falha e o nó). A notificação
+   pelo `notify-rust` (toast no Windows, Central de Notificações no macOS, D-Bus no Linux) se as dependências forem
+   leves (conferir o `cargo tree`; o crate `windows` já está no Cargo.lock); senão por processos: `osascript` no
+   macOS, `notify-send` no Linux, o toast do PowerShell no Windows. Enquanto roda, o título da janela começa com a
+   porcentagem ("[42%] modelo — Terraflux"), visível na barra de tarefas. Testes: quando avisa (tempo, quieta,
+   foco), o texto; a notificação à mão nos três sistemas.
+7. **Não deixar o computador dormir durante uma execução** (Windows, Linux, macOS). `awake.rs`: um guarda segurado
+   enquanto uma execução, um lote ou o empréstimo deste computador a outro trabalha. Windows:
+   `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` (windows-sys, `Win32_System_Power`), pedido e
+   devolvido numa thread própria que vive enquanto o guarda; macOS: `caffeinate -i -w <pid>` como processo filho,
+   morto ao soltar; Linux: `systemd-inhibit --what=idle:sleep --who=Terraflux --why=... --mode=block sleep
+   infinity`, morto ao soltar (sem `systemd-inhibit`: nada, e as configurações dizem). A tela ainda pode apagar.
+   Configuração "Keep the computer awake while a model runs" (ligada); o tooltip do progresso diz "keeping the
+   computer awake". Testes: o guarda pega e solta (no Windows a chamada; no Linux o processo, no WSL), a linha de
+   comando de cada sistema, nada quando desligado.
+8. **O tempo de cada nó no canvas.** Depois de uma execução, cada caixa diz no canto de baixo quanto levou ("2.4 s",
+   "3 min"; um contêiner a soma do corpo; cinza quando veio do cache) e o tooltip a memória do que deu. Um botão
+   "Times" na barra do canvas pinta as caixas pela parte do tempo total (as mais lentas na cor quente, as rápidas
+   sem cor) e lista no canto os 5 nós mais lentos, cada um levando a câmera até ele. Testes: o texto do tempo, a
+   escala de cores, a lista dos mais lentos.
+9. **Notas e molduras no canvas.** No modelo (`terraflux_graph`): `[[notes]]`, cada uma com `id`, o `scope` (o
+   contêiner onde está), o texto, a cor, e o lugar (uma nota solta) ou os nós que emoldura (uma moldura: o retângulo
+   é o dos seus nós mais uma margem, então segue o *Arrange* e os arrastes). Fora do grafo: o `check` e a execução
+   não as veem. No canvas: botão direito no vazio, *Add a note here*; no menu da seleção, *Frame the nodes
+   selected*; a moldura desenhada atrás das caixas com o título no alto; arrastar o título arrasta os nós dela; um nó
+   solto dentro dela entra, arrastado para fora sai (com alt); duplo clique edita o texto; Delete apaga; a cor no
+   menu. Desfazer, copiar e colar, o documento (as molduras como subtítulos dos passos) e o MCP (`set_note`,
+   `remove_note`; o `show_model` as lista). Testes: o modelo gravado e lido, a moldura seguindo os nós, arrastar o
+   título, entrar e sair, o desfazer.
+10. **Vários modelos abertos em abas.** `TerrafluxApp` com o modelo da frente em `session` (o resto do código não
+    muda) e os outros em `others: Vec<Session>`; trocar de aba troca os dois. Uma faixa de abas sob a barra quando há
+    dois ou mais: o nome, o ponto de não salvo, um girador quando roda, o x (e o botão do meio) que fecha (pergunta
+    pelo item 1). ctrl+Tab e ctrl+shift+Tab passam, ctrl+W fecha. Abrir, um template, o wizard e o `open_in_app`
+    abrem numa aba nova (o modelo vazio sem edições é trocado); um modelo já aberto vai para a aba dele. As outras
+    abas continuam rodando (`poll` e `auto_run` de todas a cada quadro; o aviso do item 6 diz qual). Os painéis que
+    guardam algo de um modelo (Trace, Parameters, Calculator, a revisão, a conversa do Assistant) seguem a aba da
+    frente. Copiar nós numa aba e colar em outra. Testes: abrir dois, trocar, rodar um atrás, fechar perguntando,
+    colar de um no outro.
+11. **A interface em português.** `i18n.rs`: a língua da interface nas configurações (English, Português; de início
+    a do sistema: `LANG`/`LC_ALL` no Linux e no macOS, `GetUserDefaultLocaleName` no Windows), `tr("Save as...")`
+    devolvendo o texto na língua escolhida (uma tabela inglês → português, procurada pelo inglês como o `pt.rs`;
+    sem tradução fica o inglês) e `trf("done in {}", [..])` para os textos com valores. O `pt.rs` continua sendo o
+    da língua do relatório (escolhida ao exportar). Em fases, um commit cada: (a) a barra, os menus, a barra de
+    status, os títulos dos painéis, as configurações, os diálogos dos itens 1 a 10; (b) o canvas (`builder.rs`,
+    `editor_view.rs`); (c) o Viewer e o Layers; (d) Node, Document, Problems, Parameters, Many runs, Computers,
+    Trace, Calculator, Prepare, Files, Operators, Changes, Assistant, o wizard; (e) as descrições e as ajudas dos
+    operadores (no `terraflux-ops`, ~430), que o MCP também mostraria em português se pedido. Um teste varre as
+    fontes: todo `tr("…")` tem português; uma ferramenta (`tools/untranslated.py`) lista por arquivo os textos de
+    `button`, `label`, `menu_button`, `on_hover_text`... ainda sem `tr`, a medida do que falta. Os testes do kittest
+    rodam em inglês (a língua forçada nos testes). Testes: a troca de língua sem reiniciar, um painel em português
+    num kittest, a tabela sem chaves repetidas.
