@@ -150,6 +150,7 @@ pub fn kind_text(k: &Kind) -> String {
     match k {
         Kind::Run => "Run".into(),
         Kind::To(node) => format!("Run to {node}"),
+        Kind::Check(c) => format!("Check run ({})", c.short()),
         Kind::Batch(b) => {
             let mut t = capital(&b.kind);
             if let Some(m) = &b.method {
@@ -162,6 +163,37 @@ pub fn kind_text(k: &Kind) -> String {
             t
         }
     }
+}
+
+/// The mark of a check run, in the Viewer and the status bar: "check run, 1/4 resolution", "check run, on the view".
+pub fn check_text(c: &terraflux_ops::check::Check) -> String {
+    format!("check run, {}", c.label())
+}
+
+/// What the mark of a check run tells when the pointer is over it.
+pub fn check_hover(c: &terraflux_ops::check::Check) -> String {
+    format!(
+        "{}: the whole model run on {}, to see in seconds whether it is right before a long run. Landscape metrics, \
+         distances and neighbourhoods change with the resolution and the border, so this checks the model, it does not \
+         replace it. Its files are in the model's \"runs/check\" folder; the next normal run (Run) clears this mark.",
+        check_text(c),
+        match (c.window.is_some(), c.step()) {
+            (true, 1) => "the part of the map the Viewer showed".to_string(),
+            (true, s) => format!("the part of the map the Viewer showed, one cell in every {s} on each side"),
+            (false, s) => format!("the whole map, one cell in every {s} on each side"),
+        }
+    )
+}
+
+/// The mark of a check run drawn as a chip (orange, to be seen at once).
+pub fn check_mark(ui: &mut Ui, c: &terraflux_ops::check::Check) {
+    egui::Frame::new()
+        .fill(theme::orange())
+        .corner_radius(4)
+        .inner_margin(Margin::symmetric(6, 1))
+        .show(ui, |ui| ui.label(RichText::new(check_text(c)).color(theme::on_orange()).strong()))
+        .response
+        .on_hover_text(check_hover(c));
 }
 
 /// The folder a run's files are in: a batch's results, else where its outputs were written.
@@ -191,6 +223,12 @@ fn kind_hover(k: &Kind) -> String {
         }
         Kind::To(node) => format!("the nodes {node} needs, not the whole model"),
         Kind::Run => "the whole model".into(),
+        Kind::Check(c) => format!(
+            "a check run, {}: the whole model on a part of the map or at a coarser resolution, to see whether it is \
+             right; its outputs are not the model's (landscape metrics, distances and neighbourhoods change with the \
+             resolution and the border)",
+            c.label()
+        ),
     }
 }
 
@@ -768,6 +806,13 @@ mod tests {
     fn a_run_is_told_in_a_few_words() {
         assert_eq!(kind_text(&Kind::Run), "Run");
         assert_eq!(kind_text(&Kind::To("allocate".into())), "Run to allocate");
+        let check =
+            |window: bool, n| terraflux_ops::check::Check::new(window.then_some(([0.0, 0.0, 1.0, 1.0], None)), n);
+        assert_eq!(kind_text(&Kind::Check(check(false, 4))), "Check run (1/4)");
+        assert_eq!(kind_text(&Kind::Check(check(true, 1))), "Check run (view)");
+        assert_eq!(kind_text(&Kind::Check(check(true, 4))), "Check run (view, 1/4)");
+        assert_eq!(check_text(&check(true, 4)), "check run, on the view, 1/4 resolution");
+        assert_eq!(check_text(&check(false, 4)), "check run, 1/4 resolution");
         let b =
             Batch { kind: "sensitivity".into(), runs: 5, failed: 1, method: Some("oat".into()), ..Default::default() };
         assert_eq!(kind_text(&Kind::Batch(b)), "Sensitivity (oat), 5 runs, 1 failed");

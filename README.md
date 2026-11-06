@@ -269,7 +269,9 @@ the MCP's `run_model` write to it too (`--no-journal` leaves a run out), and the
 Save a version...** (ctrl+alt+S) keeps the model under a name, with no git: the Runs pane's Versions tab lists them,
 reviews one against the model open, restores it or deletes it, and the MCP's `save_version` marks one before a large
 change. Before a run or a batch the disk is checked (the outputs' estimated size against the free space, asked about when it
-may not fit), and **File, Clean outputs...** deletes the files the runs wrote, after asking.
+may not fit), and **File, Clean outputs...** deletes the files the runs wrote, after asking. The **▾** beside Run starts a **check run**: the model
+on the part of the map in view, or at 1/2, 1/4 or 1/8 of the resolution, to see in seconds whether it is right before a run of hours (its outputs
+apart from the real ones, its results marked; `terraflux run --coarsen N --window ...` does the same).
 
 **Is the model healthy?** The model's own checks (`check.assert`: the demand met, the areas summing to the total,
 the probabilities between 0 and 1) carry a badge of how they fared in the last run: green when it passed, amber

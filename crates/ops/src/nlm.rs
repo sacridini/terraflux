@@ -33,6 +33,30 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Rescale));
 }
 
+/// The settings of a model drawn for a check run: its rows and columns divided by the check's factor and its cells
+/// made as many times wider, so that it covers the same ground. As given when the model draws on another map's grid
+/// (`like`), which is already the check's, or has no size of its own (`sig`: the operator's signature).
+pub fn for_check(
+    sig: &OpSignature,
+    params: &serde_json::Map<String, serde_json::Value>,
+    has_like: bool,
+    check: &crate::check::Check,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut out = params.clone();
+    let sized =
+        sig.name.starts_with("nlm.") && ["rows", "columns"].iter().all(|k| sig.params.iter().any(|p| p.name == *k));
+    if has_like || !sized || check.step() == 1 {
+        return out;
+    }
+    let get = |k: &str| params.get(k).and_then(|v| v.as_u64()).map_or(256, |v| v as usize);
+    let res = params.get("resolution").and_then(|v| v.as_f64()).unwrap_or(1.0);
+    let (rows, columns, res) = check.scaled(get("rows"), get("columns"), res);
+    out.insert("rows".into(), rows.into());
+    out.insert("columns".into(), columns.into());
+    out.insert("resolution".into(), res.into());
+    out
+}
+
 /// The settings every model has: its size (or another map's grid), cell size and seed.
 fn sized(sig: OpSignature) -> OpSignature {
     sig.input(PortSpec::optional("like", Type::Map, "a map whose grid to draw on (else rows x columns)"))

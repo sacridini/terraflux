@@ -1045,6 +1045,10 @@ fn rename_box(ctx: &egui::Context, s: &mut Session, r: &Registry) {
 pub fn viewer_pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
     // files of the Files pane let go over the Viewer: a node each, and all of them layers of it
     let over = ui.max_rect();
+    // a check run's results: said at the top, whichever map is shown
+    if let Some(c) = &s.check {
+        crate::runs_view::check_mark(ui, c);
+    }
     let hover = preview(ui, s, r);
     if egui::DragAndDrop::has_payload_of_type::<DraggedFile>(ui.ctx())
         && ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| over.contains(p))

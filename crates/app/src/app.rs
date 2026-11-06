@@ -681,6 +681,12 @@ pub struct Session {
     pub validation: Validation,
     /// The outputs of the nodes run, kept between runs (a run only runs what changed).
     pub cache: Arc<Mutex<Cache>>,
+    /// The check run whose results are on show (or that is running): the model on a part of the map or at a coarser
+    /// resolution, marked as such until the next normal run (see [`Session::start_check`]).
+    pub check: Option<terraflux_ops::check::Check>,
+    /// The cache of the normal runs, kept aside while a check run's own is the one in use, so the two never mix and a
+    /// long run's results are still there afterwards.
+    real_cache: Option<Arc<Mutex<Cache>>>,
     /// Step by step: the runs pause after each step of a loop (Step in the status bar), until Next or Continue.
     pub gate: Arc<Gate>,
     /// How each top-level node did in the last run.
@@ -948,6 +954,8 @@ impl Session {
             selected: None,
             validation: Validation { windows: "1, 3, 5, 7, 9, 11".into(), ..Default::default() },
             cache: Arc::new(Mutex::new(Cache::default())),
+            check: None,
+            real_cache: None,
             gate: Arc::new(Gate::default()),
             loop_step: BTreeMap::new(),
             bodies: BTreeMap::new(),
@@ -1260,6 +1268,9 @@ impl Session {
         // its place: `group/node` in a group's body
         let at = path.iter().map(String::as_str).chain([id]).collect::<Vec<_>>().join("/");
         if on {
+            if self.check.is_some() {
+                return Err("the result on show is a check run's, not the model's: run the model, then freeze".into());
+            }
             let folder = folder.ok_or("save the model first: a frozen result is kept next to its file")?;
             let outputs = self.cache.lock().unwrap().outputs(&at).cloned();
             if let Some(outputs) = outputs {
@@ -1389,13 +1400,75 @@ impl Session {
     /// Start a run; `quiet`: one the application started by itself (after an edit, to show the node selected),
     /// which tells neither the nodes not filled in nor its failure (they are told when a run is asked for).
     fn start_with(&mut self, target: Option<String>, repaint: Box<dyn Fn() + Send>, quiet: bool) {
+        self.start_run(target, repaint, quiet, None);
+    }
+
+    /// Run the whole model as a check run (see [`terraflux_ops::check::Check`]): the rasters it reads cut to the
+    /// window and coarser, the ones it draws smaller. Its results are marked ([`Session::check`]) until the next normal
+    /// run, and kept apart from the normal runs'. Its outputs and manifest go to `<model> runs/check` next to the
+    /// model (replaced each time), never over the real outputs; the disk check does not apply (they are small).
+    /// Whether it started (the model needs a file to put them beside).
+    pub fn start_check(&mut self, check: terraflux_ops::check::Check, repaint: Box<dyn Fn() + Send>) -> bool {
+        let Some(path) = self.path.as_deref() else {
+            self.notice = Some(("save the model first: a check run writes its files beside it".into(), Instant::now()));
+            return false;
+        };
+        let out = terraflux_exec::journal::check_dir(&std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()));
+        let _ = std::fs::remove_dir_all(&out);
+        self.start_run(None, repaint, false, Some(check.writing_to(out)));
+        true
+    }
+
+    /// The Viewer's extent as a window for a check run: `[xmin, ymin, xmax, ymax]` of the map shown and its
+    /// coordinate system (none when it has none); none when the Viewer shows no map.
+    pub fn view_window(&self) -> Option<([f64; 4], Option<String>)> {
+        let (g, b) = self.preview_view.visible()?;
+        let t = g.transform;
+        let at = |c: f32, r: f32| (t[0] + c as f64 * t[1] + r as f64 * t[2], t[3] + c as f64 * t[4] + r as f64 * t[5]);
+        let corners = [at(b[0], b[1]), at(b[2], b[1]), at(b[0], b[3]), at(b[2], b[3])];
+        let fold =
+            |f: fn(f64, f64) -> f64, init: f64, pick: fn(&(f64, f64)) -> f64| corners.iter().map(pick).fold(init, f);
+        let window = [
+            fold(f64::min, f64::INFINITY, |p| p.0),
+            fold(f64::min, f64::INFINITY, |p| p.1),
+            fold(f64::max, f64::NEG_INFINITY, |p| p.0),
+            fold(f64::max, f64::NEG_INFINITY, |p| p.1),
+        ];
+        Some((window, crate::map_view::crs_of(g)))
+    }
+
+    /// The run, a normal one or (`check`) a check run, with the cache of its own kind: a check run's is a fresh one
+    /// (its results are not the model's), the normal one kept aside; the next normal run takes it back, the check's
+    /// results and mark gone.
+    fn start_run(
+        &mut self,
+        target: Option<String>,
+        repaint: Box<dyn Fn() + Send>,
+        quiet: bool,
+        check: Option<terraflux_ops::check::Check>,
+    ) {
         // (a run asked for: the nodes not filled in told)
         if !quiet {
             self.unfilled_shown = self.issues.iter().any(|i| i.unfilled);
         }
         self.quiet_run = quiet;
         self.quiet_failed = None;
-        self.hold_frozen();
+        match &check {
+            Some(_) => {
+                let fresh = Arc::new(Mutex::new(Cache::default()));
+                let real = std::mem::replace(&mut self.cache, fresh);
+                self.real_cache.get_or_insert(real);
+            }
+            None => {
+                if let Some(real) = self.real_cache.take() {
+                    self.cache = real;
+                    self.outputs.clear();
+                }
+                // (the frozen results are of the whole map: a check run runs those nodes)
+                self.hold_frozen();
+            }
+        }
+        self.check = check.clone();
         let base = self.base();
         self.edited_at = None;
         match &target {
@@ -1431,12 +1504,13 @@ impl Session {
         self.validation.similarity = None;
         self.started = Some(Instant::now());
         // the data read already, unless the model's inputs changed since
-        let inputs = self.inputs.clone().filter(|_| self.inputs_of == self.model.inputs);
+        // (a check run reads its own, cut and coarser)
+        let inputs = self.inputs.clone().filter(|_| self.inputs_of == self.model.inputs && check.is_none());
         // a whole run of the model as saved: its outputs and its manifest written next to it, as `terraflux run`
         let record = match &self.path {
             Some(p) if target.is_none() && !self.dirty => Some(Record {
                 model_file: std::path::absolute(p).unwrap_or_else(|_| p.clone()),
-                out: base.join("output"),
+                out: check.as_ref().and_then(|c| c.out.clone()).unwrap_or_else(|| base.join("output")),
             }),
             _ => None,
         };
@@ -1445,7 +1519,8 @@ impl Session {
         self.journal_run =
             (!quiet && self.path.is_some()).then(|| (self.source.clone(), target.clone(), self.scenario_now()));
         let (cache, gate) = (self.cache.clone(), self.gate.clone());
-        self.run = Some(Run::start(self.model.clone(), inputs, base, cache, target, record, gate, repaint));
+        self.run =
+            Some(Run::start_checked(self.model.clone(), inputs, base, cache, target, record, gate, repaint, check));
     }
 
     /// After an edit, run up to the node shown (when the edits paused a moment and nothing runs).
@@ -1721,7 +1796,10 @@ impl Session {
             match r {
                 Ok(results) => {
                     self.outputs.extend(results.values);
-                    self.freeze_new();
+                    // (a check run's results are not the model's: not frozen)
+                    if self.check.is_none() {
+                        self.freeze_new();
+                    }
                 }
                 Err(_) if self.quiet_run => {}
                 Err(e) => self.error = Some(e),
@@ -1746,7 +1824,11 @@ impl Session {
         let Some((model, target, scenario)) = self.journal_run.take() else { return };
         let Some(journal) = self.path.as_deref().and_then(Journal::of) else { return };
         let seconds = self.elapsed.map_or(0.0, |e| e.as_secs_f64());
-        let mut entry = Entry::new(target.map_or(Kind::Run, Kind::To), "app", seconds);
+        let kind = match (&self.check, target) {
+            (Some(c), _) => Kind::Check(c.clone()),
+            (None, t) => t.map_or(Kind::Run, Kind::To),
+        };
+        let mut entry = Entry::new(kind, "app", seconds);
         entry.status = match ended {
             Ok(_) => Status::Done,
             Err(e) if e.contains("was stopped") || e.starts_with("stopped") => Status::Stopped,
@@ -2602,6 +2684,28 @@ impl TerrafluxApp {
         }
     }
 
+    /// A check run: the whole model on the part of the map the Viewer shows (`view`) or all of it, one cell in every
+    /// `coarsen`; its results marked until the next normal run ([`Session::start_check`]).
+    fn check_run(&mut self, ctx: &egui::Context, view: bool, coarsen: u32) {
+        let Some(s) = &mut self.session else { return };
+        if s.disk_ask.is_some() {
+            return;
+        }
+        if !s.ask_run() {
+            if s.unfilled_shown {
+                self.focus(Pane::Problems);
+            }
+            return;
+        }
+        let window = if view { s.view_window() } else { None };
+        if view && window.is_none() {
+            s.notice = Some(("the Viewer shows no map: there is no view to run on".into(), Instant::now()));
+            return;
+        }
+        let ctx = ctx.clone();
+        s.start_check(terraflux_ops::check::Check::new(window, coarsen), Box::new(move || ctx.request_repaint()));
+    }
+
     /// Open the window that asks for a version's label.
     fn ask_version(&mut self) {
         if self.wizard.is_none()
@@ -2860,6 +2964,8 @@ impl TerrafluxApp {
     fn toolbar(&mut self, ui: &mut Ui) {
         let mut save = None;
         let (mut run, mut stop) = (false, false);
+        // a check run asked for: on the view or not, and the resolution's divisor
+        let mut check_asked: Option<(bool, u32)> = None;
         ui.horizontal(|ui| {
             // (the modern look: the bar's buttons without a frame until the pointer is over them)
             theme::quiet(ui);
@@ -2904,6 +3010,33 @@ impl TerrafluxApp {
                         "run the whole model (F5): nodes not filled in yet, told among the problems"
                     })
                     .clicked();
+                // the check runs: the model on the part of the map in view or at a coarser resolution, to see in
+                // seconds whether it is right
+                ui.menu_button("Check", |ui| {
+                    let can = s.can_ask_run();
+                    let in_view = s.preview_view.visible().is_some();
+                    let note = "landscape metrics, distances and neighbourhoods change with the resolution and the \
+                                border: it checks the model, it does not replace it. Its files go to the model's \
+                                \"runs/check\" folder, not over the real outputs.";
+                    let mut item = |ui: &mut Ui, text: &str, on: bool, hover: &str, ask: (bool, u32)| {
+                        if ui.add_enabled(on, egui::Button::new(text)).on_hover_text(hover).on_disabled_hover_text(
+                            if can { "the Viewer shows no map: there is no view to run on" } else { "the model cannot run yet (see the problems)" },
+                        ).clicked() {
+                            check_asked = Some(ask);
+                            ui.close();
+                        }
+                    };
+                    let shown = format!("the model on the part of the map the Viewer shows: {note}");
+                    item(ui, "Check run on the view", can && in_view, &shown, (true, 1));
+                    for n in [2, 4, 8] {
+                        let hover = format!("the whole map, one cell in every {n} on each side: {note}");
+                        item(ui, &format!("Check run at 1/{n} resolution"), can, &hover, (false, n));
+                    }
+                    let both = format!("the part of the map the Viewer shows, one cell in every 4: {note}");
+                    item(ui, "Check run on the view at 1/4 resolution", can && in_view, &both, (true, 4));
+                })
+                .response
+                .on_hover_text("check runs: the model on a small part of the map or at a coarser resolution, in seconds");
                 stop = ui.add_enabled(s.running() && s.stopping.is_none(), egui::Button::new("Stop")).clicked();
                 // step by step: paused after each step of a loop
                 let mut stepping = s.gate.stepping.load(std::sync::atomic::Ordering::Relaxed);
@@ -3102,6 +3235,9 @@ impl TerrafluxApp {
         if run {
             self.run_all(ui.ctx());
         }
+        if let Some((view, coarsen)) = check_asked {
+            self.check_run(ui.ctx(), view, coarsen);
+        }
         if stop {
             self.stop_run();
         }
@@ -3118,6 +3254,11 @@ impl TerrafluxApp {
         let action = |label: &str, key: String, act: Do| Command::new(label, "action", key, act);
         let mut all = vec![
             action("Run the whole model", "F5".into(), Do::Run),
+            action("Check run on the view", String::new(), Do::Check { view: true, coarsen: 1 }),
+            action("Check run at 1/2 resolution", String::new(), Do::Check { view: false, coarsen: 2 }),
+            action("Check run at 1/4 resolution", String::new(), Do::Check { view: false, coarsen: 4 }),
+            action("Check run at 1/8 resolution", String::new(), Do::Check { view: false, coarsen: 8 }),
+            action("Check run on the view at 1/4 resolution", String::new(), Do::Check { view: true, coarsen: 4 }),
             action("Run up to the node selected", format!("{c}enter"), Do::RunToHere),
             action("Stop the run", String::new(), Do::Stop),
             action("Save the model", format!("{c}S"), Do::Save),
@@ -3196,6 +3337,7 @@ impl TerrafluxApp {
                 }
             }
             Do::Run => self.run_all(ctx),
+            Do::Check { view, coarsen } => self.check_run(ctx, view, coarsen),
             Do::Stop => self.stop_run(),
             Do::Settings => self.settings_open = true,
             Do::Shortcuts => self.shortcuts_open = true,
@@ -3877,6 +4019,11 @@ impl TerrafluxApp {
                         ui.label(RichText::new(b).strong());
                         ui.separator();
                     }
+                    // a check run's results on show
+                    if let Some(c) = &s.check {
+                        crate::runs_view::check_mark(ui, c);
+                        ui.separator();
+                    }
                     // a word of what was done (a file saved), for a while
                     if let Some((text, at)) = &s.notice
                         && at.elapsed() < Duration::from_secs(8)
@@ -4324,8 +4471,10 @@ impl TerrafluxApp {
             Some(s) => {
                 // (how far a run is, seen on the window's button in the taskbar)
                 let at = if s.running() { format!("[{:.0}%] ", s.run_progress().0 * 100.0) } else { String::new() };
+                let check =
+                    s.check.as_ref().map_or(String::new(), |c| format!(" [{}]", crate::runs_view::check_text(c)));
                 format!(
-                    "{at}{}{} - Terraflux {}",
+                    "{at}{}{}{check} - Terraflux {}",
                     s.title(),
                     if s.dirty { " ●" } else { "" },
                     env!("CARGO_PKG_VERSION")

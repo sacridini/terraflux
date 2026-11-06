@@ -24,6 +24,7 @@ pub mod cache;
 pub mod carbon;
 pub mod change;
 pub mod change_analysis;
+pub mod check;
 pub mod checks;
 pub mod circuit;
 pub mod circuit_ini;
@@ -157,12 +158,24 @@ pub struct Ctx<'a> {
     pub warnings: Vec<String>,
     watch: Option<Watch<'a>>,
     stopped: bool,
+    check: Option<Arc<check::Check>>,
 }
 
 impl<'a> Ctx<'a> {
     /// A context whose progress `watch` is told (the engine's, which shows it and says when the run is stopped).
     pub fn watched(watch: Watch<'a>) -> Self {
-        Ctx { warnings: Vec::new(), watch: Some(watch), stopped: false }
+        Ctx { warnings: Vec::new(), watch: Some(watch), stopped: false, check: None }
+    }
+
+    /// The same context in a check run (a part of the map, or a coarser resolution): `None` for a normal run.
+    pub fn checked(mut self, check: Option<Arc<check::Check>>) -> Self {
+        self.check = check;
+        self
+    }
+
+    /// The check run this operator runs in, if it is one.
+    pub fn check(&self) -> Option<&check::Check> {
+        self.check.as_deref()
     }
 
     pub fn warn(&mut self, m: impl Into<String>) {
@@ -348,11 +361,23 @@ pub trait Operator: Send + Sync {
 pub struct Registry {
     ops: BTreeMap<String, Arc<dyn Operator>>,
     sigs: BTreeMap<String, Arc<OpSignature>>,
+    check: Option<Arc<check::Check>>,
 }
 
 impl Registry {
     pub fn empty() -> Self {
-        Registry { ops: BTreeMap::new(), sigs: BTreeMap::new() }
+        Registry { ops: BTreeMap::new(), sigs: BTreeMap::new(), check: None }
+    }
+
+    /// The same operators for a check run: the engine tells each operator it runs in it ([`Ctx::check`]).
+    pub fn checked(mut self, check: check::Check) -> Self {
+        self.check = (!check.is_none()).then(|| Arc::new(check));
+        self
+    }
+
+    /// The check run the operators run in, if it is one.
+    pub fn check(&self) -> Option<&Arc<check::Check>> {
+        self.check.as_ref()
     }
 
     /// Every operator of this crate.

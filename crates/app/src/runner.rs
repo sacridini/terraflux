@@ -313,6 +313,24 @@ impl Run {
         gate: Arc<Gate>,
         repaint: Box<dyn Fn() + Send>,
     ) -> Run {
+        Run::start_checked(model, inputs, base, cache, target, record, gate, repaint, None)
+    }
+
+    /// [`Run::start`] as a check run when `check` is given: the inputs read through its window and coarser grid
+    /// (`inputs` are then read here, not taken), the engine telling every operator. Its `cache` must be one of its
+    /// own: the results are not the model's.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_checked(
+        model: Model,
+        inputs: Option<BTreeMap<String, Value>>,
+        base: PathBuf,
+        cache: Arc<Mutex<Cache>>,
+        target: Option<String>,
+        record: Option<Record>,
+        gate: Arc<Gate>,
+        repaint: Box<dyn Fn() + Send>,
+        check: Option<terraflux_ops::check::Check>,
+    ) -> Run {
         let (tx, rx) = channel();
         let stop = Arc::new(AtomicBool::new(false));
         let s = stop.clone();
@@ -321,12 +339,17 @@ impl Run {
         let thread = std::thread::spawn(move || {
             let done_tx = tx.clone();
             let result = (|| {
-                let inputs = match inputs {
-                    Some(i) => i,
-                    None => terraflux_exec::load_inputs(&model, &base, &BTreeMap::new()).map_err(|e| e.to_string())?,
+                let inputs = match (&check, inputs) {
+                    (None, Some(i)) => i,
+                    (check, _) => terraflux_exec::load_inputs_checked(&model, &base, &BTreeMap::new(), check.as_ref())
+                        .map_err(|e| e.to_string())?,
                 };
                 let mut obs = Sending { tx, stop: s, gate: g, repaint, told: None };
-                let r = Engine::default().run_with(&model, &inputs, &mut obs, Some(&cache), target.as_deref());
+                let engine = match &check {
+                    Some(c) => Engine::checked(c.clone()),
+                    None => Engine::default(),
+                };
+                let r = engine.run_with(&model, &inputs, &mut obs, Some(&cache), target.as_deref());
                 if let Err(Error::Node { at, .. }) = &r {
                     let top = at.split(['/', '.']).next().unwrap_or(at).to_string();
                     let _ = obs.tx.send(Message::Failed(top));

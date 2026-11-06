@@ -15,19 +15,25 @@ fn resolve(base: &Path, path: &str) -> PathBuf {
     if p.is_absolute() { p.to_path_buf() } else { base.join(p) }
 }
 
-struct Files {
+struct Files<'a> {
     base: PathBuf,
     cache: BTreeMap<PathBuf, (Arc<Raster>, Arc<Grid>)>,
+    /// A check run: the rasters read through its window and coarser grid.
+    check: Option<&'a terraflux_ops::check::Check>,
 }
 
-impl Files {
+impl Files<'_> {
     fn get(&mut self, path: &str) -> Result<(Arc<Raster>, Arc<Grid>)> {
         let p = resolve(&self.base, path);
         if let Some(r) = self.cache.get(&p) {
             return Ok(r.clone());
         }
         // (its coordinate system known when it has no EPSG code)
-        let r = terraflux_ops::files::read_raster(&p).map_err(|e| Error::Model(format!("{}: {e}", p.display())))?;
+        let r = match self.check {
+            Some(c) => terraflux_ops::files::read_raster_checked(&p, c).map_err(|e| e.to_string()),
+            None => terraflux_ops::files::read_raster(&p).map_err(|e| e.to_string()),
+        }
+        .map_err(|e| Error::Model(format!("{}: {e}", p.display())))?;
         let g = Arc::new(r.grid.clone());
         let entry = (Arc::new(r), g);
         self.cache.insert(p, entry.clone());
@@ -52,7 +58,17 @@ pub fn load_inputs(
     base: &Path,
     overrides: &BTreeMap<String, String>,
 ) -> Result<BTreeMap<String, Value>> {
-    let mut files = Files { base: base.to_path_buf(), cache: BTreeMap::new() };
+    load_inputs_checked(model, base, overrides, None)
+}
+
+/// [`load_inputs`] for a check run: the maps and stacks of files cut to the check's window and coarsened.
+pub fn load_inputs_checked(
+    model: &Model,
+    base: &Path,
+    overrides: &BTreeMap<String, String>,
+    check: Option<&terraflux_ops::check::Check>,
+) -> Result<BTreeMap<String, Value>> {
+    let mut files = Files { base: base.to_path_buf(), cache: BTreeMap::new(), check };
     let mut out = BTreeMap::new();
     for name in overrides.keys() {
         if !model.inputs.contains_key(name) {

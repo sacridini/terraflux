@@ -54,6 +54,19 @@ enum Command {
         /// Runs pane).
         #[arg(long)]
         no_journal: bool,
+        /// A check run, to see in seconds whether the model is right: one cell in every N, on each side, of the
+        /// rasters it reads (the ones it draws are made N times smaller). The outputs are of the check, not the
+        /// model's: metrics, distances and neighbourhoods change with the resolution.
+        #[arg(long, default_value_t = 1, value_name = "N")]
+        coarsen: u32,
+        /// A check run on a part of the map: the rasters read are cut to this window (in the coordinate system of
+        /// the model's first raster, else --window-crs), moved out to the cells. Without -o the outputs go to
+        /// `<model> runs/check` next to the model, never over the real ones.
+        #[arg(long, value_name = "XMIN,YMIN,XMAX,YMAX", allow_hyphen_values = true)]
+        window: Option<String>,
+        /// The coordinate system of --window (`EPSG:4326`, a code, or a WKT).
+        #[arg(long, requires = "window", value_name = "CRS")]
+        window_crs: Option<String>,
         /// Run on tiles (maps larger than memory; Dinamica EGO's model): the same maps with any number of
         /// threads or machines (the tile size changes the patches a fit measures), statistically equivalent to
         /// the exact engine.
@@ -789,6 +802,67 @@ fn run_frozen(
 
 /// The folder a model's relative paths are read from: "." for a model named without one (`terraflux run m.toml`),
 /// whose parent is the empty path.
+/// The check run asked for (none: a normal run). The window `xmin,ymin,xmax,ymax` is in `crs` (`EPSG:4326`, a code,
+/// a WKT), else in the coordinate system of the model's first raster (the files' own coordinates when none has one).
+fn check_of(
+    m: &Model,
+    dir: &Path,
+    coarsen: u32,
+    window: Option<&str>,
+    crs: Option<&str>,
+) -> Result<Option<terraflux_ops::check::Check>> {
+    if coarsen == 0 {
+        bail!("--coarsen: 1 or more (one cell in every N, on each side)");
+    }
+    let window = match window {
+        None => None,
+        Some(w) => {
+            let v: Vec<f64> = w
+                .split(',')
+                .map(|s| s.trim().parse::<f64>())
+                .collect::<std::result::Result<_, _>>()
+                .with_context(|| format!("--window {w}: give xmin,ymin,xmax,ymax"))?;
+            let [x0, y0, x1, y1] = v[..] else { bail!("--window {w}: give xmin,ymin,xmax,ymax") };
+            if !(x0 < x1 && y0 < y1) {
+                bail!("--window {w}: the minimum must be less than the maximum");
+            }
+            Some([x0, y0, x1, y1])
+        }
+    };
+    if window.is_none() && coarsen == 1 {
+        return Ok(None);
+    }
+    let crs = match (window, crs) {
+        (None, _) => None,
+        (Some(_), Some(c)) if c.chars().all(|x| x.is_ascii_digit()) => Some(format!("EPSG:{c}")),
+        (Some(_), Some(c)) => Some(c.to_string()),
+        (Some(_), None) => first_crs(m, dir),
+    };
+    Ok(Some(terraflux_ops::check::Check::new(window.map(|w| (w, crs)), coarsen)))
+}
+
+/// The coordinate system of the first raster a model reads (an input of a map, then a `raster.read`), if one has it.
+fn first_crs(m: &Model, dir: &Path) -> Option<String> {
+    let inputs = m.inputs.values().filter_map(|i| match i {
+        Input::Map { path, .. } | Input::Stack { path, .. } => Some(path.clone()),
+        _ => None,
+    });
+    let nodes = m
+        .nodes
+        .iter()
+        .filter(|n| n.op == "raster.read")
+        .filter_map(|n| n.params.get("path").and_then(|p| p.as_str()).map(String::from));
+    for p in inputs.chain(nodes) {
+        let full = if Path::new(&p).is_absolute() { PathBuf::from(&p) } else { dir.join(&p) };
+        if let Ok(r) = terraflux_ops::files::Rasters::open(&full.to_string_lossy(), None, None)
+            && let Some(c) = terraflux_ops::prepare::crs_of(&r.grid)
+        {
+            return Some(c);
+        }
+    }
+    None
+}
+
 fn folder_of(model: &Path) -> PathBuf {
     match model.parent() {
         Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
@@ -1059,118 +1133,7 @@ fn main() -> Result<()> {
         Command::Calibrate(a) => rt()?.block_on(cluster::calibrate(&a))?,
         Command::Sensitivity(a) => rt()?.block_on(cluster::sensitivity(&a))?,
         Command::App { model } => app(model)?,
-        Command::Run {
-            model,
-            out,
-            set,
-            scenario,
-            quiet,
-            profile,
-            no_journal,
-            tiled,
-            tile,
-            radius,
-            disk,
-            coordinator,
-            code,
-            shared_disk,
-        } => {
-            let mut m = read_model(&model)?;
-            if let Some(name) = &scenario {
-                m = m.with_scenario(name)?;
-            }
-            let dir = folder_of(&model);
-            if tiled {
-                let mut o = BTreeMap::new();
-                for s in &set {
-                    let (k, v) = s.split_once('=').with_context(|| format!("--set {s}: give name=value"))?;
-                    let v = serde_json::from_str(v).unwrap_or_else(|_| serde_json::Value::String(v.to_string()));
-                    o.insert(if k.contains('.') { k.to_string() } else { format!("${k}") }, v);
-                }
-                m.apply(&o)?;
-                let t = Instant::now();
-                let opt = terraflux_engine::graph::Options {
-                    tile,
-                    settings: terraflux_engine::dinamica::Settings { radius, ..Default::default() },
-                    disk,
-                    runner: match &coordinator {
-                        Some(url) => {
-                            let code = code.as_deref().map(terraflux_dist::secure::Code::parse).transpose()?;
-                            let mut r = terraflux_dist::tiles::Remote::connect_with(url, code.as_ref())?;
-                            r.shared = shared_disk;
-                            Some(std::sync::Arc::new(r))
-                        }
-                        None => None,
-                    },
-                };
-                let out = out.unwrap_or_else(|| dir.join("output"));
-                let report = terraflux_engine::graph::run(&m, &dir, &out, &opt, |s| {
-                    if !quiet {
-                        eprintln!("  {s} ({:.1} s)", t.elapsed().as_secs_f64());
-                    }
-                })?;
-                if !quiet {
-                    for f in &report.files {
-                        eprintln!("wrote {}", f.display());
-                    }
-                    eprintln!("done in {:.1} s", t.elapsed().as_secs_f64());
-                }
-                return Ok(());
-            }
-            let overrides = apply_set(&mut m, &set, &engine)?;
-            let t = Instant::now();
-            let inputs = load_inputs(&m, &dir, &overrides)?;
-            if !quiet {
-                eprintln!("{}: inputs read ({:.1} s)", m.name.as_deref().unwrap_or("model"), t.elapsed().as_secs_f64());
-            }
-            let mut progress = Progress { quiet, start: t };
-            let results = match run_frozen(&engine, &model, &m, &inputs, &mut progress, quiet) {
-                Ok(r) => r,
-                Err(e) => {
-                    let mut entry = Entry::new(Kind::Run, "cli", t.elapsed().as_secs_f64());
-                    entry.status = Status::Failed(e.to_string());
-                    entry.scenario = scenario.clone();
-                    journal(no_journal, quiet, &model, &m, entry);
-                    return Err(e);
-                }
-            };
-            if profile {
-                let mut t = results.timings.clone();
-                t.sort_by(|a, b| b.seconds.total_cmp(&a.seconds));
-                let total: f64 = results.timings.iter().filter(|t| !t.at.contains('/')).map(|t| t.seconds).sum();
-                println!("{:>10}  {:>6}  {:>10}  node", "seconds", "share", "gave");
-                for x in &t {
-                    let share = if total > 0.0 { 100.0 * x.seconds / total } else { 0.0 };
-                    println!("{:>10.3}  {share:>5.1}%  {:>10}  {}", x.seconds, size(x.bytes), x.at);
-                }
-            }
-            let out = out.unwrap_or_else(|| dir.join("output"));
-            let files = write_outputs(&m, &results, &out)?;
-            // what the run was, to run it again and tell whether it gives the same
-            let written: Vec<(String, PathBuf)> = m.outputs.keys().cloned().zip(files.iter().cloned()).collect();
-            let manifest = terraflux_exec::testing::manifest(
-                &std::path::absolute(&model)?,
-                &m,
-                &std::path::absolute(&dir)?,
-                &overrides,
-                scenario.as_deref(),
-                &set,
-                &written,
-            )?;
-            let manifest_file = out.join("manifest.json");
-            let mut entry =
-                Entry::new(Kind::Run, "cli", t.elapsed().as_secs_f64()).with_manifest(&manifest, &manifest_file);
-            entry.scenario = scenario.clone();
-            manifest.save(&manifest_file)?;
-            journal(no_journal, quiet, &model, &m, entry);
-            if !quiet {
-                for f in files {
-                    eprintln!("wrote {}", f.display());
-                }
-                eprintln!("wrote {} (terraflux reproduce runs it again)", out.join("manifest.json").display());
-                eprintln!("done in {:.1} s", t.elapsed().as_secs_f64());
-            }
-        }
+        command @ Command::Run { .. } => run_command(command, engine)?,
         Command::Reproduce { manifest, out, quiet, thaw } => reproduce(&manifest, out, quiet, thaw, &engine)?,
         Command::Test { models, update, quiet, thaw } => test(&models, update, quiet, thaw, &engine)?,
         Command::Report { model, out, run, language } => {
@@ -1307,9 +1270,198 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// `terraflux run`: kept out of `main` so that its frame stays small (the debug build on Windows overflowed the
+/// main thread's stack when every command's locals were in one frame).
+#[inline(never)]
+fn run_command(command: Command, engine: Engine) -> Result<()> {
+    let Command::Run {
+        model,
+        out,
+        set,
+        scenario,
+        quiet,
+        profile,
+        no_journal,
+        coarsen,
+        window,
+        window_crs,
+        tiled,
+        tile,
+        radius,
+        disk,
+        coordinator,
+        code,
+        shared_disk,
+    } = command
+    else {
+        unreachable!("only a run comes here")
+    };
+    let mut m = read_model(&model)?;
+    if let Some(name) = &scenario {
+        m = m.with_scenario(name)?;
+    }
+    let dir = folder_of(&model);
+    // a check run: the rasters cut and coarser, its files apart from the real ones
+    let check = check_of(&m, &dir, coarsen, window.as_deref(), window_crs.as_deref())?
+        .map(|c| c.writing_to(out.clone().unwrap_or_else(|| terraflux_exec::journal::check_dir(&model))));
+    if check.is_some() && tiled {
+        bail!("--tiled cannot be a check run (--coarsen, --window): it already reads in tiles");
+    }
+    let engine = match &check {
+        Some(c) => Engine::checked(c.clone()),
+        None => engine,
+    };
+    let kind = || check.clone().map_or(Kind::Run, Kind::Check);
+    // (the folder of the check run, when not chosen, replaced: whatever the run before left in it goes)
+    if let (Some(c), None) = (&check, &out)
+        && let Some(o) = &c.out
+    {
+        let _ = std::fs::remove_dir_all(o);
+    }
+    if tiled {
+        let mut o = BTreeMap::new();
+        for s in &set {
+            let (k, v) = s.split_once('=').with_context(|| format!("--set {s}: give name=value"))?;
+            let v = serde_json::from_str(v).unwrap_or_else(|_| serde_json::Value::String(v.to_string()));
+            o.insert(if k.contains('.') { k.to_string() } else { format!("${k}") }, v);
+        }
+        m.apply(&o)?;
+        let t = Instant::now();
+        let opt = terraflux_engine::graph::Options {
+            tile,
+            settings: terraflux_engine::dinamica::Settings { radius, ..Default::default() },
+            disk,
+            runner: match &coordinator {
+                Some(url) => {
+                    let code = code.as_deref().map(terraflux_dist::secure::Code::parse).transpose()?;
+                    let mut r = terraflux_dist::tiles::Remote::connect_with(url, code.as_ref())?;
+                    r.shared = shared_disk;
+                    Some(std::sync::Arc::new(r))
+                }
+                None => None,
+            },
+        };
+        let out = out.unwrap_or_else(|| dir.join("output"));
+        let report = terraflux_engine::graph::run(&m, &dir, &out, &opt, |s| {
+            if !quiet {
+                eprintln!("  {s} ({:.1} s)", t.elapsed().as_secs_f64());
+            }
+        })?;
+        if !quiet {
+            for f in &report.files {
+                eprintln!("wrote {}", f.display());
+            }
+            eprintln!("done in {:.1} s", t.elapsed().as_secs_f64());
+        }
+        return Ok(());
+    }
+    let overrides = apply_set(&mut m, &set, &engine)?;
+    let t = Instant::now();
+    let inputs = terraflux_exec::load_inputs_checked(&m, &dir, &overrides, check.as_ref())?;
+    if !quiet {
+        eprintln!("{}: inputs read ({:.1} s)", m.name.as_deref().unwrap_or("model"), t.elapsed().as_secs_f64());
+        if let Some(c) = &check {
+            eprintln!(
+                "check run, {}: the results are of the part, not the model's (landscape metrics, distances and \
+                 neighbourhoods change with the resolution and the border)",
+                c.label()
+            );
+        }
+    }
+    let mut progress = Progress { quiet, start: t };
+    // (a check run does not take the frozen results: their files are of the whole map)
+    let ran = match &check {
+        Some(_) => engine.run(&m, &inputs, &mut progress).map_err(anyhow::Error::from),
+        None => run_frozen(&engine, &model, &m, &inputs, &mut progress, quiet),
+    };
+    let results = match ran {
+        Ok(r) => r,
+        Err(e) => {
+            let mut entry = Entry::new(kind(), "cli", t.elapsed().as_secs_f64());
+            entry.status = Status::Failed(e.to_string());
+            entry.scenario = scenario.clone();
+            journal(no_journal, quiet, &model, &m, entry);
+            return Err(e);
+        }
+    };
+    if profile {
+        let mut t = results.timings.clone();
+        t.sort_by(|a, b| b.seconds.total_cmp(&a.seconds));
+        let total: f64 = results.timings.iter().filter(|t| !t.at.contains('/')).map(|t| t.seconds).sum();
+        println!("{:>10}  {:>6}  {:>10}  node", "seconds", "share", "gave");
+        for x in &t {
+            let share = if total > 0.0 { 100.0 * x.seconds / total } else { 0.0 };
+            println!("{:>10.3}  {share:>5.1}%  {:>10}  {}", x.seconds, size(x.bytes), x.at);
+        }
+    }
+    let out = out.unwrap_or_else(|| check.as_ref().and_then(|c| c.out.clone()).unwrap_or_else(|| dir.join("output")));
+    let files = write_outputs(&m, &results, &out)?;
+    // what the run was, to run it again and tell whether it gives the same
+    let written: Vec<(String, PathBuf)> = m.outputs.keys().cloned().zip(files.iter().cloned()).collect();
+    let manifest = terraflux_exec::testing::manifest(
+        &std::path::absolute(&model)?,
+        &m,
+        &std::path::absolute(&dir)?,
+        &overrides,
+        scenario.as_deref(),
+        &set,
+        &written,
+    )?;
+    let manifest_file = out.join("manifest.json");
+    let mut entry = Entry::new(kind(), "cli", t.elapsed().as_secs_f64()).with_manifest(&manifest, &manifest_file);
+    entry.scenario = scenario.clone();
+    manifest.save(&manifest_file)?;
+    journal(no_journal, quiet, &model, &m, entry);
+    if !quiet {
+        for f in files {
+            eprintln!("wrote {}", f.display());
+        }
+        eprintln!("wrote {} (terraflux reproduce runs it again)", out.join("manifest.json").display());
+        eprintln!("done in {:.1} s", t.elapsed().as_secs_f64());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `--coarsen` and `--window` make the check run (its window in the CRS given, else the first raster's); none of
+    /// them is a normal run; a window that makes no sense is refused.
+    #[test]
+    fn the_check_run_is_asked_for_by_coarsen_and_window() {
+        let dir = std::env::temp_dir().join(format!("terraflux-cli-check-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut grid = terraflux_raster::Grid::new(4, 4);
+        grid.geo.wkt = None;
+        terraflux_raster::Raster::single(grid, vec![1.0; 16], terraflux_raster::DataType::U8, None)
+            .write(dir.join("a.tif"))
+            .unwrap();
+        let m = Model::from_toml(
+            "format = \"terraflux/1\"
+[[nodes]]
+id = \"a\"
+op = \"raster.read\"
+params = { path = \"a.tif\" }
+",
+        )
+        .unwrap();
+        assert!(check_of(&m, &dir, 1, None, None).unwrap().is_none());
+        let c = check_of(&m, &dir, 4, None, None).unwrap().unwrap();
+        assert_eq!((c.coarsen, c.window.is_none()), (4, true));
+        // no CRS in the model's rasters: the window is in the files' own coordinates
+        let c = check_of(&m, &dir, 1, Some("1, 2,3.5,4"), None).unwrap().unwrap();
+        assert_eq!((c.window, c.crs.clone()), (Some([1.0, 2.0, 3.5, 4.0]), None));
+        // a code alone is an EPSG code
+        let c = check_of(&m, &dir, 2, Some("-70,-10,-60,0"), Some("4326")).unwrap().unwrap();
+        assert_eq!((c.window, c.crs.as_deref(), c.coarsen), (Some([-70.0, -10.0, -60.0, 0.0]), Some("EPSG:4326"), 2));
+        for bad in ["1,2,3", "a,b,c,d", "3,0,1,4", "0,4,1,4"] {
+            assert!(check_of(&m, &dir, 1, Some(bad), None).is_err(), "{bad}");
+        }
+        assert!(check_of(&m, &dir, 0, None, None).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// A run is recorded in the model's journal, unless asked not to.
     #[test]

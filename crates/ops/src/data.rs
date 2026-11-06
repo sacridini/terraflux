@@ -851,6 +851,9 @@ impl Operator for Download {
             crate::cache::prune(all, crate::cache::limit(), &[&dir]);
         }
         let path = if layers.len() == 1 { dir.join(format!("{}.tif", layers[0].name)) } else { dir };
-        Ok(outputs([("raster", Value::Raster(Arc::new(Rasters::open(&path.to_string_lossy(), None, None)?)))]))
+        // (a check run: the rasters downloaded cut and coarser, as raster.read's)
+        let name = path.to_string_lossy();
+        let r = Rasters::open_files_checked(&name, crate::files::files_of(&name)?, None, None, ctx.check())?;
+        Ok(outputs([("raster", Value::Raster(Arc::new(r)))]))
     }
 }

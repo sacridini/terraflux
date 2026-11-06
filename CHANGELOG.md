@@ -7,6 +7,26 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Application and `terraflux run`: **check runs**, the model on a small part of the map or at a coarser resolution,
+  to see in seconds whether it is right before a run of hours. The menu next to the Run button (and the palette)
+  has *Check run on the view* (the part of the map the Viewer shows, in its coordinate system), *Check run at 1/2,
+  1/4 and 1/8 resolution* and *on the view at 1/4 resolution*; `terraflux run` takes `--coarsen N` and `--window
+  xmin,ymin,xmax,ymax` (in the first raster's coordinate system, or `--window-crs`). Every raster file the model
+  reads (`raster.read`, the inputs of maps) is read through the window (moved out to the file's cells, so rasters on
+  one grid stay on one grid, and read with windows: a large file is not read whole) and one cell in every N (the
+  nearest, so classes stay classes), its grid updated; the neutral landscape models (`nlm.*`) are drawn with N
+  times fewer rows and columns and wider cells; frozen results are not used (their files are of the whole map); the
+  files the model writes (`raster.write` and the others that write a file) go to the check's folder, `<model> runs/check` beside the
+  model (replaced each time; with `-o`, where it says), never over the real outputs, with the run's manifest. The
+  application keeps the results apart from the normal runs' (a cache of their own; the normal one is back with the next
+  normal run) and marks them ("check run, 1/4 resolution") in the Viewer, the status bar and the window's title, with a
+  hover that says landscape metrics, distances and neighbourhoods change with the resolution and the border, so it
+  checks the model and does not replace it. The journal records it as its own kind (the Runs pane: "Check run
+  (1/4)"), Clean outputs... lists its files as a check run's, and the disk check does not stop it. A window that
+  cannot be applied (a raster with no coordinate system and a window in one, no cells in common) stops it at once,
+  naming the raster. (`terraflux_ops::check::Check`, `terraflux_raster::part::Part`, `Engine::checked`,
+  `load_inputs_checked`, `journal::Kind::Check`.) Left out: the operators that open a raster file named in their own settings (CIRCUIT's INI files,
+  SWAT's folder) and `nlm.curds` (sized by its steps) run as in a normal run.
 - Application: **the journal of a model's runs, and the Runs pane**. Every run you ask for (the whole model, or up to
   a node; not the runs the application starts by itself) and every batch of Many runs (one entry, with its runs
   counted and, for a sensitivity analysis, its factors ranked) is recorded beside the model's file, in

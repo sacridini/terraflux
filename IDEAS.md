@@ -2909,6 +2909,44 @@ extensão); as versões de um modelo só existem pelo git (o `review.rs` compara
    diário dizem "check run, ¼ resolution". O aviso que vem junto: métricas de paisagem, distâncias e vizinhanças
    mudam com a resolução e a borda, então o resultado confere o modelo, não o substitui. O mesmo no `terraflux run`
    (`--window`, `--coarsen`).
+   **Feito** (Unreleased): novo `terraflux_raster::part::Part` (a janela de uma grade levada para fora até as bordas
+   das células, `of`; um a cada N, o do meio de cada bloco, então classes seguem classes, `take`/`source_col`; a grade
+   nova, `grid`) e `terraflux_ops::check::Check` (`window` + `crs` + `coarsen` + `out`; `part_of` leva o bbox para o CRS
+   do arquivo com o GDAL e recusa cedo, dizendo o raster, quando ele não tem CRS e a janela tem, quando a grade é
+   girada ou quando não há células em comum). Canal escolhido: o `Registry` guarda a conferência (`Registry::checked`,
+   `Engine::checked`; nenhum literal `Engine { registry }` dos testes mudou) e o `Engine::run_op` a entrega ao `Ctx`
+   (`ctx.check()`) e reescreve os settings do nó (`Check::params`). Cobertura: `raster.read` e as entradas de mapas
+   (`load_inputs_checked`) pela nova variante `files::File::View` (a janela e o passo sobre o `File` de verdade: o
+   `Rasters` continua preguiçoso, `read_window` lê só os blocos que toca, em faixas de 16 linhas; `sample` do Viewer
+   também), os `data.*` que baixam rasters, os `nlm.*` com `rows`/`columns` (linhas e colunas divididas, `resolution`
+   multiplicada; com `like` fica a grade dele), e as ferramentas que trabalham no arquivo pelo caminho (GDAL, os
+   tiled: porta `Raster`) recebem o recorte como arquivo próprio no cache (`Rasters::materialized`, em `as_port`).
+   Os arquivos que o modelo escreve (`raster.write`, `table.write`, `vector.write` e os `prepare` com `path`) vão para
+   a pasta da conferência pelo nome do arquivo, nunca por cima dos de verdade. Nós congelados rodam (o cache da
+   conferência é novo: sem `hold`, sem `freeze_new`, e `Session::freeze` recusa com uma conferência na tela). Cache:
+   decidido por um cache separado, não por limpar; `Session::start_run` guarda o normal em `real_cache` e põe um novo,
+   a próxima execução normal devolve o normal (os resultados de horas continuam lá) e limpa a marca. Pasta: `<pasta
+   do modelo>/<modelo> runs/check` (`journal::check_dir`), apagada e refeita a cada conferência, com o manifesto.
+   Aplicativo: o `▾` ao lado do Run e a paleta (`Do::Check`): na vista (a extensão de `preview_view.visible()` na
+   CRS do mapa mostrado, `Session::view_window`; desligado sem mapa), a 1/2, 1/4, 1/8 e na vista a 1/4; a marca
+   laranja "check run, 1/4 resolution" no Viewer, na barra de estado e no título da janela, com o aviso no hover
+   (`runs_view::check_mark`); o diário grava `Kind::Check(Check)` ("Check run (1/4)", "(view)", "(view, 1/4)" no
+   painel Runs), o *Clean outputs...* lista os arquivos como "(check run)" e nunca como os da execução mais nova, e a
+   verificação do disco não passa por aqui (`start_check` não chama `disk_ok`; `from_journal` só olha `Kind::Run`).
+   CLI: `terraflux run --coarsen N --window xmin,ymin,xmax,ymax [--window-crs]` (a janela no CRS do primeiro raster do
+   modelo, o das entradas de mapa e depois os `raster.read`; sem CRS, nas coordenadas de cada arquivo), saídas onde o
+   `-o` diz (sem ele, a pasta da conferência, nunca `output`), sem os congelados, `--tiled` recusado, diário `Check`.
+   Testes: três em `raster::part::tests`, quatro em `ops::check::tests`, cinco em `exec/tests/check.rs` (coarsen,
+   janela, janela fora, escrita redirecionada, entradas), um em `clean_view::tests`, um no `runs_view::tests`, um no
+   `cli::tests` (`check_of`) e `a_check_run_gives_the_model_at_a_coarser_resolution_apart_from_the_real_outputs`
+   (ui.rs; as imagens `ui-check-menu.png` e `ui-check-marked.png`). Ficou de fora: os operadores que abrem um raster
+   pelo caminho nos próprios settings (os `.ini` do CIRCUIT, a pasta do SWAT, `env90m`, os `sdm` de referência) e os
+   que chamam outros operadores por dentro (`batch`, `futures_tools`: `Ctx::default()`), `nlm.curds` (o tamanho vem
+   dos passos), a janela nos `nlm.*` (não têm georreferência: só o `coarsen` os muda), as overviews do GDAL (o
+   `View` lê o nível cheio e escolhe as células), a conferência a partir do MCP e do Assistente, o `--tiled`, o
+   `terraflux run` pelo binário de debug no Windows (estoura a pilha até em `--version`: o caminho foi conferido pelos
+   testes de `check_of` e do motor, não pelo binário) e uma conferência "na vista" depois de outra (a vista é a do
+   mapa mostrado, que pode ser o da conferência: a janela vale nas mesmas coordenadas, e vale).
 3. **Versões do modelo com nome, sem git.** *Save a version...* com um rótulo ("antes de trocar o cenário") guarda
    o modelo como está; uma lista das versões (rótulo, hora, o resumo das mudanças) abre qualquer uma em revisão
    contra a atual pelo `review.rs` (aceitar ou rejeitar cada mudança, os mapas antes e depois) ou a restaura (um
@@ -2967,8 +3005,7 @@ extensão); as versões de um modelo só existem pelo git (o `review.rs` compara
    real (para os testes). Testes: cinco em `disk::tests`, três em `clean_view::tests`,
    `the_outputs_of_the_runs_are_cleaned_after_asking` e `a_run_that_may_not_fit_the_disk_asks_first` (ui.rs; as
    imagens `ui-clean-1.png`, `-clean-2-asked`, `-disk-1` e `-disk-2-batch`). Ficou de fora: a estimativa por
-   `control.each` e laços aninhados além das etapas (usa o maior `times`/`steps`), as execuções de conferência (item
-   2, ainda não feito), "as que não são mais lidas" (a lista é só do diário, não do que o modelo lê agora), a
+   `control.each` e laços aninhados além das etapas (usa o maior `times`/`steps`), "as que não são mais lidas" (a lista é só do diário, não do que o modelo lê agora), a
    estimativa do `terraflux run` (a linha de comando não pergunta) e as execuções do Assistente (`chat.rs` chama
    `Session::start` direto, sem a janela).
 5. **Atalhos de teclado configuráveis.** Uma tela no Settings com cada ação (as da paleta de comandos e as do F1),

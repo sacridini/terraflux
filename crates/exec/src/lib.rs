@@ -25,7 +25,7 @@ use rayon::prelude::*;
 use terraflux_graph::{Model, Node, Ref, Severity, Source, check, dependencies_among, ids, order};
 use terraflux_ops::{Args, Ctx, Outputs, Registry, Value};
 
-pub use io::{load_inputs, write_outputs, write_value};
+pub use io::{load_inputs, load_inputs_checked, write_outputs, write_value};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -907,6 +907,18 @@ impl Default for Engine {
 }
 
 impl Engine {
+    /// An engine for a check run: the rasters the model reads are a part of the files and coarser, the ones it
+    /// draws smaller ([`terraflux_ops::check::Check`]). Its results are not the model's: keep them apart from a
+    /// normal run's cache.
+    pub fn checked(check: terraflux_ops::check::Check) -> Engine {
+        Engine { registry: Registry::standard().checked(check) }
+    }
+
+    /// The check run this engine does, if it does one.
+    pub fn check(&self) -> Option<&terraflux_ops::check::Check> {
+        self.registry.check().map(|c| &**c)
+    }
+
     /// Check the model (errors stop it), then run it on the inputs.
     pub fn run(&self, model: &Model, inputs: &BTreeMap<String, Value>, obs: &mut dyn Observer) -> Result<Results> {
         self.run_with(model, inputs, obs, None, None)
@@ -1808,7 +1820,16 @@ impl Engine {
             .registry
             .get(&node.op)
             .ok_or_else(|| Error::Node { at: at.into(), message: format!("unknown operator {:?}", node.op) })?;
-        let args = Args { node: at, inputs: values, params: &node.params };
+        // a check run: a generated raster drawn smaller, its cells wider
+        let scaled;
+        let params = match (self.registry.check(), self.registry.sig(&node.op)) {
+            (Some(c), Some(sig)) => {
+                scaled = c.params(sig, &node.params, values.contains_key("like"));
+                &scaled
+            }
+            _ => &node.params,
+        };
+        let args = Args { node: at, inputs: values, params };
         // the operator told to report how far it is, and whether the run was stopped
         let (out, warned, stopped) = {
             let mut watch = |p: Option<&terraflux_ops::Progress>| {
@@ -1825,7 +1846,7 @@ impl Engine {
                 }
                 !obs.cancelled()
             };
-            let mut ctx = Ctx::watched(&mut watch);
+            let mut ctx = Ctx::watched(&mut watch).checked(self.registry.check().cloned());
             let out = op.run(&mut ctx, &args);
             (out, std::mem::take(&mut ctx.warnings), ctx.was_stopped())
         };

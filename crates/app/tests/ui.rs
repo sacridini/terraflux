@@ -8453,6 +8453,115 @@ fn the_runs_are_kept_and_listed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A check run, from the Run button's menu: the model on the whole map at a quarter of the resolution; its results
+/// are marked in the window, its files go to `<model> runs/check` and the real outputs are left alone, the journal
+/// has it as a check run, and the next normal run clears the mark and takes the cache of the normal runs back.
+#[test]
+fn a_check_run_gives_the_model_at_a_coarser_resolution_apart_from_the_real_outputs() {
+    use terraflux_exec::journal::{Journal, Kind};
+    let dir = tmp("check-run");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut w = Wizard::default();
+    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
+    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
+    w.increment = Some(250.0);
+    let file = w.save(&dir.join("ui-check.toml")).unwrap();
+    let mut h = harness(new_app(Some(file.clone())));
+    loaded(&mut h);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.apply(&[("simulation.times".to_string(), serde_json::json!(2))].into()).unwrap();
+        s.edited();
+        s.save().unwrap();
+    }
+    // a normal run first: the real outputs, and its results in the cache
+    run_all(&mut h, None);
+    let journal = Journal::of(&file).unwrap();
+    let real = journal.entries().pop().unwrap();
+    assert_eq!(real.kind, Kind::Run);
+    assert!(!real.outputs.is_empty());
+    let stamps = |e: &terraflux_exec::journal::Entry| -> Vec<(String, std::time::SystemTime)> {
+        e.outputs.iter().map(|w| (w.path.clone(), std::fs::metadata(&w.path).unwrap().modified().unwrap())).collect()
+    };
+    let before = stamps(&real);
+    assert!(h.state().session.as_ref().unwrap().check.is_none());
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("check run").is_none(), "no mark after a normal run");
+    // the menu next to Run
+    h.get_by_label("Check").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Check run at 1/4 resolution").is_some());
+    shot(&mut h, "check-menu");
+    h.get_by_label("Check run at 1/4 resolution").click();
+    h.run_steps(2);
+    until(&mut h, "the check run", |a| !a.session.as_ref().unwrap().running());
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let check = s.check.clone().expect("the results are marked");
+    assert_eq!((check.coarsen, check.window.is_none()), (4, true));
+    assert!(s.error.is_none(), "{:?}", s.error);
+    // the files of the check run are in their own folder, a quarter of the cells a side
+    let entries = journal.entries();
+    assert_eq!(entries.len(), 2, "{entries:?}");
+    let Kind::Check(k) = &entries[1].kind else { panic!("{:?}", entries[1].kind) };
+    assert_eq!(k.coarsen, 4);
+    assert_eq!(entries[1].status, terraflux_exec::journal::Status::Done);
+    assert!(!entries[1].outputs.is_empty() && entries[1].manifest.is_some());
+    let folder = terraflux_exec::journal::check_dir(&std::path::absolute(&file).unwrap());
+    assert!(entries[1].outputs.iter().all(|w| std::path::Path::new(&w.path).starts_with(&folder)), "{entries:?}");
+    let (a, b) = (&real.outputs[0], entries[1].outputs.iter().find(|w| w.name == real.outputs[0].name).unwrap());
+    let (big, small) =
+        (terraflux_raster::Raster::read(&a.path).unwrap().grid, terraflux_raster::Raster::read(&b.path).unwrap().grid);
+    assert_eq!((small.width, small.height), (big.width.div_ceil(4), big.height.div_ceil(4)));
+    assert_eq!(small.transform[1], big.transform[1] * 4.0);
+    // the real outputs untouched
+    assert_eq!(stamps(&real), before, "the real outputs are as they were");
+    // the mark, in the window and in the Viewer, over the map the run gave
+    assert!(h.query_by_label_contains("check run, 1/4 resolution").is_some());
+    h.state_mut().session.as_mut().unwrap().preview = Some(("simulation".into(), "landscape".into()));
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(3);
+    shot(&mut h, "check-marked");
+    assert!(h.query_all_by_label_contains("check run, 1/4 resolution").count() >= 2, "the Viewer and the status bar");
+    assert_eq!(Journal::of(&file).unwrap().entries().len(), 2);
+    // the list of what the runs wrote tells the check run's files and does not take them for the newest run's
+    let items = terraflux_app::clean_view::items(&entries);
+    assert!(items.iter().any(|i| i.check && !i.latest) && items.iter().any(|i| i.latest && !i.check));
+    // the next normal run clears the mark and has the normal cache back (the nodes it holds are not run again)
+    run_all(&mut h, None);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.check.is_none());
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("check run").is_none(), "the mark is gone");
+    let all = journal.entries();
+    assert_eq!(all.len(), 3);
+    assert_eq!(all[2].kind, Kind::Run);
+    // on the view: the part of the map the Viewer shows (zoomed in), of the real resolution
+    h.state_mut().session.as_mut().unwrap().preview = Some(("simulation".into(), "landscape".into()));
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(4);
+    let (cols, rows) = (big.width as f32, big.height as f32);
+    h.state_mut().session.as_mut().unwrap().preview_view.zoom_to([cols * 0.25, rows * 0.25, cols * 0.75, rows * 0.75]);
+    h.run_steps(4);
+    assert!(h.state().session.as_ref().unwrap().view_window().is_some(), "the Viewer shows a map");
+    h.get_by_label("Check").click();
+    h.run_steps(3);
+    h.get_by_label("Check run on the view").click();
+    h.run_steps(2);
+    until(&mut h, "the check run on the view", |a| !a.session.as_ref().unwrap().running());
+    h.run_steps(3);
+    let all = journal.entries();
+    assert_eq!(all.len(), 4);
+    let Kind::Check(k) = &all[3].kind else { panic!("{:?}", all[3].kind) };
+    assert!(k.window.is_some() && k.coarsen == 1, "{k:?}");
+    let part = terraflux_raster::Raster::read(&all[3].outputs[0].path).unwrap().grid;
+    assert!(part.width < big.width && part.width * 3 > big.width, "{} of {}", part.width, big.width);
+    assert!(part.height < big.height, "{} of {}", part.height, big.height);
+    assert!(h.query_all_by_label_contains("check run, on the view").count() >= 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The Runs pane's actions: a scenario applied in the Parameters pane is recorded with its name; a run selected
 /// shows its outputs in the Viewer and restores its model (one step of undo); two runs selected are compared (their
 /// values, their models through the Review pane, their maps in the Viewer's comparison).

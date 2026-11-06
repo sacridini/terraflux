@@ -19,6 +19,7 @@
 
 pub mod image;
 pub mod npy;
+pub mod part;
 pub mod resample;
 pub mod tiff;
 pub mod vector;

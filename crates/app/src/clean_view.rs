@@ -23,6 +23,8 @@ pub struct Item {
     pub batch: bool,
     /// The newest run wrote it.
     pub latest: bool,
+    /// A check run's file (never the newest run's: the real run is).
+    pub check: bool,
     /// When the newest run that wrote it began (seconds since 1970).
     pub when: u64,
     /// Whether it is there now.
@@ -37,7 +39,7 @@ pub struct Item {
 /// The files and folders of a journal's runs, the newest first: each path once, from the entries (the oldest first).
 /// Not yet checked for existing, sized or chosen.
 pub fn items(entries: &[Entry]) -> Vec<Item> {
-    let whole = |e: &&Entry| !matches!(e.kind, Kind::Batch(_)) && !e.outputs.is_empty();
+    let whole = |e: &&Entry| !matches!(e.kind, Kind::Batch(_) | Kind::Check(_)) && !e.outputs.is_empty();
     let newest = entries.iter().rev().find(whole).map(|e| e.id);
     let mut rows: Vec<(Item, u64)> = Vec::new();
     for e in entries {
@@ -48,15 +50,27 @@ pub fn items(entries: &[Entry]) -> Vec<Item> {
         };
         for (path, batch) in paths {
             let latest = !batch && Some(e.id) == newest;
+            let check = matches!(e.kind, Kind::Check(_));
             match rows.iter_mut().find(|(i, _)| i.path == path) {
                 Some((i, id)) => {
                     i.when = e.when;
                     i.latest = latest;
+                    i.check = check;
                     i.batch |= batch;
                     *id = e.id;
                 }
                 None => rows.push((
-                    Item { path, batch, latest, when: e.when, exists: false, size: None, kept: None, checked: false },
+                    Item {
+                        path,
+                        batch,
+                        latest,
+                        check,
+                        when: e.when,
+                        exists: false,
+                        size: None,
+                        kept: None,
+                        checked: false,
+                    },
                     e.id,
                 )),
             }
@@ -281,7 +295,11 @@ pub fn window(ctx: &egui::Context, s: &mut Session) {
                                     let on = i.exists && i.kept.is_none();
                                     ui.add_enabled(on, egui::Checkbox::without_text(&mut i.checked));
                                     let name = shown(&i.path, &s.path.clone().unwrap_or_default());
-                                    let r = ui.label(if i.batch { format!("{name} (batch)") } else { name });
+                                    let r = ui.label(match (i.batch, i.check) {
+                                        (true, _) => format!("{name} (batch)"),
+                                        (_, true) => format!("{name} (check run)"),
+                                        _ => name,
+                                    });
                                     r.on_hover_text(i.path.display().to_string());
                                     let when = crate::eta::stamp(i.when).unwrap_or_default();
                                     if i.latest {
@@ -391,6 +409,17 @@ mod tests {
         assert_eq!(all.iter().map(|i| i.when).collect::<Vec<_>>(), [3, 2, 1]);
         assert!(find("/m/output/a.tif").latest && !find("/m/output/b.tif").latest);
         assert!(find("/m/batch").batch && !find("/m/batch").latest);
+    }
+
+    #[test]
+    fn a_check_runs_files_are_listed_as_such_and_never_the_newest_runs() {
+        let check = Kind::Check(terraflux_ops::check::Check::new(None, 4));
+        let entries = [run(1, Kind::Run, &["/m/output/a.tif"]), run(2, check, &["/m/runs/check/a.tif"])];
+        let all = items(&entries);
+        let find = |p: &str| all.iter().find(|i| i.path == Path::new(p)).unwrap();
+        // (the check run is newer, yet the real run's file is the latest one)
+        assert!(find("/m/runs/check/a.tif").check && !find("/m/runs/check/a.tif").latest);
+        assert!(find("/m/output/a.tif").latest && !find("/m/output/a.tif").check);
     }
 
     #[test]

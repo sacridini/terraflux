@@ -5,6 +5,7 @@ mod abm;
 mod bridge;
 mod cache;
 mod calc;
+mod check;
 mod debug;
 mod each;
 mod folders;

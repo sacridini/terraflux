@@ -19,6 +19,14 @@ use crate::{Error, Result};
 /// The folder the journals are kept in, beside the model.
 pub const FOLDER: &str = ".terraflux";
 
+/// The folder a check run of a model writes its outputs to: `<model folder>/<model> runs/check`, replaced at each
+/// check run, never the folder of the real outputs.
+pub fn check_dir(model_file: &Path) -> PathBuf {
+    let stem = model_file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "model".into());
+    let dir = model_file.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    dir.join(format!("{stem} runs")).join("check")
+}
+
 /// How a run ended.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -41,6 +49,9 @@ pub enum Kind {
     To(String),
     /// Many runs.
     Batch(Batch),
+    /// A check run: the whole model on a part of the map, or at a coarser resolution, its outputs apart from the real
+    /// ones.
+    Check(terraflux_ops::check::Check),
 }
 
 /// A batch of Many runs: one entry, with its runs counted.

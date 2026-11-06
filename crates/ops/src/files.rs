@@ -10,14 +10,17 @@
 //! (`terraflux_graph::submodel::expand` makes them absolute).
 
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_raster::image::Image;
+use terraflux_raster::part::Part;
 use terraflux_raster::tiff::{TiledWriter, Window};
 use terraflux_raster::{Band, DataType, Grid, Raster};
 
+use crate::check::Check;
 use crate::{Args, Ctx, Error, Key, Map, Operator, Outputs, Registry, Result, Stack, Value, outputs};
 
 pub fn register(r: &mut Registry) {
@@ -48,11 +51,99 @@ pub fn read_raster(path: &Path) -> std::result::Result<terraflux_raster::Raster,
     Ok(r)
 }
 
+/// A raster file read whole for a check run: the window of it and one cell in every few, as the file's metadata
+/// say (GeoTIFF by Terraflux, any other format by GDAL).
+pub fn read_raster_checked(path: &Path, check: &Check) -> Result<terraflux_raster::Raster> {
+    let file = File::open(path)?.checked(check)?;
+    let meta = file.meta();
+    let bands = (0..meta.bands.len().max(1))
+        .map(|b| file.read_band(b).map(|data| Band { name: meta.bands.get(b).and_then(|x| x.name.clone()), data }))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Raster { grid: meta.grid.clone(), bands, dtype: meta.dtype, nodata: meta.nodata })
+}
+
 /// A raster file: read by Terraflux itself (GeoTIFF: the fastest, exactly), or by GDAL (any other format, and
 /// TIFFs Terraflux does not read, such as JPEG-compressed ones).
 pub enum File {
     Own(Image),
     Gdal(terraflux_gdal::Dataset),
+    /// A part of another file, one cell in every few (a check run).
+    View(Box<View>),
+}
+
+/// A file seen through a window and a coarser grid ([`Part`]): its cells are the nearest of the file's, its
+/// metadata those of the file with the grid of the part, so what reads it never meets the rest of the file.
+pub struct View {
+    inner: File,
+    part: Part,
+    meta: Raster,
+}
+
+impl View {
+    fn new(inner: File, part: Part) -> View {
+        let mut meta = inner.meta().clone();
+        meta.grid = part.grid(&meta.grid);
+        View { inner, part, meta }
+    }
+
+    /// A band's cells at every `step`-th row and column of a window of the view.
+    fn sample(&self, band: usize, win: Window, step: usize) -> Result<Vec<f32>> {
+        let step = step.max(1);
+        let s = self.part.step as i64;
+        let (ow, oh) = (win.width.div_ceil(step), win.height.div_ceil(step));
+        // the file's cell of each of the view's: the middle of its block
+        let inside = |k: usize, start: i64, n: usize| {
+            let at = start + (k * step) as i64;
+            at >= 0 && (at as usize) < n
+        };
+        let from = Window {
+            x0: self.part.col as i64 + win.x0 * s + s / 2,
+            y0: self.part.row as i64 + win.y0 * s + s / 2,
+            width: win.width * self.part.step,
+            height: win.height * self.part.step,
+        };
+        let mut v = self.inner.sample(band, from, step * self.part.step)?;
+        let (cols, rows) = (self.part.columns(), self.part.rows());
+        for i in 0..oh {
+            for j in 0..ow {
+                if !inside(i, win.y0, rows) || !inside(j, win.x0, cols) {
+                    v[i * ow + j] = f32::NAN;
+                }
+            }
+        }
+        Ok(v)
+    }
+
+    /// A window of the view, exactly (NaN outside it): read from the file a few rows of the view at a time.
+    fn read_window(&self, band: usize, win: Window) -> Result<Vec<f64>> {
+        let mut out = vec![f64::NAN; win.width * win.height];
+        let (cols, rows) = (self.part.columns() as i64, self.part.rows() as i64);
+        let (c0, c1) = (win.x0.max(0), (win.x0 + win.width as i64).min(cols));
+        let (r0, r1) = (win.y0.max(0), (win.y0 + win.height as i64).min(rows));
+        if c0 >= c1 || r0 >= r1 {
+            return Ok(out);
+        }
+        let from: Vec<usize> = (c0..c1).map(|c| self.part.source_col(c as usize)).collect();
+        let (left, right) = (from[0], from[from.len() - 1]);
+        let width = right - left + 1;
+        let mut r = r0;
+        while r < r1 {
+            let end = (r + 16).min(r1);
+            let at: Vec<usize> = (r..end).map(|k| self.part.source_row(k as usize)).collect();
+            let (top, bottom) = (at[0], at[at.len() - 1]);
+            let block = self
+                .inner
+                .read_window(band, Window { x0: left as i64, y0: top as i64, width, height: bottom - top + 1 })?;
+            for (k, &sr) in at.iter().enumerate() {
+                let to = (r + k as i64 - win.y0) as usize * win.width + (c0 - win.x0) as usize;
+                for (j, &sc) in from.iter().enumerate() {
+                    out[to + j] = block[(sr - top) * width + (sc - left)];
+                }
+            }
+            r = end;
+        }
+        Ok(out)
+    }
 }
 
 impl File {
@@ -84,13 +175,30 @@ impl File {
         match self {
             File::Own(i) => &i.meta,
             File::Gdal(d) => &d.meta,
+            File::View(v) => &v.meta,
         }
+    }
+
+    /// The file for a check run: a window of it, one cell in every few; itself when that changes nothing.
+    pub fn checked(self, check: &Check) -> Result<File> {
+        let what = self.path().display().to_string();
+        let part = check.part_of(&self.meta().grid, &what)?;
+        if part.is_whole(&self.meta().grid) {
+            return Ok(self);
+        }
+        Ok(File::View(Box::new(View::new(self, part))))
+    }
+
+    /// Whether it is a part of a file, or a coarser one (a check run's).
+    pub fn is_view(&self) -> bool {
+        matches!(self, File::View(_))
     }
 
     pub fn path(&self) -> PathBuf {
         match self {
             File::Own(i) => i.path.clone(),
             File::Gdal(d) => PathBuf::from(d.path()),
+            File::View(v) => v.inner.path(),
         }
     }
 
@@ -99,6 +207,7 @@ impl File {
         match self {
             File::Own(i) => i.block_rows(),
             File::Gdal(d) => d.block_rows,
+            File::View(v) => (v.inner.block_rows() / v.part.step).max(1),
         }
     }
 
@@ -107,6 +216,7 @@ impl File {
         match self {
             File::Own(_) => "Terraflux".into(),
             File::Gdal(d) => format!("GDAL {}", d.driver),
+            File::View(v) => v.inner.reader(),
         }
     }
 
@@ -114,6 +224,7 @@ impl File {
     pub fn sample(&self, band: usize, win: Window, step: usize) -> Result<Vec<f32>> {
         match self {
             File::Own(i) => i.sample(band, win, step).map_err(|e| Error::msg(e.to_string())),
+            File::View(v) => v.sample(band, win, step),
             File::Gdal(d) => {
                 let step = step.max(1);
                 let (w, h) = (d.meta.grid.width as i64, d.meta.grid.height as i64);
@@ -148,6 +259,7 @@ impl File {
     pub fn read_window(&self, band: usize, win: Window) -> Result<Vec<f64>> {
         match self {
             File::Own(i) => i.read_window(band, win).map_err(|e| Error::msg(e.to_string())),
+            File::View(v) => v.read_window(band, win),
             File::Gdal(d) => {
                 let (w, h) = (d.meta.grid.width as i64, d.meta.grid.height as i64);
                 let mut out = vec![f64::NAN; win.width * win.height];
@@ -172,6 +284,9 @@ impl File {
     pub fn read_band(&self, band: usize) -> Result<Vec<f64>> {
         match self {
             File::Own(i) => i.read_band(band).map_err(|e| Error::msg(e.to_string())),
+            File::View(v) => {
+                v.read_window(band, Window { x0: 0, y0: 0, width: v.part.columns(), height: v.part.rows() })
+            }
             File::Gdal(d) => {
                 let (w, h) = (d.meta.grid.width, d.meta.grid.height);
                 d.read(band, 0, 0, w, h, w, h).map_err(Error::msg)
@@ -330,10 +445,31 @@ impl Rasters {
 
     /// The rasters of some files (those `path` names, or some of them).
     pub fn open_files(path: &str, files: Vec<PathBuf>, band: Option<&str>, nodata: Option<f64>) -> Result<Rasters> {
+        Rasters::open_files_checked(path, files, band, nodata, None)
+    }
+
+    /// The rasters of some files for a check run (`check`): each file through the window and the coarser grid.
+    pub fn open_files_checked(
+        path: &str,
+        files: Vec<PathBuf>,
+        band: Option<&str>,
+        nodata: Option<f64>,
+        check: Option<&Check>,
+    ) -> Result<Rasters> {
         if files.is_empty() {
             return Err(Error::msg(format!("{path}: no raster")));
         }
-        let images: Vec<Arc<File>> = files.iter().map(|f| File::open(f).map(Arc::new)).collect::<Result<_>>()?;
+        let images: Vec<Arc<File>> = files
+            .iter()
+            .map(|f| {
+                let file = File::open(f)?;
+                match check {
+                    Some(c) => file.checked(c),
+                    None => Ok(file),
+                }
+                .map(Arc::new)
+            })
+            .collect::<Result<_>>()?;
         let grid = images[0].meta().grid.clone();
         let mut layers = Vec::new();
         if images.len() == 1 {
@@ -411,6 +547,62 @@ impl Rasters {
 
     pub fn cells(&self) -> usize {
         self.grid.width * self.grid.height
+    }
+
+    /// Whether the rasters are parts of files, or coarser (a check run's): the files on disk are not what they hold.
+    pub fn is_view(&self) -> bool {
+        self.images.iter().any(|i| i.is_view())
+    }
+
+    /// The same rasters as files of their own (in the cache, named by the file, the part and its time), for an
+    /// operator that works on the files themselves (GDAL's utilities, the tiled analyses): they then see the part
+    /// and not the whole of the file. Itself when none is a view.
+    pub fn materialized(&self) -> Result<Rasters> {
+        if !self.is_view() {
+            return Ok(self.choose(self.chosen).picking(self.picked));
+        }
+        let images = self
+            .images
+            .iter()
+            .map(|f| -> Result<Arc<File>> {
+                let File::View(v) = &**f else { return Ok(f.clone()) };
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                let src = v.inner.path();
+                src.hash(&mut h);
+                if let Ok(m) = std::fs::metadata(&src) {
+                    (m.len(), m.modified().ok()).hash(&mut h);
+                }
+                (v.part.col, v.part.row, v.part.width, v.part.height, v.part.step).hash(&mut h);
+                let at = crate::prepare::cache_dir().join(format!("view-{:016x}.tif", h.finish()));
+                if at.is_file() {
+                    crate::cache::touch(&at);
+                } else {
+                    let bands = (0..v.meta.bands.len().max(1))
+                        .map(|b| {
+                            let name = v.meta.bands.get(b).and_then(|x| x.name.clone());
+                            f.read_band(b).map(|data| Band { name, data })
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    let raster =
+                        Raster { grid: v.meta.grid.clone(), bands, dtype: v.meta.dtype, nodata: v.meta.nodata };
+                    // (made under another name and renamed, so that a file there is never half-made)
+                    let name = at.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    let tmp = at.with_file_name(format!(".part-{}-{name}", std::process::id()));
+                    crate::prepare::write_with_crs(&raster, &tmp)?;
+                    std::fs::rename(&tmp, &at).map_err(|e| Error::msg(format!("{}: {e}", at.display())))?;
+                }
+                File::open(&at).map(Arc::new)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Rasters {
+            grid: self.grid.clone(),
+            layers: self.layers.clone(),
+            images,
+            chosen: self.chosen,
+            picked: self.picked,
+            mixed: self.mixed,
+            whole: Arc::new(Mutex::new(HashMap::new())),
+        })
     }
 
     /// Whether the files are on the web (read over the network, by windows).
@@ -506,6 +698,8 @@ impl Rasters {
 pub fn as_port(v: Value, want: Type) -> Result<Value> {
     match (v, want) {
         (Value::Raster(r), Type::Stack) => Ok(Value::Stack(r.stack()?)),
+        // (a part of a file, a check run's: the files themselves are not what an operator on files may read)
+        (Value::Raster(r), Type::Raster) if r.is_view() => Ok(Value::Raster(Arc::new(r.materialized()?))),
         (Value::Raster(r), Type::Raster) => Ok(Value::Raster(r)),
         // a port of any value: every band of rasters of many (a stack), not only the first; the band asked for
         // alone, a map
@@ -619,7 +813,7 @@ impl Operator for Read {
         ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let path: String = args.param("path", String::new())?;
         if path.is_empty() {
             return Err(Error::msg(format!("node {:?}: choose the file", args.node)));
@@ -633,7 +827,9 @@ impl Operator for Read {
         if let Some(n) = args.opt_param::<usize>("first")? {
             files.truncate(n.max(1));
         }
-        let r = Rasters::open_files(&path, files, band.as_deref(), args.opt_param::<f64>("nodata")?)?;
+        // (a check run: each file through the window and the coarser grid)
+        let r =
+            Rasters::open_files_checked(&path, files, band.as_deref(), args.opt_param::<f64>("nodata")?, ctx.check())?;
         // the rasters on disk, read whole only where a node needs a map (the band chosen) or a stack (every band);
         // the band chosen follows them through the operators that make new files of them
         Ok(outputs([("raster", Value::Raster(Arc::new(r)))]))

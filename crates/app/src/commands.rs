@@ -34,6 +34,11 @@ pub enum Do {
     /// Process a folder...: every raster of a folder through an operator.
     ProcessFolder,
     Run,
+    /// A check run: on the Viewer's view or the whole map, one cell in every `coarsen`.
+    Check {
+        view: bool,
+        coarsen: u32,
+    },
     Stop,
     RunToHere,
     Arrange,
