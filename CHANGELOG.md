@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.42.0] - 2026-11-06
+
 ### Added
 - Canvas: **a connection let go on empty canvas asks for an operator that takes it**: the search opens at the
   pointer with only the operators that have an input for that type ("Add an operator that takes a raster", those
