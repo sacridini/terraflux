@@ -4156,6 +4156,11 @@ fn a_sensitivity_analysis_runs_from_its_pane() {
     assert!(indices.starts_with("factor,low,high,swing,base\npatches.isometry,"), "{indices}");
     let design = std::fs::read_to_string(out.join("design.csv")).unwrap();
     assert_eq!(design.lines().count(), 6, "{design}");
+    // the chart, as files (OAT has no convergence check)
+    let svg = std::fs::read_to_string(out.join("sensitivity.svg")).unwrap();
+    assert!(svg.contains("<svg") && svg.contains("patches.isometry"), "{svg}");
+    assert!(out.join("sensitivity.png").metadata().unwrap().len() > 500);
+    assert!(i.convergence.is_none() && !out.join("convergence.csv").exists());
     shot(&mut h, "batch-7-sensitivity-done");
 
     // the share of a land use class of the simulated maps: a number in 0..1 in every run
@@ -4245,6 +4250,73 @@ fn a_sensitivity_analysis_runs_replicates_at_each_point() {
     let design = std::fs::read_to_string(out.join("design.csv")).unwrap();
     assert!(design.starts_with("run,patches.isometry,simulation.maps,sd,n\n"), "{design}");
     assert_eq!(design.lines().count(), 4, "{design}");
+    assert!(out.join("sensitivity.svg").exists() && out.join("sensitivity.png").exists());
+    h.get_by_label("Save the chart...").scroll_to_me();
+    h.run_steps(30);
+    shot(&mut h, "batch-9-oat-chart");
+}
+
+#[test]
+fn a_morris_analysis_checks_its_convergence() {
+    use terraflux_app::batch_view::{Kind, Range};
+    use terraflux_dist::sensitivity::Method;
+    let r = terraflux_raster::Raster::read(data("sibuyan_landuse.tif")).unwrap();
+    let class = r.bands[0].masked(r.nodata).iter().copied().find(|x| !x.is_nan()).unwrap();
+    let mut h = harness(new_app(Some(model())));
+    loaded(&mut h);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.apply(&[("simulation.times".to_string(), serde_json::json!(1))].into()).unwrap();
+        s.edited();
+    }
+    h.state_mut().focus(Pane::Batch);
+    let out = tmp("ui-sensitivity-morris");
+    let _ = std::fs::remove_dir_all(&out);
+    let _ = std::fs::remove_dir_all(tmp("ui-sensitivity-morris-pool"));
+    h.state_mut().computers.pool = None;
+    h.state_mut().computers.dir = Some(tmp("ui-sensitivity-morris-pool"));
+    {
+        let b = &mut h.state_mut().batch;
+        b.kind = Kind::Sensitivity;
+        b.workers = 2;
+        b.out = Some(out.clone());
+        b.sens.method = Method::Morris;
+        b.sens.design.n = 4;
+        b.sens.output = Some("simulation.maps".into());
+        // (the mean of the map would not change: the number of patches does)
+        b.sens.statistic = "metric".into();
+        b.sens.metric = "np".into();
+        b.sens.class = format!("{class}");
+        b.sens.factors = vec![
+            Range { key: "patches.isometry".into(), from: "0.5".into(), to: "2.5".into(), points: String::new() },
+            Range {
+                key: "simulation/allocate.prune_factor".into(),
+                from: "5".into(),
+                to: "15".into(),
+                points: String::new(),
+            },
+        ];
+    }
+    h.run_steps(3);
+    // 4 trajectories of 3 runs
+    h.get_by_label("Run 12 times").click();
+    h.run_steps(1);
+    assert!(h.state().batch.running(), "{:?}", h.state().batch.error);
+    until(&mut h, "the Morris analysis", |a| !a.batch.running());
+    h.run_steps(2);
+    let b = &h.state().batch;
+    assert!(b.error.is_none(), "{:?}", b.error);
+    let f = b.finished.as_ref().unwrap();
+    assert_eq!(f.rows.len(), 12, "{:?} {:?}", f.errors, f.rows);
+    let i = f.sensitivity.as_ref().unwrap();
+    let c = i.convergence.as_ref().expect("the convergence of 4 trajectories");
+    assert_eq!((c.n.clone(), c.by.as_str(), c.values.len()), (vec![2, 4], "mu_star", 2));
+    let csv = std::fs::read_to_string(out.join("convergence.csv")).unwrap();
+    assert!(csv.starts_with("factor,mu_star_n2,mu_star_n4\npatches.isometry,"), "{csv}");
+    assert!(out.join("sensitivity.svg").exists() && out.join("sensitivity.png").exists());
+    h.get_by_label("Save the chart...").scroll_to_me();
+    h.run_steps(30);
+    shot(&mut h, "batch-8-morris-done");
 }
 
 #[test]

@@ -2983,6 +2983,23 @@ min ou max de um mapa). Falta tudo na interface: só quem usa a linha de comando
    execuções (item 1 da seção anterior) e o `methods.rs` escreve o seu parágrafo (o método, o desenho, N, as
    réplicas, a referência do SALib, de Morris 1991, Saltelli 2002/2010). No MCP, uma ferramenta `sensitivity` que
    monta e roda a análise e devolve os índices.
+   **Feito em parte** (Unreleased): os gráficos, a convergência e os arquivos. `terraflux_dist::sensitivity` ganha
+   `Convergence` (`Indices::convergence`, `#[serde(default)]`: por fator, μ* ou ST com um quarto, metade e todo o
+   desenho, em trajetórias inteiras (Morris, a partir de 2) ou blocos inteiros de pontos-base (Sobol, a partir de 4);
+   o OAT não tem), `convergence_csv`, `TOLERANCE` (0,05) e `MATTERS` (0,1): estável quando, de metade para todo o
+   desenho, nenhum fator mexeu mais que 5 % do maior valor e os fatores acima de 10 % do maior mantêm a ordem;
+   `write_indices` escreve também o `convergence.csv` (vale para o `terraflux sensitivity`). Novo
+   `crates/app/src/sens_chart.rs`: `show` (egui_plot em `finished_ui`: o tornado do OAT, o μ*–σ do Morris com as
+   guias σ/μ* = 0,1 e 1 e a dica de Garcia Sanchez et al. 2014, as barras de S1 e ST com os intervalos do Sobol; sob
+   elas o veredito e um gráfico de linhas dos valores em cada tamanho), `verdict`, `drawing` (o mesmo gráfico como
+   `figure::Drawing`, com o texto em contornos, pelo pequeno construtor novo `Drawing::{blank, rect, polyline, dot,
+   label}` e `text_width` em `figure.rs`), `write` (`sensitivity.svg` e `sensitivity.png` na pasta, ao acabar a
+   análise) e `save` (o botão *Save the chart...*, SVG ou PNG). Testes: quatro em `dist::sensitivity::tests`
+   (linear estável com poucas trajetórias, ruidoso instável, Ishigami com N = 2048 estável e ST perto de 0,56/0,44/0,24,
+   estrutura com N pequeno), três em `sens_chart::tests`, e no ui.rs os arquivos em `a_sensitivity_analysis_runs_from_its_pane`
+   e `..._replicates_at_each_point` e o novo `a_morris_analysis_checks_its_convergence` (as imagens `ui-batch-8-morris-done.png`
+   e `ui-batch-9-oat-chart.png`). Falta do item 6: o parágrafo do `methods.rs`, a ferramenta `sensitivity` do MCP e o
+   registro da análise no diário das execuções.
 7. **Mapas de sensibilidade.** De uma saída em mapa, por célula: o desvio padrão entre as rodadas do desenho (onde
    o resultado é incerto) e, com Sobol, o S1 e o ST de cada fator por célula (onde cada fator manda), como uma
    pilha que o Viewer mostra. Pede guardar os mapas de cada rodada (ou acumulá-los nos workers): o mais caro, o

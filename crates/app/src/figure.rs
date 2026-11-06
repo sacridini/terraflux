@@ -1458,6 +1458,41 @@ impl Drawing {
     pub fn clear_pixels(&self) -> Result<tiny_skia::Pixmap, String> {
         self.pixels_on(72, tiny_skia::Color::TRANSPARENT)
     }
+
+    /// An empty drawing of `w` x `h` points, for a chart laid out by hand.
+    pub(crate) fn blank(w: f32, h: f32) -> Drawing {
+        Drawing { w, h, shapes: Vec::new() }
+    }
+
+    pub(crate) fn rect(&mut self, (x, y, w, h): (f32, f32, f32, f32), fill: Option<Color32>) {
+        self.shapes.push(Shape::Rect { x, y, w, h, fill, stroke: None });
+    }
+
+    pub(crate) fn polyline(&mut self, points: Vec<(f32, f32)>, colour: Color32, width: f32) {
+        self.shapes.push(Shape::Line { points, colour, width });
+    }
+
+    /// A filled disc.
+    pub(crate) fn dot(&mut self, x: f32, y: f32, r: f32, fill: Color32) {
+        let ring = (0..16)
+            .map(|i| {
+                let a = i as f32 / 16.0 * std::f32::consts::TAU;
+                (x + r * a.cos(), y + r * a.sin())
+            })
+            .collect();
+        self.shapes.push(Shape::Path { rings: vec![ring], closed: true, fill: Some(fill), stroke: None });
+    }
+
+    /// A line of text at a point on its baseline: from there, or centred on it; `up` reads it upwards.
+    pub(crate) fn label(&mut self, (x, y): (f32, f32), size: f32, text: &str, middle: bool, colour: Color32, up: bool) {
+        let anchor = if middle { Anchor::Middle } else { Anchor::Start };
+        self.shapes.push(Shape::Text { x, y, size, text: text.into(), anchor, colour, up });
+    }
+}
+
+/// A text's width in points at a size, in the figures' font.
+pub(crate) fn text_width(size: f32, text: &str) -> f32 {
+    Type::new().width(size, text)
 }
 
 /// A picture as PNG (from premultiplied RGBA).

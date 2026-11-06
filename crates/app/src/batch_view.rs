@@ -637,7 +637,12 @@ impl BatchState {
                         .map(|i| i.with_replicates(&rep))
                         .and_then(|i| sens::write_indices(&r.out, &i).map(|_| i))
                     {
-                        Ok(i) => Some(i),
+                        Ok(i) => {
+                            if let Err(e) = crate::sens_chart::write(&r.out, &i) {
+                                self.error = Some(format!("the chart was not written: {e}"));
+                            }
+                            Some(i)
+                        }
                         Err(e) => {
                             self.error = Some(e.to_string());
                             None
@@ -1936,6 +1941,7 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
     });
     let mut add_series = None;
     let mut apply = None;
+    let mut st_error = None;
     if let Some((ranked, keys, metric)) = &f.ranked {
         if let Some(best) = ranked.first() {
             ui.label(RichText::new(format!("Best: {} = {:.4}", metric, best.score)).strong());
@@ -1998,6 +2004,20 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
         if f.failed > 0 && ind.replicates > 1 {
             ui.label(format!("{} runs failed; their points are the mean of the replicates that ran.", f.failed));
         }
+        crate::sens_chart::show(ui, ind);
+        if ui
+            .button("Save the chart...")
+            .on_hover_text("as SVG or PNG; sensitivity.svg and sensitivity.png are in the folder already")
+            .clicked()
+            && let Some(p) = rfd::FileDialog::new()
+                .set_title("Save the chart")
+                .add_filter("SVG or PNG", &["svg", "png"])
+                .set_file_name("sensitivity.svg")
+                .save_file()
+            && let Err(e) = crate::sens_chart::save(&p, ind)
+        {
+            st_error = Some(e);
+        }
         ui.label(RichText::new(format!("The factors that matter most first (by {}).", ind.ranked_by())).weak());
         egui::ScrollArea::horizontal().id_salt("indices").show(ui, |ui| {
             egui::Grid::new("indices").striped(true).spacing([12.0, 4.0]).show(ui, |ui| {
@@ -2015,7 +2035,12 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
                 }
             });
         });
-        ui.label(RichText::new("design.csv and indices.csv are in the folder.").weak());
+        ui.label(
+            RichText::new(
+                "design.csv, indices.csv, convergence.csv and the chart (sensitivity.svg and .png) are in the folder.",
+            )
+            .weak(),
+        );
     } else {
         for name in f.files.iter().filter(|n| n.ends_with(".tif")) {
             if ui
@@ -2045,6 +2070,9 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
                 }
             });
         });
+    }
+    if st_error.is_some() {
+        st.error = st_error;
     }
     if let Some(p) = add_series
         && let Err(e) = crate::builder::add(s, r, "raster.read", &[("path", p.to_string_lossy().into_owned().into())])

@@ -39,6 +39,16 @@ minor versions.
   button on each number (its range, when it has one) and *Sensitivity of these parameters...* for all of them. The tab
   lists *Suggested* factors, with a hover saying why and *Add all*: the parameters with a `min` and a `max`, and the
   settings (or `$inputs`) that the nodes' `assumptions` speak of, as they are the ones assumed, not measured.
+- Application: **the charts of a sensitivity analysis, and whether it has settled**. Above the indices table, a
+  tornado for one at a time (each factor from its minimum to its maximum around the base output, the largest swing on
+  top), μ* against σ for Morris (with the σ/μ* = 0.1 and 1 guides of Garcia Sanchez et al. 2014 and what they mean on
+  hover) and S1 and ST bars with their intervals for Sobol. For Morris and Sobol the indices are computed again with
+  a quarter and half of the trajectories or base points: "Stable" when no factor's value moved by more than 5 % of the
+  largest from half the runs to all of them and the factors that matter (above 10 % of the largest) kept their order,
+  else a warning to use more trajectories or base points, with a line chart of the values at each size. The chart is
+  written as `sensitivity.svg` and `sensitivity.png` next to `indices.csv`, with `convergence.csv` (also from
+  `terraflux sensitivity`), and *Save the chart...* writes it elsewhere
+  (`terraflux_dist::sensitivity::{Convergence, convergence_csv}`).
 - `terraflux sensitivity --method oat`, and the new `terraflux_ops::sensitivity::oat_sample` and `oat_analyze`.
   The design, the candidates, the indices and their CSV files are now `terraflux_dist::sensitivity`, shared by the
   command and the application (the files and columns of Morris and Sobol are the same as before).

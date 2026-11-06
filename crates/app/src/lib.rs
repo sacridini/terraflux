@@ -77,6 +77,7 @@ pub mod review;
 pub mod rgb;
 pub mod runner;
 pub mod search;
+pub mod sens_chart;
 pub mod series_drop;
 pub mod settings;
 pub mod shade;

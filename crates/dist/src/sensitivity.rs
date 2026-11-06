@@ -191,10 +191,95 @@ pub struct Indices {
     /// With replicates: the share (0..1) of the output's variance that comes from the seed, not the factors.
     #[serde(default)]
     pub chance: Option<f64>,
+    /// Morris and Sobol: the ranking value again with a fraction of the design (none for OAT, or a design too small).
+    #[serde(default)]
+    pub convergence: Option<Convergence>,
 }
+
+/// Whether the ranking value (μ* or ST) has settled: the analysis again with a quarter, half and all of the design.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Convergence {
+    /// The column ranked: `mu_star` or `st`.
+    pub by: String,
+    /// The trajectories or base points used at each step, the whole design last.
+    pub n: Vec<usize>,
+    /// A row per factor, a value per step.
+    pub values: Vec<Vec<f64>>,
+    /// Stable: with half the design every factor's value is within `TOLERANCE` of the largest value of all the
+    /// factors (a share of it), and the factors that matter keep their order.
+    pub stable: bool,
+}
+
+/// The share of the largest value that a factor's value may move from half the design to all of it.
+pub const TOLERANCE: f64 = 0.05;
+/// A factor matters when its value is above this share of the largest.
+pub const MATTERS: f64 = 0.1;
 
 fn one() -> usize {
     1
+}
+
+/// The sizes (trajectories or base points) to analyse: a quarter, half and all of `n`, those with `min` at least.
+fn steps(n: usize, min: usize) -> Vec<usize> {
+    let mut s: Vec<usize> = [n / 4, n / 2, n].into_iter().filter(|&m| m >= min).collect();
+    s.dedup();
+    s
+}
+
+/// The ranking value of every factor with the first `m` trajectories or base points of the design.
+fn ranking_at(method: Method, rows: &[Vec<f64>], y: &[f64], d: &Design, m: usize) -> Option<Vec<f64>> {
+    let k = rows.first()?.len();
+    let len = m * match method {
+        Method::Oat => return None,
+        Method::Morris => k + 1,
+        Method::Sobol if d.second_order => 2 * k + 2,
+        Method::Sobol => k + 2,
+    };
+    if len > rows.len() || len > y.len() {
+        return None;
+    }
+    if method == Method::Morris {
+        sens::morris_analyze(&rows[..len], &y[..len], d.levels, 2, 0.95, d.seed).ok().map(|r| r.mu_star)
+    } else {
+        sens::sobol_analyze(&y[..len], k, d.second_order, 2, 0.95, d.seed).ok().map(|r| r.st)
+    }
+}
+
+/// How the ranking value moved as the design grew, for Morris (at least 2 trajectories on the smallest step) and
+/// Sobol (4 base points). `full` is the ranking value with the whole design.
+fn convergence(method: Method, rows: &[Vec<f64>], y: &[f64], d: &Design, full: &[f64]) -> Option<Convergence> {
+    let (min, by, k) = match method {
+        Method::Oat => return None,
+        Method::Morris => (2, "mu_star", rows.first()?.len()),
+        Method::Sobol => (4, "st", rows.first()?.len()),
+    };
+    let n = d.n;
+    let sizes = steps(n, min);
+    // all the design is the last step; it needs a smaller one to compare with
+    if sizes.len() < 2 || sizes.last() != Some(&n) || full.len() != k {
+        return None;
+    }
+    let mut values = vec![Vec::new(); k];
+    for &m in &sizes[..sizes.len() - 1] {
+        let v = ranking_at(method, rows, y, d, m)?;
+        for (f, x) in values.iter_mut().zip(v) {
+            f.push(x);
+        }
+    }
+    for (f, x) in values.iter_mut().zip(full) {
+        f.push(*x);
+    }
+    let at = |s: usize| -> Vec<f64> { values.iter().map(|f| f[s]).collect() };
+    let (last, half) = (at(sizes.len() - 1), at(sizes.len() - 2));
+    let top = last.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let moved = last.iter().zip(&half).all(|(a, b)| (a - b).abs() <= TOLERANCE * top);
+    let order = |v: &[f64]| -> Vec<usize> {
+        let mut o: Vec<usize> = (0..k).filter(|&i| last[i] > MATTERS * top).collect();
+        o.sort_by(|&a, &b| v[b].partial_cmp(&v[a]).unwrap_or(std::cmp::Ordering::Equal));
+        o
+    };
+    let stable = top.is_finite() && top > 0.0 && moved && order(&last) == order(&half);
+    Some(Convergence { by: by.into(), n: sizes, values, stable })
 }
 
 impl Indices {
@@ -249,6 +334,7 @@ pub fn analyze(
         s2: None,
         replicates: 1,
         chance: None,
+        convergence: None,
     };
     match method {
         Method::Oat => {
@@ -270,6 +356,10 @@ pub fn analyze(
                 out.s2 = Some(s.s2);
             }
         }
+    }
+    if let Some(by) = out.columns.iter().position(|c| c == out.ranked_by()) {
+        let full: Vec<f64> = out.rows.iter().map(|r| r[by]).collect();
+        out.convergence = convergence(method, rows, y, d, &full);
     }
     Ok(out)
 }
@@ -313,6 +403,18 @@ pub fn s2_csv(i: &Indices) -> Option<String> {
     Some(csv)
 }
 
+/// How the ranking value moved with the design's size: factor, then the value at each size (`mu_star_n5`...).
+pub fn convergence_csv(i: &Indices) -> Option<String> {
+    let c = i.convergence.as_ref()?;
+    let head: Vec<String> = c.n.iter().map(|n| format!("{}_n{n}", c.by)).collect();
+    let mut csv = format!("factor,{}\n", head.join(","));
+    for (key, r) in i.factors.iter().zip(&c.values) {
+        let v: Vec<String> = r.iter().map(|x| format!("{x}")).collect();
+        csv.push_str(&format!("{key},{}\n", v.join(",")));
+    }
+    Some(csv)
+}
+
 /// Write `design.csv` in `dir`.
 pub fn write_design(
     dir: &std::path::Path,
@@ -327,18 +429,23 @@ pub fn write_design(
     Ok(())
 }
 
-/// Write `indices.csv` (and `s2.csv`) in `dir`.
+/// Write `indices.csv` (and `s2.csv`, `convergence.csv`) in `dir`.
 pub fn write_indices(dir: &std::path::Path, i: &Indices) -> Result<()> {
     std::fs::create_dir_all(dir)?;
     std::fs::write(dir.join("indices.csv"), indices_csv(i))?;
     if let Some(s2) = s2_csv(i) {
         std::fs::write(dir.join("s2.csv"), s2)?;
     }
+    if let Some(c) = convergence_csv(i) {
+        std::fs::write(dir.join("convergence.csv"), c)?;
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::f64::consts::PI;
+
     use super::*;
 
     fn keys() -> Vec<String> {
@@ -439,6 +546,98 @@ mod tests {
             serde_json::from_str(r#"{"method":"oat","columns":[],"factors":[],"rows":[],"base":null,"s2":null}"#)
                 .unwrap();
         assert_eq!((old.replicates, old.chance), (1, None));
+    }
+
+    fn ishigami(r: &[f64]) -> f64 {
+        r[0].sin() + 7.0 * r[1].sin().powi(2) + 0.1 * r[2].powi(4) * r[0].sin()
+    }
+
+    fn three() -> Vec<String> {
+        vec!["a.x".into(), "b.y".into(), "c.z".into()]
+    }
+
+    #[test]
+    fn a_linear_morris_design_is_stable_with_few_trajectories() {
+        let bounds = [(0.0, 1.0), (0.0, 1.0), (0.0, 1.0)];
+        let f = |r: &[f64]| 4.0 * r[0] + 2.0 * r[1] + 0.05 * r[2];
+        // 3 trajectories: a half of 1 is too little, so only 2 steps would remain: none here
+        for (n, steps) in [(10, vec![2, 5, 10]), (4, vec![2, 4]), (3, Vec::new())] {
+            let d = Design { n, ..Design::new(Method::Morris) };
+            let r = rows(Method::Morris, &bounds, &d).unwrap();
+            let y: Vec<f64> = r.iter().map(|r| f(r)).collect();
+            let i = analyze(Method::Morris, &three(), &r, &y, &d, 10).unwrap();
+            match &i.convergence {
+                Some(c) => {
+                    assert_eq!((c.n.clone(), c.by.as_str()), (steps, "mu_star"), "n {n}");
+                    assert!(c.stable, "{c:?}");
+                    // the effect of a linear function is the same at every size
+                    assert!((c.values[0][0] - 4.0).abs() < 1e-9 && (c.values[0].last().unwrap() - 4.0).abs() < 1e-9);
+                    let csv = convergence_csv(&i).unwrap();
+                    assert!(csv.starts_with(&format!("factor,mu_star_n{}", c.n[0])), "{csv}");
+                    assert_eq!(csv.lines().count(), 4);
+                }
+                None => assert!(steps.is_empty(), "n {n}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_noisy_morris_design_is_not_stable() {
+        let bounds = [(0.0, 1.0), (0.0, 1.0)];
+        let d = Design { n: 8, ..Design::new(Method::Morris) };
+        let r = rows(Method::Morris, &bounds, &d).unwrap();
+        // an output that is all interaction and wiggle: the effects change with the trajectory
+        let y: Vec<f64> = r.iter().map(|r| (25.0 * r[0] * r[1]).sin() + (17.0 * r[0]).cos()).collect();
+        let i = analyze(Method::Morris, &keys(), &r, &y, &d, 10).unwrap();
+        let c = i.convergence.unwrap();
+        assert_eq!(c.n, [2, 4, 8]);
+        assert!(!c.stable, "{c:?}");
+    }
+
+    #[test]
+    fn sobol_converges_on_the_ishigami_function_with_many_base_points() {
+        let bounds = [(-PI, PI); 3];
+        let d = Design { n: 2048, ..Design::new(Method::Sobol) };
+        let r = rows(Method::Sobol, &bounds, &d).unwrap();
+        let y: Vec<f64> = r.iter().map(|r| ishigami(r)).collect();
+        let i = analyze(Method::Sobol, &three(), &r, &y, &d, 10).unwrap();
+        let c = i.convergence.as_ref().unwrap();
+        assert_eq!((c.n.clone(), c.by.as_str()), (vec![512, 1024, 2048], "st"));
+        assert!(c.stable, "{c:?}");
+        // the known total order indices: 0.56, 0.44, 0.24
+        for (got, want) in c.values.iter().map(|v| v[2]).zip([0.56, 0.44, 0.24]) {
+            assert!((got - want).abs() < 0.05, "{got} {want}");
+        }
+        let dir = std::env::temp_dir().join(format!("terraflux-conv-{}", std::process::id()));
+        write_indices(&dir, &i).unwrap();
+        assert!(dir.join("convergence.csv").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_small_sobol_design_has_the_structure_but_not_the_verdict() {
+        let bounds = [(-PI, PI); 3];
+        let d = Design { n: 8, ..Design::new(Method::Sobol) };
+        let r = rows(Method::Sobol, &bounds, &d).unwrap();
+        let y: Vec<f64> = r.iter().map(|r| ishigami(r)).collect();
+        let i = analyze(Method::Sobol, &three(), &r, &y, &d, 10).unwrap();
+        let c = i.convergence.as_ref().unwrap();
+        // a quarter (2 base points) is below the least of 4
+        assert_eq!(c.n, [4, 8]);
+        assert_eq!((c.values.len(), c.values[0].len()), (3, 2));
+        assert!(!c.stable, "{c:?}");
+        // 4 base points have no half to compare with, and OAT has none
+        let d4 = Design { n: 4, ..d.clone() };
+        let r4 = rows(Method::Sobol, &bounds, &d4).unwrap();
+        let y4: Vec<f64> = r4.iter().map(|r| ishigami(r)).collect();
+        assert!(analyze(Method::Sobol, &three(), &r4, &y4, &d4, 10).unwrap().convergence.is_none());
+        let o = Design::new(Method::Oat);
+        let ro = rows(Method::Oat, &bounds, &o).unwrap();
+        let yo: Vec<f64> = ro.iter().map(|r| r[0]).collect();
+        assert!(analyze(Method::Oat, &three(), &ro, &yo, &o, 10).unwrap().convergence.is_none());
+        // a record from before the check still opens
+        let old = r#"{"method":"oat","columns":[],"factors":[],"rows":[],"base":null,"s2":null}"#;
+        assert!(serde_json::from_str::<Indices>(old).unwrap().convergence.is_none());
     }
 
     #[test]
