@@ -148,6 +148,44 @@ pub fn saltelli_sample(
     Ok(rows)
 }
 
+// -- One at a time --------------------------------------------------------------------------------------------------
+
+/// The runs of a one-at-a-time analysis: the base (every factor at the middle of its range), then for each factor
+/// two runs, its minimum and its maximum with the others at the base (2k + 1 rows).
+pub fn oat_sample(bounds: &[(f64, f64)]) -> Vec<Vec<f64>> {
+    let base: Vec<f64> = bounds.iter().map(|(lo, hi)| (lo + hi) / 2.0).collect();
+    let mut rows = vec![base.clone()];
+    for k in 0..bounds.len() {
+        for end in [bounds[k].0, bounds[k].1] {
+            let mut r = base.clone();
+            r[k] = end;
+            rows.push(r);
+        }
+    }
+    rows
+}
+
+/// What a one-at-a-time analysis gives: the output at the base, and for each factor at its minimum, at its maximum
+/// and the swing between them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Oat {
+    pub base: f64,
+    pub low: Vec<f64>,
+    pub high: Vec<f64>,
+    pub swing: Vec<f64>,
+}
+
+/// The outputs `y` of `oat_sample`'s runs of `k` factors.
+pub fn oat_analyze(y: &[f64], k: usize) -> std::result::Result<Oat, String> {
+    if k == 0 || y.len() != 2 * k + 1 {
+        return Err(format!("{} outputs are not the {} runs of {k} factors", y.len(), 2 * k + 1));
+    }
+    let low: Vec<f64> = (0..k).map(|i| y[1 + 2 * i]).collect();
+    let high: Vec<f64> = (0..k).map(|i| y[2 + 2 * i]).collect();
+    let swing = low.iter().zip(&high).map(|(l, h)| (h - l).abs()).collect();
+    Ok(Oat { base: y[0], low, high, swing })
+}
+
 // -- Morris ---------------------------------------------------------------------------------------------------------
 
 /// The step of a grid of `levels` levels.
@@ -595,5 +633,29 @@ impl Operator for Analyze {
             }
             m => Err(fail(args, format!("method: morris or sobol, not {m:?}"))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oat_runs_the_base_then_each_factor_at_its_ends() {
+        let rows = oat_sample(&[(0.0, 4.0), (10.0, 20.0)]);
+        assert_eq!(rows, vec![vec![2.0, 15.0], vec![0.0, 15.0], vec![4.0, 15.0], vec![2.0, 10.0], vec![2.0, 20.0]]);
+    }
+
+    #[test]
+    fn oat_swing_of_a_linear_output() {
+        // y = 2a + 0b
+        let bounds = [(1.0, 4.0), (0.0, 9.0)];
+        let y: Vec<f64> = oat_sample(&bounds).iter().map(|r| 2.0 * r[0]).collect();
+        let o = oat_analyze(&y, 2).unwrap();
+        assert_eq!(o.base, 2.0 * 2.5);
+        assert_eq!(o.low, vec![2.0, 5.0]);
+        assert_eq!(o.high, vec![8.0, 5.0]);
+        assert_eq!(o.swing, vec![2.0 * 3.0, 0.0]);
+        assert!(oat_analyze(&y[1..], 2).is_err());
     }
 }

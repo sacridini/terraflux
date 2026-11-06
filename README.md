@@ -323,8 +323,8 @@ Map algebra (`raster.calc`), reusable submodels (`control.submodel`), loops and 
 
 ## Scaling up
 
-**Many runs.** Replicates, scenarios and calibration, on the cores of one machine or on many. The **Many runs**
-pane does the same without the command line.
+**Many runs.** Replicates, scenarios, calibration and sensitivity analysis (one at a time, Morris, Sobol), on the
+cores of one machine or on many. The **Many runs** pane does the same without the command line.
 
 ```bash
 terraflux submit model.toml --replicates 50 --out replicates

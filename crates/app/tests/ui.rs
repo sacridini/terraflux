@@ -4102,6 +4102,64 @@ fn the_model_runs_many_times_from_its_pane() {
 }
 
 #[test]
+fn a_sensitivity_analysis_runs_from_its_pane() {
+    use terraflux_app::batch_view::{Kind, Range};
+    use terraflux_dist::sensitivity::Method;
+    let mut h = harness(new_app(Some(model())));
+    loaded(&mut h);
+    {
+        // one step a run, for the test
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.apply(&[("simulation.times".to_string(), serde_json::json!(1))].into()).unwrap();
+        s.edited();
+    }
+    h.state_mut().focus(Pane::Batch);
+    let out = tmp("ui-sensitivity");
+    let _ = std::fs::remove_dir_all(&out);
+    let _ = std::fs::remove_dir_all(tmp("ui-sensitivity-pool"));
+    h.state_mut().computers.pool = None;
+    h.state_mut().computers.dir = Some(tmp("ui-sensitivity-pool"));
+    {
+        let b = &mut h.state_mut().batch;
+        b.kind = Kind::Sensitivity;
+        b.workers = 2;
+        b.out = Some(out.clone());
+        b.sens.method = Method::Oat;
+        b.sens.output = Some("simulation.maps".into());
+        b.sens.factors = ["patches.isometry:0.5:2.5", "simulation/allocate.prune_factor:5:15"]
+            .iter()
+            .map(|f| {
+                let p: Vec<&str> = f.splitn(2, ':').collect();
+                let (from, to) = p[1].rsplit_once(':').unwrap();
+                Range { key: p[0].into(), from: from.into(), to: to.into(), points: String::new() }
+            })
+            .collect();
+    }
+    h.run_steps(3);
+    shot(&mut h, "batch-6-sensitivity");
+    h.get_by_label("Run 5 times").click();
+    h.run_steps(1);
+    assert!(h.state().batch.running(), "{:?}", h.state().batch.error);
+    until(&mut h, "the sensitivity analysis", |a| !a.batch.running());
+    h.run_steps(2);
+    let b = &h.state().batch;
+    assert!(b.error.is_none(), "{:?}", b.error);
+    let f = b.finished.as_ref().unwrap();
+    assert_eq!(f.kind, Kind::Sensitivity, "{:?} {:?}", f.errors, f.rows);
+    assert_eq!(f.rows.len(), 5);
+    let i = f.sensitivity.as_ref().unwrap();
+    assert_eq!(i.factors, ["patches.isometry", "simulation/allocate.prune_factor"]);
+    assert_eq!(i.rows.len(), 2);
+    assert_eq!(i.columns, ["low", "high", "swing"]);
+    assert!(i.base.is_some_and(f64::is_finite));
+    let indices = std::fs::read_to_string(out.join("indices.csv")).unwrap();
+    assert!(indices.starts_with("factor,low,high,swing,base\npatches.isometry,"), "{indices}");
+    let design = std::fs::read_to_string(out.join("design.csv")).unwrap();
+    assert_eq!(design.lines().count(), 6, "{design}");
+    shot(&mut h, "batch-7-sensitivity-done");
+}
+
+#[test]
 fn a_batch_stopped_half_way_goes_on() {
     // a batch of three runs submitted to the application's pool, closed before any ran: its job kept in the
     // pool's folder
@@ -4139,6 +4197,7 @@ fn a_batch_stopped_half_way_goes_on() {
         on: None,
         total: 3,
         plan: None,
+        sensitivity: None,
         alive: 0,
     };
     // as the application finds it when it starts (the record of the user's data, shared by the tests that run

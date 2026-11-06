@@ -2906,6 +2906,20 @@ min ou max de um mapa). Falta tudo na interface: só quem usa a linha de comando
    **Sobol** (a variância repartida, S1 e ST com intervalos por bootstrap). O texto da aba sugere o caminho: Morris
    primeiro, Sobol nos fatores que importaram. Os resultados na aba: a tabela dos índices e o CSV do desenho e dos
    índices, como os do `terraflux sensitivity`, numa pasta escolhida.
+   **Feito** (Unreleased): `terraflux_ops::sensitivity::oat_sample` (2k+1 linhas: a base no meio das faixas e cada
+   fator no mínimo e no máximo) e `oat_analyze` (`Oat { base, low, high, swing }`); o módulo novo
+   `terraflux_dist::sensitivity` (`Method`, `Design`, `runs`, `rows`, `candidates`, `analyze`, `Indices`,
+   `design_csv`, `indices_csv`, `s2_csv`, `write_design`, `write_indices`), que o `terraflux sensitivity` agora usa
+   (também com `--method oat`; as colunas do OAT são `factor,low,high,swing,base`) e a aba. No `batch_view.rs`:
+   `Kind::Sensitivity`, `SensitivityState` (`BatchState::sens`: fatores, método, `Design`, bootstraps, saída,
+   estatística), `sensitivity_ui`, `factors`/`sensitivity_runs` (o botão "Run N times" sem montar o desenho),
+   `default_range` (±20 %, inteiros ampliados, vazio sem valor), `Knob::numeric/integer/default` (só números viram
+   fatores; o padrão do operador vem de "default N" na descrição), `measurable`/`default_measure`, o
+   `SensitivityPlan` no `Record` (`#[serde(default)]`: o lote retomado ainda dá os índices), `Finished::sensitivity`
+   e a tabela dos índices (OAT por swing, Morris por mu*, Sobol por ST). Testes: `oat_runs_the_base_then_each_factor_at_its_ends` e
+   `oat_swing_of_a_linear_output` (ops), os quatro de `dist::sensitivity::tests`, `a_factor_starts_20_percent_either_side`
+   e `a_sensitivity_analysis_runs_from_its_pane` (a imagem `ui-batch-6-sensitivity.png`; OAT de 2 fatores, 5
+   rodadas no Sibuyan). Falta: os itens 2 a 6.
 2. **O que medir, sem montar nós.** A saída é escolhida entre as do modelo (`nó.porta`); de um mapa, um resumo
    pronto: média, soma, mínimo, máximo, a área (ou a fração) de uma classe, a fração das células que mudaram em
    relação à rodada base, uma métrica de paisagem da classe. Os resumos novos em `terraflux_dist::evaluate` (o

@@ -1,6 +1,7 @@
 //! Running the model many times, from the application: replicates (other seeds: how much of a result is
-//! chance), scenarios (named variants of the model, in a table) and calibration (settings tried in ranges, each
-//! scored against an observed map). The runs go to workers on this machine (the same code as on many), each in a
+//! chance), scenarios (named variants of the model, in a table), calibration (settings tried in ranges, each
+//! scored against an observed map) and sensitivity analysis (one at a time, Morris, Sobol: which settings matter
+//! to an output). The runs go to workers on this machine (the same code as on many), each in a
 //! folder of its own; the results are a table, the runs as one series in the model, and a calibration's best
 //! settings applied to the model in a click.
 
@@ -17,6 +18,7 @@ use terraflux_dist::client::TaskOf;
 use terraflux_dist::evaluate::Evaluation;
 use terraflux_dist::proto::JobStatus;
 use terraflux_dist::run::{Batch, Event, Handle, Place, Progress, Start};
+use terraflux_dist::sensitivity::{self as sens, Design, Indices, Method};
 use terraflux_graph::{Input, Model, Node, Source, Type};
 use terraflux_ops::{Registry, Value};
 
@@ -31,6 +33,7 @@ pub enum Kind {
     Replicates,
     Scenarios,
     Calibration,
+    Sensitivity,
 }
 
 impl Kind {
@@ -39,6 +42,7 @@ impl Kind {
             Kind::Replicates => "replicates",
             Kind::Scenarios => "scenarios",
             Kind::Calibration => "calibration",
+            Kind::Sensitivity => "sensitivity",
         }
     }
 }
@@ -59,6 +63,38 @@ pub struct Knob {
     pub key: String,
     pub value: Json,
     pub about: String,
+    /// Whether it is a number (a factor of a sensitivity analysis may be), and a whole one.
+    pub numeric: bool,
+    pub integer: bool,
+    /// What the operator takes when the model gives none, if its description says (`default 4`).
+    pub default: Option<f64>,
+}
+
+impl Knob {
+    /// A setting the model gives.
+    fn given(key: String, value: Json, about: String) -> Knob {
+        let (numeric, integer) = (value.is_number(), value.is_i64() || value.is_u64());
+        Knob { key, value, about, numeric, integer, default: None }
+    }
+
+    /// A setting the model leaves to the operator's default.
+    fn declared(key: String, ty: Type, doc: &str) -> Knob {
+        Knob {
+            key,
+            value: Json::Null,
+            about: doc.to_string(),
+            numeric: matches!(ty, Type::Number | Type::Integer),
+            integer: ty == Type::Integer,
+            default: doc_default(doc),
+        }
+    }
+}
+
+/// The number after `default ` in a setting's description.
+fn doc_default(doc: &str) -> Option<f64> {
+    let rest = doc.split("default ").nth(1)?;
+    let n: String = rest.chars().take_while(|c| c.is_ascii_digit() || matches!(c, '.' | '-')).collect();
+    n.trim_end_matches('.').parse().ok()
 }
 
 /// The settings of a model a batch may change: its inputs of values, its nodes' literal inputs and settings
@@ -70,7 +106,7 @@ pub fn knobs(m: &Model, r: &Registry) -> Vec<Knob> {
             && !value.is_object()
             && !value.is_array()
         {
-            out.push(Knob { key: format!("${name}"), value: value.clone(), about: "an input of the model".into() });
+            out.push(Knob::given(format!("${name}"), value.clone(), "an input of the model".into()));
         }
     }
     fn walk(nodes: &[Node], prefix: &str, r: &Registry, out: &mut Vec<Knob>) {
@@ -82,29 +118,25 @@ pub fn knobs(m: &Model, r: &Registry) -> Vec<Knob> {
                 if let Source::Literal(v) = src
                     && scalar(v)
                 {
-                    out.push(Knob {
-                        key: format!("{at}.{port}"),
-                        value: v.clone(),
-                        about: format!("{} (input)", n.op),
-                    });
+                    out.push(Knob::given(format!("{at}.{port}"), v.clone(), format!("{} (input)", n.op)));
                 }
             }
             let mut seen = BTreeSet::new();
             for (k, v) in &n.params {
                 if scalar(v) && !(k == "path" && terraflux_graph::FILE_OPS.contains(&n.op.as_str())) {
                     seen.insert(k.clone());
-                    out.push(Knob { key: format!("{at}.{k}"), value: v.clone(), about: n.op.clone() });
+                    out.push(Knob::given(format!("{at}.{k}"), v.clone(), n.op.clone()));
                 }
             }
             if let Some(sig) = sig {
                 for p in &sig.params {
                     if !seen.contains(&p.name) && matches!(p.ty, Type::Number | Type::Integer | Type::Bool) {
-                        out.push(Knob { key: format!("{at}.{}", p.name), value: Json::Null, about: p.doc.clone() });
+                        out.push(Knob::declared(format!("{at}.{}", p.name), p.ty, &p.doc));
                     }
                 }
                 for p in &sig.inputs {
                     if !n.inputs.contains_key(&p.name) && matches!(p.ty, Type::Number | Type::Integer | Type::Bool) {
-                        out.push(Knob { key: format!("{at}.{}", p.name), value: Json::Null, about: p.doc.clone() });
+                        out.push(Knob::declared(format!("{at}.{}", p.name), p.ty, &p.doc));
                     }
                 }
             }
@@ -255,6 +287,9 @@ pub struct Record {
     pub on: Option<String>,
     pub total: usize,
     pub plan: Option<Plan>,
+    /// What a sensitivity analysis needs to give its indices at the end.
+    #[serde(default)]
+    pub sensitivity: Option<SensitivityPlan>,
     /// When the application running it last said so (seconds since 1970): a batch of another window.
     pub alive: u64,
 }
@@ -308,6 +343,18 @@ pub struct Plan {
     metric: String,
 }
 
+/// What a sensitivity analysis needs to give its indices: the design, whose runs gave the output measured.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SensitivityPlan {
+    method: Method,
+    design: Design,
+    keys: Vec<String>,
+    rows: Vec<Vec<f64>>,
+    labels: Vec<String>,
+    output: String,
+    resamples: usize,
+}
+
 /// A run of a batch done.
 #[derive(Debug, Clone)]
 pub struct Row {
@@ -330,6 +377,32 @@ pub struct Finished {
     pub errors: Vec<String>,
     /// A calibration's candidates, best first; the settings varied; the metric.
     pub ranked: Option<(Vec<Scored>, Vec<String>, String)>,
+    /// A sensitivity analysis's indices.
+    pub sensitivity: Option<Indices>,
+}
+
+/// What a sensitivity analysis varies and measures.
+pub struct SensitivityState {
+    pub factors: Vec<Range>,
+    pub method: Method,
+    pub design: Design,
+    pub resamples: usize,
+    /// The output measured (`node.port`; none: not chosen yet) and the statistic of a map or the column of a table.
+    pub output: Option<String>,
+    pub statistic: String,
+}
+
+impl Default for SensitivityState {
+    fn default() -> Self {
+        SensitivityState {
+            factors: Vec::new(),
+            method: Method::Morris,
+            design: Design::new(Method::Morris),
+            resamples: 100,
+            output: None,
+            statistic: "mean".into(),
+        }
+    }
 }
 
 /// The batch pane's state (the application's, kept as models change).
@@ -343,6 +416,7 @@ pub struct BatchState {
     pub columns: Vec<String>,
     pub scenarios: Vec<(String, Vec<String>)>,
     pub ranges: Vec<Range>,
+    pub sens: SensitivityState,
     pub random: bool,
     pub draws: usize,
     pub seed_list: String,
@@ -384,6 +458,7 @@ impl Default for BatchState {
             columns: Vec::new(),
             scenarios: Vec::new(),
             ranges: Vec::new(),
+            sens: SensitivityState::default(),
             random: false,
             draws: 20,
             seed_list: "1".into(),
@@ -519,6 +594,31 @@ impl BatchState {
                         }
                     }
                 });
+                let sensitivity = r.record.sensitivity.as_ref().and_then(|p| {
+                    let metrics = batch::metrics_of(&p.labels, &o.results);
+                    let y: Vec<f64> = metrics.iter().map(|m| m.as_ref().map_or(f64::NAN, |m| m.value)).collect();
+                    let _ = sens::write_design(&r.out, &p.keys, &p.rows, &y, &p.output);
+                    if let Some(k) = y.iter().position(|v| v.is_nan()) {
+                        self.error = Some(format!(
+                            "run {} gave no {} ({} runs failed{}); the design is in {}",
+                            k + 1,
+                            p.output,
+                            o.status.failed,
+                            o.status.errors.first().map(|e| format!(": {e}")).unwrap_or_default(),
+                            r.out.join("design.csv").display()
+                        ));
+                        return None;
+                    }
+                    match sens::analyze(p.method, &p.keys, &p.rows, &y, &p.design, p.resamples)
+                        .and_then(|i| sens::write_indices(&r.out, &i).map(|_| i))
+                    {
+                        Ok(i) => Some(i),
+                        Err(e) => {
+                            self.error = Some(e.to_string());
+                            None
+                        }
+                    }
+                });
                 self.finished = Some(Finished {
                     kind: r.kind,
                     out: r.out,
@@ -528,6 +628,7 @@ impl BatchState {
                     failed: o.status.failed,
                     errors: o.status.errors,
                     ranked,
+                    sensitivity,
                 });
             }
         }
@@ -590,15 +691,52 @@ fn shown(v: &Json) -> String {
     }
 }
 
-/// The tasks of the batch chosen, with what a calibration needs to rank them.
-fn tasks(st: &BatchState, knobs: &[Knob]) -> Result<(Vec<TaskOf>, Option<Plan>), String> {
+/// The factors of a sensitivity analysis as parameters: their ranges typed, whole numbers where the setting is one.
+fn factors(st: &BatchState, knobs: &[Knob]) -> Result<Vec<Param>, String> {
+    if st.sens.factors.is_empty() {
+        return Err("add a factor to vary".into());
+    }
+    let mut params = Vec::new();
+    for r in &st.sens.factors {
+        let (from, to) = (r.from.trim(), r.to.trim());
+        if from.is_empty() || to.is_empty() {
+            return Err(format!("{}: type its range (from and to)", r.key));
+        }
+        let mut p = Param::parse(&format!("{}={from}:{to}", r.key), 2).map_err(|e| format!("{}: {e}", r.key))?;
+        if let Some(k) = knobs.iter().find(|k| k.key == r.key) {
+            p.integer = k.integer;
+        }
+        if !p.from.is_finite() || !p.to.is_finite() || p.from >= p.to {
+            return Err(format!("{}: its range must go from a value to a larger one", r.key));
+        }
+        params.push(p);
+    }
+    Ok(params)
+}
+
+/// The runs of a sensitivity analysis, without making them.
+fn sensitivity_runs(st: &BatchState, knobs: &[Knob]) -> Result<usize, String> {
+    let params = factors(st, knobs)?;
+    if st.sens.method == Method::Sobol && !st.sens.design.n.is_power_of_two() {
+        return Err("Sobol's base points must be a power of 2".into());
+    }
+    if st.sens.output.is_none() {
+        return Err("choose the output to measure".into());
+    }
+    Ok(sens::runs(st.sens.method, params.len(), &st.sens.design))
+}
+
+/// The tasks of the batch chosen, with what a calibration needs to rank them or a sensitivity analysis to analyse.
+type Planned = (Vec<TaskOf>, Option<Plan>, Option<SensitivityPlan>);
+
+fn tasks(st: &BatchState, knobs: &[Knob]) -> Result<Planned, String> {
     let seeds: Vec<String> = st.seeds.clone().unwrap_or_else(|| default_seeds(knobs)).into_iter().collect();
     match st.kind {
         Kind::Replicates => {
             if seeds.is_empty() {
                 return Err("the model has no seed to change: choose one below".into());
             }
-            Ok((batch::replicates(st.runs, st.first_seed, &seeds), None))
+            Ok((batch::replicates(st.runs, st.first_seed, &seeds), None, None))
         }
         Kind::Scenarios => {
             if st.scenarios.is_empty() {
@@ -620,7 +758,7 @@ fn tasks(st: &BatchState, knobs: &[Knob]) -> Result<(Vec<TaskOf>, Option<Plan>),
                     .collect();
                 out.push((name.to_string(), set));
             }
-            Ok((out, None))
+            Ok((out, None, None))
         }
         Kind::Calibration => {
             if st.ranges.is_empty() {
@@ -658,8 +796,85 @@ fn tasks(st: &BatchState, knobs: &[Knob]) -> Result<(Vec<TaskOf>, Option<Plan>),
                 seeds: list.len(),
                 metric,
             };
-            Ok((t, Some(plan)))
+            Ok((t, Some(plan), None))
         }
+        Kind::Sensitivity => {
+            sensitivity_runs(st, knobs)?;
+            let params = factors(st, knobs)?;
+            let bounds: Vec<(f64, f64)> = params.iter().map(|p| (p.from, p.to)).collect();
+            let rows = sens::rows(st.sens.method, &bounds, &st.sens.design).map_err(|e| e.to_string())?;
+            let candidates = sens::candidates(&params, &rows);
+            let t = batch::calibration_tasks(&candidates, &[st.first_seed], &seeds);
+            let plan = SensitivityPlan {
+                method: st.sens.method,
+                design: st.sens.design.clone(),
+                keys: params.iter().map(|p| p.key.clone()).collect(),
+                rows,
+                labels: t.iter().map(|(l, _)| l.clone()).collect(),
+                output: st.sens.output.clone().unwrap_or_default(),
+                resamples: st.sens.resamples,
+            };
+            Ok((t, None, Some(plan)))
+        }
+    }
+}
+
+/// The outputs a sensitivity analysis may measure: those of numbers, tables, maps, series and stacks.
+fn measurable(m: &Model, r: &Registry) -> Vec<(String, Type)> {
+    let mut out = Vec::new();
+    for n in &m.nodes {
+        for (port, ty) in crate::editor::output_ports(n, r) {
+            if matches!(
+                ty,
+                Type::Number | Type::Integer | Type::Table | Type::Map | Type::Series | Type::Stack | Type::Any
+            ) {
+                out.push((format!("{}.{port}", n.id), ty));
+            }
+        }
+    }
+    out
+}
+
+/// The output measured by default: a number or a table where the model ends, else a map there, else the first.
+fn default_measure(m: &Model, r: &Registry) -> Option<String> {
+    let outs = measurable(m, r);
+    let ends = sinks(m);
+    let at_end = |k: &str| ends.iter().any(|e| k.starts_with(&format!("{e}.")));
+    [Type::Number, Type::Integer, Type::Table, Type::Map, Type::Series, Type::Stack]
+        .iter()
+        .find_map(|t| outs.iter().find(|(k, ty)| ty == t && at_end(k)))
+        .or_else(|| outs.first())
+        .map(|(k, _)| k.clone())
+}
+
+/// What `Evaluation::statistic` takes for an output of a type: nothing for a number, a table's column (none: its
+/// last), a map's mean, sum, min or max.
+fn statistic_of(ty: Option<Type>, text: &str) -> Option<String> {
+    let t = text.trim();
+    match ty {
+        Some(Type::Number | Type::Integer) => None,
+        Some(Type::Table) => (!t.is_empty()).then(|| t.to_string()),
+        _ => Some(if t.is_empty() { "mean".into() } else { t.to_string() }),
+    }
+}
+
+/// The range of a factor when it is added: 20 % either side of its value (a whole number's, widened to whole
+/// numbers); empty when there is no value to start from.
+fn default_range(k: &Knob) -> (String, String) {
+    let tidy = |x: f64| format!("{x:.6e}").parse::<f64>().unwrap_or(x);
+    let Some(v) = k.value.as_f64().or(k.default).filter(|v| *v != 0.0 && v.is_finite()) else {
+        return (String::new(), String::new());
+    };
+    let (a, b) = (v * 0.8, v * 1.2);
+    let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+    if k.integer {
+        let (lo, mut hi) = (lo.floor(), hi.ceil());
+        if hi <= lo {
+            hi = lo + 1.0;
+        }
+        (shown(&Json::from(lo as i64)), shown(&Json::from(hi as i64)))
+    } else {
+        (shown(&Json::from(tidy(lo))), shown(&Json::from(tidy(hi))))
     }
 }
 
@@ -707,12 +922,18 @@ pub fn start(
         return Err("the model has errors: fix them first (see the nodes in red)".into());
     }
     let knobs = knobs(&s.model, r);
-    let (tasks, plan) = tasks(st, &knobs)?;
+    let (tasks, plan, sensitivity) = tasks(st, &knobs)?;
     if tasks.is_empty() {
         return Err("no run to do".into());
     }
     let mut model = s.model.clone();
-    for key in st.keep.clone().unwrap_or_else(|| default_keep(&s.model, r)) {
+    // (a sensitivity analysis keeps nothing: only its numbers come back)
+    let keep = if st.kind == Kind::Sensitivity {
+        BTreeSet::new()
+    } else {
+        st.keep.clone().unwrap_or_else(|| default_keep(&s.model, r))
+    };
+    for key in keep {
         let name = key.replace(['.', '/'], "_");
         model.outputs.insert(name, terraflux_graph::Output { from: key, path: None, dtype: None, layer: None });
     }
@@ -740,15 +961,38 @@ pub fn start(
                 windows: vec![1, 3, 5, 7, 9, 11],
             })
         }
+        Kind::Sensitivity => {
+            let output = sensitivity.as_ref().map(|p| p.output.clone()).unwrap_or_default();
+            let ty = measurable(&s.model, r).into_iter().find(|(k, _)| *k == output).map(|(_, t)| t);
+            Some(Evaluation {
+                measure: Some(output.clone()),
+                statistic: statistic_of(ty, &st.sens.statistic),
+                output,
+                observed: String::new(),
+                band: None,
+                start: String::new(),
+                windows: Vec::new(),
+            })
+        }
         _ => None,
     };
     let out = st.out.clone().unwrap_or_else(|| next_out(s, st.kind));
-    let files = st.kind != Kind::Calibration;
+    let files = !matches!(st.kind, Kind::Calibration | Kind::Sensitivity);
     let total = tasks.len();
     let b =
         Batch { name: format!("{} {}", s.title(), st.kind.name()), model, base: s.base(), tasks, files, evaluation };
-    let record =
-        Record { kind: st.kind, model: s.title(), out, files, job: None, on: st.on.clone(), total, plan, alive: now() };
+    let record = Record {
+        kind: st.kind,
+        model: s.title(),
+        out,
+        files,
+        job: None,
+        on: st.on.clone(),
+        total,
+        plan,
+        sensitivity,
+        alive: now(),
+    };
     let place = match &st.on {
         Some(name) => cluster_place(name)?,
         None => computers.pool(st.workers.clamp(1, total.max(1)))?.place(),
@@ -1102,6 +1346,145 @@ fn calibration_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry, k
     });
 }
 
+fn sensitivity_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry, knobs: &[Knob]) {
+    ui.label(
+        RichText::new(
+            "How much each setting matters to an output. One at a time (OAT) is the quick look: each factor at its \
+             ends, the others in the middle of their ranges. Morris finds the factors that matter; Sobol splits the \
+             output's variance among them. Morris first, then Sobol on the factors that mattered.",
+        )
+        .weak(),
+    );
+    ui.horizontal(|ui| {
+        ui.label("Method");
+        let before = st.sens.method;
+        for (m, name, hover) in [
+            (Method::Oat, "One at a time", "2 runs a factor and the base: the swing of the output over each range"),
+            (Method::Morris, "Morris", "elementary effects: trajectories through the ranges, mu* ranks the factors"),
+            (
+                Method::Sobol,
+                "Sobol",
+                "the share of the output's variance due to each factor (S1) and with its interactions (ST)",
+            ),
+        ] {
+            ui.radio_value(&mut st.sens.method, m, name).on_hover_text(hover);
+        }
+        if st.sens.method != before {
+            st.sens.design.n = st.sens.method.default_n();
+        }
+    });
+    let mut drop = None;
+    egui::Grid::new("factors").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
+        for h in ["factor", "from", "to", ""] {
+            ui.label(RichText::new(h).strong());
+        }
+        ui.end_row();
+        for (i, rg) in st.sens.factors.iter_mut().enumerate() {
+            ui.label(RichText::new(&rg.key).monospace());
+            ui.add(egui::TextEdit::singleline(&mut rg.from).desired_width(70.0));
+            ui.add(egui::TextEdit::singleline(&mut rg.to).desired_width(70.0));
+            if ui.small_button("x").clicked() {
+                drop = Some(i);
+            }
+            ui.end_row();
+        }
+    });
+    if let Some(i) = drop {
+        st.sens.factors.remove(i);
+    }
+    // a number is a factor (not a yes or no, nor a text)
+    let numeric: Vec<Knob> = knobs.iter().filter(|k| k.numeric).cloned().collect();
+    let mut key = String::new();
+    if knob_picker(ui, "sensitivity factor", &numeric, &mut key, &mut st.filter, "+ Factor to vary")
+        && !st.sens.factors.iter().any(|x| x.key == key)
+        && let Some(k) = numeric.iter().find(|k| k.key == key)
+    {
+        let (from, to) = default_range(k);
+        st.sens.factors.push(Range { key, from, to, points: String::new() });
+    }
+    ui.separator();
+    egui::Grid::new("sensitivity design").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+        match st.sens.method {
+            Method::Oat => {}
+            Method::Morris => {
+                ui.label("Trajectories");
+                ui.add(egui::DragValue::new(&mut st.sens.design.n).range(2..=10_000))
+                    .on_hover_text("each of factors + 1 runs; 10 to 20 is usual");
+                ui.end_row();
+                ui.label("Levels of the grid");
+                ui.add(egui::DragValue::new(&mut st.sens.design.levels).range(2..=20));
+                ui.end_row();
+            }
+            Method::Sobol => {
+                ui.label("Base points");
+                egui::ComboBox::from_id_salt("sobol base points")
+                    .selected_text(st.sens.design.n.to_string())
+                    .width(80.0)
+                    .show_ui(ui, |ui| {
+                        for e in 3..=14 {
+                            ui.selectable_value(&mut st.sens.design.n, 1usize << e, (1usize << e).to_string());
+                        }
+                    })
+                    .response
+                    .on_hover_text("a power of 2; each takes factors + 2 runs (2 x factors + 2 with the second order)");
+                ui.end_row();
+                ui.label("Second order");
+                ui.checkbox(&mut st.sens.design.second_order, "the pairs of factors too")
+                    .on_hover_text("S2 in s2.csv; nearly doubles the runs");
+                ui.end_row();
+            }
+        }
+        if st.sens.method != Method::Oat {
+            ui.label("Bootstraps");
+            ui.add(egui::DragValue::new(&mut st.sens.resamples).range(10..=10_000))
+                .on_hover_text("the resamples of the indices' intervals");
+            ui.end_row();
+            ui.label("Design seed");
+            ui.add(egui::DragValue::new(&mut st.sens.design.seed));
+            ui.end_row();
+        }
+        ui.label("Model seed");
+        ui.add(egui::DragValue::new(&mut st.first_seed)).on_hover_text("every run takes this seed");
+        ui.end_row();
+        ui.label("Output measured");
+        let outs = measurable(&s.model, r);
+        if st.sens.output.is_none() {
+            st.sens.output = default_measure(&s.model, r);
+        }
+        let current = st.sens.output.clone().unwrap_or_default();
+        egui::ComboBox::from_id_salt("sensitivity output").selected_text(&current).width(220.0).show_ui(ui, |ui| {
+            for (k, t) in &outs {
+                if ui.selectable_label(*k == current, k).on_hover_text(t.name()).clicked() {
+                    st.sens.output = Some(k.clone());
+                }
+            }
+        });
+        ui.end_row();
+        match outs.iter().find(|(k, _)| *k == current).map(|(_, t)| *t) {
+            Some(Type::Number | Type::Integer) => {}
+            Some(Type::Table) => {
+                ui.label("Column");
+                ui.add(egui::TextEdit::singleline(&mut st.sens.statistic).desired_width(120.0).hint_text("the last"))
+                    .on_hover_text("the column of the table's first row (empty: the last)");
+                ui.end_row();
+            }
+            _ => {
+                ui.label("Of the map");
+                egui::ComboBox::from_id_salt("sensitivity statistic")
+                    .selected_text(if st.sens.statistic.is_empty() { "mean" } else { st.sens.statistic.as_str() })
+                    .width(80.0)
+                    .show_ui(ui, |ui| {
+                        for stat in ["mean", "sum", "min", "max"] {
+                            ui.selectable_value(&mut st.sens.statistic, stat.to_string(), stat);
+                        }
+                    });
+                ui.end_row();
+            }
+        }
+    });
+    seeds_ui(ui, st, knobs);
+}
+
 fn keep_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry) {
     let outs = outputs(&s.model, r);
     let mut keep = st.keep.clone().unwrap_or_else(|| default_keep(&s.model, r));
@@ -1244,6 +1627,28 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
                 }
             });
         });
+    } else if let Some(ind) = &f.sensitivity {
+        if let Some(base) = ind.base {
+            ui.label(format!("Output at the base (every factor in the middle of its range): {base:.6}"));
+        }
+        ui.label(RichText::new(format!("The factors that matter most first (by {}).", ind.ranked_by())).weak());
+        egui::ScrollArea::horizontal().id_salt("indices").show(ui, |ui| {
+            egui::Grid::new("indices").striped(true).spacing([12.0, 4.0]).show(ui, |ui| {
+                ui.label(RichText::new("factor").strong());
+                for c in &ind.columns {
+                    ui.label(RichText::new(c).strong());
+                }
+                ui.end_row();
+                for i in ind.order() {
+                    ui.label(RichText::new(&ind.factors[i]).monospace());
+                    for v in &ind.rows[i] {
+                        ui.label(format!("{v:.4}"));
+                    }
+                    ui.end_row();
+                }
+            });
+        });
+        ui.label(RichText::new("design.csv and indices.csv are in the folder.").weak());
     } else {
         for name in f.files.iter().filter(|n| n.ends_with(".tif")) {
             if ui
@@ -1305,12 +1710,16 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
                     (Kind::Replicates, "Replicates"),
                     (Kind::Scenarios, "Scenarios"),
                     (Kind::Calibration, "Calibration"),
+                    (Kind::Sensitivity, "Sensitivity"),
                 ] {
                     ui.selectable_value(&mut st.kind, k, name);
                 }
             });
             ui.separator();
-            let count = tasks(st, &knobs).map(|(t, _)| t.len());
+            let count = match st.kind {
+                Kind::Sensitivity => sensitivity_runs(st, &knobs),
+                _ => tasks(st, &knobs).map(|(t, ..)| t.len()),
+            };
             if let Some(run) = &st.running {
                 if ui.button("Stop").clicked() {
                     run.handle.stop();
@@ -1357,9 +1766,10 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
                     Kind::Replicates => replicates_ui(ui, st, &knobs),
                     Kind::Scenarios => scenarios_ui(ui, st, &knobs),
                     Kind::Calibration => calibration_ui(ui, st, s, r, &knobs),
+                    Kind::Sensitivity => sensitivity_ui(ui, st, s, r, &knobs),
                 }
                 ui.separator();
-                if st.kind != Kind::Calibration {
+                if !matches!(st.kind, Kind::Calibration | Kind::Sensitivity) {
                     keep_ui(ui, st, s, r);
                 }
                 ui.horizontal(|ui| {
@@ -1434,6 +1844,28 @@ mod tests {
     }
 
     #[test]
+    fn a_factor_starts_20_percent_either_side() {
+        let k = |value: Json, integer: bool, default: Option<f64>| Knob {
+            key: "a.b".into(),
+            numeric: true,
+            integer,
+            about: String::new(),
+            value,
+            default,
+        };
+        assert_eq!(default_range(&k(Json::from(10.0), false, None)), ("8.0".into(), "12.0".into()));
+        assert_eq!(default_range(&k(Json::from(0.5), false, None)), ("0.4".into(), "0.6".into()));
+        assert_eq!(default_range(&k(Json::from(-10.0), false, None)), ("-12.0".into(), "-8.0".into()));
+        assert_eq!(default_range(&k(Json::from(7), true, None)), ("5".into(), "9".into()));
+        assert_eq!(default_range(&k(Json::from(1), true, None)), ("0".into(), "2".into()));
+        assert_eq!(default_range(&k(Json::Null, false, Some(4.0))), ("3.2".into(), "4.8".into()));
+        assert_eq!(default_range(&k(Json::Null, false, None)), (String::new(), String::new()));
+        assert_eq!(default_range(&k(Json::from(0), true, None)), (String::new(), String::new()));
+        assert_eq!(doc_default("the levels (default 4)"), Some(4.0));
+        assert_eq!(doc_default("no value here"), None);
+    }
+
+    #[test]
     fn a_batch_is_kept_and_found_again() {
         let dir = std::env::temp_dir().join(format!("terraflux-record-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1454,6 +1886,7 @@ mod tests {
                 labels: (0..4).map(|k| format!("candidate_0_seed_{k}")).collect(),
                 metric: "fom".into(),
             }),
+            sensitivity: None,
             alive: 0,
         };
         r.keep();

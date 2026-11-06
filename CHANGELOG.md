@@ -6,6 +6,19 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Application: **a Sensitivity tab in Many runs**. Which settings matter to an output, without the command line: the
+  factors are picked from the model's numeric settings (a range of 20 % either side of the value, whole numbers
+  widened to whole numbers) and the method is one at a time (each factor at its ends, the others in the middle of
+  their ranges: the swing of the output), Morris (the screening: mu, mu*, sigma) or Sobol (S1 and ST with bootstrap
+  intervals, the second order on request). The output is chosen among the model's (a number, a table's column, or
+  the mean, sum, min or max of a map, series or stack), only numbers come back from the workers, and the indices
+  are a table sorted by what matters most, with `design.csv`, `indices.csv` (and `s2.csv`) in the results folder.
+  A batch taken up again after the application closed still gives its indices.
+- `terraflux sensitivity --method oat`, and the new `terraflux_ops::sensitivity::oat_sample` and `oat_analyze`.
+  The design, the candidates, the indices and their CSV files are now `terraflux_dist::sensitivity`, shared by the
+  command and the application (the files and columns of Morris and Sobol are the same as before).
+
 ## [1.44.1] - 2026-11-06
 
 ### Changed

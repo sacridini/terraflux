@@ -21,6 +21,7 @@ pub mod pool;
 pub mod remote;
 pub mod run;
 pub mod secure;
+pub mod sensitivity;
 pub mod store;
 pub mod tiles;
 pub mod worker;
