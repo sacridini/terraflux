@@ -646,7 +646,13 @@ pub struct Session {
     /// What the last whole run wrote: its manifest (`output/manifest.json`, with the outputs), or why not.
     pub recorded: Option<Result<PathBuf, String>>,
     /// The run asked for that is going, for the journal: the model as it ran and the node it runs up to.
-    pub journal_run: Option<(Model, Option<String>)>,
+    pub journal_run: Option<(Model, Option<String>, Option<String>)>,
+    /// The scenario the Parameters pane applied last, with the values it set: runs record its name while those
+    /// values stand in the model (see [`Session::scenario_now`]).
+    pub scenario_applied: Option<(String, BTreeMap<String, serde_json::Value>)>,
+    /// Two maps of past runs read, to be compared in the Viewer once both have run: the nodes that read them (the
+    /// one shown, the other) and how.
+    pub compare_asked: Option<(String, String, crate::builder::How)>,
     /// How many runs this session has written to the journal (the Runs pane reads it again when it changes).
     pub journal_rev: u64,
     pub started: Option<Instant>,
@@ -911,6 +917,8 @@ impl Session {
             elapsed: None,
             recorded: None,
             journal_run: None,
+            scenario_applied: None,
+            compare_asked: None,
             journal_rev: 0,
             started: None,
             view: MapView::default(),
@@ -1363,7 +1371,8 @@ impl Session {
         };
         self.recorded = None;
         // (a run asked for goes in the journal when it ends; the application's own runs do not)
-        self.journal_run = (!quiet && self.path.is_some()).then(|| (self.source.clone(), target.clone()));
+        self.journal_run =
+            (!quiet && self.path.is_some()).then(|| (self.source.clone(), target.clone(), self.scenario_now()));
         let (cache, gate) = (self.cache.clone(), self.gate.clone());
         self.run = Some(Run::start(self.model.clone(), inputs, base, cache, target, record, gate, repaint));
     }
@@ -1399,6 +1408,7 @@ impl Session {
             self.run_to_show(&n, Box::new(move || c.request_repaint()));
             return;
         }
+        self.compare_when_shown();
         let Some(at) = self.edited_at else { return };
         if !self.auto || self.preview.is_none() || !self.can_run_to() {
             return;
@@ -1418,6 +1428,27 @@ impl Session {
         }
         let c = ctx.clone();
         self.start_with(target, Box::new(move || c.request_repaint()), true);
+    }
+
+    /// The two maps read to be compared (see [`Session::compare_asked`]), in the Viewer's comparison once both have
+    /// run; left alone while they are still to run, given up when one did not give its map.
+    fn compare_when_shown(&mut self) {
+        let Some((a, b, how)) = self.compare_asked.clone() else { return };
+        if !self.can_run_to() || !self.show_queue.is_empty() {
+            return;
+        }
+        self.compare_asked = None;
+        if self.value_of(&a, "raster").is_none() || self.value_of(&b, "raster").is_none() {
+            self.notice = Some(("the maps of the runs could not be read to compare them".into(), Instant::now()));
+            return;
+        }
+        crate::builder::select(self, &Registry::standard(), &a);
+        self.preview_compare = crate::builder::Compare {
+            with: Some(crate::builder::CompareWith::Output(b, "raster".into())),
+            how,
+            ..Default::default()
+        };
+        self.ask_viewer = true;
     }
 
     /// Run up to a top-level node to show its output (a node double-clicked), as a run after an edit: only when it
@@ -1629,11 +1660,19 @@ impl Session {
         }
     }
 
+    /// The name of the scenario applied from the Parameters pane while the values it set stand in the model.
+    pub fn scenario_now(&self) -> Option<String> {
+        let (name, set) = self.scenario_applied.as_ref()?;
+        let now = terraflux_exec::journal::values_of(&self.source);
+        // (a value of the scenario that is no parameter nor input of values is not told by the journal's values)
+        set.iter().all(|(k, v)| now.get(k).is_none_or(|n| n == v)).then(|| name.clone())
+    }
+
     /// A run asked for that ended, written to the model's journal (with the outputs and the manifest a whole run
     /// of the model as saved wrote). A plain append: it does not wait.
     fn journal_ended(&mut self, ended: &Result<terraflux_exec::Results, String>) {
         use terraflux_exec::journal::{Entry, Journal, Kind, Status, values_of};
-        let Some((model, target)) = self.journal_run.take() else { return };
+        let Some((model, target, scenario)) = self.journal_run.take() else { return };
         let Some(journal) = self.path.as_deref().and_then(Journal::of) else { return };
         let seconds = self.elapsed.map_or(0.0, |e| e.as_secs_f64());
         let mut entry = Entry::new(target.map_or(Kind::Run, Kind::To), "app", seconds);
@@ -1643,6 +1682,7 @@ impl Session {
             Err(e) => Status::Failed(e.clone()),
         };
         entry.values = values_of(&model);
+        entry.scenario = scenario;
         entry.warnings = self.warnings.clone();
         if let Some(Ok(file)) = &self.recorded
             && let Ok(text) = std::fs::read_to_string(file)
@@ -4683,7 +4723,7 @@ impl TerrafluxApp {
                 }
             }
             Pane::Review => crate::review::pane(ui, s, r),
-            Pane::Runs => crate::runs_view::pane(ui, &mut self.runs, s, self.batch.journaled),
+            Pane::Runs => crate::runs_view::pane(ui, &mut self.runs, s, r, self.batch.journaled),
             Pane::Calculator => match crate::calc_view::pane(ui, &mut self.calculator, s) {
                 Some(crate::calc_view::Asked::RunTo(id)) => crate::builder::run_to(ui, s, Some(id)),
                 Some(crate::calc_view::Asked::Assistant(text)) => {

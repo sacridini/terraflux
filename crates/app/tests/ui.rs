@@ -8452,3 +8452,179 @@ fn the_runs_are_kept_and_listed() {
     assert!(!h.state().runs.over.contains_key(&ids[1]));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The Runs pane's actions: a scenario applied in the Parameters pane is recorded with its name; a run selected
+/// shows its outputs in the Viewer and restores its model (one step of undo); two runs selected are compared (their
+/// values, their models through the Review pane, their maps in the Viewer's comparison).
+#[test]
+fn the_runs_are_shown_restored_and_compared() {
+    use terraflux_exec::journal::{Entry, Journal, Kind, Written};
+    let dir = tmp("runs-actions");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut w = Wizard::default();
+    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
+    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
+    w.increment = Some(250.0);
+    let file = w.save(&dir.join("ui-runs-actions.toml")).unwrap();
+    let mut h = harness(new_app(Some(file.clone())));
+    loaded(&mut h);
+    let journal = Journal::of(&file).unwrap();
+    let isometry = |h: &Harness<TerrafluxApp>| {
+        h.state().session.as_ref().unwrap().source.setting("patches.isometry").cloned().unwrap()
+    };
+    let set = |h: &mut Harness<TerrafluxApp>, v: f64| {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.apply(&[("patches.isometry".to_string(), serde_json::json!(v))].into()).unwrap();
+        s.edited();
+        s.save().unwrap();
+    };
+    {
+        // a parameter to change between the runs, a scenario to apply, and two steps a run
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.parameters.push(terraflux_graph::Parameter { key: "patches.isometry".into(), ..Default::default() });
+        s.source.apply(&[("simulation.times".to_string(), serde_json::json!(2))].into()).unwrap();
+        s.source.scenarios.push(terraflux_graph::Scenario {
+            name: "wet".into(),
+            note: None,
+            values: [("patches.isometry".to_string(), serde_json::json!(2.5))].into(),
+        });
+        s.edited();
+        s.save().unwrap();
+    }
+    set(&mut h, 1.5);
+    run_all(&mut h, None);
+    // the scenario applied from the Parameters pane: the run that follows is recorded with its name
+    h.state_mut().focus(Pane::Parameters);
+    h.run_steps(3);
+    h.get_by_label("Apply").click();
+    until(&mut h, "the run of the scenario", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && journal.entries().len() == 2
+    });
+    h.run_steps(2);
+    assert_eq!(isometry(&h), serde_json::json!(2.5));
+    // (a value it set changed: the scenario no more)
+    set(&mut h, 3.5);
+    run_all(&mut h, None);
+    let all = journal.entries();
+    assert_eq!(all.len(), 3, "{all:?}");
+    assert_eq!(all.iter().map(|e| e.scenario.as_deref()).collect::<Vec<_>>(), [None, Some("wet"), None]);
+    assert_eq!(all[1].values["patches.isometry"], serde_json::json!(2.5));
+    let ids: Vec<u64> = all.iter().map(|e| e.id).collect();
+    h.state_mut().focus(Pane::Runs);
+    h.run_steps(3);
+    h.state_mut().runs.select(ids[2], false);
+    h.run_steps(3);
+    // the detail of the run: its values, outputs and what can be done with them
+    assert!(h.query_all_by_label_contains("Run of ").next().is_some());
+    assert!(h.query_by_label("Show its outputs").is_some() && h.query_by_label("Restore this model").is_some());
+    assert!(h.query_all_by_label_contains("patches.isometry").next().is_some());
+    shot(&mut h, "runs-detail");
+    // the model of the first run restored: one step of undo, named
+    let steps = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().history.steps();
+    let done = steps(&h).0.len();
+    h.state_mut().runs.select(ids[0], false);
+    h.run_steps(3);
+    h.get_by_label("Restore this model").click();
+    h.run_steps(3);
+    assert_eq!(isometry(&h), serde_json::json!(1.5));
+    let (names, at) = steps(&h);
+    assert_eq!((names.len(), at), (done + 1, done + 1), "{names:?}");
+    assert!(names[done].starts_with("Restore the model of the run of "), "{names:?}");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(isometry(&h), serde_json::json!(3.5));
+    // (the model open is the one of the last run: nothing to restore from it)
+    h.state_mut().runs.select(ids[2], false);
+    h.run_steps(3);
+    assert!(h.query_all_by_label_contains("already the one of this run").next().is_some());
+    // the outputs of the last run, still as written, are layers of the Viewer
+    let (nodes, layers) = {
+        let s = h.state().session.as_ref().unwrap();
+        (s.source.nodes.len(), s.preview_layers.len())
+    };
+    h.get_by_label("Show its outputs").click();
+    h.run_steps(2);
+    until(&mut h, "the outputs shown", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.show_queue.is_empty()
+    });
+    h.run_steps(2);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert!(s.source.nodes.len() > nodes, "a node reads each output");
+        assert!(s.preview_layers.len() > layers, "and keeps it as a layer");
+        assert!(s.notice.as_ref().is_some_and(|(t, _)| t.contains("opened in the Viewer")), "{:?}", s.notice);
+    }
+    // the first run's outputs were written over by the next: nothing to open there
+    h.state_mut().focus(Pane::Runs);
+    h.state_mut().runs.select(ids[0], false);
+    h.run_steps(3);
+    assert!(h.query_all_by_label_contains("left out: ").next().is_some());
+    // two selected: the values side by side, then the models' differences in the Review pane
+    h.state_mut().runs.select(ids[2], true);
+    h.run_steps(3);
+    assert!(h.query_all_by_label_contains("Compare the runs of").next().is_some());
+    assert!(h.query_by_label("1.5").is_some() && h.query_by_label("3.5").is_some());
+    assert_eq!(h.state().runs.selected, vec![ids[0], ids[2]]);
+    shot(&mut h, "runs-compare");
+    h.get_by_label("Review the model's differences").click();
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let r = s.review.as_ref().expect("a review of the two models");
+        assert!(r.after.is_some());
+        assert!(!terraflux_app::review::changes(s).is_empty());
+    }
+    shot(&mut h, "runs-review");
+    // the newer model against the open one is a review of the open model (it has the nodes the outputs added)
+    h.state_mut().focus(Pane::Runs);
+    h.run_steps(3);
+    h.get_by_label("Newer against the model open").click();
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let r = s.review.as_ref().unwrap();
+        assert!(r.after.is_none() && !terraflux_app::review::changes(s).is_empty());
+    }
+    // two runs that wrote a map each, in files of their own: the Viewer compares them
+    let maps = ["map-a.tif", "map-b.tif"].map(|n| {
+        let p = dir.join(n);
+        std::fs::copy(data("sibuyan_landuse.tif"), &p).unwrap();
+        p
+    });
+    {
+        let source = h.state().session.as_ref().unwrap().source.clone();
+        for (k, p) in maps.iter().enumerate() {
+            let mut e = Entry::new(Kind::Run, "app", 1.0);
+            e.id = ids[2] + 1000 * (k as u64 + 1);
+            e.when = e.id / 1000;
+            e.outputs = vec![Written::of("land", p, None, None).unwrap()];
+            journal.record(e, &source).unwrap();
+        }
+    }
+    h.state_mut().focus(Pane::Runs);
+    h.run_steps(2);
+    std::thread::sleep(Duration::from_millis(2100));
+    h.run_steps(3);
+    let all = journal.entries();
+    h.state_mut().runs.select(all[3].id, false);
+    h.state_mut().runs.select(all[4].id, true);
+    h.run_steps(3);
+    h.get_by_label("Compare the maps (land)").click();
+    h.run_steps(2);
+    until(&mut h, "the maps compared", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.compare_asked.is_none() && s.show_queue.is_empty()
+    });
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert!(matches!(s.preview_compare.with, Some(terraflux_app::builder::CompareWith::Output(..))));
+        assert_eq!(s.preview_compare.how, terraflux_app::builder::How::SideBySide);
+        assert!(s.preview.is_some());
+    }
+    shot(&mut h, "runs-maps");
+    let _ = std::fs::remove_dir_all(&dir);
+}

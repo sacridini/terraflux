@@ -2160,6 +2160,14 @@ pub fn drop_on_viewer(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Optio
     model
 }
 
+/// Files read by nodes (as [`add_files`]) that run, one after the other, to give their maps, without becoming layers
+/// of the Viewer. The nodes' ids.
+pub fn read_to_show(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Vec<String> {
+    let (_, made) = add_files_made(s, r, files);
+    s.show_queue.extend(made.iter().cloned());
+    made
+}
+
 /// A raster or vector features on the web (`https://...`, `s3://...`, `/vsicurl/...`) made a layer of the Viewer, as
 /// a file dropped on it is: a node that reads it (noted "read from <address>"), one step of undo, kept as a layer on
 /// top of the others, the model run up to it to draw it. The node's id. The address is not opened here (the

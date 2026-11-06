@@ -20,6 +20,19 @@ minor versions.
   can be selected (click, ctrl+click). The outputs are not copied, only recorded. `terraflux run` records its run
   too (`--no-journal` leaves it out), as does `terraflux sensitivity` and the MCP's `run_model` and `sensitivity`.
   (`terraflux_exec::journal`: `Journal`, `Entry`, `Written`, `record_run`.)
+- Application: **the Runs pane's actions**. A run selected is told in full under the table (every value as it ran,
+  the outputs with their path, size and whether they are still as written, the warnings, the failure's message, the
+  manifest, the version and where it was asked for; a batch's folder and, for a sensitivity analysis, its factors
+  ranked), with *Show its outputs* (those still as written, opened as layers of the Viewer; the ones written over
+  since, or gone, are left out and counted) and *Restore this model* (the model as it ran in place of the open one,
+  one step of undo named "Restore the model of the run of ..."; off when the snapshot is gone or is the model
+  already). Two runs selected are compared: their values side by side (only those that differ, a box for all),
+  *Review the model's differences* (the Changes pane, read-only, from the older run's model to the newer's),
+  *Newer against the model open* (a review with accept and reject), and *Compare the maps* or *Their difference*
+  (a map both runs wrote in files of their own, in the Viewer's side by side or difference). A scenario applied in
+  the Parameters pane is recorded with its name by the runs that follow, until a value it set changes. The MCP tool
+  `list_runs` (and the application's assistant) reads the journal: newest first, with `limit`, each run's values
+  changed from the run before and its outputs' state, and with `id` one run in full.
 - Application: **a Sensitivity tab in Many runs**. Which settings matter to an output, without the command line: the
   factors are picked from the model's numeric settings (a range of 20 % either side of the value, whole numbers
   widened to whole numbers) and the method is one at a time (each factor at its ends, the others in the middle of

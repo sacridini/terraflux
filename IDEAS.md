@@ -2876,9 +2876,31 @@ extensão); as versões de um modelo só existem pelo git (o `review.rs` compara
    em dois testes do MCP. Ficou de fora: o cenário aplicado no aplicativo (o app não guarda o nome do cenário
    aplicado; o campo `scenario` só vem do CLI e do MCP, o resto está em `values`), o diário do `submit` e do
    `calibrate`, a falha do `terraflux run` fora da execução (leitura das entradas, `--set` errado) e `--tiled`, e as
-   rodadas retomadas depois de fechar o aplicativo. Falta: reabrir as saídas no Viewer, comparar duas execuções,
-   *Restore this model*, a ferramenta do MCP que lê o diário, a análise de sensibilidade em detalhe (os fatores
-   ordenados já estão na entrada) e as versões com nome (item 3).
+   rodadas retomadas depois de fechar o aplicativo. Falta: as versões com nome (item 3).
+   **Feito** (Unreleased), as ações do painel: abaixo da tabela, a execução escolhida em detalhe (todos os valores, as
+   saídas com caminho, tamanho e a marca "as written", "overwritten since" ou "missing", os avisos, a mensagem da
+   falha, o manifesto, a versão e de onde rodou; um lote com a pasta e, na sensibilidade, os fatores ordenados com o
+   índice principal e *Open the folder*). Uma escolhida: *Show its outputs* (`runs_view::show_outputs`: as saídas
+   ainda como escritas entram como camadas do Viewer por `builder::drop_on_viewer`, isto é, um nó de leitura cada,
+   um passo de desfazer; as sobrescritas, as que sumiram e as que não são mapa, feições nem tabela ficam de fora e
+   são contadas no aviso e ao lado do botão) e *Restore this model* (`runs_view::restore`: o `Journal::model` no
+   lugar do `source`, uma edição com o passo "Restore the model of the run of <hora>"; desligado, com o motivo,
+   quando o instantâneo sumiu ou já é o modelo aberto). Duas escolhidas: os valores lado a lado (`value_rows`: só os
+   que diferem, uma caixa para todos), *Review the model's differences* (novo `review::compare_two`: o `Review` ganha
+   `after`, e com ele a revisão é só de leitura, sem aceitar nem rejeitar, sem marcas no canvas; `begin` a descarta),
+   *Newer against the model open* (o `review::compare` de antes, com aceitar e rejeitar) e *Compare the maps* / *Their
+   difference* (um mapa que as duas escreveram, com o mesmo nome, em arquivos diferentes e ainda como escritos:
+   `builder::read_to_show` lê os dois e `Session::compare_asked` põe o `preview_compare` quando os dois rodaram, lado
+   a lado ou em diferença). O cenário: `Session::scenario_applied` (o painel Parameters guarda o nome e os valores ao
+   aplicar) e `Session::scenario_now` (vale enquanto os valores que ele pôs continuam no modelo); `journal_ended`
+   grava em `scenario`. MCP: a ferramenta `list_runs` (`tools::list_runs`; no `terraflux mcp` e no Assistente do
+   aplicativo; `limit`, `id`; só leitura), um item no guia `results` e uma linha na tabela de
+   `website/content/cli/assistants.md`. Testes: `the_runs_are_shown_restored_and_compared` (ui.rs; as imagens
+   `ui-runs-detail.png`, `-compare.png`, `-review.png` e `-maps.png`), três em `runs_view::tests`, um em
+   `tools::sensitivity_tests` e as asserções de `list_runs` no teste do MCP. Ficou de fora: "Open in Many runs" para
+   o lote (só *Open the folder*; reabrir um lote ali pede uma leitura dos resultados que não existe como entrada
+   simples), a comparação dos mapas só para saídas raster em arquivos distintos (a execução que sobrescreve os
+   arquivos da anterior não tem o que comparar), e a revisão de duas versões passadas sem os mapas antes e depois.
 2. **Rodar como conferência numa parte pequena.** *Run on the view* (só a extensão que o Viewer mostra) e *Run at ¼
    resolution* (ou ½, ⅛): o modelo roda em segundos para mostrar se está certo antes de uma execução de horas. Pede
    ao `exec` uma janela e um fator de reamostragem que todo `raster.read` aplica ao ler (lendo só a janela do

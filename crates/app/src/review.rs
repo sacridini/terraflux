@@ -58,6 +58,8 @@ pub struct Review {
     pub before: BTreeMap<String, terraflux_ops::Outputs>,
     /// The Changes pane to be brought to the front (a review begun by another program, or asked for).
     pub show: bool,
+    /// Two past versions compared (`base` and this), not the model open: read-only, nothing to accept or reject.
+    pub after: Option<Model>,
     /// The changes, counted at the model's revision.
     seen: Option<u64>,
     changes: Vec<Change>,
@@ -299,6 +301,10 @@ pub fn take(target: &Target, from: &Model, into: &mut Model) {
 /// Begin a review of the changes about to be made to the model open (by `by`), unless one goes on (then `by` is
 /// one more of its authors).
 pub fn begin(s: &mut Session, by: &str, show: bool) {
+    // (two past versions compared are no review of the edits to come)
+    if s.review.as_ref().is_some_and(|r| r.after.is_some()) {
+        s.review = None;
+    }
     match &mut s.review {
         Some(r) => {
             if !r.by.contains(by) {
@@ -312,6 +318,7 @@ pub fn begin(s: &mut Session, by: &str, show: bool) {
                 by: by.into(),
                 before: s.outputs.clone(),
                 show,
+                after: None,
                 seen: None,
                 changes: Vec::new(),
             })
@@ -326,9 +333,25 @@ pub fn compare(s: &mut Session, other: Model, what: &str) {
         by: what.into(),
         before: BTreeMap::new(),
         show: true,
+        after: None,
         seen: None,
         changes: Vec::new(),
     });
+}
+
+/// Compare two past versions of the model (the runs of the journal, say): the differences from `before` to `after`,
+/// to read only. The model open is not part of it, so there is nothing to accept or reject.
+pub fn compare_two(s: &mut Session, before: Model, after: Model, what: &str) {
+    s.review = Some(Review {
+        base: before,
+        by: what.into(),
+        before: BTreeMap::new(),
+        show: true,
+        after: Some(after),
+        seen: None,
+        changes: Vec::new(),
+    });
+    s.editor.marks.clear();
 }
 
 /// Once a frame: the changes counted again after an edit (the review ends when none is left), and the nodes
@@ -338,6 +361,18 @@ pub fn follow(s: &mut Session) {
         s.editor.marks.clear();
         return;
     };
+    if let Some(after) = &r.after {
+        // (two past versions: counted once, no edit changes them, nothing marked on the canvas)
+        if r.seen.is_none() {
+            r.changes = diff(&r.base, after);
+            r.seen = Some(s.revision);
+        }
+        s.editor.marks.clear();
+        if r.changes.is_empty() {
+            s.review = None;
+        }
+        return;
+    }
     if r.seen != Some(s.revision) {
         r.changes = diff(&r.base, &s.source);
         r.seen = Some(s.revision);
@@ -566,8 +601,16 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 return;
             };
             let list = changes(s).to_vec();
+            let past = s.review.as_ref().is_some_and(|r| r.after.is_some());
             ui.label(format!("{} change(s): {by}", list.len()));
             ui.horizontal(|ui| {
+                if past {
+                    ui.label(RichText::new("two past versions: to read, nothing to accept or reject").weak());
+                    if ui.button("Close").clicked() {
+                        accept_all(s);
+                    }
+                    return;
+                }
                 if ui.add(crate::app::accent_button("Accept all", true)).on_hover_text("keep every change").clicked() {
                     accept_all(s);
                 }
@@ -577,14 +620,14 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
             });
             ui.add_space(6.0);
             for (k, c) in list.iter().enumerate() {
-                change_ui(ui, s, r, k, c);
+                change_ui(ui, s, r, k, c, past);
                 ui.add_space(4.0);
             }
         });
     });
 }
 
-fn change_ui(ui: &mut Ui, s: &mut Session, r: &Registry, k: usize, c: &Change) {
+fn change_ui(ui: &mut Ui, s: &mut Session, r: &Registry, k: usize, c: &Change, past: bool) {
     let (mark, colour) = match c.kind {
         Kind::Added => ("+", ADDED),
         Kind::Removed => ("−", REMOVED),
@@ -600,6 +643,9 @@ fn change_ui(ui: &mut Ui, s: &mut Session, r: &Registry, k: usize, c: &Change) {
                 ui.label(RichText::new(mark).strong().color(colour));
                 ui.label(RichText::new(&c.title).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if past {
+                        return;
+                    }
                     if ui.small_button("✖").on_hover_text("reject: as it was").clicked() {
                         reject(s, &c.target);
                     }
@@ -621,6 +667,7 @@ fn change_ui(ui: &mut Ui, s: &mut Session, r: &Registry, k: usize, c: &Change) {
             }
             if let Target::Node(id) = &c.target
                 && c.kind != Kind::Removed
+                && !past
             {
                 before_after(ui, s, r, k, id);
             }

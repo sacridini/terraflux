@@ -383,6 +383,7 @@ impl Chat {
             }
             "new_model" => Answer::Done(new_model(s, r, &a.args, &self.stamp)),
             "sensitivity" => Answer::Done(set_up_sensitivity(s, r, &a.args)),
+            "list_runs" => Answer::Done(tools::list_runs(s.path.as_deref(), &a.args)),
             // the values of the last run in the application (inside the loops: the Trace pane's run)
             "trace_cell" => {
                 let values = |n: &str, p: &str| s.value_of(n, p);

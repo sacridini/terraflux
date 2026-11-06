@@ -2003,6 +2003,17 @@ fn all() -> Vec<Value> {
             Some(&read_only),
         ),
         tool(
+            "list_runs",
+            "The runs of the model kept in its journal (the application, terraflux run and this server write it), newest first: when, how long, how it ended, what it was (the model, up to a node, a batch), the scenario, the values changed from the run before and the outputs with whether they are still as written. `limit` (default 20); with `id`, one run in full (every value, the outputs, the warnings, the batch's factors ranked).",
+            json!({
+                "model": model,
+                "limit": { "type": "integer", "description": "How many runs, the newest first (default 20)." },
+                "id": { "type": "integer", "description": "A run's id (from the list): that run in full." },
+            }),
+            &["model"],
+            Some(&read_only),
+        ),
+        tool(
             "inspect_file",
             "Look at a file: a raster's size, georeference and, band by band, its statistics or the cells of each class; the first lines of a table or text.",
             json!({ "path": { "type": "string" } }),
@@ -3036,6 +3047,126 @@ pub fn arrange(nodes: &mut [Node], r: &Registry) {
     }
 }
 
+/// The runs the model's journal has kept (`.terraflux` beside its file), newest first: each in a few lines (when, how
+/// long, how it ended, what it was, the scenario, the values changed from the run before, the outputs and whether
+/// they are still as written). `limit` of them (default 20); with `id`, that one in full. Read-only.
+pub fn list_runs(model_file: Option<&Path>, a: &Value) -> Reply {
+    use terraflux_exec::journal::{Journal, Kind, Status};
+    let file = model_file.ok_or("the model has no file yet: save it first (the journal is kept beside the file)")?;
+    let journal = Journal::of(file).ok_or("the model has no file name")?;
+    let entries = journal.entries();
+    if entries.is_empty() {
+        return Ok(format!(
+            "No run kept yet for {} (each run asked for is recorded beside the model).",
+            file.display()
+        ));
+    }
+    let when = |e: &terraflux_exec::journal::Entry| crate::eta::stamp(e.when).unwrap_or_else(|| e.when.to_string());
+    let status = |e: &terraflux_exec::journal::Entry| match &e.status {
+        Status::Done => "done".to_string(),
+        Status::Stopped => "stopped".to_string(),
+        Status::Failed(m) => format!("failed: {m}"),
+    };
+    let outputs = |e: &terraflux_exec::journal::Entry| -> String {
+        e.outputs
+            .iter()
+            .map(|w| format!("{} ({}, {})", w.name, w.path, crate::runs_view::state_of(w)))
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+    if let Some(id) = a.get("id") {
+        let id = id
+            .as_u64()
+            .or_else(|| id.as_str().and_then(|s| s.trim().parse().ok()))
+            .ok_or("`id` is a run's id (a number)")?;
+        let at = entries.iter().position(|e| e.id == id).ok_or_else(|| format!("no run {id} (list_runs)"))?;
+        let e = &entries[at];
+        let mut t = format!(
+            "Run {} of {}\nwhen: {}\ntook: {:.1} s\nstatus: {}\nwhat: {}\nscenario: {}\nterraflux: {} (from the {})\n",
+            e.id,
+            file.display(),
+            when(e),
+            e.seconds,
+            status(e),
+            crate::runs_view::kind_text(&e.kind),
+            e.scenario.as_deref().unwrap_or("none"),
+            e.terraflux,
+            e.from
+        );
+        t.push_str(&format!(
+            "model: {} ({})\n",
+            e.model,
+            if journal.model(&e.model).is_some() { "kept" } else { "snapshot gone" }
+        ));
+        if let Some(m) = &e.manifest {
+            t.push_str(&format!("manifest: {}\n", m.display()));
+        }
+        t.push_str("values:\n");
+        for (k, v) in &e.values {
+            t.push_str(&format!("  {k} = {v}\n"));
+        }
+        if let Some(before) = at.checked_sub(1).map(|p| &entries[p]) {
+            let c = crate::runs_view::changes(&before.values, &e.values);
+            t.push_str(&format!(
+                "changed from the run before: {}\n",
+                if c.is_empty() { "none".into() } else { c.join(", ") }
+            ));
+        }
+        t.push_str("outputs:\n");
+        for w in &e.outputs {
+            t.push_str(&format!("  {}: {} ({} bytes, {})\n", w.name, w.path, w.size, crate::runs_view::state_of(w)));
+        }
+        if !e.warnings.is_empty() {
+            t.push_str(&format!("warnings:\n  {}\n", e.warnings.join("\n  ")));
+        }
+        if let Kind::Batch(b) = &e.kind {
+            t.push_str(&format!("batch: {} runs, {} failed, results in {}\n", b.runs, b.failed, b.out.display()));
+            for f in &b.factors {
+                match f.index {
+                    Some(i) => t.push_str(&format!("  factor {}: {} {i:.3}\n", f.key, f.by)),
+                    None => t.push_str(&format!("  factor {}\n", f.key)),
+                }
+            }
+        }
+        return Ok(t);
+    }
+    let limit = a.get("limit").and_then(Value::as_u64).map_or(20, |n| n.max(1) as usize);
+    let mut t = format!(
+        "Runs of {}, newest first ({} of {}); list_runs with `id` tells one in full.\n",
+        file.display(),
+        limit.min(entries.len()),
+        entries.len()
+    );
+    for (at, e) in entries.iter().enumerate().rev().take(limit) {
+        t.push_str(&format!(
+            "- id {} | {} | took {} | {} | {} | scenario: {}\n",
+            e.id,
+            when(e),
+            crate::eta::took(e.seconds),
+            status(e),
+            crate::runs_view::kind_text(&e.kind),
+            e.scenario.as_deref().unwrap_or("none")
+        ));
+        match at.checked_sub(1).map(|p| &entries[p]) {
+            Some(before) => {
+                let c = crate::runs_view::changes(&before.values, &e.values);
+                t.push_str(&format!(
+                    "  values changed from the run before: {}\n",
+                    if c.is_empty() { "none".into() } else { c.join(", ") }
+                ));
+                if before.model != e.model {
+                    t.push_str("  the model changed from the run before\n");
+                }
+            }
+            None => t.push_str("  (the first run kept)\n"),
+        }
+        if !e.outputs.is_empty() {
+            t.push_str(&format!("  outputs: {}\n", outputs(e)));
+        }
+    }
+    Ok(t)
+}
+
 pub fn inspect_file(a: &Value) -> Reply {
     let p = absolute(text(a, "path")?);
     if !p.exists() {
@@ -3455,7 +3586,9 @@ mod sensitivity_tests {
     use serde_json::json;
     use terraflux_dist::sensitivity::Method;
 
-    use super::{catalogue, sensitivity_ask};
+    use terraflux_graph::Model;
+
+    use super::{catalogue, list_runs, sensitivity_ask};
 
     #[test]
     fn the_arguments_of_a_sensitivity_analysis_are_read_and_checked() {
@@ -3486,6 +3619,53 @@ mod sensitivity_tests {
         ] {
             assert!(sensitivity_ask(&bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn the_journal_is_listed_newest_first_and_one_run_in_full() {
+        use terraflux_exec::journal::{Entry, Journal, Kind, Status, Written};
+        let d = std::env::temp_dir().join(format!("terraflux-list-runs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let file = d.join("m.toml");
+        assert!(list_runs(None, &json!({})).is_err());
+        assert!(list_runs(Some(&file), &json!({})).unwrap().starts_with("No run kept yet"));
+        let model = Model::from_toml("format = \"terraflux/1\"").unwrap();
+        let out = d.join("land.tif");
+        std::fs::write(&out, "one").unwrap();
+        let j = Journal::of(&file).unwrap();
+        for (k, rate) in [1, 2, 3].into_iter().enumerate() {
+            let mut e = Entry::new(Kind::Run, "app", 1.0);
+            e.id = 1_000 + k as u64;
+            e.values = [("$rate".to_string(), json!(rate))].into();
+            if k == 0 {
+                e.outputs = vec![Written::of("land", &out, None, None).unwrap()];
+            }
+            if k == 2 {
+                e.status = Status::Failed("no data".into());
+                e.scenario = Some("dry".into());
+            }
+            j.record(e, &model).unwrap();
+        }
+        std::fs::write(&out, "another one").unwrap();
+        let all = list_runs(Some(&file), &json!({})).unwrap();
+        assert!(all.contains("(3 of 3)"), "{all}");
+        assert!(all.find("id 1002").unwrap() < all.find("id 1001").unwrap());
+        assert!(all.find("id 1001").unwrap() < all.find("id 1000").unwrap());
+        assert!(all.contains("failed: no data") && all.contains("scenario: dry"), "{all}");
+        assert!(all.contains("$rate 2 -> 3") && all.contains("(the first run kept)"), "{all}");
+        assert!(all.contains("land.tif, overwritten since"), "{all}");
+        let two = list_runs(Some(&file), &json!({ "limit": 2 })).unwrap();
+        assert!(two.contains("(2 of 3)") && !two.contains("id 1000"), "{two}");
+        let one = list_runs(Some(&file), &json!({ "id": 1002 })).unwrap();
+        assert!(one.contains("status: failed: no data") && one.contains("$rate = 3"), "{one}");
+        assert!(one.contains("changed from the run before: $rate 2 -> 3") && one.contains("(kept)"), "{one}");
+        assert!(list_runs(Some(&file), &json!({ "id": 5 })).unwrap_err().contains("no run 5"));
+        // (the assistant in the application names no model: the open one)
+        let app = catalogue(true).into_iter().find(|t| t["name"] == "list_runs").unwrap();
+        assert!(app["inputSchema"]["properties"].get("model").is_none());
+        assert!(catalogue(false).iter().any(|t| t["name"] == "list_runs"));
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

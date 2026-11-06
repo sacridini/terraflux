@@ -769,7 +769,7 @@ fn scenarios_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry, aske
                 .collect();
             ui.label(RichText::new(values.join(" · ")).small().weak());
             if ui.small_button("Apply").on_hover_text("its values in the model (ctrl+Z undoes it)").clicked() {
-                apply = Some(sc.values.clone());
+                apply = Some((sc.name.clone(), sc.values.clone()));
             }
             if ui.small_button("x").on_hover_text("forget it").clicked() {
                 delete = Some(sc.name.clone());
@@ -779,10 +779,11 @@ fn scenarios_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry, aske
             ui.label(RichText::new(n).small().italics());
         }
     }
-    if let Some(v) = apply
-        && let Err(e) = set(s, &v)
-    {
-        st.error = Some(e);
+    if let Some((name, v)) = apply {
+        match set(s, &v) {
+            Ok(()) => s.scenario_applied = Some((name, v)),
+            Err(e) => st.error = Some(e),
+        }
     }
     if let Some(name) = delete {
         s.source.scenarios.retain(|sc| sc.name != name);

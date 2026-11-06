@@ -337,6 +337,7 @@ impl Server {
             "last_trace" => terraflux_app::trace::last()
                 .ok_or_else(|| "no cell traced yet in the application (a right click on a cell of a map)".to_string()),
             "inspect_file" => tools::inspect_file(a),
+            "list_runs" => tools::list_runs(Some(&model_path(a)?), a),
             "open_in_app" => open_in_app(a),
             "explain_calc" => {
                 let path = model_path(a)?;
@@ -984,6 +985,18 @@ mod tests {
             matches!(&kept[1].status, terraflux_exec::journal::Status::Failed(e) if e.contains("errors")),
             "{kept:?}"
         );
+        // list_runs reads the journal, newest first; with an id, one run in full
+        let listed = ask("list_runs");
+        let text = listed["content"][0]["text"].as_str().unwrap();
+        assert_eq!(listed["isError"], false, "{listed}");
+        assert!(text.contains("(2 of 2)") && text.contains("failed:") && text.contains("done"), "{text}");
+        assert!(text.find("failed:").unwrap() < text.find("| done").unwrap(), "newest first: {text}");
+        let (t, e) = call(&s, "list_runs", json!({ "model": model, "id": kept[0].id }));
+        assert!(!e && t.contains("status: done") && t.contains("from the mcp"), "{t}");
+        let (t, e) = call(&s, "list_runs", json!({ "model": model, "limit": 1 }));
+        assert!(!e && t.contains("(1 of 2)") && !t.contains("| done"), "{t}");
+        let (t, e) = call(&s, "list_runs", json!({ "model": model, "id": 7 }));
+        assert!(e && t.contains("no run 7"), "{t}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
