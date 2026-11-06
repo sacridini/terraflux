@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.43.0] - 2026-11-06
+
 ### Added
 - Application: **edits not saved are never lost without asking**. Closing the window, *New model*, *Open...*,
   *Open recent*, a template, a model made by the wizard or a model file dropped on the window first ask "Save the
