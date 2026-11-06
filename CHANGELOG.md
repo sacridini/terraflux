@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.45.1] - 2026-11-07
+
 ### Fixed
 - **The same results on every core of a hybrid processor** (Intel's performance and efficient cores, 12th generation
   on): Eigen, under landschaft's kernels, blocks its dense products by the caches it reads once, on the core its first
