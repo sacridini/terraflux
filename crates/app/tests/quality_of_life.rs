@@ -110,3 +110,44 @@ fn the_edits_of_a_terraflux_that_ended_are_recovered() {
     h.run_steps(2);
     assert!(!has_node(&h, "second") && has_node(&h, "first"));
 }
+
+#[test]
+fn the_computer_is_kept_awake_while_a_model_runs() {
+    let mut app = new_app(None);
+    app.awake = Some(terraflux_app::awake::Awake::default());
+    let mut h = harness(app);
+    let ctx = h.ctx.clone();
+    // a template: run once its data is read
+    h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    let (mut ran, mut held) = (false, false);
+    let t = Instant::now();
+    loop {
+        h.step();
+        let running = h.state().session.as_ref().unwrap().running();
+        if running {
+            ran = true;
+            held |= h.state().awake.as_ref().unwrap().held();
+        } else if ran {
+            break;
+        }
+        assert!(t.elapsed() < Duration::from_secs(120), "the run did not end");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(held, "held while it ran");
+    h.run_steps(2);
+    assert!(!h.state().awake.as_ref().unwrap().held(), "let go once it ended");
+    // turned off in the settings: never held
+    terraflux_app::settings::update(|st| st.keep_awake = false);
+    h.state_mut().session.as_mut().unwrap().run_when_ready = true;
+    let mut held = false;
+    for _ in 0..200 {
+        h.step();
+        held |= h.state().awake.as_ref().unwrap().held();
+        if !h.state().session.as_ref().unwrap().running() && !h.state().session.as_ref().unwrap().run_when_ready {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    terraflux_app::settings::update(|st| st.keep_awake = true);
+    assert!(!held, "not held when turned off");
+}

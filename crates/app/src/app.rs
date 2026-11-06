@@ -1783,6 +1783,8 @@ pub struct TerrafluxApp {
     /// with the user's word given.
     pub confirm: Option<Then>,
     quitting: bool,
+    /// The computer kept from sleeping while Terraflux works (the application's window has it, not the tests).
+    pub awake: Option<crate::awake::Awake>,
 }
 
 /// What waits for the user's word on the edits not saved of the model open: done once they are saved or thrown away.
@@ -1885,6 +1887,7 @@ impl TerrafluxApp {
             recovery: None,
             confirm: None,
             quitting: false,
+            awake: None,
         };
         if let Some(p) = model {
             app.open(&p);
@@ -2618,7 +2621,10 @@ impl TerrafluxApp {
                             }
                         } else if s.running() && s.stopping.is_none() {
                             let (frac, text) = s.run_progress();
-                            theme::progress(ui, Some(frac), &text, 140.0);
+                            let bar = theme::progress(ui, Some(frac), &text, 140.0);
+                            if self.awake.as_ref().is_some_and(crate::awake::Awake::held) {
+                                bar.on_hover_text("the computer is kept awake until the run ends");
+                            }
                         }
                         if s.stopping.is_some() {
                             ui.spinner();
@@ -3008,6 +3014,17 @@ impl TerrafluxApp {
                         "a wire that would cross another node's box is bent above or below it (a wire with \
                          points of your own is left as you drew it)",
                     );
+                });
+                ui.end_row();
+                ui.label("Runs");
+                ui.vertical(|ui| {
+                    ui.checkbox(&mut st.keep_awake, "keep the computer awake while a model runs").on_hover_text(
+                        "while a model runs, Many runs goes on or this computer works for another's batch, the \
+                         computer does not go to sleep (the screen may still go dark)",
+                    );
+                    if let Some(e) = self.awake.as_ref().and_then(|a| a.failed.as_ref()) {
+                        ui.label(RichText::new(e).color(ui.visuals().warn_fg_color).size(11.0));
+                    }
                 });
                 ui.end_row();
                 ui.label("Threads");
@@ -4096,6 +4113,12 @@ impl TerrafluxApp {
         self.batch.poll();
         if self.batch.running() {
             ui.ctx().request_repaint_after(Duration::from_millis(500));
+        }
+        // the computer kept awake while a model runs, a batch goes on, or it works for another's batch
+        if let Some(a) = &mut self.awake {
+            let lent = self.computers.lender.as_ref().is_some_and(|l| l.status.lock().is_ok_and(|s| s.task.is_some()));
+            let working = self.session.as_ref().is_some_and(Session::running) || self.batch.running() || lent;
+            a.want(working && st.keep_awake);
         }
         // a comparison of the Parameters pane run in Many runs: its runs back there
         self.params.in_batch = self.batch.compare.is_some() && self.batch.running();

@@ -59,6 +59,9 @@ pub struct Settings {
     pub wires_around: bool,
     /// The models opened or saved last, the last first.
     pub recent_models: Vec<PathBuf>,
+    /// The computer kept from sleeping while a model runs, a batch goes on or it works for another's (on unless
+    /// turned off).
+    pub keep_awake: bool,
     /// The assistant's servers of chat models (their keys in the system's store of credentials), and the one
     /// chosen (none: not chosen yet).
     pub providers: Vec<crate::llm::Provider>,
@@ -121,6 +124,7 @@ impl Default for Settings {
             minimap: true,
             wires_around: true,
             recent_models: Vec::new(),
+            keep_awake: true,
             providers: crate::llm::presets(),
             provider: None,
             cache_gb: None,

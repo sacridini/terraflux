@@ -18,6 +18,11 @@ minor versions.
   (copied 3 minutes ago): Recover / Discard / Later"; Recover opens the model from its file with those edits, not
   saved, a step of undo back to the file as it is on disk. The copies of another Terraflux still open are never
   offered (each gives a pulse while it runs). Windows, Linux and macOS alike.
+- Application: **the computer is kept awake while a model runs**, a batch of Many runs goes on or this computer
+  works for another's batch, so a run left for the night does not stop when the system would sleep (the screen may
+  still go dark). On Windows by the system's call, on macOS by `caffeinate`, on Linux by `systemd-inhibit` (idle and
+  sleep, else idle only, as where blocking sleep is refused), ended with the work or with Terraflux itself. Settings
+  > Runs turns it off; the progress's tooltip says it.
 
 ## [1.42.0] - 2026-11-06
 

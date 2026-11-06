@@ -2673,6 +2673,13 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    Configuração "Keep the computer awake while a model runs" (ligada); o tooltip do progresso diz "keeping the
    computer awake". Testes: o guarda pega e solta (no Windows a chamada; no Linux o processo, no WSL), a linha de
    comando de cada sistema, nada quando desligado.
+   **Feito** (Unreleased): `awake.rs` (`Awake::want` a cada quadro; `TerrafluxApp::awake`, só no aplicativo de
+   verdade); o `systemd-inhibit` segura `tail --pid=<terraflux> -f /dev/null`, então uma queda solta a trava; no
+   Linux tenta `idle:sleep` e, recusado (o WSL não tem sessão do logind: "Access denied"), `idle` só, sem travar a
+   interface (o processo que termina logo é visto no quadro seguinte). Conferido no WSL: `systemd-inhibit --list`
+   mostra "Terraflux idle block" enquanto segura e nada depois. Configuração `keep_awake` (Settings > Runs) e o erro
+   dito ali. Testes: `awake::tests`, `the_computer_is_kept_awake_while_a_model_runs`. Falta: conferir no macOS (o
+   CI do release compila; o `caffeinate -i -w` é o de sempre).
 8. **O tempo de cada nó no canvas.** Depois de uma execução, cada caixa diz no canto de baixo quanto levou ("2.4 s",
    "3 min"; um contêiner a soma do corpo; cinza quando veio do cache) e o tooltip a memória do que deu. Um botão
    "Times" na barra do canvas pinta as caixas pela parte do tempo total (as mais lentas na cor quente, as rápidas

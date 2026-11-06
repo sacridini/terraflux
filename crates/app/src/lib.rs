@@ -7,6 +7,7 @@ pub mod animation;
 pub mod app;
 pub mod area;
 pub mod attribute_table;
+pub mod awake;
 pub mod basemap;
 pub mod batch_view;
 pub mod blend;
@@ -135,6 +136,8 @@ pub fn run(model: Option<PathBuf>) -> eframe::Result<()> {
             let mut app = TerrafluxApp::new(model);
             // the edits not saved copied now and then, and those of a Terraflux that ended without saving offered
             app.recovery = Some(recovery::Keeper::new(recovery::dir()));
+            // the computer kept from sleeping while a model runs (unless turned off)
+            app.awake = Some(awake::Awake::default());
             // the models handed by `terraflux mcp` opened here, not in a window of their own
             let ctx = cc.egui_ctx.clone();
             app.handoff = handoff::listen(move || ctx.request_repaint());
