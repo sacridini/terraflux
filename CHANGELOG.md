@@ -16,6 +16,10 @@ minor versions.
   and an output its end takes, dragged over it, lights the connection up, and on release A → B becomes A → node →
   B (never a cycle), in one step of undo. **Alt+drag takes a node out**: what it read is connected again to what
   it fed where the types fit, the rest left unconnected and said.
+- Canvas: **ctrl+F finds a node of the model**, at any depth (inside groups, loops, switches), by its id,
+  operator, note or a file of its settings: the list tells each one's place (`group > inner`) and the file that
+  matched; choosing one opens the containers on its way, selects it and centres the view on it. The command
+  palette's *Go to* reaches nested nodes too (`Go to group/inner`).
 
 ## [1.41.0] - 2026-11-06
 

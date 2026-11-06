@@ -2334,6 +2334,11 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     se apaga e refaz).
 12. **Buscar um nó do modelo** (ctrl+F no canvas): pelo id, operador ou arquivo, a câmera vai até ele (dentro de
     grupos também, abrindo o grupo).
+    **Feito** (Unreleased, por um sub-agente): `find.rs` (`walk` em toda profundidade, `hits` pelo id, operador,
+    `note` e arquivos das configurações, até 12; `go`: o `editor.path`, a seleção e `EditorState::centre_on`, o zoom
+    entre 0,7 e 3; `show`, a caixa no topo do canvas); Ctrl+F em `builder::keys`; o *Go to* do Ctrl+K para nós
+    aninhados (`Do::GoTo(Vec<String>)`). Teste: `a_node_of_the_model_is_found_inside_groups_and_the_camera_goes_to_it`.
+    Falta: a câmera indo até o nó com animação; um comando "Find a node" na paleta.
 13. **Minimapa** no canto do canvas para modelos grandes, com o retângulo da vista arrastável.
 14. **Enquadrar a seleção** (F) além do modelo inteiro (Home).
 15. **Renomear em lote**: os selecionados com um padrão (`land_{n}`, `{file}`), e o id seguindo o arquivo quando ele

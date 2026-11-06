@@ -1104,7 +1104,24 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
     }
     // (the pointer over the canvas: elsewhere the arrows go through the maps shown)
     let over = ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| s.editor.canvas().is_some_and(|r| r.contains(p)));
-    if canvas && over && !typing && s.editor.quick.is_none() && s.editor.renaming.is_none() && !s.editor.text {
+    // ctrl+F finds a node of the model (with the pointer over the canvas or the canvas in focus)
+    let finding = !typing
+        && (canvas || over)
+        && s.editor.quick.is_none()
+        && s.editor.renaming.is_none()
+        && !s.editor.text
+        && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
+    if finding && s.editor.find.is_none() {
+        s.editor.find = Some(Default::default());
+    }
+    if canvas
+        && over
+        && !typing
+        && s.editor.quick.is_none()
+        && s.editor.find.is_none()
+        && s.editor.renaming.is_none()
+        && !s.editor.text
+    {
         let (left, right, up, down, enter) = ui.input_mut(|i| {
             let none = egui::Modifiers::NONE;
             (
@@ -1160,7 +1177,12 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
     // ctrl+D duplicates the nodes selected; ctrl+C copies them (as text, to the system's clipboard: to another
     // scope, model or window) and ctrl+V pastes them, with the model's tab in focus (the events taken, so that no
     // label copies its text then)
-    let here = canvas && !typing && s.editor.quick.is_none() && s.editor.renaming.is_none() && !s.editor.text;
+    let here = canvas
+        && !typing
+        && s.editor.quick.is_none()
+        && s.editor.find.is_none()
+        && s.editor.renaming.is_none()
+        && !s.editor.text;
     // ctrl+G groups the nodes selected, ctrl+shift+G takes the group selected apart
     let (group, ungroup) = ui.input_mut(|i| {
         if !here {

@@ -30,6 +30,7 @@ pub mod eval;
 pub mod export_view;
 pub mod figure;
 pub mod files_view;
+pub mod find;
 pub mod frame;
 pub mod goto;
 pub mod guide;

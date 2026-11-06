@@ -2430,11 +2430,10 @@ impl TerrafluxApp {
         for (k, t) in crate::templates::TEMPLATES.iter().enumerate() {
             all.push(Command::new(t.name, "template", t.group, Do::Template(k)));
         }
-        if let Some(s) = &self.session
-            && let Some(nodes) = s.source.scope(&s.editor.path)
-        {
-            for n in nodes {
-                all.push(Command::new(format!("Go to {}", n.id), "node", n.op.clone(), Do::GoTo(n.id.clone())));
+        if let Some(s) = &self.session {
+            // (every node at every depth, `group/inner` for those inside)
+            for (at, n) in crate::find::walk(&s.source) {
+                all.push(Command::new(format!("Go to {}", at.join("/")), "node", n.op.clone(), Do::GoTo(at)));
             }
         }
         for e in &self.library.entries {
@@ -2533,12 +2532,7 @@ impl TerrafluxApp {
                             s.editor.message = Some(e);
                         }
                     }
-                    Do::GoTo(id) => {
-                        s.editor.text = false;
-                        crate::builder::select(s, r, &id);
-                        s.editor.chosen = [id.clone()].into();
-                        s.editor.reveal(&id);
-                    }
+                    Do::GoTo(at) => crate::find::go(s, r, &at),
                     _ => {}
                 }
                 if model {
@@ -3781,6 +3775,7 @@ impl TerrafluxApp {
                 show = crate::builder::keys(ui, s, &self.registry, canvas);
                 // the operators by name, from the keyboard ("/"), over the panes (its keys taken before theirs)
                 crate::builder::quick_add(ui.ctx(), s, &self.registry, &self.library);
+                crate::find::show(ui.ctx(), s, &self.registry);
             }
             if show {
                 self.focus(Pane::Viewer);

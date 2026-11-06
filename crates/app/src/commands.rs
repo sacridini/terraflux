@@ -61,8 +61,8 @@ pub enum Do {
     /// (its name) after the node selected.
     SaveNode,
     AddMine(String),
-    /// Select a node of the scope shown, and look at it.
-    GoTo(String),
+    /// Select a node (the containers' ids from the top, then its own), opening its containers, and look at it.
+    GoTo(Vec<String>),
 }
 
 /// A command: what it is called, what it is (an action, a template, a node, an operator), its key or what it does.
@@ -246,6 +246,7 @@ pub fn shortcuts() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
                 (delete.into(), "delete the nodes selected"),
                 (format!("{c}D"), "duplicate them"),
                 (format!("{c}C, {c}V"), "copy and paste them"),
+                (format!("{c}F"), "find a node by id, operator, note or file (inside groups too)"),
                 (format!("{c}R"), "rename the node selected"),
                 (format!("{c}L"), "arrange the nodes"),
                 (format!("{c}G"), "group the nodes selected"),

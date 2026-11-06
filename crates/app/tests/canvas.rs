@@ -1012,3 +1012,97 @@ fn a_node_dragged_with_alt_is_lifted_out_of_its_connections() {
         assert_eq!(find(&v, "mid").inputs["map"], Source::Ref("read.raster".into()), "inside {inside}");
     }
 }
+
+/// `top` and a group `grp` holding `inner` (at the far side of its scope) and a second group `deep` with `core`.
+fn finding_model() -> Model {
+    use terraflux_graph::Body;
+    let mut m = Model::new("finding");
+    m.nodes.push(reader("top", [0.0, 0.0]));
+    let deep = Node::new("deep", terraflux_graph::GROUP)
+        .body(Body { nodes: vec![reader("core", [0.0, 0.0])], ..Default::default() });
+    let body = Body { nodes: vec![reader("inner", [0.0, 0.0]), deep], ..Default::default() };
+    m.nodes.push(Node::new("grp", terraflux_graph::GROUP).body(body));
+    m
+}
+
+/// The canvas's centre is inside a node's box.
+fn centred_on(h: &Harness<TerrafluxApp>, id: &str) -> bool {
+    let e = editor(h);
+    e.screen_rect_of(id).is_some_and(|r| r.contains(e.canvas().unwrap().center()))
+}
+
+/// Ctrl+F over the canvas: typing finds nodes at every depth by id, operator or file, with their place; enter
+/// selects the one chosen, opens its groups and centres the camera on it; escape changes nothing; the palette's
+/// *Go to group/inner* does the same.
+#[test]
+fn a_node_of_the_model_is_found_inside_groups_and_the_camera_goes_to_it() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = harness(open(&finding_model(), "canvas-find.toml"));
+    h.run_steps(3);
+    let centre = editor(&h).canvas().unwrap().center();
+    h.hover_at(centre);
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run_steps(2);
+    assert!(editor(&h).find.is_some(), "ctrl+F opens the search");
+    h.event(egui::Event::Text("inne".into()));
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("inner · raster.read").is_some(), "the node, with its operator");
+    assert!(h.query_by_label_contains("grp > inner").is_some(), "and its place");
+    assert!(h.query_by_label_contains("top · raster.read").is_none(), "the others are not listed");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(40);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.editor.find.is_none(), "enter closes it");
+    assert_eq!(s.editor.path, ["grp"]);
+    assert_eq!(s.selected.as_deref(), Some("inner"));
+    assert!(s.editor.chosen.contains("inner"));
+    assert!(centred_on(&h, "inner"), "{:?}", editor(&h).screen_rect_of("inner"));
+    // a node of a group two levels in: the scope set directly
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run_steps(2);
+    h.event(egui::Event::Text("core".into()));
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("grp > deep > core").is_some());
+    h.key_press(egui::Key::Enter);
+    h.run_steps(40);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.editor.path, ["grp", "deep"]);
+    assert_eq!(s.selected.as_deref(), Some("core"));
+    assert!(centred_on(&h, "core"));
+    // by the file's name: the node at the top, from inside a group
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run_steps(2);
+    h.event(egui::Event::Text("SIBUYAN_land".into()));
+    h.run_steps(2);
+    assert_eq!(h.query_all_by_label_contains("sibuyan_landuse.tif").count(), 3, "every reader, the file shown");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(40);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.editor.find.is_none());
+    assert_eq!(s.selected.as_deref(), Some("top"), "the first of the list: {:?}", s.selected);
+    assert!(s.editor.path.is_empty());
+    assert!(centred_on(&h, "top"));
+    // escape closes it, changing nothing
+    let before = (editor(&h).path.clone(), h.state().session.as_ref().unwrap().selected.clone());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run_steps(2);
+    h.event(egui::Event::Text("core".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.editor.find.is_none());
+    assert_eq!((s.editor.path.clone(), s.selected.clone()), before);
+    // the palette: Go to group/inner
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::K);
+    h.run_steps(2);
+    h.event(egui::Event::Text("go to grp/inner".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(40);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.editor.path, ["grp"]);
+    assert_eq!(s.selected.as_deref(), Some("inner"));
+    assert!(centred_on(&h, "inner"));
+}

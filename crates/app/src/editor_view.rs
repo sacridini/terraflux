@@ -415,6 +415,10 @@ pub struct EditorState {
     pub search: String,
     /// The search of the operators from the keyboard ("/"), while it is open.
     pub quick: Option<crate::builder::Quick>,
+    /// The search for a node of the model (ctrl+F), while it is open.
+    pub find: Option<crate::find::Find>,
+    /// A node to centre the camera on at the next frame (once the scene of its scope is built).
+    centre: Option<String>,
     pub message: Option<String>,
     /// Where the view looks, by scope.
     cameras: HashMap<Vec<String>, Camera>,
@@ -542,6 +546,12 @@ impl EditorState {
         let rect = self.rect.filter(|r| r.contains(p))?;
         let cam = self.cameras.get(&self.path)?;
         Some(((p - rect.min - cam.pan) / cam.zoom).to_pos2())
+    }
+
+    /// Centre the camera on a node of the scope shown at the next frame (the scene of a scope just entered is not
+    /// built yet).
+    pub fn centre_on(&mut self, node: &str) {
+        self.centre = Some(node.to_string());
     }
 
     /// Keep a node in view: the camera moved just enough that its box is on the canvas (with a margin).
@@ -1742,6 +1752,14 @@ pub fn show(
     if st.fit || !st.cameras.contains_key(&path) {
         st.cameras.insert(path.clone(), Camera::fitting(scene.bounds, rect.size()));
         st.fit = false;
+    }
+    // a node asked for (found, gone to): its box in the middle of the canvas, at least at a readable zoom
+    if let Some(id) = st.centre.take()
+        && let Some(&i) = scene.index.get(id.as_str())
+    {
+        let cam = st.cameras.get_mut(&path).unwrap();
+        cam.zoom = cam.zoom.clamp(0.7, 3.0);
+        cam.pan = rect.size() / 2.0 - scene.boxes[i].rect.center().to_vec2() * cam.zoom;
     }
     if let Some((entering, id, boxed)) = zoom_to {
         // (as long as egui's animations: none when they are off)
