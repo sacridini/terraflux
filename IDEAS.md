@@ -2998,8 +2998,30 @@ min ou max de um mapa). Falta tudo na interface: só quem usa a linha de comando
    (linear estável com poucas trajetórias, ruidoso instável, Ishigami com N = 2048 estável e ST perto de 0,56/0,44/0,24,
    estrutura com N pequeno), três em `sens_chart::tests`, e no ui.rs os arquivos em `a_sensitivity_analysis_runs_from_its_pane`
    e `..._replicates_at_each_point` e o novo `a_morris_analysis_checks_its_convergence` (as imagens `ui-batch-8-morris-done.png`
-   e `ui-batch-9-oat-chart.png`). Falta do item 6: o parágrafo do `methods.rs`, a ferramenta `sensitivity` do MCP e o
-   registro da análise no diário das execuções.
+   e `ui-batch-9-oat-chart.png`).
+   **Feito também** (Unreleased): o parágrafo dos métodos e a ferramenta do MCP. Novo `crates/app/src/sens_methods.rs`
+   (`Run`, `paragraph`, `text`, `write`, `references`): do método, desenho, fatores e faixas, saída e estatística,
+   réplicas, acaso e convergência faz o parágrafo em inglês (as frases das réplicas, do acaso e da convergência só
+   aparecem quando valem) e as referências do método; vira `methods.md` na pasta ao fim da análise (aplicativo e
+   `terraflux sensitivity`) e o botão *Copy the methods text* do `finished_ui`. As sete referências estão em
+   `methods::REFERENCES` e no `citing.md` (uma linha na tabela, a seção *Sensitivity analysis* e a lista), e o
+   `METHODS` ganha `sensitivity.design`/`sensitivity.analyze` (SALib). `SensitivityPlan` guarda `bounds` e
+   `statistic` (`#[serde(default)]`; um lote retomado de antes não escreve o `methods.md`). No `cluster.rs` o
+   `terraflux sensitivity` agora é `Spec` → `plan` → `execute` (devolve `Analysis`: índices, arquivos, texto dos
+   métodos; escreve também o gráfico), reaproveitado pelo MCP. Ferramenta `sensitivity` (`tools.rs`: `sensitivity_ask`,
+   `SensitivityAsk`, `BIG_DESIGN` = 500; `mcp.rs`: `sensitivity`, numa thread como o `run_model`, com os workers daqui
+   limitados a 4 e o progresso/cancelamento do `Watcher`): fatores `{key, from, to}` (sem faixa, ±20 %:
+   `batch_view::asked_ranges`), método, n, levels, second_order, replicates, saída (padrão `default_measure`),
+   statistic, out (padrão `<modelo> runs/sensitivity N`), `confirm` (acima de 500 rodadas recusa e diz a conta);
+   responde com os índices, o acaso, o veredito da convergência, o parágrafo e os arquivos. No assistente do
+   aplicativo a mesma ferramenta não roda: `chat::set_up_sensitivity` põe fatores e configurações no Many runs →
+   Sensitivity (`Session::ask_sensitivity`, `batch_view::set_asked`) e manda o usuário apertar Run. Guia `results`
+   ganha o parágrafo de como usar (Morris primeiro, Sobol no que importou, réplicas, registrar nas notas). Testes:
+   cinco em `sens_methods::tests`, `tools::sensitivity_tests` (2), `an_analysis_asked_for_by_the_assistant_is_put_in_the_tab`,
+   `a_sensitivity_analysis_is_run_and_told` e `a_big_sensitivity_design_is_refused_until_confirmed` (mcp), e o
+   `methods.md` e o botão em `a_sensitivity_analysis_runs_from_its_pane` e o assistente em
+   `a_setting_is_varied_from_its_menu_and_the_parameters_pane`. Falta do item 6: só o registro da análise no diário das
+   execuções (depois do item 1 da seção anterior).
 7. **Mapas de sensibilidade.** De uma saída em mapa, por célula: o desvio padrão entre as rodadas do desenho (onde
    o resultado é incerto) e, com Sobol, o S1 e o ST de cada fator por célula (onde cada fator manda), como uma
    pilha que o Viewer mostra. Pede guardar os mapas de cada rodada (ou acumulá-los nos workers): o mais caro, o

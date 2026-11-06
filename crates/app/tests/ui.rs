@@ -4161,6 +4161,12 @@ fn a_sensitivity_analysis_runs_from_its_pane() {
     assert!(svg.contains("<svg") && svg.contains("patches.isometry"), "{svg}");
     assert!(out.join("sensitivity.png").metadata().unwrap().len() > 500);
     assert!(i.convergence.is_none() && !out.join("convergence.csv").exists());
+    // the methods paragraph, as a file and as a button to copy it
+    let methods = std::fs::read_to_string(out.join("methods.md")).unwrap();
+    assert!(methods.contains("one-at-a-time") && methods.contains("the mean of simulation.maps"), "{methods}");
+    assert!(methods.contains("patches.isometry [0.5\u{2013}2.5]") && methods.contains("## References"), "{methods}");
+    assert_eq!(f.methods.as_deref(), Some(methods.as_str()));
+    h.get_by_label("Copy the methods text");
     shot(&mut h, "batch-7-sensitivity-done");
 
     // the share of a land use class of the simulated maps: a number in 0..1 in every run
@@ -4403,6 +4409,27 @@ fn a_setting_is_varied_from_its_menu_and_the_parameters_pane() {
     assert_eq!(b.kind, Kind::Sensitivity);
     assert_eq!(b.sens.factors.len(), 1, "{:?}", b.sens.factors);
     assert_eq!((b.sens.factors[0].from.as_str(), b.sens.factors[0].to.as_str()), ("2.0", "6.0"));
+    assert_eq!(h.state_mut().focused(), Some(Pane::Batch));
+    // a whole analysis set up by the assistant (the tool `sensitivity`): in place of the factors there, to be run
+    {
+        let ask = terraflux_app::tools::sensitivity_ask(&serde_json::json!({
+            "factors": ["patches.isometry"], "method": "sobol", "n": 8, "replicates": 2, "output": "simulation.maps",
+        }))
+        .unwrap();
+        let s = h.state_mut().session.as_mut().unwrap();
+        let ranges =
+            terraflux_app::batch_view::asked_ranges(&s.model, &terraflux_ops::Registry::standard(), &ask.factors)
+                .unwrap();
+        s.ask_sensitivity = Some((ranges, ask));
+    }
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(4);
+    let b = &h.state().batch;
+    assert_eq!(b.kind, Kind::Sensitivity);
+    assert_eq!(b.sens.factors.iter().map(|f| f.key.as_str()).collect::<Vec<_>>(), ["patches.isometry"]);
+    assert_eq!(b.sens.method, terraflux_dist::sensitivity::Method::Sobol);
+    assert_eq!((b.sens.design.n, b.sens.replicates, b.sens.output.as_deref()), (8, 2, Some("simulation.maps")));
+    assert!(!b.running(), "set up, not run");
     assert_eq!(h.state_mut().focused(), Some(Pane::Batch));
 }
 

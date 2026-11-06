@@ -479,30 +479,118 @@ pub struct Sensitivity {
     pub at: Where,
 }
 
-/// A sensitivity analysis: the design's runs of the model (each measuring its output on the worker), then the
-/// indices; `design.csv` (the runs and their outputs) and `indices.csv` (with `s2.csv` of Sobol's pairs).
-pub async fn sensitivity(a: &Sensitivity) -> Result<()> {
+/// A sensitivity analysis asked: what `terraflux sensitivity` and the MCP tool `sensitivity` both give.
+#[derive(Debug, Clone)]
+pub struct Spec {
+    pub model: PathBuf,
+    /// A factor and its range: `node.setting=from:to` or `$input=from:to`.
+    pub params: Vec<String>,
+    pub method: String,
+    pub n: Option<usize>,
+    pub levels: usize,
+    pub second_order: bool,
+    pub output: String,
+    pub statistic: Option<String>,
+    pub resamples: usize,
+    pub seed: u64,
+    pub model_seed: i64,
+    pub seed_input: String,
+    pub replicates: usize,
+    pub out: PathBuf,
+}
+
+impl Spec {
+    fn of(a: &Sensitivity) -> Spec {
+        Spec {
+            model: a.model.clone(),
+            params: a.params.clone(),
+            method: a.method.clone(),
+            n: a.n,
+            levels: a.levels,
+            second_order: !a.first_order_only,
+            output: a.output.clone(),
+            statistic: a.statistic.clone(),
+            resamples: a.resamples,
+            seed: a.seed,
+            model_seed: a.model_seed,
+            seed_input: a.seed_input.clone(),
+            replicates: a.replicates,
+            out: a.out.clone(),
+        }
+    }
+}
+
+/// A sensitivity analysis ready to run: the design, the runs of its points, what is measured.
+pub struct Plan {
+    pub spec: Spec,
+    model: Model,
+    base: PathBuf,
+    pub factors: Vec<Param>,
+    pub method: terraflux_dist::sensitivity::Method,
+    pub design: terraflux_dist::sensitivity::Design,
+    rows: Vec<Vec<f64>>,
+    /// The runs, in their order: the labels and the settings.
+    tasks: Vec<TaskOf>,
+    /// The replicates at each point (1 when the model has no seed).
+    pub replicates: usize,
+    eval: Evaluation,
+    /// What the user should know of the plan.
+    pub notes: Vec<String>,
+}
+
+impl Plan {
+    /// The runs of the analysis (the design's points times their replicates).
+    pub fn runs(&self) -> usize {
+        self.tasks.len()
+    }
+
+    /// The factors' ranges.
+    pub fn bounds(&self) -> Vec<(f64, f64)> {
+        self.factors.iter().map(|p| (p.from, p.to)).collect()
+    }
+}
+
+/// What an analysis gave.
+pub struct Analysis {
+    pub indices: terraflux_dist::sensitivity::Indices,
+    pub runs: usize,
+    /// The runs that gave no output.
+    pub failed: usize,
+    /// The files written, in `out`.
+    pub files: Vec<PathBuf>,
+    /// The text of `methods.md`.
+    pub methods: String,
+    /// What went wrong without stopping the analysis.
+    pub notes: Vec<String>,
+}
+
+/// The design of an analysis and the runs of its points, checked: each run applies to the model.
+pub fn plan(spec: &Spec) -> Result<Plan> {
     use terraflux_dist::sensitivity as sens;
-    let model = Model::load_expanded(&a.model).with_context(|| format!("reading {}", a.model.display()))?;
-    let base = a.model.parent().map(Path::to_path_buf).unwrap_or_default();
-    let factors: Vec<Param> = a
+    let model = Model::load_expanded(&spec.model).with_context(|| format!("reading {}", spec.model.display()))?;
+    let base = spec.model.parent().map(Path::to_path_buf).unwrap_or_default();
+    let factors: Vec<Param> = spec
         .params
         .iter()
         .map(|p| Param::parse(p, 2).map(|p| p.typed_by(&model)))
         .collect::<terraflux_dist::Result<_>>()?;
+    if factors.is_empty() {
+        bail!("give at least one factor to vary");
+    }
     if let Some(p) = factors.iter().find(|p| p.from >= p.to) {
         bail!("{}: its range must go from a value to a larger one", p.key);
     }
+    let mut notes = Vec::new();
     for p in factors.iter().filter(|p| p.integer) {
-        eprintln!("note: {} takes whole numbers; the design's values are rounded for it", p.key);
+        notes.push(format!("{} takes whole numbers; the design's values are rounded for it", p.key));
     }
     let bounds: Vec<(f64, f64)> = factors.iter().map(|p| (p.from, p.to)).collect();
-    let method = sens::Method::parse(&a.method)?;
+    let method = sens::Method::parse(&spec.method)?;
     let design = sens::Design {
-        n: a.n.unwrap_or(method.default_n()),
-        levels: a.levels,
-        second_order: !a.first_order_only,
-        seed: a.seed,
+        n: spec.n.unwrap_or(method.default_n()),
+        levels: spec.levels,
+        second_order: spec.second_order,
+        seed: spec.seed,
     };
     let rows = sens::rows(method, &bounds, &design)?;
     let candidates = sens::candidates(&factors, &rows);
@@ -510,69 +598,129 @@ pub async fn sensitivity(a: &Sensitivity) -> Result<()> {
         model.clone().apply(c)?;
     }
     let eval = Evaluation {
-        output: a.output.clone(),
+        output: spec.output.clone(),
         observed: String::new(),
         band: None,
         start: String::new(),
-        measure: Some(a.output.clone()),
-        statistic: a.statistic.clone(),
+        measure: Some(spec.output.clone()),
+        statistic: spec.statistic.clone(),
         windows: Vec::new(),
     };
     // the seed where the model has it
-    let keys: Vec<String> = batch::seed_keys(&a.seed_input)
+    let keys: Vec<String> = batch::seed_keys(&spec.seed_input)
         .into_iter()
-        .filter(|k| model.clone().apply(&[(k.clone(), serde_json::json!(a.model_seed))].into()).is_ok())
+        .filter(|k| model.clone().apply(&[(k.clone(), serde_json::json!(spec.model_seed))].into()).is_ok())
         .collect();
-    if a.replicates == 0 {
-        bail!("--replicates must be 1 or more");
+    if spec.replicates == 0 {
+        bail!("the replicates must be 1 or more");
     }
-    let r = if keys.is_empty() { 1 } else { a.replicates };
-    if keys.is_empty() && a.replicates > 1 {
-        eprintln!("note: the model has no seed ({}): every run of a point is the same, one replicate", a.seed_input);
+    let replicates = if keys.is_empty() { 1 } else { spec.replicates };
+    if keys.is_empty() && spec.replicates > 1 {
+        notes.push(format!(
+            "the model has no seed ({}): every run of a point is the same, one replicate",
+            spec.seed_input
+        ));
     }
-    let tasks = batch::calibration_tasks(&candidates, &sens::seeds(a.model_seed, r), &keys);
-    eprintln!(
-        "sensitivity ({}): {} runs of {} factors{}",
-        a.method,
-        tasks.len(),
-        factors.len(),
-        if r > 1 { format!(", {r} replicates at each point") } else { String::new() }
-    );
-    let labels: Vec<String> = tasks.iter().map(|(l, _)| l.clone()).collect();
-    let b =
-        Batch { name: "sensitivity".into(), model: model.clone(), base, tasks, files: false, evaluation: Some(eval) };
-    let o = run::run(&run::Start::New(Box::new(b)), &place(&a.at).await?, None, &AtomicBool::new(false), &mut progress)
-        .await?;
+    let tasks = batch::calibration_tasks(&candidates, &sens::seeds(spec.model_seed, replicates), &keys);
+    Ok(Plan { spec: spec.clone(), model, base, factors, method, design, rows, tasks, replicates, eval, notes })
+}
+
+/// Run a planned analysis where `place` says, then analyse and write its files (`design.csv`, `indices.csv`, with
+/// `s2.csv` of Sobol's pairs and `convergence.csv`, and `methods.md`). `stop` drops it.
+pub async fn execute(
+    p: &Plan,
+    place: &Place,
+    stop: &AtomicBool,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<Analysis> {
+    use terraflux_dist::sensitivity as sens;
+    let spec = &p.spec;
+    let labels: Vec<String> = p.tasks.iter().map(|(l, _)| l.clone()).collect();
+    let b = Batch {
+        name: "sensitivity".into(),
+        model: p.model.clone(),
+        base: p.base.clone(),
+        tasks: p.tasks.clone(),
+        files: false,
+        evaluation: Some(p.eval.clone()),
+    };
+    let o = run::run(&run::Start::New(Box::new(b)), place, None, stop, progress).await?;
     let metrics = batch::metrics_of(&labels, &o.results);
-    let rep = sens::replicated(&metrics.iter().map(|m| m.as_ref().map(|m| m.value)).collect::<Vec<_>>(), r);
+    let rep = sens::replicated(&metrics.iter().map(|m| m.as_ref().map(|m| m.value)).collect::<Vec<_>>(), p.replicates);
     let y = rep.mean.clone();
-    let keys: Vec<String> = factors.iter().map(|p| p.key.clone()).collect();
-    sens::write_design(&a.out, &keys, &rows, &y, &a.output, Some(&rep))?;
-    if rep.failed > 0 && r > 1 && y.iter().all(|v| !v.is_nan()) {
-        eprintln!(
-            "note: {} of {} runs gave no {}; their points are the mean of the replicates that ran",
-            rep.failed,
-            metrics.len(),
-            a.output
-        );
-    }
+    let keys: Vec<String> = p.factors.iter().map(|f| f.key.clone()).collect();
+    sens::write_design(&spec.out, &keys, &p.rows, &y, &spec.output, Some(&rep))?;
     if let Some(k) = y.iter().position(|v| v.is_nan()) {
         bail!(
             "run {} gave no {} ({} runs failed:\n  {}); the design is in {}",
             k + 1,
-            a.output,
+            spec.output,
             o.status.failed,
             o.status.errors.join("\n  "),
-            a.out.join("design.csv").display()
+            spec.out.join("design.csv").display()
         );
     }
-    let indices = sens::analyze(method, &keys, &rows, &y, &design, a.resamples)?.with_replicates(&rep);
-    sens::write_indices(&a.out, &indices)?;
-    eprint!("{}", sens::indices_csv(&indices));
-    if let Some(c) = indices.chance {
+    let indices = sens::analyze(p.method, &keys, &p.rows, &y, &p.design, spec.resamples)?.with_replicates(&rep);
+    sens::write_indices(&spec.out, &indices)?;
+    let bounds = p.bounds();
+    let described = terraflux_app::sens_methods::Run {
+        indices: &indices,
+        design: &p.design,
+        bounds: &bounds,
+        output: &spec.output,
+        statistic: spec.statistic.as_deref(),
+        resamples: spec.resamples,
+        version: env!("CARGO_PKG_VERSION"),
+    };
+    let methods = terraflux_app::sens_methods::text(&described);
+    terraflux_app::sens_methods::write(&spec.out, &described)?;
+    let mut notes = Vec::new();
+    if let Err(e) = terraflux_app::sens_chart::write(&spec.out, &indices) {
+        notes.push(format!("the chart was not written: {e}"));
+    }
+    let files =
+        ["design.csv", "indices.csv", "s2.csv", "convergence.csv", "methods.md", "sensitivity.svg", "sensitivity.png"]
+            .iter()
+            .map(|f| spec.out.join(f))
+            .filter(|f| f.exists())
+            .collect();
+    Ok(Analysis { indices, runs: metrics.len(), failed: rep.failed, files, methods, notes })
+}
+
+/// A sensitivity analysis: the design's runs of the model (each measuring its output on the worker), then the
+/// indices; `design.csv` (the runs and their outputs) and `indices.csv` (with `s2.csv` of Sobol's pairs).
+pub async fn sensitivity(a: &Sensitivity) -> Result<()> {
+    use terraflux_dist::sensitivity as sens;
+    let p = plan(&Spec::of(a))?;
+    for n in &p.notes {
+        eprintln!("note: {n}");
+    }
+    eprintln!(
+        "sensitivity ({}): {} runs of {} factors{}",
+        a.method,
+        p.runs(),
+        p.factors.len(),
+        if p.replicates > 1 { format!(", {} replicates at each point", p.replicates) } else { String::new() }
+    );
+    let r = execute(&p, &place(&a.at).await?, &AtomicBool::new(false), &mut progress).await?;
+    if r.failed > 0 && p.replicates > 1 {
+        eprintln!(
+            "note: {} of {} runs gave no {}; their points are the mean of the replicates that ran",
+            r.failed, r.runs, a.output
+        );
+    }
+    eprint!("{}", sens::indices_csv(&r.indices));
+    if let Some(c) = r.indices.chance {
         eprintln!("chance: {:.0} % of the output's variance comes from the seed, not the factors", c * 100.0);
     }
-    eprintln!("wrote {} and {}", a.out.join("design.csv").display(), a.out.join("indices.csv").display());
+    for n in &r.notes {
+        eprintln!("note: {n}");
+    }
+    eprintln!(
+        "wrote {}",
+        r.files.iter().filter_map(|f| f.file_name()).map(|f| f.to_string_lossy()).collect::<Vec<_>>().join(", ")
+    );
+    eprintln!("in {}", a.out.display());
     Ok(())
 }
 

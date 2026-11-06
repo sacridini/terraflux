@@ -199,6 +199,13 @@ pub fn catalogue(app: bool) -> Vec<Value> {
             Some("show_model") => {
                 t["description"] = "The model open in the application, as text (TOML), and the problems it has.".into()
             }
+            Some("sensitivity") => {
+                t["description"] = "Set up a sensitivity analysis of the model open: the factors (with their ranges) and the settings are put in Many runs > Sensitivity, and the user presses Run (it runs there, with the workers of the application, and writes its charts, tables and methods.md). Morris first to screen many factors, then Sobol on the few that matter; replicates (3 to 5) for a model that draws at random. The reply says the runs it will take.".into();
+                if let Some(p) = t["inputSchema"]["properties"].as_object_mut() {
+                    p.remove("out");
+                    p.remove("confirm");
+                }
+            }
             _ => {}
         }
     }
@@ -1854,6 +1861,37 @@ fn all() -> Vec<Value> {
             None,
         ),
         tool(
+            "sensitivity",
+            "Run a sensitivity analysis of the model: which settings (factors) matter to an output. The design (one at a time, Morris's elementary effects, or Sobol's variance-based indices) is run on this computer's workers (at most 4), the output measured on each run, and the indices ranked: the factors most important first, the share of the output's variance that is chance (with `replicates`), whether the indices settled (a larger design if not), a methods paragraph with its references, and the files written (design.csv, indices.csv, convergence.csv, methods.md, the chart). Morris first to screen many factors (r x (k + 1) runs), then Sobol on the few that matter (N x (k + 2) runs); replicates (3 to 5) for a model that draws at random. Designs of more than 500 runs are refused unless `confirm` is true: the reply says the count. Record the analysis in the model's notes (set_note, set_model_info).",
+            json!({
+                "model": model,
+                "factors": {
+                    "type": "array",
+                    "description": "The settings to vary, each a number of the model: {key, from, to}. `key` is `node.setting` or `$input` (`container/node.setting` inside a container); `from` and `to` the range (both or none: 20 % either side of the model's value).",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "key": { "type": "string" },
+                            "from": { "type": "number" },
+                            "to": { "type": "number" },
+                        },
+                        "required": ["key"],
+                    },
+                },
+                "method": { "type": "string", "enum": ["oat", "morris", "sobol"], "description": "oat: one at a time (a tornado), morris: elementary effects (screening, default), sobol: S1 and ST." },
+                "n": { "type": "integer", "description": "Morris's trajectories (default 10) or Sobol's base points, a power of 2 (default 64). Not for oat." },
+                "levels": { "type": "integer", "description": "Morris's levels of the grid (default 4)." },
+                "second_order": { "type": "boolean", "description": "Sobol: the second order indices too (2k + 2 runs per base point, not k + 2). Default false." },
+                "replicates": { "type": "integer", "description": "Runs of each design point with other seeds, the output their mean (default 1; 3 to 5 for a stochastic model). Needs a seed in the model." },
+                "output": { "type": "string", "description": "What is measured, `node.port`: a number, a table's column, or a map (default: where the model ends)." },
+                "statistic": { "type": "string", "description": "Of a map: mean (default), sum, min, max, cells:<class>, share:<class>, area:<class>, changed, metric:<np|pland|ed|area_mn|lpi>:<class>; of a table: its column." },
+                "out": { "type": "string", "description": "The folder of the results (default: `<model> runs/sensitivity N` beside the model)." },
+                "confirm": { "type": "boolean", "description": "Run a design of more than 500 runs." },
+            }),
+            &["model", "factors"],
+            None,
+        ),
+        tool(
             "export_plot",
             "Run the model and write one of its Plots (set_plot) as a picture of the map, as the Viewer draws it from the Plot alone: the layers at their opacity, under or over the top map, the features with their style and labels; hidden layers and differences are skipped (said in the reply). Each layer in its palette (else the one its producer asks for), the classes in the colours of the model's legend. A Plot that compares maps gives its map only. No legend or decorations. Says the file, its size, the cells to a pixel, the layers drawn and not drawn.",
             json!({
@@ -1963,6 +2001,93 @@ pub fn opt_text<'a>(a: &'a Value, key: &str) -> Option<&'a str> {
 pub fn absolute(p: &str) -> PathBuf {
     let p = PathBuf::from(p);
     if p.is_absolute() { p } else { std::env::current_dir().unwrap_or_default().join(p) }
+}
+
+/// A design of more runs than this is run only when the call says `confirm`.
+pub const BIG_DESIGN: usize = 500;
+
+/// What the tool `sensitivity` is asked (its arguments, checked).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SensitivityAsk {
+    /// The factors: the setting, and its range (none: 20 % either side of its value).
+    pub factors: Vec<(String, Option<f64>, Option<f64>)>,
+    pub method: terraflux_dist::sensitivity::Method,
+    pub n: Option<usize>,
+    pub levels: usize,
+    pub second_order: bool,
+    pub replicates: usize,
+    pub output: Option<String>,
+    pub statistic: Option<String>,
+    pub out: Option<PathBuf>,
+    pub confirm: bool,
+}
+
+impl SensitivityAsk {
+    /// The design of the call: `n` by the method, the levels, the second order, the seed 1.
+    pub fn design(&self) -> terraflux_dist::sensitivity::Design {
+        terraflux_dist::sensitivity::Design {
+            n: self.n.unwrap_or(self.method.default_n()),
+            levels: self.levels,
+            second_order: self.second_order,
+            seed: 1,
+        }
+    }
+}
+
+/// The arguments of `sensitivity`.
+pub fn sensitivity_ask(a: &Value) -> std::result::Result<SensitivityAsk, String> {
+    use terraflux_dist::sensitivity::Method;
+    let number = |v: &Value, what: &str| -> std::result::Result<Option<f64>, String> {
+        match v {
+            Value::Null => Ok(None),
+            v => v.as_f64().filter(|x| x.is_finite()).map(Some).ok_or_else(|| format!("{what} must be a number")),
+        }
+    };
+    let list = a.get("factors").and_then(Value::as_array).filter(|l| !l.is_empty());
+    let list = list.ok_or("give the `factors`: a list of {key, from, to}, each a number setting of the model")?;
+    let mut factors: Vec<(String, Option<f64>, Option<f64>)> = Vec::new();
+    for f in list {
+        let (key, from, to) = match f {
+            Value::String(k) => (k.as_str(), None, None),
+            Value::Object(_) => (
+                f["key"].as_str().ok_or("a factor needs its `key` (`node.setting` or `$input`)")?,
+                number(&f["from"], "`from`")?,
+                number(&f["to"], "`to`")?,
+            ),
+            _ => return Err("each factor is {key, from, to}".into()),
+        };
+        let key = key.trim();
+        if factors.iter().any(|(k, _, _)| k == key) {
+            return Err(format!("{key}: given twice"));
+        }
+        factors.push((key.to_string(), from, to));
+    }
+    let method = match opt_text(a, "method") {
+        Some(m) => Method::parse(m).map_err(|e| e.to_string())?,
+        None => Method::Morris,
+    };
+    let count = |key: &str, default: usize| -> std::result::Result<usize, String> {
+        match a.get(key) {
+            None | Some(Value::Null) => Ok(default),
+            Some(v) => v.as_u64().filter(|n| *n >= 1).map(|n| n as usize).ok_or(format!("`{key}` must be 1 or more")),
+        }
+    };
+    let n = match a.get("n") {
+        None | Some(Value::Null) => None,
+        Some(_) => Some(count("n", 1)?),
+    };
+    Ok(SensitivityAsk {
+        factors,
+        method,
+        n,
+        levels: count("levels", 4)?,
+        second_order: a.get("second_order").and_then(Value::as_bool).unwrap_or(false),
+        replicates: count("replicates", 1)?,
+        output: opt_text(a, "output").map(str::trim).filter(|s| !s.is_empty()).map(String::from),
+        statistic: opt_text(a, "statistic").map(str::trim).filter(|s| !s.is_empty()).map(String::from),
+        out: opt_text(a, "out").map(absolute),
+        confirm: a.get("confirm").and_then(Value::as_bool).unwrap_or(false),
+    })
 }
 
 /// The path of containers' ids of `scope` (none: the top level).
@@ -3293,5 +3418,57 @@ mod plot_tests {
         assert!(super::edit("locate_files", &mut m, &r, &dir, &json!({})).unwrap().contains("every file"));
         assert!(super::edit("locate_files", &mut m, &r, &dir, &json!({ "folders": ["nowhere"] })).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod sensitivity_tests {
+    use serde_json::json;
+    use terraflux_dist::sensitivity::Method;
+
+    use super::{catalogue, sensitivity_ask};
+
+    #[test]
+    fn the_arguments_of_a_sensitivity_analysis_are_read_and_checked() {
+        let a = sensitivity_ask(&json!({
+            "factors": [{ "key": "a.b", "from": 1, "to": 3 }, "$c", { "key": "d.e", "from": 2 }],
+        }))
+        .unwrap();
+        assert_eq!(a.factors[0], ("a.b".to_string(), Some(1.0), Some(3.0)));
+        assert_eq!(a.factors[1], ("$c".to_string(), None, None));
+        assert_eq!(a.factors[2], ("d.e".to_string(), Some(2.0), None));
+        // Morris, 10 trajectories on 4 levels, one replicate, by default
+        assert_eq!(
+            (a.method, a.n, a.levels, a.replicates, a.second_order, a.confirm),
+            (Method::Morris, None, 4, 1, false, false)
+        );
+        assert_eq!(a.design().n, 10);
+        let s = sensitivity_ask(&json!({ "factors": ["a.b"], "method": "Sobol", "n": 128, "confirm": true })).unwrap();
+        assert_eq!((s.method, s.design().n, s.confirm), (Method::Sobol, 128, true));
+        for bad in [
+            json!({}),
+            json!({ "factors": [] }),
+            json!({ "factors": [3] }),
+            json!({ "factors": [{ "from": 1 }] }),
+            json!({ "factors": ["a.b", "a.b"] }),
+            json!({ "factors": ["a.b"], "method": "fast" }),
+            json!({ "factors": ["a.b"], "replicates": 0 }),
+            json!({ "factors": [{ "key": "a.b", "from": "low" }] }),
+        ] {
+            assert!(sensitivity_ask(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_assistant_in_the_application_sets_the_analysis_up_instead_of_running_it() {
+        let find = |all: &[serde_json::Value]| all.iter().find(|t| t["name"] == "sensitivity").cloned().unwrap();
+        let mcp = find(&catalogue(false));
+        let app = find(&catalogue(true));
+        assert!(mcp["inputSchema"]["properties"].get("model").is_some());
+        assert!(mcp["inputSchema"]["properties"].get("confirm").is_some());
+        let p = &app["inputSchema"]["properties"];
+        assert!(p.get("model").is_none() && p.get("out").is_none() && p.get("confirm").is_none());
+        assert!(p.get("factors").is_some() && app["description"].as_str().unwrap().contains("the user presses Run"));
+        assert_eq!(app["inputSchema"]["required"], json!(["factors"]));
     }
 }

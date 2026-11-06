@@ -382,6 +382,7 @@ impl Chat {
                 return;
             }
             "new_model" => Answer::Done(new_model(s, r, &a.args, &self.stamp)),
+            "sensitivity" => Answer::Done(set_up_sensitivity(s, r, &a.args)),
             // the values of the last run in the application (inside the loops: the Trace pane's run)
             "trace_cell" => {
                 let values = |n: &str, p: &str| s.value_of(n, p);
@@ -619,6 +620,35 @@ fn known(s: &Session, r: &terraflux_graph::Ref) -> Option<terraflux_ops::Value> 
         terraflux_graph::Ref::Input(name) => s.inputs.as_ref()?.get(name).cloned(),
         terraflux_graph::Ref::Carried(_) => None,
     }
+}
+
+/// The tool `sensitivity` in the application: the analysis is put in Many runs > Sensitivity (its factors, method,
+/// design, replicates, output and statistic) for the user to run there, with the application's workers.
+fn set_up_sensitivity(s: &mut Session, r: &Registry, a: &Value) -> Reply {
+    use terraflux_dist::sensitivity as sens;
+    let ask = tools::sensitivity_ask(a)?;
+    let ranges = crate::batch_view::asked_ranges(&s.model, r, &ask.factors)?;
+    let design = ask.design();
+    let bounds: Vec<(f64, f64)> = ranges.iter().map(|(_, lo, hi)| (*lo, *hi)).collect();
+    // (a design that cannot be made, as a Sobol's base points not a power of 2, is told now)
+    sens::rows(ask.method, &bounds, &design).map_err(|e| e.to_string())?;
+    let runs = sens::total_runs(ask.method, ranges.len(), &design, ask.replicates);
+    let list: Vec<String> = ranges.iter().map(|(k, lo, hi)| format!("{k} [{lo} to {hi}]")).collect();
+    let output = ask.output.clone().or_else(|| crate::batch_view::default_measure(&s.model, r));
+    let measured = match &output {
+        Some(o) => format!("measuring {o}"),
+        None => "the output to measure is still to be chosen there".into(),
+    };
+    let reply = format!(
+        "Set up in Many runs > Sensitivity, not run: {} of {} ({}), {runs} runs of the model, {measured}. The user \
+         presses Run there; the results (a chart, the indices, whether they settled, methods.md) appear in the same \
+         tab. Tell the user to press Run.",
+        ask.method.name(),
+        list.len(),
+        list.join(", ")
+    );
+    s.ask_sensitivity = Some((ranges, ask));
+    Ok(reply)
 }
 
 /// A new model in place of the one open (an edit of its own: ctrl+Z goes back).

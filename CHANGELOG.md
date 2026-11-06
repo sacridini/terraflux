@@ -49,6 +49,18 @@ minor versions.
   written as `sensitivity.svg` and `sensitivity.png` next to `indices.csv`, with `convergence.csv` (also from
   `terraflux sensitivity`), and *Save the chart...* writes it elsewhere
   (`terraflux_dist::sensitivity::{Convergence, convergence_csv}`).
+- **The methods paragraph of a sensitivity analysis, and the MCP tool `sensitivity`**. When an analysis ends (in the
+  application and in `terraflux sensitivity`) `methods.md` is written next to its tables: a paragraph in the words of
+  a methods section (the method and its papers, the design, the factors and their ranges, the output and statistic,
+  the runs, the replicates and the share of variance that is chance, whether the indices settled, the Terraflux
+  version and the SALib it reproduces) and the references of the method; the results show a *Copy the methods text*
+  button. The papers (Morris 1991; Campolongo et al. 2007; Sobol' 2001; Saltelli 2002; Saltelli et al. 2010; Herman &
+  Usher 2017; Iwanaga et al. 2022) are on the "Cite Terraflux" page and tied to the `sensitivity.*` operators in the
+  methods of a model. `terraflux mcp` has a `sensitivity` tool: factors (`{key, from, to}`, or 20 % either side), the
+  method, `n`, `levels`, `second_order`, `replicates`, the output and its statistic; it runs the design on up to 4
+  workers here and answers with the ranked indices, the chance share, the convergence verdict, the paragraph and the
+  files (a design of more than 500 runs is refused until `confirm`). In the application's assistant the same tool
+  puts the analysis in Many runs, Sensitivity, for the user to run. `terraflux sensitivity` also writes the chart.
 - `terraflux sensitivity --method oat`, and the new `terraflux_ops::sensitivity::oat_sample` and `oat_analyze`.
   The design, the candidates, the indices and their CSV files are now `terraflux_dist::sensitivity`, shared by the
   command and the application (the files and columns of Morris and Sobol are the same as before).

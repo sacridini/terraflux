@@ -547,6 +547,9 @@ pub fn start_map(model: &Model, inputs: &BTreeMap<String, Value>) -> Option<Map>
     })
 }
 
+/// A sensitivity analysis the assistant set up: the factors with their ranges, and the settings.
+pub type AskedSensitivity = (Vec<(String, f64, f64)>, crate::tools::SensitivityAsk);
+
 /// A model open.
 pub struct Session {
     /// The model as written (what the editor changes and saves).
@@ -602,6 +605,9 @@ pub struct Session {
     /// Factors asked for a sensitivity analysis (a setting's or a parameter's menu): the key (`node.setting`,
     /// `$input`) and its range (none: 20 % either side). Many runs takes them and comes to the front.
     pub ask_vary: Vec<(String, Option<(f64, f64)>)>,
+    /// A whole sensitivity analysis the assistant set up (the tool `sensitivity`): the factors with their ranges
+    /// and the settings. Many runs takes it and comes to the front; the user presses Run.
+    pub ask_sensitivity: Option<AskedSensitivity>,
     /// The canvas asked for (a layer's node shown: the model's pane to the front, the main window too).
     pub ask_model: bool,
     /// The Viewer is in a window of its own (told by the application each frame), and the Viewer's button asked to
@@ -875,6 +881,7 @@ impl Session {
             ask_calculator: false,
             ask_viewer: false,
             ask_vary: Vec::new(),
+            ask_sensitivity: None,
             ask_model: false,
             viewer_out: false,
             viewer_toggle: false,
@@ -4374,6 +4381,13 @@ impl TerrafluxApp {
             if any {
                 self.focus(Pane::Batch);
             }
+        }
+        // a whole analysis set up by the assistant: in the tab, Many runs to the front
+        if let Some(s) = self.session.as_mut()
+            && let Some((ranges, ask)) = s.ask_sensitivity.take()
+        {
+            crate::batch_view::set_asked(&mut self.batch, &ranges, &ask);
+            self.focus(Pane::Batch);
         }
         // the Viewer's button: out of the dock into a window of its own, or back
         if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.viewer_toggle)) {

@@ -12,6 +12,8 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 use terraflux_app::tools::{self, INSTRUCTIONS, Reply, Watcher, absolute, opt_text, text};
+
+use crate::cluster;
 use terraflux_exec::Engine;
 use terraflux_graph::Model;
 use terraflux_ops::Registry;
@@ -69,6 +71,7 @@ pub fn serve() -> anyhow::Result<()> {
                 if m["method"] == "tools/call"
                     && !m["id"].is_null()
                     && (m["params"]["name"] == "run_model"
+                        || m["params"]["name"] == "sensitivity"
                         || (m["params"]["name"] == "set_input" && server.elicits.load(Ordering::Relaxed))) =>
             {
                 let (server, out, runs) = (server.clone(), out.clone(), runs.clone());
@@ -322,6 +325,7 @@ impl Server {
                 let path = model_path(a)?;
                 tools::run_model(&self.engine, &load(&path)?, &folder(&path), a, watcher)
             }
+            "sensitivity" => sensitivity(r, a, watcher),
             "export_plot" => {
                 let path = model_path(a)?;
                 tools::export_plot(&self.engine, &load(&path)?, &folder(&path), a, watcher)
@@ -358,6 +362,121 @@ impl Server {
             _ => Err(format!("no tool {name:?}")),
         }
     }
+}
+
+/// A folder of results not used yet: `<model's folder>/<model> runs/sensitivity <n>` (as the application has it).
+fn next_out(model: &Path) -> PathBuf {
+    let stem = model.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let dir = folder(model).join(format!("{stem} runs"));
+    (1..).map(|n| dir.join(format!("sensitivity {n}"))).find(|p| !p.exists()).unwrap_or(dir)
+}
+
+/// The tool `sensitivity`: the design of the analysis, run on workers of this computer (at most 4), then the
+/// indices, the chance and convergence, the methods paragraph and the files written.
+fn sensitivity(r: &Registry, a: &Value, watcher: &mut Watcher) -> Reply {
+    use terraflux_app::batch_view;
+    use terraflux_dist::run::{Place, Progress};
+    let path = model_path(a)?;
+    load(&path)?;
+    let ask = tools::sensitivity_ask(a)?;
+    let model = Model::load_expanded(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let ranges = batch_view::asked_ranges(&model, r, &ask.factors)?;
+    let output = ask
+        .output
+        .clone()
+        .or_else(|| batch_view::default_measure(&model, r))
+        .ok_or("give the `output` to measure (node.port): the model has no output to choose from")?;
+    let out = ask.out.clone().unwrap_or_else(|| next_out(&path));
+    let spec = cluster::Spec {
+        model: path.clone(),
+        params: ranges.iter().map(|(k, lo, hi)| format!("{k}={lo}:{hi}")).collect(),
+        method: ask.method.name().into(),
+        n: ask.n,
+        levels: ask.levels,
+        second_order: ask.second_order,
+        output: output.clone(),
+        statistic: ask.statistic.clone(),
+        resamples: 100,
+        seed: 1,
+        model_seed: 1,
+        seed_input: "seed".into(),
+        replicates: ask.replicates,
+        out: out.clone(),
+    };
+    let plan = cluster::plan(&spec).map_err(|e| e.to_string())?;
+    let runs = plan.runs();
+    if runs > tools::BIG_DESIGN && !ask.confirm {
+        return Err(format!(
+            "this design is {runs} runs of the model ({} of {} factors{}), more than {}: it may take hours. Give \
+             `confirm: true` to run it, or a smaller one (Morris first, with fewer trajectories `n`, fewer \
+             `replicates` or fewer factors).",
+            ask.method.name(),
+            plan.factors.len(),
+            if plan.replicates > 1 { format!(", {} replicates at each point", plan.replicates) } else { String::new() },
+            tools::BIG_DESIGN
+        ));
+    }
+    let workers = terraflux_ops::threads::most().min(4).min(runs).max(1);
+    let place = Place::Here { workers, cache: cluster::default_cache(), state: None };
+    let stop = watcher.stop.clone().unwrap_or_default();
+    let mut tell = |p: Progress| {
+        if let (Progress::Status(s), Some(t)) = (p, watcher.tell.as_mut()) {
+            t(format!("sensitivity: {} of {} runs done, {} failed", s.done, s.total, s.failed));
+        }
+    };
+    let started = std::time::Instant::now();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?;
+    let done = rt.block_on(cluster::execute(&plan, &place, &stop, &mut tell));
+    rt.shutdown_timeout(std::time::Duration::from_secs(2));
+    let done = done.map_err(|e| format!("{e:#}"))?;
+    let i = &done.indices;
+    let mut s = format!(
+        "Sensitivity analysis ({}) of {output}: {} runs of the model in {:.1} s, {} factors, on {workers} workers.\n",
+        i.method.name(),
+        done.runs,
+        started.elapsed().as_secs_f64(),
+        i.factors.len()
+    );
+    for n in plan.notes.iter().chain(&done.notes) {
+        s.push_str(&format!("Note: {n}\n"));
+    }
+    if done.failed > 0 {
+        s.push_str(&format!(
+            "{} runs gave no output; their points are the mean of the replicates that ran.\n",
+            done.failed
+        ));
+    }
+    s.push_str(&format!("\nIndices, the factors that matter most first (by {}):\n", i.ranked_by()));
+    s.push_str(&format!("factor | {}\n", i.columns.join(" | ")));
+    for k in i.order() {
+        let values: Vec<String> = i.rows[k].iter().map(|v| format!("{v:.4}")).collect();
+        s.push_str(&format!("{} | {}\n", i.factors[k], values.join(" | ")));
+    }
+    if let Some(b) = i.base {
+        s.push_str(&format!("(the output at the base, every factor in the middle of its range: {b:.6})\n"));
+    }
+    if let Some(c) = i.chance {
+        s.push_str(&format!(
+            "\nChance: {:.0} % of the output's variance comes from the seed, not the factors ({} replicates at each \
+             point){}\n",
+            c * 100.0,
+            i.replicates,
+            if c > 0.5 { ": the factors explain little, use more replicates or a larger range" } else { "" }
+        ));
+    }
+    if let Some((verdict, _)) = terraflux_app::sens_chart::verdict(i) {
+        s.push_str(&format!("\nConvergence: {verdict}\n"));
+    }
+    s.push_str(&format!("\nMethods paragraph (methods.md):\n{}\n", done.methods.trim_end()));
+    s.push_str("\nWrote:");
+    for f in &done.files {
+        s.push_str(&format!("\n- {}", f.display()));
+    }
+    Ok(s)
 }
 
 /// The tools as MCP lists them: with the schema of what they answer as data, for those that give it.
@@ -999,6 +1118,89 @@ mod tests {
         assert!(!e && t.contains("inputs.land_2000"), "{t}");
         let (t, e) = call(&s, "check_model", json!({ "model": model }));
         assert!(!e && t.contains("can run"), "{t}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sensitivity_analysis_is_run_and_told() {
+        let s = Server::new(None);
+        let dir = std::env::temp_dir().join(format!("terraflux-mcp-sens-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let model = dir.join("s.toml").to_string_lossy().into_owned();
+        call(&s, "new_model", json!({ "model": model }));
+        let (t, e) = call(
+            &s,
+            "add_node",
+            json!({ "model": model, "op": "nlm.gaussian_field", "id": "field",
+                    "settings": { "rows": 24, "columns": 30, "range": 8, "seed": 3 } }),
+        );
+        assert!(!e, "{t}");
+        // one at a time: 3 runs, the files and the methods paragraph
+        let out = dir.join("oat");
+        let args = json!({ "model": model, "method": "oat", "output": "field.map", "out": out.to_string_lossy(),
+            "factors": [{ "key": "field.range", "from": 4, "to": 12 }] });
+        let (t, e) = call(&s, "sensitivity", args);
+        assert!(!e, "{t}");
+        assert!(t.contains("Sensitivity analysis (oat) of field.map: 3 runs"), "{t}");
+        assert!(t.contains("field.range | ") && t.contains("Methods paragraph (methods.md):"), "{t}");
+        assert!(t.contains("one-at-a-time design") && t.contains("Computed with Terraflux"), "{t}");
+        for f in ["design.csv", "indices.csv", "methods.md", "sensitivity.svg"] {
+            assert!(out.join(f).exists(), "{f}: {t}");
+            assert!(t.contains(f), "{f}: {t}");
+        }
+        let md = std::fs::read_to_string(out.join("methods.md")).unwrap();
+        assert!(md.contains("field.range [4\u{2013}12]") && md.contains("## References"), "{md}");
+        // Morris with the range left to 20 % either side: the indices ranked, and whether they settled
+        let args = json!({ "model": model, "n": 4, "output": "field.map", "out": dir.join("morris").to_string_lossy(),
+            "factors": ["field.range", "field.columns"] });
+        let (t, e) = call(&s, "sensitivity", args);
+        assert!(!e, "{t}");
+        assert!(t.contains("(morris) of field.map: 12 runs"), "{t}");
+        assert!(t.contains("by mu_star") && t.contains("Convergence:"), "{t}");
+        assert!(t.contains("elementary effects method of Morris (1991)"), "{t}");
+        let md = std::fs::read_to_string(dir.join("morris").join("methods.md")).unwrap();
+        assert!(md.contains("field.range [6\u{2013}10]"), "{md}");
+        // the folder by default, beside the model
+        let args = json!({ "model": model, "method": "oat", "output": "field.map", "factors": ["field.range"] });
+        let (t, e) = call(&s, "sensitivity", args);
+        assert!(!e, "{t}");
+        assert!(dir.join("s runs").join("sensitivity 1").join("indices.csv").exists(), "{t}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_big_sensitivity_design_is_refused_until_confirmed() {
+        let s = Server::new(None);
+        let dir = std::env::temp_dir().join(format!("terraflux-mcp-sens-big-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let model = dir.join("b.toml").to_string_lossy().into_owned();
+        call(&s, "new_model", json!({ "model": model }));
+        call(
+            &s,
+            "add_node",
+            json!({ "model": model, "op": "nlm.gaussian_field", "id": "field",
+                    "settings": { "rows": 8, "columns": 8, "range": 8, "seed": 3 } }),
+        );
+        // Sobol of 1 factor, N = 256: 256 x 3 = 768 runs
+        let args = json!({ "model": model, "method": "sobol", "n": 256, "output": "field.map",
+            "out": dir.join("big").to_string_lossy(), "factors": ["field.range"] });
+        let (t, e) = call(&s, "sensitivity", args);
+        assert!(e && t.contains("768 runs") && t.contains("confirm"), "{t}");
+        assert!(!dir.join("big").exists(), "nothing was run");
+        // what is wrong with the call is told before anything runs
+        let (t, e) = call(&s, "sensitivity", json!({ "model": model, "factors": [] }));
+        assert!(e && t.contains("`factors`"), "{t}");
+        let (t, e) =
+            call(&s, "sensitivity", json!({ "model": model, "factors": ["field.nope"], "output": "field.map" }));
+        assert!(e && t.contains("not a number setting"), "{t}");
+        let (t, e) = call(
+            &s,
+            "sensitivity",
+            json!({ "model": model, "factors": [{ "key": "field.range", "from": 9, "to": 3 }], "output": "field.map" }),
+        );
+        assert!(e && t.contains("from a value to a larger one"), "{t}");
+        let (t, e) = call(&s, "sensitivity", json!({ "model": model, "factors": ["field.range"], "method": "fast" }));
+        assert!(e && t.contains("unknown method"), "{t}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

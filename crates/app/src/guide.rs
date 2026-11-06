@@ -108,7 +108,17 @@ them from there.
 somewhere, or a frame around nodes with a title, which follows them; remove_note); show_model lists them under \
 [[notes]].
 - methods drafts the methods section of a paper from the model (the methods it uses, the papers to cite, the \
-model step by step, the references; or BibTeX, RIS), in English or Portuguese (`language`: pt).",
+model step by step, the references; or BibTeX, RIS), in English or Portuguese (`language`: pt).
+- Which settings matter to a result: sensitivity runs the analysis (`factors`: the numbers to vary, each \
+{key, from, to}; `output`: what is measured, with a `statistic` for a map). Start with Morris (`method`: morris, \
+r x (k + 1) runs) to screen many factors, then Sobol (S1 and ST) on the few that matter, with `n` a power of 2 and \
+`second_order` only for a pair that interacts; oat (one at a time) for a tornado chart. A model that draws at \
+random needs `replicates` (3 to 5: the output is the mean, and the reply says the share of its variance that is \
+chance). Read the ranking, the chance share and the convergence verdict (a larger design when the indices have not \
+settled) before saying what matters. A design of more than 500 runs is refused until `confirm` is true: the reply \
+says its cost, so tell the user first. It writes methods.md, a paragraph for the methods section with its \
+references. Record the analysis in the model's notes (set_note, or the node's `note`/`why`): the method, the \
+ranges and why, the factors that mattered.",
     },
     Guide {
         name: "data-preparation",

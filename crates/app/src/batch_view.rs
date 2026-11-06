@@ -356,6 +356,11 @@ pub struct SensitivityPlan {
     /// The runs of each point (the seeds from the model seed up).
     #[serde(default = "one")]
     replicates: usize,
+    /// The range of each factor, and the statistic of the output, for the methods text.
+    #[serde(default)]
+    bounds: Vec<(f64, f64)>,
+    #[serde(default)]
+    statistic: Option<String>,
 }
 
 fn one() -> usize {
@@ -386,6 +391,8 @@ pub struct Finished {
     pub ranked: Option<(Vec<Scored>, Vec<String>, String)>,
     /// A sensitivity analysis's indices.
     pub sensitivity: Option<Indices>,
+    /// The text of its `methods.md`.
+    pub methods: Option<String>,
 }
 
 /// What a sensitivity analysis varies and measures.
@@ -616,6 +623,7 @@ impl BatchState {
                         }
                     }
                 });
+                let mut methods = None;
                 let sensitivity = r.record.sensitivity.as_ref().and_then(|p| {
                     let metrics = batch::metrics_of(&p.labels, &o.results);
                     let values: Vec<Option<f64>> = metrics.iter().map(|m| m.as_ref().map(|m| m.value)).collect();
@@ -641,6 +649,22 @@ impl BatchState {
                             if let Err(e) = crate::sens_chart::write(&r.out, &i) {
                                 self.error = Some(format!("the chart was not written: {e}"));
                             }
+                            let run = crate::sens_methods::Run {
+                                indices: &i,
+                                design: &p.design,
+                                bounds: &p.bounds,
+                                output: &p.output,
+                                statistic: p.statistic.as_deref(),
+                                resamples: p.resamples,
+                                version: env!("CARGO_PKG_VERSION"),
+                            };
+                            // (an analysis resumed from an older record has no ranges: no methods text)
+                            if p.bounds.len() == i.factors.len() {
+                                methods = Some(crate::sens_methods::text(&run));
+                                if let Err(e) = crate::sens_methods::write(&r.out, &run) {
+                                    self.error = Some(format!("methods.md was not written: {e}"));
+                                }
+                            }
                             Some(i)
                         }
                         Err(e) => {
@@ -659,6 +683,7 @@ impl BatchState {
                     errors: o.status.errors,
                     ranked,
                     sensitivity,
+                    methods,
                 });
             }
         }
@@ -930,6 +955,8 @@ fn tasks(st: &BatchState, knobs: &[Knob]) -> Result<Planned, String> {
                 labels: t.iter().map(|(l, _)| l.clone()).collect(),
                 output: st.sens.output.clone().unwrap_or_default(),
                 resamples: st.sens.resamples,
+                bounds,
+                statistic: None,
             };
             Ok((t, None, Some(plan)))
         }
@@ -953,7 +980,7 @@ fn measurable(m: &Model, r: &Registry) -> Vec<(String, Type)> {
 }
 
 /// The output measured by default: a number or a table where the model ends, else a map there, else the first.
-fn default_measure(m: &Model, r: &Registry) -> Option<String> {
+pub fn default_measure(m: &Model, r: &Registry) -> Option<String> {
     let outs = measurable(m, r);
     let ends = sinks(m);
     let at_end = |k: &str| ends.iter().any(|e| k.starts_with(&format!("{e}.")));
@@ -1105,6 +1132,83 @@ pub fn vary(st: &mut BatchState, knobs: &[Knob], key: &str, range: Option<(f64, 
     true
 }
 
+/// The factors of a sensitivity analysis asked for (the tool `sensitivity`) with their ranges: those given, else 20 %
+/// either side of the setting's value. The error names the factor that is not a number of the model, or has no
+/// value to start from.
+pub fn asked_ranges(
+    m: &Model,
+    r: &Registry,
+    factors: &[(String, Option<f64>, Option<f64>)],
+) -> Result<Vec<(String, f64, f64)>, String> {
+    let knobs = knobs(m, r);
+    let mut out = Vec::new();
+    for (key, from, to) in factors {
+        let k = knobs.iter().find(|k| k.key == *key && k.numeric).ok_or_else(|| {
+            format!("{key}: not a number setting of the model (`node.setting` or `$input`; show_model lists them)")
+        })?;
+        let (lo, hi) = match (from, to) {
+            (Some(lo), Some(hi)) => (*lo, *hi),
+            (None, None) => {
+                let (a, b) = default_range(k);
+                match (a.parse::<f64>(), b.parse::<f64>()) {
+                    (Ok(a), Ok(b)) => (a, b),
+                    _ => return Err(format!("{key}: the model gives it no value to start from: give `from` and `to`")),
+                }
+            }
+            _ => return Err(format!("{key}: give both `from` and `to`, or neither")),
+        };
+        if lo.partial_cmp(&hi) != Some(std::cmp::Ordering::Less) {
+            return Err(format!("{key}: its range must go from a value to a larger one"));
+        }
+        out.push((key.clone(), lo, hi));
+    }
+    Ok(out)
+}
+
+/// What a statistic asked for is, in the fields of the tab: its kind, the class and the metric.
+fn set_statistic(sens: &mut SensitivityState, text: &str) {
+    let mut parts = text.trim().split(':');
+    let kind = parts.next().unwrap_or_default();
+    let (second, third) = (parts.next().unwrap_or_default(), parts.next().unwrap_or_default());
+    match kind {
+        "cells" | "share" | "area" => {
+            sens.statistic = kind.into();
+            sens.class = second.into();
+        }
+        "metric" => {
+            sens.statistic = kind.into();
+            sens.metric = second.into();
+            sens.class = third.into();
+        }
+        // mean, sum, min, max, changed, or a table's column
+        other => sens.statistic = other.into(),
+    }
+}
+
+/// Put a sensitivity analysis asked for by the assistant in the Sensitivity tab (its factors in place of those
+/// there, and its method, design, replicates, output and statistic), for the user to run.
+pub fn set_asked(st: &mut BatchState, ranges: &[(String, f64, f64)], ask: &crate::tools::SensitivityAsk) {
+    st.kind = Kind::Sensitivity;
+    st.sens.factors = ranges
+        .iter()
+        .map(|(key, lo, hi)| Range {
+            key: key.clone(),
+            from: shown(&Json::from(*lo)),
+            to: shown(&Json::from(*hi)),
+            points: String::new(),
+        })
+        .collect();
+    st.sens.method = ask.method;
+    st.sens.design = Design { seed: st.sens.design.seed, ..ask.design() };
+    st.sens.replicates = ask.replicates;
+    if let Some(o) = &ask.output {
+        st.sens.output = Some(o.clone());
+    }
+    if let Some(t) = &ask.statistic {
+        set_statistic(&mut st.sens, t);
+    }
+}
+
 /// The output scored by default: a simulation's maps, else the first series or map of the nodes where the
 /// model ends.
 fn default_output(m: &Model, r: &Registry) -> Option<String> {
@@ -1149,7 +1253,7 @@ pub fn start(
         return Err("the model has errors: fix them first (see the nodes in red)".into());
     }
     let knobs = knobs(&s.model, r);
-    let (tasks, plan, sensitivity) = tasks(st, &knobs)?;
+    let (tasks, plan, mut sensitivity) = tasks(st, &knobs)?;
     if tasks.is_empty() {
         return Err("no run to do".into());
     }
@@ -1192,6 +1296,9 @@ pub fn start(
             let output = sensitivity.as_ref().map(|p| p.output.clone()).unwrap_or_default();
             let ty = measurable(&s.model, r).into_iter().find(|(k, _)| *k == output).map(|(_, t)| t);
             let statistic = statistic_of(ty, &st.sens)?;
+            if let Some(p) = sensitivity.as_mut() {
+                p.statistic = statistic.clone();
+            }
             // (a single map's `changed` is against the map the simulation starts from)
             let start = if statistic.as_deref() == Some("changed") && ty == Some(Type::Map) {
                 st.sens
@@ -2018,6 +2125,14 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
         {
             st_error = Some(e);
         }
+        if let Some(m) = &f.methods
+            && ui
+                .button("Copy the methods text")
+                .on_hover_text("a paragraph for a methods section, with the references (methods.md is in the folder)")
+                .clicked()
+        {
+            ui.ctx().copy_text(m.clone());
+        }
         ui.label(RichText::new(format!("The factors that matter most first (by {}).", ind.ranked_by())).weak());
         egui::ScrollArea::horizontal().id_salt("indices").show(ui, |ui| {
             egui::Grid::new("indices").striped(true).spacing([12.0, 4.0]).show(ui, |ui| {
@@ -2037,7 +2152,8 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
         });
         ui.label(
             RichText::new(
-                "design.csv, indices.csv, convergence.csv and the chart (sensitivity.svg and .png) are in the folder.",
+                "design.csv, indices.csv, convergence.csv, methods.md and the chart (sensitivity.svg and .png) are in \
+                 the folder.",
             )
             .weak(),
         );
@@ -2295,6 +2411,44 @@ mod tests {
         assert_eq!(default_range(&k(Json::from(0), true, None)), (String::new(), String::new()));
         assert_eq!(doc_default("the levels (default 4)"), Some(4.0));
         assert_eq!(doc_default("no value here"), None);
+    }
+
+    #[test]
+    fn an_analysis_asked_for_by_the_assistant_is_put_in_the_tab() {
+        let r = Registry::standard();
+        let mut m = Model::new("m");
+        m.inputs.insert("share".into(), Input::Value { value: 0.5.into(), note: None });
+        m.nodes.push(Node::new("noise", "nlm.random").param("rows", 10).param("columns", 12));
+        let some = |k: &str, a: Option<f64>, b: Option<f64>| (k.to_string(), a, b);
+        // the range given, else 20 % either side (whole numbers widened)
+        let got = asked_ranges(&m, &r, &[some("noise.rows", Some(4.0), Some(20.0)), some("$share", None, None)]);
+        assert_eq!(got.unwrap(), [("noise.rows".to_string(), 4.0, 20.0), ("$share".to_string(), 0.4, 0.6)]);
+        let err = |f: &[(String, Option<f64>, Option<f64>)]| asked_ranges(&m, &r, f).unwrap_err();
+        assert!(err(&[some("noise.nope", None, None)]).contains("not a number setting"));
+        assert!(err(&[some("noise.rows", Some(4.0), None)]).contains("both"));
+        assert!(err(&[some("noise.rows", Some(9.0), Some(3.0))]).contains("larger"));
+        // set in the tab: the factors in place of those there, and the settings
+        let ask = crate::tools::sensitivity_ask(&serde_json::json!({
+            "factors": ["noise.rows"], "method": "sobol", "n": 32, "second_order": true, "replicates": 3,
+            "output": "noise.map", "statistic": "metric:np:2",
+        }))
+        .unwrap();
+        let mut st = BatchState::default();
+        st.sens.factors.push(Range { key: "old".into(), ..Default::default() });
+        set_asked(&mut st, &[("noise.rows".into(), 4.0, 20.0)], &ask);
+        assert_eq!(st.kind, Kind::Sensitivity);
+        assert_eq!(st.sens.factors.len(), 1);
+        assert_eq!((st.sens.factors[0].key.as_str(), st.sens.factors[0].from.as_str()), ("noise.rows", "4.0"));
+        assert_eq!((st.sens.method, st.sens.design.n, st.sens.design.second_order), (Method::Sobol, 32, true));
+        assert_eq!((st.sens.replicates, st.sens.output.as_deref()), (3, Some("noise.map")));
+        assert_eq!(
+            (st.sens.statistic.as_str(), st.sens.metric.as_str(), st.sens.class.as_str()),
+            ("metric", "np", "2")
+        );
+        set_statistic(&mut st.sens, "share:3");
+        assert_eq!((st.sens.statistic.as_str(), st.sens.class.as_str()), ("share", "3"));
+        set_statistic(&mut st.sens, "changed");
+        assert_eq!(st.sens.statistic, "changed");
     }
 
     #[test]

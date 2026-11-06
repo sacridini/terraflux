@@ -139,6 +139,18 @@ macro_rules! paper {
 /// The papers of the methods Terraflux reproduces (the website's "Cite Terraflux").
 pub const REFERENCES: &[Reference] = &[
     paper!(
+        "campolongo2007",
+        ["Campolongo, F.", "Cariboni, J.", "Saltelli, A."],
+        false,
+        2007,
+        "An effective screening design for sensitivity analysis of large models",
+        "Environmental Modelling & Software",
+        "22",
+        "10",
+        "1509–1518",
+        "10.1016/j.envsoft.2006.10.004"
+    ),
+    paper!(
         "hanson2025",
         [
             "Hanson, J. O.",
@@ -160,6 +172,18 @@ pub const REFERENCES: &[Reference] = &[
         "10.1111/cobi.14376"
     ),
     paper!(
+        "herman2017",
+        ["Herman, J.", "Usher, W."],
+        false,
+        2017,
+        "SALib: An open-source Python library for sensitivity analysis",
+        "Journal of Open Source Software",
+        "2",
+        "9",
+        "97",
+        "10.21105/joss.00097"
+    ),
+    paper!(
         "hesselbarth2019",
         ["Hesselbarth, M. H. K.", "Sciaini, M.", "With, K. A.", "Wiegand, K.", "Nowosad, J."],
         false,
@@ -170,6 +194,18 @@ pub const REFERENCES: &[Reference] = &[
         "10",
         "1648–1657",
         "10.1111/ecog.04617"
+    ),
+    paper!(
+        "iwanaga2022",
+        ["Iwanaga, T.", "Usher, W.", "Herman, J."],
+        false,
+        2022,
+        "Toward SALib 2.0: Advancing the accessibility and interpretability of global sensitivity analyses",
+        "Socio-Environmental Systems Modelling",
+        "4",
+        "",
+        "18155",
+        "10.18174/sesmo.18155"
     ),
     paper!(
         "kass2021",
@@ -281,6 +317,18 @@ pub const REFERENCES: &[Reference] = &[
         "10.1111/2041-210X.13819"
     ),
     paper!(
+        "morris1991",
+        ["Morris, M. D."],
+        false,
+        1991,
+        "Factorial sampling plans for preliminary computational experiments",
+        "Technometrics",
+        "33",
+        "2",
+        "161–174",
+        "10.1080/00401706.1991.10484804"
+    ),
+    paper!(
         "moulds2015",
         ["Moulds, S.", "Buytaert, W.", "Mijic, A."],
         false,
@@ -337,6 +385,30 @@ pub const REFERENCES: &[Reference] = &[
         "10.1016/j.ecolmodel.2019.108901"
     ),
     paper!(
+        "saltelli2002",
+        ["Saltelli, A."],
+        false,
+        2002,
+        "Making best use of model evaluations to compute sensitivity indices",
+        "Computer Physics Communications",
+        "145",
+        "2",
+        "280–297",
+        "10.1016/S0010-4655(02)00280-1"
+    ),
+    paper!(
+        "saltelli2010",
+        ["Saltelli, A.", "Annoni, P.", "Azzini, I.", "Campolongo, F.", "Ratto, M.", "Tarantola, S."],
+        false,
+        2010,
+        "Variance based sensitivity analysis of model output. Design and estimator for the total sensitivity index",
+        "Computer Physics Communications",
+        "181",
+        "2",
+        "259–270",
+        "10.1016/j.cpc.2009.09.018"
+    ),
+    paper!(
         "saura2007",
         ["Saura, S.", "Pascual-Hortal, L."],
         false,
@@ -374,6 +446,18 @@ pub const REFERENCES: &[Reference] = &[
         "3",
         "217–235",
         "10.1016/S0304-3800(02)00059-5"
+    ),
+    paper!(
+        "sobol2001",
+        ["Sobol', I. M."],
+        false,
+        2001,
+        "Global sensitivity indices for nonlinear mathematical models and their Monte Carlo estimates",
+        "Mathematics and Computers in Simulation",
+        "55",
+        "1–3",
+        "271–280",
+        "10.1016/S0378-4754(00)00270-6"
     ),
     paper!(
         "soille2009",
@@ -678,6 +762,14 @@ pub const METHODS: &[Method] = &[
         software: "",
         software_refs: &[],
     },
+    Method {
+        ops: &["sensitivity.design", "sensitivity.analyze"],
+        name: "a global sensitivity analysis ({ops})",
+        name_pt: "a análise de sensibilidade global ({ops})",
+        refs: &["morris1991", "campolongo2007", "sobol2001", "saltelli2002", "saltelli2010"],
+        software: "SALib",
+        software_refs: &["herman2017", "iwanaga2022"],
+    },
 ];
 
 /// Terraflux itself (the version running).
@@ -701,7 +793,7 @@ pub fn terraflux() -> Reference {
 pub const CITING: &str = "https://sacridini.github.io/terraflux/about/citing/";
 const URL: &str = "https://github.com/sacridini/terraflux";
 
-fn reference(key: &str) -> Option<&'static Reference> {
+pub(crate) fn reference(key: &str) -> Option<&'static Reference> {
     REFERENCES.iter().find(|r| r.key == key)
 }
 
