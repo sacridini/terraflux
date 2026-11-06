@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Application: **the files not found are looked for around the model at once**. When a saved model opens with
+  files it reads not where it says (a project copied whole to another computer), they are looked for in its folder
+  and the one above, in a thread; the strip says "2 found beside the model." with *Apply (2)*, one step of undo.
+  *Look in a folder...* also looks in a thread now, with a spinner and *Cancel*, the window never frozen.
+- MCP: **`locate_files`** finds again the files a model reads that are not where it says (in the model's folder and
+  the one above, or the folders given) and makes the model read them from there; it says what was found and what
+  is still not found, with the nodes that read it.
+- Command line: **`terraflux relink model.toml [--in FOLDER]... [--dry-run]`** does the same and writes the model
+  again with the paths found (relative to its folder); it exits with 1 while a file is still not found, for scripts.
+
 ## [1.43.0] - 2026-11-06
 
 ### Added

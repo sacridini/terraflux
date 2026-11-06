@@ -969,7 +969,8 @@ impl Session {
     /// The files the model reads that are not found, worked out again after an edit or a reading of the data.
     pub fn follow_files(&mut self) {
         let base = self.base();
-        self.relink.follow(&self.source, &base, (self.revision, self.loads));
+        let saved = self.path.is_some();
+        self.relink.follow(&self.source, &base, (self.revision, self.loads), saved);
     }
 
     /// The folder the model's paths are relative to.

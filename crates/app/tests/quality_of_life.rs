@@ -416,13 +416,17 @@ fn the_history_goes_back_and_forward_to_any_step() {
 
 #[test]
 fn the_files_not_found_are_located_again() {
-    // a model written on another computer (Windows paths), its data now in a folder beside it
-    let dir = tmp("relink");
-    let _ = std::fs::remove_dir_all(&dir);
+    // a model written on another computer (Windows paths), its data now in a folder far from it (not around it:
+    // found by the folder chosen)
+    let top = tmp("relink");
+    let _ = std::fs::remove_dir_all(&top);
+    let dir = top.join("elsewhere");
     std::fs::create_dir_all(dir.join("copied").join("inputs")).unwrap();
     std::fs::write(dir.join("copied").join("inputs").join("land.tif"), b"x").unwrap();
     std::fs::write(dir.join("copied").join("inputs").join("roads.tif"), b"x").unwrap();
-    let file = dir.join("model.toml");
+    let models = top.join("a").join("b");
+    std::fs::create_dir_all(&models).unwrap();
+    let file = models.join("model.toml");
     let mut m = terraflux_graph::Model::new("from another computer");
     m.nodes.push(terraflux_graph::Node::new("land", "raster.read").param("path", r"D:\work\inputs\land.tif"));
     m.nodes.push(terraflux_graph::Node::new("roads", "raster.read").param("path", r"D:\work\inputs\roads.tif"));
@@ -447,8 +451,8 @@ fn the_files_not_found_are_located_again() {
     h.get_by_label("Apply (2 found)").click();
     h.run_steps(3);
     let s = h.state().session.as_ref().unwrap();
-    assert_eq!(s.source.nodes[0].params["path"], serde_json::json!("copied/inputs/land.tif"));
-    assert_eq!(s.source.nodes[1].params["path"], serde_json::json!("copied/inputs/roads.tif"));
+    assert_eq!(s.source.nodes[0].params["path"], serde_json::json!("../../elsewhere/copied/inputs/land.tif"));
+    assert_eq!(s.source.nodes[1].params["path"], serde_json::json!("../../elsewhere/copied/inputs/roads.tif"));
     assert_eq!(s.source.nodes[2].params["path"], serde_json::json!(r"D:\work\out.tif"), "the file written left");
     assert!(s.dirty);
     assert!(h.query_by_label_contains("not found.").is_none(), "the strip gone");
@@ -529,4 +533,35 @@ fn run_to_the_end_quietly(h: &mut Harness<TerrafluxApp>) {
         std::thread::sleep(Duration::from_millis(5));
     }
     h.run_steps(2);
+}
+
+/// A model's project copied whole to another computer: the files it reads looked for around it at once (its folder,
+/// the one above), those found offered in the strip, Apply.
+#[test]
+fn the_files_not_found_are_looked_for_around_the_model() {
+    let top = tmp("relink-around");
+    let _ = std::fs::remove_dir_all(&top);
+    std::fs::create_dir_all(top.join("data").join("2020")).unwrap();
+    std::fs::write(top.join("data").join("2020").join("cover.tif"), b"x").unwrap();
+    std::fs::create_dir_all(top.join("models")).unwrap();
+    let file = top.join("models").join("model.toml");
+    let mut m = terraflux_graph::Model::new("copied");
+    m.nodes.push(terraflux_graph::Node::new("cover", "raster.read").param("path", r"E:\study\data\2020\cover.tif"));
+    m.nodes.push(terraflux_graph::Node::new("gone", "raster.read").param("path", r"E:\study\data\gone.tif"));
+    m.save(&file).unwrap();
+    let mut h = harness(new_app(Some(file.clone())));
+    let t = Instant::now();
+    while h.query_by_label("1 found beside the model.").is_none() {
+        h.step();
+        assert!(t.elapsed() < Duration::from_secs(30), "not looked for around the model");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(h.query_by_label("2 files of the model are not found.").is_some());
+    h.get_by_label("Apply (1)").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.nodes[0].params["path"], serde_json::json!("../data/2020/cover.tif"));
+    assert_eq!(s.source.nodes[1].params["path"], serde_json::json!(r"E:\study\data\gone.tif"));
+    assert!(h.query_by_label("1 file of the model is not found.").is_some(), "the other still told");
+    assert!(h.query_by_label_contains("found beside the model").is_none(), "not looked for twice");
 }

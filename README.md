@@ -160,6 +160,7 @@ The same work from the command line:
 # a model from Dinamica EGO's classic one, fitted on two maps 14 steps apart
 terraflux new dinamica --t0 landuse.tif:1997 --t1 landuse.tif:2011 --drivers drivers.tif --steps 14 -o model.toml
 terraflux check model.toml          # every operator, reference and connection checked
+terraflux relink model.toml         # the files it reads not found (another computer?) found again near it
 terraflux run model.toml            # output/maps.tif (a band per step), steps.csv, weights.csv
 terraflux run model.toml --set seed=7 --out other
 terraflux run model.toml --profile  # how long each node took, the slowest first

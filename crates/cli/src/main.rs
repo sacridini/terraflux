@@ -77,6 +77,19 @@ enum Command {
     },
     /// Check a model and its data without running it.
     Check { model: PathBuf },
+    /// Find again the files a model reads that are not where it says (a model from another computer, a folder moved
+    /// or renamed) and make it read them from there: each by the longest end of its old path found in a folder, else
+    /// by its name, else by the change of folder of those found (Windows and Unix paths alike). The model's file is
+    /// written again (relative paths), unless --dry-run.
+    Relink {
+        model: PathBuf,
+        /// A folder to look in (repeat for more, in order; default: the model's folder, then the one above it).
+        #[arg(long = "in", value_name = "FOLDER")]
+        folders: Vec<PathBuf>,
+        /// Say what would be found, without writing the model.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Run again what a run's manifest (manifest.json, written with its outputs) records: the same model, scenario,
     /// values and files (told when one changed), and tell whether every output is the same, byte for byte (vectors:
     /// the same features).
@@ -1219,6 +1232,22 @@ fn main() -> Result<()> {
             }
             m.save(out)?;
             eprintln!("wrote {}", out.display());
+        }
+        Command::Relink { model, folders, dry_run } => {
+            if let Some(gone) = folders.iter().find(|f| !f.is_dir()) {
+                bail!("--in {}: no such folder", gone.display());
+            }
+            let mut m = Model::load(&model)?;
+            let dir = folder_of(&model);
+            let done = terraflux_app::relink::relink_model(&mut m, &dir, &folders);
+            println!("{}", done.words(&dir));
+            if done.changed > 0 && !dry_run {
+                m.save(&model)?;
+                eprintln!("wrote {}", model.display());
+            }
+            if !done.still.is_empty() {
+                std::process::exit(1);
+            }
         }
         Command::Convert { from, to } => {
             Model::load(&from)?.save(&to)?;

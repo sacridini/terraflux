@@ -86,6 +86,26 @@ model.toml: no errors
 
 Use it before a long run, after editing a model by hand, and in scripts before a batch.
 
+## terraflux relink
+
+Finds again the files a model reads that are not where it says, as for a model written on another computer or a
+folder moved, and writes the model again with the paths found (relative to its folder). Each file is found by the
+longest end of its old path in a folder, else by its name; once one is found, the same change of folder is tried
+on the others. Windows paths and Unix paths are cut alike, so a model written on Windows relinks on Linux and
+macOS. It looks in the model's folder and the one above it, or in the folders given with `--in` (in order);
+`--dry-run` only says what it would change. It exits with 1 while a file is still not found.
+
+```text
+> terraflux relink models/land.toml
+1 of 2 files not found located again
+  C:\Users\ana\proj\data\dem.tif -> ../data/dem.tif
+still not found:
+  /home/ana/proj/data/soil.tif (read by soil)
+```
+
+The application does the same when it opens such a model: a strip over the canvas offers the files found beside
+the model, and *Locate them...* looks in any folder.
+
 ## terraflux test
 
 Runs models and checks what they give against files of what they should give. A model's tests are `[[tests]]` in

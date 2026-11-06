@@ -129,7 +129,7 @@ built or changed the model, give it a `summary` of what was asked and done (set_
 );
 
 /// The tools that change a model.
-pub const EDITS: [&str; 23] = [
+pub const EDITS: [&str; 24] = [
     "set_model_info",
     "set_input",
     "remove_input",
@@ -143,6 +143,7 @@ pub const EDITS: [&str; 23] = [
     "remove_plot",
     "set_note",
     "remove_note",
+    "locate_files",
     "arrange",
     "group_nodes",
     "ungroup",
@@ -340,6 +341,18 @@ pub fn edit(name: &str, m: &mut Model, r: &Registry, dir: &Path, a: &Value) -> R
             Ok(format!("removed the plot {id}"))
         }
         "set_note" => set_note(m, a),
+        "locate_files" => {
+            let folders: Vec<std::path::PathBuf> = a
+                .get("folders")
+                .and_then(Value::as_array)
+                .map(|v| v.iter().filter_map(Value::as_str).map(|f| dir.join(f)).collect())
+                .unwrap_or_default();
+            if let Some(gone) = folders.iter().find(|f| !f.is_dir()) {
+                return Err(format!("no folder {}", gone.display()));
+            }
+            let done = crate::relink::relink_model(m, dir, &folders);
+            Ok(done.words(dir))
+        }
         "remove_note" => {
             let id = text(a, "id")?;
             let before = m.notes.len();
@@ -1747,6 +1760,16 @@ fn all() -> Vec<Value> {
                 "at": { "type": "array", "items": { "type": "number" }, "description": "Where a note is put, [x, y] in the canvas's units (default: above the scope's nodes, at the left)." },
                 "colour": { "type": "string", "enum": terraflux_graph::NOTE_COLOURS },
                 "scope": { "type": "string", "description": "The container it is in (its ids from the top joined by /); none: the top level." },
+            }),
+            &["model"],
+            None,
+        ),
+        tool(
+            "locate_files",
+            "Find again the files the model reads that are not where it says (a model from another computer, a folder moved or renamed) and make the model read them from where they are: each by the longest end of its old path found in a folder, else by its name (one file of that name), else by the change of folder of those found. Windows and Unix paths alike. Says what was found, and what is still not found with the nodes that read it.",
+            json!({
+                "model": model,
+                "folders": { "type": "array", "items": { "type": "string" }, "description": "The folders to look in, in order (absolute, or relative to the model's folder). Default: the model's folder, then the one above it." },
             }),
             &["model"],
             None,
@@ -3251,5 +3274,24 @@ mod plot_tests {
         super::edit("remove_note", &mut m, &r, dir, &json!({ "id": "note1" })).unwrap();
         assert_eq!(m.notes.len(), 1);
         assert!(super::edit("remove_note", &mut m, &r, dir, &json!({ "id": "note1" })).is_err());
+    }
+
+    /// A file not where the model says found by an agent in a folder given (relative to the model's), the model
+    /// reading it from there; a folder not there refused.
+    #[test]
+    fn files_not_found_are_located_by_an_agent() {
+        let r = terraflux_ops::Registry::standard();
+        let dir = std::env::temp_dir().join(format!("terraflux-locate-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("moved")).unwrap();
+        std::fs::write(dir.join("moved").join("dem.tif"), b"x").unwrap();
+        let mut m = Model::new("m");
+        m.nodes.push(terraflux_graph::Node::new("dem", "raster.read").param("path", "/old/place/dem.tif"));
+        let said = super::edit("locate_files", &mut m, &r, &dir, &json!({ "folders": ["moved"] })).unwrap();
+        assert!(said.contains("1 of 1"), "{said}");
+        assert_eq!(m.nodes[0].params["path"], json!("moved/dem.tif"));
+        assert!(super::edit("locate_files", &mut m, &r, &dir, &json!({})).unwrap().contains("every file"));
+        assert!(super::edit("locate_files", &mut m, &r, &dir, &json!({ "folders": ["nowhere"] })).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

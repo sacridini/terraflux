@@ -2666,6 +2666,14 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    `the_files_not_found_are_located_again` (a imagem `ui-relink.png`) e os testes puros compilados no Linux do WSL
    (caminhos do Windows achados lá). Ficou de fora: a busca por nome numa thread (até 20 000 entradas leva menos de
    um segundo; o diálogo de pasta já bloqueia).
+   **Feito** (Unreleased), a segunda parte: a busca numa thread (`Search`, com um `AtomicBool` para cancelar;
+   `by_name` e `locate_until` param nele), o spinner e o Cancel na janela; ao abrir um modelo salvo, a busca
+   automática em volta dele (`around`: a pasta do modelo e a de cima), uma vez por caminho antigo, os achados
+   oferecidos na faixa ("2 found beside the model.", *Apply (2)*). `relink_model` e `Relinked::words` para quem não
+   tem janela: a ferramenta `locate_files` do MCP (pastas relativas à do modelo) e `terraflux relink` (`--in`,
+   `--dry-run`, sai com 1 quando ainda falta algum). Testes: `a_model_is_relinked_around_its_folder`,
+   `files_not_found_are_located_by_an_agent`, `the_files_not_found_are_looked_for_around_the_model` e o
+   `the_files_not_found_are_located_again` com os dados longe do modelo.
 4. **O histórico do desfazer.** O `History` guarda um nome por passo, feito quando o passo fecha (`tick`): o
    `review::diff` do antes e do depois resumido ("raster.calc added: suit", "setting threshold of reclass: 3 → 4",
    "3 nodes moved", "2 nodes deleted", "connected a.map → b.x"), ou o nome dado por quem editou (o Assistant, o
