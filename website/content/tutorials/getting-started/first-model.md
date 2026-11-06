@@ -202,6 +202,8 @@ Press ++f5++ to run the whole model. Then save it: **Save as...**, `core-forest.
     dragged over a connection (it lights up) and let go, goes in its middle; alt+drag takes a node out of its
     connections, joining again what it joined. **Ctrl+F** on the canvas finds a node by its name, operator, note or
     file, inside groups too, and takes the view to it. **F** frames the nodes selected, **Home** the whole model.
+    When the model is larger than the view, a minimap in the corner shows all of it: a click or a drag there moves
+    the view (× hides it; Settings brings it back).
     With several nodes of one operator selected (a box dragged around them, or ctrl+click), the Node pane shows
     their settings once ("several values" where they differ) and a change goes to all of them, in one undo. A
     right click on them (or on the empty canvas) gives the selection's menu: delete, duplicate, disconnect their

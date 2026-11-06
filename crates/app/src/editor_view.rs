@@ -441,6 +441,59 @@ fn mapped(r: Rect, cam: &Camera) -> Rect {
     )
 }
 
+/// The minimap in the canvas's corner: its rectangle on the screen, and how the scope's bounds (graph units) map
+/// onto it.
+#[derive(Clone, Copy)]
+struct Minimap {
+    rect: Rect,
+    /// The screen point of the bounds' corner, and the points per unit of the graph.
+    origin: Pos2,
+    world: Rect,
+    scale: f32,
+}
+
+impl Minimap {
+    /// The largest it takes, and its margin.
+    const MOST: Vec2 = Vec2::new(180.0, 120.0);
+    const PAD: f32 = 4.0;
+
+    /// The minimap of `bounds` in the corner of `canvas` (screen), none when the canvas is too small for it.
+    fn new(bounds: Rect, canvas: Rect) -> Option<Minimap> {
+        let (w, h) = (bounds.width().max(1.0), bounds.height().max(1.0));
+        let scale = (Self::MOST.x / w).min(Self::MOST.y / h);
+        let inner = (Vec2::new(w, h) * scale).max(Vec2::new(40.0, 24.0));
+        let size = inner + Vec2::splat(2.0 * Self::PAD);
+        if canvas.width() < 3.0 * size.x || canvas.height() < 3.0 * size.y {
+            return None;
+        }
+        let max = canvas.right_bottom() - Vec2::new(10.0, 24.0);
+        let rect = Rect::from_min_max(max - size, max);
+        let origin = rect.center() - Vec2::new(w, h) * scale / 2.0;
+        Some(Minimap { rect, origin, world: bounds, scale })
+    }
+
+    /// The screen point of a point of the graph, and the point of the graph (inside the bounds) at a screen point.
+    fn at(&self, p: Pos2) -> Pos2 {
+        self.origin + (p - self.world.min) * self.scale
+    }
+
+    fn back(&self, q: Pos2) -> Pos2 {
+        let p = self.world.min + (q - self.origin) / self.scale;
+        Pos2::new(p.x.clamp(self.world.left(), self.world.right()), p.y.clamp(self.world.top(), self.world.bottom()))
+    }
+
+    /// The little button that hides it, at its top right.
+    fn close(&self) -> Rect {
+        Rect::from_min_size(self.rect.right_top() + Vec2::new(-15.0, 1.0), Vec2::splat(14.0))
+    }
+
+    /// The little button that shows it again, where it was (the model not fitting the view).
+    fn reopen(canvas: Rect) -> Rect {
+        let max = canvas.right_bottom() - Vec2::new(10.0, 24.0);
+        Rect::from_min_max(max - Vec2::new(54.0, 18.0), max)
+    }
+}
+
 /// A rectangle part of the way to another (corners and all).
 fn between(a: Rect, b: Rect, t: f32) -> Rect {
     Rect::from_min_max(a.min.lerp(b.min, t), a.max.lerp(b.max, t))
@@ -551,6 +604,10 @@ pub struct EditorState {
     generation: u64,
     /// Where the canvas was drawn last.
     rect: Option<Rect>,
+    /// Where the minimap was drawn last (none: not shown), and, while its view is dragged, where the pointer
+    /// holds it from its centre (graph units).
+    mini: Option<Rect>,
+    mini_grab: Vec2,
     /// The nodes selected (of the scope shown), and the scope they are of.
     pub chosen: BTreeSet<String>,
     chosen_in: Vec<String>,
@@ -672,6 +729,11 @@ impl EditorState {
     /// Where the canvas was drawn last.
     pub fn canvas(&self) -> Option<Rect> {
         self.rect
+    }
+
+    /// Where the minimap was drawn last (none when it was not shown).
+    pub fn minimap(&self) -> Option<Rect> {
+        self.mini
     }
 
     /// The point of the graph (graph units) at a point of the screen over the canvas.
@@ -1993,7 +2055,10 @@ pub fn show(
         }
     }
     // (built again when the model, the place in it, the nodes' states or the theme change)
-    let colours = crate::settings::get().node_colours;
+    let (colours, minimap_on) = {
+        let s = crate::settings::get();
+        (s.node_colours, s.minimap)
+    };
     let key = (revision, st.path.clone(), status_rev, crate::theme::current().name, colours, st.folds);
     if st.scene.as_ref().is_none_or(|s| s.key != key) {
         // the texts measured in the fonts they are written in
@@ -2087,6 +2152,63 @@ pub fn show(
             .and_then(|of| Transit::new(entering, of, boxed, &st.cameras[&path], rect.size(), now, secs));
     }
     let cam = st.cameras.get_mut(&path).unwrap();
+    // the minimap, over the canvas (made after it: its widgets are on top, the canvas gets neither its clicks nor
+    // its wheel): shown when the scope does not fit the view; a click or a drag on it moves the view
+    st.mini = None;
+    let mut mini = None;
+    let mut reopen = None;
+    let mut drawn_button = None;
+    let mut closing = None;
+    let view_now = Rect::from_min_max((-cam.pan / cam.zoom).to_pos2(), ((rect.size() - cam.pan) / cam.zoom).to_pos2());
+    if st.transit.is_none() && !view_now.contains_rect(scene.bounds) {
+        if minimap_on {
+            mini = Minimap::new(scene.bounds, rect);
+        } else if rect.width() > 300.0 && rect.height() > 200.0 {
+            reopen = Some(Minimap::reopen(rect));
+        }
+    }
+    if let Some(m) = mini {
+        st.mini = Some(m.rect);
+        let id = ui.id().with("minimap");
+        let r = ui.interact(m.rect, id, Sense::click_and_drag());
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Minimap"));
+        let r = r.on_hover_text("click or drag to move the view").on_hover_cursor(egui::CursorIcon::Crosshair);
+        let centre = ((rect.size() / 2.0 - cam.pan) / cam.zoom).to_pos2();
+        if r.drag_started()
+            && let Some(o) = ui.input(|i| i.pointer.press_origin())
+        {
+            // held by the view's rectangle: it follows the pointer from where it was taken (else by its centre)
+            st.mini_grab = if view_now.contains(m.back(o)) { m.back(o) - centre } else { Vec2::ZERO };
+        }
+        if (r.dragged() || r.clicked())
+            && let Some(p) = r.interact_pointer_pos()
+        {
+            let g = m.back(p) - if r.dragged() { st.mini_grab } else { Vec2::ZERO };
+            st.glide = None;
+            cam.pan = rect.size() / 2.0 - g.to_vec2() * cam.zoom;
+        }
+    }
+    // (hiding it and showing it again, kept with the settings)
+    if let Some(m) = mini {
+        let b = ui.interact(m.close(), ui.id().with("minimap hide"), Sense::click());
+        b.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Hide the minimap"));
+        closing = Some(b.hovered());
+        if b.on_hover_text("hide the minimap (a button in the corner brings it back)").clicked() {
+            crate::settings::update(|s| s.minimap = false);
+            ui.ctx().request_repaint();
+        }
+    }
+    if let Some(b) = reopen {
+        let r = ui.interact(b, ui.id().with("minimap show"), Sense::click());
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Show the minimap"));
+        let hot = r.hovered();
+        if r.on_hover_text("show the minimap: the model does not fit the view").clicked() {
+            crate::settings::update(|s| s.minimap = true);
+            ui.ctx().request_repaint();
+        }
+        // (drawn with the rest, over the canvas)
+        drawn_button = Some((b, hot));
+    }
     // the wheel zooms around the pointer
     if let Some(p) = resp.hover_pos() {
         let (scroll, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
@@ -3035,6 +3157,58 @@ pub fn show(
         FontId::proportional(11.0),
         v.weak_text_color(),
     );
+    // the minimap: the boxes, the nodes selected in the accent, the connections thin, the view's rectangle
+    if let Some(m) = mini {
+        let accent = crate::theme::accent();
+        painter.rect_filled(m.rect, 5.0, v.extreme_bg_color.gamma_multiply(0.93));
+        painter.rect_stroke(m.rect, 5.0, Stroke::new(1.0, v.window_stroke().color), egui::StrokeKind::Inside);
+        let inside = painter.with_clip_rect(m.rect.shrink(1.0));
+        // (a few thousand connections at most: the boxes alone beyond)
+        if scene.edges.len() <= 1500 {
+            let line = Stroke::new(0.8, v.weak_text_color().gamma_multiply(0.5));
+            for e in &scene.edges {
+                let (a, b) = (&scene.boxes[e.from.0], &scene.boxes[e.to.0]);
+                inside.line_segment([m.at(a.output_at(e.from.1)), m.at(b.input_at(e.to.1))], line);
+            }
+        }
+        // a box never smaller than two points, to be seen
+        let small = |r: Rect| {
+            let c = r.center();
+            Rect::from_center_size(c, r.size().max(Vec2::splat(2.0)))
+        };
+        let plain = v.widgets.noninteractive.fg_stroke.color.gamma_multiply(0.55);
+        for b in &scene.boxes {
+            let colour = if b.op == terraflux_graph::GROUP { accent.gamma_multiply(0.6) } else { plain };
+            inside.rect_filled(small(Rect::from_min_max(m.at(b.rect.min), m.at(b.rect.max))), 1.0, colour);
+        }
+        for k in st.chosen.iter().chain(selected.map(String::from).as_ref()) {
+            if let Some(&i) = scene.index.get(k.as_str()) {
+                let b = &scene.boxes[i];
+                let r = small(Rect::from_min_max(m.at(b.rect.min), m.at(b.rect.max))).expand(1.0);
+                inside.rect_filled(r, 1.0, accent);
+            }
+        }
+        // what the canvas shows now (the camera drawn: a glide on its way included)
+        let seen = Rect::from_min_max(to_world(rect.min, &cam), to_world(rect.max, &cam));
+        let seen = Rect::from_min_max(m.at(seen.min), m.at(seen.max));
+        inside.rect_filled(seen, 0.0, accent.gamma_multiply(0.1));
+        inside.rect_stroke(seen, 0.0, Stroke::new(1.5, accent), egui::StrokeKind::Inside);
+        if let Some(hot) = closing {
+            let c = m.close();
+            let colour = if hot { v.strong_text_color() } else { v.weak_text_color() };
+            painter.text(c.center(), Align2::CENTER_CENTER, "×", FontId::proportional(13.0), colour);
+        }
+    }
+    if let Some((b, hot)) = drawn_button {
+        let (fill, text) = if hot {
+            (v.widgets.hovered.bg_fill, v.strong_text_color())
+        } else {
+            (v.extreme_bg_color, v.weak_text_color())
+        };
+        painter.rect_filled(b, 4.0, fill);
+        painter.rect_stroke(b, 4.0, Stroke::new(1.0, v.window_stroke().color), egui::StrokeKind::Inside);
+        painter.text(b.center(), Align2::CENTER_CENTER, "minimap", FontId::proportional(10.0), text);
+    }
     if let Some((hidden, (frame, glow))) = veil {
         let accent = crate::theme::accent();
         painter.rect_filled(rect, 0.0, v.panel_fill.gamma_multiply(hidden));

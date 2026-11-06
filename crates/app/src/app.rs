@@ -2747,10 +2747,16 @@ impl TerrafluxApp {
                 );
                 ui.end_row();
                 ui.label("Model");
-                ui.checkbox(&mut st.node_colours, "the nodes of data in the colour of their type").on_hover_text(
-                    "the model's inputs and the nodes that read, write, stack or plot, with a header in the colour \
-                     of what they give (a map blue, vectors pink...), as their connections",
-                );
+                ui.vertical(|ui| {
+                    ui.checkbox(&mut st.node_colours, "the nodes of data in the colour of their type").on_hover_text(
+                        "the model's inputs and the nodes that read, write, stack or plot, with a header in the \
+                         colour of what they give (a map blue, vectors pink...), as their connections",
+                    );
+                    ui.checkbox(&mut st.minimap, "a minimap of a large model on the canvas").on_hover_text(
+                        "a small map in the canvas's corner when the model does not fit the view: click or drag \
+                         on it to move the view",
+                    );
+                });
                 ui.end_row();
                 ui.label("Threads");
                 ui.vertical(|ui| {

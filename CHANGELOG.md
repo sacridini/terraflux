@@ -48,6 +48,10 @@ minor versions.
   node), and **two connections swapped**: one taken off its input and let go on another input already connected
   shows "swap with b" and exchanges them when each fits where the other was (else as before), with its taking off
   one step of undo, inside groups too.
+- Canvas: **a minimap of a large model**. When the model (a group's body, inside a group) does not fit in the view,
+  the corner shows all its nodes, the selected ones lit, and the view's rectangle: a click centres the view there, a
+  drag pans it live, and the canvas behind gets neither clicks nor the wheel. × hides it (Settings: *a minimap of a
+  large model on the canvas*).
 - Viewer: **from a layer to its node**. *Show its node* in a layer's menu (Layers) brings the model's canvas forward
   (the main window too, with the Viewer in a window of its own), opens the group, loop or switch it is in, selects
   the node and frames it with the glide of F; greyed, with the reason, for a difference of two maps.

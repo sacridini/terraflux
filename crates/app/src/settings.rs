@@ -53,6 +53,8 @@ pub struct Settings {
     /// On the model's canvas, the nodes of data (the model's inputs, what reads, writes, stacks or plots) with a
     /// header in the colour of the type they give.
     pub node_colours: bool,
+    /// On the model's canvas, a minimap in the corner when the model does not fit the view (on unless turned off).
+    pub minimap: bool,
     /// The models opened or saved last, the last first.
     pub recent_models: Vec<PathBuf>,
     /// The assistant's servers of chat models (their keys in the system's store of credentials), and the one
@@ -114,6 +116,7 @@ impl Default for Settings {
             files_pinned: Vec::new(),
             files_recent: Vec::new(),
             node_colours: false,
+            minimap: true,
             recent_models: Vec::new(),
             providers: crate::llm::presets(),
             provider: None,

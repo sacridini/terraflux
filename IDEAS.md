@@ -2376,6 +2376,11 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     aninhados (`Do::GoTo(Vec<String>)`). Teste: `a_node_of_the_model_is_found_inside_groups_and_the_camera_goes_to_it`.
     Falta: a câmera indo até o nó com animação; um comando "Find a node" na paleta.
 13. **Minimapa** no canto do canvas para modelos grandes, com o retângulo da vista arrastável.
+    **Feito** (Unreleased, por um sub-agente): `editor_view::Minimap` (o retângulo até 180×120 na proporção do
+    escopo, `at`/`back`), registrado com `ui.interact` depois do canvas (cliques e roda não passam); clique centra,
+    arrasto paneia, o glide cancelado; `settings.minimap` (× esconde, um botão no canto mostra de novo; também nas
+    Settings). Teste: `the_minimap_shows_a_large_model_and_moves_the_view`. Falta: as caixas na cor da categoria
+    (cinza hoje); a vista muito fora dos limites cortada; "não cabe" pela câmera de destino durante um glide.
 14. **Enquadrar a seleção** (F) além do modelo inteiro (Home).
     **Feito** (Unreleased, pelo mesmo sub-agente do 12): `Camera::fitting_to` (o zoom máximo: 1 no Home, 1,75 no F),
     `EditorState::framing` e `glide` (a câmera desenhada interpolada por 3 × `animation_time`, ease-out cúbico; a

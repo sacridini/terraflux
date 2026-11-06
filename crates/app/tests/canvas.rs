@@ -1708,3 +1708,129 @@ fn a_nodes_menu_disconnects_all_and_wires_swap() {
         assert!(editor(&h).message.is_some(), "the refusal said why");
     }
 }
+
+/// Four readers far apart (a model that does not fit the view at 1:1), as nodes of the top level or of a group.
+fn spread_model(inside: bool) -> Model {
+    let nodes: Vec<Node> = [("a", [0.0, 0.0]), ("b", [5000.0, 0.0]), ("c", [0.0, 3000.0]), ("d", [5000.0, 3000.0])]
+        .into_iter()
+        .map(|(id, at)| reader(id, at))
+        .collect();
+    let mut m = Model::new("spread");
+    if inside {
+        m.nodes.push(reader("near", [0.0, 0.0]));
+        m.nodes
+            .push(Node::new("grp", terraflux_graph::GROUP).body(terraflux_graph::Body { nodes, ..Default::default() }));
+    } else {
+        m.nodes = nodes;
+    }
+    m
+}
+
+/// The graph point at the canvas's centre, and the minimap's mapping (the graph rectangle of the boxes, the
+/// points per unit).
+fn view_centre(h: &Harness<TerrafluxApp>) -> egui::Pos2 {
+    let e = editor(h);
+    e.graph_at(e.canvas().unwrap().center()).unwrap()
+}
+
+fn minimap_of(h: &Harness<TerrafluxApp>, ids: &[&str]) -> (egui::Rect, egui::Rect, f32) {
+    let e = editor(h);
+    let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+    let world = e.rects_of(&ids).into_iter().map(|(_, r)| r).reduce(|a, b| a.union(b)).unwrap();
+    let scale = (180.0 / world.width()).min(120.0 / world.height());
+    (e.minimap().expect("the minimap is shown"), world, scale)
+}
+
+/// Where a graph point is on the minimap.
+fn on_minimap(m: egui::Rect, world: egui::Rect, scale: f32, g: egui::Pos2) -> egui::Pos2 {
+    m.center() - world.size() * scale / 2.0 + (g - world.min) * scale
+}
+
+/// The minimap in the corner of a canvas the model does not fit: shown only then, a click on it centres the view
+/// there, a drag pans it, the wheel over it does not zoom, a click on it keeps the selection, inside a group it maps
+/// the group's body, and its button hides it (and another shows it again).
+#[test]
+fn the_minimap_shows_a_large_model_and_moves_the_view() {
+    use egui_kittest::kittest::Queryable;
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    std::fs::create_dir_all(&dir).unwrap();
+    unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("minimap-settings.json")) };
+    terraflux_app::settings::update(|s| s.minimap = true);
+    let ids = ["a", "b", "c", "d"];
+    let mut h = harness(open(&spread_model(false), "canvas-minimap.toml"));
+    h.run_steps(3);
+    assert!(editor(&h).minimap().is_none(), "the whole model fits the view");
+    assert!(h.query_by_label("Minimap").is_none());
+    // closer: it does not fit
+    h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(60.0, 60.0), 1.0);
+    h.run_steps(3);
+    assert!(h.query_by_label("Minimap").is_some(), "found by its label");
+    let (m, world, s) = minimap_of(&h, &ids);
+    let canvas = editor(&h).canvas().unwrap();
+    assert!(m.width() <= 190.0 && m.height() <= 130.0 && canvas.contains_rect(m), "{m:?} in {canvas:?}");
+    assert!(m.right() > canvas.right() - 20.0 && m.bottom() > canvas.bottom() - 40.0, "in the bottom right corner");
+    // a click centres the view on that point; the selection stays, and so does the zoom
+    let s0 = h.state_mut().session.as_mut().unwrap();
+    s0.selected = Some("a".into());
+    s0.editor.chosen = ["a".to_string()].into();
+    h.run_steps(2);
+    let g = world.min + world.size() * 0.25;
+    click(&mut h, on_minimap(m, world, s, g));
+    h.run_steps(3);
+    let c = view_centre(&h);
+    assert!((c - g).length() < 2.0, "{c:?} not at {g:?}");
+    assert_eq!(editor(&h).zoom(), 1.0);
+    assert_eq!(chosen_now(&h), ["a"], "a click on the minimap does not reach the canvas");
+    assert_eq!(h.state().session.as_ref().unwrap().selected.as_deref(), Some("a"));
+    // a drag from the view's rectangle pans it by the pointer's way (in the minimap's scale)
+    let from = on_minimap(m, world, s, c);
+    drag(&mut h, from, from + egui::vec2(20.0, 10.0));
+    let c2 = view_centre(&h);
+    let want = c + egui::vec2(20.0, 10.0) / s;
+    assert!((c2 - want).length() < 3.0, "{c2:?} not at {want:?}");
+    assert_eq!(chosen_now(&h), ["a"], "nor does a drag");
+    // the wheel over it does not zoom the canvas
+    h.hover_at(m.center());
+    h.run_steps(2);
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 120.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(10);
+    assert_eq!(editor(&h).zoom(), 1.0);
+    // its button hides it; the corner's button shows it again
+    let close = egui::Rect::from_min_size(m.right_top() + egui::vec2(-15.0, 1.0), egui::Vec2::splat(14.0));
+    click(&mut h, close.center());
+    assert!(editor(&h).minimap().is_none(), "hidden");
+    assert!(!terraflux_app::settings::get().minimap, "and kept");
+    let reopen = canvas.right_bottom() - egui::vec2(10.0, 24.0) - egui::vec2(27.0, 9.0);
+    click(&mut h, reopen);
+    assert!(editor(&h).minimap().is_some(), "shown again");
+    assert!(terraflux_app::settings::get().minimap);
+    // fitted again (Home): nothing to show
+    h.hover_at(canvas.center());
+    h.run_steps(2);
+    h.key_press(egui::Key::Home);
+    h.run_steps(40);
+    assert!(editor(&h).minimap().is_none());
+
+    // inside a group: its body is what it maps (not the node of the top level)
+    let mut h = harness(open(&spread_model(true), "canvas-minimap-in.toml"));
+    h.run_steps(3);
+    assert!(editor(&h).minimap().is_none(), "the top level fits");
+    h.state_mut().session.as_mut().unwrap().editor.path = vec!["grp".into()];
+    h.run_steps(40);
+    h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(60.0, 60.0), 1.0);
+    h.run_steps(3);
+    let (m, world, s) = minimap_of(&h, &ids);
+    assert!(world.width() > 5000.0, "the body's, {world:?}");
+    let g = world.min + world.size() * 0.75;
+    click(&mut h, on_minimap(m, world, s, g));
+    h.run_steps(3);
+    let c = view_centre(&h);
+    assert!((c - g).length() < 2.0, "{c:?} not at {g:?}");
+    assert_eq!(editor(&h).path, ["grp"]);
+    terraflux_app::settings::update(|s| s.minimap = true);
+}
