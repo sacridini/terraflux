@@ -203,6 +203,68 @@ pub struct Quick {
     /// The folder to process (Process a folder...): the operators that take a map, the one chosen run on every
     /// raster of it ([`process_folder`]).
     pub folder: Option<String>,
+    /// A connection let go on the empty canvas: the operators that take it, the one chosen born there, connected.
+    pub wire: Option<Wire>,
+}
+
+/// Connections let go on the empty canvas, waiting for the operator that takes them.
+#[derive(Debug, Clone)]
+pub struct Wire {
+    /// What they read (the one dragged first, then the other nodes selected, top to bottom) and its type, if known.
+    pub refs: Vec<(String, Option<terraflux_graph::Type>)>,
+    /// Where they were let go: in the graph's units, and on the screen.
+    pub at: [f32; 2],
+    pub screen: egui::Pos2,
+}
+
+impl Quick {
+    /// The search for the operator that takes connections let go on the empty canvas.
+    pub fn for_wire(wire: Wire) -> Quick {
+        Quick { wire: Some(wire), ..Default::default() }
+    }
+}
+
+impl Wire {
+    /// What the search is for, as its title says: "that takes a raster".
+    fn title(&self) -> String {
+        let what = match self.refs.first().and_then(|(_, t)| *t) {
+            None | Some(terraflux_graph::Type::Any) => "any value".to_string(),
+            Some(t) => {
+                let name = t.name();
+                format!("{} {name}", if name.starts_with(['a', 'e', 'i', 'o', 'u']) { "an" } else { "a" })
+            }
+        };
+        match self.refs.len() {
+            1 => format!("an operator that takes {what}"),
+            n => format!("an operator that takes these {n} connections ({what}...)"),
+        }
+    }
+}
+
+/// Add the operator a connection let go on the empty canvas asked for, at the place it was let go, connected: one
+/// step of undo. The node is left selected.
+fn add_wired(s: &mut Session, r: &Registry, op: &str, wire: &Wire) -> Result<String, String> {
+    let path = s.editor.path.clone();
+    let id = match crate::my_nodes::named(op) {
+        Some((name, v)) => {
+            let u = crate::my_nodes::get(name, v)?;
+            crate::editor::add_user_node(&mut s.source, &path, &u, wire.at)?
+        }
+        None => crate::editor::add_node(&mut s.source, r, &path, op, wire.at)?,
+    };
+    let node = s.source.scope(&path).and_then(|v| v.iter().find(|n| n.id == id)).cloned();
+    let links = node.map(|n| crate::editor::wire_links(&n, r, &wire.refs)).unwrap_or_default();
+    if !links.is_empty()
+        && let Err(e) = crate::editor::connect_many(&mut s.source, r, &path, &id, &links)
+    {
+        // (nothing half done: the node taken away)
+        let _ = crate::editor::remove_node(&mut s.source, &path, &id);
+        return Err(e);
+    }
+    s.edited();
+    select(s, r, &id);
+    s.editor.chosen = [id.clone()].into();
+    Ok(id)
 }
 
 /// Process a folder...: choose the folder of the rasters, then the operator (the quick search, [`Quick::folder`]).
@@ -246,9 +308,25 @@ pub const PROCESS_HELP: &str = "Choose a folder, then an operator (MSPA, a metri
 pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Library) {
     let Some(mut q) = s.editor.quick.take() else { return };
     // the nodes of the user's libraries first (`my:name`), then the operators
-    let mine = Library { entries: crate::my_nodes::reachable().iter().map(mine_entry).collect() };
+    // (a connection let go on the canvas: only those with an input that takes its type)
+    let ty = q.wire.as_ref().and_then(|w| w.refs.first()).and_then(|(_, t)| *t);
+    let mine = Library {
+        entries: crate::my_nodes::reachable()
+            .iter()
+            .filter(|(_, u)| ty.is_none_or(|t| u.inputs.values().any(|i| t.fits(i.ty))))
+            .map(mine_entry)
+            .collect(),
+    };
     let mut found = mine.find(&q.query);
-    found.extend(lib.find(&q.query));
+    let mut rest = lib.find(&q.query);
+    if let Some(t) = ty {
+        rest.retain(|e| crate::editor::takes(r, &e.name, t));
+        // (before anything is typed: those that take its very type first)
+        if q.query.trim().is_empty() {
+            rest.sort_by_key(|e| !r.sig(&e.name).is_some_and(|s| s.inputs.iter().any(|p| p.ty == t)));
+        }
+    }
+    found.extend(rest);
     // a folder to process: the operators that take a map
     if q.folder.is_some() {
         found.retain(|e| crate::editor::folder_port(&terraflux_graph::Node::new("x", &e.name), r).is_some());
@@ -271,14 +349,23 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
     let mut close = escape || chosen.is_some();
     let screen = ctx.content_rect();
     let width = 520.0_f32.min(screen.width() - 40.0);
-    let area = egui::Area::new(egui::Id::new("quick add"))
-        .order(egui::Order::Foreground)
-        .fixed_pos(egui::pos2(screen.center().x - width / 2.0, screen.top() + 90.0))
-        .show(ctx, |ui| {
+    // (a connection let go on the canvas: where it was let go, within the window)
+    let place = match &q.wire {
+        Some(w) => egui::pos2(
+            w.screen.x.min(screen.right() - width - 12.0).max(screen.left() + 8.0),
+            w.screen.y.min(screen.bottom() - 330.0).max(screen.top() + 8.0),
+        ),
+        None => egui::pos2(screen.center().x - width / 2.0, screen.top() + 90.0),
+    };
+    let area =
+        egui::Area::new(egui::Id::new("quick add")).order(egui::Order::Foreground).fixed_pos(place).show(ctx, |ui| {
             egui::Frame::popup(ui.style()).inner_margin(Margin::same(10)).show(ui, |ui| {
                 ui.set_width(width);
-                match &q.folder {
-                    Some(f) => {
+                match (&q.folder, &q.wire) {
+                    (None, Some(w)) => {
+                        ui.label(RichText::new(format!("Add {}", w.title())).strong());
+                    }
+                    (Some(f), _) => {
                         let name =
                             std::path::Path::new(f).file_name().map_or(f.clone(), |n| n.to_string_lossy().into());
                         ui.label(
@@ -287,7 +374,7 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
                         )
                         .on_hover_text(f);
                     }
-                    None => {
+                    (None, None) => {
                         let to = s.selected.as_ref().map_or("a new node".to_string(), |id| format!("after {id}"));
                         ui.label(RichText::new(format!("Add an operator · {to}")).strong());
                     }
@@ -343,6 +430,10 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
     }
     if let (Some(op), Some(folder)) = (&chosen, &q.folder) {
         if let Err(e) = process_folder(s, r, folder, op) {
+            s.editor.message = Some(e);
+        }
+    } else if let (Some(op), Some(w)) = (&chosen, &q.wire) {
+        if let Err(e) = add_wired(s, r, op, w) {
             s.editor.message = Some(e);
         }
     } else if let Some(op) = chosen {

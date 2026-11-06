@@ -2276,6 +2276,11 @@ Pedido de 2026-11-04: "esses detalhes de qualidade de vida ainda são muito nece
 que um modelo de verdade pede muitas vezes, hoje feitos um nó (ou uma conexão) por vez. Um commit por item; release
 só quando pedido.
 
+Retomado em 2026-11-06: "pode implementar todas as ideias listadas uma a uma. Pode ir fazendo commit e passando para
+a próxima de forma automática." A ordem: 4, 5, 12, 14, 7, 6, 9, 11, 16, 17, depois 8, 10, 13, 15, 18, 19; por fim as
+sobras pequenas do Viewer ("O Viewer como um SIG"): *A URL...* também no cabeçalho do Viewer, *Go to* com zoom e a
+marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o blend das camadas reprojetadas.
+
 1. **Ligar os nós selecionados de uma vez.** **Feito** (Unreleased): a conexão puxada da saída de um nó
    selecionado leva os outros selecionados junto (os fios deles desenhados, "3 connections" no ponteiro); solta num
    nó que aceita qualquer número (`stack.of`), cada um vira uma entrada nova, na ordem em que estão no canvas;
@@ -2298,6 +2303,14 @@ só quando pedido.
    (hoje um véu) para que ela se apague em vez de cortar; uma silhueta dos nós de dentro.
 4. **Soltar um fio no vazio abre a busca de operadores**, só os que aceitam aquele tipo, e o nó escolhido nasce ali,
    já ligado (como no Blender, Houdini e Unreal).
+   **Feito** (Unreleased, por um sub-agente): a soltura no vazio (`editor_view`, `Drag::Connect` com `carried`: uma
+   conexão arrancada de uma entrada só se desliga) abre o `Quick` com uma `Wire` (as saídas arrastadas, os tipos, o
+   ponto); `quick_add` filtra por `editor::takes` (`Type::fits`), o tipo exato primeiro; `builder::add_wired` adiciona,
+   liga (`editor::wire_links`, `connect_many`) e seleciona num passo de desfazer. Testes:
+   `a_wire_let_go_on_empty_canvas_asks_for_an_operator_that_takes_it`,
+   `wires_dragged_together_go_into_the_operator_chosen`, `a_wire_let_go_inside_a_group_adds_the_node_to_its_body`.
+   Falta: o mesmo a partir de uma entrada livre (hoje arrastar dela faz uma caixa de seleção); o nó nasce pelo canto,
+   não pela porta; o filtro só pelo tipo do primeiro fio.
 5. **Inserir um nó num fio**: arrastar um nó sobre uma conexão e soltar o coloca no meio (a entrada e a saída que
    servem); alt+arrastar o tira de lá ligando de novo o que ele ligava.
 6. **O menu da seleção**: botão direito com vários nós selecionados dá apagar, duplicar, desligar tudo, agrupar,

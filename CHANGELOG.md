@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Canvas: **a connection let go on empty canvas asks for an operator that takes it**: the search opens at the
+  pointer with only the operators that have an input for that type ("Add an operator that takes a raster", those
+  of that exact type first), and the one chosen is born there, connected and selected, in one step of undo. The
+  connections of nodes selected dragged together go into it (each a new input of a `stack.of`, else the free inputs
+  that fit); inside a group it is added to its body. Esc or a click outside adds nothing.
+
 ## [1.41.0] - 2026-11-06
 
 ### Added

@@ -196,7 +196,9 @@ Press ++f5++ to run the whole model. Then save it: **Save as...**, `core-forest.
     dot on the left edge of another). If the types do not fit, or the connection would make a loop (a node that
     depends on itself), Terraflux refuses it and says why in the Model pane's bar. To take a connection away, drag
     it off its input (dropped on another input, it moves there), or right-click the input. Inputs that must be
-    connected are marked with a star in the Node pane.
+    connected are marked with a star in the Node pane. A connection let go on empty canvas opens the search with
+    only the operators that take it ("Add an operator that takes a raster"): the one chosen is born there,
+    already connected (the connections of several nodes selected go into it together).
 
 ## Read the results
 

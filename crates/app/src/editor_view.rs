@@ -377,8 +377,9 @@ impl Transit {
 #[derive(Debug, Clone, PartialEq)]
 enum Drag {
     /// A connection drawn from an output (its reference and where it starts, graph units), and those of the
-    /// other nodes selected drawn with it (when it starts at a node selected).
-    Connect(String, Pos2, Vec<(String, Pos2)>),
+    /// other nodes selected drawn with it (when it starts at a node selected); whether it is a connection taken
+    /// off an input, carried (let go on the empty canvas it only stays off).
+    Connect(String, Pos2, Vec<(String, Pos2)>, bool),
     /// The nodes selected moved: where the pointer started and each node's corner then (graph units).
     Move(Pos2, Vec<(String, Pos2)>),
     /// A node made wider or narrower by its right edge: its id, its left edge and the width its texts need.
@@ -1611,14 +1612,14 @@ pub fn show(
         st.drag = Some(match scene.hit(w, reach(cam)) {
             Some(Hit::Output(i, k)) => {
                 let b = &scene.boxes[i];
-                Drag::Connect(b.reference(k), b.output_at(k), scene.along(&st.chosen, i, k))
+                Drag::Connect(b.reference(k), b.output_at(k), scene.along(&st.chosen, i, k), false)
             }
             // a connection taken off an input, carried by the pointer (dropped on an input: moved there)
             Some(Hit::Input(i, k)) if scene.boxes[i].inputs[k].connected => match scene.feeding(i, k) {
                 Some((j, o)) => {
                     let b = &scene.boxes[i];
                     actions.push(Action::Disconnect { node: b.key.clone(), port: b.inputs[k].name.clone() });
-                    Drag::Connect(scene.boxes[j].reference(o), scene.boxes[j].output_at(o), Vec::new())
+                    Drag::Connect(scene.boxes[j].reference(o), scene.boxes[j].output_at(o), Vec::new(), true)
                 }
                 None => Drag::Select(w),
             },
@@ -1682,7 +1683,7 @@ pub fn show(
         // the nodes selected dragged together: all into the node they are let go on (new inputs of a node that
         // takes any; else, let go on the node itself, its free inputs that fit, in order)
         let many = match (&st.drag, pointer) {
-            (Some(Drag::Connect(reference, from, along)), Some(q)) if !along.is_empty() => {
+            (Some(Drag::Connect(reference, from, along, _)), Some(q)) if !along.is_empty() => {
                 let all: Vec<(String, Pos2)> =
                     std::iter::once((reference.clone(), *from)).chain(along.iter().cloned()).collect();
                 match scene.hit(to_world(q, cam), reach(cam)) {
@@ -1697,7 +1698,7 @@ pub fn show(
         };
         if let Some((i, links)) = many {
             actions.push(Action::ConnectMany { node: scene.boxes[i].key.clone(), links });
-        } else if let (Some(Drag::Connect(reference, _, _)), Some(q)) = (&st.drag, pointer) {
+        } else if let (Some(Drag::Connect(reference, _, along, carried)), Some(q)) = (&st.drag, pointer) {
             // on an input; on a node that takes any (its place of a new input, or anywhere on it): a new one,
             // named as what it reads
             let port = match scene.hit(to_world(q, cam), reach(cam)) {
@@ -1735,6 +1736,32 @@ pub fn show(
                             None
                         }
                     }
+                }
+                // on the empty canvas: the search of the operators that take it, the one chosen born here,
+                // connected (a connection taken off an input only stays off)
+                None if !*carried && rect.contains(q) => {
+                    let mut rest: Vec<&(String, Pos2)> = along.iter().filter(|(r, _)| r != reference).collect();
+                    rest.sort_by(|a, b| a.1.y.total_cmp(&b.1.y).then(a.1.x.total_cmp(&b.1.x)));
+                    let mut refs: Vec<String> = vec![reference.clone()];
+                    for (r, _) in rest {
+                        if !refs.contains(r) {
+                            refs.push(r.clone());
+                        }
+                    }
+                    let refs = refs
+                        .into_iter()
+                        .map(|r| {
+                            let ty = scene.output_type(&r);
+                            (r, ty)
+                        })
+                        .collect();
+                    let at = to_world(q, cam);
+                    st.quick = Some(crate::builder::Quick::for_wire(crate::builder::Wire {
+                        refs,
+                        at: [at.x, at.y],
+                        screen: q,
+                    }));
+                    None
                 }
                 _ => None,
             };
@@ -2208,7 +2235,7 @@ pub fn show(
         }
     }
     // a connection being drawn
-    if let (Some(Drag::Connect(reference, from, along)), Some(q)) = (&st.drag, pointer) {
+    if let (Some(Drag::Connect(reference, from, along, _)), Some(q)) = (&st.drag, pointer) {
         let p0 = screen(*from);
         // in the colour of the output it comes from
         let of = scene.index.get(reference.as_str()).map(|&i| (i, 0)).or_else(|| {

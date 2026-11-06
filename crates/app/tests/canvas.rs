@@ -725,3 +725,163 @@ fn optional_inputs_fold_and_a_connection_dropped_on_a_node_picks_one() {
     h.run_steps(2);
     h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-far.png")).unwrap();
 }
+
+/// A raster node at a place: the models of the wires let go on the empty canvas.
+fn reader(id: &str, at: [f32; 2]) -> Node {
+    let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs/sibuyan_landuse.tif");
+    let mut n = Node::new(id, "raster.read").param("path", data.to_string_lossy().as_ref());
+    n.pos = Some(at);
+    n
+}
+
+/// A wire dragged to empty canvas: the search, only of the operators that take its type, titled by what it is
+/// for; typing narrows it, enter adds the one chosen where the wire was let go, connected, in one step of undo.
+/// Escape and a click elsewhere add nothing.
+#[test]
+fn a_wire_let_go_on_empty_canvas_asks_for_an_operator_that_takes_it() {
+    use egui_kittest::kittest::Queryable;
+    let mut m = Model::new("wire");
+    m.nodes.push(reader("read", [0.0, 0.0]));
+    let mut h = harness(open(&m, "canvas-wire.toml"));
+    h.run_steps(3);
+    let from = editor(&h).screen_of_output("read", "raster").unwrap();
+    let to = from + egui::vec2(260.0, 150.0);
+    drag(&mut h, from, to);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.editor.quick.as_ref().is_some_and(|q| q.wire.is_some()), "the search opens where it was let go");
+    assert_eq!(s.source.nodes.len(), 1, "nothing added yet");
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("an operator that takes a raster").is_some(), "the title says what for");
+    assert!(h.query_by_label_contains("raster.reclassify").is_some(), "an operator that takes a raster");
+    assert!(h.query_by_label_contains("vector.join").is_none(), "no operator that takes only vectors and tables");
+    // typing narrows it, enter adds the node there, connected and selected
+    h.event(egui::Event::Text("reclass".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.editor.quick.is_none(), "enter closes it");
+    assert_eq!(s.source.nodes.len(), 2);
+    let n = s.source.nodes.last().unwrap();
+    assert_eq!(n.op, "raster.reclassify");
+    assert_eq!(n.inputs["map"], terraflux_graph::Source::Ref("read.raster".into()));
+    assert_eq!(s.selected.as_deref(), Some(n.id.as_str()));
+    let (p, q) = (n.pos.unwrap(), editor(&h).graph_at(to).unwrap());
+    assert!((p[0] - q.x).abs() < 1.0 && (p[1] - q.y).abs() < 1.0, "{p:?} at {q:?}");
+    assert!(s.editor.message.is_none(), "{:?}", s.editor.message);
+    // one step of undo takes both away
+    terraflux_app::builder::undo_redo(h.state_mut().session.as_mut().unwrap(), false);
+    h.run_steps(2);
+    assert_eq!(h.state().session.as_ref().unwrap().source.nodes.len(), 1);
+    // escape adds nothing
+    let from = editor(&h).screen_of_output("read", "raster").unwrap();
+    drag(&mut h, from, to);
+    assert!(h.state().session.as_ref().unwrap().editor.quick.is_some());
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.editor.quick.is_none());
+    assert_eq!(s.source.nodes.len(), 1);
+    // so does a click elsewhere
+    drag(&mut h, from, to);
+    assert!(h.state().session.as_ref().unwrap().editor.quick.is_some());
+    click(&mut h, to + egui::vec2(-600.0, -300.0));
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.editor.quick.is_none());
+    assert_eq!(s.source.nodes.len(), 1);
+    // a connection taken off an input only stays off: no search
+    let mut m = Model::new("carried");
+    m.nodes.push(reader("read", [0.0, 0.0]));
+    let mut calc = Node::new("calc", "raster.calc").input("a", "read.raster").param("expression", "a");
+    calc.pos = Some([400.0, 0.0]);
+    m.nodes.push(calc);
+    let mut h = harness(open(&m, "canvas-carried.toml"));
+    h.run_steps(3);
+    let from = editor(&h).screen_of_input("calc", "a").unwrap();
+    drag(&mut h, from, from + egui::vec2(100.0, 200.0));
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.editor.quick.is_none());
+    assert!(s.source.node("calc").unwrap().inputs.is_empty(), "taken off");
+}
+
+/// Several nodes selected, their wires let go together: the node chosen takes them all (a stack.of: an input of
+/// each), else the first fitting inputs, the wire dragged among them.
+#[test]
+fn wires_dragged_together_go_into_the_operator_chosen() {
+    let mut m = Model::new("wires");
+    for (k, id) in ["a", "b", "c"].iter().enumerate() {
+        m.nodes.push(reader(id, [0.0, 160.0 * k as f32]));
+    }
+    let mut h = harness(open(&m, "canvas-wires.toml"));
+    h.run_steps(3);
+    let choose = |h: &mut Harness<TerrafluxApp>, ids: &[&str]| {
+        h.state_mut().session.as_mut().unwrap().editor.chosen = ids.iter().map(|s| s.to_string()).collect();
+        h.run_steps(2);
+    };
+    choose(&mut h, &["a", "b", "c"]);
+    let from = editor(&h).screen_of_output("b", "raster").unwrap();
+    drag(&mut h, from, from + egui::vec2(300.0, 40.0));
+    h.event(egui::Event::Text("stack.of".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let n = s.source.nodes.last().unwrap();
+    assert_eq!(n.op, "stack.of");
+    for id in ["a", "b", "c"] {
+        assert_eq!(n.inputs[id], terraflux_graph::Source::Ref(format!("{id}.raster")), "{:?}", n.inputs);
+    }
+    assert_eq!(n.inputs.len(), 3);
+    terraflux_app::builder::undo_redo(h.state_mut().session.as_mut().unwrap(), false);
+    h.run_steps(2);
+    assert_eq!(h.state().session.as_ref().unwrap().source.nodes.len(), 3);
+    // an operator with map inputs of its own (raster.calc): the wire dragged and another, in two of them
+    choose(&mut h, &["a", "b", "c"]);
+    let from = editor(&h).screen_of_output("c", "raster").unwrap();
+    drag(&mut h, from, from + egui::vec2(300.0, 40.0));
+    h.event(egui::Event::Text("raster.calc".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let n = s.source.nodes.last().unwrap();
+    assert_eq!(n.op, "raster.calc");
+    let refs: Vec<String> = n
+        .inputs
+        .values()
+        .filter_map(|v| match v {
+            terraflux_graph::Source::Ref(r) => Some(r.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(refs.contains(&"c.raster".to_string()), "the wire dragged is connected: {:?}", n.inputs);
+    assert!(refs.len() >= 2, "{:?}", n.inputs);
+    assert!(s.editor.message.is_none(), "{:?}", s.editor.message);
+}
+
+/// Inside a group's body the same: the node is added in that scope, connected to what is there.
+#[test]
+fn a_wire_let_go_inside_a_group_adds_the_node_to_its_body() {
+    use terraflux_graph::Body;
+    let mut m = Model::new("inside");
+    let body = Body { nodes: vec![reader("r", [0.0, 0.0])], ..Default::default() };
+    m.nodes.push(Node::new("grp", terraflux_graph::GROUP).body(body));
+    let mut h = harness(open(&m, "canvas-inside.toml"));
+    h.run_steps(3);
+    h.state_mut().session.as_mut().unwrap().editor.path = vec!["grp".into()];
+    h.run_steps(40);
+    let from = editor(&h).screen_of_output("r", "raster").unwrap();
+    drag(&mut h, from, from + egui::vec2(260.0, 120.0));
+    h.event(egui::Event::Text("reclass".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.nodes.len(), 1, "the top level is as it was");
+    let body = s.source.scope(&["grp".to_string()]).unwrap();
+    assert_eq!(body.len(), 2, "{body:?}");
+    let n = &body[1];
+    assert_eq!(n.op, "raster.reclassify");
+    assert_eq!(n.inputs["map"], terraflux_graph::Source::Ref("r.raster".into()));
+    assert!(s.editor.message.is_none(), "{:?}", s.editor.message);
+}

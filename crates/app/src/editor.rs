@@ -817,6 +817,41 @@ pub fn connect_many(
     })
 }
 
+/// Whether an operator has an input a value of type `ty` may feed (a new input of one that takes any, too).
+pub fn takes(r: &Registry, op: &str, ty: Type) -> bool {
+    r.sig(op).is_some_and(|s| s.inputs.iter().any(|p| ty.fits(p.ty)) || s.extra.is_some_and(|e| ty.fits(e)))
+}
+
+/// Where outputs dragged to a node just added go, as (reference, port): a new input of each (named as what it
+/// reads) in a node that takes any, else each its best free input that fits (the type itself, then those the node
+/// needs, then the order of its inputs), the first reference first. Those that fit nothing are left out.
+pub fn wire_links(n: &Node, r: &Registry, refs: &[(String, Option<Type>)]) -> Vec<(String, String)> {
+    let extra = r.sig(&n.op).filter(|_| n.uses.is_none()).and_then(|s| s.extra);
+    let mut ports = input_ports(n, r);
+    let mut names: Vec<String> = ports.iter().map(|(k, _, _)| k.clone()).collect();
+    let mut links = Vec::new();
+    for (reference, ty) in refs {
+        let fits = |t: Type| ty.is_none_or(|ty| ty.fits(t));
+        if extra.is_some_and(fits) {
+            let taken: Vec<&str> = names.iter().map(String::as_str).collect();
+            let port = crate::editor_view::new_input(reference, &taken);
+            names.push(port.clone());
+            links.push((reference.clone(), port));
+            continue;
+        }
+        let best = ports
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, t, _))| fits(*t))
+            .min_by_key(|(_, (_, t, required))| (Some(*t) != *ty, !*required))
+            .map(|(k, _)| k);
+        if let Some(k) = best {
+            links.push((reference.clone(), ports.remove(k).0));
+        }
+    }
+    links
+}
+
 /// Remove what a node's input port reads.
 pub fn disconnect(m: &mut Model, path: &[String], node: &str, port: &str) -> Result<()> {
     node_mut(m, path, node)?.inputs.remove(port);
