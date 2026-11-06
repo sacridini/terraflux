@@ -451,7 +451,10 @@ pub struct Sensitivity {
     /// The output measured: `node.port` (a number, a table's first row, or a map).
     #[arg(long)]
     pub output: String,
-    /// Of a map: mean (default), sum, min or max; of a table: its column (default its last).
+    /// Of a map: mean (default), sum, min, max, cells:<class>, share:<class> (0..1), area:<class> (hectares on a
+    /// grid projected in metres, else map units squared), changed (the fraction of cells that differ between the
+    /// first and last map; of a single map, against --start), metric:<np|pland|ed|area_mn|lpi>:<class>; of a
+    /// table: its column (default its last).
     #[arg(long)]
     pub statistic: Option<String>,
     /// The bootstraps of the indices' intervals.

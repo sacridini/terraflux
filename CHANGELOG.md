@@ -15,6 +15,12 @@ minor versions.
   the mean, sum, min or max of a map, series or stack), only numbers come back from the workers, and the indices
   are a table sorted by what matters most, with `design.csv`, `indices.csv` (and `s2.csv`) in the results folder.
   A batch taken up again after the application closed still gives its indices.
+- What a sensitivity analysis measures of a map, without building nodes: besides the mean, sum, min and max, the
+  cells of a class (`cells:<class>`), their share of the cells with a value (`share:<class>`, 0 to 1), their area
+  (`area:<class>`, in hectares on a grid projected in metres, else in the map's units squared), the fraction of
+  cells that changed (`changed`: first against last map of a series or stack, a single map against the start map
+  chosen in the pane) and a landscape metric of a class (`metric:<np|pland|ed|area_mn|lpi>:<class>`). In the
+  Sensitivity tab and in `terraflux sensitivity --statistic` (`terraflux_dist::evaluate::measure_from`).
 - `terraflux sensitivity --method oat`, and the new `terraflux_ops::sensitivity::oat_sample` and `oat_analyze`.
   The design, the candidates, the indices and their CSV files are now `terraflux_dist::sensitivity`, shared by the
   command and the application (the files and columns of Morris and Sobol are the same as before).

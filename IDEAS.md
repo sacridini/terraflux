@@ -2919,11 +2919,22 @@ min ou max de um mapa). Falta tudo na interface: só quem usa a linha de comando
    e a tabela dos índices (OAT por swing, Morris por mu*, Sobol por ST). Testes: `oat_runs_the_base_then_each_factor_at_its_ends` e
    `oat_swing_of_a_linear_output` (ops), os quatro de `dist::sensitivity::tests`, `a_factor_starts_20_percent_either_side`
    e `a_sensitivity_analysis_runs_from_its_pane` (a imagem `ui-batch-6-sensitivity.png`; OAT de 2 fatores, 5
-   rodadas no Sibuyan). Falta: os itens 2 a 6.
+   rodadas no Sibuyan). Falta: os itens 3 a 6.
 2. **O que medir, sem montar nós.** A saída é escolhida entre as do modelo (`nó.porta`); de um mapa, um resumo
    pronto: média, soma, mínimo, máximo, a área (ou a fração) de uma classe, a fração das células que mudaram em
    relação à rodada base, uma métrica de paisagem da classe. Os resumos novos em `terraflux_dist::evaluate` (o
    `statistic`), valendo também no `terraflux sensitivity` e na calibração.
+   **Feito** (Unreleased): `evaluate::measure_from` (`measure` continua, sem o início) com `cells:<c>`, `share:<c>`,
+   `area:<c>` (hectares quando `hectares_per_cell` sabe que a grade é projetada em metros, pelas GeoKeys ou pelo
+   WKT; senão unidades do mapa ao quadrado), `changed` (primeiro contra último de série ou pilha; de um mapa só,
+   contra o `Evaluation::start`, que `evaluate` acha nas entradas ou nos resultados, e sem início um erro que manda
+   escolher o mapa inicial) e `metric:<np|pland|ed|area_mn|lpi>:<c>` (`ops::metrics::measure` com
+   `default_options`; classe ausente: np 0, o resto NaN). No `batch_view.rs`: `SensitivityState::{class, metric,
+   start}`, `statistic_of` (agora monta o texto e recusa classe que não é número) e as linhas Of the map / Metric /
+   Class / Against de `sensitivity_ui`; ajuda de `--statistic` em `cluster.rs`. Testes: os quatro de
+   `dist::evaluate::tests`, `a_maps_statistic_is_composed_from_its_kind_and_class` e `share:` no final de
+   `a_sensitivity_analysis_runs_from_its_pane`. Ficou de fora: os nomes das classes na interface (o app não tem a
+   legenda das classes à mão na aba: campo numérico) e a calibração (não usa esses resumos). Falta: os itens 3 a 6.
 3. **O custo antes de rodar.** As rodadas do desenho (OAT 2k+1, Morris r(k+1), Sobol N(2k+2) ou N(k+2)) vezes as
    réplicas, e o tempo pelo `eta.rs` (a soma dos tempos dos nós das execuções anteriores) dividido pelos workers:
    "Sobol of 6 factors, N=256: 3 584 runs, about 5 h here". Um aviso quando passa de algumas horas.

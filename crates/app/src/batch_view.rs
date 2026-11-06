@@ -389,7 +389,13 @@ pub struct SensitivityState {
     pub resamples: usize,
     /// The output measured (`node.port`; none: not chosen yet) and the statistic of a map or the column of a table.
     pub output: Option<String>,
+    /// For a map, its kind: mean, sum, min, max, cells, share, area, changed or metric.
     pub statistic: String,
+    /// The class (a number) of the kinds that take one, and the metric of `metric`.
+    pub class: String,
+    pub metric: String,
+    /// What a single map's `changed` is against (none: guessed, as the calibration's).
+    pub start: Option<String>,
 }
 
 impl Default for SensitivityState {
@@ -401,6 +407,9 @@ impl Default for SensitivityState {
             resamples: 100,
             output: None,
             statistic: "mean".into(),
+            class: String::new(),
+            metric: "np".into(),
+            start: None,
         }
     }
 }
@@ -848,14 +857,25 @@ fn default_measure(m: &Model, r: &Registry) -> Option<String> {
 }
 
 /// What `Evaluation::statistic` takes for an output of a type: nothing for a number, a table's column (none: its
-/// last), a map's mean, sum, min or max.
-fn statistic_of(ty: Option<Type>, text: &str) -> Option<String> {
-    let t = text.trim();
-    match ty {
+/// last), a map's statistic (see `terraflux_dist::evaluate::measure`) from its kind, class and metric.
+fn statistic_of(ty: Option<Type>, sens: &SensitivityState) -> Result<Option<String>, String> {
+    let t = sens.statistic.trim();
+    Ok(match ty {
         Some(Type::Number | Type::Integer) => None,
         Some(Type::Table) => (!t.is_empty()).then(|| t.to_string()),
-        _ => Some(if t.is_empty() { "mean".into() } else { t.to_string() }),
-    }
+        _ => {
+            let class = sens.class.trim();
+            if matches!(t, "cells" | "share" | "area" | "metric") && class.parse::<f64>().is_err() {
+                return Err(format!("{t}: the class must be a number (the class value of the map's cells)"));
+            }
+            Some(match t {
+                "" => "mean".into(),
+                "cells" | "share" | "area" => format!("{t}:{class}"),
+                "metric" => format!("metric:{}:{class}", sens.metric),
+                t => t.to_string(),
+            })
+        }
+    })
 }
 
 /// The range of a factor when it is added: 20 % either side of its value (a whole number's, widened to whole
@@ -964,13 +984,24 @@ pub fn start(
         Kind::Sensitivity => {
             let output = sensitivity.as_ref().map(|p| p.output.clone()).unwrap_or_default();
             let ty = measurable(&s.model, r).into_iter().find(|(k, _)| *k == output).map(|(_, t)| t);
+            let statistic = statistic_of(ty, &st.sens)?;
+            // (a single map's `changed` is against the map the simulation starts from)
+            let start = if statistic.as_deref() == Some("changed") && ty == Some(Type::Map) {
+                st.sens
+                    .start
+                    .clone()
+                    .or_else(|| default_start(&s.model))
+                    .ok_or("choose the map the simulation starts from")?
+            } else {
+                String::new()
+            };
             Some(Evaluation {
                 measure: Some(output.clone()),
-                statistic: statistic_of(ty, &st.sens.statistic),
+                statistic,
                 output,
                 observed: String::new(),
                 band: None,
-                start: String::new(),
+                start,
                 windows: Vec::new(),
             })
         }
@@ -1468,17 +1499,85 @@ fn sensitivity_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry, k
                     .on_hover_text("the column of the table's first row (empty: the last)");
                 ui.end_row();
             }
-            _ => {
+            ty => {
+                const KINDS: [(&str, &str); 9] = [
+                    ("mean", "the mean of the cells"),
+                    ("sum", "the sum of the cells"),
+                    ("min", "the smallest cell"),
+                    ("max", "the largest cell"),
+                    ("cells", "the number of cells of a class"),
+                    ("share", "the fraction (0 to 1) of the cells with a value that are of a class"),
+                    (
+                        "area",
+                        "the area of a class: hectares when the grid is projected in metres, else map units squared",
+                    ),
+                    ("changed", "the fraction of cells whose value changed between the first and last map"),
+                    ("metric", "a landscape metric of a class"),
+                ];
+                if !KINDS.iter().any(|(k, _)| *k == st.sens.statistic) {
+                    st.sens.statistic = "mean".into();
+                }
                 ui.label("Of the map");
+                fn label(k: &str) -> &str {
+                    match k {
+                        "cells" => "cells of a class",
+                        "share" => "share of a class",
+                        "area" => "area of a class (ha or map units\u{b2})",
+                        "changed" => "cells that changed",
+                        "metric" => "landscape metric of a class",
+                        k => k,
+                    }
+                }
                 egui::ComboBox::from_id_salt("sensitivity statistic")
-                    .selected_text(if st.sens.statistic.is_empty() { "mean" } else { st.sens.statistic.as_str() })
-                    .width(80.0)
+                    .selected_text(label(&st.sens.statistic))
+                    .width(220.0)
                     .show_ui(ui, |ui| {
-                        for stat in ["mean", "sum", "min", "max"] {
-                            ui.selectable_value(&mut st.sens.statistic, stat.to_string(), stat);
+                        for (k, hint) in KINDS {
+                            ui.selectable_value(&mut st.sens.statistic, k.to_string(), label(k)).on_hover_text(hint);
                         }
                     });
                 ui.end_row();
+                let kind = st.sens.statistic.clone();
+                if kind == "metric" {
+                    ui.label("Metric");
+                    egui::ComboBox::from_id_salt("sensitivity metric").selected_text(&st.sens.metric).show_ui(
+                        ui,
+                        |ui| {
+                            for (m, hint) in [
+                                ("np", "number of patches"),
+                                ("pland", "percentage of the landscape"),
+                                ("ed", "edge density"),
+                                ("area_mn", "mean patch area"),
+                                ("lpi", "largest patch index"),
+                            ] {
+                                ui.selectable_value(&mut st.sens.metric, m.to_string(), m).on_hover_text(hint);
+                            }
+                        },
+                    );
+                    ui.end_row();
+                }
+                if matches!(kind.as_str(), "cells" | "share" | "area" | "metric") {
+                    ui.label("Class");
+                    ui.add(egui::TextEdit::singleline(&mut st.sens.class).desired_width(80.0).hint_text("a number"))
+                        .on_hover_text("the value of the class in the map's cells");
+                    ui.end_row();
+                }
+                if kind == "changed" && ty == Some(Type::Map) {
+                    ui.label("Against");
+                    let starts = starts(&s.model);
+                    let cur = st.sens.start.clone().or_else(|| default_start(&s.model)).unwrap_or_default();
+                    egui::ComboBox::from_id_salt("sensitivity start").selected_text(&cur).width(220.0).show_ui(
+                        ui,
+                        |ui| {
+                            for k in &starts {
+                                if ui.selectable_label(*k == cur, k).clicked() {
+                                    st.sens.start = Some(k.clone());
+                                }
+                            }
+                        },
+                    );
+                    ui.end_row();
+                }
             }
         }
     });
@@ -1825,6 +1924,22 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_maps_statistic_is_composed_from_its_kind_and_class() {
+        let mut s = SensitivityState::default();
+        assert_eq!(statistic_of(Some(Type::Map), &s), Ok(Some("mean".into())));
+        assert_eq!(statistic_of(Some(Type::Number), &s), Ok(None));
+        s.statistic = "share".into();
+        assert!(statistic_of(Some(Type::Map), &s).is_err());
+        s.class = " 3 ".into();
+        assert_eq!(statistic_of(Some(Type::Series), &s), Ok(Some("share:3".into())));
+        s.statistic = "metric".into();
+        s.metric = "pland".into();
+        assert_eq!(statistic_of(Some(Type::Map), &s), Ok(Some("metric:pland:3".into())));
+        s.statistic = "changed".into();
+        assert_eq!(statistic_of(Some(Type::Map), &s), Ok(Some("changed".into())));
+    }
 
     #[test]
     fn seeds_and_settings_of_a_model() {

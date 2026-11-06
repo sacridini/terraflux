@@ -4157,6 +4157,39 @@ fn a_sensitivity_analysis_runs_from_its_pane() {
     let design = std::fs::read_to_string(out.join("design.csv")).unwrap();
     assert_eq!(design.lines().count(), 6, "{design}");
     shot(&mut h, "batch-7-sensitivity-done");
+
+    // the share of a land use class of the simulated maps: a number in 0..1 in every run
+    let r = terraflux_raster::Raster::read(data("sibuyan_landuse.tif")).unwrap();
+    let class = r.bands[0].masked(r.nodata).iter().copied().find(|x| !x.is_nan()).unwrap();
+    let out = tmp("ui-sensitivity-share");
+    let _ = std::fs::remove_dir_all(&out);
+    {
+        let b = &mut h.state_mut().batch;
+        b.out = Some(out.clone());
+        b.sens.factors.truncate(1);
+        b.sens.statistic = "share".into();
+        b.sens.class = format!("{class}");
+    }
+    h.run_steps(3);
+    h.get_by_label("Run 3 times").click();
+    h.run_steps(1);
+    assert!(h.state().batch.running(), "{:?}", h.state().batch.error);
+    until(&mut h, "the share of a class", |a| !a.batch.running());
+    h.run_steps(2);
+    let b = &h.state().batch;
+    assert!(b.error.is_none(), "{:?}", b.error);
+    let f = b.finished.as_ref().unwrap();
+    assert_eq!(f.kind, Kind::Sensitivity, "{:?} {:?}", f.errors, f.rows);
+    assert!(f.sensitivity.as_ref().unwrap().base.is_some_and(|v| (0.0..=1.0).contains(&v)));
+    let design = std::fs::read_to_string(out.join("design.csv")).unwrap();
+    let values: Vec<f64> = design
+        .lines()
+        .skip(1)
+        .map(|l| l.rsplit(',').next().unwrap().parse().unwrap_or_else(|_| panic!("{design}")))
+        .collect();
+    assert_eq!(values.len(), 3, "{design}");
+    assert!(values.iter().all(|v| (0.0..=1.0).contains(v)), "{design}");
+    assert!(values.iter().any(|v| *v > 0.0), "{design}");
 }
 
 #[test]
