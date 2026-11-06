@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Fixed
+- **The same results on every core of a hybrid processor** (Intel's performance and efficient cores, 12th generation
+  on): Eigen, under landschaft's kernels, blocks its dense products by the caches it reads once, on the core its first
+  product runs on, and the efficient cores have other L1 and L2 caches, so the last bits of some results (the
+  circuits' resistances, among others) depended on where the process started. Its cache sizes are now fixed
+  (48 KB, 2 MB, 24 MB) before any product. The parity tests of Circuitscape's modes against landschaft failed now and
+  then because of it (always, with the process held to an efficient core).
+- The VRM and the spherical standard deviation square with `x * x`, as numpy's `** 2`: a debug build's `powi(2)`
+  goes to the C library's `pow`, which Windows' UCRT of October 2026 does not always round to the square (release
+  builds were already right; the terrain's test against landschaft failed).
+
 ## [1.45.0] - 2026-11-06
 
 ### Added

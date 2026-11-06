@@ -119,9 +119,21 @@
 #include "sim/validation.hpp"
 #include "terraflux-ls-sys/src/lib.rs.h"
 
+#include <Eigen/Core>
+
 namespace tfx {
 
 namespace {
+
+// Eigen blocks its dense products by the caches it reads (CPUID) once, on the core its first product runs on. On
+// hybrid processors (Intel's performance and efficient cores) the two kinds have other L1 and L2 caches, so the blocks,
+// the order of the sums and the last bits of the results (the circuits' resistances, say) depended on the core the
+// process started its products on. Fixed before any product: those of the performance cores of the i5-13600K that
+// landschaft's references were made on (48 KB, 2 MB, 24 MB), the same results on every core and every machine.
+[[maybe_unused]] const bool eigen_caches_fixed = [] {
+    Eigen::setCpuCacheSizes(48 * 1024, 2 * 1024 * 1024, 24 * 1024 * 1024);
+    return true;
+}();
 
 using i64 = std::int64_t;
 
