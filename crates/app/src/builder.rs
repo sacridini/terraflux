@@ -1293,6 +1293,26 @@ fn chosen_ids(s: &Session) -> Vec<String> {
     nodes.iter().filter(|n| s.editor.chosen.contains(&n.id)).map(|n| n.id.clone()).collect()
 }
 
+/// Put the nodes chosen in line as `how` says, by their boxes' real sizes (one step of undo). The model's inputs
+/// shown in a group's scope are not nodes: they stay. Whether anything moved.
+fn align_chosen(s: &mut Session, how: crate::editor_view::Align) -> Result<bool, String> {
+    let path = s.editor.path.clone();
+    let ids = chosen_ids(s);
+    let boxes = s.editor.rects_of(&ids);
+    if boxes.len() < 2 {
+        return Ok(false);
+    }
+    let at: std::collections::HashMap<String, [f32; 2]> =
+        placed(s, &ids.iter().collect::<Vec<_>>()).into_iter().filter_map(|n| n.pos.map(|p| (n.id, p))).collect();
+    let moves = crate::editor_view::aligned(how, &boxes);
+    for (id, d) in &moves {
+        if let Some(p) = at.get(id) {
+            crate::editor::move_node(&mut s.source, &path, id, [p[0] + d.x, p[1] + d.y])?;
+        }
+    }
+    Ok(!moves.is_empty())
+}
+
 /// Freeze (`on`) or thaw the nodes chosen that are not so yet: the first one refused (the model not saved) stops it.
 fn freeze_chosen(s: &mut Session, on: bool) -> Result<bool, String> {
     let path = s.editor.path.clone();
@@ -2696,6 +2716,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 bypass_selected(s);
                 Ok(false)
             }
+            Action::AlignChosen(how) => align_chosen(s, how),
             Action::RunToChosen => {
                 let ids = chosen_ids(s);
                 if path.is_empty() && s.can_run_to() {

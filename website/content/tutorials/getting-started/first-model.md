@@ -205,7 +205,8 @@ Press ++f5++ to run the whole model. Then save it: **Save as...**, `core-forest.
     With several nodes of one operator selected (a box dragged around them, or ctrl+click), the Node pane shows
     their settings once ("several values" where they differ) and a change goes to all of them, in one undo. A
     right click on them (or on the empty canvas) gives the selection's menu: delete, duplicate, disconnect their
-    inputs, group, run to them, freeze, bypass. **Ctrl+drag** copies a node (or the selection) to where it is let
+    inputs, group, run to them, freeze, bypass, and *Align* (by their edges or centres, spread with equal gaps, or
+    stacked in a column or a row). **Ctrl+drag** copies a node (or the selection) to where it is let
     go, the originals staying put (Esc cancels); like **ctrl+D**, the copies read what the originals read, a
     quick start for a parallel branch of the analysis. To read another file in a `raster.read` (or a vector or
     table read), use *Change file...* in its menu, or drop the file from the file manager onto the node: the node

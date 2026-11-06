@@ -2339,6 +2339,11 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
    ainda aceita um valor que o checker recusaria (o de vários recusa).
 8. **Alinhar e distribuir** os selecionados (à esquerda, centro, em coluna com o mesmo espaço), além do *Arrange* do
    modelo inteiro.
+   **Feito** (Unreleased, por um sub-agente): o submenu *Align* do menu da seleção; `editor_view::Align` (dez modos)
+   e `aligned` (pura, os deslocamentos), `EditorState::rects_of` (as caixas reais), `builder::align_chosen` (pelo
+   `editor::move_node`, um passo de desfazer). Teste: `the_selections_menu_aligns_and_distributes`. Falta: atalhos
+   (os naturais chocam com a navegação e o mapa); os espaços de coluna e linha (20 e 60) são uma escolha, não uma
+   constante comum com o *Arrange*.
 9. **Duplicar arrastando** (ctrl+arrastar) e **duplicar com as entradas** (ctrl+shift+D: a cópia lê o mesmo que o
    original), útil para um ramo de análise paralelo. **Feito** (Unreleased): ctrl+arrastar copia o nó (ou a
    seleção, arrastada por um nó dela) para onde é solto, só contornos seguindo o ponteiro, num passo de desfazer;

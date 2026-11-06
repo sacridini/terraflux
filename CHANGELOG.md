@@ -40,6 +40,10 @@ minor versions.
   `vector.read` or `table.read`, or a file of that kind dropped from the file manager onto the node (it lights up:
   "Drop: the file of a (its connections kept)"), sets its `path` keeping its id, connections and other settings,
   in one step of undo, inside groups too. A file of another kind, or several, is added as before.
+- Canvas: **align and distribute the nodes selected**. The selection's menu has *Align*: left edges, centres,
+  right edges, top edges, middles, bottom edges; *Distribute* across or down (equal gaps between the boxes, the two
+  outermost staying, three nodes or more); *In a column* or *In a row* (stacked from the first). Each one step of
+  undo, inside groups too, by the boxes' real sizes.
 - Viewer: **from a layer to its node**. *Show its node* in a layer's menu (Layers) brings the model's canvas forward
   (the main window too, with the Viewer in a window of its own), opens the group, loop or switch it is in, selects
   the node and frames it with the glide of F; greyed, with the reason, for a difference of two maps.

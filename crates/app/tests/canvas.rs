@@ -1543,3 +1543,86 @@ fn a_file_dropped_on_a_read_node_replaces_its_file() {
         assert_eq!(path_of(&h, inside, "a"), old, "one step of undo");
     }
 }
+
+/// The boxes of `ids` as the canvas has them now (graph units).
+fn boxes_now(h: &Harness<TerrafluxApp>, ids: &[&str]) -> Vec<egui::Rect> {
+    let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+    let v = editor(h).rects_of(&ids);
+    ids.iter().map(|k| v.iter().find(|(i, _)| i == k).unwrap().1).collect()
+}
+
+fn places_now(h: &Harness<TerrafluxApp>, inside: bool, ids: &[&str]) -> Vec<[f32; 2]> {
+    let v = nodes_now(h, inside);
+    ids.iter().map(|k| v.iter().find(|n| n.id == *k).unwrap().pos.unwrap()).collect()
+}
+
+/// The selection's "Align" submenu: left, top and centre edges move only the coordinate concerned; distribute
+/// leaves equal gaps with the extremes fixed (greyed with fewer than three); a column stacks with equal gaps, the
+/// first one staying; each is one step of undo, in a group too.
+#[test]
+fn the_selections_menu_aligns_and_distributes() {
+    use egui_kittest::kittest::{NodeT, Queryable};
+    for inside in [false, true] {
+        let mut h = scoped_model(inside, "canvas-align.toml");
+        let go = |h: &mut Harness<TerrafluxApp>, ids: &[&str], on: &str, entry: &str| {
+            menu_of(h, ids, on);
+            pick(h, "Align");
+            pick(h, entry);
+        };
+        let before = places_now(&h, inside, &["a", "b", "c", "z"]);
+        // left edges: only x moves
+        go(&mut h, &["b", "c", "z"], "b", "Left edges");
+        let now = places_now(&h, inside, &["a", "b", "c", "z"]);
+        assert_eq!(now, [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [0.0, 300.0]], "inside {inside}");
+        undo(&mut h);
+        assert_eq!(places_now(&h, inside, &["a", "b", "c", "z"]), before, "one step of undo");
+        // top edges: only y moves
+        go(&mut h, &["a", "b", "z"], "a", "Top edges");
+        assert_eq!(places_now(&h, inside, &["a", "b", "z"]), [[0.0, 0.0], [350.0, 0.0], [0.0, 0.0]]);
+        undo(&mut h);
+        // horizontal centres: one centre, y as it was
+        go(&mut h, &["a", "b", "c"], "a", "Horizontal centres");
+        let r = boxes_now(&h, &["a", "b", "c"]);
+        assert!((r[0].center().x - r[1].center().x).abs() < 0.5 && (r[1].center().x - r[2].center().x).abs() < 0.5);
+        assert!(places_now(&h, inside, &["a", "b", "c"]).iter().all(|p| p[1] == 0.0));
+        undo(&mut h);
+        // vertical centres and right edges and bottom edges
+        go(&mut h, &["a", "z"], "a", "Vertical centres");
+        let r = boxes_now(&h, &["a", "z"]);
+        assert!((r[0].center().y - r[1].center().y).abs() < 0.5);
+        assert!(places_now(&h, inside, &["a", "z"]).iter().all(|p| p[0] == 0.0));
+        undo(&mut h);
+        go(&mut h, &["a", "b", "c"], "a", "Right edges");
+        let r = boxes_now(&h, &["a", "b", "c"]);
+        let r0 = r[2];
+        assert!(r.iter().all(|r| (r.max.x - r0.max.x).abs() < 0.5), "{r:?}");
+        undo(&mut h);
+        go(&mut h, &["a", "z"], "a", "Bottom edges");
+        let r = boxes_now(&h, &["a", "z"]);
+        assert!((r[0].max.y - r[1].max.y).abs() < 0.5);
+        undo(&mut h);
+        // distribute: the ends stay, the gaps are equal
+        let r0 = boxes_now(&h, &["a", "b", "c"]);
+        go(&mut h, &["a", "b", "c"], "a", "Distribute horizontally");
+        let r = boxes_now(&h, &["a", "b", "c"]);
+        assert!((r[0].min.x - r0[0].min.x).abs() < 0.01 && (r[2].min.x - r0[2].min.x).abs() < 0.01);
+        assert!(((r[1].min.x - r[0].max.x) - (r[2].min.x - r[1].max.x)).abs() < 0.5, "{r:?}");
+        undo(&mut h);
+        assert_eq!(places_now(&h, inside, &["a", "b", "c", "z"]), before);
+        // a column: by y, the first one (a) staying, a gap each
+        go(&mut h, &["a", "c", "z"], "a", "In a column");
+        let r = boxes_now(&h, &["a", "c", "z"]);
+        assert_eq!(places_now(&h, inside, &["a"]), [[0.0, 0.0]], "the first stays");
+        assert!((r[1].min.y - r[0].max.y - 20.0).abs() < 0.5 && (r[2].min.y - r[1].max.y - 20.0).abs() < 0.5, "{r:?}");
+        assert!(places_now(&h, inside, &["c", "z"]).iter().all(|p| p[0] == 0.0), "the first one's x");
+        undo(&mut h);
+        assert_eq!(places_now(&h, inside, &["a", "b", "c", "z"]), before, "one step of undo");
+        // two nodes: distribute greyed with its reason, the rest not
+        menu_of(&mut h, &["a", "b"], "a");
+        pick(&mut h, "Align");
+        assert!(h.get_by_label_contains("Distribute horizontally").accesskit_node().is_disabled());
+        assert!(h.get_by_label_contains("Distribute vertically").accesskit_node().is_disabled());
+        assert!(!h.get_by_label_contains("Left edges").accesskit_node().is_disabled());
+        assert!(!h.get_by_label_contains("In a row").accesskit_node().is_disabled());
+    }
+}

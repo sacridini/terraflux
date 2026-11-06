@@ -202,6 +202,79 @@ pub enum NodeStatus {
     Failed,
 }
 
+/// How the nodes selected are put in line (the selection's menu, "Align").
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Align {
+    Left,
+    CentreX,
+    Right,
+    Top,
+    CentreY,
+    Bottom,
+    /// The same gap between the boxes, the outermost two staying.
+    SpreadX,
+    SpreadY,
+    /// One under the other (by their y), or side by side (by their x), the first one staying.
+    Column,
+    Row,
+}
+
+/// The gaps of a column and of a row of boxes (graph units).
+const STACK_Y: f32 = 20.0;
+const STACK_X: f32 = 60.0;
+
+/// What each box (id, rectangle in graph units) moves by to be put in line as `how` says; the boxes that stay left
+/// out.
+pub fn aligned(how: Align, boxes: &[(String, Rect)]) -> Vec<(String, Vec2)> {
+    let Some(all) = boxes.iter().map(|b| b.1).reduce(|a, b| a.union(b)) else { return Vec::new() };
+    let mut out = Vec::new();
+    let mut put = |id: &String, d: Vec2| {
+        if d != Vec2::ZERO {
+            out.push((id.clone(), d));
+        }
+    };
+    match how {
+        Align::Left => boxes.iter().for_each(|(k, r)| put(k, Vec2::new(all.min.x - r.min.x, 0.0))),
+        Align::Right => boxes.iter().for_each(|(k, r)| put(k, Vec2::new(all.max.x - r.max.x, 0.0))),
+        Align::CentreX => boxes.iter().for_each(|(k, r)| put(k, Vec2::new(all.center().x - r.center().x, 0.0))),
+        Align::Top => boxes.iter().for_each(|(k, r)| put(k, Vec2::new(0.0, all.min.y - r.min.y))),
+        Align::Bottom => boxes.iter().for_each(|(k, r)| put(k, Vec2::new(0.0, all.max.y - r.max.y))),
+        Align::CentreY => boxes.iter().for_each(|(k, r)| put(k, Vec2::new(0.0, all.center().y - r.center().y))),
+        Align::SpreadX | Align::SpreadY | Align::Column | Align::Row => {
+            let x = matches!(how, Align::SpreadX | Align::Row);
+            type Of = fn(&Rect) -> f32;
+            let (lo, hi, size): (Of, Of, Of) =
+                if x { (|r| r.min.x, |r| r.max.x, |r| r.width()) } else { (|r| r.min.y, |r| r.max.y, |r| r.height()) };
+            let mut order: Vec<&(String, Rect)> = boxes.iter().collect();
+            order.sort_by(|a, b| lo(&a.1).total_cmp(&lo(&b.1)));
+            let n = order.len();
+            let gap = match how {
+                Align::Column => STACK_Y,
+                Align::Row => STACK_X,
+                _ if n > 1 => {
+                    (hi(&order[n - 1].1) - lo(&order[0].1) - order.iter().map(|b| size(&b.1)).sum::<f32>())
+                        / (n - 1) as f32
+                }
+                _ => 0.0,
+            };
+            let mut at = lo(&order[0].1);
+            let keep = order[0].1.min;
+            for (k, r) in order {
+                let d = at - lo(r);
+                // (a column or a row also takes the first one's other coordinate)
+                let across = match how {
+                    Align::Column => keep.x - r.min.x,
+                    Align::Row => keep.y - r.min.y,
+                    _ => 0.0,
+                };
+                put(k, if x { Vec2::new(d, across) } else { Vec2::new(across, d) });
+                at += size(r) + gap;
+            }
+        }
+    }
+    out
+}
+
 /// What the canvas reports of a frame.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
@@ -274,6 +347,8 @@ pub enum Action {
     DisconnectChosen,
     FreezeChosen(bool),
     BypassChosen,
+    /// The selection's menu: the nodes selected aligned, spread or stacked.
+    AlignChosen(Align),
     RunToChosen,
     /// A group's nodes taken out into the scope shown.
     Ungroup(String),
@@ -515,6 +590,12 @@ impl EditorState {
             self.unfolded.insert(node.to_string());
         }
         self.folds += 1;
+    }
+
+    /// The boxes of the nodes `ids` as the scene has them (graph units); those it has not left out.
+    pub fn rects_of(&self, ids: &[String]) -> Vec<(String, Rect)> {
+        let Some(s) = &self.scene else { return Vec::new() };
+        ids.iter().filter_map(|k| s.index.get(k).map(|&i| (k.clone(), s.boxes[i].rect))).collect()
     }
 
     /// Fit the graph in the view at the next frame.
@@ -1754,6 +1835,21 @@ const FREEZE_MANY_HELP: &str = "their results kept on disk next to the model and
      thaw: they run again";
 const BYPASS_MANY_HELP: &str = "the nodes turned off, their inputs passed on; on again when all were off";
 
+fn align_help(how: Align) -> &'static str {
+    match how {
+        Align::Left => "the left edges of the boxes on the leftmost one; only x changes",
+        Align::CentreX => "the horizontal centres of the boxes on the centre of them all; only x changes",
+        Align::Right => "the right edges of the boxes on the rightmost one; only x changes",
+        Align::Top => "the top edges of the boxes on the highest one; only y changes",
+        Align::CentreY => "the vertical centres of the boxes on the centre of them all; only y changes",
+        Align::Bottom => "the bottom edges of the boxes on the lowest one; only y changes",
+        Align::SpreadX => "the same gap between the boxes, left to right; the outermost two stay",
+        Align::SpreadY => "the same gap between the boxes, top to bottom; the outermost two stay",
+        Align::Column => "the boxes one under the other in the order of their y, the first one staying",
+        Align::Row => "the boxes side by side in the order of their x, the first one staying",
+    }
+}
+
 /// The selection's menu (two or more nodes selected): what can be done to all of them at once, each in one step of
 /// undo; an entry that does not fit says why when the pointer is over it. `link`: the box right-clicked and what
 /// connecting the others selected to it would do.
@@ -1788,6 +1884,23 @@ fn selection_menu(
     let none = (!reads).then_some("none of them reads anything from another node: nothing to disconnect");
     entry(ui, "Disconnect all their inputs", DISCONNECT_MANY_HELP, none, Action::DisconnectChosen);
     entry(ui, &format!("Group    {c}G"), GROUP_HELP, None, Action::Group);
+    ui.menu_button("Align", |ui| {
+        let few = (n < 3).then_some("needs three nodes or more selected");
+        for (text, how, off) in [
+            ("Left edges", Align::Left, None),
+            ("Horizontal centres", Align::CentreX, None),
+            ("Right edges", Align::Right, None),
+            ("Top edges", Align::Top, None),
+            ("Vertical centres", Align::CentreY, None),
+            ("Bottom edges", Align::Bottom, None),
+            ("Distribute horizontally", Align::SpreadX, few),
+            ("Distribute vertically", Align::SpreadY, few),
+            ("In a column", Align::Column, None),
+            ("In a row", Align::Row, None),
+        ] {
+            entry(ui, text, align_help(how), off, Action::AlignChosen(how));
+        }
+    });
     ui.separator();
     let off = (!top).then_some("only the nodes of the top level run on their own");
     let off = off.or(no_run);
