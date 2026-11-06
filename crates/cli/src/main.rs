@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
+use terraflux_exec::journal::{Entry, Kind, Status};
 use terraflux_exec::{Engine, Observer, load_inputs, write_outputs};
 use terraflux_graph::{Input, Model, Severity, check};
 use terraflux_ops::presets;
@@ -49,6 +50,10 @@ enum Command {
         /// Print how long every node took and about how much memory what it gave holds, the slowest first.
         #[arg(long)]
         profile: bool,
+        /// Do not record the run in the model's journal (`.terraflux` beside the model, listed by the application's
+        /// Runs pane).
+        #[arg(long)]
+        no_journal: bool,
         /// Run on tiles (maps larger than memory; Dinamica EGO's model): the same maps with any number of
         /// threads or machines (the tile size changes the patches a fit measures), statistically equivalent to
         /// the exact engine.
@@ -944,6 +949,18 @@ fn settings_threads(asked: Option<usize>) -> Option<usize> {
 
 /// A model read to run or check, its submodels expanded; what of it was written by an older Terraflux and brought
 /// up to date (map algebra in the old syntax) told on the standard error.
+/// A run recorded in the model's journal (unless asked not to); a journal that cannot be written is said, not fatal.
+fn journal(off: bool, quiet: bool, model: &Path, ran: &Model, entry: Entry) {
+    if off {
+        return;
+    }
+    if let Err(e) = terraflux_exec::journal::record_run(model, ran, entry)
+        && !quiet
+    {
+        eprintln!("note: the run was not recorded in the journal: {e}");
+    }
+}
+
 fn read_model(path: &Path) -> Result<Model> {
     let (mut m, notes) = Model::load_noting(path).with_context(|| format!("reading {}", path.display()))?;
     for n in &notes {
@@ -1049,6 +1066,7 @@ fn main() -> Result<()> {
             scenario,
             quiet,
             profile,
+            no_journal,
             tiled,
             tile,
             radius,
@@ -1106,7 +1124,16 @@ fn main() -> Result<()> {
                 eprintln!("{}: inputs read ({:.1} s)", m.name.as_deref().unwrap_or("model"), t.elapsed().as_secs_f64());
             }
             let mut progress = Progress { quiet, start: t };
-            let results = run_frozen(&engine, &model, &m, &inputs, &mut progress, quiet)?;
+            let results = match run_frozen(&engine, &model, &m, &inputs, &mut progress, quiet) {
+                Ok(r) => r,
+                Err(e) => {
+                    let mut entry = Entry::new(Kind::Run, "cli", t.elapsed().as_secs_f64());
+                    entry.status = Status::Failed(e.to_string());
+                    entry.scenario = scenario.clone();
+                    journal(no_journal, quiet, &model, &m, entry);
+                    return Err(e);
+                }
+            };
             if profile {
                 let mut t = results.timings.clone();
                 t.sort_by(|a, b| b.seconds.total_cmp(&a.seconds));
@@ -1130,7 +1157,12 @@ fn main() -> Result<()> {
                 &set,
                 &written,
             )?;
-            manifest.save(&out.join("manifest.json"))?;
+            let manifest_file = out.join("manifest.json");
+            let mut entry =
+                Entry::new(Kind::Run, "cli", t.elapsed().as_secs_f64()).with_manifest(&manifest, &manifest_file);
+            entry.scenario = scenario.clone();
+            manifest.save(&manifest_file)?;
+            journal(no_journal, quiet, &model, &m, entry);
             if !quiet {
                 for f in files {
                     eprintln!("wrote {}", f.display());
@@ -1278,6 +1310,29 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A run is recorded in the model's journal, unless asked not to.
+    #[test]
+    fn a_run_is_recorded_in_the_journal_unless_asked_not_to() {
+        let dir = std::env::temp_dir().join(format!("terraflux-cli-journal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("m.toml");
+        let m = Model::from_toml("format = \"terraflux/1\"\n[inputs.rate]\nkind = \"value\"\nvalue = 2\n").unwrap();
+        m.save(&file).unwrap();
+        let j = terraflux_exec::journal::Journal::of(&file).unwrap();
+        journal(true, true, &file, &m, Entry::new(Kind::Run, "cli", 0.5));
+        assert!(j.entries().is_empty());
+        let mut e = Entry::new(Kind::Run, "cli", 0.5);
+        e.scenario = Some("dry".into());
+        journal(false, true, &file, &m, e);
+        let all = j.entries();
+        assert_eq!(all.len(), 1);
+        assert_eq!((all[0].from.as_str(), all[0].scenario.as_deref()), ("cli", Some("dry")));
+        assert_eq!(all[0].values["$rate"], serde_json::json!(2));
+        assert_eq!(j.model(&all[0].model).unwrap().inputs.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// A run reproduced from its manifest, and a model tested against the files of what it should give.
     #[test]

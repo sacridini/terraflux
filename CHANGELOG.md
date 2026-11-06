@@ -7,6 +7,19 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Application: **the journal of a model's runs, and the Runs pane**. Every run you ask for (the whole model, or up to
+  a node; not the runs the application starts by itself) and every batch of Many runs (one entry, with its runs
+  counted and, for a sensitivity analysis, its factors ranked) is recorded beside the model's file, in
+  `.terraflux/<model file>/`: `runs.jsonl` (an entry a line: when, how long, done, stopped or failed with its
+  message, the values of the parameters and of the inputs of values, the outputs written with their size, time and
+  SHA-256 from the run's manifest, the warnings, the version and where it was asked for) and `models/<sha256>.json`
+  (the model as it ran, once for each hash). The **Runs** pane (View menu, commands) lists them, newest first: the
+  date and time, the duration, the status (the failure's message in the hover), what it was, what the values changed
+  from the run before ("patches.isometry 1.5 -> 2"), the outputs (marked "overwritten since" when a later run or
+  anything else wrote over their files), a "model changed" mark and a button to open the folder. One or two runs
+  can be selected (click, ctrl+click). The outputs are not copied, only recorded. `terraflux run` records its run
+  too (`--no-journal` leaves it out), as does `terraflux sensitivity` and the MCP's `run_model` and `sensitivity`.
+  (`terraflux_exec::journal`: `Journal`, `Entry`, `Written`, `record_run`.)
 - Application: **a Sensitivity tab in Many runs**. Which settings matter to an output, without the command line: the
   factors are picked from the model's numeric settings (a range of 20 % either side of the value, whole numbers
   widened to whole numbers) and the method is one at a time (each factor at its ends, the others in the middle of

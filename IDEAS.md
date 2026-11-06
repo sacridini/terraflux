@@ -2857,6 +2857,28 @@ extensão); as versões de um modelo só existem pelo git (o `review.rs` compara
    escreve no diário; o MCP lê dele. Em aberto: onde guardar (uma pasta `.terraflux/runs` ao lado do modelo, ou nos
    dados do usuário) e quanto guardar (as saídas não são copiadas, só registradas; uma saída sobrescrita depois é
    marcada como não mais aquela).
+   **Feito em parte** (Unreleased): o diário e o painel Runs. Novo `terraflux_exec::journal` (`Journal::of`, `record`,
+   `entries`, `model`, `size`; `Entry`, `Status`, `Kind` (run, to, batch), `Batch`, `Factor`, `Written` com
+   `unchanged` (tamanho e hora em milissegundos), `record_run`, `values_of`): guardado em
+   `<pasta do modelo>/.terraflux/<arquivo>/` (decidido: ao lado do modelo, não nos dados do usuário), `runs.jsonl` (uma
+   entrada por linha, com `#[serde(default)]` em tudo, uma linha que não lê é pulada) e `models/<sha256>.json` (o
+   `source` do modelo como rodou, uma vez por hash; o `restore` do próximo passo lê dali). As saídas só são
+   registradas (a hash e o tamanho vêm do manifesto); uma saída escrita por cima é marcada "overwritten since".
+   Aplicativo: `Session::journal_run`/`journal_ended` (a rodada pedida, inteira ou até um nó; `quiet_run` nunca; o
+   manifesto de `Session::recorded` dá as saídas) e `BatchState::journal` (um lote ao acabar, parado ou com erro; os
+   fatores da sensibilidade ordenados por `batch_view::ranked_factors`). Painel `Pane::Runs` (`runs_view.rs`: `State`
+   relê o arquivo quando a sessão ou um lote escreve, ou o tamanho muda, e olha as saídas a cada 2 s; `changes`,
+   `kind_text`, seleção de uma ou duas por clique e ctrl+clique em `State::selected`, só o botão *Open folder*) e
+   `eta::stamp`. CLI: `terraflux run` (também a falha da execução; `--no-journal`), `terraflux sensitivity` e o MCP
+   (`run_model`, com ou sem erro, e `sensitivity`, com `from` cli ou mcp). Testes: cinco em `exec::journal::tests`,
+   quatro em `runs_view::tests`, `the_runs_are_kept_and_listed` e o lote em `the_model_runs_many_times_from_its_pane`
+   (ui.rs; a imagem `ui-runs-1.png`), `a_run_is_recorded_in_the_journal_unless_asked_not_to` e as asserções do diário
+   em dois testes do MCP. Ficou de fora: o cenário aplicado no aplicativo (o app não guarda o nome do cenário
+   aplicado; o campo `scenario` só vem do CLI e do MCP, o resto está em `values`), o diário do `submit` e do
+   `calibrate`, a falha do `terraflux run` fora da execução (leitura das entradas, `--set` errado) e `--tiled`, e as
+   rodadas retomadas depois de fechar o aplicativo. Falta: reabrir as saídas no Viewer, comparar duas execuções,
+   *Restore this model*, a ferramenta do MCP que lê o diário, a análise de sensibilidade em detalhe (os fatores
+   ordenados já estão na entrada) e as versões com nome (item 3).
 2. **Rodar como conferência numa parte pequena.** *Run on the view* (só a extensão que o Viewer mostra) e *Run at ¼
    resolution* (ou ½, ⅛): o modelo roda em segundos para mostrar se está certo antes de uma execução de horas. Pede
    ao `exec` uma janela e um fator de reamostragem que todo `raster.read` aplica ao ler (lendo só a janela do
@@ -3020,8 +3042,9 @@ min ou max de um mapa). Falta tudo na interface: só quem usa a linha de comando
    cinco em `sens_methods::tests`, `tools::sensitivity_tests` (2), `an_analysis_asked_for_by_the_assistant_is_put_in_the_tab`,
    `a_sensitivity_analysis_is_run_and_told` e `a_big_sensitivity_design_is_refused_until_confirmed` (mcp), e o
    `methods.md` e o botão em `a_sensitivity_analysis_runs_from_its_pane` e o assistente em
-   `a_setting_is_varied_from_its_menu_and_the_parameters_pane`. Falta do item 6: só o registro da análise no diário das
-   execuções (depois do item 1 da seção anterior).
+   `a_setting_is_varied_from_its_menu_and_the_parameters_pane`. O registro da análise no diário das execuções
+   também está feito (item 1 da seção anterior: uma entrada de lote, com os fatores ordenados). Falta do item 6: a
+   análise vista em detalhe a partir do painel Runs.
 7. **Mapas de sensibilidade.** De uma saída em mapa, por célula: o desvio padrão entre as rodadas do desenho (onde
    o resultado é incerto) e, com Sobol, o S1 e o ST de cada fator por célula (onde cada fator manda), como uma
    pilha que o Viewer mostra. Pede guardar os mapas de cada rodada (ou acumulá-los nos workers): o mais caro, o

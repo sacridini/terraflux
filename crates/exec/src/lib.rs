@@ -11,6 +11,7 @@
 
 pub mod frozen;
 mod io;
+pub mod journal;
 pub mod lint;
 pub mod testing;
 

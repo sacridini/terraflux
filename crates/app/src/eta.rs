@@ -86,6 +86,17 @@ fn end_words(now: Local, then: Local) -> String {
     }
 }
 
+/// A moment (seconds since 1970) by the computer's clock, as "2026-11-06 14:32"; none where the system does not tell
+/// the local time.
+pub fn stamp(unix: u64) -> Option<String> {
+    let t = std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_secs(unix))?;
+    Some(stamp_words(local(t)?))
+}
+
+fn stamp_words(at: Local) -> String {
+    format!("{:04}-{:02}-{:02} {:02}:{:02}", at.0, at.1, at.2, at.3, at.4)
+}
+
 /// The days since 1970-01-01 of a date (the proleptic Gregorian calendar).
 fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
@@ -236,6 +247,7 @@ mod tests {
         assert_eq!(days_from_civil(1970, 1, 1), 0);
         assert_eq!(days_from_civil(2000, 3, 1), 11_017);
         assert_eq!(days_from_civil(2024, 3, 1) - days_from_civil(2024, 2, 28), 2, "a leap year");
+        assert_eq!(stamp_words((2026, 11, 6, 9, 5)), "2026-11-06 09:05");
         assert_eq!(end_words((2026, 11, 6, 9, 5), (2026, 11, 6, 14, 32)), "ends about 14:32");
         assert_eq!(end_words((2026, 11, 30, 23, 50), (2026, 12, 1, 0, 10)), "ends about 00:10 tomorrow");
         assert_eq!(end_words((2026, 12, 30, 8, 0), (2027, 1, 2, 9, 7)), "ends about 09:07 in 3 days");

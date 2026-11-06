@@ -70,10 +70,12 @@ pub enum Pane {
     /// The script of the map algebra node selected: written with its names completed, its outputs previewed, and
     /// anything computed in its scope.
     Calculator,
+    /// The runs of the model, kept beside it: when, how long, how they ended, what they changed and wrote.
+    Runs,
 }
 
 impl Pane {
-    pub const ALL: [Pane; 18] = [
+    pub const ALL: [Pane; 19] = [
         Pane::Model,
         Pane::Document,
         Pane::Operators,
@@ -92,6 +94,7 @@ impl Pane {
         Pane::Trace,
         Pane::Problems,
         Pane::Calculator,
+        Pane::Runs,
     ];
 
     pub fn title(self) -> &'static str {
@@ -114,6 +117,7 @@ impl Pane {
             Pane::Trace => "Trace",
             Pane::Problems => "Problems",
             Pane::Calculator => "Calculator",
+            Pane::Runs => "Runs",
         }
     }
 }
@@ -338,6 +342,7 @@ impl egui_dock::TabViewer for Panes<'_> {
             Pane::Review,
             Pane::Problems,
             Pane::Calculator,
+            Pane::Runs,
         ];
         [!own.contains(tab); 2]
     }
@@ -640,6 +645,10 @@ pub struct Session {
     pub elapsed: Option<Duration>,
     /// What the last whole run wrote: its manifest (`output/manifest.json`, with the outputs), or why not.
     pub recorded: Option<Result<PathBuf, String>>,
+    /// The run asked for that is going, for the journal: the model as it ran and the node it runs up to.
+    pub journal_run: Option<(Model, Option<String>)>,
+    /// How many runs this session has written to the journal (the Runs pane reads it again when it changes).
+    pub journal_rev: u64,
     pub started: Option<Instant>,
     pub view: MapView,
     pub thumbs: Thumbs,
@@ -901,6 +910,8 @@ impl Session {
             error: None,
             elapsed: None,
             recorded: None,
+            journal_run: None,
+            journal_rev: 0,
             started: None,
             view: MapView::default(),
             thumbs: Thumbs::default(),
@@ -1351,6 +1362,8 @@ impl Session {
             _ => None,
         };
         self.recorded = None;
+        // (a run asked for goes in the journal when it ends; the application's own runs do not)
+        self.journal_run = (!quiet && self.path.is_some()).then(|| (self.source.clone(), target.clone()));
         let (cache, gate) = (self.cache.clone(), self.gate.clone());
         self.run = Some(Run::start(self.model.clone(), inputs, base, cache, target, record, gate, repaint));
     }
@@ -1602,6 +1615,7 @@ impl Session {
                 failed: r.as_ref().err().cloned(),
                 quiet: self.quiet_run,
             });
+            self.journal_ended(&r);
             match r {
                 Ok(results) => {
                     self.outputs.extend(results.values);
@@ -1612,6 +1626,32 @@ impl Session {
             }
             self.quiet_run = false;
             self.outputs.retain(|id, _| self.model.nodes.iter().any(|n| n.id == *id));
+        }
+    }
+
+    /// A run asked for that ended, written to the model's journal (with the outputs and the manifest a whole run
+    /// of the model as saved wrote). A plain append: it does not wait.
+    fn journal_ended(&mut self, ended: &Result<terraflux_exec::Results, String>) {
+        use terraflux_exec::journal::{Entry, Journal, Kind, Status, values_of};
+        let Some((model, target)) = self.journal_run.take() else { return };
+        let Some(journal) = self.path.as_deref().and_then(Journal::of) else { return };
+        let seconds = self.elapsed.map_or(0.0, |e| e.as_secs_f64());
+        let mut entry = Entry::new(target.map_or(Kind::Run, Kind::To), "app", seconds);
+        entry.status = match ended {
+            Ok(_) => Status::Done,
+            Err(e) if e.contains("was stopped") || e.starts_with("stopped") => Status::Stopped,
+            Err(e) => Status::Failed(e.clone()),
+        };
+        entry.values = values_of(&model);
+        entry.warnings = self.warnings.clone();
+        if let Some(Ok(file)) = &self.recorded
+            && let Ok(text) = std::fs::read_to_string(file)
+            && let Ok(manifest) = serde_json::from_str::<terraflux_exec::testing::Manifest>(&text)
+        {
+            entry = entry.with_manifest(&manifest, file);
+        }
+        if journal.record(entry, &model).is_ok() {
+            self.journal_rev += 1;
         }
     }
 
@@ -1867,6 +1907,8 @@ pub struct TerrafluxApp {
     pub batch: crate::batch_view::BatchState,
     /// The Parameters pane's state.
     pub params: crate::params_view::State,
+    /// The runs of the model in front (the Runs pane).
+    pub runs: crate::runs_view::State,
     /// The Trace pane's state.
     pub trace: crate::trace_view::State,
     /// The dock is being drawn (taken out of the application meanwhile): the panes asked for then, brought to the
@@ -1993,6 +2035,7 @@ impl TerrafluxApp {
             files: crate::files_view::Files::default(),
             batch: crate::batch_view::BatchState::new(),
             params: crate::params_view::State::default(),
+            runs: crate::runs_view::State::default(),
             trace: crate::trace_view::State::default(),
             in_dock: false,
             deferred: Vec::new(),
@@ -4640,6 +4683,7 @@ impl TerrafluxApp {
                 }
             }
             Pane::Review => crate::review::pane(ui, s, r),
+            Pane::Runs => crate::runs_view::pane(ui, &mut self.runs, s, self.batch.journaled),
             Pane::Calculator => match crate::calc_view::pane(ui, &mut self.calculator, s) {
                 Some(crate::calc_view::Asked::RunTo(id)) => crate::builder::run_to(ui, s, Some(id)),
                 Some(crate::calc_view::Asked::Assistant(text)) => {
@@ -4741,7 +4785,7 @@ impl TerrafluxApp {
         // beside the pane it goes with: the maps and results by the viewer (else the model), the viewer by the model
         let dock = self.dock.get_or_insert_with(default_layout);
         let near: &[Pane] = match pane {
-            Pane::Simulation | Pane::Areas | Pane::Validation | Pane::Batch | Pane::Computers => {
+            Pane::Simulation | Pane::Areas | Pane::Validation | Pane::Batch | Pane::Computers | Pane::Runs => {
                 &[Pane::Viewer, Pane::Model]
             }
             Pane::Viewer | Pane::Document => &[Pane::Model],

@@ -1299,11 +1299,40 @@ impl Observer for Watcher {
 }
 
 /// Run a model (of the folder `dir`) and write its outputs (`out`, default: the folder `output` in `dir`; `set`:
-/// inputs and settings for this run only).
-pub fn run_model(engine: &Engine, source: &Model, dir: &Path, a: &Value, watcher: &mut Watcher) -> Reply {
-    let (m, inputs, results, seconds) = run_for(engine, source, dir, a, watcher)?;
+/// inputs and settings for this run only). `file` is the model's file: the run is recorded in its journal.
+pub fn run_model(
+    engine: &Engine,
+    source: &Model,
+    file: Option<&Path>,
+    dir: &Path,
+    a: &Value,
+    watcher: &mut Watcher,
+) -> Reply {
+    use terraflux_exec::journal::{Entry, Kind, Status, Written, record_run};
+    let started = Instant::now();
+    let scenario = opt_text(a, "scenario").map(String::from);
+    let (m, inputs, results, seconds) = match run_for(engine, source, dir, a, watcher) {
+        Ok(r) => r,
+        Err(e) => {
+            if let Some(f) = file {
+                let mut entry = Entry::new(Kind::Run, "mcp", started.elapsed().as_secs_f64());
+                entry.status = Status::Failed(e.clone());
+                entry.scenario = scenario;
+                entry.warnings = watcher.warnings.clone();
+                let _ = record_run(f, source, entry);
+            }
+            return Err(e);
+        }
+    };
     let out = opt_text(a, "out").map(absolute).unwrap_or_else(|| dir.join("output"));
     let files = write_outputs(&m, &results, &out).map_err(|e| e.to_string())?;
+    if let Some(f) = file {
+        let mut entry = Entry::new(Kind::Run, "mcp", started.elapsed().as_secs_f64());
+        entry.scenario = scenario;
+        entry.warnings = watcher.warnings.clone();
+        entry.outputs = m.outputs.keys().zip(&files).filter_map(|(n, p)| Written::of(n, p, None, None)).collect();
+        let _ = record_run(f, &m, entry);
+    }
     let mut s = format!("Ran in {seconds:.1} s.");
     if files.is_empty() {
         s.push_str(if m.outputs.is_empty() {

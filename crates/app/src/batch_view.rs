@@ -19,6 +19,7 @@ use terraflux_dist::evaluate::Evaluation;
 use terraflux_dist::proto::JobStatus;
 use terraflux_dist::run::{Batch, Event, Handle, Place, Progress, Start};
 use terraflux_dist::sensitivity::{self as sens, Design, Indices, Method};
+use terraflux_exec::journal::{self, Entry, Journal, Status};
 use terraflux_graph::{Input, Model, Node, Source, Type};
 use terraflux_ops::{Registry, Value};
 
@@ -475,6 +476,10 @@ pub struct BatchState {
     /// each run gave of each when it ends (by output, then by scenario), for that pane.
     pub compare: Option<Vec<String>>,
     pub compared: Option<Vec<(String, crate::params_view::Compared)>>,
+    /// The model's file and the model as written when the batch began, for the journal.
+    journal_for: Option<(PathBuf, Model)>,
+    /// How many batches have been written to a journal (the Runs pane reads again when it changes).
+    pub journaled: u64,
 }
 
 impl Default for BatchState {
@@ -510,6 +515,8 @@ impl Default for BatchState {
             on: None,
             compare: None,
             compared: None,
+            journal_for: None,
+            journaled: 0,
         }
     }
 }
@@ -560,6 +567,7 @@ impl BatchState {
         };
         let r = self.running.take().unwrap();
         r.record.drop_all();
+        let began = self.journal_for.take();
         if let Some(outputs) = self.compare.take() {
             let mut all = Vec::new();
             for output in outputs {
@@ -578,10 +586,16 @@ impl BatchState {
             self.compared = Some(all);
         }
         match o {
-            Err(e) if e == terraflux_dist::run::STOPPED => self.error = None,
-            Err(e) => self.error = Some(e),
+            Err(e) if e == terraflux_dist::run::STOPPED => {
+                self.error = None;
+                self.journal(began, &r, Status::Stopped, 0, 0, None);
+            }
+            Err(e) => {
+                self.error = Some(e.clone());
+                self.journal(began, &r, Status::Failed(e), 0, 0, None);
+            }
             Ok(o) => {
-                let rows = o
+                let rows: Vec<Row> = o
                     .results
                     .iter()
                     .map(|t| Row {
@@ -673,6 +687,13 @@ impl BatchState {
                         }
                     }
                 });
+                let status = match (rows.len(), o.status.failed) {
+                    (n, f) if n > 0 && f as usize >= n => Status::Failed(
+                        o.status.errors.first().cloned().unwrap_or_else(|| format!("all {n} runs failed")),
+                    ),
+                    _ => Status::Done,
+                };
+                self.journal(began, &r, status, rows.len(), o.status.failed as usize, sensitivity.as_ref());
                 self.finished = Some(Finished {
                     kind: r.kind,
                     out: r.out,
@@ -686,6 +707,37 @@ impl BatchState {
                     methods,
                 });
             }
+        }
+    }
+
+    /// A batch that ended, written to its model's journal as one entry (its runs counted, a sensitivity analysis
+    /// with its factors ranked); nothing for a batch taken up again, or of a model without a file.
+    fn journal(
+        &mut self,
+        began: Option<(PathBuf, Model)>,
+        r: &Running,
+        status: Status,
+        runs: usize,
+        failed: usize,
+        indices: Option<&Indices>,
+    ) {
+        let Some((file, model)) = began else { return };
+        let Some(journal) = Journal::of(&file) else { return };
+        let mut batch = journal::Batch {
+            kind: r.kind.name().to_string(),
+            out: r.out.clone(),
+            runs: if runs > 0 { runs } else { r.total },
+            failed,
+            ..Default::default()
+        };
+        if let Some(i) = indices {
+            ranked_factors(&mut batch, i);
+        }
+        let mut entry = Entry::new(journal::Kind::Batch(batch), "app", r.started.elapsed().as_secs_f64());
+        entry.status = status;
+        entry.values = journal::values_of(&model);
+        if journal.record(entry, &model).is_ok() {
+            self.journaled += 1;
         }
     }
 
@@ -704,11 +756,30 @@ impl BatchState {
                 interrupted: self.interrupted.take(),
                 on: self.on.take(),
                 compare: self.compare.take(),
+                journal_for: self.journal_for.take(),
+                journaled: self.journaled,
                 model_of: Some(id),
                 ..Default::default()
             };
         }
     }
+}
+
+/// A sensitivity analysis's method and factors, the most important first with the index they are ranked by, in its
+/// batch's journal entry.
+pub fn ranked_factors(batch: &mut journal::Batch, i: &Indices) {
+    let by = i.ranked_by();
+    let col = i.columns.iter().position(|c| c == by);
+    batch.method = Some(i.method.name().to_string());
+    batch.factors = i
+        .order()
+        .into_iter()
+        .map(|k| journal::Factor {
+            key: i.factors[k].clone(),
+            by: by.to_string(),
+            index: col.and_then(|c| i.rows[k].get(c).copied()).filter(|v| v.is_finite()),
+        })
+        .collect();
 }
 
 /// What a run of a batch gave of an output (`node.port`, kept as `node_port`), read back from its file.
@@ -1342,6 +1413,7 @@ pub fn start(
         Some(name) => cluster_place(name)?,
         None => computers.pool(st.workers.clamp(1, total.max(1)))?.place(),
     };
+    st.journal_for = s.path.clone().map(|p| (p, s.source.clone()));
     launch(st, Start::New(Box::new(b)), record, place, ctx);
     Ok(())
 }

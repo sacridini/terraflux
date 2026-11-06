@@ -323,7 +323,7 @@ impl Server {
             }
             "run_model" => {
                 let path = model_path(a)?;
-                tools::run_model(&self.engine, &load(&path)?, &folder(&path), a, watcher)
+                tools::run_model(&self.engine, &load(&path)?, Some(&path), &folder(&path), a, watcher)
             }
             "sensitivity" => sensitivity(r, a, watcher),
             "export_plot" => {
@@ -433,6 +433,7 @@ fn sensitivity(r: &Registry, a: &Value, watcher: &mut Watcher) -> Reply {
     let done = rt.block_on(cluster::execute(&plan, &place, &stop, &mut tell));
     rt.shutdown_timeout(std::time::Duration::from_secs(2));
     let done = done.map_err(|e| format!("{e:#}"))?;
+    cluster::record(&plan.spec, &done, started.elapsed().as_secs_f64(), "mcp");
     let i = &done.indices;
     let mut s = format!(
         "Sensitivity analysis ({}) of {output}: {} runs of the model in {:.1} s, {} factors, on {workers} workers.\n",
@@ -960,6 +961,12 @@ mod tests {
         let data = &ran["structuredContent"];
         assert_eq!(data["ran"], true, "{ran}");
         assert!(data["seconds"].as_f64().is_some(), "{data}");
+        // the run is in the model's journal
+        let journal = terraflux_exec::journal::Journal::of(Path::new(&model)).unwrap();
+        let kept = journal.entries();
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        assert_eq!((kept[0].from.as_str(), &kept[0].status), ("mcp", &terraflux_exec::journal::Status::Done));
+        assert!(journal.model(&kept[0].model).is_some());
         // a model that does not run
         let mut m = Model::load(&model).unwrap();
         m.nodes.push(terraflux_graph::Node::new("bad", "raster.calc").input("x", "nothing.map"));
@@ -970,6 +977,13 @@ mod tests {
         let ran = ask("run_model");
         assert_eq!(ran["structuredContent"]["ran"], false);
         assert!(ran["structuredContent"]["error"].as_str().is_some());
+        // (and its failure)
+        let kept = journal.entries();
+        assert_eq!(kept.len(), 2);
+        assert!(
+            matches!(&kept[1].status, terraflux_exec::journal::Status::Failed(e) if e.contains("errors")),
+            "{kept:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1150,6 +1164,13 @@ mod tests {
         }
         let md = std::fs::read_to_string(out.join("methods.md")).unwrap();
         assert!(md.contains("field.range [4\u{2013}12]") && md.contains("## References"), "{md}");
+        // the analysis is one entry of the model's journal, its factor ranked
+        let kept = terraflux_exec::journal::Journal::of(Path::new(&model)).unwrap().entries();
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        let terraflux_exec::journal::Kind::Batch(b) = &kept[0].kind else { panic!("{:?}", kept[0].kind) };
+        assert_eq!((kept[0].from.as_str(), b.kind.as_str(), b.runs), ("mcp", "sensitivity", 3));
+        assert_eq!(b.method.as_deref(), Some("oat"));
+        assert_eq!(b.factors[0].key, "field.range");
         // Morris with the range left to 20 % either side: the indices ranked, and whether they settled
         let args = json!({ "model": model, "n": 4, "output": "field.map", "out": dir.join("morris").to_string_lossy(),
             "factors": ["field.range", "field.columns"] });

@@ -687,6 +687,25 @@ pub async fn execute(
     Ok(Analysis { indices, runs: metrics.len(), failed: rep.failed, files, methods, notes })
 }
 
+/// An analysis that ran, recorded in its model's journal as one entry (`from`: `cli` or `mcp`); a journal that cannot
+/// be written is left out, not fatal.
+pub fn record(spec: &Spec, a: &Analysis, seconds: f64, from: &str) {
+    use terraflux_exec::journal as j;
+    let mut batch = j::Batch {
+        kind: "sensitivity".into(),
+        out: std::path::absolute(&spec.out).unwrap_or_else(|_| spec.out.clone()),
+        runs: a.runs,
+        failed: a.failed,
+        ..Default::default()
+    };
+    terraflux_app::batch_view::ranked_factors(&mut batch, &a.indices);
+    let mut entry = j::Entry::new(j::Kind::Batch(batch), from, seconds);
+    entry.warnings = a.notes.clone();
+    if let Ok(m) = Model::load_expanded(&spec.model) {
+        let _ = j::record_run(&spec.model, &m, entry);
+    }
+}
+
 /// A sensitivity analysis: the design's runs of the model (each measuring its output on the worker), then the
 /// indices; `design.csv` (the runs and their outputs) and `indices.csv` (with `s2.csv` of Sobol's pairs).
 pub async fn sensitivity(a: &Sensitivity) -> Result<()> {
@@ -702,7 +721,9 @@ pub async fn sensitivity(a: &Sensitivity) -> Result<()> {
         p.factors.len(),
         if p.replicates > 1 { format!(", {} replicates at each point", p.replicates) } else { String::new() }
     );
+    let began = std::time::Instant::now();
     let r = execute(&p, &place(&a.at).await?, &AtomicBool::new(false), &mut progress).await?;
+    record(&p.spec, &r, began.elapsed().as_secs_f64(), "cli");
     if r.failed > 0 && p.replicates > 1 {
         eprintln!(
             "note: {} of {} runs gave no {}; their points are the mean of the replicates that ran",

@@ -4040,6 +4040,12 @@ fn the_model_runs_many_times_from_its_pane() {
         assert!(!f.files.is_empty());
         assert!(out.join("replicates").join("tasks.csv").exists());
         assert!(out.join("replicates").join("seed_2").join(&f.files[0]).exists());
+        // the batch is one entry of the model's journal
+        let file = h.state().session.as_ref().unwrap().path.clone().unwrap();
+        let last = terraflux_exec::journal::Journal::of(&file).unwrap().entries().pop().unwrap();
+        let terraflux_exec::journal::Kind::Batch(j) = &last.kind else { panic!("{:?}", last.kind) };
+        assert_eq!((j.kind.as_str(), j.runs, j.failed, last.from.as_str()), ("replicates", 3, 0, "app"));
+        assert!(j.out.ends_with("replicates"));
     }
     shot(&mut h, "batch-2-done");
     // the runs as one series in the model
@@ -8358,4 +8364,91 @@ fn a_setting_is_changed_in_the_nodes_selected_at_once() {
     let s = h.state().session.as_ref().unwrap();
     assert_eq!(s.selected.as_deref(), Some("rc"));
     assert_eq!(s.editor.chosen.iter().map(String::as_str).collect::<Vec<_>>(), ["rc"]);
+}
+
+/// A run to its end (the journal is written as it ends).
+fn run_all(h: &mut Harness<TerrafluxApp>, to: Option<&str>) {
+    let s = h.state_mut().session.as_mut().unwrap();
+    match to {
+        Some(n) => s.start_to(Some(n.to_string()), Box::new(|| {})),
+        None => s.start(Box::new(|| {})),
+    }
+    until(h, "the run", |a| !a.session.as_ref().unwrap().running());
+    h.run_steps(2);
+}
+
+/// Each run asked for is kept in a journal beside the model, and the Runs pane lists them, the newest first, with
+/// what changed since the run before; the application's own runs are not kept.
+#[test]
+fn the_runs_are_kept_and_listed() {
+    let dir = tmp("runs-journal");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut w = Wizard::default();
+    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
+    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
+    w.increment = Some(250.0);
+    let file = w.save(&dir.join("ui-runs.toml")).unwrap();
+    let mut h = harness(new_app(Some(file.clone())));
+    loaded(&mut h);
+    let journal = terraflux_exec::journal::Journal::of(&file).unwrap();
+    {
+        // a parameter to change between the runs, and two steps a run
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.parameters.push(terraflux_graph::Parameter { key: "patches.isometry".into(), ..Default::default() });
+        s.source.apply(&[("simulation.times".to_string(), serde_json::json!(2))].into()).unwrap();
+        s.edited();
+        s.save().unwrap();
+    }
+    h.state_mut().focus(Pane::Runs);
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("No run yet").is_some());
+    run_all(&mut h, None);
+    let before = h.state().session.as_ref().unwrap().source.setting("patches.isometry").cloned();
+    let now = serde_json::json!(before.as_ref().and_then(|v| v.as_f64()).unwrap_or(1.0) + 0.5);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.apply(&[("patches.isometry".to_string(), now.clone())].into()).unwrap();
+        s.edited();
+        s.save().unwrap();
+    }
+    run_all(&mut h, None);
+    run_all(&mut h, Some("patches"));
+    // the application's own run to show a node: not kept
+    assert!(h.state_mut().session.as_mut().unwrap().run_to_show("patches", Box::new(|| {})));
+    until(&mut h, "the quiet run", |a| !a.session.as_ref().unwrap().running());
+    h.run_steps(3);
+    let all = journal.entries();
+    assert_eq!(all.len(), 3, "{all:?}");
+    assert_eq!(all[2].kind, terraflux_exec::journal::Kind::To("patches".into()));
+    assert!(all.iter().all(|e| e.status == terraflux_exec::journal::Status::Done && e.from == "app"));
+    assert_eq!(all[0].values["patches.isometry"], before.unwrap_or(serde_json::Value::Null));
+    assert_eq!(all[1].values["patches.isometry"], now);
+    assert_ne!(all[0].model, all[1].model);
+    assert_eq!(all[1].model, all[2].model);
+    // a whole run of the model as saved wrote its outputs and its manifest
+    assert!(!all[0].outputs.is_empty() && all[0].manifest.is_some());
+    assert!(all[1].outputs.iter().all(|w| w.unchanged() && w.sha256.is_some()));
+    // (the second run wrote over the files of the first)
+    assert!(all[0].outputs.iter().any(|w| !w.unchanged()));
+    assert!(all[2].outputs.is_empty());
+    assert_eq!(journal.model(&all[0].model).unwrap().name, h.state().session.as_ref().unwrap().source.name);
+    // the pane: three rows, the last run first, the change told, the model's change marked
+    h.run_steps(3);
+    shot(&mut h, "runs-1");
+    assert_eq!(h.state().runs.entries.len(), 3);
+    let top = h.get_by_label("Run to patches").rect().min.y;
+    // (the second run, the one that changed the model, is under the third)
+    assert_eq!(h.get_all_by_label("model changed").count(), 1);
+    assert!(h.get_by_label("model changed").rect().min.y > top, "the newest run first");
+    assert!(h.query_by_label_contains("patches.isometry").is_some());
+    // selecting: a click, then ctrl+click
+    let ids: Vec<u64> = all.iter().map(|e| e.id).collect();
+    h.state_mut().runs.select(ids[0], false);
+    h.state_mut().runs.select(ids[2], true);
+    assert_eq!(h.state().runs.selected, vec![ids[0], ids[2]]);
+    // the outputs the second run wrote over are told in the first
+    assert!(h.state().runs.over.contains_key(&ids[0]));
+    assert!(!h.state().runs.over.contains_key(&ids[1]));
+    let _ = std::fs::remove_dir_all(&dir);
 }
