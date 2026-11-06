@@ -478,7 +478,10 @@ impl Operator for Terrain {
                     let n = f64::from(r * c).round_ties_even();
                     let v = (0..sums[0].len())
                         .map(|k| {
-                            let len = (sums[0][k].powi(2) + sums[1][k].powi(2) + sums[2][k].powi(2)).sqrt();
+                            // (x * x as numpy's `** 2` of an array: `powi(2)` of a debug build may call the C
+                            // library's pow, which is not always the square to the last bit)
+                            let (x, y, z) = (sums[0][k], sums[1][k], sums[2][k]);
+                            let len = (x * x + y * y + z * z).sqrt();
                             1.0 - len / n
                         })
                         .collect();
@@ -510,7 +513,9 @@ impl Operator for Terrain {
                     let variance: bool = args.param("variance", false)?;
                     let v = (0..means[0].len())
                         .map(|k| {
-                            let v = 1.0 - (means[0][k].powi(2) + means[1][k].powi(2) + means[2][k].powi(2));
+                            // (x * x as numpy's `** 2`, see vrm)
+                            let (x, y, z) = (means[0][k], means[1][k], means[2][k]);
+                            let v = 1.0 - (x * x + y * y + z * z);
                             if variance { v } else { v.sqrt() }
                         })
                         .collect();
