@@ -21,6 +21,13 @@ minor versions.
   cells that changed (`changed`: first against last map of a series or stack, a single map against the start map
   chosen in the pane) and a landscape metric of a class (`metric:<np|pland|ed|area_mn|lpi>:<class>`). In the
   Sensitivity tab and in `terraflux sensitivity --statistic` (`terraflux_dist::evaluate::measure_from`).
+- **Replicates at each point of a sensitivity analysis**, for models that draw at random. Each point of the design runs
+  with R seeds (the model seed, +1, +2...), the output is their mean, and the share of the output's variance that
+  comes from the seed, not the factors, is told ("Chance: 12 %", with a warning above 50 %). `design.csv` gets the
+  `sd` among the replicates and `n`, those that ran (a replicate that failed is left out of its point's mean). In the
+  Sensitivity tab ("Replicates at each point", off when the model has no seed; the run count and the cost line
+  include them) and in `terraflux sensitivity --replicates R`
+  (`terraflux_dist::sensitivity::{seeds, total_runs, replicated}`).
 - Application: **the cost of a batch before it runs**. Under the run button of Many runs (replicates, scenarios,
   calibration and sensitivity), the runs and about how long they take, from the times of the nodes in the runs
   before divided by the runs at once here (or the workers of the cluster chosen). A sensitivity analysis names its

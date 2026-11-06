@@ -353,6 +353,13 @@ pub struct SensitivityPlan {
     labels: Vec<String>,
     output: String,
     resamples: usize,
+    /// The runs of each point (the seeds from the model seed up).
+    #[serde(default = "one")]
+    replicates: usize,
+}
+
+fn one() -> usize {
+    1
 }
 
 /// A run of a batch done.
@@ -387,6 +394,8 @@ pub struct SensitivityState {
     pub method: Method,
     pub design: Design,
     pub resamples: usize,
+    /// The runs of each point of the design, with seeds from the model seed up (a model with a seed).
+    pub replicates: usize,
     /// The output measured (`node.port`; none: not chosen yet) and the statistic of a map or the column of a table.
     pub output: Option<String>,
     /// For a map, its kind: mean, sum, min, max, cells, share, area, changed or metric.
@@ -405,6 +414,7 @@ impl Default for SensitivityState {
             method: Method::Morris,
             design: Design::new(Method::Morris),
             resamples: 100,
+            replicates: 1,
             output: None,
             statistic: "mean".into(),
             class: String::new(),
@@ -605,8 +615,10 @@ impl BatchState {
                 });
                 let sensitivity = r.record.sensitivity.as_ref().and_then(|p| {
                     let metrics = batch::metrics_of(&p.labels, &o.results);
-                    let y: Vec<f64> = metrics.iter().map(|m| m.as_ref().map_or(f64::NAN, |m| m.value)).collect();
-                    let _ = sens::write_design(&r.out, &p.keys, &p.rows, &y, &p.output);
+                    let values: Vec<Option<f64>> = metrics.iter().map(|m| m.as_ref().map(|m| m.value)).collect();
+                    let rep = sens::replicated(&values, p.replicates);
+                    let y = rep.mean.clone();
+                    let _ = sens::write_design(&r.out, &p.keys, &p.rows, &y, &p.output, Some(&rep));
                     if let Some(k) = y.iter().position(|v| v.is_nan()) {
                         self.error = Some(format!(
                             "run {} gave no {} ({} runs failed{}); the design is in {}",
@@ -619,6 +631,7 @@ impl BatchState {
                         return None;
                     }
                     match sens::analyze(p.method, &p.keys, &p.rows, &y, &p.design, p.resamples)
+                        .map(|i| i.with_replicates(&rep))
                         .and_then(|i| sens::write_indices(&r.out, &i).map(|_| i))
                     {
                         Ok(i) => Some(i),
@@ -723,7 +736,14 @@ fn factors(st: &BatchState, knobs: &[Knob]) -> Result<Vec<Param>, String> {
     Ok(params)
 }
 
-/// The runs of a sensitivity analysis, without making them.
+/// The replicates at each point: the chosen ones where the model has a seed to change, else 1 (every run of a
+/// point would be the same).
+fn replicates_of(st: &BatchState, knobs: &[Knob]) -> usize {
+    let has_seed = !st.seeds.clone().unwrap_or_else(|| default_seeds(knobs)).is_empty();
+    if has_seed { st.sens.replicates.clamp(1, 50) } else { 1 }
+}
+
+/// The runs of a sensitivity analysis (the design's points times their replicates), without making them.
 fn sensitivity_runs(st: &BatchState, knobs: &[Knob]) -> Result<usize, String> {
     let params = factors(st, knobs)?;
     if st.sens.method == Method::Sobol && !st.sens.design.n.is_power_of_two() {
@@ -732,7 +752,7 @@ fn sensitivity_runs(st: &BatchState, knobs: &[Knob]) -> Result<usize, String> {
     if st.sens.output.is_none() {
         return Err("choose the output to measure".into());
     }
-    Ok(sens::runs(st.sens.method, params.len(), &st.sens.design))
+    Ok(sens::total_runs(st.sens.method, params.len(), &st.sens.design, replicates_of(st, knobs)))
 }
 
 /// The time of a batch: the runs in rounds of `at_once`, each round as long as one run.
@@ -768,7 +788,7 @@ fn cost_text(head: &str, runs: usize, one: Option<f64>, at_once: Option<usize>, 
 }
 
 /// The cost line for the batch chosen, with its warning hint when long.
-fn cost_ui(ui: &mut Ui, st: &BatchState, s: &Session, runs: usize) {
+fn cost_ui(ui: &mut Ui, st: &BatchState, s: &Session, knobs: &[Knob], runs: usize) {
     let mut times = s.times_before.clone();
     times.extend(s.timings.iter().map(|(at, (secs, _))| (at.clone(), *secs)));
     let one = one_run_time(&times);
@@ -788,10 +808,12 @@ fn cost_ui(ui: &mut Ui, st: &BatchState, s: &Session, runs: usize) {
     let head = if st.kind == Kind::Sensitivity {
         let k = st.sens.factors.len();
         let f = if k == 1 { "factor" } else { "factors" };
+        let r = replicates_of(st, knobs);
+        let reps = if r > 1 { format!(", {r} replicates") } else { String::new() };
         match st.sens.method {
-            Method::Oat => format!("One at a time of {k} {f}: "),
-            Method::Morris => format!("Morris of {k} {f}, r={}: ", st.sens.design.n),
-            Method::Sobol => format!("Sobol of {k} {f}, N={}: ", st.sens.design.n),
+            Method::Oat => format!("One at a time of {k} {f}{reps}: "),
+            Method::Morris => format!("Morris of {k} {f}, r={}{reps}: ", st.sens.design.n),
+            Method::Sobol => format!("Sobol of {k} {f}, N={}{reps}: ", st.sens.design.n),
         }
     } else {
         String::new()
@@ -889,8 +911,10 @@ fn tasks(st: &BatchState, knobs: &[Knob]) -> Result<Planned, String> {
             let bounds: Vec<(f64, f64)> = params.iter().map(|p| (p.from, p.to)).collect();
             let rows = sens::rows(st.sens.method, &bounds, &st.sens.design).map_err(|e| e.to_string())?;
             let candidates = sens::candidates(&params, &rows);
-            let t = batch::calibration_tasks(&candidates, &[st.first_seed], &seeds);
+            let r = replicates_of(st, knobs);
+            let t = batch::calibration_tasks(&candidates, &sens::seeds(st.first_seed, r), &seeds);
             let plan = SensitivityPlan {
+                replicates: r,
                 method: st.sens.method,
                 design: st.sens.design.clone(),
                 keys: params.iter().map(|p| p.key.clone()).collect(),
@@ -1551,7 +1575,13 @@ fn sensitivity_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry, k
             ui.end_row();
         }
         ui.label("Model seed");
-        ui.add(egui::DragValue::new(&mut st.first_seed)).on_hover_text("every run takes this seed");
+        ui.add(egui::DragValue::new(&mut st.first_seed))
+            .on_hover_text("every run takes this seed (with replicates: this one and the next ones)");
+        ui.end_row();
+        let has_seed = !st.seeds.clone().unwrap_or_else(|| default_seeds(knobs)).is_empty();
+        ui.label("Replicates at each point");
+        ui.add_enabled(has_seed, egui::DragValue::new(&mut st.sens.replicates).range(1..=50))
+            .on_hover_text("runs of each point with seeds from the model seed up; the output is their mean");
         ui.end_row();
         ui.label("Output measured");
         let outs = measurable(&s.model, r);
@@ -1657,6 +1687,12 @@ fn sensitivity_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry, k
             }
         }
     });
+    let hint = if st.seeds.clone().unwrap_or_else(|| default_seeds(knobs)).is_empty() {
+        "the model has no seed: every run of a point is the same"
+    } else {
+        "a simulation that draws at random: 3 to 5 replicates separate the factors' effect from chance"
+    };
+    ui.label(RichText::new(hint).weak());
     seeds_ui(ui, st, knobs);
 }
 
@@ -1806,6 +1842,23 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
         if let Some(base) = ind.base {
             ui.label(format!("Output at the base (every factor in the middle of its range): {base:.6}"));
         }
+        if let Some(c) = ind.chance {
+            let text = format!(
+                "Chance: {:.0} % of the output's variance comes from the seed, not the factors ({} replicates at each point)",
+                c * 100.0,
+                ind.replicates
+            );
+            if c > 0.5 {
+                let warn = ui.visuals().warn_fg_color;
+                ui.label(RichText::new(text).color(warn));
+                ui.label(RichText::new("The factors explain little: more replicates or a larger range.").color(warn));
+            } else {
+                ui.label(text);
+            }
+        }
+        if f.failed > 0 && ind.replicates > 1 {
+            ui.label(format!("{} runs failed; their points are the mean of the replicates that ran.", f.failed));
+        }
         ui.label(RichText::new(format!("The factors that matter most first (by {}).", ind.ranked_by())).weak());
         egui::ScrollArea::horizontal().id_salt("indices").show(ui, |ui| {
             egui::Grid::new("indices").striped(true).spacing([12.0, 4.0]).show(ui, |ui| {
@@ -1919,7 +1972,7 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
         if st.running.is_none()
             && let Ok(n) = &count
         {
-            cost_ui(ui, st, s, *n);
+            cost_ui(ui, st, s, &knobs, *n);
         }
         if let Some(run) = &st.running {
             running_ui(ui, run);

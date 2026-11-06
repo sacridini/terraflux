@@ -95,6 +95,67 @@ pub fn rows(method: Method, bounds: &[(f64, f64)], d: &Design) -> Result<Vec<Vec
     }
 }
 
+/// The runs of a design of `k` factors with `r` replicates at each point.
+pub fn total_runs(method: Method, k: usize, d: &Design, r: usize) -> usize {
+    runs(method, k, d) * r.max(1)
+}
+
+/// The model seeds of the replicates of a point: `first`, `first + 1`...
+pub fn seeds(first: i64, r: usize) -> Vec<i64> {
+    (0..r.max(1) as i64).map(|k| first + k).collect()
+}
+
+/// The outputs of a design's points, each averaged over its replicates.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Replicated {
+    /// The replicates at each point.
+    pub r: usize,
+    /// The mean output of each point over the replicates that ran (NaN when none did): what `analyze` takes.
+    pub mean: Vec<f64>,
+    /// The standard deviation among the replicates that ran (NaN with fewer than 2).
+    pub sd: Vec<f64>,
+    /// The replicates that ran at each point.
+    pub ran: Vec<usize>,
+    /// The replicates that gave no output.
+    pub failed: usize,
+    /// The share (0..1) of the variance of all the runs' outputs that is chance: the mean variance among the
+    /// replicates of a point over it. None with one replicate, or no variance.
+    pub chance: Option<f64>,
+}
+
+fn variance(v: &[f64]) -> Option<f64> {
+    let n = v.len();
+    (n >= 2).then(|| {
+        let m = v.iter().sum::<f64>() / n as f64;
+        v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / (n - 1) as f64
+    })
+}
+
+/// The outputs of all the runs (`r` consecutive ones per point, as `batch::calibration_tasks` orders them; none for
+/// a run that failed) as the mean and spread of each point, and the share of the variance that is chance.
+pub fn replicated(values: &[Option<f64>], r: usize) -> Replicated {
+    let r = r.max(1);
+    let (mut mean, mut sd, mut ran, mut within) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for point in values.chunks(r) {
+        let v: Vec<f64> = point.iter().flatten().copied().filter(|x| x.is_finite()).collect();
+        mean.push(if v.is_empty() { f64::NAN } else { v.iter().sum::<f64>() / v.len() as f64 });
+        let var = variance(&v);
+        sd.push(var.map_or(f64::NAN, f64::sqrt));
+        within.extend(var);
+        ran.push(v.len());
+    }
+    let all: Vec<f64> = values.iter().flatten().copied().filter(|x| x.is_finite()).collect();
+    let chance = if r < 2 || within.is_empty() {
+        None
+    } else {
+        variance(&all)
+            .filter(|t| *t > 0.0)
+            .map(|t| (within.iter().sum::<f64>() / within.len() as f64 / t).clamp(0.0, 1.0))
+    };
+    let failed = values.len() - ran.iter().sum::<usize>();
+    Replicated { r, mean, sd, ran, failed, chance }
+}
+
 /// The settings of each row: the factors' keys to their values (the whole numbers rounded for an integer).
 pub fn candidates(params: &[Param], rows: &[Vec<f64>]) -> Vec<BTreeMap<String, Json>> {
     rows.iter()
@@ -124,9 +185,26 @@ pub struct Indices {
     pub base: Option<f64>,
     /// Sobol with the second order: a row and a column per factor.
     pub s2: Option<Vec<Vec<f64>>>,
+    /// The replicates at each point of the design (the output is their mean).
+    #[serde(default = "one")]
+    pub replicates: usize,
+    /// With replicates: the share (0..1) of the output's variance that comes from the seed, not the factors.
+    #[serde(default)]
+    pub chance: Option<f64>,
+}
+
+fn one() -> usize {
+    1
 }
 
 impl Indices {
+    /// The replicates' outcome kept with the indices.
+    pub fn with_replicates(mut self, rep: &Replicated) -> Indices {
+        self.replicates = rep.r;
+        self.chance = rep.chance;
+        self
+    }
+
     /// The column the factors are ranked by: the swing, μ*, the total order index.
     pub fn ranked_by(&self) -> &'static str {
         match self.method {
@@ -162,8 +240,16 @@ pub fn analyze(
 ) -> Result<Indices> {
     let cols = |c: &[&str]| c.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     let k = keys.len();
-    let mut out =
-        Indices { method, columns: Vec::new(), factors: keys.to_vec(), rows: Vec::new(), base: None, s2: None };
+    let mut out = Indices {
+        method,
+        columns: Vec::new(),
+        factors: keys.to_vec(),
+        rows: Vec::new(),
+        base: None,
+        s2: None,
+        replicates: 1,
+        chance: None,
+    };
     match method {
         Method::Oat => {
             let o = sens::oat_analyze(y, k).map_err(Error::Other)?;
@@ -188,11 +274,18 @@ pub fn analyze(
     Ok(out)
 }
 
-/// The runs and their outputs: run, a column per factor, the output.
-pub fn design_csv(keys: &[String], rows: &[Vec<f64>], y: &[f64], output: &str) -> String {
-    let mut csv = format!("run,{},{}\n", keys.join(","), output);
+/// The design's points and their outputs: point, a column per factor, the output (with replicates: its mean, then
+/// `sd` among the replicates and `n`, those that ran).
+pub fn design_csv(keys: &[String], rows: &[Vec<f64>], y: &[f64], output: &str, rep: Option<&Replicated>) -> String {
+    let rep = rep.filter(|p| p.r > 1);
+    let extra = if rep.is_some() { ",sd,n" } else { "" };
+    let mut csv = format!("run,{},{}{extra}\n", keys.join(","), output);
     for (k, (r, v)) in rows.iter().zip(y).enumerate() {
-        let vals: Vec<String> = r.iter().chain(std::iter::once(v)).map(|x| format!("{x}")).collect();
+        let mut vals: Vec<String> = r.iter().chain(std::iter::once(v)).map(|x| format!("{x}")).collect();
+        if let Some(p) = rep {
+            vals.push(format!("{}", p.sd[k]));
+            vals.push(format!("{}", p.ran[k]));
+        }
         csv.push_str(&format!("{},{}\n", k + 1, vals.join(",")));
     }
     csv
@@ -221,9 +314,16 @@ pub fn s2_csv(i: &Indices) -> Option<String> {
 }
 
 /// Write `design.csv` in `dir`.
-pub fn write_design(dir: &std::path::Path, keys: &[String], rows: &[Vec<f64>], y: &[f64], output: &str) -> Result<()> {
+pub fn write_design(
+    dir: &std::path::Path,
+    keys: &[String],
+    rows: &[Vec<f64>],
+    y: &[f64],
+    output: &str,
+    rep: Option<&Replicated>,
+) -> Result<()> {
     std::fs::create_dir_all(dir)?;
-    std::fs::write(dir.join("design.csv"), design_csv(keys, rows, y, output))?;
+    std::fs::write(dir.join("design.csv"), design_csv(keys, rows, y, output, rep))?;
     Ok(())
 }
 
@@ -282,10 +382,63 @@ mod tests {
         assert_eq!(i.rows[0], [0.0 * 3.0 + 0.75, 12.75, 12.0]);
         let csv = indices_csv(&i);
         assert!(csv.starts_with("factor,low,high,swing,base\na.x,0.75,12.75,12,"), "{csv}");
-        let design = design_csv(&keys(), &r, &y, "m.out");
+        let design = design_csv(&keys(), &r, &y, "m.out", None);
         assert!(design.starts_with("run,a.x,b.y,m.out\n1,2,1.5,6.75\n"), "{design}");
         assert_eq!(design.lines().count(), 6);
         assert!(s2_csv(&i).is_none());
+        assert_eq!((i.replicates, i.chance), (1, None));
+    }
+
+    #[test]
+    fn the_replicates_of_a_point_are_averaged() {
+        assert_eq!(seeds(5, 3), [5, 6, 7]);
+        assert_eq!(total_runs(Method::Oat, 2, &Design::new(Method::Oat), 3), 15);
+        // 3 points of 2 replicates
+        let v = [Some(1.0), Some(3.0), Some(10.0), Some(10.0), Some(4.0), Some(8.0)];
+        let p = replicated(&v, 2);
+        assert_eq!(p.mean, [2.0, 10.0, 6.0]);
+        assert_eq!(p.ran, [2, 2, 2]);
+        assert!((p.sd[0] - 2.0f64.sqrt()).abs() < 1e-12 && p.sd[1] == 0.0);
+        assert_eq!(p.failed, 0);
+        // one replicate: the outputs themselves, no chance
+        let one = replicated(&[Some(1.0), Some(2.0)], 1);
+        assert_eq!((one.mean.clone(), one.chance), (vec![1.0, 2.0], None));
+        let csv = design_csv(&keys(), &vec![vec![0.0, 0.0]; 3], &p.mean, "o", Some(&p));
+        assert!(csv.starts_with("run,a.x,b.y,o,sd,n\n1,0,0,2,1.41421"), "{csv}");
+        assert!(csv.lines().last().unwrap().starts_with("3,0,0,6,2.8284"), "{csv}");
+        assert!(!design_csv(&keys(), &[vec![0.0, 0.0]], &one.mean[..1], "o", Some(&one)).contains("sd"));
+    }
+
+    #[test]
+    fn the_chance_is_the_share_of_the_variance_among_the_replicates() {
+        // within-point variances 2, 0 and 8 (mean 10/3) over the variance of all six outputs
+        let v = [1.0, 3.0, 10.0, 10.0, 4.0, 8.0].map(Some);
+        let c = replicated(&v, 2).chance.unwrap();
+        let all = [1.0, 3.0, 10.0, 10.0, 4.0, 8.0];
+        let m = all.iter().sum::<f64>() / 6.0;
+        let total = all.iter().map(|x| (x - m).powi(2)).sum::<f64>() / 5.0;
+        assert!((c - (10.0 / 3.0) / total).abs() < 1e-12, "{c}");
+        // identical replicates: no chance at all
+        let none = replicated(&[1.0, 1.0, 5.0, 5.0].map(Some), 2);
+        assert_eq!(none.chance, Some(0.0));
+        // no variance anywhere
+        assert_eq!(replicated(&[2.0; 4].map(Some), 2).chance, None);
+    }
+
+    #[test]
+    fn a_failed_replicate_is_left_out_of_the_mean() {
+        let v = [Some(1.0), None, None, None, Some(4.0), Some(6.0)];
+        let p = replicated(&v, 2);
+        assert_eq!(p.mean[0], 1.0);
+        assert!(p.mean[1].is_nan() && p.sd[0].is_nan() && p.sd[1].is_nan());
+        assert_eq!(p.mean[2], 5.0);
+        assert_eq!((p.ran.clone(), p.failed), (vec![1, 0, 2], 3));
+        // only the point with two replicates tells the chance
+        assert!(p.chance.is_some());
+        let old: Indices =
+            serde_json::from_str(r#"{"method":"oat","columns":[],"factors":[],"rows":[],"base":null,"s2":null}"#)
+                .unwrap();
+        assert_eq!((old.replicates, old.chance), (1, None));
     }
 
     #[test]

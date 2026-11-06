@@ -469,6 +469,10 @@ pub struct Sensitivity {
     /// What holds the model's seed: an input (`seed`), a node's (`simulation.seed`), or several, separated by commas.
     #[arg(long, default_value = "seed")]
     pub seed_input: String,
+    /// Runs of each point of the design, with the seeds --model-seed, +1, +2...; the output is their mean, and the
+    /// share of its variance that is chance is told. For a model that draws at random (3 to 5 is usual).
+    #[arg(long, default_value_t = 1)]
+    pub replicates: usize,
     #[arg(short, long, default_value = "sensitivity")]
     pub out: PathBuf,
     #[command(flatten)]
@@ -519,17 +523,39 @@ pub async fn sensitivity(a: &Sensitivity) -> Result<()> {
         .into_iter()
         .filter(|k| model.clone().apply(&[(k.clone(), serde_json::json!(a.model_seed))].into()).is_ok())
         .collect();
-    let tasks = batch::calibration_tasks(&candidates, &[a.model_seed], &keys);
-    eprintln!("sensitivity ({}): {} runs of {} factors", a.method, tasks.len(), factors.len());
+    if a.replicates == 0 {
+        bail!("--replicates must be 1 or more");
+    }
+    let r = if keys.is_empty() { 1 } else { a.replicates };
+    if keys.is_empty() && a.replicates > 1 {
+        eprintln!("note: the model has no seed ({}): every run of a point is the same, one replicate", a.seed_input);
+    }
+    let tasks = batch::calibration_tasks(&candidates, &sens::seeds(a.model_seed, r), &keys);
+    eprintln!(
+        "sensitivity ({}): {} runs of {} factors{}",
+        a.method,
+        tasks.len(),
+        factors.len(),
+        if r > 1 { format!(", {r} replicates at each point") } else { String::new() }
+    );
     let labels: Vec<String> = tasks.iter().map(|(l, _)| l.clone()).collect();
     let b =
         Batch { name: "sensitivity".into(), model: model.clone(), base, tasks, files: false, evaluation: Some(eval) };
     let o = run::run(&run::Start::New(Box::new(b)), &place(&a.at).await?, None, &AtomicBool::new(false), &mut progress)
         .await?;
     let metrics = batch::metrics_of(&labels, &o.results);
-    let y: Vec<f64> = metrics.iter().map(|m| m.as_ref().map_or(f64::NAN, |m| m.value)).collect();
+    let rep = sens::replicated(&metrics.iter().map(|m| m.as_ref().map(|m| m.value)).collect::<Vec<_>>(), r);
+    let y = rep.mean.clone();
     let keys: Vec<String> = factors.iter().map(|p| p.key.clone()).collect();
-    sens::write_design(&a.out, &keys, &rows, &y, &a.output)?;
+    sens::write_design(&a.out, &keys, &rows, &y, &a.output, Some(&rep))?;
+    if rep.failed > 0 && r > 1 && y.iter().all(|v| !v.is_nan()) {
+        eprintln!(
+            "note: {} of {} runs gave no {}; their points are the mean of the replicates that ran",
+            rep.failed,
+            metrics.len(),
+            a.output
+        );
+    }
     if let Some(k) = y.iter().position(|v| v.is_nan()) {
         bail!(
             "run {} gave no {} ({} runs failed:\n  {}); the design is in {}",
@@ -540,9 +566,12 @@ pub async fn sensitivity(a: &Sensitivity) -> Result<()> {
             a.out.join("design.csv").display()
         );
     }
-    let indices = sens::analyze(method, &keys, &rows, &y, &design, a.resamples)?;
+    let indices = sens::analyze(method, &keys, &rows, &y, &design, a.resamples)?.with_replicates(&rep);
     sens::write_indices(&a.out, &indices)?;
     eprint!("{}", sens::indices_csv(&indices));
+    if let Some(c) = indices.chance {
+        eprintln!("chance: {:.0} % of the output's variance comes from the seed, not the factors", c * 100.0);
+    }
     eprintln!("wrote {} and {}", a.out.join("design.csv").display(), a.out.join("indices.csv").display());
     Ok(())
 }

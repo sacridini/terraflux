@@ -2942,13 +2942,27 @@ min ou max de um mapa). Falta tudo na interface: só quem usa a linha de comando
    `one_run_time` (a soma dos tempos dos nós; `times_before` com `timings` da sessão por cima; nenhum sem tempos),
    `cost_text` (a linha, "about", e se passa de 2 h) e `cost_ui` sob o botão de todos os tipos (aqui: os workers do
    controle; num cluster salvo: nós × workers do `Scheduler`; cor `warn_fg_color` e a dica, de Morris primeiro na
-   sensibilidade, de menos rodadas ou mais computadores nos outros). Ainda não multiplica por réplicas (item 4).
+   sensibilidade, de menos rodadas ou mais computadores nos outros). As réplicas (item 4) entram na conta.
    Testes: `a_batch_takes_rounds_of_runs_at_once` e `the_cost_of_a_batch_is_told_before_it_runs` (ui.rs). Falta: os
    itens 4 a 6.
 4. **Modelos estocásticos: réplicas em cada ponto do desenho.** Com um seed no modelo (`batch::seed_keys`), cada
    ponto roda com R seeds (padrão 1; o texto sugere 3 a 5 num simulador de mudança de uso) e a saída é a média das
    réplicas; a variância entre as réplicas é mostrada ao lado da dos fatores, para dizer quanto do resultado é
    acaso e não o parâmetro.
+   **Feito** (Unreleased): no `terraflux_dist::sensitivity`, `seeds` (o seed do modelo e os seguintes), `total_runs`
+   (rodadas do desenho × R), `replicated` (por ponto, a média das réplicas que rodaram, o desvio padrão `sd`, quantas
+   rodaram e quantas falharam; um ponto sem nenhuma réplica é NaN) e `Replicated::chance` (a variância média entre
+   as réplicas de um ponto sobre a variância de todas as saídas, de 0 a 1; nada com R = 1). `Indices` ganha
+   `replicates` e `chance` (`#[serde(default)]`: registros antigos ainda abrem), e `design_csv`/`write_design`
+   recebem o `Replicated` (com R > 1, as colunas `sd` e `n`). As rodadas vêm de `batch::calibration_tasks` com a
+   lista de seeds (candidato por candidato, as réplicas em sequência, como na calibração). O `terraflux sensitivity`
+   tem `--replicates` (padrão 1) e escreve o acaso no fim. No `batch_view.rs`: `SensitivityState::replicates`,
+   `replicates_of` (1 sem seed no modelo), o campo "Replicates at each point" (desligado sem seed) com a dica,
+   `SensitivityPlan::replicates` (`#[serde(default)]`), a contagem e o `cost_ui` com as réplicas ("..., 3 replicates:")
+   e, em `finished_ui`, "Chance: N % ..." (cor de aviso acima de 50 %). Testes: `the_replicates_of_a_point_are_averaged`,
+   `the_chance_is_the_share_of_the_variance_among_the_replicates` e `a_failed_replicate_is_left_out_of_the_mean`
+   (dist) e `a_sensitivity_analysis_runs_replicates_at_each_point` (ui.rs; a média do mapa não muda com o seed, por
+   isso o teste mede `metric:np`). Falta: os itens 5 e 6.
 5. **Os fatores marcados no modelo.** No painel Node, o clique direito numa configuração numérica dá *Vary in a
    sensitivity analysis* (abre a aba com o fator posto, ±20 %); um parâmetro do modelo também. A aba propõe como
    fatores as configurações citadas nas `assumptions` dos nós (o que foi suposto é o que mais vale variar) e os

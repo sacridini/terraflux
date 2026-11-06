@@ -4193,6 +4193,61 @@ fn a_sensitivity_analysis_runs_from_its_pane() {
 }
 
 #[test]
+fn a_sensitivity_analysis_runs_replicates_at_each_point() {
+    use terraflux_app::batch_view::{Kind, Range};
+    use terraflux_dist::sensitivity::Method;
+    let r = terraflux_raster::Raster::read(data("sibuyan_landuse.tif")).unwrap();
+    let class = r.bands[0].masked(r.nodata).iter().copied().find(|x| !x.is_nan()).unwrap();
+    let mut h = harness(new_app(Some(model())));
+    loaded(&mut h);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.apply(&[("simulation.times".to_string(), serde_json::json!(1))].into()).unwrap();
+        s.edited();
+    }
+    h.state_mut().focus(Pane::Batch);
+    let out = tmp("ui-sensitivity-replicates");
+    let _ = std::fs::remove_dir_all(&out);
+    let _ = std::fs::remove_dir_all(tmp("ui-sensitivity-replicates-pool"));
+    h.state_mut().computers.pool = None;
+    h.state_mut().computers.dir = Some(tmp("ui-sensitivity-replicates-pool"));
+    {
+        let b = &mut h.state_mut().batch;
+        b.kind = Kind::Sensitivity;
+        b.workers = 2;
+        b.out = Some(out.clone());
+        b.sens.method = Method::Oat;
+        b.sens.output = Some("simulation.maps".into());
+        b.sens.replicates = 2;
+        // (the mean of the map would not change with the seed: the number of patches does)
+        b.sens.statistic = "metric".into();
+        b.sens.metric = "np".into();
+        b.sens.class = format!("{class}");
+        b.sens.factors =
+            vec![Range { key: "patches.isometry".into(), from: "0.5".into(), to: "2.5".into(), points: String::new() }];
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("a simulation that draws at random").is_some());
+    // 3 points of the design, 2 replicates each
+    assert!(h.query_by_label_contains("One at a time of 1 factor, 2 replicates: ").is_some());
+    h.get_by_label("Run 6 times").click();
+    h.run_steps(1);
+    assert!(h.state().batch.running(), "{:?}", h.state().batch.error);
+    until(&mut h, "the replicates of a sensitivity analysis", |a| !a.batch.running());
+    h.run_steps(2);
+    let b = &h.state().batch;
+    assert!(b.error.is_none(), "{:?}", b.error);
+    let f = b.finished.as_ref().unwrap();
+    assert_eq!(f.rows.len(), 6, "{:?} {:?}", f.errors, f.rows);
+    let i = f.sensitivity.as_ref().unwrap();
+    assert_eq!(i.replicates, 2);
+    assert!(i.chance.is_some_and(|c| (0.0..=1.0).contains(&c)), "{:?}", i.chance);
+    let design = std::fs::read_to_string(out.join("design.csv")).unwrap();
+    assert!(design.starts_with("run,patches.isometry,simulation.maps,sd,n\n"), "{design}");
+    assert_eq!(design.lines().count(), 4, "{design}");
+}
+
+#[test]
 fn the_cost_of_a_batch_is_told_before_it_runs() {
     use terraflux_app::batch_view::{Kind, Range};
     use terraflux_dist::sensitivity::Method;
