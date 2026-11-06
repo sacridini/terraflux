@@ -4819,7 +4819,8 @@ fn the_commands_find_nodes_and_operators() {
     assert!(h.state().commands.is_none());
     h.key_press(egui::Key::F1);
     h.run_steps(2);
-    assert!(h.state().shortcuts_open && h.query_by_label("Keyboard shortcuts").is_some());
+    // (the window's title, and the action of that name in its list)
+    assert!(h.state().shortcuts_open && h.query_all_by_label("Keyboard shortcuts").count() == 2);
     shot(&mut h, "31-shortcuts");
 }
 
@@ -8764,7 +8765,7 @@ fn a_check_run_gives_the_model_at_a_coarser_resolution_apart_from_the_real_outpu
     h.run_steps(3);
     assert!(h.query_by_label_contains("check run").is_none(), "no mark after a normal run");
     // the menu next to Run
-    h.get_by_label("Check").click();
+    h.get_by_label("Check run").click();
     h.run_steps(3);
     assert!(h.query_by_label("Check run at 1/4 resolution").is_some());
     shot(&mut h, "check-menu");
@@ -8820,7 +8821,7 @@ fn a_check_run_gives_the_model_at_a_coarser_resolution_apart_from_the_real_outpu
     h.state_mut().session.as_mut().unwrap().preview_view.zoom_to([cols * 0.25, rows * 0.25, cols * 0.75, rows * 0.75]);
     h.run_steps(4);
     assert!(h.state().session.as_ref().unwrap().view_window().is_some(), "the Viewer shows a map");
-    h.get_by_label("Check").click();
+    h.get_by_label("Check run").click();
     h.run_steps(3);
     h.get_by_label("Check run on the view").click();
     h.run_steps(2);

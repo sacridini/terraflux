@@ -97,6 +97,9 @@ pub struct Settings {
     /// The basemaps of the user's own (web tiles by an address template), the last used first; at most
     /// [`crate::basemap::MOST_CUSTOM`].
     pub custom_basemaps: Vec<CustomBasemap>,
+    /// The keyboard shortcuts the user changed, by the action's id (see [`crate::keymap`]): the shortcuts as
+    /// "Ctrl+Shift+S"; an empty list is an action with no shortcut. An action not here has its default.
+    pub shortcuts: BTreeMap<String, Vec<String>>,
 }
 
 /// A basemap of the user's: where its tiles are (`https://host/{z}/{x}/{y}.png`), whose map it is, its deepest zoom.
@@ -147,6 +150,7 @@ impl Default for Settings {
             map_grid: false,
             viewer_window: None,
             custom_basemaps: Vec::new(),
+            shortcuts: BTreeMap::new(),
         }
     }
 }
@@ -187,11 +191,21 @@ pub fn get() -> Settings {
     global().lock().unwrap().clone()
 }
 
+/// How many times the settings changed in this run (for what is worked out from them and kept: the keymap).
+pub fn generation() -> u64 {
+    GENERATION.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 /// Change the settings (kept at once).
 pub fn update(f: impl FnOnce(&mut Settings)) {
     let mut s = global().lock().unwrap();
     let before = s.clone();
     f(&mut s);
+    if *s != before {
+        GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
     if *s != before
         && let Some(path) = file()
     {

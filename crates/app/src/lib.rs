@@ -41,6 +41,7 @@ pub mod goto;
 pub mod guide;
 pub mod handoff;
 pub mod histogram;
+pub mod keymap;
 pub mod labels;
 pub mod legend_view;
 pub mod llm;

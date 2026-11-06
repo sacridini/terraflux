@@ -7,6 +7,15 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Application: **configurable keyboard shortcuts** (first part: the keys of the whole application). Settings has a
+  *Keyboard* tab listing each action (run, save, save as, save a version, new, open a model, open data, the
+  commands, the shortcuts sheet, Tab to the model, close the pane, next and previous model, close the model) with
+  its shortcuts as buttons: click one and press the new combination (Esc cancels, Backspace takes it away, "+" adds a
+  second), *Reset* per action and *Reset all*, a filter box, and a shortcut two actions share shown at once (in the
+  error colour for the same place, a warning for an everywhere one against one of a place). They are kept in
+  `settings.json` (`shortcuts`), and the menus, the palette, the Run button's hint and F1 show the ones chosen.
+  The defaults are the keys as they were. The table is `terraflux_app::keymap` (`ACTIONS`, `Shortcut`, `take`,
+  `clashes`); the canvas', the Viewer's and the panes' own keys are still fixed.
 - Application and MCP: **saved places** in the Viewer and on the canvas. The *Places* menu in the Viewer's header
   lists the places of the map, keeps the part of the map in view under a name (*Save this place...*, with an option
   to keep the layers shown too, which going there then shows and hides the others), and renames, gives a slot to or

@@ -199,12 +199,8 @@ impl TerrafluxApp {
         if self.tab_count() == 0 {
             return;
         }
-        let shift = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
-        let (back, next, close) = ui.input_mut(|i| {
-            let back = i.consume_key(shift, egui::Key::Tab);
-            let next = i.consume_key(egui::Modifiers::COMMAND, egui::Key::Tab);
-            (back, next, i.consume_key(shift, egui::Key::W))
-        });
+        let hit = crate::keymap::take(ui.ctx(), crate::keymap::TABS);
+        let (back, next, close) = (hit.contains(&"prev_tab"), hit.contains(&"next_tab"), hit.contains(&"close_tab"));
         if back {
             self.next_tab(-1);
         } else if next {
@@ -228,8 +224,11 @@ impl TerrafluxApp {
         let n = self.tab_count();
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            ui.label(RichText::new(format!("{n} models open")).weak().size(12.0))
-                .on_hover_text("each in its colour; ctrl+Tab and ctrl+shift+Tab go from one to the next");
+            ui.label(RichText::new(format!("{n} models open")).weak().size(12.0)).on_hover_text(format!(
+                "each in its colour; {} and {} go from one to the next",
+                crate::keymap::text("next_tab"),
+                crate::keymap::text("prev_tab")
+            ));
             for k in 0..n {
                 let Some(s) = self.tab(k) else { continue };
                 let front = k == self.front;

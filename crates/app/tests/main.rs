@@ -1,5 +1,5 @@
 //! The integration tests of the application in one program (each file a module), so that `target` keeps one
-//! program instead of one per file. `ui`, `fit` and `readme_images` are programs of their own: each points the
+//! program instead of one per file. `ui`, `fit`, `keymap` and `readme_images` are programs of their own: each points the
 //! settings at a file of its own (`TERRAFLUX_SETTINGS`; `fit` changes the theme and the size of the text, which
 //! are the whole program's).
 
@@ -20,7 +20,7 @@ fn every_test_file_runs() {
     let main = include_str!("main.rs").replace("\r\n", "\n");
     // (or of `ui`, whose application and settings it shares: `web_layers`)
     let ui = include_str!("ui.rs").replace("\r\n", "\n");
-    let apart: [&str; 3] = ["ui", "fit", "readme_images"];
+    let apart: [&str; 4] = ["ui", "fit", "keymap", "readme_images"];
     for f in std::fs::read_dir(dir).unwrap() {
         let p = f.unwrap().path();
         let stem = p.file_stem().unwrap().to_string_lossy().into_owned();

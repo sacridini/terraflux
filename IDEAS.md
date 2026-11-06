@@ -3013,6 +3013,29 @@ extensão); as versões de um modelo só existem pelo git (o `review.rs` compara
    mesmo lugar: canvas, Viewer, a janela toda), *Reset* por ação e para todas. Guardados no `settings.json`; o F1,
    os menus e a paleta mostram os atalhos escolhidos. Pede tirar os `consume_key` espalhados para uma tabela de
    ações com o atalho padrão de cada uma.
+   **Feito em parte** (Unreleased): a tabela, a tela e os atalhos da aplicação toda. Novo `keymap.rs`: `ACTIONS`
+   (cada `Action` com `id` estável, nome da paleta, `Scope`, atalhos padrão, `fixed` e `idle`), `Shortcut` (com texto
+   "Ctrl+Shift+S" gravado e "ctrl+shift+S" / "⌘shift+S" mostrado, `parse`/`Display`), `current`, `text`, `texts`,
+   `take` (lê o conjunto de ids de uma vez, o mais específico primeiro, como o egui pede para shift e alt),
+   `clashes`/`conflicts` (mesmo `Scope` = erro; global contra um lugar = aviso) e o `Panel` da tela. Os atalhos
+   trocados ficam em `Settings::shortcuts` (`settings.json`, lista vazia = sem atalho); `settings::generation()`
+   faz o `keymap` refazer o parse só quando as configurações mudam. Passaram para a tabela: `run` (F5), `save`,
+   `save_as`, `version`, `new`, `open_model`, `open_data`, `commands` (ctrl+K e ctrl+shift+P), `shortcuts` (F1),
+   `to_model` (Tab, não vale digitando), `close_pane` (ctrl+W), `next_tab`, `prev_tab`, `close_tab` (as de
+   `Keys::read` em `app.rs` e de `tab_keys` em `tabs.rs`); os menus Arquivo e Ver, a paleta, a dica do botão Run, a
+   dica do ponto de "não salvo", a barra de status, a dica da faixa de abas e a seção "Everywhere" do F1 vêm dela.
+   Settings ganhou as abas *General* e *Keyboard* (filtro, botão que grava a próxima combinação, Esc cancela,
+   Backspace tira, "+" para um segundo, *Reset* por linha e *Reset all*, conflitos na hora, em vermelho para o mesmo
+   lugar e laranja para global contra lugar); enquanto grava, o `Panel::capture` pega a tecla no começo do quadro e a
+   aplicação espera. Teste: `tests/keymap.rs` (programa próprio: trocar o atalho é de todo o processo, e o `ui` usa
+   ctrl+R no canvas). **Falta (parte 2):** as teclas do canvas, do Viewer e dos painéis, ainda lidas onde são usadas
+   (ocorrências de `consume_key`/`consume_shortcut`/`key_pressed` por arquivo: builder.rs 27, files_view.rs 12,
+   map_view.rs 10, calc_view.rs 10, editor_view.rs 5, find.rs 4, commands.rs 4, chat.rs 4, places.rs 3, draw.rs 3,
+   measure.rs 2, attribute_table.rs 2, e 1 em app.rs, node_view.rs, notes.rs e remote.rs); entram na tabela com os
+   `Scope` `Canvas`, `Viewer`, `Calculator` e `Files` (já existem) e, no F1, as seções "The model's canvas" e "Maps"
+   (hoje texto fixo em `commands::shortcuts`) passam a sair da tabela; `undo`, `redo` e `add_operator` ("/") estão
+   na tabela como `fixed` (só listados) até serem lidos por ela; as Esc, Enter, setas e a edição de texto ficam
+   fixas fora da tabela. Hoje ctrl+R está no canvas (renomear) e, se o usuário o der à execução, a global ganha.
 6. **Lugares marcados no Viewer e no canvas.** No Viewer, *Save this place...* guarda a extensão e o zoom com um
    nome (e, opcional, as camadas visíveis); no canvas, a posição e o zoom da câmera. Ctrl+1 a ctrl+9 marcam, 1 a 9
    vão até eles (animado, como o *Go to*), uma lista no menu da vista renomeia e apaga. Guardados com o modelo

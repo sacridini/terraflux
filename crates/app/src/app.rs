@@ -278,23 +278,22 @@ struct Keys {
 impl Keys {
     /// The keys of the window `ui` is in, taken.
     fn read(ui: &mut Ui) -> Keys {
-        let typing = ui.ctx().memory(|m| m.focused().is_some());
-        let shift = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
-        // (with shift first: a shortcut without it takes the key with shift too)
-        ui.input_mut(|i| Keys {
-            // (before ctrl+S, which takes the key with alt too)
-            version: i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::S),
-            run: i.consume_key(egui::Modifiers::NONE, egui::Key::F5),
-            save_as: i.consume_key(shift, egui::Key::S),
-            save: i.consume_key(egui::Modifiers::COMMAND, egui::Key::S),
-            open_model: i.consume_key(shift, egui::Key::O),
-            open: i.consume_key(egui::Modifiers::COMMAND, egui::Key::O),
-            new: i.consume_key(egui::Modifiers::COMMAND, egui::Key::N),
-            commands: i.consume_key(shift, egui::Key::P) || i.consume_key(egui::Modifiers::COMMAND, egui::Key::K),
-            shortcuts: i.consume_key(egui::Modifiers::NONE, egui::Key::F1),
-            tab: !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::Tab),
-            close: i.consume_key(egui::Modifiers::COMMAND, egui::Key::W),
-        })
+        // (the shortcuts are the table's: see `keymap`, which takes the most specific first)
+        let hit = crate::keymap::take(ui.ctx(), crate::keymap::APP);
+        let has = |id: &str| hit.contains(&id);
+        Keys {
+            version: has("version"),
+            run: has("run"),
+            save_as: has("save_as"),
+            save: has("save"),
+            open_model: has("open_model"),
+            open: has("open_data"),
+            new: has("new"),
+            commands: has("commands"),
+            shortcuts: has("shortcuts"),
+            tab: has("to_model"),
+            close: has("close_pane"),
+        }
     }
 }
 
@@ -2063,6 +2062,9 @@ pub struct TerrafluxApp {
     styled: Option<(String, u32, u32)>,
     /// The settings' window is open.
     pub settings_open: bool,
+    /// The settings' Keyboard section shown, instead of the others, and its state ([`crate::keymap::Panel`]).
+    pub settings_keys: bool,
+    pub keyboard: crate::keymap::Panel,
     /// The updates of Terraflux: the latest release asked, its installer downloaded ([`crate::update`]).
     pub updater: crate::update::Updater,
     /// The window asking to update (the release), and the user's word given: installed once downloaded.
@@ -2211,6 +2213,8 @@ impl TerrafluxApp {
             screen: None,
             styled: None,
             settings_open: false,
+            settings_keys: false,
+            keyboard: Default::default(),
             updater: crate::update::Updater::default(),
             update_asked: None,
             update_go: false,
@@ -2728,13 +2732,12 @@ impl TerrafluxApp {
 
     /// The model's file: new, open (the models opened last too), save, save as.
     fn file_menu(&mut self, ui: &mut Ui, save: &mut Option<bool>) {
-        let c = crate::commands::cmd();
         ui.set_min_width(220.0);
-        if ui.add(egui::Button::new("New model").shortcut_text(format!("{c}N"))).clicked() {
+        if ui.add(egui::Button::new("New model").shortcut_text(crate::keymap::text("new"))).clicked() {
             self.ask_new();
             ui.close();
         }
-        if ui.add(egui::Button::new("Open...").shortcut_text(format!("{c}shift+O"))).clicked() {
+        if ui.add(egui::Button::new("Open...").shortcut_text(crate::keymap::text("open_model"))).clicked() {
             ui.close();
             self.open_dialog();
         }
@@ -2754,18 +2757,24 @@ impl TerrafluxApp {
         ui.separator();
         let (can, editing) =
             self.session.as_ref().map_or((false, false), |s| (s.dirty || s.path.is_none(), self.wizard.is_none()));
-        if ui.add_enabled(can && editing, egui::Button::new("Save").shortcut_text(format!("{c}S"))).clicked() {
+        if ui
+            .add_enabled(can && editing, egui::Button::new("Save").shortcut_text(crate::keymap::text("save")))
+            .clicked()
+        {
             *save = Some(false);
             ui.close();
         }
-        if ui.add_enabled(editing, egui::Button::new("Save as...").shortcut_text(format!("{c}shift+S"))).clicked() {
+        if ui
+            .add_enabled(editing, egui::Button::new("Save as...").shortcut_text(crate::keymap::text("save_as")))
+            .clicked()
+        {
             *save = Some(true);
             ui.close();
         }
         if ui
             .add_enabled(
                 self.session.is_some() && editing,
-                egui::Button::new("Save a version...").shortcut_text(format!("{c}alt+S")),
+                egui::Button::new("Save a version...").shortcut_text(crate::keymap::text("version")),
             )
             .on_hover_text(
                 "the model as it is now, kept under a name: to review against or go back to (Runs, Versions)",
@@ -2787,7 +2796,9 @@ impl TerrafluxApp {
         }
         ui.separator();
         if let Some(s) = &mut self.session
-            && ui.add(egui::Button::new("Open a raster or vectors...").shortcut_text(format!("{c}O"))).clicked()
+            && ui
+                .add(egui::Button::new("Open a raster or vectors...").shortcut_text(crate::keymap::text("open_data")))
+                .clicked()
         {
             ui.close();
             crate::builder::open_data(s, &self.registry);
@@ -2896,7 +2907,6 @@ impl TerrafluxApp {
 
     /// The panes on or off, the layout as it first was, the commands and the shortcuts.
     fn view_menu(&mut self, ui: &mut Ui) {
-        let c = crate::commands::cmd();
         for p in Pane::ALL {
             let mut open = self.is_open(p);
             if ui.checkbox(&mut open, p.title()).changed() {
@@ -2949,11 +2959,11 @@ impl TerrafluxApp {
             }
         });
         ui.separator();
-        if ui.add(egui::Button::new("Commands...").shortcut_text(format!("{c}K"))).clicked() {
+        if ui.add(egui::Button::new("Commands...").shortcut_text(crate::keymap::text("commands"))).clicked() {
             self.commands = Some(Default::default());
             ui.close();
         }
-        if ui.add(egui::Button::new("Keyboard shortcuts").shortcut_text("F1")).clicked() {
+        if ui.add(egui::Button::new("Keyboard shortcuts").shortcut_text(crate::keymap::text("shortcuts"))).clicked() {
             self.shortcuts_open = true;
             ui.close();
         }
@@ -3005,14 +3015,17 @@ impl TerrafluxApp {
                 run = ui
                     .add_enabled(s.can_ask_run(), accent_button(label, s.can_run()))
                     .on_hover_text(if s.can_run() {
-                        "run the whole model (F5)"
+                        format!("run the whole model ({})", crate::keymap::text("run"))
                     } else {
-                        "run the whole model (F5): nodes not filled in yet, told among the problems"
+                        format!(
+                            "run the whole model ({}): nodes not filled in yet, told among the problems",
+                            crate::keymap::text("run")
+                        )
                     })
                     .clicked();
                 // the check runs: the model on the part of the map in view or at a coarser resolution, to see in
                 // seconds whether it is right
-                ui.menu_button("Check", |ui| {
+                ui.menu_button("Check run", |ui| {
                     let can = s.can_ask_run();
                     let in_view = s.preview_view.visible().is_some();
                     let note = "landscape metrics, distances and neighbourhoods change with the resolution and the \
@@ -3147,7 +3160,7 @@ impl TerrafluxApp {
                         if s.dirty {
                             let (r, resp) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
                             ui.painter().circle_filled(r.center(), 3.5, ui.visuals().warn_fg_color);
-                            resp.on_hover_text(format!("not saved ({}S saves it)", crate::commands::cmd()));
+                            resp.on_hover_text(format!("not saved ({} saves it)", crate::keymap::text("save")));
                         }
                         if s.loading() {
                             ui.spinner();
@@ -3253,7 +3266,7 @@ impl TerrafluxApp {
         let c = cmd();
         let action = |label: &str, key: String, act: Do| Command::new(label, "action", key, act);
         let mut all = vec![
-            action("Run the whole model", "F5".into(), Do::Run),
+            action("Run the whole model", crate::keymap::text("run"), Do::Run),
             action("Check run on the view", String::new(), Do::Check { view: true, coarsen: 1 }),
             action("Check run at 1/2 resolution", String::new(), Do::Check { view: false, coarsen: 2 }),
             action("Check run at 1/4 resolution", String::new(), Do::Check { view: false, coarsen: 4 }),
@@ -3261,13 +3274,13 @@ impl TerrafluxApp {
             action("Check run on the view at 1/4 resolution", String::new(), Do::Check { view: true, coarsen: 4 }),
             action("Run up to the node selected", format!("{c}enter"), Do::RunToHere),
             action("Stop the run", String::new(), Do::Stop),
-            action("Save the model", format!("{c}S"), Do::Save),
-            action("Save the model as...", format!("{c}shift+S"), Do::SaveAs),
-            action("Save a version of the model...", format!("{c}alt+S"), Do::Version),
+            action("Save the model", crate::keymap::text("save"), Do::Save),
+            action("Save the model as...", crate::keymap::text("save_as"), Do::SaveAs),
+            action("Save a version of the model...", crate::keymap::text("version"), Do::Version),
             action("Clean outputs...", String::new(), Do::Clean),
-            action("New model", format!("{c}N"), Do::New),
-            action("Open a model...", format!("{c}shift+O"), Do::Open),
-            action("Open a raster or vectors...", format!("{c}O"), Do::OpenData),
+            action("New model", crate::keymap::text("new"), Do::New),
+            action("Open a model...", crate::keymap::text("open_model"), Do::Open),
+            action("Open a raster or vectors...", crate::keymap::text("open_data"), Do::OpenData),
             action("Process a folder of rasters...", String::new(), Do::ProcessFolder),
             action("Add an operator", "/".into(), Do::Add(String::new())),
             action("Arrange the nodes", format!("{c}L"), Do::Arrange),
@@ -3280,10 +3293,10 @@ impl TerrafluxApp {
             action("The model as text, or as a diagram", String::new(), Do::Text),
             action("Wizard: a land change model from your maps", String::new(), Do::Wizard),
             action("Settings", String::new(), Do::Settings),
-            action("Keyboard shortcuts", "F1".into(), Do::Shortcuts),
+            action("Keyboard shortcuts", crate::keymap::text("shortcuts"), Do::Shortcuts),
             action("History of the edits", String::new(), Do::History),
-            action("Next model open (its tab)", format!("{c}Tab"), Do::NextTab),
-            action("Close the model in front (its tab)", format!("{c}shift+W"), Do::CloseTab),
+            action("Next model open (its tab)", crate::keymap::text("next_tab"), Do::NextTab),
+            action("Close the model in front (its tab)", crate::keymap::text("close_tab"), Do::CloseTab),
             action("Methods and citations: the model as a paper's methods", String::new(), Do::Methods),
             action("Export to QGIS: the run's maps as a QGIS project", String::new(), Do::Qgis),
             action("Data catalog: climate, terrain, soil, land cover, rivers to download", String::new(), Do::Catalog),
@@ -3583,11 +3596,25 @@ impl TerrafluxApp {
     /// threads the functions use; kept at once, the look changed at once.
     fn settings_window(&mut self, ctx: &egui::Context) {
         if !self.settings_open {
+            self.keyboard.recording = None;
             return;
         }
         let mut open = true;
         let mut st = crate::settings::get();
+        if !self.settings_keys {
+            self.keyboard.recording = None;
+        }
         egui::Window::new("Settings").open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.settings_keys, false, "General");
+                ui.selectable_value(&mut self.settings_keys, true, "Keyboard");
+            });
+            ui.separator();
+            if self.settings_keys {
+                ui.set_min_width(620.0);
+                crate::keymap::panel(ui, &mut self.keyboard, &mut st.shortcuts);
+                return;
+            }
             egui::Grid::new("settings").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
                 ui.label("Theme");
                 egui::ComboBox::from_id_salt("theme").selected_text(st.theme.clone()).width(180.0).show_ui(ui, |ui| {
@@ -3880,6 +3907,7 @@ impl TerrafluxApp {
                     lend_idle: st.lend_idle,
                     node_libraries: st.node_libraries.clone(),
                     node_remotes: st.node_remotes.clone(),
+                    shortcuts: st.shortcuts.clone(),
                     ..Default::default()
                 };
             }
@@ -3895,7 +3923,6 @@ impl TerrafluxApp {
     fn drawers_strip(&mut self, ui: &mut Ui) -> (egui::Rect, Vec<(Pane, egui::Rect)>) {
         let open = self.drawer;
         let closed: Vec<Pane> = [Pane::Operators, Pane::Files].into_iter().filter(|p| !self.is_open(*p)).collect();
-        let c = crate::commands::cmd();
         let (rect, tabs, clicked) = egui::Panel::left("drawers strip")
             .exact_size(20.0)
             .resizable(false)
@@ -3912,8 +3939,9 @@ impl TerrafluxApp {
                             "OPERATORS  ›",
                             112.0,
                             format!(
-                                "The operators: here to see them, a click keeps their pane open (also \"/\", {c}K and \
-                                 the Operators menu)"
+                                "The operators: here to see them, a click keeps their pane open (also \"/\", {} and \
+                                 the Operators menu)",
+                                crate::keymap::text("commands")
                             ),
                         ),
                         _ => (
@@ -4844,6 +4872,8 @@ impl TerrafluxApp {
         }
         // the cell under the pointer, from the map that has it this frame
         self.hover = None;
+        // (a shortcut being recorded in the settings takes its key before anything else reads it)
+        self.keyboard.capture(ui.ctx());
         if self.wizard.is_none() {
             self.tab_keys(ui);
             self.keys(ui);
@@ -5502,16 +5532,23 @@ fn hints(focused: Option<Pane>) -> String {
     match focused {
         Some(Pane::Model) => format!(
             "click: select    drag: a box of nodes    right or middle drag: move    double click: its map    /: add an \
-             operator    {c}enter: run to it    {c}K: commands    F1: shortcuts"
+             operator    {c}enter: run to it    {}: commands    {}: shortcuts",
+            crate::keymap::text("commands"),
+            crate::keymap::text("shortcuts")
         ),
         Some(Pane::Viewer | Pane::Simulation) => {
             format!(
                 "wheel: zoom    drag: move    double click: the whole map    B: satellite under the map    space: hide \
-                 the map    M: measure    {c}G: go to    alt+left, alt+right: the view before, after    F1: shortcuts"
+                 the map    M: measure    {c}G: go to    alt+left, alt+right: the view before, after    {}: shortcuts",
+                crate::keymap::text("shortcuts")
             )
         }
         _ => format!(
-            "/: add an operator    F5: run all    {c}K: commands    Tab: the model and the last map    F1: shortcuts"
+            "/: add an operator    {}: run all    {}: commands    {}: the model and the last map    {}: shortcuts",
+            crate::keymap::text("run"),
+            crate::keymap::text("commands"),
+            crate::keymap::text("to_model"),
+            crate::keymap::text("shortcuts")
         ),
     }
 }

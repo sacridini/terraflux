@@ -75,5 +75,9 @@ name = "fit"
 path = "tests/fit.rs"
 
 [[test]]
+name = "keymap"
+path = "tests/keymap.rs"
+
+[[test]]
 name = "readme_images"
 path = "tests/readme_images.rs"

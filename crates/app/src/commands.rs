@@ -230,30 +230,13 @@ pub fn show(ctx: &egui::Context, open: &mut Option<Commands>, all: &[Command]) -
     chosen
 }
 
-/// The keyboard's shortcuts, by where they work.
+/// The keyboard's shortcuts, by where they work (the application's from [`crate::keymap`]).
 pub fn shortcuts() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
     let c = cmd();
     let delete = if cfg!(target_os = "macos") { "⌫" } else { "del" };
     vec![
-        (
-            "Everywhere",
-            vec![
-                (format!("{c}K, {c}shift+P"), "the commands: anything, by its name"),
-                ("/".into(), "add an operator, by its name"),
-                ("F5".into(), "run the whole model"),
-                (format!("{c}N"), "a new model"),
-                (format!("{c}shift+O"), "open a model"),
-                (format!("{c}O"), "open a raster or vectors (a node that reads it)"),
-                (format!("{c}S, {c}shift+S"), "save the model, save it as"),
-                (format!("{c}alt+S"), "save a version of the model, under a name"),
-                (format!("{c}Z, {c}shift+Z"), "undo, do again"),
-                ("Tab".into(), "to the model and to the last map seen"),
-                (format!("{c}W"), "close the pane in front"),
-                (format!("{c}Tab, {c}shift+Tab"), "the next model open, the one before (their tabs)"),
-                (format!("{c}shift+W"), "close the model in front (its tab)"),
-                ("F1".into(), "these shortcuts"),
-            ],
-        ),
+        // (from the table of actions, with the shortcuts the user gave them)
+        ("Everywhere", crate::keymap::everywhere()),
         (
             "The model's canvas",
             vec![
