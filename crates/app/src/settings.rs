@@ -62,6 +62,8 @@ pub struct Settings {
     /// The computer kept from sleeping while a model runs, a batch goes on or it works for another's (on unless
     /// turned off).
     pub keep_awake: bool,
+    /// The models open when Terraflux closed opened again when it starts without one given (on unless turned off).
+    pub reopen_last: bool,
     /// The end of a run asked for, or of a batch, told (the system's notification, the window's button in the
     /// taskbar) when it took this many seconds or more and Terraflux is not in front (on unless turned off).
     pub notify_runs: bool,
@@ -129,6 +131,7 @@ impl Default for Settings {
             wires_around: true,
             recent_models: Vec::new(),
             keep_awake: true,
+            reopen_last: true,
             notify_runs: true,
             notify_after: 10.0,
             providers: crate::llm::presets(),

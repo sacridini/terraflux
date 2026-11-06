@@ -458,3 +458,75 @@ fn the_files_not_found_are_located_again() {
     h.run_steps(3);
     assert!(h.query_by_label("2 files of the model are not found.").is_some());
 }
+
+/// The models open when Terraflux closed opened again, each with its view: the camera, the node selected, what the
+/// Viewer showed (run the quiet way once the data is read), the pane in front.
+#[test]
+fn the_last_session_comes_back_with_each_models_view() {
+    let dir = tmp("restore");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let store = terraflux_app::restore::Store::new(dir.join("data"));
+    let file = |name: &str| {
+        let mut m = terraflux_graph::Model::new(name);
+        for id in ["a", "b"] {
+            m.nodes.push(terraflux_graph::Node::new(id, "nlm.random").param("rows", 30).param("cols", 30));
+        }
+        let p = dir.join(format!("{name}.toml"));
+        m.save(&p).unwrap();
+        p
+    };
+    let (one, two) = (file("one"), file("two"));
+    let mut app = new_app(Some(one.clone()));
+    app.restore = Some(store.clone());
+    let mut h = harness(app);
+    h.run_steps(3);
+    h.state_mut().ask_open(&two);
+    h.run_steps(3);
+    // in the first: b selected, the camera moved, a's map in the Viewer; the first in front
+    h.state_mut().switch_to(0);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.selected = Some("b".into());
+        s.editor.set_camera(egui::vec2(123.0, -45.0), 1.75);
+        s.preview = Some(("a".into(), "map".into()));
+    }
+    h.run_steps(3);
+    h.state_mut().remember();
+    drop(h);
+    // Terraflux again: both open, the first in front with its view
+    let mut app = new_app(None);
+    app.restore = Some(store.clone());
+    app.reopen_last();
+    let mut h = harness(app);
+    h.run_steps(2);
+    assert_eq!((h.state().tab_count(), h.state().front), (2, 0));
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.path.as_deref().map(|p| p.file_name().unwrap().to_owned()), Some("one.toml".into()));
+    assert_eq!(s.selected.as_deref(), Some("b"));
+    let c = s.editor.camera().unwrap();
+    assert_eq!(([c.pan.x, c.pan.y], c.zoom), ([123.0, -45.0], 1.75));
+    assert_eq!(s.preview, Some(("a".to_string(), "map".to_string())));
+    // what the Viewer showed: run the quiet way, not the whole model
+    let t = Instant::now();
+    while !h.state().session.as_ref().unwrap().outputs.contains_key("a") {
+        h.step();
+        assert!(t.elapsed() < Duration::from_secs(60), "what the Viewer showed did not run");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    run_to_the_end_quietly(&mut h);
+    assert!(!h.state().session.as_ref().unwrap().outputs.contains_key("b"), "the whole model not run");
+    // a model opened with no view kept: as before
+    assert!(store.view_of(&dir.join("never.toml")).is_none());
+}
+
+/// Step until no run goes on.
+fn run_to_the_end_quietly(h: &mut Harness<TerrafluxApp>) {
+    let t = Instant::now();
+    while h.state().session.as_ref().unwrap().running() {
+        h.step();
+        assert!(t.elapsed() < Duration::from_secs(60), "the run did not end");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    h.run_steps(2);
+}

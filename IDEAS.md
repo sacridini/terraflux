@@ -2631,6 +2631,20 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    que o Viewer mostrava roda pelo caminho quieto (`run_to_show`, como um duplo clique), nunca o modelo inteiro.
    Sem arquivo de modelo na linha de comando e com a configuração ligada, a sessão volta ao abrir. Testes: a vista
    gravada e lida, um modelo reaberto com a câmera e a saída de antes, a configuração desligada.
+   **Feito** (Unreleased): `restore.rs` (`Store` numa pasta: `last-session.json` com `Last { models, front }`, os
+   arquivos sumidos tirados; `views.json` com uma `View` por modelo, pelo caminho canônico, os últimos 100, escrito
+   ao lado e renomeado). `View`: o escopo, a câmera (`EditorState::camera`/`set_camera`), o nó selecionado, o Viewer
+   como um `Plot` (`builder::view_plot`: o `plot_of` do *Update the plot* sobre os campos da sessão, com o
+   enquadramento do mapa em vista; nunca escrito no modelo) e o painel da frente. `apply`: o escopo, a câmera, o
+   Viewer (`builder::show_plot`, separado do `open_plot`), os nós dele na `show_queue` (o caminho quieto, depois de
+   ler os dados), a seleção (depois do Viewer, que seleciona o seu nó) e o painel. O `TerrafluxApp::restore` só
+   existe no aplicativo de verdade (`lib::run`), como o `Keeper`; `remember` a cada minuto, ao fechar (o
+   `may_quit` aceito) e ao fechar uma aba (`drop_front`); `open` devolve a vista; `reopen_last` no `lib::run` quando
+   nenhum modelo foi dado e a configuração `reopen_last` (Settings > Start) está ligada. Testes:
+   `restore::tests::the_views_and_the_last_session_are_kept` (gravar, ler, o último de cada modelo, os 100, um
+   arquivo sumido) e `the_last_session_comes_back_with_each_models_view` (duas abas, a da frente com a câmera, a
+   seleção e o Viewer de antes, só o nó mostrado rodado). Ficou de fora: um teste da configuração desligada (ela só
+   age no `lib::run`, que os testes não abrem).
 3. **Localizar arquivos ausentes** (Windows, Linux, macOS). `relink.rs`. Ao ler os dados: os caminhos que o modelo
    lê (as entradas `$` com arquivo e as configurações de arquivo dos nós, `terraflux_graph::file_settings`, nos corpos
    dos contêineres também) que não existem. Uma faixa no alto do canvas e no Problems: "12 files not found: Locate

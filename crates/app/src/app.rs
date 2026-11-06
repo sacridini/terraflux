@@ -1772,6 +1772,10 @@ pub struct TerrafluxApp {
     /// the tabs.
     pub others: Vec<crate::tabs::Parked>,
     pub front: usize,
+    /// Where each model's view and the models open last are kept ([`crate::restore`]; the application's only), and
+    /// when they were last.
+    pub restore: Option<crate::restore::Store>,
+    remembered: Instant,
     pub wizard: Option<Wizard>,
     /// The panes of the main window, and the windows of their own.
     pub dock: Option<DockState<Pane>>,
@@ -1991,6 +1995,8 @@ impl TerrafluxApp {
             batch_began: None,
             others: Vec::new(),
             front: 0,
+            restore: None,
+            remembered: Instant::now(),
         };
         if let Some(p) = model {
             app.open(&p);
@@ -2014,6 +2020,13 @@ impl TerrafluxApp {
                 // a model of data: its viewer beside it, the graph in front; its nodes in the node's pane
                 self.panes_due_again();
                 self.open_due();
+                // its view as it was left
+                let kept = self.restore.as_ref().and_then(|st| st.view_of(path));
+                if let (Some(v), Some(s)) = (kept, &mut self.session)
+                    && let Some(p) = crate::restore::apply(s, &self.registry, &v)
+                {
+                    self.focus(p);
+                }
             }
             Err(e) => self.message = Some(e),
         }
@@ -2135,6 +2148,45 @@ impl TerrafluxApp {
         }
     }
 
+    /// The views of the models open, and which are open, kept ([`crate::restore`]).
+    pub fn remember(&mut self) {
+        self.remembered = Instant::now();
+        let Some(st) = self.restore.clone() else { return };
+        let pane = self.focused();
+        let mut views = Vec::new();
+        let mut models = Vec::new();
+        let mut front = 0;
+        for k in 0..self.tab_count() {
+            let in_front = k == self.front;
+            let s = if in_front {
+                self.session.as_mut()
+            } else {
+                self.others.get_mut(k - (k > self.front) as usize).map(|p| &mut p.session)
+            };
+            let Some(s) = s else { continue };
+            if let Some(v) = crate::restore::view(s, if in_front { pane } else { None }) {
+                if in_front {
+                    front = models.len();
+                }
+                models.push(v.path.clone());
+                views.push(v);
+            }
+        }
+        st.keep_views(views);
+        st.keep_last(&crate::restore::Last { models, front });
+    }
+
+    /// The models open when Terraflux closed opened again, the one in front in front.
+    pub fn reopen_last(&mut self) {
+        let Some(st) = self.restore.clone() else { return };
+        let last = st.last();
+        for p in &last.models {
+            self.open(p);
+        }
+        self.message = None;
+        self.switch_to(last.front);
+    }
+
     /// Whether the model open may be put aside now (it has no edits worth keeping); else the user is asked, and
     /// `then` done after the answer (unless Cancel).
     pub fn may_leave(&mut self, then: Then) -> bool {
@@ -2169,6 +2221,7 @@ impl TerrafluxApp {
                 if !self.may_quit() {
                     return;
                 }
+                self.remember();
                 self.quitting = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
@@ -2283,7 +2336,9 @@ impl TerrafluxApp {
         if !ctx.input(|i| i.viewport().close_requested()) || self.quitting {
             return;
         }
-        if !self.may_quit() {
+        if self.may_quit() {
+            self.remember();
+        } else {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
     }
@@ -3167,6 +3222,13 @@ impl TerrafluxApp {
                          points of your own is left as you drew it)",
                     );
                 });
+                ui.end_row();
+                ui.label("Start");
+                ui.checkbox(&mut st.reopen_last, "reopen the models open last").on_hover_text(
+                    "when Terraflux starts without a model given: the models that were open, each with its view \
+                     (where the canvas looked, the node selected, what the Viewer showed); a model opened gets its view \
+                     back either way",
+                );
                 ui.end_row();
                 ui.label("Runs");
                 ui.vertical(|ui| {
@@ -4234,6 +4296,10 @@ impl TerrafluxApp {
             self.recovery = Some(k);
         }
         let behind = self.poll_behind(ui.ctx());
+        // the models' views and the models open kept now and then (and when Terraflux closes)
+        if self.remembered.elapsed() > Duration::from_secs(60) {
+            self.remember();
+        }
         if let Some(s) = &mut self.session {
             s.poll();
             crate::watch::follow(s, ui.ctx());

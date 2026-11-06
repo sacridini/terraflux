@@ -67,6 +67,13 @@ minor versions.
   models behind go on running, and the end of a long run says which model it was; the Trace, the Parameters, the
   Calculator and the Assistant's conversation follow the model in front. Closing a tab, or Terraflux, asks about
   each model with edits not saved. Nodes copied in one tab are pasted in another as before.
+- Application: **the last session comes back**. When Terraflux starts without a model given, the models that were
+  open when it closed open again in their tabs, the one in front in front (Settings > Start: *reopen the models open
+  last*, on unless turned off). And each model keeps its view, for the last 100 opened: where the canvas looked (the
+  group open, the camera), the node selected, what the Viewer showed (its layers, the map shown, the comparison,
+  the frame of the map) and the pane in front; a model opened, by *Open recent* too, gets it back, what the Viewer
+  showed run the quiet way (as a double click does), never the whole model. Kept in the user's application data
+  (`last-session.json`, `views.json`), every minute and when Terraflux or a tab closes; never in the model.
 
 ## [1.42.0] - 2026-11-06
 

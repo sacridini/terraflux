@@ -137,6 +137,12 @@ impl TerrafluxApp {
         if let (Some(k), Some(s)) = (&self.recovery, &mut self.session) {
             k.forget(s);
         }
+        // (its view kept, for when it is opened again)
+        if let (Some(st), Some(s)) = (self.restore.clone(), &mut self.session)
+            && let Some(v) = crate::restore::view(s, None)
+        {
+            st.keep_views(vec![v]);
+        }
         self.session = None;
         if self.others.is_empty() {
             self.front = 0;

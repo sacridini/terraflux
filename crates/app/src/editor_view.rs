@@ -803,6 +803,17 @@ impl EditorState {
     }
 
     /// Where a point of the graph is on the screen, as the canvas was last drawn.
+    /// The camera on the scope shown (none before it was drawn).
+    pub fn camera(&self) -> Option<Camera> {
+        self.cameras.get(&self.path).copied()
+    }
+
+    /// The camera on the scope shown set (a view kept put back): not fitted to the nodes then.
+    pub fn set_camera(&mut self, pan: Vec2, zoom: f32) {
+        self.cameras.insert(self.path.clone(), Camera { pan, zoom: zoom.clamp(0.02, 8.0) });
+        self.fit = false;
+    }
+
     pub fn screen_at(&self, p: Pos2) -> Option<Pos2> {
         self.on_screen(p)
     }

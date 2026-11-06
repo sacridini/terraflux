@@ -3248,6 +3248,35 @@ pub fn plot_figure(m: &terraflux_graph::Model, r: &Registry, p: &terraflux_graph
 /// front, and the model run when what it shows has not run yet.
 pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
     let Some(p) = s.source.plot(id).cloned() else { return };
+    show_plot(s, r, &p);
+}
+
+/// What the Viewer shows now, as a Plot (what *Update the plot* would keep, with the frame of the map in view): none
+/// when it shows nothing.
+pub fn view_plot(s: &mut Session) -> Option<terraflux_graph::Plot> {
+    let (node, port) = s.preview.clone()?;
+    let sh = Shown {
+        node,
+        port,
+        band: s.preview_band,
+        chosen: s.preview_chosen,
+        layers: s.preview_layers.clone(),
+        compare: std::mem::take(&mut s.preview_compare),
+        kept: s.preview_kept.clone(),
+        ..Default::default()
+    };
+    let mut p = plot_of(&sh, (&s.palettes, &s.ranges), None, "view", None);
+    s.preview_compare = sh.compare;
+    p.view = s.preview_view.visible().and_then(|(g, c)| {
+        let e = crate::frame::extent_of(g, c);
+        terraflux_graph::PlotView::new(e[0], e[1], e[2], e[3])
+    });
+    Some(p)
+}
+
+/// A Plot shown in the Viewer (one of the model's, or a view kept): as [`open_plot`].
+pub fn show_plot(s: &mut Session, r: &Registry, p: &terraflux_graph::Plot) {
+    let p = p.clone();
     let port_of = |from: &str| match terraflux_graph::Ref::parse(from) {
         Ok(terraflux_graph::Ref::Port { node, port }) => Some((node, port)),
         _ => None,
