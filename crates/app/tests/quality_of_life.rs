@@ -640,3 +640,31 @@ fn notes_and_frames_are_copied_with_their_nodes() {
     assert_eq!(s.editor.note_chosen.as_deref(), Some("note2"));
     assert_eq!(s.source.nodes.len(), 4);
 }
+
+/// The model's file changed by an agent through the MCP, which told its tool: the step that takes it again named by
+/// the tool, not by the difference.
+#[test]
+fn the_steps_of_an_agent_are_named_by_its_tools() {
+    use terraflux_graph::{Model, Node};
+    let path = tmp(&format!("agent-{}.toml", std::process::id()));
+    let mut m = Model::new("agent");
+    m.nodes.push(Node::new("a", "nlm.random"));
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path.clone())));
+    h.run_steps(3);
+    // what terraflux mcp does: the tool told, then the file written
+    m.nodes.push(Node::new("b", "nlm.random"));
+    terraflux_app::agent_edits::tell(&path, "add_node");
+    m.save(&path).unwrap();
+    let t = Instant::now();
+    while !has_node(&h, "b") {
+        h.step();
+        assert!(t.elapsed() < Duration::from_secs(20), "the file not read again");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    h.run_steps(3);
+    let (names, at) = h.state().session.as_ref().unwrap().history.steps();
+    assert_eq!(names.last().map(String::as_str), Some("the MCP: add_node"), "{names:?}");
+    assert_eq!(at, names.len());
+    assert!(terraflux_app::agent_edits::take(&path).is_empty(), "taken");
+}

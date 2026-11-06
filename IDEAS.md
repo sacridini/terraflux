@@ -2688,6 +2688,11 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    canvas; `Session::history_open`), com "compare". Testes: `undo::tests` e
    `the_history_goes_back_and_forward_to_any_step` (a imagem `ui-history.png`). Falta: o MCP nomear os seus passos
    (as edições dele chegam pelo arquivo, `watch::take`: hoje "added …" pelo diff).
+   **Feito** (Unreleased), o que faltava: `agent_edits.rs` (`tell`: o `mcp::change` conta a ferramenta antes de
+   escrever o arquivo, em `agent-edits.json` nos dados do aplicativo, pelo caminho canônico, com a hora; `take`:
+   o `watch::take` as pega e esquece, as de mais de dez minutos de fora; `step_name`: "the MCP: add_node, connect",
+   cada ferramenta uma vez, mais de três "X and N more"), o nome dado ao passo com `History::name`. Testes:
+   `agent_edits::tests::the_tools_told_name_the_step` e `the_steps_of_an_agent_are_named_by_its_tools` (ui).
 5. **O tempo que falta.** `eta.rs`: com os tempos de cada nó das execuções anteriores (`Session::timings`, agora
    também gravados por modelo em `data_dir()/run-times.json`, os últimos 200 modelos), o que falta é a soma dos nós
    ainda não feitos mais o resto do que roda (pela sua fração: um laço pelos passos, um operador pelo que ele

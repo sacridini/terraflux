@@ -340,19 +340,21 @@ impl Server {
                 tools::explain_calc(&m, &dir, a, &tools::known_by_running(&self.engine, &m, &dir))
             }
             // (the values of the calculator's inputs: the model run up to what it reads)
-            "write_calc" => change(a, r, |m, r, dir| {
+            "write_calc" => change(a, r, "write_calc", |m, r, dir| {
                 let known = tools::known_by_running(&self.engine, m, dir);
                 tools::write_calc(m, r, dir, a, &known)
             }),
             "set_input" => {
                 let mut a = a.clone();
                 let named = self.name_classes(&mut a);
-                change(&a, r, |m, r, dir| tools::edit("set_input", m, r, dir, &a)).map(|t| match t.split_once('\n') {
-                    Some((done, rest)) => format!("{done}{named}\n{rest}"),
-                    None => format!("{t}{named}"),
+                change(&a, r, "set_input", |m, r, dir| tools::edit("set_input", m, r, dir, &a)).map(|t| {
+                    match t.split_once('\n') {
+                        Some((done, rest)) => format!("{done}{named}\n{rest}"),
+                        None => format!("{t}{named}"),
+                    }
                 })
             }
-            edit if tools::EDITS.contains(&edit) => change(a, r, |m, r, dir| tools::edit(edit, m, r, dir, a)),
+            edit if tools::EDITS.contains(&edit) => change(a, r, edit, |m, r, dir| tools::edit(edit, m, r, dir, a)),
             _ => Err(format!("no tool {name:?}")),
         }
     }
@@ -427,12 +429,14 @@ fn save(path: &Path, m: &mut Model) -> std::result::Result<(), String> {
 }
 
 /// A change of a model's file: read, changed, written back; nothing written when the change fails. What was done
-/// and the problems the model has then.
-fn change(a: &Value, r: &Registry, change: impl FnOnce(&mut Model, &Registry, &Path) -> Reply) -> Reply {
+/// and the problems the model has then. The application that may have the model open is told the tool first (its
+/// step of undo named by it).
+fn change(a: &Value, r: &Registry, tool: &str, change: impl FnOnce(&mut Model, &Registry, &Path) -> Reply) -> Reply {
     let path = model_path(a)?;
     let mut m = load(&path)?;
     let dir = folder(&path);
     let done = change(&mut m, r, &dir)?;
+    terraflux_app::agent_edits::tell(&path, tool);
     save(&path, &mut m)?;
     Ok(format!("{done}\n{}", tools::problems(&m, &dir, r)))
 }

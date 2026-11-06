@@ -22,6 +22,10 @@ minor versions.
 - Canvas: **how long each node took before, from the first moment**. A model opened again shows under each box,
   fainter and with a `~`, how long it took when it last ran (in the sessions before, as the time left of a run
   already uses), until it runs in this one; the tooltip says so.
+- Application: **an agent's edits named in the History by its tools**. When an agent changes the model open through
+  `terraflux mcp`, the step that reads the file again is named by the tools it used ("the MCP: add_node, connect"),
+  no longer guessed from the difference. The MCP tells them in the user's application data (`agent-edits.json`)
+  before writing the file; the application takes them when it reads it.
 
 ## [1.43.0] - 2026-11-06
 

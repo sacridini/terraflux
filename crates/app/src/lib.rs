@@ -3,6 +3,7 @@
 //! the validation against an observed map.
 
 pub mod advice;
+pub mod agent_edits;
 pub mod animation;
 pub mod app;
 pub mod area;

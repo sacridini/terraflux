@@ -144,6 +144,11 @@ pub fn take(s: &mut Session, m: Model) {
     s.source = m;
     crate::builder::forget_missing(s);
     s.edited();
+    // (the step named by the tools of an agent that changed the file, when one told them)
+    if let Some(name) = s.path.as_deref().map(crate::agent_edits::take).and_then(|t| crate::agent_edits::step_name(&t))
+    {
+        s.history.name(&name);
+    }
     // (the places moved here kept: still to be saved)
     s.dirty = saved.as_ref() != Some(&s.source);
     s.saved = saved;
