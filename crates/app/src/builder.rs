@@ -1109,13 +1109,17 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
     }
     // (the pointer over the canvas: elsewhere the arrows go through the maps shown)
     let over = ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| s.editor.canvas().is_some_and(|r| r.contains(p)));
+    if over {
+        // (the canvas' keys come before the everywhere ones the same, in the next frame)
+        crate::keymap::over(ui.ctx(), crate::keymap::Scope::Canvas);
+    }
     // ctrl+F finds a node of the model (with the pointer over the canvas or the canvas in focus)
     let finding = !typing
         && (canvas || over)
         && s.editor.quick.is_none()
         && s.editor.renaming.is_none()
         && !s.editor.text
-        && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
+        && ui.input_mut(|i| crate::keymap::pressed(i, "canvas_find"));
     if finding && s.editor.find.is_none() {
         s.editor.find = Some(Default::default());
     }
@@ -1155,7 +1159,7 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
         }
         show = enter && s.selected.is_some();
     }
-    let rename = !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::R));
+    let rename = !typing && ui.input_mut(|i| crate::keymap::pressed(i, "canvas_rename"));
     if rename && let Some(id) = s.selected.clone() {
         s.editor.text = false;
         s.editor.renaming = Some((id.clone(), id, false));
@@ -1170,12 +1174,10 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
             i.events.retain(|e| !matches!(e, egui::Event::Text(t) if t == "/"));
         }
         (
-            !calculator && i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter),
+            !calculator && crate::keymap::pressed(i, "canvas_run_to"),
             // delete, or backspace (the key macOS deletes with)
-            !typing
-                && (i.consume_key(egui::Modifiers::NONE, egui::Key::Delete)
-                    || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace)),
-            !typing && i.consume_key(egui::Modifiers::COMMAND, egui::Key::L),
+            !typing && crate::keymap::pressed(i, "canvas_delete"),
+            !typing && crate::keymap::pressed(i, "canvas_arrange"),
             slash,
         )
     });
@@ -1193,14 +1195,15 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
         if !here {
             return (false, false);
         }
-        let ungroup = i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::G);
-        (i.consume_key(egui::Modifiers::COMMAND, egui::Key::G), ungroup)
+        // (the most specific first, as the table does)
+        let hit = crate::keymap::consume(i, &["canvas_group", "canvas_ungroup"]);
+        (hit.contains(&"canvas_group"), hit.contains(&"canvas_ungroup"))
     });
     if group {
         group_selected(s, r);
     }
     // B turns the nodes selected off (bypassed: their inputs passed on) or on again
-    if here && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::B)) {
+    if here && ui.input_mut(|i| crate::keymap::pressed(i, "canvas_bypass")) {
         bypass_selected(s);
     }
     if ungroup {
@@ -1217,7 +1220,7 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
         if !here {
             return (false, false, None);
         }
-        let duplicate = i.consume_key(egui::Modifiers::COMMAND, egui::Key::D);
+        let duplicate = crate::keymap::pressed(i, "canvas_duplicate");
         let copy = i.events.iter().any(|e| matches!(e, egui::Event::Copy));
         let paste = i.events.iter().find_map(|e| match e {
             egui::Event::Paste(t) => crate::editor::clip_nodes(t),

@@ -2494,8 +2494,7 @@ pub fn show(
         st.chosen.insert(s.to_string());
     }
     let typing = ui.ctx().memory(|m| m.focused().is_some());
-    let (all, none) =
-        ui.input(|i| (i.modifiers.command && i.key_pressed(egui::Key::A), i.key_pressed(egui::Key::Escape)));
+    let (all, none) = ui.input(|i| (crate::keymap::peek(i, "canvas_select_all"), i.key_pressed(egui::Key::Escape)));
     if !typing && all && (resp.hovered() || resp.has_focus() || !st.chosen.is_empty()) {
         st.chosen = nodes.iter().map(|n| n.id.clone()).collect();
     }
@@ -3908,7 +3907,7 @@ pub fn show(
         painter.rect_stroke(frame, 8.0, Stroke::new(2.5, accent.gamma_multiply(glow)), egui::StrokeKind::Inside);
     }
     let idle = ui.ctx().memory(|m| m.focused().is_none());
-    if ui.input(|i| i.key_pressed(egui::Key::Home)) && idle {
+    if ui.input(|i| crate::keymap::peek(i, "canvas_home")) && idle {
         st.fit = true;
         ui.ctx().request_repaint();
     }
@@ -3918,7 +3917,7 @@ pub fn show(
         && st.quick.is_none()
         && st.find.is_none()
         && st.renaming.is_none()
-        && ui.input(|i| i.key_pressed(egui::Key::F) && !i.modifiers.any())
+        && ui.input(|i| crate::keymap::peek_exact(i, "canvas_frame"))
     {
         st.framing = true;
         ui.ctx().request_repaint();

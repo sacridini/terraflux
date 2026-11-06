@@ -3013,7 +3013,7 @@ extensão); as versões de um modelo só existem pelo git (o `review.rs` compara
    mesmo lugar: canvas, Viewer, a janela toda), *Reset* por ação e para todas. Guardados no `settings.json`; o F1,
    os menus e a paleta mostram os atalhos escolhidos. Pede tirar os `consume_key` espalhados para uma tabela de
    ações com o atalho padrão de cada uma.
-   **Feito em parte** (Unreleased): a tabela, a tela e os atalhos da aplicação toda. Novo `keymap.rs`: `ACTIONS`
+   **Feito, parte 1** (Unreleased): a tabela, a tela e os atalhos da aplicação toda. Novo `keymap.rs`: `ACTIONS`
    (cada `Action` com `id` estável, nome da paleta, `Scope`, atalhos padrão, `fixed` e `idle`), `Shortcut` (com texto
    "Ctrl+Shift+S" gravado e "ctrl+shift+S" / "⌘shift+S" mostrado, `parse`/`Display`), `current`, `text`, `texts`,
    `take` (lê o conjunto de ids de uma vez, o mais específico primeiro, como o egui pede para shift e alt),
@@ -3028,14 +3028,43 @@ extensão); as versões de um modelo só existem pelo git (o `review.rs` compara
    Backspace tira, "+" para um segundo, *Reset* por linha e *Reset all*, conflitos na hora, em vermelho para o mesmo
    lugar e laranja para global contra lugar); enquanto grava, o `Panel::capture` pega a tecla no começo do quadro e a
    aplicação espera. Teste: `tests/keymap.rs` (programa próprio: trocar o atalho é de todo o processo, e o `ui` usa
-   ctrl+R no canvas). **Falta (parte 2):** as teclas do canvas, do Viewer e dos painéis, ainda lidas onde são usadas
-   (ocorrências de `consume_key`/`consume_shortcut`/`key_pressed` por arquivo: builder.rs 27, files_view.rs 12,
-   map_view.rs 10, calc_view.rs 10, editor_view.rs 5, find.rs 4, commands.rs 4, chat.rs 4, places.rs 3, draw.rs 3,
-   measure.rs 2, attribute_table.rs 2, e 1 em app.rs, node_view.rs, notes.rs e remote.rs); entram na tabela com os
-   `Scope` `Canvas`, `Viewer`, `Calculator` e `Files` (já existem) e, no F1, as seções "The model's canvas" e "Maps"
-   (hoje texto fixo em `commands::shortcuts`) passam a sair da tabela; `undo`, `redo` e `add_operator` ("/") estão
-   na tabela como `fixed` (só listados) até serem lidos por ela; as Esc, Enter, setas e a edição de texto ficam
-   fixas fora da tabela. Hoje ctrl+R está no canvas (renomear) e, se o usuário o der à execução, a global ganha.
+   ctrl+R no canvas). **Parte 2, feita:** as teclas do canvas, do Viewer e dos painéis entraram na tabela (ver
+   abaixo).
+   **Feito** (Unreleased), parte 2: as teclas do canvas, do Viewer, da calculadora, dos arquivos, do assistente, da
+   tabela de atributos e das caixas. Novos `Scope`: `Assistant`, `Table` e `Dialogs` (além de `Canvas`, `Viewer`,
+   `Calculator` e `Files`). Mudáveis, lidas pela tabela com `keymap::pressed`/`consume` (dentro de um `InputState`,
+   com a condição de foco e de ponteiro de cada lugar como antes) ou `peek`/`peek_exact` (sem tomar a tecla, onde o
+   código usava `key_pressed`): canvas `canvas_home` (Home), `canvas_frame` (F, só sem modificadores),
+   `canvas_run_to` (ctrl+Enter), `canvas_delete` (Delete e Backspace), `canvas_duplicate` (ctrl+D), `canvas_find`
+   (ctrl+F), `canvas_rename` (ctrl+R), `canvas_arrange` (ctrl+L), `canvas_group` (ctrl+G), `canvas_ungroup`
+   (ctrl+shift+G), `canvas_bypass` (B), `canvas_select_all` (ctrl+A); Viewer `viewer_satellite` (B), `viewer_hide`
+   (espaço), `viewer_measure` (M), `viewer_goto` (ctrl+G), `viewer_back` e `viewer_forward` (alt+setas; os botões do
+   mouse seguem fixos), `viewer_step_back` e `viewer_step_next` (setas, a Simulação); calculadora `calc_run`
+   (ctrl+Enter) e `calc_complete` (ctrl+Espaço); arquivos `files_back`, `files_forward`, `files_up` (alt+setas) e
+   `files_location` (ctrl+L); tabela `table_select_all` (ctrl+A). `fixed` (listadas, só leitura, ainda lidas onde são
+   usadas), cada uma pelo motivo: parte da edição de texto ou do jeito do widget (Enter e Esc de caixas e listas, as
+   setas em listas e na história do console e do assistente, Tab e Enter dos completamentos, Enter que envia no
+   assistente, Esc que para a resposta, ctrl+Enter que salva uma nota, Backspace e Enter e Esc de quem desenha e mede,
+   as setas, Enter e Esc dos arquivos e do canvas: `canvas_beside`, `canvas_show`, `canvas_select_none`,
+   `viewer_finish`, `viewer_undo_point`, `viewer_cancel`, `calc_next`, `calc_prev`, `calc_accept`, `calc_close`,
+   `files_rows`, `files_fold`, `files_enter`, `chat_send`, `chat_stop`, `chat_recall`, `table_none`, `list_down`,
+   `list_up`, `box_enter`, `box_escape`, `note_save`); ctrl+C e ctrl+V do canvas, que são eventos `Copy` e `Paste` do
+   sistema (`canvas_copy`, `canvas_paste`); e os dígitos dos lugares (`canvas_place_keep`/`_go`,
+   `viewer_place_keep`/`_go`: ctrl+1 a ctrl+9 e 1 a 9 seguem os números dos slots, mostrados como "1 to 9"); `undo`,
+   `redo` e `add_operator` seguem como estavam (ctrl+Y também refaz, fora da tabela). O F1 sai todo da tabela (uma
+   seção por `Scope`, `keymap::of_scope`; só as linhas do mouse ficam como texto, `commands::shortcuts`, e a janela
+   ganhou rolagem), e as dicas da barra de status (`canvas_run_to`, `viewer_satellite`, `viewer_hide`,
+   `viewer_measure`, `viewer_goto`, `viewer_back`, `viewer_forward`) usam `keymap::text`. Conflitos: mesma regra (mesmo
+   `Scope` = erro, global contra lugar = aviso); a ação global que espera durante a edição de texto (`idle`, a Tab) não
+   conflita com as `fixed` da edição. Precedência: `Keys::read` (`keymap::take`) deixa para o lugar o atalho global que
+   uma ação mudável do lugar sob o ponteiro também tem (`keymap::over(ctx, scope)`, chamado no quadro anterior pelo
+   canvas, o Viewer, os arquivos e a tabela, guardado no `Context`; não vale com um campo em foco); o aviso do
+   Settings diz quem ganha (se a do lugar é `fixed`, a global vem primeiro). Testes: no `keymap`, os padrões de todas
+   contra as teclas de antes, escopos, `fixed`, faixa de dígitos, conflitos e precedência; em `tests/keymap.rs`, F do
+   canvas e B do Viewer trocados (a nova age, a antiga não, o F1 e a barra de status mostram a nova, a tela do
+   Settings com os escopos em `ui-44-keyboard-scopes.png`) e ctrl+R dado à execução (sobre o canvas renomeia, fora
+   dele executa). Fica de fora: as dicas de passar o mouse que citam teclas ("ctrl+enter" no botão Run to, "ctrl+L" no
+   Arrange etc.) seguem em texto fixo.
 6. **Lugares marcados no Viewer e no canvas.** No Viewer, *Save this place...* guarda a extensão e o zoom com um
    nome (e, opcional, as camadas visíveis); no canvas, a posição e o zoom da câmera. Ctrl+1 a ctrl+9 marcam, 1 a 9
    vão até eles (animado, como o *Go to*), uma lista no menu da vista renomeia e apaga. Guardados com o modelo

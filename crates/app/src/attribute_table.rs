@@ -137,9 +137,12 @@ pub fn panel(ui: &mut Ui, id: egui::Id, v: &Arc<Vector>, name: &str, open: &mut 
                 .memory(|m| m.focused())
                 .and_then(|f| ui.ctx().read_response(f))
                 .is_some_and(|r| ui.max_rect().contains(r.rect.center()));
+            if ui.ui_contains_pointer() {
+                crate::keymap::over(ui.ctx(), crate::keymap::Scope::Table);
+            }
             if (ui.ui_contains_pointer() || focus_here)
                 && !ui.ctx().text_edit_focused()
-                && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::A))
+                && ui.input_mut(|i| crate::keymap::pressed(i, "table_select_all"))
             {
                 open.pick.all(&crate::table_view::shown_rows(ui, &table, table_id));
             }

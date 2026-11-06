@@ -4154,7 +4154,7 @@ impl TerrafluxApp {
         if n > 1 {
             let typing = ui.ctx().memory(|m| m.focused().is_some());
             let (back, next) =
-                ui.input(|i| (i.key_pressed(egui::Key::ArrowLeft), i.key_pressed(egui::Key::ArrowRight)));
+                ui.input(|i| (crate::keymap::peek(i, "viewer_step_back"), crate::keymap::peek(i, "viewer_step_next")));
             if !typing && back {
                 s.set_frame(s.frame().saturating_sub(1));
             }
@@ -5528,19 +5528,26 @@ impl eframe::App for TerrafluxApp {
 
 /// What the keys and the mouse do in a pane, for the status bar: the canvas's, the maps', else the application's.
 fn hints(focused: Option<Pane>) -> String {
-    let c = crate::commands::cmd();
+    use crate::keymap::text;
     match focused {
         Some(Pane::Model) => format!(
             "click: select    drag: a box of nodes    right or middle drag: move    double click: its map    /: add an \
-             operator    {c}enter: run to it    {}: commands    {}: shortcuts",
-            crate::keymap::text("commands"),
-            crate::keymap::text("shortcuts")
+             operator    {}: run to it    {}: commands    {}: shortcuts",
+            text("canvas_run_to"),
+            text("commands"),
+            text("shortcuts")
         ),
         Some(Pane::Viewer | Pane::Simulation) => {
             format!(
-                "wheel: zoom    drag: move    double click: the whole map    B: satellite under the map    space: hide \
-                 the map    M: measure    {c}G: go to    alt+left, alt+right: the view before, after    {}: shortcuts",
-                crate::keymap::text("shortcuts")
+                "wheel: zoom    drag: move    double click: the whole map    {}: satellite under the map    {}: hide \
+                 the map    {}: measure    {}: go to    {}, {}: the view before, after    {}: shortcuts",
+                text("viewer_satellite"),
+                text("viewer_hide"),
+                text("viewer_measure"),
+                text("viewer_goto"),
+                text("viewer_back"),
+                text("viewer_forward"),
+                text("shortcuts")
             )
         }
         _ => format!(

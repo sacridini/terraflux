@@ -841,6 +841,8 @@ pub fn pane(ui: &mut Ui, f: &mut Files, s: &mut Session, r: &Registry) -> Option
     let over = ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| pane.contains(p));
     // the mouse's side buttons: back and forward
     if over {
+        // (the pane's keys come before the everywhere ones the same, in the next frame)
+        crate::keymap::over(ui.ctx(), crate::keymap::Scope::Files);
         ui.input(|i| {
             if i.pointer.button_pressed(egui::PointerButton::Extra1) {
                 todo.push(Do::Back);
@@ -852,13 +854,13 @@ pub fn pane(ui: &mut Ui, f: &mut Files, s: &mut Session, r: &Registry) -> Option
     }
     if (f.active || over) && !typing {
         ui.input_mut(|i| {
-            if i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowLeft) {
+            if crate::keymap::pressed(i, "files_back") {
                 todo.push(Do::Back);
             }
-            if i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowRight) {
+            if crate::keymap::pressed(i, "files_forward") {
                 todo.push(Do::Forward);
             }
-            if i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowUp) {
+            if crate::keymap::pressed(i, "files_up") {
                 todo.push(Do::Up);
             }
         });
@@ -1047,10 +1049,7 @@ pub fn pane(ui: &mut Ui, f: &mut Files, s: &mut Session, r: &Registry) -> Option
 /// part (or ctrl+L over the pane) to type one, the folders that match offered under it.
 fn path_bar(ui: &mut Ui, f: &mut Files, dir: &Path, todo: &mut Vec<Do>) {
     let over = ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| ui.max_rect().contains(p));
-    if f.typed.is_none()
-        && (f.active || over)
-        && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::L))
-    {
+    if f.typed.is_none() && (f.active || over) && ui.input_mut(|i| crate::keymap::pressed(i, "files_location")) {
         f.typed = Some((dir.to_string_lossy().into_owned(), true));
     }
     if let Some((mut text, focus)) = f.typed.clone() {

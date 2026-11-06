@@ -7,6 +7,16 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Application: **configurable keyboard shortcuts**, the canvas', Viewer's and panes' own keys too. Frame the
+  selection (F), home, run up to the node, delete, duplicate, find, rename, arrange, group, ungroup, bypass and select
+  all on the canvas; satellite, hide the map, measure, go to, the view before and after and the simulation's steps in
+  the Viewer; run and completions in the calculator; back, forward, up and the path in Files; select all in the
+  attribute table: all are in the *Keyboard* tab under their place (the model's canvas, maps, the calculator, files,
+  the assistant, attribute tables, lists and boxes) and can be changed. The keys that are part of editing a text or
+  of a widget (Enter, Esc, the arrows in lists, Tab and Enter of the completions, copy and paste, the digits of the
+  places) are listed there, read-only. F1 is built from the table (a section per place), and the status bar's hints
+  name the keys chosen. An everywhere shortcut given to a key a place already has (Run on ctrl+R, which renames on
+  the canvas) is warned of, and over that place the place's action wins.
 - Application: **configurable keyboard shortcuts** (first part: the keys of the whole application). Settings has a
   *Keyboard* tab listing each action (run, save, save as, save a version, new, open a model, open data, the
   commands, the shortcuts sheet, Tab to the model, close the pane, next and previous model, close the model) with
@@ -15,7 +25,7 @@ minor versions.
   error colour for the same place, a warning for an everywhere one against one of a place). They are kept in
   `settings.json` (`shortcuts`), and the menus, the palette, the Run button's hint and F1 show the ones chosen.
   The defaults are the keys as they were. The table is `terraflux_app::keymap` (`ACTIONS`, `Shortcut`, `take`,
-  `clashes`); the canvas', the Viewer's and the panes' own keys are still fixed.
+  `clashes`).
 - Application and MCP: **saved places** in the Viewer and on the canvas. The *Places* menu in the Viewer's header
   lists the places of the map, keeps the part of the map in view under a name (*Save this place...*, with an option
   to keep the layers shown too, which going there then shows and hides the others), and renames, gives a slot to or

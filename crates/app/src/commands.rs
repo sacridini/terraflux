@@ -230,74 +230,49 @@ pub fn show(ctx: &egui::Context, open: &mut Option<Commands>, all: &[Command]) -
     chosen
 }
 
-/// The keyboard's shortcuts, by where they work (the application's from [`crate::keymap`]).
+/// The keyboard's shortcuts, by where they work: the mouse's first (not in the table), then the table's with the
+/// shortcuts the user gave them ([`crate::keymap`]).
 pub fn shortcuts() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
-    let c = cmd();
-    let delete = if cfg!(target_os = "macos") { "⌫" } else { "del" };
-    vec![
-        // (from the table of actions, with the shortcuts the user gave them)
-        ("Everywhere", crate::keymap::everywhere()),
-        (
-            "The model's canvas",
-            vec![
-                ("click".into(), "select a node (shift or ctrl: one more)"),
-                ("drag".into(), "select the nodes in a box; on a node: move the nodes selected"),
-                ("right or middle drag".into(), "move the view"),
-                ("wheel".into(), "zoom"),
-                ("Home".into(), "the whole graph in view"),
-                ("F".into(), "the nodes selected in view (none selected: the whole graph)"),
-                ("double click".into(), "a node's output in the Viewer; a container: its body"),
-                ("arrows, enter".into(), "go to the node beside, show what it gives"),
-                (format!("{c}enter"), "run up to the node selected"),
-                (delete.into(), "delete the nodes selected"),
-                (format!("{c}D"), "duplicate them"),
-                (format!("{c}C, {c}V"), "copy and paste them"),
-                (format!("{c}F"), "find a node by id, operator, note or file (inside groups too)"),
-                (format!("{c}R"), "rename the node selected"),
-                (format!("{c}L"), "arrange the nodes"),
-                (format!("{c}G"), "group the nodes selected"),
-                (format!("{c}shift+G"), "ungroup the group selected"),
-                ("B".into(), "turn the nodes selected off or on again (bypass: their inputs passed on)"),
-                (format!("{c}A, Esc"), "select all, none"),
-                (format!("{c}1 to {c}9"), "keep where the canvas looks in a slot, as a place saved with the model"),
-                ("1 to 9".into(), "go to the place in that slot (the Viewer has its own)"),
-            ],
-        ),
-        (
-            "Maps",
-            vec![
-                ("wheel, drag".into(), "zoom, move"),
-                ("double click".into(), "the whole map in view"),
-                ("B".into(), "the satellite under the map"),
-                ("space".into(), "hide the map, or show it again"),
-                (format!("{c}1 to {c}9"), "keep the view in a slot, as a place saved with the model (Places)"),
-                ("1 to 9".into(), "go to the place in that slot"),
-                ("M".into(), "measure: click points for lengths, area and perimeter (esc ends)"),
-                (format!("{c}G"), "go to a coordinate (degrees or the map's units) and mark it (esc lets the mark go)"),
-                (
-                    "alt+left, alt+right".into(),
-                    "the view before, the view after (the mouse's back and forward buttons too)",
-                ),
-                ("left, right".into(), "the step before, after (Simulation)"),
-            ],
-        ),
-    ]
+    crate::keymap::Scope::ALL
+        .into_iter()
+        .map(|scope| {
+            let mouse: &[(&str, &'static str)] = match scope {
+                crate::keymap::Scope::Canvas => &[
+                    ("click", "select a node (shift or ctrl: one more)"),
+                    ("drag", "select the nodes in a box; on a node: move the nodes selected"),
+                    ("right or middle drag", "move the view"),
+                    ("wheel", "zoom"),
+                    ("double click", "a node's output in the Viewer; a container: its body"),
+                ],
+                crate::keymap::Scope::Viewer => {
+                    &[("wheel, drag", "zoom, move"), ("double click", "the whole map in view")]
+                }
+                _ => &[],
+            };
+            let mut rows: Vec<(String, &'static str)> = mouse.iter().map(|(k, w)| (k.to_string(), *w)).collect();
+            rows.extend(crate::keymap::of_scope(scope));
+            (scope.title(), rows)
+        })
+        .collect()
 }
 
 /// The window of the shortcuts, while `open`.
 pub fn shortcuts_window(ctx: &egui::Context, open: &mut bool) {
     let weak = crate::theme::weak();
+    let high = (ctx.content_rect().height() - 120.0).max(200.0);
     egui::Window::new("Keyboard shortcuts").open(open).resizable(false).collapsible(false).show(ctx, |ui| {
-        for (where_, keys) in shortcuts() {
-            crate::theme::section(ui, where_);
-            egui::Grid::new(("shortcuts", where_)).num_columns(2).spacing([18.0, 3.0]).show(ui, |ui| {
-                for (k, what) in keys {
-                    ui.label(RichText::new(k).monospace().strong());
-                    ui.label(RichText::new(what).color(weak));
-                    ui.end_row();
-                }
-            });
-            ui.add_space(4.0);
-        }
+        egui::ScrollArea::vertical().max_height(high).auto_shrink([true, true]).show(ui, |ui| {
+            for (where_, keys) in shortcuts() {
+                crate::theme::section(ui, where_);
+                egui::Grid::new(("shortcuts", where_)).num_columns(2).spacing([18.0, 3.0]).show(ui, |ui| {
+                    for (k, what) in keys {
+                        ui.label(RichText::new(k).monospace().strong());
+                        ui.label(RichText::new(what).color(weak));
+                        ui.end_row();
+                    }
+                });
+                ui.add_space(4.0);
+            }
+        });
     });
 }

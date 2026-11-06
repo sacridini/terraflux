@@ -753,7 +753,7 @@ fn editor(ui: &mut Ui, c: &mut Calculator, inputs: &Inputs, problem: Option<&Pro
     let id = editor_id();
     let focused = ui.memory(|m| m.has_focus(id));
     // ctrl+enter, and the keys of the completions, taken before the editor sees them
-    let run = focused && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::Enter));
+    let run = focused && ui.input_mut(|i| crate::keymap::pressed(i, "calc_run"));
     let (explicit, accepted) = completion_keys(ui, id, &mut c.text, &mut c.popup);
     if accepted {
         c.typed_at = Some(Instant::now());
@@ -829,7 +829,7 @@ fn completion_keys(ui: &mut Ui, id: egui::Id, text: &mut String, popup: &mut Pop
     let none = egui::Modifiers::NONE;
     let (mut accept, mut explicit) = (None, false);
     ui.input_mut(|i| {
-        explicit = i.consume_key(egui::Modifiers::COMMAND, Key::Space);
+        explicit = crate::keymap::pressed(i, "calc_complete");
         if let Some((_, list, chosen)) = popup {
             if i.consume_key(none, Key::ArrowDown) {
                 *chosen = (*chosen + 1) % list.len();

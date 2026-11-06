@@ -69,8 +69,12 @@ fn runs(h: &mut Harness<TerrafluxApp>, m: egui::Modifiers, key: egui::Key) -> bo
     ran
 }
 
+/// One test at a time: a shortcut changed is the whole program's.
+static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn a_shortcut_changed_in_the_settings_is_the_one_that_works() {
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
     let mut h = harness(TerrafluxApp::new(None));
     h.run_steps(2);
     let ctx = h.ctx.clone();
@@ -145,11 +149,11 @@ fn a_shortcut_changed_in_the_settings_is_the_one_that_works() {
     h.run_steps(3);
     assert_eq!(terraflux_app::keymap::text("new"), "ctrl+R");
     let clashes = terraflux_app::keymap::conflicts();
-    assert_eq!(clashes.len(), 1);
-    assert!(
-        clashes[0].error && (clashes[0].a.id, clashes[0].b.id) == ("run", "new")
-            || (clashes[0].a.id, clashes[0].b.id) == ("new", "run")
-    );
+    // (the error: Run and New model; and a warning each with the canvas' rename, which has ctrl+R too)
+    let errors: Vec<_> = clashes.iter().filter(|c| c.error).collect();
+    assert_eq!(errors.len(), 1);
+    assert!((errors[0].a.id, errors[0].b.id) == ("run", "new") || (errors[0].a.id, errors[0].b.id) == ("new", "run"));
+    assert_eq!(clashes.iter().filter(|c| !c.error && c.b.id == "canvas_rename").count(), 2);
     assert!(h.query_by_label_contains("also Run the whole model").is_some(), "the row of New model says it");
     shot(&mut h, "43-keyboard-conflict");
     // Backspace takes a shortcut away; Esc leaves it as it is
@@ -164,7 +168,8 @@ fn a_shortcut_changed_in_the_settings_is_the_one_that_works() {
     h.run_steps(2);
     assert_eq!(terraflux_app::keymap::text("new"), "");
     assert_eq!(terraflux_app::settings::get().shortcuts["new"], Vec::<String>::new());
-    assert!(terraflux_app::keymap::conflicts().is_empty());
+    // (only the warning of Run against the canvas' rename is left)
+    assert!(terraflux_app::keymap::conflicts().iter().all(|c| !c.error));
     // Reset: back to ctrl+N (the filter shows New model only, so one Reset)
     h.get_by_label("Reset").click();
     h.run_steps(2);
@@ -180,4 +185,188 @@ fn a_shortcut_changed_in_the_settings_is_the_one_that_works() {
     h.run_steps(2);
     assert!(runs(&mut h, none, egui::Key::F5), "F5 runs the model again");
     assert!(!runs(&mut h, ctrl, egui::Key::R), "ctrl+R does not");
+}
+
+fn rebind(id: &str, keys: &[&str]) {
+    terraflux_app::settings::update(|st| {
+        st.shortcuts.insert(id.to_string(), keys.iter().map(|k| k.to_string()).collect());
+    });
+}
+
+fn reset_all() {
+    terraflux_app::settings::update(|st| st.shortcuts.clear());
+}
+
+/// The model of a template run, a node selected, the pointer over the canvas.
+fn on_the_canvas(h: &mut Harness<TerrafluxApp>) -> String {
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    idle(h);
+    let first = h.state().session.as_ref().unwrap().source.nodes[0].id.clone();
+    let reg = terraflux_ops::Registry::standard();
+    terraflux_app::builder::select(h.state_mut().session.as_mut().unwrap(), &reg, &first);
+    h.run_steps(3);
+    let canvas = h.state().session.as_ref().unwrap().editor.canvas().expect("the canvas is drawn");
+    h.event(egui::Event::PointerMoved(canvas.center()));
+    h.run_steps(3);
+    first
+}
+
+fn zoom(h: &Harness<TerrafluxApp>) -> f32 {
+    h.state().session.as_ref().unwrap().editor.zoom()
+}
+
+fn far(h: &mut Harness<TerrafluxApp>) {
+    h.state_mut().session.as_mut().unwrap().editor.set_camera(egui::vec2(0.0, 0.0), 0.3);
+    h.run_steps(2);
+    assert!((zoom(h) - 0.3).abs() < 1e-3);
+}
+
+#[test]
+fn the_canvas_keys_follow_the_table() {
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    reset_all();
+    let mut h = harness(TerrafluxApp::new(None));
+    on_the_canvas(&mut h);
+    let none = egui::Modifiers::NONE;
+    assert_eq!(terraflux_app::keymap::text("canvas_frame"), "F");
+
+    // F frames the node selected
+    far(&mut h);
+    h.key_press(egui::Key::F);
+    h.run_steps(3);
+    assert!(zoom(&h) > 1.0, "F frames the node: {}", zoom(&h));
+
+    // given J: J frames it and F does not
+    rebind("canvas_frame", &["J"]);
+    assert_eq!(terraflux_app::keymap::text("canvas_frame"), "J");
+    far(&mut h);
+    h.key_press(egui::Key::F);
+    h.run_steps(3);
+    assert!((zoom(&h) - 0.3).abs() < 1e-3, "F does nothing now");
+    h.key_press(egui::Key::J);
+    h.run_steps(3);
+    assert!(zoom(&h) > 1.0, "J frames the node: {}", zoom(&h));
+
+    // the sheet of shortcuts and the status bar's hints show the new keys
+    rebind("canvas_run_to", &["Ctrl+J"]);
+    h.state_mut().focus(terraflux_app::app::Pane::Model);
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("ctrl+J: run to it").is_some(), "the status bar");
+    assert!(h.query_by_label_contains("ctrl+Enter: run to it").is_none());
+    h.key_press(egui::Key::F1);
+    h.run_steps(2);
+    assert!(h.state().shortcuts_open);
+    assert!(h.query_all_by_label("J").next().is_some(), "F1 lists the new key");
+    assert!(h.query_all_by_label("F").next().is_none(), "and not the old one");
+    assert!(h.query_all_by_label("ctrl+J").next().is_some());
+    assert!(h.query_all_by_label("The nodes selected in view (none selected: the whole graph)").next().is_some());
+    h.key_press(egui::Key::F1);
+    h.run_steps(2);
+    assert!(!h.state().shortcuts_open);
+
+    // the Keyboard settings list the scopes
+    h.state_mut().settings_open = true;
+    h.run_steps(2);
+    h.get_by_label("Keyboard").click();
+    h.run_steps(2);
+    h.state_mut().keyboard.filter = "view".into();
+    h.run_steps(3);
+    assert!(h.query_by_label("THE MODEL'S CANVAS").is_some());
+    assert!(h.query_by_label("MAPS").is_some());
+    assert!(h.query_by_label("The nodes selected in view (none selected: the whole graph)").is_some());
+    shot(&mut h, "44-keyboard-scopes");
+    h.state_mut().settings_open = false;
+    h.run_steps(2);
+
+    // the canvas' rename against the everywhere Run given the same key: over the canvas, the canvas' wins
+    reset_all();
+    rebind("run", &["Ctrl+R"]);
+    let ctrl = egui::Modifiers::COMMAND;
+    let before = h.state().session.as_ref().unwrap().started;
+    let conflicts = terraflux_app::keymap::conflicts();
+    assert!(conflicts.iter().any(|c| !c.error && c.a.id == "run" && c.b.id == "canvas_rename"));
+    h.event(egui::Event::PointerMoved(h.state().session.as_ref().unwrap().editor.canvas().unwrap().center()));
+    h.run_steps(3);
+    h.key_press_modifiers(ctrl, egui::Key::R);
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.started, before, "over the canvas ctrl+R does not run the model");
+    assert!(s.editor.renaming.is_some(), "it renames the node selected");
+    h.key_press_modifiers(none, egui::Key::Escape);
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().editor.renaming.is_none());
+    // the pointer elsewhere (the menu bar): the application's
+    h.event(egui::Event::PointerMoved(egui::pos2(2.0, 2.0)));
+    h.run_steps(6);
+    assert!(runs(&mut h, ctrl, egui::Key::R), "off the canvas ctrl+R runs the model");
+    reset_all();
+}
+
+#[test]
+fn the_viewer_keys_follow_the_table() {
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    reset_all();
+    let mut h = harness(TerrafluxApp::new(None));
+    let first = on_the_canvas(&mut h);
+    // a map in the Viewer: the output of a node that gives one
+    let id = {
+        let s = h.state().session.as_ref().unwrap();
+        s.source.nodes.iter().find(|n| n.op.starts_with("nlm.")).map(|n| n.id.clone()).unwrap_or(first)
+    };
+    let reg = terraflux_ops::Registry::standard();
+    terraflux_app::builder::select(h.state_mut().session.as_mut().unwrap(), &reg, &id);
+    h.state_mut().focus(terraflux_app::app::Pane::Viewer);
+    h.run_steps(10);
+    let t = std::time::Instant::now();
+    let rect = loop {
+        let s = h.state().session.as_ref().unwrap();
+        if let Some(r) = s.view.rect().or(s.preview_view.rect()) {
+            break r;
+        }
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(60), "no map in the Viewer");
+    };
+    let basemap = |h: &Harness<TerrafluxApp>| {
+        let s = h.state().session.as_ref().unwrap();
+        (s.view.basemap, s.preview_view.basemap)
+    };
+    h.event(egui::Event::PointerMoved(rect.center()));
+    h.run_steps(3);
+    let start = basemap(&h);
+    assert_eq!(terraflux_app::keymap::text("viewer_satellite"), "B");
+
+    // B puts the satellite under the map
+    h.key_press(egui::Key::B);
+    h.run_steps(3);
+    let on = basemap(&h);
+    assert_ne!(on, start, "B changes the basemap");
+    h.key_press(egui::Key::B);
+    h.run_steps(3);
+    assert_eq!(basemap(&h), start);
+
+    // given V: V does and B does not
+    rebind("viewer_satellite", &["V"]);
+    h.key_press(egui::Key::B);
+    h.run_steps(3);
+    assert_eq!(basemap(&h), start, "B does nothing now");
+    h.key_press(egui::Key::V);
+    h.run_steps(3);
+    assert_eq!(basemap(&h), on, "V puts the satellite under the map");
+    h.key_press(egui::Key::V);
+    h.run_steps(3);
+
+    // the status bar and F1 say V
+    assert!(h.query_by_label_contains("V: satellite under the map").is_some(), "the status bar");
+    assert!(h.query_by_label_contains("B: satellite under the map").is_none());
+    h.key_press(egui::Key::F1);
+    h.run_steps(2);
+    assert!(h.state().shortcuts_open);
+    assert!(h.query_by_label("The satellite under the map").is_some());
+    assert!(h.query_all_by_label("V").next().is_some(), "F1 lists V");
+    h.key_press(egui::Key::F1);
+    h.run_steps(2);
+    reset_all();
 }

@@ -1,18 +1,21 @@
 //! The keyboard shortcuts as a table of actions, each with its default shortcuts and the user's own (kept in the
 //! settings, `shortcuts`): what reads the keys asks the table for an action by its id, so that a shortcut changed
 //! in Settings (Keyboard) is the one every menu, the palette and the sheet of shortcuts (F1) show and the one that
-//! works. The keys of the whole application are in it; the canvas', the Viewer's and the panes' own keys are read
-//! where they are used still (their scopes are here for them to join).
+//! works. The keys of the whole application are in it, and those of the canvas, the Viewer, the calculator, the
+//! files and the other panes: what reads them asks for them by id ([`take`] for the application's, [`pressed`] and
+//! [`consume`] inside an input state). The keys that are part of editing a text or of a widget's own behaviour
+//! (enter, escape, the arrows in a list, the digits of the places) are in it too, `fixed`: shown, not changed.
 
 use std::cmp::Reverse;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use egui::{Key, Modifiers, RichText, Ui};
 
 /// Where an action works: everywhere (the keys of the application), or over one place (that place takes its key
-/// when the pointer is over it, so a shortcut the same as an everywhere one is a warning, not an error).
+/// when the pointer is over it, so a shortcut the same as an everywhere one is a warning, not an error: the
+/// place's wins there).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Scope {
     Global,
@@ -20,10 +23,22 @@ pub enum Scope {
     Viewer,
     Calculator,
     Files,
+    Assistant,
+    Table,
+    Dialogs,
 }
 
 impl Scope {
-    pub const ALL: [Scope; 5] = [Scope::Global, Scope::Canvas, Scope::Viewer, Scope::Calculator, Scope::Files];
+    pub const ALL: [Scope; 8] = [
+        Scope::Global,
+        Scope::Canvas,
+        Scope::Viewer,
+        Scope::Calculator,
+        Scope::Files,
+        Scope::Assistant,
+        Scope::Table,
+        Scope::Dialogs,
+    ];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -32,6 +47,9 @@ impl Scope {
             Scope::Viewer => "Maps",
             Scope::Calculator => "The calculator",
             Scope::Files => "Files",
+            Scope::Assistant => "The assistant",
+            Scope::Table => "Attribute tables",
+            Scope::Dialogs => "Lists and boxes (the palette, the searches, the notes)",
         }
     }
 }
@@ -206,6 +224,40 @@ const fn read_elsewhere(id: &'static str, name: &'static str, default: &'static 
     Action { id, name, scope: Scope::Global, default, fixed: true, idle: false }
 }
 
+/// A key of a place that can be changed.
+const fn at(id: &'static str, scope: Scope, name: &'static str, default: &'static [Shortcut]) -> Action {
+    Action { id, name, scope, default, fixed: false, idle: false }
+}
+
+/// A key of a place that is part of editing a text or of a widget's own behaviour: shown, not changed.
+const fn part(id: &'static str, scope: Scope, name: &'static str, default: &'static [Shortcut]) -> Action {
+    Action { id, name, scope, default, fixed: true, idle: false }
+}
+
+/// 1 to 9, and with ctrl: the slots of the places.
+const DIGITS: [Shortcut; 9] = [
+    key(Key::Num1),
+    key(Key::Num2),
+    key(Key::Num3),
+    key(Key::Num4),
+    key(Key::Num5),
+    key(Key::Num6),
+    key(Key::Num7),
+    key(Key::Num8),
+    key(Key::Num9),
+];
+const CMD_DIGITS: [Shortcut; 9] = [
+    cmd(Key::Num1),
+    cmd(Key::Num2),
+    cmd(Key::Num3),
+    cmd(Key::Num4),
+    cmd(Key::Num5),
+    cmd(Key::Num6),
+    cmd(Key::Num7),
+    cmd(Key::Num8),
+    cmd(Key::Num9),
+];
+
 /// Every action, in the order the settings and F1 list them.
 pub static ACTIONS: &[Action] = &[
     global("run", "Run the whole model", &[key(Key::F5)]),
@@ -233,6 +285,143 @@ pub static ACTIONS: &[Action] = &[
     read_elsewhere("undo", "Undo", &[cmd(Key::Z)]),
     read_elsewhere("redo", "Redo", &[cmd_shift(Key::Z)]),
     read_elsewhere("add_operator", "Add an operator, by its name", &[key(Key::Slash)]),
+    // The model's canvas (the pointer over it, or it in focus).
+    at("canvas_home", Scope::Canvas, "The whole graph in view", &[key(Key::Home)]),
+    at("canvas_frame", Scope::Canvas, "The nodes selected in view (none selected: the whole graph)", &[key(Key::F)]),
+    part(
+        "canvas_beside",
+        Scope::Canvas,
+        "Go to the node beside",
+        &[key(Key::ArrowLeft), key(Key::ArrowRight), key(Key::ArrowUp), key(Key::ArrowDown)],
+    ),
+    part("canvas_show", Scope::Canvas, "Show what the node selected gives", &[key(Key::Enter)]),
+    at("canvas_run_to", Scope::Canvas, "Run up to the node selected", &[cmd(Key::Enter)]),
+    at("canvas_delete", Scope::Canvas, "Delete the nodes selected", &[key(Key::Delete), key(Key::Backspace)]),
+    at("canvas_duplicate", Scope::Canvas, "Duplicate the nodes selected", &[cmd(Key::D)]),
+    part("canvas_copy", Scope::Canvas, "Copy the nodes selected", &[cmd(Key::C)]),
+    part("canvas_paste", Scope::Canvas, "Paste them", &[cmd(Key::V)]),
+    at("canvas_find", Scope::Canvas, "Find a node by id, operator, note or file (inside groups too)", &[cmd(Key::F)]),
+    at("canvas_rename", Scope::Canvas, "Rename the node selected", &[cmd(Key::R)]),
+    at("canvas_arrange", Scope::Canvas, "Arrange the nodes", &[cmd(Key::L)]),
+    at("canvas_group", Scope::Canvas, "Group the nodes selected", &[cmd(Key::G)]),
+    at("canvas_ungroup", Scope::Canvas, "Ungroup the group selected", &[cmd_shift(Key::G)]),
+    at(
+        "canvas_bypass",
+        Scope::Canvas,
+        "Turn the nodes selected off or on again (bypass: their inputs passed on)",
+        &[key(Key::B)],
+    ),
+    at("canvas_select_all", Scope::Canvas, "Select all the nodes", &[cmd(Key::A)]),
+    part("canvas_select_none", Scope::Canvas, "Select none", &[key(Key::Escape)]),
+    part(
+        "canvas_place_keep",
+        Scope::Canvas,
+        "Keep where the canvas looks in a slot, as a place saved with the model",
+        &CMD_DIGITS,
+    ),
+    part("canvas_place_go", Scope::Canvas, "Go to the place in that slot (the Viewer has its own)", &DIGITS),
+    // The maps (the pointer over one).
+    at("viewer_satellite", Scope::Viewer, "The satellite under the map", &[key(Key::B)]),
+    at("viewer_hide", Scope::Viewer, "Hide the map, or show it again", &[key(Key::Space)]),
+    at(
+        "viewer_measure",
+        Scope::Viewer,
+        "Measure: click points for lengths, area and perimeter (esc ends)",
+        &[key(Key::M)],
+    ),
+    at(
+        "viewer_goto",
+        Scope::Viewer,
+        "Go to a coordinate (degrees or the map's units) and mark it (esc lets the mark go)",
+        &[cmd(Key::G)],
+    ),
+    at(
+        "viewer_back",
+        Scope::Viewer,
+        "The view before (the mouse's back button too)",
+        &[Shortcut::new(false, false, true, Key::ArrowLeft)],
+    ),
+    at(
+        "viewer_forward",
+        Scope::Viewer,
+        "The view after (the mouse's forward button too)",
+        &[Shortcut::new(false, false, true, Key::ArrowRight)],
+    ),
+    at("viewer_step_back", Scope::Viewer, "The step before (Simulation)", &[key(Key::ArrowLeft)]),
+    at("viewer_step_next", Scope::Viewer, "The step after (Simulation)", &[key(Key::ArrowRight)]),
+    part("viewer_finish", Scope::Viewer, "Finish the shape being drawn", &[key(Key::Enter)]),
+    part("viewer_undo_point", Scope::Viewer, "Take the last point away (drawing, measuring)", &[key(Key::Backspace)]),
+    part("viewer_cancel", Scope::Viewer, "Leave the shape, the line, the selection or the mark", &[key(Key::Escape)]),
+    part(
+        "viewer_place_keep",
+        Scope::Viewer,
+        "Keep the view in a slot, as a place saved with the model (Places)",
+        &CMD_DIGITS,
+    ),
+    part("viewer_place_go", Scope::Viewer, "Go to the place in that slot", &DIGITS),
+    // The calculator's script and console.
+    at("calc_run", Scope::Calculator, "Give the script to the node and run up to it", &[cmd(Key::Enter)]),
+    at("calc_complete", Scope::Calculator, "The names that fit (completions)", &[cmd(Key::Space)]),
+    part(
+        "calc_next",
+        Scope::Calculator,
+        "The next completion (the console: the line typed after)",
+        &[key(Key::ArrowDown)],
+    ),
+    part(
+        "calc_prev",
+        Scope::Calculator,
+        "The completion before (the console: the line typed before)",
+        &[key(Key::ArrowUp)],
+    ),
+    part(
+        "calc_accept",
+        Scope::Calculator,
+        "Put the completion chosen in (the console: compute the line)",
+        &[key(Key::Tab), key(Key::Enter)],
+    ),
+    part("calc_close", Scope::Calculator, "Close the completions", &[key(Key::Escape)]),
+    // The files pane.
+    at("files_back", Scope::Files, "Back to the folder before", &[Shortcut::new(false, false, true, Key::ArrowLeft)]),
+    at(
+        "files_forward",
+        Scope::Files,
+        "Forward to the folder after",
+        &[Shortcut::new(false, false, true, Key::ArrowRight)],
+    ),
+    at(
+        "files_up",
+        Scope::Files,
+        "Up to the folder that holds this one",
+        &[Shortcut::new(false, false, true, Key::ArrowUp)],
+    ),
+    at("files_location", Scope::Files, "Type a path", &[cmd(Key::L)]),
+    part(
+        "files_rows",
+        Scope::Files,
+        "The row above, below (shift: one more chosen)",
+        &[key(Key::ArrowUp), key(Key::ArrowDown)],
+    ),
+    part("files_fold", Scope::Files, "Open, close the folder chosen", &[key(Key::ArrowRight), key(Key::ArrowLeft)]),
+    part("files_enter", Scope::Files, "Open the entries chosen (a path typed: go there)", &[key(Key::Enter)]),
+    // The assistant.
+    part("chat_send", Scope::Assistant, "Send the question", &[key(Key::Enter)]),
+    part("chat_stop", Scope::Assistant, "Stop the answer being written", &[key(Key::Escape)]),
+    part(
+        "chat_recall",
+        Scope::Assistant,
+        "The questions asked before, and after",
+        &[key(Key::ArrowUp), key(Key::ArrowDown)],
+    ),
+    // The attribute tables.
+    at("table_select_all", Scope::Table, "Select the rows shown", &[cmd(Key::A)]),
+    part("table_none", Scope::Table, "Let the selection go", &[key(Key::Escape)]),
+    // The lists and boxes.
+    part("list_down", Scope::Dialogs, "Choose the next in a list", &[key(Key::ArrowDown)]),
+    part("list_up", Scope::Dialogs, "Choose the one before in a list", &[key(Key::ArrowUp)]),
+    part("box_enter", Scope::Dialogs, "Do the one chosen, confirm a box", &[key(Key::Enter)]),
+    part("box_escape", Scope::Dialogs, "Close a list or a box without doing it", &[key(Key::Escape)]),
+    part("note_save", Scope::Dialogs, "Save a note", &[cmd(Key::Enter)]),
 ];
 
 /// The actions the application reads in a window, all but the tabs' (read in the main window only).
@@ -299,26 +488,73 @@ pub fn text(id: &str) -> String {
 
 /// All its shortcuts, "ctrl+K, ctrl+shift+P" (empty: it has none).
 pub fn texts(id: &str) -> String {
-    current(id).iter().map(|s| s.show(cfg!(target_os = "macos"))).collect::<Vec<_>>().join(", ")
+    list_text(&current(id))
 }
 
-/// The actions of the whole application with their shortcuts, for the sheet of shortcuts (F1).
-pub fn everywhere() -> Vec<(String, &'static str)> {
+/// Shortcuts written for the sheets: "ctrl+K, ctrl+shift+P"; digits one after the other as a range, "1 to 9".
+fn list_text(list: &[Shortcut]) -> String {
+    let mac = cfg!(target_os = "macos");
+    let digit = |s: &Shortcut| s.key.name().parse::<u8>().ok().filter(|_| s.key.name().len() == 1);
+    let next = |a: &Shortcut, b: &Shortcut| {
+        (a.cmd, a.shift, a.alt) == (b.cmd, b.shift, b.alt) && digit(a).zip(digit(b)).is_some_and(|(x, y)| y == x + 1)
+    };
+    let mut out: Vec<String> = Vec::new();
+    let mut k = 0;
+    while k < list.len() {
+        let mut e = k;
+        while e + 1 < list.len() && next(&list[e], &list[e + 1]) {
+            e += 1;
+        }
+        if e >= k + 2 {
+            out.push(format!("{} to {}", list[k].show(mac), list[e].show(mac)));
+        } else {
+            out.extend(list[k..=e].iter().map(|s| s.show(mac)));
+        }
+        k = e + 1;
+    }
+    out.join(", ")
+}
+
+/// The actions of a scope with their shortcuts, for the sheet of shortcuts (F1): the keys, the action.
+pub fn of_scope(scope: Scope) -> Vec<(String, &'static str)> {
     let o = overrides();
     ACTIONS
         .iter()
-        .filter(|a| a.scope == Scope::Global)
+        .filter(|a| a.scope == scope)
         .map(|a| {
-            let l = bindings(&o, a);
-            let keys = l.iter().map(|s| s.show(cfg!(target_os = "macos"))).collect::<Vec<_>>().join(", ");
+            let keys = list_text(&bindings(&o, a));
             (if keys.is_empty() { "none".to_string() } else { keys }, a.name)
         })
         .collect()
 }
 
+/// The actions of the whole application with their shortcuts, for the sheet of shortcuts (F1).
+pub fn everywhere() -> Vec<(String, &'static str)> {
+    of_scope(Scope::Global)
+}
+
 /// Take the keys of `ids` pressed in this frame: those pressed. While the settings record a shortcut, none.
+/// A shortcut of an everywhere action that an action of the place the pointer is over has too is left to that
+/// one (it reads it over its place).
 pub fn take(ctx: &egui::Context, ids: &[&str]) -> Vec<&'static str> {
     take_with(ctx, &overrides(), ids)
+}
+
+/// The places the pointer was over in the last frames, told by [`over`].
+fn hovered(ctx: &egui::Context) -> Vec<Scope> {
+    let now = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<HashMap<Scope, u64>>(egui::Id::new("keymap over")))
+        .map(|m| m.into_iter().filter(|(_, at)| at + 2 >= now).map(|(s, _)| s).collect())
+        .unwrap_or_default()
+}
+
+/// Tell that the pointer is over the place of `scope` (the canvas, a map) in this frame: its keys come before the
+/// everywhere ones the same in the next.
+pub fn over(ctx: &egui::Context, scope: Scope) {
+    let now = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| {
+        d.get_temp_mut_or_default::<HashMap<Scope, u64>>(egui::Id::new("keymap over")).insert(scope, now);
+    });
 }
 
 fn take_with(ctx: &egui::Context, o: &Overrides, ids: &[&str]) -> Vec<&'static str> {
@@ -326,23 +562,69 @@ fn take_with(ctx: &egui::Context, o: &Overrides, ids: &[&str]) -> Vec<&'static s
         return Vec::new();
     }
     let typing = ctx.memory(|m| m.focused().is_some());
+    let places = if typing { Vec::new() } else { hovered(ctx) };
+    let all = candidates(o, ids)
+        .into_iter()
+        .filter(|(a, s)| !typing || !(a.idle || s.types_text()))
+        .filter(|(a, s)| {
+            a.scope != Scope::Global
+                || !ACTIONS.iter().any(|b| {
+                    !b.fixed && places.contains(&b.scope) && b.scope != Scope::Global && bindings(o, b).contains(s)
+                })
+        })
+        .collect();
+    ctx.input_mut(|i| press(i, all))
+}
+
+/// The shortcuts of the actions `ids` (those that can be changed), the most specific first: a shortcut without
+/// shift or alt takes the key with them too.
+fn candidates(o: &Overrides, ids: &[&str]) -> Vec<(&'static Action, Shortcut)> {
     let mut all: Vec<(&'static Action, Shortcut)> = ACTIONS
         .iter()
         .filter(|a| !a.fixed && ids.contains(&a.id))
         .flat_map(|a| bindings(o, a).into_iter().map(move |s| (a, s)))
-        .filter(|(a, s)| !typing || !(a.idle || s.types_text()))
         .collect();
-    // (the most specific first: a shortcut without shift or alt takes the key with them too)
     all.sort_by_key(|(_, s)| Reverse(s.shift as u8 + s.alt as u8));
+    all
+}
+
+fn press(i: &mut egui::InputState, all: Vec<(&'static Action, Shortcut)>) -> Vec<&'static str> {
     let mut hit = Vec::new();
-    ctx.input_mut(|i| {
-        for (a, s) in all {
-            if i.consume_key(s.modifiers(), s.key) && !hit.contains(&a.id) {
-                hit.push(a.id);
-            }
+    for (a, s) in all {
+        if i.consume_key(s.modifiers(), s.key) && !hit.contains(&a.id) {
+            hit.push(a.id);
         }
-    });
+    }
     hit
+}
+
+/// Take, from an input state, the keys of `ids` (actions that can be changed) pressed: those pressed. What asks
+/// has seen to it that the place wants its keys now (nothing being typed, the pointer over it). While the
+/// settings record a shortcut, none.
+pub fn consume(i: &mut egui::InputState, ids: &[&str]) -> Vec<&'static str> {
+    if recording() {
+        return Vec::new();
+    }
+    press(i, candidates(&overrides(), ids))
+}
+
+/// Whether the key of the action `id` was pressed, and taken.
+pub fn pressed(i: &mut egui::InputState, id: &str) -> bool {
+    !consume(i, &[id]).is_empty()
+}
+
+/// Whether the key of the action `id` was pressed, not taken: shift and alt held with it do not matter (a shortcut
+/// that has none of the modifiers answers to any).
+pub fn peek(i: &egui::InputState, id: &str) -> bool {
+    !recording()
+        && current(id).iter().any(|s| {
+            i.key_pressed(s.key) && (!(s.cmd || s.shift || s.alt) || i.modifiers.matches_logically(s.modifiers()))
+        })
+}
+
+/// Whether the key of the action `id` was pressed, not taken, with the modifiers it has and no more.
+pub fn peek_exact(i: &egui::InputState, id: &str) -> bool {
+    !recording() && current(id).iter().any(|s| i.key_pressed(s.key) && i.modifiers.matches_exact(s.modifiers()))
 }
 
 /// Whether the settings are recording a shortcut: the keys of the application wait.
@@ -376,6 +658,10 @@ fn clashes_among(actions: &'static [Action], o: &Overrides) -> Vec<Clash> {
             if !same && a.scope != Scope::Global && b.scope != Scope::Global {
                 continue;
             }
+            // (an everywhere action that waits while a text is edited, and a key of that editing: never together)
+            if (a.idle && b.fixed) || (b.idle && a.fixed) {
+                continue;
+            }
             for s in bindings(o, b) {
                 if sa.contains(&s) {
                     out.push(Clash { shortcut: s, a, b, error: same });
@@ -384,6 +670,24 @@ fn clashes_among(actions: &'static [Action], o: &Overrides) -> Vec<Clash> {
         }
     }
     out
+}
+
+/// Which of an everywhere action and one of a place has the key when the pointer is over the place, said for the
+/// row of `row` (nothing for two actions of one scope): the place's, unless its key cannot be changed (the
+/// everywhere one is read first then).
+fn wins(c: &Clash, row: &Action) -> String {
+    if c.error {
+        return String::new();
+    }
+    let (global, place) = if c.a.scope == Scope::Global { (c.a, c.b) } else { (c.b, c.a) };
+    if place.fixed {
+        return ": the everywhere one is taken first".to_string();
+    }
+    if row.scope == Scope::Global {
+        format!(": over {} that one wins", place.scope.title())
+    } else {
+        format!(": over {} this one wins over {}", place.scope.title(), global.name)
+    }
 }
 
 /// The clashes now.
@@ -513,13 +817,10 @@ pub fn panel(ui: &mut Ui, p: &mut Panel, map: &mut BTreeMap<String, Vec<String>>
                     let list = bindings(&o, a);
                     ui.horizontal(|ui| {
                         if a.fixed {
-                            let t = if list.is_empty() {
-                                "none".to_string()
-                            } else {
-                                list.iter().map(|s| s.show(cfg!(target_os = "macos"))).collect::<Vec<_>>().join(", ")
-                            };
-                            ui.label(RichText::new(t).monospace().color(weak))
-                                .on_hover_text("this one is read where it is used and cannot be changed yet");
+                            let t = if list.is_empty() { "none".to_string() } else { list_text(&list) };
+                            ui.label(RichText::new(t).monospace().color(weak)).on_hover_text(
+                                "this one is part of editing a text or of how the widget works: it cannot be changed",
+                            );
                             return;
                         }
                         for (k, s) in list.iter().enumerate() {
@@ -571,14 +872,15 @@ pub fn panel(ui: &mut Ui, p: &mut Panel, map: &mut BTreeMap<String, Vec<String>>
                             let (colour, what) = if c.error {
                                 (ui.visuals().error_fg_color, "also")
                             } else {
-                                (ui.visuals().warn_fg_color, "also, over a place:")
+                                (ui.visuals().warn_fg_color, "also")
                             };
                             ui.label(
                                 RichText::new(format!(
-                                    "{} {what} {} ({})",
+                                    "{} {what} {} ({}){}",
                                     c.shortcut.show(cfg!(target_os = "macos")),
                                     other.name,
-                                    other.scope.title()
+                                    other.scope.title(),
+                                    wins(c, a)
                                 ))
                                 .size(11.0)
                                 .color(colour),
@@ -660,6 +962,66 @@ mod tests {
             ("undo", &["Ctrl+Z"], "ctrl+Z"),
             ("redo", &["Ctrl+Shift+Z"], "ctrl+shift+Z"),
             ("add_operator", &["Slash"], "/"),
+            // the canvas (builder.rs, editor_view.rs, places.rs)
+            ("canvas_home", &["Home"], "Home"),
+            ("canvas_frame", &["F"], "F"),
+            ("canvas_beside", &["Left", "Right", "Up", "Down"], "Left"),
+            ("canvas_show", &["Enter"], "Enter"),
+            ("canvas_run_to", &["Ctrl+Enter"], "ctrl+Enter"),
+            ("canvas_delete", &["Delete", "Backspace"], "Delete"),
+            ("canvas_duplicate", &["Ctrl+D"], "ctrl+D"),
+            ("canvas_copy", &["Ctrl+C"], "ctrl+C"),
+            ("canvas_paste", &["Ctrl+V"], "ctrl+V"),
+            ("canvas_find", &["Ctrl+F"], "ctrl+F"),
+            ("canvas_rename", &["Ctrl+R"], "ctrl+R"),
+            ("canvas_arrange", &["Ctrl+L"], "ctrl+L"),
+            ("canvas_group", &["Ctrl+G"], "ctrl+G"),
+            ("canvas_ungroup", &["Ctrl+Shift+G"], "ctrl+shift+G"),
+            ("canvas_bypass", &["B"], "B"),
+            ("canvas_select_all", &["Ctrl+A"], "ctrl+A"),
+            ("canvas_select_none", &["Escape"], "Escape"),
+            ("canvas_place_keep", &DIGIT_NAMES_CTRL, "ctrl+1"),
+            ("canvas_place_go", &DIGIT_NAMES, "1"),
+            // the maps (map_view.rs, app.rs, draw.rs, measure.rs)
+            ("viewer_satellite", &["B"], "B"),
+            ("viewer_hide", &["Space"], "Space"),
+            ("viewer_measure", &["M"], "M"),
+            ("viewer_goto", &["Ctrl+G"], "ctrl+G"),
+            ("viewer_back", &["Alt+Left"], "alt+Left"),
+            ("viewer_forward", &["Alt+Right"], "alt+Right"),
+            ("viewer_step_back", &["Left"], "Left"),
+            ("viewer_step_next", &["Right"], "Right"),
+            ("viewer_finish", &["Enter"], "Enter"),
+            ("viewer_undo_point", &["Backspace"], "Backspace"),
+            ("viewer_cancel", &["Escape"], "Escape"),
+            ("viewer_place_keep", &DIGIT_NAMES_CTRL, "ctrl+1"),
+            ("viewer_place_go", &DIGIT_NAMES, "1"),
+            // the calculator (calc_view.rs)
+            ("calc_run", &["Ctrl+Enter"], "ctrl+Enter"),
+            ("calc_complete", &["Ctrl+Space"], "ctrl+Space"),
+            ("calc_next", &["Down"], "Down"),
+            ("calc_prev", &["Up"], "Up"),
+            ("calc_accept", &["Tab", "Enter"], "Tab"),
+            ("calc_close", &["Escape"], "Escape"),
+            // the files (files_view.rs)
+            ("files_back", &["Alt+Left"], "alt+Left"),
+            ("files_forward", &["Alt+Right"], "alt+Right"),
+            ("files_up", &["Alt+Up"], "alt+Up"),
+            ("files_location", &["Ctrl+L"], "ctrl+L"),
+            ("files_rows", &["Up", "Down"], "Up"),
+            ("files_fold", &["Right", "Left"], "Right"),
+            ("files_enter", &["Enter"], "Enter"),
+            // the assistant (chat.rs), the tables (attribute_table.rs), the lists and boxes
+            ("chat_send", &["Enter"], "Enter"),
+            ("chat_stop", &["Escape"], "Escape"),
+            ("chat_recall", &["Up", "Down"], "Up"),
+            ("table_select_all", &["Ctrl+A"], "ctrl+A"),
+            ("table_none", &["Escape"], "Escape"),
+            ("list_down", &["Down"], "Down"),
+            ("list_up", &["Up"], "Up"),
+            ("box_enter", &["Enter"], "Enter"),
+            ("box_escape", &["Escape"], "Escape"),
+            ("note_save", &["Ctrl+Enter"], "ctrl+Enter"),
         ];
         assert_eq!(before.len(), ACTIONS.len());
         for (id, keys, first) in before {
@@ -668,6 +1030,79 @@ mod tests {
             assert_eq!(&got, keys, "{id}");
             assert_eq!(a.default[0].show(false), *first, "{id}");
         }
+    }
+
+    const DIGIT_NAMES: [&str; 9] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+    const DIGIT_NAMES_CTRL: [&str; 9] =
+        ["Ctrl+1", "Ctrl+2", "Ctrl+3", "Ctrl+4", "Ctrl+5", "Ctrl+6", "Ctrl+7", "Ctrl+8", "Ctrl+9"];
+
+    /// Which of the keys of the places can be changed, and which cannot: written out.
+    #[test]
+    fn the_scopes_and_the_fixed_keys() {
+        let fixed: Vec<&str> = ACTIONS.iter().filter(|a| a.fixed).map(|a| a.id).collect();
+        for id in [
+            "undo",
+            "redo",
+            "add_operator",
+            "canvas_beside",
+            "canvas_show",
+            "canvas_copy",
+            "canvas_paste",
+            "canvas_select_none",
+            "canvas_place_keep",
+            "canvas_place_go",
+            "viewer_place_keep",
+            "viewer_place_go",
+            "viewer_finish",
+            "viewer_undo_point",
+            "viewer_cancel",
+            "calc_next",
+            "calc_prev",
+            "calc_accept",
+            "calc_close",
+            "files_rows",
+            "files_fold",
+            "files_enter",
+            "chat_send",
+            "chat_stop",
+            "chat_recall",
+            "table_none",
+            "list_down",
+            "list_up",
+            "box_enter",
+            "box_escape",
+            "note_save",
+        ] {
+            assert!(fixed.contains(&id), "{id} is fixed");
+        }
+        assert_eq!(fixed.len(), 31);
+        for (id, scope) in [
+            ("canvas_frame", Scope::Canvas),
+            ("viewer_satellite", Scope::Viewer),
+            ("calc_run", Scope::Calculator),
+            ("files_location", Scope::Files),
+            ("chat_send", Scope::Assistant),
+            ("table_select_all", Scope::Table),
+            ("box_enter", Scope::Dialogs),
+        ] {
+            assert_eq!(action(id).unwrap().scope, scope, "{id}");
+        }
+        // every scope has a row in the sheets, the digits as a range
+        for s in Scope::ALL {
+            assert!(!of_scope(s).is_empty(), "{s:?}");
+        }
+        assert!(of_scope(Scope::Canvas).iter().any(|(k, w)| k == "ctrl+1 to ctrl+9" && w.starts_with("Keep where")));
+        assert!(of_scope(Scope::Canvas).iter().any(|(k, _)| k == "1 to 9"));
+        assert!(of_scope(Scope::Canvas).iter().any(|(k, _)| k == "Delete, Backspace"));
+    }
+
+    #[test]
+    fn a_range_of_digits_is_written_short() {
+        let d = |k: Key| key(k);
+        assert_eq!(list_text(&[d(Key::Num1), d(Key::Num2)]), "1, 2");
+        assert_eq!(list_text(&[d(Key::Num1), d(Key::Num2), d(Key::Num3)]), "1 to 3");
+        assert_eq!(list_text(&[d(Key::Num1), d(Key::Num3)]), "1, 3");
+        assert_eq!(list_text(&[d(Key::F)]), "F");
     }
 
     #[test]
@@ -714,7 +1149,7 @@ mod tests {
 
     #[test]
     fn an_everywhere_shortcut_against_a_place_only_warns() {
-        // (the scopes of the places have no action in the table yet: some made here)
+        // (some made here: the table's own never clash by default)
         static MADE: [Action; 4] = [
             global("g", "g", &[key(Key::F5)]),
             Action { id: "c", name: "c", scope: Scope::Canvas, default: &[key(Key::F5)], fixed: false, idle: false },
@@ -744,6 +1179,58 @@ mod tests {
 
     fn press(key: Key, m: Modifiers) -> egui::Event {
         egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: m }
+    }
+
+    #[test]
+    fn a_place_wins_over_an_everywhere_shortcut_the_same() {
+        let mut map = BTreeMap::new();
+        map.insert("run".to_string(), vec!["Ctrl+R".to_string()]);
+        let o = parse_map(&map);
+        let c = clashes(&o);
+        assert_eq!(c.len(), 1);
+        assert!(!c[0].error);
+        assert_eq!((c[0].a.id, c[0].b.id), ("run", "canvas_rename"));
+        assert!(wins(&c[0], c[0].a).contains("that one wins"));
+        assert!(wins(&c[0], c[0].b).contains("this one wins"));
+        // a key that cannot be changed is not given up: the everywhere one is first
+        map.insert("run".to_string(), vec!["Enter".to_string()]);
+        let c = clashes(&parse_map(&map));
+        assert!(c.iter().all(|c| !c.error));
+        assert!(c.iter().any(|c| wins(c, c.a).contains("taken first")));
+        // pointer over the canvas (told in the frame before): the canvas has ctrl+R, the model is not run
+        let ctx = egui::Context::default();
+        let run = |events: Vec<egui::Event>, over_canvas: bool| {
+            let mut hit = Vec::new();
+            let input = egui::RawInput { events, ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                hit = take_with(ui.ctx(), &parse_map(&map_run_r()), APP);
+                if over_canvas {
+                    over(ui.ctx(), Scope::Canvas);
+                }
+            });
+            out.textures_delta.clear();
+            hit
+        };
+        let c = Modifiers::COMMAND;
+        assert_eq!(run(vec![press(Key::R, c)], false), vec!["run"]);
+        run(vec![], true);
+        assert!(run(vec![press(Key::R, c)], true).is_empty());
+        // and where the pointer is over a map, ctrl+R is the application's again (the map has no ctrl+R)
+        let ctx2 = egui::Context::default();
+        let mut hit = Vec::new();
+        for events in [vec![], vec![press(Key::R, c)]] {
+            let input = egui::RawInput { events, ..Default::default() };
+            let mut out = ctx2.run_ui(input, |ui| {
+                hit = take_with(ui.ctx(), &parse_map(&map_run_r()), APP);
+                over(ui.ctx(), Scope::Viewer);
+            });
+            out.textures_delta.clear();
+        }
+        assert_eq!(hit, vec!["run"]);
+    }
+
+    fn map_run_r() -> BTreeMap<String, Vec<String>> {
+        BTreeMap::from([("run".to_string(), vec!["Ctrl+R".to_string()])])
     }
 
     #[test]

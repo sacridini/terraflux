@@ -1909,7 +1909,11 @@ impl MapView {
         }
         // B over the map: the satellite's imagery under it, or none
         let typing = ui.ctx().memory(|m| m.focused().is_some());
-        if response.hovered() && !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::B)) {
+        if response.hovered() {
+            // (the maps' keys come before the everywhere ones the same, in the next frame)
+            crate::keymap::over(ui.ctx(), crate::keymap::Scope::Viewer);
+        }
+        if response.hovered() && !typing && ui.input_mut(|i| crate::keymap::pressed(i, "viewer_satellite")) {
             self.basemap = if self.basemap == Basemap::None { Basemap::EsriImagery } else { Basemap::None };
         }
         // (features drawn take the place of the line measured)
@@ -1919,12 +1923,12 @@ impl MapView {
         // M over the map: measuring, or not (not while drawing)
         // (what was asked of the views side by side by the last frame has been done by now)
         self.measure_stopped = false;
-        if response.hovered() && !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::M)) {
+        if response.hovered() && !typing && ui.input_mut(|i| crate::keymap::pressed(i, "viewer_measure")) {
             self.set_measuring(self.measuring.is_none());
             self.measure_stopped = self.measuring.is_none();
         }
         // space over the map: the map hidden (what is under it and over it seen alone), or shown again
-        if response.hovered() && !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Space)) {
+        if response.hovered() && !typing && ui.input_mut(|i| crate::keymap::pressed(i, "viewer_hide")) {
             self.hide_data = !self.hide_data;
         }
         if let Some(p) = response.hover_pos() {
@@ -1942,10 +1946,10 @@ impl MapView {
         // alt+left, alt+right, the mouse's back and forward buttons: the view before, the view after
         let (back, forward) = if response.hovered() && !typing {
             ui.input_mut(|i| {
-                let back = i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowLeft)
-                    | i.pointer.button_pressed(egui::PointerButton::Extra1);
-                let forward = i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowRight)
-                    | i.pointer.button_pressed(egui::PointerButton::Extra2);
+                let back =
+                    crate::keymap::pressed(i, "viewer_back") | i.pointer.button_pressed(egui::PointerButton::Extra1);
+                let forward =
+                    crate::keymap::pressed(i, "viewer_forward") | i.pointer.button_pressed(egui::PointerButton::Extra2);
                 (back, forward)
             })
         } else {
@@ -1962,7 +1966,7 @@ impl MapView {
             self.place_key = ui.input_mut(crate::places::read_key).or(self.place_key);
         }
         // Ctrl+G over the map: the box to go to a place
-        if response.hovered() && !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::G)) {
+        if response.hovered() && !typing && ui.input_mut(|i| crate::keymap::pressed(i, "viewer_goto")) {
             self.toggle_goto();
         }
         // escape over the map lets the place found go (not while the box, a line or a shape wants it)
