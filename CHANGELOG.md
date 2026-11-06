@@ -16,6 +16,9 @@ minor versions.
   is still not found, with the nodes that read it.
 - Command line: **`terraflux relink model.toml [--in FOLDER]... [--dry-run]`** does the same and writes the model
   again with the paths found (relative to its folder); it exits with 1 while a file is still not found, for scripts.
+- Canvas: **notes and frames go with the nodes copied**. Copying, duplicating (ctrl+D, the menu) or ctrl-dragging
+  nodes takes the frames around them all along, the copy around the copies; a frame selected is copied with its
+  nodes, a note selected by itself. Pasted in another scope, model or window, they come with new ids.
 
 ## [1.43.0] - 2026-11-06
 

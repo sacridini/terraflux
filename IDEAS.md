@@ -2773,6 +2773,12 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    `notes_and_frames_are_put_on_the_canvas_and_follow_their_nodes` (a imagem `ui-notes.png`). Mudou do plano: sair
    da moldura é pelo menu do nó, não por arrastar com alt (o alt já tira o nó das conexões). Ficou de fora: copiar e
    colar levar as notas e molduras junto com os nós.
+   **Feito** (Unreleased), o que ficou de fora: o texto copiado leva `terraflux_notes` ao lado dos nós
+   (`editor::clip_text`/`clip_nodes`); vão as molduras com todos os seus nós copiados (`frames_around`), ou a nota
+   ou a moldura selecionada (a moldura com os seus nós; `builder::chosen_with_notes`); `paste_notes` dá ids novos,
+   a moldura em volta das cópias (sem nenhum dos seus nós colado, fica de fora), a nota com o mesmo deslocamento.
+   Vale para ctrl+C/ctrl+V, ctrl+D, o Duplicate do menu e o arraste com ctrl. Testes:
+   `notes_and_frames_are_pasted_with_their_nodes` (editor) e `notes_and_frames_are_copied_with_their_nodes` (ui).
 10. **Vários modelos abertos em abas.** `TerrafluxApp` com o modelo da frente em `session` (o resto do código não
     muda) e os outros em `others: Vec<Session>`; trocar de aba troca os dois. Uma faixa de abas sob a barra quando há
     dois ou mais: o nome, o ponto de não salvo, um girador quando roda, o x (e o botão do meio) que fecha (pergunta

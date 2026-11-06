@@ -565,3 +565,69 @@ fn the_files_not_found_are_looked_for_around_the_model() {
     assert!(h.query_by_label("1 file of the model is not found.").is_some(), "the other still told");
     assert!(h.query_by_label_contains("found beside the model").is_none(), "not looked for twice");
 }
+
+/// The frame selected copied (with its nodes) and pasted: a new frame around the copies; a note selected
+/// duplicated (ctrl+D): a new note beside it.
+#[test]
+fn notes_and_frames_are_copied_with_their_nodes() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let r = terraflux_ops::Registry::standard();
+        terraflux_app::builder::add(s, &r, "nlm.fbm", &[]).unwrap();
+        terraflux_app::builder::add(s, &r, "landscape.mspa", &[]).unwrap();
+        let note = |id: &str, nodes: Vec<String>, at| terraflux_graph::Note {
+            id: id.into(),
+            text: id.into(),
+            nodes,
+            at,
+            ..Default::default()
+        };
+        s.source.notes.push(note("frame1", vec!["nlm_fbm".into(), "landscape_mspa".into()], None));
+        s.source.notes.push(note("note1", Vec::new(), Some([0.0, -200.0])));
+        s.editor.chosen.clear();
+        s.selected = None;
+        s.editor.note_chosen = Some("frame1".into());
+    }
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(3);
+    h.event(egui::Event::Copy);
+    h.step();
+    let text = h
+        .output()
+        .platform_output
+        .commands
+        .iter()
+        .find_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .expect("the frame copied");
+    h.event(egui::Event::Paste(text));
+    h.run_steps(2);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert!(s.source.node("nlm_fbm_2").is_some() && s.source.node("landscape_mspa_2").is_some());
+        let f = s.source.notes.iter().find(|n| n.id == "frame2").expect("the frame pasted");
+        assert_eq!(f.nodes, ["nlm_fbm_2", "landscape_mspa_2"]);
+        assert_eq!(f.text, "frame1");
+        let m = s.source.node("landscape_mspa_2").unwrap();
+        assert_eq!(m.inputs["map"], terraflux_graph::Source::Ref("nlm_fbm_2.map".into()));
+    }
+    // the note selected, ctrl+D
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.chosen.clear();
+        s.selected = None;
+        s.editor.note_chosen = Some("note1".into());
+    }
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    let n = s.source.notes.iter().find(|n| n.id == "note2").expect("the note duplicated");
+    assert_eq!((n.text.as_str(), n.at), ("note1", Some([40.0, -160.0])));
+    assert_eq!(s.editor.note_chosen.as_deref(), Some("note2"));
+    assert_eq!(s.source.nodes.len(), 4);
+}

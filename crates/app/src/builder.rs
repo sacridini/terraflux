@@ -1212,7 +1212,7 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
             egui::Event::Paste(t) => crate::editor::clip_nodes(t),
             _ => None,
         });
-        if copy && !chosen(s).is_empty() {
+        if copy && (!chosen(s).is_empty() || s.editor.note_chosen.is_some()) {
             i.events.retain(|e| !matches!(e, egui::Event::Copy));
         }
         if paste.is_some() {
@@ -1221,19 +1221,19 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
         (duplicate, copy, paste)
     });
     if duplicate {
-        let nodes = chosen(s);
-        put(s, r, &nodes, None, true);
+        let (nodes, notes) = chosen_with_notes(s);
+        put(s, r, &nodes, &notes, None, true);
     }
     if copy {
-        let nodes = chosen(s);
-        if !nodes.is_empty() {
-            ui.ctx().copy_text(crate::editor::clip_text(&nodes));
+        let (nodes, notes) = chosen_with_notes(s);
+        if !nodes.is_empty() || !notes.is_empty() {
+            ui.ctx().copy_text(crate::editor::clip_text(&nodes, &notes));
         }
     }
-    if let Some(nodes) = paste {
+    if let Some((nodes, notes)) = paste {
         // where the pointer is on the canvas, else beside where they were
         let at = ui.input(|i| i.pointer.latest_pos()).and_then(|p| s.editor.graph_at(p));
-        put(s, r, &nodes, at.map(|p| [p.x, p.y]), false);
+        put(s, r, &nodes, &notes, at.map(|p| [p.x, p.y]), false);
     }
     if search && s.editor.quick.is_none() {
         s.editor.quick = Some(Quick::default());
@@ -1386,7 +1386,28 @@ fn copy_nodes(s: &mut Session, r: &Registry, ids: &[String], by: Option<[f32; 2]
     let ids: Vec<&String> = ids.iter().collect();
     let nodes = placed(s, &ids);
     let at = by.and_then(|d| nodes.first().and_then(|n| n.pos).map(|p| [p[0] + d[0], p[1] + d[1]]));
-    put(s, r, &nodes, at, true);
+    let notes = frames_of(s, &nodes);
+    put(s, r, &nodes, &notes, at, true);
+}
+
+/// The frames of the scope shown around nodes that are all among `nodes`.
+fn frames_of(s: &Session, nodes: &[Node]) -> Vec<terraflux_graph::Note> {
+    let ids: Vec<&str> = nodes.iter().map(|n| n.id.as_str()).collect();
+    crate::editor::frames_around(&s.source, &s.editor.path, &ids)
+}
+
+/// What a copy or a duplicate takes: the note or the frame selected (a frame with its nodes), else the nodes chosen
+/// with the frames around them all.
+fn chosen_with_notes(s: &Session) -> (Vec<Node>, Vec<terraflux_graph::Note>) {
+    if let Some(id) = &s.editor.note_chosen
+        && let Some(n) = s.source.notes_of(&s.editor.path).find(|n| &n.id == id)
+    {
+        let ids: Vec<&String> = n.nodes.iter().collect();
+        return (placed(s, &ids), vec![n.clone()]);
+    }
+    let nodes = chosen(s);
+    let notes = frames_of(s, &nodes);
+    (nodes, notes)
 }
 
 /// The nodes chosen of the scope shown, by id (the boxes of what the scope reads left out).
@@ -1493,11 +1514,24 @@ fn placed(s: &Session, ids: &[&String]) -> Vec<Node> {
 }
 
 /// Add nodes copied to the scope shown, as new nodes (new ids; their connections from outside them kept when
-/// `outside`): the first of them at `at` (graph units) and the others as they were around it, else a step down
-/// and to the right of where they were (more steps while a node is there). They become the nodes selected.
-fn put(s: &mut Session, r: &Registry, copies: &[Node], at: Option<[f32; 2]>, outside: bool) {
-    let Some(first) = copies.first() else { return };
-    let from = first.pos.unwrap_or([0.0, 0.0]);
+/// `outside`), with the notes and frames copied with them: the first of them at `at` (graph units) and the others
+/// as they were around it, else a step down and to the right of where they were (more steps while a node is
+/// there). They become the nodes selected (a note pasted alone, the note selected).
+fn put(
+    s: &mut Session,
+    r: &Registry,
+    copies: &[Node],
+    notes: &[terraflux_graph::Note],
+    at: Option<[f32; 2]>,
+    outside: bool,
+) {
+    let from = match copies.first() {
+        Some(first) => first.pos.unwrap_or([0.0, 0.0]),
+        None => match notes.iter().find_map(|n| n.at) {
+            Some(p) => p,
+            None => return,
+        },
+    };
     let path = s.editor.path.clone();
     let offset = match at {
         Some(p) => [p[0] - from[0], p[1] - from[1]],
@@ -1513,7 +1547,10 @@ fn put(s: &mut Session, r: &Registry, copies: &[Node], at: Option<[f32; 2]>, out
     };
     match crate::editor::paste_nodes(&mut s.source, &path, copies, offset, outside) {
         Ok(ids) => {
+            let new = copies.iter().map(|n| n.id.clone()).zip(ids.iter().cloned()).collect();
+            let pasted = crate::editor::paste_notes(&mut s.source, &path, notes, &new, offset);
             s.editor.chosen = ids.iter().cloned().collect();
+            s.editor.note_chosen = if ids.is_empty() { pasted.into_iter().next() } else { None };
             if let [id] = ids.as_slice() {
                 select(s, r, id);
             }
@@ -2945,8 +2982,8 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 Ok(false)
             }
             Action::DuplicateChosen => {
-                let nodes = chosen(s);
-                put(s, r, &nodes, None, true);
+                let (nodes, notes) = chosen_with_notes(s);
+                put(s, r, &nodes, &notes, None, true);
                 Ok(false)
             }
             Action::DuplicateNodes(ids) => {

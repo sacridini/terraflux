@@ -621,16 +621,56 @@ fn for_each_ref(m: &mut Model, path: &[String], f: &mut dyn FnMut(&mut String)) 
     }
 }
 
-/// The text of nodes copied, for the clipboard: JSON, its key telling it from other texts.
-pub fn clip_text(nodes: &[Node]) -> String {
-    serde_json::json!({ "terraflux_nodes": nodes }).to_string()
+/// The text of nodes copied, with the notes and frames going with them, for the clipboard: JSON, its key telling
+/// it from other texts.
+pub fn clip_text(nodes: &[Node], notes: &[terraflux_graph::Note]) -> String {
+    let mut v = serde_json::json!({ "terraflux_nodes": nodes });
+    if !notes.is_empty() {
+        v["terraflux_notes"] = serde_json::json!(notes);
+    }
+    v.to_string()
 }
 
-/// The nodes in a text of the clipboard ([`clip_text`]'s); none in another text.
-pub fn clip_nodes(text: &str) -> Option<Vec<Node>> {
+/// The nodes and the notes in a text of the clipboard ([`clip_text`]'s); none in another text.
+pub fn clip_nodes(text: &str) -> Option<(Vec<Node>, Vec<terraflux_graph::Note>)> {
     let mut v: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
     let nodes: Vec<Node> = serde_json::from_value(v.get_mut("terraflux_nodes")?.take()).ok()?;
-    (!nodes.is_empty()).then_some(nodes)
+    let notes: Vec<terraflux_graph::Note> =
+        v.get_mut("terraflux_notes").and_then(|n| serde_json::from_value(n.take()).ok()).unwrap_or_default();
+    (!nodes.is_empty() || !notes.is_empty()).then_some((nodes, notes))
+}
+
+/// The frames of a scope around nodes that are all among `ids` (they go where those nodes go when copied).
+pub fn frames_around(m: &Model, path: &[String], ids: &[&str]) -> Vec<terraflux_graph::Note> {
+    m.notes_of(path).filter(|f| f.is_frame() && f.nodes.iter().all(|k| ids.contains(&k.as_str()))).cloned().collect()
+}
+
+/// Add notes and frames copied to a scope, with the nodes pasted with them (`new`: each node copied's new id): each
+/// a new id, a note moved by `offset`, a frame around the copies of its nodes (none of them pasted: left out).
+/// Their ids.
+pub fn paste_notes(
+    m: &mut Model,
+    path: &[String],
+    notes: &[terraflux_graph::Note],
+    new: &HashMap<String, String>,
+    offset: [f32; 2],
+) -> Vec<String> {
+    let mut ids = Vec::new();
+    for n in notes {
+        let mut c = n.clone();
+        if n.is_frame() {
+            c.nodes = n.nodes.iter().filter_map(|k| new.get(k).cloned()).collect();
+            if c.nodes.is_empty() {
+                continue;
+            }
+        }
+        c.id = m.new_note_id(n.is_frame());
+        c.scope = path.to_vec();
+        c.at = n.at.map(|p| [p[0] + offset[0], p[1] + offset[1]]);
+        ids.push(c.id.clone());
+        m.notes.push(c);
+    }
+    ids
 }
 
 /// A reference of a node pasted, followed: to a node pasted with it, its new id; to the nodes of a body pasted
@@ -1808,9 +1848,10 @@ mod tests {
         assert_eq!(d.inputs["steps"], Source::Literal(14.into()));
         assert_eq!(d.pos, Some([240.0, 40.0]));
         // both pasted through the clipboard's text: the copies connected to each other, nothing from outside them
-        let text = clip_text(&[m.node("raster_calc").unwrap().clone(), m.node("markov_fit_2").unwrap().clone()]);
+        let text = clip_text(&[m.node("raster_calc").unwrap().clone(), m.node("markov_fit_2").unwrap().clone()], &[]);
         assert!(clip_nodes("raster_calc").is_none() && clip_nodes("{\"a\": 1}").is_none());
-        let copies = clip_nodes(&text).unwrap();
+        let (copies, notes) = clip_nodes(&text).unwrap();
+        assert!(notes.is_empty());
         assert_eq!(
             paste_nodes(&mut m, &[], &copies, [0.0, 300.0], false).unwrap(),
             vec!["raster_calc_2", "markov_fit_3"]
@@ -1835,6 +1876,47 @@ mod tests {
         assert_eq!(b.nodes[0].inputs["x"], Source::Ref("@land".into()));
         assert_eq!(b.outputs["plus"], "raster_calc.map");
         assert!(m.node(&id).unwrap().inputs.is_empty());
+    }
+
+    /// Nodes copied with the frame around them all (not one around only some of them) and a note: pasted, the frame
+    /// goes around the copies, the note moved with them, each a new id; a note copied alone pasted alone.
+    #[test]
+    fn notes_and_frames_are_pasted_with_their_nodes() {
+        use terraflux_graph::Note;
+        let r = Registry::standard();
+        let mut m = model();
+        let a = add_node(&mut m, &r, &[], "raster.calc", [0.0, 0.0]).unwrap();
+        let b = add_node(&mut m, &r, &[], "raster.calc", [200.0, 0.0]).unwrap();
+        let c = add_node(&mut m, &r, &[], "raster.calc", [400.0, 0.0]).unwrap();
+        let frame = |id: &str, nodes: &[&String]| Note {
+            id: id.into(),
+            text: "Inputs".into(),
+            nodes: nodes.iter().map(|k| k.to_string()).collect(),
+            ..Default::default()
+        };
+        m.notes.push(frame("frame1", &[&a, &b]));
+        m.notes.push(frame("frame2", &[&c]));
+        m.notes.push(Note { id: "note1".into(), text: "Read me".into(), at: Some([10.0, 90.0]), ..Default::default() });
+        // a and b copied: frame1 goes with them, not frame2
+        let going = frames_around(&m, &[], &[&a, &b]);
+        assert_eq!(going.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(), ["frame1"]);
+        let mut notes = going.clone();
+        notes.push(m.notes[2].clone());
+        let text = clip_text(&[m.node(&a).unwrap().clone(), m.node(&b).unwrap().clone()], &notes);
+        let (copies, notes) = clip_nodes(&text).unwrap();
+        let ids = paste_nodes(&mut m, &[], &copies, [0.0, 300.0], false).unwrap();
+        let new: HashMap<String, String> = copies.iter().map(|n| n.id.clone()).zip(ids.iter().cloned()).collect();
+        assert_eq!(paste_notes(&mut m, &[], &notes, &new, [0.0, 300.0]), ["frame3", "note2"]);
+        assert_eq!(m.notes[3].nodes, ids);
+        assert_eq!(m.notes[3].text, "Inputs");
+        assert_eq!(m.notes[4].at, Some([10.0, 390.0]));
+        assert_eq!(m.notes[0].nodes, [a.clone(), b.clone()], "the original untouched");
+        // a frame whose nodes are not pasted is left out; a note alone is pasted
+        let text = clip_text(&[], &[m.notes[1].clone(), m.notes[2].clone()]);
+        let (copies, notes) = clip_nodes(&text).unwrap();
+        assert!(copies.is_empty());
+        assert_eq!(paste_notes(&mut m, &[], &notes, &HashMap::new(), [5.0, 5.0]), ["note3"]);
+        assert!(clip_nodes(&clip_text(&[], &[])).is_none());
     }
 
     /// A calculator made a group, the group a node of the user's library, a copy of it added, and both brought to
