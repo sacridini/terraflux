@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.44.0] - 2026-11-06
+
 ### Added
 - Application: **the files not found are looked for around the model at once**. When a saved model opens with
   files it reads not where it says (a project copied whole to another computer), they are looked for in its folder
