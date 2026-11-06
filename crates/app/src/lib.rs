@@ -27,6 +27,7 @@ pub mod document_view;
 pub mod draw;
 pub mod editor;
 pub mod editor_view;
+pub mod eta;
 pub mod eval;
 pub mod export_view;
 pub mod figure;
@@ -50,6 +51,7 @@ pub mod my_nodes;
 pub mod nav;
 pub mod node_remotes;
 pub mod node_view;
+pub mod notify;
 pub mod op_notes;
 pub mod palette;
 pub mod params_view;
@@ -138,6 +140,8 @@ pub fn run(model: Option<PathBuf>) -> eframe::Result<()> {
             app.recovery = Some(recovery::Keeper::new(recovery::dir()));
             // the computer kept from sleeping while a model runs (unless turned off)
             app.awake = Some(awake::Awake::default());
+            // the end of a long run told by the system's notifications when Terraflux is in the background
+            app.notifications = true;
             // the models handed by `terraflux mcp` opened here, not in a window of their own
             let ctx = cc.egui_ctx.clone();
             app.handoff = handoff::listen(move || ctx.request_repaint());

@@ -2664,6 +2664,18 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
    macOS, `notify-send` no Linux, o toast do PowerShell no Windows. Enquanto roda, o título da janela começa com a
    porcentagem ("[42%] modelo — Terraflux"), visível na barra de tarefas. Testes: quando avisa (tempo, quieta,
    foco), o texto; a notificação à mão nos três sistemas.
+   **Feito** (Unreleased): `notify.rs` por processos (o `notify-rust` pede Rust 1.89 e traria o zbus e outro crate
+   `windows`): no Windows o PowerShell (`-Command -`, o script pela entrada, o título e o texto pelo ambiente, sem
+   janela) registra `HKCU\Software\Classes\AppUserModelId\Terraflux.Terraflux` (nome e ícone, o logo gravado na
+   pasta de dados) e mostra o toast; conferido aqui: o toast na Central de Ações sob "Terraflux"
+   (`ToastNotificationManager.History`). macOS `osascript` (os textos como `argv`), Linux `notify-send` e depois
+   `gdbus`. `Session::ended` (`Ended`: segundos, a falha, se quieta), `TerrafluxApp::tell` (o
+   `RequestUserAttention` e a notificação; `told` guarda o que foi dito, e só o aplicativo de verdade manda ao
+   sistema), `in_front` pelo `InputState::focused` (a janela principal e a do Viewer). O fim de um lote do Many
+   runs também. Configurações `notify_runs` e `notify_after` (Settings > Runs). Testes: `notify::tests`,
+   `the_end_of_a_run_is_told_when_terraflux_is_not_in_front`; `notify::by_hand` (ignorado) mostra uma de verdade.
+   Falta: um clique na notificação trazer o Terraflux para a frente (pede um ativador COM no Windows); conferir no
+   macOS e num Linux com área de trabalho (o WSL não tem servidor de notificações).
 7. **Não deixar o computador dormir durante uma execução** (Windows, Linux, macOS). `awake.rs`: um guarda segurado
    enquanto uma execução, um lote ou o empréstimo deste computador a outro trabalha. Windows:
    `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` (windows-sys, `Win32_System_Power`), pedido e

@@ -10,7 +10,7 @@ use egui::{Color32, FontId, Painter, Rect, Stroke, TextFormat, vec2};
 /// The green of the land not yet changed (the changed land takes the theme's accent).
 pub const LAND: Color32 = Color32::from_rgb(76, 159, 106);
 
-const ICON_PNG: &[u8] = include_bytes!("../../../assets/logo/png/terraflux-icon-256.png");
+pub(crate) const ICON_PNG: &[u8] = include_bytes!("../../../assets/logo/png/terraflux-icon-256.png");
 
 /// The windows' icon: the application's icon, 256 px.
 pub fn window_icon() -> Arc<egui::IconData> {

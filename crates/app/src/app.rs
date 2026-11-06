@@ -742,6 +742,17 @@ pub struct Session {
     pub copy: Option<(String, u64)>,
     pub copied_at: Option<Instant>,
     pub untitled: u64,
+    /// A run that just ended, until the application takes it (to tell it when it was long).
+    pub ended: Option<Ended>,
+}
+
+/// A run that ended: how long it took, why it failed (none: it did its work), whether the application started it
+/// itself (a run after an edit).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ended {
+    pub seconds: f64,
+    pub failed: Option<String>,
+    pub quiet: bool,
 }
 
 impl Session {
@@ -928,6 +939,7 @@ impl Session {
             copy: None,
             copied_at: None,
             untitled: crate::recovery::next_untitled(),
+            ended: None,
         })
     }
 
@@ -1539,6 +1551,11 @@ impl Session {
             self.elapsed = self.started.map(|t| t.elapsed());
             self.status.retain(|_, st| *st != NodeStatus::Running);
             self.status_rev += 1;
+            self.ended = Some(Ended {
+                seconds: self.elapsed.map_or(0.0, |e| e.as_secs_f64()),
+                failed: r.as_ref().err().cloned(),
+                quiet: self.quiet_run,
+            });
             match r {
                 Ok(results) => {
                     self.outputs.extend(results.values);
@@ -1785,6 +1802,11 @@ pub struct TerrafluxApp {
     quitting: bool,
     /// The computer kept from sleeping while Terraflux works (the application's window has it, not the tests).
     pub awake: Option<crate::awake::Awake>,
+    /// The system's notifications sent (the application's window; the tests keep them to themselves), what was told
+    /// (title, text), and when the batch going on began.
+    pub notifications: bool,
+    pub told: Vec<(String, String)>,
+    batch_began: Option<Instant>,
 }
 
 /// What waits for the user's word on the edits not saved of the model open: done once they are saved or thrown away.
@@ -1888,6 +1910,9 @@ impl TerrafluxApp {
             confirm: None,
             quitting: false,
             awake: None,
+            notifications: false,
+            told: Vec::new(),
+            batch_began: None,
         };
         if let Some(p) = model {
             app.open(&p);
@@ -2150,6 +2175,26 @@ impl TerrafluxApp {
             Some(Answer::Cancel) => self.confirm = None,
             None => {}
         }
+    }
+
+    /// Whether a window of Terraflux has the focus (the main one, or the Viewer's of its own).
+    fn in_front(&self, ctx: &egui::Context) -> bool {
+        // (the focus the window was told last: `focused` follows the system's events)
+        let root = ctx.input_for(egui::ViewportId::ROOT, |i| i.focused);
+        root || self.viewer_viewport.is_some_and(|v| v != egui::ViewportId::ROOT && ctx.input_for(v, |i| i.focused))
+    }
+
+    /// Tell something that ended: the window's button in the taskbar asks for attention, and a notification of the
+    /// system says it (the application's window only).
+    fn tell(&mut self, ctx: &egui::Context, title: String, body: String) {
+        ctx.send_viewport_cmd_to(
+            egui::ViewportId::ROOT,
+            egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational),
+        );
+        if self.notifications {
+            crate::notify::send(&title, &body);
+        }
+        self.told.push((title, body));
     }
 
     /// The main window asked to close: with edits not saved, the user asked first.
@@ -3025,6 +3070,17 @@ impl TerrafluxApp {
                     if let Some(e) = self.awake.as_ref().and_then(|a| a.failed.as_ref()) {
                         ui.label(RichText::new(e).color(ui.visuals().warn_fg_color).size(11.0));
                     }
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut st.notify_runs, "tell when a run of more than").on_hover_text(
+                            "when a run you asked for, or a batch of Many runs, ends while Terraflux is not in \
+                             front: a notification of the system, and the window's button in the taskbar lit",
+                        );
+                        ui.add_enabled(
+                            st.notify_runs,
+                            egui::DragValue::new(&mut st.notify_after).range(0.0..=3600.0).speed(1.0).suffix(" s"),
+                        );
+                        ui.label("ends");
+                    });
                 });
                 ui.end_row();
                 ui.label("Threads");
@@ -3847,7 +3903,14 @@ impl TerrafluxApp {
     fn window_title(&mut self, ctx: &egui::Context) {
         let title = match &self.session {
             Some(s) => {
-                format!("{}{} - Terraflux {}", s.title(), if s.dirty { " ●" } else { "" }, env!("CARGO_PKG_VERSION"))
+                // (how far a run is, seen on the window's button in the taskbar)
+                let at = if s.running() { format!("[{:.0}%] ", s.run_progress().0 * 100.0) } else { String::new() };
+                format!(
+                    "{at}{}{} - Terraflux {}",
+                    s.title(),
+                    if s.dirty { " ●" } else { "" },
+                    env!("CARGO_PKG_VERSION")
+                )
             }
             None => format!("Terraflux {}", env!("CARGO_PKG_VERSION")),
         };
@@ -4113,6 +4176,38 @@ impl TerrafluxApp {
         self.batch.poll();
         if self.batch.running() {
             ui.ctx().request_repaint_after(Duration::from_millis(500));
+        }
+        // the end of a long run, or of a batch, told when Terraflux is not in front
+        if let Some(e) = self.session.as_mut().and_then(|s| s.ended.take()) {
+            let model = self.session.as_ref().map(Session::title).unwrap_or_default();
+            if crate::notify::worth_telling(
+                st.notify_runs,
+                e.quiet,
+                e.seconds,
+                st.notify_after,
+                self.in_front(ui.ctx()),
+            ) {
+                let (title, body) = crate::notify::run_ended(&model, e.seconds, e.failed.as_deref());
+                self.tell(ui.ctx(), title, body);
+            }
+        }
+        match (self.batch.running(), self.batch_began) {
+            (true, None) => self.batch_began = Some(Instant::now()),
+            (false, Some(t)) => {
+                self.batch_began = None;
+                let seconds = t.elapsed().as_secs_f64();
+                if crate::notify::worth_telling(
+                    st.notify_runs,
+                    false,
+                    seconds,
+                    st.notify_after,
+                    self.in_front(ui.ctx()),
+                ) {
+                    let (_, body) = crate::notify::run_ended("Many runs", seconds, None);
+                    self.tell(ui.ctx(), "Many runs: the batch ended".into(), body.replace("The run", "The batch"));
+                }
+            }
+            _ => {}
         }
         // the computer kept awake while a model runs, a batch goes on, or it works for another's batch
         if let Some(a) = &mut self.awake {

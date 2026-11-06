@@ -151,3 +151,56 @@ fn the_computer_is_kept_awake_while_a_model_runs() {
     terraflux_app::settings::update(|st| st.keep_awake = true);
     assert!(!held, "not held when turned off");
 }
+
+/// Step until the run going on (or about to start) ends.
+fn run_to_the_end(h: &mut Harness<TerrafluxApp>) {
+    let t = Instant::now();
+    let mut ran = false;
+    loop {
+        h.step();
+        let s = h.state().session.as_ref().unwrap();
+        ran |= s.running();
+        if ran && !s.running() {
+            break;
+        }
+        assert!(t.elapsed() < Duration::from_secs(120), "the run did not end");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    h.run_steps(2);
+}
+
+#[test]
+fn the_end_of_a_run_is_told_when_terraflux_is_not_in_front() {
+    terraflux_app::settings::update(|st| st.notify_after = 0.0);
+    let mut h = harness(new_app(None));
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    // in front: nothing told
+    run_to_the_end(&mut h);
+    assert!(h.state().told.is_empty(), "{:?}", h.state().told);
+    // in the background: a run asked for is told, with the model's name
+    // (as the system tells it: the window lost the focus)
+    h.input_mut().focused = false;
+    h.run_steps(1);
+    let ctx = h.ctx.clone();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.cache.lock().unwrap().clear();
+        s.start(Box::new(move || ctx.request_repaint()));
+    }
+    run_to_the_end(&mut h);
+    let title = h.state().session.as_ref().unwrap().title();
+    assert_eq!(h.state().told.len(), 1, "{:?}", h.state().told);
+    assert_eq!(h.state().told[0].0, format!("{title}: done"));
+    assert!(h.state().told[0].1.starts_with("The run ended in "));
+    // turned off: not told
+    terraflux_app::settings::update(|st| st.notify_runs = false);
+    let ctx = h.ctx.clone();
+    h.state_mut().session.as_mut().unwrap().start(Box::new(move || ctx.request_repaint()));
+    run_to_the_end(&mut h);
+    terraflux_app::settings::update(|st| {
+        st.notify_runs = true;
+        st.notify_after = 10.0;
+    });
+    assert_eq!(h.state().told.len(), 1);
+}

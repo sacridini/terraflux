@@ -23,6 +23,13 @@ minor versions.
   still go dark). On Windows by the system's call, on macOS by `caffeinate`, on Linux by `systemd-inhibit` (idle and
   sleep, else idle only, as where blocking sleep is refused), ended with the work or with Terraflux itself. Settings
   > Runs turns it off; the progress's tooltip says it.
+- Application: **the end of a long run is told** when Terraflux is not in front: a run you asked for (not the
+  application's own runs after an edit) or a batch of Many runs that took 10 s or more (Settings > Runs: on or off,
+  and the seconds) lights the window's button in the taskbar (the Dock's icon bounces on macOS) and shows a
+  notification of the system: "land: done · The run ended in 14 min.", or why it failed. On Windows a toast under
+  the name Terraflux (registered for the user, as applications not from the Store do), on macOS the Notification
+  Center, on Linux the desktop's notifications (`notify-send`, else `gdbus`). While a model runs, the window's title
+  starts with how far it is ("[42%] land - Terraflux"), seen on its button in the taskbar.
 
 ## [1.42.0] - 2026-11-06
 
