@@ -2332,7 +2332,7 @@ fn a_connection_of_a_number_shows_the_number() {
     run_model(&mut h);
     let at = on_wire(&h, ("a", "value"), ("b", "v"));
     rest_on(&mut h, at, 60);
-    assert!(h.query_by_label_contains("42").is_some(), "the number");
+    // (not "42" alone: the version in the bar, 1.42.0, has it too)
     assert!(h.query_by_label_contains("number\n42").is_some(), "its type and the number");
     // an edit: what the nodes gave may be out of date
     h.hover_at(at + egui::vec2(0.0, 300.0));
@@ -2341,5 +2341,5 @@ fn a_connection_of_a_number_shows_the_number() {
     h.run_steps(3);
     rest_on(&mut h, at, 60);
     assert!(h.query_by_label_contains("changed since the last run").is_some());
-    assert!(h.query_by_label_contains("42").is_none());
+    assert!(h.query_by_label_contains("number\n42").is_none());
 }

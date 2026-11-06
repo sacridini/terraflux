@@ -6,6 +6,19 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Application: **edits not saved are never lost without asking**. Closing the window, *New model*, *Open...*,
+  *Open recent*, a template, a model made by the wizard or a model file dropped on the window first ask "Save the
+  changes to …? Save / Don't save / Cancel" when the model open has edits not saved (a template only started, with
+  nothing done to it, is not asked about). Before, they were thrown away silently.
+- Application: **the edits not saved are copied and recovered after a crash**. While a model has edits not saved,
+  a copy of it is written every half a minute (when it changed) in the user's application data
+  (`Terraflux/recovery/`), deleted once the model is saved or closed without saving. When Terraflux opens after one
+  that ended without saving (a crash, the power gone), a strip offers "Terraflux closed with edits not saved in …
+  (copied 3 minutes ago): Recover / Discard / Later"; Recover opens the model from its file with those edits, not
+  saved, a step of undo back to the file as it is on disk. The copies of another Terraflux still open are never
+  offered (each gives a pulse while it runs). Windows, Linux and macOS alike.
+
 ## [1.42.0] - 2026-11-06
 
 ### Added

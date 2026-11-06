@@ -2614,6 +2614,15 @@ README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local
      arquivo em disco. Funciona igual nos três sistemas (só arquivos e o mtime).
    - Testes: a cópia escrita e lida de volta com o caminho; o pulso; um modelo sujo fechado pergunta (kittest); Don't
      save fecha e apaga a cópia; Recover devolve o modelo sujo.
+   **Feito** (Unreleased): `recovery.rs` (`Keeper`: a cópia a cada 30 s quando mudou, o pulso a cada 15 s, as
+   deixadas procuradas ao abrir e a cada 30 s, "parada" depois de 60 s sem pulso e nunca do próprio processo; a
+   chave leva o pid, então duas janelas com o mesmo modelo não se pisam); `TerrafluxApp::may_leave(Then)`,
+   `ask_new`, `ask_open`, `ask_start`, o `egui::Modal` da pergunta e `closing` (o `CancelClose`);
+   `Session::worth_keeping` (sujo e com arquivo, ou editado: um template só começado não pergunta; o arranjo do
+   template não é passo de desfazer) e `Session::recovered`. Só o aplicativo de verdade liga o `Keeper` (`lib::run`):
+   os testes escreveriam na pasta do usuário. Testes: os de `recovery.rs` e `tests/quality_of_life.rs`. Falta: o
+   modelo de um `vector.read` ou do wizard ainda não salvo tem caminhos absolutos (ok); a pergunta quando o
+   `open_in_app` do MCP chega (hoje recusa, o item 10 abre numa aba).
 2. **Reabrir a última sessão.** Configuração "Reopen the models open last" (ligada). Ao fechar (e a cada minuto), em
    `data_dir()/last-session.json`: os modelos abertos (as abas do item 10) e o da frente; de cada modelo, por
    caminho, em `data_dir()/views.json` (os últimos 100): a câmera do canvas (e o grupo aberto), o nó selecionado, o

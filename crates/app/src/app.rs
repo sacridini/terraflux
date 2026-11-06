@@ -737,6 +737,11 @@ pub struct Session {
     pub saved: Option<Model>,
     /// The review of the changes going on (an assistant's, or the differences with another version).
     pub review: Option<crate::review::Review>,
+    /// The copy kept of the edits not saved ([`crate::recovery`]): its name and the revision copied, when it was
+    /// written; the number of a model never saved (its copy's name).
+    pub copy: Option<(String, u64)>,
+    pub copied_at: Option<Instant>,
+    pub untitled: u64,
 }
 
 impl Session {
@@ -766,6 +771,26 @@ impl Session {
     /// A model to start from, not saved yet.
     pub fn template(t: &crate::templates::Template) -> Result<Session, String> {
         Session::from_model(t.model())
+    }
+
+    /// A model's edits not saved recovered from a copy ([`crate::recovery`]): its file as it was (`path`), the
+    /// edits not saved, a step of undo back to the file as it is on disk.
+    pub fn recovered(m: Model, path: Option<PathBuf>) -> Result<Session, String> {
+        let disk = path.as_deref().filter(|p| p.is_file()).and_then(|p| Model::load(p).ok());
+        let mut s = Session::new(m, path)?;
+        if let Some(d) = disk {
+            s.history = crate::undo::History::new(&d);
+            s.history.changed(&s.source);
+            s.saved = Some(d);
+        }
+        s.dirty = true;
+        Ok(s)
+    }
+
+    /// Whether the model has edits worth asking about before it is put aside, and keeping a copy of: edits not
+    /// saved of a model with a file, or of a new one the user edited (a template only started is not).
+    pub fn worth_keeping(&self) -> bool {
+        self.dirty && (self.path.is_some() || self.history.can_undo())
     }
 
     /// A session of a model not saved yet (a template's).
@@ -900,6 +925,9 @@ impl Session {
             watch: None,
             on_disk: None,
             review: None,
+            copy: None,
+            copied_at: None,
+            untitled: crate::recovery::next_untitled(),
         })
     }
 
@@ -1748,6 +1776,32 @@ pub struct TerrafluxApp {
     window_title: String,
     /// The models handed by `terraflux mcp` (open_in_app) come here.
     pub handoff: Option<crate::handoff::Listener>,
+    /// The copies of the edits not saved, kept from a crash (the application's window has it, not the tests unless
+    /// they ask).
+    pub recovery: Option<crate::recovery::Keeper>,
+    /// What waits for the user's word on the model's edits not saved (the question shown), and the window closing
+    /// with the user's word given.
+    pub confirm: Option<Then>,
+    quitting: bool,
+}
+
+/// What waits for the user's word on the edits not saved of the model open: done once they are saved or thrown away.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Then {
+    Quit,
+    New,
+    Open(PathBuf),
+    Start(Box<Model>),
+    Recover(crate::recovery::Found),
+}
+
+/// The answers to the question on the edits not saved (and to the offer of a copy recovered: Recover, Discard,
+/// Later).
+#[derive(Clone, Copy)]
+enum Answer {
+    Save,
+    Discard,
+    Cancel,
 }
 
 /// A row of a list: a name, selected or not, and a note on the right.
@@ -1828,6 +1882,9 @@ impl TerrafluxApp {
             shortcuts_open: false,
             window_title: String::new(),
             handoff: None,
+            recovery: None,
+            confirm: None,
+            quitting: false,
         };
         if let Some(p) = model {
             app.open(&p);
@@ -1877,6 +1934,8 @@ impl TerrafluxApp {
             s.ask_viewer = false;
         }
         s.run_when_ready = true;
+        // (laid out as it comes: not a step to undo, nor an edit to ask about)
+        s.history = crate::undo::History::new(&s.source);
         ctx.request_repaint();
         self.wizard = None;
         self.session = Some(s);
@@ -1962,7 +2021,193 @@ impl TerrafluxApp {
     fn open_dialog(&mut self) {
         if let Some(p) = rfd::FileDialog::new().add_filter("Terraflux model", &["toml", "json"]).pick_file() {
             self.wizard = None;
-            self.open(&p);
+            self.ask_open(&p);
+        }
+    }
+
+    /// Whether the model open may be put aside now (it has no edits worth keeping); else the user is asked, and
+    /// `then` done after the answer (unless Cancel).
+    pub fn may_leave(&mut self, then: Then) -> bool {
+        if self.session.as_ref().is_some_and(Session::worth_keeping) {
+            self.confirm = Some(then);
+            false
+        } else {
+            true
+        }
+    }
+
+    /// A new model, the edits not saved of the one open asked about first.
+    pub fn ask_new(&mut self) {
+        if self.may_leave(Then::New) {
+            self.new_model();
+        }
+    }
+
+    /// A model opened, the edits not saved of the one open asked about first.
+    pub fn ask_open(&mut self, path: &Path) {
+        if self.may_leave(Then::Open(path.to_path_buf())) {
+            self.open(path);
+        }
+    }
+
+    /// A model to start from (a template's), the edits not saved of the one open asked about first.
+    pub fn ask_start(&mut self, ctx: &egui::Context, model: Model) {
+        if self.may_leave(Then::Start(Box::new(model.clone()))) {
+            self.start_model(ctx, model);
+        }
+    }
+
+    /// Do what waited for the user's word.
+    fn go(&mut self, ctx: &egui::Context, then: Then) {
+        match then {
+            Then::Quit => {
+                self.quitting = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            Then::New => self.new_model(),
+            Then::Open(p) => self.open(&p),
+            Then::Start(m) => self.start_model(ctx, *m),
+            Then::Recover(f) => self.recover(&f),
+        }
+    }
+
+    /// The edits not saved of a Terraflux that ended without saving, opened (the file they are of, with them).
+    pub fn recover(&mut self, f: &crate::recovery::Found) {
+        let Some(k) = &self.recovery else { return };
+        let dir = k.dir.clone();
+        match crate::recovery::read(&dir, &f.key).and_then(|m| Session::recovered(m, f.note.path.clone())) {
+            Ok(s) => {
+                self.wizard = None;
+                self.session = Some(s);
+                self.message = None;
+                self.focus(Pane::Model);
+                self.panes_due_again();
+                self.open_due();
+                if let Some(k) = &mut self.recovery {
+                    k.answer(&f.key, true);
+                }
+            }
+            Err(e) => self.message = Some(format!("the edits of {} could not be recovered: {e}", f.note.title)),
+        }
+    }
+
+    /// The question on the edits not saved: Save (then what was asked), Don't save (thrown away, then what was
+    /// asked), Cancel (nothing).
+    fn confirm_window(&mut self, ctx: &egui::Context) {
+        let Some(then) = self.confirm.clone() else { return };
+        let Some(s) = &self.session else {
+            self.confirm = None;
+            return;
+        };
+        let title = s.title();
+        let mut answer = None;
+        let modal = egui::Modal::new(egui::Id::new("edits not saved")).show(ctx, |ui| {
+            ui.set_width(380.0);
+            ui.label(RichText::new(format!("Save the changes to \"{title}\"?")).strong().size(15.0));
+            ui.add_space(4.0);
+            ui.label(RichText::new("The edits not saved are lost if you don't save them.").weak());
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui.add(accent_button("Save", true)).clicked() {
+                    answer = Some(Answer::Save);
+                }
+                if ui.button("Don't save").clicked() {
+                    answer = Some(Answer::Discard);
+                }
+                if ui.button("Cancel").clicked() {
+                    answer = Some(Answer::Cancel);
+                }
+            });
+        });
+        if modal.should_close() && answer.is_none() {
+            answer = Some(Answer::Cancel);
+        }
+        match answer {
+            Some(Answer::Save) => {
+                self.confirm = None;
+                self.save(false);
+                if self.session.as_ref().is_some_and(|s| !s.dirty) {
+                    if let (Some(k), Some(s)) = (&self.recovery, &mut self.session) {
+                        k.forget(s);
+                    }
+                    self.go(ctx, then);
+                }
+            }
+            Some(Answer::Discard) => {
+                self.confirm = None;
+                if let (Some(k), Some(s)) = (&self.recovery, &mut self.session) {
+                    k.forget(s);
+                }
+                // (thrown away: not asked again for what follows)
+                if let Some(s) = &mut self.session {
+                    s.dirty = false;
+                }
+                self.go(ctx, then);
+            }
+            Some(Answer::Cancel) => self.confirm = None,
+            None => {}
+        }
+    }
+
+    /// The main window asked to close: with edits not saved, the user asked first.
+    fn closing(&mut self, ctx: &egui::Context) {
+        if !ctx.input(|i| i.viewport().close_requested()) || self.quitting {
+            return;
+        }
+        if !self.may_leave(Then::Quit) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
+    }
+
+    /// The edits not saved of a Terraflux that ended without saving: offered in a strip at the top.
+    fn recovery_strip(&mut self, ui: &mut Ui) {
+        let Some(f) = self.recovery.as_ref().and_then(|k| k.found.first().cloned()) else { return };
+        let more = self.recovery.as_ref().map_or(0, |k| k.found.len() - 1);
+        let mut act = None;
+        egui::Panel::top("recovery")
+            .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::symmetric(8, 5)))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let file = f.note.path.as_ref().map_or("never saved".to_string(), |p| p.display().to_string());
+                    ui.label(RichText::new("⚠").color(ui.visuals().warn_fg_color));
+                    ui.label(format!(
+                        "Terraflux closed with edits not saved in {} (copied {})",
+                        f.note.title,
+                        crate::recovery::ago(f.note.copied)
+                    ))
+                    .on_hover_text(format!("{file}\nkept by Terraflux {}", f.note.version));
+                    if more > 0 {
+                        ui.label(RichText::new(format!("and {more} more")).weak());
+                    }
+                    if ui.add(accent_button("Recover", true)).on_hover_text("open the model with those edits").clicked()
+                    {
+                        act = Some(Answer::Save);
+                    }
+                    if ui.button("Discard").on_hover_text("throw those edits away").clicked() {
+                        act = Some(Answer::Discard);
+                    }
+                    if ui.button("Later").on_hover_text("asked again the next time Terraflux opens").clicked() {
+                        act = Some(Answer::Cancel);
+                    }
+                });
+            });
+        match act {
+            Some(Answer::Save) => {
+                if self.may_leave(Then::Recover(f.clone())) {
+                    self.recover(&f);
+                }
+            }
+            Some(Answer::Discard) => {
+                if let Some(k) = &mut self.recovery {
+                    k.answer(&f.key, true);
+                }
+            }
+            Some(Answer::Cancel) => {
+                if let Some(k) = &mut self.recovery {
+                    k.answer(&f.key, false);
+                }
+            }
+            None => {}
         }
     }
 
@@ -1994,7 +2239,7 @@ impl TerrafluxApp {
         let c = crate::commands::cmd();
         ui.set_min_width(220.0);
         if ui.add(egui::Button::new("New model").shortcut_text(format!("{c}N"))).clicked() {
-            self.new_model();
+            self.ask_new();
             ui.close();
         }
         if ui.add(egui::Button::new("Open...").shortcut_text(format!("{c}shift+O"))).clicked() {
@@ -2009,7 +2254,7 @@ impl TerrafluxApp {
                     if ui.button(name).on_hover_text(p.display().to_string()).clicked() {
                         ui.close();
                         self.wizard = None;
-                        self.open(&p);
+                        self.ask_open(&p);
                     }
                 }
             });
@@ -2087,7 +2332,7 @@ impl TerrafluxApp {
             ui.menu_button(g, |ui| {
                 for t in crate::templates::TEMPLATES.iter().filter(|t| t.group == g) {
                     if ui.button(t.name).on_hover_text(t.about).clicked() {
-                        self.start_template(ui.ctx(), t);
+                        self.ask_start(ui.ctx(), t.model());
                         ui.close();
                     }
                 }
@@ -2101,7 +2346,7 @@ impl TerrafluxApp {
             ui.horizontal(|ui| {
                 if ui.button(&name).on_hover_text(path.display().to_string()).clicked() {
                     match terraflux_graph::Model::load(&path) {
-                        Ok(m) => self.start_model(ui.ctx(), m),
+                        Ok(m) => self.ask_start(ui.ctx(), m),
                         Err(e) => self.message = Some(format!("{}: {e}", path.display())),
                     }
                     ui.close();
@@ -2492,12 +2737,12 @@ impl TerrafluxApp {
     fn command(&mut self, ctx: &egui::Context, d: crate::commands::Do) {
         use crate::commands::Do;
         match d {
-            Do::New => self.new_model(),
+            Do::New => self.ask_new(),
             Do::Open => self.open_dialog(),
             Do::ProcessFolder => self.process_folder(),
             Do::OpenRecent(p) => {
                 self.wizard = None;
-                self.open(&p);
+                self.ask_open(&p);
             }
             Do::Save => self.save(false),
             Do::SaveAs => self.save(true),
@@ -2532,7 +2777,7 @@ impl TerrafluxApp {
                 self.dock = Some(default_layout());
                 self.panes_due_again();
             }
-            Do::Template(k) => self.start_template(ctx, &crate::templates::TEMPLATES[k]),
+            Do::Template(k) => self.ask_start(ctx, crate::templates::TEMPLATES[k].model()),
             d => {
                 let Some(s) = &mut self.session else { return };
                 let r = &self.registry;
@@ -3560,7 +3805,7 @@ impl TerrafluxApp {
             self.save(keys.save_as);
         }
         if keys.new {
-            self.new_model();
+            self.ask_new();
         }
         if keys.open_model {
             self.open_dialog();
@@ -3682,7 +3927,7 @@ impl TerrafluxApp {
             crate::builder::add_files(s, &self.registry, &dropped)
         };
         match model {
-            Some(model) => self.open(&model),
+            Some(model) => self.ask_open(&model),
             None => ui.ctx().request_repaint(),
         }
     }
@@ -3796,6 +4041,10 @@ impl TerrafluxApp {
             ui.ctx().set_zoom_factor(st.zoom.clamp(0.5, 3.0));
             self.styled = Some(key);
         }
+        self.closing(ui.ctx());
+        if let (Some(k), Some(s)) = (&mut self.recovery, &mut self.session) {
+            k.tick(&mut [s]);
+        }
         if let Some(s) = &mut self.session {
             s.poll();
             crate::watch::follow(s, ui.ctx());
@@ -3906,7 +4155,7 @@ impl TerrafluxApp {
             }
             if let Some(p) = created {
                 self.wizard = None;
-                self.open(&p);
+                self.ask_open(&p);
             }
             return;
         }
@@ -3922,6 +4171,8 @@ impl TerrafluxApp {
                     });
                 });
         }
+        self.recovery_strip(ui);
+        self.confirm_window(ui.ctx());
         self.settings_window(ui.ctx());
         self.update_window(ui.ctx());
         self.install_update(ui.ctx());

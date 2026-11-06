@@ -12,6 +12,7 @@ use terraflux_app::app::Pane;
 use terraflux_app::editor_view::NodeStatus;
 use terraflux_app::wizard::{Picked, Step, Wizard};
 
+mod quality_of_life;
 mod web_layers;
 
 fn data(name: &str) -> PathBuf {
