@@ -198,7 +198,9 @@ Press ++f5++ to run the whole model. Then save it: **Save as...**, `core-forest.
     it off its input (dropped on another input, it moves there), or right-click the input. Inputs that must be
     connected are marked with a star in the Node pane. A connection let go on empty canvas opens the search with
     only the operators that take it ("Add an operator that takes a raster"): the one chosen is born there,
-    already connected (the connections of several nodes selected go into it together).
+    already connected (the connections of several nodes selected go into it together). A node not yet connected,
+    dragged over a connection (it lights up) and let go, goes in its middle; alt+drag takes a node out of its
+    connections, joining again what it joined.
 
 ## Read the results
 

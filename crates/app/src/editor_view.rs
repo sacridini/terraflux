@@ -225,6 +225,22 @@ pub enum Action {
         node: String,
         links: Vec<(String, String)>,
     },
+    /// A node let go over a connection put in the middle of it: what the connection carried (`from`) into the node's
+    /// `input`, its output `out` into `to`'s `to_port`.
+    Insert {
+        node: String,
+        from: String,
+        input: String,
+        out: String,
+        to: String,
+        to_port: String,
+    },
+    /// A node dragged out with alt let go: each (node, port, source) read `source` now (none: cut), what the node
+    /// read taken off it; the ones cut named in the message.
+    Lift {
+        node: String,
+        rewire: Vec<(String, String, Option<String>)>,
+    },
     /// A connection taken off an input.
     Disconnect {
         node: String,
@@ -380,8 +396,9 @@ enum Drag {
     /// other nodes selected drawn with it (when it starts at a node selected); whether it is a connection taken
     /// off an input, carried (let go on the empty canvas it only stays off).
     Connect(String, Pos2, Vec<(String, Pos2)>, bool),
-    /// The nodes selected moved: where the pointer started and each node's corner then (graph units).
-    Move(Pos2, Vec<(String, Pos2)>),
+    /// The nodes selected moved: where the pointer started and each node's corner then (graph units); whether
+    /// alt was held (a node connected is lifted out of its connections when let go).
+    Move(Pos2, Vec<(String, Pos2)>, bool),
     /// A node made wider or narrower by its right edge: its id, its left edge and the width its texts need.
     Resize(String, f32, f32),
     /// A box of selection from a corner (graph units).
@@ -705,6 +722,18 @@ enum Hit {
     /// The row that folds or unfolds a node's optional inputs.
     Fold(usize),
     Body(usize),
+}
+
+/// Where a node dragged over a connection goes in it ([`Scene::insertion`]): the connection, what it carries, the
+/// node's input and output that fit, what the connection fed.
+#[derive(Debug, Clone, PartialEq)]
+struct Insert {
+    edge: usize,
+    from: String,
+    input: String,
+    out: String,
+    to: String,
+    to_port: String,
 }
 
 /// A connection: from a box's output to a box's input.
@@ -1370,6 +1399,139 @@ impl Scene {
         self.boxes[i].outputs.get(k).map(|(_, t)| *t)
     }
 
+    /// Whether box `to` is read, through connections, by box `from` (a box reads itself), the connection `skip`
+    /// left out.
+    fn reaches(&self, from: usize, to: usize, skip: usize) -> bool {
+        let mut seen = vec![false; self.boxes.len()];
+        let mut stack = vec![from];
+        while let Some(i) = stack.pop() {
+            if i == to {
+                return true;
+            }
+            if std::mem::replace(&mut seen[i], true) {
+                continue;
+            }
+            stack.extend(
+                self.edges.iter().enumerate().filter(|(e, ed)| *e != skip && ed.from.0 == i).map(|(_, ed)| ed.to.0),
+            );
+        }
+        false
+    }
+
+    /// The connection a node dragged (box `i`, at its place now) is over, to be put in the middle of, with the
+    /// pointer at `p` (graph units): of those its box crosses, the nearest to the pointer that the node fits: an
+    /// input free that takes what the connection carries (a new one of a node that takes any), an output free that
+    /// fits what it feeds, no cycle made. None when the node is wired already at the ports that would fit.
+    fn insertion(&self, i: usize, p: Pos2) -> Option<Insert> {
+        let b = &self.boxes[i];
+        if b.source || self.edges.is_empty() {
+            return None;
+        }
+        let mut crossed: Vec<(f32, usize)> = Vec::new();
+        for (e, ed) in self.edges.iter().enumerate() {
+            if ed.from.0 == i || ed.to.0 == i {
+                continue;
+            }
+            let (p0, p3) = (self.boxes[ed.from.0].output_at(ed.from.1), self.boxes[ed.to.0].input_at(ed.to.1));
+            if !Rect::from_two_pos(p0, p3).expand(30.0).intersects(b.rect) {
+                continue;
+            }
+            let dx = ((p3.x - p0.x).abs() * 0.5).max(30.0);
+            let (p1, p2) = (p0 + Vec2::new(dx, 0.0), p3 - Vec2::new(dx, 0.0));
+            let near = (0..=32)
+                .map(|k| {
+                    let t = k as f32 / 32.0;
+                    let u = 1.0 - t;
+                    let at = p0.to_vec2() * (u * u * u)
+                        + p1.to_vec2() * (3.0 * u * u * t)
+                        + p2.to_vec2() * (3.0 * u * t * t)
+                        + p3.to_vec2() * (t * t * t);
+                    at.to_pos2()
+                })
+                .filter(|q| b.rect.contains(*q))
+                .map(|q| q.distance(p))
+                .min_by(f32::total_cmp);
+            if let Some(d) = near {
+                crossed.push((d, e));
+            }
+        }
+        crossed.sort_by(|a, c| a.0.total_cmp(&c.0));
+        let free_out: Vec<(usize, Type)> = b
+            .outputs
+            .iter()
+            .enumerate()
+            .filter(|(k, _)| !self.edges.iter().any(|ed| ed.from == (i, *k)))
+            .map(|(k, (_, t))| (k, *t))
+            .collect();
+        for (_, e) in crossed {
+            let ed = &self.edges[e];
+            let a = &self.boxes[ed.from.0];
+            let aty = a.outputs[ed.from.1].1;
+            let from = a.reference(ed.from.1);
+            let Some(to) = self.boxes[ed.to.0].inputs.get(ed.to.1) else { continue };
+            let Some(out) = free_out.iter().find(|(_, t)| t.fits(to.ty)).map(|(k, _)| b.outputs[*k].0.clone()) else {
+                continue;
+            };
+            // a node that takes any: a new input; else the best free input that fits (the type itself, then
+            // those the node needs, then their order)
+            let input = if b.inputs.last().is_some_and(|q| q.name.is_empty() && aty.fits(q.ty)) {
+                let taken: Vec<&str> = b.inputs.iter().map(|q| q.name.as_str()).collect();
+                Some(new_input(&from, &taken))
+            } else {
+                b.inputs
+                    .iter()
+                    .filter(|q| !q.connected && !q.name.is_empty())
+                    .map(|q| (q.name.clone(), q.ty, q.required))
+                    .chain(b.folded.iter().map(|(n, t)| (n.clone(), *t, false)))
+                    .filter(|(_, t, _)| aty.fits(*t))
+                    .min_by_key(|(_, t, required)| (*t != aty, !*required))
+                    .map(|(n, _, _)| n)
+            };
+            let Some(input) = input else { continue };
+            // (the new chain A, the node, B: no cycle when B does not read A, nor the node, nor the node A)
+            if self.reaches(ed.to.0, ed.from.0, e) || self.reaches(ed.to.0, i, e) || self.reaches(i, ed.from.0, e) {
+                continue;
+            }
+            return Some(Insert {
+                edge: e,
+                from,
+                input,
+                out,
+                to: self.boxes[ed.to.0].key.clone(),
+                to_port: to.name.clone(),
+            });
+        }
+        None
+    }
+
+    /// What taking box `i` out of its connections does: each connection it feeds read what fed it instead where
+    /// the types fit (a source of the same type as its output first, else in the order of its inputs), else cut;
+    /// as (node, port, source). The nodes read from a model's input or a box of the scope are sources too.
+    /// None when it has no connections.
+    fn lifting(&self, i: usize) -> Option<Vec<(String, String, Option<String>)>> {
+        let b = &self.boxes[i];
+        if b.source {
+            return None;
+        }
+        let sources: Vec<(String, Type)> = (0..b.inputs.len())
+            .filter_map(|k| self.feeding(i, k))
+            .map(|(j, o)| (self.boxes[j].reference(o), self.boxes[j].outputs[o].1))
+            .collect();
+        let fed: Vec<&EdgeAt> = self.edges.iter().filter(|ed| ed.from.0 == i).collect();
+        if sources.is_empty() && fed.is_empty() {
+            return None;
+        }
+        let mut rewire = Vec::new();
+        for ed in fed {
+            let Some(to) = self.boxes[ed.to.0].inputs.get(ed.to.1) else { continue };
+            let ty = b.outputs[ed.from.1].1;
+            let fitting = sources.iter().filter(|(_, t)| t.fits(to.ty));
+            let source = fitting.clone().find(|(_, t)| *t == ty).or_else(|| fitting.clone().next());
+            rewire.push((self.boxes[ed.to.0].key.clone(), to.name.clone(), source.map(|(r, _)| r.clone())));
+        }
+        Some(rewire)
+    }
+
     fn hit(&self, p: Pos2, reach: f32) -> Option<Hit> {
         let candidates = self.grid.get(&cell(p))?;
         for &i in candidates.iter().rev() {
@@ -1643,7 +1805,7 @@ pub fn show(
                     .iter()
                     .filter_map(|k| scene.index.get(k).map(|&j| (k.clone(), scene.boxes[j].rect.min)))
                     .collect();
-                Drag::Move(w, corners)
+                Drag::Move(w, corners, ui.input(|i| i.modifiers.alt))
             }
             _ => Drag::Select(w),
         });
@@ -1662,7 +1824,7 @@ pub fn show(
         actions.push(Action::Resize(id.clone(), Some(w)));
         resized = scene.index.get(id).map(|&i| (i, w));
     }
-    if let (Some(Drag::Move(from, corners)), Some(q)) = (&st.drag, pointer)
+    if let (Some(Drag::Move(from, corners, _)), Some(q)) = (&st.drag, pointer)
         && resp.dragged()
     {
         // the group keeps its shape, anywhere on the canvas
@@ -1680,6 +1842,27 @@ pub fn show(
         _ => None,
     };
     if resp.drag_stopped() {
+        // a node let go over a connection goes in the middle of it; one dragged with alt is lifted out of its
+        // connections (the connections it was in joined again)
+        if let (Some(Drag::Move(_, corners, alt)), Some(q)) = (&st.drag, pointer)
+            && let [(id, _)] = corners.as_slice()
+            && let Some(&i) = scene.index.get(id)
+        {
+            if *alt {
+                if let Some(rewire) = scene.lifting(i) {
+                    actions.push(Action::Lift { node: id.clone(), rewire });
+                }
+            } else if let Some(at) = scene.insertion(i, to_world(q, cam)) {
+                actions.push(Action::Insert {
+                    node: id.clone(),
+                    from: at.from,
+                    input: at.input,
+                    out: at.out,
+                    to: at.to,
+                    to_port: at.to_port,
+                });
+            }
+        }
         // the nodes selected dragged together: all into the node they are let go on (new inputs of a node that
         // takes any; else, let go on the node itself, its free inputs that fit, in order)
         let many = match (&st.drag, pointer) {
@@ -2268,6 +2451,24 @@ pub fn show(
             painter.rect_stroke(back, 4.0, Stroke::new(1.0, colour), egui::StrokeKind::Outside);
             painter.galley(at, galley, v.strong_text_color());
         }
+    }
+    // a node dragged over a connection it fits: the connection lit, where it goes in when let go
+    if let (Some(Drag::Move(_, corners, false)), Some(q)) = (&st.drag, pointer)
+        && let [(id, _)] = corners.as_slice()
+        && let Some(&i) = scene.index.get(id)
+        && let Some(at) = scene.insertion(i, to_world(q, &cam))
+    {
+        let ed = &scene.edges[at.edge];
+        let (p0, p3) =
+            (screen(scene.boxes[ed.from.0].output_at(ed.from.1)), screen(scene.boxes[ed.to.0].input_at(ed.to.1)));
+        let dx = ((p3.x - p0.x).abs() * 0.5).max(30.0 * cam.zoom);
+        painter.add(egui::epaint::CubicBezierShape::from_points_stroke(
+            [p0, p0 + Vec2::new(dx, 0.0), p3 - Vec2::new(dx, 0.0), p3],
+            false,
+            Color32::TRANSPARENT,
+            Stroke::new(4.5, crate::theme::accent()),
+        ));
+        ui.ctx().request_repaint();
     }
     // the note of the node under the pointer; how to take a connection off an input
     if st.drag.is_none()

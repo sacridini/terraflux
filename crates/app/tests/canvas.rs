@@ -885,3 +885,130 @@ fn a_wire_let_go_inside_a_group_adds_the_node_to_its_body() {
     assert_eq!(n.inputs["map"], terraflux_graph::Source::Ref("r.raster".into()));
     assert!(s.editor.message.is_none(), "{:?}", s.editor.message);
 }
+
+/// `read -> mspa` with a free node (`op`) under the connection, and the screen points to drag it by (its header)
+/// and to (its box centred on the connection).
+fn over_a_wire(
+    name: &str,
+    op: &str,
+    inside: bool,
+    wired: bool,
+) -> (Harness<'static, TerrafluxApp>, egui::Pos2, egui::Pos2) {
+    use terraflux_graph::Body;
+    let mspa = Node::new("mspa", "landscape.mspa").input("map", "read.raster");
+    let mut mspa = mspa;
+    mspa.pos = Some([700.0, 0.0]);
+    let mut free = Node::new("free", op);
+    free.pos = Some([350.0, 300.0]);
+    if wired {
+        free = free.input("map", "read.raster");
+    }
+    let mut nodes = vec![reader("read", [0.0, 0.0]), mspa, free];
+    let mut m = Model::new("over");
+    if inside {
+        m.nodes.push(Node::new("grp", terraflux_graph::GROUP).body(Body { nodes, ..Default::default() }));
+    } else {
+        m.nodes.append(&mut nodes);
+    }
+    let mut h = harness(open(&m, name));
+    h.run_steps(3);
+    if inside {
+        h.state_mut().session.as_mut().unwrap().editor.path = vec!["grp".into()];
+        h.run_steps(40);
+    }
+    let e = editor(&h);
+    let (a, b) = (e.screen_of_output("read", "raster").unwrap(), e.screen_of_input("mspa", "map").unwrap());
+    let r = e.screen_rect_of("free").unwrap();
+    let grab = e.screen_of("free").unwrap();
+    (h, grab, grab + ((a + b.to_vec2()) / 2.0 - r.center()))
+}
+
+fn nodes_now(h: &Harness<TerrafluxApp>, inside: bool) -> Vec<Node> {
+    let s = h.state().session.as_ref().unwrap();
+    s.source.scope(&if inside { vec!["grp".to_string()] } else { vec![] }).unwrap().to_vec()
+}
+
+fn undo(h: &mut Harness<TerrafluxApp>) {
+    terraflux_app::builder::undo_redo(h.state_mut().session.as_mut().unwrap(), false);
+    h.run_steps(2);
+}
+
+/// A node dragged over a connection and let go goes in the middle of it, by the input and output that fit, in one
+/// step of undo; refused when its types do not fit, when it is wired already, and inside a group it is the same.
+#[test]
+fn a_node_let_go_over_a_connection_goes_in_the_middle() {
+    use terraflux_graph::Source;
+    let find = |v: &[Node], id: &str| v.iter().find(|n| n.id == id).cloned().unwrap();
+    for inside in [false, true] {
+        let (mut h, from, to) = over_a_wire("canvas-insert.toml", "raster.reclassify", inside, false);
+        drag(&mut h, from, to);
+        let v = nodes_now(&h, inside);
+        assert_eq!(find(&v, "free").inputs["map"], Source::Ref("read.raster".into()), "inside {inside}: {v:?}");
+        assert_eq!(find(&v, "mspa").inputs["map"], Source::Ref("free.map".into()), "inside {inside}");
+        assert!(h.state().session.as_ref().unwrap().editor.message.is_none());
+        // one step of undo puts the connection back
+        undo(&mut h);
+        let v = nodes_now(&h, inside);
+        assert_eq!(find(&v, "mspa").inputs["map"], Source::Ref("read.raster".into()), "inside {inside}");
+        assert!(find(&v, "free").inputs.is_empty(), "inside {inside}");
+    }
+    // a node of vectors does not fit a connection of maps
+    let (mut h, from, to) = over_a_wire("canvas-insert-vector.toml", "vector.buffer", false, false);
+    drag(&mut h, from, to);
+    let v = nodes_now(&h, false);
+    assert_eq!(find(&v, "mspa").inputs["map"], Source::Ref("read.raster".into()));
+    assert!(find(&v, "free").inputs.is_empty());
+    // a node that reads something at the input that fits is only moved
+    let (mut h, from, to) = over_a_wire("canvas-insert-wired.toml", "raster.reclassify", false, true);
+    drag(&mut h, from, to);
+    let v = nodes_now(&h, false);
+    assert_eq!(find(&v, "mspa").inputs["map"], Source::Ref("read.raster".into()));
+    assert_eq!(find(&v, "free").inputs["map"], Source::Ref("read.raster".into()));
+}
+
+/// A node dragged with alt is lifted out of its connections: what it read feeds what it fed, in one step of undo;
+/// what its types leave unconnected is named in the message.
+#[test]
+fn a_node_dragged_with_alt_is_lifted_out_of_its_connections() {
+    use terraflux_graph::Source;
+    let find = |v: &[Node], id: &str| v.iter().find(|n| n.id == id).cloned().unwrap();
+    let alt = |h: &mut Harness<TerrafluxApp>, on: bool| {
+        let m = if on { egui::Modifiers::ALT } else { egui::Modifiers::NONE };
+        h.event(egui::Event::ModifiersChanged(m));
+        h.run_steps(1);
+    };
+    for inside in [false, true] {
+        let mut m = Model::new("lift");
+        let (mut mspa, mut mid) = (Node::new("mspa", "landscape.mspa"), Node::new("mid", "raster.reclassify"));
+        mid = mid.input("map", "read.raster");
+        mspa = mspa.input("map", "mid.map");
+        (mid.pos, mspa.pos) = (Some([350.0, 0.0]), Some([700.0, 0.0]));
+        let nodes = vec![reader("read", [0.0, 0.0]), mid, mspa];
+        if inside {
+            let body = terraflux_graph::Body { nodes, ..Default::default() };
+            m.nodes.push(Node::new("grp", terraflux_graph::GROUP).body(body));
+        } else {
+            m.nodes = nodes;
+        }
+        let mut h = harness(open(&m, "canvas-lift.toml"));
+        h.run_steps(3);
+        if inside {
+            h.state_mut().session.as_mut().unwrap().editor.path = vec!["grp".into()];
+            h.run_steps(40);
+        }
+        let from = editor(&h).screen_of("mid").unwrap();
+        alt(&mut h, true);
+        drag(&mut h, from, from + egui::vec2(0.0, 300.0));
+        alt(&mut h, false);
+        let v = nodes_now(&h, inside);
+        assert_eq!(find(&v, "mspa").inputs["map"], Source::Ref("read.raster".into()), "inside {inside}: {v:?}");
+        assert!(find(&v, "mid").inputs.is_empty(), "inside {inside}");
+        let moved = find(&v, "mid").pos.unwrap();
+        assert!(moved[1] > 150.0, "it stays where it was dropped: {moved:?}");
+        assert!(h.state().session.as_ref().unwrap().editor.message.is_none());
+        undo(&mut h);
+        let v = nodes_now(&h, inside);
+        assert_eq!(find(&v, "mspa").inputs["map"], Source::Ref("mid.map".into()), "inside {inside}");
+        assert_eq!(find(&v, "mid").inputs["map"], Source::Ref("read.raster".into()), "inside {inside}");
+    }
+}

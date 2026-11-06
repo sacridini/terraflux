@@ -2313,6 +2313,12 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
    não pela porta; o filtro só pelo tipo do primeiro fio.
 5. **Inserir um nó num fio**: arrastar um nó sobre uma conexão e soltar o coloca no meio (a entrada e a saída que
    servem); alt+arrastar o tira de lá ligando de novo o que ele ligava.
+   **Feito** (Unreleased, por um sub-agente): `editor::insert_between` e `editor::lift_out`; no canvas
+   `Scene::insertion` (o fio cruzado mais perto do ponteiro, os tipos que servem, sem ciclo: `Scene::reaches`) e
+   `Scene::lifting`, as ações `Insert` e `Lift` na soltura de um nó só (`Drag::Move` lembra o alt do começo), o fio
+   alvo em destaque. Testes: `a_node_let_go_over_a_connection_goes_in_the_middle`,
+   `a_node_dragged_with_alt_is_lifted_out_of_its_connections`. Falta: o desfazer volta as ligações mas não o
+   movimento (o passo do arrasto já fechado, `undo.rs`); a inserção de vários nós; um teste da mensagem de corte.
 6. **O menu da seleção**: botão direito com vários nós selecionados dá apagar, duplicar, desligar tudo, agrupar,
    rodar até eles, congelar, alinhar; hoje o menu é de um nó só.
 7. **Mudar uma configuração em vários nós de uma vez**: com nós do mesmo operador selecionados, o painel Node mostra

@@ -2495,6 +2495,22 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             Action::ConnectMany { node, links } => {
                 crate::editor::connect_many(&mut s.source, r, &path, &node, &links).map(|_| true)
             }
+            Action::Insert { node, from, input, out, to, to_port } => {
+                crate::editor::insert_between(&mut s.source, r, &path, &node, &from, &input, &out, &to, &to_port)
+                    .map(|_| true)
+            }
+            Action::Lift { node, rewire } => {
+                crate::editor::lift_out(&mut s.source, &path, &node, &rewire).map(|_| {
+                    // the connections that fit nothing are cut: said which
+                    let cut: Vec<String> =
+                        rewire.iter().filter(|(_, _, src)| src.is_none()).map(|(n, p, _)| format!("{n}.{p}")).collect();
+                    s.edited();
+                    s.editor.message = (!cut.is_empty()).then(|| {
+                        format!("{node} taken out; nothing it read fits {}: left unconnected", cut.join(", "))
+                    });
+                    false
+                })
+            }
             Action::Disconnect { node, port } => {
                 crate::editor::disconnect(&mut s.source, &path, &node, &port).map(|_| true)
             }

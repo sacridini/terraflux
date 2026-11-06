@@ -12,6 +12,10 @@ minor versions.
   of that exact type first), and the one chosen is born there, connected and selected, in one step of undo. The
   connections of nodes selected dragged together go into it (each a new input of a `stack.of`, else the free inputs
   that fit); inside a group it is added to its body. Esc or a click outside adds nothing.
+- Canvas: **a node let go over a connection goes in its middle**: a node with a free input for the connection's type
+  and an output its end takes, dragged over it, lights the connection up, and on release A → B becomes A → node →
+  B (never a cycle), in one step of undo. **Alt+drag takes a node out**: what it read is connected again to what
+  it fed where the types fit, the rest left unconnected and said.
 
 ## [1.41.0] - 2026-11-06
 

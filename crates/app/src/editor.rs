@@ -817,6 +817,55 @@ pub fn connect_many(
     })
 }
 
+/// Put a node in the middle of a connection, as one change (one step of undo), checked: `from` (the reference the
+/// connection carried) into the node's `input`, the node's `out` into `to`'s `to_port`, which read `from` before.
+/// Nothing is made when it brings an error or a cycle.
+#[allow(clippy::too_many_arguments)]
+pub fn insert_between(
+    m: &mut Model,
+    r: &Registry,
+    path: &[String],
+    node: &str,
+    from: &str,
+    input: &str,
+    out: &str,
+    to: &str,
+    to_port: &str,
+) -> Result<()> {
+    Ref::parse(from).map_err(|e| e.to_string())?;
+    for port in [input, to_port] {
+        if !terraflux_graph::valid_port(port) {
+            return Err(format!("{port:?} is not a valid port name"));
+        }
+    }
+    let at = |id: &str, port: &str| format!("{}{id}.{port}", prefix(path));
+    let checked =
+        [at(node, input), at(to, to_port), format!("{}{node}", prefix(path)), format!("{}{to}", prefix(path))];
+    guarded(m, r, &checked, |c| {
+        node_mut(c, path, node)?.inputs.insert(input.to_string(), Source::Ref(from.to_string()));
+        node_mut(c, path, to)?.inputs.insert(to_port.to_string(), Source::Ref(format!("{node}.{out}")));
+        Ok(())
+    })
+}
+
+/// Take a node out of the connections it is in, as one change (one step of undo): its own connections removed,
+/// and each `(node, port, source)` of `rewire` read `source` now (nothing: disconnected). The node stays.
+pub fn lift_out(m: &mut Model, path: &[String], node: &str, rewire: &[(String, String, Option<String>)]) -> Result<()> {
+    // (nothing to check: the sources were chosen to fit, and a node out of the chain makes no cycle; what the
+    // node lacks now is the checks' to tell)
+    let mut copy = m.clone();
+    node_mut(&mut copy, path, node)?.inputs.retain(|_, s| !matches!(s, Source::Ref(_)));
+    for (n, port, source) in rewire {
+        let n = node_mut(&mut copy, path, n)?;
+        match source {
+            Some(s) => n.inputs.insert(port.clone(), Source::Ref(s.clone())),
+            None => n.inputs.remove(port),
+        };
+    }
+    *m = copy;
+    Ok(())
+}
+
 /// Whether an operator has an input a value of type `ty` may feed (a new input of one that takes any, too).
 pub fn takes(r: &Registry, op: &str, ty: Type) -> bool {
     r.sig(op).is_some_and(|s| s.inputs.iter().any(|p| ty.fits(p.ty)) || s.extra.is_some_and(|e| ty.fits(e)))
