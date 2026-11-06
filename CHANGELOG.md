@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.45.0] - 2026-11-06
+
 ### Added
 - Application, `terraflux run` and the MCP: **a copy of each run's small outputs, kept in the journal**, so a run's
   maps can still be shown and compared after a later run writes over the same files. Each run's output files (not
