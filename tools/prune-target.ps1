@@ -28,8 +28,6 @@ foreach ($manifest in Get-ChildItem (Join-Path $root 'crates') -Filter Cargo.tom
     $m = Select-String -Path $manifest.FullName -Pattern '^name\s*=\s*"([^"]+)"' | Select-Object -First 1
     if ($m) { $packages[$m.Matches[0].Groups[1].Value] = $true }
 }
-$crates = @{ 'build_script_build' = $true }
-foreach ($p in $packages.Keys) { $crates[$p.Replace('-', '_')] = $true }
 
 function Split-Hash([string]$name) {
     $i = $name.LastIndexOf('-')
@@ -127,12 +125,13 @@ foreach ($profile in $profiles) {
             }
         }
 
-        # Incremental caches have hashes of their own: per crate, the newest and those used up to -KeepHours before.
+        # Incremental caches have hashes of their own: per name, the newest and those used up to -KeepHours before.
+        # Cargo keeps them only for the workspace's units, and a test program's or a binary's is named after it
+        # (ui-<hash>, terraflux-<hash>), not after its crate: matching crate names left 140 copies of those.
         $inc = Join-Path $dir 'incremental'
         if (Test-Path $inc) {
-            $byCrate = Get-ChildItem $inc -Directory -Force | Where-Object {
-                $p = Split-Hash $_.Name; $p -and $crates.ContainsKey($p[0])
-            } | Group-Object { (Split-Hash $_.Name)[0] }
+            $byCrate = Get-ChildItem $inc -Directory -Force | Where-Object { Split-Hash $_.Name } |
+                Group-Object { (Split-Hash $_.Name)[0] }
             foreach ($g in $byCrate) {
                 $newest = ($g.Group | Measure-Object LastWriteTime -Maximum).Maximum
                 foreach ($d in $g.Group) { if ($d.LastWriteTime -lt $newest - $window) { Remove-Stale $d.FullName } }
