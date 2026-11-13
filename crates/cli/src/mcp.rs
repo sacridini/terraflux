@@ -321,6 +321,10 @@ impl Server {
                 let file = path.file_name().map(|f| f.to_string_lossy().into_owned());
                 tools::methods(&load(&path)?, r, a, file.as_deref())
             }
+            "python_script" => {
+                let path = model_path(a)?;
+                tools::python_script(&load(&path)?, r, &path, a)
+            }
             "run_model" => {
                 let path = model_path(a)?;
                 tools::run_model(&self.engine, &load(&path)?, Some(&path), &folder(&path), a, watcher)
@@ -1450,6 +1454,26 @@ mod tests {
         let (t, e) = call(&s, "methods", json!({ "model": model, "format": "bibtex" }));
         assert!(!e && t.starts_with("@software{terraflux,"), "{t}");
         assert!(call(&s, "methods", json!({ "model": model, "language": "fr" })).1);
+        // its script of landschaft: returned, or written beside the model
+        let (t, e) = call(&s, "python_script", json!({ "model": model }));
+        assert!(!e && t.contains("nodes translated") && t.contains("import landschaft as ls"), "{t}");
+        assert!(!dir.join("t.py").exists());
+        let (t, e) = call(&s, "python_script", json!({ "model": model, "beside": true }));
+        assert!(!e && t.starts_with("wrote ") && dir.join("t.py").exists(), "{t}");
+        let py = std::fs::read_to_string(dir.join("t.py")).unwrap();
+        assert!(py.contains("Path(__file__).parent"), "{py}");
+        let (t, e) = call(&s, "python_script", json!({ "model": model, "out": "x.py" }));
+        assert!(!e && dir.join("x.py").exists(), "{t}");
+        assert!(std::fs::read_to_string(dir.join("x.py")).unwrap().contains("Path(__file__).parent"));
+        // in another folder: the model's folder by its absolute path
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        let y = other.join("y.py");
+        let (t, e) = call(&s, "python_script", json!({ "model": model, "out": y.to_string_lossy() }));
+        assert!(!e, "{t}");
+        let py = std::fs::read_to_string(&y).unwrap();
+        assert!(py.contains("MODEL_DIR = Path(") && !py.contains("Path(__file__).parent"), "{py}");
+        assert!(call(&s, "python_script", json!({ "model": model, "out": "x.py", "beside": true })).1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

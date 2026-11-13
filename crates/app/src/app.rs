@@ -654,6 +654,9 @@ pub struct Session {
     pub recorded: Option<Result<PathBuf, String>>,
     /// The run asked for that is going, for the journal: the model as it ran and the node it runs up to.
     pub journal_run: Option<(Model, Option<String>, Option<String>)>,
+    /// A run asked for started with the model's file known: its script of landschaft is due beside it (written by
+    /// the application, which has the registry, when the setting is on).
+    pub python_due: bool,
     /// The scenario the Parameters pane applied last, with the values it set: runs record its name while those
     /// values stand in the model (see [`Session::scenario_now`]).
     pub scenario_applied: Option<(String, BTreeMap<String, serde_json::Value>)>,
@@ -812,6 +815,18 @@ pub struct Ended {
     pub quiet: bool,
 }
 
+/// With the setting on, write the session's script of landschaft beside its model's file (`<model>.py`); a failure
+/// is told as a save's, a success is quiet.
+pub fn python_beside(s: &mut Session, r: &Registry) {
+    if !crate::settings::get().python_beside {
+        return;
+    }
+    let Some(path) = s.path.clone() else { return };
+    if let Err(e) = crate::python::write_beside(&s.source, r, &path) {
+        s.editor.message = Some(format!("the Python script was not written beside the model: {e}"));
+    }
+}
+
 impl Session {
     /// Read a model and check it; its data is read in a thread (see [`Session::loading`]).
     pub fn open(path: &Path) -> Result<Session, String> {
@@ -940,6 +955,7 @@ impl Session {
             elapsed: None,
             recorded: None,
             journal_run: None,
+            python_due: false,
             scenario_applied: None,
             compare_asked: None,
             journal_rev: 0,
@@ -1522,6 +1538,7 @@ impl Session {
         // (a run asked for goes in the journal when it ends; the application's own runs do not)
         self.journal_run =
             (!quiet && self.path.is_some()).then(|| (self.source.clone(), target.clone(), self.scenario_now()));
+        self.python_due = !quiet && check.is_none() && self.path.is_some();
         let (cache, gate) = (self.cache.clone(), self.gate.clone());
         self.run =
             Some(Run::start_checked(self.model.clone(), inputs, base, cache, target, record, gate, repaint, check));
@@ -2347,7 +2364,10 @@ impl TerrafluxApp {
         };
         if let Some(p) = path {
             match s.save_as(&p) {
-                Ok(()) => crate::settings::opened_model(&p),
+                Ok(()) => {
+                    crate::settings::opened_model(&p);
+                    python_beside(s, &self.registry);
+                }
                 Err(e) => s.editor.message = Some(e),
             }
         }
@@ -3704,6 +3724,14 @@ impl TerrafluxApp {
                         );
                         ui.label("ends");
                     });
+                    ui.checkbox(
+                        &mut st.python_beside,
+                        "write the model's Python script (landschaft) beside it, <model>.py, on each save and run",
+                    )
+                    .on_hover_text(
+                        "the same script as the menu's \"Python script (landschaft)...\", rewritten beside the \
+                         model's file each time the model is saved and each time a run you asked for starts",
+                    );
                 });
                 ui.end_row();
                 ui.label("Threads");
@@ -4769,6 +4797,9 @@ impl TerrafluxApp {
             s.poll();
             crate::watch::follow(s, ui.ctx());
             s.auto_run(ui.ctx());
+            if std::mem::take(&mut s.python_due) {
+                python_beside(s, &self.registry);
+            }
             self.chat.poll(s, &self.registry, ui.ctx());
             crate::review::follow(s);
             if s.running() || s.loading() || s.saving() {

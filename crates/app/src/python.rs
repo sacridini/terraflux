@@ -923,6 +923,45 @@ fn indent(code: &str) -> String {
     out
 }
 
+/// One line on a script: the nodes translated, and those left as comments with why.
+pub fn summary(s: &Script) -> String {
+    let total = s.translated + s.left.len();
+    if s.left.is_empty() {
+        return format!("{} of {total} nodes translated", s.translated);
+    }
+    let left: Vec<String> = s.left.iter().map(|(id, op, why)| format!("{id} ({op}): {why}")).collect();
+    format!("{} of {total} nodes translated; left as comments: {}", s.translated, left.join(", "))
+}
+
+/// Where a model's script is written beside it: its path with the extension `.py`.
+pub fn beside(model: &Path) -> std::path::PathBuf {
+    model.with_extension("py")
+}
+
+/// Write the model's script beside the model's file. The script is made with the file's name alone, so its
+/// `MODEL_DIR` is the script's own folder: it stays portable, beside the model.
+pub fn write_beside(m: &Model, r: &Registry, model: &Path) -> Result<(std::path::PathBuf, Script), String> {
+    let out = beside(model);
+    write_to(m, r, model, &out).map(|s| (out, s))
+}
+
+/// Write the model's script to the file `py`: in the model's folder, the script's `MODEL_DIR` is its own folder
+/// (portable); elsewhere, the model's folder by its absolute path.
+pub fn write_to(m: &Model, r: &Registry, model: &Path, py: &Path) -> Result<Script, String> {
+    let name = model.file_name().ok_or_else(|| format!("{}: not a file", model.display()))?;
+    let folder = |p: &Path| {
+        let d = p.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        std::fs::canonicalize(d).unwrap_or_else(|_| d.to_path_buf())
+    };
+    let s = if folder(model) == folder(py) {
+        script(m, r, Some(Path::new(name)))
+    } else {
+        script(m, r, Some(&folder(model).join(name)))
+    };
+    std::fs::write(py, &s.text).map_err(|e| format!("writing {}: {e}", py.display()))?;
+    Ok(s)
+}
+
 /// The model as a Python script of landschaft.
 pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
     let mut w = Writer { r, out: Script::default(), calc: false, flow: false, names: HashSet::new() };

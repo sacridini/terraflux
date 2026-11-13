@@ -6,6 +6,20 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- **The model as a Python script of landschaft, from the command line, the MCP and on each save**, not only from the
+  application's window *Python script (landschaft)...*:
+  - `terraflux python MODEL...` prints the script, writes it to a file (`-o`) or, with `--beside`, writes
+    `<model>.py` beside each model (many models at once, for batches and CI). The script beside the model finds its
+    data from its own folder (`MODEL_DIR = Path(__file__).parent`), so it can be committed and run elsewhere; one
+    written to another folder points at the model's folder by its absolute path. The summary (the nodes translated,
+    those left as comments and why) goes to the error output; `--strict` fails when any node was left as a comment.
+  - The MCP's tool `python_script` gives the script with its summary, or writes it (`out`, or `beside`).
+  - Settings, Runs: "write the model's Python script (landschaft) beside it, <model>.py, on each save and run" (off
+    by default) rewrites `<model>.py` at each save and each run asked for (not the automatic runs made while the
+    model is built).
+  (`terraflux_app::python::{summary, beside, write_beside, write_to}`, `terraflux_app::tools::python_script`.)
+
 ## [1.45.1] - 2026-11-07
 
 ### Fixed

@@ -197,6 +197,21 @@ enum Command {
         #[arg(short, long)]
         out: Option<PathBuf>,
     },
+    /// Write the model as a Python script of landschaft (each node a call of landschaft's function of the same
+    /// method).
+    Python {
+        #[arg(required = true)]
+        model: Vec<PathBuf>,
+        /// Write it to this file instead of printing it (one model).
+        #[arg(short, long, conflicts_with = "beside")]
+        out: Option<PathBuf>,
+        /// Write `<model>.py` beside each model (many models allowed).
+        #[arg(long)]
+        beside: bool,
+        /// Fail when a node was left as a comment (no counterpart in landschaft).
+        #[arg(long)]
+        strict: bool,
+    },
     /// List the operators (`--json`: their full signatures).
     Ops {
         #[arg(long)]
@@ -863,6 +878,55 @@ fn first_crs(m: &Model, dir: &Path) -> Option<String> {
     None
 }
 
+/// `terraflux python`: each model as a landschaft script, printed, written to `out` or beside the model; the
+/// summary of each to the error output. `strict`: an error when a node was left as a comment, after all are done.
+fn python(
+    models: &[PathBuf],
+    out: Option<&Path>,
+    beside: bool,
+    strict: bool,
+    r: &terraflux_ops::Registry,
+) -> Result<()> {
+    use terraflux_app::python;
+    if models.len() > 1 && !beside {
+        anyhow::bail!("several models: use --beside to write each one's script beside it");
+    }
+    if out.is_some() && beside {
+        anyhow::bail!("--out and --beside do not go together");
+    }
+    let mut left = Vec::new();
+    for model in models {
+        let m = Model::load(model).with_context(|| format!("reading {}", model.display()))?;
+        let prefix = if models.len() > 1 { format!("{}: ", model.display()) } else { String::new() };
+        let s = if beside {
+            let (p, s) = python::write_beside(&m, r, model).map_err(|e| anyhow::anyhow!(e))?;
+            eprintln!("wrote {}", p.display());
+            s
+        } else {
+            match out {
+                Some(p) => {
+                    let s = python::write_to(&m, r, model, p).map_err(|e| anyhow::anyhow!(e))?;
+                    eprintln!("wrote {}", p.display());
+                    s
+                }
+                None => {
+                    let s = python::script(&m, r, Some(model));
+                    print!("{}", s.text);
+                    s
+                }
+            }
+        };
+        eprintln!("{prefix}{}", python::summary(&s));
+        if !s.left.is_empty() {
+            left.push(model.display().to_string());
+        }
+    }
+    if strict && !left.is_empty() {
+        anyhow::bail!("nodes left as comments in: {}", left.join(", "));
+    }
+    Ok(())
+}
+
 fn folder_of(model: &Path) -> PathBuf {
     match model.parent() {
         Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
@@ -1193,6 +1257,9 @@ fn main() -> Result<()> {
                 None => print!("{text}"),
             }
         }
+        Command::Python { model, out, beside, strict } => {
+            python(&model, out.as_deref(), beside, strict, &engine.registry)?
+        }
         Command::Check { model } => {
             let m = read_model(&model)?;
             let mut ok = report(&m, &engine);
@@ -1466,6 +1533,37 @@ params = { path = \"a.tif\" }
             assert!(check_of(&m, &dir, 1, Some(bad), None).is_err(), "{bad}");
         }
         assert!(check_of(&m, &dir, 0, None, None).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `terraflux python --beside` writes `<model>.py` beside each model, portable; `--strict` fails on nodes left.
+    #[test]
+    fn python_is_written_beside_the_models() {
+        let dir = std::env::temp_dir().join(format!("terraflux-cli-python-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let r = terraflux_ops::Registry::standard();
+        let name = terraflux_app::templates::TEMPLATES[0].name;
+        let m = terraflux_app::tools::template_model(&r, name).unwrap();
+        let (a, b) = (dir.join("a.toml"), dir.join("b.json"));
+        m.save(&a).unwrap();
+        m.save(&b).unwrap();
+        python(&[a.clone(), b.clone()], None, true, false, &r).unwrap();
+        let py = std::fs::read_to_string(dir.join("a.py")).unwrap();
+        assert!(py.contains("import landschaft as ls") && py.contains("Path(__file__).parent"), "{py}");
+        assert!(dir.join("b.py").exists());
+        // several models without --beside, and --out with --beside: refused
+        assert!(python(&[a.clone(), b.clone()], None, false, false, &r).is_err());
+        assert!(python(std::slice::from_ref(&a), Some(&dir.join("x.py")), true, false, &r).is_err());
+        // --out: one file
+        python(std::slice::from_ref(&a), Some(&dir.join("x.py")), false, false, &r).unwrap();
+        assert!(dir.join("x.py").exists());
+        // --strict: fails only when a node was left as a comment
+        let s = terraflux_app::python::script(&m, &r, None);
+        assert_eq!(
+            python(std::slice::from_ref(&a), Some(&dir.join("y.py")), false, true, &r).is_err(),
+            !s.left.is_empty()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

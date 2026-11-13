@@ -434,6 +434,25 @@ fn the_builder_reads_analyses_and_writes() {
     assert!(r.get("landscape_mspa.map").is_some(), "the saved model runs from the command line's engine too");
 }
 
+/// The setting "write the model's Python script beside it": off, nothing is written; on, `<model>.py` appears.
+#[test]
+fn python_script_beside_the_model() {
+    let r = terraflux_ops::Registry::standard();
+    let model = tmp("ui-python-beside.toml");
+    let py = model.with_extension("py");
+    let _ = std::fs::remove_file(&py);
+    let mut s = terraflux_app::app::Session::blank();
+    s.save_as(&model).unwrap();
+    terraflux_app::settings::update(|st| st.python_beside = false);
+    terraflux_app::app::python_beside(&mut s, &r);
+    assert!(!py.exists(), "off: no script");
+    terraflux_app::settings::update(|st| st.python_beside = true);
+    terraflux_app::app::python_beside(&mut s, &r);
+    terraflux_app::settings::update(|st| st.python_beside = false);
+    assert!(py.exists(), "on: the script is written beside the model");
+    assert!(s.editor.message.is_none(), "{:?}", s.editor.message);
+}
+
 /// Read, reclassify, keep it as a Plot from the Viewer's Plots, nothing written; saved (a file, then a write node in
 /// the model too); a rule changed, the Viewer shows the new map.
 #[test]

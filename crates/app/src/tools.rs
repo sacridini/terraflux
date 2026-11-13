@@ -89,8 +89,8 @@ control.switch, control.group) hold a body: edit inside one with `scope` (guide 
 `request`, `summary` and `author` (set_model_info).
 - check_model checks the model and its data and advises on the method: follow its warnings. run_model runs it \
 and writes its outputs; a failed run says what does not fit: read it before changing anything. inspect_file looks \
-at a file, trace_cell explains a cell, methods drafts a paper's methods section, export_plot writes a Plot as a \
-PNG or a GeoTIFF.
+at a file, trace_cell explains a cell, methods drafts a paper's methods section, python_script writes it as a \
+landschaft Python script, export_plot writes a Plot as a PNG or a GeoTIFF.
 - open_in_app opens the model in Terraflux's application, which follows the file (the user can undo each edit).
 ";
 
@@ -180,7 +180,7 @@ pub fn catalogue(app: bool) -> Vec<Value> {
         return tools;
     }
     // (export_plot runs the model on its own: the application's assistant exports from the Viewer)
-    tools.retain(|t| t["name"] != "open_in_app" && t["name"] != "export_plot");
+    tools.retain(|t| t["name"] != "open_in_app" && t["name"] != "export_plot" && t["name"] != "python_script");
     for t in &mut tools {
         if let Some(p) = t["inputSchema"]["properties"].as_object_mut() {
             p.remove("model");
@@ -1237,6 +1237,33 @@ pub fn methods(m: &Model, r: &Registry, a: &Value, file: Option<&str>) -> Reply 
     }
 }
 
+/// The model as a Python script of landschaft (`path` the model's file): the summary and the script, or the script
+/// written (`out`, relative to the model's folder, or `beside`: `<model>.py`) and the summary.
+pub fn python_script(m: &Model, r: &Registry, path: &Path, a: &Value) -> Reply {
+    let beside = a.get("beside").and_then(Value::as_bool).unwrap_or(false);
+    let out = opt_text(a, "out");
+    if beside && out.is_some() {
+        return Err("give `out` or `beside`, not both".into());
+    }
+    if beside {
+        let (p, s) = crate::python::write_beside(m, r, path)?;
+        return Ok(format!("wrote {}\n{}", p.display(), crate::python::summary(&s)));
+    }
+    let file = path.file_name().map(std::path::PathBuf::from);
+    match out {
+        None => {
+            let s = crate::python::script(m, r, file.as_deref());
+            Ok(format!("{}\n\n{}", crate::python::summary(&s), s.text))
+        }
+        Some(o) => {
+            let p = Path::new(o);
+            let p = if p.is_absolute() { p.to_path_buf() } else { path.parent().unwrap_or(Path::new("")).join(p) };
+            let s = crate::python::write_to(m, r, path, &p)?;
+            Ok(format!("wrote {}\n{}", p.display(), crate::python::summary(&s)))
+        }
+    }
+}
+
 /// The model and its data checked without running it.
 pub fn check_model(r: &Registry, source: &Model, dir: &Path) -> Reply {
     let mut m = source.clone();
@@ -1891,6 +1918,17 @@ fn all() -> Vec<Value> {
             }),
             &["model"],
             Some(&read_only),
+        ),
+        tool(
+            "python_script",
+            "The model as a Python script of landschaft (the library whose methods Terraflux runs): each node a call of landschaft's function of the same method, in the order the model runs them; calculators kept as they are, run in numpy; nodes with no counterpart left as comments, said which. Returns the script, or writes it (`out`, or `beside`: <model>.py beside the model).",
+            json!({
+                "model": model,
+                "out": { "type": "string", "description": "The .py file to write (relative to the model's folder)." },
+                "beside": { "type": "boolean", "description": "Write <model>.py beside the model (its folder stays the script's own). Not with `out`." },
+            }),
+            &["model"],
+            None,
         ),
         tool(
             "check_model",

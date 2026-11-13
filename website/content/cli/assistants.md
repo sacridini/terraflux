@@ -26,6 +26,7 @@ problems found in it, and summaries of the results).
 | `set_input`, `set_output`, `edit_container` | The model's inputs and outputs, and what a loop or group carries, collects or gives |
 | `show_model`, `check_model`, `arrange` | Shows the model as text, checks it and its data, advises on its method (see below), and puts its nodes in tidy columns |
 | `methods` | Drafts the methods section of a paper from the model, with the papers to cite (in English or Portuguese), or its references as BibTeX or RIS |
+| `python_script` | Gives the model as a Python script of landschaft (each node a call of its function of the same method; calculators run in numpy; nodes with no counterpart left as comments, said which), or writes it (`out`, or `beside`: `<model>.py` beside the model) |
 | `write_calc`, `explain_calc` | Writes a calculator's script ([raster.calc, vector.calc or vector.filter](../../calculators/)), checked and tried on a sample of its inputs before the model changes, and takes a script apart: what each name holds |
 | `run_model`, `inspect_file` | Runs the model, then summarises a result: a raster's classes or statistics, a table's first lines |
 | `export_plot` | Runs the model and writes one of its Plots by its id as a PNG or a GeoTIFF of the map (layers at their opacity, features and labels, no legend), and tells the layers drawn and left out |

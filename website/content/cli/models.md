@@ -258,6 +258,27 @@ terraflux methods model.toml -f ris -o refs.ris    # for EndNote
 `-o`, `--out`
 :   A file to write instead of printing.
 
+## terraflux python
+
+Writes a model as a Python script of landschaft: each node a call of landschaft's function of the same method,
+in the order the model runs them; calculators are kept as they are and run in numpy; nodes with no counterpart are
+left as comments, with why. The summary goes to the error output.
+
+```bash
+terraflux python model.toml                    # the script, on screen
+terraflux python model.toml -o model_ls.py     # to a file
+terraflux python *.toml --beside --strict      # model.py beside each model; fails if a node was left out
+```
+
+`-o`, `--out`
+:   A file to write instead of printing (one model).
+
+`--beside`
+:   Write `<model>.py` beside each model (many models allowed). The script finds its data from its own folder.
+
+`--strict`
+:   Fail when any model has nodes left as comments.
+
 ## terraflux plot
 
 Runs a model and writes one of its Plots (the views kept with the model, see
