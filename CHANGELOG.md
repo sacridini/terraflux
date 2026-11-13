@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.46.0] - 2026-11-14
+
 ### Added
 - **The model as a Python script of landschaft, from the command line, the MCP and on each save**, not only from the
   application's window *Python script (landschaft)...*:
