@@ -71,7 +71,170 @@ impl Observer for Events {
 fn engine(runs: &Arc<AtomicUsize>) -> Engine {
     let mut r = Registry::standard();
     r.add(Arc::new(Inc(runs.clone())));
+    r.add(Arc::new(Two));
     Engine { registry: r }
+}
+
+/// The places of the nodes run (not taken from the cache), in order.
+#[derive(Default)]
+struct Ran(Vec<String>);
+
+impl Observer for Ran {
+    fn timed(&mut self, at: &str, _seconds: f64, _bytes: usize) {
+        self.0.push(at.to_string());
+    }
+}
+
+/// A repeat of `times` steps: `step` adds 1 to the carried `v` (first 0), `konst` reads the input `$k`.
+fn counting(times: i64) -> Model {
+    let mut m = Model::new("t");
+    m.inputs.insert("k".into(), terraflux_graph::Input::Value { value: 1.into(), note: None });
+    m.nodes.push(Node::new("loop", "control.repeat").literal("times", times).literal("v", 0).body(Body {
+        nodes: vec![Node::new("step", "test.inc").input("x", "@v"), Node::new("konst", "test.inc").input("x", "$k")],
+        carry: [("v".to_string(), "step.y".to_string())].into(),
+        collect: [("ys".to_string(), "step.y".to_string())].into(),
+        ..Default::default()
+    }));
+    m
+}
+
+#[test]
+fn a_loop_runs_again_only_the_steps_that_changed() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let engine = engine(&runs);
+    let mut m = counting(3);
+    let cache = Mutex::new(Cache::default());
+    let given = |k: f64| BTreeMap::from([("k".to_string(), Value::Number(k))]);
+    let count = || runs.load(Ordering::SeqCst);
+    let mut first = Events::default();
+    let r = engine.run_with(&m, &given(1.0), &mut first, Some(&cache), None).unwrap();
+    assert_eq!((count(), r.get("loop.v").unwrap().as_number()), (6, Some(3.0)));
+    assert_eq!(cache.lock().unwrap().iter_entries().0, 6, "2 nodes at each of 3 steps");
+
+    // the loop changed (what it collects), its body not: it runs, its steps do not
+    m.nodes[0].body.as_mut().unwrap().collect = [("zs".to_string(), "step.y".to_string())].into();
+    let (mut ran, mut ev) = (Ran::default(), Events::default());
+    let r = engine.run_with(&m, &given(1.0), &mut ran, Some(&cache), None).unwrap();
+    assert_eq!(count(), 6, "no node of the body ran");
+    assert_eq!(ran.0, ["loop"]);
+    assert!(matches!(r.get("loop.zs"), Some(Value::Series(s)) if s.len() == 3));
+    engine.run_with(&m, &given(1.0), &mut ev, Some(&cache), None).unwrap();
+    assert_eq!(ev.0.iter().filter(|e| e.starts_with("step ")).count(), 3, "the loop from the cache: its steps");
+
+    // one more step: only its nodes run (`times` is not part of what the steps were made from)
+    m.nodes[0].inputs.insert("times".into(), terraflux_graph::Source::Literal(4.into()));
+    let mut ran = Ran::default();
+    let r = engine.run_with(&m, &given(1.0), &mut ran, Some(&cache), None).unwrap();
+    assert_eq!(ran.0, ["loop/step", "loop/konst", "loop"], "(a node is timed when it is done)");
+    assert_eq!((count(), r.get("loop.v").unwrap().as_number()), (8, Some(4.0)));
+
+    // an input the body reads changed: that node runs again at every step, the other not
+    let mut ran = Ran::default();
+    engine.run_with(&m, &given(2.0), &mut ran, Some(&cache), None).unwrap();
+    assert_eq!(ran.0.iter().filter(|a| *a == "loop/konst").count(), 4);
+    assert!(!ran.0.iter().any(|a| a == "loop/step"));
+    assert_eq!(count(), 12);
+
+    // the value carried in changed: the steps that read it, all of them, run again
+    m.nodes[0].inputs.insert("v".into(), terraflux_graph::Source::Literal(10.into()));
+    let mut ran = Ran::default();
+    let r = engine.run_with(&m, &given(2.0), &mut ran, Some(&cache), None).unwrap();
+    assert_eq!(ran.0.iter().filter(|a| *a == "loop/step").count(), 4);
+    assert!(!ran.0.iter().any(|a| a == "loop/konst"));
+    assert_eq!(r.get("loop.v").unwrap().as_number(), Some(14.0));
+}
+
+#[test]
+fn a_loop_that_stops_at_until_keeps_its_steps() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let engine = engine(&runs);
+    let mut m = Model::new("t");
+    m.nodes.push(Node::new("loop", "control.repeat").literal("times", 5).literal("v", 0).body(Body {
+        nodes: vec![Node::new("step", "test.inc").input("x", "@v"), Node::new("stop", "test.two").input("x", "step.y")],
+        carry: [("v".to_string(), "step.y".to_string())].into(),
+        collect: [("ys".to_string(), "step.y".to_string())].into(),
+        until: Some("stop.yes".into()),
+        ..Default::default()
+    }));
+    let none = BTreeMap::new();
+    let plain = engine.run(&m, &none, &mut Seen::default()).unwrap();
+    let before = runs.load(Ordering::SeqCst);
+    assert_eq!(before, 2, "stopped at the second step");
+    let cache = Mutex::new(Cache::default());
+    let mut first = Events::default();
+    let r = engine.run_with(&m, &none, &mut first, Some(&cache), None).unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), before + 2);
+    assert_eq!(format!("{:?}", r.get("loop.v")), format!("{:?}", plain.get("loop.v")));
+    assert_eq!(format!("{:?}", r.get("loop.ys")), format!("{:?}", plain.get("loop.ys")));
+    // the loop changed, its steps not: the same, none of its nodes run, it stops at the same step
+    m.nodes[0].body.as_mut().unwrap().collect = [("zs".to_string(), "step.y".to_string())].into();
+    let r = engine.run_with(&m, &none, &mut Events::default(), Some(&cache), None).unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), before + 2);
+    assert_eq!(format!("{:?}", r.get("loop.v")), format!("{:?}", plain.get("loop.v")));
+    assert!(matches!(r.get("loop.zs"), Some(Value::Series(s)) if s.len() == 1), "the step it stopped at not collected");
+    // taken whole from the cache: what it told, as it told it (of = times, 1 step collected)
+    let mut again = Events::default();
+    engine.run_with(&m, &none, &mut again, Some(&cache), None).unwrap();
+    let mut last = Events::default();
+    engine.run_with(&m, &none, &mut last, Some(&cache), None).unwrap();
+    assert_eq!(again.0, last.0);
+    assert!(again.0[1].starts_with("step loop 1/5"), "{:?}", again.0);
+}
+
+#[test]
+fn what_is_not_kept_runs_at_every_step() {
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("loop-not-kept");
+    std::fs::create_dir_all(&dir).unwrap();
+    let runs = Arc::new(AtomicUsize::new(0));
+    let engine = engine(&runs);
+    let mut m = Model::new("t");
+    let land = Node::new("land", "nlm.random_cluster")
+        .param("rows", 8)
+        .param("columns", 8)
+        .param("p", 0.5)
+        .param("weights", serde_json::json!([0.5, 0.5]));
+    let write =
+        Node::new("w", "raster.write").input("value", "land.map").param("path", dir.join("s.tif").to_string_lossy());
+    let body = Body {
+        nodes: vec![
+            Node::new("r", "rng.r").literal("seed", 1),
+            land,
+            write,
+            Node::new("step", "test.inc").input("x", "@v"),
+        ],
+        carry: [("v".to_string(), "step.y".to_string())].into(),
+        collect: [("ys".to_string(), "step.y".to_string())].into(),
+        ..Default::default()
+    };
+    m.nodes.push(Node::new("loop", "control.repeat").literal("times", 2).literal("v", 0).body(body));
+    let cache = Mutex::new(Cache::default());
+    let none = BTreeMap::new();
+    engine.run_with(&m, &none, &mut Ran::default(), Some(&cache), None).unwrap();
+    m.nodes[0].body.as_mut().unwrap().collect = [("zs".to_string(), "step.y".to_string())].into();
+    let mut ran = Ran::default();
+    engine.run_with(&m, &none, &mut ran, Some(&cache), None).unwrap();
+    let times = |p: &str| ran.0.iter().filter(|a| *a == p).count();
+    assert_eq!((times("loop/r"), times("loop/w")), (2, 2), "a generator and a write run at every step");
+    assert_eq!((times("loop/land"), times("loop/step")), (0, 0), "the rest kept");
+}
+
+#[test]
+fn the_nodes_of_loops_kept_are_limited() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let engine = engine(&runs);
+    let mut m = counting(8);
+    let cache = Mutex::new(Cache::default());
+    cache.lock().unwrap().limit_iters(6, usize::MAX);
+    let given = BTreeMap::from([("k".to_string(), Value::Number(1.0))]);
+    let r = engine.run_with(&m, &given, &mut Ran::default(), Some(&cache), None).unwrap();
+    assert_eq!(r.get("loop.v").unwrap().as_number(), Some(8.0));
+    assert!(cache.lock().unwrap().iter_entries().0 <= 6);
+    // what was let go runs again, the result the same
+    m.nodes[0].body.as_mut().unwrap().collect = [("zs".to_string(), "step.y".to_string())].into();
+    let r = engine.run_with(&m, &given, &mut Ran::default(), Some(&cache), None).unwrap();
+    assert_eq!(r.get("loop.v").unwrap().as_number(), Some(8.0));
+    cache.lock().unwrap().clear();
+    assert_eq!(cache.lock().unwrap().iter_entries(), (0, 0));
 }
 
 #[test]
@@ -457,7 +620,9 @@ fn a_group_runs_again_only_the_nodes_of_its_body_that_changed() {
     let places: Vec<String> = cache.lock().unwrap().inner_nodes().map(String::from).collect();
     assert_eq!(places, ["g/first", "g/second", "g/third"]);
 
-    // inside a loop, a group runs whole at each step (nothing of its body kept)
+    // inside a loop, a group's body nodes are kept by iteration (not by place: nothing in `inner_nodes`), so a loop
+    // run again with one more step runs only the new step's
+    let before = count();
     let mut l = Model::new("l");
     l.nodes.push(Node::new("loop", "control.repeat").literal("times", 2).literal("v", 0).body(Body {
         nodes: vec![Node::new("in", terraflux_graph::GROUP).input("x", "@v").body(Body {
@@ -471,7 +636,13 @@ fn a_group_runs_again_only_the_nodes_of_its_body_that_changed() {
     let cache = Mutex::new(Cache::default());
     let r = engine.run_with(&l, &none, &mut Seen::default(), Some(&cache), None).unwrap();
     assert_eq!(r.get("loop.v").unwrap().as_number(), Some(2.0));
+    assert_eq!(count(), before + 2);
     assert_eq!(cache.lock().unwrap().inner_nodes().count(), 0);
+    assert_eq!(cache.lock().unwrap().iter_entries().0, 2, "the group's node at each of the 2 steps");
+    l.nodes[0].inputs.insert("times".into(), terraflux_graph::Source::Literal(3.into()));
+    let r = engine.run_with(&l, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    assert_eq!(r.get("loop.v").unwrap().as_number(), Some(3.0));
+    assert_eq!(count(), before + 3, "only the third step ran");
 }
 
 #[test]

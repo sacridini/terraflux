@@ -9,6 +9,7 @@
 //! changed; a run may stop at a node (its ancestors only run). The application runs the model as it is edited
 //! this way.
 
+mod content;
 pub mod frozen;
 mod io;
 pub mod journal;
@@ -536,21 +537,48 @@ impl Results {
     }
 }
 
+/// What a loop collected at each step it reported (`of`: the number it told, `times` of a repeat), as it gave it to
+/// the observer: kept with the loop's outputs, to tell the steps again exactly when it is taken from the cache.
+#[derive(Clone)]
+struct LoopSteps {
+    of: usize,
+    values: Vec<Outputs>,
+}
+
 /// The outputs of a top-level node kept, the fingerprint of what they came from and the node's warnings; `held`:
-/// its result frozen ([`Cache::hold`]), used while the node is frozen whatever it came from.
+/// its result frozen ([`Cache::hold`]), used while the node is frozen whatever it came from; `steps`: what a loop
+/// collected at each step.
 struct Kept {
     print: u64,
     outputs: Outputs,
     warnings: Vec<String>,
     held: bool,
+    steps: Option<LoopSteps>,
 }
 
-/// The outputs of the top-level nodes of a model kept between runs ([`Engine::run_with`]), and those of the nodes
-/// of their groups by place (`group/node`: a group runs again only the nodes of its body that changed).
+/// A node of a loop's body kept for one iteration, and when it was last used (to let go of the oldest first).
+struct Slot {
+    kept: Kept,
+    used: u64,
+    bytes: usize,
+}
+
+/// The most the nodes of loops' bodies kept per iteration hold in memory (what their outputs would take), and
+/// the most entries: past them the least recently used are let go.
+const ITER_BYTES: usize = 1 << 30;
+const ITER_ENTRIES: usize = 100_000;
+
+/// The outputs of the top-level nodes of a model kept between runs ([`Engine::run_with`]), those of the nodes of
+/// their groups by place (`group/node`: a group runs again only the nodes of its body that changed), and those of
+/// the nodes of loops' bodies by place and iteration (`iters`: a loop run again with one more step runs only it).
 #[derive(Default)]
 pub struct Cache {
     kept: BTreeMap<String, Kept>,
     inner: BTreeMap<String, Kept>,
+    iters: BTreeMap<(String, u64), Slot>,
+    tick: u64,
+    iter_bytes: usize,
+    iter_limits: Option<(usize, usize)>,
 }
 
 impl Cache {
@@ -577,6 +605,64 @@ impl Cache {
         self.kept.remove(node);
         let within = format!("{node}/");
         self.inner.retain(|at, _| !at.starts_with(&within));
+        self.retain_iters(|at| !at.starts_with(&within));
+    }
+
+    /// How many nodes of loops' bodies are kept, by iteration, and about how much memory their outputs hold.
+    pub fn iter_entries(&self) -> (usize, usize) {
+        (self.iters.len(), self.iter_bytes)
+    }
+
+    /// The most nodes of loops' bodies kept per iteration, and the most bytes their outputs hold (the least
+    /// recently used let go past them; by default 100000 and 1 GiB).
+    pub fn limit_iters(&mut self, entries: usize, bytes: usize) {
+        self.iter_limits = Some((entries, bytes));
+    }
+
+    fn retain_iters(&mut self, keep: impl Fn(&str) -> bool) {
+        let mut bytes = self.iter_bytes;
+        self.iters.retain(|(at, _), s| {
+            let k = keep(at);
+            if !k {
+                bytes -= s.bytes;
+            }
+            k
+        });
+        self.iter_bytes = bytes;
+    }
+
+    /// A node of a loop's body, kept for the iteration whose hash is `iter`: used again when it was made from the
+    /// same (`print`).
+    fn iter_get(&mut self, at: &str, iter: u64, print: u64) -> Option<(Outputs, Vec<String>, Option<LoopSteps>)> {
+        self.tick += 1;
+        let tick = self.tick;
+        let s = self.iters.get_mut(&(at.to_string(), iter)).filter(|s| s.kept.print == print)?;
+        s.used = tick;
+        Some((s.kept.outputs.clone(), s.kept.warnings.clone(), s.kept.steps.clone()))
+    }
+
+    fn iter_put(&mut self, at: &str, iter: u64, kept: Kept) {
+        self.tick += 1;
+        let bytes = kept.outputs.values().map(bytes_of).sum::<usize>();
+        let slot = Slot { kept, used: self.tick, bytes };
+        self.iter_bytes += bytes;
+        if let Some(old) = self.iters.insert((at.to_string(), iter), slot) {
+            self.iter_bytes -= old.bytes;
+        }
+        let (entries, bytes) = self.iter_limits.unwrap_or((ITER_ENTRIES, ITER_BYTES));
+        if self.iters.len() > entries || self.iter_bytes > bytes {
+            // the least recently used first, down to three quarters of the limits
+            let mut by_use: Vec<(u64, (String, u64))> = self.iters.iter().map(|(k, s)| (s.used, k.clone())).collect();
+            by_use.sort();
+            for (_, k) in by_use {
+                if self.iters.len() <= entries / 4 * 3 && self.iter_bytes <= bytes / 4 * 3 {
+                    break;
+                }
+                if let Some(s) = self.iters.remove(&k) {
+                    self.iter_bytes -= s.bytes;
+                }
+            }
+        }
     }
 
     /// The places of the nodes of groups with outputs kept (`group/node`).
@@ -592,7 +678,7 @@ impl Cache {
         match (kept.get_mut(node), outputs) {
             (Some(k), _) => k.held = true,
             (None, Some(outputs)) => {
-                kept.insert(node.to_string(), Kept { print, outputs, warnings: Vec::new(), held: true });
+                kept.insert(node.to_string(), Kept { print, outputs, warnings: Vec::new(), held: true, steps: None });
                 self.regroup(node);
             }
             (None, None) => return false,
@@ -624,6 +710,8 @@ impl Cache {
     pub fn clear(&mut self) {
         self.kept.clear();
         self.inner.clear();
+        self.iters.clear();
+        self.iter_bytes = 0;
     }
 }
 
@@ -771,22 +859,45 @@ fn own_ids<'a>(n: &'a Node, out: &mut std::collections::HashSet<&'a str>) {
 }
 
 /// The fingerprint of a node of a scope whose outputs are kept ([`Scope`]): the scope's and the node's as a
-/// top-level node's; none when it reads a node of another scope (an enclosing one) or one not kept.
+/// top-level node's; none when it reads a node of another scope (an enclosing one) or one not kept. In a loop's
+/// body (`scope.iter`) the values it reads from outside, carried (`@v`, `@step`, `@item`...) or a node's of an
+/// enclosing scope, are part of it by their content: they change at every step, and are new Arcs at every run.
 fn scoped_print(n: &Node, env: &Env, scope: &Scope, inputs: &BTreeMap<String, Value>) -> Option<u64> {
     let among: std::collections::HashSet<&str> = env.prints.keys().map(String::as_str).collect();
     let mut own = std::collections::HashSet::new();
     own_ids(n, &mut own);
+    let mut outside: Vec<String> = Vec::new();
     for r in terraflux_graph::references(n) {
-        if let Ok(Ref::Port { node, .. }) = Ref::parse(&r)
-            && !among.contains(node.as_str())
-            && !own.contains(node.as_str())
-        {
-            return None;
+        match Ref::parse(&r) {
+            Ok(Ref::Port { node, .. }) if !among.contains(node.as_str()) && !own.contains(node.as_str()) => {
+                if scope.iter == 0 {
+                    return None;
+                }
+                outside.push(r);
+            }
+            Ok(Ref::Carried(_)) if scope.iter != 0 => outside.push(r),
+            _ => {}
         }
     }
     let p = fingerprint(n, scope.model, &among, inputs, &env.prints)?;
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (scope.print, p).hash(&mut h);
+    outside.sort();
+    outside.dedup();
+    for r in outside {
+        r.hash(&mut h);
+        let v = match Ref::parse(&r).ok()? {
+            Ref::Carried(name) => env.carried(&name),
+            Ref::Port { node, port } => Some(env.port(&node, &port)?),
+            Ref::Input(_) => None,
+        };
+        // (a carried value a body reads only inside itself, its own: not there, told apart as such)
+        match v {
+            Some(v) if !content::hash_value(v, &mut h) => return None,
+            Some(_) => {}
+            None => 0u8.hash(&mut h),
+        }
+    }
     Some(h.finish())
 }
 
@@ -850,12 +961,46 @@ fn head(at: &str) -> &str {
 }
 
 /// A scope whose nodes' outputs are kept between runs: the top level, a group's body there or in another such
-/// group (not a loop's, whose nodes give a value per step); `print`, what its values carried in came from.
+/// group, a loop's body (by iteration: `iter`, none at the top level or in groups only); `print`, what its values
+/// carried in came from.
 #[derive(Clone, Copy)]
 struct Scope<'p> {
     cache: &'p Mutex<Cache>,
     model: &'p Model,
     print: u64,
+    /// The iteration of a loop's body this scope is (a hash of the places and steps of the loops it is in), or 0.
+    iter: u64,
+}
+
+impl<'p> Scope<'p> {
+    /// What was kept of a node of this scope (by its place) when it was made from `print`.
+    fn find(&self, at: &str, print: u64) -> Option<(Outputs, Vec<String>, Option<LoopSteps>)> {
+        let mut c = self.cache.lock().unwrap();
+        if self.iter == 0 {
+            c.inner
+                .get(at)
+                .filter(|k| k.print == print)
+                .map(|k| (k.outputs.clone(), k.warnings.clone(), k.steps.clone()))
+        } else {
+            c.iter_get(at, self.iter, print)
+        }
+    }
+
+    fn keep(&self, at: &str, kept: Kept) {
+        let mut c = self.cache.lock().unwrap();
+        if self.iter == 0 {
+            c.inner.insert(at.to_string(), kept);
+        } else {
+            c.iter_put(at, self.iter, kept);
+        }
+    }
+
+    /// The scope of the body of a loop (at `at`) at an iteration (`step`, and the element's `name` of an each).
+    fn iteration(&self, at: &str, step: usize, name: &str) -> Scope<'p> {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (self.iter, at, step, name).hash(&mut h);
+        Scope { iter: h.finish().max(1), ..*self }
+    }
 }
 
 struct Env<'p> {
@@ -869,6 +1014,9 @@ struct Env<'p> {
     fused: BTreeMap<String, Outputs>,
     /// The scope's nodes whose outputs were not all kept (a chain's maps only written to files): not cached.
     partial: BTreeSet<String>,
+    /// What the loops of this scope told at each step they ran, by place, until their outputs are kept
+    /// ([`LoopSteps`]).
+    steps: Mutex<BTreeMap<String, LoopSteps>>,
 }
 
 impl<'p> Env<'p> {
@@ -882,7 +1030,20 @@ impl<'p> Env<'p> {
             prints: BTreeMap::new(),
             fused: BTreeMap::new(),
             partial: BTreeSet::new(),
+            steps: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// A loop's steps told, to be kept with its outputs (only in a scope kept).
+    fn told(&self, at: &str, of: usize, values: Vec<Outputs>) {
+        if self.kept.is_some() {
+            self.steps.lock().unwrap().insert(at.to_string(), LoopSteps { of, values });
+        }
+    }
+
+    /// The steps a loop told when it ran, taken.
+    fn take_steps(&mut self, at: &str) -> Option<LoopSteps> {
+        self.steps.get_mut().unwrap().remove(at)
     }
 }
 
@@ -1060,10 +1221,11 @@ impl Engine {
             parent: None,
             results: BTreeMap::new(),
             carried: BTreeMap::new(),
-            kept: cache.map(|cache| Scope { cache, model, print: 0 }),
+            kept: cache.map(|cache| Scope { cache, model, print: 0, iter: 0 }),
             prints: BTreeMap::new(),
             fused: BTreeMap::new(),
             partial: BTreeSet::new(),
+            steps: Mutex::new(BTreeMap::new()),
         };
         let wanted: BTreeSet<String> = model.outputs.values().map(|o| o.from.clone()).collect();
         let mut warnings = Vec::new();
@@ -1082,7 +1244,7 @@ impl Engine {
                 // frozen: its result held, whatever it came from
                 (Some(c), _) if held.contains(at) => c.lock().unwrap().kept.get(&node.id).map(|k| {
                     print = Some(k.print);
-                    (k.outputs.clone(), k.warnings.clone())
+                    (k.outputs.clone(), k.warnings.clone(), k.steps.clone())
                 }),
                 (Some(c), Some(p)) => c
                     .lock()
@@ -1090,16 +1252,16 @@ impl Engine {
                     .kept
                     .get(&node.id)
                     .filter(|k| k.print == p)
-                    .map(|k| (k.outputs.clone(), k.warnings.clone())),
+                    .map(|k| (k.outputs.clone(), k.warnings.clone(), k.steps.clone())),
                 _ => None,
             };
-            if let Some((out, ws)) = kept {
+            if let Some((out, ws, steps)) = kept {
                 obs.node(at);
                 for w in &ws {
                     obs.warning(at, w);
                     warnings.push(format!("{at}: {w}"));
                 }
-                Self::replay(node, at, &out, obs);
+                Self::replay(node, at, &out, steps.as_ref(), obs);
                 obs.done(at, true);
                 env.results.insert(node.id.clone(), out);
                 env.prints.insert(node.id.clone(), print);
@@ -1119,9 +1281,11 @@ impl Engine {
             if let (Some(c), Some(p), true) = (cache, print, keep) {
                 let prefix = format!("{at}: ");
                 let ws = warnings[before..].iter().map(|w| w.strip_prefix(&prefix).unwrap_or(w).to_string()).collect();
-                let k = Kept { print: p, outputs: out.clone(), warnings: ws, held: false };
+                let steps = env.take_steps(at);
+                let k = Kept { print: p, outputs: out.clone(), warnings: ws, held: false, steps };
                 c.lock().unwrap().kept.insert(node.id.clone(), k);
             }
+            env.steps.get_mut().unwrap().remove(at);
             env.prints.insert(node.id.clone(), if keep { print } else { None });
             obs.done(at, false);
             env.results.insert(node.id.clone(), out);
@@ -1130,25 +1294,39 @@ impl Engine {
             let mut c = c.lock().unwrap();
             c.kept.retain(|id, _| by_id.contains_key(id.as_str()));
             c.inner.retain(|at, _| by_id.contains_key(head(at)));
+            c.retain_iters(|at| by_id.contains_key(head(at)));
         }
         Ok(Results { values: env.results, warnings, timings: Vec::new() })
     }
 
-    /// What a loop collected, step by step, from its kept outputs (as if it ran).
-    fn replay(node: &Node, at: &str, out: &Outputs, obs: &mut dyn Observer) {
+    /// What a loop collected, step by step (as if it ran): as it told them when it ran (`steps`), else, for a result
+    /// held from disk, taken from its outputs (a series, the layers of a stack).
+    fn replay(node: &Node, at: &str, out: &Outputs, steps: Option<&LoopSteps>, obs: &mut dyn Observer) {
         let Some(body) = node.body.as_ref().filter(|_| matches!(node.op.as_str(), "control.repeat" | "control.each"))
         else {
             return;
         };
-        // a repeat's collected values are series; an each's are gathered (a stack, a table, a series): taken apart
-        // again, one value per element (a table by the runs of its first column, the element's number)
+        if let Some(s) = steps {
+            for (i, now) in s.values.iter().enumerate() {
+                obs.collected(at, i + 1, s.of, now);
+                obs.step(at, i + 1, s.of);
+            }
+            return;
+        }
         let each = node.op == "control.each";
         let series: BTreeMap<&String, Vec<Value>> = body
             .collect
             .keys()
             .filter_map(|k| match out.get(k) {
                 Some(Value::Series(s)) => Some((k, s.clone())),
-                Some(v) if each => split(v).map(|s| (k, s)),
+                // (an each's maps gathered in a stack: its layers; its tables are not told apart again)
+                Some(Value::Stack(s)) if each => Some((
+                    k,
+                    s.layers
+                        .iter()
+                        .map(|d| Value::Map(terraflux_ops::Map { grid: s.grid.clone(), data: d.clone() }))
+                        .collect(),
+                )),
                 _ => None,
             })
             .collect();
@@ -1226,42 +1404,37 @@ impl Engine {
             let kept = env.kept;
             let mut print = kept.and_then(|k| scoped_print(node, env, &k, inputs));
             // frozen: its result held, whatever it came from (what reads it told by the print it was held with)
-            let held = kept.filter(|_| node.frozen).and_then(|k| {
+            // (a loop's body has no frozen nodes: its nodes give a value per step)
+            let held = kept.filter(|k| node.frozen && k.iter == 0).and_then(|k| {
                 let c = k.cache.lock().unwrap();
-                c.inner.get(&at).filter(|c| c.held).map(|c| (c.print, c.outputs.clone(), c.warnings.clone()))
+                c.inner
+                    .get(&at)
+                    .filter(|c| c.held)
+                    .map(|c| (c.print, c.outputs.clone(), c.warnings.clone(), c.steps.clone()))
             });
-            if let Some((p, out, ws)) = held {
+            if let Some((p, out, ws, steps)) = held {
                 print = Some(p);
                 for w in &ws {
                     obs.warning(&at, w);
                     warnings.push(format!("{at}: {w}"));
                 }
-                Self::replay(node, &at, &out, obs);
+                Self::replay(node, &at, &out, steps.as_ref(), obs);
                 env.results.insert(node.id.clone(), out);
                 env.prints.insert(node.id.clone(), print);
                 continue;
             }
             if let (Some(k), Some(p)) = (kept, print)
                 && node.op != terraflux_graph::GROUP
+                && let Some((out, ws, steps)) = k.find(&at, p)
             {
-                let found = k
-                    .cache
-                    .lock()
-                    .unwrap()
-                    .inner
-                    .get(&at)
-                    .filter(|c| c.print == p)
-                    .map(|c| (c.outputs.clone(), c.warnings.clone()));
-                if let Some((out, ws)) = found {
-                    for w in &ws {
-                        obs.warning(&at, w);
-                        warnings.push(format!("{at}: {w}"));
-                    }
-                    Self::replay(node, &at, &out, obs);
-                    env.results.insert(node.id.clone(), out);
-                    env.prints.insert(node.id.clone(), print);
-                    continue;
+                for w in &ws {
+                    obs.warning(&at, w);
+                    warnings.push(format!("{at}: {w}"));
                 }
+                Self::replay(node, &at, &out, steps.as_ref(), obs);
+                env.results.insert(node.id.clone(), out);
+                env.prints.insert(node.id.clone(), print);
+                continue;
             }
             let before = warnings.len();
             let node = &with_product(node, nodes);
@@ -1277,9 +1450,10 @@ impl Engine {
             {
                 let prefix = format!("{at}: ");
                 let ws = warnings[before..].iter().map(|w| w.strip_prefix(&prefix).unwrap_or(w).to_string()).collect();
-                let c = Kept { print: p, outputs: out.clone(), warnings: ws, held: false };
-                k.cache.lock().unwrap().inner.insert(at.clone(), c);
+                let steps = env.take_steps(&at);
+                k.keep(&at, Kept { print: p, outputs: out.clone(), warnings: ws, held: false, steps });
             }
+            env.steps.get_mut().unwrap().remove(&at);
             if kept.is_some() {
                 env.prints.insert(node.id.clone(), if keep { print } else { None });
             }
@@ -2111,6 +2285,7 @@ impl Engine {
         let n = items.len();
         let names: Vec<String> = items.iter().map(|(name, _)| name.clone()).collect();
         let mut gathered = Vec::with_capacity(n);
+        let mut told = Vec::new();
         // what the body's nodes gave for the last element
         let mut last = BTreeMap::new();
         for (i, (name, item)) in items.into_iter().enumerate() {
@@ -2128,6 +2303,9 @@ impl Engine {
             c.insert("index".into(), Value::Integer(i as i64 + 1));
             c.insert("name".into(), Value::Text(name.clone()));
             let mut child = env.child(c);
+            // (the body's nodes kept by the iteration: its place and name; what the element holds is in the prints of
+            // the nodes that read it, so a layer that changed runs its own again)
+            child.kept = env.kept.map(|k| k.iteration(at, i + 1, &name));
             let element = |e: Error| match e {
                 Error::Node { at, message } => {
                     Error::Node { at, message: format!("{name:?} ({} of {n}): {message}", i + 1) }
@@ -2144,10 +2322,14 @@ impl Engine {
                 now.insert(k.clone(), v);
             }
             obs.collected(at, i + 1, n, &now);
+            if env.kept.is_some() {
+                told.push(now.clone());
+            }
             gathered.push(now);
             last = std::mem::take(&mut child.results);
             obs.step(at, i + 1, n);
         }
+        env.told(at, n, told);
         let mut out = gather(gathered, &names, false, "item");
         // the last element's, as `node.port` (as a loop's last step: the application shows a node of the body with
         // it), their random generators aside
@@ -2187,12 +2369,16 @@ impl Engine {
             carried.insert(name.clone(), v);
         }
         let mut series: BTreeMap<String, Vec<Value>> = body.collect.keys().map(|k| (k.clone(), Vec::new())).collect();
-        // what the body's nodes gave at the last step run
+        // what the body's nodes gave at the last step run, and what was collected at each (told again from the cache)
         let mut last = BTreeMap::new();
+        let mut told = Vec::new();
         for step in 1..=times {
             let mut c = carried.clone();
             c.insert("step".into(), Value::Integer(step as i64));
             let mut child = env.child(c);
+            // (the body's nodes kept by the iteration: its place and step; what it carries is in the prints of the
+            // nodes that read it)
+            child.kept = env.kept.map(|k| k.iteration(at, step, ""));
             self.run_scope(&body.nodes, &mut child, inputs, at, obs, warnings, None)?;
             obs.body(at, step, &child.results);
             if let Some(r) = &body.until {
@@ -2218,6 +2404,9 @@ impl Engine {
                 now.insert(name.clone(), v);
             }
             obs.collected(at, step, times, &now);
+            if env.kept.is_some() {
+                told.push(now.clone());
+            }
             let mut next = BTreeMap::new();
             for (name, r) in &body.carry {
                 next.insert(
@@ -2229,6 +2418,7 @@ impl Engine {
             last = std::mem::take(&mut child.results);
             obs.step(at, step, times);
         }
+        env.told(at, times, told);
         let mut out: Outputs = carried;
         for (name, s) in series {
             out.insert(name, Value::Series(s));
@@ -2328,31 +2518,6 @@ fn gather(outs: Vec<Outputs>, names: &[String], series: bool, column: &str) -> O
         gathered.insert(k.clone(), v);
     }
     gathered
-}
-
-/// What [`gather`] made of an element's values, taken apart again: the maps of a stack, the tables of a table (its
-/// rows grouped by the runs of its first column, the number each element's rows were given; that column dropped).
-fn split(v: &Value) -> Option<Vec<Value>> {
-    match v {
-        Value::Stack(s) => Some(
-            s.layers.iter().map(|d| Value::Map(terraflux_ops::Map { grid: s.grid.clone(), data: d.clone() })).collect(),
-        ),
-        Value::Table(t) if t.columns.len() > 1 => {
-            let mut parts: Vec<terraflux_ops::Table> = Vec::new();
-            let mut last: Option<f64> = None;
-            for r in &t.rows {
-                if last.is_none_or(|x| x != r[0] && !(x.is_nan() && r[0].is_nan())) {
-                    let mut labels = t.labels.clone();
-                    labels.remove(&t.columns[0]);
-                    parts.push(terraflux_ops::Table { columns: t.columns[1..].to_vec(), rows: Vec::new(), labels });
-                }
-                last = Some(r[0]);
-                parts.last_mut().unwrap().rows.push(r[1..].to_vec());
-            }
-            Some(parts.into_iter().map(Value::Table).collect())
-        }
-        _ => None,
-    }
 }
 
 /// The tables of the layers as one, each row after a column `name` (`layer`, or `item` of control.each; `input_<name>` when they have one): the

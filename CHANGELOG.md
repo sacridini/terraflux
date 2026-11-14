@@ -47,6 +47,14 @@ minor versions.
   landschaft does (node cuts at the root and in HiGHS's tree: the same selection as landschaft's in the same time).
   The Python script writes `add_corridor_constraints`.
 
+### Changed
+- **The nodes of a loop's body are kept by iteration.** A `control.repeat` or `control.each` that runs again (one
+  more step, a changed collect, one layer of its stack changed) runs only the body nodes whose inputs changed, by what
+  they read: the carried values, `@step`, `@item`, `@index`, `@name` and the outputs of nodes outside the body count
+  by their content, not by where they are in memory. Nodes that are never kept (`raster.write`, random generators)
+  still run at every step. The kept steps live in memory, at most 100000 nodes and 1 GiB of outputs, the least
+  recently used let go first. A loop taken from the cache now tells its steps exactly as it told them when it ran.
+
 ### Fixed
 - **A `control.each` taken from the cache reports its steps again** (a step and what it collected for each element, as
   when it ran), at the top level or inside a group.

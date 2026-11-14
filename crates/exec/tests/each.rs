@@ -125,6 +125,76 @@ inputs = {{ map = \"calc.map\" }}
     assert_eq!(first.0, again.0, "the same steps, in the same order, with the same values");
 }
 
+/// The places of the nodes run (not taken from the cache), in order.
+#[derive(Default)]
+struct Ran(Vec<String>);
+
+impl Observer for Ran {
+    fn timed(&mut self, at: &str, _seconds: f64, _bytes: usize) {
+        self.0.push(at.to_string());
+    }
+}
+
+/// The 3 layers of `years`, the second one's values as given.
+fn years_with(second: [f64; 2]) -> Value {
+    let Value::Stack(mut s) = years() else { unreachable!() };
+    s.layers[1] = Arc::new(second.to_vec());
+    Value::Stack(s)
+}
+
+#[test]
+fn an_each_runs_again_only_the_elements_that_changed() {
+    let m = Model::from_toml(&format!(
+        "format = \"terraflux/1\"\n{STACK_INPUT}
+[[nodes]]
+id = \"each\"
+op = \"control.each\"
+inputs = {{ over = \"$years\", plus = 10 }}
+[nodes.body]
+collect = {{ maps = \"calc.map\", stats = \"stats.table\" }}
+[[nodes.body.nodes]]
+id = \"calc\"
+op = \"raster.calc\"
+inputs = {{ x = \"@item\", k = \"@index\", p = \"@plus\" }}
+params = {{ expression = \"x * k + p\" }}
+[[nodes.body.nodes]]
+id = \"stats\"
+op = \"raster.stats\"
+inputs = {{ map = \"calc.map\" }}
+"
+    ))
+    .unwrap();
+    let cache = std::sync::Mutex::new(terraflux_exec::Cache::default());
+    // (the stacks kept alive: a new one is never taken for an old one by where its layers are)
+    let first = years_with([3.0, 4.0]);
+    let mut ran = Ran::default();
+    let given = BTreeMap::from([("years".to_string(), first.clone())]);
+    Engine::default().run_with(&m, &given, &mut ran, Some(&cache), None).unwrap();
+    let times = |ran: &Ran, p: &str| ran.0.iter().filter(|a| *a == p).count();
+    assert_eq!((times(&ran, "each/calc"), times(&ran, "each/stats")), (3, 3));
+
+    // the same layers in new arrays: the each runs, its body does not (what an element holds, not where)
+    let same = years_with([3.0, 4.0]);
+    let mut ran = Ran::default();
+    let given = BTreeMap::from([("years".to_string(), same.clone())]);
+    Engine::default().run_with(&m, &given, &mut ran, Some(&cache), None).unwrap();
+    assert_eq!(ran.0, ["each"]);
+
+    // one layer changed: its element's nodes run again, the others' do not
+    let other = years_with([3.0, 40.0]);
+    let mut ran = Ran::default();
+    let given = BTreeMap::from([("years".to_string(), other.clone())]);
+    let r = Engine::default().run_with(&m, &given, &mut ran, Some(&cache), None).unwrap();
+    assert_eq!(ran.0, ["each/calc", "each/stats", "each"], "(a node is timed when it is done)");
+    let fresh = Engine::default().run(&m, &given, &mut Quiet).unwrap();
+    for port in ["each.maps", "each.stats"] {
+        assert_eq!(format!("{:?}", r.get(port)), format!("{:?}", fresh.get(port)), "{port}");
+    }
+    let Some(Value::Stack(s)) = r.get("each.maps") else { panic!() };
+    assert_eq!(*s.layers[1], [3.0 * 2.0 + 10.0, 40.0 * 2.0 + 10.0]);
+    drop((first, same, other));
+}
+
 #[test]
 fn rows_features_and_values_are_elements_too() {
     // the rows of a table, each a table of one row named by its first column
