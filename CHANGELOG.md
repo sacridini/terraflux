@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.48.0] - 2026-11-14
+
 ### Added
 - **SWAT+ results on the map: `swat.hru_map`, `swat.channel_map`, `swat.reach_discharge`:** landschaft's `hru_map`,
   `channel_map` and `reach_discharge`, bit for bit (28 cases: each `how` (annual, mean, max, sum), variables of the
