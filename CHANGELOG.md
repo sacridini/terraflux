@@ -7,6 +7,13 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **An input's box can have copies in its scope, as Blender's several Group Input nodes.** Duplicate (the box's
+  menu, Ctrl+D) on the box of a model's input (`$name`), a container's value (`@step`, `@item`) or an outer node
+  makes another box of the same reference below it, kept in the model's places as `scope|reference#2`, `#3`... (the
+  first keeps its key, so old models load the same; `$`/`@` in the model are unchanged). Each node takes its wire
+  from the nearest box, so wires need not cross the canvas; a copy no node is nearest to stays, with no wires.
+  Deleting a copy takes only that box; deleting the last still takes the input and disconnects what read it.
+  Undo covers both; a copy shows the input in the pane.
 - **The portable Windows copy updates itself.** The `windows-x64.zip` now holds an empty `portable` file; a copy
   with it in a folder you may write downloads the release's zip, checks it against `SHA256SUMS.txt`, and after
   Terraflux closes replaces the files of its folder (yours stay; a file in use is renamed `.old` and removed at the

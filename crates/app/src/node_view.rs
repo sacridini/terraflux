@@ -805,8 +805,9 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
 /// The pane of the box of something the scope reads. An input of the model: its name, its file (or value), its note,
 /// and to make it a node or take it away; else what it is.
 fn source_panel(ui: &mut Ui, s: &mut Session, r: &Registry, key: &str) {
-    let Some(name) = key.strip_prefix('$').map(String::from) else {
-        ui.label(RichText::new(key).monospace().strong());
+    // (a copy of an input's box shows the input)
+    let Some(name) = crate::editor::base_ref(key).strip_prefix('$').map(String::from) else {
+        ui.label(RichText::new(crate::editor::base_ref(key)).monospace().strong());
         ui.label(crate::editor_view::source_help(key));
         return;
     };

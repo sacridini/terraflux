@@ -1247,8 +1247,19 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
         (duplicate, copy, paste)
     });
     if duplicate {
+        // (the boxes of what the scope reads chosen get copies of their own, one step of undo each)
+        let boxes: Vec<String> = s.editor.chosen.iter().filter(|k| crate::editor::is_source(k)).cloned().collect();
+        let boxes = if boxes.is_empty() {
+            s.selected.iter().filter(|k| crate::editor::is_source(k)).cloned().collect()
+        } else {
+            boxes
+        };
         let (nodes, notes) = chosen_with_notes(s);
-        put(s, r, &nodes, &notes, None, true);
+        if nodes.is_empty() && notes.is_empty() {
+            duplicate_sources(s, &boxes);
+        } else {
+            put(s, r, &nodes, &notes, None, true);
+        }
     }
     if copy {
         let (nodes, notes) = chosen_with_notes(s);
@@ -1387,12 +1398,10 @@ fn delete_chosen(s: &mut Session) {
         gone.extend(s.selected.clone());
     }
     let path = s.editor.path.clone();
-    let mut removed = false;
-    for id in &gone {
-        match crate::editor::remove_box(&mut s.source, &path, id) {
-            Ok(()) => removed = true,
-            Err(e) => s.editor.message = Some(e),
-        }
+    // (the boxes of one input together, so the order of the selection does not matter)
+    let (removed, result) = crate::editor::remove_boxes(&mut s.source, &path, &gone);
+    if let Err(e) = result {
+        s.editor.message = Some(e);
     }
     if removed {
         if s.selected.as_ref().is_some_and(|x| gone.contains(x)) {
@@ -1404,6 +1413,27 @@ fn delete_chosen(s: &mut Session) {
         s.editor.chosen.clear();
         s.edited();
     }
+}
+
+/// Another box of the reference of each box of what the scope reads in `keys` (a copy: `$land#2`...), a step below
+/// it; the copies become the boxes selected (one: the one in the pane). One step of undo.
+fn duplicate_sources(s: &mut Session, keys: &[String]) {
+    let path = s.editor.path.clone();
+    let mut made = Vec::new();
+    for key in keys {
+        // (the box as the scene has it, else none to copy)
+        let Some((_, rect)) = s.editor.rects_of(std::slice::from_ref(key)).into_iter().next() else { continue };
+        made.push(crate::editor::duplicate_source(&mut s.source, &path, key, [rect.min.x, rect.max.y + 16.0]));
+    }
+    if made.is_empty() {
+        return;
+    }
+    if let [one] = made.as_slice() {
+        s.selected = Some(one.clone());
+    }
+    s.editor.chosen = made.into_iter().collect();
+    s.editor.message = None;
+    s.edited();
 }
 
 /// Copies of the nodes `ids` (they keep what they read, the links among them go to the copies; selected after),
@@ -1499,7 +1529,7 @@ pub fn forget_missing(s: &mut Session) {
         s.source.scope(&s.editor.path).map(|n| n.iter().map(|n| n.id.clone()).collect()).unwrap_or_default();
     // (the box of something the scope reads: kept, unless it is an input of the model no more)
     let inputs = &s.source.inputs;
-    let here = |id: &String| match id.strip_prefix('$') {
+    let here = |id: &String| match crate::editor::base_ref(id).strip_prefix('$') {
         Some(name) => inputs.contains_key(name),
         None => ids.contains(id) || crate::editor::is_source(id),
     };
@@ -2944,11 +2974,20 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 crate::editor::place_source(&mut s.source, &path, &id, p);
                 s.history.changed(&s.source);
                 s.dirty = true;
+                // (an input with copies: its readers' wires start at the nearest box now)
+                if !crate::editor::copies_of(&s.source, &path, crate::editor::base_ref(&id)).is_empty() {
+                    s.editor.rebuild();
+                }
                 Ok(false)
             }
             Action::Move(id, p) => crate::editor::move_node(&mut s.source, &path, &id, p).map(|_| {
                 s.history.changed(&s.source);
                 s.dirty = true;
+                // (the same, when the scope has copies of an input's box)
+                let scope = format!("{}|", path.join("/"));
+                if s.source.places.keys().any(|k| k.starts_with(&scope) && k.contains('#')) {
+                    s.editor.rebuild();
+                }
                 false
             }),
             // resized by its edge (in the scene already), or back to the width its texts need (laid out again)
@@ -3032,6 +3071,15 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 s.editor.chosen.clear();
                 true
             }),
+            Action::RemoveInput(name) => crate::editor::remove_input(&mut s.source, &name).map(|_| {
+                s.selected = None;
+                s.editor.chosen.clear();
+                true
+            }),
+            Action::DuplicateSource(key) => {
+                duplicate_sources(s, &[key]);
+                Ok(false)
+            }
             // (each edits and tells its error itself)
             Action::Group => {
                 group_selected(s, r);

@@ -2189,6 +2189,81 @@ fn a_duplicate_carries_the_reroute_points() {
     }
 }
 
+/// An input's box duplicated (ctrl+D) is another box of the same input, kept in the model under `#2`: each node
+/// takes its wire from the nearest box, whichever is moved near it; one step of undo; the copy shows the input in
+/// the pane; deleted, only its place goes; saved and read again, the copy is there.
+#[test]
+fn an_input_box_has_copies_and_each_reader_takes_the_nearest() {
+    let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs/sibuyan_landuse.tif");
+    let mut m = Model::new("copies");
+    m.inputs.insert(
+        "t0".into(),
+        terraflux_graph::Input::Map { path: data.to_string_lossy().into_owned(), band: None, nodata: None, note: None },
+    );
+    let mut low = Node::new("low", "raster.calc").input("land", "$t0").param("expression", "land");
+    low.pos = Some([0.0, 0.0]);
+    let mut high = Node::new("high", "raster.calc").input("land", "$t0").param("expression", "land");
+    high.pos = Some([0.0, -700.0]);
+    m.nodes.extend([low, high]);
+    let mut h = harness(open(&m, "canvas-copies.toml"));
+    h.run_steps(3);
+    assert_eq!(editor(&h).wired_from("high", "land").as_deref(), Some("$t0"));
+    // selected and duplicated: the copy is a box of its own, below, selected, with the input in the pane
+    let at = editor(&h).screen_of("$t0").unwrap();
+    click(&mut h, at);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert!(s.source.places.contains_key("|$t0#2"), "{:?}", s.source.places);
+        assert_eq!(s.selected.as_deref(), Some("$t0#2"));
+        assert_eq!(s.source.inputs.len(), 1);
+    }
+    let copy = editor(&h).screen_of("$t0#2").expect("the copy is on the canvas");
+    assert!(copy.y > at.y, "below the first");
+    // (the original is nearer to both: the copy has no wires yet, and shows anyway)
+    assert_eq!(editor(&h).wired_from("high", "land").as_deref(), Some("$t0"));
+    assert_eq!(editor(&h).wired_from("low", "land").as_deref(), Some("$t0"));
+    // moved near the node above: that node takes its wire from it, the other keeps the first
+    let port = editor(&h).screen_of_input("high", "land").unwrap();
+    drag(&mut h, copy, port - egui::vec2(160.0, 0.0));
+    let places = &h.state().session.as_ref().unwrap().source.places;
+    assert_eq!(editor(&h).wired_from("high", "land").as_deref(), Some("$t0#2"), "{places:?} {copy:?} {port:?}");
+    assert_eq!(editor(&h).wired_from("low", "land").as_deref(), Some("$t0"));
+    // the model reads as it did: a place kept under the key, and saved and read again, the copy is there
+    let path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-copies-saved.toml");
+    let saved = h.state().session.as_ref().unwrap().source.clone();
+    assert_eq!(saved.nodes[0].inputs["land"], terraflux_graph::Source::Ref("$t0".into()));
+    saved.save(&path).unwrap();
+    let again = Model::load(&path).unwrap();
+    assert_eq!(again.places, saved.places);
+    assert!(again.places.contains_key("|$t0#2"));
+    // one step of undo each: the move, then the duplicate
+    undo(&mut h);
+    undo(&mut h);
+    assert!(!h.state().session.as_ref().unwrap().source.places.contains_key("|$t0#2"));
+    assert!(editor(&h).screen_of("$t0#2").is_none());
+    terraflux_app::builder::undo_redo(h.state_mut().session.as_mut().unwrap(), true);
+    h.run_steps(2);
+    assert!(editor(&h).screen_of("$t0#2").is_some(), "redone");
+    // the copy deleted: only its place; the readers keep the input
+    let copy = editor(&h).screen_of("$t0#2").unwrap();
+    click(&mut h, copy);
+    h.key_press(egui::Key::Delete);
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(!s.source.places.contains_key("|$t0#2") && s.source.inputs.contains_key("t0"));
+    assert_eq!(s.source.nodes[0].inputs["land"], terraflux_graph::Source::Ref("$t0".into()));
+    assert_eq!(editor(&h).wired_from("high", "land").as_deref(), Some("$t0"));
+    // the last box deleted: the input goes and what read it reads nothing, as it did
+    let first = editor(&h).screen_of("$t0").unwrap();
+    click(&mut h, first);
+    h.key_press(egui::Key::Delete);
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.source.inputs.is_empty() && !s.source.nodes[0].inputs.contains_key("land"));
+}
+
 /// A box on a wire's way: `a -> b` far apart at the same height with `block` between.
 fn blocked_model() -> Model {
     let mut b = Node::new("b", "raster.reclassify").input("map", "a.raster");

@@ -128,6 +128,64 @@ pub fn place_source(m: &mut Model, path: &[String], reference: &str, pos: [f32; 
     m.places.insert(terraflux_graph::place_key(path, reference), pos);
 }
 
+/// The reference a box of what a scope reads stands for: its key without the `#N` of a copy (`$land#2` is a copy of
+/// `$land`, as Blender's several Group Input nodes). The first box has the reference as its key.
+pub fn base_ref(key: &str) -> &str {
+    match key.rsplit_once('#') {
+        Some((r, n)) if is_source(r) && n.parse::<u32>().is_ok_and(|n| n >= 2) => r,
+        _ => key,
+    }
+}
+
+/// The copies of the box of a reference in a scope ([`Model::places`], `scope|reference#2`...): their numbers and
+/// places, by number.
+pub fn copies_of(m: &Model, path: &[String], reference: &str) -> Vec<(u32, [f32; 2])> {
+    let head = format!("{}#", terraflux_graph::place_key(path, reference));
+    let mut out: Vec<(u32, [f32; 2])> = m
+        .places
+        .range(head.clone()..)
+        .take_while(|(k, _)| k.starts_with(&head))
+        .filter_map(|(k, p)| k[head.len()..].parse::<u32>().ok().filter(|&n| n >= 2).map(|n| (n, *p)))
+        .collect();
+    out.sort_by_key(|(n, _)| *n);
+    out
+}
+
+/// Make another box of the same reference as the box `key` (a copy of it), at `at`: under the first number free
+/// (`#2`, `#3`...). Its key.
+pub fn duplicate_source(m: &mut Model, path: &[String], key: &str, at: [f32; 2]) -> String {
+    let reference = base_ref(key);
+    let taken: Vec<u32> = copies_of(m, path, reference).into_iter().map(|(n, _)| n).collect();
+    let n = (2..).find(|n| !taken.contains(n)).unwrap();
+    let copy = format!("{reference}#{n}");
+    place_source(m, path, &copy, at);
+    copy
+}
+
+/// Which of several boxes of one reference a reader takes its wire from: the nearest to the reader's port (the
+/// boxes' outputs, the port: canvas points). The first of those as near.
+pub fn nearest_copy(outputs: &[[f32; 2]], port: [f32; 2]) -> usize {
+    let dist = |p: &[f32; 2]| (p[0] - port[0]).powi(2) + (p[1] - port[1]).powi(2);
+    outputs.iter().enumerate().fold((0, f32::INFINITY), |b, (i, p)| if dist(p) < b.1 { (i, dist(p)) } else { b }).0
+}
+
+/// The reference a place of [`Model::places`] is of (`scope|$land#2` is of `$land`).
+fn place_ref(key: &str) -> Option<&str> {
+    key.rsplit_once('|').map(|(_, r)| base_ref(r))
+}
+
+/// Take one box of a reference away when it has others: a copy loses its place; the first box, with copies, is
+/// taken by the first of them (it takes its place). The reference is still read, so it keeps its boxes.
+fn remove_copy(m: &mut Model, path: &[String], key: &str) {
+    let reference = base_ref(key);
+    if key != reference {
+        m.places.remove(&terraflux_graph::place_key(path, key));
+    } else if let Some((n, at)) = copies_of(m, path, reference).into_iter().next() {
+        m.places.remove(&terraflux_graph::place_key(path, &format!("{reference}#{n}")));
+        place_source(m, path, reference, at);
+    }
+}
+
 /// The references to `$name` taken away: the inputs that read it read nothing, the settings that read it their
 /// default, a container's values and the model's outputs of it gone; the parameters and scenarios that change
 /// it, and its boxes' places, too.
@@ -151,8 +209,7 @@ fn forget_input(m: &mut Model, name: &str) {
     for s in &mut m.scenarios {
         s.values.remove(&gone);
     }
-    let place = format!("|{gone}");
-    m.places.retain(|k, _| !k.ends_with(&place));
+    m.places.retain(|k, _| place_ref(k) != Some(gone.as_str()));
 }
 
 /// Rename an input of the model: what reads it, the parameters and scenarios that change it and its boxes' places
@@ -185,12 +242,13 @@ pub fn rename_input(m: &mut Model, old: &str, new: &str) -> Result<()> {
             s.values.insert(to.clone(), v);
         }
     }
-    let place = format!("|{from}");
+    // (the copies' places too: `scope|$old#2` follows as `scope|$new#2`)
     let moved: Vec<(String, [f32; 2])> =
-        m.places.iter().filter(|(k, _)| k.ends_with(&place)).map(|(k, p)| (k.clone(), *p)).collect();
+        m.places.iter().filter(|(k, _)| place_ref(k) == Some(from.as_str())).map(|(k, p)| (k.clone(), *p)).collect();
     for (k, p) in moved {
         m.places.remove(&k);
-        m.places.insert(format!("{}{to}", &k[..k.len() - from.len()]), p);
+        let (scope, reference) = k.rsplit_once('|').unwrap();
+        m.places.insert(format!("{scope}|{to}{}", &reference[from.len()..]), p);
     }
     Ok(())
 }
@@ -302,6 +360,12 @@ pub fn node_to_input(m: &mut Model, r: &Registry, id: &str, name: &str, bands: O
 /// A box of the canvas taken away: a node, or an input of the model (with what read it). A container's value or a
 /// node outside the scope is not taken away here: what reads it is.
 pub fn remove_box(m: &mut Model, path: &[String], key: &str) -> Result<()> {
+    // one of several boxes of the same reference: only its place goes (the readers keep their wires, from the
+    // others)
+    if is_source(key) && (base_ref(key) != key || !copies_of(m, path, key).is_empty()) {
+        remove_copy(m, path, key);
+        return Ok(());
+    }
     match key.strip_prefix('$') {
         Some(name) => remove_input(m, name),
         None if is_source(key) => {
@@ -309,6 +373,56 @@ pub fn remove_box(m: &mut Model, path: &[String], key: &str) -> Result<()> {
         }
         None => remove_node(m, path, key),
     }
+}
+
+/// Several boxes of the canvas taken away at once, whatever the order of `keys`: the boxes of one reference are
+/// taken together. When every box of it is among them, as the last box is ([`remove_box`]); else only the places of
+/// those chosen go, and the lowest copy left takes the first box's key if it was among them. The first error, the
+/// rest done; whether anything was taken away comes first.
+pub fn remove_boxes(m: &mut Model, path: &[String], keys: &[String]) -> (bool, Result<()>) {
+    let mut first = None;
+    let mut done = false;
+    let mut refs: Vec<&str> = Vec::new();
+    for k in keys {
+        if is_source(k) {
+            if !refs.contains(&base_ref(k)) {
+                refs.push(base_ref(k));
+            }
+        } else {
+            match remove_box(m, path, k) {
+                Ok(()) => done = true,
+                Err(e) => {
+                    first.get_or_insert(e);
+                }
+            }
+        }
+    }
+    for r in refs {
+        let chosen = |k: &&String| base_ref(k) == r;
+        let copies: Vec<&String> = keys.iter().filter(chosen).filter(|k| k.as_str() != r).collect();
+        let original = keys.iter().any(|k| k == r);
+        done |= !copies.is_empty();
+        for k in copies {
+            m.places.remove(&terraflux_graph::place_key(path, k));
+        }
+        let left = !copies_of(m, path, r).is_empty();
+        let result = match (original, left) {
+            // every box: the last one's way
+            (true, false) => remove_box(m, path, r),
+            (true, true) => {
+                remove_copy(m, path, r);
+                Ok(())
+            }
+            (false, _) => Ok(()),
+        };
+        match result {
+            Ok(()) => done |= original,
+            Err(e) => {
+                first.get_or_insert(e);
+            }
+        }
+    }
+    (done, first.map_or(Ok(()), Err))
 }
 
 /// The name of the input of the model a node becomes ([`node_to_input`]): its id, unless an input has it.
@@ -1684,6 +1798,96 @@ mod tests {
         assert!(remove_box(&mut m, &[], "@step").is_err());
         remove_box(&mut m, &[], "tiles").unwrap();
         assert!(!m.nodes.iter().any(|n| n.id == "tiles"));
+    }
+
+    #[test]
+    fn an_input_box_has_copies_under_numbered_places() {
+        let mut m = model();
+        m.nodes.push(Node::new("mspa", "landscape.mspa").input("map", "$t0"));
+        assert_eq!(
+            (base_ref("$t0"), base_ref("$t0#3"), base_ref("a.map#2"), base_ref("mspa")),
+            ("$t0", "$t0", "a.map", "mspa")
+        );
+        place_source(&mut m, &[], "$t0", [10.0, 20.0]);
+        // the copies take #2, then #3; a number freed is taken again
+        assert_eq!(duplicate_source(&mut m, &[], "$t0", [10.0, 80.0]), "$t0#2");
+        assert_eq!(duplicate_source(&mut m, &[], "$t0#2", [10.0, 140.0]), "$t0#3");
+        assert_eq!(m.places["|$t0#2"], [10.0, 80.0]);
+        assert_eq!(copies_of(&m, &[], "$t0"), vec![(2, [10.0, 80.0]), (3, [10.0, 140.0])]);
+        assert!(copies_of(&m, &[], "$t1").is_empty() && copies_of(&m, &["g".into()], "$t0").is_empty());
+        // a copy deleted: only its place; the readers keep reading
+        remove_box(&mut m, &[], "$t0#2").unwrap();
+        assert!(!m.places.contains_key("|$t0#2") && m.places.contains_key("|$t0#3") && m.inputs.contains_key("t0"));
+        assert_eq!(m.nodes[0].inputs["map"], Source::Ref("$t0".into()));
+        assert_eq!(duplicate_source(&mut m, &[], "$t0", [0.0, 0.0]), "$t0#2");
+        // the first box deleted with copies left: the first copy takes its place
+        remove_box(&mut m, &[], "$t0").unwrap();
+        assert_eq!(m.places["|$t0"], [0.0, 0.0]);
+        assert!(!m.places.contains_key("|$t0#2") && m.places.contains_key("|$t0#3") && m.inputs.contains_key("t0"));
+        // renamed: the copies follow
+        rename_input(&mut m, "t0", "land").unwrap();
+        assert!(m.places.contains_key("|$land") && m.places.contains_key("|$land#3") && m.places.len() == 2);
+        // the last box deleted: the input goes, and with it every place
+        remove_box(&mut m, &[], "$land#3").unwrap();
+        remove_box(&mut m, &[], "$land").unwrap();
+        assert!(!m.inputs.contains_key("land") && m.places.is_empty());
+        assert!(!m.nodes[0].inputs.contains_key("map"));
+        // a container's value has copies too, and its last box is not taken away
+        duplicate_source(&mut m, &["g".into()], "@step", [5.0, 5.0]);
+        assert!(m.places.contains_key("g|@step#2"));
+        remove_box(&mut m, &["g".into()], "@step#2").unwrap();
+        assert!(m.places.is_empty());
+        assert!(remove_box(&mut m, &["g".into()], "@step").is_err());
+    }
+
+    #[test]
+    fn boxes_deleted_together_do_not_depend_on_the_order() {
+        let keys = |v: &[&str]| v.iter().map(|k| k.to_string()).collect::<Vec<String>>();
+        for order in [["$t0", "$t0#2"], ["$t0#2", "$t0"]] {
+            // every box of the input: it goes, as the last box does
+            let mut m = model();
+            m.nodes.push(Node::new("mspa", "landscape.mspa").input("map", "$t0"));
+            duplicate_source(&mut m, &[], "$t0", [0.0, 80.0]);
+            let (done, r) = remove_boxes(&mut m, &[], &keys(&order));
+            assert!(done && r.is_ok());
+            assert!(!m.inputs.contains_key("t0") && m.places.is_empty() && !m.nodes[0].inputs.contains_key("map"));
+        }
+        // the first of three: the lowest copy left takes its key
+        let mut m = model();
+        place_source(&mut m, &[], "$t0", [1.0, 1.0]);
+        duplicate_source(&mut m, &[], "$t0", [2.0, 2.0]);
+        duplicate_source(&mut m, &[], "$t0", [3.0, 3.0]);
+        let (done, r) = remove_boxes(&mut m, &[], &keys(&["$t0"]));
+        assert!(done && r.is_ok() && m.inputs.contains_key("t0"));
+        assert_eq!(m.places["|$t0"], [2.0, 2.0]);
+        assert_eq!(m.places["|$t0#3"], [3.0, 3.0]);
+        assert_eq!(m.places.len(), 2);
+        // the first and a copy of three, in both orders: the one left is the first
+        for order in [["$t0", "$t0#2"], ["$t0#2", "$t0"]] {
+            let mut m = model();
+            place_source(&mut m, &[], "$t0", [1.0, 1.0]);
+            duplicate_source(&mut m, &[], "$t0", [2.0, 2.0]);
+            duplicate_source(&mut m, &[], "$t0", [3.0, 3.0]);
+            remove_boxes(&mut m, &[], &keys(&order)).1.unwrap();
+            assert_eq!(m.places["|$t0"], [3.0, 3.0]);
+            assert_eq!(m.places.len(), 1);
+        }
+        // a container's value: all its boxes are not taken away
+        let mut m = model();
+        duplicate_source(&mut m, &["g".into()], "@step", [5.0, 5.0]);
+        let (_, r) = remove_boxes(&mut m, &["g".into()], &keys(&["@step", "@step#2"]));
+        assert!(r.is_err() && m.places.is_empty());
+    }
+
+    #[test]
+    fn a_reader_takes_its_wire_from_the_nearest_copy() {
+        let copies = [[0.0, 0.0], [0.0, 300.0], [0.0, 600.0]];
+        assert_eq!(nearest_copy(&copies, [200.0, 10.0]), 0);
+        assert_eq!(nearest_copy(&copies, [200.0, 290.0]), 1);
+        assert_eq!(nearest_copy(&copies, [200.0, 900.0]), 2);
+        // as near: the first
+        assert_eq!(nearest_copy(&copies, [0.0, 150.0]), 0);
+        assert_eq!(nearest_copy(&copies[..1], [9.0, 9.0]), 0);
     }
 
     #[test]

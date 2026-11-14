@@ -2207,8 +2207,11 @@ nome, o "Processar uma pasta", a conversão do `batch.run` e o tutorial (itens 6
   no painel do nó (renomear, com as referências, os parâmetros e os cenários seguindo; o arquivo ou o valor; a
   nota; apagar, desconectando quem a lia). "Make it a node" faz da entrada de um arquivo um `raster.read` dele
   (que pode então ler uma pasta), e "Make it an input of the model", no menu de um `raster.read` do nível de
-  cima, o contrário (um mapa quando ele escolhe uma banda ou o arquivo tem uma, senão uma pilha). Falta, se
-  fizer falta: um nó "Input" de verdade dentro dos contêineres (hoje é a caixa que se move).
+  cima, o contrário (um mapa quando ele escolhe uma banda ou o arquivo tem uma, senão uma pilha). Em vez
+  de um nó "Input" de verdade dentro dos contêineres (o formato `$`/`@` do modelo não muda): a caixa de uma
+  entrada pode ter cópias no escopo, como os vários *Group Input* do Blender ("Duplicate" no menu ou Ctrl+D; guardadas
+  em `places` como `escopo|referência#2`, `#3`...; cada nó lê da cópia mais próxima da sua porta, sem atribuição
+  guardada; apagar uma cópia tira só o lugar, apagar a última desconecta quem lia, como antes).
 - **Feito** (Unreleased), fase 4: um nó que recebe duas pastas (ou mais) roda nos arquivos pareados pelo nome
   (`paired` no executor): os nomes iguais, ou, quando isso pareia menos, os nomes sem o começo e o fim comuns de
   cada pasta, cortados num `_`, `-`, `.` ou espaço (`uso_bacia_01` com `estradas_bacia_01`); os sem par ficam de

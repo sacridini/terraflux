@@ -331,6 +331,11 @@ pub enum Action {
     NodeToInput(String),
     /// The box of something the scope reads taken away: a model's input removed, with what read it.
     RemoveSource(String),
+    /// A model's input removed whole (every box of it), with what read it.
+    RemoveInput(String),
+    /// Another box of the same reference as the box of something the scope reads (a copy, as Blender's several
+    /// Group Input nodes), beside it: the readers take their wires from the nearest.
+    DuplicateSource(String),
     /// The nodes selected put in a new group (its name asked for at once).
     Group,
     /// The selection's menu: the nodes selected deleted, duplicated (links among them kept), all their connections
@@ -436,7 +441,7 @@ pub const MAKE_INPUT_HELP: &str = "the raster.read an input of the model ($name)
 
 /// What the box of something a scope reads is, besides an input of the model.
 pub fn source_help(key: &str) -> String {
-    match key {
+    match crate::editor::base_ref(key) {
         "@step" => "@step: the loop's step (1, 2...)".into(),
         "@item" => "@item: the element of the collection the body runs on".into(),
         "@index" => "@index: the element's place in the collection (1, 2...)".into(),
@@ -761,6 +766,12 @@ impl EditorState {
         ids.iter().filter_map(|k| s.index.get(k).map(|&i| (k.clone(), s.boxes[i].rect))).collect()
     }
 
+    /// Build the scene again at the next frame (the wires from the copies of an input's box: the nearest, after
+    /// something moved).
+    pub fn rebuild(&mut self) {
+        self.folds += 1;
+    }
+
     /// Fit the graph in the view at the next frame.
     pub fn fit(&mut self) {
         self.fit = true;
@@ -954,6 +965,15 @@ impl EditorState {
         self.on_screen(b.output_at(b.outputs.iter().position(|(p, _)| p == port)?))
     }
 
+    /// The key of the box a node's input is wired from in the scene (a box of an input of the model: the first or
+    /// one of its copies, `$land#2`), if it is.
+    pub fn wired_from(&self, node: &str, port: &str) -> Option<String> {
+        let s = self.scene.as_ref()?;
+        let to = *s.index.get(node)?;
+        let k = s.boxes[to].inputs.iter().position(|p| p.name == port)?;
+        s.edges.iter().find(|e| e.to == (to, k)).map(|e| s.boxes[e.from.0].key.clone())
+    }
+
     /// Where the row that folds or unfolds a node's optional inputs is on the screen.
     pub fn screen_of_fold(&self, node: &str) -> Option<Pos2> {
         let s = self.scene.as_ref()?;
@@ -1022,7 +1042,11 @@ fn file_label(path: &str, max: usize) -> String {
 impl BoxAt {
     /// What a connection from an output refers to.
     fn reference(&self, k: usize) -> String {
-        if self.source { self.key.clone() } else { format!("{}.{}", self.key, self.outputs[k].0) }
+        if self.source {
+            editor::base_ref(&self.key).to_string()
+        } else {
+            format!("{}.{}", self.key, self.outputs[k].0)
+        }
     }
 
     fn input_at(&self, i: usize) -> Pos2 {
@@ -1519,32 +1543,41 @@ impl Scene {
                 _ => None,
             });
             let foot = if file.is_some() { FOOT } else { 0.0 };
-            // where it was moved, else in the column at the left
+            // where it was moved, else in the column at the left; then its copies (`#2`...), each where it was put
             let placed = model.places.get(&terraflux_graph::place_key(path, s)).map(|&[x, y]| Pos2::new(x, y));
-            let rect =
-                Rect::from_min_size(placed.unwrap_or(Pos2::new(sources_x, y)), Vec2::new(sources_w, HEAD + ROW + foot));
-            boxes.push(BoxAt {
-                key: s.clone(),
-                op: String::new(),
-                label: String::new(),
-                rect,
-                fitted: sources_w,
-                inputs: Vec::new(),
-                outputs: vec![(String::new(), *t)],
-                source: true,
-                container: false,
-                inside: 0,
-                note: None,
-                file,
-                folded: Vec::new(),
-                unfolded: false,
-                bypass: false,
-                frozen: false,
-            });
-            if placed.is_none() {
-                y += HEAD + ROW + foot + 12.0;
+            let copies = editor::copies_of(model, path, s)
+                .into_iter()
+                .map(|(n, [x, y])| (format!("{s}#{n}"), Some(Pos2::new(x, y))));
+            for (key, placed) in std::iter::once((s.clone(), placed)).chain(copies) {
+                let rect = Rect::from_min_size(
+                    placed.unwrap_or(Pos2::new(sources_x, y)),
+                    Vec2::new(sources_w, HEAD + ROW + foot),
+                );
+                boxes.push(BoxAt {
+                    key,
+                    op: String::new(),
+                    label: String::new(),
+                    rect,
+                    fitted: sources_w,
+                    inputs: Vec::new(),
+                    outputs: vec![(String::new(), *t)],
+                    source: true,
+                    container: false,
+                    inside: 0,
+                    note: None,
+                    file: file.clone(),
+                    folded: Vec::new(),
+                    unfolded: false,
+                    bypass: false,
+                    frozen: false,
+                });
+                if placed.is_none() {
+                    y += HEAD + ROW + foot + 12.0;
+                }
             }
         }
+        // (the boxes of what the scope reads, copies too, come first: the nodes' boxes after them)
+        let n_src = boxes.len();
         let missing = nodes.iter().any(|n| n.pos.is_none());
         let auto = if missing { auto_positions(nodes) } else { HashMap::new() };
         for n in nodes {
@@ -1607,13 +1640,25 @@ impl Scene {
         let mut extra = Vec::new();
         let mut edges_at = Vec::new();
         let line = v.weak_text_color();
+        // the copies of each reference's box (the first is `index`'s)
+        let mut copies_of_box: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, b) in boxes.iter().enumerate().take(n_src) {
+            if editor::base_ref(&b.key) != b.key {
+                copies_of_box.entry(editor::base_ref(&b.key).to_string()).or_default().push(i);
+            }
+        }
         for (k, n) in nodes.iter().enumerate() {
-            let b = &boxes[sources.len() + k];
+            let b = &boxes[n_src + k];
             for (port, src) in &n.inputs {
                 let Source::Ref(reference) = src else { continue };
                 let Some(i) = b.inputs.iter().position(|p| p.name == *port) else { continue };
                 let from = if let Some(&s) = index.get(reference.as_str()).filter(|&&s| boxes[s].source) {
-                    Some((s, 0))
+                    // from the nearest of its boxes (the first and its copies) to this port
+                    let at = b.input_at(i);
+                    let all: Vec<usize> =
+                        std::iter::once(s).chain(copies_of_box.get(reference).into_iter().flatten().copied()).collect();
+                    let outs: Vec<[f32; 2]> = all.iter().map(|&j| boxes[j].output_at(0)).map(|p| [p.x, p.y]).collect();
+                    Some((all[editor::nearest_copy(&outs, [at.x, at.y])], 0))
                 } else if let Ok(Ref::Port { node, port: out }) = Ref::parse(reference) {
                     index
                         .get(node.as_str())
@@ -1622,7 +1667,7 @@ impl Scene {
                     None
                 };
                 if let Some((s, o)) = from {
-                    let to_box = sources.len() + k;
+                    let to_box = n_src + k;
                     // the type of what flows: the output's, else (an output of any type) the input's
                     let colour = type_colour(boxes[s].outputs[o].1, v.dark_mode)
                         .or_else(|| type_colour(b.inputs[i].ty, v.dark_mode))
@@ -1661,7 +1706,7 @@ impl Scene {
                 else {
                     continue;
                 };
-                let b = &boxes[sources.len() + k];
+                let b = &boxes[n_src + k];
                 let from = boxes[s].output_at(o);
                 let to = Pos2::new(b.rect.left(), b.rect.top() + HEAD / 2.0);
                 extra.push(EdgeInstance {
@@ -2324,6 +2369,9 @@ fn stages_and_notes(
 /// What the entries of the selection's menu do.
 const RENAME_MANY_HELP: &str = "all their ids from a pattern: {n} the number on the canvas, {id}, {op}, {file}";
 const DELETE_MANY_HELP: &str = "the nodes selected taken away, with the connections into and out of them";
+const DUPLICATE_SOURCE_HELP: &str = "another box of the same input below it, to move near what reads it: each node \
+     takes its wire from the nearest box, so the wires do not cross the canvas";
+
 const DUPLICATE_MANY_HELP: &str = "a copy of each node, a step down and to the right, reading what the originals \
      read (the links among the copied nodes go to the copies), the same as ctrl+D; the copies selected";
 const CHANGE_FILE_HELP: &str = "the file this node reads, chosen in a dialog; its connections and settings stay \
@@ -3071,16 +3119,36 @@ pub fn show(
                 ui.close();
             }
         };
-        if let Some(name) = key.strip_prefix('$') {
+        let c = crate::commands::cmd();
+        let copies = !crate::editor::copies_of(model, &st.path, crate::editor::base_ref(&key)).is_empty();
+        if let Some(name) = crate::editor::base_ref(&key).strip_prefix('$') {
             item(ui, "Make it a node", MAKE_NODE_HELP, Action::InputToNode(name.to_string()));
+            item(ui, &format!("Duplicate    {c}D"), DUPLICATE_SOURCE_HELP, Action::DuplicateSource(key.clone()));
+            if copies {
+                item(
+                    ui,
+                    "Delete this box",
+                    "only this box of the input taken away; the others stay, and what read it reads the nearest",
+                    Action::RemoveSource(key.clone()),
+                );
+            }
             item(
                 ui,
                 "Delete the input",
-                "the model's input taken away; what read it reads nothing",
-                Action::RemoveSource(key.clone()),
+                "the model's input taken away, all its boxes; what read it reads nothing",
+                Action::RemoveInput(name.to_string()),
             );
         } else if crate::editor::is_source(&key) {
             ui.label(egui::RichText::new(source_help(&key)).weak());
+            item(ui, &format!("Duplicate    {c}D"), DUPLICATE_SOURCE_HELP, Action::DuplicateSource(key.clone()));
+            if copies {
+                item(
+                    ui,
+                    "Delete this box",
+                    "only this box taken away; the others stay",
+                    Action::RemoveSource(key.clone()),
+                );
+            }
         } else {
             let c = crate::commands::cmd();
             // the nodes selected (besides this one): all connected to it
@@ -3286,7 +3354,9 @@ pub fn show(
             }
             let font = FontId::proportional(size(14.0).max(NAME_MIN));
             let room = on_screen.width() - 16.0 * cam.zoom.max(0.5) - if ports { 14.0 * cam.zoom } else { 0.0 };
-            let mut job = egui::text::LayoutJob::simple_singleline(b.key.clone(), font, v.strong_text_color());
+            // (a copy of an input's box is named as the input)
+            let name = if b.source { editor::base_ref(&b.key) } else { b.key.as_str() };
+            let mut job = egui::text::LayoutJob::simple_singleline(name.to_string(), font, v.strong_text_color());
             job.wrap = egui::text::TextWrapping {
                 max_width: room.max(8.0),
                 max_rows: 1,
@@ -3755,7 +3825,7 @@ pub fn show(
             Some(Hit::Output(i, k)) => {
                 let b = &scene.boxes[i];
                 let (name, ty) = &b.outputs[k];
-                let name = if name.is_empty() { b.key.as_str() } else { name.as_str() };
+                let name = if name.is_empty() { editor::base_ref(&b.key) } else { name.as_str() };
                 let what = if b.source { "drag it to an input" } else { "a click shows it; drag it to an input" };
                 resp.clone().on_hover_text_at_pointer(format!("{name}: {}\n{what}", ty.name()));
             }
