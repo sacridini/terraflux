@@ -129,6 +129,61 @@ fn margins_of_rivers_lakes_and_springs() {
     assert_eq!(t.rows[1][0], 2.0);
 }
 
+/// A property of 5 x 10 cells of 10 m (0.5 ha) with a river along column 0, consolidated, in modules of `module` ha.
+fn art_61b(module: f64) -> Outputs {
+    let (nx, ny) = (5, 10);
+    let g = grid(nx, ny);
+    let rivers: Vec<f64> = (0..nx * ny).map(|i| f64::from(u8::from(i % nx == 0))).collect();
+    run(
+        "forest_code.app",
+        vec![
+            ("rivers", Value::Map(Map::new(g.clone(), rivers))),
+            ("properties", Value::Map(Map::new(g.clone(), vec![7.0; nx * ny]))),
+            ("consolidated", Value::Map(Map::new(g, vec![1.0; nx * ny]))),
+        ],
+        serde_json::json!({"fiscal_module": module}),
+    )
+}
+
+#[test]
+fn art_61b_caps_the_recomposition() {
+    let col = |t: &Table, n: &str| t.rows[0][t.columns.iter().position(|c| c == n).unwrap()];
+    // 1.5 modules: 8 m (column 1, 20% of the property) capped at 10%: 5 cells, the ties by index
+    let out = art_61b(0.5 / 1.5);
+    let t = table(&out["properties"]);
+    assert_eq!((col(t, "property"), col(t, "cap_pct"), col(t, "capped")), (7.0, 10.0, 1.0));
+    assert!((col(t, "modules") - 1.5).abs() < 1e-9);
+    assert!((col(t, "app_ha") - 0.1).abs() < 1e-9 && (col(t, "recompose_ha") - 0.05).abs() < 1e-9);
+    let rec = map(&out["recompose"]);
+    assert_eq!(rec.data.iter().filter(|v| **v == 1.0).count(), 5);
+    assert!((0..5).all(|r| rec.data[r * 5 + 1] == 1.0));
+    assert_eq!(map(&out["app"]).data.iter().filter(|v| **v == 1.0).count(), 10, "app is not capped");
+
+    // 3 modules: 15 m (columns 1 and 2, 40%) capped at 20%: the 10 cells of column 1, the nearest
+    let out = art_61b(0.5 / 3.0 - 1e-4);
+    let t = table(&out["properties"]);
+    assert_eq!((col(t, "cap_pct"), col(t, "capped")), (20.0, 1.0));
+    assert!((col(t, "app_ha") - 0.2).abs() < 1e-9 && (col(t, "recompose_ha") - 0.1).abs() < 1e-9);
+    let rec = map(&out["recompose"]);
+    for i in 0..50 {
+        assert_eq!(rec.data[i], f64::from(u8::from(i % 5 == 1)), "cell {i}");
+    }
+
+    // 5 modules: 20 m, no cap
+    let out = art_61b(0.1 - 1e-6);
+    let t = table(&out["properties"]);
+    assert!(col(t, "cap_pct").is_nan());
+    assert_eq!(col(t, "capped"), 0.0);
+    assert!((col(t, "recompose_ha") - 0.2).abs() < 1e-9);
+    assert_eq!(map(&out["recompose"]).data.iter().filter(|v| **v == 1.0).count(), 20);
+
+    // without properties: no art. 61-B outputs
+    let g = grid(5, 10);
+    let rivers: Vec<f64> = (0..50).map(|i| f64::from(u8::from(i % 5 == 0))).collect();
+    let out = run("forest_code.app", vec![("rivers", Value::Map(Map::new(g, rivers)))], serde_json::json!({}));
+    assert!(!out.contains_key("recompose") && !out.contains_key("properties"));
+}
+
 #[test]
 fn the_reserva_legal_balance() {
     // two properties of 100 cells of 1 ha (cells of 100 m): 1 with 30 ha of vegetation (10 of them in APP), 2 with 10

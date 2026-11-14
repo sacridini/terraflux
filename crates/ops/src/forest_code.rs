@@ -217,7 +217,8 @@ impl Operator for App {
              around springs and from veredas, slopes above 45°, hilltops, land above 1,800 m and protected classes \
              (mangroves, restingas); in rural areas consolidated by 22 July 2008, art. 61-A's narrower margins by the \
              property's fiscal modules (rivers and lakes 5, 8 and 15 m up to 1, 2 and 4 modules, lakes 30 m and \
-             rivers the programme's width beyond; springs 15 m; veredas 30 or 50 m). In map units of metres.",
+             rivers the programme's width beyond; springs 15 m; veredas 30 or 50 m); art. 61-B caps the recomposition of a property of up to 4 modules at 10% (up to 2 \
+             modules) or 20% of its area (output recompose). In map units of metres.",
             Access::Global,
         )
         .input(PortSpec::optional("rivers", Type::Map, "the rivers' channels (non-zero)"))
@@ -239,6 +240,19 @@ impl Operator for App {
              class (the first that applies); 0 none",
         ))
         .output(PortSpec::new("table", Type::Table, "a row per kind: kind (1-8), cells, area_ha (overlaps in each)"))
+        .output(PortSpec::optional(
+            "recompose",
+            Type::Map,
+            "with properties and consolidated, art. 61-B: 1 where the recomposition is required (the consolidated \
+             APPs of rivers, lakes, springs and veredas, capped at 10% of a property up to 2 fiscal modules and 20% \
+             up to 4, the cells nearest the water kept), 0 elsewhere in the properties",
+        ))
+        .output(PortSpec::optional(
+            "properties",
+            Type::Table,
+            "with recompose: a row per property: property, area_ha, modules, cap_pct (NaN above 4 modules), app_ha \
+             (before the cap), recompose_ha, capped (0 or 1)",
+        ))
         .param(PortSpec::optional("river_width", Type::Number, "the rivers' width without a map, metres (default 5)"))
         .param(PortSpec::optional("protected_classes", Type::Any, "the classes of landcover that are APP (a list)"))
         .param(PortSpec::optional("fiscal_module", Type::Number, "the fiscal module, hectares (with consolidated)"))
@@ -279,11 +293,13 @@ impl Operator for App {
         let cell_ha = dx * dy / 10_000.0;
         let n = ny * nx;
         let consolidated = get("consolidated");
+        let mut module_ha = f64::NAN;
         let modules = if consolidated.is_some() {
             let module: f64 = args.param("fiscal_module", f64::NAN)?;
             if module.is_nan() || module <= 0.0 {
                 return Err(fail(args, "fiscal_module: the hectares of a fiscal module, with the consolidated areas"));
             }
+            module_ha = module;
             modules_of(get("properties"), module, cell_ha)
         } else {
             Vec::new()
@@ -293,6 +309,8 @@ impl Operator for App {
         let module_at = |i: usize| modules.get(i).copied().unwrap_or(f64::INFINITY);
         // every kind's cells
         let mut kinds: Vec<Vec<bool>> = vec![vec![false; n]; KINDS.len()];
+        // the least distance of a cell to the water of kinds 1-4 (art. 61-B keeps the nearest)
+        let mut cdist = vec![f64::INFINITY; n];
         if let Some(r) = get("rivers") {
             ctx.progress(Some(0.0), "rivers");
             let f: Vec<bool> = r.data.iter().map(|v| on(*v)).collect();
@@ -307,6 +325,7 @@ impl Operator for App {
                 let w = width.map_or(default, |m| if m.data[j].is_nan() { default } else { m.data[j] });
                 let margin = if cons(i) { consolidated_river(module_at(i), over4) } else { river_margin(w) };
                 kinds[0][i] = d[i] - half <= margin;
+                cdist[i] = cdist[i].min(d[i]);
             }
         }
         if let Some(l) = get("lakes") {
@@ -331,6 +350,7 @@ impl Operator for App {
                     100.0
                 };
                 kinds[1][i] = d[i] - half <= margin;
+                cdist[i] = cdist[i].min(d[i]);
             }
         }
         if let Some(Value::Vector(v)) = args.get("springs") {
@@ -353,6 +373,7 @@ impl Operator for App {
             let (d, _) = nearest(&f, ny, nx, dx, dy);
             for i in 0..n {
                 kinds[2][i] = d[i] <= if cons(i) { 15.0 } else { 50.0 };
+                cdist[i] = cdist[i].min(d[i]);
             }
         }
         if let Some(vr) = get("veredas") {
@@ -361,6 +382,7 @@ impl Operator for App {
             for i in 0..n {
                 let margin = if cons(i) { if module_at(i) <= 4.0 { 30.0 } else { 50.0 } } else { 50.0 };
                 kinds[3][i] = !f[i] && d[i] - half <= margin;
+                cdist[i] = cdist[i].min(d[i]);
             }
         }
         if let Some(s) = get("slope") {
@@ -376,6 +398,68 @@ impl Operator for App {
             let classes: Vec<f64> = args.param("protected_classes", Vec::new())?;
             kinds[7] = lc.data.iter().map(|v| classes.contains(v)).collect();
         }
+        // art. 61-B: the recomposition of a property of up to 4 modules is capped at 10% or 20% of its area
+        let mut extra: Vec<(&str, Value)> = Vec::new();
+        if let (Some(_), Some(p)) = (consolidated, get("properties")) {
+            // the consolidated APP of rivers, lakes, springs and veredas, by property, with the distance to its water
+            let mut cells: BTreeMap<u64, (u64, Vec<(f64, usize)>)> = BTreeMap::new();
+            for i in 0..n {
+                if !on(p.data[i]) {
+                    continue;
+                }
+                let e = cells.entry(p.data[i].to_bits()).or_default();
+                e.0 += 1;
+                if cons(i) && kinds[..4].iter().any(|k| k[i]) {
+                    e.1.push((cdist[i], i));
+                }
+            }
+            let mut ids: Vec<(f64, u64)> = cells.keys().map(|b| (f64::from_bits(*b), *b)).collect();
+            ids.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let mut rec: Vec<f64> = p.data.iter().map(|&v| if on(v) { 0.0 } else { f64::NAN }).collect();
+            let mut t = Table::new(
+                ["property", "area_ha", "modules", "cap_pct", "app_ha", "recompose_ha", "capped"]
+                    .map(String::from)
+                    .to_vec(),
+            );
+            for (id, bits) in ids {
+                let (count, app_cells) = cells.get_mut(&bits).unwrap();
+                let count = *count;
+                let m = count as f64 * cell_ha / module_ha;
+                let pct = if m <= 2.0 {
+                    10
+                } else if m <= 4.0 {
+                    20
+                } else {
+                    0
+                };
+                let cap = if pct == 0 { usize::MAX } else { (count * pct / 100) as usize };
+                let before = app_cells.len();
+                if before > cap {
+                    app_cells.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+                    app_cells.truncate(cap);
+                    let area = count as f64 * cell_ha;
+                    ctx.warn(format!(
+                        "property {id}: {m:.1} fiscal modules, consolidated APP {:.1}% of {area:.1} ha, recomposition \
+                         capped at {pct}% (art. 61-B), the cells nearest the water kept",
+                        before as f64 * cell_ha / area * 100.0
+                    ));
+                }
+                for &(_, i) in app_cells.iter() {
+                    rec[i] = 1.0;
+                }
+                t.rows.push(vec![
+                    id,
+                    count as f64 * cell_ha,
+                    m,
+                    if pct == 0 { f64::NAN } else { pct as f64 },
+                    before as f64 * cell_ha,
+                    app_cells.len() as f64 * cell_ha,
+                    f64::from(u8::from(before > cap)),
+                ]);
+            }
+            extra.push(("recompose", Value::Map(Map::new(g.clone(), rec))));
+            extra.push(("properties", Value::Table(t)));
+        }
         let app: Vec<f64> = (0..n)
             .map(|i| match kinds.iter().position(|k| k[i]) {
                 Some(k) => (k + 1) as f64,
@@ -388,7 +472,11 @@ impl Operator for App {
             let c = cells.iter().filter(|b| **b).count() as f64;
             t.rows.push(vec![(k + 1) as f64, c, c * cell_ha]);
         }
-        Ok(outputs([("app", Value::Map(Map::new(g, app))), ("table", Value::Table(t))]))
+        let mut out = outputs([("app", Value::Map(Map::new(g, app))), ("table", Value::Table(t))]);
+        for (k, v) in extra {
+            out.insert(k.to_string(), v);
+        }
+        Ok(out)
     }
 }
 

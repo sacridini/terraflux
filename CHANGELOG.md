@@ -7,6 +7,10 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **Forest Code art. 61-B:** `forest_code.app`, with `properties` and `consolidated`, caps the recomposition of the
+  consolidated APPs (rivers, lakes, springs, veredas) at 10% of a property of up to 2 fiscal modules and 20% up to 4,
+  keeping the cells nearest the water; new outputs `recompose` (map) and `properties` (table: area, modules, cap,
+  APP before the cap, recomposition, capped), and a warning for each capped property. `app` is unchanged.
 - **Zonation 5's output files:** `prioritize.zonation` and `prioritize.zonation_project` take `output` (a folder) and
   write `rankmap.tif` (float32, NoData -inf, LZW with the floating-point predictor, tiled by 512 from 512 x 512
   cells), `feature_curves.csv`, `summary_curves.csv`, `feature_density_curves.csv`, `group_curves.csv` (with
