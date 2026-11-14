@@ -116,6 +116,68 @@ fn only_what_changed_runs_again() {
 }
 
 #[test]
+fn a_changed_file_of_a_swat_project_runs_its_node_again() {
+    let zip = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../extern/landschaft/src/landschaft/hydro/swat/data/hubbard_brook.zip");
+    let project = terraflux_ops::swat::Project::load(&zip).unwrap();
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("swat-cache");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for (name, bytes) in &project.files {
+        std::fs::write(dir.join(name), bytes).unwrap();
+    }
+    let mut m = Model::new("t");
+    m.nodes.push(Node::new("load", "swat.load").param("path", dir.to_string_lossy().as_ref()));
+    let engine = Engine { registry: Registry::standard() };
+    let cache = Mutex::new(Cache::default());
+    let none = BTreeMap::new();
+    let ran = |seen: &Seen| seen.done.iter().any(|(n, cached)| n == "load" && !cached);
+    let mut seen = Seen::default();
+    engine.run_with(&m, &none, &mut seen, Some(&cache), None).unwrap();
+    assert!(ran(&seen), "the first run");
+    let mut seen = Seen::default();
+    engine.run_with(&m, &none, &mut seen, Some(&cache), None).unwrap();
+    assert!(!ran(&seen), "nothing changed: from the cache");
+    // a file of the project changed (its size), an output of SWAT+ added (not part of the project)
+    std::fs::write(dir.join("simulation.out"), "an output").unwrap();
+    let mut seen = Seen::default();
+    engine.run_with(&m, &none, &mut seen, Some(&cache), None).unwrap();
+    assert!(!ran(&seen), "an output is not the project");
+    let cio = dir.join("file.cio");
+    let mut text = std::fs::read(&cio).unwrap();
+    text.extend_from_slice(b"\n");
+    std::fs::write(&cio, text).unwrap();
+    let mut seen = Seen::default();
+    engine.run_with(&m, &none, &mut seen, Some(&cache), None).unwrap();
+    assert!(ran(&seen), "a file changed: runs again");
+}
+
+#[test]
+fn a_changed_table_runs_its_reader_again() {
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("table-cache");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let csv = dir.join("t.csv");
+    std::fs::write(&csv, "a,b\n1,2\n").unwrap();
+    let mut m = Model::new("t");
+    m.nodes.push(Node::new("read", "table.read").param("path", csv.to_string_lossy().as_ref()));
+    let engine = Engine { registry: Registry::standard() };
+    let cache = Mutex::new(Cache::default());
+    let none = BTreeMap::new();
+    let ran = |seen: &Seen| seen.done.iter().any(|(n, cached)| n == "read" && !cached);
+    let mut seen = Seen::default();
+    engine.run_with(&m, &none, &mut seen, Some(&cache), None).unwrap();
+    assert!(ran(&seen), "the first run");
+    let mut seen = Seen::default();
+    engine.run_with(&m, &none, &mut seen, Some(&cache), None).unwrap();
+    assert!(!ran(&seen), "nothing changed: from the cache");
+    std::fs::write(&csv, "a,b\n1,2\n3,4\n").unwrap();
+    let mut seen = Seen::default();
+    engine.run_with(&m, &none, &mut seen, Some(&cache), None).unwrap();
+    assert!(ran(&seen), "the file changed: runs again");
+}
+
+#[test]
 fn a_target_ignores_the_errors_of_other_nodes() {
     let mut r = Registry::standard();
     r.add(Arc::new(Inc(Arc::new(AtomicUsize::new(0)))));

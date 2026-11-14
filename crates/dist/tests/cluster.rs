@@ -400,6 +400,53 @@ async fn the_files_nodes_read_and_scenarios_give_travel_with_the_model() {
     local.shutdown();
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_swat_project_travels_whole_and_is_read_where_it_lands() {
+    // the Hubbard Brook example as a TxtInOut folder (with an output of an earlier run, not part of the project)
+    // read by swat.load and swat.run; every file the project holds is sent, localized paths load the same project
+    let zip = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../extern/landschaft/src/landschaft/hydro/swat/data/hubbard_brook.zip");
+    let project = terraflux_ops::swat::Project::load(&zip).unwrap();
+    let dir = tmp("swat-model");
+    let folder = dir.join("TxtInOut");
+    std::fs::create_dir_all(&folder).unwrap();
+    for (name, bytes) in &project.files {
+        std::fs::write(folder.join(name), bytes).unwrap();
+    }
+    std::fs::write(folder.join("channel_sd_day.txt"), "an output of an earlier run").unwrap();
+    let mut m = Model::new("swat");
+    let at = folder.to_string_lossy().into_owned();
+    m.nodes.push(terraflux_graph::Node::new("load", "swat.load").param("path", at.as_str()));
+    m.nodes.push(terraflux_graph::Node::new("run", "swat.run").param("path", at.as_str()));
+    let local = Local::start(1, tmp("cache-swat"), Options::default()).await.unwrap();
+    let mut c = Client::connect(&local.url).await.unwrap();
+    let mut bundled = c.bundle(&m, &dir).await.unwrap();
+    for id in ["load", "run"] {
+        let p = bundled.node(id).unwrap().params["path"].as_str().unwrap();
+        assert!(p.starts_with("bundle:"), "{id}: {p}");
+    }
+    let cache = tmp("swat-worker");
+    let mut conn = worker::connect(&local.url, None).await.unwrap();
+    worker::localize(&mut conn, &cache, &mut bundled, None, &mut BTreeMap::new()).await.unwrap();
+    for id in ["load", "run"] {
+        let p = PathBuf::from(bundled.node(id).unwrap().params["path"].as_str().unwrap());
+        assert!(p.is_dir() && !p.join("channel_sd_day.txt").exists(), "{id}: {}", p.display());
+        let mut names: Vec<String> = std::fs::read_dir(&p)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n != ".complete")
+            .collect();
+        names.sort();
+        let mut want: Vec<String> = project.files.iter().map(|(n, _)| n.clone()).collect();
+        want.sort();
+        assert_eq!(names, want, "{id}: every file of the project is shipped");
+        let there = terraflux_ops::swat::Project::load(&p).unwrap();
+        assert_eq!(there.files, project.files, "{id}: the same project");
+    }
+    local.shutdown();
+}
+
 /// A sensitivity analysis's runs measure an output on the workers: the mean of a map a·f + b² for the factors of
 /// a Morris design.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -107,6 +107,11 @@ pub fn gather(path: &Path) -> Result<(PathBuf, Vec<PathBuf>, String)> {
         let all = files.iter().flat_map(|f| siblings(f)).collect();
         return Ok((base, all, slashes(rel)));
     }
+    if path.is_dir() && terraflux_ops::swat::is_txtinout(path) {
+        // a SWAT+ project: every file Project::load reads
+        let files = terraflux_ops::swat::folder_files(path)?;
+        return Ok((path.to_path_buf(), files, String::new()));
+    }
     if path.is_dir() {
         let files = terraflux_ops::files::files_of(&path.to_string_lossy()).map_err(|e| Error::Other(e.to_string()))?;
         return Ok((path.to_path_buf(), files.iter().flat_map(|f| siblings(f)).collect(), String::new()));

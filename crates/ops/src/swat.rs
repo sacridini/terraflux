@@ -160,6 +160,28 @@ fn is_output(name: &str) -> bool {
         || l.strip_prefix("fort.").is_some_and(|d| !d.is_empty() && d.chars().all(|c| c.is_ascii_digit()))
 }
 
+/// The files of a TxtInOut folder a project holds (sorted; SWAT+'s own outputs and hidden files left out): what [`Project::load`]
+/// reads, and what is sent to workers and watched for changes.
+pub fn folder_files(dir: &std::path::Path) -> std::io::Result<Vec<std::path::PathBuf>> {
+    let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            // (hidden files out too: a bundle's folder on a worker holds a `.complete` mark)
+            let name = p.file_name().unwrap_or_default().to_string_lossy();
+            p.is_file() && !name.starts_with('.') && !is_output(&name)
+        })
+        .collect();
+    entries.sort();
+    Ok(entries)
+}
+
+/// Whether a folder is a SWAT+ TxtInOut folder (has a file.cio).
+pub fn is_txtinout(dir: &std::path::Path) -> bool {
+    folder_files(dir).is_ok_and(|v| {
+        v.iter().any(|p| p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("file.cio")))
+    })
+}
+
 /// LF line ends and a final newline (the Fortran runtime reads records).
 fn normalize(b: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(b.len() + 1);
@@ -211,17 +233,8 @@ impl Project {
                 files.push((name, normalize(&b)));
             }
         } else if path.is_dir() {
-            let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(path)
-                .map_err(|e| Error::msg(format!("{}: {e}", path.display())))?
-                .filter_map(|e| e.ok().map(|e| e.path()))
-                .filter(|p| p.is_file())
-                .collect();
-            entries.sort();
-            for p in entries {
+            for p in folder_files(path).map_err(|e| Error::msg(format!("{}: {e}", path.display())))? {
                 let name = p.file_name().unwrap().to_string_lossy().into_owned();
-                if is_output(&name) {
-                    continue;
-                }
                 let b = std::fs::read(&p).map_err(|e| Error::msg(format!("{}: {e}", p.display())))?;
                 files.push((name, normalize(&b)));
             }

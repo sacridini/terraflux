@@ -678,7 +678,7 @@ fn bare(n: &Node) -> Node {
 
 /// The size and time of the files a node reads (in its body too).
 fn files_read(n: &Node, h: &mut impl Hasher) {
-    if (n.op == "raster.read" || n.op == "vector.read")
+    if matches!(n.op.as_str(), "raster.read" | "vector.read" | "table.read" | "move.read_tracks")
         && let Some(serde_json::Value::String(p)) = n.params.get("path")
     {
         // (a folder or a pattern of names: every file of the folder, a file changed, added or taken away)
@@ -706,6 +706,23 @@ fn files_read(n: &Node, h: &mut impl Hasher) {
                 Ok(m) => (m.len(), m.modified().ok()).hash(h),
                 Err(_) => "missing".hash(h),
             },
+        }
+    }
+    if (n.op == "swat.load" || n.op == "swat.run")
+        && let Some(serde_json::Value::String(p)) = n.params.get("path")
+    {
+        // (a SWAT+ project: the files of its folder that Project::load reads, or its zip)
+        let path = std::path::Path::new(p.trim());
+        let files = if path.is_dir() {
+            terraflux_ops::swat::folder_files(path).unwrap_or_default()
+        } else {
+            vec![path.to_path_buf()]
+        };
+        for f in files {
+            match std::fs::metadata(&f) {
+                Ok(m) => (f, m.len(), m.modified().ok()).hash(h),
+                Err(_) => (f, "missing").hash(h),
+            }
         }
     }
     for b in n.body.iter().flat_map(|b| &b.nodes) {

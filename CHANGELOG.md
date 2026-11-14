@@ -29,6 +29,15 @@ minor versions.
   HiGHS's at gap 0. HiGHS (the closure engine first, unchanged) and one warning where Gurobi is not installed or
   licensed.
 
+### Fixed
+- **The folder of a SWAT+ project travels with the model and is watched by the cache:** the `path` of `swat.run`
+  and `swat.load` was neither sent to the workers of a distributed batch nor considered when a run's cache decided
+  whether a node was up to date. A TxtInOut folder is now sent whole (every file `swat.load` reads, not SWAT+'s
+  outputs or hidden files), a zip as a file, and a change in one of those files runs the node again.
+- **A changed table or track file runs its reader again:** the run cache looked at the files of `raster.read` and
+  `vector.read` only, so after editing the file of a `table.read` or `move.read_tracks` a run gave back the old
+  table from the cache.
+
 ## [1.47.0] - 2026-11-14
 
 ### Added

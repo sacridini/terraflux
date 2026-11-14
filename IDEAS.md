@@ -1351,8 +1351,9 @@ linhas de C++ novas em `hydro`, `serv`, `swat`, `surf` e `sim`, e três bibliote
        `path`).
      - Falta: o projeto a partir de rasters (o `watershed` do QSWAT+ e o `from_tables` do SWAT+ Editor, o clima
        com o gerador, `from_rasters`) como um valor do grafo, os mapas das HRUs e dos trechos (`hru_map`,
-       `channel_map`, `reach_discharge`), a pasta TxtInOut enviada com o modelo nos lotes distribuídos (o projeto
-       como valor ainda não viaja entre máquinas), os templates e os tutoriais.
+       `channel_map`, `reach_discharge`), o projeto como valor viajando entre máquinas (a pasta ou o zip de
+       `swat.load` e `swat.run` já vão com o modelo nos lotes distribuídos, Unreleased), os templates e os
+       tutoriais.
 3. **Tutoriais e templates** de cada um, como os do site do landschaft (a hidrologia do terreno, o SWAT+).
 4. **O paralelismo do landschaft** (`on=` para as re-soluções da priorização, os SDM e o Monte Carlo): no
    Terraflux, os lotes distribuídos já cobrem esse uso; conferir se vale levar o `on=` às re-soluções de um nó só.
