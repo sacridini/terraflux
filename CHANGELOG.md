@@ -55,6 +55,12 @@ minor versions.
   still run at every step. The kept steps live in memory, at most 100000 nodes and 1 GiB of outputs, the least
   recently used let go first. A loop taken from the cache now tells its steps exactly as it told them when it ran.
 
+- **Loops inside groups and inside loops in the viewer.** A body node of a loop in a group, or of a loop in a loop,
+  shows the step chooser of each loop on the way (named when there are several): choose the outer step and then the
+  inner one, and the viewer shows that pair's value, titled `outer/inner/node (step 2, step 3)`. A node inside a
+  container shows how it did in the last run (running, done, cached, failed) by its full place on the canvas of its
+  container.
+
 ### Fixed
 - **A `control.each` taken from the cache reports its steps again** (a step and what it collected for each element, as
   when it ran), at the top level or inside a group.

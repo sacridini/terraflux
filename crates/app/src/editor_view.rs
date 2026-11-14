@@ -1676,7 +1676,8 @@ impl Scene {
         let mut ranges = Vec::with_capacity(boxes.len());
         for b in &boxes {
             let first = rects.len();
-            let state = if path.is_empty() { status.get(&b.key).copied() } else { None };
+            // (`status`: that of this scope's nodes, by their ids)
+            let state = status.get(&b.key).copied();
             rects.extend(box_rects(b, state, v, colours));
             ranges.push(first..rects.len());
         }
@@ -3231,8 +3232,7 @@ pub fn show(
     if let Some((i, w)) = resized {
         st.generation = next_generation();
         let generation = st.generation;
-        let state =
-            if st.path.is_empty() { status.get(&st.scene.as_ref().unwrap().boxes[i].key).copied() } else { None };
+        let state = status.get(&st.scene.as_ref().unwrap().boxes[i].key).copied();
         st.scene.as_mut().unwrap().resize_box(i, w, state, ui.visuals(), generation);
     }
     let scene = st.scene.as_ref().unwrap();
@@ -3795,7 +3795,8 @@ pub fn show(
                         let b = &scene.boxes[scene.edges[e].from.0];
                         let (port, ty) = &b.outputs[scene.edges[e].from.1];
                         let place: String = path.iter().map(|q| format!("{q}/")).collect::<String>() + &b.key;
-                        let top = path.first().unwrap_or(&b.key);
+                        // (inside a container, `status` is its nodes' by id, and the top-level container's under "/")
+                        let top = if path.is_empty() { b.key.as_str() } else { "/" };
                         let ran = matches!(status.get(top), Some(NodeStatus::Done { .. }));
                         wire_ask = Some(WireAsk {
                             node: if b.source && !path.is_empty() { String::new() } else { place },

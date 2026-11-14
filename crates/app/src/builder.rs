@@ -1643,10 +1643,15 @@ pub fn shown_at(s: &Session, path: &[String], id: &str, port: &str) -> Option<(S
 }
 
 /// The step of a loop whose body is shown (its last, or one chosen): kept by the next run when it was not.
-fn step_chooser(ui: &mut Ui, s: &mut Session, node: &str, op: &str, times: Option<usize>) {
+fn step_chooser(ui: &mut Ui, s: &mut Session, node: &str, op: &str, times: Option<usize>, named: bool) {
     let each = op == "control.each";
     ui.separator();
-    ui.label(if each { "element" } else { "step" });
+    // (the loop's name when there are several on the way: `outer step`, `inner step`)
+    let word = if each { "element" } else { "step" };
+    match (named, node.rsplit('/').next()) {
+        (true, Some(id)) => ui.label(format!("{id} {word}")),
+        _ => ui.label(word),
+    };
     let chosen = s.loop_step.get(node).copied();
     if ui.selectable_label(chosen.is_none(), "last").on_hover_text("what the loop gives").clicked() {
         s.choose_step(node, None);
@@ -1660,15 +1665,17 @@ fn step_chooser(ui: &mut Ui, s: &mut Session, node: &str, op: &str, times: Optio
     if !s.step_kept(node) {
         let r = ui.add_enabled(!s.running(), egui::Button::new("Run to see it").small());
         if r.on_hover_text("the run keeps what the body gives at that step").clicked() {
-            // (the loop run again, not taken from the cache: its body sends that step; a frozen one stays)
+            // (the top-level node that holds the loop run again, not taken from the cache: its body sends that step;
+            // a frozen one stays)
+            let top = node.split('/').next().unwrap_or(node);
             {
                 let mut c = s.cache.lock().unwrap();
-                if !c.holds(node) {
-                    c.forget(node);
+                if !c.holds(top) {
+                    c.forget(top);
                 }
             }
             let ctx = ui.ctx().clone();
-            s.start_to(Some(node.to_string()), Box::new(move || ctx.request_repaint()));
+            s.start_to(Some(top.to_string()), Box::new(move || ctx.request_repaint()));
         }
     }
 }
@@ -2829,13 +2836,28 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
     s.editor.no_run = if !s.can_run_to() { Some("a run is going on") } else { None };
     // escape on the canvas, nothing selected (escape lets the nodes selected go first): back up a level
     let nothing_chosen = s.editor.chosen.is_empty();
+    // how the nodes of this scope did: the top level's, or those of a container's body by their place in it
+    let top_level = s.editor.path.is_empty();
+    let scoped: std::collections::BTreeMap<String, NodeStatus> = if top_level {
+        Default::default()
+    } else {
+        // (and, under "/", the top-level container's, which says whether the wires inside it ran)
+        let top = s.editor.path.first().and_then(|t| s.status.get(t)).map(|st| ("/".to_string(), *st));
+        s.inner_status
+            .iter()
+            .filter_map(|(at, st)| {
+                at.strip_prefix(&prefix).filter(|id| !id.contains('/')).map(|id| (id.to_string(), *st))
+            })
+            .chain(top)
+            .collect()
+    };
     let mut actions = crate::editor_view::show(
         ui,
         &s.source,
         r,
         &mut s.editor,
         s.selected.as_deref(),
-        &s.status,
+        if top_level { &s.status } else { &scoped },
         s.revision,
         s.status_rev,
         shown.as_ref().map(|(n, p)| (n.as_str(), p.as_str())),
@@ -4676,14 +4698,22 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     // a node of a group's body: named by its place in the group, its own outputs to choose from (the group's
     // `inner.node.port`)
     let inner = inner_of(s, &node, &port);
-    // a node of the body of a top-level loop: the step shown can be chosen (its times, when written)
-    let top_loop: Option<(String, Option<usize>)> = inner.as_ref().and_then(|_| {
-        let n = s.source.nodes.iter().find(|n| n.id == node)?;
-        let times = match n.inputs.get("times") {
-            Some(terraflux_graph::Source::Literal(v)) => v.as_u64().map(|t| t as usize),
-            _ => None,
-        };
-        ["control.repeat", "control.each"].contains(&n.op.as_str()).then(|| (n.op.clone(), times))
+    // a node of the body of a loop, at any depth (in a group, in another loop): the step shown can be chosen, in
+    // each loop on the way (its times, when written)
+    let loops: Vec<(String, String, Option<usize>)> = inner.as_ref().map_or_else(Vec::new, |_| {
+        let ids: Vec<&str> = std::iter::once(node.as_str()).chain(port.split('.')).collect();
+        s.loops_of(&node, &port)
+            .into_iter()
+            .filter_map(|(place, i)| {
+                let ids: Vec<String> = ids[..=i].iter().map(|x| x.to_string()).collect();
+                let n = s.source.scope(&ids[..i])?.iter().find(|n| n.id == ids[i])?;
+                let times = match n.inputs.get("times") {
+                    Some(terraflux_graph::Source::Literal(v)) => v.as_u64().map(|t| t as usize),
+                    _ => None,
+                };
+                Some((place, n.op.clone(), times))
+            })
+            .collect()
     });
     let (title, op, ports): (String, String, Vec<(String, String)>) = match &inner {
         Some((n, place)) => (
@@ -4691,9 +4721,16 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 // in a loop's body: what its last step gave
                 let path: Vec<String> =
                     std::iter::once(node.clone()).chain(place.split('.').map(String::from)).collect();
-                let when = match (crate::trace::loop_on(&s.source, &path[..path.len() - 1]), s.loop_step.get(&node)) {
-                    (Some("control.each"), Some(k)) if top_loop.is_some() => format!(" (element {k})"),
-                    (Some(_), Some(k)) if top_loop.is_some() => format!(" (step {k})"),
+                // (each loop with a step chosen, outermost first; none chosen: the last)
+                let chosen: Vec<String> = loops
+                    .iter()
+                    .filter_map(|(place, op, _)| {
+                        let k = s.loop_step.get(place)?;
+                        Some(format!("{} {k}", if op == "control.each" { "element" } else { "step" }))
+                    })
+                    .collect();
+                let when = match (crate::trace::loop_on(&s.source, &path[..path.len() - 1]), chosen.is_empty()) {
+                    (Some(_), false) => format!(" ({})", chosen.join(", ")),
                     (Some("control.each"), _) => " (the last element)".into(),
                     (Some(_), _) => " (the last step)".into(),
                     (None, _) => String::new(),
@@ -4735,8 +4772,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             let left = ui.allocate_ui_with_layout(row(ui), egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(two_rows), |ui| {
             ui.label(RichText::new(&title).strong());
             ui.label(RichText::new(&op).monospace().weak());
-            if let Some((lop, times)) = &top_loop {
-                step_chooser(ui, s, &node, lop, *times);
+            for (place, lop, times) in &loops {
+                step_chooser(ui, s, place, lop, *times, loops.len() > 1);
             }
             // the node's outputs to choose from, when it has several
             if ports.len() > 1 {

@@ -385,7 +385,7 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         ui.colored_label(colour, &i.message);
     }
     // it failed in the last run: why, a click away
-    let failed = path.is_empty() && s.status.get(&id) == Some(&crate::editor_view::NodeStatus::Failed);
+    let failed = s.status_at(&path, &id) == Some(crate::editor_view::NodeStatus::Failed);
     if failed {
         let e = s.error.clone().unwrap_or_else(|| "it failed in the last run".into());
         ui.colored_label(ui.visuals().error_fg_color, e);

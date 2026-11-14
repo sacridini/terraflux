@@ -9519,3 +9519,124 @@ fn a_run_that_may_not_fit_the_disk_asks_first() {
     until(&mut h, "the replicates", |a| !a.batch.running());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A loop's body shown at a step chosen (`loop_step` by the loop's place), a run keeping it: the step chooser and the
+/// value, for a loop in a group and for a loop in a loop (the outer step, then the inner).
+fn show_steps(h: &mut Harness<TerrafluxApp>, top: &str, choose: &[(&str, Option<usize>)]) {
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        for (place, step) in choose {
+            s.choose_step(place, *step);
+        }
+        // (the container run again, not taken from the cache: its body sends the steps chosen)
+        s.cache.lock().unwrap().forget(top);
+        s.start_to(Some(top.to_string()), Box::new(|| {}));
+    }
+    until(h, "the run", |a| !a.session.as_ref().unwrap().running());
+}
+
+#[test]
+fn a_loop_in_a_group_shows_the_step_chosen() {
+    use terraflux_graph::{Body, Model, Node};
+    let mut m = Model::new("loop in a group");
+    m.nodes.push(Node::new("g", terraflux_graph::GROUP).body(Body {
+        nodes: vec![Node::new("loop", "control.repeat").literal("times", 3).literal("v", 0).body(Body {
+            nodes: vec![Node::new("step", "value.calc").input("v", "@v").param("expression", "v + 1")],
+            carry: [("v".to_string(), "step.value".to_string())].into(),
+            ..Default::default()
+        })],
+        ..Default::default()
+    }));
+    let path = tmp("loop_in_group.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    let r = terraflux_ops::Registry::standard();
+    let value = |h: &Harness<TerrafluxApp>| {
+        let s = h.state().session.as_ref().unwrap();
+        s.value_of("g", "loop.step.value").and_then(|v| v.as_number())
+    };
+    show_steps(&mut h, "g", &[]);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.path = vec!["g".into(), "loop".into()];
+        terraflux_app::builder::select(s, &r, "step");
+        assert_eq!(s.preview, Some(("g".to_string(), "loop.step.value".to_string())));
+        // the loop on the way, in a group: its place
+        assert_eq!(s.loops_of("g", "loop.step.value"), [("g/loop".to_string(), 1)]);
+    }
+    assert_eq!(value(&h), Some(3.0), "the last step");
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(4);
+    assert!(h.query_by_label("g/loop/step (the last step)").is_some());
+    assert!(h.query_by_label("step").is_some(), "the step chooser of the loop in the group");
+    show_steps(&mut h, "g", &[("g/loop", Some(2))]);
+    h.run_steps(4);
+    assert_eq!(value(&h), Some(2.0), "step 2 of the loop in the group");
+    assert!(h.state().session.as_ref().unwrap().step_kept("g/loop"));
+    assert!(h.query_by_label("g/loop/step (step 2)").is_some());
+    // how its nodes did, by their place
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.status_at(&["g".to_string(), "loop".to_string()], "step"), Some(NodeStatus::Done { cached: false }));
+    show_steps(&mut h, "g", &[("g/loop", None)]);
+    assert_eq!(value(&h), Some(3.0), "the last again");
+}
+
+#[test]
+fn a_loop_in_a_loop_shows_the_outer_step_and_then_the_inner() {
+    use terraflux_graph::{Body, Model, Node};
+    let mut m = Model::new("loop in a loop");
+    // 2 outer steps of 3 inner ones: the value at (j, k) is 3 * (j - 1) + k
+    m.nodes.push(Node::new("outer", "control.repeat").literal("times", 2).literal("v", 0).body(Body {
+        nodes: vec![Node::new("inner", "control.repeat").literal("times", 3).input("v", "@v").body(Body {
+            nodes: vec![Node::new("step", "value.calc").input("v", "@v").param("expression", "v + 1")],
+            carry: [("v".to_string(), "step.value".to_string())].into(),
+            ..Default::default()
+        })],
+        carry: [("v".to_string(), "inner.v".to_string())].into(),
+        ..Default::default()
+    }));
+    let path = tmp("loop_in_loop.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    let r = terraflux_ops::Registry::standard();
+    let value = |h: &Harness<TerrafluxApp>| {
+        let s = h.state().session.as_ref().unwrap();
+        s.value_of("outer", "inner.step.value").and_then(|v| v.as_number())
+    };
+    show_steps(&mut h, "outer", &[]);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.path = vec!["outer".into(), "inner".into()];
+        terraflux_app::builder::select(s, &r, "step");
+        assert_eq!(s.preview, Some(("outer".to_string(), "inner.step.value".to_string())));
+        assert_eq!(s.loops_of("outer", "inner.step.value"), [("outer".to_string(), 0), ("outer/inner".to_string(), 1)]);
+    }
+    assert_eq!(value(&h), Some(6.0), "the last step of the last step");
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(4);
+    assert!(h.query_by_label("outer step").is_some() && h.query_by_label("inner step").is_some(), "both choosers");
+    // the inner step alone: in the last outer step
+    show_steps(&mut h, "outer", &[("outer/inner", Some(2))]);
+    assert_eq!(value(&h), Some(5.0), "inner 2 of outer 2");
+    // the outer step and then the inner
+    show_steps(&mut h, "outer", &[("outer", Some(2)), ("outer/inner", Some(1))]);
+    assert_eq!(value(&h), Some(4.0), "inner 1 of outer 2");
+    show_steps(&mut h, "outer", &[("outer", Some(1)), ("outer/inner", Some(3))]);
+    assert_eq!(value(&h), Some(3.0), "inner 3 of outer 1");
+    show_steps(&mut h, "outer", &[("outer", Some(1)), ("outer/inner", Some(2))]);
+    assert_eq!(value(&h), Some(2.0), "inner 2 of outer 1");
+    h.run_steps(4);
+    assert!(h.query_by_label("outer/inner/step (step 1, step 2)").is_some(), "the viewer says which");
+    // the outer step alone: the inner at its last
+    show_steps(&mut h, "outer", &[("outer/inner", None)]);
+    assert_eq!(value(&h), Some(3.0), "the last inner step of outer 1");
+    show_steps(&mut h, "outer", &[("outer", None)]);
+    assert_eq!(value(&h), Some(6.0));
+    // a node of the inner loop, by its full place
+    let s = h.state().session.as_ref().unwrap();
+    let inner = ["outer".to_string(), "inner".to_string()];
+    assert_eq!(s.status_at(&inner, "step"), Some(NodeStatus::Done { cached: false }));
+    assert_eq!(s.status_at(&["outer".to_string()], "inner"), Some(NodeStatus::Done { cached: false }));
+}

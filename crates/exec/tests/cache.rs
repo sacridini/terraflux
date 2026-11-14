@@ -335,6 +335,22 @@ fn a_switch_in_a_loop_takes_its_branch_at_every_step() {
     assert_eq!(r.get("loop.v").unwrap().as_number(), Some(11.0));
     let Some(Value::Series(b)) = r.get("loop.branch") else { panic!() };
     assert!(matches!((&b[0], &b[1]), (Value::Text(a), Value::Text(c)) if a == "case_0" && c == "otherwise"));
+    // with a cache: the branch taken at each step kept with the step, so the loop run again (what it collects
+    // changed) runs no node of any branch; one more step runs only the branch of its case
+    let cache = Mutex::new(Cache::default());
+    engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), 4);
+    m.nodes[0].body.as_mut().unwrap().collect = [("which".to_string(), "sw.branch".to_string())].into();
+    let mut ran = Ran::default();
+    let r = engine.run_with(&m, &none, &mut ran, Some(&cache), None).unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), 4, "no node of a branch ran again");
+    assert_eq!(ran.0, ["loop"]);
+    assert!(matches!(r.get("loop.which"), Some(Value::Series(s)) if s.len() == 2));
+    m.nodes[0].inputs.insert("times".into(), terraflux_graph::Source::Literal(3.into()));
+    let mut ran = Ran::default();
+    let r = engine.run_with(&m, &none, &mut ran, Some(&cache), None).unwrap();
+    assert_eq!(r.get("loop.v").unwrap().as_number(), Some(21.0), "the third step: otherwise again (+10)");
+    assert_eq!(ran.0, ["loop/sw/otherwise/add", "loop/sw", "loop"], "only the third step's branch");
 }
 
 #[test]

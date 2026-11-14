@@ -58,6 +58,8 @@ pub enum Message {
     },
     /// The node that stopped the run.
     Failed(String),
+    /// The same, when it is inside a container: its full place (`group/node`, `outer/inner/node`).
+    FailedIn(String),
     /// The outputs and the manifest written (the manifest's file), or why not.
     Recorded(Result<PathBuf, String>),
     /// The run ended.
@@ -230,10 +232,15 @@ struct Sending {
     repaint: Box<dyn Fn() + Send>,
     /// When progress was sent last (no more than ten times a second).
     told: Option<std::time::Instant>,
+    /// The last step of each loop whose body was told in its current run (by place): the step a loop inside it is in
+    /// is the next.
+    steps: BTreeMap<String, usize>,
 }
 
 impl Observer for Sending {
     fn node(&mut self, at: &str) {
+        // (a loop beginning: from its first step)
+        self.steps.remove(at);
         let _ = self.tx.send(Message::Node(at.to_string()));
         // a breakpoint: paused before it runs (what ran before it shown)
         self.gate.before(at, &self.stop, &*self.repaint);
@@ -257,8 +264,15 @@ impl Observer for Sending {
     }
 
     fn body(&mut self, at: &str, step: usize, results: &BTreeMap<String, terraflux_ops::Outputs>) {
+        // a loop inside loops: its step wanted only in the steps wanted of those it is in (the step of one of them
+        // is the one after the last told, as its body is told when the step is done)
+        let inside = at.match_indices('/').all(|(i, _)| {
+            let outer = &at[..i];
+            self.gate.wanted_step(outer).is_none_or(|w| self.steps.get(outer).copied().unwrap_or(0) + 1 == w)
+        });
+        self.steps.insert(at.to_string(), step);
         // (the values shared, not copied)
-        if self.gate.wanted_step(at) == Some(step) || self.gate.stepping.load(Ordering::Relaxed) {
+        if (inside && self.gate.wanted_step(at) == Some(step)) || self.gate.stepping.load(Ordering::Relaxed) {
             let _ = self.tx.send(Message::Body { at: at.to_string(), step, results: results.clone() });
         }
     }
@@ -344,7 +358,7 @@ impl Run {
                     (check, _) => terraflux_exec::load_inputs_checked(&model, &base, &BTreeMap::new(), check.as_ref())
                         .map_err(|e| e.to_string())?,
                 };
-                let mut obs = Sending { tx, stop: s, gate: g, repaint, told: None };
+                let mut obs = Sending { tx, stop: s, gate: g, repaint, told: None, steps: BTreeMap::new() };
                 let engine = match &check {
                     Some(c) => Engine::checked(c.clone()),
                     None => Engine::default(),
@@ -353,6 +367,11 @@ impl Run {
                 if let Err(Error::Node { at, .. }) = &r {
                     let top = at.split(['/', '.']).next().unwrap_or(at).to_string();
                     let _ = obs.tx.send(Message::Failed(top));
+                    // (inside a container: the node by its full place too)
+                    let place = at.split('.').next().unwrap_or(at);
+                    if place.contains('/') {
+                        let _ = obs.tx.send(Message::FailedIn(place.to_string()));
+                    }
                 }
                 let r = r.map_err(|e| e.to_string());
                 if let (Ok(results), Some(record)) = (&r, &record)

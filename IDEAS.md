@@ -330,7 +330,16 @@ escrevendo scripts). Depois, nesta ordem:
    com as suas saídas para escolher e o Trace a partir dele; o cache guarda as saídas dos nós do corpo de um grupo
    pelo lugar (`Cache.inner`, `group/node`), a impressão de cada um a do que entra no grupo mais a sua
    (`scoped_print`): ao mudar um nó, só ele e o que depende dele rodam de novo, nos grupos dentro de grupos também.
-   Falta: o mesmo nos corpos dos laços e do switch (hoje rodam inteiros); congelar um nó de dentro de um grupo.
+   **Feito** (Unreleased) o mesmo nos corpos dos laços e do switch: o ramo do switch guarda os nós como um grupo
+   (`Engine::switch` dá um `Scope` ao corpo; um nó congelado dentro de um ramo é segurado), e os nós do corpo de um
+   `control.repeat`/`control.each` ficam guardados por iteração (`Cache.iters`, chave: lugar e iteração; a impressão
+   inclui o conteúdo dos valores que o nó lê de fora, `@v`, `@step`, `@item`, `@index`, `@name` e os `node.port` de
+   fora, `content::hash_value`, 0,26 ms para um mapa de 1000x1000 em release): um laço rodado de novo com mais um
+   passo, ou um `each` com uma camada mudada, roda só os nós do que mudou; `raster.write`, geradores e `partial`
+   rodam sempre. Limite em RAM: 100000 entradas e 1 GiB das saídas, as menos usadas saem primeiro
+   (`Cache::limit_iters`). Um laço tirado do cache conta os passos como contou (`LoopSteps` no `Kept`). Falta:
+   congelar o ramo de um switch inteiro (só os nós dentro dele); um laço congelado lido do disco não tem os passos
+   exatos (os reconstrói de uma série ou de uma pilha).
 6. **Parameters e cenários:** a comparação pelos lotes distribuídos (hoje um cenário depois do outro, no app); as
    diferenças em mapas de classes (hoje a subtração dos valores).
    **Feito** (Unreleased): "Compare in Many runs" manda os cenários marcados como um lote do Many runs (o pool
@@ -836,7 +845,12 @@ commit por item):
    (`step_chooser`); `Session::choose_step` diz ao `Gate` (`want_step`) o passo cujo corpo a rodada manda
    (`Message::Body`; ao andar passo a passo, todos: o passo em que parou aparece); `Session::bodies` guarda, e o de
    um laço tirado do cache vem da rodada anterior. Um passo não guardado: *Run to see it* roda o laço de novo (fora
-   do cache, a não ser congelado). Falta: laços dentro de grupos ou de outros laços (só os do nível de cima).
+   do cache, a não ser congelado). **Feito** (Unreleased) também os laços dentro de grupos e de outros laços:
+   `Session::loop_step` e `bodies` são pelo lugar do laço (`g/loop`, `outer/inner`), `loops_of` acha os laços no
+   caminho do que o viewer mostra e cada um ganha o seu seletor (com o nome do laço quando são vários); vale o passo
+   do laço mais de dentro com um escolhido (os de dentro dele no último), e o `Sending` do `runner` só manda o corpo
+   do laço de dentro no passo escolhido do de fora (conta os corpos que o de fora já deu). O estado de um nó de dentro
+   de um contêiner é pelo lugar inteiro (`Session::inner_status`, `status_at`; a tela do contêiner o mostra).
 10. **Nó congelado:** o que só ele lê dentro de um grupo não roda mais.
    **Feito** (Unreleased): `Engine::only_for_frozen` acha, no corpo de um grupo, os nós lidos só por nós congelados
    com o resultado segurado (ou por nós assim, de trás para frente); eles não rodam. Os nós que as saídas do grupo

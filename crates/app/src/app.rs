@@ -698,6 +698,9 @@ pub struct Session {
     pub gate: Arc<Gate>,
     /// How each top-level node did in the last run.
     pub status: BTreeMap<String, NodeStatus>,
+    /// How the nodes inside containers did in the last run, by their full place (`group/node`, `outer/inner/node`):
+    /// running when they began, done when they ran or, when their container ended, taken from the cache.
+    pub inner_status: BTreeMap<String, NodeStatus>,
     /// How long each node took when it last ran (its place: `node`, `container/inner`; a loop's body summed over its
     /// steps), and about how much memory what it gave holds.
     pub timings: BTreeMap<String, (f64, usize)>,
@@ -714,8 +717,9 @@ pub struct Session {
     pub target: Option<String>,
     /// What every top-level node gave in the runs so far (the cache keeps only what may be used again).
     pub outputs: BTreeMap<String, terraflux_ops::Outputs>,
-    /// The step of a top-level loop chosen to be shown (none: its last step, its last element), and what the nodes
-    /// of its body gave at a step, as the run sent it (kept from the run before for a loop taken from the cache).
+    /// The step of a loop chosen to be shown, by the loop's place (`loop`, `group/loop`, `outer/inner`; none: its
+    /// last step, its last element), and what the nodes of its body gave at a step, as the run sent it (kept from the
+    /// run before for a loop taken from the cache).
     pub loop_step: BTreeMap<String, usize>,
     pub bodies: BTreeMap<String, (usize, BTreeMap<String, terraflux_ops::Outputs>)>,
     bodies_before: BTreeMap<String, (usize, BTreeMap<String, terraflux_ops::Outputs>)>,
@@ -978,6 +982,7 @@ impl Session {
             real_cache: None,
             gate: Arc::new(Gate::default()),
             loop_step: BTreeMap::new(),
+            inner_status: BTreeMap::new(),
             bodies: BTreeMap::new(),
             bodies_before: BTreeMap::new(),
             status: BTreeMap::new(),
@@ -1186,6 +1191,7 @@ impl Session {
         // what the nodes gave may be out of date until they run again
         if !self.running() {
             self.status.clear();
+            self.inner_status.clear();
             self.status_rev += 1;
             self.quiet_failed = None;
         }
@@ -1492,12 +1498,18 @@ impl Session {
         let base = self.base();
         self.edited_at = None;
         match &target {
-            None => self.status.clear(),
+            None => {
+                self.status.clear();
+                self.inner_status.clear();
+            }
             Some(t) => {
                 self.status.remove(t);
+                let within = format!("{t}/");
+                self.inner_status.retain(|at, _| !at.starts_with(&within));
             }
         }
         self.status.retain(|_, st| *st != NodeStatus::Failed);
+        self.inner_status.retain(|_, st| *st != NodeStatus::Failed);
         self.status_rev += 1;
         self.target = target.clone();
         // how far the run is: none of its nodes done
@@ -1669,31 +1681,68 @@ impl Session {
         kept.or_else(|| self.outputs.get(node)?.get(port).cloned())
     }
 
-    /// A node of the body of the loop `node` (`inner.port`) at the step chosen, when it was kept.
+    /// The loops a value shown goes through (`node`, the top-level container, and `port`, `inner.node.port`): their
+    /// places and the index of each in the chain of ids (`node`, then the ports' ids, the port last), outermost first.
+    /// A loop is on the way when the node shown is in its body, at any depth (a group's, a loop's in a loop's).
+    pub fn loops_of(&self, node: &str, port: &str) -> Vec<(String, usize)> {
+        let ids: Vec<&str> = std::iter::once(node).chain(port.split('.')).collect();
+        let shown = ids.len().saturating_sub(2);
+        let mut loops = Vec::new();
+        let mut nodes = &self.source.nodes;
+        for (i, id) in ids[..shown + 1].iter().enumerate() {
+            let Some(n) = nodes.iter().find(|n| n.id == *id) else { break };
+            if i < shown && matches!(n.op.as_str(), "control.repeat" | "control.each") {
+                loops.push((ids[..=i].join("/"), i));
+            }
+            let Some(b) = &n.body else { break };
+            nodes = &b.nodes;
+        }
+        loops
+    }
+
+    /// A node of the body of a loop on the way to what is shown (`node`, `inner.node.port`) at the step chosen of the
+    /// innermost loop with one (the loops inside it at their last step), when it was kept.
     fn at_step(&self, node: &str, port: &str) -> Option<Value> {
-        let (step, results) = self.bodies.get(node)?;
-        // (none chosen, a run going step by step: the step it is at)
+        let loops = self.loops_of(node, port);
+        // (none chosen, a run going step by step: the step it is at, of the innermost loop that sent one)
         let stepping = self.running() && self.gate.stepping.load(std::sync::atomic::Ordering::Relaxed);
-        let chosen = self.loop_step.get(node);
-        if !(chosen == Some(step) || chosen.is_none() && stepping) {
+        let (place, i) =
+            loops.iter().rev().find(|(p, _)| self.loop_step.contains_key(p)).or_else(|| {
+                if stepping { loops.iter().rev().find(|(p, _)| self.bodies.contains_key(p)) } else { None }
+            })?;
+        let (step, results) = self.bodies.get(place)?;
+        if self.loop_step.get(place).is_some_and(|k| k != step) {
             return None;
         }
-        let (id, p) = port.split_once('.')?;
-        results.get(id)?.get(p).cloned()
+        let ids: Vec<&str> = std::iter::once(node).chain(port.split('.')).collect();
+        let (id, p) = (ids.get(i + 1)?, ids[i + 2..].join("."));
+        results.get(*id)?.get(&p).cloned()
     }
 
-    /// Show the loop `node`'s body at a step (none: its last), kept from the next run on.
-    pub fn choose_step(&mut self, node: &str, step: Option<usize>) {
+    /// Show the body of the loop at a place (`loop`, `group/loop`, `outer/inner`) at a step (none: its last), kept from
+    /// the next run on. What was kept of the loops inside it is let go: it was kept for another step of this one.
+    pub fn choose_step(&mut self, place: &str, step: Option<usize>) {
         match step {
-            Some(k) => self.loop_step.insert(node.to_string(), k),
-            None => self.loop_step.remove(node),
+            Some(k) => self.loop_step.insert(place.to_string(), k),
+            None => self.loop_step.remove(place),
         };
-        self.gate.want_step(node, step);
+        let within = format!("{place}/");
+        self.bodies.retain(|at, _| !at.starts_with(&within));
+        self.gate.want_step(place, step);
     }
 
-    /// Whether the step chosen of the loop `node` was kept by a run (none chosen: the last, always kept).
-    pub fn step_kept(&self, node: &str) -> bool {
-        self.loop_step.get(node).is_none_or(|k| self.bodies.get(node).is_some_and(|(s, _)| s == k))
+    /// Whether the step chosen of the loop at a place was kept by a run (none chosen: the last, always kept).
+    pub fn step_kept(&self, place: &str) -> bool {
+        self.loop_step.get(place).is_none_or(|k| self.bodies.get(place).is_some_and(|(s, _)| s == k))
+    }
+
+    /// How a node did in the last run, by its scope's path and its id.
+    pub fn status_at(&self, path: &[String], id: &str) -> Option<NodeStatus> {
+        if path.is_empty() {
+            self.status.get(id).copied()
+        } else {
+            self.inner_status.get(&format!("{}/{id}", path.join("/"))).copied()
+        }
     }
 
     /// Take what the data's reading, the savings and the run sent.
@@ -1731,14 +1780,33 @@ impl Session {
                         self.status_rev += 1;
                         self.node_began = Some(Instant::now());
                     }
+                    // (a node of a body: by its full place)
+                    if at.contains('/')
+                        && self.inner_status.insert(at.clone(), NodeStatus::Running) != Some(NodeStatus::Running)
+                    {
+                        self.status_rev += 1;
+                    }
                     self.task = None;
                     self.node = at;
                 }
                 Message::Progress { at, progress } => self.task = Some((at, progress)),
                 Message::Timed { at, seconds, bytes } => {
+                    if at.contains('/')
+                        && self.inner_status.insert(at.clone(), NodeStatus::Done { cached: false })
+                            != Some(NodeStatus::Done { cached: false })
+                    {
+                        self.status_rev += 1;
+                    }
                     self.timings.insert(at, (seconds, bytes));
                 }
                 Message::Finished { at, cached } => {
+                    // the nodes of its body that did not run (kept: no time told) are done, from the cache
+                    let within = format!("{at}/");
+                    for (p, st) in self.inner_status.iter_mut() {
+                        if p.starts_with(&within) && *st == NodeStatus::Running {
+                            *st = NodeStatus::Done { cached: true };
+                        }
+                    }
                     // a loop taken from the cache: its body as the run before kept it
                     if cached && let Some(b) = self.bodies_before.remove(&at) {
                         self.bodies.entry(at.clone()).or_insert(b);
@@ -1751,6 +1819,10 @@ impl Session {
                 Message::Failed(at) if self.quiet_run => self.quiet_failed = Some(at),
                 Message::Failed(at) => {
                     self.status.insert(at, NodeStatus::Failed);
+                    self.status_rev += 1;
+                }
+                Message::FailedIn(at) => {
+                    self.inner_status.insert(at, NodeStatus::Failed);
                     self.status_rev += 1;
                 }
                 Message::Step { at, step, of, values, counts } => {
@@ -1797,6 +1869,7 @@ impl Session {
             self.stopping = None;
             self.elapsed = self.started.map(|t| t.elapsed());
             self.status.retain(|_, st| *st != NodeStatus::Running);
+            self.inner_status.retain(|_, st| *st != NodeStatus::Running);
             self.status_rev += 1;
             // the nodes' times kept for the next sessions (a model with a file)
             if let Some(p) = &self.path
