@@ -205,6 +205,21 @@ pub struct Quick {
     pub folder: Option<String>,
     /// A connection let go on the empty canvas: the operators that take it, the one chosen born there, connected.
     pub wire: Option<Wire>,
+    /// A free input's wire let go on the empty canvas: the operators that give what it takes, the one chosen born
+    /// there, connected into it.
+    pub feed: Option<Feed>,
+}
+
+/// A free input's wire let go on the empty canvas, waiting for the operator that gives what it takes.
+#[derive(Debug, Clone)]
+pub struct Feed {
+    /// The input (node, port) and its type.
+    pub node: String,
+    pub port: String,
+    pub ty: terraflux_graph::Type,
+    /// Where it was let go: in the graph's units, and on the screen.
+    pub at: [f32; 2],
+    pub screen: egui::Pos2,
 }
 
 /// Connections let go on the empty canvas, waiting for the operator that takes them.
@@ -221,6 +236,23 @@ impl Quick {
     /// The search for the operator that takes connections let go on the empty canvas.
     pub fn for_wire(wire: Wire) -> Quick {
         Quick { wire: Some(wire), ..Default::default() }
+    }
+
+    /// The search for the operator that gives what a free input takes, its wire let go on the empty canvas.
+    pub fn for_feed(feed: Feed) -> Quick {
+        Quick { feed: Some(feed), ..Default::default() }
+    }
+}
+
+impl Feed {
+    /// What the search is for, as its title says: "that gives a raster".
+    fn title(&self) -> String {
+        let name = self.ty.name();
+        let what = match self.ty {
+            terraflux_graph::Type::Any => "any value".to_string(),
+            _ => format!("{} {name}", if name.starts_with(['a', 'e', 'i', 'o', 'u']) { "an" } else { "a" }),
+        };
+        format!("an operator that gives {what} for {}.{}", self.node, self.port)
     }
 }
 
@@ -257,6 +289,34 @@ fn add_wired(s: &mut Session, r: &Registry, op: &str, wire: &Wire) -> Result<Str
     if !links.is_empty()
         && let Err(e) = crate::editor::connect_many(&mut s.source, r, &path, &id, &links)
     {
+        // (nothing half done: the node taken away)
+        let _ = crate::editor::remove_node(&mut s.source, &path, &id);
+        return Err(e);
+    }
+    s.edited();
+    select(s, r, &id);
+    s.editor.chosen = [id.clone()].into();
+    Ok(id)
+}
+
+/// Add the operator a free input's wire let go on the empty canvas asked for, its box ending at the place it was let
+/// go, its output that fits wired into the input: one step of undo. The node is left selected.
+fn add_fed(s: &mut Session, r: &Registry, op: &str, feed: &Feed) -> Result<String, String> {
+    let path = s.editor.path.clone();
+    let at = [feed.at[0] - crate::editor_view::WIDTH, feed.at[1]];
+    let id = match crate::my_nodes::named(op) {
+        Some((name, v)) => {
+            let u = crate::my_nodes::get(name, v)?;
+            crate::editor::add_user_node(&mut s.source, &path, &u, at)?
+        }
+        None => crate::editor::add_node(&mut s.source, r, &path, op, at)?,
+    };
+    let node = s.source.scope(&path).and_then(|v| v.iter().find(|n| n.id == id)).cloned();
+    let linked = match node.and_then(|n| crate::editor::feeding_port(&n, r, feed.ty)) {
+        Some(port) => crate::editor::connect(&mut s.source, r, &path, &format!("{id}.{port}"), &feed.node, &feed.port),
+        None => Err(format!("{op} gives nothing that {}.{} takes", feed.node, feed.port)),
+    };
+    if let Err(e) = linked {
         // (nothing half done: the node taken away)
         let _ = crate::editor::remove_node(&mut s.source, &path, &id);
         return Err(e);
@@ -310,15 +370,25 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
     // the nodes of the user's libraries first (`my:name`), then the operators
     // (a connection let go on the canvas: only those with an input that takes its type)
     let ty = q.wire.as_ref().and_then(|w| w.refs.first()).and_then(|(_, t)| *t);
+    // (a free input's wire let go: only those with an output that fits what it takes)
+    let gives = q.feed.as_ref().map(|f| f.ty);
     let mine = Library {
         entries: crate::my_nodes::reachable()
             .iter()
             .filter(|(_, u)| ty.is_none_or(|t| u.inputs.values().any(|i| t.fits(i.ty))))
+            .filter(|(_, u)| gives.is_none_or(|t| u.outputs.values().any(|o| o.ty.fits(t))))
             .map(mine_entry)
             .collect(),
     };
     let mut found = mine.find(&q.query);
     let mut rest = lib.find(&q.query);
+    if let Some(t) = gives {
+        rest.retain(|e| crate::editor::gives(r, &e.name, t));
+        // (before anything is typed: those that give its very type first)
+        if q.query.trim().is_empty() {
+            rest.sort_by_key(|e| !r.sig(&e.name).is_some_and(|s| s.outputs.iter().any(|p| p.ty == t)));
+        }
+    }
     if let Some(t) = ty {
         rest.retain(|e| crate::editor::takes(r, &e.name, t));
         // (before anything is typed: those that take its very type first)
@@ -350,10 +420,11 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
     let screen = ctx.content_rect();
     let width = 520.0_f32.min(screen.width() - 40.0);
     // (a connection let go on the canvas: where it was let go, within the window)
-    let place = match &q.wire {
-        Some(w) => egui::pos2(
-            w.screen.x.min(screen.right() - width - 12.0).max(screen.left() + 8.0),
-            w.screen.y.min(screen.bottom() - 330.0).max(screen.top() + 8.0),
+    let dropped = q.wire.as_ref().map(|w| w.screen).or(q.feed.as_ref().map(|f| f.screen));
+    let place = match dropped {
+        Some(at) => egui::pos2(
+            at.x.min(screen.right() - width - 12.0).max(screen.left() + 8.0),
+            at.y.min(screen.bottom() - 330.0).max(screen.top() + 8.0),
         ),
         None => egui::pos2(screen.center().x - width / 2.0, screen.top() + 90.0),
     };
@@ -364,6 +435,9 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
                 match (&q.folder, &q.wire) {
                     (None, Some(w)) => {
                         ui.label(RichText::new(format!("Add {}", w.title())).strong());
+                    }
+                    (None, None) if q.feed.is_some() => {
+                        ui.label(RichText::new(format!("Add {}", q.feed.as_ref().unwrap().title())).strong());
                     }
                     (Some(f), _) => {
                         let name =
@@ -434,6 +508,10 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
         }
     } else if let (Some(op), Some(w)) = (&chosen, &q.wire) {
         if let Err(e) = add_wired(s, r, op, w) {
+            s.editor.message = Some(e);
+        }
+    } else if let (Some(op), Some(f)) = (&chosen, &q.feed) {
+        if let Err(e) = add_fed(s, r, op, f) {
             s.editor.message = Some(e);
         }
     } else if let Some(op) = chosen {
@@ -3208,6 +3286,19 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 note_action(ui, s, a);
                 Ok(false)
             }
+            Action::ExposeOutput(reference) => match reference.split_once('.') {
+                None => Err(format!("{reference} is not a node's output: only those can be outputs of the group")),
+                Some((node, port)) => match crate::editor::exposed_as(&s.source, &path, node, port) {
+                    Some(name) => {
+                        s.notice = Some((
+                            format!("{reference} is an output of the group already ({name})"),
+                            std::time::Instant::now(),
+                        ));
+                        Ok(false)
+                    }
+                    None => crate::editor::expose_output(&mut s.source, r, &path, node, port).map(|_| true),
+                },
+            },
             Action::ExposeLast(id) => match crate::editor::expose_last(&mut s.source, r, &path, &id) {
                 Ok(0) => {
                     s.notice = Some((format!("{id}: its last nodes are outputs already"), std::time::Instant::now()));

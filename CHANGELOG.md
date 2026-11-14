@@ -13,6 +13,12 @@ minor versions.
   taken away; the nodes of another chain, and the other nodes of a group, stay as they ran.
 
 ### Added
+- **Two wiring gestures on the canvas.** Inside an open group, a wire dragged from a node's output to the edge of the
+  scope (a zone, *new output of the group*, drawn at the right while the wire is dragged) makes that port an output of the
+  group, named as the port (`raster_2`... when taken; the same port again changes nothing), one step of undo; the
+  group's outputs are shown as boxes at the right of its nodes. And a wire dragged from a free input, backwards, to an
+  output that fits connects it; let go on the empty canvas it opens the search of the operators that give what the input
+  takes, and the one chosen is added there with its output wired in (Esc cancels, a click elsewhere too).
 - **Keys for Align, and groups that read in the light themes.** The selection's *Align* entries have shortcuts, shown in
   the menu and in the sheet of shortcuts (F1) and changed in Settings (Keyboard) like the others: alt+shift with the
   arrows for the left, right, top and bottom edges, C and M for the horizontal and vertical centres, H and V to

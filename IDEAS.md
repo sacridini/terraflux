@@ -2505,9 +2505,11 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
 2. **Um grupo que se conecta ao resto.** **Feito** (Unreleased): o grupo dá como saídas os resultados dos seus
    últimos nós (os que nenhum outro do grupo lê): rasters agrupados sem ninguém que os lesse, o fim de uma cadeia
    (`editor::last_outputs`). Um grupo já feito os ganha pelo menu, *Give it the outputs of its last nodes*
-   (`editor::expose_last`). Teste: `a_group_gives_the_results_of_its_last_nodes`. Falta: criar uma saída (ou uma
-   entrada) do grupo arrastando um fio até a borda do grupo aberto, como o *Group Output* do Blender; renomear e
-   reordenar as saídas no painel do grupo.
+   (`editor::expose_last`). Teste: `a_group_gives_the_results_of_its_last_nodes`. **Saída por arrastar feita** (Unreleased): dentro do grupo aberto, um fio solto na faixa "new output of the group" (à direita
+   do canvas, desenhada enquanto se arrasta) faz da porta uma saída do grupo (`editor::expose_output`, nome livre: a porta, `porta_2`...;
+   a mesma porta de novo não duplica), e as saídas do grupo aparecem como caixas à direita dos nós. Teste:
+   `a_connection_let_go_on_the_edge_of_a_group_makes_an_output`. Falta: criar uma *entrada* do grupo arrastando
+   um fio da borda esquerda; renomear e reordenar as saídas no painel do grupo.
 3. **O grupo com cara de grupo, e a entrada e a saída animadas.** Uma caixa que se lê como "vários nós dentro"
    (cartões empilhados, o número de nós, um ícone) e, ao entrar ou sair, o zoom para dentro da caixa e de volta.
    **Feito** (Unreleased): dois cartões atrás da caixa, a borda e o cabeçalho na cor de destaque, um ícone e
@@ -2524,8 +2526,11 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
    liga (`editor::wire_links`, `connect_many`) e seleciona num passo de desfazer. Testes:
    `a_wire_let_go_on_empty_canvas_asks_for_an_operator_that_takes_it`,
    `wires_dragged_together_go_into_the_operator_chosen`, `a_wire_let_go_inside_a_group_adds_the_node_to_its_body`.
-   Falta: o mesmo a partir de uma entrada livre (hoje arrastar dela faz uma caixa de seleção); o nó nasce pelo canto,
-   não pela porta; o filtro só pelo tipo do primeiro fio.
+   **Entrada livre feita** (Unreleased): arrastar de uma entrada sem ligação desenha o fio da porta até o ponteiro
+   (`Drag::Feed`); solto numa saída que serve liga, solto no vazio abre o `Quick` com um `Feed` só com os operadores que dão o tipo
+   (`editor::gives`), o escolhido nasce ali (a caixa termina no ponto) com a saída que serve ligada (`builder::add_fed`, `editor::feeding_port`);
+   Esc ou soltar fora cancela. Teste: `a_free_inputs_wire_dragged_to_an_output_or_the_empty_canvas`.
+   Falta: o nó nasce pelo canto, não pela porta; o filtro só pelo tipo do primeiro fio (e, no caminho direto, só pelo tipo).
 5. **Inserir um nó num fio**: arrastar um nó sobre uma conexão e soltar o coloca no meio (a entrada e a saída que
    servem); alt+arrastar o tira de lá ligando de novo o que ele ligava.
    **Feito** (Unreleased, por um sub-agente): `editor::insert_between` e `editor::lift_out`; no canvas

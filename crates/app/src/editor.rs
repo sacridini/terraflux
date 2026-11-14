@@ -1549,6 +1549,60 @@ pub fn expose_last(m: &mut Model, r: &Registry, path: &[String], id: &str) -> Re
     Ok(added)
 }
 
+/// The name the open group (`path`, not empty) gives an output of its node `node`'s `port`, if it is one already.
+pub fn exposed_as(m: &Model, path: &[String], node: &str, port: &str) -> Option<String> {
+    let (id, up) = path.split_last()?;
+    let b = m.scope(up)?.iter().find(|n| &n.id == id)?.body.as_ref()?;
+    let reference = format!("{node}.{port}");
+    b.outputs.iter().find(|(_, v)| **v == reference).map(|(k, _)| k.clone())
+}
+
+/// Whether the scope `path` is the inside of a group (not of a loop or a switch, nor the top level).
+pub fn in_group(m: &Model, path: &[String]) -> bool {
+    path.split_last().and_then(|(id, up)| m.scope(up)?.iter().find(|n| &n.id == id)).is_some_and(|n| n.op == GROUP)
+}
+
+/// A node's output of the open group made an output of the group (`path`, not empty): named as the port, else
+/// `port_2`, `port_3`... when that name is taken. Its name; when the port was an output already, nothing is
+/// changed and it is the name it has.
+pub fn expose_output(m: &mut Model, r: &Registry, path: &[String], node: &str, port: &str) -> Result<String> {
+    if !in_group(m, path) {
+        return Err("only a group has outputs".into());
+    }
+    let (id, up) = path.split_last().ok_or("only a group has outputs")?;
+    if let Some(name) = exposed_as(m, path, node, port) {
+        return Ok(name);
+    }
+    let n = m.scope(path).and_then(|v| v.iter().find(|n| n.id == node)).ok_or_else(|| format!("no node {node:?}"))?;
+    if !output_ports(n, r).iter().any(|(p, _)| p == port) {
+        return Err(format!("{node} has no output {port:?}"));
+    }
+    let mut name = String::new();
+    guarded(m, r, &[prefix(up) + id], |c| {
+        let g = node_mut(c, up, id)?;
+        let b = g.body.as_mut().ok_or_else(|| format!("{id} has no nodes"))?;
+        name = std::iter::once(port.to_string())
+            .chain((2..).map(|k| format!("{port}_{k}")))
+            .find(|n| terraflux_graph::valid_port(n) && !b.outputs.contains_key(n))
+            .unwrap();
+        b.outputs.insert(name.clone(), format!("{node}.{port}"));
+        Ok(())
+    })?;
+    Ok(name)
+}
+
+/// The output of a node that a free input of type `ty` takes, the best first: the type itself, then the first that
+/// fits.
+pub fn feeding_port(n: &Node, r: &Registry, ty: Type) -> Option<String> {
+    let outs = output_ports(n, r);
+    outs.iter().find(|(_, t)| *t == ty).or_else(|| outs.iter().find(|(_, t)| t.fits(ty))).map(|(p, _)| p.clone())
+}
+
+/// Whether an operator gives an output that fits an input of type `ty`.
+pub fn gives(r: &Registry, op: &str, ty: Type) -> bool {
+    r.sig(op).is_some_and(|s| s.outputs.iter().any(|p| p.ty.fits(ty)))
+}
+
 /// What a setting holds to read a source: its value, or the reference (`"$input"`, `"@carried"`, `{ from =
 /// "node.port" }`).
 pub fn setting_of(src: &Source) -> serde_json::Value {
@@ -2320,6 +2374,37 @@ out big = img > 5",
         assert_eq!(expose_last(&mut c, &r, &[], "chain").unwrap(), 1);
         assert_eq!(expose_last(&mut c, &r, &[], "chain").unwrap(), 0);
         assert_eq!(c.node("chain").unwrap().body.as_ref().unwrap().outputs[&b], format!("{b}.map"));
+    }
+
+    #[test]
+    fn an_output_of_a_node_becomes_an_output_of_its_group_under_a_free_name() {
+        let r = Registry::standard();
+        let mut m = model();
+        let g = add_node(&mut m, &r, &[], GROUP, [0.0, 0.0]).unwrap();
+        let path = vec![g.clone()];
+        let a = add_node(&mut m, &r, &path, "raster.read", [0.0, 0.0]).unwrap();
+        let b = add_node(&mut m, &r, &path, "raster.read", [0.0, 150.0]).unwrap();
+        let outs = |m: &Model| m.node(&g).unwrap().body.as_ref().unwrap().outputs.clone();
+        assert_eq!(expose_output(&mut m, &r, &path, &a, "raster").unwrap(), "raster");
+        // the same port again: nothing changes
+        assert_eq!(expose_output(&mut m, &r, &path, &a, "raster").unwrap(), "raster");
+        assert_eq!(outs(&m).len(), 1);
+        assert_eq!(exposed_as(&m, &path, &a, "raster").as_deref(), Some("raster"));
+        assert_eq!(exposed_as(&m, &path, &b, "raster"), None);
+        // another node's port of the same name: the next free one
+        assert_eq!(expose_output(&mut m, &r, &path, &b, "raster").unwrap(), "raster_2");
+        assert_eq!(outs(&m)["raster_2"], format!("{b}.raster"));
+        // a port the node has not, a node it has not, the top level: refused
+        assert!(expose_output(&mut m, &r, &path, &a, "nope").is_err());
+        assert!(expose_output(&mut m, &r, &path, "ghost", "raster").is_err());
+        assert!(expose_output(&mut m, &r, &[], &a, "raster").is_err());
+        assert_eq!(outs(&m).len(), 2);
+        // inside a loop: no outputs of its own (it carries and collects)
+        let l = add_node(&mut m, &r, &[], "control.repeat", [400.0, 0.0]).unwrap();
+        let inside = vec![l.clone()];
+        let c = add_node(&mut m, &r, &inside, "raster.read", [0.0, 0.0]).unwrap();
+        assert!(!in_group(&m, &inside) && in_group(&m, &path));
+        assert!(expose_output(&mut m, &r, &inside, &c, "raster").is_err());
     }
 
     #[test]

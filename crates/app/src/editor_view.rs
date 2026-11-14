@@ -407,6 +407,8 @@ pub enum Action {
     Ungroup(String),
     /// A group given the results of its last nodes as outputs.
     ExposeLast(String),
+    /// A node's output (`node.port`) of the open group let go on the edge of its scope: an output of the group.
+    ExposeOutput(String),
     /// A group or a calculator saved as a node of the user's library (its dialog).
     SaveMine(String),
     /// A note put at a place (graph units), its text asked for at once ([`crate::notes`]).
@@ -617,6 +619,9 @@ enum Drag {
     /// other nodes selected drawn with it (when it starts at a node selected); whether it is a connection taken
     /// off an input, carried (let go on the empty canvas it only stays off).
     Connect(String, Pos2, Vec<(String, Pos2)>, bool),
+    /// A connection drawn from a free input, backwards: the node, the port, its type and where it is (graph
+    /// units). Let go on an output that fits it connects; on the empty canvas the search of what gives it.
+    Feed(String, String, Type, Pos2),
     /// The nodes selected moved: where the pointer started and each node's corner then (graph units); whether
     /// alt was held (a node connected is lifted out of its connections when let go).
     Move(Pos2, Vec<(String, Pos2)>, bool),
@@ -1152,6 +1157,17 @@ const AROUND: f32 = 18.0;
 const SAMPLES: usize = 24;
 
 /// The cubic curve of a wire piece between two points, leaving and arriving horizontally (as the GPU draws it).
+/// The width of the box of a group's output, drawn at the right of its nodes (graph units).
+const OUTPUT_W: f32 = 120.0;
+
+/// The edge of the open scope where a connection let go makes an output of the group (on the screen).
+fn group_zone(rect: Rect) -> Rect {
+    Rect::from_min_max(
+        Pos2::new(rect.right() - 84.0, rect.top() + 40.0),
+        Pos2::new(rect.right() - 6.0, rect.bottom() - 40.0),
+    )
+}
+
 fn wire_curve(a: Pos2, b: Pos2) -> [Pos2; 4] {
     let dx = ((b.x - a.x).abs() * 0.5).max(30.0);
     [a, a + Vec2::new(dx, 0.0), b - Vec2::new(dx, 0.0), b]
@@ -2768,6 +2784,11 @@ pub fn show(
                     }
                     None => Drag::Select(w),
                 },
+                // a free input: a connection drawn from it to an output
+                Some(Hit::Input(i, k)) if !scene.boxes[i].source && !scene.boxes[i].inputs[k].name.is_empty() => {
+                    let b = &scene.boxes[i];
+                    Drag::Feed(b.key.clone(), b.inputs[k].name.clone(), b.inputs[k].ty, b.input_at(k))
+                }
                 // a node's right edge: its width
                 Some(Hit::Edge(i)) => {
                     let b = &scene.boxes[i];
@@ -2826,8 +2847,8 @@ pub fn show(
         cam.pan += resp.drag_delta();
     }
     let pointer = resp.hover_pos().or(ui.input(|i| i.pointer.interact_pos()));
-    // escape while copies are dragged: no copies (and the selection stays)
-    if matches!(st.drag, Some(Drag::Copy(..)))
+    // escape while copies are dragged: no copies (and the selection stays); while a free input's wire is: none
+    if matches!(st.drag, Some(Drag::Copy(..) | Drag::Feed(..)))
         && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
     {
         st.drag = None;
@@ -2939,6 +2960,14 @@ pub fn show(
         };
         if let Some((i, links)) = many {
             actions.push(Action::ConnectMany { node: scene.boxes[i].key.clone(), links });
+        } else if let (Some(Drag::Connect(reference, _, along, false)), Some(q)) = (&st.drag, pointer)
+            && crate::editor::in_group(model, &path)
+            && along.is_empty()
+            && group_zone(rect).contains(q)
+            && scene.hit(to_world(q, cam), reach(cam)).is_none()
+        {
+            // inside a group, let go on the edge of the scope: an output of the group
+            actions.push(Action::ExposeOutput(reference.clone()));
         } else if let (Some(Drag::Connect(reference, _, along, carried)), Some(q)) = (&st.drag, pointer) {
             // on an input; on a node that takes any (its place of a new input, or anywhere on it): a new one,
             // named as what it reads
@@ -3022,6 +3051,30 @@ pub fn show(
             };
             if let Some((i, port)) = port {
                 actions.push(Action::Connect { reference: reference.clone(), node: scene.boxes[i].key.clone(), port });
+            }
+        }
+        // a free input's wire let go: on an output that fits it, connected; on the empty canvas, the search of the
+        // operators that give what it takes (elsewhere, or on one that does not fit: nothing)
+        if let (Some(Drag::Feed(node, port, ty, _)), Some(q)) = (&st.drag, pointer) {
+            match scene.hit(to_world(q, cam), reach(cam)) {
+                Some(Hit::Output(j, o)) if scene.boxes[j].outputs[o].1.fits(*ty) => {
+                    actions.push(Action::Connect {
+                        reference: scene.boxes[j].reference(o),
+                        node: node.clone(),
+                        port: port.clone(),
+                    });
+                }
+                None if rect.contains(q) => {
+                    let at = to_world(q, cam);
+                    st.quick = Some(crate::builder::Quick::for_feed(crate::builder::Feed {
+                        node: node.clone(),
+                        port: port.clone(),
+                        ty: *ty,
+                        at: [at.x, at.y],
+                        screen: q,
+                    }));
+                }
+                _ => {}
             }
         }
         // the nodes in the box: the selection (added to it with shift or ctrl)
@@ -3779,6 +3832,77 @@ pub fn show(
             painter.rect_filled(back, 4.0, v.extreme_bg_color);
             painter.rect_stroke(back, 4.0, Stroke::new(1.0, colour), egui::StrokeKind::Outside);
             painter.galley(at, galley, v.strong_text_color());
+        }
+    }
+    // inside a group: its outputs as small boxes at the right of its nodes, wired from what gives them
+    if let Some((id, up)) = path.split_last()
+        && let Some(body) = model.scope(up).and_then(|v| v.iter().find(|n| &n.id == id)).and_then(|n| n.body.as_ref())
+    {
+        let body_is_group = crate::editor::in_group(model, &path);
+        let nodes = || scene.boxes.iter().filter(|b| !b.source);
+        let x = nodes().map(|b| b.rect.right()).reduce(f32::max).map_or(200.0, |x| x + 90.0);
+        let y0 = nodes().map(|b| b.rect.top()).reduce(f32::min).unwrap_or(0.0);
+        for (k, (name, reference)) in body.outputs.iter().enumerate() {
+            let bx = Rect::from_min_size(Pos2::new(x, y0 + k as f32 * (ROW + 18.0)), Vec2::new(OUTPUT_W, ROW + 8.0));
+            let on = Rect::from_min_max(screen(bx.min), screen(bx.max));
+            let from = reference.split_once('.').and_then(|(node, port)| {
+                let b = &scene.boxes[*scene.index.get(node)?];
+                Some(b.output_at(b.outputs.iter().position(|(p, _)| p == port)?))
+            });
+            if let Some(p0) = from {
+                let (a, b) = (screen(p0), on.left_center());
+                let dx = ((b.x - a.x).abs() * 0.5).max(30.0 * cam.zoom);
+                painter.add(egui::epaint::CubicBezierShape::from_points_stroke(
+                    [a, a + Vec2::new(dx, 0.0), b - Vec2::new(dx, 0.0), b],
+                    false,
+                    Color32::TRANSPARENT,
+                    Stroke::new(2.0, crate::theme::accent().gamma_multiply(0.8)),
+                ));
+            }
+            painter.rect_filled(on, 4.0, v.extreme_bg_color);
+            painter.rect_stroke(on, 4.0, Stroke::new(1.5, crate::theme::accent()), egui::StrokeKind::Inside);
+            painter.text(
+                on.center(),
+                egui::Align2::CENTER_CENTER,
+                format!("out {name}"),
+                FontId::proportional(size(12.0).max(9.0)),
+                v.strong_text_color(),
+            );
+        }
+        // a connection dragged: the edge where it is let go to make a new output
+        if let Some(Drag::Connect(_, _, along, false)) = &st.drag
+            && along.is_empty()
+            && body_is_group
+        {
+            let zone = group_zone(rect);
+            let hot = pointer.is_some_and(|q| zone.contains(q) && scene.hit(to_world(q, &cam), reach(&cam)).is_none());
+            let accent = crate::theme::accent();
+            painter.rect_filled(zone, 6.0, accent.gamma_multiply(if hot { 0.4 } else { 0.15 }));
+            painter.rect_stroke(zone, 6.0, Stroke::new(if hot { 2.5 } else { 1.0 }, accent), egui::StrokeKind::Inside);
+            let galley = painter.layout(
+                "new output of the group".to_string(),
+                FontId::proportional(12.5),
+                v.strong_text_color(),
+                zone.width() - 12.0,
+            );
+            painter.galley(zone.center() - galley.size() / 2.0, galley, v.strong_text_color());
+        }
+    }
+    // a free input's connection being drawn, backwards: from the input to the pointer
+    if let (Some(Drag::Feed(_, _, ty, at)), Some(q)) = (&st.drag, pointer) {
+        let p0 = screen(*at);
+        let colour = type_colour(*ty, v.dark_mode).unwrap_or(v.selection.bg_fill);
+        let dx = ((p0.x - q.x).abs() * 0.5).max(30.0 * cam.zoom);
+        painter.add(egui::epaint::CubicBezierShape::from_points_stroke(
+            [q, q + Vec2::new(dx, 0.0), p0 - Vec2::new(dx, 0.0), p0],
+            false,
+            Color32::TRANSPARENT,
+            Stroke::new(2.0, colour),
+        ));
+        // over an output it fits: lit; over one it does not, not
+        if let Some(Hit::Output(j, o)) = scene.hit(to_world(q, &cam), reach(&cam)) {
+            let ring = if scene.boxes[j].outputs[o].1.fits(*ty) { colour } else { v.error_fg_color };
+            painter.circle_stroke(screen(scene.boxes[j].output_at(o)), PORT * cam.zoom + 4.0, Stroke::new(2.0, ring));
         }
     }
     // a node dragged over a connection it fits: the connection lit, where it goes in when let go
