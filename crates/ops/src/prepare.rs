@@ -280,6 +280,11 @@ fn strings(v: &[&str]) -> Vec<String> {
     v.iter().map(|s| s.to_string()).collect()
 }
 
+/// gdalwarp's threads: Terraflux's own (never every core: the person works on the same machine).
+fn warp_threads() -> String {
+    format!("NUM_THREADS={}", crate::threads::ensure())
+}
+
 /// A resolution setting: a side, or [x, y].
 fn resolution(args: &Args) -> Result<Option<(f64, f64)>> {
     match args.params.get("resolution") {
@@ -343,7 +348,7 @@ impl Operator for Reproject {
         }
         let (sx, _) = src.grid.resolution();
         let coarser = res.is_some_and(|(x, _)| crs.is_none() && x > sx * 1.5);
-        let mut a = strings(&["-r", &resampling(args, &src, coarser)?, "-multi", "-wo", "NUM_THREADS=ALL_CPUS"]);
+        let mut a = strings(&["-r", &resampling(args, &src, coarser)?, "-multi", "-wo", &warp_threads()]);
         a.extend(strings(&["-co", "COMPRESS=DEFLATE", "-co", "TILED=YES", "-co", "BIGTIFF=IF_SAFER"]));
         if let Some(c) = &crs {
             a.extend(strings(&["-t_srs", c]));
@@ -398,7 +403,7 @@ impl Operator for Match {
         let (xmin, ymax) = (t[0], t[3]);
         let (xmax, ymin) = (t[0] + t[1] * g.width as f64, t[3] + t[5] * g.height as f64);
         let coarser = g.resolution().0 > src.grid.resolution().0 * 1.5;
-        let mut a = strings(&["-r", &resampling(args, &src, coarser)?, "-multi", "-wo", "NUM_THREADS=ALL_CPUS"]);
+        let mut a = strings(&["-r", &resampling(args, &src, coarser)?, "-multi", "-wo", &warp_threads()]);
         a.extend(strings(&["-co", "COMPRESS=DEFLATE", "-co", "TILED=YES", "-co", "BIGTIFF=IF_SAFER"]));
         a.extend(strings(&[
             "-te",
@@ -494,7 +499,7 @@ impl Operator for Resample {
             resolution(args)?.ok_or_else(|| Error::msg(format!("node {:?}: give the resolution", args.node)))?;
         let coarser = x > src.grid.resolution().0 * 1.01;
         let mut a = strings(&["-r", &resampling(args, &src, coarser)?, "-tr", &x.to_string(), &y.to_string()]);
-        a.extend(strings(&["-multi", "-wo", "NUM_THREADS=ALL_CPUS"]));
+        a.extend(strings(&["-multi", "-wo", &warp_threads()]));
         a.extend(tiff_options());
         let dest = destination(args, &src, "resample", &a)?;
         let out = each_file(&src, &dest, &|from, to| terraflux_gdal::warp(&[from], to, &a))?;
@@ -602,7 +607,7 @@ impl Operator for Mosaic {
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         need_gdal(args.node)?;
         let src = rasters_of(args.get("raster").ok_or_else(|| Error::msg("connect the rasters"))?, args.node)?;
-        let mut a = strings(&["-r", &resampling(args, &src, false)?, "-multi", "-wo", "NUM_THREADS=ALL_CPUS"]);
+        let mut a = strings(&["-r", &resampling(args, &src, false)?, "-multi", "-wo", &warp_threads()]);
         a.extend(tiff_options());
         if let Some(c) = args.opt_param::<String>("crs")?.filter(|c| !c.trim().is_empty()) {
             a.extend(strings(&["-t_srs", &c]));
