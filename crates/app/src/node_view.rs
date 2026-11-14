@@ -1377,7 +1377,7 @@ fn value_cell(
             "table.read" | "table.write" => rfd::FileDialog::new()
                 .add_filter("Tables", &["csv", "tsv", "txt", "json"])
                 .add_filter("Every file", &["*"]),
-            "swat.run" => rfd::FileDialog::new().add_filter("A zipped TxtInOut folder", &["zip"]),
+            "swat.run" | "swat.load" => rfd::FileDialog::new().add_filter("A zipped TxtInOut folder", &["zip"]),
             "move.read_tracks" => rfd::FileDialog::new()
                 .add_filter("Movebank files", &["csv", "gz", "zip"])
                 .add_filter("Every file", &["*"]),
@@ -1394,10 +1394,10 @@ fn value_cell(
     }
     // a folder: every raster in it, as one stack; SWAT+'s TxtInOut
     if name == "path"
-        && (n.op == "raster.read" || n.op == "swat.run")
+        && (n.op == "raster.read" || n.op == "swat.run" || n.op == "swat.load")
         && ui
             .add(crate::app::accent_button("A folder...", true))
-            .on_hover_text(if n.op == "swat.run" {
+            .on_hover_text(if n.op.starts_with("swat.") {
                 "a TxtInOut folder (with file.cio)"
             } else {
                 "every raster of a folder, as one stack"

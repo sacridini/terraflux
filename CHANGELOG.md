@@ -7,6 +7,13 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **A SWAT+ project is a value of the graph:** the new type `swat_project` (written as JSON, kept in frozen
+  outputs); `swat.load` reads a TxtInOut folder or a zip (checked as `swat.run` does); `swat.set` changes a
+  parameter of a project as SWAT+'s hard calibration does (a row in calibration.cal, and in cal_parms.cal when it
+  lacks the parameter): `parameter` (the 69 the port calibrates), `change` (pctchg, abschg, absval), `value` (a
+  model input `"$x"` for batches and calibration), the soil layers and the HRUs, the input project untouched, chained
+  nodes making their changes in order, equal to landschaft's with the same calibration.cal; `swat.run` takes a
+  `project` input instead of `path` (`path` still works; one of the two).
 - **`prioritize.calibrate` solves on Gurobi:** new settings `solver` (highs or gurobi) and `threads`, as
   `prioritize.optimize`'s: the candidates solve in parallel with one Gurobi thread each, as landschaft's
   `_solve_all`, and the ideal solves (Cohon's two, the least cost) with the node's threads; HiGHS and one warning

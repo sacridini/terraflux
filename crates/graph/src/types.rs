@@ -58,6 +58,8 @@ pub enum Type {
     MlModel,
     /// A distribution of step lengths or turn angles (amt's, `move.*`).
     StepDistribution,
+    /// A SWAT+ project: the files of a TxtInOut folder (`swat.*`).
+    SwatProject,
 }
 
 impl Type {
@@ -90,6 +92,7 @@ impl Type {
             Type::SdmModel => "distribution model",
             Type::MlModel => "fitted model",
             Type::StepDistribution => "step distribution",
+            Type::SwatProject => "SWAT+ project",
         }
     }
 

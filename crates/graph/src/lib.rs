@@ -59,7 +59,7 @@ pub const PLUGIN: &str = "plugin.wasm";
 
 /// The operators whose `params.path` is a file: relative to the model's folder in the model file, absolute
 /// once the model is expanded to run ([`submodel::expand`]).
-pub const FILE_OPS: [&str; 10] = [
+pub const FILE_OPS: [&str; 11] = [
     PLUGIN,
     "raster.read",
     "raster.write",
@@ -69,6 +69,7 @@ pub const FILE_OPS: [&str; 10] = [
     "table.read",
     "table.write",
     "swat.run",
+    "swat.load",
     "move.read_tracks",
 ];
 

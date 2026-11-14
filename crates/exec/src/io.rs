@@ -221,6 +221,7 @@ pub fn write_value(value: &Value, path: &Path, dtype: Option<&str>) -> Result<Pa
         Value::SdmModel(m) => write_text(path, "json", &json(&**m)?),
         Value::MlModel(m) => write_text(path, "json", &json(&**m)?),
         Value::StepDistribution(d) => write_text(path, "json", &json(&**d)?),
+        Value::SwatProject(p) => write_text(path, "json", &json(&**p)?),
         Value::Vector(v) => {
             // GeoPackage, unless the path names another vector format
             let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();

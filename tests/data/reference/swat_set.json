@@ -1,0 +1,52 @@
+{
+ "landschaft": "1.58.1",
+ "cases": [
+  {
+   "name": "awc",
+   "changes": [
+    {
+     "parameter": "awc",
+     "change": "pctchg",
+     "value": 20
+    }
+   ]
+  },
+  {
+   "name": "cn2",
+   "changes": [
+    {
+     "parameter": "cn2",
+     "change": "absval",
+     "value": 70
+    }
+   ]
+  },
+  {
+   "name": "chain",
+   "changes": [
+    {
+     "parameter": "awc",
+     "change": "pctchg",
+     "value": 20,
+     "first_layer": 1,
+     "last_layer": 2
+    },
+    {
+     "parameter": "cn2",
+     "change": "abschg",
+     "value": -5,
+     "objects": [
+      1,
+      -3,
+      6
+     ]
+    },
+    {
+     "parameter": "esco",
+     "change": "absval",
+     "value": 0.6
+    }
+   ]
+  }
+ ]
+}

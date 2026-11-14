@@ -427,6 +427,8 @@ pub enum Value {
     MlModel(Arc<crate::ml::Model>),
     /// A distribution of step lengths or turn angles.
     StepDistribution(Arc<crate::movement::Distribution>),
+    /// A SWAT+ project (the files of a TxtInOut folder).
+    SwatProject(Arc<crate::swat::Project>),
 }
 
 impl Value {
@@ -458,6 +460,7 @@ impl Value {
             Value::SdmModel(_) => Type::SdmModel,
             Value::MlModel(_) => Type::MlModel,
             Value::StepDistribution(_) => Type::StepDistribution,
+            Value::SwatProject(_) => Type::SwatProject,
         }
     }
 
