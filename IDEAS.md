@@ -1666,7 +1666,11 @@ Registro de 2026-10-16. O aplicativo avisa quando há uma versão nova e a insta
 2. A troca no macOS e no zip/tar.gz, o repositório apt.
    **Feito** (1.21.0): o `Terraflux.app` (numa pasta que o usuário pode escrever) trocado pelo do zip, a pasta
    do `.tar.gz` pela nova, os pacotes `.deb`, `.rpm` e do Arch pelo gerenciador com o `pkexec`; a atualização que
-   não instalou dita ao abrir de novo, com o log. Falta: o zip do Windows, o repositório apt, a assinatura.
+   não instalou dita ao abrir de novo, com o log. Falta: o repositório apt, a assinatura.
+   **Feito** (Unreleased): o zip do Windows. O zip traz um arquivo vazio `portable`; a pasta com ele (e que o
+   usuário pode escrever) é trocada arquivo por arquivo pelo PowerShell depois que o app fecha (o que o zip não
+   tem fica; um arquivo em uso, como o `terraflux.exe` de um servidor `mcp`, é renomeado `.old` e removido na
+   próxima abertura).
 
 ## Ferramentas gerais de raster, vetor e análise
 

@@ -108,7 +108,7 @@ Python nor a GDAL of your own).
 | Platform | Package | Notes |
 |---|---|---|
 | **Windows** 10 and 11, 64-bit | `terraflux-<version>-x64.msi` | Start menu shortcut, `terraflux` on the `PATH` |
-| | `terraflux-<version>-windows-x64.zip` | Portable: unpack anywhere |
+| | `terraflux-<version>-windows-x64.zip` | Portable: unpack anywhere; it updates itself in its folder |
 | **macOS**, Apple silicon | `terraflux-<version>-macos-arm64.dmg` | Drag `Terraflux.app` to Applications |
 | **Linux** x86-64, glibc 2.39+ (Ubuntu 24.04+, Debian 13+, Fedora 40+, Arch) | `terraflux_<version>_amd64.deb` | `sudo apt install ./terraflux_<version>_amd64.deb` |
 | | `terraflux-<version>-1.x86_64.rpm` | Fedora, openSUSE: `sudo dnf install ./terraflux-<version>-1.x86_64.rpm` |

@@ -3554,8 +3554,8 @@ impl TerrafluxApp {
                     }
                 } else {
                     ui.label(
-                        "This Terraflux cannot replace itself (Windows' zip, an application or a folder in a place \
-                         you may not write, a build): download the new one from its page.",
+                        "This Terraflux cannot replace itself (a copy without the zip's `portable` file, an application \
+                         or a folder in a place you may not write, a build): download the new one from its page.",
                     );
                 }
                 ui.add_space(8.0);

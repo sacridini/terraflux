@@ -50,10 +50,13 @@ try {
     }
     "Visual C++ runtime $($redist.Name)"
 
-    # the portable zip
+    # the portable zip: the same files and an empty file `portable` (Terraflux updates a folder that has it by
+    # itself). The marker is made for the zip and removed at once: the MSI, built from the same stage, has none.
     $zip = "$out\terraflux-$version-windows-x64.zip"
     if (Test-Path $zip) { Remove-Item -Force $zip }
-    Compress-Archive -Path "$stage\*" -DestinationPath $zip
+    New-Item -ItemType File "$stage\portable" | Out-Null
+    try { Compress-Archive -Path "$stage\*" -DestinationPath $zip }
+    finally { Remove-Item -Force "$stage\portable" }
 
     # the MSI
     dotnet tool restore

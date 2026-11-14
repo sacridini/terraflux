@@ -4,9 +4,10 @@
 //! checked against the release's `SHA256SUMS.txt` (and unpacked beside the one it replaces), installed once the
 //! application has closed, the application opened again with its model. That is Windows' installer (in
 //! `%LOCALAPPDATA%\Programs\Terraflux`, installed without the administrator: only its progress shown), macOS's
-//! application and Linux's folder of the `.tar.gz` in a folder the user may write (replaced by the new ones), and
-//! Linux's packages (installed by the system's manager, the administrator's password asked). Elsewhere (Windows'
-//! zip, a build) the release's page is opened. An update that did not install is told when the application opens
+//! application and Linux's folder of the `.tar.gz` in a folder the user may write (replaced by the new ones),
+//! Windows' portable copy (the `.zip` unpacked, its `portable` file beside the program: its files replaced) and
+//! Linux's packages (installed by the system's manager, the administrator's password asked). Elsewhere (a build)
+//! the release's page is opened. An update that did not install is told when the application opens
 //! again, with its log.
 
 use std::io::{Read, Write};
@@ -91,6 +92,9 @@ pub enum Install {
     App(PathBuf),
     /// Linux's folder of the `.tar.gz`, in a folder the user may write: replaced by the release's.
     Folder(PathBuf),
+    /// Windows' portable copy (the `.zip` unpacked, its `portable` file beside the program) in a folder the user
+    /// may write: its files replaced by the release's, the folder (of the program) kept.
+    Portable(PathBuf),
     /// Linux's package (`/opt/terraflux`): the new one installed by the system's manager, the administrator's
     /// password asked (`pkexec`).
     Package(Manager),
@@ -117,6 +121,7 @@ impl Install {
             Install::Msi(_) => name.ends_with("-x64.msi"),
             Install::App(_) => name.ends_with(&format!("-macos-{short}.zip")),
             Install::Folder(_) => name.ends_with(&format!("-linux-{short}.tar.gz")),
+            Install::Portable(_) => name.ends_with("-windows-x64.zip"),
             Install::Package(Manager::Deb) => name.ends_with(&format!("_{debian}.deb")),
             Install::Package(Manager::Rpm) => name.ends_with(&format!(".{arch}.rpm")),
             Install::Package(Manager::Arch) => name.ends_with(&format!("-{arch}.pkg.tar.zst")),
@@ -138,6 +143,11 @@ impl Install {
                  this model.",
                 dir.display()
             ),
+            Install::Portable(dir) => format!(
+                "Terraflux closes, replaces the files of this copy (its folder {}; your other files stay) and opens \
+                 again with this model.",
+                dir.display()
+            ),
             Install::Package(_) => "Terraflux closes, installs the new package (the system asks for the \
                                     administrator's password) and opens again with this model."
                 .into(),
@@ -145,7 +155,7 @@ impl Install {
     }
 }
 
-/// How this Terraflux can be updated (none: a build, Windows' zip, a folder the user may not write); found once.
+/// How this Terraflux can be updated (none: a build, a folder the user may not write); found once.
 pub fn install() -> Option<Install> {
     static HOW: OnceLock<Option<Install>> = OnceLock::new();
     HOW.get_or_init(|| find_install(&std::env::current_exe().ok()?)).clone()
@@ -155,6 +165,10 @@ fn find_install(exe: &Path) -> Option<Install> {
     let real = exe.canonicalize().ok()?;
     let dir = real.parent()?;
     if cfg!(windows) {
+        // the program as it was started (a canonical path is \\?\'s)
+        if let Some(folder) = exe.parent().filter(|f| find_portable(f)) {
+            return Some(Install::Portable(folder.to_path_buf()));
+        }
         let programs = PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("Programs").join("Terraflux");
         // the program as it was started (a canonical path is \\?\'s, which not every program takes)
         return (programs.canonicalize().ok()? == dir).then(|| Install::Msi(exe.to_path_buf()));
@@ -170,6 +184,12 @@ fn find_install(exe: &Path) -> Option<Install> {
     }
     // the folder of the .tar.gz: the template of its menu entry beside the program
     (dir.join("terraflux.desktop.in").is_file() && writable(dir.parent()?)).then(|| Install::Folder(dir.to_path_buf()))
+}
+
+/// Whether a folder is a portable copy of Windows: the `portable` file of the `.zip` in it, and the user may write
+/// there.
+fn find_portable(dir: &Path) -> bool {
+    dir.join("portable").is_file() && writable(dir)
 }
 
 /// Whether this user may write in a folder (a folder made in it and removed).
@@ -329,8 +349,35 @@ pub fn log_file() -> PathBuf {
 /// The packages of the updates before, removed (when the application starts).
 pub fn clean() {
     let _ = std::fs::remove_dir_all(downloads());
-    if let Some(Install::App(old) | Install::Folder(old)) = install() {
-        let _ = std::fs::remove_dir_all(staging(&old));
+    match install() {
+        Some(Install::App(old) | Install::Folder(old)) => {
+            let _ = std::fs::remove_dir_all(staging(&old));
+        }
+        Some(Install::Portable(dir)) => {
+            let _ = std::fs::remove_dir_all(portable_staging(&dir));
+            // the files an update renamed because they were in use (a folder of thousands of files: not waited for)
+            std::thread::spawn(move || remove_old(&dir));
+        }
+        _ => {}
+    }
+}
+
+/// The folder a portable copy's update is unpacked in: inside it (the user may write there).
+fn portable_staging(dir: &Path) -> PathBuf {
+    dir.join(".terraflux-update")
+}
+
+/// The `<name>.old` files an update left (a program in use was renamed, its new file put in its place), removed
+/// where `<name>` exists and they are no longer in use; the others stay for the next start.
+fn remove_old(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let path = e.path();
+        if path.is_dir() {
+            remove_old(&path);
+        } else if path.extension().is_some_and(|x| x == "old") && path.with_extension("").is_file() {
+            let _ = std::fs::remove_file(&path);
+        }
     }
 }
 
@@ -377,12 +424,16 @@ fn prepare(how: &Install, file: &Path) -> Result<PathBuf, String> {
         Install::Msi(_) | Install::Package(_) => return Ok(file.to_path_buf()),
         Install::App(old) => (old, Command::new("ditto"), "Contents/MacOS/terraflux"),
         Install::Folder(old) => (old, Command::new("tar"), "terraflux"),
+        // Windows' own tar (bsdtar) reads .zip; not the first `tar` of a PATH, which may be GNU's
+        Install::Portable(old) => (old, Command::new(windows_tar()), "terraflux.exe"),
     };
-    let stage = staging(old);
+    let stage = if matches!(how, Install::Portable(_)) { portable_staging(old) } else { staging(old) };
     let _ = std::fs::remove_dir_all(&stage);
     std::fs::create_dir_all(&stage).map_err(|e| format!("{}: {e}", stage.display()))?;
     if matches!(how, Install::App(_)) {
         unpack.args(["-x", "-k"]).arg(file).arg(&stage);
+    } else if matches!(how, Install::Portable(_)) {
+        unpack.arg("-xf").arg(file).arg("-C").arg(&stage);
     } else {
         unpack.arg("-xzf").arg(file).arg("-C").arg(&stage);
     }
@@ -391,12 +442,76 @@ fn prepare(how: &Install, file: &Path) -> Result<PathBuf, String> {
     if !out.status.success() {
         return Err(format!("{name} could not be unpacked: {}", String::from_utf8_lossy(&out.stderr).trim()));
     }
+    if matches!(how, Install::Portable(_)) {
+        // the files of the zip are at its root
+        return stage
+            .join(program)
+            .is_file()
+            .then_some(stage)
+            .ok_or_else(|| format!("{name} has no Terraflux in it: not installed"));
+    }
     std::fs::read_dir(&stage)
         .map_err(|e| format!("{}: {e}", stage.display()))?
         .flatten()
         .map(|e| e.path())
         .find(|p| p.join(program).is_file())
         .ok_or_else(|| format!("{name} has no Terraflux in it: not installed"))
+}
+
+/// Windows' own `tar` (bsdtar, which also unpacks `.zip`).
+fn windows_tar() -> PathBuf {
+    match std::env::var_os("SystemRoot") {
+        Some(root) if cfg!(windows) => PathBuf::from(root).join("System32").join("tar.exe"),
+        _ => PathBuf::from("tar"),
+    }
+}
+
+/// The PowerShell script that puts the files of a portable copy's update (unpacked in `stage`) over its folder
+/// once this process has ended, then opens Terraflux again (with a model). Only the files of the zip are
+/// written: the user's others stay. A file in use (the program, a DLL, by a server of `terraflux.exe mcp`) is
+/// renamed `<name>.old` and the new one put in its place; the `.old` are removed when Terraflux starts.
+pub fn portable_script(pid: u32, stage: &Path, dir: &Path, model: Option<&Path>, log: &Path) -> String {
+    let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
+    let path = |p: &Path| lit(&p.display().to_string());
+    let exe = dir.join("terraflux.exe");
+    let open = match model {
+        Some(m) => format!("Start-Process {} -ArgumentList {}", path(&exe), lit(&format!("\"{}\"", m.display()))),
+        None => format!("Start-Process {}", path(&exe)),
+    };
+    const SCRIPT: &str = r##"Wait-Process -Id @PID@ -ErrorAction SilentlyContinue
+$src = @SRC@; $dst = @DST@; $log = @LOG@
+function Put($from, $to) {
+    for ($i = 0; $i -lt 5; $i++) {
+        try { Copy-Item -LiteralPath $from -Destination $to -Force -ErrorAction Stop; return $true }
+        catch { Start-Sleep -Milliseconds 300 }
+    }
+    # in use: a running program or a loaded DLL can be renamed, not overwritten
+    try {
+        Move-Item -LiteralPath $to -Destination ($to + '.old') -Force -ErrorAction Stop
+        Copy-Item -LiteralPath $from -Destination $to -Force -ErrorAction Stop
+        return $true
+    }
+    catch { Add-Content -LiteralPath $log -Value ('not replaced: ' + $to + ': ' + $_); return $false }
+}
+$all = $true
+$root = (Get-Item -LiteralPath $src).FullName.TrimEnd('\')
+foreach ($f in @(Get-ChildItem -LiteralPath $src -Recurse -File -Force)) {
+    $to = Join-Path $dst $f.FullName.Substring($root.Length).TrimStart('\')
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to) | Out-Null
+    if (-not (Put $f.FullName $to)) { $all = $false }
+}
+if ($all) {
+    Add-Content -LiteralPath $log -Value 'installed'
+    Remove-Item -LiteralPath $src -Recurse -Force -ErrorAction SilentlyContinue
+}
+try { @OPEN@ } catch { Add-Content -LiteralPath $log -Value ('not opened: ' + $_) }
+"##;
+    SCRIPT
+        .replace("@PID@", &pid.to_string())
+        .replace("@SRC@", &path(stage))
+        .replace("@DST@", &path(dir))
+        .replace("@LOG@", &path(log))
+        .replace("@OPEN@", &open)
 }
 
 /// The command that installs the installer once this process has ended (its log kept), then opens Terraflux again
@@ -431,7 +546,7 @@ pub fn unix_script(how: &Install) -> String {
                 rm -rf \"$(dirname \"$new\")\"\n";
     let manager = |command: &str| format!("pkexec {command} \"$new\" || echo \"not installed\"\n");
     let (install, open) = match how {
-        Install::Msi(_) => return String::new(),
+        Install::Msi(_) | Install::Portable(_) => return String::new(),
         Install::App(_) => (swap.to_string(), "exec open -n \"$old\" --args \"$@\"\n"),
         Install::Folder(_) => (swap.to_string(), "exec \"$old/terraflux\" \"$@\"\n"),
         Install::Package(Manager::Deb) => (manager("dpkg -i"), "exec \"$old\" \"$@\"\n"),
@@ -449,6 +564,7 @@ pub fn install_after_exit(how: &Install, version: Version, ready: &Path, model: 
     crate::settings::update(|s| s.update_tried = Some(show(version)));
     let started = match how {
         Install::Msi(exe) => run_powershell(&install_script(std::process::id(), ready, exe, model, &log)),
+        Install::Portable(dir) => run_powershell(&portable_script(std::process::id(), ready, dir, model, &log)),
         _ => {
             let old = match how {
                 Install::App(old) | Install::Folder(old) => old.clone(),
@@ -606,6 +722,186 @@ mod tests {
         assert_eq!(arch.as_deref(), Some("terraflux-1.20.0-1-x86_64.pkg.tar.zst"));
         // only arm64's application is published
         assert_eq!(name(Install::App(PathBuf::new())), None);
+    }
+
+    #[test]
+    fn a_portable_copy_takes_the_windows_zip() {
+        let name = |how: Install| release().package(&how).map(|(n, _)| n);
+        assert_eq!(name(Install::Portable(PathBuf::new())).as_deref(), Some("terraflux-1.20.0-windows-x64.zip"));
+        assert!(!Install::Msi(PathBuf::new()).takes("terraflux-1.20.0-windows-x64.zip"));
+    }
+
+    fn temp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("terraflux-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_portable_file_marks_a_portable_copy() {
+        let dir = temp("portable");
+        assert!(!find_portable(&dir));
+        std::fs::write(dir.join("portable"), "").unwrap();
+        assert!(find_portable(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_old_files_of_an_update_are_removed_when_their_new_ones_exist() {
+        let dir = temp("old");
+        std::fs::create_dir_all(dir.join("gdal")).unwrap();
+        for f in ["terraflux.exe", "terraflux.exe.old", "gdal/a.dll", "gdal/a.dll.old", "alone.txt.old", "mine.txt"] {
+            std::fs::write(dir.join(f), "x").unwrap();
+        }
+        remove_old(&dir);
+        let left = |f: &str| dir.join(f).exists();
+        assert!(left("terraflux.exe") && left("gdal/a.dll") && left("mine.txt"));
+        assert!(!left("terraflux.exe.old") && !left("gdal/a.dll.old"));
+        // an .old with no file of its name is not Terraflux's to remove
+        assert!(left("alone.txt.old"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A zip made by Windows' own `tar` is unpacked into the staging folder, the program at its root.
+    #[test]
+    #[cfg(windows)]
+    fn the_portable_zip_is_unpacked() {
+        let dir = temp("unzip");
+        let src = dir.join("src");
+        std::fs::create_dir_all(src.join("gdal")).unwrap();
+        std::fs::write(src.join("terraflux.exe"), "exe").unwrap();
+        std::fs::write(src.join("portable"), "").unwrap();
+        std::fs::write(src.join("gdal").join("gdal.dll"), "dll").unwrap();
+        let zip = dir.join("terraflux-1.20.0-windows-x64.zip");
+        let made = Command::new(windows_tar()).arg("-a").arg("-cf").arg(&zip).arg("-C").arg(&src).arg(".").status();
+        assert!(made.unwrap().success());
+        let folder = dir.join("copy");
+        std::fs::create_dir_all(&folder).unwrap();
+        let ready = prepare(&Install::Portable(folder.clone()), &zip).unwrap();
+        assert_eq!(ready, portable_staging(&folder));
+        assert_eq!(std::fs::read_to_string(ready.join("terraflux.exe")).unwrap(), "exe");
+        assert_eq!(std::fs::read_to_string(ready.join("gdal").join("gdal.dll")).unwrap(), "dll");
+        assert!(ready.join("portable").is_file());
+        // a zip without the program is refused
+        let empty = dir.join("empty.zip");
+        let mut made = Command::new(windows_tar());
+        made.arg("-a").arg("-cf").arg(&empty).arg("-C").arg(src.join("gdal")).arg(".");
+        assert!(made.status().unwrap().success());
+        assert!(prepare(&Install::Portable(folder), &empty).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_portable_script_is_quoted() {
+        let s = portable_script(
+            42,
+            Path::new(r"C:\O'Neil\copy\.terraflux-update"),
+            Path::new(r"C:\O'Neil\copy"),
+            Some(Path::new(r"C:\My models\a.toml")),
+            Path::new(r"C:\Temp\terraflux-update.log"),
+        );
+        assert!(s.starts_with("Wait-Process -Id 42 -ErrorAction SilentlyContinue\n"));
+        assert!(s.contains(r"$src = 'C:\O''Neil\copy\.terraflux-update'; $dst = 'C:\O''Neil\copy';"));
+        assert!(s.contains(r#"Start-Process 'C:\O''Neil\copy\terraflux.exe' -ArgumentList '"C:\My models\a.toml"'"#));
+        assert!(["@PID@", "@SRC@", "@DST@", "@LOG@", "@OPEN@"].iter().all(|p| !s.contains(p)));
+    }
+
+    /// The script waits for the application, replaces the files of the zip (a file in use renamed `.old`), keeps
+    /// the user's own and opens the program again.
+    #[test]
+    #[cfg(windows)]
+    fn the_portable_copy_is_replaced_once_the_application_ends() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = temp("swap");
+        let (copy, stage) = (dir.join("copy"), dir.join("copy").join(".terraflux-update"));
+        std::fs::create_dir_all(copy.join("gdal")).unwrap();
+        std::fs::create_dir_all(stage.join("gdal")).unwrap();
+        // a harmless program that ends at once
+        let whoami =
+            std::fs::read(Path::new(&std::env::var_os("SystemRoot").unwrap()).join(r"System32\whoami.exe")).unwrap();
+        let with = |tail: &str| [whoami.as_slice(), tail.as_bytes()].concat();
+        std::fs::write(copy.join("terraflux.exe"), with("old")).unwrap();
+        std::fs::write(stage.join("terraflux.exe"), with("new")).unwrap();
+        std::fs::write(copy.join("gdal").join("a.dll"), "old a").unwrap();
+        std::fs::write(stage.join("gdal").join("a.dll"), "new a").unwrap();
+        std::fs::write(stage.join("gdal").join("b.dll"), "new b").unwrap();
+        std::fs::write(copy.join("mine.txt"), "mine").unwrap();
+        // in use as a running program is: it may be renamed, not written
+        let _in_use =
+            std::fs::OpenOptions::new().read(true).share_mode(1 | 4).open(copy.join("terraflux.exe")).unwrap();
+        let mut app = Command::new("cmd.exe").args(["/c", "ping -n 2 127.0.0.1 >nul"]).spawn().unwrap();
+        let log = dir.join("update.log");
+        run_powershell(&portable_script(app.id(), &stage, &copy, None, &log)).unwrap();
+        // not before the application has ended
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(std::fs::read(copy.join("terraflux.exe")).unwrap(), with("old"));
+        app.wait().unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let done =
+            || std::fs::read_to_string(&log).is_ok_and(|l| l.contains("installed") || l.contains("not replaced"));
+        while !done() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let said = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(said.contains("installed"), "{said}");
+        assert_eq!(std::fs::read(copy.join("terraflux.exe")).unwrap(), with("new"));
+        assert_eq!(std::fs::read(copy.join("terraflux.exe.old")).unwrap(), with("old"));
+        assert_eq!(std::fs::read_to_string(copy.join("gdal").join("a.dll")).unwrap(), "new a");
+        assert_eq!(std::fs::read_to_string(copy.join("gdal").join("b.dll")).unwrap(), "new b");
+        assert_eq!(std::fs::read_to_string(copy.join("mine.txt")).unwrap(), "mine");
+        assert!(!stage.exists());
+        drop(_in_use);
+        // the old one goes when Terraflux starts again
+        remove_old(&copy);
+        assert!(!copy.join("terraflux.exe.old").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A package fetched from a server of this machine: the one whose checksum is published is kept, the other
+    /// refused.
+    #[test]
+    fn a_package_is_kept_only_with_its_checksum() {
+        use std::net::TcpListener;
+        let body = b"the package".to_vec();
+        let name = format!("terraflux-9.9.9-windows-x64-{}.zip", std::process::id());
+        let sums = |sum: &str| format!("{sum}  {name}\n");
+        let right = sums(&hex::encode(Sha256::digest(&body)));
+        let wrong = sums(&"0".repeat(64));
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let served = (body.clone(), right, wrong);
+        let server = std::thread::spawn(move || {
+            // two fetches: the checksums, then the package, each
+            for _ in 0..4 {
+                let (mut s, _) = listener.accept().unwrap();
+                let mut req = vec![0u8; 4096];
+                let n = s.read(&mut req).unwrap();
+                let first = String::from_utf8_lossy(&req[..n]).lines().next().unwrap_or_default().to_string();
+                let out = match first.split(' ').nth(1).unwrap_or_default() {
+                    "/right" => served.1.clone().into_bytes(),
+                    "/wrong" => served.2.clone().into_bytes(),
+                    _ => served.0.clone(),
+                };
+                let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", out.len());
+                s.write_all(head.as_bytes()).unwrap();
+                s.write_all(&out).unwrap();
+            }
+        });
+        let url = |p: &str| format!("http://127.0.0.1:{port}/{p}");
+        let release = |sums: &str| Release {
+            version: (9, 9, 9),
+            page: String::new(),
+            assets: vec![(name.clone(), url("package"))],
+            sums: Some(url(sums)),
+        };
+        let path = fetch(&release("right"), &name, &url("package"), |_, _| {}).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), body);
+        let _ = std::fs::remove_file(&path);
+        let refused = fetch(&release("wrong"), &name, &url("package"), |_, _| {});
+        assert!(refused.unwrap_err().contains("checksum differs"));
+        assert!(!downloads().join(&name).exists());
+        server.join().unwrap();
     }
 
     #[test]

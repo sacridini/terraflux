@@ -47,7 +47,8 @@ Windows 10 and 11, 64-bit.
     `terraflux-<version>-windows-x64.zip` holds the same files. Unpack it anywhere (your documents, a USB stick)
     and double-click `terraflux.exe`. Nothing is installed and the PATH is not changed: to use the command line,
     run it by its full path (`C:\Tools\terraflux\terraflux.exe run model.toml`) or add its folder to the PATH
-    yourself.
+    yourself. The portable copy updates itself: when a new version is out, Terraflux replaces the files in its
+    folder (your own files there stay) and opens again.
 
 Started by a double click, Terraflux opens the application without a console window. A model file dropped on
 `terraflux.exe`, or opened with it, opens in the application.

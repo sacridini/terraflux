@@ -7,6 +7,10 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **The portable Windows copy updates itself.** The `windows-x64.zip` now holds an empty `portable` file; a copy
+  with it in a folder you may write downloads the release's zip, checks it against `SHA256SUMS.txt`, and after
+  Terraflux closes replaces the files of its folder (yours stay; a file in use is renamed `.old` and removed at the
+  next start) and opens again with the model.
 - **Sensitivity analysis: classes by name.** The class of a share, area, cells or metric of a map is chosen from a
   menu of "value – name" entries when the output has a legend (a `raster.legend` node or a GuidosToolbox product's
   classes), with "Other value..." to type a number; the methods text tells it as "forest (1)".
