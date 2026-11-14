@@ -151,6 +151,15 @@ fn loaded(h: &mut Harness<TerrafluxApp>) {
 /// Step until the maps shown are coloured (in a thread) and nothing runs.
 fn drawn(h: &mut Harness<TerrafluxApp>) {
     h.run_steps(2);
+    // the looks of the layers are worked out by threads first (the tiles are asked once the look is there, and the
+    // layers' menus and colours need it): a map not coloured yet is not busy
+    let t = Instant::now();
+    while h.state_mut().session.as_mut().is_some_and(|s| s.looks.busy()) {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(120), "the looks of the layers: too long");
+    }
+    h.run_steps(2);
     until(h, "drawing the maps", |a| {
         a.session.as_ref().is_none_or(|s| !s.view.busy() && !s.preview_view.busy() && !s.running())
     });
@@ -3412,7 +3421,17 @@ fn a_layers_colours_are_given_to_all_similar_layers() {
         }
         h.run_steps(2);
     };
-    menu(&mut h, "a");
+    // (the menu is opened again while its entry is missing: it is there once the layer's look is worked out)
+    let t = Instant::now();
+    loop {
+        menu(&mut h, "a");
+        if h.query_by_label("Same colours for all similar layers").is_some() {
+            break;
+        }
+        assert!(t.elapsed() < Duration::from_secs(60), "the layer's menu has no entry for the colours");
+        h.key_press(egui::Key::Escape);
+        drawn(&mut h);
+    }
     let entry = h.get_by_label("Same colours for all similar layers");
     assert!(!entry.accesskit_node().is_disabled());
     entry.click();
@@ -8167,19 +8186,30 @@ fn places_are_kept_with_the_model_and_gone_back_to() {
         })
         .expect("the name field of the menu");
     name.click();
-    h.run_steps(2);
-    h.event(egui::Event::Text("Lake".into()));
-    h.run_steps(2);
+    // (typed once the field has the focus, and kept going until it shows the name: under load a click may not have
+    // got there by the second frame)
+    let t = Instant::now();
+    loop {
+        h.run_steps(2);
+        if h.query_all_by_role(Role::TextInput).any(|n| n.accesskit_node().value().as_deref() == Some("Lake")) {
+            break;
+        }
+        if h.query_all_by_role(Role::TextInput).any(|n| n.accesskit_node().is_focused()) {
+            h.event(egui::Event::Text("Lake".into()));
+        }
+        assert!(t.elapsed() < Duration::from_secs(30), "the name typed in the field of the menu");
+    }
     shot(&mut h, "places-menu");
     h.get_by_label("Save this place...").click();
     h.run_steps(4);
     {
+        let fields: Vec<_> = h.query_all_by_role(Role::TextInput).map(|n| n.accesskit_node().value()).collect();
+        let button = h.query_by_label("Save this place...").map(|n| n.accesskit_node().is_disabled());
         let s = h.state().session.as_ref().unwrap();
-        let p = s
-            .source
-            .bookmarks_of(true)
-            .find(|p| p.name == "Lake")
-            .unwrap_or_else(|| panic!("the place Lake; the notice: {:?}", s.notice));
+        let p = s.source.bookmarks_of(true).find(|p| p.name == "Lake").unwrap_or_else(|| {
+            let names: Vec<_> = s.source.bookmarks_of(true).map(|p| p.name.clone()).collect();
+            panic!("the place Lake; the places {names:?}; the fields {fields:?}; the button disabled {button:?}; the notice: {:?}", s.notice)
+        });
         assert_eq!(p.slot, None);
         assert_eq!(s.source.bookmarks_of(true).count(), 2);
         assert!(s.history.steps().0.iter().any(|n| n == "Save the place Lake"), "{:?}", s.history.steps().0);

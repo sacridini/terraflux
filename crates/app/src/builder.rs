@@ -765,6 +765,18 @@ impl Looks {
         self.kept.iter().find(|e| e.0 == key && e.3.is_some()).and_then(|e| e.3.as_ref())
     }
 
+    /// Whether a look asked for is still being worked out (what has come is taken in first).
+    pub fn busy(&mut self) -> bool {
+        if let Some((_, rx)) = &self.channel {
+            while let Ok((key, p, look)) = rx.try_recv() {
+                if let Some(e) = self.kept.iter_mut().find(|e| e.0 == key && e.2 == p) {
+                    e.3 = Some(look);
+                }
+            }
+        }
+        self.kept.iter().any(|e| e.3.is_none())
+    }
+
     /// The look of a source, or none while it is worked out.
     pub fn get(&mut self, ctx: &egui::Context, source: &Source, palette: Palette) -> Option<Look> {
         self.ask(ctx, source, palette, false)

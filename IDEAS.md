@@ -1292,9 +1292,18 @@ depois:
    `places_are_kept_with_the_model_and_gone_back_to` (`crates/app/tests/ui.rs`): o campo do nome do menu era
    achado por posição (o primeiro campo abaixo do botão); agora é o da linha do botão Save this place..., e a
    falha diz o aviso do app.
-   Vistos depois, na suíte do `ui` (4 threads), passando sozinhos: `a_layers_colours_are_given_to_all_similar_layers`
-   (`ui.rs`, o menu do clique direito sem a entrada *Same colours for all similar layers*) e
-   `a_layer_of_another_coordinate_system_is_drawn_reprojected` (`ui.rs`, a comparação dos pixels `"hidden"`).
+   Vistos depois, na suíte do `ui` (4 threads), passando sozinhos, corrigidos (Unreleased):
+   `a_layers_colours_are_given_to_all_similar_layers` (`ui.rs`, o menu do clique direito sem a entrada *Same colours
+   for all similar layers*): o aspecto (`Looks`) da camada é calculado por threads e sem ele a linha não tem cores
+   no menu; `drawn` agora espera `Looks::busy` e o teste reabre o menu até a entrada existir.
+   `a_layer_of_another_coordinate_system_is_drawn_reprojected` (`ui.rs`, a comparação dos pixels `"hidden"`): o mesmo
+   aspecto ainda não pronto deixava o mapa sem tiles (não ocupado) e a imagem de referência em branco; `drawn` espera
+   os aspectos antes dos tiles.
+   Ainda instáveis (vistos em rodadas lentas da suíte do `ui`): `places_are_kept_with_the_model_and_gone_back_to`
+   (o "Lake" está no campo e o clique em *Save this place...* não salva; a falha agora diz os lugares, os campos, o
+   botão e o aviso), `a_plot_keeps_the_frame_of_its_map` (`ui.rs`, *Forget the saved view* ausente logo depois de
+   abrir o menu) e `quality_of_life::the_end_of_a_run_is_told_when_terraflux_is_not_in_front` ("the run did not
+   end" em 120 s, numa rodada com o dobro do tempo).
 
 ## Integrar o landschaft 1.50.0
 
