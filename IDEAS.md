@@ -2710,7 +2710,13 @@ item, na ordem; release só quando pedido.
    **A investigar:** a suíte `--test ui` caiu duas vezes em doze rodadas com `STATUS_ACCESS_VIOLATION` (o processo
    inteiro, sem dizer o teste), as duas enquanto rodavam `templates_run`, `the_methods_and_citations_of_a_model` e
    `the_model_as_a_python_script`, não os testes novos; sem o item 5, nenhuma em três. Código nativo em paralelo (GDAL,
-   landschaft, o GPU): um despejo do Windows (WER LocalDumps) diria onde.
+   landschaft, o GPU): um despejo do Windows (WER LocalDumps) diria onde. 2026-11-14: nenhuma queda em treze
+   rodadas (dez com 4 threads de teste, três com as 2 do `.cargo/config.toml`). Candidatos, do mais provável: dois
+   devices do wgpu criados e soltos ao mesmo tempo (`create_render_state` em ui.rs ~124 e ~7942, `canvas_gpu::install`;
+   confirmar com `WGPU_BACKEND=vulkan` ou um mutex em volta da criação), o `set_var("TERRAFLUX_SETTINGS")` de cada
+   teste com outras threads vivas (ui.rs ~108; seguro no Windows, `unsafe` na edição 2024), dois runtimes de OpenMP
+   no processo (o vcomp do ls-sys e outro; `dumpbin /dependents`). Quando voltar, rodar com `--nocapture` para ver o
+   último teste e ligar o LocalDumps (HKLM, pede administrador).
 6. **O Viewer numa janela à parte**, para um segundo monitor (`show_viewport_immediate`, como as outras janelas
    soltas), e de volta ao dock.
    **Feito** (Unreleased, por um sub-agente): sobre o `detach`/`attach` que já havia. *Pop out* / *Back into the
