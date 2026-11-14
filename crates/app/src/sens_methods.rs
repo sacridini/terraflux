@@ -18,6 +18,8 @@ pub struct Run<'a> {
     /// The output measured (`node.port`) and the statistic of it (none: a number, or a table's last column).
     pub output: &'a str,
     pub statistic: Option<&'a str>,
+    /// The names of the output's classes (value, name): a class is told as "forest (1)" when named.
+    pub names: &'a [(f64, String)],
     /// The bootstraps of the intervals.
     pub resamples: usize,
     /// The maps of sensitivity, cell by cell, were made.
@@ -26,12 +28,15 @@ pub struct Run<'a> {
 }
 
 /// What the statistic of an output measures, as words: "the mean of `m.map`".
-fn measured(output: &str, statistic: Option<&str>) -> String {
+fn measured(output: &str, statistic: Option<&str>, names: &[(f64, String)]) -> String {
     let stat = statistic.map(str::trim).filter(|s| !s.is_empty());
     let Some(stat) = stat else { return output.to_string() };
     let mut parts = stat.split(':');
     let kind = parts.next().unwrap_or_default();
-    let class = parts.next().unwrap_or_default();
+    let first = parts.next().unwrap_or_default();
+    // (a metric's class is the third part)
+    let named = |c: &str| crate::batch_view::class_label(names, c);
+    let class = if kind == "metric" { String::new() } else { named(first) };
     match kind {
         "mean" => format!("the mean of {output}"),
         "sum" => format!("the sum of {output}"),
@@ -42,7 +47,7 @@ fn measured(output: &str, statistic: Option<&str>) -> String {
         "area" => format!("the area of class {class} in {output}"),
         "changed" => format!("the share of the cells of {output} that changed"),
         "metric" => {
-            let metric = match class {
+            let metric = match first {
                 "np" => "the number of patches",
                 "pland" => "the percentage of the landscape",
                 "ed" => "the edge density",
@@ -50,7 +55,7 @@ fn measured(output: &str, statistic: Option<&str>) -> String {
                 "lpi" => "the largest patch index",
                 other => other,
             };
-            format!("{metric} of class {} in {output}", parts.next().unwrap_or_default())
+            format!("{metric} of class {} in {output}", named(parts.next().unwrap_or_default()))
         }
         // a table's column
         _ => format!("column {stat} of {output}"),
@@ -103,7 +108,7 @@ pub fn paragraph(r: &Run) -> String {
     let s = if k == 1 { "" } else { "s" };
     let mut t = format!(
         "We assessed the sensitivity of {} to {k} parameter{s} ({}) ",
-        measured(r.output, r.statistic),
+        measured(r.output, r.statistic, r.names),
         factors.join(", ")
     );
     // (with replicates the design's points are fewer than the runs)
@@ -226,6 +231,7 @@ mod tests {
             bounds: b,
             output: "sim.map",
             statistic,
+            names: &[],
             resamples: 100,
             maps: false,
             version: "9.9.9",
@@ -250,6 +256,19 @@ mod tests {
             );
             assert!(p.contains("were mapped. Computed with Terraflux"), "{p}");
         }
+    }
+
+    #[test]
+    fn a_named_class_is_told_by_its_name() {
+        let i = indices(Method::Morris, 2);
+        let d = Design::new(Method::Morris);
+        let names = [(1.0, "forest".to_string())];
+        let mut r = run(&i, &d, &B, Some("share:1"));
+        r.names = &names;
+        let p = paragraph(&r);
+        assert!(p.contains("that are of class forest (1) to"), "{p}");
+        r.statistic = Some("area:2");
+        assert!(paragraph(&r).contains("the area of class 2 in sim.map"));
     }
 
     const B: [(f64, f64); 2] = [(0.8, 1.2), (3.0, 7.0)];

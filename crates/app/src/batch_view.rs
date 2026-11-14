@@ -365,6 +365,9 @@ pub struct SensitivityPlan {
     bounds: Vec<(f64, f64)>,
     #[serde(default)]
     statistic: Option<String>,
+    /// The names of the output's classes, for the methods text ("forest (1)").
+    #[serde(default)]
+    names: Vec<(f64, String)>,
     /// The maps of sensitivity to make at the end, cell by cell (none: only the numbers).
     #[serde(default)]
     maps: Option<MapsPlan>,
@@ -470,6 +473,8 @@ pub struct SensitivityState {
     pub statistic: String,
     /// The class (a number) of the kinds that take one, and the metric of `metric`.
     pub class: String,
+    /// The class typed as a number even when the output's classes are named (the choice's "Other value...").
+    pub class_other: bool,
     pub metric: String,
     /// What a single map's `changed` is against (none: guessed, as the calibration's).
     pub start: Option<String>,
@@ -493,6 +498,7 @@ impl Default for SensitivityState {
             output: None,
             statistic: "mean".into(),
             class: String::new(),
+            class_other: false,
             metric: "np".into(),
             start: None,
             more: false,
@@ -630,6 +636,7 @@ impl BatchState {
                             bounds: &p.bounds,
                             output: &p.output,
                             statistic: p.statistic.as_deref(),
+                            names: &p.names,
                             resamples: p.resamples,
                             maps: true,
                             version: env!("CARGO_PKG_VERSION"),
@@ -783,6 +790,7 @@ impl BatchState {
                                 bounds: &p.bounds,
                                 output: &p.output,
                                 statistic: p.statistic.as_deref(),
+                                names: &p.names,
                                 resamples: p.resamples,
                                 maps: false,
                                 version: env!("CARGO_PKG_VERSION"),
@@ -1195,6 +1203,7 @@ fn tasks(st: &BatchState, knobs: &[Knob]) -> Result<Planned, String> {
                 resamples: st.sens.resamples,
                 bounds,
                 statistic: None,
+                names: Vec::new(),
                 maps: None,
             };
             Ok((t, None, Some(plan)))
@@ -1250,6 +1259,39 @@ fn statistic_of(ty: Option<Type>, sens: &SensitivityState) -> Result<Option<Stri
             })
         }
     })
+}
+
+/// The most classes of a GuidosToolbox product the class choice lists (a product of distances has hundreds).
+const MAX_PRODUCT_CLASSES: usize = 64;
+
+/// The named classes of an output of the model, as the Viewer names them: the legend of a `raster.legend` node up
+/// the way, else the classes of the product the output's palette is (MSPA, ...). Empty when none is known.
+pub fn class_choices(s: &Session, output: &str) -> Vec<(f64, String)> {
+    let Some((node, port)) = output.split_once('.') else { return Vec::new() };
+    if let Some(Some(l)) = crate::legend_view::declared(&s.source.nodes, node, port) {
+        let named: Vec<(f64, String)> =
+            l.into_iter().filter(|c| !c.name.is_empty()).map(|c| (c.value, c.name)).collect();
+        if !named.is_empty() {
+            return named;
+        }
+    }
+    match crate::builder::palette_of(s, node, port) {
+        crate::builder::Palette::Product(p) => {
+            let all: Vec<(f64, String)> =
+                (0..=255u32).filter_map(|v| p.name(v as f64).map(|n| (v as f64, n))).collect();
+            if all.len() <= MAX_PRODUCT_CLASSES { all } else { Vec::new() }
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// A class as the tab tells it: "forest (1)" when the classes name it, else the number as typed.
+pub fn class_label(names: &[(f64, String)], class: &str) -> String {
+    let class = class.trim();
+    match class.parse::<f64>().ok().and_then(|v| names.iter().find(|(k, _)| *k == v)) {
+        Some((v, n)) => format!("{n} ({})", terraflux_ops::value::class_label(*v)),
+        None => class.to_string(),
+    }
 }
 
 /// The range of a factor when it is added: 20 % either side of its value (a whole number's, widened to whole
@@ -1548,6 +1590,7 @@ pub fn start(
             let statistic = statistic_of(ty, &st.sens)?;
             if let Some(p) = sensitivity.as_mut() {
                 p.statistic = statistic.clone();
+                p.names = class_choices(s, &output);
             }
             // (a single map's `changed` is against the map the simulation starts from)
             let start = if statistic.as_deref() == Some("changed") && ty == Some(Type::Map) {
@@ -2167,8 +2210,55 @@ fn sensitivity_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry, k
                 }
                 if matches!(kind.as_str(), "cells" | "share" | "area" | "metric") {
                     ui.label("Class");
-                    ui.add(egui::TextEdit::singleline(&mut st.sens.class).desired_width(80.0).hint_text("a number"))
-                        .on_hover_text("the value of the class in the map's cells");
+                    let names = class_choices(s, &current);
+                    let typed = st.sens.class.trim().to_string();
+                    let known = typed.parse::<f64>().is_ok_and(|v| names.iter().any(|(k, _)| *k == v));
+                    if !names.is_empty() && !st.sens.class_other && (typed.is_empty() || known) {
+                        let text =
+                            if typed.is_empty() { "choose a class".to_string() } else { class_label(&names, &typed) };
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_salt("sensitivity class").selected_text(text).width(220.0).show_ui(
+                                ui,
+                                |ui| {
+                                    for (v, n) in &names {
+                                        let v_text = terraflux_ops::value::class_label(*v);
+                                        let on = typed.parse::<f64>().is_ok_and(|t| t == *v);
+                                        if ui.selectable_label(on, format!("{v_text} \u{2013} {n}")).clicked() {
+                                            st.sens.class = v_text;
+                                        }
+                                    }
+                                    if ui.selectable_label(false, "Other value...").clicked() {
+                                        st.sens.class_other = true;
+                                    }
+                                },
+                            );
+                        });
+                    } else {
+                        ui.horizontal(|ui| {
+                            let field = ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut st.sens.class)
+                                        .desired_width(80.0)
+                                        .hint_text("a number"),
+                                )
+                                .on_hover_text("the value of the class in the map's cells");
+                            // (what is typed stays a field, even when it becomes a named class on the way)
+                            if field.changed() {
+                                st.sens.class_other = true;
+                            }
+                            if !names.is_empty()
+                                && ui
+                                    .small_button("Names")
+                                    .on_hover_text("choose the class by the map's legend")
+                                    .clicked()
+                            {
+                                st.sens.class_other = false;
+                                if !known {
+                                    st.sens.class.clear();
+                                }
+                            }
+                        });
+                    }
                     ui.end_row();
                 }
                 if kind == "changed" && ty == Some(Type::Map) {
@@ -2686,6 +2776,16 @@ mod tests {
         assert!(cost_text("", 12, Some(3600.0), Some(2), "here").1);
         let (t, long) = cost_text("", 3, None, Some(2), "here");
         assert!(t.contains("known once the model has run") && !long, "{t}");
+    }
+
+    #[test]
+    fn a_class_is_labelled_by_its_name_when_known() {
+        let names = vec![(1.0, "forest".to_string()), (2.5, "edge".to_string())];
+        assert_eq!(class_label(&names, " 1 "), "forest (1)");
+        assert_eq!(class_label(&names, "2.5"), "edge (2.5)");
+        assert_eq!(class_label(&names, "3"), "3");
+        assert_eq!(class_label(&names, "x"), "x");
+        assert_eq!(class_label(&[], "1"), "1");
     }
 
     #[test]

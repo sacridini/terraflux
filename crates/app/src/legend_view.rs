@@ -19,11 +19,26 @@ pub fn legend_of(s: &Session, node: &str, port: &str, shown: &Source) -> Option<
 
 /// [`legend_of`] on a model's nodes, without a session.
 pub fn legend_in(nodes: &[terraflux_graph::Node], node: &str, port: &str, shown: &Source) -> Option<Vec<Class>> {
+    if let Some(l) = declared(nodes, node, port) {
+        return l;
+    }
+    match shown {
+        Source::Map(m) => of_grid(&m.grid),
+        Source::Rasters(r, l) => of_grid(r.grid_of(*l)),
+        Source::Blank(_) => None,
+        Source::Rgb(r) => of_grid(r.bands[0].grid()),
+        Source::Shade(s) => of_grid(s.base.grid()),
+    }
+}
+
+/// The legend a `raster.legend` node up the way (through the plots) declares for an output: `Some` when there is
+/// such a node (its classes, none when they do not parse), `None` when the map's own legend is what is left.
+pub fn declared(nodes: &[terraflux_graph::Node], node: &str, port: &str) -> Option<Option<Vec<Class>>> {
     let mut at = (node.to_string(), port.to_string());
     for _ in 0..32 {
         let n = nodes.iter().find(|n| n.id == at.0)?;
         match n.op.as_str() {
-            "raster.legend" => return n.params.get("classes").and_then(|c| parse(c).ok()),
+            "raster.legend" => return Some(n.params.get("classes").and_then(|c| parse(c).ok())),
             "view.plot" => match n.inputs.get("value") {
                 Some(terraflux_graph::Source::Ref(r)) => match terraflux_graph::Ref::parse(r) {
                     Ok(terraflux_graph::Ref::Port { node, port }) => at = (node, port),
@@ -34,13 +49,7 @@ pub fn legend_in(nodes: &[terraflux_graph::Node], node: &str, port: &str, shown:
             _ => break,
         }
     }
-    match shown {
-        Source::Map(m) => of_grid(&m.grid),
-        Source::Rasters(r, l) => of_grid(r.grid_of(*l)),
-        Source::Blank(_) => None,
-        Source::Rgb(r) => of_grid(r.bands[0].grid()),
-        Source::Shade(s) => of_grid(s.base.grid()),
-    }
+    None
 }
 
 /// A look in a legend's colours (the classes it names; the others as they were).

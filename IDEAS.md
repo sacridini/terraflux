@@ -3305,8 +3305,11 @@ min ou max de um mapa). Falta tudo na interface: só quem usa a linha de comando
    start}`, `statistic_of` (agora monta o texto e recusa classe que não é número) e as linhas Of the map / Metric /
    Class / Against de `sensitivity_ui`; ajuda de `--statistic` em `cluster.rs`. Testes: os quatro de
    `dist::evaluate::tests`, `a_maps_statistic_is_composed_from_its_kind_and_class` e `share:` no final de
-   `a_sensitivity_analysis_runs_from_its_pane`. Ficou de fora: os nomes das classes na interface (o app não tem a
-   legenda das classes à mão na aba: campo numérico) e a calibração (não usa esses resumos). Falta: os itens 3 a 6.
+   `a_sensitivity_analysis_runs_from_its_pane`. Ficou de fora: a calibração (não usa esses resumos). Falta: os itens 3 a 6.
+   **Feito (2026-11-14): os nomes das classes na aba.** `Class` é um menu "valor – nome" (`batch_view::class_choices`:
+   a legenda de um `raster.legend` a montante, via `legend_view::declared`, ou as classes do produto da paleta, como
+   o MSPA) com "Other value..." e o botão Names de volta; sem legenda, ou com valor fora dela, o campo numérico de
+   antes. `SensitivityState::class` segue o número; o texto de `methods.md` diz "forest (1)" (`class_label`).
 3. **O custo antes de rodar.** As rodadas do desenho (OAT 2k+1, Morris r(k+1), Sobol N(2k+2) ou N(k+2)) vezes as
    réplicas, e o tempo pelo `eta.rs` (a soma dos tempos dos nós das execuções anteriores) dividido pelos workers:
    "Sobol of 6 factors, N=256: 3 584 runs, about 5 h here". Um aviso quando passa de algumas horas.

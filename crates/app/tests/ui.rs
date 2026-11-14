@@ -4289,6 +4289,46 @@ fn a_sensitivity_analysis_runs_from_its_pane() {
     assert!(values.iter().any(|v| *v > 0.0), "{design}");
 }
 
+/// The class of a share is chosen by the names of the output's legend; the class stays a number.
+#[test]
+fn the_class_of_a_sensitivity_analysis_is_chosen_by_its_legend_name() {
+    use terraflux_app::batch_view::{Kind, class_choices, class_label};
+    use terraflux_graph::{Model, Node};
+    let mut m = Model::new("sens-legend");
+    m.nodes.push(
+        Node::new("patches", "nlm.random_cluster")
+            .param("rows", 30)
+            .param("columns", 40)
+            .param("seed", 2)
+            .param("weights", serde_json::json!([0.3, 0.7])),
+    );
+    m.nodes.push(Node::new("habitat", "nlm.binarize").input("map", "patches.map").param("breaks", 0.4));
+    let classes = serde_json::json!([[0, "matrix", "#cccccc"], [1, "habitat", "#228833"]]);
+    m.nodes.push(Node::new("legend", "raster.legend").input("map", "habitat.map").param("classes", classes));
+    let path = tmp("sens-legend.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Batch);
+    {
+        let b = &mut h.state_mut().batch;
+        b.kind = Kind::Sensitivity;
+        b.sens.output = Some("legend.map".into());
+        b.sens.statistic = "share".into();
+    }
+    h.run_steps(3);
+    h.get_by_value("choose a class").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("0 \u{2013} matrix").is_some());
+    h.get_by_label("1 \u{2013} habitat").click();
+    h.run_steps(2);
+    assert_eq!(h.state().batch.sens.class, "1");
+    h.get_by_value("habitat (1)");
+    let names = class_choices(h.state().session.as_ref().unwrap(), "legend.map");
+    assert_eq!(class_label(&names, "1"), "habitat (1)");
+    assert_eq!(class_label(&names, "7"), "7");
+}
+
 #[test]
 fn a_sensitivity_analysis_runs_replicates_at_each_point() {
     use terraflux_app::batch_view::{Kind, Range};
@@ -4922,7 +4962,7 @@ fn many_settings_fold_as_advanced() {
     shot(&mut h, "32-essentials");
     assert!(h.query_by_label("Objective").is_some() && h.query_by_label("Solver").is_some(), "essential");
     assert!(h.query_by_label("Number solutions").is_none(), "advanced, folded");
-    assert!(h.query_by_label("Advanced (39)").is_some(), "48 settings, 9 essential");
+    assert!(h.query_by_label("Advanced (49)").is_some(), "58 settings, 9 essential");
     // a node with an advanced setting given: counted, its fold open when it is selected
     {
         let s = h.state_mut().session.as_mut().unwrap();
@@ -4931,7 +4971,7 @@ fn many_settings_fold_as_advanced() {
         terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "plan2");
     }
     h.run_steps(3);
-    assert!(h.query_by_label("Advanced (39 · 1 given)").is_some());
+    assert!(h.query_by_label("Advanced (49 · 1 given)").is_some());
     assert!(h.query_by_label("Number solutions").is_some(), "open with a setting given");
     shot(&mut h, "32b-essentials-given");
 }

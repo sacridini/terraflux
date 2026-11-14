@@ -7,6 +7,9 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **Sensitivity analysis: classes by name.** The class of a share, area, cells or metric of a map is chosen from a
+  menu of "value – name" entries when the output has a legend (a `raster.legend` node or a GuidosToolbox product's
+  classes), with "Other value..." to type a number; the methods text tells it as "forest (1)".
 - **Forest Code art. 61-B:** `forest_code.app`, with `properties` and `consolidated`, caps the recomposition of the
   consolidated APPs (rivers, lakes, springs, veredas) at 10% of a property of up to 2 fiscal modules and 20% up to 4,
   keeping the cells nearest the water; new outputs `recompose` (map) and `properties` (table: area, modules, cap,
