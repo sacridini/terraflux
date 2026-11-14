@@ -15,6 +15,16 @@ minor versions.
   frozen outputs) holding QSWAT+'s project tables and the grids of subbasins, channels and HRUs; the node's other
   outputs are those three maps and the table of the HRUs; the kernel `hydro_flow_distance` joins landschaft's
   hydrology bindings.
+- **`swat.from_tables` builds a SWAT+ project from a watershed and the weather, `swat.wgn` the weather generator's
+  statistics:** landschaft's `from_tables` (the SWAT+ Editor 4.0.2's GIS and weather import and file writers) and
+  `wgn_from_series`, every file byte for byte with landschaft's (6 cases: its synthetic valley with dates, `codes`
+  and a name, with crop rotations, with three stations of different periods and gaps and humidity, wind and solar
+  radiation, with the generator given, and the example landscape; only the date on each file's first line differs)
+  and the statistics bit for bit (numpy's pairwise sums, pandas' standard deviation). The weather is tables: the
+  stations (`name`, `lat`, `lon`, `elev`) and one series per variable (a `date` column, as 2001-01-31 or 20010131,
+  or `year` and `day`; a column per station; empty for a missing day); `monthly` gives the columns not derived from
+  daily data (`pcp_hhr` at least). The project keeps the watershed it came from (serialized with it), so the chain
+  `swat.watershed` → `swat.from_tables` → `swat.run` is landschaft's `from_rasters` and run, bit for bit.
 - **A SWAT+ project is a value of the graph:** the new type `swat_project` (written as JSON, kept in frozen
   outputs); `swat.load` reads a TxtInOut folder or a zip (checked as `swat.run` does); `swat.set` changes a
   parameter of a project as SWAT+'s hard calibration does (a row in calibration.cal, and in cal_parms.cal when it

@@ -1353,8 +1353,16 @@ linhas de C++ novas em `hydro`, `serv`, `swat`, `surf` e `sim`, e três bibliote
        `gis_*`, `soils_sol*` e as grades das sub-bacias, dos trechos e das HRUs, bit a bit com o landschaft em 18
        casos: os quatro métodos de HRU, limiares, exutórios e `snap`, faixas de declive, ha e percentual, usos
        isentos, `usersoil`, o uso do solo em outra grade; só lat/lon diferem, em até 7e-15 graus pelo PROJ).
-     - Falta: o projeto a partir das tabelas e dos rasters (o `from_tables` do SWAT+ Editor, o clima com o
-       gerador, `from_rasters`) como um valor do grafo, os mapas das HRUs e dos trechos (`hru_map`,
+     - **Feito** (Unreleased): o projeto a partir das tabelas e do clima (`swat.from_tables`: os arquivos do SWAT+
+       Editor 4.0.2, um a um, byte a byte com o `from_tables` do landschaft menos a data da primeira linha de cada
+       arquivo, em 6 casos: o vale sintético, com datas, `codes` e nome, com rotações de culturas, com estações de
+       períodos e lacunas diferentes e umidade, vento e radiação, com o gerador dado, e o exemplo) e do gerador de
+       clima (`swat.wgn`, as estatísticas do WXGEN das séries diárias, bit a bit: a soma em pares do numpy e o
+       desvio-padrão do pandas); o clima são tabelas (estações, uma série por variável com `date` ou `year` e `day`);
+       o projeto guarda a bacia de onde veio (`watershed` no `swat_project`); a cadeia `swat.watershed` →
+       `swat.from_tables` → `swat.run` dá, bit a bit, a rodada do `from_rasters` do landschaft. O `from_rasters` não
+       é um operador: é essa cadeia.
+     - Falta: os mapas das HRUs e dos trechos (`hru_map`,
        `channel_map`, `reach_discharge`), o projeto como valor viajando entre máquinas (a pasta ou o zip de
        `swat.load` e `swat.run` já vão com o modelo nos lotes distribuídos, Unreleased), os templates e os
        tutoriais.

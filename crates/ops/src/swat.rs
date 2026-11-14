@@ -9,6 +9,7 @@ use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 
 use crate::swat_tables::TABLES;
+use crate::swat_watershed::Watershed;
 use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Table, Value};
 
 pub fn register(r: &mut Registry) {
@@ -151,6 +152,26 @@ pub const WEATHER_COLUMNS: [&str; 16] = [
 pub struct Project {
     #[serde(with = "bytes_as_text")]
     pub files: Vec<(String, Vec<u8>)>,
+    /// The division of the landscape the project came from (swat.from_tables), for the maps of its results.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "watershed_of")]
+    pub watershed: Option<Arc<Watershed>>,
+}
+
+/// The watershed of a project as it is written (serde's `Arc` support is not on).
+mod watershed_of {
+    use std::sync::Arc;
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use crate::swat_watershed::Watershed;
+
+    pub fn serialize<S: Serializer>(w: &Option<Arc<Watershed>>, s: S) -> Result<S::Ok, S::Error> {
+        w.as_deref().serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Arc<Watershed>>, D::Error> {
+        Ok(Option::<Watershed>::deserialize(d)?.map(Arc::new))
+    }
 }
 
 /// What SWAT+ writes (outputs of earlier runs found in a TxtInOut folder): landschaft's _OUTPUT.
@@ -183,7 +204,7 @@ pub fn is_txtinout(dir: &std::path::Path) -> bool {
 }
 
 /// LF line ends and a final newline (the Fortran runtime reads records).
-fn normalize(b: &[u8]) -> Vec<u8> {
+pub(crate) fn normalize(b: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(b.len() + 1);
     let mut i = 0;
     while i < b.len() {
@@ -241,7 +262,7 @@ impl Project {
         } else {
             return Err(Error::msg(format!("not a folder or a zip file: {}", path.display())));
         }
-        let project = Project { files };
+        let project = Project { files, watershed: None };
         if project.key("file.cio").is_none() {
             return Err(Error::msg(format!("no file.cio in {}: not a SWAT+ TxtInOut folder", path.display())));
         }

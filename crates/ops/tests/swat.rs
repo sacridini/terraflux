@@ -518,3 +518,446 @@ fn watershed_refuses_what_landschaft_refuses() {
     }
     assert!(err(&inputs, params).contains("CRS"));
 }
+
+// ---------------------------------------------------------------------------------- swat.from_tables, swat.wgn
+
+use sha2::{Digest, Sha256};
+use terraflux_ops::swat::Project;
+
+fn project_reference() -> (BTreeMap<String, Array>, serde_json::Value) {
+    let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/swat_project.npz")).unwrap();
+    let meta: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/swat_project.json")).unwrap())
+            .unwrap();
+    (z, meta)
+}
+
+/// A table from a matrix, the columns named and some of them the labels of numbers.
+fn matrix_table(columns: &[String], a: &Array, text: &BTreeMap<String, Vec<Option<String>>>) -> Table {
+    let mut t = Table::new(columns.to_vec());
+    let n = if columns.is_empty() { 0 } else { a.data.len() / columns.len() };
+    t.rows = (0..n).map(|i| a.data[i * columns.len()..(i + 1) * columns.len()].to_vec()).collect();
+    for (j, c) in columns.iter().enumerate() {
+        let Some(values) = text.get(c) else { continue };
+        let mut names: Vec<String> = Vec::new();
+        for (i, v) in values.iter().enumerate() {
+            t.rows[i][j] = match v {
+                None => f64::NAN,
+                Some(s) => {
+                    let k = names.iter().position(|n| n == s).unwrap_or_else(|| {
+                        names.push(s.clone());
+                        names.len() - 1
+                    });
+                    (k + 1) as f64
+                }
+            };
+        }
+        if !names.is_empty() {
+            t.labels.insert(c.clone(), names);
+        }
+    }
+    t
+}
+
+fn strings(v: &serde_json::Value) -> Vec<String> {
+    v.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect()
+}
+
+/// The watershed of a case as landschaft made it (its tables; the grids are one cell).
+fn ref_watershed(z: &BTreeMap<String, Array>, meta: &serde_json::Value, key: &str) -> Arc<Watershed> {
+    let mut tables = Vec::new();
+    for (t, spec) in meta["watersheds"][key].as_object().unwrap() {
+        let columns = strings(&spec["columns"]);
+        let text: BTreeMap<String, Vec<Option<String>>> = spec["text"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(c, v)| (c.clone(), v.as_array().unwrap().iter().map(|s| s.as_str().map(String::from)).collect()))
+            .collect();
+        tables.push((t.clone(), matrix_table(&columns, &z[&format!("w/{key}/{t}")], &text)));
+    }
+    let one = || Map::new(Arc::new(Grid::new(1, 1)), vec![1.0]);
+    Arc::new(Watershed { tables, subbasins: one(), hrus: one(), channels: one(), notes: Vec::new() })
+}
+
+const WGN_NAMES: [&str; 14] = [
+    "tmp_max_ave",
+    "tmp_min_ave",
+    "tmp_max_sd",
+    "tmp_min_sd",
+    "pcp_ave",
+    "pcp_sd",
+    "pcp_skew",
+    "wet_dry",
+    "wet_wet",
+    "pcp_days",
+    "pcp_hhr",
+    "slr_ave",
+    "dew_ave",
+    "wnd_ave",
+];
+
+/// The weather of a case as tables: the stations, each series and, if given, the generator.
+fn weather_inputs(z: &BTreeMap<String, Array>, rec: &serde_json::Value) -> Vec<(&'static str, Value)> {
+    let n = rec["name"].as_str().unwrap();
+    let mut v = vec![("stations", Value::Table(table_json(&rec["stations"])))];
+    for var in ["pcp", "tmax", "tmin", "slr", "hmd", "wnd"] {
+        if let Some(names) = rec["series"].get(var) {
+            let mut columns = vec!["date".to_string()];
+            columns.extend(strings(names));
+            v.push((var, Value::Table(matrix_table(&columns, &z[&format!("{n}/in/{var}")], &BTreeMap::new()))));
+        }
+    }
+    if let Some(g) = rec.get("wgn_in") {
+        let mut columns = vec!["station".to_string(), "month".to_string()];
+        columns.extend(strings(&g["columns"]));
+        let mut t = matrix_table(&columns, &z[&format!("{n}/in/wgn")], &BTreeMap::new());
+        // the first column holds the numbers 1... of the names, in order of appearance
+        t.labels.insert("station".into(), strings(&g["stations"]));
+        v.push(("wgn", Value::Table(t)));
+    }
+    v
+}
+
+fn project_params(rec: &serde_json::Value) -> serde_json::Value {
+    let mut p = rec["opt"].as_object().cloned().unwrap_or_default();
+    if let Some(m) = rec.get("monthly").filter(|m| !m.is_null()) {
+        p.insert("monthly".into(), m.clone());
+    }
+    serde_json::Value::Object(p)
+}
+
+fn project_of(
+    w: &Arc<Watershed>,
+    inputs: &[(&'static str, Value)],
+    params: serde_json::Value,
+) -> Result<Outputs, terraflux_ops::Error> {
+    let watershed = Value::SwatWatershed(w.clone());
+    let mut refs: Vec<(&str, &Value)> = inputs.iter().map(|(k, v)| (*k, v)).collect();
+    refs.push(("watershed", &watershed));
+    op("swat.from_tables", &refs, params)
+}
+
+/// A file without its first line (the date it was written).
+fn body(b: &[u8]) -> &[u8] {
+    &b[b.iter().position(|c| *c == b'\n').unwrap() + 1..]
+}
+
+fn stored(z: &BTreeMap<String, Array>, case: &str, name: &str) -> Vec<u8> {
+    z[&format!("{case}/file/{name}")].data.iter().map(|b| *b as u8).collect()
+}
+
+/// Every file of the project against landschaft's, byte for byte but for the first line (the date it was written);
+/// the files the editor writes the same for every project by their hash. Returns the files compared.
+fn same_files(case: &str, p: &Project, z: &BTreeMap<String, Array>, rec: &serde_json::Value) -> usize {
+    let mut names: Vec<&str> = p.files.iter().map(|(n, _)| n.as_str()).collect();
+    names.sort();
+    let want = strings(&rec["files"]);
+    assert_eq!(names, want.iter().map(String::as_str).collect::<Vec<_>>(), "{case}: the files");
+    for (name, bytes) in &p.files {
+        let got = body(bytes);
+        if let Some(h) = rec["static"].get(name) {
+            assert_eq!(hex::encode(Sha256::digest(got)), h.as_str().unwrap(), "{case}/{name}");
+            continue;
+        }
+        let want = stored(z, case, name);
+        if got != want.as_slice() {
+            let (g, w) = (String::from_utf8_lossy(got), String::from_utf8_lossy(&want));
+            let k = g.lines().zip(w.lines()).position(|(a, b)| a != b).unwrap_or(0);
+            panic!(
+                "{case}/{name} differs at line {}:\n ours: {:?}\n want: {:?}",
+                k + 2,
+                g.lines().nth(k),
+                w.lines().nth(k)
+            );
+        }
+    }
+    want.len()
+}
+
+#[test]
+fn from_tables_writes_landschafts_files() {
+    let (z, meta) = project_reference();
+    let mut files = 0;
+    for rec in meta["cases"].as_array().unwrap() {
+        let n = rec["name"].as_str().unwrap();
+        let w = ref_watershed(&z, &meta, rec["watershed"].as_str().unwrap());
+        let out = project_of(&w, &weather_inputs(&z, rec), project_params(rec)).unwrap_or_else(|e| panic!("{n}: {e}"));
+        let Value::SwatProject(p) = &out["project"] else { panic!() };
+        files += same_files(n, p, &z, rec);
+        // the project keeps the watershed it came from
+        assert!(Arc::ptr_eq(p.watershed.as_ref().unwrap(), &w), "{n}");
+    }
+    assert!(files > 150, "{files} files compared");
+}
+
+#[test]
+fn dates_are_text_or_year_and_day_as_well() {
+    let (z, meta) = project_reference();
+    let rec = meta["cases"].as_array().unwrap().iter().find(|c| c["name"] == "syn").unwrap();
+    let w = ref_watershed(&z, &meta, "syn");
+    let numbers = weather_inputs(&z, rec);
+    let as_text = |t: &Table| {
+        let mut t = t.clone();
+        let names: Vec<String> = t
+            .rows
+            .iter()
+            .map(|r| {
+                let d = r[0] as i64;
+                format!("{:04}-{:02}-{:02}", d / 10000, d / 100 % 100, d % 100)
+            })
+            .collect();
+        for (i, r) in t.rows.iter_mut().enumerate() {
+            r[0] = (i + 1) as f64;
+        }
+        t.labels.insert("date".into(), names);
+        t
+    };
+    let as_year_day = |t: &Table| {
+        let columns = ["year".to_string(), "day".to_string()].into_iter().chain(t.columns[1..].iter().cloned());
+        let mut out = Table::new(columns.collect());
+        for r in &t.rows {
+            let d = r[0] as i64;
+            let (y, m, dd) = (d / 10000, d / 100 % 100, d % 100);
+            let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+            let before = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334][m as usize - 1];
+            let doy = before + dd + i64::from(leap && m > 2);
+            let mut row = vec![y as f64, doy as f64];
+            row.extend_from_slice(&r[1..]);
+            out.rows.push(row);
+        }
+        out
+    };
+    let base = project_of(&w, &numbers, project_params(rec)).unwrap();
+    let Value::SwatProject(want) = &base["project"] else { panic!() };
+    for convert in [&as_text as &dyn Fn(&Table) -> Table, &as_year_day] {
+        let inputs: Vec<(&'static str, Value)> = numbers
+            .iter()
+            .map(|(k, v)| match v {
+                Value::Table(t) if *k != "stations" => (*k, Value::Table(convert(t))),
+                v => (*k, v.clone()),
+            })
+            .collect();
+        let out = project_of(&w, &inputs, project_params(rec)).unwrap();
+        let Value::SwatProject(got) = &out["project"] else { panic!() };
+        assert_eq!(got.files.len(), want.files.len());
+        for ((n, a), (_, b)) in got.files.iter().zip(&want.files) {
+            assert_eq!(body(a), body(b), "{n}");
+        }
+    }
+}
+
+fn wgn_of(inputs: &[(&str, &Value)], params: serde_json::Value) -> Result<Table, terraflux_ops::Error> {
+    match op("swat.wgn", inputs, params)?.remove("wgn") {
+        Some(Value::Table(t)) => Ok(t),
+        _ => panic!("no wgn"),
+    }
+}
+
+/// The statistics against landschaft's, number for number: how many differ at all, and by how much.
+fn wgn_diff(t: &Table, want: &Array, what: &str) -> (usize, f64) {
+    assert_eq!(t.columns.len(), 17, "{what}");
+    assert_eq!(t.rows.len() * 17, want.data.len(), "{what}: rows");
+    let got: Vec<f64> = t.rows.iter().flatten().copied().collect();
+    let bad = got.iter().zip(&want.data).filter(|(a, b)| !same(**a, **b)).count();
+    let worst = got.iter().zip(&want.data).map(|(a, b)| (a - b).abs() / b.abs().max(1.0)).fold(0.0, f64::max);
+    (bad, worst)
+}
+
+#[test]
+fn wgn_is_landschafts_to_the_bit() {
+    let (z, meta) = project_reference();
+    let mut checked = 0;
+    for c in meta["wgn_cases"].as_array().unwrap() {
+        let n = c["name"].as_str().unwrap();
+        let inputs: Vec<(&str, Value)> = if n == "small" {
+            let mut columns = vec!["date".to_string()];
+            columns.extend(strings(&c["series"]));
+            let t = |k: &str| Value::Table(matrix_table(&columns, &z[&format!("wgn/small_{k}")], &BTreeMap::new()));
+            vec![("pcp", t("pcp")), ("tmax", t("tmax")), ("tmin", t("tmin"))]
+        } else {
+            let rec = meta["cases"].as_array().unwrap().iter().find(|r| r["name"] == c["case"]).unwrap();
+            weather_inputs(&z, rec).into_iter().filter(|(k, _)| *k != "stations" && *k != "wgn").collect()
+        };
+        let refs: Vec<(&str, &Value)> = inputs.iter().map(|(k, v)| (*k, v)).collect();
+        let params =
+            if c["monthly"].is_null() { serde_json::json!({}) } else { serde_json::json!({ "monthly": c["monthly"] }) };
+        let t = wgn_of(&refs, params).unwrap_or_else(|e| panic!("{n}: {e}"));
+        let (bad, worst) = wgn_diff(&t, &z[&format!("wgn/{n}")], n);
+        eprintln!("wgn {n}: {bad} of {} numbers differ, the largest relative difference {worst:e}", t.rows.len() * 17);
+        assert_eq!(bad, 0, "{n}: {bad} numbers differ (the largest relative difference {worst:e})");
+        // the stations come with their names, in order of appearance
+        assert_eq!(t.labels["station"], strings(&c["stations"]), "{n}");
+        assert_eq!(t.columns[2..16], WGN_NAMES, "{n}");
+        checked += t.rows.len();
+    }
+    assert!(checked >= 72, "{checked} station months");
+}
+
+/// landschaft's test_weather_generator_statistics.
+#[test]
+fn wgn_statistics_are_what_they_say() {
+    let new = || Table::new(vec!["date".into(), "a".into()]);
+    let (mut pcp, mut tx, mut tn) = (new(), new(), new());
+    for y in 2000..=2003i64 {
+        for m in 1..=12i64 {
+            let len = match m {
+                2 if y % 4 == 0 => 29,
+                2 => 28,
+                4 | 6 | 9 | 11 => 30,
+                _ => 31,
+            };
+            for day in 1..=len {
+                let date = (y * 10000 + m * 100 + day) as f64;
+                pcp.rows.push(vec![date, if day % 3 == 0 { 6.0 } else { 0.0 }]);
+                let t = if day % 2 == 0 { 20.0 } else { 10.0 };
+                tx.rows.push(vec![date, t]);
+                tn.rows.push(vec![date, t - 10.0]);
+            }
+        }
+    }
+    let (p, a, b) = (Value::Table(pcp), Value::Table(tx), Value::Table(tn));
+    let inputs = [("pcp", &p), ("tmax", &a), ("tmin", &b)];
+    let monthly = serde_json::json!({ "monthly": { "pcp_hhr": 5.0, "slr_ave": 10.0, "dew_ave": 1.0, "wnd_ave": 2.0 } });
+    let t = wgn_of(&inputs, monthly).unwrap();
+    let jan: Vec<f64> = t.rows[0].clone();
+    let at = |c: &str| jan[t.columns.iter().position(|x| x == c).unwrap()];
+    // even days 20, odd days 10
+    assert!((at("tmp_max_ave") - (15.0 * 20.0 + 16.0 * 10.0) / 31.0).abs() < 1e-12);
+    assert!((at("tmp_min_ave") - (15.0 * 10.0) / 31.0).abs() < 1e-12);
+    // days 3, 6, ..., 30 of each January
+    assert!((at("pcp_days") - 10.0).abs() < 1e-12 && (at("pcp_ave") - 60.0).abs() < 1e-12);
+    assert!(at("wet_wet") == 0.0 && at("wet_dry") > 0.0 && at("wet_dry") < 1.0);
+    assert_eq!(at("rain_yrs"), 4.0);
+    // what the series do not give, monthly must
+    let e = wgn_of(&inputs, serde_json::json!({})).err().unwrap().to_string();
+    assert!(
+        e.contains("the weather generator needs ['pcp_hhr', 'slr_ave', 'dew_ave', 'wnd_ave']: give their daily series or monthly="),
+        "{e}"
+    );
+    let e = wgn_of(&inputs, serde_json::json!({ "monthly": { "foo": 1 } })).err().unwrap().to_string();
+    assert!(e.contains("unknown weather generator column 'foo'"), "{e}");
+}
+
+#[test]
+fn from_tables_refuses_what_landschaft_refuses() {
+    let (z, meta) = project_reference();
+    let rec = meta["cases"].as_array().unwrap().iter().find(|c| c["name"] == "syn").unwrap();
+    let w = ref_watershed(&z, &meta, "syn");
+    let inputs = weather_inputs(&z, rec);
+    let err = |inputs: &[(&'static str, Value)], params: serde_json::Value| {
+        project_of(&w, inputs, params).err().unwrap().to_string()
+    };
+    // a date repeats
+    let mut bad = inputs.clone();
+    for (k, v) in bad.iter_mut() {
+        if let (true, Value::Table(t)) = (*k == "pcp", &mut *v) {
+            let first = t.rows[0].clone();
+            t.rows.push(first);
+        }
+    }
+    assert!(err(&bad, project_params(rec)).contains("pcp: dates repeat"));
+    // a station the table lacks
+    let mut bad = inputs.clone();
+    for (k, v) in bad.iter_mut() {
+        if let (true, Value::Table(t)) = (*k == "tmax", &mut *v) {
+            t.columns[1] = "nowhere".into();
+        }
+    }
+    assert!(err(&bad, project_params(rec)).contains("tmax: stations ['nowhere'] are not in the station table"));
+    // a column of codes.bsn that is not
+    let mut params = project_params(rec);
+    params["codes"] = serde_json::json!({ "zzz": 1 });
+    assert!(err(&inputs, params).contains("codes.bsn has no column 'zzz'"));
+    // no pcp_hhr
+    let mut params = project_params(rec);
+    params.as_object_mut().unwrap().remove("monthly");
+    assert!(err(&inputs, params).contains("the weather generator needs"));
+    // a wetland land use
+    let (l, case) = syn_case("syn_names");
+    let wet = ws(&l, &case);
+    let e = project_of(&wet, &inputs, project_params(rec)).err().unwrap().to_string();
+    assert!(e.contains("wetland"), "{e}");
+}
+
+/// The chain of operators (swat.watershed, swat.from_tables, swat.run) against landschaft's from_rasters and run.
+#[test]
+fn the_chain_from_rasters_runs_as_landschafts() {
+    let (z, meta) = project_reference();
+    let (zw, wmeta) = reference();
+    let lands: BTreeMap<String, Land> = ["syn", "ex"].iter().map(|n| (n.to_string(), land(&zw, &wmeta, n))).collect();
+    let mut compared = 0;
+    for rec in meta["cases"].as_array().unwrap() {
+        let n = rec["name"].as_str().unwrap();
+        if z.keys().all(|k| !k.starts_with(&format!("{n}/run/"))) {
+            continue;
+        }
+        let (landscape, wname) = if n == "ex" { ("ex", "ex_default") } else { ("syn", "syn_filter_options") };
+        let mut case = wmeta["cases"].as_array().unwrap().iter().find(|c| c["name"] == wname).unwrap().clone();
+        if n == "syn_crops" {
+            case["landuse_lookup"] = serde_json::json!({ "1": "CORN", "2": "WWHT", "3": "URMD" });
+        }
+        let w = ws(&lands[landscape], &case);
+        let out = project_of(&w, &weather_inputs(&z, rec), project_params(rec)).unwrap_or_else(|e| panic!("{n}: {e}"));
+        let project = out["project"].clone();
+        // (the degrees of the tables come from PROJ 9.7 here and 9.5 there: files with them can differ in a digit)
+        let Value::SwatProject(p) = &project else { panic!() };
+        let differ = p
+            .files
+            .iter()
+            .filter(|(f, b)| rec["static"].get(f).is_none() && body(b) != stored(&z, n, f).as_slice())
+            .map(|(f, _)| f.as_str())
+            .collect::<Vec<_>>();
+        eprintln!("chain {n}: the files that are not byte for byte landschaft's: {differ:?}");
+        let run = op("swat.run", &[("project", &project)], serde_json::json!({ "step": "year", "nyskip": 0 })).unwrap();
+        for t in ["hru_wb", "hru_ls", "basin_wb", "channel_sd", "aquifer"] {
+            let Value::Table(got) = &run[t] else { panic!("{n}/{t}") };
+            let want = &z[&format!("{n}/run/{t}")];
+            let width = got.columns.len();
+            assert_eq!(got.rows.len() * width, want.data.len(), "{n}/{t}: shape");
+            let mut bits = 0;
+            for j in 0..width {
+                let scale = (0..got.rows.len()).map(|i| want.data[i * width + j].abs()).fold(0.0, f64::max);
+                for i in 0..got.rows.len() {
+                    let (a, b) = (got.rows[i][j], want.data[i * width + j]);
+                    bits += usize::from(!same(a, b));
+                    // landschaft's SWAT tolerance
+                    assert!(
+                        (a.is_nan() && b.is_nan()) || (a - b).abs() <= 1e-4 * (b.abs() + scale),
+                        "{n}/{t}[{i}][{j}]: {a} against {b}"
+                    );
+                }
+            }
+            eprintln!("chain {n}/{t}: {bits} of {} values not bit for bit", want.data.len());
+            compared += want.data.len();
+        }
+    }
+    assert!(compared > 1000);
+}
+
+#[test]
+fn a_project_with_its_watershed_is_written_and_read_back() {
+    let (z, meta) = project_reference();
+    let rec = meta["cases"].as_array().unwrap().iter().find(|c| c["name"] == "syn").unwrap();
+    let w = ref_watershed(&z, &meta, "syn");
+    let out = project_of(&w, &weather_inputs(&z, rec), project_params(rec)).unwrap();
+    let Value::SwatProject(p) = &out["project"] else { panic!() };
+    let text = serde_json::to_string(&**p).unwrap();
+    let back: Project = serde_json::from_str(&text).unwrap();
+    assert_eq!(back.files, p.files);
+    let (a, b) = (p.watershed.as_ref().unwrap(), back.watershed.as_ref().unwrap());
+    assert_eq!(a.tables.len(), b.tables.len());
+    for ((n, x), (m, y)) in a.tables.iter().zip(&b.tables) {
+        assert_eq!((n, &x.columns, &x.labels), (m, &y.columns, &y.labels));
+        assert!(x.rows.iter().flatten().zip(y.rows.iter().flatten()).all(|(u, v)| same(*u, *v)), "{n}");
+    }
+    // swat.set keeps it; a project without one is written without
+    let change = serde_json::json!({ "parameter": "awc", "change": "pctchg", "value": 5 });
+    let set = op("swat.set", &[("project", &out["project"])], change).unwrap();
+    let Value::SwatProject(s) = &set["project"] else { panic!() };
+    assert!(s.watershed.is_some());
+    let Value::SwatProject(plain) = load() else { panic!() };
+    assert!(!serde_json::to_string(&*plain).unwrap().contains("watershed"));
+    let again: Project = serde_json::from_str(&serde_json::to_string(&*plain).unwrap()).unwrap();
+    assert!(again.watershed.is_none());
+}
