@@ -14947,6 +14947,12 @@
     "doc": "the cells' side (default 1)"
    },
    {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like swat.watershed, ask for it); ignored with like"
+   },
+   {
     "name": "seed",
     "type": "integer",
     "required": false,
@@ -15019,6 +15025,12 @@
     "doc": "the cells' side (default 1)"
    },
    {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like swat.watershed, ask for it); ignored with like"
+   },
+   {
     "name": "seed",
     "type": "integer",
     "required": false,
@@ -15079,6 +15091,12 @@
     "doc": "the cells' side (default 1)"
    },
    {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like swat.watershed, ask for it); ignored with like"
+   },
+   {
     "name": "seed",
     "type": "integer",
     "required": false,
@@ -15131,6 +15149,12 @@
     "type": "number",
     "required": false,
     "doc": "the cells' side (default 1)"
+   },
+   {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like swat.watershed, ask for it); ignored with like"
    },
    {
     "name": "seed",
@@ -15253,6 +15277,12 @@
     "doc": "the cells' side (default 1)"
    },
    {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like swat.watershed, ask for it); ignored with like"
+   },
+   {
     "name": "seed",
     "type": "integer",
     "required": false,
@@ -15343,6 +15373,12 @@
     "doc": "the cells' side (default 1)"
    },
    {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like swat.watershed, ask for it); ignored with like"
+   },
+   {
     "name": "seed",
     "type": "integer",
     "required": false,
@@ -15421,6 +15457,12 @@
     "doc": "the cells' side (default 1)"
    },
    {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like swat.watershed, ask for it); ignored with like"
+   },
+   {
     "name": "seed",
     "type": "integer",
     "required": false,
@@ -15485,6 +15527,12 @@
     "type": "number",
     "required": false,
     "doc": "the cells' side (default 1)"
+   },
+   {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like swat.watershed, ask for it); ignored with like"
    },
    {
     "name": "seed",
@@ -15563,6 +15611,12 @@
     "type": "number",
     "required": false,
     "doc": "the cells' side (default 1)"
+   },
+   {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like swat.watershed, ask for it); ignored with like"
    },
    {
     "name": "seed",
@@ -15653,6 +15707,12 @@
     "doc": "the cells' side (default 1)"
    },
    {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like swat.watershed, ask for it); ignored with like"
+   },
+   {
     "name": "seed",
     "type": "integer",
     "required": false,
@@ -15711,6 +15771,12 @@
     "type": "number",
     "required": false,
     "doc": "the cells' side (default 1)"
+   },
+   {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like swat.watershed, ask for it); ignored with like"
    },
    {
     "name": "seed",
@@ -15773,6 +15839,12 @@
     "doc": "the cells' side (default 1)"
    },
    {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like swat.watershed, ask for it); ignored with like"
+   },
+   {
     "name": "seed",
     "type": "integer",
     "required": false,
@@ -15825,6 +15897,12 @@
     "type": "number",
     "required": false,
     "doc": "the cells' side (default 1)"
+   },
+   {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like swat.watershed, ask for it); ignored with like"
    },
    {
     "name": "seed",
@@ -15895,6 +15973,12 @@
     "type": "number",
     "required": false,
     "doc": "the cells' side (default 1)"
+   },
+   {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like swat.watershed, ask for it); ignored with like"
    },
    {
     "name": "seed",
@@ -16268,6 +16352,22 @@
     "type": "number",
     "required": false,
     "doc": "seconds (default none)"
+   },
+   {
+    "name": "solver",
+    "type": "text",
+    "required": false,
+    "doc": "highs (default: landschaft's closure engine, then HiGHS) or gurobi: Gurobi when it is installed and licensed, else HiGHS with a warning",
+    "choices": [
+     "highs",
+     "gurobi"
+    ]
+   },
+   {
+    "name": "threads",
+    "type": "number",
+    "required": false,
+    "doc": "gurobi: its threads (default and most: Terraflux's threads, never every core)"
    }
   ],
   "access": "global",
@@ -16481,6 +16581,22 @@
     "type": "number",
     "required": false,
     "doc": "seconds (default none)"
+   },
+   {
+    "name": "solver",
+    "type": "text",
+    "required": false,
+    "doc": "highs (default: landschaft's closure engine, then HiGHS) or gurobi: Gurobi when it is installed and licensed, else HiGHS with a warning",
+    "choices": [
+     "highs",
+     "gurobi"
+    ]
+   },
+   {
+    "name": "threads",
+    "type": "number",
+    "required": false,
+    "doc": "gurobi: its threads (default and most: Terraflux's threads, never every core)"
    }
   ],
   "access": "global",
@@ -16845,6 +16961,22 @@
     "type": "number",
     "required": false,
     "doc": "seconds per solve (default none: a strong penalty can make a solve take hours; the candidates stopped by it are marked not optimal, with their gap)"
+   },
+   {
+    "name": "solver",
+    "type": "text",
+    "required": false,
+    "doc": "the solves' solver: highs (default) or gurobi: Gurobi when it is installed and licensed, else HiGHS with a warning",
+    "choices": [
+     "highs",
+     "gurobi"
+    ]
+   },
+   {
+    "name": "threads",
+    "type": "number",
+    "required": false,
+    "doc": "gurobi: the threads of the ideal solves (default and most: Terraflux's threads, never every core); the candidates solve in parallel, one thread each"
    }
   ],
   "access": "global",
@@ -21430,6 +21562,22 @@
     "type": "number",
     "required": false,
     "doc": "exact: seconds (default none)"
+   },
+   {
+    "name": "solver",
+    "type": "text",
+    "required": false,
+    "doc": "the linear programs' solver: highs (default) or gurobi: Gurobi when it is installed and licensed, else HiGHS with a warning",
+    "choices": [
+     "highs",
+     "gurobi"
+    ]
+   },
+   {
+    "name": "threads",
+    "type": "number",
+    "required": false,
+    "doc": "gurobi: the threads of each solve (default and most: Terraflux's threads, never every core)"
    }
   ],
   "access": "global",
@@ -26770,9 +26918,506 @@
   "container": false
  },
  {
+  "name": "swat.channel_map",
+  "doc": "A channel result of SWAT+ on the stream cells (landschaft's channel_map; by default the mean discharge, m3/s): NaN off the streams. The project must carry its watershed (swat.from_tables). It reads the channel_sd table of a swat.run of the same project (the average annual one, step aa, for how annual; the daily one, step day, for the others); with none connected it runs the project itself.",
+  "inputs": [
+   {
+    "name": "project",
+    "type": "swat_project",
+    "required": true,
+    "doc": "the project (swat.from_tables, swat.set)"
+   },
+   {
+    "name": "values",
+    "type": "table",
+    "required": false,
+    "doc": "instead of a column: values by channel, a table of the channel's number (from 1) and the value"
+   },
+   {
+    "name": "channel_sd",
+    "type": "table",
+    "required": false,
+    "doc": "the channel_sd table of a swat.run of the project, to read"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the value of each channel, on the channels' cells"
+   }
+  ],
+  "params": [
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "a column of the channel table (default flo_out, m3/s)",
+    "choices": [
+     "area",
+     "precip",
+     "evap",
+     "seep",
+     "flo_stor",
+     "sed_stor",
+     "orgn_stor",
+     "sedp_stor",
+     "no3_stor",
+     "solp_stor",
+     "chla_stor",
+     "nh3_stor",
+     "no2_stor",
+     "cbod_stor",
+     "dox_stor",
+     "san_stor",
+     "sil_stor",
+     "cla_stor",
+     "sag_stor",
+     "lag_stor",
+     "grv_stor",
+     "temp_stor",
+     "flo_in",
+     "sed_in",
+     "orgn_in",
+     "sedp_in",
+     "no3_in",
+     "solp_in",
+     "chla_in",
+     "nh3_in",
+     "no2_in",
+     "cbod_in",
+     "dox_in",
+     "san_in",
+     "sil_in",
+     "cla_in",
+     "sag_in",
+     "lag_in",
+     "grv_in",
+     "temp_in",
+     "flo_out",
+     "sed_out",
+     "orgn_out",
+     "sedp_out",
+     "no3_out",
+     "solp_out",
+     "chla_out",
+     "nh3_out",
+     "no2_out",
+     "cbod_out",
+     "dox_out",
+     "san_out",
+     "sil_out",
+     "cla_out",
+     "sag_out",
+     "lag_out",
+     "grv_out",
+     "temp_out",
+     "water_temp"
+    ]
+   },
+   {
+    "name": "how",
+    "type": "text",
+    "required": false,
+    "doc": "mean (default), max or sum of the daily values; or annual: SWAT+'s average annual value",
+    "choices": [
+     "annual",
+     "mean",
+     "max",
+     "sum"
+    ]
+   },
+   {
+    "name": "nyskip",
+    "type": "integer",
+    "required": false,
+    "doc": "when the project is run here (no table connected): the years simulated before printing (default print.prt's)"
+   },
+   {
+    "name": "c_factor",
+    "type": "text",
+    "required": false,
+    "doc": "when the project is run here: MUSLE's C, swatplus (default) or plant (the plants' minimum)",
+    "choices": [
+     "swatplus",
+     "plant"
+    ]
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "swat.from_tables",
+  "doc": "A SWAT+ project from a watershed (swat.watershed: QSWAT+'s tables) and the weather, as the SWAT+ Editor 4.0.2 makes it (landschaft's from_tables, file for file): the TxtInOut files (hru-data.hru, the connections, routing units, aquifers, SWAT-DEG channels, land uses and their plant communities and crop rotations, soils, weather stations at the coordinates of the weather files with each object matched to the nearest station, the weather generator, time.sim and file.cio) as a value to run (swat.run) or to change (swat.set); it keeps the watershed for the maps of the results. The weather is tables: the stations (name, lat, lon, elev) and a daily series each of precipitation, maximum and minimum temperature and, if there are, solar radiation, humidity and wind (one row per day: date, as 2001-01-31 or 20010131, or year and day; a column per station; empty for a missing day). The weather generator's statistics are computed from them (swat.wgn) unless given in wgn. Wetland land uses are refused (the port does not simulate them). The first line of each file carries the date it was written (UTC).",
+  "inputs": [
+   {
+    "name": "watershed",
+    "type": "swat_watershed",
+    "required": true,
+    "doc": "the watershed (swat.watershed)"
+   },
+   {
+    "name": "stations",
+    "type": "table",
+    "required": true,
+    "doc": "the weather stations: name, lat, lon (degrees), elev (m)"
+   },
+   {
+    "name": "pcp",
+    "type": "table",
+    "required": true,
+    "doc": "daily precipitation (mm)"
+   },
+   {
+    "name": "tmax",
+    "type": "table",
+    "required": true,
+    "doc": "daily maximum temperature (deg C)"
+   },
+   {
+    "name": "tmin",
+    "type": "table",
+    "required": true,
+    "doc": "daily minimum temperature (deg C)"
+   },
+   {
+    "name": "slr",
+    "type": "table",
+    "required": false,
+    "doc": "daily solar radiation (MJ/m2; SWAT+ generates it when absent)"
+   },
+   {
+    "name": "hmd",
+    "type": "table",
+    "required": false,
+    "doc": "daily relative humidity (fraction)"
+   },
+   {
+    "name": "wnd",
+    "type": "table",
+    "required": false,
+    "doc": "daily wind speed (m/s)"
+   },
+   {
+    "name": "wgn",
+    "type": "table",
+    "required": false,
+    "doc": "the weather generator statistics as swat.wgn gives them (e.g. from SWAT+'s WGN database), instead of computing them from the series"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "project",
+    "type": "swat_project",
+    "required": true,
+    "doc": "the project"
+   }
+  ],
+  "params": [
+   {
+    "name": "start",
+    "type": "text",
+    "required": false,
+    "doc": "the first day simulated, 2001-01-31 (default: the latest first day of the weather files)"
+   },
+   {
+    "name": "end",
+    "type": "text",
+    "required": false,
+    "doc": "the last day simulated (default: the earliest last day of the weather files)"
+   },
+   {
+    "name": "codes",
+    "type": "any",
+    "required": false,
+    "doc": "columns of codes.bsn to change, {\"pet\": 2} for Hargreaves, {\"rte_cha\": 1} for Muskingum"
+   },
+   {
+    "name": "name",
+    "type": "text",
+    "required": false,
+    "doc": "the project's name (object.cnt; default landschaft)"
+   },
+   {
+    "name": "monthly",
+    "type": "any",
+    "required": false,
+    "doc": "of the generator's statistics, the values not derived from daily data, by column (as swat.wgn): pcp_hhr, the largest half-hour rainfall of each month, at least"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "swat.hru_map",
+  "doc": "An HRU result of SWAT+ on the map (landschaft's hru_map): each cell takes the value of its HRU (NaN outside the watershed and on cells whose land use, soil and slope combination was folded into other HRUs). The project must carry its watershed (swat.from_tables). It reads the table of the variable from a swat.run of the same project (hru_wb, hru_nb, hru_ls or hru_pw: the average annual one, step aa, for how annual; the daily one, step day, for the others), so that several variables of one run do not simulate it again; with no table connected it runs the project itself.",
+  "inputs": [
+   {
+    "name": "project",
+    "type": "swat_project",
+    "required": true,
+    "doc": "the project (swat.from_tables, swat.set)"
+   },
+   {
+    "name": "values",
+    "type": "table",
+    "required": false,
+    "doc": "instead of a variable: values by HRU, a table of the HRU's number (from 1) and the value"
+   },
+   {
+    "name": "hru_wb",
+    "type": "table",
+    "required": false,
+    "doc": "the table of a swat.run of the project, to read"
+   },
+   {
+    "name": "hru_nb",
+    "type": "table",
+    "required": false,
+    "doc": "the table of a swat.run of the project, to read"
+   },
+   {
+    "name": "hru_ls",
+    "type": "table",
+    "required": false,
+    "doc": "the table of a swat.run of the project, to read"
+   },
+   {
+    "name": "hru_pw",
+    "type": "table",
+    "required": false,
+    "doc": "the table of a swat.run of the project, to read"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the value of each cell's HRU, on the DEM's grid"
+   }
+  ],
+  "params": [
+   {
+    "name": "variable",
+    "type": "text",
+    "required": false,
+    "doc": "a column of an HRU table: e.g. sedyld (the soil loss, t/ha), wateryld, surq_gen, et (mm), bioms (kg/ha)",
+    "choices": [
+     "precip",
+     "snofall",
+     "snomlt",
+     "surq_gen",
+     "latq",
+     "wateryld",
+     "perc",
+     "et",
+     "ecanopy",
+     "eplant",
+     "esoil",
+     "surq_cont",
+     "cn",
+     "sw_init",
+     "sw_final",
+     "sw_ave",
+     "sw_300",
+     "sno_init",
+     "sno_final",
+     "snopack",
+     "pet",
+     "qtile",
+     "irr",
+     "surq_runon",
+     "latq_runon",
+     "overbank",
+     "surq_cha",
+     "surq_res",
+     "surq_ls",
+     "latq_cha",
+     "latq_res",
+     "latq_ls",
+     "gwsoilq",
+     "satex",
+     "satex_chan",
+     "sw_change",
+     "lagsurf",
+     "laglatq",
+     "lagsatex",
+     "wet_evap",
+     "wet_oflo",
+     "wet_stor",
+     "grzn",
+     "grzp",
+     "lab_min_p",
+     "act_sta_p",
+     "fertn",
+     "fertp",
+     "fixn",
+     "denit",
+     "act_nit_n",
+     "act_sta_n",
+     "org_lab_p",
+     "rsd_nitorg_n",
+     "rsd_laborg_p",
+     "no3atmo",
+     "nh4atmo",
+     "nuptake",
+     "puptake",
+     "gwsoiln",
+     "gwsoilp",
+     "sedyld",
+     "sedorgn",
+     "sedorgp",
+     "surqno3",
+     "lat3no3",
+     "surqsolp",
+     "usle",
+     "sedminp",
+     "tileno3",
+     "lchlabp",
+     "tilelabp",
+     "satexn",
+     "percn",
+     "lai",
+     "bioms",
+     "yield",
+     "residue",
+     "sol_tmp",
+     "strsw",
+     "strsa",
+     "strstmp",
+     "strsn",
+     "strsp",
+     "strss",
+     "nplt",
+     "pplnt",
+     "tmx",
+     "tmn",
+     "tmpav",
+     "solarad",
+     "wndspd",
+     "rhum",
+     "phubas0",
+     "lai_max",
+     "bm_max",
+     "bm_grow",
+     "c_gro"
+    ]
+   },
+   {
+    "name": "how",
+    "type": "text",
+    "required": false,
+    "doc": "annual (default): SWAT+'s average annual value (the yearly total of a flux, the mean of a state, after the years print.prt skips); or of the daily values: mean, max, sum",
+    "choices": [
+     "annual",
+     "mean",
+     "max",
+     "sum"
+    ]
+   },
+   {
+    "name": "nyskip",
+    "type": "integer",
+    "required": false,
+    "doc": "when the project is run here (no table connected): the years simulated before printing (default print.prt's)"
+   },
+   {
+    "name": "c_factor",
+    "type": "text",
+    "required": false,
+    "doc": "when the project is run here: MUSLE's C, swatplus (default) or plant (the plants' minimum)",
+    "choices": [
+     "swatplus",
+     "plant"
+    ]
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "swat.load",
+  "doc": "Load a SWAT+ project (landschaft's load_txtinout): a TxtInOut folder (with file.cio) or a zip of one, as a value to run (swat.run) or to change (swat.set). The files SWAT+ itself wrote in earlier runs are left out.",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "project",
+    "type": "swat_project",
+    "required": true,
+    "doc": "the project"
+   }
+  ],
+  "params": [
+   {
+    "name": "path",
+    "type": "text",
+    "required": true,
+    "doc": "the TxtInOut folder (with file.cio) or a zip of it"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "swat.reach_discharge",
+  "doc": "The daily discharge leaving each channel (landschaft's reach_discharge; m3/s, channel_sd's flo_out): a row per date (year, day of the year) and a column per channel (channel_1...). It reads the daily channel_sd table (step day) of a swat.run of the project; with none connected it runs the project itself.",
+  "inputs": [
+   {
+    "name": "project",
+    "type": "swat_project",
+    "required": false,
+    "doc": "the project (swat.from_tables, swat.set)"
+   },
+   {
+    "name": "channel_sd",
+    "type": "table",
+    "required": false,
+    "doc": "the daily channel_sd table of a swat.run, to read"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the discharge by date and channel (m3/s)"
+   }
+  ],
+  "params": [
+   {
+    "name": "nyskip",
+    "type": "integer",
+    "required": false,
+    "doc": "when the project is run here (no table connected): the years simulated before printing (default print.prt's)"
+   },
+   {
+    "name": "c_factor",
+    "type": "text",
+    "required": false,
+    "doc": "when the project is run here: MUSLE's C, swatplus (default) or plant (the plants' minimum)",
+    "choices": [
+     "swatplus",
+     "plant"
+    ]
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
   "name": "swat.run",
   "doc": "Simulate a SWAT+ project (a TxtInOut folder or a zip of one) as SWAT+ 62.0.1 does, through landschaft's port of it (bit for bit with SWAT+ for what the port covers: measured and generated weather, HRUs with snow, ET, curve number runoff, MUSLE erosion, percolation, lateral flow, nutrients, plant growth and management, routing units, aquifers, SWAT-DEG channels). The tables SWAT+ prints, at a step: a row per date (year, day of the year) and object (HRU, channel, aquifer; the basin's by date).",
-  "inputs": [],
+  "inputs": [
+   {
+    "name": "project",
+    "type": "swat_project",
+    "required": false,
+    "doc": "the project (swat.load, swat.set), instead of path"
+   }
+  ],
   "outputs": [
    {
     "name": "weather",
@@ -26845,8 +27490,8 @@
    {
     "name": "path",
     "type": "text",
-    "required": true,
-    "doc": "the TxtInOut folder (with file.cio) or a zip of it"
+    "required": false,
+    "doc": "the TxtInOut folder (with file.cio) or a zip of it, instead of a project"
    },
    {
     "name": "step",
@@ -26881,6 +27526,346 @@
      "swatplus",
      "plant"
     ]
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "swat.set",
+  "doc": "A SWAT+ project with a parameter changed, as SWAT+'s hard calibration does (calibration.cal, which the run applies before it starts): the soil's, the HRUs' or the basin's, by a percentage, an amount or a value, in the soil layers or the HRUs chosen. The project given is not changed; nodes in a chain make their changes in order. Settings read a model input (\"$x\"), which is how a batch or a calibration varies them. SWAT+'s conditions and the plants' parameters are not supported by the port.",
+  "inputs": [
+   {
+    "name": "project",
+    "type": "swat_project",
+    "required": true,
+    "doc": "the project (swat.load, swat.set)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "project",
+    "type": "swat_project",
+    "required": true,
+    "doc": "the project with the change"
+   }
+  ],
+  "params": [
+   {
+    "name": "parameter",
+    "type": "text",
+    "required": true,
+    "doc": "the parameter changed (cal_parms.cal's name)",
+    "choices": [
+     "cn2",
+     "cn3_swf",
+     "usle_p",
+     "ovn",
+     "elev",
+     "slope",
+     "slope_len",
+     "lat_ttime",
+     "lat_sed",
+     "lat_len",
+     "latq_co",
+     "canmx",
+     "esco",
+     "epco",
+     "erorgn",
+     "erorgp",
+     "dis_stream",
+     "biomix",
+     "perco",
+     "petco",
+     "lat_orgn",
+     "lat_orgp",
+     "field_len",
+     "field_wid",
+     "field_ang",
+     "snofall_tmp",
+     "snomelt_tmp",
+     "snomelt_max",
+     "snomelt_min",
+     "snomelt_lag",
+     "anion_excl",
+     "crk",
+     "z",
+     "bd",
+     "awc",
+     "k",
+     "cbn",
+     "clay",
+     "silt",
+     "sand",
+     "rock",
+     "alb",
+     "usle_k",
+     "ec",
+     "cal",
+     "ph",
+     "plaps",
+     "tlaps",
+     "surlag",
+     "adj_pkr",
+     "prf",
+     "evrch",
+     "evlai",
+     "ffcb",
+     "cmn",
+     "nperco",
+     "pperco",
+     "phoskd",
+     "psp",
+     "rsdco",
+     "percop",
+     "msk_co1",
+     "msk_co2",
+     "msk_x",
+     "cdn",
+     "tb_adj",
+     "sdnco",
+     "n_updis",
+     "dorm_hr"
+    ]
+   },
+   {
+    "name": "change",
+    "type": "text",
+    "required": false,
+    "doc": "how: pctchg (a percentage of the value, 10 is 10% more), abschg (an amount added) or absval (the value itself; default)",
+    "choices": [
+     "absval",
+     "pctchg",
+     "abschg"
+    ]
+   },
+   {
+    "name": "value",
+    "type": "number",
+    "required": true,
+    "doc": "the percentage, the amount or the value"
+   },
+   {
+    "name": "first_layer",
+    "type": "integer",
+    "required": false,
+    "doc": "of a soil parameter: the first layer changed (default the first)"
+   },
+   {
+    "name": "last_layer",
+    "type": "integer",
+    "required": false,
+    "doc": "of a soil parameter: the last layer changed (default the last)"
+   },
+   {
+    "name": "objects",
+    "type": "any",
+    "required": false,
+    "doc": "the HRUs changed, by number from 1 (a list; as SWAT+'s lists, 1, -5, 8 is 1 to 5 and 8; default every one)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "swat.watershed",
+  "doc": "Divide a watershed into subbasins, channels and HRUs as QSWAT+ does (landschaft's watershed, bit for bit): the DEM is filled and drains along D8 directions, every cell whose drainage area reaches the stream threshold is a stream, each stream link (split at the outlets) is a channel with its subbasin and one landscape unit; HRUs are the combinations of land use, soil and slope band in a landscape unit, selected by the method chosen (QSWAT+'s: one HRU per unit, or every combination above thresholds or above an area; removed HRUs give their area to the others). Gives QSWAT+'s project tables as a value (the SWAT+ Editor's import) and the maps of the subbasins, channels and HRUs; channel width and depth come from the drainage area (1.29 A^0.6, 0.13 A^0.4, A in km2).",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (m), in a projected CRS (or longitude / latitude)"
+   },
+   {
+    "name": "landuse",
+    "type": "map",
+    "required": true,
+    "doc": "the land use codes, put on the DEM's cells (nearest neighbour) when its grid differs"
+   },
+   {
+    "name": "soils",
+    "type": "map",
+    "required": true,
+    "doc": "the soil codes, likewise"
+   },
+   {
+    "name": "landuse_lookup",
+    "type": "table",
+    "required": true,
+    "doc": "land use code -> SWAT+ plant or urban name (plants.plt / urban.urb, e.g. FRSD, PAST): two columns, the raster value and the name; codes with the same name make one land use; missing cells take QSWAT+'s default land use (code 0 if listed, else the first listed)"
+   },
+   {
+    "name": "soil_lookup",
+    "type": "table",
+    "required": true,
+    "doc": "soil code -> soil name (SNAM of the soil table), likewise"
+   },
+   {
+    "name": "soil_table",
+    "type": "table",
+    "required": true,
+    "doc": "the soils: an ArcSWAT / QSWAT+ usersoil table (SNAM, NLAYERS, HYDGRP, SOL_ZMX, ..., SOL_Z1..) or one row per layer in SWAT+'s soils.sol columns (name, hyd_grp, dp_tot, anion_excl, perc_crk, texture, dp, bd, awc, soil_k, carbon, clay, silt, sand, rock, alb, usle_k, ec, caco3, ph); only the soils used are kept"
+   },
+   {
+    "name": "outlets",
+    "type": "vector",
+    "required": false,
+    "doc": "watershed outlets (points), each moved onto the nearest stream cell within snap; without them every stream that leaves the map (or ends in a pit) is an outlet"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "watershed",
+    "type": "swat_watershed",
+    "required": true,
+    "doc": "the watershed: QSWAT+'s tables and the grids"
+   },
+   {
+    "name": "subbasins",
+    "type": "map",
+    "required": true,
+    "doc": "the subbasin of each cell (0 outside the watershed)"
+   },
+   {
+    "name": "channels",
+    "type": "map",
+    "required": true,
+    "doc": "the channel of each stream cell (0 elsewhere)"
+   },
+   {
+    "name": "hrus",
+    "type": "map",
+    "required": true,
+    "doc": "the HRU of each cell (no value where its HRU was removed by the selection, and outside)"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the HRUs (QSWAT+'s gis_hrus)"
+   }
+  ],
+  "params": [
+   {
+    "name": "stream_threshold",
+    "type": "number",
+    "required": false,
+    "doc": "the drainage area of a stream, in km2 (default: 1 % of the DEM's area, as QSWAT+ proposes)"
+   },
+   {
+    "name": "snap",
+    "type": "number",
+    "required": false,
+    "doc": "the largest move of an outlet, map units (300 m; 3 cells without a projection)"
+   },
+   {
+    "name": "slope_bands",
+    "type": "any",
+    "required": false,
+    "doc": "the slope limits in percent between the bands, a list, e.g. 5, 15 (default: one band, 0-9999)"
+   },
+   {
+    "name": "hru_method",
+    "type": "text",
+    "required": false,
+    "doc": "dominant_hru (default, QSWAT+'s: one HRU per landscape unit, the largest combination), dominant (the dominant land use, soil and slope), filter (every combination above thresholds) or area (above min_area)",
+    "choices": [
+     "dominant_hru",
+     "dominant",
+     "filter",
+     "area"
+    ]
+   },
+   {
+    "name": "thresholds",
+    "type": "any",
+    "required": false,
+    "doc": "of filter: the smallest land use, soil and slope in percent, a list of three (default 0, 0, 0)"
+   },
+   {
+    "name": "min_area",
+    "type": "number",
+    "required": false,
+    "doc": "of area: the smallest HRU, in ha (or percent with area_in_ha off)"
+   },
+   {
+    "name": "area_in_ha",
+    "type": "bool",
+    "required": false,
+    "doc": "min_area is in hectares (default true), else percent"
+   },
+   {
+    "name": "exempt",
+    "type": "any",
+    "required": false,
+    "doc": "land use names the filters never remove, a list"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "swat.wgn",
+  "doc": "SWAT's weather generator statistics (WXGEN, landschaft's wgn_from_series, bit for bit with numpy's sums) of each station from its daily series: by calendar month over all years, the means and standard deviations of the maximum and minimum temperature, the mean monthly precipitation (the month's total averaged over the years with data), the standard deviation and skew of the daily precipitation, the probabilities of a wet day after a dry and after a wet day, the mean number of wet days, and the mean daily solar radiation, dew point and wind speed when their series are given (the dew point from the humidity by Magnus' formula at the mean temperature). What is not derived from daily data (pcp_hhr, the largest half-hour rainfall of each month, at least) is given in monthly. A series is a table of one row per day: a column date (2001-01-31 or 20010131) or year and day (of the year), and a column per station, empty for a missing day.",
+  "inputs": [
+   {
+    "name": "pcp",
+    "type": "table",
+    "required": true,
+    "doc": "daily precipitation (mm)"
+   },
+   {
+    "name": "tmax",
+    "type": "table",
+    "required": true,
+    "doc": "daily maximum temperature (deg C)"
+   },
+   {
+    "name": "tmin",
+    "type": "table",
+    "required": true,
+    "doc": "daily minimum temperature (deg C)"
+   },
+   {
+    "name": "slr",
+    "type": "table",
+    "required": false,
+    "doc": "daily solar radiation (MJ/m2)"
+   },
+   {
+    "name": "hmd",
+    "type": "table",
+    "required": false,
+    "doc": "daily relative humidity (fraction)"
+   },
+   {
+    "name": "wnd",
+    "type": "table",
+    "required": false,
+    "doc": "daily wind speed (m/s)"
+   },
+   {
+    "name": "dewpoint",
+    "type": "table",
+    "required": false,
+    "doc": "daily dew point (deg C), instead of the humidity's"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "wgn",
+    "type": "table",
+    "required": true,
+    "doc": "the statistics: station, month and the columns tmp_max_ave, tmp_min_ave, tmp_max_sd, tmp_min_sd, pcp_ave, pcp_sd, pcp_skew, wet_dry, wet_wet, pcp_days, pcp_hhr, slr_ave, dew_ave, wnd_ave, rain_yrs"
+   }
+  ],
+  "params": [
+   {
+    "name": "monthly",
+    "type": "any",
+    "required": false,
+    "doc": "values not derived from daily data, by column: {\"pcp_hhr\": 8, \"slr_ave\": [4, 7, 11, ...12 values], \"dew_ave\": {\"station\": 4}}"
    }
   ],
   "access": "none",
@@ -27057,7 +28042,7 @@
  },
  {
   "name": "table.of",
-  "doc": "A table written in the settings: its columns' names and its rows of numbers (null: no value), such as the small tables a planning problem takes.",
+  "doc": "A table written in the settings: its columns' names and its rows of numbers (null: no value) or of names (text, such as the soils' and land uses' names of a SWAT+ project), such as the small tables a planning problem takes.",
   "inputs": [],
   "outputs": [
    {
@@ -27078,7 +28063,7 @@
     "name": "rows",
     "type": "any",
     "required": true,
-    "doc": "the rows: [[number, ...], ...], as many numbers as columns"
+    "doc": "the rows: [[value, ...], ...], as many values as columns; a column is numbers or text, not both"
    }
   ],
   "access": "local",
