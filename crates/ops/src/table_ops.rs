@@ -243,7 +243,14 @@ impl Operator for Aggregate {
         let by: Vec<usize> = names(args, "by")?.iter().map(|b| index(t, b, node)).collect::<Result<_>>()?;
         let mut columns = names(args, "columns")?;
         if columns.is_empty() {
-            columns = t.columns.iter().enumerate().filter(|(j, _)| !by.contains(j)).map(|(_, c)| c.clone()).collect();
+            // (text columns are not summed)
+            columns = t
+                .columns
+                .iter()
+                .enumerate()
+                .filter(|(j, c)| !by.contains(j) && !t.is_text(c))
+                .map(|(_, c)| c.clone())
+                .collect();
         }
         let cols: Vec<usize> = columns.iter().map(|c| index(t, c, node)).collect::<Result<_>>()?;
         let mut stats = names(args, "stats")?;
@@ -738,6 +745,19 @@ mod tests {
             run("table.aggregate", vec![("table", Value::Table(patches()))], serde_json::json!({ "stats": "mode" }))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn aggregate_default_leaves_text_columns_out() {
+        let mut p = patches();
+        p.columns.push("kind".into());
+        for r in &mut p.rows {
+            r.push(1.0);
+        }
+        p.labels.insert("kind".into(), vec!["forest".into()]);
+        let out =
+            run("table.aggregate", vec![("table", Value::Table(p))], serde_json::json!({ "by": "class" })).unwrap();
+        assert_eq!(out.columns, ["class", "n", "area_sum", "edge_sum"]);
     }
 
     #[test]

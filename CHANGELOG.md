@@ -55,6 +55,10 @@ minor versions.
   The Python script writes `add_corridor_constraints`.
 
 ### Changed
+- **`table.read` keeps the text columns**, as columns of names (codes 1, 2... by first appearance, with the names
+  beside them) for CSV, TSV and JSON, instead of leaving them out; a column with any value that is not a number is
+  all text, numbers among them as written. The reader is quote-aware (line breaks in quotes). `table.aggregate`'s
+  default columns, the dist measure and the sensitivity's results take the columns of numbers only.
 - **The nodes of a loop's body are kept by iteration.** A `control.repeat` or `control.each` that runs again (one
   more step, a changed collect, one layer of its stack changed) runs only the body nodes whose inputs changed, by what
   they read: the carried values, `@step`, `@item`, `@index`, `@name` and the outputs of nodes outside the body count

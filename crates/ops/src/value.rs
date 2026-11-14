@@ -108,6 +108,11 @@ impl Table {
         (v.fract() == 0.0 && v >= 1.0).then(|| names.get(v as usize - 1).map(String::as_str)).flatten()
     }
 
+    /// Whether a column is text: its numbers are codes of names ([`Table::labels`]).
+    pub fn is_text(&self, column: &str) -> bool {
+        self.labels.contains_key(column)
+    }
+
     /// A cell as text: its name ([`Table::label`]), else the number (empty for none).
     pub fn cell(&self, j: usize, v: f64) -> String {
         match self.columns.get(j).and_then(|c| self.label(c, v)) {

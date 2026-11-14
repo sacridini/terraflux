@@ -179,57 +179,9 @@ pub fn freeze(folder: &Path, node: &str, outputs: &Outputs) -> Result<()> {
     Ok(())
 }
 
-/// The records of CSV (RFC 4180): fields in quotes may hold commas, line breaks and doubled quotes; CRLF or LF end a
-/// record. A blank line is a record of one empty field.
+/// The records of CSV (the reader of `table.read`: RFC 4180).
 fn csv_records(text: &str) -> Result<Vec<Vec<String>>> {
-    let text = text.trim_start_matches('\u{feff}');
-    let mut rows = Vec::new();
-    let mut row: Vec<String> = Vec::new();
-    let mut field = String::new();
-    let mut quoted = false;
-    let mut any = false;
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if quoted {
-            match c {
-                '"' if chars.peek() == Some(&'"') => {
-                    field.push('"');
-                    chars.next();
-                }
-                '"' => quoted = false,
-                c => field.push(c),
-            }
-            continue;
-        }
-        match c {
-            '"' => {
-                quoted = true;
-                any = true;
-            }
-            ',' => {
-                row.push(std::mem::take(&mut field));
-                any = true;
-            }
-            '\r' => {}
-            '\n' => {
-                row.push(std::mem::take(&mut field));
-                rows.push(std::mem::take(&mut row));
-                any = false;
-            }
-            c => {
-                field.push(c);
-                any = true;
-            }
-        }
-    }
-    if quoted {
-        return Err(Error::Model("a table: a quote is never closed".into()));
-    }
-    if any {
-        row.push(field);
-        rows.push(row);
-    }
-    Ok(rows)
+    terraflux_ops::tables::csv_records(text, ',').map_err(|e| Error::Model(format!("a table: {e}")))
 }
 
 /// A table from CSV. With its `labels` (a frozen table: the CSV holds codes) every cell is a number; without (a file a

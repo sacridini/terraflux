@@ -513,14 +513,15 @@ fn describe(path: PathBuf, kind: Kind) -> Details {
             Err(e) => d.error = Some(e.to_string()),
         },
         Kind::Table => match terraflux_ops::tables::read_table(&path) {
-            Ok((t, text)) => {
+            Ok(t) => {
                 d.facts.push(("rows".into(), t.rows.len().to_string()));
                 d.facts.push(("columns".into(), t.columns.join(", ")));
+                let text: Vec<&str> = t.columns.iter().filter(|c| t.is_text(c)).map(String::as_str).collect();
                 if !text.is_empty() {
-                    d.facts.push(("text (left out)".into(), text.join(", ")));
+                    d.facts.push(("text columns".into(), text.join(", ")));
                 }
                 for (k, row) in t.rows.iter().take(5).enumerate() {
-                    let cells: Vec<String> = row.iter().map(|v| crate::table_view::cell(*v)).collect();
+                    let cells: Vec<String> = row.iter().enumerate().map(|(j, v)| t.cell(j, *v)).collect();
                     d.facts.push((format!("row {}", k + 1), cells.join("  ")));
                 }
             }

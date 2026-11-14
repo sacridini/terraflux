@@ -265,7 +265,7 @@ pub fn read_expected(path: &Path) -> Result<Value> {
                 Value::Map(r.map().map_err(|e| fail(e.to_string()))?)
             }
         }
-        "csv" | "tsv" => Value::Table(terraflux_ops::tables::read_table(path).map_err(|e| fail(e.to_string()))?.0),
+        "csv" | "tsv" => Value::Table(terraflux_ops::tables::read_table(path).map_err(|e| fail(e.to_string()))?),
         "json" => {
             let text = std::fs::read_to_string(path)?;
             Value::from_json(&serde_json::from_str(&text).map_err(|e| fail(e.to_string()))?)

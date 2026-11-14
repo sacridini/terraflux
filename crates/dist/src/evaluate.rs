@@ -233,7 +233,13 @@ pub fn measure_from(v: &Value, statistic: Option<&str>, start: Option<&Value>) -
             let c = match statistic {
                 Some(c) => t.column(c).ok_or_else(|| Error::Other(format!("the table has no column {c:?}")))?,
                 None => {
-                    t.columns.last().and_then(|c| t.column(c)).ok_or_else(|| Error::Other("an empty table".into()))?
+                    // (the last column of numbers: not a text column's codes)
+                    t.columns
+                        .iter()
+                        .rev()
+                        .find(|c| !t.is_text(c))
+                        .and_then(|c| t.column(c))
+                        .ok_or_else(|| Error::Other("an empty table".into()))?
                 }
             };
             c.first().copied().ok_or_else(|| Error::Other("the table has no row".into()))

@@ -590,7 +590,13 @@ impl Operator for Analyze {
         let y = match column {
             Some(c) => results.column(&c).ok_or_else(|| fail(args, format!("the results have no column {c:?}")))?,
             None => {
-                let c = results.columns.last().ok_or_else(|| fail(args, "the results have no column"))?;
+                // (the last column of numbers: not a text column's codes)
+                let c = results
+                    .columns
+                    .iter()
+                    .rev()
+                    .find(|c| !results.is_text(c))
+                    .ok_or_else(|| fail(args, "the results have no column"))?;
                 results.column(c).unwrap()
             }
         };
