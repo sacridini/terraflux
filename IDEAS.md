@@ -2383,7 +2383,14 @@ responder no próprio Viewer as perguntas de quem estuda mudança de uso, sem mo
    passo; *Copy*; o botão "*primeiro* to *último*..." abre a janela das transições (`transition_view::window` sem
    foco) com a matriz de `difference::make` do primeiro ao último passo (`Session::steps_matrix`), nos fluxos
    primeiro. Teste: `the_area_of_the_classes_along_the_steps_and_the_flows_from_the_first` (UI).
-   Falta: o Sankey de todos os passos em sequência (hoje só o primeiro e o último).
+   **O Sankey de todos os passos feito** (Unreleased): `transition_view::layers` (as classes de todos os passos,
+   uma linha por classe em cada coluna, altura zero onde ausente, e as faixas de cada par) e `sankey_chain` (uma
+   coluna por passo, os nomes dos passos embaixo); uma matriz por par de passos, cada uma num trabalho
+   (`Session::steps_pairs`), "computing..." até todas chegarem. Escolha *First and last* / *Every step*
+   (`State::every`; padrão: todos os passos de 3 a 8, o primeiro e o último acima, no máximo 12 passos); *Copy* e
+   *Save CSV* com um bloco por par (`from_step`, `to_step`). Testes: `two_steps_are_the_flows_of_their_matrix`,
+   `three_steps_add_up_column_by_column`, `a_class_absent_at_a_step_keeps_its_row`,
+   `the_flows_of_every_step_as_text`, `the_flows_of_every_step_of_a_series` (UI).
 6. **Vistas salvas**: o enquadramento guardado no Plot, e a figura, o export e o Document no mesmo recorte.
    **Feito** (Unreleased, por um sub-agente): `Plot.view: Option<PlotView { extent: [oeste, sul, leste, norte] }>`
    nas coordenadas do mapa do Plot (não depende do tamanho da janela; omitido quando não há). `frame.rs`: `cells_of`

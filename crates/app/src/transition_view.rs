@@ -88,6 +88,35 @@ pub struct State {
     pub unit: Unit,
     /// Why the matrix was not saved.
     pub said: Option<String>,
+    /// The flows of a series of maps: every step (true) or the first and the last (false); none: by the number of
+    /// steps (see [`every`]).
+    pub every: Option<bool>,
+}
+
+/// The most steps of a series whose flows can be shown one pair after the other.
+pub const MAX_CHAIN: usize = 12;
+
+/// Whether the flows of a series of `n` steps are shown step by step: the choice made, else every step when there
+/// are three to eight, the first and the last above that.
+pub fn every(state: &State, n: usize) -> bool {
+    (3..=MAX_CHAIN).contains(&n) && state.every.unwrap_or(n <= 8)
+}
+
+/// The steps of a series: their names and the matrix of each consecutive pair (as many as are worked out).
+pub struct Chain<'a> {
+    pub names: &'a [String],
+    pub matrices: Vec<&'a Matrix>,
+    /// Pairs still being worked out.
+    pub waiting: usize,
+    /// Why a pair could not be made.
+    pub error: Option<&'a str>,
+}
+
+impl Chain<'_> {
+    /// Every pair's matrix is there.
+    pub fn ready(&self) -> bool {
+        self.waiting == 0 && self.error.is_none() && self.matrices.len() + 1 == self.names.len()
+    }
 }
 
 /// The unit used: cells when the grid has no coordinate system and an area is asked for.
@@ -143,8 +172,47 @@ pub fn tsv(m: &Matrix, unit: Unit, from: &str, to: &str) -> String {
     t
 }
 
+/// The unit used for the matrices of a series: cells when any has no area and an area is asked for.
+fn usable_all(ms: &[&Matrix], unit: Unit) -> Unit {
+    if unit.is_area() && ms.iter().any(|m| m.area.is_none()) { Unit::Cells } else { unit }
+}
+
+/// The flows of a series as tab-separated text: a block per pair of steps (a row per class of the first, a column
+/// per class of the second, the totals last), each row starting with the two steps (`from_step`, `to_step`).
+pub fn chain_tsv(ms: &[&Matrix], names: &[String], unit: Unit) -> String {
+    let unit = usable_all(ms, unit);
+    let mut t = String::new();
+    for (p, m) in ms.iter().enumerate() {
+        if p > 0 {
+            t.push('\n');
+        }
+        t.push_str(&format!("from_step\tto_step\tclass ({})", unit.short()));
+        for (_, n) in &m.to {
+            t.push('\t');
+            t.push_str(n);
+        }
+        t.push_str("\ttotal\n");
+        for (i, (_, n)) in m.from.iter().enumerate() {
+            t.push_str(&format!("{}\t{}\t{n}", names[p], names[p + 1]));
+            let mut sum = 0.0;
+            for j in 0..m.to.len() {
+                let v = cell(m, i, j, unit);
+                sum += v;
+                t.push('\t');
+                t.push_str(&number(v, unit));
+            }
+            t.push('\t');
+            t.push_str(&number(sum, unit));
+            t.push('\n');
+        }
+    }
+    t
+}
+
 /// The window of a matrix (`names`: the maps compared, from and to), `colour` a class's colour (by its value).
-/// With `focus`, a cell or flow clicked singles that transition out (clicked again, none).
+/// With `focus`, a cell or flow clicked singles that transition out (clicked again, none). With `chain` (the steps of
+/// a series), the flows can also be shown step by step, and copied and saved so.
+#[allow(clippy::too_many_arguments)]
 pub fn window(
     ctx: &egui::Context,
     id: egui::Id,
@@ -153,6 +221,7 @@ pub fn window(
     colour: &dyn Fn(i64) -> Color32,
     state: &mut State,
     mut focus: Option<&mut Option<(i64, i64)>>,
+    chain: Option<&Chain>,
 ) {
     let mut open = state.open;
     egui::Window::new(format!("Transitions: {} to {}", names.0, names.1))
@@ -177,13 +246,19 @@ pub fn window(
                         ui.selectable_value(&mut state.unit, *u, u.name());
                     }
                 });
+                // (the flows step by step when they are shown so: a block a pair of steps)
+                let steps = chain.filter(|c| state.tab == Tab::Sankey && every(state, c.names.len()) && c.ready());
+                let text = |unit: Unit| match steps {
+                    Some(c) => chain_tsv(&c.matrices, c.names, unit),
+                    None => tsv(m, unit, names.0, names.1),
+                };
                 if ui.button("Copy").on_hover_text("the matrix and the gains and losses, tab-separated").clicked() {
-                    ui.ctx().copy_text(tsv(m, state.unit, names.0, names.1));
+                    ui.ctx().copy_text(text(state.unit));
                 }
                 if ui.button("Save CSV...").clicked()
                     && let Some(p) = rfd::FileDialog::new().add_filter("CSV", &["csv"]).set_file_name("transitions.csv").save_file()
                 {
-                    let text = tsv(m, state.unit, names.0, names.1).replace('\t', ",");
+                    let text = text(state.unit).replace('\t', ",");
                     state.said = std::fs::write(&p, text)
                         .err()
                         .map(|e| format!("not written to {}: {e}", p.display()));
@@ -232,7 +307,36 @@ pub fn window(
                 }
                 Tab::Sankey => {
                     let shares = if unit == Unit::Row { Unit::Landscape } else { unit };
-                    sankey(ui, m, shares, colour, focus);
+                    let Some(c) = chain else {
+                        sankey(ui, m, shares, colour, focus);
+                        return;
+                    };
+                    let n = c.names.len();
+                    let now = every(state, n);
+                    ui.horizontal(|ui| {
+                        let mut set = state.every.unwrap_or(now);
+                        ui.selectable_value(&mut set, false, "First and last");
+                        ui.selectable_value(&mut set, true, "Every step");
+                        if set != now || state.every.is_some() {
+                            state.every = Some(set);
+                        }
+                        if n > 8 && !now {
+                            ui.label(RichText::new(format!("{n} steps: the first and the last, by default")).weak().size(11.0));
+                        }
+                    });
+                    if !every(state, n) {
+                        sankey(ui, m, shares, colour, focus);
+                    } else if let Some(e) = c.error {
+                        ui.label(RichText::new(e).color(ui.visuals().error_fg_color));
+                    } else if !c.ready() {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(RichText::new("computing the flows of every step...").weak());
+                        });
+                    } else {
+                        let shares = if usable_all(&c.matrices, shares) != shares { Unit::Cells } else { shares };
+                        sankey_chain(ui, &c.matrices, c.names, shares, colour, focus);
+                    }
                 }
             }
         });
@@ -371,10 +475,68 @@ fn budget_bars(ui: &mut Ui, m: &Matrix, unit: Unit, colour: &dyn Fn(i64) -> Colo
     }
 }
 
-/// A flow of the Sankey: from row i to column j, its band's top at each side and its thickness.
+/// A band of the Sankey: `amount` from class `from` at step `pair` to class `to` at the next step.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Link {
+    pub pair: usize,
+    pub from: usize,
+    pub to: usize,
+    pub amount: f64,
+}
+
+/// The classes, each step's amount of each (the nodes' heights: a class absent at a step has zero) and the bands from
+/// each step to the next, of the matrices of consecutive pairs of steps.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Layers {
+    pub classes: Vec<(i64, String)>,
+    /// By step, then class.
+    pub heights: Vec<Vec<f64>>,
+    pub links: Vec<Link>,
+}
+
+/// The nodes and bands of the Sankey of `ms` (the matrix of each pair of steps: one more step than matrices), in the
+/// amounts of the area when `area` and the matrices have it, else cells. Every class of any step has a row at every
+/// step, in the order of its value; a node is as tall as the larger of what flows in and out of it.
+pub fn layers(ms: &[&Matrix], area: bool) -> Layers {
+    let mut classes: Vec<(i64, String)> = Vec::new();
+    for m in ms {
+        for (v, n) in m.from.iter().chain(m.to.iter()) {
+            if !classes.iter().any(|c| c.0 == *v) {
+                classes.push((*v, n.clone()));
+            }
+        }
+    }
+    classes.sort_by_key(|c| c.0);
+    let at = |v: i64| classes.iter().position(|c| c.0 == v).unwrap_or(0);
+    let mut heights = vec![vec![0.0; classes.len()]; ms.len() + 1];
+    let mut links = Vec::new();
+    for (p, m) in ms.iter().enumerate() {
+        let a = m.amounts(area);
+        for (i, row) in a.iter().enumerate() {
+            for (j, v) in row.iter().enumerate() {
+                if *v <= 0.0 {
+                    continue;
+                }
+                let (f, t) = (at(m.from[i].0), at(m.to[j].0));
+                links.push(Link { pair: p, from: f, to: t, amount: *v });
+            }
+        }
+    }
+    // (a node: what flows out of it or into it, the larger)
+    for (k, col) in heights.iter_mut().enumerate() {
+        for (c, h) in col.iter_mut().enumerate() {
+            let out: f64 = links.iter().filter(|l| l.pair == k && l.from == c).map(|l| l.amount).sum();
+            let inn: f64 =
+                if k > 0 { links.iter().filter(|l| l.pair + 1 == k && l.to == c).map(|l| l.amount).sum() } else { 0.0 };
+            *h = out.max(inn);
+        }
+    }
+    Layers { classes, heights, links }
+}
+
+/// A band as drawn: its link and the top of its band at each side, and its thickness.
 struct Flow {
-    i: usize,
-    j: usize,
+    link: usize,
     y0: f32,
     y1: f32,
     h: f32,
@@ -394,9 +556,24 @@ pub fn sankey(
     colour: &dyn Fn(i64) -> Color32,
     focus: Option<&mut Option<(i64, i64)>>,
 ) {
-    let area = m.area.is_some() && unit != Unit::Cells;
-    let a = m.amounts(area);
-    let whole = m.total(area);
+    sankey_chain(ui, &[m], &[], unit, colour, focus);
+}
+
+/// The flows over a series of steps: a column of classes per step (`ms`: the matrix of each pair of steps, `steps`
+/// their names, written under the columns when there is one each), the bands between consecutive columns.
+pub fn sankey_chain(
+    ui: &mut Ui,
+    ms: &[&Matrix],
+    steps: &[String],
+    unit: Unit,
+    colour: &dyn Fn(i64) -> Color32,
+    focus: Option<&mut Option<(i64, i64)>>,
+) {
+    let area = ms.iter().all(|m| m.area.is_some()) && unit != Unit::Cells;
+    let lay = layers(ms, area);
+    let n = lay.heights.len();
+    let totals: Vec<f64> = lay.heights.iter().map(|h| h.iter().sum()).collect();
+    let whole = totals.iter().copied().fold(0.0, f64::max);
     let size = Vec2::new(ui.available_width().max(240.0), ui.available_height().max(220.0));
     let (r, resp) = ui.allocate_exact_size(size, Sense::click());
     if whole <= 0.0 {
@@ -406,54 +583,51 @@ pub fn sankey(
     let label_w = (r.width() * 0.22).clamp(60.0, 160.0);
     let (xl, xr, nw) = (r.left() + label_w, r.right() - label_w, 10.0);
     let gap = 6.0;
-    let rows: Vec<f64> = a.iter().map(|x| x.iter().sum()).collect();
-    let cols: Vec<f64> = (0..m.to.len()).map(|j| a.iter().map(|x| x[j]).sum()).collect();
-    let n_rows = rows.iter().filter(|v| **v > 0.0).count().max(1);
-    let n_cols = cols.iter().filter(|v| **v > 0.0).count().max(1);
-    let room = (r.height() - 8.0 - gap * (n_rows.max(n_cols) - 1) as f32).max(20.0);
+    // (the left side of each column)
+    let xs: Vec<f32> = (0..n).map(|k| xl + (xr - xl) * k as f32 / (n - 1).max(1) as f32).collect();
+    let foot = if steps.len() == n { 14.0 } else { 0.0 };
+    let most = lay.heights.iter().map(|h| h.iter().filter(|v| **v > 0.0).count()).max().unwrap_or(1).max(1);
+    let room = (r.height() - 8.0 - foot - gap * (most - 1) as f32).max(20.0);
     let scale = room / whole as f32;
     // the nodes: their tops
-    let place = |sums: &[f64]| {
-        let mut y = r.top() + 4.0;
-        sums.iter()
-            .map(|s| {
-                let top = y;
-                if *s > 0.0 {
-                    y += *s as f32 * scale + gap;
-                }
-                top
-            })
-            .collect::<Vec<f32>>()
-    };
-    let (left, right) = (place(&rows), place(&cols));
+    let tops: Vec<Vec<f32>> = lay
+        .heights
+        .iter()
+        .map(|sums| {
+            let mut y = r.top() + 4.0;
+            sums.iter()
+                .map(|s| {
+                    let top = y;
+                    if *s > 0.0 {
+                        y += *s as f32 * scale + gap;
+                    }
+                    top
+                })
+                .collect()
+        })
+        .collect();
+    let mut out = tops.clone();
+    let mut inn = tops.clone();
     let mut flows = Vec::new();
-    let mut out = left.clone();
-    let mut inn = right.clone();
-    for (i, row) in a.iter().enumerate() {
-        for (j, v) in row.iter().enumerate() {
-            if *v <= 0.0 {
-                continue;
-            }
-            let h = *v as f32 * scale;
-            flows.push(Flow { i, j, y0: out[i], y1: inn[j], h });
-            out[i] += h;
-            inn[j] += h;
-        }
+    for (k, l) in lay.links.iter().enumerate() {
+        let h = l.amount as f32 * scale;
+        flows.push(Flow { link: k, y0: out[l.pair][l.from], y1: inn[l.pair + 1][l.to], h });
+        out[l.pair][l.from] += h;
+        inn[l.pair + 1][l.to] += h;
     }
     // the flow under the pointer
     let hovered = resp.hover_pos().and_then(|pos| {
-        if pos.x <= xl + nw || pos.x >= xr {
-            return None;
-        }
-        let t = ease((pos.x - xl - nw) / (xr - xl - nw));
+        let pair = (0..n - 1).find(|k| pos.x > xs[*k] + nw && pos.x < xs[k + 1])?;
+        let t = ease((pos.x - xs[pair] - nw) / (xs[pair + 1] - xs[pair] - nw));
         flows.iter().position(|f| {
             let top = f.y0 + (f.y1 - f.y0) * t;
-            pos.y >= top && pos.y <= top + f.h.max(1.0)
+            lay.links[f.link].pair == pair && pos.y >= top && pos.y <= top + f.h.max(1.0)
         })
     });
     let chosen = focus.as_deref().copied().flatten();
     for (k, f) in flows.iter().enumerate() {
-        let (pv, qv) = (m.from[f.i].0, m.to[f.j].0);
+        let l = &lay.links[f.link];
+        let (pv, qv) = (lay.classes[l.from].0, lay.classes[l.to].0);
         let is = chosen == Some((pv, qv)) || hovered == Some(k);
         let dim = chosen.is_some() && !is;
         let c = crate::palette::seen(colour(pv));
@@ -464,11 +638,12 @@ pub fn sankey(
         } else {
             c.gamma_multiply(0.45)
         };
+        let (x0, x1) = (xs[l.pair] + nw, xs[l.pair + 1]);
         let steps = 24;
         let mut mesh = egui::Mesh::default();
         for s in 0..=steps {
             let t = s as f32 / steps as f32;
-            let x = xl + nw + (xr - xl - nw) * t;
+            let x = x0 + (x1 - x0) * t;
             let y = f.y0 + (f.y1 - f.y0) * ease(t);
             mesh.colored_vertex(Pos2::new(x, y), c);
             mesh.colored_vertex(Pos2::new(x, y + f.h.max(0.5)), c);
@@ -480,45 +655,60 @@ pub fn sankey(
         }
         p.add(egui::Shape::mesh(mesh));
     }
-    // the nodes and their names
+    // the nodes and their names (at the two ends; the steps' under their columns)
     let font = egui::FontId::proportional(11.0);
     let text = ui.visuals().text_color();
-    for (i, (v, n)) in m.from.iter().enumerate() {
-        if rows[i] <= 0.0 {
-            continue;
+    for (k, col) in lay.heights.iter().enumerate() {
+        for (c, (v, name)) in lay.classes.iter().enumerate() {
+            if col[c] <= 0.0 {
+                continue;
+            }
+            let h = col[c] as f32 * scale;
+            p.rect_filled(
+                Rect::from_min_size(Pos2::new(xs[k], tops[k][c]), Vec2::new(nw, h.max(1.0))),
+                1.0,
+                crate::palette::seen(colour(*v)),
+            );
+            let said = format!("{name} {}", number(in_unit(col[c], unit, whole), unit));
+            if k == 0 {
+                p.text(
+                    Pos2::new(xs[k] - 4.0, tops[k][c] + h / 2.0),
+                    egui::Align2::RIGHT_CENTER,
+                    said,
+                    font.clone(),
+                    text,
+                );
+            } else if k == n - 1 {
+                p.text(
+                    Pos2::new(xs[k] + nw + 4.0, tops[k][c] + h / 2.0),
+                    egui::Align2::LEFT_CENTER,
+                    said,
+                    font.clone(),
+                    text,
+                );
+            }
         }
-        let h = rows[i] as f32 * scale;
-        p.rect_filled(
-            Rect::from_min_size(Pos2::new(xl, left[i]), Vec2::new(nw, h.max(1.0))),
-            1.0,
-            crate::palette::seen(colour(*v)),
-        );
-        let said = format!("{n} {}", number(in_unit(rows[i], unit, whole), unit));
-        p.text(Pos2::new(xl - 4.0, left[i] + h / 2.0), egui::Align2::RIGHT_CENTER, said, font.clone(), text);
-    }
-    for (j, (v, n)) in m.to.iter().enumerate() {
-        if cols[j] <= 0.0 {
-            continue;
+        if foot > 0.0 {
+            p.text(
+                Pos2::new(xs[k] + nw / 2.0, r.bottom()),
+                egui::Align2::CENTER_BOTTOM,
+                &steps[k],
+                font.clone(),
+                ui.visuals().weak_text_color(),
+            );
         }
-        let h = cols[j] as f32 * scale;
-        p.rect_filled(
-            Rect::from_min_size(Pos2::new(xr, right[j]), Vec2::new(nw, h.max(1.0))),
-            1.0,
-            crate::palette::seen(colour(*v)),
-        );
-        let said = format!("{n} {}", number(in_unit(cols[j], unit, whole), unit));
-        p.text(Pos2::new(xr + nw + 4.0, right[j] + h / 2.0), egui::Align2::LEFT_CENTER, said, font.clone(), text);
     }
     if let Some(k) = hovered {
-        let f = &flows[k];
-        let v = a[f.i][f.j];
-        let said =
-            format!("{} -> {}: {} {}", m.from[f.i].1, m.to[f.j].1, number(in_unit(v, unit, whole), unit), unit.short());
+        let l = &lay.links[flows[k].link];
+        let (from, to) = (&lay.classes[l.from].1, &lay.classes[l.to].1);
+        let when =
+            if steps.len() == n { format!("{} to {}: ", steps[l.pair], steps[l.pair + 1]) } else { String::new() };
+        let said = format!("{when}{from} -> {to}: {} {}", number(in_unit(l.amount, unit, whole), unit), unit.short());
         let resp = resp.clone().on_hover_text(said);
         if resp.clicked()
             && let Some(focus) = focus
         {
-            let pair = (m.from[f.i].0, m.to[f.j].0);
+            let pair = (lay.classes[l.from].0, lay.classes[l.to].0);
             *focus = if *focus == Some(pair) { None } else { Some(pair) };
         }
     }
@@ -549,6 +739,87 @@ mod tests {
         let plain = Matrix { area: None, ..matrix() };
         assert_eq!(cell(&plain, 0, 1, Unit::Hectares), 2.0);
         assert_eq!(cell(&plain, 1, 0, Unit::Landscape), 10.0);
+    }
+
+    /// The second pair of a series: the forest and the pasture of the first pair's second map, urban land appearing.
+    fn next() -> Matrix {
+        Matrix {
+            from: vec![(1, "forest".into()), (2, "pasture".into())],
+            to: vec![(1, "forest".into()), (2, "pasture".into()), (3, "urban".into())],
+            cells: vec![vec![5.0, 1.0, 1.0], vec![1.0, 2.0, 0.0]],
+            area: Some(vec![vec![50_000.0, 10_000.0, 10_000.0], vec![10_000.0, 20_000.0, 0.0]]),
+        }
+    }
+
+    #[test]
+    fn two_steps_are_the_flows_of_their_matrix() {
+        let m = matrix();
+        let l = layers(&[&m], true);
+        assert_eq!(l.classes, m.from);
+        assert_eq!(l.heights, vec![vec![80_000.0, 20_000.0], vec![70_000.0, 30_000.0]]);
+        let flows: Vec<(usize, usize, f64)> = l.links.iter().map(|k| (k.from, k.to, k.amount)).collect();
+        assert_eq!(
+            flows,
+            vec![(0, 0, 60_000.0), (0, 1, 20_000.0), (1, 0, 10_000.0), (1, 1, 10_000.0)],
+            "a flow for each cell of the matrix with something in it"
+        );
+        // (in cells when asked)
+        assert_eq!(layers(&[&m], false).heights[0], vec![8.0, 2.0]);
+    }
+
+    #[test]
+    fn three_steps_add_up_column_by_column() {
+        let (a, b) = (matrix(), next());
+        let l = layers(&[&a, &b], true);
+        assert_eq!(l.heights.len(), 3);
+        for col in &l.heights {
+            assert_eq!(col.iter().sum::<f64>(), 100_000.0, "the landscape at every step");
+        }
+        assert_eq!(l.heights[1], vec![70_000.0, 30_000.0, 0.0]);
+        assert_eq!(l.heights[2], vec![60_000.0, 30_000.0, 10_000.0]);
+        // each pair's flows are what leaves one column and what enters the next
+        for p in 0..2 {
+            let of = |f: &dyn Fn(&Link) -> usize, c: usize| -> f64 {
+                l.links.iter().filter(|k| k.pair == p && f(k) == c).map(|k| k.amount).sum()
+            };
+            for c in 0..l.classes.len() {
+                assert_eq!(of(&|k| k.from, c), l.heights[p][c], "pair {p}, out of class {c}");
+                assert_eq!(of(&|k| k.to, c), l.heights[p + 1][c], "pair {p}, into class {c}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_class_absent_at_a_step_keeps_its_row() {
+        let (a, b) = (matrix(), next());
+        let l = layers(&[&a, &b], true);
+        assert_eq!(l.classes.iter().map(|c| c.0).collect::<Vec<_>>(), [1, 2, 3]);
+        assert_eq!(l.classes[2].1, "urban");
+        assert_eq!((l.heights[0][2], l.heights[1][2]), (0.0, 0.0), "no urban land before the last step, a row still");
+        assert!(l.links.iter().all(|k| k.from != 2), "nothing flows out of it");
+    }
+
+    #[test]
+    fn the_flows_of_every_step_as_text() {
+        let (a, b) = (matrix(), next());
+        let names: Vec<String> = ["1997", "2005", "2011"].iter().map(|s| s.to_string()).collect();
+        let t = chain_tsv(&[&a, &b], &names, Unit::Hectares);
+        let lines: Vec<&str> = t.lines().collect();
+        assert_eq!(lines[0], "from_step\tto_step\tclass (ha)\tforest\tpasture\ttotal");
+        assert_eq!(lines[1], "1997\t2005\tforest\t6.00\t2.00\t8.00");
+        assert_eq!(lines[3], "");
+        assert_eq!(lines[4], "from_step\tto_step\tclass (ha)\tforest\tpasture\turban\ttotal");
+        assert_eq!(lines[5], "2005\t2011\tforest\t5.00\t1.00\t1.00\t7.00");
+    }
+
+    #[test]
+    fn every_step_by_the_number_of_steps() {
+        let mut s = State::default();
+        assert!(!every(&s, 2) && every(&s, 3) && every(&s, 8) && !every(&s, 9), "by default");
+        s.every = Some(true);
+        assert!(every(&s, 9) && every(&s, MAX_CHAIN) && !every(&s, MAX_CHAIN + 1) && !every(&s, 2));
+        s.every = Some(false);
+        assert!(!every(&s, 4));
     }
 
     #[test]

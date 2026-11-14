@@ -7,6 +7,14 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **The land-change Sankey over every step of a series.** In the window of a series' transitions (the "first to
+  last..." button under the area of the classes along the steps), *Every step* draws a column of classes per step
+  (the same classes in the same order at each, a class absent at a step keeping its row at zero height), the bands
+  between consecutive columns in the colour of the class they came from, and the steps named under the columns;
+  *First and last* is today's view. Three to eight steps open on every step, more on the first and the last (with a
+  note), and the choice is kept in the window; above twelve steps only the first and the last. The matrix of each
+  pair of steps is worked out in a thread of its own ("computing the flows of every step..." meanwhile). *Copy* and
+  *Save CSV...* give one block per pair of steps, each row starting with `from_step` and `to_step`.
 - **Maps of different coordinate systems are compared without `raster.match`.** The curtain, the views side by side
   (and the views more) and the difference carry a map of another system (UTM against geographic, say) to the map
   shown on the fly, as they did for layers. The camera and the part of the grid a calculation follows (`calc_view`)

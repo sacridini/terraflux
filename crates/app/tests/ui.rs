@@ -8372,6 +8372,62 @@ fn the_area_of_the_classes_along_the_steps_and_the_flows_from_the_first() {
     shot(&mut h, "14k-steps-flows");
 }
 
+/// The flows over three steps: one matrix a pair of steps worked out in threads, shown as columns of classes by
+/// default (three to eight steps), and the first and the last when chosen.
+#[test]
+fn the_flows_of_every_step_of_a_series() {
+    let mut h = harness(new_app(None));
+    h.set_size(egui::vec2(1280.0, 1300.0));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    let folder = tmp("steps-flows-series");
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    for y in ["1997", "2005", "2011"] {
+        std::fs::copy(data("pie_restrictions.tif"), folder.join(format!("landuse_{y}.tif"))).unwrap();
+    }
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = folder.join("landuse_*.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
+        s.preview = Some(("landuse".into(), "raster".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("landuse", "raster").is_some()
+    });
+    drawn(&mut h);
+    let t = Instant::now();
+    while h.query_by_label("1997 to 2011...").is_none() {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(60), "the steps' classes not counted");
+    }
+    h.get_by_label("1997 to 2011...").click();
+    // (three steps: every step by default, a matrix for each of the two pairs)
+    let t = Instant::now();
+    loop {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        let s = h.state_mut().session.as_mut().unwrap();
+        if s.steps_window.open && !s.steps_pairs.busy() && h.query_by_label("Every step").is_some() {
+            break;
+        }
+        assert!(t.elapsed() < Duration::from_secs(60), "the flows of the pairs not made");
+    }
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.steps_window.every, None, "the default");
+    assert!(terraflux_app::transition_view::every(&s.steps_window, 3));
+    assert!(h.query_by_label("computing the flows of every step...").is_none());
+    shot(&mut h, "14k2-steps-flows-every-step");
+    h.get_by_label("First and last").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.steps_window.every, Some(false));
+}
+
 /// Rasters selected together go into a stack.of at once: a connection drawn from one of them takes the others
 /// with it (each a new input, in their order on the canvas), and the menu of the stack.of connects them too.
 #[test]

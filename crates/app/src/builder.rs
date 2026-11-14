@@ -5823,6 +5823,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                             &colour,
                                             &mut cmp.difference.matrix,
                                             Some(&mut cmp.difference.focus),
+                                            None,
                                         );
                                     }
                                 }
@@ -6192,15 +6193,52 @@ fn steps_section(
         let names_of: crate::difference::Names =
             classes.iter().map(|v| (*v as i64, crate::legend_view::name(l, legend, *v))).collect();
         let (first, last) = (maps[0].clone(), maps[maps.len() - 1].clone());
+        let each = names_of.clone();
         let made = s.steps_matrix.get(ui.ctx(), &maps[0], key, move |_| {
             crate::difference::make(&first, &last, Some((&names_of, &names_of))).map(|d| d.matrix)
+        });
+        // (the matrix of each pair of steps, a job each, only when the flows are shown step by step)
+        let n = maps.len();
+        let mut pairs = Vec::new();
+        let mut waiting = 0;
+        if (3..=crate::transition_view::MAX_CHAIN).contains(&n) && crate::transition_view::every(&s.steps_window, n) {
+            for i in 0..n - 1 {
+                let (next, nm) = (maps[i + 1].clone(), each.clone());
+                let job = move |a: &Source| crate::difference::make(a, &next, Some((&nm, &nm))).map(|d| d.matrix);
+                match s.steps_pairs.get(ui.ctx(), &maps[i], key.wrapping_add(i as u64 + 1), job) {
+                    Some(r) => pairs.push(r),
+                    None => waiting += 1,
+                }
+            }
+        }
+        let error = pairs.iter().find_map(|r| match r.as_ref() {
+            Err(e) => Some(e.as_str()),
+            Ok(None) => Some("a step has no classes to compare"),
+            Ok(Some(_)) => None,
+        });
+        let matrices: Vec<&crate::difference::Matrix> =
+            pairs.iter().filter_map(|r| r.as_ref().as_ref().ok().and_then(|m| m.as_ref())).collect();
+        let chain = (3..=crate::transition_view::MAX_CHAIN).contains(&n).then_some(crate::transition_view::Chain {
+            names,
+            matrices,
+            waiting,
+            error,
         });
         match made.as_deref() {
             Some(Ok(Some(m))) => {
                 let colour = |v: i64| l.coloring.colour(v as f64);
-                let names = (names[0].as_str(), names[maps.len() - 1].as_str());
+                let ends = (names[0].as_str(), names[n - 1].as_str());
                 let id = egui::Id::new(("steps transitions", salt));
-                crate::transition_view::window(ui.ctx(), id, m, names, &colour, &mut s.steps_window, None);
+                crate::transition_view::window(
+                    ui.ctx(),
+                    id,
+                    m,
+                    ends,
+                    &colour,
+                    &mut s.steps_window,
+                    None,
+                    chain.as_ref(),
+                );
             }
             Some(Err(e)) => {
                 ui.label(RichText::new(e).color(ui.visuals().error_fg_color).size(11.0));
