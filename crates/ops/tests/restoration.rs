@@ -354,6 +354,37 @@ fn plan_exact_is_the_optimum() {
     assert!((s.column("benefit").unwrap()[0] - f).abs() <= 1e-9 * f.abs().max(1.0));
 }
 
+/// The stepwise plan's linear programs on Gurobi when asked (or HiGHS with a warning when it is not there): the
+/// same benefit (the plan itself can be another optimum).
+#[test]
+fn plan_on_gurobi_is_highs() {
+    let d = data();
+    let (inputs, _) = plan_inputs(&d);
+    let target = d.reference["scen_3/target"].data[0];
+    let go = |solver: &str| {
+        let params = serde_json::json!({"method": "steps", "steps": 3, "target": target, "cell_area": 1.0,
+                                        "solver": solver, "threads": 2});
+        let params = params.as_object().unwrap().clone();
+        let args = Args {
+            node: "n",
+            inputs: inputs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+            params: &params,
+        };
+        let mut ctx = Ctx::default();
+        let out = Registry::standard().get("restoration.plan").unwrap().run(&mut ctx, &args).unwrap();
+        let Value::Table(s) = &out["summary"] else { panic!() };
+        (s.column("benefit").unwrap()[0], ctx.warnings.clone())
+    };
+    let (got, warnings) = go("gurobi");
+    match terraflux_ops::gurobi::available() {
+        Ok(_) => assert!(warnings.is_empty(), "{warnings:?}"),
+        Err(_) => assert!(warnings.iter().any(|w| w.starts_with("solved by HiGHS: ")), "no warning: {warnings:?}"),
+    }
+    let (want, warnings) = go("highs");
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!((got - want).abs() <= 1e-7 * want.abs().max(1.0), "{got} != {want}");
+}
+
 /// plangea's multi_exrisk_aggregate on a plan: the total reduction of the extinction risk and, from z's
 /// deviation 0.1, its two forms of the uncertainty (in quadrature, linear).
 #[test]

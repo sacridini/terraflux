@@ -166,6 +166,8 @@ pub struct Plan {
     pub action: Vec<u8>,
     pub natural: Vec<f64>,
     pub threat: Vec<f64>,
+    /// the solver of the linear programs (HiGHS unless asked for Gurobi)
+    pub engine: milp::Engine,
 }
 
 /// G x, every row in order.
@@ -242,6 +244,7 @@ impl Plan {
             action: vec![0; n_units],
             natural: vec![0.0; n_units],
             threat: vec![1.0; n_units],
+            engine: milp::Engine::default(),
         })
     }
 
@@ -305,6 +308,7 @@ impl Plan {
             action,
             natural,
             threat: thr,
+            engine: milp::Engine::default(),
         })
     }
 
@@ -711,7 +715,7 @@ impl Plan {
         rows
     }
 
-    /// max obj x within the rows, lb <= x <= ub (a linear program on HiGHS); and whether it is optimal.
+    /// max obj x within the rows, lb <= x <= ub (a linear program on the engine); and whether it is optimal.
     fn lp(
         rows: &[Target],
         extra: Option<(&Csr, usize)>,
@@ -719,6 +723,7 @@ impl Plan {
         lb: &[f64],
         ub: &[f64],
         time_limit: f64,
+        engine: milp::Engine,
     ) -> std::result::Result<(Vec<f64>, bool), String> {
         let ncol = obj.len();
         if rows.is_empty() && extra.is_none() {
@@ -771,7 +776,7 @@ impl Plan {
             col_ids: vec!["x".into(); ncol],
             connected: Vec::new(),
             zone_units: 0,
-            engine: milp::Engine::default(),
+            engine,
         };
         let s = milp::solve(&m, 0, 0.0, time_limit)?;
         if s.status == "infeasible" {
@@ -860,7 +865,7 @@ impl Plan {
                     }
                 }
                 let obj: Vec<f64> = (0..n).map(|i| if any { b_sum[i] / denom[i] } else { 1.0 / denom[i] }).collect();
-                let (x, _) = Self::lp(&rows, None, &obj, &vec![0.0; n], &ub, f64::INFINITY)
+                let (x, _) = Self::lp(&rows, None, &obj, &vec![0.0; n], &ub, f64::INFINITY, self.engine)
                     .map_err(|e| format!("step {}: {e}", k + 1))?;
                 for i in 0..n {
                     let xi = x[i].max(0.0);
@@ -1109,7 +1114,7 @@ impl Plan {
                     ub.extend_from_slice(&e.cap);
                 }
                 let extra = if g_rows.nrow > 0 { Some((&g_rows, n)) } else { None };
-                let (x, ok) = Self::lp(&rows, extra, &obj, &lb, &ub, left().max(1e-3))?;
+                let (x, ok) = Self::lp(&rows, extra, &obj, &lb, &ub, left().max(1e-3), self.engine)?;
                 Ok(((0..n).map(|j| x[j].clamp(lb_x[j], self.upper[j])).collect(), ok))
             };
         // the vertices, their gains per risk benefit (species x vertices) and linear benefit
@@ -1734,11 +1739,27 @@ impl Operator for PlanRestoration {
         ))
         .param(PortSpec::optional("tolerance", Type::Number, "exact: the relative gap to the bound (1e-7)"))
         .param(PortSpec::optional("time_limit", Type::Number, "exact: seconds (default none)"))
+        .param(
+            PortSpec::optional(
+                "solver",
+                Type::Text,
+                "the linear programs' solver: highs (default) or gurobi: Gurobi when it is installed and \
+                 licensed, else HiGHS with a warning",
+            )
+            .choices(["highs", "gurobi"]),
+        )
+        .param(PortSpec::optional(
+            "threads",
+            Type::Number,
+            "gurobi: the threads of each solve (default and most: Terraflux's threads, never every core)",
+        ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+        // the solver asked for, resolved once (one warning); every solve here is serial, with all the threads
+        let engine = crate::prioritize::engine_of(ctx, args)?;
         let restorable = args.opt_map("restorable")?;
         let conservable = args.opt_map("conservable")?;
         let convertible = args.opt_map("convertible")?;
@@ -1779,6 +1800,7 @@ impl Operator for PlanRestoration {
             (grid.height, grid.width),
         )
         .map_err(err)?;
+        p.engine = engine;
         let per_species = |name: &str, default: f64, k: usize| -> Result<Vec<f64>> {
             match args.params.get(name) {
                 None | Some(serde_json::Value::Null) => Ok(vec![default; k]),

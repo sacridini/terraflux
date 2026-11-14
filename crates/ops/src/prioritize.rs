@@ -3022,7 +3022,7 @@ fn solution_of(args: &Args, u: &milp::Units) -> Result<Vec<f64>> {
 }
 
 /// The solver a node asks for (`solver`, `threads`): Gurobi when it can solve here, else HiGHS and a warning why.
-fn engine_of(ctx: &mut Ctx, args: &Args) -> Result<milp::Engine> {
+pub(crate) fn engine_of(ctx: &mut Ctx, args: &Args) -> Result<milp::Engine> {
     let threads: usize = args.param("threads", 0)?;
     let solver = match args.param("solver", "highs".to_string())?.as_str() {
         "highs" => milp::Solver::Highs,

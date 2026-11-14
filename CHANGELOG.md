@@ -29,6 +29,10 @@ minor versions.
   `prioritize.optimize`'s: the candidates solve in parallel with one Gurobi thread each, as landschaft's
   `_solve_all`, and the ideal solves (Cohon's two, the least cost) with the node's threads; HiGHS and one warning
   where Gurobi is not installed or licensed.
+- **`restoration.plan` solves on Gurobi:** new settings `solver` (highs or gurobi) and `threads`, as
+  `prioritize.optimize`'s: every linear program (the exact plan's rounds, the steps, the minimum cost, the
+  trade-off curves and the sets of weights) solves with the node's threads, as landschaft's `_solve_lp`; HiGHS
+  and one warning where Gurobi is not installed or licensed.
 - **Stop ends more long nodes at once, and they tell how far they are:** `sdm.fit` stops within a fit (each Newton
   step of the GLM, each batch of trees of the random forest, each boosting iteration), not only between folds;
   `sdm.importance` stops and tells its shuffles (k of n), `sdm.folds` its random tries of spatial blocks, `ml.fit`
