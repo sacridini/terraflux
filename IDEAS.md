@@ -1248,8 +1248,12 @@ depois:
      compilado sem otimização (o crate cmake troca as flags de Release do CMake pelas do cc, sem os `/O`): o
      `build.rs` do `terraflux-ls-sys` passa as do CMake (`/O2 /Ob2 /DNDEBUG`), 22,7 s caíram para 7,0 s (os do
      landschaft);
-   - a busca por subconjuntos depois do motor largo (`_wide_then_subset`, `improve_subset`): `max_features` e as
-     filogenias;
+   - **Feito** (Unreleased): a busca por subconjuntos depois do motor largo (`_wide_then_subset`, `improve_subset`):
+     `max_features` e as filogenias (`crates/ops/src/milp/subset.rs`, o ramo em `milp::solve_from`; testes
+     `subset_*` e `the_search_goes_on_from_the_wide_engine_and_stops_with_the_run` em `crates/ops/tests/optimize.rs`:
+     a mesma busca do landschaft a partir das mesmas seleções, o modelo compilado passado ao landschaft bit a bit).
+     O caminho inteiro (o motor largo com limite de tempo, depois a busca) depende da velocidade: num caso 150x40 o
+     landschaft foi de 19 a 20 alvos e o Terraflux ficou em 19, por partir de outra solução do motor largo;
    - comparar com o landschaft, nos mesmos dados, cada objetivo e cada tipo de unidade (tabelas, polígonos, H3).
 2. **O Gurobi além do `prioritize.optimize`:** as re-soluções do `prioritize.evaluate` (custo de reposição e rank),
    o `prioritize.calibrate` (soluções em paralelo: uma thread do Gurobi em cada), o `restoration.plan` e o
@@ -1268,6 +1272,10 @@ depois:
    às vezes no `cargo test --workspace` e passa no programa `ui` sozinho.
    `settings_themes_and_favourites` (`crates/app/tests/ui.rs`) falha na suíte do `ui` com várias threads (as
    coleções das configurações são globais) e passa com `--test-threads 1`.
+   Vistos em 2026-11-14 na suíte inteira (`cargo test --workspace`, 4 threads), passando sozinhos (3 de 3):
+   `the_selections_menu_acts_on_all_the_nodes_selected` (`crates/app/tests/canvas.rs:1306`, a fila `run_queue`
+   vazia depois de *Run to them*) e `places_are_kept_with_the_model_and_gone_back_to` (`crates/app/tests/ui.rs:8137`,
+   o lugar "Lake" não salvo: o texto digitado no campo do menu).
 
 ## Integrar o landschaft 1.50.0
 

@@ -14,6 +14,11 @@ minor versions.
   `solve_zone_cut` does: the same plan, bound and status as landschaft 1.58.1, and Stop and the progress bar work
   in the engine too. Before, those models went straight to HiGHS's MIP, which takes minutes where the engine takes
   a hundredth of a second.
+- **Maximum features and maximum phylogenetic diversity and endemism solve as landschaft solves them:** the wide
+  engine for 40 % of the time limit (its bound and a first plan), then landschaft's subset search
+  (`_milp_subset.py`) for the rest: a local search over the set of targets met, by additions and swaps that raise the
+  reward, each set priced by a minimum set on the covering engine and taken when it fits the budget. The search
+  stops with the run. The same moves and plans as landschaft 1.58.1 from the same selection.
 
 ### Fixed
 - **landschaft's C++ is optimised on Windows:** the build compiled every C++ source under Terraflux (landschaft's

@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use terraflux_ls_sys::ffi;
 
 mod engines;
+mod subset;
 mod zones;
 pub use zones::{
     Contribution, ZoneEvaluation, ZoneFeatures, ZoneSpatial, connectivity_zones, evaluate_zones, fake_zone_targets,
@@ -1292,6 +1293,19 @@ pub fn solve_from(
     if !m.connected.is_empty() {
         return solve_connected(m, n_units, gap, time_limit, start);
     }
+    // budgeted objectives that reward the targets met (maximum features, phylogenetic diversity and endemism): the
+    // wide engine, then landschaft's subset search, as landschaft's _wide_then_subset
+    if m.engine.solver == Solver::Highs
+        && m.zone_units == 0
+        && let Some(r) = subset::wide_then_subset(m, n_units, gap, time_limit, start, &|cm, nu, g, tl, s| {
+            highs(cm, nu, g, tl, false, s)
+        })
+    {
+        return match r {
+            Ok(r) if r.status == "cancelled" => Err(STOPPED.into()),
+            r => r,
+        };
+    }
     // models with pair terms on landschaft's cut and closure engines first, as landschaft solves them
     if m.engine.solver == Solver::Highs
         && m.zone_units == 0
@@ -1316,6 +1330,14 @@ pub fn solve_from(
         };
     }
     highs(m, n_units, gap, time_limit, false, start)
+}
+
+/// landschaft's subset search (improve_subset) from a selection of the units, until no move helps: the best solution
+/// found (every column) and its objective, None if none is better than the selection's own. For the budgeted
+/// objectives that reward the targets met (maximum features, phylogenetic diversity and endemism); an error for
+/// other models.
+pub fn improve_subset(m: &Model, n_units: usize, units: &[f64]) -> Result<Option<(Vec<f64>, f64)>, String> {
+    subset::improve_from(m, n_units, units, &|cm, nu, g, tl, s| highs(cm, nu, g, tl, false, s))
 }
 
 /// HiGHS behind landschaft's covering and wide engines, or Gurobi when the model asks for it (the relaxation: the

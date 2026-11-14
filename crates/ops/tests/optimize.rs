@@ -1237,3 +1237,189 @@ fn calibrate_blended_and_hierarchical_are_prioritizrs() {
     assert_objectives("least cost", &cost[..1], &r.floats("calibrate_hierarchical/s1_cost"));
     assert!(calibrate_column(&cohon, "penalty")[0] > 0.0);
 }
+
+/// A synthetic table problem for the subset search: `n` units, `k` features of small whole amounts (an integer
+/// generator: the same numbers on every machine), the targets and the budget whole numbers (a share of the totals,
+/// rounded down) so that landschaft's and our models are the same to the last bit.
+fn subset_problem(
+    n: usize,
+    k: usize,
+    share: f64,
+    budget_share: f64,
+    objective: &str,
+    tree: Option<String>,
+    weights: bool,
+) -> (terraflux_ops::milp::Model, usize) {
+    let mut seed: u64 = 12345;
+    let mut next = |m: u64| {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (seed >> 33) % m
+    };
+    let names: Vec<String> = (1..=k).map(|f| format!("f{f}")).collect();
+    let mut columns = vec!["id".to_string(), "cost".to_string()];
+    columns.extend(names.iter().cloned());
+    let mut pu = Table::new(columns);
+    let mut totals = vec![0.0; k];
+    let mut total_cost = 0.0;
+    for i in 0..n {
+        let cost = (1 + next(100)) as f64;
+        total_cost += cost;
+        let mut row = vec![(i + 1) as f64, cost];
+        for t in totals.iter_mut() {
+            let a = if next(100) < 20 { (1 + next(9)) as f64 } else { 0.0 };
+            *t += a;
+            row.push(a);
+        }
+        pu.rows.push(row);
+    }
+    let targets: Vec<f64> = totals.iter().map(|t| (t * share).floor().max(1.0)).collect();
+    let mut params = serde_json::json!({"features": names, "objective": objective,
+        "budget": (total_cost * budget_share).floor(), "absolute_targets": targets});
+    if let Some(t) = tree {
+        params["tree"] = t.into();
+    }
+    if weights {
+        params["feature_weights"] = (0..k).map(|f| (1 + f % 4) as f64).collect::<Vec<_>>().into();
+    }
+    let params = params.as_object().unwrap().clone();
+    let ins: BTreeMap<String, Value> = [("pu".to_string(), Value::Table(pu))].into();
+    let args = Args { node: "n", inputs: ins, params: &params };
+    let p = terraflux_ops::prioritize::problem_of(&args).unwrap();
+    let (m, _) = terraflux_ops::milp::compile(&p).unwrap();
+    (m, p.units.n())
+}
+
+/// A phylogeny of the features f1..fk: a ladder, the tips joined one after the other, with branch lengths that are
+/// whole multiples of a quarter.
+fn ladder_tree(k: usize) -> String {
+    let mut t = "f1:1.5".to_string();
+    for i in 2..=k {
+        t = format!("({t},f{i}:{}):{}", 0.5 + 0.25 * (i % 5) as f64, 0.25 + 0.5 * (i % 3) as f64);
+    }
+    // (no length for the root)
+    format!("{};", &t[..t.rfind(':').unwrap()])
+}
+
+/// The solution's number of targets met and of units chosen.
+fn met_and_units(m: &terraflux_ops::milp::Model, n: usize, x: &[f64]) -> (usize, usize) {
+    let met = (0..x.len()).filter(|&c| m.col_ids[c] == "spp_met" && x[c] > 0.5).count();
+    (met, x[..n].iter().filter(|&&v| v > 0.5).count())
+}
+
+/// The subset problems of the tests below: 60 units, 20 features (weights 1 to 4), every target 30 % of the feature's
+/// total and the budget 10 % of the total cost (whole numbers: the model is the same to the last bit in landschaft),
+/// the objective, and for the phylogenetic ones a ladder tree.
+fn subset_case(objective: &str) -> (terraflux_ops::milp::Model, usize) {
+    let tree = objective.starts_with("max_phylo").then(|| ladder_tree(20));
+    subset_problem(60, 20, 0.3, 0.1, objective, tree, true)
+}
+
+/// landschaft's subset search (prioritize/_milp_subset.py of 1.58.1) from a selection of the units, until no move
+/// helps (no time limit: the search ends because no move helps, so the result does not depend on the machine's
+/// speed): the same objective, targets met and units chosen. landschaft's numbers: the models of `subset_case` as
+/// Terraflux compiles them (every array written with {:e} and read back: A, obj, lb, ub, rhs, sense, vtype, ids,
+/// the same to the last bit) in landschaft's OptimizationProblem(modelsense="max"), sm = subset_model(m, n);
+/// z = _complete(m, sm, xu) from the units' values (none chosen, or units 1, 9 and 17) then
+/// improve_subset(m, sm, z, math.inf, 4) with OMP_NUM_THREADS=4: max_features 37.99900535833892 (14 targets, 15
+/// units; 1.7 s there), max_phylo_div 66.74976054922973 (14, 15; 1.3 s), max_phylo_end 1603.4763773041454 (14, 13;
+/// 1.6 s). Searching again from what it found, no move helps: None.
+#[test]
+fn subset_search_is_landschafts() {
+    let cases = [
+        ("max_features", 37.99900535833892, (14, 15)),
+        ("max_phylo_div", 66.74976054922973, (14, 15)),
+        ("max_phylo_end", 1603.4763773041454, (14, 13)),
+    ];
+    for (objective, want, counts) in cases {
+        let (m, n) = subset_case(objective);
+        for start in [vec![], vec![1, 9, 17]] {
+            let mut xu = vec![0.0; n];
+            start.iter().for_each(|&u| xu[u] = 1.0);
+            let (x, obj) = terraflux_ops::milp::improve_subset(&m, n, &xu).unwrap().unwrap();
+            assert!((obj - want).abs() <= 1e-9 * want, "{objective}: {obj} != {want}");
+            assert_eq!(met_and_units(&m, n, &x), counts, "{objective}");
+            assert!(terraflux_ops::milp::improve_subset(&m, n, &x[..n]).unwrap().is_none(), "{objective}");
+        }
+    }
+}
+
+/// Only a maximisation of the targets met under one budget takes the subset search: the other objectives, a model
+/// with another budget row or continuous targets are refused.
+#[test]
+fn subset_search_takes_only_its_models() {
+    let ok = |m: &terraflux_ops::milp::Model, n: usize| terraflux_ops::milp::improve_subset(m, n, &vec![0.0; n]);
+    for objective in ["min_set", "min_shortfall", "min_largest_shortfall", "max_utility", "max_cover", "min_penalties"]
+    {
+        let (m, n) = subset_case(objective);
+        assert!(ok(&m, n).is_err(), "{objective}");
+    }
+    let (m, n) = subset_case("max_features");
+    assert!(ok(&m, n).is_ok());
+    let mut broken = m.clone();
+    let budget = broken.row_ids.iter().position(|r| r == "budget").unwrap();
+    broken.sense[budget] = ">=".into();
+    assert!(ok(&broken, n).is_err(), "a budget that is a minimum");
+    let mut broken = m.clone();
+    let flag = broken.col_ids.iter().position(|c| c == "spp_met").unwrap();
+    broken.vtype[flag] = 'C';
+    assert!(ok(&broken, n).is_err(), "a continuous target");
+    let mut broken = m.clone();
+    broken.maximize = false;
+    assert!(ok(&broken, n).is_err(), "a minimisation");
+    let mut broken = m.clone();
+    broken.col_ids.iter_mut().filter(|c| *c == "spp_met").for_each(|c| *c = "other".into());
+    assert!(ok(&broken, n).is_err(), "no targets met");
+    let mut broken = m.clone();
+    let k = broken.a.index.iter().position(|&c| c < n).unwrap();
+    broken.a.value[k] = 1.0;
+    broken.a.index[k] = n + 1;
+    assert!(ok(&broken, n).is_err(), "a target's row that holds another target's flag");
+    // and a model with a connected patch or zones goes the old way: no subset search there
+    assert!(terraflux_ops::milp::improve_subset(&m, 0, &[]).is_err());
+}
+
+/// A model the wide engine proves optimal (the gap reached) is returned as it is, as landschaft's
+/// _wide_then_subset does: landschaft's solve_model on the same model (subset_case("max_features"), gap 0.01,
+/// time limit 60, n_threads 4): optimal, objective 37.99904219691896, bound 38.0, 14 targets, 15 units.
+#[test]
+fn subset_models_the_wide_engine_proves_come_back_as_they_are() {
+    let (m, n) = subset_case("max_features");
+    let s = terraflux_ops::milp::solve(&m, n, 0.01, 60.0).unwrap();
+    assert_eq!(s.status, "optimal");
+    let (objective, bound) = (37.99904219691896, 38.0);
+    assert!((s.objective - objective).abs() <= 1e-9 * objective, "objective {} != {objective}", s.objective);
+    assert!((s.bound - bound).abs() <= 1e-9 * bound, "bound {} != {bound}", s.bound);
+    assert_eq!(met_and_units(&m, n, &s.x), (14, 15));
+}
+
+/// The wide engine for 40 % of the time limit, then the search for the rest: on the phylogenetic diversity model with
+/// a time limit of 2 s the wide engine stops at 65.9997689216343 (its bound 68.4 there, 69.0 here: the bound depends
+/// on the speed) and the search reaches 66.74976054922973 (14 targets, 15 units), landschaft's solve_model on the
+/// same model (gap 0.01, time limit 2, n_threads 4): time_limit, objective 66.74976054922973, 15 units, 2.0 s. (On a
+/// faster machine the wide engine alone gets there: the same objective.) Where the run ends depends on the speed (a
+/// slow machine, the CI, may stop the search sooner): checked only that it ends no worse than the wide engine, the
+/// search itself compared with landschaft's in subset_search_is_landschafts. Stopped, the search ends with the run.
+#[test]
+fn the_search_goes_on_from_the_wide_engine_and_stops_with_the_run() {
+    let (m, n) = subset_case("max_phylo_div");
+    let s = terraflux_ops::milp::solve(&m, n, 0.01, 2.0).unwrap();
+    let (wide, here) = (65.9997689216343, 66.74976054922973);
+    assert!(s.objective >= wide * (1.0 - 1e-9), "objective {} below the wide engine's {wide}", s.objective);
+    if (s.objective - here).abs() <= 1e-9 * here {
+        assert_eq!(met_and_units(&m, n, &s.x), (14, 15));
+    }
+    // stopped once the search asks (it asks whether to go on, telling nothing): the solve fails, stopped
+    let mut asked = false;
+    let r = terraflux_ops::milp::watching(
+        &mut |p| {
+            asked |= p.best.is_nan() && p.bound.is_nan();
+            !asked
+        },
+        || terraflux_ops::milp::solve(&m, n, 0.01, 2.0),
+    );
+    match r {
+        Err(e) => assert_eq!(e, terraflux_ops::milp::STOPPED),
+        // (a machine fast enough for the wide engine to prove the gap alone: no search to stop)
+        Ok(s) => assert!(!asked && s.status == "optimal"),
+    }
+}
