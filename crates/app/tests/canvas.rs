@@ -2434,7 +2434,10 @@ fn a_connection_of_a_number_shows_the_number() {
     // an edit: what the nodes gave may be out of date
     h.hover_at(at + egui::vec2(0.0, 300.0));
     h.run_steps(2);
-    h.state_mut().session.as_mut().unwrap().edited();
+    // (an edit of what it reads; an edit elsewhere leaves it)
+    let s = h.state_mut().session.as_mut().unwrap();
+    s.source.nodes[0].params.insert("expression".into(), "6 * 8".into());
+    s.edited();
     h.run_steps(3);
     rest_on(&mut h, at, 60);
     assert!(h.query_by_label_contains("changed since the last run").is_some());
@@ -2511,4 +2514,78 @@ fn notes_and_frames_are_put_on_the_canvas_and_follow_their_nodes() {
     // undone: back
     undo(&mut h);
     assert_eq!(source(&h).notes.len(), 2);
+}
+
+/// Two independent chains (`a` to `b`, `c` to `d`) and a group of two nodes (`g`: `x` to `y`) read by `e`, all done
+/// as after a run.
+fn ran_session(name: &str) -> TerrafluxApp {
+    use terraflux_app::editor_view::NodeStatus;
+    let mut m = Model::new("stale");
+    m.nodes.push(Node::new("a", "raster.calc").param("expression", "1"));
+    m.nodes.push(Node::new("b", "raster.calc").param("expression", "a").input("a", "a.map"));
+    m.nodes.push(Node::new("c", "raster.calc").param("expression", "2"));
+    m.nodes.push(Node::new("d", "raster.calc").param("expression", "a").input("a", "c.map"));
+    let body = terraflux_graph::Body {
+        nodes: vec![
+            Node::new("x", "raster.calc").param("expression", "3"),
+            Node::new("y", "raster.calc").param("expression", "a").input("a", "x.map"),
+            Node::new("z", "raster.calc").param("expression", "4"),
+        ],
+        ..Default::default()
+    };
+    m.nodes.push(Node::new("g", terraflux_graph::GROUP).body(body));
+    m.nodes.push(Node::new("e", "raster.calc").param("expression", "a").input("a", "g.map"));
+    let mut app = open(&m, name);
+    let s = app.session.as_mut().unwrap();
+    for id in ["a", "b", "c", "d", "g", "e"] {
+        s.status.insert(id.into(), NodeStatus::Done { cached: false });
+    }
+    for id in ["g/x", "g/y", "g/z"] {
+        s.inner_status.insert(id.into(), NodeStatus::Done { cached: false });
+    }
+    s.ran_model = Some(s.model.clone());
+    app
+}
+
+fn kept(app: &TerrafluxApp) -> Vec<String> {
+    let s = app.session.as_ref().unwrap();
+    s.status.keys().cloned().chain(s.inner_status.keys().cloned()).collect()
+}
+
+/// An edit takes the status of the node it changes and of what reads it, all the way down; the other chain keeps
+/// its own (and so its wires as fresh).
+#[test]
+fn an_edit_invalidates_only_what_it_reaches() {
+    let mut app = ran_session("canvas-stale-reach.toml");
+    let s = app.session.as_mut().unwrap();
+    s.source.nodes[1].params.insert("expression".into(), "a + 1".into());
+    s.edited();
+    assert_eq!(kept(&app), ["a", "c", "d", "e", "g", "g/x", "g/y", "g/z"]);
+    // upstream: every one downstream goes
+    let s = app.session.as_mut().unwrap();
+    s.source.nodes[2].params.insert("expression".into(), "5".into());
+    s.edited();
+    assert_eq!(kept(&app), ["a", "e", "g", "g/x", "g/y", "g/z"]);
+}
+
+/// Moving a node, or writing a note, changes nothing that was computed.
+#[test]
+fn moving_a_node_or_a_note_invalidates_nothing() {
+    let mut app = ran_session("canvas-stale-visual.toml");
+    let all = kept(&app);
+    let s = app.session.as_mut().unwrap();
+    s.source.nodes[0].pos = Some([40.0, 50.0]);
+    s.source.nodes[1].note = Some("why".into());
+    s.edited();
+    assert_eq!(kept(&app), all);
+}
+
+/// An edit inside a group takes the group and what reads it, and what reads the node inside, not the others.
+#[test]
+fn an_edit_inside_a_group_invalidates_the_group_and_its_readers() {
+    let mut app = ran_session("canvas-stale-group.toml");
+    let s = app.session.as_mut().unwrap();
+    s.source.nodes[4].body.as_mut().unwrap().nodes[0].params.insert("expression".into(), "9".into());
+    s.edited();
+    assert_eq!(kept(&app), ["a", "b", "c", "d", "g/z"]);
 }

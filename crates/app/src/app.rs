@@ -705,6 +705,9 @@ pub struct Session {
     /// How the nodes inside containers did in the last run, by their full place (`group/node`, `outer/inner/node`):
     /// running when they began, done when they ran or, when their container ended, taken from the cache.
     pub inner_status: BTreeMap<String, NodeStatus>,
+    /// The model as the statuses know it (as the last run began): an edit is told against it, to take the status
+    /// of only the nodes it reaches ([`crate::stale`]).
+    pub ran_model: Option<Model>,
     /// How long each node took when it last ran (its place: `node`, `container/inner`; a loop's body summed over its
     /// steps), and about how much memory what it gave holds.
     pub timings: BTreeMap<String, (f64, usize)>,
@@ -993,6 +996,7 @@ impl Session {
             gate: Arc::new(Gate::default()),
             loop_step: BTreeMap::new(),
             inner_status: BTreeMap::new(),
+            ran_model: None,
             bodies: BTreeMap::new(),
             bodies_before: BTreeMap::new(),
             status: BTreeMap::new(),
@@ -1200,15 +1204,42 @@ impl Session {
         self.fields.clear();
         self.edited_at = Some(Instant::now());
         self.revision += 1;
-        // what the nodes gave may be out of date until they run again
-        if !self.running() {
-            self.status.clear();
-            self.inner_status.clear();
-            self.status_rev += 1;
-            self.quiet_failed = None;
-        }
         let mut m = self.source.clone();
-        match terraflux_graph::submodel::expand(&mut m, &self.base()) {
+        let expanded = terraflux_graph::submodel::expand(&mut m, &self.base());
+        // what the nodes gave is out of date where the edit reaches, until they run again
+        if !self.running() {
+            let stale = match (&expanded, &self.ran_model) {
+                (Ok(()), Some(ran)) => Some(crate::stale::between(ran, &m)),
+                _ => None,
+            };
+            let before = self.status.len() + self.inner_status.len();
+            match &stale {
+                Some(s) => {
+                    self.status.retain(|id, _| !s.hits(id));
+                    self.inner_status.retain(|at, _| !s.hits(at));
+                    // (a failure kept quiet goes with the node's place, or the container's)
+                    if self
+                        .quiet_failed
+                        .as_deref()
+                        .is_some_and(|at| s.hits(at) || s.hits(at.split('/').next().unwrap_or(at)))
+                    {
+                        self.quiet_failed = None;
+                    }
+                }
+                None => {
+                    self.status.clear();
+                    self.inner_status.clear();
+                    self.quiet_failed = None;
+                }
+            }
+            if self.status.len() + self.inner_status.len() != before || stale.is_none() {
+                self.status_rev += 1;
+            }
+            if expanded.is_ok() {
+                self.ran_model = Some(m.clone());
+            }
+        }
+        match expanded {
             Ok(()) => {
                 self.issues = check(&m, &Registry::standard());
                 self.unfilled_shown &= self.issues.iter().any(|i| i.unfilled);
@@ -1509,6 +1540,8 @@ impl Session {
         self.check = check.clone();
         let base = self.base();
         self.edited_at = None;
+        // (the statuses this run sets are of the model as it is now)
+        self.ran_model = Some(self.model.clone());
         match &target {
             None => {
                 self.status.clear();

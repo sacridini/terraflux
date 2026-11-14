@@ -6,6 +6,12 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- **An edit takes the status only of what it reaches.** Moving a box, a note, a frame or a wire's reroute point no
+  longer makes every connection say "changed since the last run": a node keeps how it did in the last run unless its
+  own settings or connections changed, it reads (all the way down, inside groups too) a node that did, or it was
+  taken away; the nodes of another chain, and the other nodes of a group, stay as they ran.
+
 ### Added
 - **Edit the features of a vector layer already read.** *Edit the features* in the menu of a vector layer's row in
   the Layers (a layer a `vector.read` node reads from one file, all of it, in the map's coordinate system): its

@@ -87,6 +87,7 @@ pub mod sens_methods;
 pub mod series_drop;
 pub mod settings;
 pub mod shade;
+pub mod stale;
 pub mod table_view;
 pub mod tabs;
 pub mod templates;

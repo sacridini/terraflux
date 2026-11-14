@@ -2643,9 +2643,12 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     `builder::wire_text` (o valor pelo `value_of`, "not run yet" / "changed since the last run"), em editor_view.rs
     `WireAsk`, `WIRE_REST` (0,3 s parado antes do `wire_at`, uma vez por posição) e `EditorState::wire_tooltip`; o
     texto em cache por revisão, execução e fio. Testes: `a_connection_tells_its_type_and_value`,
-    `a_connection_of_a_number_shows_the_number`. Falta: toda edição faz todos os fios dizerem "changed" (mesmo os não
-    afetados); dentro de um grupo a frescura é a do grupo inteiro; a faixa varrida na thread da UI (uma vez por fio
-    e execução).
+    `a_connection_of_a_number_shows_the_number`. Falta: dentro de um grupo a frescura é a do grupo inteiro; a faixa varrida
+    na thread da UI (uma vez por fio e execução).
+    **Feito** (Unreleased): "toda edição marca todos os fios" -- `stale::between` (stale.rs) compara o modelo de
+    quando a última execução começou (`Session::ran_model`) com o novo, nó a nó, sem posição, largura, desvios,
+    notas e registro; o que mudou, o que lê isso (transitivamente, também dentro dos corpos, por `group/inner`) e o
+    que sumiu perde o status; o resto o mantém. Sem esse modelo, limpa tudo como antes.
 
 Fim do bloco do canvas (2026-11-06): itens 4-19 feitos; os itens 1-3 já estavam.
 
