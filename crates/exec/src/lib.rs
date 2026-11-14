@@ -823,7 +823,8 @@ fn setting_value(v: &Value) -> Option<serde_json::Value> {
 }
 
 /// The places of a model's frozen nodes: the top-level ones by their ids, those of groups' bodies (groups in groups
-/// too) by their places, `group/node`; a body's results are kept only through groups.
+/// too, and the branches of switches, which are groups) by their places, `group/node`; a body's results are kept
+/// only through groups and switches.
 pub fn frozen_places(m: &Model) -> Vec<String> {
     fn walk(nodes: &[Node], prefix: &str, out: &mut Vec<String>) {
         for n in nodes {
@@ -831,7 +832,9 @@ pub fn frozen_places(m: &Model) -> Vec<String> {
             if n.frozen {
                 out.push(at.clone());
             }
-            if let Some(b) = n.body.as_ref().filter(|_| n.op == terraflux_graph::GROUP) {
+            if let Some(b) =
+                n.body.as_ref().filter(|_| n.op == terraflux_graph::GROUP || n.op == terraflux_graph::SWITCH)
+            {
                 walk(&b.nodes, &at, out);
             }
         }
@@ -1133,12 +1136,19 @@ impl Engine {
 
     /// What a loop collected, step by step, from its kept outputs (as if it ran).
     fn replay(node: &Node, at: &str, out: &Outputs, obs: &mut dyn Observer) {
-        let Some(body) = node.body.as_ref().filter(|_| node.op == "control.repeat") else { return };
-        let series: BTreeMap<&String, &Vec<Value>> = body
+        let Some(body) = node.body.as_ref().filter(|_| matches!(node.op.as_str(), "control.repeat" | "control.each"))
+        else {
+            return;
+        };
+        // a repeat's collected values are series; an each's are gathered (a stack, a table, a series): taken apart
+        // again, one value per element (a table by the runs of its first column, the element's number)
+        let each = node.op == "control.each";
+        let series: BTreeMap<&String, Vec<Value>> = body
             .collect
             .keys()
             .filter_map(|k| match out.get(k) {
-                Some(Value::Series(s)) => Some((k, s)),
+                Some(Value::Series(s)) => Some((k, s.clone())),
+                Some(v) if each => split(v).map(|s| (k, s)),
                 _ => None,
             })
             .collect();
@@ -2046,10 +2056,24 @@ impl Engine {
                 }
             })?;
         self.read_rasters(None, &mut values, at, obs, warnings)?;
-        let child = env.child(values);
+        let mut child = env.child(values);
+        // in a scope kept: the branch's nodes kept too (a group's), by what the switch's inputs came from (the case
+        // included: another branch has other places)
+        child.kept = env.kept.and_then(|k| {
+            let outer = Node { body: None, ..node.clone() };
+            scoped_print(&outer, env, &k, inputs).map(|print| Scope { print, ..k })
+        });
         let inner = format!("{at}/{}", branch.id);
         obs.node(&inner);
         let ran = self.run_node(branch, &child, inputs, &inner, obs, warnings)?;
+        if let Some(k) = child.kept {
+            // (what was kept of branches no longer in its body: let go)
+            let within = format!("{at}/");
+            k.cache.lock().unwrap().inner.retain(|p, _| {
+                p.strip_prefix(&within)
+                    .is_none_or(|rest| body.nodes.iter().any(|n| rest.split('/').next() == Some(n.id.as_str())))
+            });
+        }
         // the branch's outputs the switch's; what its body's nodes gave (the branch group's `node.port`) by the
         // branch, `branch.node.port`, as a group's body by the group (the application shows them)
         let mut out = Outputs::new();
@@ -2304,6 +2328,31 @@ fn gather(outs: Vec<Outputs>, names: &[String], series: bool, column: &str) -> O
         gathered.insert(k.clone(), v);
     }
     gathered
+}
+
+/// What [`gather`] made of an element's values, taken apart again: the maps of a stack, the tables of a table (its
+/// rows grouped by the runs of its first column, the number each element's rows were given; that column dropped).
+fn split(v: &Value) -> Option<Vec<Value>> {
+    match v {
+        Value::Stack(s) => Some(
+            s.layers.iter().map(|d| Value::Map(terraflux_ops::Map { grid: s.grid.clone(), data: d.clone() })).collect(),
+        ),
+        Value::Table(t) if t.columns.len() > 1 => {
+            let mut parts: Vec<terraflux_ops::Table> = Vec::new();
+            let mut last: Option<f64> = None;
+            for r in &t.rows {
+                if last.is_none_or(|x| x != r[0] && !(x.is_nan() && r[0].is_nan())) {
+                    let mut labels = t.labels.clone();
+                    labels.remove(&t.columns[0]);
+                    parts.push(terraflux_ops::Table { columns: t.columns[1..].to_vec(), rows: Vec::new(), labels });
+                }
+                last = Some(r[0]);
+                parts.last_mut().unwrap().rows.push(r[1..].to_vec());
+            }
+            Some(parts.into_iter().map(Value::Table).collect())
+        }
+        _ => None,
+    }
 }
 
 /// The tables of the layers as one, each row after a column `name` (`layer`, or `item` of control.each; `input_<name>` when they have one): the

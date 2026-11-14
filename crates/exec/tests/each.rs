@@ -80,6 +80,51 @@ inputs = {{ map = "calc.map" }}
     assert!(out.values["each"].contains_key("stats.table"));
 }
 
+/// The steps and collected values a run reports, in order.
+#[derive(Default)]
+struct Events(Vec<String>);
+
+impl Observer for Events {
+    fn step(&mut self, at: &str, step: usize, of: usize) {
+        self.0.push(format!("step {at} {step}/{of}"));
+    }
+    fn collected(&mut self, at: &str, step: usize, of: usize, v: &BTreeMap<String, Value>) {
+        self.0.push(format!("collected {at} {step}/{of} {v:?}"));
+    }
+}
+
+#[test]
+fn an_each_from_the_cache_gives_its_steps_as_when_it_ran() {
+    let m = Model::from_toml(&format!(
+        "format = \"terraflux/1\"\n{STACK_INPUT}
+[[nodes]]
+id = \"each\"
+op = \"control.each\"
+inputs = {{ over = \"$years\", plus = 10 }}
+[nodes.body]
+collect = {{ maps = \"calc.map\", stats = \"stats.table\", names = \"@name\" }}
+[[nodes.body.nodes]]
+id = \"calc\"
+op = \"raster.calc\"
+inputs = {{ x = \"@item\", k = \"@index\", p = \"@plus\" }}
+params = {{ expression = \"x * k + p\" }}
+[[nodes.body.nodes]]
+id = \"stats\"
+op = \"raster.stats\"
+inputs = {{ map = \"calc.map\" }}
+"
+    ))
+    .unwrap();
+    let given = BTreeMap::from([("years".to_string(), years())]);
+    let cache = std::sync::Mutex::new(terraflux_exec::Cache::default());
+    let mut first = Events::default();
+    Engine::default().run_with(&m, &given, &mut first, Some(&cache), None).unwrap();
+    assert_eq!(first.0.len(), 6, "a collected and a step for each of the 3 layers");
+    let mut again = Events::default();
+    Engine::default().run_with(&m, &given, &mut again, Some(&cache), None).unwrap();
+    assert_eq!(first.0, again.0, "the same steps, in the same order, with the same values");
+}
+
 #[test]
 fn rows_features_and_values_are_elements_too() {
     // the rows of a table, each a table of one row named by its first column

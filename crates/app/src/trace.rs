@@ -373,11 +373,25 @@ pub fn loop_on(m: &Model, path: &[String]) -> Option<&'static str> {
     })
 }
 
-/// Whether a place is the top level or the body of a group (groups in groups): where a node's result can be
-/// frozen.
+/// Whether a place is the top level or the body of a group (groups in groups) or of a switch's branch (a group):
+/// where a node's result can be frozen.
 pub fn in_groups(m: &Model, path: &[String]) -> bool {
-    (0..path.len())
-        .all(|k| m.scope(&path[..k]).and_then(|ns| ns.iter().find(|n| n.id == path[k])).is_some_and(|n| n.op == GROUP))
+    (0..path.len()).all(|k| {
+        m.scope(&path[..k])
+            .and_then(|ns| ns.iter().find(|n| n.id == path[k]))
+            .is_some_and(|n| n.op == GROUP || n.op == terraflux_graph::SWITCH)
+    })
+}
+
+/// Whether a node at a place can be frozen: [`in_groups`], and not a switch's branch itself (its result is held
+/// through the nodes inside it; the branch runs as a whole).
+pub fn can_freeze(m: &Model, path: &[String]) -> bool {
+    in_groups(m, path)
+        && path.last().is_none_or(|_| {
+            m.scope(&path[..path.len() - 1])
+                .and_then(|ns| ns.iter().find(|n| n.id == path[path.len() - 1]))
+                .is_some_and(|n| n.op != terraflux_graph::SWITCH)
+        })
 }
 
 const REPEAT: &str = "control.repeat";
@@ -1125,6 +1139,32 @@ mod tests {
         assert_eq!(t.steps[0].path, ["model"]);
         let calc = t.steps.iter().find(|s| s.node == "land_2010").unwrap();
         assert!(calc.value.is_some(), "a group's body's values kept by the run");
+    }
+
+    #[test]
+    fn a_node_of_a_group_or_a_switch_branch_can_be_frozen() {
+        use terraflux_graph::Body;
+        let mut m = Model::new("t");
+        m.nodes.push(
+            Node::new("g", GROUP).body(Body { nodes: vec![Node::new("in", "raster.calc")], ..Default::default() }),
+        );
+        m.nodes.push(Node::new("sw", terraflux_graph::SWITCH).body(Body {
+            nodes: vec![Node::new("double", GROUP).body(Body {
+                nodes: vec![Node::new("d", "raster.calc")],
+                ..Default::default()
+            })],
+            ..Default::default()
+        }));
+        m.nodes.push(
+            Node::new("each", EACH).body(Body { nodes: vec![Node::new("e", "raster.calc")], ..Default::default() }),
+        );
+        let p = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert!(in_groups(&m, &[]) && in_groups(&m, &p(&["g"])));
+        assert!(in_groups(&m, &p(&["sw"])) && in_groups(&m, &p(&["sw", "double"])));
+        assert!(!in_groups(&m, &p(&["each"])), "a loop's body gives a value per step");
+        // the branch itself is not freezable, a node inside it is (as a group's)
+        assert!(can_freeze(&m, &[]) && can_freeze(&m, &p(&["g"])) && can_freeze(&m, &p(&["sw", "double"])));
+        assert!(!can_freeze(&m, &p(&["sw"])) && !can_freeze(&m, &p(&["each"])));
     }
 
     #[test]

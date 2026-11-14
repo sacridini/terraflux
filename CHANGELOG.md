@@ -47,6 +47,12 @@ minor versions.
   landschaft does (node cuts at the root and in HiGHS's tree: the same selection as landschaft's in the same time).
   The Python script writes `add_corridor_constraints`.
 
+### Fixed
+- **A `control.each` taken from the cache reports its steps again** (a step and what it collected for each element, as
+  when it ran), at the top level or inside a group.
+- **A node frozen inside a switch's branch is held:** frozen places and the Freeze toggle go through `control.switch`
+  branches (`switch/branch/node`), and a switch's branch keeps its nodes between runs as a group's. The branch itself cannot be frozen, only the nodes inside it.
+
 ## [1.48.0] - 2026-11-14
 
 ### Added

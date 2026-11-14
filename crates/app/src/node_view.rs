@@ -714,7 +714,7 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             }
             // its result frozen (a top-level node, or one of a group's body): kept next to the model, used instead
             // of running it
-            if crate::trace::in_groups(&s.source, &path) {
+            if crate::trace::can_freeze(&s.source, &path) {
                 let mut frozen = n.frozen;
                 if ui
                     .add_enabled(s.path.is_some(), crate::theme::toggle(&mut frozen, "Freeze"))

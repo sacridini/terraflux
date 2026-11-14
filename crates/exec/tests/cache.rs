@@ -55,6 +55,158 @@ impl Observer for Seen {
     }
 }
 
+/// The steps and collected values a run reports, in order.
+#[derive(Default)]
+struct Events(Vec<String>);
+
+impl Observer for Events {
+    fn step(&mut self, at: &str, step: usize, of: usize) {
+        self.0.push(format!("step {at} {step}/{of}"));
+    }
+    fn collected(&mut self, at: &str, step: usize, of: usize, v: &BTreeMap<String, Value>) {
+        self.0.push(format!("collected {at} {step}/{of} {v:?}"));
+    }
+}
+
+fn engine(runs: &Arc<AtomicUsize>) -> Engine {
+    let mut r = Registry::standard();
+    r.add(Arc::new(Inc(runs.clone())));
+    Engine { registry: r }
+}
+
+#[test]
+fn a_loop_in_a_loop_runs_its_body_at_every_step() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let engine = engine(&runs);
+    // 2 outer steps of 3 inner ones: 6 runs of the node, carried from one to the next
+    let mut m = Model::new("t");
+    m.nodes.push(Node::new("outer", "control.repeat").literal("times", 2).literal("v", 0).body(Body {
+        nodes: vec![Node::new("inner", "control.repeat").literal("times", 3).input("v", "@v").body(Body {
+            nodes: vec![Node::new("step", "test.inc").input("x", "@v")],
+            carry: [("v".to_string(), "step.y".to_string())].into(),
+            collect: [("ys".to_string(), "step.y".to_string())].into(),
+            ..Default::default()
+        })],
+        carry: [("v".to_string(), "inner.v".to_string())].into(),
+        collect: [("last".to_string(), "inner.v".to_string())].into(),
+        ..Default::default()
+    }));
+    let cache = Mutex::new(Cache::default());
+    let none = BTreeMap::new();
+    let mut ev = Events::default();
+    let r = engine.run_with(&m, &none, &mut ev, Some(&cache), None).unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), 6);
+    assert_eq!(r.get("outer.v").unwrap().as_number(), Some(6.0));
+    let Some(Value::Series(last)) = r.get("outer.last") else { panic!() };
+    assert_eq!(last.iter().map(|v| v.as_number().unwrap()).collect::<Vec<_>>(), [3.0, 6.0]);
+    // the inner loop's steps are reported at its place
+    assert_eq!(ev.0.iter().filter(|e| e.starts_with("step outer ")).count(), 2);
+    assert_eq!(ev.0.iter().filter(|e| e.starts_with("step outer/inner ")).count(), 6);
+    // nothing changed: the outer loop gives back what it collected, nothing runs
+    engine.run_with(&m, &none, &mut Events::default(), Some(&cache), None).unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), 6);
+}
+
+#[test]
+fn an_each_in_a_group_in_a_loop_runs_whole_at_every_step() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let engine = engine(&runs);
+    // 2 steps, each a group with an each over 3 items: 6 runs; the group gives the last element's value
+    let mut m = Model::new("t");
+    m.nodes.push(Node::new("loop", "control.repeat").literal("times", 2).literal("v", 0).body(Body {
+        nodes: vec![Node::new("g", terraflux_graph::GROUP).input("x", "@v").body(Body {
+            nodes: vec![
+                Node::new("e", "control.each")
+                    .literal("over", serde_json::json!(["a", "b", "c"]))
+                    .input("base", "@x")
+                    .body(Body {
+                        nodes: vec![Node::new("add", "test.inc").input("x", "@base")],
+                        collect: [("ys".to_string(), "add.y".to_string())].into(),
+                        ..Default::default()
+                    }),
+                Node::new("next", "test.inc").input("x", "@x"),
+            ],
+            outputs: [("y".to_string(), "next.y".to_string()), ("ys".to_string(), "e.ys".to_string())].into(),
+            ..Default::default()
+        })],
+        carry: [("v".to_string(), "g.y".to_string())].into(),
+        ..Default::default()
+    }));
+    let cache = Mutex::new(Cache::default());
+    let none = BTreeMap::new();
+    let mut ev = Events::default();
+    let r = engine.run_with(&m, &none, &mut ev, Some(&cache), None).unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), 8, "2 steps of 3 elements and the node after");
+    assert_eq!(r.get("loop.v").unwrap().as_number(), Some(2.0), "each step: the base plus 1");
+    assert_eq!(ev.0.iter().filter(|e| e.starts_with("step loop/g/e ")).count(), 6);
+    assert_eq!(cache.lock().unwrap().inner_nodes().count(), 0, "nothing of a loop's body kept");
+}
+
+#[test]
+fn a_switch_in_a_loop_takes_its_branch_at_every_step() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let engine = engine(&runs);
+    let branch = |id: &str, by: i64| {
+        Node::new(id, terraflux_graph::GROUP).input("x", "@x").body(Body {
+            nodes: vec![Node::new("add", "test.inc").input("x", "@x").param("by", by)],
+            outputs: [("y".to_string(), "add.y".to_string())].into(),
+            ..Default::default()
+        })
+    };
+    // the case is the carried number: 0 takes case_0 (+1), then 1 takes otherwise (+10)
+    let mut m = Model::new("t");
+    m.nodes.push(Node::new("loop", "control.repeat").literal("times", 2).literal("v", 0).body(Body {
+        nodes: vec![
+            Node::new("sw", terraflux_graph::SWITCH).input("case", "@v").input("x", "@v").body(Body {
+                nodes: vec![branch("case_0", 1), branch("otherwise", 10)],
+                ..Default::default()
+            }),
+        ],
+        carry: [("v".to_string(), "sw.y".to_string())].into(),
+        collect: [("branch".to_string(), "sw.branch".to_string())].into(),
+        ..Default::default()
+    }));
+    let none = BTreeMap::new();
+    let r = engine.run(&m, &none, &mut Seen::default()).unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), 2, "one branch per step");
+    assert_eq!(r.get("loop.v").unwrap().as_number(), Some(11.0));
+    let Some(Value::Series(b)) = r.get("loop.branch") else { panic!() };
+    assert!(matches!((&b[0], &b[1]), (Value::Text(a), Value::Text(c)) if a == "case_0" && c == "otherwise"));
+}
+
+#[test]
+fn a_cached_each_in_a_group_gives_its_steps_again() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let engine = engine(&runs);
+    // g: an each over 3 items, and a node alone that changes between the runs (the group runs again, the each is
+    // kept by its place)
+    let mut m = Model::new("t");
+    m.nodes.push(Node::new("g", terraflux_graph::GROUP).body(Body {
+        nodes: vec![
+            Node::new("e", "control.each").literal("over", serde_json::json!(["a", "b", "c"])).body(Body {
+                nodes: vec![Node::new("add", "test.inc").input("x", "@index")],
+                collect: [("ys".to_string(), "add.y".to_string()), ("names".to_string(), "@name".to_string())].into(),
+                ..Default::default()
+            }),
+            Node::new("alone", "test.inc").literal("x", 0),
+        ],
+        outputs: [("z".to_string(), "alone.y".to_string())].into(),
+        ..Default::default()
+    }));
+    let cache = Mutex::new(Cache::default());
+    let none = BTreeMap::new();
+    let mut first = Events::default();
+    engine.run_with(&m, &none, &mut first, Some(&cache), None).unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), 3 + 1);
+    assert_eq!(first.0.len(), 6, "{:?}", first.0);
+    m.nodes[0].body.as_mut().unwrap().nodes[1].params.insert("by".into(), 5.into());
+    let mut again = Events::default();
+    let r = engine.run_with(&m, &none, &mut again, Some(&cache), None).unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), 3 + 1 + 1, "only the node that changed");
+    assert_eq!(r.get("g.z").unwrap().as_number(), Some(5.0));
+    assert_eq!(first.0, again.0, "the each's steps and what it collected, from the cache");
+}
+
 #[test]
 fn only_what_changed_runs_again() {
     let runs = Arc::new(AtomicUsize::new(0));
@@ -364,6 +516,42 @@ fn a_frozen_node_of_a_group_is_used_whatever_it_came_from() {
     cache.lock().unwrap().release("g/second");
     let r = engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
     assert_eq!(r.get("g.y").unwrap().as_number(), Some(8.0));
+}
+
+#[test]
+fn a_frozen_node_of_a_switch_branch_is_used_whatever_it_came_from() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let engine = engine(&runs);
+    // a -> sw (branch double: first -> second), second frozen
+    let mut second = Node::new("second", "test.inc").input("x", "first.y");
+    second.frozen = true;
+    let mut m = Model::new("t");
+    m.nodes.push(Node::new("a", "test.inc").literal("x", 0));
+    m.nodes.push(Node::new("sw", terraflux_graph::SWITCH).literal("case", "double").input("x", "a.y").body(Body {
+        nodes: vec![Node::new("double", terraflux_graph::GROUP).input("x", "@x").body(Body {
+            nodes: vec![Node::new("first", "test.inc").input("x", "@x"), second],
+            outputs: [("y".to_string(), "second.y".to_string())].into(),
+            ..Default::default()
+        })],
+        ..Default::default()
+    }));
+    assert_eq!(terraflux_exec::frozen_places(&m), ["sw/double/second"]);
+    let cache = Mutex::new(Cache::default());
+    let held: Outputs = [("y".to_string(), Value::Number(41.0))].into();
+    assert!(cache.lock().unwrap().hold("sw/double/second", Some(held), 7));
+    let none = BTreeMap::new();
+    let r = engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    assert_eq!(r.get("sw.y").unwrap().as_number(), Some(41.0));
+    assert_eq!(runs.load(Ordering::SeqCst), 1, "only a: first, read only by the frozen node, does not run");
+    // what it reads changed: still the frozen result
+    m.nodes[0].params.insert("by".into(), 5.into());
+    let r = engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    assert_eq!(r.get("sw.y").unwrap().as_number(), Some(41.0));
+    // thawed: it runs again on what first gives now (a 5, first 6, second 7)
+    m.nodes[1].body.as_mut().unwrap().nodes[0].body.as_mut().unwrap().nodes[1].frozen = false;
+    cache.lock().unwrap().release("sw/double/second");
+    let r = engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    assert_eq!(r.get("sw.y").unwrap().as_number(), Some(7.0));
 }
 
 #[test]
