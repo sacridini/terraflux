@@ -1368,12 +1368,68 @@ linhas de C++ novas em `hydro`, `serv`, `swat`, `surf` e `sim`, e três bibliote
        exemplo); leem as tabelas de um `swat.run` do mesmo projeto, ligadas (`hru_wb`, `hru_nb`, `hru_ls`, `hru_pw`,
        `channel_sd`; o passo `aa` para `annual`, `day` para os outros, com a mensagem dizendo o que mudar no
        `swat.run`), ou rodam o projeto elas mesmas; o projeto precisa vir do `swat.from_tables`.
-     - Falta: o projeto como valor viajando entre máquinas (a pasta ou o zip de
-       `swat.load` e `swat.run` já vão com o modelo nos lotes distribuídos, Unreleased), os templates e os
-       tutoriais.
+     - **Feito** (Unreleased): o script Python do modelo (`terraflux python`, a ferramenta `python_script`) escreve
+       a cadeia toda como `ls.hydro.swat`: `load_txtinout`, `watershed`, `climate` com `from_tables` (que ganha a
+       linha `project.watershed = ...`, como o `from_rasters`), `wgn_from_series`, `run` (as tabelas escolhidas no
+       passo, as outras desligadas), `hru_map`, `channel_map` e `reach_discharge` (com o `result=` da `swat.run`
+       ligada; `nyskip` e `c_factor` numa rodada própria quando nenhuma tabela está ligada); o `swat.set` é uma
+       função auxiliar escrita no script (a linha do `calibration.cal` e a do `cal_parms.cal`, como o Terraflux
+       as escreve), e as tabelas do clima e dos resultados (ano, dia, objeto) passam ao formato do landschaft e
+       voltam por auxiliares. Nenhum dos nove operadores fica como comentário (`--strict` passa). O script do
+       template roda no landschaft 1.58.1 e dá as mesmas médias dos mapas e a mesma soma da vazão que o modelo
+       (conferidas no teste do template). Fora do script: `swat.wgn` com `monthly` por estação
+       (`{"estação": 4}`, que o landschaft não aceita) fica como comentário.
+     - Falta: nada do código. O valor `swat_project` (e o `swat_watershed`) é gravado em JSON e congelável; num
+       lote distribuído cada tarefa roda o modelo inteiro (a pasta ou o zip de `swat.load` e `swat.run` vão com o
+       modelo, Unreleased; um projeto feito dos mapas é refeito no worker). O valor só teria de viajar no motor por
+       tiles, que não divide uma bacia: não se aplica.
 3. **Tutoriais e templates** de cada um, como os do site do landschaft (a hidrologia do terreno, o SWAT+).
-4. **O paralelismo do landschaft** (`on=` para as re-soluções da priorização, os SDM e o Monte Carlo): no
-   Terraflux, os lotes distribuídos já cobrem esse uso; conferir se vale levar o `on=` às re-soluções de um nó só.
+   **Feito** (Unreleased) para o SWAT+: o template "SWAT+ from rasters" (grupo *Surfaces and uncertainty*: um vale
+   de 3 km por 3 km desenhado por `nlm` (a `nlm.*` ganha a configuração `crs`), os usos, os solos e dois anos de
+   clima inventados em `table.of` (que agora aceita nomes, texto, além de números), `swat.watershed` → `swat.wgn`
+   → `swat.from_tables` → dois `swat.set` lendo as entradas `cn2_change` e `awc_change` → duas `swat.run` →
+   `swat.hru_map`, `swat.channel_map`, `swat.reach_discharge`), o tutorial *A SWAT+ project from rasters, and its
+   results on the map* (`website/content/tutorials/terrain-hydrology/swat-plus-from-rasters.md`, com os limiares
+   do fluxo, os métodos de HRU e os parâmetros em tabelas) e o `swat-plus.md` apontando para ele e dizendo de
+   `swat.load` e `swat.set`; e o guia `hydrology` do MCP (hidrologia do terreno e SWAT+). Falta, na próxima
+   atualização dos dados do site (`refresh_data.py`, `extract_templates.py`): o site ainda não conhece os operadores
+   novos (o `ops.json` é de 1.47.0: o build avisa "unknown operator" para todos os `swat.*` novos), e as figuras do
+   tutorial (`website/figures/terrain-hydrology/swat-plus-from-rasters.py`) foram desenhadas com o mesmo projeto
+   rodado no landschaft (as médias são as do teste do template), porque o binário do cli não estava construído:
+   refazê-las com o binário de release. O template guardado em `website/models/templates/` foi salvo pelo
+   aplicativo (o `extract_templates.py` só lê os templates escritos em TOML, não os feitos em código).
+   Falta a hidrologia do terreno (`hydro.*`), que não tem um template próprio fora os de rios.
+4. **O paralelismo do landschaft** (`on=` para as re-soluções da priorização, os SDM e o Monte Carlo): **avaliado**
+   (Unreleased), sem código.
+   - *O que o `on=` faz no landschaft:* recebe um `ls.helpers()` (`_dist`): o computador de quem chama e os outros
+     do grupo de rede local (descoberta por UDP 47810, TCP com TLS, `landschaft worker` em cada um) e reparte as
+     tarefas independentes de uma só chamada: `batch` e `mspa_batch`, `parallel.map` e `parallel.tiled` (uma
+     ferramenta do landschaft por item ou por bloco do mapa), `simulate.scenarios` e `simulate.calibrate` (as
+     buscas em grade e aleatória), `uncertainty.monte_carlo` e `sensitivity.evaluate` (blocos de sorteios, só
+     com `ls.parallel.call`), `sdm.fit` (as dobras de cada modelo, os ajustes finais ficam no computador local) e
+     as re-soluções da priorização: `calibrate_penalty`, `calibrate_budget`, `pareto_front` (`_solve_all`) e
+     `eval_replacement_importance` (uma solução sem cada unidade escolhida); o modelo vai como arrays (CSR) e
+     volta o resultado do solver, os argumentos e resultados sempre como dados, nunca como código. O resultado é
+     o mesmo de um computador só. O `swat.run_many` do landschaft não tem `on=` (só `n_threads`).
+   - *O que o Terraflux já cobre:* o que o `on=` reparte entre computadores como tarefas de **modelos inteiros**: as
+     réplicas, os cenários, a calibração, a análise de sensibilidade e os lotes de um modelo do SWAT+ (as entradas
+     `$`), com o coordenador, os workers, o aplicativo ("Rodar em mais computadores"), o cluster por SSH e a
+     nuvem; o motor por tiles cobre `parallel.tiled`. Isso inclui o Monte Carlo e o `swat.set`: um sorteio ou uma
+     rodada é uma tarefa do lote.
+   - *O que um nó ganharia:* só o que é paralelo **dentro** de um nó e pesado por tarefa: o `prioritize.calibrate`
+     (nove ou mais candidatos, cada um uma solução inteira) e as soluções de substituição e de posto do
+     `prioritize.evaluate` (uma por unidade escolhida: centenas), cada uma de minutos num problema grande, com dados
+     pequenos (a matriz esparsa) e resultado pequeno. Hoje correm nas threads da máquina (`rayon`, nunca todos os
+     núcleos). O `sdm.fit` (≤ 10 dobras, cada uma em segundos: o Terraflux porta os modelos em Rust) e o
+     `uncertainty.monte_carlo` (a expressão de cada sorteio é barata e vetorizada) não ganhariam; o `swat.run` é uma
+     rodada por nó, e as muitas rodadas já são lotes.
+   - *Recomendação:* **não levar o `on=`**. É um mecanismo do `landschaft worker` (outro protocolo e outro pacote em
+     cada máquina), e os computadores do usuário do Terraflux rodam workers do Terraflux; o que cobriria o ganho
+     real é uma tarefa de **nó** no coordenador que já existe (os arrays do problema como dados do job, os
+     resultados de volta), só para o `prioritize.calibrate` e o `prioritize.evaluate`, e só quando um lote ou
+     cluster estiver ligado ao modelo. Não vale o trabalho antes de medir: cronometrar o `calibrate` e o
+     `evaluate` com replacement num problema grande real (centenas de milhares de unidades) e ver se passam de
+     alguns minutos nas threads de uma máquina; se não passam, não fazer.
 
 ## Várias máquinas sem saber de computação
 

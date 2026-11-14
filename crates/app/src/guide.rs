@@ -253,6 +253,38 @@ sdm.evaluate; auc_diff (training minus test) large: the model overfits.
 extrapolation where the environment is new (sdm.mess, sdm.exdet, sdm.mop); in another climate, the same \
 predictors' names on the future stack. Template \"Species distribution model\", \"A species in a warmer climate\".",
     },
+    Guide {
+        name: "hydrology",
+        title: "Terrain hydrology and SWAT+: flow, streams, watersheds, a watershed model",
+        text: "\
+1. Data: a DEM in a projected coordinate system (metres; a model that needs latitudes, like swat.watershed, asks \
+for a coordinate system). Fill its depressions first (hydro.fill, or hydro.breach to cut through them): every \
+other step reads the filled DEM.
+2. Flow and streams: hydro.flow_direction, hydro.flow_accumulation (the cells draining to each cell), \
+hydro.streams (the cells draining a threshold or more: the threshold sets how dense the network is), \
+hydro.stream_links, hydro.watersheds. The terrain's indices: hydro.hand, hydro.twi, hydro.spi, hydro.sti, \
+hydro.distance_to_channel, hydro.connectivity_index. Gauges and dams on the network: hydro.snap, \
+hydro.upstream_catchment, hydro.upstream. Templates \"Terrain of a surface\", \"Rivers: the land upstream and the \
+gauges' catchments\", \"Rivers: dams and their connectivity (DCI)\".
+3. How much water, when, and how much soil: SWAT+ (landschaft's port of SWAT+ 62, bit for bit for what it covers). \
+A project already made (a TxtInOut folder or a zip): swat.load (or the `path` of swat.run), swat.set to change a \
+parameter as SWAT+'s hard calibration does (cn2, awc, esco, perco...; pctchg, abschg or absval; a setting may read \
+a model input `$x`, which is how batches and calibrations vary it), swat.run for the tables SWAT+ prints. A \
+project from maps, as QSWAT+ and the SWAT+ Editor make it: swat.watershed (the DEM, the land use and soil maps \
+with their lookup tables of code and name, the soil table; `stream_threshold` in km2, `hru_method` and its \
+thresholds), then swat.from_tables (the weather stations and a daily table each of pcp, tmax and tmin: a date or \
+year and day, a column per station; swat.wgn computes the weather generator's statistics, which need `monthly` \
+values daily series cannot give), then swat.run. Template \"SWAT+ from rasters\".
+4. Results on the map: swat.hru_map (a variable of an HRU table: sedyld, surq_gen, wateryld, et...), \
+swat.channel_map (a channel's column, the mean discharge by default) and swat.reach_discharge (each channel's \
+daily flow). Connect them to the tables of one swat.run (the average annual step `aa` for the HRUs, `day` for the \
+channels) so the project is not simulated again for each map; they need the project of swat.from_tables.
+5. Trust: look at the water balance first (is evapotranspiration plausible for the climate and the plants? check \
+lai and bioms in the plants' table). A model with defaults is not calibrated: compare the daily discharge with \
+measured flow (Nash-Sutcliffe, Moriasi et al. 2007) on a period not used to calibrate. Skip the first year \
+(`nyskip`) so the soil water and aquifers settle. Say in the notes which `c_factor` was used: it changes the \
+sediment by orders of magnitude on a project whose plants do not grow.",
+    },
 ];
 
 /// The guides of the methods in Portuguese (the names of the operators, settings and templates as they are), for an
@@ -388,6 +420,38 @@ Boyce), sdm.evaluate; um auc_diff (treino menos teste) grande: o modelo se sobre
 5. Projete: sdm.maxnet_predict na pilha das preditoras; um limiar (sdm.threshold) para um mapa de presença; \
 extrapolação onde o ambiente é novo (sdm.mess, sdm.exdet, sdm.mop); em outro clima, os mesmos nomes das \
 preditoras na pilha futura. Templates \"Species distribution model\", \"A species in a warmer climate\".",
+    },
+    Guide {
+        name: "hydrology",
+        title: "Hidrologia do terreno e SWAT+: escoamento, rios, bacias, um modelo de bacia",
+        text: "\
+1. Dados: um MDE num sistema de coordenadas projetado (metros; um modelo que precisa de latitudes, como \
+swat.watershed, pede o sistema de coordenadas). Preencha antes as depressões (hydro.fill, ou hydro.breach para \
+rompê-las): todo outro passo lê o MDE preenchido.
+2. Escoamento e rios: hydro.flow_direction, hydro.flow_accumulation (as células que drenam para cada célula), \
+hydro.streams (as células que drenam um limiar ou mais: o limiar define a densidade da rede), \
+hydro.stream_links, hydro.watersheds. Os índices do terreno: hydro.hand, hydro.twi, hydro.spi, hydro.sti, \
+hydro.distance_to_channel, hydro.connectivity_index. Postos e barragens na rede: hydro.snap, \
+hydro.upstream_catchment, hydro.upstream. Templates \"Terrain of a surface\", \"Rivers: the land upstream and the \
+gauges' catchments\", \"Rivers: dams and their connectivity (DCI)\".
+3. Quanta água, quando, e quanto solo: o SWAT+ (o port do SWAT+ 62 do landschaft, bit a bit no que cobre). Um \
+projeto já feito (uma pasta TxtInOut ou um zip): swat.load (ou o `path` do swat.run), swat.set para mudar um \
+parâmetro como a calibração dura do SWAT+ (cn2, awc, esco, perco...; pctchg, abschg ou absval; uma configuração \
+pode ler uma entrada do modelo `$x`, como lotes e calibrações a variam), swat.run para as tabelas que o SWAT+ \
+imprime. Um projeto a partir de mapas, como o QSWAT+ e o SWAT+ Editor fazem: swat.watershed (o MDE, os mapas de uso \
+e de solo com suas tabelas de código e nome, a tabela dos solos; `stream_threshold` em km2, `hru_method` e seus \
+limiares), depois swat.from_tables (as estações e uma tabela diária de cada uma de pcp, tmax e tmin: uma data ou \
+ano e dia, uma coluna por estação; swat.wgn calcula as estatísticas do gerador de clima, que pedem valores em \
+`monthly` que as séries diárias não dão), depois swat.run. Template \"SWAT+ from rasters\".
+4. Resultados no mapa: swat.hru_map (uma variável de uma tabela de HRU: sedyld, surq_gen, wateryld, et...), \
+swat.channel_map (uma coluna do canal, a vazão média por padrão) e swat.reach_discharge (a vazão diária de cada \
+canal). Ligue-os às tabelas de um só swat.run (o passo médio anual `aa` para as HRUs, `day` para os canais) para \
+não simular o projeto de novo a cada mapa; eles pedem o projeto do swat.from_tables.
+5. Confie com cuidado: olhe o balanço hídrico primeiro (a evapotranspiração é plausível para o clima e as plantas? \
+veja lai e bioms na tabela das plantas). Um modelo com os valores padrão não está calibrado: compare a vazão \
+diária com a medida (Nash-Sutcliffe, Moriasi et al. 2007) num período não usado para calibrar. Pule o primeiro \
+ano (`nyskip`) para a água do solo e os aquíferos se assentarem. Diga nas notas qual `c_factor` foi usado: ele muda \
+o sedimento em ordens de grandeza num projeto cujas plantas não crescem.",
     },
 ];
 

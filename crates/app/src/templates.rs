@@ -224,7 +224,244 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 54] = [
+/// The SWAT+ model of the template "SWAT+ from rasters" (its weather is added by [`swat_from_rasters`]).
+const SWAT_FROM_RASTERS: &str = r#"
+format = "terraflux/1"
+name = "SWAT+ from rasters"
+description = "A SWAT+ project made from maps, as QSWAT+ and the SWAT+ Editor make it, and run: a terrain, a land use and a soil drawn by chance (a valley of 3 km by 3 km, cells of 100 m, 700 to 1,000 m) are divided into subbasins, channels and HRUs; with made-up soils and two years of made-up daily weather they become a SWAT+ project (the Editor's files), which is changed (the curve number and the water the soil holds, by a percentage the model's inputs give: what a batch or a calibration varies) and simulated by landschaft's port of SWAT+ 62. The results come back on the map: the soil lost and the runoff of each HRU, the flow of each channel and its daily discharge."
+
+[inputs.cn2_change]
+kind = "value"
+value = 0
+note = "The curve number (cn2) of every HRU changed by this percentage (-10 is 10% lower, less runoff): what SWAT+'s hard calibration does with a row of calibration.cal. A batch or a calibration varies it."
+
+[inputs.awc_change]
+kind = "value"
+value = 0
+note = "The water the soil holds (awc, in every layer) changed by this percentage."
+
+[[nodes]]
+id = "relief"
+op = "nlm.fbm"
+params = { rows = 30, columns = 30, dimension = 1.4, seed = 91, resolution = 100, crs = "+proj=tmerc +lat_0=-15 +lon_0=-47 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m" }
+note = "The terrain's shape, in cells of 100 m on a made-up place (a transverse Mercator at 15 S, 47 W: the model needs latitudes for the sun)."
+
+[[nodes]]
+id = "dem"
+op = "raster.calc"
+inputs = { f = "relief.map" }
+params = { expression = "700 + 300 * f" }
+note = "The elevation, 700 to 1,000 m. In its place, a DEM in a projected CRS: raster.read, or data.download's Copernicus DEM reprojected."
+
+[[nodes]]
+id = "cover"
+op = "nlm.random_cluster"
+inputs = { like = "relief.map" }
+params = { p = 0.5, weights = [0.6, 0.4], seed = 92 }
+note = "The land use: 1 forest, 2 pasture (in its place, a land use map; the codes name the plants in the lookup below)."
+
+[[nodes]]
+id = "soils"
+op = "raster.calc"
+inputs = { f = "relief.map" }
+params = { expression = "10 if f > 0.4 else 20" }
+note = "The soils: 10 on the uplands (above 820 m), 20 in the lower valley (in its place, a soil map: a raster.read of the soil units)."
+
+[[nodes]]
+id = "landuse_lookup"
+op = "table.of"
+params = { columns = ["code", "name"], rows = [[1, "FRSD"], [2, "PAST"]] }
+note = "What each land use code is in SWAT+: the name of a plant (plants.plt) or an urban land use (urban.urb). FRSD is deciduous forest, PAST pasture."
+
+[[nodes]]
+id = "soil_lookup"
+op = "table.of"
+params = { columns = ["code", "name"], rows = [[10, "UPLAND_LOAM"], [20, "VALLEY_CLAY_LOAM"]] }
+note = "What each soil code is: the name of a soil of the table below."
+
+[[nodes]]
+id = "soil_table"
+op = "table.of"
+note = "Two made-up soils, a row per layer, in SWAT+'s soils.sol columns: a loam of hydrologic group B and a clay loam of group C. In its place, a usersoil table (ArcSWAT, QSWAT+) read by table.read."
+
+[nodes.params]
+columns = ["name", "hyd_grp", "dp_tot", "anion_excl", "perc_crk", "texture", "dp", "bd", "awc", "soil_k", "carbon", "clay", "silt", "sand", "rock", "alb", "usle_k", "ec", "caco3", "ph"]
+rows = [
+    ["UPLAND_LOAM", "B", 1500, 0.5, 0.5, "L", 200, 1.35, 0.15, 20.0, 2.5, 18, 42, 40, 5, 0.12, 0.28, 0, 0, 6.0],
+    ["UPLAND_LOAM", "B", 1500, 0.5, 0.5, "L", 700, 1.45, 0.13, 12.0, 1.0, 22, 40, 38, 5, 0.12, 0.28, 0, 0, 6.0],
+    ["UPLAND_LOAM", "B", 1500, 0.5, 0.5, "L", 1500, 1.55, 0.11, 6.0, 0.4, 25, 38, 37, 5, 0.12, 0.28, 0, 0, 6.0],
+    ["VALLEY_CLAY_LOAM", "C", 1500, 0.5, 0.5, "CL", 250, 1.30, 0.17, 6.0, 2.0, 32, 36, 32, 5, 0.12, 0.30, 0, 0, 6.0],
+    ["VALLEY_CLAY_LOAM", "C", 1500, 0.5, 0.5, "CL", 900, 1.40, 0.15, 3.0, 0.8, 36, 34, 30, 5, 0.12, 0.30, 0, 0, 6.0],
+    ["VALLEY_CLAY_LOAM", "C", 1500, 0.5, 0.5, "CL", 1500, 1.50, 0.13, 1.5, 0.3, 38, 34, 28, 5, 0.12, 0.30, 0, 0, 6.0],
+]
+
+[[nodes]]
+id = "watershed"
+op = "swat.watershed"
+inputs = { dem = "dem.map", landuse = "cover.map", soils = "soils.map", landuse_lookup = "landuse_lookup.table", soil_lookup = "soil_lookup.table", soil_table = "soil_table.table" }
+params = { stream_threshold = 0.3 }
+note = "QSWAT+'s watershed: the DEM filled and drained (D8), a stream where 0.3 km2 drain, a channel and a subbasin per stream link, and an HRU per subbasin, the largest combination of land use, soil and slope (QSWAT+'s default; hru_method = filter keeps every combination above thresholds)."
+why = "0.3 km2 gives a handful of subbasins on 9 km2: enough to see a network, quick to run. With real data, the threshold sets how fine the network is (QSWAT+ proposes 1% of the area)."
+
+[[nodes]]
+id = "stations"
+op = "table.of"
+params = { columns = ["name", "lat", "lon", "elev"], rows = [["valley", -14.98, -46.98, 850]] }
+note = "The weather station, at the valley (in its place, the stations of the series: name, lat, lon, elev)."
+
+[[nodes]]
+id = "pcp"
+op = "table.select"
+inputs = { table = "weather.table" }
+params = { columns = ["year", "day", "pcp"], rename = { pcp = "valley" } }
+note = "The daily precipitation of the station (mm): a row per day, year and day of the year, a column per station."
+
+[[nodes]]
+id = "tmax"
+op = "table.select"
+inputs = { table = "weather.table" }
+params = { columns = ["year", "day", "tmax"], rename = { tmax = "valley" } }
+
+[[nodes]]
+id = "tmin"
+op = "table.select"
+inputs = { table = "weather.table" }
+params = { columns = ["year", "day", "tmin"], rename = { tmin = "valley" } }
+
+[[nodes]]
+id = "wgn"
+op = "swat.wgn"
+inputs = { pcp = "pcp.table", tmax = "tmax.table", tmin = "tmin.table" }
+params = { monthly = { pcp_hhr = 8, slr_ave = [4, 7, 11, 16, 20, 23, 25, 21, 15, 9, 5, 3], dew_ave = 4, wnd_ave = 2.5 } }
+note = "The weather generator's statistics (SWAT+ fills the days the series lack with it) computed from the series, by month: temperatures, rain, the chance of a wet day. What daily data cannot give (the largest half-hour rain, the sun, dew point and wind means) is given by month."
+why = "swat.from_tables computes the same statistics when wgn is not connected; the node is here to show them and to replace them with the ones of SWAT+'s weather generator database."
+
+[[nodes]]
+id = "project"
+op = "swat.from_tables"
+inputs = { watershed = "watershed.watershed", stations = "stations.table", pcp = "pcp.table", tmax = "tmax.table", tmin = "tmin.table", wgn = "wgn.wgn" }
+note = "The SWAT+ project as the SWAT+ Editor writes it: the TxtInOut files (HRUs, channels, aquifers, soils, land uses, weather, time.sim, file.cio) from the watershed and the weather; it keeps the watershed for the maps of the results. The simulated period is the days the weather covers."
+
+[[nodes]]
+id = "curve_number"
+op = "swat.set"
+inputs = { project = "project.project" }
+params = { parameter = "cn2", change = "pctchg", value = "$cn2_change" }
+note = "The curve number changed in every HRU by the percentage of the model's input (a row of calibration.cal, which the run applies before it starts)."
+
+[[nodes]]
+id = "soil_water"
+op = "swat.set"
+inputs = { project = "curve_number.project" }
+params = { parameter = "awc", change = "pctchg", value = "$awc_change" }
+note = "The water the soil holds changed in every layer, by the percentage of the model's input."
+
+[[nodes]]
+id = "yearly"
+op = "swat.run"
+inputs = { project = "soil_water.project" }
+params = { step = "aa", tables = ["hru_wb", "hru_ls"] }
+note = "SWAT+ run for the two years; the tables of the water balance and the soil lost of each HRU, as the average annual (aa) values. The project skips the first year (nyskip 1, the SWAT+ Editor's default): the soil water and the aquifers settle in it."
+why = "A run prints its tables at one step: the HRUs' at the average annual one for the maps, the channels' daily below for the discharge."
+
+[[nodes]]
+id = "daily"
+op = "swat.run"
+inputs = { project = "soil_water.project" }
+params = { step = "day", tables = ["channel_sd"] }
+note = "The same project run again, printing the channels' table by day (of the second year: the first is skipped). Set nyskip to 0 to print both."
+
+[[nodes]]
+id = "sediment"
+op = "swat.hru_map"
+inputs = { project = "soil_water.project", hru_ls = "yearly.hru_ls" }
+params = { variable = "sedyld", how = "annual" }
+note = "The soil lost (t/ha a year, MUSLE's sediment yield) of each HRU on the map: each cell takes its HRU's value."
+
+[[nodes]]
+id = "runoff"
+op = "swat.hru_map"
+inputs = { project = "soil_water.project", hru_wb = "yearly.hru_wb" }
+params = { variable = "surq_gen", how = "annual" }
+note = "The surface runoff (mm a year) of each HRU on the map."
+
+[[nodes]]
+id = "flow"
+op = "swat.channel_map"
+inputs = { project = "soil_water.project", channel_sd = "daily.channel_sd" }
+params = { column = "flo_out", how = "mean" }
+note = "The mean discharge (m3/s) leaving each channel, on the stream cells."
+
+[[nodes]]
+id = "discharge"
+op = "swat.reach_discharge"
+inputs = { project = "soil_water.project", channel_sd = "daily.channel_sd" }
+note = "The daily discharge of each channel (m3/s): a row per day, a column per channel."
+
+[[nodes]]
+id = "plot_sediment"
+op = "view.plot"
+inputs = { value = "sediment.map" }
+params = { title = "Soil lost by HRU (t/ha a year)" }
+
+[[nodes]]
+id = "plot_runoff"
+op = "view.plot"
+inputs = { value = "runoff.map" }
+params = { title = "Surface runoff by HRU (mm a year)" }
+
+[[nodes]]
+id = "plot_flow"
+op = "view.plot"
+inputs = { value = "flow.map" }
+params = { title = "Mean discharge of each channel (m3/s)" }
+
+[[nodes]]
+id = "plot_discharge"
+op = "view.plot"
+inputs = { table = "discharge.table" }
+params = { title = "Daily discharge (m3/s)" }
+"#;
+
+/// Two years of daily weather made up for the SWAT+ template: a rainy season and a dry one (rain falling on most
+/// days of the summer, 9 mm on average), temperatures with the seasons, from a fixed generator.
+fn swat_weather() -> Node {
+    let mut state: u64 = 2001;
+    let mut draw = move || {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((state >> 11) as f64 + 0.5) / (1u64 << 53) as f64
+    };
+    let round1 = |x: f64| (x * 10.0).round() / 10.0;
+    let mut rows = Vec::new();
+    for year in [2001, 2002] {
+        for day in 1..=365 {
+            // 1 in the middle of the austral summer, -1 in winter
+            let season = (2.0 * std::f64::consts::PI * (f64::from(day) - 15.0) / 365.0).cos();
+            let wet = draw() < 0.40 + 0.28 * season;
+            let rain = if wet { round1(-9.0 * draw().ln()) } else { 0.0 };
+            let tmax = round1(27.0 + 3.0 * season + 1.5 * (draw() - 0.5));
+            let tmin = round1(tmax - 10.0 - 3.0 * draw());
+            rows.push(serde_json::json!([year, day, rain, tmax, tmin]));
+        }
+    }
+    Node::new("weather", "table.of")
+        .param("columns", serde_json::json!(["year", "day", "pcp", "tmax", "tmin"]))
+        .param("rows", rows)
+        .note(
+            "Two years of daily weather made up (2001 and 2002): rain (mm), maximum and minimum temperature (deg C), \
+             wet summers and dry winters. In its place, the series of the stations (table.read of a CSV with a \
+             date or year and day, and a column per station).",
+        )
+}
+
+/// A SWAT+ project from rasters on the data drawn, run and mapped.
+fn swat_from_rasters() -> Model {
+    let mut m = Model::from_toml(SWAT_FROM_RASTERS).expect("a template is a model");
+    m.nodes.insert(0, swat_weather());
+    m
+}
+
+pub const TEMPLATES: [Template; 55] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -4213,6 +4450,15 @@ params = { steps = 100, alpha = 0.08, x = 0.5, y = 4, e = 0.2, seed = 104 }
 note = "alpha: 1 / the mean dispersal distance (12.5 cells); e and x: the extinction of a patch of 1 ha and how it falls with area; y: the connectivity at which colonisation is even. Its tables: the patches occupied every year, and each patch's incidence."
 "#,
     },
+    Template {
+        name: "SWAT+ from rasters",
+        group: SURFACES,
+        about: "a SWAT+ project made from a terrain, a land use and a soil (QSWAT+'s subbasins, channels and HRUs, the \
+                SWAT+ Editor's files) and run: the soil lost and the runoff of each HRU, the flow and discharge of each \
+                channel on the map; the curve number and the water the soil holds are inputs a batch can vary",
+        toml: "",
+        build: Some(swat_from_rasters),
+    },
 ];
 
 /// Where the user's own templates are kept (the user's application data): a model file each, named as shown.
@@ -4375,6 +4621,56 @@ mod tests {
         assert_eq!(g.column("snapped").unwrap(), [1.0; 5]);
         let Some(terraflux_ops::Value::Table(c)) = out.get("catchments.table") else { panic!("no catchments") };
         assert!(c.column("cells").unwrap().iter().all(|n| *n >= 300.0), "{:?}", c.column("cells"));
+    }
+
+    /// The SWAT+ template runs: HRUs, channels, a soil loss and a runoff on the HRUs, a flow on the channels, two years
+    /// of daily discharge; a change of the curve number moves the runoff.
+    #[test]
+    fn swat_template_runs() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let m = TEMPLATES.iter().find(|t| t.name == "SWAT+ from rasters").unwrap().model();
+        let given = |cn2: i64| {
+            std::collections::BTreeMap::from([
+                ("cn2_change".to_string(), terraflux_ops::Value::Integer(cn2)),
+                ("awc_change".to_string(), terraflux_ops::Value::Integer(0)),
+            ])
+        };
+        let run = |cn2: i64| {
+            terraflux_exec::Engine::default().run(&m, &given(cn2), &mut Quiet).unwrap_or_else(|e| panic!("{e}"))
+        };
+        let out = run(0);
+        let mean = |port: &str| match out.get(port) {
+            Some(terraflux_ops::Value::Map(m)) => {
+                let v: Vec<f64> = m.data.iter().copied().filter(|x| x.is_finite()).collect();
+                assert!(!v.is_empty(), "{port}: no cell has a value");
+                v.iter().sum::<f64>() / v.len() as f64
+            }
+            _ => panic!("no map {port}"),
+        };
+        // (the means and the sum of the script of this template in landschaft 1.58.1, run in Python: the same project)
+        let close = |a: f64, b: f64, what: &str| assert!((a - b).abs() <= 1e-6 * b.abs(), "{what}: {a} against {b}");
+        close(mean("sediment.map"), 123.2539025273669, "sediment");
+        let runoff = mean("runoff.map");
+        close(runoff, 192.8965964010193, "runoff");
+        close(mean("flow.map"), 0.014595569413457368, "flow");
+        let Some(terraflux_ops::Value::Table(q)) = out.get("discharge.table") else { panic!("no discharge") };
+        // (the first of the two years is the spin-up the project skips: nyskip 1)
+        assert_eq!(q.rows.len(), 365);
+        assert_eq!(q.columns.len(), 2 + 9, "year, day and nine channels");
+        let total: f64 = q.rows.iter().flat_map(|r| r[2..].iter()).sum();
+        close(total, 49.28723263032374, "discharge");
+        let Some(terraflux_ops::Value::Table(h)) = out.get("watershed.table") else { panic!("no HRUs") };
+        assert!(h.rows.len() >= 3, "{} HRUs", h.rows.len());
+        // a higher curve number: more runoff
+        let wetter = match run(10).get("runoff.map") {
+            Some(terraflux_ops::Value::Map(m)) => {
+                let v: Vec<f64> = m.data.iter().copied().filter(|x| x.is_finite()).collect();
+                v.iter().sum::<f64>() / v.len() as f64
+            }
+            _ => panic!("no runoff"),
+        };
+        assert!(wetter > runoff, "{wetter} against {runoff}");
     }
 
     /// The dams template runs: a DCI below 100 for a network with dams, the dams ranked by the gain of removing each.

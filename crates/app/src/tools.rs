@@ -72,8 +72,8 @@ ecology, connectivity and conservation planning. A model is a file (.toml or .js
 build and change it with these tools, not by writing the file.
 
 - Read the guide of the field first (guide with `topic`): land-change, connectivity, landscape-metrics, \
-conservation-planning, species-distribution, data-preparation give the method step by step, with its operators \
-and templates; nodes, calc, containers, record and results tell how a model is built.
+conservation-planning, species-distribution, hydrology, data-preparation give the method step by step, with its \
+operators and templates; nodes, calc, containers, record and results tell how a model is built.
 - Start from a template (list_templates with a `query`; new_model with `template`): a small model that runs as it \
 is, its data drawn by neutral landscape models (nlm.*), to be replaced by raster.read nodes of the user's files \
 (absolute paths).
@@ -108,7 +108,8 @@ undo it (ctrl+Z). Answer in the user's language and briefly; say what you change
 or settings. To build a new model, start from list_templates (new_model with `template` puts one in place of the \
 model open, only when the user wants a new model).
 - guide gives the method of each field step by step, with its operators and templates (land-change, \
-connectivity, landscape-metrics, conservation-planning, species-distribution, data-preparation): read the field's \
+connectivity, landscape-metrics, conservation-planning, species-distribution, hydrology, data-preparation): read \
+the field's \
 before building or reviewing a model of it. check_model advises on the method too: follow its warnings.
 - Every edit is checked: a connection of the wrong type, a port the operator does not have, a cycle, is refused \
 with the reason and the model is left as it was; read the reason and correct the call. The reply to an edit lists \
@@ -1602,7 +1603,7 @@ fn all() -> Vec<Value> {
     vec![
         tool(
             "guide",
-            "A guide, read before building or reviewing a model: the method of a field step by step with its operators and templates (land-change, connectivity, landscape-metrics, conservation-planning, species-distribution, data-preparation), or how a model is built (nodes, calc, containers, record, results). Without a topic: the guides listed.",
+            "A guide, read before building or reviewing a model: the method of a field step by step with its operators and templates (land-change, connectivity, landscape-metrics, conservation-planning, species-distribution, hydrology, data-preparation), or how a model is built (nodes, calc, containers, record, results). Without a topic: the guides listed.",
             json!({
                 "topic": { "type": "string", "description": "The guide, e.g. land-change." },
                 "language": { "type": "string", "enum": ["en", "pt"], "description": "en (default) or pt: the guides of the methods in Portuguese, for a user who writes in it." },

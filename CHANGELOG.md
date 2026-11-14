@@ -42,6 +42,22 @@ minor versions.
   model input `"$x"` for batches and calibration), the soil layers and the HRUs, the input project untouched, chained
   nodes making their changes in order, equal to landschaft's with the same calibration.cal; `swat.run` takes a
   `project` input instead of `path` (`path` still works; one of the two).
+- **The template "SWAT+ from rasters" (group Surfaces and uncertainty) and its Python script:** a valley of 3 km by
+  3 km drawn by `nlm` (terrain, land use, soils), the lookup and soil tables and two years of daily weather written
+  in the model, `swat.watershed` → `swat.wgn` → `swat.from_tables` → two `swat.set` (the curve number and the water
+  the soil holds, changed by a percentage that two model inputs, `cn2_change` and `awc_change`, give, ready for Many
+  runs and calibration) → two `swat.run` (the HRUs' average year, the channels' days) → `swat.hru_map` (soil lost,
+  runoff), `swat.channel_map` and `swat.reach_discharge`; its maps and discharge are those of the same project in
+  landschaft 1.58.1. `terraflux python` and the `python_script` tool write the nine `swat.*` operators as
+  landschaft's `ls.hydro.swat` (`load_txtinout`, `watershed`, `climate` with `from_tables`, `wgn_from_series`,
+  `run`, `hru_map`, `channel_map`, `reach_discharge`; `swat.set` as a helper in the script that adds the
+  calibration.cal row as Terraflux does), none left as a comment. To make it run as it is: `table.of` takes names
+  (text columns) as well as numbers, and the drawn maps of `nlm.*` take a `crs`. A new guide `hydrology` for
+  assistants (terrain hydrology and SWAT+, in English and Portuguese).
+- **The tutorial "A SWAT+ project from rasters, and its results on the map"** (Terrain hydrology): the division
+  into subbasins, channels and HRUs with the stream threshold and the HRU method, the weather and the generator's
+  statistics, the project, a parameter changed by a model input, two runs and the maps; the tutorial "Watershed
+  simulation with SWAT+" points to it and tells of `swat.load` and `swat.set`.
 - **`prioritize.calibrate` solves on Gurobi:** new settings `solver` (highs or gurobi) and `threads`, as
   `prioritize.optimize`'s: the candidates solve in parallel with one Gurobi thread each, as landschaft's
   `_solve_all`, and the ideal solves (Cohon's two, the least cost) with the node's threads; HiGHS and one warning

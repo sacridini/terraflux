@@ -355,18 +355,24 @@ impl Operator for TableOf {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "table.of",
-            "A table written in the settings: its columns' names and its rows of numbers (null: no value), such as the small tables a planning problem takes.",
+            "A table written in the settings: its columns' names and its rows of numbers (null: no value) or of \
+             names (text, such as the soils' and land uses' names of a SWAT+ project), such as the small tables a \
+             planning problem takes.",
             Access::Local,
         )
         .output(PortSpec::new("table", Type::Table, "the table"))
         .param(PortSpec::new("columns", Type::Any, "the columns' names"))
-        .param(PortSpec::new("rows", Type::Any, "the rows: [[number, ...], ...], as many numbers as columns"))
+        .param(PortSpec::new(
+            "rows",
+            Type::Any,
+            "the rows: [[value, ...], ...], as many values as columns; a column is numbers or text, not both",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let columns: Vec<String> = args.param("columns", Vec::new())?;
-        let rows: Vec<Vec<Option<f64>>> = args.param("rows", Vec::new())?;
+        let rows: Vec<Vec<serde_json::Value>> = args.param("rows", Vec::new())?;
         if columns.is_empty() {
             return Err(Error::msg(format!("node {node:?}: the table has no columns")));
         }
@@ -378,8 +384,46 @@ impl Operator for TableOf {
                 columns.len()
             )));
         }
-        let mut t = Table::new(columns);
-        t.rows = rows.into_iter().map(|r| r.into_iter().map(|v| v.unwrap_or(f64::NAN)).collect()).collect();
+        let mut t = Table::new(columns.clone());
+        t.rows = vec![vec![f64::NAN; columns.len()]; rows.len()];
+        for (j, name) in columns.iter().enumerate() {
+            // a column of text: its names as the labels of the numbers 1, 2... in order of first appearance
+            let mut names: Vec<String> = Vec::new();
+            for (i, r) in rows.iter().enumerate() {
+                t.rows[i][j] = match &r[j] {
+                    serde_json::Value::Null => f64::NAN,
+                    serde_json::Value::Number(x) => {
+                        if !names.is_empty() {
+                            return Err(Error::msg(format!(
+                                "node {node:?}: the column {name:?} mixes text and numbers"
+                            )));
+                        }
+                        x.as_f64().unwrap_or(f64::NAN)
+                    }
+                    serde_json::Value::String(s) => {
+                        if names.is_empty() && t.rows[..i].iter().any(|p| !p[j].is_nan()) {
+                            return Err(Error::msg(format!(
+                                "node {node:?}: the column {name:?} mixes text and numbers"
+                            )));
+                        }
+                        let k = names.iter().position(|x| x == s).unwrap_or_else(|| {
+                            names.push(s.clone());
+                            names.len() - 1
+                        });
+                        (k + 1) as f64
+                    }
+                    other => {
+                        return Err(Error::msg(format!(
+                            "node {node:?}: row {} has {other} in {name:?}: a number, a text or null",
+                            i + 1
+                        )));
+                    }
+                };
+            }
+            if !names.is_empty() {
+                t.labels.insert(name.clone(), names);
+            }
+        }
         Ok(outputs([("table", Value::Table(t))]))
     }
 }
@@ -437,6 +481,30 @@ impl Operator for Of {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A table written in the settings holds names too: text columns as labels of numbers, in order of appearance.
+    #[test]
+    fn a_table_of_numbers_and_names() {
+        let params = serde_json::json!({
+            "columns": ["code", "name", "k"],
+            "rows": [[1, "FRSD", 0.5], [2, "PAST", null], [3, "FRSD", 2]]
+        });
+        let params = params.as_object().unwrap();
+        let args = Args { node: "t", inputs: Default::default(), params };
+        let out = TableOf.run(&mut Ctx::default(), &args).unwrap();
+        let Some(Value::Table(t)) = out.get("table") else { panic!("no table") };
+        assert_eq!(t.rows[0], [1.0, 1.0, 0.5]);
+        assert_eq!(t.rows[1][1], 2.0);
+        assert!(t.rows[1][2].is_nan());
+        assert_eq!(t.rows[2][1], 1.0);
+        assert_eq!(t.cell(1, t.rows[2][1]), "FRSD");
+        assert_eq!(t.cell(1, t.rows[1][1]), "PAST");
+        assert!(!t.labels.contains_key("code"));
+        // a column is numbers or text
+        let mixed = serde_json::json!({ "columns": ["a"], "rows": [[1], ["x"]] });
+        let args = Args { node: "t", inputs: Default::default(), params: mixed.as_object().unwrap() };
+        assert!(TableOf.run(&mut Ctx::default(), &args).unwrap_err().to_string().contains("mixes"));
+    }
 
     #[test]
     fn last_names_the_last_layer_unless_a_layer_is_called_so() {

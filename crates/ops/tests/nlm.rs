@@ -94,3 +94,19 @@ fn models_and_utilities_are_landschafts() {
         }
     }
 }
+
+/// A drawn map keeps the coordinate system asked for (the models that need places, like swat.watershed, ask for
+/// one) and the same values: only the grid's georeference changes.
+#[test]
+fn a_drawn_map_takes_a_crs() {
+    let plain = run("nlm.fbm", vec![], &serde_json::json!({ "rows": 12, "columns": 10, "seed": 5, "resolution": 30 }));
+    let placed = run(
+        "nlm.fbm",
+        vec![],
+        &serde_json::json!({ "rows": 12, "columns": 10, "seed": 5, "resolution": 30, "crs": "EPSG:32722" }),
+    );
+    let (Value::Map(a), Value::Map(b)) = (&plain["map"], &placed["map"]) else { panic!("no maps") };
+    assert!(terraflux_ops::prepare::crs_of(&a.grid).is_none());
+    assert!(terraflux_ops::prepare::crs_of(&b.grid).is_some_and(|c| c.contains("32722") || c.contains("UTM")));
+    check("the same values", &b.data, &a.data);
+}

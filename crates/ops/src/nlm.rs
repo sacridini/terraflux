@@ -63,6 +63,12 @@ fn sized(sig: OpSignature) -> OpSignature {
         .param(PortSpec::optional("rows", Type::Integer, "rows (default 256)"))
         .param(PortSpec::optional("columns", Type::Integer, "columns (default 256)"))
         .param(PortSpec::optional("resolution", Type::Number, "the cells' side (default 1)"))
+        .param(PortSpec::optional(
+            "crs",
+            Type::Text,
+            "the coordinate system of the grid, EPSG:32722 or a WKT (default none: models that need places, like \
+             swat.watershed, ask for it); ignored with like",
+        ))
         .param(PortSpec::optional("seed", Type::Integer, "the seed of R's generator (default 1): NLMR's map for it"))
 }
 
@@ -99,7 +105,11 @@ fn grid(args: &Args) -> Result<(Arc<Grid>, i32)> {
     if !(res.is_finite() && res > 0.0) {
         return Err(Error::msg(format!("node {:?}: the resolution must be positive", args.node)));
     }
-    Ok((Arc::new(plain(rows, columns, res)), seed))
+    let mut g = plain(rows, columns, res);
+    if let Some(crs) = args.opt_param::<String>("crs")?.filter(|c| !c.trim().is_empty()) {
+        g.geo.wkt = Some(terraflux_gdal::crs_wkt(crs.trim()).map_err(|e| bad(args, format!("the crs {crs:?}: {e}")))?);
+    }
+    Ok((Arc::new(g), seed))
 }
 
 /// The grid of values that do not have the size asked for: `like`'s cells from its top-left corner, else

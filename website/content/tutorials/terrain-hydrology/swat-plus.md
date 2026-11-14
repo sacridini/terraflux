@@ -5,7 +5,7 @@ description: Run a SWAT+ project day by day in Terraflux, read its water balance
 order: 40
 level: advanced
 time: 50 min
-ops: [swat.run, table.write]
+ops: [swat.run, swat.load, swat.set, table.write]
 ---
 
 The first three parts of this series described where water *would* go on a terrain. A watershed model says how
@@ -71,12 +71,14 @@ every printed field of every day, on official examples including this one. What 
 (reservoirs, wetlands, pesticides, salts and other constituents, Green-Ampt infiltration, the CENTURY carbon
 model, water allocation) is refused with an error rather than skipped.
 
-!!! warning "What Terraflux does not do (yet)"
-    Terraflux **runs existing SWAT+ projects**. It does not build one from rasters: the division of a DEM, a
-    land use map and a soil map into subbasins, channels and HRUs, and the writing of the project's files, are
-    done by QSWAT+ (a QGIS plugin) and the SWAT+ Editor, or in Python by landschaft
-    (`ls.hydro.swat.from_rasters`). The streams, links and subbasins of [part 2](../streams-watersheds-and-hand/)
-    are the same kind of division QSWAT+ makes, but [[swat.run]] does not take them as input.
+!!! note "Existing projects here, new ones in the next tutorial"
+    This tutorial **runs a SWAT+ project that already exists**, made by QSWAT+ (a QGIS plugin) and the SWAT+
+    Editor. [[swat.load]] reads such a project, a TxtInOut folder or a zip, as a value of the model, and
+    [[swat.set]] changes one of its parameters as SWAT+'s own calibration does, with a setting that can read a
+    model input (so that a batch or a calibration can vary it); [[swat.run]] takes the project (`project`) or a
+    path (`path`, as below). To **build** a project from a DEM, a land use map, a soil map and weather tables, as
+    QSWAT+ and the Editor do, and to put its results on the map, see
+    [A SWAT+ project from rasters](../swat-plus-from-rasters/).
 
 ## When to use it
 
@@ -155,7 +157,8 @@ inputs = { table = "swat.hru_wb" }
 params = { path = "hru_wb.csv" }
 ```
 
-[[swat.run]] has no inputs: everything is in the project. Its outputs are the tables SWAT+ prints, with SWAT+'s
+With a **path**, [[swat.run]] needs no input: everything is in the project (connect a project of [[swat.load]] or
+[[swat.set]] to `project` instead of giving a path, and it runs that one). Its outputs are the tables SWAT+ prints, with SWAT+'s
 own column names and units:
 
 | output | what | a row per |
@@ -386,8 +389,10 @@ daily one. Print daily only what you need daily (streamflow for a hydrograph), a
 - **The day column.** It is the day of the year at the end of the period, not a date: day 59 of 2001 is the
   end of February. Build dates from `year` and `day` before plotting.
 - **Paths.** The **path** is relative to the model's folder. Moving the model without the project breaks it.
-- **Expecting Terraflux to build the project.** It does not (yet): use QSWAT+ and the SWAT+ Editor, or
-  landschaft in Python, and give [[swat.run]] the TxtInOut folder they write.
+- **Expecting a TxtInOut folder to have a map.** A project read by [[swat.load]] (or by the `path` of
+  [[swat.run]]) has no map of its HRUs and channels, so [[swat.hru_map]] and [[swat.channel_map]] refuse it. The maps
+  come from a project built by [[swat.from_tables]] from a [[swat.watershed]]
+  ([the next tutorial](../swat-plus-from-rasters/)).
 
 ## Going further
 
@@ -396,8 +401,10 @@ daily one. Print daily only what you need daily (streamflow for a hydrograph), a
   watershed.
 - [Ecosystem services](../../ecosystem-services/): InVEST's annual water yield and sediment delivery models,
   simpler, yearly alternatives to SWAT+ for mapping services.
+- [A SWAT+ project from rasters](../swat-plus-from-rasters/): divide a terrain, a land use and a soil into subbasins,
+  channels and HRUs, write the project with its weather, change its parameters ([[swat.set]]) and map the results.
 - [Uncertainty](../../uncertainty/): run a model many times with varied inputs.
-- The operator's reference: [[swat.run]].
+- The operator's reference: [[swat.run]], [[swat.load]], [[swat.set]].
 
 ## References
 

@@ -11,7 +11,10 @@
 //! landschaft builds it), Zonation and the pieces of the land change models (Markov, weights of evidence, the
 //! changes and their validation, the logistic regressions, the demands, Dinamica's roads and continuous patcher)
 //! are calls of their own; the allocation of Dinamica, CLUE-S and PLUS, which landschaft runs only as a whole model
-//! (`ls.simulate.run`), is said so.
+//! (`ls.simulate.run`), is said so. SWAT+ is landschaft's `ls.hydro.swat` (`load_txtinout`, `watershed`, `climate` with
+//! `from_tables`, `wgn_from_series`, `run`, `hru_map`, `channel_map`, `reach_discharge`); swat.set a helper written
+//! into the script that adds the calibration.cal row as Terraflux does, and the weather's tables and the results'
+//! (year, day, object) helpers that put them in landschaft's shape and back.
 //! Tables are pandas' DataFrames and vector features geopandas' GeoDataFrames. Reading features, burning them,
 //! their zones' statistics and the values at points are landschaft's (`load_vector`, `rasterize`, `zonal_stats`,
 //! `extract`); the operators of tables (filter, calc, aggregate, select, sort, join, pivot) and of features (filter,
@@ -389,6 +392,18 @@ pub const CALC_HELPER: &str = include_str!("python_calc.py");
 /// operators of tables and of vector features).
 pub const FLOW_HELPER: &str = include_str!("python_flow.py");
 
+/// The helpers of SWAT+ (the weather's tables and the results as Terraflux gives them, swat.set) and the parameters
+/// swat.set changes, as the port calibrates them (name: object, lowest and highest value of cal_parms.cal).
+const SWAT_HELPER: &str = include_str!("python_swat.py");
+
+fn swat_helper() -> String {
+    let parms: Vec<String> = terraflux_ops::swat::PARAMETERS
+        .iter()
+        .map(|(name, kind, low, high)| format!("    {}: ({}, {low:?}, {high:?}),\n", text(name), text(kind)))
+        .collect();
+    format!("{}\n\n_SWAT_PARAMETERS = {{\n{}}}\n", SWAT_HELPER.trim_end(), parms.concat())
+}
+
 /// Zonation's settings and inputs of the same name in landschaft's `zonation`.
 const ZONATION: &[&str] = &[
     "rule",
@@ -664,6 +679,8 @@ enum Need {
     Flow,
     /// Both: the expressions over a table's rows and features (python_flow.py's, run by python_calc.py's).
     Both,
+    /// SWAT+'s tables of the weather and of the results, and swat.set's change (python_swat.py's).
+    Swat,
 }
 
 /// The script being written: what was translated, the helpers it needs, the Python names taken.
@@ -672,6 +689,7 @@ struct Writer<'r> {
     out: Script,
     calc: bool,
     flow: bool,
+    swat: bool,
     names: HashSet<String>,
 }
 
@@ -718,6 +736,7 @@ impl Writer<'_> {
             Ok((code, outs, need)) => {
                 self.calc |= matches!(need, Need::Calc | Need::Both);
                 self.flow |= matches!(need, Need::Flow | Need::Both);
+                self.swat |= need == Need::Swat;
                 self.out.translated += 1;
                 block.push_str(&code);
                 sc.made.insert(n.id.clone(), Made { outs });
@@ -964,7 +983,7 @@ pub fn write_to(m: &Model, r: &Registry, model: &Path, py: &Path) -> Result<Scri
 
 /// The model as a Python script of landschaft.
 pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
-    let mut w = Writer { r, out: Script::default(), calc: false, flow: false, names: HashSet::new() };
+    let mut w = Writer { r, out: Script::default(), calc: false, flow: false, swat: false, names: HashSet::new() };
     for taken in ["np", "ls", "Path", "MODEL_DIR", "OUT"] {
         w.names.insert(taken.into());
     }
@@ -1076,7 +1095,12 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
         head.push_str(FLOW_HELPER.trim_end());
         head.push_str("\n\n");
     }
-    if w.calc || w.flow {
+    if w.swat {
+        head.push_str("\n# --- Terraflux's SWAT+: the tables of the weather and of the results, swat.set ---\n\n");
+        head.push_str(&swat_helper());
+        head.push_str("\n\n");
+    }
+    if w.calc || w.flow || w.swat {
         head.push_str("# --- the model ---\n\n");
     }
     out.text = format!("{head}\n{}", body.trim_end()) + "\n";
@@ -1262,7 +1286,8 @@ fn node(n: &Node, r: &Registry, var: &str, sc: &Scope) -> Result<Code, String> {
         // the settings not passed
         let known: Vec<&str> = py.args.iter().map(|(a, _)| *a).chain(["foreground", "like", "band"]).collect();
         for (k, v) in &n.params {
-            if !known.contains(&k.as_str()) && !(py.kind == Kind::Grid && GRID.iter().any(|(g, _)| g == k)) {
+            let drawn = py.kind == Kind::Grid && (k == "crs" || GRID.iter().any(|(g, _)| g == k));
+            if !known.contains(&k.as_str()) && !drawn {
                 skipped.push(format!("{k} = {}", literal(v)));
             }
         }
@@ -1274,6 +1299,16 @@ fn node(n: &Node, r: &Registry, var: &str, sc: &Scope) -> Result<Code, String> {
             code.push_str(&format!("# (not passed: {s})\n"));
         }
         code.push_str(&format!("{var} = {}({})\n", py.call, args.join(", ")));
+        // a drawn landscape's places and coordinate system (landschaft's models have none): `like`'s, else the setting's
+        if py.kind == Kind::Grid {
+            if let Some(like) = value_of(n, "like", sc)? {
+                code.push_str(&format!(
+                    "{var} = {var}.assign_coords(x={like}.x, y={like}.y)\nif {like}.rio.crs is not None:\n    {var} = {var}.rio.write_crs({like}.rio.crs)\n"
+                ));
+            } else if let Some(crs) = setting(n, "crs", sc)?.filter(|c| c != "\"\"") {
+                code.push_str(&format!("{var} = {var}.rio.write_crs({crs})\n"));
+            }
+        }
         let mut outs: HashMap<String, String> = HashMap::new();
         for (port, field) in py.outs {
             outs.insert(port.to_string(), format!("{var}{field}"));
@@ -1322,6 +1357,43 @@ fn refuse_others(n: &Node, known: &[&str]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// The swat.run whose tables are connected to `ports` of the node (the `result=` of landschaft's maps): `None` when
+/// none is, an error when one is not a swat.run's or they come from different runs.
+fn swat_result(n: &Node, ports: &[&str], sc: &Scope) -> Result<Option<String>, String> {
+    let mut found: Option<String> = None;
+    for p in ports {
+        let Some(s) = n.inputs.get(*p) else { continue };
+        let not_run = || format!("its table {p}: not a table of a swat.run");
+        let Source::Ref(x) = s else { return Err(not_run()) };
+        let Ref::Port { node, .. } = Ref::parse(x).map_err(|e| e.to_string())? else { return Err(not_run()) };
+        let r = sc.made(&node).and_then(|m| m.outs.get("@result")).ok_or_else(not_run)?.clone();
+        match &found {
+            Some(f) if *f != r => return Err("its tables come from different runs".into()),
+            _ => found = Some(r),
+        }
+    }
+    Ok(found)
+}
+
+/// The run a map makes itself (no table connected) when it has the years to skip or the C factor to use, which
+/// landschaft's `channel_map` and `reach_discharge` take only in a run of their own: the table at `step`.
+fn own_run(n: &Node, project: &str, step: &str, sc: &Scope) -> Result<Option<String>, String> {
+    let mut args = vec![project.to_string(), format!("tables={{\"channel_sd\": {}}}", text(step))];
+    args.extend(given(n, &[("nyskip", "nyskip"), ("c_factor", "c_factor")], sc)?);
+    Ok((args.len() > 2).then(|| format!("ls.hydro.swat.run({})", args.join(", "))))
+}
+
+/// The statistics of the weather generator given by station (`{"station": 4}`) are Terraflux's: landschaft takes a
+/// value, twelve or a table of month and station.
+fn monthly_by_station(n: &Node) -> Result<(), String> {
+    match n.params.get("monthly") {
+        Some(Value::Object(m)) if m.values().any(Value::is_object) => {
+            Err("its monthly values by station: not in the script yet (a table of month and station there)".into())
+        }
+        _ => Ok(()),
+    }
 }
 
 /// A class as Python writes the number (1, not 1.0).
@@ -1705,6 +1777,247 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 ])
             };
             (code, outs, if pairs { Need::Flow } else { Need::Nothing })
+        }
+        "swat.load" => {
+            refuse_others(n, &["path"])?;
+            let p = v("path")?.ok_or("choose the TxtInOut folder (path)")?;
+            (format!("{var} = ls.hydro.swat.load_txtinout({p})\n"), one("project"), Need::Nothing)
+        }
+        "swat.set" => {
+            refuse_others(n, &["project", "parameter", "change", "value", "first_layer", "last_layer", "objects"])?;
+            let project = need("project", "its project")?;
+            let mut args = vec![project];
+            args.extend(given(
+                n,
+                &[
+                    ("parameter", "parameter"),
+                    ("change", "change"),
+                    ("value", "value"),
+                    ("first_layer", "first_layer"),
+                    ("last_layer", "last_layer"),
+                    ("objects", "objects"),
+                ],
+                sc,
+            )?);
+            (format!("{var} = _swat_set({})\n", args.join(", ")), one("project"), Need::Swat)
+        }
+        "swat.run" => {
+            refuse_others(n, &["project", "path", "step", "tables", "nyskip", "c_factor"])?;
+            let project = match (n.inputs.contains_key("project"), v("path")?) {
+                (true, Some(_)) => return Err("a project and a path, not both".into()),
+                (true, None) => need("project", "its project")?,
+                (false, Some(p)) => format!("ls.hydro.swat.load_txtinout({p})"),
+                (false, None) => return Err("neither a project nor a path".into()),
+            };
+            let step = setting(n, "step", sc)?.unwrap_or_else(|| text("year"));
+            let chosen: Vec<&str> = match n.params.get("tables") {
+                None => terraflux_ops::swat_tables::TABLES.iter().map(|t| t.name).collect(),
+                Some(Value::Array(a)) if a.iter().all(Value::is_string) => a.iter().filter_map(Value::as_str).collect(),
+                Some(_) => return Err("its tables: not a list of names".into()),
+            };
+            // the tables chosen at the step, the others off (print.prt's rows)
+            let print: Vec<String> = terraflux_ops::swat_tables::TABLES
+                .iter()
+                .map(|t| {
+                    format!(
+                        "{}: {}",
+                        text(t.name),
+                        if chosen.contains(&t.name) { format!("[{step}]") } else { "[]".into() }
+                    )
+                })
+                .collect();
+            let mut args = vec![project, format!("tables={{{}}}", print.join(", "))];
+            args.extend(given(n, &[("nyskip", "nyskip"), ("c_factor", "c_factor")], sc)?);
+            let code = format!("{var} = ls.hydro.swat.run({})\n", args.join(", "));
+            let mut outs = HashMap::from([
+                ("weather".to_string(), format!("_swat_weather({var})")),
+                ("@result".to_string(), var.to_string()),
+            ]);
+            for t in &terraflux_ops::swat_tables::TABLES {
+                outs.insert(t.name.to_string(), format!("_swat_table({var}, {}, {step})", text(t.name)));
+            }
+            (code, outs, Need::Swat)
+        }
+        "swat.watershed" => {
+            refuse_others(
+                n,
+                &[
+                    "dem",
+                    "landuse",
+                    "soils",
+                    "landuse_lookup",
+                    "soil_lookup",
+                    "soil_table",
+                    "outlets",
+                    "stream_threshold",
+                    "snap",
+                    "slope_bands",
+                    "hru_method",
+                    "thresholds",
+                    "min_area",
+                    "area_in_ha",
+                    "exempt",
+                ],
+            )?;
+            let mut args = vec![need("dem", "its dem")?, need("landuse", "its landuse")?, need("soils", "its soils")?];
+            for k in ["landuse_lookup", "soil_lookup", "soil_table"] {
+                args.push(format!("{k}={}", need(k, &format!("its {k}"))?));
+            }
+            if n.inputs.contains_key("outlets") {
+                args.push(format!("outlets={}", need("outlets", "its outlets")?));
+            }
+            args.extend(given(
+                n,
+                &[
+                    ("stream_threshold", "stream_threshold"),
+                    ("snap", "snap"),
+                    ("slope_bands", "slope_bands"),
+                    ("hru_method", "hru_method"),
+                    ("thresholds", "thresholds"),
+                    ("min_area", "min_area"),
+                    ("area_in_ha", "area_in_ha"),
+                    ("exempt", "exempt"),
+                ],
+                sc,
+            )?);
+            let outs = HashMap::from([
+                ("watershed".to_string(), var.to_string()),
+                ("subbasins".to_string(), format!("{var}.subbasins")),
+                ("channels".to_string(), format!("{var}.channels")),
+                ("hrus".to_string(), format!("{var}.hrus")),
+                ("table".to_string(), format!("{var}.tables[\"gis_hrus\"]")),
+            ]);
+            (format!("{var} = ls.hydro.swat.watershed({})\n", args.join(", ")), outs, Need::Nothing)
+        }
+        "swat.wgn" => {
+            refuse_others(n, &["pcp", "tmax", "tmin", "slr", "hmd", "wnd", "dewpoint", "monthly"])?;
+            let mut args = Vec::new();
+            for k in ["pcp", "tmax", "tmin"] {
+                args.push(format!("_swat_series({})", need(k, &format!("its {k}"))?));
+            }
+            for k in ["slr", "hmd", "wnd", "dewpoint"] {
+                if n.inputs.contains_key(k) {
+                    args.push(format!("{k}=_swat_series({})", need(k, &format!("its {k}"))?));
+                }
+            }
+            args.extend(given(n, &[("monthly", "monthly")], sc)?);
+            monthly_by_station(n)?;
+            let code = format!("{var} = ls.hydro.swat.wgn_from_series({})\n", args.join(", "));
+            (code, HashMap::from([("wgn".to_string(), format!("_swat_wgn_table({var})"))]), Need::Swat)
+        }
+        "swat.from_tables" => {
+            refuse_others(
+                n,
+                &[
+                    "watershed",
+                    "stations",
+                    "pcp",
+                    "tmax",
+                    "tmin",
+                    "slr",
+                    "hmd",
+                    "wnd",
+                    "wgn",
+                    "start",
+                    "end",
+                    "codes",
+                    "name",
+                    "monthly",
+                ],
+            )?;
+            let mut weather = vec![format!("_swat_stations({})", need("stations", "its stations")?)];
+            for k in ["pcp", "tmax", "tmin"] {
+                weather.push(format!("{k}=_swat_series({})", need(k, &format!("its {k}"))?));
+            }
+            for k in ["slr", "hmd", "wnd"] {
+                if n.inputs.contains_key(k) {
+                    weather.push(format!("{k}=_swat_series({})", need(k, &format!("its {k}"))?));
+                }
+            }
+            if n.inputs.contains_key("wgn") {
+                // (the statistics of swat.wgn as it made them, not as a table and back)
+                let w = need("wgn", "its wgn")?;
+                let w = match w.strip_prefix("_swat_wgn_table(").and_then(|x| x.strip_suffix(')')) {
+                    Some(made) => made.to_string(),
+                    None => format!("_swat_wgn({w})"),
+                };
+                weather.push(format!("wgn={w}"));
+            }
+            weather.extend(given(n, &[("monthly", "monthly")], sc)?);
+            monthly_by_station(n)?;
+            let watershed = need("watershed", "its watershed")?;
+            let mut args = vec![watershed.clone(), format!("ls.hydro.swat.climate({})", weather.join(", "))];
+            args.extend(given(n, &[("start", "start"), ("end", "end"), ("codes", "codes"), ("name", "name")], sc)?);
+            // the project keeps its division for the maps of the results, as landschaft's from_rasters sets it
+            let code =
+                format!("{var} = ls.hydro.swat.from_tables({})\n{var}.watershed = {watershed}\n", args.join(", "));
+            (code, one("project"), Need::Swat)
+        }
+        "swat.hru_map" => {
+            refuse_others(
+                n,
+                &["project", "values", "hru_wb", "hru_nb", "hru_ls", "hru_pw", "variable", "how", "nyskip", "c_factor"],
+            )?;
+            let mut project = need("project", "its project")?;
+            let variable = match (n.inputs.contains_key("values"), setting(n, "variable", sc)?) {
+                (true, _) => format!("_swat_values({})", need("values", "its values")?),
+                (false, Some(x)) => x,
+                (false, None) => return Err("neither a variable nor values".into()),
+            };
+            let result = swat_result(n, &["hru_wb", "hru_nb", "hru_ls", "hru_pw"], sc)?;
+            let mut args = vec![variable];
+            args.extend(given(n, &[("how", "how")], sc)?);
+            match result {
+                Some(r) => args.push(format!("result={r}")),
+                None => {
+                    if let Some(y) = setting(n, "nyskip", sc)? {
+                        project = format!("_swat_nyskip({project}, {y})");
+                    }
+                    args.extend(given(n, &[("c_factor", "c_factor")], sc)?);
+                }
+            }
+            let helper = project.starts_with("_swat_") || args[0].starts_with("_swat_");
+            let code = format!("{var} = ls.hydro.swat.hru_map({project}, {})\n", args.join(", "));
+            (code, one("map"), if helper { Need::Swat } else { Need::Nothing })
+        }
+        "swat.channel_map" => {
+            refuse_others(n, &["project", "values", "channel_sd", "column", "how", "nyskip", "c_factor"])?;
+            let project = need("project", "its project")?;
+            let values = match (n.inputs.contains_key("values"), setting(n, "column", sc)?) {
+                (true, _) => format!("_swat_values({})", need("values", "its values")?),
+                (false, Some(c)) => c,
+                (false, None) => text("flo_out"),
+            };
+            let how = setting(n, "how", sc)?;
+            let mut args = vec![project, values];
+            args.extend(how.iter().map(|h| format!("how={h}")));
+            let annual = choice(n, "how") == Some("annual");
+            match swat_result(n, &["channel_sd"], sc)? {
+                Some(r) => args.push(format!("result={r}")),
+                None => {
+                    if let Some(r) = own_run(n, &args[0], if annual { "aa" } else { "day" }, sc)? {
+                        args.push(format!("result={r}"));
+                    }
+                }
+            }
+            let helper = args[1].starts_with("_swat_");
+            let code = format!("{var} = ls.hydro.swat.channel_map({})\n", args.join(", "));
+            (code, one("map"), if helper { Need::Swat } else { Need::Nothing })
+        }
+        "swat.reach_discharge" => {
+            refuse_others(n, &["project", "channel_sd", "nyskip", "c_factor"])?;
+            let result = match swat_result(n, &["channel_sd"], sc)? {
+                Some(r) => Some(r),
+                None => {
+                    let project = need("project", "its project")?;
+                    own_run(n, &project, "day", sc)?
+                }
+            };
+            let project = v("project")?.unwrap_or_else(|| "None".into());
+            let mut args = vec![project];
+            args.extend(result.map(|r| format!("result={r}")));
+            let code = format!("{var} = ls.hydro.swat.reach_discharge({})\n", args.join(", "));
+            (code, HashMap::from([("table".to_string(), format!("_swat_discharge({var})"))]), Need::Swat)
         }
         "glm.fit" => {
             refuse_others(n, &["landscape", "drivers", "formulas", "maxit", "epsilon"])?;
@@ -2800,6 +3113,99 @@ from = "roads.distance"
             .collect();
         let Ok(file) = std::env::var("TERRAFLUX_PY_DUMP") else { return };
         std::fs::write(file, serde_json::to_string(&all).unwrap()).unwrap();
+    }
+
+    /// SWAT+ as landschaft's `ls.hydro.swat`: a project loaded and changed, one made from maps and the weather, run,
+    /// the results on the map; the template of the project from rasters is all translated.
+    #[test]
+    fn swat_as_landschaft() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[inputs.cn2_change]
+kind = "value"
+value = 5
+
+[[nodes]]
+id = "base"
+op = "swat.load"
+params = { path = "hubbard/TxtInOut" }
+
+[[nodes]]
+id = "curve"
+op = "swat.set"
+inputs = { project = "base.project" }
+params = { parameter = "cn2", change = "pctchg", value = "$cn2_change" }
+
+[[nodes]]
+id = "layer"
+op = "swat.set"
+inputs = { project = "curve.project" }
+params = { parameter = "awc", value = 0.2, first_layer = 1, last_layer = 2, objects = [1, 3] }
+
+[[nodes]]
+id = "run"
+op = "swat.run"
+inputs = { project = "layer.project" }
+params = { step = "day", tables = ["basin_wb", "channel_sd"], nyskip = 0, c_factor = "plant" }
+
+[[nodes]]
+id = "by_path"
+op = "swat.run"
+params = { path = "hubbard.zip", step = "aa", tables = ["hru_wb"] }
+"#,
+        )
+        .unwrap();
+        let s = script(&m, &r, None);
+        let t = &s.text;
+        assert!(s.left.is_empty(), "{:?}", s.left);
+        assert!(t.contains("base = ls.hydro.swat.load_txtinout(MODEL_DIR / \"hubbard/TxtInOut\")\n"), "{t}");
+        assert!(t.contains("curve = _swat_set(base, parameter=\"cn2\", change=\"pctchg\", value=cn2_change)\n"), "{t}");
+        assert!(
+            t.contains(
+                "layer = _swat_set(curve, parameter=\"awc\", value=0.2, first_layer=1, last_layer=2, objects=[1, 3])\n"
+            ),
+            "{t}"
+        );
+        assert!(t.contains("run = ls.hydro.swat.run(layer, tables={\"hru_wb\": [], "), "{t}");
+        assert!(t.contains("\"basin_wb\": [\"day\"]") && t.contains("\"channel_sd\": [\"day\"]"), "{t}");
+        assert!(t.contains("nyskip=0, c_factor=\"plant\")\n"), "{t}");
+        assert!(
+            t.contains("ls.hydro.swat.run(ls.hydro.swat.load_txtinout(MODEL_DIR / \"hubbard.zip\"), tables={"),
+            "{t}"
+        );
+        // the helpers, with the parameters the port calibrates
+        assert!(
+            t.contains("def _swat_set(") && t.contains("_SWAT_PARAMETERS = {\n    \"cn2\": (\"hru\", 35.0, 95.0),"),
+            "{t}"
+        );
+        parses(t);
+
+        // the project from rasters: the template, whole
+        let template = crate::templates::TEMPLATES.iter().find(|t| t.name == "SWAT+ from rasters").unwrap().model();
+        let s = script(&template, &r, None);
+        let t = &s.text;
+        assert!(s.left.is_empty(), "{:?}", s.left);
+        assert!(t.contains(".rio.write_crs(\"+proj=tmerc "), "{t}");
+        assert!(t.contains("watershed = ls.hydro.swat.watershed(dem[\"map\"], cover, soils[\"map\"], landuse_lookup=landuse_lookup, soil_lookup=soil_lookup, soil_table=soil_table, stream_threshold=0.3)\n"), "{t}");
+        assert!(t.contains("wgn = ls.hydro.swat.wgn_from_series(_swat_series(pcp), _swat_series(tmax), _swat_series(tmin), monthly={"), "{t}");
+        assert!(
+            t.contains("project = ls.hydro.swat.from_tables(watershed, ls.hydro.swat.climate(_swat_stations(stations), pcp=_swat_series(pcp)"),
+            "{t}"
+        );
+        assert!(t.contains(", wgn=wgn))\n"), "{t}");
+        assert!(
+            t.contains("sediment = ls.hydro.swat.hru_map(soil_water, \"sedyld\", how=\"annual\", result=yearly)\n"),
+            "{t}"
+        );
+        assert!(
+            t.contains("flow = ls.hydro.swat.channel_map(soil_water, \"flo_out\", how=\"mean\", result=daily)\n"),
+            "{t}"
+        );
+        assert!(t.contains("discharge = ls.hydro.swat.reach_discharge(soil_water, result=daily)\n"), "{t}");
+        parses(t);
     }
 
     /// Every template as a model and its script (TERRAFLUX_PY_TEMPLATES=folder), to run both and compare.
