@@ -727,3 +727,26 @@ fn zone_boundary_penalties_go_on_to_highs_from_the_engine() {
     let units = m.col_ids.iter().filter(|c| *c == "pu").count();
     assert!((s.x[..units].iter().sum::<f64>() - 53.0).abs() < 1e-6);
 }
+
+/// The anneal solver and corridors are not for zones (landschaft's messages).
+#[test]
+fn anneal_and_corridors_refuse_zones() {
+    let i = Inputs::new();
+    let (_, ins, params) = cases(&i).into_iter().find(|c| c.0 == "zones_minset_sum").unwrap();
+    let run = |extra: serde_json::Value| {
+        let mut params = params.as_object().unwrap().clone();
+        params.extend(extra.as_object().unwrap().clone());
+        let args = Args { node: "n", inputs: ins.clone(), params: &params };
+        terraflux_ops::Registry::standard()
+            .get("prioritize.optimize")
+            .unwrap()
+            .run(&mut terraflux_ops::Ctx::default(), &args)
+            .err()
+            .unwrap()
+            .to_string()
+    };
+    let e = run(json!({"solver": "anneal"}));
+    assert!(e.contains("the anneal solver does not support zones yet: use HiGHS or Gurobi"), "{e}");
+    let e = run(json!({"spatial": [{"kind": "corridors"}]}));
+    assert!(e.contains("corridors constraints are not supported with zones"), "{e}");
+}

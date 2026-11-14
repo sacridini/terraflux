@@ -1192,6 +1192,11 @@ impl Operator for Marxan {
             itimptype: args.param("itimp_type", 0)?,
             connectivity_in: args.param("connectivity_in", false)?,
             seed: (args.param::<i64>("seed", 1)? & 0xFFFF_FFFF) as u32,
+            time_limit: -1.0,
+            fast_penalties: false,
+            repair: false,
+            time_schedule: false,
+            spf_scale: Vec::new(),
         };
         // the spec's proportion targets apply as Marxan's PROP only per feature
         if data.prop.iter().any(|p| p.is_nan()) {
@@ -1871,6 +1876,7 @@ fn zone_spatial(
         },
         "contiguity" => milp::ZoneSpatial::Contiguity { data: matrix("adjacency_data")?, zones },
         "feature_contiguity" => return Err(err("feature contiguity constraints are not supported with zones".into())),
+        "corridors" => return Err(err("corridors constraints are not supported with zones".into())),
         k => return Err(err(format!("unknown spatial penalty or constraint {k:?}"))),
     })
 }
@@ -2312,6 +2318,16 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
                     put(kind, &[("contiguity_zones", "zones")]);
                 }
             }
+            if args.get("corridor_terminals").is_some() || args.params.contains_key("corridor_columns") {
+                put(
+                    "corridors",
+                    &[
+                        ("corridor_penalty", "penalty"),
+                        ("corridor_columns", "columns"),
+                        ("corridor_resistance_column", "column"),
+                    ],
+                );
+            }
             l
         }
     };
@@ -2363,6 +2379,41 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
             "contiguity" => milp::Spatial::Contiguity { data: matrix_of(args, "adjacency_data", units.size)? },
             "feature_contiguity" => {
                 milp::Spatial::FeatureContiguity { data: matrix_of(args, "adjacency_data", units.size)? }
+            }
+            "corridors" => {
+                // the networks' terminals: a layer per network (corridor_terminals) or pu's columns
+                let nets: Vec<Vec<f64>> = match (pu, it.get("columns")) {
+                    (Some(t), Some(cols)) => {
+                        let cols: Vec<String> = match cols {
+                            serde_json::Value::String(c) => vec![c.clone()],
+                            v => serde_json::from_value(v.clone())
+                                .map_err(|e| err(format!("corridor_columns: {e} (column names)")))?,
+                        };
+                        cols.iter()
+                            .map(|c| t.column(c).ok_or_else(|| err(format!("pu has no column {c:?}"))))
+                            .collect::<Result<_>>()?
+                    }
+                    _ => match args.get("corridor_terminals") {
+                        Some(Value::Stack(s)) if s.layers.iter().all(|l| l.len() == units.size) => {
+                            s.layers.iter().map(|l| l.to_vec()).collect()
+                        }
+                        Some(Value::Map(m)) if m.data.len() == units.size => vec![m.data.to_vec()],
+                        Some(_) => return Err(err("corridor_terminals is not on the cost's grid".into())),
+                        None => return Err(err("corridors need corridor_terminals or corridor_columns".into())),
+                    },
+                };
+                let resistance = if (pu.is_some() && column.is_some()) || args.opt_map("corridor_resistance")?.is_some()
+                {
+                    Some(values("corridor_resistance", column)?)
+                } else {
+                    None
+                };
+                milp::Spatial::Corridors {
+                    terminals: nets,
+                    resistance,
+                    penalty: num("penalty").unwrap_or(1.0),
+                    data: matrix_of(args, "adjacency_data", units.size)?,
+                }
             }
             k => return Err(err(format!("unknown spatial penalty or constraint {k:?}"))),
         });
@@ -2472,6 +2523,17 @@ impl Operator for Optimize {
         ))
         .input(PortSpec::optional("penalty_data", Type::Map, "linear penalties: a value per cell"))
         .input(PortSpec::optional("constraint_data", Type::Map, "the linear constraint: a value per cell"))
+        .input(PortSpec::optional(
+            "corridor_terminals",
+            Type::Stack,
+            "corridors: a layer per network, its terminal cells > 0 (selected and joined by selected units)",
+        ))
+        .input(PortSpec::optional(
+            "corridor_resistance",
+            Type::Map,
+            "corridors: a value per cell; the flow's penalty x resistance (an edge: the mean of its two cells) joins \
+             the objective, so corridors run through low resistance",
+        ))
         .output(PortSpec::optional(
             "solution",
             Type::Map,
@@ -2593,6 +2655,13 @@ impl Operator for Optimize {
             "the selected units form one patch (adjacent: the raster's 4 neighbours, or adjacency_data)",
         ))
         .param(PortSpec::optional("feature_contiguity", Type::Bool, "every feature's units form one patch"))
+        .param(PortSpec::optional(
+            "corridor_columns",
+            Type::Any,
+            "corridors, tables: pu's columns of the networks' terminals (a column, or a list: a network each)",
+        ))
+        .param(PortSpec::optional("corridor_resistance_column", Type::Text, "corridors, tables: pu's resistance column"))
+        .param(PortSpec::optional("corridor_penalty", Type::Number, "corridors: the weight of the resistance (default 1)"))
         .param(PortSpec::optional("cost_column", Type::Text, "tables: pu's cost column (default cost)"))
         .param(PortSpec::optional("features", Type::Any, "tables: pu's feature columns"))
         .param(PortSpec::optional("locked_in_column", Type::Text, "tables: pu's column of the units locked in"))
@@ -2605,8 +2674,8 @@ impl Operator for Optimize {
             "spatial",
             Type::Any,
             "penalties and constraints in order: [{kind: boundary|connectivity|asym_connectivity|linear_penalty|\
-             linear_constraint|neighbors|contiguity|feature_contiguity, penalty, edge_factor, threshold, sense, \
-             column, k, clamp}, ...]",
+             linear_constraint|neighbors|contiguity|feature_contiguity|corridors, penalty, edge_factor, threshold, \
+             sense, column, columns, k, clamp}, ...]",
         ))
         .param(
             PortSpec::optional(
@@ -2619,7 +2688,7 @@ impl Operator for Optimize {
         )
         .param(PortSpec::optional("number_solutions", Type::Number, "a portfolio's solutions (default 10)"))
         .param(PortSpec::optional("pool_gap", Type::Number, "the gap portfolio: how far from the optimum (0.1)"))
-        .param(PortSpec::optional("seed", Type::Number, "the shuffle portfolio's random orders (default 0)"))
+        .param(PortSpec::optional("seed", Type::Number, "the shuffle portfolio's random orders (default 0); the anneal solver's seed (default 1)"))
         .param(PortSpec::optional("remove_duplicates", Type::Bool, "the shuffle portfolio: distinct solutions (true)"))
         .param(PortSpec::optional("gap", Type::Number, "the relative optimality gap (default 0.1)"))
         .param(PortSpec::optional("time_limit", Type::Number, "seconds (default none)"))
@@ -2627,11 +2696,33 @@ impl Operator for Optimize {
             PortSpec::optional(
                 "solver",
                 Type::Text,
-                "highs (default) or gurobi: Gurobi when it is installed and licensed, else HiGHS with a warning",
+                "highs (default), gurobi (when it is installed and licensed, else HiGHS with a warning) or anneal \
+                 (Marxan's simulated annealing, every run repaired to meet the targets: minimum sets with binary \
+                 decisions, without zones or portfolios)",
             )
-            .choices(["highs", "gurobi"]),
+            .choices(["highs", "gurobi", "anneal"]),
         )
         .param(PortSpec::optional("threads", Type::Number, "gurobi: the threads it uses (default and most: Terraflux's threads, never every core)"))
+        .param(PortSpec::optional("num_reps", Type::Integer, "anneal: runs, from different random reserves (default 10)"))
+        .param(PortSpec::optional(
+            "num_iters",
+            Type::Integer,
+            "anneal: annealing iterations per run (default 1000 per planning unit, at least a million)",
+        ))
+        .param(PortSpec::optional(
+            "start_temp",
+            Type::Number,
+            "anneal: Marxan's schedule: below 0 Connolly's (-1, default) or the adaptive (-2) one, else the initial temperature",
+        ))
+        .param(PortSpec::optional("cool_fac", Type::Number, "anneal: the cooling factor (default 0)"))
+        .param(PortSpec::optional("num_temp", Type::Integer, "anneal: temperature decreases (default 10000)"))
+        .param(PortSpec::optional(
+            "spf",
+            Type::Any,
+            "anneal: every feature's penalty factor during the annealing, one value or several taken by the runs in turn \
+             (default [1, 2])",
+        ))
+        .param(PortSpec::optional("itimp_type", Type::Integer, "anneal: Marxan's iterative improvement, 0 (default) or 3").choices([0, 3]))
     }
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -2639,14 +2730,32 @@ impl Operator for Optimize {
         let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let p = problem_of(args)?;
         let (mut model, t) = milp::compile(&p).map_err(err)?;
-        model.engine = engine_of(ctx, args)?;
+        // landschaft's anneal solver (Marxan's simulated annealing): minimum sets without zones or portfolios
+        let anneal = anneal_of(args)?;
+        let portfolio = portfolio_of(args)?;
+        if anneal.is_some() {
+            if p.units.zoned() {
+                return Err(err("the anneal solver does not support zones yet: use HiGHS or Gurobi".into()));
+            }
+            if portfolio.is_some() {
+                return Err(err("portfolios need the HiGHS or the Gurobi solver".into()));
+            }
+        } else {
+            model.engine = engine_of(ctx, args)?;
+        }
         let gap: f64 = args.param("gap", 0.1)?;
         let time_limit: f64 = args.opt_param("time_limit")?.unwrap_or(f64::INFINITY);
         let n = p.units.n();
-        let portfolio = portfolio_of(args)?;
         // the solves' progress shown with the node, and stopped with the run
         let rs = milp::watching(&mut milp::reporting(ctx, gap), || match &portfolio {
             Some(pf) => milp::solve_portfolio(&model, n, pf, gap, time_limit).map_err(err),
+            None if anneal.is_some() => {
+                let r = milp::solve_anneal(&model, n, anneal.as_ref().unwrap(), time_limit).map_err(err)?;
+                if !r.has_solution {
+                    return Err(err(format!("no solution: {}", r.status)));
+                }
+                Ok(vec![r])
+            }
             None => {
                 let r = milp::solve(&model, n, gap, time_limit).map_err(err)?;
                 if !r.has_solution {
@@ -3019,6 +3128,33 @@ fn solution_of(args: &Args, u: &milp::Units) -> Result<Vec<f64>> {
         return Err(err("the solution map is not on the cost's grid"));
     }
     Ok(u.cells.iter().map(|&c| finite(sol.data[c])).collect())
+}
+
+/// landschaft's anneal solver's settings when the node asks for it (`solver` anneal): `num_reps`, `num_iters`,
+/// `start_temp`, `cool_fac`, `num_temp`, `spf`, `itimp_type` and `seed` (default 1), as add_anneal_solver.
+fn anneal_of(args: &Args) -> Result<Option<milp::Anneal>> {
+    if args.param("solver", "highs".to_string())? != "anneal" {
+        return Ok(None);
+    }
+    let d = milp::Anneal::default();
+    let spf = match args.params.get("spf") {
+        None | Some(serde_json::Value::Null) => d.spf.clone(),
+        Some(serde_json::Value::Number(n)) => vec![n.as_f64().unwrap_or(1.0)],
+        Some(v) => serde_json::from_value::<Vec<f64>>(v.clone())
+            .map_err(|e| Error::msg(format!("node {:?}: spf: {e} (a number or a list)", args.node)))?,
+    };
+    let a = milp::Anneal {
+        num_reps: args.param("num_reps", d.num_reps)?,
+        num_iters: args.opt_param("num_iters")?,
+        start_temp: args.param("start_temp", d.start_temp)?,
+        cool_fac: args.param("cool_fac", d.cool_fac)?,
+        num_temp: args.param("num_temp", d.num_temp)?,
+        spf,
+        itimp_type: args.param("itimp_type", d.itimp_type)?,
+        seed: args.param("seed", d.seed)?,
+    };
+    a.check().map_err(|e| Error::msg(format!("node {:?}: {e}", args.node)))?;
+    Ok(Some(a))
 }
 
 /// The solver a node asks for (`solver`, `threads`): Gurobi when it can solve here, else HiGHS and a warning why.

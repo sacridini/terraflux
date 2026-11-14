@@ -1628,6 +1628,8 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                     "locked_out",
                     "connectivity_data",
                     "asym_connectivity_data",
+                    "corridor_terminals",
+                    "corridor_resistance",
                 ];
                 if !INPUTS.contains(&k.as_str()) {
                     return Err(format!("its input {k}: not in the script yet"));
@@ -1658,6 +1660,14 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 "threads",
                 "contribution",
                 "mandatory_allocation",
+                "corridor_penalty",
+                "num_reps",
+                "num_iters",
+                "start_temp",
+                "cool_fac",
+                "num_temp",
+                "spf",
+                "itimp_type",
             ];
             let other: Vec<&str> = n.params.keys().map(String::as_str).filter(|k| !KNOWN.contains(k)).collect();
             if !other.is_empty() {
@@ -1714,6 +1724,20 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             if n.params.get("contiguity").and_then(Value::as_bool) == Some(true) {
                 chain.push(".add_contiguity_constraints()".into());
             }
+            // corridors: a layer of terminals per network (landschaft's list of rasters), the resistance a map
+            if let Some(t) = v("corridor_terminals")? {
+                if zoned {
+                    return Err("corridors with zones: not in the script yet".into());
+                }
+                let mut args = vec![format!("[{t}.isel(band=k) for k in range({t}.sizes[\"band\"])]")];
+                if let Some(r) = v("corridor_resistance")? {
+                    args.push(format!("resistance={r}"));
+                }
+                args.extend(given(n, &[("corridor_penalty", "penalty")], sc)?);
+                chain.push(format!(".add_corridor_constraints({})", args.join(", ")));
+            } else if n.inputs.contains_key("corridor_resistance") || n.params.contains_key("corridor_penalty") {
+                return Err("corridor_resistance and corridor_penalty need corridor_terminals".into());
+            }
             for (k, method) in
                 [("locked_in", "add_locked_in_constraints"), ("locked_out", "add_locked_out_constraints")]
             {
@@ -1743,7 +1767,23 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 chain.push(format!(".add_{p}_portfolio({})", given(n, names, sc)?.join(", ")));
             }
             let solver = choice(n, "solver").unwrap_or("highs");
-            let mut s = given(n, &[("gap", "gap"), ("time_limit", "time_limit")], sc)?;
+            // (Marxan's annealing has no gap, but its own settings)
+            let mut s = if solver == "anneal" {
+                let names = [
+                    "num_reps",
+                    "num_iters",
+                    "start_temp",
+                    "cool_fac",
+                    "num_temp",
+                    "spf",
+                    "itimp_type",
+                    "time_limit",
+                    "seed",
+                ];
+                given(n, &names.map(|k| (k, k)), sc)?
+            } else {
+                given(n, &[("gap", "gap"), ("time_limit", "time_limit")], sc)?
+            };
             if solver == "gurobi" {
                 s.extend(given(n, &[("threads", "threads")], sc)?);
             }
@@ -3028,6 +3068,18 @@ op = "prioritize.optimize"
 inputs = { zone_costs = "drivers.stack", features = "drivers.stack" }
 params = { portfolio = "top" }
 
+[[nodes]]
+id = "annealed"
+op = "prioritize.optimize"
+inputs = { cost = "a.map", features = "drivers.stack" }
+params = { solver = "anneal", relative_targets = 0.3, seed = 7, num_reps = 6, gap = 0.1, time_limit = 5 }
+
+[[nodes]]
+id = "joined"
+op = "prioritize.optimize"
+inputs = { cost = "a.map", features = "drivers.stack", corridor_terminals = "drivers.stack", corridor_resistance = "a.map" }
+params = { relative_targets = 0.2, corridor_penalty = 0.5 }
+
 [outputs.near]
 from = "roads.distance"
 "#,
@@ -3059,6 +3111,16 @@ from = "roads.distance"
         assert!(t.contains("ls.save(_road_distance(roads), OUT / \"near\""), "{t}");
         assert!(
             t.contains("logged = ls.simulate.ContinuousPatcher(mean=4, unit=\"cells\", window=[5, 5]).allocate(a, b, 500, seed=1)\n"),
+            "{t}"
+        );
+        assert!(
+            t.contains(
+                "    .add_binary_decisions()\n    .add_anneal_solver(num_reps=6, time_limit=5, seed=7)\n    .solve()\n"
+            ),
+            "{t}"
+        );
+        assert!(
+            t.contains("    .add_corridor_constraints([drivers.isel(band=k) for k in range(drivers.sizes[\"band\"])], resistance=a, penalty=0.5)\n"),
             "{t}"
         );
         assert!(t.contains("wanted = _demand_table({\"classes\": [1, 2], \"rows\": [[5, 5], [4, 6]]})\n"), "{t}");

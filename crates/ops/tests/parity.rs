@@ -3,7 +3,9 @@
 //! hexagons; management zones on rasters and tables), on landschaft's optimize cases and on a larger set of rasters
 //! (tests/data/reference/optimize_parity.json, tools/make_optimize_parity_reference.py). Each case: the compiled model
 //! is landschaft's (size and sums), the status and objective are its (within the gap asked), the units selected are
-//! its where the optimum is unique, and the time is at most 1.5 times its plus a quarter of a second.
+//! its where the optimum is unique, and the time is at most 1.5 times its plus a quarter of a second. The
+//! `*_anneal_*` cases are landschaft's anneal solver with a seed: the same units and objective; the `*_corridors_*`
+//! ones have corridor constraints.
 //!
 //! Release builds, one test at a time, four threads (the times mean nothing otherwise):
 //! `RAYON_NUM_THREADS=4 OMP_NUM_THREADS=4 cargo test -p terraflux-ops --release --test ops -j 4 -- --ignored
@@ -168,7 +170,9 @@ fn problem_of(
     let set = if case["data"] == "small" { small } else { medium };
     let mut params = case["params"].as_object().unwrap().clone();
     params.insert("gap".into(), case["gap_asked"].clone());
-    params.insert("time_limit".into(), case["time_limit"].clone());
+    if !case["time_limit"].is_null() {
+        params.insert("time_limit".into(), case["time_limit"].clone());
+    }
     let mut inputs: BTreeMap<String, Value> = BTreeMap::new();
     let gdal = || terraflux_gdal::gdal().map(|_| ()).map_err(|e| format!("no GDAL: {e}"));
     match units {
@@ -176,6 +180,28 @@ fn problem_of(
             let grid = set.grid(false);
             inputs.insert("features".into(), set.stack(&grid));
             inputs.insert("cost".into(), Value::Map(Map::new(grid.clone(), set.cost.clone())));
+            // corridors: a layer per network (1 at its terminals' cells), the cost as the resistance
+            if let Some(c) = case.get("corridors") {
+                let cells = set.ny * set.nx;
+                let layers = c["terminals"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|net| {
+                        let mut l = vec![0.0; cells];
+                        net.as_array().unwrap().iter().for_each(|t| l[t.as_u64().unwrap() as usize] = 1.0);
+                        Arc::new(l)
+                    })
+                    .collect::<Vec<_>>();
+                let keys = (1..=layers.len()).map(|k| Key::Name(format!("net{k}"))).collect();
+                inputs.insert("corridor_terminals".into(), Value::Stack(Stack { grid: grid.clone(), keys, layers }));
+                if c["resistance"].as_bool() == Some(true) {
+                    inputs.insert("corridor_resistance".into(), Value::Map(Map::new(grid.clone(), set.cost.clone())));
+                }
+                if let Some(p) = c.get("penalty") {
+                    params.insert("corridor_penalty".into(), p.clone());
+                }
+            }
             if let (true, Some((i, o))) = (locks, &set.locks) {
                 inputs.insert("locked_in".into(), Value::Map(Map::new(grid.clone(), i.clone())));
                 inputs.insert("locked_out".into(), Value::Map(Map::new(grid, o.clone())));
@@ -395,6 +421,15 @@ fn optimize_is_landschafts() {
         let unique = case["unique"].as_bool() == Some(true);
         if unique && gap_asked == 0.0 && r.optimal && differ > 0 {
             bad.push(format!("units: {differ} differ, the optimum being unique"));
+        }
+        // the anneal solver, seeded, is landschaft's run: the same units and objective
+        if case["params"]["solver"] == "anneal" {
+            if differ > 0 {
+                bad.push(format!("units: {differ} differ from landschaft's anneal run"));
+            }
+            if (r.objective - want).abs() > 1e-9 * want.abs().max(1.0) {
+                bad.push(format!("objective {} != {want} (anneal)", r.objective));
+            }
         }
         if r.seconds > 1.5 * secs + 0.25 {
             bad.push(format!("time {:.3} s > 1.5 x {secs:.3} s + 0.25 s", r.seconds));

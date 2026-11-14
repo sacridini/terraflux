@@ -1478,3 +1478,275 @@ fn the_search_goes_on_from_the_wide_engine_and_stops_with_the_run() {
         Ok(s) => assert!(!asked && s.status == "optimal"),
     }
 }
+
+// ----------------------------------------------------------------------------- the anneal solver
+
+/// What `prioritize.optimize` says to a problem (the cases' raster units, landschaft's small ones).
+fn run_optimize(ins: BTreeMap<String, Value>, params: serde_json::Value) -> Result<terraflux_ops::Outputs, String> {
+    let params = params.as_object().unwrap().clone();
+    let args = Args { node: "n", inputs: ins, params: &params };
+    terraflux_ops::Registry::standard()
+        .get("prioritize.optimize")
+        .unwrap()
+        .run(&mut terraflux_ops::Ctx::default(), &args)
+        .map_err(|e| e.to_string())
+}
+
+fn compiled(ins: BTreeMap<String, Value>, params: serde_json::Value) -> (terraflux_ops::milp::Model, usize) {
+    let params = params.as_object().unwrap().clone();
+    let p = terraflux_ops::prioritize::problem_of(&Args { node: "n", inputs: ins, params: &params }).unwrap();
+    let (m, _) = terraflux_ops::milp::compile(&p).unwrap();
+    (m, p.units.n())
+}
+
+/// The anneal solver is landschaft's: with a seed the same run (landschaft 1.58.1, tests/optimize_cases.py's small
+/// raster with add_min_set_objective(), add_relative_targets(0.3), add_binary_decisions(),
+/// add_anneal_solver(seed=7, num_reps=6, n_threads=4): heuristic, objective 2461.1205471884523, bound
+/// 2450.9759445122713, gap 0.0041219446515003135, 50 units of 166), the same on any number of threads; the same
+/// numbers as tests/data/reference/optimize_parity.json's small_raster_anneal_min_set (tools/
+/// make_optimize_parity_reference.py), whose selection parity::optimize_is_landschafts compares too.
+#[test]
+fn anneal_is_landschafts() {
+    use serde_json::json;
+    let inputs = inputs();
+    let params = json!({"relative_targets": 0.3, "solver": "anneal", "seed": 7, "num_reps": 6});
+    let out = run_optimize(args_of(&inputs, NONE, None), params.clone()).unwrap();
+    let (Value::Table(summary), Value::Table(sel)) = (&out["summary"], &out["selection"]) else { panic!() };
+    let (objective, gap) = (2461.1205471884523, 0.0041219446515003135);
+    let got = |c: &str| summary.column(c).unwrap()[0];
+    assert!((got("objective") - objective).abs() <= 1e-9 * objective, "objective {}", got("objective"));
+    assert!((got("gap") - gap).abs() <= 1e-6, "gap {}", got("gap"));
+    assert_eq!((got("optimal"), got("selected")), (0.0, 50.0));
+    assert_eq!(sel.rows.len(), 166);
+    // the bound: the linear relaxation without the boundaries' cut terms (as landschaft's)
+    let (m, n) = compiled(args_of(&inputs, NONE, None), params);
+    let a = terraflux_ops::milp::Anneal { num_reps: 6, seed: 7, ..Default::default() };
+    let s = terraflux_ops::milp::solve_anneal(&m, n, &a, f64::INFINITY).unwrap();
+    assert_eq!(s.status, "heuristic");
+    assert!((s.bound - 2450.9759445122713).abs() <= 1e-6, "bound {}", s.bound);
+    // the same seed, the same run
+    let b = terraflux_ops::milp::solve_anneal(&m, n, &a, f64::INFINITY).unwrap();
+    assert_eq!((b.objective.to_bits(), &b.x), (s.objective.to_bits(), &s.x));
+    // another seed, another run (or the same by luck: the numbers differ in the reference for these two)
+    let c = terraflux_ops::milp::Anneal { seed: 8, ..a };
+    assert!(terraflux_ops::milp::solve_anneal(&m, n, &c, f64::INFINITY).unwrap().has_solution);
+}
+
+/// The anneal solver takes landschaft's models and says what it does not (their messages): maximisations, shares of
+/// units, rows that are not targets; targets that no selection meets; settings landschaft refuses; zones and
+/// portfolios.
+#[test]
+fn anneal_refuses_what_landschaft_refuses() {
+    use serde_json::json;
+    use terraflux_ops::milp;
+    let inputs = inputs();
+    let solve = |ins: BTreeMap<String, Value>, params: serde_json::Value| {
+        let (m, n) = compiled(ins, params);
+        milp::solve_anneal(&m, n, &milp::Anneal { num_reps: 2, ..Default::default() }, f64::INFINITY)
+    };
+    let supported = "the anneal solver solves minimum-set problems with binary decisions";
+    let e = solve(args_of(&inputs, NONE, None), json!({"objective": "max_utility", "budget": 1200})).err().unwrap();
+    assert!(e.starts_with(supported) && e.ends_with("this one maximises"), "{e}");
+    let e =
+        solve(args_of(&inputs, NONE, None), json!({"relative_targets": 0.3, "decisions": "proportion"})).err().unwrap();
+    assert!(e.ends_with("this one has proportion or semi-continuous decisions"), "{e}");
+    let e = solve(
+        args_of(&inputs, &["constraint_data"], None),
+        json!({"relative_targets": 0.3, "linear_threshold": 250, "linear_sense": "<="}),
+    )
+    .err()
+    .unwrap();
+    assert!(e.contains("this one has '<=' or '=' rows (lc)"), "{e}");
+    // targets above what the units hold: infeasible, no solution
+    let s = solve(args_of(&inputs, NONE, None), json!({"absolute_targets": [1e6, 1e6, 1e6, 1e6, 1e6]})).unwrap();
+    assert_eq!((s.status.as_str(), s.has_solution), ("infeasible", false));
+    assert!(s.objective.is_nan() && s.bound.is_nan() && s.gap.is_nan());
+    let e = run_optimize(
+        args_of(&inputs, NONE, None),
+        json!({"absolute_targets": [1e6, 1e6, 1e6, 1e6, 1e6], "solver": "anneal"}),
+    )
+    .err()
+    .unwrap();
+    assert!(e.contains("no solution: infeasible"), "{e}");
+    // settings
+    let base = json!({"relative_targets": 0.3, "solver": "anneal"});
+    for (key, value, message) in
+        [("num_reps", json!(0), "num_reps must be at least 1"), ("itimp_type", json!(2), "itimp_type must be 0 or 3")]
+    {
+        let mut params = base.clone();
+        params[key] = value;
+        let e = run_optimize(args_of(&inputs, NONE, None), params).err().unwrap();
+        assert!(e.contains(message), "{key}: {e}");
+    }
+    // portfolios
+    let mut params = base.clone();
+    params["portfolio"] = json!("cuts");
+    let e = run_optimize(args_of(&inputs, NONE, None), params).err().unwrap();
+    assert!(e.contains("portfolios need the HiGHS or the Gurobi solver"), "{e}");
+    // the other solvers' nodes do not know it
+    let e =
+        run_optimize(args_of(&inputs, NONE, None), json!({"relative_targets": 0.3, "solver": "nope"})).err().unwrap();
+    assert!(e.contains("highs or gurobi"), "{e}");
+}
+
+// ----------------------------------------------------------------------------- corridors
+
+/// Corridors: the terminals' layers (a layer per network) and the resistance (the cost) on the cases' grid.
+fn corridor_inputs(mut ins: BTreeMap<String, Value>, nets: &[Vec<usize>], resistance: bool) -> BTreeMap<String, Value> {
+    let Some(Value::Map(cost)) = ins.get("cost") else { panic!("the cost") };
+    let (grid, cells) = (cost.grid.clone(), cost.data.len());
+    let layers = nets
+        .iter()
+        .map(|net| {
+            let mut l = vec![0.0; cells];
+            net.iter().for_each(|&c| l[c] = 1.0);
+            Arc::new(l)
+        })
+        .collect::<Vec<_>>();
+    let keys = (1..=nets.len()).map(|k| Key::Name(format!("net{k}"))).collect();
+    if resistance {
+        let cost = cost.clone();
+        ins.insert("corridor_resistance".into(), Value::Map(cost));
+    }
+    ins.insert("corridor_terminals".into(), Value::Stack(Stack { grid, keys, layers }));
+    ins
+}
+
+/// The models landschaft compiles for corridor constraints (tests/data/reference/optimize_corridors.*,
+/// tools/make_corridor_reference.py), bit for bit: the flow model on the edges between units, the terminals' bounds,
+/// the resistance in the objective (its sign with the objective's), and the networks the solvers cut on.
+#[test]
+fn corridors_compile_is_landschafts() {
+    use serde_json::json;
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
+    let arrays = terraflux_raster::npy::read_npz(dir.join("optimize_corridors.npz")).unwrap();
+    let meta: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("optimize_corridors.json")).unwrap()).unwrap();
+    let inputs = inputs();
+    let t = tables();
+    let cells = |net: &serde_json::Value| -> Vec<usize> {
+        net.as_array().unwrap().iter().map(|c| c.as_u64().unwrap() as usize).collect()
+    };
+    for (name, case) in meta["cases"].as_object().unwrap() {
+        let s = &case["settings"];
+        let mut params = json!({});
+        for key in ["objective", "relative_targets", "budget", "boundary_penalty"] {
+            if !s[key].is_null() {
+                params[key] = s[key].clone();
+            }
+        }
+        if let Some(p) = s.get("penalty") {
+            params["corridor_penalty"] = p.clone();
+        }
+        let resistance = s["resistance"].as_bool() == Some(true);
+        let ins = if name.starts_with("table") {
+            let mut pu = t["pu_table"].clone();
+            pu.columns.push("term".into());
+            for (i, row) in pu.rows.iter_mut().enumerate() {
+                row.push(f64::from(u8::from(
+                    s["rows"].as_array().unwrap().iter().any(|r| r.as_u64() == Some(i as u64)),
+                )));
+            }
+            params["features"] = json!(["f1", "f2", "f3", "f4", "f5"]);
+            params["corridor_columns"] = json!(["term"]);
+            if resistance {
+                params["corridor_resistance_column"] = json!("cost");
+            }
+            [("pu", pu), ("adjacency_data", t["adj_table"].clone())]
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), Value::Table(v)))
+                .collect()
+        } else {
+            let nets: Vec<Vec<usize>> = s["nets"].as_array().unwrap().iter().map(cells).collect();
+            let locks = if s["locks"].as_bool() == Some(true) { BOTH } else { NONE };
+            corridor_inputs(args_of(&inputs, locks, None), &nets, resistance)
+        };
+        let (m, _) = compiled(ins, params);
+        let k = |key: &str| format!("{name}/{key}");
+        let (ai, aj, ax) = (&arrays[&k("A_i")].data, &arrays[&k("A_j")].data, &arrays[&k("A_x")].data);
+        let mut ours = Vec::new();
+        for i in 0..m.a.nrow {
+            let (idx, v) = m.a.row(i);
+            ours.extend(idx.iter().zip(v).map(|(&j, &x)| (i, j, x)));
+        }
+        assert_eq!(ours.len(), ax.len(), "{name}: entries");
+        for (e, a) in ours.iter().enumerate() {
+            assert!(
+                a.0 == ai[e] as usize && a.1 == aj[e] as usize && a.2.to_bits() == ax[e].to_bits(),
+                "{name}: {a:?} != ({}, {}, {})",
+                ai[e],
+                aj[e],
+                ax[e]
+            );
+        }
+        for (what, mine) in [("obj", &m.obj), ("lb", &m.lb), ("ub", &m.ub), ("rhs", &m.rhs)] {
+            let theirs = &arrays[&k(what)].data;
+            assert_eq!(mine.len(), theirs.len(), "{name}: {what}");
+            for (i, (x, y)) in mine.iter().zip(theirs).enumerate() {
+                assert!(x.to_bits() == y.to_bits(), "{name}: {what}[{i}] {x} != {y}");
+            }
+        }
+        let texts = |key: &str| -> Vec<String> {
+            case[key].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect()
+        };
+        assert_eq!(m.sense, texts("sense"), "{name}: sense");
+        assert_eq!(m.vtype.iter().map(|c| c.to_string()).collect::<Vec<_>>(), texts("vtype"), "{name}: vtype");
+        assert_eq!(m.row_ids, texts("row_ids"), "{name}: row ids");
+        assert_eq!(m.col_ids, texts("col_ids"), "{name}: column ids");
+        assert_eq!(if m.maximize { "max" } else { "min" }, case["modelsense"], "{name}: sense of the model");
+        let nets = case["corridors"].as_array().unwrap();
+        assert_eq!(m.corridors.len(), nets.len(), "{name}: networks");
+        let ints = |v: &serde_json::Value| -> Vec<usize> {
+            v.as_array().unwrap().iter().map(|x| x.as_u64().unwrap() as usize).collect()
+        };
+        for (c, w) in m.corridors.iter().zip(nets) {
+            assert_eq!(c.source, w["source"].as_u64().unwrap() as usize, "{name}: source");
+            assert_eq!(c.sinks, ints(&w["sinks"]), "{name}: terminals");
+            assert_eq!(c.tail, ints(&w["tail"]), "{name}: tails");
+            assert_eq!(c.head, ints(&w["head"]), "{name}: heads");
+        }
+    }
+}
+
+/// A corridor joins its terminals: they are selected, and the selection holds a path between them (landschaft's
+/// solve: the root's node cuts, then the MIP with them at its nodes too; 1741.791497 for the three terminals of
+/// tools/make_optimize_parity_reference.py's small_raster_corridors_min_set within a gap of 0.05); a network needs
+/// two terminals, and zones have none.
+#[test]
+fn corridors_join_the_terminals() {
+    use serde_json::json;
+    let inputs = inputs();
+    let (ny, nx) = (inputs["pu_cost"].shape[0], inputs["pu_cost"].shape[1]);
+    let net = vec![4 * nx + 2, 11 * nx + 12, 13];
+    let ins = corridor_inputs(args_of(&inputs, NONE, None), std::slice::from_ref(&net), false);
+    let out = run_optimize(ins, json!({"relative_targets": 0.2, "gap": 0.05, "time_limit": 60})).unwrap();
+    let (Value::Table(summary), Value::Map(sol)) = (&out["summary"], &out["solution"]) else { panic!() };
+    assert_eq!(summary.column("optimal").unwrap()[0], 1.0);
+    let objective = summary.column("objective").unwrap()[0];
+    assert!((objective - 1741.7914968705772).abs() <= 0.05 * 1741.79, "objective {objective}");
+    assert!(net.iter().all(|&c| sol.data[c] > 0.5), "the terminals are selected");
+    // a path of selected cells (4-adjacent) from the first terminal to the others
+    let mut seen = vec![false; ny * nx];
+    let mut stack = vec![net[0]];
+    seen[net[0]] = true;
+    while let Some(c) = stack.pop() {
+        let (r, q) = (c / nx, c % nx);
+        let near = [
+            (r > 0).then(|| c - nx),
+            (r + 1 < ny).then_some(c + nx),
+            (q > 0).then(|| c - 1),
+            (q + 1 < nx).then_some(c + 1),
+        ];
+        for d in near.into_iter().flatten() {
+            if sol.data[d] > 0.5 && !seen[d] {
+                seen[d] = true;
+                stack.push(d);
+            }
+        }
+    }
+    assert!(net.iter().all(|&c| seen[c]), "the terminals are joined");
+    // one terminal is no network
+    let ins = corridor_inputs(args_of(&inputs, NONE, None), &[vec![5]], false);
+    let e = run_optimize(ins, json!({"relative_targets": 0.2})).err().unwrap();
+    assert!(e.contains("a corridor network needs at least two terminal planning units"), "{e}");
+}

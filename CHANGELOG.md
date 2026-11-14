@@ -6,6 +6,22 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- **`prioritize.optimize` with `solver = anneal`:** landschaft's anneal solver, Marxan's simulated annealing on the
+  compiled minimum-set model (every pair column of a boundary or connectivity penalty a Marxan boundary), each run
+  repaired to meet every target and trimmed, the best run's objective, the bound of the linear relaxation without
+  the boundaries' cut terms, and the status `heuristic` (`optimal` when the gap closes). Settings with landschaft's
+  names and defaults: `num_reps` (10), `num_iters` (1000 per unit, at least a million), `start_temp` (-1),
+  `cool_fac`, `num_temp` (10000), `spf` ([1, 2]), `itimp_type` (0 or 3), `seed` (1) and `time_limit`. With a seed
+  the same selection and objective as landschaft's (6 cases); zones, portfolios and other models than minimum sets
+  with binary decisions are refused with landschaft's messages. The Python script writes `add_anneal_solver`.
+- **Corridors in `prioritize.optimize`:** landschaft's `add_corridor_constraints`: the terminals of each network
+  (`corridor_terminals`, a layer per network; or pu's columns `corridor_columns`) are selected and joined by selected
+  units through a flow on the edges between units, with an optional resistance (`corridor_resistance`,
+  `corridor_penalty`) in the objective. The model is landschaft's bit for bit (5 compiled models), solved as
+  landschaft does (node cuts at the root and in HiGHS's tree: the same selection as landschaft's in the same time).
+  The Python script writes `add_corridor_constraints`.
+
 ## [1.48.0] - 2026-11-14
 
 ### Added

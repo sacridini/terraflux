@@ -240,6 +240,7 @@ fn improve(
                 row_ids: vec!["spp_target".to_string(); idx.len()],
                 col_ids: vec!["pu".to_string(); n],
                 connected: Vec::new(),
+                corridors: Vec::new(),
                 zone_units: 0,
                 engine: m.engine,
             };

@@ -848,6 +848,14 @@ pub mod ffi {
         itimptype: i32,
         connectivity_in: bool,
         seed: u32,
+        /// landschaft's anneal solver (off: Marxan's runs): seconds for the runs (negative: none), penalties
+        /// from a greedy cover, every run repaired, the schedule spread over the time limit, and a scale of every
+        /// feature's penalty factor per run (empty: none).
+        time_limit: f64,
+        fast_penalties: bool,
+        repair: bool,
+        time_schedule: bool,
+        spf_scale: Vec<f64>,
     }
 
     /// Marxan's runs: the reserves (runs x units: 0 out, 1 in, 2 locked in, 3 locked out), the best run, and per
@@ -869,6 +877,7 @@ pub mod ffi {
         penalty: Vec<f64>,
         target: Vec<f64>,
         unmet: i32,
+        timed_out: bool,
     }
 
     /// ProxIRR's beta and gamma of every unit.
@@ -1005,6 +1014,16 @@ pub mod ffi {
         objective: f64,
         bound: f64,
         gap: f64,
+    }
+
+    /// A corridor network on the first `n` columns (the units): its source, its other terminals and its edges
+    /// (each once, both directions usable).
+    struct CorridorNet {
+        n: i32,
+        source: i32,
+        sinks: Vec<i32>,
+        tail: Vec<i32>,
+        head: Vec<i32>,
     }
 
     /// A sparse matrix in compressed columns: start (columns + 1), row, value.
@@ -2034,6 +2053,16 @@ pub mod ffi {
             settings: &SolveSettings,
             method: &str,
             n_units: i64,
+            watch: &mut SolveWatch,
+        ) -> Result<SolveOut>;
+        /// landschaft's solve_connected for corridors (prioritize/_milp_connect.py without patches): the root's node
+        /// cuts by rounds on the linear relaxation (40 % of the time limit), then HiGHS's MIP on the model with them,
+        /// the same cuts separated at its nodes too (presolve off), from `settings.start`; the watch as
+        /// opt_solve_watched.
+        fn opt_solve_corridors(
+            model: &MilpModel,
+            settings: &SolveSettings,
+            nets: &[CorridorNet],
             watch: &mut SolveWatch,
         ) -> Result<SolveOut>;
         /// prioritizr's boundary of a solution (rcpp_boundary): the strictly lower triangle of the boundary

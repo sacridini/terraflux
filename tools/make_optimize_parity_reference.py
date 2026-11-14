@@ -12,7 +12,9 @@ vectors/parity_polygons.gpkg) makes the times mean something. Run, one job at a 
 
 Run with the landschaft the submodule points at installed (and h3). Terraflux's test is
 crates/ops/tests/parity.rs (`cargo test -p terraflux-ops --release --test ops -- --ignored parity::`).
-What landschaft solves that Terraflux does not: the `anneal` solver and corridors.
+The cases named `*_anneal_*` are solved on landschaft's `anneal` solver (Marxan's simulated annealing, seeded: the
+same selection and objective for the same seed), the `*_corridors_*` ones have corridor constraints (their
+terminals' cells in the case's `corridors`).
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ THREADS = 4
 TRY_SECONDS = 8.0  # one solve's time limit: no case takes long
 GAPS = (0.0, 0.001, 0.01, 0.05, 0.1)  # the first that HiGHS proves within the time limit
 FEATURES = oc.FEATURES
+NXS = oc.NX  # the small raster's columns
 TREE = oc.TREE_SHUFFLED
 SHARE = 0.3  # a budget's share of the units' total cost
 
@@ -160,6 +163,21 @@ def cases() -> list[dict]:
     add("small", "table", "min_set_locked", {"relative_targets": 0.3}, locks=True)
     add("small", "raster", "min_set_contiguity", {"relative_targets": 0.2, "contiguity": True})
     add("small", "rij", "min_set", {"absolute_targets": oc.ABSOLUTE})
+    # the anneal solver (a seed: the same selection as landschaft's) on minimum sets with and without penalties
+    an = {"solver": "anneal", "seed": 7, "num_reps": 6}
+    add("small", "raster", "anneal_min_set", {"relative_targets": 0.3, **an})
+    add("small", "raster", "anneal_boundary", {"relative_targets": 0.3, "boundary_penalty": 0.5, **an})
+    add("small", "raster", "anneal_locked", {"relative_targets": 0.3, "spf": [0.5, 3.0], "itimp_type": 3, **an},
+        locks=True)
+    add("small", "table", "anneal_min_set", {"relative_targets": 0.25, **an}, locks=True)
+    add("medium", "raster", "anneal_min_set", {"relative_targets": 0.3, **an})
+    add("medium", "raster", "anneal_boundary", {"relative_targets": 0.3, "boundary_penalty": 0.5, **an})
+    # corridors: a network of three terminals (cells of the 12 x 15 grid, row-major), two networks with a resistance
+    add("small", "raster", "corridors_min_set", {"relative_targets": 0.2},
+        corridors={"terminals": [[4 * NXS + 2, 11 * NXS + 12, 13]]})
+    add("small", "raster", "corridors_resistance", {"relative_targets": 0.2},
+        corridors={"terminals": [[4 * NXS + 2, 11 * NXS + 12], [5 * NXS, 10 * NXS + 14]], "resistance": True,
+                   "penalty": 0.5})
     # management zones: the objectives that take them, on rasters and on tables
     zb = {"budget": [1200, 800, 600]}
     zm = "ZONE_MATRIX"
@@ -262,6 +280,15 @@ def build(case: dict, data: Data, params: dict, p=None):
             p = p.add_boundary_penalties(params["boundary_penalty"])
     if params.get("contiguity"):
         p = p.add_contiguity_constraints()
+    if case.get("corridors"):
+        c = case["corridors"]
+        nets = []
+        for cells in c["terminals"]:
+            t = np.zeros(oc.NY * oc.NX)
+            t[cells] = 1.0
+            nets.append(oc.grid(t.reshape(oc.NY, oc.NX)))
+        resistance = oc.grid(oc._cost()) if c.get("resistance") else None
+        p = p.add_corridor_constraints(nets, resistance=resistance, penalty=c.get("penalty", 1.0))
     if case.get("locks"):
         if kind == "raster":
             p = p.add_locked_in_constraints(oc.locked_in()).add_locked_out_constraints(oc.locked_out())
@@ -275,9 +302,16 @@ def build(case: dict, data: Data, params: dict, p=None):
 
 # ----------------------------------------------------------------------------- solving
 
-def solved(p, gap: float, limit: float):
+ANNEAL_KEYS = ("num_reps", "num_iters", "start_temp", "cool_fac", "num_temp", "spf", "itimp_type", "seed")
+
+
+def solved(p, gap: float, limit: float, params: dict | None = None):
     t0 = time.perf_counter()
-    s = p.add_highs_solver(gap=gap, time_limit=limit, n_threads=THREADS).solve()
+    if params is not None and params.get("solver") == "anneal":  # landschaft's anneal solver, seeded
+        kw = {k: params[k] for k in ANNEAL_KEYS if k in params}
+        s = p.add_anneal_solver(n_threads=THREADS, **kw).solve()
+    else:
+        s = p.add_highs_solver(gap=gap, time_limit=limit, n_threads=THREADS).solve()
     return s, time.perf_counter() - t0
 
 
@@ -325,25 +359,34 @@ def run_case(case: dict, datas: dict) -> dict:
     out = {"name": case["name"], "data": case["data"], "units": case["units"], "params": params}
     if case.get("locks"):
         out["locks"] = True
+    if case.get("corridors"):
+        out["corridors"] = case["corridors"]
     out["model"] = model_of(p)
-    # the first gap HiGHS proves within the time limit
-    s = None
-    for gap in GAPS:
-        s, secs = solved(p, gap, TRY_SECONDS)
+    anneal = params.get("solver") == "anneal"
+    if anneal:  # one solve with the seed; no gap, no time limit (a time limit changes the schedule)
+        gap, limit = 0.1, None
+        s, secs = solved(p, gap, limit, params)
+        times = [secs] + [solved(p, gap, limit, params)[1] for _ in range(2)]
+    else:
+        # the first gap HiGHS proves within the time limit
+        s, limit = None, TRY_SECONDS
+        for gap in GAPS:
+            s, secs = solved(p, gap, limit)
+            if s.status == "optimal":
+                break
+        times = [secs]
         if s.status == "optimal":
-            break
-    out["gap_asked"], out["time_limit"] = gap, TRY_SECONDS
-    times = [secs]
-    if s.status == "optimal":
-        times += [solved(p, gap, TRY_SECONDS)[1] for _ in range(2)]
-    out.update({"status": s.status, "objective": float(s.objective), "bound": float(s.bound),
-                "gap": float(s.gap), "seconds": float(np.median(times)), "runs": len(times),
+            times += [solved(p, gap, limit)[1] for _ in range(2)]
+    out["gap_asked"], out["time_limit"] = gap, limit
+    out.update({"status": s.status, "objective": float(s.objective),
+                "bound": float(s.bound) if math.isfinite(s.bound) else None,
+                "gap": float(s.gap) if math.isfinite(s.gap) else None, "seconds": float(np.median(times)), "runs": len(times),
                 "solver_seconds": float(s.seconds)})
     x = np.asarray(s.values, dtype=np.float64)
     x = x.T.ravel() if x.ndim == 2 else x.ravel()
     out["n"] = int(x.size)
     out["selected"] = [int(i) for i in np.flatnonzero(x > 0.5)]
-    out["unique"] = is_unique(p, s) if gap == 0.0 and s.status == "optimal" else None
+    out["unique"] = is_unique(p, s) if gap == 0.0 and s.status == "optimal" and not anneal else None
     print(f"{out['name']:42s} {out['status']:10s} obj {out['objective']:14.6f} gap {gap:<6} {out['seconds']:7.3f} s"
           f"  unique {out['unique']}  {out['model']['nrow']}x{out['model']['ncol']}", flush=True)
     return out

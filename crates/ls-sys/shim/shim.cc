@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -59,6 +60,7 @@
 #include "move/track.hpp"
 #include "opt/actions.hpp"
 #include "opt/closure.hpp"
+#include "opt/connect.hpp"
 #include "opt/cover.hpp"
 #include "opt/cut.hpp"
 #include "opt/eval.hpp"
@@ -1743,8 +1745,14 @@ MarxanOut opt_marxan(const MarxanData& data, const MarxanOptions& options) {
     o.connectivity_in = options.connectivity_in ? 1 : 0;
     o.seed = options.seed;
     o.threads = max_threads();
+    o.time_limit = options.time_limit;
+    o.fast_penalties = options.fast_penalties;
+    o.repair = options.repair;
+    o.time_schedule = options.time_schedule;
+    o.spf_scale.assign(options.spf_scale.begin(), options.spf_scale.end());
     const opt::marxan::Result r = opt::marxan::solve(d, o);
     MarxanOut out;
+    out.timed_out = r.timed_out;
     out.penalty = to_rust<double>(r.penalty);
     out.target = to_rust<double>(r.target);
     out.unmet = r.unmet;
@@ -1866,6 +1874,107 @@ SolveOut opt_solve(const MilpModel& model, const SolveSettings& settings, rust::
 SolveOut opt_solve_watched(const MilpModel& model, const SolveSettings& settings, rust::Str method,
                            std::int64_t n_units, SolveWatch& watch) {
     return solve_with(model, settings, method, n_units, &watch);
+}
+
+SolveOut opt_solve_corridors(const MilpModel& model, const SolveSettings& settings, rust::Slice<const CorridorNet> nets,
+                             SolveWatch& watch) {
+    // landschaft's solve_connected without patches: root cuts by rounds, then the MIP with them and the same cuts at
+    // its nodes (the user's separator: presolve off)
+    opt::Model m;
+    m.start.assign(model.start.begin(), model.start.end());
+    m.index.assign(model.index.begin(), model.index.end());
+    m.value.assign(model.value.begin(), model.value.end());
+    m.obj.assign(model.obj.begin(), model.obj.end());
+    m.lb.assign(model.lb.begin(), model.lb.end());
+    m.ub.assign(model.ub.begin(), model.ub.end());
+    m.row_lo.assign(model.row_lo.begin(), model.row_lo.end());
+    m.row_hi.assign(model.row_hi.begin(), model.row_hi.end());
+    m.integer.assign(model.integer.begin(), model.integer.end());
+    m.nrow = static_cast<i64>(m.row_lo.size());
+    m.ncol = static_cast<i64>(m.obj.size());
+    m.maximize = model.maximize;
+    m.offset = model.offset;
+    m.check();
+    std::vector<opt::Corridor> corridors;
+    for (const CorridorNet& net : nets) {
+        opt::Corridor c;
+        c.n = net.n;
+        c.source = net.source;
+        c.sinks.assign(net.sinks.begin(), net.sinks.end());
+        c.tail.assign(net.tail.begin(), net.tail.end());
+        c.head.assign(net.head.begin(), net.head.end());
+        check(c.n >= 0 && c.n <= m.ncol, "a corridor network has more units than columns");
+        check(c.head.size() == c.tail.size(), "a corridor's tails and heads differ in length");
+        auto ok = [&](int v) { return v >= 0 && v < c.n; };
+        check(ok(c.source), "a corridor's source is out of range");
+        for (const int v : c.sinks) check(ok(v), "a corridor's terminal is out of range");
+        for (std::size_t e = 0; e < c.tail.size(); ++e)
+            check(ok(c.tail[e]) && ok(c.head[e]), "a corridor's edge is out of range");
+        corridors.push_back(std::move(c));
+    }
+    const auto sep = opt::connect_separator({}, corridors, opt::SeparateOptions{});
+    const auto t0 = std::chrono::steady_clock::now();
+    auto elapsed = [&]() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); };
+    const bool timed = std::isfinite(settings.time_limit);
+    const double inf = std::numeric_limits<double>::infinity();
+    const double sign = m.maximize ? -1.0 : 1.0;
+    SolveWatch* w = &watch;
+    opt::WatchScope scope(opt::Watch(
+        [w](double best, double bound, double gap, double s) { return solve_watch(*w, best, bound, gap, s); }));
+    SolveOut out;
+    out.has_solution = false;
+    out.objective = std::numeric_limits<double>::quiet_NaN();
+    out.bound = std::numeric_limits<double>::quiet_NaN();
+    out.gap = std::numeric_limits<double>::quiet_NaN();
+    // the root's cuts: 40 % of the time limit
+    opt::SolveOptions ro;
+    ro.time_limit = timed ? std::max(settings.time_limit * 0.4, 0.0) : inf;
+    ro.threads = max_threads();
+    const opt::RootCuts rc = opt::separate_root(m, sep, ro);
+    if (rc.status == "infeasible") {
+        out.status = "infeasible";
+        return out;
+    }
+    double bound = -sign * inf;
+    if (rc.status == "optimal") bound = rc.bound;
+    // the model with the cuts as rows (a x <= upper)
+    opt::Model mc = m;
+    for (std::size_t k = 0; k + 1 < rc.start.size(); ++k) {
+        for (int e = rc.start[k]; e < rc.start[k + 1]; ++e) {
+            mc.index.push_back(rc.index[static_cast<std::size_t>(e)]);
+            mc.value.push_back(rc.value[static_cast<std::size_t>(e)]);
+        }
+        mc.start.push_back(static_cast<i64>(mc.index.size()));
+        mc.row_lo.push_back(-inf);
+        mc.row_hi.push_back(rc.upper[k]);
+    }
+    mc.nrow = static_cast<i64>(mc.row_lo.size());
+    opt::SolveOptions o;
+    o.gap = settings.gap;
+    o.time_limit = timed ? settings.time_limit - elapsed() : inf;
+    o.threads = max_threads();
+    o.start.assign(settings.start.begin(), settings.start.end());
+    o.separator = sep;
+    opt::SolveResult r;
+    if (!scope.stopped() && (!timed || o.time_limit > 0.0)) r = opt::solve_highs(mc, o);
+    if (r.status == "infeasible" && !r.has_solution) {
+        out.status = "infeasible";
+        return out;
+    }
+    out.has_solution = r.has_solution;
+    out.x = to_rust<double>(r.x);
+    out.objective = r.objective;
+    if (std::isfinite(r.bound))
+        out.bound = !std::isfinite(bound) ? r.bound : (m.maximize ? std::min(bound, r.bound) : std::max(bound, r.bound));
+    else
+        out.bound = bound;
+    if (r.has_solution && std::isfinite(out.bound)) {
+        const double g = sign * (r.objective - out.bound);
+        out.gap = g <= 0 ? 0.0 : g / std::max(std::abs(r.objective), 1e-10);
+    }
+    out.status =
+        scope.stopped() ? "cancelled" : (out.has_solution && out.gap <= settings.gap ? "optimal" : "time_limit");
+    return out;
 }
 
 namespace {

@@ -105,6 +105,7 @@ struct FeaturesOut;
 struct MilpModel;
 struct SolveSettings;
 struct SolveOut;
+struct CorridorNet;
 struct CscOut;
 
 // the threads of the kernels (OpenMP) of the calling thread, and their most
@@ -385,6 +386,8 @@ FeaturesOut opt_features(rust::Slice<const double> values, std::int64_t layers, 
 SolveOut opt_solve(const MilpModel& model, const SolveSettings& settings, rust::Str method, std::int64_t n_units);
 SolveOut opt_solve_watched(const MilpModel& model, const SolveSettings& settings, rust::Str method,
                            std::int64_t n_units, SolveWatch& watch);
+SolveOut opt_solve_corridors(const MilpModel& model, const SolveSettings& settings, rust::Slice<const CorridorNet> nets,
+                             SolveWatch& watch);
 struct EngineOut;
 EngineOut opt_solve_cut(rust::Slice<const double> cost, rust::Slice<const std::int32_t> status,
                         rust::Slice<const std::int64_t> offset, rust::Slice<const std::int32_t> spindex,

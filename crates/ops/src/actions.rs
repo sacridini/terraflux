@@ -433,6 +433,7 @@ fn gurobi_solve(
         row_ids: vec![String::new(); c.rhs.len()],
         col_ids: vec![String::new(); c.obj.len()],
         connected: Vec::new(),
+        corridors: Vec::new(),
         zone_units: 0,
         engine,
     };

@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 
 use terraflux_ls_sys::ffi;
 
+mod anneal;
 mod engines;
 mod subset;
 mod zones;
@@ -510,6 +511,8 @@ pub struct Model {
     pub col_ids: Vec<String>,
     /// The node sets that must form one patch (contiguity): the solve separates cuts on them.
     pub connected: Vec<Connected>,
+    /// The corridor networks: their terminals are selected and joined by selected units.
+    pub corridors: Vec<Corridor>,
     /// With zones: the planning units (in every zone; the zones' engines take them), else 0.
     pub zone_units: usize,
     /// The solver that solves it.
@@ -523,6 +526,16 @@ pub struct Connected {
     pub nodes: Vec<usize>,
     pub root: usize,
     pub arc: usize,
+    pub tail: Vec<usize>,
+    pub head: Vec<usize>,
+}
+
+/// A corridor network as compiled by `apply_corridors`: its source and other terminals and the edges (each listed
+/// once) between the units.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Corridor {
+    pub source: usize,
+    pub sinks: Vec<usize>,
     pub tail: Vec<usize>,
     pub head: Vec<usize>,
 }
@@ -546,6 +559,7 @@ pub struct Builder {
     pub n: usize,
     pub n_features: usize,
     pub connected: Vec<Connected>,
+    pub corridors: Vec<Corridor>,
 }
 
 impl Builder {
@@ -579,6 +593,7 @@ impl Builder {
             row_ids: self.row_ids,
             col_ids: self.col_ids,
             connected: self.connected,
+            corridors: self.corridors,
             zone_units: 0,
             engine: Engine::default(),
         }
@@ -1155,6 +1170,7 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
         n,
         n_features: nf,
         connected: Vec::new(),
+        corridors: Vec::new(),
     };
     for sp in p.spatial.iter().filter(|s| s.is_penalty()) {
         apply_spatial(&mut b, u, sp)?;
@@ -1276,6 +1292,14 @@ pub fn zone_cut_applies(m: &Model) -> bool {
     engines::zone_cut_applies(m)
 }
 
+pub use anneal::Anneal;
+
+/// A model solved on landschaft's anneal solver (Marxan's simulated annealing, every run repaired): a minimum set
+/// with binary decisions, targets, locked units and penalties on units and pairs; an error for any other model.
+pub fn solve_anneal(m: &Model, n_units: usize, o: &Anneal, time_limit: f64) -> Result<ffi::SolveOut, String> {
+    anneal::solve(m, n_units, o, time_limit, &[])
+}
+
 /// A model solved: its status, the solution, its objective and gap.
 pub fn solve(m: &Model, n_units: usize, gap: f64, time_limit: f64) -> Result<ffi::SolveOut, String> {
     solve_from(m, n_units, gap, time_limit, &[])
@@ -1292,6 +1316,9 @@ pub fn solve_from(
 ) -> Result<ffi::SolveOut, String> {
     if !m.connected.is_empty() {
         return solve_connected(m, n_units, gap, time_limit, start);
+    }
+    if !m.corridors.is_empty() {
+        return solve_corridors(m, n_units, gap, time_limit, start);
     }
     // budgeted objectives that reward the targets met (maximum features, phylogenetic diversity and endemism): the
     // wide engine, then landschaft's subset search, as landschaft's _wide_then_subset
@@ -1372,18 +1399,10 @@ fn highs_with(
     if out.status == "cancelled" { Err(STOPPED.into()) } else { Ok(out) }
 }
 
-/// HiGHS behind landschaft's engines, this thread's watch told how it goes.
-fn highs_only(
-    m: &Model,
-    n_units: usize,
-    gap: f64,
-    time_limit: f64,
-    relaxation: bool,
-    start: &[f64],
-    zones: bool,
-) -> Result<ffi::SolveOut, String> {
+/// The model as the solver's.
+fn milp_model(m: &Model) -> ffi::MilpModel {
     let (lo, hi) = row_bounds(m);
-    let model = ffi::MilpModel {
+    ffi::MilpModel {
         start: m.a.start.iter().map(|&s| s as i64).collect(),
         index: m.a.index.iter().map(|&s| s as i64).collect(),
         value: m.a.value.clone(),
@@ -1395,7 +1414,20 @@ fn highs_only(
         integer: m.vtype.iter().map(|&t| u8::from(t == 'B' || t == 'I')).collect(),
         maximize: m.maximize,
         offset: 0.0,
-    };
+    }
+}
+
+/// HiGHS behind landschaft's engines, this thread's watch told how it goes.
+fn highs_only(
+    m: &Model,
+    n_units: usize,
+    gap: f64,
+    time_limit: f64,
+    relaxation: bool,
+    start: &[f64],
+    zones: bool,
+) -> Result<ffi::SolveOut, String> {
+    let model = milp_model(m);
     let settings = ffi::SolveSettings { gap, time_limit, presolve: "choose".into(), relaxation, start: start.to_vec() };
     let call = |how: &str, n: i64| match current_watch() {
         Some(f) => ffi::opt_solve_watched(&model, &settings, how, n, &mut terraflux_ls_sys::SolveWatch(f)),
@@ -1823,6 +1855,41 @@ fn solve_connected(
     Ok(out)
 }
 
+/// Corridors on HiGHS (landschaft's solve_connected without patches, in the C++ shim): the root's node cuts by rounds
+/// on the linear relaxation, then HiGHS's MIP on the exact flow model with them, the same cuts separated at its nodes
+/// too, from the start, to the gap asked: "optimal" within it, else "time_limit". Gurobi solves the model as it is.
+fn solve_corridors(
+    m: &Model,
+    n_units: usize,
+    gap: f64,
+    time_limit: f64,
+    start: &[f64],
+) -> Result<ffi::SolveOut, String> {
+    if m.engine.solver == Solver::Gurobi {
+        return highs_with(m, 0, gap, time_limit, false, start, false);
+    }
+    let settings =
+        ffi::SolveSettings { gap, time_limit, presolve: "choose".into(), relaxation: false, start: start.to_vec() };
+    let nets: Vec<ffi::CorridorNet> = m
+        .corridors
+        .iter()
+        .map(|c| {
+            let to32 = |v: &[usize]| v.iter().map(|&i| i as i32).collect::<Vec<i32>>();
+            ffi::CorridorNet {
+                n: n_units as i32,
+                source: c.source as i32,
+                sinks: to32(&c.sinks),
+                tail: to32(&c.tail),
+                head: to32(&c.head),
+            }
+        })
+        .collect();
+    let mut watch = terraflux_ls_sys::SolveWatch(current_watch().unwrap_or_else(|| Box::new(|_, _, _, _| true)));
+    let out =
+        ffi::opt_solve_corridors(&milp_model(m), &settings, &nets, &mut watch).map_err(|e| e.what().to_string())?;
+    if out.status == "cancelled" { Err(STOPPED.into()) } else { Ok(out) }
+}
+
 /// prioritizr's portfolios: several solutions of a problem (add_*_portfolio).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Portfolio {
@@ -1888,6 +1955,7 @@ impl Model {
             col_ids: perm.iter().map(|&j| self.col_ids[j].clone()).collect(),
             // the plain MIP of the exact model (no cuts on the columns moved)
             connected: Vec::new(),
+            corridors: Vec::new(),
             zone_units: 0,
             engine: self.engine,
         }
@@ -2006,6 +2074,12 @@ pub enum Spatial {
     Contiguity { data: Option<Matrix> },
     /// add_feature_contiguity_constraints(data): every feature's units (where it counts) form one patch
     FeatureContiguity { data: Option<Matrix> },
+    /// add_corridor_constraints(terminals, resistance, penalty, data) (landschaft's, after prioripy): the terminal
+    /// units of every network (a value per cell or row of each; > 0 marks a terminal) are selected and joined by
+    /// selected units, a flow from the first terminal to each of the others on the edges of the adjacency (default
+    /// 4-adjacency, or a matrix of every unit); with a resistance (a value per cell or row; an edge takes the mean
+    /// of its two units), `penalty` x resistance x flow joins the objective
+    Corridors { terminals: Vec<Vec<f64>>, resistance: Option<Vec<f64>>, penalty: f64, data: Option<Matrix> },
     /// with zones
     Zoned(ZoneSpatial),
 }
@@ -2387,6 +2461,90 @@ fn add_connected(b: &mut Builder, nodes: &[usize], d: &Csc, tag: &str) {
     b.connected.push(Connected { nodes: nodes.to_vec(), root, arc, tail, head });
 }
 
+/// Corridors (landschaft's `_apply_corridors`, an extension after prioripy's): every network's terminal units are
+/// selected and joined through selected units. A single-commodity flow on the edges between units, both ways: the
+/// first terminal sends one unit of flow to each of the K others, flows <= K x at both ends, and with a resistance,
+/// `penalty` x resistance x flow added to the objective (subtracted when it is maximised).
+fn apply_corridors(
+    b: &mut Builder,
+    u: &Units,
+    terminals: &[Vec<f64>],
+    resistance: Option<&[f64]>,
+    penalty: f64,
+    data: Option<&Matrix>,
+) -> Result<(), String> {
+    // the edges (i > j, by column), the lower triangle's stored entries in column order
+    let d = adjacency(u, data)?;
+    let (mut pi, mut pj) = (Vec::new(), Vec::new());
+    for j in 0..d.n {
+        let mut col: Vec<usize> =
+            (d.start[j]..d.start[j + 1]).filter(|&e| d.index[e] > j && d.value[e] != 0.0).map(|e| d.index[e]).collect();
+        col.sort_unstable();
+        pj.extend(std::iter::repeat_n(j, col.len()));
+        pi.extend(col);
+    }
+    let res: Option<Vec<f64>> = resistance.map(|r| {
+        // (landschaft's unit_values: NaN as 0)
+        let at = |i: usize| if r[u.cells[i]].is_nan() { 0.0 } else { r[u.cells[i]] };
+        pi.iter().zip(&pj).map(|(&i, &j)| (at(i) + at(j)) / 2.0).collect()
+    });
+    let (n, ne) = (b.n, pi.len());
+    for net in terminals {
+        let term: Vec<usize> = (0..n).filter(|&i| net[u.cells[i]] > 0.0).collect();
+        if term.len() < 2 {
+            return Err("a corridor network needs at least two terminal planning units".into());
+        }
+        let k = (term.len() - 1) as f64;
+        let sign = if b.maximize { -1.0 } else { 1.0 };
+        let cost: Vec<f64> = match &res {
+            None => vec![0.0; ne],
+            Some(r) => r.iter().map(|&x| sign * penalty * x).collect(),
+        };
+        let first = b.add_columns(&[cost.clone(), cost].concat(), 0.0, k, 'C', "flow");
+        let fwd = |e: usize| first + e; // pi -> pj
+        let bwd = |e: usize| first + ne + e; // pj -> pi
+        // capacities: f - K x <= 0 at both ends, both directions
+        let (mut r, mut c, mut v) = (Vec::new(), Vec::new(), Vec::new());
+        for (row, (f, x)) in (0..ne)
+            .map(|e| (fwd(e), pi[e]))
+            .chain((0..ne).map(|e| (fwd(e), pj[e])))
+            .chain((0..ne).map(|e| (bwd(e), pi[e])))
+            .chain((0..ne).map(|e| (bwd(e), pj[e])))
+            .enumerate()
+        {
+            r.extend([row, row]);
+            c.extend([f, x]);
+            v.extend([1.0, -k]);
+        }
+        // balance: out - in = K at the source, -1 at the other terminals, 0 elsewhere
+        let base = 4 * ne;
+        for (units, forward, sign) in [(&pi, true, 1.0), (&pj, false, 1.0), (&pj, true, -1.0), (&pi, false, -1.0)] {
+            for (e, &u) in units.iter().enumerate() {
+                r.push(base + u);
+                c.push(if forward { fwd(e) } else { bwd(e) });
+                v.push(sign);
+            }
+        }
+        let mut rhs = vec![0.0; n];
+        rhs[term[0]] = k;
+        for &t in &term[1..] {
+            rhs[t] = -1.0;
+        }
+        let sense: Vec<String> = [vec!["<="; 4 * ne], vec!["="; n]].concat().into_iter().map(String::from).collect();
+        let ids: Vec<String> = [vec!["corridor_capacity"; 4 * ne], vec!["corridor_flow"; n]]
+            .concat()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        b.add_rows(&r, &c, &v, &sense, &[vec![0.0; 4 * ne], rhs].concat(), &ids);
+        for &t in &term {
+            b.lb[t] = 1.0;
+        }
+        b.corridors.push(Corridor { source: term[0], sinks: term[1..].to_vec(), tail: pi.clone(), head: pj.clone() });
+    }
+    Ok(())
+}
+
 /// A spatial penalty or constraint applied to the model being compiled.
 fn apply_spatial(b: &mut Builder, u: &Units, s: &Spatial) -> Result<(), String> {
     let n = b.n;
@@ -2524,6 +2682,9 @@ fn apply_spatial(b: &mut Builder, u: &Units, s: &Spatial) -> Result<(), String> 
             for f in 0..b.n_features {
                 add_connected(b, &(n + f * n..n + (f + 1) * n).collect::<Vec<_>>(), &d, &format!("fc{}", f + 1));
             }
+        }
+        Spatial::Corridors { terminals, resistance, penalty, data } => {
+            apply_corridors(b, u, terminals, resistance.as_deref(), *penalty, data.as_ref())?;
         }
         Spatial::Neighbors { k, clamp, data } => {
             let d = adjacency(u, data.as_ref())?;

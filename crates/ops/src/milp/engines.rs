@@ -72,7 +72,7 @@ fn pairs(m: &Model, n: usize) -> Option<Pairs> {
 }
 
 /// Rows of the units as columns: every unit's rows (in order) and amounts.
-fn by_unit(m: &Model, n: usize, rows: &[usize]) -> (Vec<i64>, Vec<i32>, Vec<f64>) {
+pub(super) fn by_unit(m: &Model, n: usize, rows: &[usize]) -> (Vec<i64>, Vec<i32>, Vec<f64>) {
     let mut per: Vec<Vec<(i32, f64)>> = vec![Vec::new(); n];
     for (k, &r) in rows.iter().enumerate() {
         let (cols, vals) = m.a.row(r);

@@ -775,6 +775,7 @@ impl Plan {
             row_ids: vec!["row".into(); nrow],
             col_ids: vec!["x".into(); ncol],
             connected: Vec::new(),
+            corridors: Vec::new(),
             zone_units: 0,
             engine,
         };

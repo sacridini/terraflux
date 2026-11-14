@@ -1267,8 +1267,21 @@ depois:
      (pyproj) e o 9.7.1 (GDAL do Terraflux) diferem em 1e-8 m, o bastante para mexer nas quantidades das células só
      tocadas por um hexágono (e o modelo, e o caminho do HiGHS, com elas). Os casos que o limite de tempo
      (8 s) corta, `min_penalties` com a penalidade de borda, só têm o tempo comparado;
-   - o que falta: o solver `anneal` como solver do `prioritize.optimize` (`_milp_solve.py:265-267`) e os corredores
-     (`_milp_solve.py:154`, `_milp.py:842`), que o landschaft tem e o Terraflux não.
+   - **Feito** (Unreleased): o solver `anneal` (`add_anneal_solver`, `_milp_anneal.py`: o recozimento simulado do Marxan
+     sobre o mínimo conjunto compilado, cada rodada reparada) como `solver = "anneal"` do `prioritize.optimize`, com
+     `num_reps`, `num_iters`, `start_temp`, `cool_fac`, `num_temp`, `spf`, `itimp_type`, `seed` (padrão 1) e
+     `time_limit`; recusa zonas, portfólios e os modelos que não são mínimo conjunto binário, com as mensagens do
+     landschaft (`crates/ops/src/milp/anneal.rs`; o `opt_marxan` do `ls-sys` ganhou `fast_penalties`, `repair`,
+     `time_schedule`, `spf_scale` e `time_limit`). Só o `prioritize.optimize` o aceita (o landschaft também só o
+     aceita em `Problem.solve`; `engine_of` dos outros nós segue com `highs` e `gurobi`). Com semente, a mesma
+     seleção e o mesmo objetivo do landschaft nos 6 casos `*_anneal_*` do `parity::optimize_is_landschafts`;
+   - **Feito** (Unreleased): os corredores (`add_corridor_constraints`, `_apply_corridors`): `Spatial::Corridors`
+     em `crates/ops/src/milp.rs`, o modelo de fluxo comparado bit a bit com o do landschaft (5 modelos,
+     `corridors_compile_is_landschafts`, `tools/make_corridor_reference.py`) e o roteamento de
+     `m.connected or m.corridors` (`ffi::opt_solve_corridors`: cortes de nó na raiz, depois o MIP do HiGHS com o
+     separador nos nós, como `solve_connected`); os 2 casos `*_corridors_*` do `parity::` com a mesma seleção e o
+     mesmo tempo. Não vão (como no landschaft) com zonas; a resistência como `Transition` do `ls.cost` não existe
+     (só valores por célula ou coluna).
 2. **O Gurobi além do `prioritize.optimize`:** **feito** (Unreleased) nas re-soluções do `prioritize.evaluate`
    (custo de reposição e rank: as configurações `solver` e `threads`, uma thread do Gurobi em cada re-solução em
    paralelo, teste `importance_is_prioritizrs`) e no `prioritize.calibrate` (candidatas em paralelo, uma thread do
