@@ -111,6 +111,8 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     // neutral landscape models
     ("nlm.mosaic_field", &["rows", "columns", "resolution", "seed", "n", "mean", "sd"]),
     ("nlm.neigh", &["rows", "columns", "resolution", "seed", "categories", "proportions"]),
+    ("nlm.mosaic_gibbs", &["rows", "columns", "resolution", "seed", "germs", "r", "patch_classes"]),
+    ("nlm.mpd", &["rows", "columns", "resolution", "seed", "roughness"]),
     // ecosystem services
     (
         "services.ndr",
@@ -150,10 +152,15 @@ mod tests {
                 );
             }
         }
-        for sig in r.signatures() {
-            if sig.params.len() >= 10 {
-                assert!(essentials(&sig.name).is_some(), "{} has {} settings and no list", sig.name, sig.params.len());
-            }
-        }
+        let missing: Vec<String> = r
+            .signatures()
+            .iter()
+            .filter(|sig| sig.params.len() >= 10 && essentials(&sig.name).is_none())
+            .map(|sig| {
+                let names: Vec<&str> = sig.params.iter().map(|p| p.name.as_str()).collect();
+                format!("{} has {} settings and no list: {names:?}", sig.name, sig.params.len())
+            })
+            .collect();
+        assert!(missing.is_empty(), "{}", missing.join("\n"));
     }
 }
