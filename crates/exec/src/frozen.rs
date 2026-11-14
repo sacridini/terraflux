@@ -26,6 +26,9 @@ struct Part {
     /// A number, a text, a structured value: kept in the index (a number as its text, NaN too).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     value: Option<serde_json::Value>,
+    /// A table's dictionaries (its CSV holds the codes): by column, the names of codes 1, 2...
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    labels: BTreeMap<String, Vec<String>>,
 }
 
 /// The index of a node's frozen outputs.
@@ -99,13 +102,19 @@ pub fn freeze(folder: &Path, node: &str, outputs: &Outputs) -> Result<()> {
         for (port, v) in outputs {
             let file = |p: PathBuf| p.file_name().map(|f| f.to_string_lossy().into_owned());
             let at = tmp.join(port);
-            let part =
-                |kind: &str, f: Option<String>| Part { kind: kind.into(), file: f, keys: Vec::new(), value: None };
+            let part = |kind: &str, f: Option<String>| Part {
+                kind: kind.into(),
+                file: f,
+                keys: Vec::new(),
+                value: None,
+                labels: BTreeMap::new(),
+            };
             let inline = |kind: &str, value: serde_json::Value| Part {
                 kind: kind.into(),
                 file: None,
                 keys: Vec::new(),
                 value: Some(value),
+                labels: BTreeMap::new(),
             };
             let p = match v {
                 Value::Map(m) => part("map", file(write_value(v, &at, dtype(&[&m.data]))?)),
@@ -123,7 +132,14 @@ pub fn freeze(folder: &Path, node: &str, outputs: &Outputs) -> Result<()> {
                     part("maps", file(write_value(v, &at, dtype(&layers))?))
                 }
                 Value::Raster(_) => part("raster", file(write_value(v, &at, None)?)),
-                Value::Table(_) => part("table", file(write_value(v, &at, None)?)),
+                Value::Table(t) => {
+                    // the codes in the CSV, the names beside them
+                    let mut codes = t.clone();
+                    codes.labels.clear();
+                    let mut p = part("table", file(write_value(&Value::Table(codes), &at, None)?));
+                    p.labels = t.labels.clone();
+                    p
+                }
                 Value::Vector(_) => part("vector", file(write_value(v, &at, None)?)),
                 Value::Number(x) => inline("number", serde_json::Value::String(format!("{x}"))),
                 Value::Integer(x) => inline("integer", serde_json::json!(x)),
@@ -163,17 +179,113 @@ pub fn freeze(folder: &Path, node: &str, outputs: &Outputs) -> Result<()> {
     Ok(())
 }
 
-fn table_of_csv(text: &str) -> Result<Table> {
-    let mut lines = text.lines();
-    let columns: Vec<String> = lines.next().unwrap_or_default().split(',').map(String::from).collect();
+/// The records of CSV (RFC 4180): fields in quotes may hold commas, line breaks and doubled quotes; CRLF or LF end a
+/// record. A blank line is a record of one empty field.
+fn csv_records(text: &str) -> Result<Vec<Vec<String>>> {
+    let text = text.trim_start_matches('\u{feff}');
+    let mut rows = Vec::new();
+    let mut row: Vec<String> = Vec::new();
+    let mut field = String::new();
+    let mut quoted = false;
+    let mut any = false;
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if quoted {
+            match c {
+                '"' if chars.peek() == Some(&'"') => {
+                    field.push('"');
+                    chars.next();
+                }
+                '"' => quoted = false,
+                c => field.push(c),
+            }
+            continue;
+        }
+        match c {
+            '"' => {
+                quoted = true;
+                any = true;
+            }
+            ',' => {
+                row.push(std::mem::take(&mut field));
+                any = true;
+            }
+            '\r' => {}
+            '\n' => {
+                row.push(std::mem::take(&mut field));
+                rows.push(std::mem::take(&mut row));
+                any = false;
+            }
+            c => {
+                field.push(c);
+                any = true;
+            }
+        }
+    }
+    if quoted {
+        return Err(Error::Model("a table: a quote is never closed".into()));
+    }
+    if any {
+        row.push(field);
+        rows.push(row);
+    }
+    Ok(rows)
+}
+
+/// A table from CSV. With its `labels` (a frozen table: the CSV holds codes) every cell is a number; without (a file a
+/// run wrote, with names in place of the codes) a column with a cell that is no number is text, its names coded by
+/// first appearance. A row of another field count than the header is an error naming it.
+fn table_of_csv(text: &str, labels: Option<&BTreeMap<String, Vec<String>>>) -> Result<Table> {
+    let mut records = csv_records(text)?.into_iter();
+    let columns = records.next().unwrap_or_default();
+    let rows: Vec<Vec<String>> = records.collect();
+    for (i, r) in rows.iter().enumerate() {
+        if r.len() != columns.len() {
+            return Err(Error::Model(format!(
+                "a table: row {} has {} fields, the header has {}",
+                i + 1,
+                r.len(),
+                columns.len()
+            )));
+        }
+    }
     let mut t = Table::new(columns);
-    for line in lines {
-        let row = line
-            .split(',')
-            .map(|c| if c.is_empty() { Ok(f64::NAN) } else { c.parse::<f64>() })
-            .collect::<std::result::Result<Vec<f64>, _>>()
-            .map_err(|e| Error::Model(format!("a table: {e}")))?;
+    let mut names: Vec<Option<Vec<String>>> = vec![None; t.columns.len()];
+    if labels.is_none() {
+        for (j, name) in names.iter_mut().enumerate() {
+            if rows.iter().any(|r| !r[j].is_empty() && r[j].parse::<f64>().is_err()) {
+                *name = Some(Vec::new());
+            }
+        }
+    }
+    for (i, r) in rows.iter().enumerate() {
+        let mut row = Vec::with_capacity(r.len());
+        for (j, c) in r.iter().enumerate() {
+            row.push(if c.is_empty() {
+                f64::NAN
+            } else if let Some(list) = names[j].as_mut() {
+                let k = list.iter().position(|n| n == c).unwrap_or_else(|| {
+                    list.push(c.clone());
+                    list.len() - 1
+                });
+                (k + 1) as f64
+            } else {
+                c.parse::<f64>().map_err(|_| {
+                    Error::Model(format!("a table: row {}, column {:?}: {c:?} is not a number", i + 1, t.columns[j]))
+                })?
+            });
+        }
         t.rows.push(row);
+    }
+    match labels {
+        Some(l) => t.labels = l.clone(),
+        None => {
+            for (j, list) in names.into_iter().enumerate() {
+                if let Some(list) = list {
+                    t.labels.insert(t.columns[j].clone(), list);
+                }
+            }
+        }
     }
     Ok(t)
 }
@@ -215,7 +327,7 @@ pub fn read(folder: &Path, node: &str) -> Result<(Outputs, u64)> {
                     .map_err(|e| Error::Model(e.to_string()))?;
                 Value::Raster(Arc::new(r))
             }
-            "table" => Value::Table(table_of_csv(&std::fs::read_to_string(path()?)?)?),
+            "table" => Value::Table(table_of_csv(&std::fs::read_to_string(path()?)?, Some(&p.labels))?),
             "vector" => Value::Vector(Arc::new(terraflux_gdal::read_vector(path()?, None).map_err(Error::Model)?)),
             "number" => {
                 let t = p.value.as_ref().and_then(|v| v.as_str()).unwrap_or("NaN");
@@ -257,7 +369,7 @@ pub fn read_written(path: &Path) -> Result<Value> {
                 Value::Series(bands.into_iter().map(|b| Value::Map(Map::new(grid.clone(), b))).collect())
             }
         }
-        "csv" => Value::Table(table_of_csv(&std::fs::read_to_string(path)?)?),
+        "csv" => Value::Table(table_of_csv(&std::fs::read_to_string(path)?, None)?),
         "json" => {
             let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path)?)
                 .map_err(|e| Error::Model(format!("{}: {e}", path.display())))?;
@@ -342,5 +454,83 @@ mod tests {
         assert!(matches!(written("t.csv", &Value::Table(table.clone())), Value::Table(t) if t.rows.len() == 2));
         assert!(matches!(written("x.json", &Value::Number(2.5)), Value::Number(x) if x == 2.5));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn text_table() -> Table {
+        let mut t = Table::new(vec!["area, ha".into(), "cover \"x\"".into(), "year".into()]);
+        t.rows =
+            vec![vec![1.5, 1.0, 1.0], vec![f64::NAN, 2.0, 2.0], vec![3.0, 3.0, f64::NAN], vec![-4.0, f64::NAN, 3.0]];
+        t.labels.insert("cover \"x\"".into(), vec!["forest, dense".into(), "say \"hi\"".into(), "two\nlines".into()]);
+        t.labels.insert("year".into(), vec!["2000".into(), "1999".into(), "".into()]);
+        t
+    }
+
+    /// A table with text columns, a quoted header, an empty cell and NaN is frozen and read back equal.
+    #[test]
+    fn a_table_with_text_is_frozen_faithfully() {
+        let dir = std::env::temp_dir().join(format!("terraflux-frozen-text-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let folder = folder(&dir.join("model.toml"));
+        let t = text_table();
+        let outputs: Outputs = [("t".to_string(), Value::Table(t.clone()))].into_iter().collect();
+        freeze(&folder, "n", &outputs).unwrap();
+        let (back, _) = read(&folder, "n").unwrap();
+        let Value::Table(b) = &back["t"] else { panic!("a table") };
+        assert_eq!(b.columns, t.columns);
+        assert_eq!(b.labels, t.labels);
+        for (x, y) in b.rows.iter().flatten().zip(t.rows.iter().flatten()) {
+            assert!(x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan()), "{x} {y}");
+        }
+        assert_eq!(b.rows.len(), t.rows.len());
+        // a table of one column, a NaN row among them
+        let mut one = Table::new(vec!["x".into()]);
+        one.rows = vec![vec![1.0], vec![f64::NAN], vec![2.0]];
+        let o: Outputs = [("t".to_string(), Value::Table(one.clone()))].into_iter().collect();
+        freeze(&folder, "one", &o).unwrap();
+        let (back, _) = read(&folder, "one").unwrap();
+        let Value::Table(b) = &back["t"] else { panic!("a table") };
+        assert_eq!(b.rows.len(), 3);
+        assert!(b.rows[1][0].is_nan() && b.rows[2][0] == 2.0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A row of another field count than the header is an error naming the row; a frozen folder of before the
+    /// dictionaries (no `labels`) still reads.
+    #[test]
+    fn a_ragged_row_is_named_and_old_folders_read() {
+        let e = table_of_csv("a,b\n1,2\n3\n", Some(&BTreeMap::new())).unwrap_err().to_string();
+        assert!(e.contains("row 2"), "{e}");
+        assert!(table_of_csv("a,b\n\"1,2\n", None).is_err());
+        let dir = std::env::temp_dir().join(format!("terraflux-frozen-old-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let folder = folder(&dir.join("model.toml"));
+        let d = super::dir(&folder, "n");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("t.csv"), "a,b\r\n1,\r\n2.5,3\r\n").unwrap();
+        std::fs::write(d.join("frozen.json"), r#"{"when": 1, "outputs": {"t": {"kind": "table", "file": "t.csv"}}}"#)
+            .unwrap();
+        let (back, when) = read(&folder, "n").unwrap();
+        assert_eq!(when, 1);
+        let Value::Table(t) = &back["t"] else { panic!("a table") };
+        assert_eq!(t.columns, vec!["a", "b"]);
+        assert!(t.labels.is_empty() && t.rows[0][1].is_nan() && t.rows[1] == vec![2.5, 3.0]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The header of a table's CSV is quoted as the cells are.
+    #[test]
+    fn a_header_with_a_comma_is_quoted() {
+        let mut t = Table::new(vec!["area, ha".into(), "b".into()]);
+        t.rows = vec![vec![1.0, 2.0]];
+        assert_eq!(t.to_csv(), "\"area, ha\",b\n1,2\n");
+        // a file a run wrote: text cells read back as names
+        let back = table_of_csv(&t.to_csv(), None).unwrap();
+        assert_eq!(back.columns, t.columns);
+        let mut l = Table::new(vec!["k".into()]);
+        l.rows = vec![vec![2.0], vec![1.0], vec![2.0]];
+        l.labels.insert("k".into(), vec!["a".into(), "b".into()]);
+        let back = table_of_csv(&l.to_csv(), None).unwrap();
+        assert_eq!(back.labels["k"], vec!["b", "a"]);
+        assert_eq!(back.rows, vec![vec![1.0], vec![2.0], vec![1.0]]);
     }
 }

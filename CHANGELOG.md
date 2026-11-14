@@ -69,6 +69,10 @@ minor versions.
   container.
 
 ### Fixed
+- **Frozen tables are written and read back faithfully**: the CSV keeps the codes and the names of a labelled column
+  go in `frozen.json` (old folders still read); the reader is quote-aware (quotes, doubled quotes, line breaks in
+  quotes, CRLF) and names the row whose field count differs from the header; a table's CSV quotes a header with a
+  comma, a quote or a line break as it does the cells.
 - **A `control.each` taken from the cache reports its steps again** (a step and what it collected for each element, as
   when it ran), at the top level or inside a group.
 - **A node frozen inside a switch's branch is held:** frozen places and the Freeze toggle go through `control.switch`

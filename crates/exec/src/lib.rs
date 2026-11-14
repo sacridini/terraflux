@@ -2589,6 +2589,20 @@ mod tests {
     use terraflux_graph::{Access, Body, OpSignature, PortSpec, Type};
     use terraflux_ops::{Operator, Result as OpResult};
 
+    /// A table kept in a file's record (JSON writes NaN as null) is read back equal, its labels too.
+    #[test]
+    fn a_kept_table_keeps_nan_and_labels() {
+        let mut t = terraflux_ops::Table::new(vec!["a".into(), "k".into()]);
+        t.rows = vec![vec![f64::NAN, 1.0], vec![2.5, f64::NAN]];
+        t.labels.insert("k".into(), vec!["forest, dense".into()]);
+        let j = kept_value(&Value::Table(t.clone())).unwrap();
+        let text = serde_json::to_string(&j).unwrap();
+        let Some(Value::Table(b)) = kept_back(&serde_json::from_str(&text).unwrap()) else { panic!("a table") };
+        assert_eq!(b.columns, t.columns);
+        assert_eq!(b.labels, t.labels);
+        assert!(b.rows[0][0].is_nan() && b.rows[0][1] == 1.0 && b.rows[1][0] == 2.5 && b.rows[1][1].is_nan());
+    }
+
     /// `test.add`: x + y.
     struct Add;
 

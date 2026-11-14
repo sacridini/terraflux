@@ -151,7 +151,7 @@ impl Table {
 
     /// Comma-separated values, a header first.
     pub fn to_csv(&self) -> String {
-        let mut s = self.columns.join(",");
+        let mut s = self.columns.iter().map(|c| csv_text(c)).collect::<Vec<_>>().join(",");
         s.push('\n');
         for r in &self.rows {
             let cells: Vec<String> = r.iter().enumerate().map(|(j, v)| csv_text(&self.cell(j, *v))).collect();
@@ -164,7 +164,7 @@ impl Table {
 
 /// A cell of CSV: quoted when it holds a comma, a quote or a line break.
 fn csv_text(t: &str) -> String {
-    if t.contains([',', '"', '\n']) { format!("\"{}\"", t.replace('"', "\"\"")) } else { t.to_string() }
+    if t.contains([',', '"', '\n', '\r']) { format!("\"{}\"", t.replace('"', "\"\"")) } else { t.to_string() }
 }
 
 /// A Markov chain of land change.
