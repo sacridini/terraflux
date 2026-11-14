@@ -19,6 +19,10 @@ minor versions.
   (`_milp_subset.py`) for the rest: a local search over the set of targets met, by additions and swaps that raise the
   reward, each set priced by a minimum set on the covering engine and taken when it fits the budget. The search
   stops with the run. The same moves and plans as landschaft 1.58.1 from the same selection.
+- **`prioritize.evaluate` re-solves on Gurobi:** new settings `solver` (highs or gurobi) and `threads`, as
+  `prioritize.optimize`'s, for the replacement cost and the rank importance: the base and rank solves with the
+  node's threads, the replacement's parallel solves with one Gurobi thread each, as landschaft's
+  `eval_replacement_importance`; HiGHS and a warning where Gurobi is not installed or licensed.
 
 ### Fixed
 - **landschaft's C++ is optimised on Windows:** the build compiled every C++ source under Terraflux (landschaft's

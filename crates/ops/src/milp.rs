@@ -2795,18 +2795,22 @@ pub fn solve_bounded(
 /// eval_replacement_importance: for every unit selected, how much the objective worsens when the others stay
 /// selected and it may not be (prioritizr's replacement cost), rescaled to [0.01, 1] with `rescale`. The solves
 /// run in parallel, a HiGHS thread each, so many at a time: `tell` is told how many were solved of how many before
-/// each lot (false: stopped).
+/// each lot (false: stopped). `engine` solves them: the base solve with its threads, the parallel ones with one
+/// thread each (as landschaft's `{**opts, "n_threads": 1}`).
 pub fn replacement_importance(
     p: &Problem,
     s: &[f64],
     gap: f64,
     rescale_it: bool,
+    engine: Engine,
     tell: &mut dyn FnMut(usize, usize) -> bool,
 ) -> Result<Vec<f64>, String> {
     use rayon::prelude::*;
     let n = p.units.n();
     let sel = selected(s)?;
-    let (m, _) = compile(p)?;
+    let (mut m, _) = compile(p)?;
+    m.engine = engine;
+    let one = Model { engine: Engine { threads: 1, ..engine }, ..m.clone() };
     let (mut lb, mut ub) = (m.lb.clone(), m.ub.clone());
     for &i in &sel {
         lb[i] = 1.0;
@@ -2826,7 +2830,7 @@ pub fn replacement_importance(
             let (mut lo, mut hi) = (lb.clone(), ub.clone());
             lo[i] = 0.0;
             hi[i] = 0.0;
-            let r = solve_bounded(&m, n, &lo, &hi, gap, &[])?;
+            let r = solve_bounded(&one, n, &lo, &hi, gap, &[])?;
             Ok(if r.has_solution { r.objective } else { f64::INFINITY })
         }));
     }
@@ -2866,13 +2870,14 @@ pub type Budgets = Vec<(f64, f64)>;
 /// eval_rank_importance: the units selected ranked by the budget at which an incremental solution first takes
 /// them (n budgets from the locked units' cost to the solution's, or those given), rescaled to [0.01, 1] with
 /// `rescale`; and per budget the objective reached. `tell` is told how many budgets were solved of how many (false:
-/// stopped).
+/// stopped). `engine` solves them.
 pub fn rank_importance(
     p: &Problem,
     s: &[f64],
     (n_budgets, budgets): (Option<usize>, Option<Vec<f64>>),
     gap: f64,
     rescale_it: bool,
+    engine: Engine,
     tell: &mut dyn FnMut(usize, usize) -> bool,
 ) -> Result<(Vec<f64>, Budgets), String> {
     let u = &p.units;
@@ -2906,6 +2911,7 @@ pub fn rank_importance(
         ..p.clone()
     };
     let (mut m, _) = compile(&q)?;
+    m.engine = engine;
     let rows: Vec<usize> = (0..m.row_ids.len()).filter(|&k| m.row_ids[k] == "budget").collect();
     if rows.len() != 1 {
         return Err("the compiled problem has no budget row".into());

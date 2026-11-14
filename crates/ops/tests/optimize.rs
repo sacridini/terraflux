@@ -516,6 +516,36 @@ fn importance_is_prioritizrs() {
     let ranks = map(&rank, "rank");
     let want = r.floats("eval_rank/rank");
     assert!(ranks.iter().zip(&want).all(|(a, b)| a == b || (a.is_nan() && b.is_nan())), "ranks");
+    // asked for Gurobi: its numbers where it solves here, else HiGHS's with the warning why
+    let mut p = serde_json::json!({
+        "relative_targets": 0.3, "gap": 0.0, "replacement": true, "rank": 4, "rescale": false, "solver": "gurobi",
+        "threads": 2
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    let mut ins = args_of(&inputs, NONE, None);
+    let g = match &ins["cost"] {
+        Value::Map(m) => m.grid.clone(),
+        _ => unreachable!(),
+    };
+    ins.insert("solution".into(), Value::Map(Map::new(g, on_grid(&r.floats("eval_rank/solution")))));
+    let args = Args { node: "n", inputs: ins, params: &p };
+    let mut ctx = terraflux_ops::Ctx::default();
+    let out = registry.get("prioritize.evaluate").unwrap().run(&mut ctx, &args).unwrap();
+    match terraflux_ops::gurobi::available() {
+        Ok(_) => assert!(ctx.warnings.is_empty(), "{:?}", ctx.warnings),
+        Err(_) => {
+            assert!(ctx.warnings.iter().any(|w| w.starts_with("solved by HiGHS: ")), "no warning: {:?}", ctx.warnings)
+        }
+    }
+    // the same as HiGHS's on the same solution (the objectives at gap 0, the ranks and the replacement costs)
+    let inputs = args.inputs;
+    p.insert("solver".into(), "highs".into());
+    let args = Args { node: "n", inputs, params: &p };
+    let want = registry.get("prioritize.evaluate").unwrap().run(&mut terraflux_ops::Ctx::default(), &args).unwrap();
+    close("gurobi replacement", &map(&out, "replacement"), &map(&want, "replacement"));
+    close("gurobi rank", &map(&out, "rank"), &map(&want, "rank"));
 }
 
 /// The model compared with prioritizr's compile(), bit for bit.

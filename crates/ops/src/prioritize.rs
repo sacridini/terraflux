@@ -3133,6 +3133,21 @@ impl Operator for Evaluate {
         )
         .param(PortSpec::optional("budget", Type::Number, "the objective's budget"))
         .param(PortSpec::optional("gap", Type::Number, "the solves' optimality gap (default 0.1)"))
+        .param(
+            PortSpec::optional(
+                "solver",
+                Type::Text,
+                "the replacement and rank solves' solver: highs (default) or gurobi: Gurobi when it is installed and \
+                 licensed, else HiGHS with a warning",
+            )
+            .choices(["highs", "gurobi"]),
+        )
+        .param(PortSpec::optional(
+            "threads",
+            Type::Number,
+            "gurobi: the threads of the base and rank solves (default and most: Terraflux's threads, never every \
+             core); the replacement solves run in parallel, one thread each",
+        ))
         .param(PortSpec::optional(
             "extinction_z",
             Type::Any,
@@ -3190,20 +3205,28 @@ impl Operator for Evaluate {
             );
         }
         let gap: f64 = args.param("gap", 0.1)?;
-        if args.param("replacement", false)? {
+        let n_rank: Option<usize> = args.opt_param("rank")?;
+        let budgets: Option<Vec<f64>> = args.opt_param("budgets")?;
+        let replacement: bool = args.param("replacement", false)?;
+        // the solver only when a re-solve is asked (no warning otherwise)
+        let engine = if replacement || n_rank.is_some() || budgets.is_some() {
+            engine_of(ctx, args)?
+        } else {
+            Default::default()
+        };
+        if replacement {
             let mut tell = |k: usize, of: usize| {
                 ctx.progress(Some(k as f64 / of as f64), format!("replacement: {k} of {of} units"))
             };
-            let r = milp::replacement_importance(&p, &s, gap, rescale, &mut tell).map_err(err)?;
+            let r = milp::replacement_importance(&p, &s, gap, rescale, engine, &mut tell).map_err(err)?;
             per_unit.push(("replacement".into(), r));
         }
-        let n_rank: Option<usize> = args.opt_param("rank")?;
-        let budgets: Option<Vec<f64>> = args.opt_param("budgets")?;
         if n_rank.is_some() || budgets.is_some() {
             let mut tell = |k: usize, of: usize| {
                 ctx.progress(Some(k as f64 / of as f64), format!("rank: budget {} of {of}", k + 1))
             };
-            let (rs, info) = milp::rank_importance(&p, &s, (n_rank, budgets), gap, rescale, &mut tell).map_err(err)?;
+            let (rs, info) =
+                milp::rank_importance(&p, &s, (n_rank, budgets), gap, rescale, engine, &mut tell).map_err(err)?;
             per_unit.push(("rank".into(), rs));
             let mut t = Table::new(vec!["budget".into(), "objective".into()]);
             t.rows = info.into_iter().map(|(b, o)| vec![b, o]).collect();

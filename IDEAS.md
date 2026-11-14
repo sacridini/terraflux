@@ -1255,8 +1255,9 @@ depois:
      O caminho inteiro (o motor largo com limite de tempo, depois a busca) depende da velocidade: num caso 150x40 o
      landschaft foi de 19 a 20 alvos e o Terraflux ficou em 19, por partir de outra solução do motor largo;
    - comparar com o landschaft, nos mesmos dados, cada objetivo e cada tipo de unidade (tabelas, polígonos, H3).
-2. **O Gurobi além do `prioritize.optimize`:** as re-soluções do `prioritize.evaluate` (custo de reposição e rank),
-   o `prioritize.calibrate` (soluções em paralelo: uma thread do Gurobi em cada), o `restoration.plan` e o
+2. **O Gurobi além do `prioritize.optimize`:** **feito** (Unreleased) nas re-soluções do `prioritize.evaluate`
+   (custo de reposição e rank: as configurações `solver` e `threads`, uma thread do Gurobi em cada re-solução em
+   paralelo, teste `importance_is_prioritizrs`). Falta: o `prioritize.calibrate` (soluções em paralelo: uma thread do Gurobi em cada), o `restoration.plan` e o
    `prioritize.actions`.
 3. **Parar no meio e dizer quanto falta em outros operadores longos:** hoje só os solvers param; um nó que não
    para (o `prioritize.evaluate`, o MSPA, os circuitos, o ajuste dos SDM, as métricas por blocos) é deixado
