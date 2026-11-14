@@ -28,12 +28,14 @@ fn pool_dir() -> PathBuf {
 
 /// The pool's code, made once and kept in the settings.
 fn pool_code() -> Code {
-    if let Some(c) = crate::settings::get().share_code.as_deref().and_then(|c| Code::parse(c).ok()) {
-        return c;
-    }
-    let c = Code::generate();
-    crate::settings::update(|s| s.share_code = Some(c.to_string()));
-    c
+    // (read and made under the settings' lock: two pools started at once keep the same code)
+    let mut code = None;
+    crate::settings::update(|s| {
+        let c = s.share_code.as_deref().and_then(|c| Code::parse(c).ok()).unwrap_or_else(Code::generate);
+        s.share_code = Some(c.to_string());
+        code = Some(c);
+    });
+    code.expect("the settings' update runs its closure")
 }
 
 /// Whether the application starts sharing and lending as its settings say (tests start them by hand, on
@@ -332,7 +334,13 @@ fn lend_ui(ui: &mut Ui, c: &mut Computers) {
                 || st.lend_threads != before.lend_threads
                 || st.lend_idle != before.lend_idle));
     if st != before {
-        crate::settings::update(|s| *s = st.clone());
+        // (only the lending's: the rest may have changed meanwhile, the pool's code made in another thread)
+        crate::settings::update(|s| {
+            s.lend = st.lend;
+            s.lend_code.clone_from(&st.lend_code);
+            s.lend_threads = st.lend_threads;
+            s.lend_idle = st.lend_idle;
+        });
     }
     if restart {
         c.lend();

@@ -2807,8 +2807,11 @@ fn settings_themes_and_favourites() {
         assert_eq!(h.ctx.style_of(theme).visuals.panel_fill, t.panel);
         shot(&mut h, &format!("23-theme-{k}"));
     }
+    // (only what this test changed: the settings are global, other tests share and lend at the same time)
     terraflux_app::settings::update(|s| {
-        *s = terraflux_app::settings::Settings { theme: "Default".into(), ..Default::default() }
+        s.theme = "Default".into();
+        s.favourites.clear();
+        s.collection_names.clear();
     });
     h.state_mut().settings_open = false;
     // red: raster.read

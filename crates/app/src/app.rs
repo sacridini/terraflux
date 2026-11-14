@@ -3627,6 +3627,7 @@ impl TerrafluxApp {
         }
         let mut open = true;
         let mut st = crate::settings::get();
+        let before = st.clone();
         if !self.settings_keys {
             self.keyboard.recording = None;
         }
@@ -3959,7 +3960,10 @@ impl TerrafluxApp {
             }
         });
         terraflux_ops::cache::set_limit(st.cache_gb);
-        crate::settings::update(|s| *s = st);
+        // (only when changed here: written every frame, it would undo what another thread changed meanwhile)
+        if st != before {
+            crate::settings::update(|s| *s = st);
+        }
         self.settings_open = open;
     }
 
