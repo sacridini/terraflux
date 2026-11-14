@@ -1278,14 +1278,23 @@ depois:
    `settings_themes_and_favourites` as zerava inteiras, o `pool_code` não era atômico e a janela Settings e o
    empréstimo regravavam tudo a cada quadro); `the_terrain_is_landschafts` (`crates/ops/tests/surface.rs`) difere em
    1e-16 no VRM só no build de debug (passa em release).
-   `a_model_runs_and_every_tab_draws` (`crates/app/tests/ui.rs`, o `can_run()` logo depois de abrir o modelo) falha
-   às vezes no `cargo test --workspace` e passa no programa `ui` sozinho.
-   `settings_themes_and_favourites` (`crates/app/tests/ui.rs`) falha na suíte do `ui` com várias threads (as
-   coleções das configurações são globais) e passa com `--test-threads 1`.
-   Vistos em 2026-11-14 na suíte inteira (`cargo test --workspace`, 4 threads), passando sozinhos (3 de 3):
-   `the_selections_menu_acts_on_all_the_nodes_selected` (`crates/app/tests/canvas.rs:1306`, a fila `run_queue`
-   vazia depois de *Run to them*) e `places_are_kept_with_the_model_and_gone_back_to` (`crates/app/tests/ui.rs:8137`,
-   o lugar "Lake" não salvo: o texto digitado no campo do menu).
+   Vistos em 2026-11-14 na suíte inteira (`cargo test --workspace`, 4 threads) e **corrigidos** (Unreleased):
+   `a_model_runs_and_every_tab_draws` (`crates/app/tests/ui.rs`): abrir o modelo pede uma corrida inteira
+   (`run_when_ready`) e o `can_run()` logo depois dava falso se ela já tivesse começado; o teste a desliga (ele
+   corre pelo botão Run), e o `model()` escreve o arquivo uma vez só.
+   `settings_themes_and_favourites` (`crates/app/tests/ui.rs`): o tema é global do programa e o quadro de cada
+   app o escolhia com uma cópia das configurações lida antes (`settings::get_with` faz as duas coisas sob a
+   trava); os testes que mudam o tema, o provedor ou o script ao lado do modelo tomam uma trava só deles (`held`),
+   os demais a tomam compartilhada.
+   `the_selections_menu_acts_on_all_the_nodes_selected` (`crates/app/tests/canvas.rs`): esperava só 3 quadros
+   depois de *Run to them*, e se `c` terminasse antes a fila já estava vazia; agora um breakpoint em `c` segura a
+   corrida enquanto a fila é conferida.
+   `places_are_kept_with_the_model_and_gone_back_to` (`crates/app/tests/ui.rs`): o campo do nome do menu era
+   achado por posição (o primeiro campo abaixo do botão); agora é o da linha do botão Save this place..., e a
+   falha diz o aviso do app.
+   Vistos depois, na suíte do `ui` (4 threads), passando sozinhos: `a_layers_colours_are_given_to_all_similar_layers`
+   (`ui.rs`, o menu do clique direito sem a entrada *Same colours for all similar layers*) e
+   `a_layer_of_another_coordinate_system_is_drawn_reprojected` (`ui.rs`, a comparação dos pixels `"hidden"`).
 
 ## Integrar o landschaft 1.50.0
 

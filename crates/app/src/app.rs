@@ -4779,10 +4779,16 @@ impl TerrafluxApp {
             }
         }
         // the style of the settings (again when they change)
-        let st = crate::settings::get();
-        let key = (st.theme.clone(), st.text.to_bits(), st.zoom.to_bits());
+        // (the theme chosen under the settings' lock: global as it is, a stale read of another frame does not win)
+        let styled = self.styled.clone();
+        let (st, key) = crate::settings::get_with(|st| {
+            let key = (st.theme.clone(), st.text.to_bits(), st.zoom.to_bits());
+            if styled.as_ref() != Some(&key) {
+                theme::choose(&st.theme);
+            }
+            key
+        });
         if self.styled.as_ref() != Some(&key) {
-            theme::choose(&st.theme);
             theme::apply_with(ui.ctx(), st.text);
             ui.ctx().set_zoom_factor(st.zoom.clamp(0.5, 3.0));
             self.styled = Some(key);

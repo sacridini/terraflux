@@ -1299,11 +1299,33 @@ fn the_selections_menu_acts_on_all_the_nodes_selected() {
     undo(&mut h);
     assert_eq!(count(&h), 4);
     // run to them: the two that nothing else selected needs, one after the other (b and c: only c)
+    // (held before c by a breakpoint: the queue is seen however fast c would run)
+    h.state().session.as_ref().unwrap().gate.set_breakpoint("c", true);
     menu_of(&mut h, &["a", "c", "z"], "a");
     pick(&mut h, "Run to them");
+    let t = Instant::now();
+    while !h.state().session.as_ref().unwrap().gate.paused() {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(120), "the run did not pause before c");
+    }
     let s = h.state().session.as_ref().unwrap();
     assert_eq!(s.target.as_deref(), Some("c"), "{:?}", s.run_queue);
     assert_eq!(s.run_queue, ["z"]);
+    // resume: c runs (these readers have no data, so it fails and drops the queue; with data, z would follow)
+    h.state().session.as_ref().unwrap().gate.set_breakpoint("c", false);
+    h.state().session.as_ref().unwrap().gate.resume();
+    let t = Instant::now();
+    loop {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        let s = h.state().session.as_ref().unwrap();
+        if !s.running() && s.run_queue.is_empty() {
+            break;
+        }
+        assert!(t.elapsed() < Duration::from_secs(120), "the queue did not run out: {:?} {:?}", s.target, s.run_queue);
+    }
+    assert!(!h.state().session.as_ref().unwrap().gate.paused());
 }
 
 /// `selection_model`'s nodes at the top level, or in a group `grp` that is shown.

@@ -27,11 +27,17 @@ fn tmp(name: &str) -> PathBuf {
 
 /// A Dinamica model of Sibuyan written by the wizard.
 fn model() -> PathBuf {
-    let mut w = Wizard::default();
-    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
-    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
-    w.increment = Some(250.0);
-    w.save(&tmp("ui-model.toml")).unwrap()
+    // (written once: open sessions of the other tests watch the file, and a write under them is a change)
+    static MODEL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    MODEL
+        .get_or_init(|| {
+            let mut w = Wizard::default();
+            w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
+            w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
+            w.increment = Some(250.0);
+            w.save(&tmp("ui-model.toml")).unwrap()
+        })
+        .clone()
 }
 
 /// A Plot of the model opened in the Viewer (in front); what it shows first.
@@ -66,10 +72,38 @@ fn shot(h: &mut Harness<TerrafluxApp>, name: &str) {
     }
 }
 
+/// The settings (and the theme, global as well) are shared by every test of this process: the tests take the lock
+/// shared (in `setup`, kept to the end of the test's thread); those that change what the others depend on (the
+/// theme, the favourites, the assistant's provider, the script beside the model) take it alone, first thing.
+fn held(alone: bool) {
+    use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+    enum Guard {
+        Shared(#[allow(dead_code)] RwLockReadGuard<'static, ()>),
+        Alone(#[allow(dead_code)] RwLockWriteGuard<'static, ()>),
+    }
+    static LOCK: RwLock<()> = RwLock::new(());
+    thread_local!(static HELD: std::cell::RefCell<Option<Guard>> = const { std::cell::RefCell::new(None) });
+    HELD.with(|k| {
+        let mut k = k.borrow_mut();
+        match (&*k, alone) {
+            (Some(Guard::Alone(_)), _) | (Some(Guard::Shared(_)), false) => {}
+            _ => {
+                *k = None;
+                *k = Some(if alone {
+                    Guard::Alone(LOCK.write().unwrap_or_else(|e| e.into_inner()))
+                } else {
+                    Guard::Shared(LOCK.read().unwrap_or_else(|e| e.into_inner()))
+                });
+            }
+        }
+    });
+}
+
 /// The tests' own settings, not the user's; no computer shared or lent unless a test does it (on this computer
 /// only). The tests look for the classic theme's labels and places ("Run", "Wizard...", the panes edge to edge):
 /// their settings start in it (a new installation opens in Slate since 1.31.0).
 fn setup() {
+    held(false);
     static ONCE: std::sync::Once = std::sync::Once::new();
     unsafe { std::env::set_var("TERRAFLUX_SETTINGS", tmp("settings.json")) };
     ONCE.call_once(|| {
@@ -137,7 +171,10 @@ fn drawn(h: &mut Harness<TerrafluxApp>) {
 
 #[test]
 fn a_model_runs_and_every_tab_draws() {
-    let mut h = harness(new_app(Some(model())));
+    let mut app = new_app(Some(model()));
+    // (opening asks for a whole run once the data is read: this test starts its own, with the Run button)
+    app.session.as_mut().unwrap().run_when_ready = false;
+    let mut h = harness(app);
     loaded(&mut h);
     h.state_mut().focus(Pane::Simulation);
     h.run_steps(3);
@@ -437,6 +474,7 @@ fn the_builder_reads_analyses_and_writes() {
 /// The setting "write the model's Python script beside it": off, nothing is written; on, `<model>.py` appears.
 #[test]
 fn python_script_beside_the_model() {
+    held(true);
     let r = terraflux_ops::Registry::standard();
     let model = tmp("ui-python-beside.toml");
     let py = model.with_extension("py");
@@ -2788,6 +2826,7 @@ fn maps_stack_and_cells_show_their_series() {
 /// in the red collection shown in the operators' pane when the collection is.
 #[test]
 fn settings_themes_and_favourites() {
+    held(true);
     let mut h = harness(new_app(None));
     h.run_steps(2);
     let ctx = h.ctx.clone();
@@ -4881,6 +4920,7 @@ fn many_settings_fold_as_advanced() {
 /// The assistant's answers wrap at the pane's sides: long lines, a list, code and a tool's call.
 #[test]
 fn the_assistants_text_wraps() {
+    held(true);
     let mut h = harness(new_app(None));
     h.run_steps(2);
     terraflux_app::settings::update(|s| s.provider = Some(0));
@@ -8113,20 +8153,21 @@ fn places_are_kept_with_the_model_and_gone_back_to() {
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
     // the Places menu of the Viewer's header keeps one under a name
-    let button = h.get_all_by_role_and_label(Role::Button, "Places").last().expect("the Places menu").rect();
-    h.get_all_by_role_and_label(Role::Button, "Places").last().unwrap().click();
+    h.get_all_by_role_and_label(Role::Button, "Places").last().expect("the Places menu").click();
     h.run_steps(3);
     assert!(h.query_by_label("Place 1   [1]").is_some(), "slot 1's place listed with its slot");
+    // (the field of the menu: the text input in the row of its Save button)
+    let save = h.get_by_label("Save this place...").rect();
     let name = h
         .query_all_by_role(Role::TextInput)
         .find(|n| {
-            n.accesskit_node()
-                .bounding_box()
-                .is_some_and(|b| b.y0 as f32 > button.bottom() && b.x0 as f32 > button.left() - 200.0)
+            n.accesskit_node().bounding_box().is_some_and(|b| {
+                (b.y0 as f32) < save.bottom() && b.y1 as f32 > save.top() && (b.x1 as f32) <= save.left() + 1.0
+            })
         })
         .expect("the name field of the menu");
     name.click();
-    h.run_steps(1);
+    h.run_steps(2);
     h.event(egui::Event::Text("Lake".into()));
     h.run_steps(2);
     shot(&mut h, "places-menu");
@@ -8134,7 +8175,11 @@ fn places_are_kept_with_the_model_and_gone_back_to() {
     h.run_steps(4);
     {
         let s = h.state().session.as_ref().unwrap();
-        let p = s.source.bookmarks_of(true).find(|p| p.name == "Lake").expect("the place Lake");
+        let p = s
+            .source
+            .bookmarks_of(true)
+            .find(|p| p.name == "Lake")
+            .unwrap_or_else(|| panic!("the place Lake; the notice: {:?}", s.notice));
         assert_eq!(p.slot, None);
         assert_eq!(s.source.bookmarks_of(true).count(), 2);
         assert!(s.history.steps().0.iter().any(|n| n == "Save the place Lake"), "{:?}", s.history.steps().0);

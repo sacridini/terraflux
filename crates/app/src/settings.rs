@@ -201,6 +201,14 @@ pub fn get() -> Settings {
     global().lock().unwrap().clone()
 }
 
+/// The settings now, with `f` run under their lock: what it does with them is not overtaken by a change (the theme
+/// in use, set from the settings a frame read).
+pub fn get_with<R>(f: impl FnOnce(&Settings) -> R) -> (Settings, R) {
+    let s = global().lock().unwrap();
+    let r = f(&s);
+    (s.clone(), r)
+}
+
 /// How many times the settings changed in this run (for what is worked out from them and kept: the keymap).
 pub fn generation() -> u64 {
     GENERATION.load(std::sync::atomic::Ordering::Relaxed)
