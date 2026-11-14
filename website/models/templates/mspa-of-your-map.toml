@@ -27,4 +27,4 @@ id = "plot"
 op = "view.plot"
 inputs = { value = "mspa.map" }
 params = { title = "MSPA" }
-note = "Its map in a tab of its own, refreshed at every run."
+note = "Its map in the Viewer, refreshed at every run."
