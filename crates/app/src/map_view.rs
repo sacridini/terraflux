@@ -473,11 +473,6 @@ pub fn place_on(g: &terraflux_raster::Grid, base: &terraflux_raster::Grid) -> Op
     Some(Place { offset, scale })
 }
 
-/// Why a map drawn with the one shown is not: its coordinate system is not told or cannot be
-/// carried to the view's.
-const OTHER_GRID: &str = "the coordinate system of a map drawn with it is unknown or cannot be carried \
-                          to this map's: put it on this map's grid (raster.match)";
-
 /// A tile made: its values, its texture in a colouring, when it was last shown.
 struct Tile {
     values: Arc<Vec<f32>>,
@@ -564,6 +559,9 @@ pub struct MapView {
     center: Vec2,
     fitted: bool,
     error: Option<String>,
+    /// What the last frame told of a map drawn with this one that it could not carry to this one's grid (none: all
+    /// were drawn).
+    refused: Option<&'static str>,
     /// The map of the world under the data; how transparent the data is over it (0: opaque), or hidden.
     pub basemap: Basemap,
     pub transparency: f32,
@@ -809,6 +807,12 @@ impl MapView {
         self.error.as_deref()
     }
 
+    /// Why a map drawn with this one (a layer, the curtain's) was not at the last frame: its coordinate system is
+    /// missing or cannot be carried to this one's.
+    pub fn refused(&self) -> Option<&'static str> {
+        self.refused
+    }
+
     /// Screen points per cell.
     /// Where the view was drawn last, on the screen.
     pub fn rect(&self) -> Option<Rect> {
@@ -930,9 +934,7 @@ impl MapView {
         let label = crate::goto::place_text(grid, cell);
         let text = match target {
             // (what was typed, as the map's system has it, and in degrees when they were typed)
-            crate::goto::Target::Degrees { lon, lat }
-                if crate::measure::Frame::of(grid) != crate::measure::Frame::Geographic =>
-            {
+            crate::goto::Target::Degrees { lon, lat } if !crate::goto::degrees_as_is(grid) => {
                 format!("{}  ({label})", crate::goto::degrees_text(lon, lat))
             }
             _ => label,
@@ -1227,7 +1229,7 @@ impl MapView {
                 self.reproj.insert(l.source.key(), re);
                 Ok(At::Warp)
             }
-            Err(_) => Err(OTHER_GRID),
+            Err(_) => Err(crate::reproject::refusal(l.source.grid(), base)),
         }
     }
 
@@ -1486,7 +1488,8 @@ impl MapView {
     }
 
     /// The coordinate grid over the map: thin light lines at round values of its own coordinates, their values at
-    /// the view's top (columns) and left (rows) edges, in white with a dark halo.
+    /// the view's top (columns) and left (rows) edges, in white with a dark halo; on a projected map, curves of
+    /// constant longitude and latitude, their values where they cross the edges.
     fn paint_graticule(&self, painter: &egui::Painter, rect: Rect, grid: &terraflux_raster::Grid) {
         let Some(g) = crate::nav::graticule(grid, self.center, self.zoom, rect.size()) else { return };
         let (dark, light) = (Color32::from_black_alpha(70), Color32::from_white_alpha(150));
@@ -1501,6 +1504,24 @@ impl MapView {
             }
             painter.galley(min, ink, Color32::WHITE);
         };
+        // (a projected map's lines of longitude and latitude: curves, labelled where they cross the view's edges)
+        for curve in &g.curves {
+            for piece in &curve.pieces {
+                let points: Vec<Pos2> = piece.iter().map(|p| c + *p).collect();
+                painter.add(egui::Shape::line(points.clone(), egui::Stroke::new(2.0, dark)));
+                painter.add(egui::Shape::line(points, egui::Stroke::new(0.8, light)));
+            }
+            if let Some((p, edge, text)) = &curve.label {
+                use crate::nav::Edge;
+                let (at, anchor) = match edge {
+                    Edge::Top => (c + *p + Vec2::new(2.0, 2.0), egui::Align2::LEFT_TOP),
+                    Edge::Bottom => (c + *p + Vec2::new(2.0, -2.0), egui::Align2::LEFT_BOTTOM),
+                    Edge::Left => (c + *p + Vec2::new(3.0, -1.0), egui::Align2::LEFT_BOTTOM),
+                    Edge::Right => (c + *p + Vec2::new(-3.0, -1.0), egui::Align2::RIGHT_BOTTOM),
+                };
+                label(at, text, anchor);
+            }
+        }
         for (dx, text) in &g.xs {
             let x = c.x + dx;
             let line = [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())];
@@ -1620,6 +1641,11 @@ impl MapView {
                     ui.horizontal(|ui| {
                         let hint = if b.degrees { "12.5, 122.25" } else { "x y" };
                         let edit = ui.add(egui::TextEdit::singleline(&mut b.text).desired_width(240.0).hint_text(hint));
+                        let edit = edit.on_hover_text(if b.degrees {
+                            "WGS 84 latitude and longitude (carried to the map's datum when it is another)"
+                        } else {
+                            "x and y in the map's own units"
+                        });
                         if b.focus {
                             edit.request_focus();
                             b.focus = false;
@@ -2175,12 +2201,12 @@ impl MapView {
         over_errors.reverse();
         let mut layer_errors = below_errors;
         layer_errors.append(&mut over_errors);
-        if curtain.is_some() && compared.is_none() {
-            layer_errors.push(
-                "the coordinate system of the map compared is unknown or cannot be carried to this map's: put it on \
-                 this map's grid (raster.match)",
-            );
+        if let Some(c) = curtain
+            && compared.is_none()
+        {
+            layer_errors.push(crate::reproject::refusal(c.layer.source.grid(), source.grid()));
         }
+        self.refused = layer_errors.first().copied();
         // the workers' queue: what the view needs, the top map's first, each map's nearest the centre first; the
         // rest let go
         ranked.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));

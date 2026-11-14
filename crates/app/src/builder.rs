@@ -6748,7 +6748,11 @@ fn show_difference(
             return None;
         }
     };
-    let link = Link::between(d.source.grid(), main.grid())?;
+    let Some(link) = Link::between(d.source.grid(), main.grid()) else {
+        let e = crate::reproject::refusal(d.source.grid(), main.grid());
+        ui.centered_and_justified(|ui| ui.label(RichText::new(e).color(ui.visuals().error_fg_color)));
+        return None;
+    };
     // (the world under it as the map shown has it; the view where that one's is, before it is drawn)
     let (basemap, transparency, hide) = (sh.view.basemap, sh.view.transparency, sh.view.hide_data);
     let (zoom, center) = sh.view.camera();
@@ -6827,11 +6831,8 @@ fn side_by_side(
     let Some(place) = Link::between(right.0.grid(), left.0.grid()) else {
         ui.centered_and_justified(|ui| {
             ui.label(
-                RichText::new(
-                    "The coordinate system of the map compared is unknown or cannot be carried to this \
-                     map's: put it on this map's grid (raster.match) to see them side by side.",
-                )
-                .color(ui.visuals().error_fg_color),
+                RichText::new(crate::reproject::refusal(right.0.grid(), left.0.grid()))
+                    .color(ui.visuals().error_fg_color),
             );
         });
         return None;
@@ -6865,11 +6866,8 @@ fn side_by_side(
     let mut drawn: Vec<Result<Link, String>> = Vec::new();
     for (i, (m, b)) in more.iter().zip(views.iter_mut()).enumerate() {
         let p = match m {
-            Ok((src, _, _)) => Link::between(src.grid(), left.0.grid()).ok_or_else(|| {
-                "its coordinate system is unknown or cannot be carried to this map's: put it on this \
-                 map's grid (raster.match)"
-                    .to_string()
-            }),
+            Ok((src, _, _)) => Link::between(src.grid(), left.0.grid())
+                .ok_or_else(|| crate::reproject::refusal(src.grid(), left.0.grid()).to_string()),
             Err(e) => Err(e.clone()),
         };
         if let (Ok(p), Ok((src, _, _))) = (&p, m) {

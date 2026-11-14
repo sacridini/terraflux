@@ -7,6 +7,22 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **Maps of different coordinate systems are compared without `raster.match`.** The curtain, the views side by side
+  (and the views more) and the difference carry a map of another system (UTM against geographic, say) to the map
+  shown on the fly, as they did for layers. The camera and the part of the grid a calculation follows (`calc_view`)
+  follow a map of another system too. A map with no coordinate system is told so ("The other map has no coordinate
+  system..." or "This map has no...", in the views, the curtain and the difference, also in Portuguese) with what to
+  do: give it one with `raster.reproject` (`source_crs` and `crs` the one it is in), and `raster.match` only to have
+  the maps cell by cell.
+- **The map's coordinate grid on a projected map is of longitudes and latitudes.** Lines of constant longitude and
+  latitude (64 points each carried through PROJ, so they bend as the projection does; a rotated grid too), cut to the
+  view and labelled (°E at the top or bottom, °N at the left or right) where they cross its edges, at round
+  degrees chosen from the view. They are the map's own datum's (SAD69 / UTM has SAD69's lines, `geographic_of` in
+  `terraflux-gdal`). A geographic map keeps its lines in degrees.
+- **Go to takes WGS 84 on a map of another datum.** The degrees typed are WGS 84 on a geographic map too (SAD69,
+  NAD83...): they are carried to its datum (the shift included), as on a projected one; the field's hover says so.
+  The Figure's location inset is in WGS 84 whatever the map's datum (its hover says so). Measuring keeps the WGS 84
+  ellipsoid for every geographic map (told in `measure.rs`).
 - **A Plot's layer can be a node inside a container.** `g.inner.map` and `g/inner.map` (a group, a loop's body, a
   switch's branch, at any depth) are accepted by the check, which says what is missing when one does not resolve
   (`"g" has no node "gone"`), opened by the Viewer, drawn by `terraflux plot`, the report and the export, and taken by

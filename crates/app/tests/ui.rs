@@ -7836,6 +7836,91 @@ fn the_difference_of_maps_of_two_coordinate_systems_is_made() {
     drawn(&mut h);
 }
 
+/// A map of UTM and the same area in geographic coordinates are compared by a curtain, side by side and by their
+/// difference with no refusal (no raster.match); a map with no coordinate system is refused, with the word that says
+/// it and how to give it one.
+#[test]
+fn maps_of_two_coordinate_systems_are_compared_every_way() {
+    use terraflux_app::builder::{CompareWith, How};
+    use terraflux_graph::Node;
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let d = tmp("compare_crs");
+    std::fs::create_dir_all(&d).unwrap();
+    let (land, geo) = (d.join("land.tif"), d.join("land_geo.tif"));
+    // (the file in the data has no CRS: it is the map with none)
+    let plain = data("sibuyan_landuse.tif");
+    terraflux_gdal::translate(&plain, &land, &["-a_srs".to_string(), "EPSG:32651".to_string()]).unwrap();
+    terraflux_gdal::warp(&[&land], &geo, &["-t_srs".into(), "EPSG:4326".into(), "-r".into(), "near".into()]).unwrap();
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let read = |id: &str, p: &std::path::Path| {
+            Node::new(id, "raster.read").param("path", p.to_string_lossy().as_ref()).param("band", "0")
+        };
+        s.source.nodes = vec![read("land", &land), read("geo", &geo), read("plain", &plain)];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && ["land", "geo", "plain"].iter().all(|n| s.value_of(n, "raster").is_some())
+    });
+    let compare = |h: &mut Harness<TerrafluxApp>, with: &str, how: How| {
+        {
+            let s = h.state_mut().session.as_mut().unwrap();
+            s.preview = Some(("land".into(), "raster".into()));
+            s.preview_compare.with = Some(CompareWith::Output(with.into(), "raster".into()));
+            s.preview_compare.how = how;
+        }
+        h.state_mut().focus(Pane::Viewer);
+        h.run_steps(4);
+    };
+    // UTM against geographic, every way
+    compare(&mut h, "geo", How::Curtain);
+    drawn(&mut h);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(s.preview_view.refused(), None, "the curtain draws the other map carried");
+    }
+    assert!(h.query_by_label_contains("no coordinate system").is_none());
+    compare(&mut h, "geo", How::SideBySide);
+    until(&mut h, "both views drawn", |a| {
+        let s = a.session.as_ref().unwrap();
+        s.preview_view.shown_grid().is_some() && s.preview_compare.view.shown_grid().is_some()
+    });
+    drawn(&mut h);
+    assert!(h.query_by_label_contains("raster.match").is_none(), "side by side draws both");
+    compare(&mut h, "geo", How::Difference);
+    until(&mut h, "the difference", |a| a.session.as_ref().unwrap().preview_compare.difference.made.is_some());
+    drawn(&mut h);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert!(matches!(s.preview_compare.difference.made, Some(Ok(_))), "the difference is made");
+    }
+    assert!(h.query_by_label_contains("raster.match").is_none(), "the difference is drawn");
+    // a map with no coordinate system against one with: told, and how to give it one
+    compare(&mut h, "plain", How::Curtain);
+    drawn(&mut h);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let e = s.preview_view.refused().expect("the curtain refuses a map with no coordinate system");
+        assert!(e.contains("no coordinate system") && e.contains("raster.reproject"), "{e}");
+    }
+    compare(&mut h, "plain", How::SideBySide);
+    drawn(&mut h);
+    assert!(h.query_by_label_contains("no coordinate system").is_some(), "side by side tells it");
+    compare(&mut h, "plain", How::Difference);
+    until(&mut h, "the difference", |a| {
+        a.session.as_ref().unwrap().preview_compare.difference.made.as_ref().is_some_and(|m| m.is_err())
+    });
+    drawn(&mut h);
+    h.run_steps(4);
+    assert!(h.query_all_by_label_contains("no coordinate system").next().is_some(), "the difference tells it");
+}
+
 /// The median and the 95th percentile of frame times, in milliseconds.
 fn median_p95(mut t: Vec<Duration>) -> (f64, f64) {
     t.sort();

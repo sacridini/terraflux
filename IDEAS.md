@@ -409,7 +409,10 @@ ordem de impacto (começando pelo 1 e pelo 3):
    duas no canto) ou "Side by side" (duas `MapView` que se seguem por `builder::follow`, pelo lugar de uma grade na
    outra; uma cruz numa onde o ponteiro está na outra). As duas nas mesmas cores (`Coloring::shared`: as classes de
    ambas, ou a faixa das duas). Falta: o mapa da diferença (ou das transições) como terceira vista; a comparação no
-   relatório (HTML e PDF); comparar mapas de sistemas de coordenadas diferentes sem `raster.match`.
+   relatório (HTML e PDF); ~~comparar mapas de sistemas de coordenadas diferentes sem `raster.match`~~ (feito:
+   cortina, lado a lado e diferença levam o outro mapa à grade do mostrado; o teste
+   `maps_of_two_coordinate_systems_are_compared_every_way`; um mapa sem CRS é recusado por `reproject::refusal`, que
+   manda dar-lhe um com `raster.reproject` e só sugere `raster.match` para o resultado célula a célula).
    **Feito** (Unreleased): "Difference", a terceira vista (`difference.rs`, `builder::How`, `show_difference`): nos
    mapas de valores o outro menos este numa rampa divergente centrada no 0 (a média, a faixa, quantas células
    acima e abaixo); nos de classes as transições, uma classe cada com os nomes das legendas dos dois ("forest ->
@@ -1198,8 +1201,10 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    não há célula; a transformação é feita na própria thread da diferença; `follow` aceita `Link`). Testes:
    `a_map_of_another_coordinate_system_is_carried_to_this_ones_grid`,
    `the_difference_of_maps_of_two_coordinate_systems_is_made`. Falta: grades polares (nelas a longitude quase não
-   significa nada, e o desembrulho abaixo não vale); a seguir, o seguimento de câmera (`calc_view::followed`) e a
-   janela das tabelas, que ainda usam só `place_on`.
+   significa nada, e o desembrulho abaixo não vale: uma camada polar numa vista geográfica cruza todas as
+   longitudes, e os quads que pulam o antimeridiano somem; não se resolve com o desembrulho, pede cortar a malha
+   no polo); ~~o seguimento de câmera~~ (feito: `calc_view::followed` usa `Link::between`, os cantos e o interior da
+   vista levados à grade; o seguimento de câmera dos views lado a lado já usava `Link`).
    **Grades rotacionadas e o antimeridiano feitos** (Unreleased, por um sub-agente): `Reproj` (`reproject.rs`) passou
    a levar as células pela transformação afim inteira (`Affine`: cantos → mundo → transformação de CRS → células da
    grade mostrada pela inversa da afim dela), então uma grade rotacionada (do mesmo CRS ou de outro, ou a própria
@@ -2717,7 +2722,15 @@ item, na ordem; release só quando pedido.
    projetado; ~~a marca nas vistas ao lado; *Go to* com zoom~~ (feitos: `goto::Zoom`, `parse_with_zoom`, o `@`
    no texto e o combo de escalas, `nav::metres_per_point`; `goto::together` e `MapView::paint_mark_beside` pelo
    `Link::between`; testes `go_to_at_a_scale_or_a_width`, `the_go_to_mark_is_in_the_views_side_by_side`; falta a
-   marca no comparar com cortina/diferença); o datum de um mapa geográfico que não é WGS 84.
+   marca no comparar com cortina/diferença); ~~o datum de um mapa geográfico que não é WGS 84~~ (feito: *Go to*
+   leva os graus digitados, WGS 84, ao datum do mapa pelo PROJ, `goto::degrees_as_is`, teste
+   `degrees_reach_a_geographic_map_of_another_datum_shifted` com SAD69; a dica do campo diz "WGS 84"; o inset da
+   *Figure* é sempre em WGS 84; a medição segue no elipsoide WGS 84, a diferença para GRS80/SAD69 é menor que 4
+   partes em um milhão, só o de Bessel passa de 1 em 10 000: `Geod` com os eixos de `terraflux_gdal::ellipsoid`
+   seria o passo se pedirem). ~~A grade em lat/lon sobre um mapa projetado~~ (feita: `nav::curves`, linhas de
+   longitude e latitude de 64 pontos pelo PROJ no datum do próprio mapa, `terraflux_gdal::geographic_of`, cortadas à
+   vista e rotuladas onde cruzam as bordas; grades rotacionadas também; testes
+   `the_grid_of_a_projected_map_is_of_longitudes_and_latitudes`, `the_lines_of_a_projected_map_are_of_its_own_datum`).
    **A investigar:** a suíte `--test ui` caiu duas vezes em doze rodadas com `STATUS_ACCESS_VIOLATION` (o processo
    inteiro, sem dizer o teste), as duas enquanto rodavam `templates_run`, `the_methods_and_citations_of_a_model` e
    `the_model_as_a_python_script`, não os testes novos; sem o item 5, nenhuma em três. Código nativo em paralelo (GDAL,

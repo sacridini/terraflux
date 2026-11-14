@@ -114,21 +114,264 @@ fn plain(v: f64) -> String {
 }
 
 /// The lines of a coordinate grid over a view: for each, where it is (screen points from the view's middle, along
-/// the axis it crosses) and its value as a label.
+/// the axis it crosses) and its value as a label. A projected map has curves of constant longitude and latitude
+/// instead.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Graticule {
     /// Vertical lines (constant x): the offset along x, and the label.
     pub xs: Vec<(f32, String)>,
     /// Horizontal lines (constant y).
     pub ys: Vec<(f32, String)>,
+    /// The lines of longitude and latitude over a projected map.
+    pub curves: Vec<Curve>,
 }
 
-/// The grid's lines for a view of `size` points at `zoom` points per cell with `center` (a cell) at its middle, at
-/// round values of the map's own coordinates (degrees, or its linear unit). None for a rotated grid (its lines
-/// would not be straight on the screen).
+/// A side of the view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Edge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+/// A line of constant longitude or latitude over a projected map (in the map's own datum), the parts of it in view.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Curve {
+    /// A line of longitude (true) or of latitude, and its value in degrees.
+    pub meridian: bool,
+    pub value: f64,
+    /// The parts in view, as points from the view's middle in screen points (clipped to the view).
+    pub pieces: Vec<Vec<Vec2>>,
+    /// Where the line crosses an edge of the view, which one, and the label (longitudes are told at the top and
+    /// bottom, latitudes at the left and right, where the line crosses them).
+    pub label: Option<(Vec2, Edge, String)>,
+}
+
+/// Points of each line of longitude or latitude.
+const SAMPLES: usize = 64;
+
+/// The ways between a projected system and its geographic one (its datum's longitudes and latitudes).
+struct Pair {
+    to_map: terraflux_gdal::Transform,
+    to_geo: terraflux_gdal::Transform,
+}
+
+thread_local! {
+    /// The transformations of the systems seen, made once (they are slow to make), none for one that has no way.
+    static PAIRS: std::cell::RefCell<std::collections::HashMap<String, Option<std::rc::Rc<Pair>>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// The way between a coordinate system and its own geographic system (SIRGAS 2000 for SIRGAS 2000 / UTM, never
+/// WGS 84 unless it is the map's datum).
+fn pair(crs: &str) -> Option<std::rc::Rc<Pair>> {
+    if let Some(p) = PAIRS.with(|m| m.borrow().get(crs).cloned()) {
+        return p;
+    }
+    let made = (|| {
+        let geo = terraflux_gdal::geographic_of(crs).ok()?;
+        let to_map = terraflux_gdal::Transform::new(&geo, crs).ok()?;
+        let to_geo = terraflux_gdal::Transform::new(crs, &geo).ok()?;
+        Some(std::rc::Rc::new(Pair { to_map, to_geo }))
+    })();
+    PAIRS.with(|m| {
+        let mut m = m.borrow_mut();
+        if m.len() > 8 {
+            m.clear();
+        }
+        m.insert(crs.to_string(), made.clone());
+    });
+    made
+}
+
+/// The part of the segment `a`-`b` inside the box `half` around the origin (Liang-Barsky).
+fn clip_segment(a: Vec2, b: Vec2, half: Vec2) -> Option<(Vec2, Vec2)> {
+    let d = b - a;
+    let (mut t0, mut t1) = (0.0f32, 1.0f32);
+    for (p, q) in [(-d.x, a.x + half.x), (d.x, half.x - a.x), (-d.y, a.y + half.y), (d.y, half.y - a.y)] {
+        if p == 0.0 {
+            if q < 0.0 {
+                return None;
+            }
+        } else {
+            let r = q / p;
+            if p < 0.0 {
+                if r > t1 {
+                    return None;
+                }
+                t0 = t0.max(r);
+            } else {
+                if r < t0 {
+                    return None;
+                }
+                t1 = t1.min(r);
+            }
+        }
+    }
+    Some((a + d * t0, a + d * t1))
+}
+
+/// A line of points cut to the box `half` around the origin: the parts inside it (a point with no place breaks it).
+pub fn clip_line(points: &[Vec2], half: Vec2) -> Vec<Vec<Vec2>> {
+    let mut pieces = Vec::new();
+    let mut cur: Vec<Vec2> = Vec::new();
+    let mut flush = |cur: &mut Vec<Vec2>| {
+        if cur.len() >= 2 {
+            pieces.push(std::mem::take(cur));
+        }
+        cur.clear();
+    };
+    for w in points.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let seen = [a.x, a.y, b.x, b.y].iter().all(|v| v.is_finite());
+        match seen.then(|| clip_segment(a, b, half)).flatten() {
+            Some((p, q)) => {
+                if cur.last().is_some_and(|l| (*l - p).length() < 1e-3) {
+                    cur.push(q);
+                } else {
+                    flush(&mut cur);
+                    cur.extend([p, q]);
+                }
+            }
+            None => flush(&mut cur),
+        }
+    }
+    flush(&mut cur);
+    pieces
+}
+
+/// The edge of the box `half` a point is on, if it is on one.
+fn edge_of(p: Vec2, half: Vec2) -> Option<Edge> {
+    let on = |a: f32, b: f32| (a - b).abs() < 1e-2;
+    if on(p.y, -half.y) {
+        Some(Edge::Top)
+    } else if on(p.y, half.y) {
+        Some(Edge::Bottom)
+    } else if on(p.x, -half.x) {
+        Some(Edge::Left)
+    } else if on(p.x, half.x) {
+        Some(Edge::Right)
+    } else {
+        None
+    }
+}
+
+/// Round values of a range, `points` of view over it (about one in every 130 points), and their step.
+fn round_values(lo: f64, hi: f64, points: f32) -> (Vec<f64>, f64) {
+    let step = nice_step(hi - lo, f64::from((points / 130.0).max(1.0)));
+    if !(step.is_finite() && step > 0.0) || (hi - lo) / step > 200.0 {
+        return (Vec::new(), step);
+    }
+    let first = (lo / step).ceil();
+    let n = ((hi - lo) / step).floor() as usize + 1;
+    ((0..n).map(|k| (first + k as f64) * step).filter(|v| *v <= hi + step * 1e-9).collect(), step)
+}
+
+/// The lines of longitude and latitude of a projected map in view, in the map's own datum: their points carried to
+/// the map's system through PROJ (so a line is curved where the projection bends it), cut to the view. None when
+/// the map's system or its geographic one cannot be reached (or the grid has no cells' size).
+fn curves(g: &Grid, center: Vec2, zoom: f32, size: Vec2) -> Option<Vec<Curve>> {
+    let crs = crate::map_view::crs_of(g)?;
+    let pair = pair(&crs)?;
+    let t = g.transform;
+    let det = t[1] * t[5] - t[2] * t[4];
+    if !(det.is_finite() && det != 0.0) {
+        return None;
+    }
+    let (z, half) = (f64::from(zoom), size / 2.0);
+    let (cx, cy) = (f64::from(center.x), f64::from(center.y));
+    // a point of the view (screen points from its middle) as the map's coordinates, and back
+    let world = |s: [f64; 2]| {
+        let (c, r) = (cx + s[0] / z, cy + s[1] / z);
+        [t[0] + c * t[1] + r * t[2], t[3] + c * t[4] + r * t[5]]
+    };
+    let screen = |x: f64, y: f64| {
+        let (dx, dy) = (x - t[0], y - t[3]);
+        let (c, r) = ((t[5] * dx - t[2] * dy) / det, (t[1] * dy - t[4] * dx) / det);
+        Vec2::new(((c - cx) * z) as f32, ((r - cy) * z) as f32)
+    };
+    // the view's longitudes and latitudes: a lattice of its points carried to the datum's degrees
+    let n = 8;
+    let (mut xs, mut ys) = (Vec::new(), Vec::new());
+    for i in 0..=n {
+        for j in 0..=n {
+            let s =
+                [(f64::from(size.x) * (j as f64 / n as f64 - 0.5)), (f64::from(size.y) * (i as f64 / n as f64 - 0.5))];
+            let w = world(s);
+            xs.push(w[0]);
+            ys.push(w[1]);
+        }
+    }
+    pair.to_geo.points(&mut xs, &mut ys);
+    let middle = xs[n * (n + 1) / 2 + n / 2];
+    let mid_lon = if middle.is_finite() { middle } else { xs.iter().copied().find(|v| v.is_finite())? };
+    // (longitudes brought to the nearest of the view's middle: a view across the antimeridian)
+    let lons: Vec<f64> =
+        xs.iter().filter(|v| v.is_finite()).map(|v| v - 360.0 * ((v - mid_lon) / 360.0).round()).collect();
+    let lats: Vec<f64> = ys.iter().copied().filter(|v| v.is_finite()).collect();
+    let fold = |v: &[f64], f: fn(f64, f64) -> f64, init: f64| v.iter().copied().fold(init, f);
+    let (lon0, lon1) = (fold(&lons, f64::min, f64::INFINITY), fold(&lons, f64::max, f64::NEG_INFINITY));
+    let (lat0, lat1) = (fold(&lats, f64::min, f64::INFINITY), fold(&lats, f64::max, f64::NEG_INFINITY));
+    if !(lon1 > lon0 && lat1 > lat0) {
+        return Some(Vec::new());
+    }
+    // (a little more than the view: lines at its edges, and between the lattice's points)
+    let (mx, my) = ((lon1 - lon0) * 0.05, (lat1 - lat0) * 0.05);
+    let (lon0, lon1) = (lon0 - mx, lon1 + mx);
+    let (lat0, lat1) = ((lat0 - my).max(-90.0), (lat1 + my).min(90.0));
+    let (meridians, lon_step) = round_values(lon0, lon1, size.x);
+    let (parallels, lat_step) = round_values(lat0, lat1, size.y);
+    let mut out = Vec::new();
+    for (meridian, values, step) in [(true, meridians, lon_step), (false, parallels, lat_step)] {
+        for v in values {
+            let (mut px, mut py): (Vec<f64>, Vec<f64>) = (0..SAMPLES)
+                .map(|k| {
+                    let f = k as f64 / (SAMPLES - 1) as f64;
+                    if meridian { (v, lat0 + f * (lat1 - lat0)) } else { (lon0 + f * (lon1 - lon0), v) }
+                })
+                .unzip();
+            pair.to_map.points(&mut px, &mut py);
+            let line: Vec<Vec2> = px.iter().zip(&py).map(|(&x, &y)| screen(x, y)).collect();
+            let pieces = clip_line(&line, half);
+            if pieces.is_empty() {
+                continue;
+            }
+            // (where it crosses an edge, the ones its label belongs to first)
+            let wanted = if meridian {
+                [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right]
+            } else {
+                [Edge::Left, Edge::Right, Edge::Top, Edge::Bottom]
+            };
+            let ends: Vec<(Vec2, Edge)> = pieces
+                .iter()
+                .flat_map(|p| [p[0], p[p.len() - 1]])
+                .filter_map(|p| edge_of(p, half).map(|e| (p, e)))
+                .collect();
+            let shown = if (-180.0..180.0).contains(&v) { v } else { (v + 180.0).rem_euclid(360.0) - 180.0 };
+            let text = coordinate(shown, step, true, meridian);
+            let label = wanted.iter().find_map(|w| ends.iter().find(|(_, e)| e == w)).map(|&(p, e)| (p, e, text));
+            out.push(Curve { meridian, value: v, pieces, label });
+        }
+    }
+    Some(out)
+}
+
+/// The grid's lines for a view of `size` points at `zoom` points per cell with `center` (a cell) at its middle: on a
+/// projected map, lines of constant longitude and latitude (of the map's own datum), curved as its projection makes
+/// them; else at round values of the map's own coordinates (degrees, or its linear unit; none for a rotated grid,
+/// whose lines would not be straight on the screen).
 pub fn graticule(g: &Grid, center: Vec2, zoom: f32, size: Vec2) -> Option<Graticule> {
+    if zoom <= 0.0 || !zoom.is_finite() {
+        return None;
+    }
+    if matches!(Frame::of(g), Frame::Projected(_))
+        && let Some(curves) = curves(g, center, zoom, size)
+    {
+        return Some(Graticule { curves, ..Default::default() });
+    }
     let t = &g.transform;
-    if zoom <= 0.0 || !zoom.is_finite() || t[2] != 0.0 || t[4] != 0.0 || t[1] == 0.0 || t[5] == 0.0 {
+    if t[2] != 0.0 || t[4] != 0.0 || t[1] == 0.0 || t[5] == 0.0 {
         return None;
     }
     let half = size / 2.0;
@@ -158,7 +401,11 @@ pub fn graticule(g: &Grid, center: Vec2, zoom: f32, size: Vec2) -> Option<Gratic
             })
             .collect()
     };
-    Some(Graticule { xs: axis(t[0], t[1], cx, half.x, size.x, true), ys: axis(t[3], t[5], cy, half.y, size.y, false) })
+    Some(Graticule {
+        xs: axis(t[0], t[1], cx, half.x, size.x, true),
+        ys: axis(t[3], t[5], cy, half.y, size.y, false),
+        curves: Vec::new(),
+    })
 }
 
 /// A view of the map: the zoom (screen points per cell) and the cell at the centre.
@@ -411,9 +658,11 @@ mod tests {
     fn the_coordinate_grid() {
         // a view of 400 x 300 points, 2 points a cell, 30 m cells from (500000, 4500000): the view's middle is cell
         // (50, 50): 1500 m from the west edge, 2 x 100 cells wide: x from 500 000 + 30 * (50 - 100) = 498 500 ...
-        let g = projected(30.0);
+        // (a map with no coordinate system: its own units)
+        let mut g = projected(30.0);
+        g.geo.geokeys = None;
         let gr = graticule(&g, Vec2::new(50.0, 50.0), 2.0, Vec2::new(400.0, 300.0)).unwrap();
-        assert!(!gr.xs.is_empty() && !gr.ys.is_empty());
+        assert!(!gr.xs.is_empty() && !gr.ys.is_empty() && gr.curves.is_empty());
         // the lines are 1000 m or 2000 m apart: 100 or 200 points / 15 m... the span of 400 points is 6000 m: 2000 m
         let step_px = gr.xs[1].0 - gr.xs[0].0;
         assert!((step_px - 2000.0 / 15.0).abs() < 1e-2, "{step_px}");
@@ -435,6 +684,117 @@ mod tests {
         let gr = graticule(&d, Vec2::new(200.0, 200.0), 100.0, Vec2::new(400.0, 300.0)).unwrap();
         assert!(gr.xs.iter().all(|(_, l)| l.ends_with('E')), "{:?}", gr.xs);
         assert!(gr.ys.iter().any(|(_, l)| l.ends_with('N') || l.ends_with('S') || l.starts_with('0')));
+    }
+
+    /// A UTM grid of 1000 m cells, 1000 x 1000, its corner at (`x0`, `y0`), of the EPSG code `epsg`.
+    fn utm(epsg: u16, x0: f64, y0: f64) -> Grid {
+        let mut g = Grid::new(1000, 1000);
+        g.transform = [x0, 1000.0, 0.0, y0, 0.0, -1000.0];
+        g.geo.geokeys = Some(vec![1, 1, 0, 3, 1024, 0, 1, 1, 3072, 0, 1, epsg, 3076, 0, 1, 9001]);
+        g
+    }
+
+    /// How far a line's points stray from the chord between its ends, in screen points.
+    fn bend(points: &[Vec2]) -> f32 {
+        let (a, b) = (points[0], points[points.len() - 1]);
+        let d = b - a;
+        points.iter().map(|p| ((*p - a).x * d.y - (*p - a).y * d.x).abs() / d.length()).fold(0.0, f32::max)
+    }
+
+    #[test]
+    fn the_grid_of_a_projected_map_is_of_longitudes_and_latitudes() {
+        if terraflux_gdal::gdal().is_err() {
+            return;
+        }
+        // UTM 33N (central meridian 15 E): 1000 km across at 0.4 points a cell, 400 x 300 points
+        let g = utm(32633, -100_000.0, 5_300_000.0);
+        let (center, zoom, size) = (Vec2::new(500.0, 500.0), 0.4, Vec2::new(400.0, 300.0));
+        let gr = graticule(&g, center, zoom, size).unwrap();
+        assert!(gr.xs.is_empty() && gr.ys.is_empty(), "no lines in map units");
+        let meridians: Vec<&Curve> = gr.curves.iter().filter(|c| c.meridian).collect();
+        let parallels: Vec<&Curve> = gr.curves.iter().filter(|c| !c.meridian).collect();
+        assert!(meridians.len() >= 2 && parallels.len() >= 2, "{} and {}", meridians.len(), parallels.len());
+        // the central meridian is the grid's vertical line; the others lean and bend, and so do the parallels
+        let longest = |c: &Curve| c.pieces.iter().max_by_key(|p| p.len()).unwrap().clone();
+        let central = meridians.iter().find(|c| c.value == 15.0).expect("the line of 15 E");
+        assert!(bend(&longest(central)) < 0.05, "the central meridian is straight");
+        assert!(longest(central).iter().all(|p| (p.x - longest(central)[0].x).abs() < 0.05));
+        let bent = meridians.iter().map(|c| bend(&longest(c))).fold(0.0, f32::max);
+        assert!(bent > 0.1, "a meridian is not straight: {bent} points off its chord");
+        let leaning = meridians.iter().any(|c| {
+            let l = longest(c);
+            (l[l.len() - 1].x - l[0].x).abs() > 5.0
+        });
+        assert!(leaning, "the meridians away from the central one lean");
+        assert!(parallels.iter().map(|c| bend(&longest(c))).fold(0.0, f32::max) > 0.2, "a parallel bends");
+        // the lines are cut to the view, labelled where they cross its edges: longitudes at the top or bottom
+        let half = size / 2.0;
+        for c in &gr.curves {
+            assert!(c.pieces.iter().flatten().all(|p| p.x.abs() <= half.x + 0.01 && p.y.abs() <= half.y + 0.01));
+            let (at, edge, text) = c.label.as_ref().expect("a label at the edge");
+            if c.meridian {
+                assert!(matches!(edge, Edge::Top | Edge::Bottom), "{edge:?}");
+                assert!(text.ends_with('E'), "{text}");
+                assert!((at.y.abs() - half.y).abs() < 0.02);
+            } else {
+                assert!(matches!(edge, Edge::Left | Edge::Right), "{edge:?}");
+                assert!(text.ends_with('N'), "{text}");
+                assert!((at.x.abs() - half.x).abs() < 0.02);
+            }
+        }
+        assert!(meridians.iter().any(|c| c.label.as_ref().is_some_and(|l| l.2 == "15°E")));
+        // a rotated grid has them too
+        let mut r = g.clone();
+        r.transform = [-100_000.0, 990.0, 140.0, 5_300_000.0, 140.0, -990.0];
+        let gr = graticule(&r, center, zoom, size).unwrap();
+        assert!(gr.curves.len() >= 4 && gr.curves.iter().all(|c| c.label.is_some()));
+    }
+
+    #[test]
+    fn the_lines_of_a_projected_map_are_of_its_own_datum() {
+        if terraflux_gdal::gdal().is_err() {
+            return;
+        }
+        // SAD69 / UTM zone 23S: its parallels are the latitudes of SAD69, some 70 m from WGS 84's
+        let g = utm(29193, 0.0, 8_700_000.0);
+        let crs = crate::map_view::crs_of(&g).unwrap();
+        let (center, zoom, size) = (Vec2::new(500.0, 500.0), 0.4f32, Vec2::new(400.0, 300.0));
+        let gr = graticule(&g, center, zoom, size).unwrap();
+        let own = terraflux_gdal::Transform::new(&crs, &terraflux_gdal::geographic_of(&crs).unwrap()).unwrap();
+        let wgs = terraflux_gdal::Transform::new(&crs, "EPSG:4326").unwrap();
+        // the latitude of a point of a line under each datum
+        let lat_under = |t: &terraflux_gdal::Transform, p: Vec2| {
+            let (c, r) = (500.0 + f64::from(p.x) / f64::from(zoom), 500.0 + f64::from(p.y) / f64::from(zoom));
+            let (mut x, mut y) = ([g.transform[0] + c * 1000.0], [g.transform[3] - r * 1000.0]);
+            t.points(&mut x, &mut y);
+            y[0]
+        };
+        let parallels: Vec<&Curve> = gr.curves.iter().filter(|c| !c.meridian).collect();
+        assert!(!parallels.is_empty());
+        for c in parallels {
+            let p = c.pieces[0][c.pieces[0].len() / 2];
+            let (mine, wgs84) = (lat_under(&own, p), lat_under(&wgs, p));
+            assert!((mine - c.value).abs() < 1e-5, "{} is at {mine} in the map's datum", c.value);
+            assert!((wgs84 - c.value).abs() > 1e-4, "{} is at {wgs84} in WGS 84: the same", c.value);
+        }
+    }
+
+    #[test]
+    fn a_line_is_cut_to_the_view() {
+        let half = Vec2::new(10.0, 5.0);
+        // across the view: its two ends on the edges
+        let across = clip_line(&[Vec2::new(-20.0, 0.0), Vec2::new(20.0, 0.0)], half);
+        assert_eq!(across, vec![vec![Vec2::new(-10.0, 0.0), Vec2::new(10.0, 0.0)]]);
+        // out and in again: two parts; a point with no place breaks it
+        let two =
+            clip_line(&[Vec2::new(0.0, 0.0), Vec2::new(0.0, 20.0), Vec2::new(5.0, 20.0), Vec2::new(5.0, 0.0)], half);
+        assert_eq!(two.len(), 2);
+        let broken = clip_line(&[Vec2::new(0.0, 0.0), Vec2::new(1.0, 1.0), Vec2::NAN, Vec2::new(2.0, 2.0)], half);
+        assert_eq!(broken, vec![vec![Vec2::new(0.0, 0.0), Vec2::new(1.0, 1.0)]]);
+        assert!(clip_line(&[Vec2::new(-20.0, 9.0), Vec2::new(20.0, 9.0)], half).is_empty());
+        assert_eq!(edge_of(Vec2::new(-10.0, 1.0), half), Some(Edge::Left));
+        assert_eq!(edge_of(Vec2::new(1.0, 5.0), half), Some(Edge::Bottom));
+        assert_eq!(edge_of(Vec2::new(1.0, 1.0), half), None);
     }
 
     fn cam(z: f32, x: f32) -> Cam {

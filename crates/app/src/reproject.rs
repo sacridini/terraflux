@@ -25,6 +25,30 @@ pub fn crs_pair(g: &Grid, base: &Grid) -> Option<(String, String)> {
     (x != y && !terraflux_gdal::same_crs(&x, &y).unwrap_or(false)).then_some((x, y))
 }
 
+/// The other map has no coordinate system (what is told of a map compared, a view more or a layer).
+pub const OTHER_NONE: &str = "The other map has no coordinate system, so it cannot be carried to this map's. Give it \
+                              one with raster.reproject (source_crs the system it is in, no crs: nothing moves), or, \
+                              to have it \
+                              cell by cell on this map's grid, use raster.match.";
+/// This map (the one shown) has none.
+pub const THIS_NONE: &str = "This map has no coordinate system, so the other cannot be carried to it. Give it one \
+                             with raster.reproject (source_crs the system it is in, no crs: nothing moves), or, to \
+                             have the \
+                             other cell by cell on this map's grid, use raster.match.";
+/// Both have one, but the other's has no place in this map's.
+pub const NO_WAY: &str = "The other map's coordinate system cannot be carried to this map's. Reproject one of them \
+                          with raster.reproject, or, to have them cell by cell, use raster.match.";
+
+/// Why the grid `g` cannot be drawn on `base`: the word to tell the user (a map with no coordinate system, or one
+/// that cannot be carried).
+pub fn refusal(g: &Grid, base: &Grid) -> &'static str {
+    match (crate::map_view::crs_of(g).is_some(), crate::map_view::crs_of(base).is_some()) {
+        (false, true) => OTHER_NONE,
+        (true, false) => THIS_NONE,
+        _ => NO_WAY,
+    }
+}
+
 /// A grid's world coordinates and its cells, by its full affine transform (rotated or not).
 #[derive(Clone, Copy)]
 struct Affine {

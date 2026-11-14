@@ -116,10 +116,7 @@ fn make_focused(
         match crate::reproject::Reproj::new(gb, ga) {
             Ok(re) => Some(re),
             Err(_) => {
-                return Err(lang
-                    .t("The map compared has a coordinate system that is unknown or cannot be carried to this \
-                        map's: put it on this map's grid (raster.match) to see the difference.")
-                    .into());
+                return Err(lang.t(crate::reproject::refusal(gb, ga)).into());
             }
         }
     };

@@ -1057,8 +1057,25 @@ fn grid_of(v: &Value) -> Option<&terraflux_raster::Grid> {
 /// The part of a grid in view in the viewer (none: all of it, or the viewer shows another place or nothing).
 fn followed(view: &crate::map_view::MapView, grid: &terraflux_raster::Grid) -> Option<Window> {
     let (shown, b) = view.visible()?;
-    let place = crate::map_view::place_on(grid, shown)?;
-    window_in(place, b, grid.width, grid.height)
+    match crate::reproject::Link::between(grid, shown)? {
+        crate::reproject::Link::Place(place) => window_in(place, b, grid.width, grid.height),
+        // (another coordinate system, or a rotated grid: the view's edges and inside carried to the grid's cells)
+        link => {
+            let n = 8;
+            let (mut lo, mut hi) =
+                (egui::vec2(f32::INFINITY, f32::INFINITY), egui::vec2(f32::NEG_INFINITY, f32::NEG_INFINITY));
+            for i in 0..=n {
+                for j in 0..=n {
+                    let (u, v) = (j as f32 / n as f32, i as f32 / n as f32);
+                    let c = link.to_own(egui::vec2(b[0] + (b[2] - b[0]) * u, b[1] + (b[3] - b[1]) * v));
+                    if c.x.is_finite() && c.y.is_finite() {
+                        (lo, hi) = (lo.min(c), hi.max(c));
+                    }
+                }
+            }
+            (hi.x >= lo.x).then(|| box_window(lo, hi, grid.width, grid.height)).flatten()
+        }
+    }
 }
 
 /// The cells of a grid (`width` × `height`, placed on the viewer's by `place`) within the viewer's cells `b`
@@ -1066,10 +1083,16 @@ fn followed(view: &crate::map_view::MapView, grid: &terraflux_raster::Grid) -> O
 fn window_in(place: crate::map_view::Place, b: [f32; 4], width: usize, height: usize) -> Option<Window> {
     let a = place.to_source(egui::vec2(b[0], b[1]));
     let z = place.to_source(egui::vec2(b[2], b[3]));
-    let x0 = (a.x.min(z.x).floor() as i64).max(0);
-    let y0 = (a.y.min(z.y).floor() as i64).max(0);
-    let x1 = (a.x.max(z.x).ceil() as i64).min(width as i64);
-    let y1 = (a.y.max(z.y).ceil() as i64).min(height as i64);
+    box_window(a.min(z), a.max(z), width, height)
+}
+
+/// The cells of a grid (`width` × `height`) within the box of cells from `lo` to `hi`; none when that is all of it
+/// or none of it.
+fn box_window(lo: egui::Vec2, hi: egui::Vec2, width: usize, height: usize) -> Option<Window> {
+    let x0 = (lo.x.floor() as i64).max(0);
+    let y0 = (lo.y.floor() as i64).max(0);
+    let x1 = (hi.x.ceil() as i64).min(width as i64);
+    let y1 = (hi.y.ceil() as i64).min(height as i64);
     if x1 <= x0 || y1 <= y0 || (x0 == 0 && y0 == 0 && x1 == width as i64 && y1 == height as i64) {
         return None;
     }

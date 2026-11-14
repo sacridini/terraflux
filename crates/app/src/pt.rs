@@ -145,10 +145,21 @@ const PT: &[(&str, &str)] = &[
         "{} de {} células mudaram de classe ({}%), em {} transições",
     ),
     (
-        "The map compared has a coordinate system that is unknown or cannot be carried to this map's: put it on \
-         this map's grid (raster.match) to see the difference.",
-        "O mapa comparado tem um sistema de coordenadas desconhecido ou que não pode ser levado ao deste \
-         mapa: ponha-o na grade deste mapa (raster.match) para ver a diferença.",
+        crate::reproject::OTHER_NONE,
+        "O outro mapa não tem sistema de coordenadas, então não pode ser levado ao deste mapa. Dê-lhe um com \
+         raster.reproject (source_crs o sistema em que ele está, sem crs: nada se move) ou, para tê-lo célula a \
+         célula na grade deste mapa, use raster.match.",
+    ),
+    (
+        crate::reproject::THIS_NONE,
+        "Este mapa não tem sistema de coordenadas, então o outro não pode ser levado a ele. Dê-lhe um com \
+         raster.reproject (source_crs o sistema em que ele está, sem crs: nada se move) ou, para ter o outro \
+         célula a célula na grade deste mapa, use raster.match.",
+    ),
+    (
+        crate::reproject::NO_WAY,
+        "O sistema de coordenadas do outro mapa não pode ser levado ao deste. Reprojete um dos dois com \
+         raster.reproject ou, para tê-los célula a célula, use raster.match.",
     ),
 ];
 

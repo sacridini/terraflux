@@ -6,7 +6,9 @@
 //! on a geographic grid (degrees) the distances are geodesic on the WGS84 ellipsoid (Vincenty's inverse
 //! formula) and the area is the one of the polygon with great-circle edges on the sphere of the same area as
 //! the ellipsoid (the authalic sphere), within a fraction of a percent for polygons up to a few hundred
-//! kilometres; with no coordinate system, the grid's own units and the cells.
+//! kilometres; with no coordinate system, the grid's own units and the cells. The ellipsoid is WGS84 whatever the
+//! map's datum (GRS80, SIRGAS 2000, NAD83 and SAD69 differ from it by under 4 parts in a million, 0.4 m in 100 km;
+//! Bessel's, in old European maps, by about 1 in 10 000).
 
 use egui::{Color32, Pos2, Response, Stroke, Ui, Vec2};
 use terraflux_raster::Grid;

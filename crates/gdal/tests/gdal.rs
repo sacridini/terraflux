@@ -21,6 +21,25 @@ fn same(a: &[f64], b: &[f64]) -> bool {
 }
 
 #[test]
+fn the_geographic_system_of_a_projected_one_is_its_own_datum() {
+    if gdal().is_err() {
+        return;
+    }
+    use terraflux_gdal::{Transform, geographic_of, is_geographic, same_crs};
+    // SAD69 / UTM 23S has SAD69's longitudes and latitudes, WGS 84 has itself
+    let sad = geographic_of("EPSG:29193").unwrap();
+    assert!(is_geographic(&sad).unwrap());
+    assert!(same_crs(&sad, "EPSG:4618").unwrap(), "SAD69");
+    assert!(!same_crs(&sad, "EPSG:4326").unwrap());
+    assert!(same_crs(&geographic_of("EPSG:32651").unwrap(), "EPSG:4326").unwrap(), "WGS 84");
+    assert!(same_crs(&geographic_of("EPSG:4326").unwrap(), "EPSG:4326").unwrap());
+    // longitude first, as the other transformations: the central meridian of zone 23 at the equator
+    let (mut x, mut y) = ([-45.0], [0.0]);
+    Transform::new(&sad, "EPSG:29193").unwrap().points(&mut x, &mut y);
+    assert!((x[0] - 500_000.0).abs() < 1.0 && (y[0] - 10_000_000.0).abs() < 1.0, "{x:?} {y:?}");
+}
+
+#[test]
 fn reads_formats_warps_and_translates() {
     let g = match gdal() {
         Ok(g) => g,

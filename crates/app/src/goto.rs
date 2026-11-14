@@ -341,16 +341,30 @@ pub fn degrees_text(lon: f64, lat: f64) -> String {
     )
 }
 
-/// The cell (column, row, fractional) of a place on a grid, and whether it is inside the map. Degrees go to the
-/// map's system through GDAL (EPSG:4326 to the map's, x first) when it is projected, and are taken as they are on a
-/// geographic one; a map with no coordinate system takes only `Map` places.
+/// Whether the degrees typed are the map's own coordinates as they are: a geographic map in WGS 84 (or one whose
+/// system is not told, or GDAL is not there to tell it from WGS 84). On a map of another datum (SAD69, SIRGAS 2000,
+/// NAD83...) they are carried to it, as on a projected map.
+pub fn degrees_as_is(g: &Grid) -> bool {
+    match Frame::of(g) {
+        Frame::Geographic => match crate::map_view::crs_of(g) {
+            Some(crs) => crs == "EPSG:4326" || terraflux_gdal::same_crs("EPSG:4326", &crs).unwrap_or(true),
+            None => true,
+        },
+        _ => false,
+    }
+}
+
+/// The cell (column, row, fractional) of a place on a grid, and whether it is inside the map. The degrees typed are
+/// WGS 84: they go to the map's system through GDAL (EPSG:4326 to the map's, x first) when it is projected or
+/// geographic of another datum (the datum's shift included), and are taken as they are on a WGS 84 one; a map with
+/// no coordinate system takes only `Map` places.
 pub fn locate(g: &Grid, target: Target) -> Result<([f64; 2], bool), String> {
     let (x, y) = match target {
         Target::Map { x, y } => (x, y),
         Target::Degrees { lon, lat } => match Frame::of(g) {
-            Frame::Geographic => (lon, lat),
             Frame::Plain => return Err("the map has no coordinate system: type map units".into()),
-            Frame::Projected(_) => {
+            _ if degrees_as_is(g) => (lon, lat),
+            _ => {
                 let crs = crate::map_view::crs_of(g).ok_or("the map has no coordinate system: type map units")?;
                 let tr = terraflux_gdal::Transform::new("EPSG:4326", &crs)?;
                 let (mut xs, mut ys) = ([lon], [lat]);
@@ -581,6 +595,34 @@ mod tests {
         // 111 m west and 55 m north of it: 11 cells left, 5.5 up
         let (cell, inside) = locate(&g, Target::Degrees { lon: 122.999, lat: 0.0005 }).unwrap();
         assert!((cell[0] - 88.9).abs() < 0.1 && (cell[1] - 94.5).abs() < 0.1 && inside, "{cell:?}");
+    }
+
+    #[test]
+    fn degrees_reach_a_geographic_map_of_another_datum_shifted() {
+        if terraflux_gdal::gdal().is_err() {
+            return;
+        }
+        // SAD69 (EPSG:4618), cells of 0.0001 degree with their corner at 48 W, 15.7 S (near Brasilia)
+        let mut sad = Grid::new(2000, 2000);
+        sad.transform = [-48.0, 0.0001, 0.0, -15.7, 0.0, -0.0001];
+        sad.geo.geokeys = Some(vec![1, 1, 0, 2, 1024, 0, 1, 2, 2048, 0, 1, 4618]);
+        assert!(!degrees_as_is(&sad) && degrees_as_is(&geographic()));
+        let (lon, lat) = (-47.9, -15.8);
+        let (cell, inside) = locate(&sad, Target::Degrees { lon, lat }).unwrap();
+        // PROJ's own transformation of the same point, to the cell
+        let tr = terraflux_gdal::Transform::new("EPSG:4326", "EPSG:4618").unwrap();
+        let (mut xs, mut ys) = ([lon], [lat]);
+        tr.points(&mut xs, &mut ys);
+        let want = [(xs[0] + 48.0) / 0.0001, (-15.7 - ys[0]) / 0.0001];
+        assert!((cell[0] - want[0]).abs() < 1e-6 && (cell[1] - want[1]).abs() < 1e-6, "{cell:?} against {want:?}");
+        assert!(inside);
+        // and it is not where the same degrees would be taken as they are: the shift is metres, cells of ten
+        let as_is = [(lon + 48.0) / 0.0001, (-15.7 - lat) / 0.0001];
+        let moved = (cell[0] - as_is[0]).hypot(cell[1] - as_is[1]);
+        assert!(moved > 0.5, "the datum shift of {moved} cells");
+        // WGS 84 itself is not shifted
+        let (cell, _) = locate(&geographic(), Target::Degrees { lon: 122.55, lat: 11.75 }).unwrap();
+        assert!((cell[0] - 500.0).abs() < 1e-6 && (cell[1] - 500.0).abs() < 1e-6, "{cell:?}");
     }
 
     #[test]

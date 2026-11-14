@@ -683,10 +683,11 @@ fn land() -> &'static [Vec<(f32, f32)>] {
     })
 }
 
-/// A grid's longitudes and latitudes: west, south, east, north (its edges sampled, in WGS 84).
+/// A grid's longitudes and latitudes: west, south, east, north (its edges sampled, always in WGS 84: a geographic
+/// map of another datum is carried to it, as a projected one).
 fn lonlat(g: &terraflux_raster::Grid) -> Option<[f64; 4]> {
     let (west, south, east, north) = extent(g);
-    if g.geo.is_geographic() == Some(true) {
+    if g.geo.is_geographic() == Some(true) && crate::goto::degrees_as_is(g) {
         return Some([west, south, east, north]);
     }
     let crs = g.geo.wkt.clone().or_else(|| g.geo.epsg().map(|c| format!("EPSG:{c}")))?;
@@ -1642,8 +1643,10 @@ pub fn window(ctx: &egui::Context, s: &mut crate::app::Session) {
                 ui.checkbox(&mut l.scale_bar, "Scale bar");
                 ui.checkbox(&mut l.north, "North arrow");
                 ui.checkbox(&mut l.grid, "Coordinates");
-                ui.checkbox(&mut l.inset, "Location inset")
-                    .on_hover_text("a small map of where in the world the map is, in its bottom right corner");
+                ui.checkbox(&mut l.inset, "Location inset").on_hover_text(
+                    "a small map of where in the world the map is, in its bottom right corner (its extent in \
+                         WGS 84 longitude and latitude, as the land is, whatever the map's datum)",
+                );
                 ui.add_space(8.0);
                 let busy = c.job.is_some();
                 ui.horizontal(|ui| {
