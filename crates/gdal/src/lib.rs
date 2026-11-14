@@ -1196,6 +1196,38 @@ fn vector_driver(path: &Path) -> Result<&'static str> {
 /// Features written to a vector file (its format by the extension; replaced if it exists), a layer named
 /// `layer`.
 pub fn write_vector(path: impl AsRef<Path>, layer: &str, v: &Vector) -> Result<()> {
+    write_vector_as(path, layer, v, &[])
+}
+
+/// The numeric fields of a layer of a vector file that are integers (OGR's Integer and Integer64), by name: what
+/// [`write_vector_as`] keeps integer when features read from it are written back.
+pub fn integer_fields(path: impl AsRef<Path>, layer: Option<&str>) -> Result<Vec<String>> {
+    let g = gdal().map_err(String::from)?;
+    let path = path.as_ref().to_string_lossy().into_owned();
+    let a = &g.api;
+    let ds = g.open_vector(&path)?;
+    let lyr = match layer {
+        Some(name) => unsafe { (a.GDALDatasetGetLayerByName)(ds, cstr(name).as_ptr()) },
+        None => unsafe { (a.GDALDatasetGetLayer)(ds, 0) },
+    };
+    let mut out = Vec::new();
+    if !lyr.is_null() {
+        let defn = unsafe { (a.OGR_L_GetLayerDefn)(lyr) };
+        for i in 0..unsafe { (a.OGR_FD_GetFieldCount)(defn) } {
+            let fd = unsafe { (a.OGR_FD_GetFieldDefn)(defn, i) };
+            // OFTInteger 0, OFTInteger64 12
+            if matches!(unsafe { (a.OGR_Fld_GetType)(fd) }, 0 | 12) {
+                out.push(text(unsafe { (a.OGR_Fld_GetNameRef)(fd) }));
+            }
+        }
+    }
+    unsafe { (a.GDALClose)(ds) };
+    Ok(out)
+}
+
+/// As [`write_vector`], the numeric fields named in `integers` written as integers (where every value of one is a
+/// whole number: else as reals, so that no value is cut).
+pub fn write_vector_as(path: impl AsRef<Path>, layer: &str, v: &Vector, integers: &[String]) -> Result<()> {
     let g = gdal().map_err(String::from)?;
     let path = path.as_ref();
     let a = &g.api;
@@ -1235,9 +1267,14 @@ pub fn write_vector(path: impl AsRef<Path>, layer: &str, v: &Vector) -> Result<(
             return Err(g.last_error(&format!("{name}: no layer created")));
         }
         for (n, c) in &v.attributes {
-            // OFTReal 2, OFTString 4
-            let fd =
-                unsafe { (a.OGR_Fld_Create)(cstr(n).as_ptr(), if matches!(c, Column::Numbers(_)) { 2 } else { 4 }) };
+            // OFTReal 2, OFTString 4, OFTInteger64 12
+            let whole = |x: &[f64]| x.iter().all(|v| v.is_nan() || (v.is_finite() && v.fract() == 0.0));
+            let ty = match c {
+                Column::Numbers(x) if integers.contains(n) && whole(x) => 12,
+                Column::Numbers(_) => 2,
+                Column::Texts(_) => 4,
+            };
+            let fd = unsafe { (a.OGR_Fld_Create)(cstr(n).as_ptr(), ty) };
             let e = unsafe { (a.OGR_L_CreateField)(lyr, fd, 1) };
             unsafe { (a.OGR_Fld_Destroy)(fd) };
             if e != 0 {

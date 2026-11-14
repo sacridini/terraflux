@@ -97,6 +97,7 @@ pub mod trace_view;
 pub mod transition_view;
 pub mod undo;
 pub mod update;
+pub mod vector_edit;
 pub mod vector_tiles;
 pub mod vector_view;
 pub mod versions_view;

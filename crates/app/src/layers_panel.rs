@@ -23,6 +23,8 @@ struct Asked {
     show: Option<(String, String)>,
     zoom: Option<usize>,
     table: Option<usize>,
+    /// A vector layer whose features are to be edited on the map.
+    edit: Option<usize>,
     up: Option<usize>,
     down: Option<usize>,
     top: Option<usize>,
@@ -401,6 +403,7 @@ pub(super) fn layers_section(
         ui.add_space(6.0);
         properties(ui, s, sh, &vectors, (i, kind), (&node, &port), salt, &mut asked);
     }
+    edit_panel(ui, s, r, sh, salt);
     act(ui, s, r, sh, asked, (&node, &port), selected_id);
     tidy(&mut sh.layers, &mut sh.groups);
 }
@@ -957,8 +960,9 @@ fn layer_row(
         sh.layers[i].name = n;
     }
     let coloring = look.as_ref().map(|x| x.1.coloring.clone());
+    let editing = sh.view.editing.is_some();
     let menu = |ui: &mut Ui, s: &mut Session, asked: &mut Asked| {
-        layer_menu(ui, s, &sh.layers, (i, n, kind, active), chosen, coloring.as_ref(), table_open, asked);
+        layer_menu(ui, s, &sh.layers, (i, n, kind, active), chosen, coloring.as_ref(), (table_open, editing), asked);
     };
     row.context_menu(|ui| menu(ui, s, asked));
     egui::Popup::menu(&dots).show(|ui| menu(ui, s, asked));
@@ -1504,7 +1508,7 @@ fn layer_menu(
     (i, n, kind, active): (usize, usize, Kind, bool),
     chosen: &[usize],
     coloring: Option<&Coloring>,
-    table_open: bool,
+    (table_open, editing): (bool, bool),
     asked: &mut Asked,
 ) {
     let l = &layers[i];
@@ -1527,6 +1531,22 @@ fn layer_menu(
     {
         asked.table = Some(i);
         ui.close();
+    }
+    if kind == Kind::Features {
+        let can = match (editing, editable(s, l)) {
+            (true, _) => Err("the features of a layer are being edited already".to_string()),
+            (false, r) => r.map(|_| ()),
+        };
+        let hint = match &can {
+            Ok(()) => "its vertices dragged, features added or deleted, attributes typed; saved as a new GeoPackage \
+                       beside the file, never over it"
+                .to_string(),
+            Err(why) => why.clone(),
+        };
+        if ui.add_enabled(can.is_ok(), egui::Button::new("Edit the features")).on_hover_text(hint).clicked() {
+            asked.edit = Some(i);
+            ui.close();
+        }
     }
     if let Some(c) = coloring {
         ui.menu_button("🎨 Colours", |ui| palette_menu(ui, s, &(l.node.clone(), l.port.clone()), c));
@@ -2284,6 +2304,96 @@ pub(super) fn move_block(layers: &mut Vec<Layer>, block: &[usize], slot: usize) 
     *layers = rows.into_iter().rev().collect();
 }
 
+/// What a vector layer is read from, when its features can be edited: the file its `vector.read` node reads (one
+/// file of the computer, all of it) and its layer; else why not.
+fn editable(s: &Session, l: &Layer) -> Result<(PathBuf, Option<String>), String> {
+    let node = s.source.nodes.iter().find(|n| n.id == l.node && n.op == "vector.read" && l.port == "vector");
+    let Some(n) = node else {
+        return Err("only the features a vector.read node reads from a file can be edited".into());
+    };
+    let text = |k: &str| n.params.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|t| !t.is_empty());
+    let Some(path) = text("path") else { return Err("the node reads no file yet".into()) };
+    if terraflux_graph::is_remote(path) {
+        return Err("the features come from the web: save them to a file to edit them".into());
+    }
+    if n.params.get("extent").is_some_and(|e| !e.is_null() && e.as_array().is_none_or(|a| !a.is_empty())) {
+        return Err("the node reads only the features in an extent: the others would be lost".into());
+    }
+    let base = s.path.as_ref().and_then(|p| p.parent()).map(Path::to_path_buf).unwrap_or_default();
+    let file = crate::relink::resolve(path, &base);
+    if !file.is_file() {
+        return Err("it is not one file (a folder or a pattern of files, or a file not found)".into());
+    }
+    Ok((file, text("layer").map(str::to_string)))
+}
+
+/// A layer's features opened for editing on the map, or why not (told as a notice).
+fn start_edit(s: &mut Session, sh: &mut Shown, i: usize) {
+    let l = &sh.layers[i];
+    let made = editable(s, l).and_then(|(file, layer)| {
+        let Some(Value::Vector(v)) = s.value_of(&l.node, &l.port) else {
+            return Err("the features are not read yet".to_string());
+        };
+        let Some(grid) = sh.view.shown_grid() else { return Err("the map is not drawn yet".into()) };
+        if let (Some(a), Some(b)) = (&v.crs, crate::map_view::crs_of(grid))
+            && !terraflux_gdal::same_crs(a, &b).unwrap_or(true)
+        {
+            return Err("its coordinate system is not the map's: reproject one of them to edit the features".into());
+        }
+        let integers = terraflux_gdal::integer_fields(&file, layer.as_deref()).unwrap_or_default();
+        crate::vector_edit::Edit::new((&l.node, &l.port), &file, layer, v, integers)
+    });
+    match made {
+        Ok(mut e) => {
+            e.was_visible = sh.layers[i].visible;
+            // (the layer hidden while it is edited: the edit draws the features)
+            sh.layers[i].visible = false;
+            sh.view.editing = Some(e);
+        }
+        Err(why) => s.notice = Some((format!("not edited: {why}"), std::time::Instant::now())),
+    }
+}
+
+/// The edit stopped: the layer shown again as it was (`show`), else left hidden.
+fn end_edit(sh: &mut Shown, show: bool) {
+    if let Some(e) = sh.view.editing.take()
+        && let Some(l) = sh.layers.iter_mut().find(|l| l.is(&e.node, &e.port))
+    {
+        l.visible = show && e.was_visible;
+    }
+}
+
+/// The panel of the edit of a layer's features, under its properties: the edited features saved as a new
+/// GeoPackage, read by a new `vector.read` node, the layer of it on top.
+fn edit_panel(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: &str) {
+    use crate::vector_edit::Ask;
+    let Some(e) = sh.view.editing.as_mut() else { return };
+    ui.add_space(6.0);
+    ui.separator();
+    let name = e.source.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
+    match crate::vector_edit::panel(ui, e, &name, salt) {
+        Some(Ask::Stop) => end_edit(sh, true),
+        Some(Ask::Save) => {
+            let base = s.path.as_ref().and_then(|p| p.parent()).map(Path::to_path_buf).unwrap_or_default();
+            let path = crate::relink::resolve(e.target.trim(), &base);
+            let saved = e.save(&path).and_then(|()| add_file(s, r, &path, None));
+            match saved {
+                Ok(node) => {
+                    let n = e.data.len();
+                    s.notice = Some((
+                        format!("{n} feature{} saved: {} (node {node})", if n == 1 { "" } else { "s" }, path.display()),
+                        std::time::Instant::now(),
+                    ));
+                    end_edit(sh, false);
+                    pin(&mut sh.layers, &node, "vector");
+                }
+                Err(why) => s.notice = Some((format!("not saved: {why}"), std::time::Instant::now())),
+            }
+        }
+        None => {}
+    }
+}
+
 /// What the Layers asked for, done.
 fn act(
     ui: &mut Ui,
@@ -2306,6 +2416,9 @@ fn act(
         let l = &sh.layers[i];
         let was = sh.attributes.as_ref().is_some_and(|o| o.is(&l.node, &l.port));
         sh.attributes = (!was).then(|| sh.open_table(&l.node, &l.port));
+    }
+    if let Some(i) = asked.edit.filter(|i| *i < n && sh.view.editing.is_none()) {
+        start_edit(s, sh, i);
     }
     if let Some(i) = asked.zoom.filter(|i| *i < n) {
         let l = &sh.layers[i];

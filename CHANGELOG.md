@@ -7,6 +7,14 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **Edit the features of a vector layer already read.** *Edit the features* in the menu of a vector layer's row in
+  the Layers (a layer a `vector.read` node reads from one file, all of it, in the map's coordinate system): its
+  vertices are dragged, the dot amid an edge adds one, a right click takes one away, *Add a feature* clicks a new
+  one, × in the table of attributes deletes one, the attributes are typed (a number stays a number, an integer field
+  an integer), Undo, Redo and Ctrl+Z take edits back. Rings with holes and multipart features are kept as read; what
+  is not touched is written as it was. *Save the edited features* writes a new GeoPackage (`<name>_edited.gpkg`
+  beside the file, or where *Browse...* says) in the layer's coordinate system, read by a new `vector.read` node;
+  the file read is never written. `write_vector_as` and `integer_fields` in the GDAL crate keep integer fields.
 - **WMTS services as raster sources.** An address in GDAL's own syntax, `WMTS:https://host/WMTSCapabilities.xml,
   layer=name` (and `tilematrixset=`), is a raster for `raster.read`, *A URL...* in the Layers and the Viewer's header
   (it is checked in a thread: size, bands, coordinate system, or why not) and anything else that reads a raster from

@@ -6723,6 +6723,129 @@ fn the_attribute_table_of_a_vector_layer() {
     assert_eq!(h.state().session.as_ref().unwrap().preview_view.selected, None);
 }
 
+/// The features of a vector layer read from a file edited on the map: "Edit the features" in its row's menu, a
+/// vertex dragged, saved as a new GeoPackage (read by a new node, its layer on top); the file read is not touched.
+#[test]
+fn the_features_of_a_vector_layer_edited() {
+    use terraflux_raster::vector::{Column, Geometry, Vector};
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    let g = terraflux_gdal::Dataset::open(data("sibuyan_landuse.tif")).unwrap().meta.grid.clone();
+    let t = g.transform;
+    let (w, ht) = (g.width as f64 * t[1], g.height as f64 * -t[5]);
+    let square = |a: f64, b: f64| {
+        let (x0, y0, x1, y1) = (t[0] + w * a, t[3] - ht * b, t[0] + w * (a + 0.2), t[3] - ht * (b - 0.2));
+        Geometry::Polygon(vec![vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]])
+    };
+    let gpkg = tmp("edit-plots.gpkg");
+    let edited = tmp("edit-plots_edited.gpkg");
+    let _ = std::fs::remove_file(&edited);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        let v = Vector {
+            geometries: vec![square(0.2, 0.4), square(0.5, 0.9)],
+            attributes: vec![
+                ("area".into(), Column::Numbers(vec![12.5, 3.0])),
+                ("n".into(), Column::Numbers(vec![1.0, 2.0])),
+                ("use".into(), Column::Texts(vec!["forest".into(), "pasture".into()])),
+            ],
+            crs: g.geo.wkt.clone(),
+        };
+        let _ = std::fs::remove_file(&gpkg);
+        terraflux_gdal::write_vector_as(&gpkg, "plots", &v, &["n".into()]).unwrap();
+        terraflux_app::builder::add(s, &r, "vector.read", &[("path", gpkg.to_string_lossy().into_owned().into())])
+            .unwrap();
+        s.preview_layers = vec![terraflux_app::builder::Layer::new("edit_plots", "vector")];
+        s.preview = Some(("sibuyan_landuse".into(), "raster".into()));
+    }
+    let before = std::fs::read(&gpkg).unwrap();
+    h.state_mut().focus(Pane::Viewer);
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running()
+            && s.value_of("sibuyan_landuse", "raster").is_some()
+            && s.value_of("edit_plots", "vector").is_some()
+    });
+    h.run_steps(4);
+    drawn(&mut h);
+    use egui_kittest::kittest::NodeT;
+    h.query_all_by_label_contains(": its menu")
+        .find(|n| n.accesskit_node().label().is_some_and(|l| l.contains("edit_plots")))
+        .expect("the menu of the features' row")
+        .click();
+    h.run_steps(2);
+    h.get_by_label("Edit the features").click();
+    h.run_steps(3);
+    until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().preview_view.rect().is_some());
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let e = s.preview_view.editing.as_ref().unwrap_or_else(|| panic!("not editing: {:?}", s.notice));
+        assert!(!e.changed() && e.integers == ["n"], "{:?}", e.integers);
+        assert!(e.target.ends_with("edit-plots_edited.gpkg"), "{}", e.target);
+        assert!(s.preview_layers.iter().all(|l| !l.visible), "the layer hidden while it is edited");
+    }
+    // the second vertex of the first plot dragged (the map not moved)
+    let (rect, (zoom, center)) = {
+        let v = &h.state().session.as_ref().unwrap().preview_view;
+        (v.rect().unwrap(), v.camera())
+    };
+    let det = t[1] * t[5] - t[2] * t[4];
+    let p = [t[0] + w * 0.4, t[3] - ht * 0.4];
+    let cell =
+        [((p[0] - t[0]) * t[5] - (p[1] - t[3]) * t[2]) / det, ((p[1] - t[3]) * t[1] - (p[0] - t[0]) * t[4]) / det];
+    let from = rect.center() + (egui::vec2(cell[0] as f32, cell[1] as f32) - center) * zoom;
+    let to = from + egui::vec2(25.0, 18.0);
+    let button = |pressed, pos| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(egui::Event::PointerMoved(from));
+    h.run_steps(1);
+    h.event(button(true, from));
+    h.run_steps(1);
+    for k in 1..=10 {
+        h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / 10.0)));
+        h.run_steps(1);
+    }
+    h.event(button(false, to));
+    h.run_steps(30);
+    let moved = {
+        let e = h.state().session.as_ref().unwrap().preview_view.editing.as_ref().unwrap();
+        assert!(e.changed());
+        let (Geometry::Polygon(a), Geometry::Polygon(b)) = (&e.data.geometries[0], &e.original.geometries[0]) else {
+            panic!("polygons")
+        };
+        assert_eq!((a[0].len(), a[0][0], a[0][2]), (b[0].len(), b[0][0], b[0][2]), "only one vertex moved");
+        assert!(a[0][1][0] > b[0][1][0] && a[0][1][1] < b[0][1][1], "{:?} -> {:?}", b[0][1], a[0][1]);
+        assert_eq!(e.data.geometries[1], e.original.geometries[1]);
+        a[0][1]
+    };
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.camera(), (zoom, center), "the map not moved");
+    // saved as a new file: the one read as it was, the new one with the vertex moved and the fields as they were
+    h.get_by_label("Save the edited features").scroll_to_me();
+    h.run_steps(3);
+    h.get_by_label("Save the edited features").click();
+    h.run_steps(3);
+    assert_eq!(std::fs::read(&gpkg).unwrap(), before, "the file read is not touched");
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.preview_view.editing.is_none(), "{:?}", s.notice);
+    let back = terraflux_gdal::read_vector(&edited, None).unwrap();
+    let Geometry::Polygon(a) = &back.geometries[0] else { panic!("a polygon") };
+    assert_eq!(a[0][1], moved);
+    assert_eq!(back.column("use"), Some(&Column::Texts(vec!["forest".into(), "pasture".into()])));
+    assert_eq!(back.column("n"), Some(&Column::Numbers(vec![1.0, 2.0])));
+    assert_eq!(terraflux_gdal::integer_fields(&edited, None).unwrap(), ["n"]);
+    let reads: Vec<_> = s.source.nodes.iter().filter(|n| n.op == "vector.read").collect();
+    assert_eq!(reads.len(), 2, "a node reads the new file");
+    assert!(s.preview_layers.iter().any(|l| l.node != "edit_plots" && l.visible), "its layer on top");
+}
+
 /// Features selected by area on the map: shift+drag a rectangle (ctrl too: added), shift+alt a lasso, escape lets a
 /// shape go; the table follows and the view stays. Then *Filter the selection* makes a `vector.filter` node, and
 /// ctrl+A selects the rows with the keyboard focus in the table.

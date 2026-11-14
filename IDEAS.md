@@ -558,7 +558,14 @@ como o próximo bloco, nesta ordem (um commit por item):
    adiciona e abre o catálogo assim. Vértices: arrastar (`draw::drag`, antes do arrasto do mapa), o ponto no meio
    da aresta cria um, o botão direito tira (`Sketch::move_vertex`, `insert_vertex`, `remove_vertex`, `hit`).
    Atributos: `Sketch::columns` e `values`, uma tabela na seção do desenho; números quando todos os valores são.
-   Falta: editar os vértices de uma camada já lida (só os do desenho em curso).
+   **Feito** (Unreleased): editar os vértices de uma camada já lida (`vector.read` de um arquivo, inteiro, sem
+   `extent`, no sistema de coordenadas do mapa): "Edit the features" no menu da linha da camada (`vector_edit.rs`:
+   `Edit`, que guarda as feições em coordenadas do mapa, f64, com buraco e multiparte intactos; arrastar, ponto no
+   meio da aresta, botão direito, "Add a feature", × na tabela, atributos tipados, Undo/Redo e Ctrl+Z). Grava um
+   GeoPackage novo (`<nome>_edited.gpkg` ao lado, ou onde o "Browse..." disser), nunca por cima do original, lido
+   por um nó `vector.read` novo; os campos inteiros continuam inteiros (`write_vector_as`, `integer_fields`).
+   Falta: "Save over the original" (GeoPackage/Shapefile, em modo update, com cópia `.backup`); editar camadas em
+   outro sistema de coordenadas que o do mapa; Z e M se perdem.
 5. **Catálogo:** GBIF, prévia do dado na área, saber o que já está no cache, e ESA WorldCover, MODIS e Global
    Forest Change.
    **Feito** (Unreleased): fontes `esa_worldcover` (ladrilhos de 3° pelo canto sudoeste, 2020 v100 e 2021 v200,

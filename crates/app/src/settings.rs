@@ -472,21 +472,26 @@ fn global() -> &'static Mutex<Settings> {
 }
 
 /// A file written for its owner alone where the system has such a mode (`0600` on Unix; the user's application data
-/// of Windows is the user's alone already): the settings hold secrets.
+/// of Windows is the user's alone already): the settings hold secrets. Written beside and then put in its place, so
+/// that the file is never read half written (by another Terraflux reading it, or after a crash while writing).
 fn write_private(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    let mut temp = path.as_os_str().to_owned();
+    temp.push(format!(".{}.tmp", std::process::id()));
+    let temp = std::path::PathBuf::from(temp);
     #[cfg(unix)]
     {
         use std::io::Write;
         use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
+        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&temp)?;
         // (a file made before keeps its mode: set again)
         f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-        f.write_all(text.as_bytes())
+        f.write_all(text.as_bytes())?;
     }
     #[cfg(not(unix))]
-    {
-        std::fs::write(path, text)
-    }
+    std::fs::write(&temp, text)?;
+    std::fs::rename(&temp, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&temp);
+    })
 }
 
 /// The settings now.

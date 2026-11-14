@@ -603,6 +603,8 @@ pub struct MapView {
     pub ghost: Option<Vec2>,
     /// Features being drawn on the map (clicks add their vertices instead of picking a cell).
     pub drawing: Option<crate::draw::Sketch>,
+    /// The features of a vector layer being edited (their vertices dragged), see [`crate::vector_edit`].
+    pub editing: Option<crate::vector_edit::Edit>,
     /// A line being measured (clicks add its points instead of picking a cell); not while drawing.
     pub measuring: Option<crate::measure::Measure>,
     /// Without the box of numbers while measuring (of views side by side, those not being measured), and Esc
@@ -1888,7 +1890,12 @@ impl MapView {
             return None;
         }
         // (a double click while drawing ends a feature)
-        if !self.fitted || (response.double_clicked() && self.drawing.is_none() && self.measuring.is_none()) {
+        if !self.fitted
+            || (response.double_clicked()
+                && self.drawing.is_none()
+                && self.editing.as_ref().is_none_or(|e| !e.adding)
+                && self.measuring.is_none())
+        {
             self.zoom = (rect.width() / w as f32).min(rect.height() / h as f32).max(1e-6);
             self.center = Vec2::new(w as f32 / 2.0, h as f32 / 2.0);
             self.fitted = true;
@@ -1919,13 +1926,19 @@ impl MapView {
             rect.left() + rect.width() * self.curtain()
         });
         // a vertex of a feature drawn dragged: the map stays
-        let editing = match self.drawing.as_mut() {
-            Some(sketch) => {
+        let editing = match (self.drawing.as_mut(), self.editing.as_mut()) {
+            (Some(sketch), _) => {
                 let (zoom, center) = (self.zoom, self.center);
                 let to_cell = |p: Pos2| center + (p - rect.center()) / zoom;
                 crate::draw::drag(sketch, ui, &response, to_cell, |c| rect.center() + (c - center) * zoom)
             }
-            None => false,
+            (None, Some(edit)) => {
+                let (zoom, center) = (self.zoom, self.center);
+                let to_cell = |p: Pos2| center + (p - rect.center()) / zoom;
+                let t = source.grid().transform;
+                crate::vector_edit::drag(edit, ui, &response, t, to_cell, |c| rect.center() + (c - center) * zoom)
+            }
+            (None, None) => false,
         };
         // shift+drag: a rectangle of features to select (shift+alt: a lasso); not while features are drawn or a
         // line measured; ctrl adds them to the selection
@@ -1933,7 +1946,7 @@ impl MapView {
             ui,
             &response,
             rect,
-            !overlays.is_empty() && self.drawing.is_none() && self.measuring.is_none(),
+            !overlays.is_empty() && self.drawing.is_none() && self.editing.is_none() && self.measuring.is_none(),
         );
         if response.dragged() && !editing && !self.selecting {
             self.center -= response.drag_delta() / self.zoom;
@@ -1948,7 +1961,7 @@ impl MapView {
             self.basemap = if self.basemap == Basemap::None { Basemap::EsriImagery } else { Basemap::None };
         }
         // (features drawn take the place of the line measured)
-        if self.drawing.is_some() {
+        if self.drawing.is_some() || self.editing.is_some() {
             self.measuring = None;
         }
         // M over the map: measuring, or not (not while drawing)
@@ -2466,6 +2479,18 @@ impl MapView {
                 |c| rect.center() + (c - center) * zoom,
             );
             self.drawing = Some(sketch);
+        }
+        if let Some(mut edit) = self.editing.take() {
+            let (zoom, center) = (self.zoom, self.center);
+            crate::vector_edit::interact(
+                &mut edit,
+                ui,
+                &response,
+                source.grid().transform,
+                |p| self.to_cell(rect, p),
+                |c| rect.center() + (c - center) * zoom,
+            );
+            self.editing = Some(edit);
         }
         if let Some(mut line) = self.measuring.take() {
             let (zoom, center) = (self.zoom, self.center);
