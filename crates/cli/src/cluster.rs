@@ -737,6 +737,7 @@ pub async fn execute(
         statistic: spec.statistic.as_deref(),
         resamples: spec.resamples,
         maps: maps.is_some(),
+        names: &[],
         version: env!("CARGO_PKG_VERSION"),
     };
     let methods = terraflux_app::sens_methods::text(&described);
