@@ -1257,7 +1257,8 @@ depois:
    - comparar com o landschaft, nos mesmos dados, cada objetivo e cada tipo de unidade (tabelas, polígonos, H3).
 2. **O Gurobi além do `prioritize.optimize`:** **feito** (Unreleased) nas re-soluções do `prioritize.evaluate`
    (custo de reposição e rank: as configurações `solver` e `threads`, uma thread do Gurobi em cada re-solução em
-   paralelo, teste `importance_is_prioritizrs`). Falta: o `prioritize.calibrate` (soluções em paralelo: uma thread do Gurobi em cada), o `restoration.plan` e o
+   paralelo, teste `importance_is_prioritizrs`) e no `prioritize.calibrate` (candidatas em paralelo, uma thread do
+   Gurobi em cada; teste `calibrate_on_gurobi_is_highs`). Falta: o `restoration.plan` e o
    `prioritize.actions`.
 3. **Parar no meio e dizer quanto falta em outros operadores longos:** **feito** (Unreleased) nos laços em Rust: o
    `sdm.fit` dentro de cada ajuste (os passos de Newton do GLM, os lotes de árvores da floresta, as iterações do

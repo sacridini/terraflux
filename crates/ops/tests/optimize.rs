@@ -1202,12 +1202,19 @@ fn bounds_optima_are_prioritizrs() {
 
 /// prioritize.calibrate on the raster cases: its candidates and their objectives, and the reference's.
 fn calibrate_run(extra: serde_json::Value) -> terraflux_ops::Outputs {
+    calibrate_ctx(extra).0
+}
+
+/// The same with the run's warnings.
+fn calibrate_ctx(extra: serde_json::Value) -> (terraflux_ops::Outputs, Vec<String>) {
     let inputs = inputs();
     let mut params = serde_json::json!({"relative_targets": 0.3, "gap": 0.0}).as_object().unwrap().clone();
     params.extend(extra.as_object().unwrap().clone());
     let args = Args { node: "n", inputs: args_of(&inputs, NONE, None), params: &params };
     let registry = terraflux_ops::Registry::standard();
-    registry.get("prioritize.calibrate").unwrap().run(&mut terraflux_ops::Ctx::default(), &args).unwrap()
+    let mut ctx = terraflux_ops::Ctx::default();
+    let out = registry.get("prioritize.calibrate").unwrap().run(&mut ctx, &args).unwrap();
+    (out, ctx.warnings.clone())
 }
 
 fn calibrate_column(out: &terraflux_ops::Outputs, c: &str) -> Vec<f64> {
@@ -1219,6 +1226,24 @@ fn assert_objectives(name: &str, ours: &[f64], want: &[f64]) {
     assert_eq!(ours.len(), want.len(), "{name}");
     for (a, b) in ours.iter().zip(want) {
         assert!((a - b).abs() <= 1e-9 * b.abs().max(1.0), "{name}: {ours:?} != {want:?}");
+    }
+}
+
+/// Asked for Gurobi (threads 2; the candidates solve in parallel, one thread each): its numbers where it solves
+/// here, else HiGHS's with the warning why; the same candidates as HiGHS's at gap 0.
+#[test]
+fn calibrate_on_gurobi_is_highs() {
+    let extra = |solver: &str| serde_json::json!({"approach": "pareto", "values": [500, 1000, 2000, 3000], "solver": solver, "threads": 2});
+    let (out, warnings) = calibrate_ctx(extra("gurobi"));
+    match terraflux_ops::gurobi::available() {
+        Ok(_) => assert!(warnings.is_empty(), "{warnings:?}"),
+        Err(_) => assert!(warnings.iter().any(|w| w.starts_with("solved by HiGHS: ")), "no warning: {warnings:?}"),
+    }
+    let (want, warnings) = calibrate_ctx(extra("highs"));
+    assert!(warnings.is_empty(), "{warnings:?}");
+    // (not the cost: equal shortfalls can have other optimal solutions)
+    for c in ["value", "shortfall", "objective"] {
+        assert_objectives(c, &calibrate_column(&out, c), &calibrate_column(&want, c));
     }
 }
 

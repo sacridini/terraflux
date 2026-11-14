@@ -3517,9 +3517,24 @@ impl Operator for Calibrate {
             "seconds per solve (default none: a strong penalty can make a solve take hours; the \
              candidates stopped by it are marked not optimal, with their gap)",
         ))
+        .param(
+            PortSpec::optional(
+                "solver",
+                Type::Text,
+                "the solves' solver: highs (default) or gurobi: Gurobi when it is installed and licensed, else \
+                 HiGHS with a warning",
+            )
+            .choices(["highs", "gurobi"]),
+        )
+        .param(PortSpec::optional(
+            "threads",
+            Type::Number,
+            "gurobi: the threads of the ideal solves (default and most: Terraflux's threads, never every core); \
+             the candidates solve in parallel, one thread each",
+        ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         use rayon::prelude::*;
         let node = args.node;
         let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
@@ -3529,12 +3544,16 @@ impl Operator for Calibrate {
         let gap: f64 = args.param("gap", 0.1)?;
         let ideal_gap: f64 = args.param("ideal_gap", 0.0)?;
         let time_limit: f64 = args.opt_param("time_limit")?.unwrap_or(f64::INFINITY);
+        // the solver asked for, resolved once (one warning); the solves in parallel run one thread each
+        let engine = engine_of(ctx, args)?;
+        let one = milp::Engine { threads: 1, ..engine };
         let base = args.params.clone();
         let problem = |params: &serde_json::Map<String, serde_json::Value>| {
             problem_of(&Args { node, inputs: args.inputs.clone(), params })
         };
-        let solve = |p: milp::Problem, gap: f64| -> Result<Candidate> {
-            let (m, _) = milp::compile(&p).map_err(err)?;
+        let solve = |p: milp::Problem, gap: f64, engine: milp::Engine| -> Result<Candidate> {
+            let (mut m, _) = milp::compile(&p).map_err(err)?;
+            m.engine = engine;
             let out = milp::solve(&m, p.units.n(), gap, time_limit).map_err(err)?;
             if !out.has_solution {
                 return Err(err(format!("no solution: {}", out.status)));
@@ -3546,7 +3565,7 @@ impl Operator for Calibrate {
                 .into_par_iter()
                 .map(|p| {
                     ffi::set_threads(1);
-                    solve(p, gap)
+                    solve(p, gap, one)
                 })
                 .collect()
         };
@@ -3600,10 +3619,10 @@ impl Operator for Calibrate {
         };
         let cohon = || -> Result<(f64, [(f64, f64); 2])> {
             min_set("Cohon's penalty")?;
-            let least_cost = solve(problem(&base)?, ideal_gap)?;
+            let least_cost = solve(problem(&base)?, ideal_gap, engine)?;
             let budget = u.cost.iter().sum::<f64>() + 1.0;
             let q = Self::with_objective(&Self::with_penalty(&base, &penalty, 1.0)?, "min_penalties", Some(budget));
-            let least_pen = solve(problem(&q)?, ideal_gap)?;
+            let least_pen = solve(problem(&q)?, ideal_gap, engine)?;
             let m3 = (cost_of(&least_cost), criterion(&least_cost)?);
             let m4 = (cost_of(&least_pen), criterion(&least_pen)?);
             if m3.1 == m4.1 {
@@ -3651,7 +3670,7 @@ impl Operator for Calibrate {
                 let thresholds = match values {
                     Some(v) => v,
                     None => {
-                        let least = solve(problem(&base)?, ideal_gap)?;
+                        let least = solve(problem(&base)?, ideal_gap, engine)?;
                         let c = cost_of(&least);
                         let inflation: Vec<f64> = match args.params.get("inflation") {
                             None | Some(serde_json::Value::Null) => linspace(1e-5, 4.0, 9),
@@ -3678,7 +3697,8 @@ impl Operator for Calibrate {
                     Some(v) => v,
                     None => {
                         let k: usize = args.param("n", 10)?;
-                        let top = cost_of(&solve(problem(&Self::with_objective(&base, "min_set", None))?, gap)?);
+                        let top =
+                            cost_of(&solve(problem(&Self::with_objective(&base, "min_set", None))?, gap, engine)?);
                         // the locked-in units' cost is spent anyway
                         let (m, _) = milp::compile(&p0).map_err(err)?;
                         let fixed: f64 = u.cost.iter().zip(&m.lb[..n]).map(|(c, l)| c * l).sum();

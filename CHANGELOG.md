@@ -25,6 +25,10 @@ minor versions.
   `prioritize.optimize`'s, for the replacement cost and the rank importance: the base and rank solves with the
   node's threads, the replacement's parallel solves with one Gurobi thread each, as landschaft's
   `eval_replacement_importance`; HiGHS and a warning where Gurobi is not installed or licensed.
+- **`prioritize.calibrate` solves on Gurobi:** new settings `solver` (highs or gurobi) and `threads`, as
+  `prioritize.optimize`'s: the candidates solve in parallel with one Gurobi thread each, as landschaft's
+  `_solve_all`, and the ideal solves (Cohon's two, the least cost) with the node's threads; HiGHS and one warning
+  where Gurobi is not installed or licensed.
 - **Stop ends more long nodes at once, and they tell how far they are:** `sdm.fit` stops within a fit (each Newton
   step of the GLM, each batch of trees of the random forest, each boosting iteration), not only between folds;
   `sdm.importance` stops and tells its shuffles (k of n), `sdm.folds` its random tries of spatial blocks, `ml.fit`
