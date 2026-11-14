@@ -399,6 +399,13 @@ EngineOut opt_solve_closure(rust::Slice<const double> cost, rust::Slice<const st
                             rust::Slice<const std::int32_t> col_row, rust::Slice<const double> col_val, double gap,
                             double time_limit, std::int32_t threads, rust::Slice<const std::uint8_t> initial,
                             SolveWatch& watch);
+EngineOut opt_solve_zone_cut(std::int64_t n, std::int64_t nz, rust::Slice<const double> cost,
+                             rust::Slice<const double> lb, rust::Slice<const double> ub, bool mandatory,
+                             rust::Slice<const std::int64_t> t_start, rust::Slice<const std::int64_t> t_index,
+                             rust::Slice<const double> t_value, rust::Slice<const double> target,
+                             rust::Slice<const std::int32_t> pi, rust::Slice<const std::int32_t> pj,
+                             rust::Slice<const double> pw, double gap, double time_limit,
+                             rust::Slice<const double> start, SolveWatch& watch);
 
 // prioritizr's evaluation of solutions (opt::eval): the boundary of a solution (lower: the strictly lower
 // triangle of the boundary matrix in compressed columns), Ferrier's scores (rij: features x units in compressed

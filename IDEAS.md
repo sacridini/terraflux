@@ -1240,8 +1240,14 @@ depois:
 
 1. **O resto do roteamento do landschaft** (`prioritize/_milp_solve.py`), para a mesma velocidade em todos os
    problemas:
-   - o motor de corte com zonas (`solve_zone_cut`, `opt/zones_cut.cpp`): mínimos conjuntos com zonas e
-     penalidades de borda ou conectividade, que hoje vão ao HiGHS;
+   - **Feito** (Unreleased): o motor de corte com zonas (`solve_zone_cut`, `opt/zones_cut.cpp`): mínimos conjuntos
+     com zonas e penalidades de borda ou conectividade (`engines::zone_cut_model`, `engines::zone_cut`, o ramo em
+     `milp::solve_from`; `ffi::opt_solve_zone_cut` com o `WatchScope`). Testes `zone_boundary_penalties_go_*`
+     (`crates/ops/tests/zones.rs`): o plano, o bound e o status do landschaft 1.58.1, o motor sozinho (gap 0.3) e
+     com o HiGHS depois (gap 0.15, ignorado, 7 s em release). Achado no caminho: no Windows o C++ todo era
+     compilado sem otimização (o crate cmake troca as flags de Release do CMake pelas do cc, sem os `/O`): o
+     `build.rs` do `terraflux-ls-sys` passa as do CMake (`/O2 /Ob2 /DNDEBUG`), 22,7 s caíram para 7,0 s (os do
+     landschaft);
    - a busca por subconjuntos depois do motor largo (`_wide_then_subset`, `improve_subset`): `max_features` e as
      filogenias;
    - comparar com o landschaft, nos mesmos dados, cada objetivo e cada tipo de unidade (tabelas, polígonos, H3).
@@ -1252,10 +1258,11 @@ depois:
    para (o `prioritize.evaluate`, o MSPA, os circuitos, o ajuste dos SDM, as métricas por blocos) é deixado
    terminar em segundo plano um segundo depois do Stop. Basta o operador chamar `ctx.stopped()` nos seus laços e
    `ctx.progress(...)`; no C++, perguntar `opt::stop_asked()` (ou um equivalente fora do `opt`).
-4. **O submódulo do landschaft:** o `WatchScope` já está no `main` do landschaft (merge `db23ef9`); atualizar o
-   submódulo para ele é a primeira etapa de "Integrar o landschaft 1.50.0", abaixo.
-5. **Testes instáveis vistos:** `a_computer_lends_itself_to_another_by_its_code` (`crates/app/tests/ui.rs`) falha às
-   vezes na suíte inteira e passa sozinho; `the_terrain_is_landschafts` (`crates/ops/tests/surface.rs`) difere em
+4. **Feito.** **O submódulo do landschaft:** já está no `main` do landschaft (1.58.1, `295d123`, com o `WatchScope`).
+5. **Testes instáveis vistos:** `a_computer_lends_itself_to_another_by_its_code` (`crates/app/tests/ui.rs`) falhava às
+   vezes na suíte inteira e passava sozinho: **corrigido** (Unreleased; as configurações são globais no programa `ui`:
+   `settings_themes_and_favourites` as zerava inteiras, o `pool_code` não era atômico e a janela Settings e o
+   empréstimo regravavam tudo a cada quadro); `the_terrain_is_landschafts` (`crates/ops/tests/surface.rs`) difere em
    1e-16 no VRM só no build de debug (passa em release).
    `a_model_runs_and_every_tab_draws` (`crates/app/tests/ui.rs`, o `can_run()` logo depois de abrir o modelo) falha
    às vezes no `cargo test --workspace` e passa no programa `ui` sozinho.

@@ -59,6 +59,14 @@ fn main() {
     }
     // the MILP prioritization too (optcore, with HiGHS)
     cfg.define("LANDSCHAFT_PYTHON", "OFF").define("LANDSCHAFT_MILP", "ON").profile("Release");
+    if target.contains("msvc") {
+        // with MSVC the cmake crate sets CMAKE_<LANG>_FLAGS_RELEASE to cc's flags without their /O: Visual Studio's
+        // projects then compiled every C++ source (HiGHS too) unoptimised (/Od) and with the asserts on, about three
+        // times as slow as landschaft's wheels. CMake's own Release flags for MSVC, as landschaft's wheels are built
+        for lang in ["C", "CXX"] {
+            cfg.define(format!("CMAKE_{lang}_FLAGS_RELEASE"), "/MD /O2 /Ob2 /DNDEBUG");
+        }
+    }
     if let Some(eigen) = std::env::var_os("LANDSCHAFT_EIGEN_DIR") {
         cfg.define("FETCHCONTENT_SOURCE_DIR_EIGEN", eigen);
     }

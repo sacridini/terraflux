@@ -2004,6 +2004,29 @@ pub mod ffi {
             initial: &[u8],
             watch: &mut SolveWatch,
         ) -> Result<EngineOut>;
+        /// landschaft's zones cut engine (opt/zones_cut.cpp): a minimum set with zones and pair terms w [x_a != x_b]
+        /// over the unit-zone columns (z * n + i), the targets by column; `start`: a solution of the columns, or
+        /// empty; the watch asked how to go on.
+        #[allow(clippy::too_many_arguments)]
+        fn opt_solve_zone_cut(
+            n: i64,
+            nz: i64,
+            cost: &[f64],
+            lb: &[f64],
+            ub: &[f64],
+            mandatory: bool,
+            t_start: &[i64],
+            t_index: &[i64],
+            t_value: &[f64],
+            target: &[f64],
+            pi: &[i32],
+            pj: &[i32],
+            pw: &[f64],
+            gap: f64,
+            time_limit: f64,
+            start: &[f64],
+            watch: &mut SolveWatch,
+        ) -> Result<EngineOut>;
         /// opt_solve, the watch told how it goes a few times a second (and stopping it: the status
         /// "cancelled").
         fn opt_solve_watched(

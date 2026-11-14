@@ -1269,6 +1269,12 @@ pub fn method(m: &Model, n_units: usize) -> &'static str {
     }
 }
 
+/// Whether a model with zones goes to landschaft's zones cut engine (a minimum set with boundary penalties or
+/// connectivity rewards, in its form) in front of HiGHS.
+pub fn zone_cut_applies(m: &Model) -> bool {
+    engines::zone_cut_applies(m)
+}
+
 /// A model solved: its status, the solution, its objective and gap.
 pub fn solve(m: &Model, n_units: usize, gap: f64, time_limit: f64) -> Result<ffi::SolveOut, String> {
     solve_from(m, n_units, gap, time_limit, &[])
@@ -1297,6 +1303,18 @@ pub fn solve_from(
             r => r,
         };
     }
+    // minimum sets with zones and pair terms on the zones cut engine, then HiGHS's MIP from its solution (behind the
+    // covering engine or alone: landschaft's solve_zone_cut calls _highs without the units)
+    if m.engine.solver == Solver::Highs
+        && m.zone_units > 0
+        && let Some(r) =
+            engines::zone_cut(m, gap, time_limit, start, |left, s| highs_with(m, 0, gap, left, false, s, false))
+    {
+        return match r {
+            Ok(r) if r.status == "cancelled" => Err(STOPPED.into()),
+            r => r,
+        };
+    }
     highs(m, n_units, gap, time_limit, false, start)
 }
 
@@ -1310,10 +1328,24 @@ fn highs(
     relaxation: bool,
     start: &[f64],
 ) -> Result<ffi::SolveOut, String> {
+    highs_with(m, n_units, gap, time_limit, relaxation, start, true)
+}
+
+/// `highs`; `zones` false: a model with zones goes by landschaft's `_method(m, None)` (covering or HiGHS), not the
+/// zones engines' choice.
+fn highs_with(
+    m: &Model,
+    n_units: usize,
+    gap: f64,
+    time_limit: f64,
+    relaxation: bool,
+    start: &[f64],
+    zones: bool,
+) -> Result<ffi::SolveOut, String> {
     let out = if m.engine.solver == Solver::Gurobi {
         crate::gurobi::solve(m, gap, time_limit, relaxation, start, m.engine.threads)
     } else {
-        highs_only(m, n_units, gap, time_limit, relaxation, start)
+        highs_only(m, n_units, gap, time_limit, relaxation, start, zones)
     }?;
     if out.status == "cancelled" { Err(STOPPED.into()) } else { Ok(out) }
 }
@@ -1326,6 +1358,7 @@ fn highs_only(
     time_limit: f64,
     relaxation: bool,
     start: &[f64],
+    zones: bool,
 ) -> Result<ffi::SolveOut, String> {
     let (lo, hi) = row_bounds(m);
     let model = ffi::MilpModel {
@@ -1346,7 +1379,7 @@ fn highs_only(
         Some(f) => ffi::opt_solve_watched(&model, &settings, how, n, &mut terraflux_ls_sys::SolveWatch(f)),
         None => ffi::opt_solve(&model, &settings, how, n),
     };
-    if m.zone_units > 0 {
+    if m.zone_units > 0 && zones {
         // with zones: minimum sets on the zones engine, models with few columns besides the units' on the zones
         // wide engine, or HiGHS (also when a model is not of the engine's form after all)
         let how = zone_method(m);

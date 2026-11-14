@@ -6,6 +6,26 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- **Minimum sets with zones and pair terms solve as landschaft solves them:** `prioritize.optimize` with zones,
+  boundary penalties or connectivity rewards (in Marxan's form) now goes to landschaft's zones cut engine
+  (`opt/zones_cut.cpp`: a Lagrangian bound by minimum cuts, repaired selections) before HiGHS, and on to HiGHS's MIP
+  from its plan when the gap is not reached and the model has at most 50,000 columns, as landschaft's
+  `solve_zone_cut` does: the same plan, bound and status as landschaft 1.58.1, and Stop and the progress bar work
+  in the engine too. Before, those models went straight to HiGHS's MIP, which takes minutes where the engine takes
+  a hundredth of a second.
+
+### Fixed
+- **landschaft's C++ is optimised on Windows:** the build compiled every C++ source under Terraflux (landschaft's
+  kernels and engines, HiGHS) without optimisation and with the asserts on, because the cmake crate replaces
+  CMake's Release flags with cc's, less their `/O`, under MSVC. They are now CMake's own (`/O2 /Ob2 /DNDEBUG`), as
+  landschaft's wheels are built: a prioritization with zones that went on to HiGHS took 22.7 s, now 7.0 s, as in
+  landschaft; everything that runs in landschaft's C++ gains alike. Linux and macOS were not affected.
+- The Computers pane's pool code no longer changes when two pools start at once (it is read and made under the
+  settings' lock), and the Settings window and the lending's fields no longer write back settings that another thread
+  changed meanwhile (the window wrote them all at every frame while open); the test
+  `a_computer_lends_itself_to_another_by_its_code`, which failed now and then in the whole suite, with them.
+
 ## [1.46.0] - 2026-11-14
 
 ### Added

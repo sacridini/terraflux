@@ -525,6 +525,58 @@ fn every_zone_spatial_optimum_is_prioritizrs() {
     }
 }
 
+/// The compiled model and units of a spatial zone case.
+fn spatial_model(name: &str) -> (terraflux_ops::milp::Model, usize) {
+    let i = Inputs::new();
+    let (_, ins, params) = spatial_cases(&i).into_iter().find(|c| c.0 == name).unwrap();
+    let args = Args { node: "n", inputs: ins, params: params.as_object().unwrap() };
+    let p = terraflux_ops::prioritize::problem_of(&args).unwrap();
+    let (m, _) = terraflux_ops::milp::compile(&p).unwrap();
+    (m, p.units.n())
+}
+
+/// A minimum set with zones and boundary penalties goes to landschaft's zones cut engine, as landschaft's solve_model
+/// sends it, to its plan. landschaft's numbers (1.58.1, the same problem: tests/optimize_cases.py's _zone_general()
+/// with add_min_set_objective(), add_manual_targets(30 % of the features' totals over every zone),
+/// add_boundary_penalties(0.5), add_binary_decisions(), add_highs_solver(gap=0.3, time_limit=30), run from the tests
+/// directory with python and p.solve()): status optimal, objective 4767.188257775759, bound 3338.1873863389787, 58
+/// units chosen, 0.01 s (the engine alone; HiGHS's MIP takes minutes on this model). With a gap of 0.15 the engine
+/// goes on to HiGHS's MIP: zone_boundary_penalties_go_on_to_highs_from_the_engine.
+#[test]
+fn zone_boundary_penalties_go_through_the_zone_cut_engine() {
+    let (m, n) = spatial_model("zones_boundary");
+    assert!(terraflux_ops::milp::zone_cut_applies(&m));
+    let s = terraflux_ops::milp::solve(&m, n, 0.3, 60.0).unwrap();
+    assert_eq!(s.status, "optimal");
+    // the engine's bound is the Lagrangian's: HiGHS would not give it
+    let (objective, bound) = (4767.188257775759, 3338.1873863389787);
+    assert!((s.bound - bound).abs() <= 1e-9 * bound, "bound {} != {bound}", s.bound);
+    assert!((s.objective - objective).abs() <= 1e-9 * objective, "objective {} != {objective}", s.objective);
+    let units = m.col_ids.iter().filter(|c| *c == "pu").count();
+    assert_eq!(s.x[..units].iter().sum::<f64>(), 58.0);
+    assert!(s.x[..units].iter().all(|&v| v == 0.0 || v == 1.0));
+}
+
+/// The models the zones cut engine does not take go the old way: a maximisation, pair terms of both signs (a zones
+/// matrix with a negative cell), no pair columns, other rows (neighbour constraints).
+#[test]
+fn zone_models_the_cut_engine_does_not_take_go_the_old_way() {
+    use terraflux_ops::milp::zone_cut_applies;
+    for name in ["zones_boundary_max", "zones_boundary_matrix", "zones_neighbors", "zones_linear_constraints"] {
+        assert!(!zone_cut_applies(&spatial_model(name).0), "{name}");
+    }
+    let i = Inputs::new();
+    let (_, ins, params) = cases(&i).into_iter().find(|c| c.0 == "zones_minset_sum").unwrap();
+    let args = Args { node: "n", inputs: ins, params: params.as_object().unwrap() };
+    let p = terraflux_ops::prioritize::problem_of(&args).unwrap();
+    let (m, _) = terraflux_ops::milp::compile(&p).unwrap();
+    assert!(!zone_cut_applies(&m), "no pair columns");
+    let want = reference().floats("zones_minset_sum/objective")[0];
+    let s = terraflux_ops::milp::solve(&m, p.units.n(), 0.05, f64::INFINITY).unwrap();
+    assert_eq!(s.status, "optimal");
+    assert!(s.objective >= want * (1.0 - 1e-9) && s.objective <= want * 1.05, "{} vs {want}", s.objective);
+}
+
 /// Contiguity with zones (protect and use one cluster, restore another; the zones matrix's components).
 fn zone_contiguity_model() -> (terraflux_ops::milp::Model, usize) {
     let i = Inputs::new();
@@ -655,4 +707,23 @@ fn zone_evaluation_is_prioritizrs() {
     p.as_object_mut().unwrap().insert("relative_targets".into(), serde_json::Value::Null);
     let out = run("zone_sol", &[], p);
     coverage(k, &out);
+}
+
+/// With the gap at 0.15 the engine stalls (13 evaluations, gap 0.237) and HiGHS's MIP goes on from its solution, as in
+/// landschaft: the same numbers when the problem is the same to the last bit (landschaft's targets must be given as
+/// ours: 0.3 * the totals differs in the last digit and HiGHS follows another path), at 1 and at 4 threads: the call
+/// above with add_manual_targets(the five values of the model's spp_target rows) and
+/// add_highs_solver(gap=0.15, time_limit=30, n_threads=1 or 4): optimal, objective 4380.239726299852, bound
+/// 3723.7730385515856, 53 units chosen (7 s there, 25 s here in the unoptimised test build).
+#[test]
+#[ignore]
+fn zone_boundary_penalties_go_on_to_highs_from_the_engine() {
+    let (m, n) = spatial_model("zones_boundary");
+    let s = terraflux_ops::milp::solve(&m, n, 0.15, 30.0).unwrap();
+    assert_eq!(s.status, "optimal");
+    let (objective, bound) = (4380.239726299852, 3723.7730385515856);
+    assert!((s.bound - bound).abs() <= 1e-9 * bound, "bound {} != {bound}", s.bound);
+    assert!((s.objective - objective).abs() <= 1e-9 * objective, "objective {} != {objective}", s.objective);
+    let units = m.col_ids.iter().filter(|c| *c == "pu").count();
+    assert!((s.x[..units].iter().sum::<f64>() - 53.0).abs() < 1e-6);
 }

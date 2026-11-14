@@ -67,6 +67,7 @@
 #include "opt/milp.hpp"
 #include "opt/proxirr.hpp"
 #include "opt/wide.hpp"
+#include "opt/zones_cut.hpp"
 #include "opt/zones.hpp"
 #include "opt/zones_wide.hpp"
 #include "io/exact.hpp"
@@ -1958,6 +1959,45 @@ EngineOut opt_solve_closure(rust::Slice<const double> cost, rust::Slice<const st
     EngineOut out;
     out.status = scope.stopped() ? "cancelled" : r.status;
     out.x = to_rust<double>(std::vector<double>(r.z.begin(), r.z.end()));
+    out.objective = r.objective;
+    out.bound = r.bound;
+    out.gap = r.gap;
+    out.evaluations = r.evaluations;
+    out.seconds = r.seconds;
+    return out;
+}
+
+EngineOut opt_solve_zone_cut(std::int64_t n, std::int64_t nz, rust::Slice<const double> cost,
+                             rust::Slice<const double> lb, rust::Slice<const double> ub, bool mandatory,
+                             rust::Slice<const std::int64_t> t_start, rust::Slice<const std::int64_t> t_index,
+                             rust::Slice<const double> t_value, rust::Slice<const double> target,
+                             rust::Slice<const std::int32_t> pi, rust::Slice<const std::int32_t> pj,
+                             rust::Slice<const double> pw, double gap, double time_limit,
+                             rust::Slice<const double> start, SolveWatch& watch) {
+    // as landschaft's opt_zone_cut (python.cpp)
+    opt::zcut::Input in;
+    in.n = n;
+    in.nz = nz;
+    in.cost = vec_of<double>(cost);
+    in.lb = vec_of<double>(lb);
+    in.ub = vec_of<double>(ub);
+    in.mandatory = mandatory;
+    in.t_start = vec_of<std::int64_t>(t_start);
+    in.t_index = vec_of<std::int64_t>(t_index);
+    in.t_value = vec_of<double>(t_value);
+    in.target = vec_of<double>(target);
+    in.pi = vec_of<int>(pi);
+    in.pj = vec_of<int>(pj);
+    in.pw = vec_of<double>(pw);
+    opt::zcut::Options o;
+    o.gap = gap;
+    o.time_limit = std::isfinite(time_limit) ? time_limit : -1.0;
+    const std::vector<double> st = vec_of<double>(start);
+    opt::WatchScope scope(rust_watch(watch));
+    const opt::zcut::Result r = opt::zcut::solve(in, o, st);
+    EngineOut out;
+    out.status = scope.stopped() ? "cancelled" : r.status;
+    out.x = to_rust<double>(r.x);
     out.objective = r.objective;
     out.bound = r.bound;
     out.gap = r.gap;
