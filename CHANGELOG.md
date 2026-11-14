@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.47.0] - 2026-11-14
+
 ### Added
 - **Minimum sets with zones and pair terms solve as landschaft solves them:** `prioritize.optimize` with zones,
   boundary penalties or connectivity rewards (in Marxan's form) now goes to landschaft's zones cut engine
