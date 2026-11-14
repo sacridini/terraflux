@@ -77,6 +77,8 @@ pub enum Do {
     AddMine(String),
     /// Select a node (the containers' ids from the top, then its own), opening its containers, and look at it.
     GoTo(Vec<String>),
+    /// Find a node: the search of the canvas (ctrl+F), opened.
+    Find,
     /// Go to a place kept in the model, of the Viewer's map or of the canvas, by its name.
     Place {
         map: bool,

@@ -3427,6 +3427,7 @@ impl TerrafluxApp {
             action("Open a raster or vectors...", crate::keymap::text("open_data"), Do::OpenData),
             action("Process a folder of rasters...", String::new(), Do::ProcessFolder),
             action("Add an operator", "/".into(), Do::Add(String::new())),
+            action("Find a node", crate::keymap::text("canvas_find"), Do::Find),
             action("Arrange the nodes", format!("{c}L"), Do::Arrange),
             action("Group the nodes selected", format!("{c}G"), Do::Group),
             action("Ungroup the group selected", format!("{c}shift+G"), Do::Ungroup),
@@ -3554,6 +3555,7 @@ impl TerrafluxApp {
                 let model = matches!(
                     d,
                     Do::GoTo(_)
+                        | Do::Find
                         | Do::Add(_)
                         | Do::AddMine(_)
                         | Do::Arrange
@@ -3595,6 +3597,10 @@ impl TerrafluxApp {
                         }
                     }
                     Do::GoTo(at) => crate::find::go(s, r, &at),
+                    Do::Find => {
+                        s.editor.text = false;
+                        s.editor.find = Some(Default::default());
+                    }
                     _ => {}
                 }
                 if model {

@@ -5590,6 +5590,65 @@ params = { expression = "a + b" }
     assert!(h.state().is_open(Pane::Problems));
 }
 
+/// A node of a problem, clicked in the Problems pane: the canvas's camera glides to it and ends with it at the centre.
+#[test]
+fn a_problems_node_is_glided_to() {
+    let mut h = harness(new_app(None));
+    h.ctx.all_styles_mut(|s| s.animation_time = 1.0 / 12.0);
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source = terraflux_graph::Model::from_toml(
+            r#"
+format = "terraflux/1"
+[[nodes]]
+id = "small"
+op = "nlm.random"
+params = { rows = 10, columns = 10, seed = 1 }
+[[nodes]]
+id = "big"
+op = "nlm.random"
+pos = [0.0, 1500.0]
+params = { rows = 20, columns = 10, seed = 2 }
+[[nodes]]
+id = "sum"
+op = "raster.calc"
+pos = [3000.0, 0.0]
+inputs = { a = "small.map", b = "big.map" }
+params = { expression = "a + b" }
+"#,
+        )
+        .unwrap();
+        s.edited();
+        s.run_when_ready = true;
+    }
+    h.run_steps(2);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.error.is_some()
+    });
+    h.run_steps(2);
+    h.get_by_label("the run failed: why?").click();
+    h.run_steps(3);
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(3);
+    // (a home view: the node far from the centre)
+    let e = &h.state().session.as_ref().unwrap().editor;
+    let (rect, canvas) = (e.screen_rect_of("sum"), e.canvas().expect("the canvas"));
+    assert!(rect.is_none_or(|r| !r.contains(canvas.center())), "not at the centre yet");
+    h.state_mut().focus(Pane::Problems);
+    h.run_steps(3);
+    let link = h.query_all_by_label("sum").next().expect("the node's link in Problems");
+    link.click();
+    h.run_steps(1);
+    let e = &h.state().session.as_ref().unwrap().editor;
+    assert!(e.drawn_rect_of("sum").is_some_and(|r| !r.contains(canvas.center())), "not there at once: it glides");
+    h.run_steps(60);
+    let e = &h.state().session.as_ref().unwrap().editor;
+    let at = e.drawn_rect_of("sum").expect("the node drawn");
+    assert!(at.contains(canvas.center()), "{at:?} {canvas:?}");
+}
+
 /// The box of an input of the model is moved, selected and edited in the Node pane, made a node and back by its
 /// menus, and taken away with Delete, as a node is.
 #[test]

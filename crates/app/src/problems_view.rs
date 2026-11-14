@@ -260,7 +260,8 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Asked> {
             s.fields.clear();
             s.selected = Some(id.clone());
         }
-        s.editor.reveal(&id);
+        // (the camera glides to it)
+        s.editor.centre_on(&id);
     }
     asked
 }

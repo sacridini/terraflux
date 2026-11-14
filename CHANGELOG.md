@@ -13,6 +13,9 @@ minor versions.
   taken away; the nodes of another chain, and the other nodes of a group, stay as they ran.
 
 ### Added
+- **Find a node in the command palette, and the camera glides to it.** *Find a node* (ctrl+K, with its ctrl+F) opens
+  the canvas's search from anywhere; going to a node from the search, and from a node of the Problems pane, moves the
+  camera with the same eased glide as F (none when animations are off), instead of jumping.
 - **Edit the features of a vector layer already read.** *Edit the features* in the menu of a vector layer's row in
   the Layers (a layer a `vector.read` node reads from one file, all of it, in the map's coordinate system): its
   vertices are dragged, the dot amid an edge adds one, a right click takes one away, *Add a feature* clicks a new

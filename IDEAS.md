@@ -2589,7 +2589,9 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     `note` e arquivos das configurações, até 12; `go`: o `editor.path`, a seleção e `EditorState::centre_on`, o zoom
     entre 0,7 e 3; `show`, a caixa no topo do canvas); Ctrl+F em `builder::keys`; o *Go to* do Ctrl+K para nós
     aninhados (`Do::GoTo(Vec<String>)`). Teste: `a_node_of_the_model_is_found_inside_groups_and_the_camera_goes_to_it`.
-    Falta: a câmera indo até o nó com animação; um comando "Find a node" na paleta.
+    Depois: *Find a node* na paleta (`Do::Find`, abre a mesma busca, com o atalho do Ctrl+F) e a câmera deslizando até o
+    nó (o glide do F, 3 × `animation_time`; no Problems, `centre_on` em vez do `reveal` instantâneo). Testes:
+    `find_a_node_in_the_palette_and_the_camera_glides_to_it`, `a_problems_node_is_glided_to`. Nada em aberto.
 13. **Minimapa** no canto do canvas para modelos grandes, com o retângulo da vista arrastável.
     **Feito** (Unreleased, por um sub-agente): `editor_view::Minimap` (o retângulo até 180×120 na proporção do
     escopo, `at`/`back`), registrado com `ui.interact` depois do canvas (cliques e roda não passam); clique centra,

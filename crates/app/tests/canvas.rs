@@ -1107,6 +1107,48 @@ fn a_node_of_the_model_is_found_inside_groups_and_the_camera_goes_to_it() {
     assert!(centred_on(&h, "inner"));
 }
 
+/// The palette lists *Find a node* (with the shortcut of ctrl+F) and choosing it opens the search; the camera then
+/// glides to the node found (frames in between, farther and farther along), ending with the node at the centre.
+#[test]
+fn find_a_node_in_the_palette_and_the_camera_glides_to_it() {
+    use egui_kittest::kittest::Queryable;
+    let mut m = Model::new("gliding");
+    m.nodes.push(reader("near", [0.0, 0.0]));
+    m.nodes.push(reader("far", [3000.0, 2000.0]));
+    let mut h = harness(open(&m, "canvas-glide.toml"));
+    // (the harness has no animations: the style's, as a screen has it, a glide of 0.25 s)
+    h.ctx.all_styles_mut(|s| s.animation_time = 1.0 / 12.0);
+    h.run_steps(3);
+    let centre = editor(&h).canvas().unwrap().center();
+    h.hover_at(centre);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::K);
+    h.run_steps(2);
+    h.event(egui::Event::Text("find a node".into()));
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("Find a node").is_some(), "listed");
+    assert!(h.query_by_label_contains("ctrl+F").is_some(), "with its shortcut");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    assert!(h.state().commands.is_none());
+    assert!(editor(&h).find.is_some(), "the search is open");
+    h.event(egui::Event::Text("far".into()));
+    h.run_steps(2);
+    let from = editor(&h).drawn_rect_of("far").unwrap().center();
+    h.key_press(egui::Key::Enter);
+    let mut seen = vec![];
+    for _ in 0..60 {
+        h.step();
+        seen.push(editor(&h).drawn_rect_of("far").unwrap().center());
+    }
+    let to = editor(&h).canvas().unwrap().center();
+    let (total, last) = ((to - from).length(), seen.last().unwrap());
+    assert!((*last - to).length() < 1.0, "ends centred: {last:?} against {to:?}");
+    let between = seen.iter().filter(|p| (**p - to).length() > 2.0 && (**p - from).length() > 2.0).count();
+    assert!(between >= 3, "{between} frames in between, of {total}: {seen:?}");
+    // (each frame no farther from the target than the one before)
+    assert!(seen.windows(2).all(|w| (w[1] - to).length() <= (w[0] - to).length() + 1.0), "{seen:?}");
+}
+
 /// Frames: F over the canvas fits the nodes selected (their boxes whole on the canvas, closer than Home); nothing
 /// selected, it is Home; a lone small node is not zoomed in past 1.75; inside a group it frames within the scope.
 #[test]
