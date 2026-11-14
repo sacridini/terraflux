@@ -9,7 +9,7 @@ use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 
 use crate::{Args, Ctx, Error, Key, Map, Operator, Outputs, Registry, Result, Stack, Table, Value, outputs};
-use crate::{milp, zonation, zonation_files};
+use crate::{milp, zonation, zonation_files, zonation_impact_files};
 
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(Zonation));
@@ -565,6 +565,12 @@ impl Zonation {
             }
             Arc::new(m)
         };
+        let impact_files = impacts.as_ref().map(|i| (i.files.clone(), i.maps.clone()));
+        let files_of: Vec<String> = match args.params.get("_files") {
+            Some(v) => serde_json::from_value(v.clone()).unwrap_or_default(),
+            None => Vec::new(),
+        };
+        let files_of = if files_of.len() == l0 { files_of } else { vec![String::new(); l0] };
         if let Some(imp) = impacts {
             if impact.is_some() {
                 let mut t = Table::new(
@@ -631,6 +637,9 @@ impl Zonation {
             groups,
             count: kept.iter().map(|&i| (stats.pixels - stats.nodata[i] - stats.zeros[i]) as i64).collect(),
             missing: kept.iter().map(|&i| stats.nodata[i] as i64).collect(),
+            unique: unique_names(args, &kept, stack, &files_of)?,
+            files: kept.iter().map(|&i| files_of[i].clone()).collect(),
+            impacts: impact_files,
             cost: map_data("cost")?,
             hmask: map_data("hierarchic_mask")?,
             data,
@@ -645,6 +654,9 @@ impl Zonation {
     }
 }
 
+/// The impact scenarios' accumulated impacts and the maps of the impact groups.
+type ImpactOut = (zonation::ImpactFiles, Vec<(String, Vec<f32>)>);
+
 /// A ranking and what the post-processing analyses of it read.
 pub(crate) struct Ranked {
     data: cxx::UniquePtr<ffi::PrioData>,
@@ -652,19 +664,25 @@ pub(crate) struct Ranked {
     r: ffi::PrioRankOut,
     cells: Vec<i64>,
     w: Vec<f32>,
-    sets: Vec<(String, Vec<usize>)>,
+    pub(crate) sets: Vec<(String, Vec<usize>)>,
     names: Vec<String>,
-    grid: Arc<terraflux_raster::Grid>,
+    pub(crate) grid: Arc<terraflux_raster::Grid>,
     cost: Vec<f64>,
     hmask: Vec<f64>,
     /// The features' numbers (0-based, among those given).
-    numbers: Vec<usize>,
+    pub(crate) numbers: Vec<usize>,
     weights_on: bool,
     /// The output groups of the features kept.
     groups: Option<Vec<i64>>,
     /// The cells with values and those without data, per feature kept.
     count: Vec<i64>,
     missing: Vec<i64>,
+    /// The file of each feature kept (empty without one).
+    pub(crate) files: Vec<String>,
+    /// Zonation's unique layer names (the file's name, `.layer<N>` and the transforms applied).
+    unique: Vec<String>,
+    /// The impact scenarios' accumulated impacts and maps.
+    impacts: Option<ImpactOut>,
 }
 
 impl Ranked {
@@ -673,11 +691,7 @@ impl Ranked {
     pub(crate) fn write_files(&self, dir: &std::path::Path, named: bool) -> Result<()> {
         let fail = |e: std::io::Error| Error::msg(format!("{}: {e}", dir.display()));
         std::fs::create_dir_all(dir).map_err(fail)?;
-        let headers: Vec<String> = if named {
-            self.names.iter().map(|n| format!("\"{n}\"")).collect()
-        } else {
-            self.numbers.iter().map(|n| n.to_string()).collect()
-        };
+        let headers = self.headers(named);
         let curves = zonation_files::Curves {
             rank: &self.r.curve_rank,
             levels: &self.r.curve_levels,
@@ -708,7 +722,43 @@ impl Ranked {
         for (c, v) in self.r.cell_index.iter().zip(&self.r.rank) {
             rank[*c as usize] = f64::from(*v);
         }
-        zonation_files::write_rankmap(&dir.join("rankmap.tif"), &self.grid, &rank)
+        zonation_files::write_rankmap(&dir.join("rankmap.tif"), &self.grid, &rank)?;
+        if let Some((files, maps)) = &self.impacts {
+            let names: Vec<String> = (0..self.names.len()).map(|k| self.row_name(k, named)).collect();
+            let layers = zonation_impact_files::Layers {
+                numbers: &self.numbers,
+                abs_sums: &self.r.orig_abs_sums,
+                names: &names,
+                unique: &self.unique,
+            };
+            zonation_impact_files::write(dir, files, maps, &layers, &self.grid)?;
+        }
+        Ok(())
+    }
+
+    /// The features' headers in the tables: the quoted names or the numbers.
+    pub(crate) fn headers(&self, named: bool) -> Vec<String> {
+        if named {
+            self.names.iter().map(|n| format!("\"{n}\"")).collect()
+        } else {
+            self.numbers.iter().map(|n| n.to_string()).collect()
+        }
+    }
+
+    /// The number of cells with data.
+    pub(crate) fn cell_count(&self) -> usize {
+        self.cells.len()
+    }
+
+    /// A feature's name in the files' rows: its name (with a named feature list) or its file's name.
+    pub(crate) fn row_name(&self, k: usize, named: bool) -> String {
+        if named {
+            self.names[k].clone()
+        } else {
+            std::path::Path::new(&self.files[k])
+                .file_name()
+                .map_or_else(String::new, |s| s.to_string_lossy().into_owned())
+        }
     }
 }
 
@@ -892,6 +942,64 @@ fn per_feature<T: serde::de::DeserializeOwned>(args: &Args, name: &str, n: usize
             Ok(list)
         }
     }
+}
+
+/// Zonation's unique layer names of the features kept: the file's name (or the feature's) with `.layer<N>` and a
+/// letter for each transform applied (t, c, r, d, i, I, m, s, e).
+fn unique_names(args: &Args, kept: &[usize], stack: &Stack, files: &[String]) -> Result<Vec<String>> {
+    let l0 = stack.layers.len();
+    let thresholds: Vec<f32> = per_layer(args, "thresholds", l0, 0.0f32)?;
+    let on = |key: &str| -> Result<Vec<bool>> {
+        let v: Vec<Option<serde_json::Value>> = match args.params.get(key) {
+            Some(serde_json::Value::Bool(b)) => vec![Some(serde_json::Value::Bool(*b)); l0],
+            _ => per_feature(args, key, l0)?,
+        };
+        Ok(v.iter()
+            .map(|x| !matches!(x, None | Some(serde_json::Value::Null | serde_json::Value::Bool(false))))
+            .collect())
+    };
+    let transforms: Vec<(char, Vec<bool>)> = vec![
+        ('c', on("condition")?),
+        ('r', on("retention")?),
+        ('d', on("connectivity")?),
+        ('i', on("interaction")?),
+        ('I', on("interaction2")?),
+        ('m', on("matrix_connectivity")?),
+    ];
+    let groups: Vec<i64> = per_layer(args, "impact_groups", l0, -1i64)?;
+    let impact: Option<zonation::ImpactScenario> = args.opt_param("impact")?;
+    let cumulative = args.params.get("cumulative_impact").is_some_and(|v| !v.is_null());
+    Ok(kept
+        .iter()
+        .map(|&i| {
+            let base = if files[i].is_empty() {
+                stack.keys[i].to_string()
+            } else {
+                std::path::Path::new(&files[i])
+                    .file_stem()
+                    .map_or_else(String::new, |s| s.to_string_lossy().into_owned())
+            };
+            let mut ext = String::new();
+            if thresholds[i] > 0.0 {
+                ext.push('t');
+            }
+            for (c, flags) in &transforms {
+                if flags[i] {
+                    ext.push(*c);
+                }
+            }
+            if let Some(sc) = &impact
+                && groups[i] >= 0
+                && sc.impacts.iter().any(|s| s.group == groups[i])
+            {
+                ext.push('s');
+            }
+            if cumulative && groups[i] >= 0 {
+                ext.push('e');
+            }
+            if ext.is_empty() { format!("{base}.layer{i}") } else { format!("{base}.layer{i}.{ext}") }
+        })
+        .collect())
 }
 
 /// A layer of a stack input by its name, on the features' grid.

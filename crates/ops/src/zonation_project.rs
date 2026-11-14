@@ -10,8 +10,10 @@ use serde_json::{Value as Json, json};
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 
 use crate::files::File;
-use crate::prioritize::Zonation;
+use crate::prioritize::{Ranked, Zonation};
+use crate::zonation_files;
 use crate::{Args, Ctx, Error, Key, Map, Operator, Outputs, Registry, Result, Stack, Table, Value};
+use terraflux_raster::DataType;
 
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(ZonationProject));
@@ -244,6 +246,8 @@ fn impact_scenarios(
             m.insert("name".into(), ini.get("project id").cloned().unwrap_or_else(|| "scenario".into()).into());
             let factor = ini.get("area conversion factor").filter(|v| !v.is_empty()).map_or(Ok(1.0), |v| num(v))?;
             m.insert("area_factor".into(), json!(if factor == 0.0 { 1.0 } else { factor }));
+            m.insert("area_unit".into(), ini.get("area unit name").cloned().unwrap_or_default().into());
+            m.insert("impact_unit".into(), ini.get("impact unit name").cloned().unwrap_or_default().into());
             if let Some(s) = ini.get("subareas raster file").filter(|v| !v.is_empty()) {
                 m.insert("subareas".into(), p.map_of("impact_maps", resolve(s, at)));
             }
@@ -733,6 +737,7 @@ fn read_map(path: &Path, grid: &Arc<terraflux_raster::Grid>) -> Result<Map> {
 /// features' files (a file of several bands: the settings of its line for each).
 fn inputs(p: &Project) -> Result<(BTreeMap<String, Value>, serde_json::Map<String, Json>)> {
     let mut keys = Vec::new();
+    let mut files: Vec<Json> = Vec::new();
     let mut layers = Vec::new();
     let mut nodata = Vec::new();
     let mut copies = Vec::new();
@@ -769,6 +774,7 @@ fn inputs(p: &Project) -> Result<(BTreeMap<String, Value>, serde_json::Map<Strin
                 key += &format!(" ({count})");
             }
             keys.push(Key::Name(key));
+            files.push(json!(f.file.to_string_lossy()));
             layers.push(Arc::new(v));
             nodata.push(nd.map_or(Json::Null, |v| json!(v as f32)));
         }
@@ -789,6 +795,7 @@ fn inputs(p: &Project) -> Result<(BTreeMap<String, Value>, serde_json::Map<Strin
         params.insert("nodata".into(), nodata.into());
     }
     params.insert("block_rows".into(), json!(block_rows.min(grid.height)));
+    params.insert("_files".into(), files.into());
     let mut ins = BTreeMap::new();
     ins.insert("features".to_string(), Value::Stack(Stack { grid: grid.clone(), keys, layers }));
     for (port, path) in &p.maps {
@@ -842,7 +849,8 @@ impl Operator for ZonationProject {
             "output",
             Type::Text,
             "a folder for z5's output files: rankmap.tif, feature_curves.csv, summary_curves.csv, \
-             feature_density_curves.csv, group_curves.csv (with -g) and features_info.csv, the same digits as z5",
+             feature_density_curves.csv, group_curves.csv (with -g) and features_info.csv; with -p the files of the calls in post_processing/ and with \
+             -s/-e impacts/; the same digits as z5",
         ));
         sig.outputs = zonation.outputs.into_iter().filter(|o| !post.contains(&o.name.as_str())).collect();
         sig.outputs.extend([
@@ -881,10 +889,13 @@ impl Operator for ZonationProject {
         }
         let zargs = Args { node, inputs: ins, params: &params };
         let (mut out, ranked) = Zonation.rank(&zargs)?;
-        if let Some(dir) = args.opt_param::<String>("output")?.filter(|d| !d.is_empty()) {
-            // z5's headers name the features only when the feature list has names
-            ranked.write_files(Path::new(&dir), project.features.iter().any(|f| f.name.is_some()))?;
+        // z5's headers name the features only when the feature list has names
+        let named = project.features.iter().any(|f| f.name.is_some());
+        let output = args.opt_param::<String>("output")?.filter(|d| !d.is_empty());
+        if let Some(dir) = &output {
+            ranked.write_files(Path::new(dir), named)?;
         }
+        let post_dir = output.map(|d| Path::new(&d).join("post_processing"));
         let Some(pp) = &project.post else { return Ok(out) };
         let at = parent(pp);
         let grid = ranked_grid(&out);
@@ -959,6 +970,20 @@ impl Operator for ZonationProject {
             let cargs = Args { node, inputs: cins, params: &cp };
             let mut o = Outputs::new();
             Zonation.post(&cargs, &ranked, &mut o)?;
+            if let Some(dir) = &post_dir {
+                let n = |k: usize| num_at(k).unwrap_or(0.0);
+                let (id, range) = match name.as_str() {
+                    "area_statistics_external" => (text_at(1), [0.0; 4]),
+                    "area_statistics_rank_range" => (text_at(2), [0.0; 4]),
+                    "area_statistics_separate_areas" => (text_at(3), [0.0; 4]),
+                    "solution_comparison" => (text_at(5), [n(0), n(1), n(3), n(4)]),
+                    "histogram" => (text_at(3), [n(0), n(1), 0.0, 0.0]),
+                    _ => (text_at(4), [0.0; 4]),
+                };
+                let compare = (name == "solution_comparison").then(|| resolve(&text_at(2), &at));
+                let call = PostCall { name, id: &id, range, compare: compare.as_deref() };
+                write_post(dir, &ranked, named, &call, &o, mask_name.as_deref(), &flex)?;
+            }
             for key in POST_TABLES {
                 if let Some(Value::Table(t)) = o.remove(key) {
                     let all = tables.entry(key).or_insert_with(|| {
@@ -989,6 +1014,99 @@ impl Operator for ZonationProject {
         }
         Ok(out)
     }
+}
+
+/// A post-processing call: its name, its id (the files' suffix), its rank range (and values, for a comparison)
+/// and the solution compared.
+struct PostCall<'a> {
+    name: &'a str,
+    id: &'a str,
+    range: [f64; 4],
+    compare: Option<&'a Path>,
+}
+
+/// The files of a post-processing call (landschaft's run_calls): the tables of the statistics of areas (the
+/// coverage matrix, the areas' statistics and the highest occurrences of every set of features), the comparison,
+/// the histograms and the maps (the masks, the flexibility maps).
+fn write_post(
+    dir: &Path,
+    r: &Ranked,
+    named: bool,
+    call: &PostCall,
+    o: &Outputs,
+    mask: Option<&str>,
+    flex: &[(&str, String)],
+) -> Result<()> {
+    let fail = |e: std::io::Error| Error::msg(format!("{}: {e}", dir.display()));
+    std::fs::create_dir_all(dir).map_err(fail)?;
+    let put = |file: String, text: String| std::fs::write(dir.join(file), text).map_err(fail);
+    let ids = if call.id.is_empty() { String::new() } else { format!(".{}", call.id) };
+    // the rows of a set of features: its weight class (1, -1, 0) or its group
+    let of_set = |t: &Table, set: &str| -> Vec<Vec<f64>> {
+        t.rows
+            .iter()
+            .filter(|row| match set {
+                "pos" => row[0] == 1.0,
+                "neg" => row[0] == -1.0,
+                "zero" => row[0] == 0.0,
+                g => row[1] == g.parse::<f64>().unwrap_or(f64::NAN),
+            })
+            .cloned()
+            .collect()
+    };
+    let headers = r.headers(named);
+    let quoted: Vec<String> = if named { headers.clone() } else { vec!["\"\"".to_string(); headers.len()] };
+    if let (Some(Value::Table(stats)), Some(Value::Table(cov))) = (o.get("area_statistics"), o.get("coverage")) {
+        for (set, idx) in &r.sets {
+            let rows: Vec<(i64, Vec<f64>)> =
+                of_set(cov, set).iter().map(|row| (row[2] as i64, idx.iter().map(|&i| row[3 + i]).collect())).collect();
+            let heads: Vec<String> = idx.iter().map(|&i| headers[i].clone()).collect();
+            put(format!("coverage_matrix.{set}{ids}.csv"), zonation_files::coverage_matrix(&heads, &rows))?;
+            let areas: Vec<(i64, i64, [f64; 6])> = of_set(stats, set)
+                .iter()
+                .map(|row| (row[2] as i64, row[3] as i64, [row[4], row[5], row[6], row[7], row[8], row[9]]))
+                .collect();
+            put(format!("area_stats.{set}{ids}.csv"), zonation_files::area_stats(&areas))?;
+            put(
+                format!("highest_occurrences.{set}{ids}.txt"),
+                zonation_files::highest_occurrences(&rows, idx, &r.numbers, &quoted, &r.files),
+            )?;
+        }
+    }
+    let grid = &r.grid;
+    if let Some(file) = mask
+        && let Some(Value::Map(m)) = o.get("area_mask").or_else(|| o.get("comparison_map"))
+    {
+        let dtype = if call.name == "area_statistics_separate_areas" { DataType::I32 } else { DataType::U8 };
+        zonation_files::write_tif(&dir.join(format!("{file}.tif")), grid, &m.data, dtype, None)?;
+    }
+    if let (Some(Value::Table(t)), Some(path)) = (o.get("comparison"), call.compare) {
+        let c = &t.rows[0];
+        let full = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let full = full.to_string_lossy();
+        let full = full.strip_prefix("\\\\?\\").unwrap_or(&full);
+        put(
+            format!("solution_comparison{ids}.txt"),
+            zonation_files::solution_comparison(full, call.range, [c[0], c[1], c[2], c[3]], r.cell_count() as f64),
+        )?;
+    }
+    if let Some(Value::Table(h)) = o.get("histogram") {
+        for (set, _) in &r.sets {
+            let rows: Vec<(i64, f64, f64)> = of_set(h, set).iter().map(|row| (row[2] as i64, row[3], row[4])).collect();
+            put(
+                format!("histogram.{set}{ids}.txt"),
+                zonation_files::histogram(set, call.range[0], call.range[1], &rows),
+            )?;
+        }
+    }
+    if let Some(Value::Stack(s)) = o.get("flexibility") {
+        for (key, file) in flex {
+            let at = s.keys.iter().position(|k| k.to_string() == *key).unwrap();
+            let data: Vec<f64> = s.layers[at].iter().map(|v| if v.is_nan() { f64::NEG_INFINITY } else { *v }).collect();
+            zonation_files::write_tif(&dir.join(format!("{file}.tif")), grid, &data, DataType::F32, None)?;
+        }
+    }
+    Ok(())
 }
 
 fn ranked_grid(out: &Outputs) -> Arc<terraflux_raster::Grid> {

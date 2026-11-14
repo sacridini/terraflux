@@ -779,6 +779,19 @@ pub struct ImpactScenario {
     pub subareas: Option<String>,
     #[serde(default = "yes")]
     pub rasters: bool,
+    /// The scenario's name (its folder in impacts/), the units and the factor of the files' areas.
+    #[serde(default = "scenario_name")]
+    pub name: String,
+    #[serde(default)]
+    pub area_unit: String,
+    #[serde(default)]
+    pub impact_unit: String,
+    #[serde(default = "one")]
+    pub area_factor: f64,
+}
+
+fn scenario_name() -> String {
+    "scenario".into()
 }
 
 /// A pressure map of a cumulative scenario.
@@ -831,6 +844,14 @@ pub struct CumulativeScenario {
     pub aggregation: String,
     #[serde(default)]
     pub functions: Vec<ResponseFunction>,
+    #[serde(default = "scenario_name")]
+    pub name: String,
+    #[serde(default)]
+    pub area_unit: String,
+    #[serde(default)]
+    pub impact_unit: String,
+    #[serde(default = "one")]
+    pub area_factor: f64,
 }
 
 /// The squared Euclidean distance (float32) of every cell of an h x w mask to its nearest true cell (FLT_MAX
@@ -1210,10 +1231,50 @@ fn round_half_away(x: f32) -> f32 {
     t + if frac.abs() >= 0.5 { x.signum() } else { 0.0 }
 }
 
+/// The accumulated impacts of a source scenario, as the files of impacts/<scenario> have them: the keys are the
+/// accumulator's (0, area, group, layer, bin: totals; 1, area, group, source, layer, bin, zone), the layers their
+/// position among the features kept, the areas their numbers.
+#[derive(Clone)]
+pub struct SourceFiles {
+    pub name: String,
+    pub area_unit: String,
+    pub impact_unit: String,
+    pub area_factor: f64,
+    pub areas: Vec<i64>,
+    /// Per group with zones, per source, its number of zones.
+    pub nzones: BTreeMap<i64, BTreeMap<i64, usize>>,
+    pub acc: std::collections::HashMap<Vec<i64>, [f64; 3]>,
+}
+
+/// The same of a cumulative scenario: (0, area, layer) totals, (phase, area, group, layer).
+#[derive(Clone)]
+pub struct CumulativeFiles {
+    pub name: String,
+    pub area_unit: String,
+    pub impact_unit: String,
+    pub area_factor: f64,
+    pub areas: Vec<i64>,
+    /// Per layer, the cells with values.
+    pub maxarea: BTreeMap<usize, f64>,
+    pub acc: std::collections::HashMap<Vec<i64>, [f64; 3]>,
+}
+
+#[derive(Clone, Default)]
+pub struct ImpactFiles {
+    pub source: Option<SourceFiles>,
+    pub cumulative: Option<CumulativeFiles>,
+    /// Per impact group, its layers (positions among the features kept).
+    pub group_layers: BTreeMap<i64, Vec<usize>>,
+    /// Per layer with bins, their limits.
+    pub bins: BTreeMap<usize, Vec<(f32, f32)>>,
+}
+
 /// The impacts of the scenarios: per area (0 all), group, source, zone, feature (its layer) and bin (-1 all), the
 /// features' distribution in the zone, its loss and cells; per area, group, phase (1 direct, 2 cumulative) and
 /// feature the same; and the impact maps of the groups.
 pub struct Impacts {
+    /// What impacts/'s files are written from.
+    pub files: ImpactFiles,
     pub zones: Vec<[f64; 9]>,
     pub cumulative: Vec<[f64; 7]>,
     pub maps: Vec<(String, Vec<f32>)>,
@@ -1278,6 +1339,8 @@ pub fn impacts(
         cum = Some((area, area_ids, Accumulator::default()));
     }
     let mut maps = Vec::new();
+    let mut maxarea: BTreeMap<usize, f64> = BTreeMap::new();
+    let mut nzones: BTreeMap<i64, BTreeMap<i64, usize>> = BTreeMap::new();
     let full_at = |v: &[f32]| -> Vec<f32> { cells.iter().map(|&c| v[c as usize]).collect() };
     for (grow, &g) in group_numbers.iter().enumerate() {
         let (mut direct, mut cumr) = (None, None);
@@ -1304,6 +1367,12 @@ pub fn impacts(
             dense = zl.iter().map(|z| cells.iter().map(|&c| z.mask[c as usize]).collect()).collect();
             impact_raster = Some(r);
         }
+        if let Some(zl) = zl {
+            let m = nzones.entry(g).or_default();
+            for z in zl {
+                *m.entry(z.source).or_insert(0) += 1;
+            }
+        }
         for &k in &group_layers[&g] {
             let inf = info(data);
             let scale = inf.layer_scale[k];
@@ -1314,6 +1383,7 @@ pub fn impacts(
             let old = ffi::prio_eigen_sum(&v.iter().map(|x| f64::from(*x)).collect::<Vec<_>>()) * inv;
             let pos: Vec<bool> = v.iter().map(|x| *x > 0.0).collect();
             if let Some((area, _, acc)) = cum.as_mut() {
+                *maxarea.entry(k).or_insert(0.0) += pos.iter().filter(|p| **p).count() as f64;
                 let mut first = pos.clone();
                 for (sub, (phase, rast)) in [(1i64, &direct), (2, &cumr)].into_iter().enumerate() {
                     let Some(rast) = rast else { continue };
@@ -1429,9 +1499,21 @@ pub fn impacts(
         }
     }
     let area_value = |ids: &[i64], a: i64| if a == 0 { 0.0 } else { ids[a as usize - 1] as f64 };
-    let mut out = Impacts { zones: Vec::new(), cumulative: Vec::new(), maps };
+    let mut files = ImpactFiles { group_layers, bins, ..ImpactFiles::default() };
+    let mut out = Impacts { zones: Vec::new(), cumulative: Vec::new(), maps, files: ImpactFiles::default() };
     if let Some((_, ids, acc)) = src {
-        for (key, [imp, loss, cells]) in acc.finish() {
+        let done = acc.finish();
+        let sc = scenario.expect("a scenario with its accumulator");
+        files.source = Some(SourceFiles {
+            name: sc.name.clone(),
+            area_unit: sc.area_unit.clone(),
+            impact_unit: sc.impact_unit.clone(),
+            area_factor: sc.area_factor,
+            areas: ids.clone(),
+            nzones: nzones.clone(),
+            acc: done.iter().cloned().collect(),
+        });
+        for (key, [imp, loss, cells]) in done {
             if key[0] == 1 {
                 let [_, a, g, s, k, b, z] = key[..] else { unreachable!() };
                 out.zones.push([
@@ -1449,7 +1531,18 @@ pub fn impacts(
         }
     }
     if let Some((_, ids, acc)) = cum {
-        for (key, [imp, loss, cells]) in acc.finish() {
+        let done = acc.finish();
+        let sc = cumulative.expect("a scenario with its accumulator");
+        files.cumulative = Some(CumulativeFiles {
+            name: sc.name.clone(),
+            area_unit: sc.area_unit.clone(),
+            impact_unit: sc.impact_unit.clone(),
+            area_factor: sc.area_factor,
+            areas: ids.clone(),
+            maxarea,
+            acc: done.iter().cloned().collect(),
+        });
+        for (key, [imp, loss, cells]) in done {
             if key[0] != 0 {
                 let [phase, a, g, k] = key[..] else { unreachable!() };
                 out.cumulative.push([
@@ -1464,5 +1557,6 @@ pub fn impacts(
             }
         }
     }
+    out.files = files;
     Ok(out)
 }

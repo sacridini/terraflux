@@ -298,20 +298,136 @@ impl Features<'_> {
     }
 }
 
+/// coverage_matrix.<set>[.<id>].csv: per area the share of every feature of the set in it.
+pub fn coverage_matrix(headers: &[String], rows: &[(i64, Vec<f64>)]) -> String {
+    let mut out = String::from("\"area\" ");
+    for h in headers {
+        out += &format!("{h} ");
+    }
+    out.push('\n');
+    for (area, v) in rows {
+        out += &format!("{area} ");
+        for x in v {
+            out += &format!("{} ", g6(*x));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// area_stats.<set>[.<id>].csv: per area its size, mean rank, the features' sum (and weighted), relative to the
+/// average (and weighted) and the cost.
+pub fn area_stats(rows: &[(i64, i64, [f64; 6])]) -> String {
+    let mut out = String::from("\"area\" \"size\" \"avgrank\" \"ds\" \"wds\" \"rfd\" \"wfd\" \"cost\"\n");
+    for (area, size, v) in rows {
+        out += &format!("{area} {size}");
+        for x in v {
+            out += &format!(" {}", g6(*x));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// highest_occurrences.<set>[.<id>].txt: per area the features holding more than 0.1% of their distribution in it,
+/// the largest first: the percentage, number, quoted name and file.
+pub fn highest_occurrences(
+    rows: &[(i64, Vec<f64>)],
+    idx: &[usize],
+    numbers: &[usize],
+    quoted: &[String],
+    files: &[String],
+) -> String {
+    let mut out = String::new();
+    for (area, sums) in rows {
+        let mut order: Vec<usize> = (0..sums.len()).collect();
+        order.sort_by(|a, b| sums[*b].partial_cmp(&sums[*a]).unwrap_or(std::cmp::Ordering::Equal));
+        let mut block = String::new();
+        for i in order {
+            let pct = sums[i] * 100.0;
+            if pct <= 0.1 {
+                break;
+            }
+            let k = idx[i];
+            block += &format!("{} {} {} {}\n", g6(pct), numbers[k], quoted[k], files[k]);
+        }
+        if !block.is_empty() {
+            out += &format!("Area {area}\n{block}\n");
+        }
+    }
+    out
+}
+
+/// solution_comparison[.<id>].txt.
+pub fn solution_comparison(file: &str, range: [f64; 4], counts: [f64; 4], n: f64) -> String {
+    let [both, only_this, only_other, neither] = counts;
+    let pct = |c: f64| g(100.0 * c / n);
+    format!(
+        "Comparing present solution to {file}\n\
+         Priority rank range of interest in present solution is from {} to {}\n\
+         Numeric range of interest in comparison file is from {} to {}\n\
+         Number of grid cells chosen in both solutions is {both} ({}% of analysis area)\n\
+         Number of grid cells chosen in neither solution is {neither} ({}% of analysis area)\n\
+         Number of grid cells chosen only in present solution is {only_this} ({}% of analysis area)\n\
+         Number of grid cells chosen only in comparison file is {only_other} ({}% of analysis area)\n",
+        g(range[0]),
+        g(range[1]),
+        g(range[2]),
+        g(range[3]),
+        pct(both),
+        pct(neither),
+        pct(only_this),
+        pct(only_other)
+    )
+}
+
+/// histogram.<set>[.<id>].txt: the count of features per bin of coverage.
+pub fn histogram(set: &str, lo: f64, hi: f64, rows: &[(i64, f64, f64)]) -> String {
+    let title = match set {
+        "pos" => "positive weight".to_string(),
+        "neg" => "negative weight".to_string(),
+        "zero" => "zero weight".to_string(),
+        g => format!("group {g}"),
+    };
+    let mut out = format!(
+        "priority rank minimum: {}\npriority rank maximum: {}\n{title} layers\n\n\"bin\" \"coverage_level\" \"count\"\n",
+        g6(lo),
+        g6(hi)
+    );
+    for (bin, level, count) in rows {
+        out += &format!("{bin} {level:.4} {}\n", g(*count));
+    }
+    out
+}
+
 /// rankmap.tif: float32, NaN as Zonation's no-data -inf, LZW with the floating-point predictor, tiled by 512 when
 /// the grid has that many cells, BigTIFF when needed. GDAL writes it; without GDAL the file is Terraflux's own
 /// (deflated).
 pub fn write_rankmap(path: &Path, grid: &Grid, rank: &[f64]) -> Result<()> {
-    let data: Vec<f64> =
-        rank.iter().map(|v| if v.is_nan() { f64::NEG_INFINITY } else { f64::from(*v as f32) }).collect();
-    let raster = Raster::single(grid.clone(), data, DataType::F32, Some(f64::NEG_INFINITY));
+    let data: Vec<f64> = rank.iter().map(|v| if v.is_nan() { f64::NEG_INFINITY } else { *v }).collect();
+    write_tif(path, grid, &data, DataType::F32, Some(f64::NEG_INFINITY))
+}
+
+/// A GeoTIFF as landschaft's write_raster writes it: LZW with the predictor of the type (3 for floats, 2 for
+/// integers), tiled by 512 when the grid has that many cells, BigTIFF when needed.
+pub fn write_tif(path: &Path, grid: &Grid, data: &[f64], dtype: DataType, nodata: Option<f64>) -> Result<()> {
     let err = |e: String| Error::msg(format!("{}: {e}", path.display()));
+    if let Some(d) = path.parent() {
+        std::fs::create_dir_all(d).map_err(|e| err(e.to_string()))?;
+    }
+    let data: Vec<f64> =
+        if dtype == DataType::F32 { data.iter().map(|v| f64::from(*v as f32)).collect() } else { data.to_vec() };
+    let raster = Raster::single(grid.clone(), data, dtype, nodata);
     let plain = path.with_extension("tmp.tif");
     terraflux_raster::tiff::write(&raster, &plain, &Default::default()).map_err(|e| err(e.to_string()))?;
+    let (ot, predictor) = match dtype {
+        DataType::U8 => ("Byte", "2"),
+        DataType::I32 => ("Int32", "2"),
+        _ => ("Float32", "3"),
+    };
     let mut args: Vec<String> =
-        ["-ot", "Float32", "-co", "COMPRESS=LZW", "-co", "PREDICTOR=3", "-co", "BIGTIFF=IF_SAFER"]
-            .map(String::from)
-            .to_vec();
+        ["-ot", ot, "-co", "COMPRESS=LZW", "-co", "BIGTIFF=IF_SAFER"].map(String::from).to_vec();
+    args.extend(["-co".to_string(), format!("PREDICTOR={predictor}")]);
     if grid.height * grid.width >= 512 * 512 {
         args.extend(["-co", "TILED=YES", "-co", "BLOCKXSIZE=512", "-co", "BLOCKYSIZE=512"].map(String::from));
     }

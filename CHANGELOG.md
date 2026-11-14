@@ -12,8 +12,12 @@ minor versions.
   cells), `feature_curves.csv`, `summary_curves.csv`, `feature_density_curves.csv`, `group_curves.csv` (with
   output groups) and `features_info.csv` as landschaft writes them: the same lines as Zonation's own files in 64
   cases (the means are Zonation's float32 sums, Eigen's order). `prioritize.zonation`'s `output_names` chooses the
-  curves' header: the features' names (default) or their numbers, as z5 without names. The post-processing files
-  and the impacts' are not written yet.
+  curves' header: the features' names (default) or their numbers, as z5 without names. With a project,
+  `prioritize.zonation_project`'s `output` also writes the files of the post-processing calls
+  (`post_processing/`: area_stats, coverage_matrix, highest_occurrences, solution_comparison, histogram, the masks
+  and flexibility maps) and the impact assessment folder (`impacts/<scenario>/`: the source analysis per area,
+  group, source and bin, the cumulative tables and the group maps), the same lines as Zonation's own files in the
+  4 post-processing and 5 impact projects of landschaft's reference (the rasters bit for bit).
 - **Advice and tips:** a metrics operator on a map of whole values but more than 100 classes (a map of ids, or a
   continuous quantity rounded) is advised to group them first; tips for `conn.metapopulation`, `conn.overall`,
   `conn.link_importance` and `conn.distances`.

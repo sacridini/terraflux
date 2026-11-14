@@ -59,8 +59,12 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
    - **Feito** (Unreleased): as saídas nos arquivos do z5 (`output` em `prioritize.zonation` e
      `prioritize.zonation_project`: `rankmap.tif`, `feature_curves.csv`, `summary_curves.csv`,
      `feature_density_curves.csv`, `group_curves.csv`, `features_info.csv`), as mesmas linhas do z5 em 64 casos
-     (as somas do Eigen em float). Falta escrever os arquivos do pós-processamento (`area_stats`,
-     `coverage_matrix`, ...) e a pasta `impacts/`, dígito a dígito como o landschaft.
+     (as somas do Eigen em float). Os arquivos do pós-processamento (`post_processing/`: `area_stats`,
+     `coverage_matrix`, `highest_occurrences`, comparação, histogramas, máscaras e mapas de flexibilidade) e a pasta
+     `impacts/` saem pelo `output` do `prioritize.zonation_project`, iguais aos arquivos do próprio z5 nos 4
+     projetos de pós-processamento e nos 5 de impactos. Falta: escrever o pós-processamento também por
+     `prioritize.zonation` (sem projeto), e conferir com o z5 as unidades de área/impacto dos cenários e as listas
+     de features com nomes (nenhum caso de referência as usa).
 
 ## Vetores
 

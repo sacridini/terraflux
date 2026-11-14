@@ -89,6 +89,148 @@ fn projects_rank_as_zonation() {
     assert_eq!(all.as_object().unwrap().len(), 65);
 }
 
+/// The text of a stored file (xz-compressed).
+fn text_of(a: &Array) -> String {
+    let packed: Vec<u8> = a.data.iter().map(|v| *v as u8).collect();
+    let mut bytes = Vec::new();
+    lzma_rs::xz_decompress(&mut std::io::Cursor::new(packed), &mut bytes).unwrap();
+    String::from_utf8(bytes).unwrap()
+}
+
+/// The files under a folder, as paths relative to it with `/`, sorted.
+fn files_under(dir: &Path) -> Vec<String> {
+    fn walk(dir: &Path, base: &Path, out: &mut Vec<String>) {
+        for e in std::fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                walk(&p, base, out);
+            } else {
+                out.push(p.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    if dir.exists() {
+        walk(dir, dir, &mut out);
+    }
+    out.sort();
+    out
+}
+
+fn tif_cells(path: &Path) -> Vec<f64> {
+    terraflux_raster::tiff::read(path).unwrap().bands.remove(0).data
+}
+
+fn stripped(text: &str) -> Vec<String> {
+    text.lines().map(|l| l.trim().to_string()).collect()
+}
+
+/// The post-processing files (`output`/post_processing) of the projects with a post-processing file and the
+/// impacts' (`output`/impacts) of those with scenarios, against Zonation's own: the same files, the texts line by
+/// line (the solution comparison without its first line, the highest occurrences without the files' paths), the
+/// masks bit for bit, the flexibility maps as the existing tests compare them (those of `post_presence` bit for
+/// bit, the others where Zonation's curves are ours: more than 90%).
+#[test]
+fn projects_write_post_and_impacts_as_zonation() {
+    let all = projects();
+    let mut refs: BTreeMap<String, (BTreeMap<String, Array>, serde_json::Value)> = BTreeMap::new();
+    let (mut posts, mut impacts, mut lines, mut tifs) = (0, 0, 0, 0);
+    for (name, case) in all.as_object().unwrap() {
+        let group = case["group"].as_str().unwrap();
+        if group != "post" && group != "impact" {
+            continue;
+        }
+        let (arrays, _) = refs.entry(group.to_string()).or_insert_with(|| reference(group));
+        let dir = write_case(name, case);
+        let out_dir = dir.join("z5-output");
+        run(serde_json::json!({
+            "path": dir.join("settings.z5").to_string_lossy(),
+            "flags": case["flags"],
+            "mode": case["mode"],
+            "bits": case["bits"],
+            "output": out_dir.to_string_lossy(),
+        }))
+        .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let key_of = |dir: &str| format!("{name}/{dir}/");
+        let post: Vec<String> =
+            arrays.keys().filter_map(|k| k.strip_prefix(&key_of("post"))).map(String::from).collect();
+        if !post.is_empty() {
+            let mut want = post.clone();
+            want.sort();
+            let root = out_dir.join("post_processing");
+            assert_eq!(files_under(&root), want, "{name}: the post-processing files");
+            for f in &want {
+                if f.ends_with(".tif") {
+                    let ours = tif_cells(&root.join(f));
+                    let flex = f.starts_with("flexibility");
+                    let reference = if flex {
+                        &arrays[&format!("{name}/post/{f}")]
+                    } else {
+                        &arrays[&format!("{name}/load/post/{f}")]
+                    };
+                    assert_eq!(ours.len(), reference.data.len());
+                    if flex && name != "post_presence" {
+                        let pairs: Vec<(&f64, &f64)> =
+                            ours.iter().zip(&reference.data).filter(|(_, b)| b.is_finite()).collect();
+                        let equal = pairs.iter().filter(|(a, b)| same(**a, **b)).count();
+                        assert!(equal as f64 > 0.9 * pairs.len() as f64, "{name}: {f}: {equal} of {}", pairs.len());
+                    } else {
+                        let differ = ours.iter().zip(&reference.data).filter(|(a, b)| !same(**a, **b)).count();
+                        assert_eq!(differ, 0, "{name}: {f}: {differ} cells differ");
+                    }
+                    tifs += 1;
+                    continue;
+                }
+                let mut want_lines = stripped(&text_of(&arrays[&format!("{name}/load/post/{f}")]));
+                let mut got = stripped(&std::fs::read_to_string(root.join(f)).unwrap());
+                if f.starts_with("highest") {
+                    // the files' paths differ
+                    let three = |v: &mut Vec<String>| {
+                        v.iter_mut().for_each(|l| *l = l.split_whitespace().take(3).collect::<Vec<_>>().join(" "))
+                    };
+                    three(&mut want_lines);
+                    three(&mut got);
+                }
+                if f.starts_with("solution") && f.ends_with(".txt") {
+                    want_lines.remove(0);
+                    got.remove(0);
+                }
+                if let Some(i) = (0..got.len().max(want_lines.len())).find(|&i| got.get(i) != want_lines.get(i)) {
+                    panic!("{name}: {f}: line {i}: {:?} vs Zonation's {:?}", got.get(i), want_lines.get(i));
+                }
+                lines += got.len();
+            }
+            posts += 1;
+        }
+        let prefix = key_of("impacts");
+        let mut want: Vec<String> = arrays.keys().filter_map(|k| k.strip_prefix(&prefix)).map(String::from).collect();
+        if !want.is_empty() {
+            want.sort();
+            let root = out_dir.join("impacts");
+            assert_eq!(files_under(&root), want, "{name}: the impacts' files");
+            for f in &want {
+                let reference = &arrays[&format!("{prefix}{f}")];
+                if f.ends_with(".tif") {
+                    let ours = tif_cells(&root.join(f));
+                    let differ = ours.iter().zip(&reference.data).filter(|(a, b)| !same(**a, **b)).count();
+                    assert_eq!(differ, 0, "{name}: {f}: {differ} cells differ");
+                    tifs += 1;
+                } else {
+                    let want_lines = stripped(&text_of(reference));
+                    let got = stripped(&std::fs::read_to_string(root.join(f)).unwrap());
+                    if let Some(i) = (0..got.len().max(want_lines.len())).find(|&i| got.get(i) != want_lines.get(i)) {
+                        panic!("{name}: {f}: line {i}: {:?} vs Zonation's {:?}", got.get(i), want_lines.get(i));
+                    }
+                    lines += got.len();
+                }
+            }
+            impacts += 1;
+        }
+        std::fs::remove_dir_all(dir).ok();
+    }
+    println!("{posts} projects with post-processing, {impacts} with impacts: {lines} lines, {tifs} rasters");
+}
+
 /// The output files of every project that Zonation's LOAD tables exist for (`output`): the curves line by line as
 /// Zonation's (the header of feature_curves.csv names the features of a feature list with names, and landschaft's
 /// reference runs have none: its names are left out), rankmap.tif as the rank.
