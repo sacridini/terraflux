@@ -153,6 +153,105 @@ pub fn crop_panel(p: &Panel, extent: [f64; 4]) -> Result<Panel, String> {
     Ok(Panel { source: crop_source(&p.source, extent)?, ..p.clone() })
 }
 
+/// Whether cutting a source to a box reads rasters on disk (a blocking read, for a big one).
+pub fn reads(s: &Source, extent: [f64; 4]) -> bool {
+    let g = s.grid();
+    if cells_of(g, extent).is_none_or(|c| whole(g, c)) {
+        return false;
+    }
+    match s {
+        Source::Rasters(..) => true,
+        Source::Shade(sh) => reads(&sh.base, extent),
+        Source::Rgb(r) => r.bands.iter().any(|b| reads(b, extent)),
+        Source::Map(_) | Source::Blank(_) => false,
+    }
+}
+
+/// What the Figure and Export clicks make their dialogs of: the export's panel, the views beside it and how opaque
+/// the data is over the basemap; the figure's choices of panels.
+#[derive(Default)]
+pub struct Parts {
+    pub export: Option<(Panel, Vec<Panel>, f32)>,
+    pub choices: Option<Vec<(String, Vec<Panel>)>>,
+}
+
+impl Parts {
+    fn reads(&self, extent: [f64; 4]) -> bool {
+        let export = self.export.iter().flat_map(|(p, b, _)| std::iter::once(p).chain(b));
+        let figure = self.choices.iter().flatten().flat_map(|(_, ps)| ps);
+        export.chain(figure).any(|p| reads(&p.source, extent))
+    }
+
+    /// Every panel cut to the box (one that cannot be cut stays as it is).
+    fn cut(self, extent: [f64; 4]) -> Parts {
+        let one = |p: Panel| crop_panel(&p, extent).unwrap_or(p);
+        Parts {
+            export: self.export.map(|(p, b, o)| (one(p), b.into_iter().map(one).collect(), o)),
+            choices: self
+                .choices
+                .map(|c| c.into_iter().map(|(n, ps)| (n, ps.into_iter().map(one).collect())).collect()),
+        }
+    }
+}
+
+/// The part of a big map being read for the Figure or the Export, off the interface's thread.
+pub struct Cutting {
+    rx: std::sync::mpsc::Receiver<Parts>,
+    basemap: crate::map_view::Basemap,
+}
+
+/// Open the Figure and Export dialogs of `parts`, cut to the saved view `frame` of the Plot open. When the cut reads
+/// rasters on disk it is made by a thread, and [`window`] opens the dialogs when it is done.
+pub fn open(
+    ctx: &egui::Context,
+    s: &mut crate::app::Session,
+    parts: Parts,
+    frame: Option<[f64; 4]>,
+    basemap: crate::map_view::Basemap,
+) {
+    let Some(e) = frame else { return finish(s, parts, basemap) };
+    if !parts.reads(e) {
+        return finish(s, parts.cut(e), basemap);
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let ctx = ctx.clone();
+    std::thread::spawn(move || {
+        let _ = tx.send(parts.cut(e));
+        ctx.request_repaint();
+    });
+    s.cutting = Some(Cutting { rx, basemap });
+}
+
+fn finish(s: &mut crate::app::Session, parts: Parts, basemap: crate::map_view::Basemap) {
+    if let Some((panel, beside, opacity)) = parts.export {
+        s.export = Some(crate::export_view::Export::new(panel).beside(beside).under(basemap, opacity));
+    }
+    if let Some(choices) = parts.choices {
+        s.figure = Some(crate::figure::Composer::new(choices, String::new()));
+    }
+}
+
+/// The window that tells the part of a map is being read, and opens the dialogs when it is read.
+pub fn window(ctx: &egui::Context, s: &mut crate::app::Session) {
+    let Some(c) = &s.cutting else { return };
+    match c.rx.try_recv() {
+        Ok(parts) => {
+            let basemap = c.basemap;
+            s.cutting = None;
+            finish(s, parts, basemap);
+        }
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => s.cutting = None,
+        Err(std::sync::mpsc::TryRecvError::Empty) => {
+            egui::Window::new("Reading the map").collapsible(false).resizable(false).show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("reading the map...");
+                });
+            });
+        }
+    }
+}
+
 /// A value cut to a box: a map, the layers of a stack, the steps of a series, rasters on disk (their chosen layer);
 /// anything else as it is.
 pub fn crop_value(v: &Value, extent: [f64; 4]) -> Value {
@@ -241,6 +340,61 @@ mod tests {
         };
         let Value::Map(c) = &items[0] else { panic!() };
         assert_eq!(c.data.len(), 6);
+    }
+
+    /// The 6 x 4 map written to disk and opened as rasters.
+    fn on_disk(tag: &str) -> (Source, std::path::PathBuf) {
+        let m = map();
+        let r =
+            terraflux_raster::Raster::single((*m.grid).clone(), m.data.to_vec(), terraflux_raster::DataType::F32, None);
+        let path = std::env::temp_dir().join(format!("terraflux-frame-{tag}-{}.tif", std::process::id()));
+        r.write(&path).unwrap();
+        let rasters = terraflux_ops::files::Rasters::open(&path.to_string_lossy(), None, None).unwrap();
+        (Source::Rasters(Arc::new(rasters), 0), path)
+    }
+
+    #[test]
+    fn a_raster_on_disk_is_cut_to_the_window() {
+        let (src, path) = on_disk("crop");
+        let e = [120.0, 470.0, 150.0, 490.0];
+        let cut = crop_source(&src, e);
+        let whole_box = [0.0, 0.0, 1000.0, 1000.0];
+        let (reads_part, reads_all) = (reads(&src, e), reads(&src, whole_box));
+        let all = crop_source(&src, whole_box);
+        std::fs::remove_file(&path).ok();
+        // the same part as the map in memory
+        let Source::Map(c) = cut.unwrap() else { panic!("a map") };
+        let want = crop_map(&map(), e);
+        assert_eq!(c.grid.transform, want.grid.transform);
+        assert_eq!(c.data, want.data);
+        // reading is what a part of a file asks, not the whole of it nor a map in memory
+        assert!(reads_part && !reads_all);
+        assert!(matches!(all.unwrap(), Source::Rasters(..)));
+        assert!(!reads(&Source::Map(map()), e));
+        assert!(!reads(&Source::Blank(map().grid), e));
+    }
+
+    #[test]
+    fn a_panel_is_cut_the_same_in_a_thread_or_not() {
+        let (src, path) = on_disk("parts");
+        let e = [120.0, 470.0, 150.0, 490.0];
+        let panel = |source: Source| Panel {
+            source,
+            coloring: crate::palette::Coloring::Packed,
+            names: Vec::new(),
+            caption: String::new(),
+            vectors: Vec::new(),
+            rasters: Vec::new(),
+        };
+        let parts = |s: &Source| Parts { export: Some((panel(s.clone()), vec![panel(s.clone())], 1.0)), choices: None };
+        let (disk, memory) = (parts(&src), parts(&Source::Map(map())));
+        assert!(disk.reads(e) && !memory.reads(e));
+        let (disk, memory) = (disk.cut(e), memory.cut(e));
+        std::fs::remove_file(&path).ok();
+        let (d, m) = (disk.export.unwrap(), memory.export.unwrap());
+        let (Source::Map(a), Source::Map(b)) = (&d.0.source, &m.0.source) else { panic!("maps") };
+        assert_eq!((a.grid.width, a.grid.height, &a.data), (b.grid.width, b.grid.height, &b.data));
+        assert_eq!(d.1.len(), 1);
     }
 
     #[test]

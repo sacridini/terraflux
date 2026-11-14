@@ -1738,6 +1738,31 @@ params = { path = \"a.tif\" }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A Plot whose layer is a node inside a group (`g.inner.map`, `g/inner.map`) is drawn by the command too.
+    #[test]
+    fn a_plot_layer_inside_a_group_is_written() {
+        let dir = std::env::temp_dir().join(format!("terraflux-plot-inner-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let model = dir.join("m.toml");
+        std::fs::write(
+            &model,
+            "format = \"terraflux/1\"\n\n[[nodes]]\nid = \"g\"\nop = \"control.group\"\n[nodes.body]\n\
+             [[nodes.body.nodes]]\nid = \"inner\"\nop = \"nlm.random\"\nparams = { rows = 6, columns = 8, seed = 1 }\n\n\
+             [[plots]]\nid = \"dotted\"\n[[plots.layers]]\nfrom = \"g.inner.map\"\n\n\
+             [[plots]]\nid = \"placed\"\n[[plots.layers]]\nfrom = \"g/inner.map\"\n",
+        )
+        .unwrap();
+        let engine = Engine::default();
+        for id in ["dotted", "placed"] {
+            let png = dir.join(format!("{id}.png"));
+            let said = plot(&model, id, &png, 1, None, &[], None, true, &engine).unwrap();
+            assert!(said.contains("8 x 6 px"), "{id}: {said}");
+            assert!(png.exists());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn bands_and_drive_letters() {
         assert_eq!(split_band("lu.tif:1997"), ("lu.tif", Some("1997")));

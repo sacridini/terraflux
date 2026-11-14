@@ -72,15 +72,9 @@ pub fn place_of(m: &Model, from: &str) -> Option<Place> {
         return terraflux_graph::valid_id(name).then(|| Place::Input(name.to_string()));
     }
     let valid = |s: &str| !s.is_empty() && s.split('.').all(terraflux_graph::valid_id);
-    if from.contains('/') {
-        // (a place: the containers, the node, then the port after the last dot)
-        let (place, port) = from.rsplit_once('.')?;
-        let mut path: Vec<String> = place.split('/').map(String::from).collect();
-        let node = path.pop()?;
-        if !path.iter().chain([&node]).all(|s| terraflux_graph::valid_id(s)) || !terraflux_graph::valid_id(port) {
-            return None;
-        }
-        let (n, p) = crate::trace::shown_key(m, &path, &node, port)?;
+    if terraflux_graph::is_inner(from) {
+        // (inside containers: the graph finds the node through their bodies, a loop's the last step's)
+        let (n, p) = terraflux_graph::locate(m, from).ok()?.key();
         return Some(Place::Output(n, p));
     }
     let (node, port) = from.split_once('.')?;

@@ -2391,8 +2391,10 @@ responder no próprio Viewer as perguntas de quem estuda mudança de uso, sem mo
    uma extensão vazia. Testes: os de `frame`, `a_saved_view_draws_only_its_part`,
    `a_figure_shows_the_saved_view_of_its_plot`, `a_figure_carries_the_saved_view_of_its_plot`,
    `a_plot_keeps_its_view`, `a_plot_keeps_the_frame_of_its_map` (UI). Falta: *Save as a new plot* não grava a vista;
-   `set_plot` sem `view` apaga a vista (o Plot é trocado inteiro); o recorte de um raster grande em disco é lido na
-   thread da interface ao abrir a figura; Python e QGIS não leem a vista; a figura do Document ainda sem vetores.
+   `set_plot` sem `view` apaga a vista (o Plot é trocado inteiro); ~~o recorte de um raster grande em disco é lido na
+   thread da interface ao abrir a figura~~ (feito 2026-11-14: `frame::open` corta numa thread e `frame::window`
+   mostra "reading the map..."; o Document corta num job por (nó, porta, caixa); o relatório HTML/PDF ainda corta na
+   thread da interface, dentro da geração inteira); Python e QGIS não leem a vista; a figura do Document ainda sem vetores.
 7. **O painel de camadas como num GIS** (pedido de 2026-11-04): arrastar para reordenar (não funcionava), ligar e
    desligar fácil, trocar a paleta clicando na própria paleta, mínimo e máximo do histograma, *Add a layer* que
    funcione com camadas já presentes, o aspecto de um GIS comum (QGIS).
@@ -2773,9 +2775,10 @@ item, na ordem; release só quando pedido.
    estilo. Testes: os de `histogram.rs`, `export_view.rs`, `plot_export.rs`, `labels.rs`, `figure.rs`, `qgis.rs`,
    `the_view_exported_over_a_custom_basemap_fetches_its_tiles`, `measuring_in_the_views_side_by_side_each_with_its_own_line`.
    Também: `a_study_area_drawn_on_the_map` e `a_right_click_traces_a_cell` firmes sob carga (o botão buscado de novo;
-   o rastro conferido no estado do app, não no arquivo do último, que os testes dividem). Falta: um Plot com uma
+   o rastro conferido no estado do app, não no arquivo do último, que os testes dividem). Falta: ~~um Plot com uma
    camada de dentro de contêiner (`g.inner.map`) é recusado pelo `terraflux_graph::check`/`Ref::parse` (o `set_plot`
-   do MCP e o `open_plot` a perdem; o `plot_export` só a acha quando o modelo passa na checagem); a cortina dividida
+   do MCP e o `open_plot` a perdem; o `plot_export` só a acha quando o modelo passa na checagem)~~ (feito
+   2026-11-14: `terraflux_graph::locate`/`plot_port`, usados pelo check, `place_of`, `open_plot` e `set_plot`); a cortina dividida
    no PNG; o basemap do export é lento num PNG de 8 000 px (não medido); no `plot_export` a vista comparada nas
    cores do mapa principal; com medir ligado, o polígono e o perfil olham só a vista principal.
 

@@ -25,6 +25,70 @@ thread_local! {
     static PICS: RefCell<Pics> = RefCell::new(HashMap::new());
 }
 
+/// A part of a value of a Plot's saved view, being read or read: the identity of the value it was cut from, and
+/// the cut.
+enum Cut {
+    Reading(usize, std::sync::mpsc::Receiver<Value>),
+    Read(usize, Value),
+}
+
+/// The cuts of the values shown, by node, port and box (as the bits of its numbers).
+type Cuts = HashMap<(String, String, [u64; 4]), Cut>;
+
+thread_local! {
+    static CUTS: RefCell<Cuts> = RefCell::new(HashMap::new());
+}
+
+/// Whether cutting a value to a box reads rasters on disk.
+fn reads(v: &Value, e: [f64; 4]) -> bool {
+    match v {
+        Value::Raster(r) => crate::frame::reads(&crate::map_view::Source::Rasters(r.clone(), r.chosen), e),
+        Value::Series(items) => items.iter().any(|i| reads(i, e)),
+        _ => false,
+    }
+}
+
+/// A value cut to a box ([`crate::frame::crop_value`]). A part of a raster on disk is read by a thread, once for
+/// each value and box: none while it is being read (the picture is asked again when it is, by a repaint).
+fn cut_of(ctx: &egui::Context, node: &str, port: &str, v: &Value, e: [f64; 4]) -> Option<Value> {
+    if !reads(v, e) {
+        return Some(crate::frame::crop_value(v, e));
+    }
+    let (id, key) = (identity(v), (node.to_string(), port.to_string(), e.map(f64::to_bits)));
+    CUTS.with(|c| {
+        let mut c = c.borrow_mut();
+        match c.remove(&key) {
+            Some(Cut::Read(k, done)) if k == id => {
+                c.insert(key, Cut::Read(k, done.clone()));
+                return Some(done);
+            }
+            Some(Cut::Reading(k, rx)) if k == id => match rx.try_recv() {
+                Ok(done) => {
+                    c.insert(key, Cut::Read(k, done.clone()));
+                    return Some(done);
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    c.insert(key, Cut::Reading(k, rx));
+                    return None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => return Some(v.clone()),
+            },
+            _ => {}
+        }
+        if c.len() > 64 {
+            c.clear();
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (v, ctx) = (v.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let _ = tx.send(crate::frame::crop_value(&v, e));
+            ctx.request_repaint();
+        });
+        c.insert(key, Cut::Reading(id, rx));
+        None
+    })
+}
+
 /// What a value is, for the images made of it: the address of its cells (the same map gives the same image).
 fn identity(v: &Value) -> usize {
     match v {
@@ -57,7 +121,13 @@ fn picture(
 ) -> Option<Result<(TextureHandle, Option<String>), Visual>> {
     let mut v = s.value_of(node, port)?;
     if let Some(e) = view {
-        v = crate::frame::crop_value(&v, e);
+        v = match cut_of(ui.ctx(), node, port, &v, e) {
+            Some(c) => c,
+            None => {
+                let shown = Shown::Text("reading the map...".into());
+                return Some(Err(Visual { shown, of: None }));
+            }
+        };
     }
     if matches!(v, Value::Table(_)) {
         return visual(&v, 0).map(Err);

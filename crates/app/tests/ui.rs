@@ -4291,6 +4291,119 @@ fn a_plot_keeps_the_frame_of_its_map() {
     assert!(h.state().session.as_ref().unwrap().source.plot("framed").unwrap().view.is_none());
 }
 
+/// A Plot whose layer is a node inside a group (`g.land.raster`, or `g/land.raster`): the model is accepted, and the
+/// Viewer opens the Plot with that layer and draws it.
+#[test]
+fn a_plot_shows_a_layer_from_inside_a_group() {
+    use terraflux_graph::{Body, Node};
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let inner =
+            Node::new("land", "raster.read").param("path", data("sibuyan_landuse.tif").to_string_lossy().as_ref());
+        s.source.nodes =
+            vec![Node::new("g", terraflux_graph::GROUP).body(Body { nodes: vec![inner], ..Default::default() })];
+        s.source.plots = ["dotted", "placed"]
+            .iter()
+            .zip(["g.land.raster", "g/land.raster"])
+            .map(|(id, from)| terraflux_graph::Plot {
+                id: (*id).into(),
+                layers: vec![terraflux_graph::PlotLayer::new(from)],
+                ..Default::default()
+            })
+            .collect();
+        s.edited();
+        assert!(s.issues.is_empty(), "the plots' layers are found: {:?}", s.issues);
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("g", "land.raster").is_some()
+    });
+    for id in ["dotted", "placed"] {
+        let shown = open_plot(&mut h, id);
+        assert_eq!(shown, ("g".to_string(), "land.raster".to_string()), "{id}");
+        drawn(&mut h);
+        h.run_steps(3);
+        let s = h.state().session.as_ref().unwrap();
+        assert!(s.preview_layers.iter().any(|l| l.is("g", "land.raster")), "{id}: the layer is in the Viewer");
+        assert!(s.preview_view.shown_grid().is_some(), "{id}: the map is drawn");
+    }
+}
+
+/// The Figure and the export of a Plot's saved view over a raster on disk: the part is read in a thread, not by the
+/// click; the dialog comes with the map cut to the view, as a map in memory is.
+#[test]
+fn the_figure_of_a_saved_view_is_cut_in_the_background() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let grid = terraflux_gdal::Dataset::open(data("sibuyan_landuse.tif")).unwrap().meta.grid.clone();
+    let t = grid.transform;
+    let (w, ht) = (grid.width as f64 * t[1], grid.height as f64 * -t[5]);
+    let view =
+        terraflux_graph::PlotView::new(t[0] + w * 0.25, t[3] - ht * 0.75, t[0] + w * 0.5, t[3] - ht * 0.25).unwrap();
+    {
+        use terraflux_graph::Node;
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.nodes = vec![
+            Node::new("land", "raster.read").param("path", data("sibuyan_landuse.tif").to_string_lossy().as_ref()),
+        ];
+        s.source.plots = vec![terraflux_graph::Plot {
+            id: "framed".into(),
+            layers: vec![terraflux_graph::PlotLayer::new("land.raster")],
+            view: Some(view.clone()),
+            ..Default::default()
+        }];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("land", "raster").is_some()
+    });
+    open_plot(&mut h, "framed");
+    drawn(&mut h);
+    h.run_steps(3);
+    let cells = terraflux_app::frame::cells_of(&grid, view.extent).expect("the view is on the map");
+    assert!(cells.w < grid.width && cells.h < grid.height, "a part of the map");
+    for (button, export) in [("Figure...", false), ("Export the view...", true)] {
+        for _ in 0..400 {
+            if h.query_by_label(button).is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+            h.run_steps(1);
+        }
+        h.get_by_label(button).click();
+        // (the click does not read the map: the dialog is there when the thread is done, the window of the wait
+        // before it when it is not)
+        let t = Instant::now();
+        loop {
+            h.run_steps(1);
+            let s = h.state().session.as_ref().unwrap();
+            let there = if export { s.export.is_some() } else { s.figure.is_some() };
+            if there {
+                break;
+            }
+            assert!(s.cutting.is_some(), "the cut is being read, or the dialog is open");
+            assert!(t.elapsed() < Duration::from_secs(60), "{button}: too long");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let s = h.state().session.as_ref().unwrap();
+        assert!(s.cutting.is_none(), "{button}");
+        let source = if export {
+            &s.export.as_ref().unwrap().panel.source
+        } else {
+            &s.figure.as_ref().unwrap().choices[0].1[0].source
+        };
+        assert_eq!(source.size(), (cells.w, cells.h), "{button}: the part of the map the view keeps");
+        let s = h.state_mut().session.as_mut().unwrap();
+        (s.figure, s.export) = (None, None);
+        h.run_steps(2);
+    }
+}
+
 /// The features selected of a vector layer stay selected when its table is closed: *Update the plot* keeps them in the
 /// Plot, a layer's table opens with them again.
 #[test]

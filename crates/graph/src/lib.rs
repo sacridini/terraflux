@@ -19,6 +19,7 @@
 
 pub mod bookmarks;
 mod check;
+mod located;
 pub mod old_algebra;
 pub mod plots;
 pub mod submodel;
@@ -32,6 +33,7 @@ use serde::{Deserialize, Serialize};
 
 pub use bookmarks::{Place, PlaceView};
 pub use check::{Catalog, Issue, Severity, check, script_types};
+pub use located::{Located, is_inner, locate, plot_port};
 pub use plots::{PLOT_OP, Plot, PlotChart, PlotCompare, PlotGroup, PlotLayer, PlotRgb, PlotShade, PlotView};
 pub use types::{Access, OpSignature, PortSpec, Type, declared_outputs};
 pub use user_node::{UserInput, UserNode, UserOutput, Uses};

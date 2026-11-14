@@ -606,6 +606,8 @@ pub struct Session {
     pub figure: Option<crate::figure::Composer>,
     /// The map shown being exported as a picture (the Viewer's Export the view...).
     pub export: Option<crate::export_view::Export>,
+    /// The saved view's part of a map on disk being read for the figure or the export ([`crate::frame::open`]).
+    pub cutting: Option<crate::frame::Cutting>,
     /// The window that adds a layer from an address on the web (the Layers' add menu).
     pub url_layer: Option<crate::remote::Dialog>,
     /// The Problems pane asked for (why a node failed).
@@ -935,6 +937,7 @@ impl Session {
             python: None,
             figure: None,
             export: None,
+            cutting: None,
             url_layer: None,
             ask_problems: false,
             ask_calculator: false,
@@ -5110,6 +5113,7 @@ impl TerrafluxApp {
             crate::relink::window(ui.ctx(), s);
             // (the figure's and the export's dialogs open in the Viewer's window when it has one)
             if !out {
+                crate::frame::window(ui.ctx(), s);
                 crate::figure::window(ui.ctx(), s);
                 crate::export_view::window(ui.ctx(), s);
                 crate::remote::window(ui.ctx(), s, &self.registry);
@@ -5603,6 +5607,7 @@ impl TerrafluxApp {
                 if viewer {
                     // the dialogs of the Viewer, in the window the Viewer is in
                     if let Some(s) = &mut app.session {
+                        crate::frame::window(ui.ctx(), s);
                         crate::figure::window(ui.ctx(), s);
                         crate::export_view::window(ui.ctx(), s);
                         crate::remote::window(ui.ctx(), s, &app.registry);

@@ -7,6 +7,13 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **A Plot's layer can be a node inside a container.** `g.inner.map` and `g/inner.map` (a group, a loop's body, a
+  switch's branch, at any depth) are accepted by the check, which says what is missing when one does not resolve
+  (`"g" has no node "gone"`), opened by the Viewer, drawn by `terraflux plot`, the report and the export, and taken by
+  the MCP `set_plot`. A loop's node is its last step's from the command line, the step chosen in the Viewer.
+- **The Figure and the export of a saved view no longer freeze the window on a big raster.** The part of a raster on
+  disk is read by a thread (a "Reading the map" window shows meanwhile), and the Document reads the part its figure
+  shows once in the background ("reading the map..."), not at every frame.
 - **The Viewer's layers can be renamed, grouped and selected several at a time.** *Rename...* in a layer's menu (or a
   double click on its name) edits its name in the row: Enter keeps it, Esc gives it up, empty goes back to the
   output's name; the node keeps its own, and the new name is the one in the list, the legend, the figure and export

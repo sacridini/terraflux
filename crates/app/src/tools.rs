@@ -1815,7 +1815,7 @@ fn all() -> Vec<Value> {
                 "title": { "type": "string", "description": "Its title, the figure's caption (default: what it shows)." },
                 "layers": {
                     "type": "array",
-                    "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), palette (viridis, cividis, blue, orange, terrain, grey, red, rank; \", logarithmic\" for a scale of logarithms; default: by what the map is), range ([least, most] of the colours of a map of values; default: its 2nd to 98th percentiles), hidden, minus (node.port: the layer is the difference, from minus it for values, the transitions from it to from for classes), minus_band (the band or step of minus, 0-based: two layers of one stack or series), selected (of vector features: the numbers of the features selected, from 1, as the attribute table shows them; the Viewer opens the table with them selected), style (of vector features: { colour (\"#rrggbbaa\"), by (an attribute: the colours of its values; a text always as categories), ramp (of a number attribute: as palette, without \", logarithmic\"; default viridis), breaks (continuous (default: a ramp along the values, a few whole numbers a class each), equal, quantiles, natural (Jenks)), classes (2 to 12 of equal, quantiles or natural breaks; default 5), categories (true: a number attribute as categories, a colour each value), size_by (a number attribute that sizes the points, the area as the value), size_min and size_max (their size in pixels across; default 3 and 18), symbol (circle (default), square, triangle, diamond, cross), fill (0 to 1, of polygons), width (pixels), labels (an attribute), label_size (points) }) }.",
+                    "description": "What it shows, the lowest first: node.port of top-level nodes, group.inner.port of nodes inside containers (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), palette (viridis, cividis, blue, orange, terrain, grey, red, rank; \", logarithmic\" for a scale of logarithms; default: by what the map is), range ([least, most] of the colours of a map of values; default: its 2nd to 98th percentiles), hidden, minus (node.port: the layer is the difference, from minus it for values, the transitions from it to from for classes), minus_band (the band or step of minus, 0-based: two layers of one stack or series), selected (of vector features: the numbers of the features selected, from 1, as the attribute table shows them; the Viewer opens the table with them selected), style (of vector features: { colour (\"#rrggbbaa\"), by (an attribute: the colours of its values; a text always as categories), ramp (of a number attribute: as palette, without \", logarithmic\"; default viridis), breaks (continuous (default: a ramp along the values, a few whole numbers a class each), equal, quantiles, natural (Jenks)), classes (2 to 12 of equal, quantiles or natural breaks; default 5), categories (true: a number attribute as categories, a colour each value), size_by (a number attribute that sizes the points, the area as the value), size_min and size_max (their size in pixels across; default 3 and 18), symbol (circle (default), square, triangle, diamond, cross), fill (0 to 1, of polygons), width (pixels), labels (an attribute), label_size (points) }) }.",
                     "items": {},
                 },
                 "compare": { "description": "A map compared with the top map: node.port, or { with, how, also } (how: curtain, side by side (default) or difference; also: up to 2 more maps (node.port) side by side, 4 views in all that move together; band: the band of the stack or the step of the loop `with` is (from 0, default the first); also_bands: the same for each map of also (a number each, 0 or null for the first); layers: side by side, the layers each view draws instead of the Plot's, a list per view (first the view of `with`, then those of `also`) in the form of the Plot's layers but without palette, an empty list for a view that draws the Plot's layers)." },
@@ -2799,8 +2799,19 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
     if !valid_id(id) {
         return Err(format!("{id:?} is not a valid id (a letter, then letters, digits, _ or -)"));
     }
-    // (a reference to an output of a top-level node, or an input)
+    // (a reference to an output of a node, or an input; a node inside containers as `group.inner.port` or
+    // `group/inner.port`)
     let checked = |from: &str| -> std::result::Result<String, String> {
+        if terraflux_graph::is_inner(from) {
+            let at = terraflux_graph::locate(m, from)?;
+            let n = m.scope(&at.path).and_then(|ns| ns.iter().find(|n| n.id == at.node)).ok_or("no such node")?;
+            let ports = editor::output_ports(n, r);
+            if !ports.iter().any(|(p, _)| *p == at.port) {
+                let names: Vec<&str> = ports.iter().map(|(p, _)| p.as_str()).collect();
+                return Err(format!("{} has no output {:?} (its outputs: {})", at.node, at.port, names.join(", ")));
+            }
+            return Ok(from.to_string());
+        }
         match Ref::parse(from) {
             Ok(Ref::Input(name)) if m.inputs.contains_key(&name) => Ok(from.to_string()),
             Ok(Ref::Input(name)) => Err(format!("the model has no input ${name}")),
@@ -2814,7 +2825,7 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                     Err(format!("{node} has no output {port:?} (its outputs: {})", names.join(", ")))
                 }
             }
-            _ => Err(format!("{from:?}: give node.port of a top-level node, or $input")),
+            _ => Err(format!("{from:?}: give node.port, group.inner.port or $input")),
         }
     };
     // (a layer: node.port, or an object; the layers of a view side by side have no palette: a map has one in all

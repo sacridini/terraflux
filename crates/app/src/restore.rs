@@ -148,10 +148,7 @@ pub fn apply(s: &mut Session, r: &terraflux_ops::Registry, v: &View) -> Option<P
         let tops: Vec<String> = p
             .layers
             .iter()
-            .filter_map(|l| match terraflux_graph::Ref::parse(&l.from) {
-                Ok(terraflux_graph::Ref::Port { node, .. }) => Some(node),
-                _ => None,
-            })
+            .filter_map(|l| terraflux_graph::plot_port(&l.from).map(|(node, _)| node))
             .filter(|n| s.source.nodes.iter().any(|x| &x.id == n))
             .collect();
         if !tops.is_empty() {

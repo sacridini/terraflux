@@ -3440,10 +3440,8 @@ pub fn view_plot(s: &mut Session) -> Option<terraflux_graph::Plot> {
 /// A Plot shown in the Viewer (one of the model's, or a view kept): as [`open_plot`].
 pub fn show_plot(s: &mut Session, r: &Registry, p: &terraflux_graph::Plot) {
     let p = p.clone();
-    let port_of = |from: &str| match terraflux_graph::Ref::parse(from) {
-        Ok(terraflux_graph::Ref::Port { node, port }) => Some((node, port)),
-        _ => None,
-    };
+    // (a node inside a container too: `g.inner.port`, `g/inner.port`, as the Viewer keeps it)
+    let port_of = terraflux_graph::plot_port;
     s.preview_layers = layers_of_plot(&p.layers);
     s.preview_groups = p.groups.iter().map(Group::of_plot).collect();
     // the features selected (one layer has a selection at a time: the first): its table of attributes open with them
@@ -3480,7 +3478,11 @@ pub fn show_plot(s: &mut Session, r: &Registry, p: &terraflux_graph::Plot) {
         };
     }
     if let Some((node, port)) = plot_figure(&s.source, r, &p) {
-        let band = p.layers.iter().find(|l| l.from == format!("{node}.{port}")).and_then(|l| l.band);
+        let band = p
+            .layers
+            .iter()
+            .find(|l| port_of(&l.from).is_some_and(|(n, q)| n == node && q == port))
+            .and_then(|l| l.band);
         if s.source.nodes.iter().any(|n| n.id == node) {
             s.selected = Some(node.clone());
             s.fields.clear();
@@ -3549,10 +3551,7 @@ fn plot_layer(
 
 /// The layers a Plot keeps, as the Viewer has them (those with a reference that is no output are left out).
 fn layers_of_plot(list: &[terraflux_graph::PlotLayer]) -> Vec<Layer> {
-    let port_of = |from: &str| match terraflux_graph::Ref::parse(from) {
-        Ok(terraflux_graph::Ref::Port { node, port }) => Some((node, port)),
-        _ => None,
-    };
+    let port_of = terraflux_graph::plot_port;
     list.iter()
         .filter_map(|l| {
             let (node, port) = port_of(&l.from)?;
@@ -5398,10 +5397,9 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         .and_then(|id| s.source.plot(id))
                         .and_then(|p| p.view.as_ref())
                         .map(|v| v.extent);
-                    let cut = |p: crate::figure::Panel| match frame {
-                        Some(e) => crate::frame::crop_panel(&p, e).unwrap_or(p),
-                        None => p,
-                    };
+                    // (the panels are cut to it after, off this thread: rasters on disk are read for the part)
+                    let mut export_parts = None;
+                    let mut beside_views = Vec::new();
                     // (the map shown as colour: its picture is the composite)
                     let (shown_src, shown_col) = match &shown_rgb {
                         Some(src) => (src.clone(), Coloring::Packed),
@@ -5420,7 +5418,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         // (data hidden over no basemap would be a blank picture: it is kept)
                         let hidden = sh.view.hide_data && sh.view.basemap != crate::map_view::Basemap::None;
                         let opacity = if hidden { 0.0 } else { 1.0 - sh.view.transparency.clamp(0.0, 1.0) };
-                        s.export = Some(crate::export_view::Export::new(cut(panel)).under(sh.view.basemap, opacity));
+                        export_parts = Some((panel, opacity));
                     }
                     let panel =
                         |src: &Source, lk: &Look, legend: Option<&[terraflux_ops::legend::Class]>, caption: String| {
@@ -5430,14 +5428,14 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 }
                                 Coloring::Continuous { .. } | Coloring::Packed | Coloring::Shade { .. } => Vec::new(),
                             };
-                            cut(crate::figure::Panel {
+                            crate::figure::Panel {
                                 source: src.clone(),
                                 coloring: lk.coloring.clone(),
                                 names,
                                 caption,
                                 vectors: vectors.clone(),
                                 rasters: rasters.clone(),
-                            })
+                            }
                         };
                     let legend = legend_classes.as_deref();
                     let shown_look = Look { coloring: shown_col.clone(), ..l.clone() };
@@ -5460,13 +5458,9 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             })
                             .collect();
                         // (the export may put the views side by side in its picture)
-                        if export
-                            && sh.compare.how == How::SideBySide
-                            && let Some(e) = &mut s.export
-                        {
-                            let mut views = vec![panel(src, &other, None, name.clone())];
-                            views.extend(more.iter().cloned());
-                            e.beside = views;
+                        if export && sh.compare.how == How::SideBySide {
+                            beside_views = vec![panel(src, &other, None, name.clone())];
+                            beside_views.extend(more.iter().cloned());
                         }
                         if sh.compare.how == How::SideBySide && !more.is_empty() {
                             let mut all = vec![
@@ -5493,7 +5487,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 vectors: vectors.clone(),
                                 rasters: rasters.clone(),
                             };
-                            choices.push(("the difference of the two".into(), vec![cut(p)]));
+                            choices.push(("the difference of the two".into(), vec![p]));
                         }
                     }
                     if maps.len() > 1 && maps.len() <= 12 {
@@ -5516,9 +5510,11 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             maps.iter().zip(&looks).zip(&names).map(|((m, lk), n)| panel(m, lk, legend, n.clone()));
                         choices.push((format!("every layer ({})", maps.len()), all.collect()));
                     }
-                    if figure {
-                        s.figure = Some(crate::figure::Composer::new(choices, String::new()));
-                    }
+                    let parts = crate::frame::Parts {
+                        export: export_parts.map(|(p, opacity)| (p, beside_views, opacity)),
+                        choices: figure.then_some(choices),
+                    };
+                    crate::frame::open(ui.ctx(), s, parts, frame, sh.view.basemap);
                 }
                 if maps.len() > 1 {
                     ui.add_space(4.0);

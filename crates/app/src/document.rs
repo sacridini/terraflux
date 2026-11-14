@@ -700,10 +700,7 @@ pub fn plotted(m: &Model, r: &Registry, p: &Plot) -> Option<(String, String)> {
         .into_iter()
         .rev()
         .filter(|l| !l.hidden && l.minus.is_none())
-        .filter_map(|l| match Ref::parse(&l.from).ok()? {
-            Ref::Port { node, port } => Some((node, port)),
-            _ => None,
-        })
+        .filter_map(|l| terraflux_graph::plot_port(&l.from))
         .collect();
     let vector = |(node, port): &(String, String)| {
         m.nodes
@@ -717,7 +714,7 @@ pub fn plotted(m: &Model, r: &Registry, p: &Plot) -> Option<(String, String)> {
 /// What a Plot compares its top map with (a node and a port) and how (side by side when not said).
 pub fn plot_compared(p: &Plot) -> Option<(String, String, String)> {
     let c = p.compare.as_ref()?;
-    let Ref::Port { node, port } = Ref::parse(&c.with).ok()? else { return None };
+    let (node, port) = terraflux_graph::plot_port(&c.with)?;
     let how = c.how.clone().filter(|h| !h.trim().is_empty()).unwrap_or_else(|| "side by side".into());
     Some((node, port, how))
 }

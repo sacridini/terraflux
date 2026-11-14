@@ -359,6 +359,31 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// A Plot's reference (a layer's `from`, its `minus`): as [`Checker::check_ref`], and a node inside containers
+    /// too (`group.inner.port`, `group/inner.port`), found and its port looked for there.
+    fn check_plot_ref(&mut self, at: &str, text: &str, scopes: &[Scope<'a>]) {
+        if !crate::located::is_inner(text) {
+            return self.check_ref(at, text, Type::Any, scopes, false);
+        }
+        let found = match crate::located::locate(self.model, text) {
+            Ok(f) => f,
+            Err(e) => return self.error(at, e),
+        };
+        let mut inner: Vec<Scope<'a>> =
+            scopes.iter().map(|s| Scope { nodes: s.nodes, container: s.container, index: s.index.clone() }).collect();
+        let mut nodes: &'a [Node] = &self.model.nodes;
+        for id in &found.path {
+            let Some(n) = nodes.iter().find(|n| &n.id == id) else { return };
+            let Some(b) = &n.body else { return };
+            nodes = &b.nodes;
+            inner.push(Scope::new(nodes, Some(n)));
+        }
+        let r = Ref::Port { node: found.node, port: found.port };
+        if let Err(e) = self.type_of(&r, &inner) {
+            self.error(at, format!("{text}: {e}"));
+        }
+    }
+
     fn check_scope(&mut self, scopes: &mut Vec<Scope<'a>>, prefix: &str) {
         let nodes = scopes.last().unwrap().nodes;
         let mut seen = BTreeSet::new();
@@ -604,9 +629,9 @@ pub fn check(model: &Model, catalog: &dyn Catalog) -> Vec<Issue> {
             }
         }
         for (i, l) in p.layers.iter().enumerate() {
-            c.check_ref(&format!("plots.{}.layers[{i}]", p.id), &l.from, Type::Any, &scopes, false);
+            c.check_plot_ref(&format!("plots.{}.layers[{i}]", p.id), &l.from, &scopes);
             if let Some(m) = &l.minus {
-                c.check_ref(&format!("plots.{}.layers[{i}].minus", p.id), m, Type::Any, &scopes, false);
+                c.check_plot_ref(&format!("plots.{}.layers[{i}].minus", p.id), m, &scopes);
             }
         }
         if let Some(cmp) = &p.compare {
@@ -618,9 +643,9 @@ pub fn check(model: &Model, catalog: &dyn Catalog) -> Vec<Issue> {
             for (v, layers) in cmp.layers.iter().enumerate() {
                 for (i, l) in layers.iter().enumerate() {
                     let at = format!("plots.{}.compare.layers[{v}][{i}]", p.id);
-                    c.check_ref(&at, &l.from, Type::Any, &scopes, false);
+                    c.check_plot_ref(&at, &l.from, &scopes);
                     if let Some(m) = &l.minus {
-                        c.check_ref(&format!("{at}.minus"), m, Type::Any, &scopes, false);
+                        c.check_plot_ref(&format!("{at}.minus"), m, &scopes);
                     }
                 }
             }
@@ -794,6 +819,33 @@ view = {{ extent = {extent} }}
 
     /// A stack where a port takes one map: the node runs once per layer, its maps a stack, its tables a table,
     /// its other values a series; refused by an operator that takes its maps together.
+    /// A Plot's layer may be a node inside a container: `g.inner.port` or `g/inner.port`, at any depth.
+    #[test]
+    fn a_plot_layer_inside_a_container() {
+        let with = |from: &str| {
+            format!(
+                "{GOOD}\n[[nodes]]\nid = \"g\"\nop = \"control.group\"\n[nodes.body]\n[[nodes.body.nodes]]\nid = \"mid\"\n\
+                 op = \"control.group\"\n[nodes.body.nodes.body]\n[[nodes.body.nodes.body.nodes]]\nid = \"c\"\nop = \"classes\"\n\
+                 inputs = {{ map = \"$t0\" }}\n\
+                 [[plots]]\nid = \"p\"\nlayers = [{{ from = \"{from}\" }}]\n"
+            )
+        };
+        for ok in ["g.mid.c.map", "g/mid/c.map", "g.mid.c.table", "sim.s.land", "sim/s.land"] {
+            let e = errors(&model(&with(ok)));
+            assert!(e.is_empty(), "{ok}: {e:?}");
+        }
+        let e = errors(&model(&with("g.mid.missing.map")));
+        assert!(e.iter().any(|x| x.contains("\"mid\" has no node \"missing\"")), "{e:?}");
+        let e = errors(&model(&with("g.gone.c.map")));
+        assert!(e.iter().any(|x| x.contains("\"g\" has no node \"gone\"")), "{e:?}");
+        let e = errors(&model(&with("g/mid/c.nope")));
+        assert!(e.iter().any(|x| x.contains("has no output \"nope\"")), "{e:?}");
+        let e = errors(&model(&with("woe.x.map")));
+        assert!(e.iter().any(|x| x.contains("not a container")), "{e:?}");
+        let e = errors(&model(&with("none.c.map")));
+        assert!(e.iter().any(|x| x.contains("the model has no node \"none\"")), "{e:?}");
+    }
+
     #[test]
     fn a_stack_runs_a_map_port_once_per_layer() {
         let m = model(
