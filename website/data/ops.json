@@ -17243,6 +17243,22 @@
     "doc": "the solves' optimality gap (default 0.1)"
    },
    {
+    "name": "solver",
+    "type": "text",
+    "required": false,
+    "doc": "the replacement and rank solves' solver: highs (default) or gurobi: Gurobi when it is installed and licensed, else HiGHS with a warning",
+    "choices": [
+     "highs",
+     "gurobi"
+    ]
+   },
+   {
+    "name": "threads",
+    "type": "number",
+    "required": false,
+    "doc": "gurobi: the threads of the base and rank solves (default and most: Terraflux's threads, never every core); the replacement solves run in parallel, one thread each"
+   },
+   {
     "name": "extinction_z",
     "type": "any",
     "required": false,
