@@ -185,6 +185,51 @@ fn optimum_is_prioriactions() {
     }
 }
 
+/// Asked for Gurobi (threads 2): its optima where it solves here (curve 1 on the equivalent model, curve 3 on the
+/// model with the response pieces), else HiGHS's with the warning why; the objective prioriactions's at gap 0 (and
+/// HiGHS's), the plan's figures those of its own solution.
+#[test]
+fn optimum_on_gurobi_is_prioriactions() {
+    let r = reference();
+    let registry = terraflux_ops::Registry::standard();
+    for (name, t, s) in cases() {
+        let run = |solver: &str| {
+            let params = serde_json::json!({
+                "model": if s.0 { "maximizeBenefits" } else { "minimizeCosts" },
+                "budget": s.1, "blm": s.2, "curve": s.3, "segments": s.4, "gap": 0.0,
+                "solver": solver, "threads": 2
+            });
+            let inputs: BTreeMap<String, Value> = t.clone().into_iter().map(|(k, v)| (k, Value::Table(v))).collect();
+            let args = Args { node: "n", inputs, params: params.as_object().unwrap() };
+            let mut ctx = terraflux_ops::Ctx::default();
+            let out = registry
+                .get("prioritize.actions")
+                .unwrap()
+                .run(&mut ctx, &args)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            (out, ctx.warnings.clone())
+        };
+        let (out, warnings) = run("gurobi");
+        match terraflux_ops::gurobi::available() {
+            Ok(_) => assert!(!warnings.iter().any(|w| w.starts_with("solved by")), "{name}: {warnings:?}"),
+            Err(_) => assert!(warnings.iter().any(|w| w.starts_with("solved by HiGHS: ")), "{name}: {warnings:?}"),
+        }
+        let objective = |out: &terraflux_ops::Outputs| {
+            let Value::Table(res) = &out["result"] else { panic!() };
+            assert_eq!(res.column("optimal").unwrap()[0], 1.0, "{name}");
+            res.column("objective").unwrap()[0]
+        };
+        let (ours, want) = (objective(&out), r.floats(&format!("{name}/objective"))[0]);
+        assert!((ours - want).abs() <= 1e-6 * want.abs().max(1.0), "{name}: {ours} != {want}");
+        let (highs, _) = run("highs");
+        let highs = objective(&highs);
+        assert!((ours - highs).abs() <= 1e-6 * highs.abs().max(1.0), "{name}: {ours} != HiGHS's {highs}");
+        // the pairs' benefits come with the units and actions: the figures of the plan are of that plan
+        let Value::Table(local) = &out["local"] else { panic!() };
+        assert!(!local.rows.is_empty(), "{name}: local");
+    }
+}
+
 /// The figures of prioriactions's own solutions: getCost, getSolutionBenefit (total and local),
 /// getPotentialBenefit, getConnectivityPenalty and getActions.
 #[test]

@@ -444,6 +444,8 @@ struct FrictionOut;
 struct SwatRecords;
 struct SwatOut;
 ActionsModel actions_compile(const ActionsInput& input, const ActionsSettings& settings);
+ActionsModel actions_model(const ActionsInput& input, const ActionsSettings& settings, bool equivalent);
+rust::Vec<double> actions_local_benefit(const ActionsInput& input, rust::Slice<const double> x);
 SolveOut actions_solve(const ActionsInput& input, const ActionsSettings& settings, double gap, double time_limit,
                        rust::Slice<const double> start);
 ActionsBenefit actions_benefit(const ActionsInput& input, rust::Slice<const double> solution);

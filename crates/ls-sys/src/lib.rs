@@ -2086,6 +2086,12 @@ pub mod ffi {
         ) -> Result<f64>;
         /// prioriactions's model (problem()'s matrices) bit for bit.
         fn actions_compile(input: &ActionsInput, settings: &ActionsSettings) -> Result<ActionsModel>;
+        /// The model a general solver gets, as landschaft's: equivalent (curve 1: the benefit columns substituted,
+        /// activation per action; empty, no rows or columns, when it does not apply), else prioriactions's with the
+        /// activation rows per action and the response curves as pieces.
+        fn actions_model(input: &ActionsInput, settings: &ActionsSettings, equivalent: bool) -> Result<ActionsModel>;
+        /// Every pair's benefit for a solution (units, then actions).
+        fn actions_local_benefit(input: &ActionsInput, x: &[f64]) -> Result<Vec<f64>>;
         /// A multi-action problem solved (landschaft's closure engine, then HiGHS): x the units, the actions, the
         /// pairs' benefits; start: units then actions (empty: none).
         fn actions_solve(

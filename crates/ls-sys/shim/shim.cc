@@ -2095,10 +2095,9 @@ opt::actions::Settings actions_settings(const ActionsSettings& s) {
 
 }  // namespace
 
-ActionsModel actions_compile(const ActionsInput& input, const ActionsSettings& settings) {
-    const opt::actions::Input in = actions_input(input);
-    const opt::actions::Pairs p = opt::actions::pairs(in);
-    opt::actions::Compiled c = opt::actions::compile(in, p, actions_settings(settings), false, false);
+namespace {
+
+ActionsModel actions_model_of(const opt::actions::Compiled& c) {
     ActionsModel out;
     out.start = to_rust<std::int64_t>(c.model.start);
     out.index = to_rust<std::int64_t>(c.model.index);
@@ -2110,6 +2109,33 @@ ActionsModel actions_compile(const ActionsInput& input, const ActionsSettings& s
     out.sense = to_rust<std::int32_t>(c.sense);
     out.integer = to_rust<std::uint8_t>(c.model.integer);
     return out;
+}
+
+}  // namespace
+
+ActionsModel actions_compile(const ActionsInput& input, const ActionsSettings& settings) {
+    const opt::actions::Input in = actions_input(input);
+    const opt::actions::Pairs p = opt::actions::pairs(in);
+    return actions_model_of(opt::actions::compile(in, p, actions_settings(settings), false, false));
+}
+
+ActionsModel actions_model(const ActionsInput& input, const ActionsSettings& settings, bool equivalent) {
+    const opt::actions::Input in = actions_input(input);
+    const opt::actions::Pairs p = opt::actions::pairs(in);
+    const opt::actions::Settings st = actions_settings(settings);
+    // the equivalent model (curve 1), empty when the elimination does not apply; else disaggregated, with curves
+    if (equivalent) {
+        opt::actions::Compiled c = opt::actions::equivalent(in, p, st);
+        if (c.model.nrow == 0 && c.model.ncol == 0) return ActionsModel{};
+        return actions_model_of(c);
+    }
+    return actions_model_of(opt::actions::compile(in, p, st, true, true));
+}
+
+rust::Vec<double> actions_local_benefit(const ActionsInput& input, rust::Slice<const double> x) {
+    const opt::actions::Input in = actions_input(input);
+    const opt::actions::Pairs p = opt::actions::pairs(in);
+    return to_rust<double>(opt::actions::local_benefit(p, in.n_units, to_std(x)));
 }
 
 SolveOut actions_solve(const ActionsInput& input, const ActionsSettings& settings, double gap, double time_limit,

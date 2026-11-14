@@ -16,7 +16,8 @@ use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 pub use terraflux_ls_sys::ffi::{ActionsModel, ActionsSettings as Settings};
 
-use crate::milp::r_round;
+use crate::milp::{self, r_round};
+use crate::prioritize::engine_of;
 use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Table, Value, outputs};
 
 pub fn register(r: &mut Registry) {
@@ -393,6 +394,57 @@ pub fn compile(d: &ActionsData, s: &ffi::ActionsSettings) -> std::result::Result
     ffi::actions_compile(&d.input, s).map_err(|e| e.what().to_string())
 }
 
+/// The problem on Gurobi, as landschaft's ActionsProblem.solve: curve 1 on the equivalent model (the benefit columns
+/// substituted; the pairs' benefits then from the rounded units and actions), else prioriactions's model with the
+/// activation rows per action and the response curves as pieces.
+fn gurobi_solve(
+    d: &ActionsData,
+    s: &ffi::ActionsSettings,
+    engine: milp::Engine,
+    gap: f64,
+    time_limit: f64,
+) -> std::result::Result<ffi::SolveOut, String> {
+    let (n, na) = (d.unit_ids.len(), d.action_unit.len());
+    let eq = if s.curve == 1 {
+        Some(ffi::actions_model(&d.input, s, true).map_err(|e| e.what().to_string())?).filter(|c| !c.obj.is_empty())
+    } else {
+        None
+    };
+    let equivalent = eq.is_some();
+    let c = match eq {
+        Some(c) => c,
+        None => ffi::actions_model(&d.input, s, false).map_err(|e| e.what().to_string())?,
+    };
+    let m = milp::Model {
+        a: milp::Csr {
+            nrow: c.rhs.len(),
+            ncol: c.obj.len(),
+            start: c.start.iter().map(|&v| v as usize).collect(),
+            index: c.index.iter().map(|&v| v as usize).collect(),
+            value: c.value.clone(),
+        },
+        obj: c.obj.clone(),
+        lb: c.lb.clone(),
+        ub: c.ub.clone(),
+        rhs: c.rhs.clone(),
+        sense: c.sense.iter().map(|&k| ["<=", ">=", "="][k as usize].to_string()).collect(),
+        vtype: c.integer.iter().map(|&i| if i != 0 { 'B' } else { 'C' }).collect(),
+        maximize: s.maximize,
+        row_ids: vec![String::new(); c.rhs.len()],
+        col_ids: vec![String::new(); c.obj.len()],
+        connected: Vec::new(),
+        zone_units: 0,
+        engine,
+    };
+    let mut r = milp::solve(&m, n, gap, time_limit)?;
+    if equivalent && r.has_solution {
+        let wx: Vec<f64> = r.x[..n + na].iter().map(|v| v.round()).collect();
+        let local = ffi::actions_local_benefit(&d.input, &wx).map_err(|e| e.what().to_string())?;
+        r.x = wx.into_iter().chain(local).collect();
+    }
+    Ok(r)
+}
+
 /// A solution's figures: getCost() (monitoring, every threat's actions; 3 decimals), getSolutionBenefit() (every
 /// feature's conservation, recovery and total; 4 decimals), getConnectivityPenalty() (the units', every threat's
 /// actions'; 3 decimals), getActions() (every unit's actions by threat, conservation and connectivity).
@@ -614,6 +666,20 @@ impl Operator for Actions {
         .param(PortSpec::optional("segments", Type::Integer, "curve 2, 3: pieces of its linear approximation (3)"))
         .param(PortSpec::optional("gap", Type::Number, "the relative optimality gap (default 0)"))
         .param(PortSpec::optional("time_limit", Type::Number, "seconds (default none)"))
+        .param(
+            PortSpec::optional(
+                "solver",
+                Type::Text,
+                "highs (default: landschaft's closure engine, then HiGHS) or gurobi: Gurobi when it is installed and \
+                 licensed, else HiGHS with a warning",
+            )
+            .choices(["highs", "gurobi"]),
+        )
+        .param(PortSpec::optional(
+            "threads",
+            Type::Number,
+            "gurobi: its threads (default and most: Terraflux's threads, never every core)",
+        ))
     }
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -633,7 +699,12 @@ pub fn solve(ctx: &mut Ctx, args: &Args, mut d: ActionsData) -> Result<(Outputs,
         }
         let gap: f64 = args.param("gap", 0.0)?;
         let time_limit: f64 = args.opt_param("time_limit")?.unwrap_or(f64::INFINITY);
-        let r = ffi::actions_solve(&d.input, &s, gap, time_limit, &[]).map_err(|e| err(e.what().to_string()))?;
+        let engine = engine_of(ctx, args)?;
+        let r = if engine.solver == milp::Solver::Gurobi {
+            gurobi_solve(&d, &s, engine, gap, time_limit).map_err(err)?
+        } else {
+            ffi::actions_solve(&d.input, &s, gap, time_limit, &[]).map_err(|e| err(e.what().to_string()))?
+        };
         if !r.has_solution {
             return Err(err(format!("no solution: {}", r.status)));
         }

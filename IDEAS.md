@@ -1259,7 +1259,9 @@ depois:
    (custo de reposição e rank: as configurações `solver` e `threads`, uma thread do Gurobi em cada re-solução em
    paralelo, teste `importance_is_prioritizrs`) e no `prioritize.calibrate` (candidatas em paralelo, uma thread do
    Gurobi em cada; teste `calibrate_on_gurobi_is_highs`) e no `restoration.plan` (os programas lineares
-   com as threads do nó; teste `plan_on_gurobi_is_highs`). Falta: o `prioritize.actions`.
+   com as threads do nó; teste `plan_on_gurobi_is_highs`) e no `prioritize.actions` e `actions_raster` (o
+   modelo equivalente na curva 1, o de prioriactions com curvas nas outras; teste
+   `optimum_on_gurobi_is_prioriactions`). Item feito por inteiro.
 3. **Parar no meio e dizer quanto falta em outros operadores longos:** **feito** (Unreleased) nos laços em Rust: o
    `sdm.fit` dentro de cada ajuste (os passos de Newton do GLM, os lotes de árvores da floresta, as iterações do
    boosting), o `sdm.importance`, o `sdm.folds` e o `ml.fit` (`stop: &mut dyn FnMut() -> bool` nos ajustes; teste
