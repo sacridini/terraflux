@@ -8200,15 +8200,28 @@ fn places_are_kept_with_the_model_and_gone_back_to() {
         assert!(t.elapsed() < Duration::from_secs(30), "the name typed in the field of the menu");
     }
     shot(&mut h, "places-menu");
-    h.get_by_label("Save this place...").click();
+    // (what the menu looked like before the click, for the panic below)
+    let before: Vec<_> = h
+        .query_all_by_role(Role::TextInput)
+        .map(|n| (n.accesskit_node().value(), n.rect()))
+        .chain(
+            h.query_all_by_role(Role::Button)
+                .filter(|n| n.rect().top() > 90.0 && n.rect().top() < 260.0 && n.rect().left() > 700.0)
+                .map(|n| (n.accesskit_node().label(), n.rect())),
+        )
+        .collect();
+    // (clicked by the action, not at a point: a frame of layout in between, or a submenu opened over the button by a
+    // pointer that passed the row of its "...", would turn the click into another widget's)
+    h.get_by_label("Save this place...").click_accesskit();
     h.run_steps(4);
     {
         let fields: Vec<_> = h.query_all_by_role(Role::TextInput).map(|n| n.accesskit_node().value()).collect();
+        let fields = format!("{fields:?}; the map at {rect:?}; before the click {before:?}");
         let button = h.query_by_label("Save this place...").map(|n| n.accesskit_node().is_disabled());
         let s = h.state().session.as_ref().unwrap();
         let p = s.source.bookmarks_of(true).find(|p| p.name == "Lake").unwrap_or_else(|| {
             let names: Vec<_> = s.source.bookmarks_of(true).map(|p| p.name.clone()).collect();
-            panic!("the place Lake; the places {names:?}; the fields {fields:?}; the button disabled {button:?}; the notice: {:?}", s.notice)
+            panic!("the place Lake; the places {names:?}; the fields {fields:?}; the button disabled {button:?}; the notice: {:?}; the steps {:?}", s.notice, s.history.steps().0)
         });
         assert_eq!(p.slot, None);
         assert_eq!(s.source.bookmarks_of(true).count(), 2);
