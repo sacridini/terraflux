@@ -75,8 +75,14 @@ fn solve(a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
 }
 
 /// LogisticRegression.fit (after StandardScaler, which is not weighted) on the records (presence 1, background
-/// 0), each record's loss weighted.
-pub fn fit(x: &Frame, y: &[f64], weights: Option<&[f64]>, s: &Settings) -> Result<Logistic, String> {
+/// 0), each record's loss weighted. `stop` is asked before each Newton step: false when the run was stopped.
+pub fn fit(
+    x: &Frame,
+    y: &[f64],
+    weights: Option<&[f64]>,
+    s: &Settings,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<Logistic, String> {
     let n = y.len();
     let ones = vec![1.0; n];
     let sw = weights.unwrap_or(&ones);
@@ -120,6 +126,9 @@ pub fn fit(x: &Frame, y: &[f64], weights: Option<&[f64]>, s: &Settings) -> Resul
     let iterations = s.max_iter.max(50);
     let mut f = objective(&beta);
     for _ in 0..iterations {
+        if !stop() {
+            return Err("stopped".into());
+        }
         let e = eta(&beta);
         let prob: Vec<f64> = e.iter().map(|v| expit(*v)).collect();
         let mut g = vec![0.0; p + 1];

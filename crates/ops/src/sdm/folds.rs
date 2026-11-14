@@ -517,8 +517,9 @@ fn hex_blocks(r: &Records, b: &Blocks) -> Result<(Pairs, Vec<Geometry>), String>
 }
 
 /// blockCV's cv_spatial: the records in blocks (squares or hexagons), the blocks assigned to k folds (at
-/// random, the most balanced of the iterations; systematically; or as a checkerboard).
-pub fn spatial_blocks(r: &Records, b: &Blocks) -> Result<Vec<i64>, String> {
+/// random, the most balanced of the iterations; systematically; or as a checkerboard). `stop` is asked before
+/// each iteration of the random selection: false when the run was stopped (it then fails, stopped).
+pub fn spatial_blocks(r: &Records, b: &Blocks, stop: &mut dyn FnMut() -> bool) -> Result<Vec<i64>, String> {
     if !["random", "systematic", "checkerboard"].contains(&b.selection) {
         return Err("selection must be random, systematic or checkerboard".into());
     }
@@ -599,6 +600,9 @@ pub fn spatial_blocks(r: &Records, b: &Blocks) -> Result<Vec<i64>, String> {
             let (mut min_num, mut max_sd) = (0.0, f64::INFINITY);
             let mut best = Vec::new();
             for _ in 0..iteration {
+                if !stop() {
+                    return Err("stopped".into());
+                }
                 let mut fb = vec![0i64; nb];
                 let num = nb / k;
                 let reps: Vec<i64> = (0..num * k).map(|j| (j % k) as i64 + 1).collect();

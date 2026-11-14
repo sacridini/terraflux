@@ -97,7 +97,8 @@ pub struct Fitted {
 }
 
 /// landschaft's fit: the model on every record, and with folds (0: training only) one per fold; the records'
-/// weights given to the models that take them.
+/// weights given to the models that take them. `tell` is told the fit it is at (`Some((k, of))`), or only asked
+/// (`None`, within a fit): false when the run was stopped (the fit then fails, stopped).
 pub fn fit(
     x: &Frame,
     y: &[f64],
@@ -105,7 +106,7 @@ pub fn fit(
     folds: Option<&[f64]>,
     s: &Learner,
     cv: bool,
-    tell: &mut dyn FnMut(usize, usize) -> bool,
+    tell: &mut dyn FnMut(Option<(usize, usize)>) -> bool,
 ) -> Result<Fitted, String> {
     let mut metrics = Vec::new();
     let mut oof = None;
@@ -115,14 +116,14 @@ pub fn fit(
         ks.sort_by(|a, b| a.partial_cmp(b).unwrap());
         ks.dedup();
         for (n, k) in ks.iter().enumerate() {
-            if !tell(n, ks.len() + 1) {
+            if !tell(Some((n, ks.len() + 1))) {
                 return Err("stopped".into());
             }
             let train: Vec<usize> = (0..y.len()).filter(|&i| f[i] != *k).collect();
             let test: Vec<usize> = (0..y.len()).filter(|&i| f[i] == *k).collect();
             let ytr: Vec<f64> = train.iter().map(|&i| y[i]).collect();
             let wtr: Option<Vec<f64>> = weights.map(|w| train.iter().map(|&i| w[i]).collect());
-            let m = s.fit(&rows(x, &train), &ytr, wtr.as_deref())?;
+            let m = s.fit(&rows(x, &train), &ytr, wtr.as_deref(), &mut || tell(None))?;
             let mut pred = vec![f64::NAN; y.len()];
             for (i, v) in train.iter().zip(suitability(&m, &rows(x, &train))?) {
                 pred[*i] = v;
@@ -137,10 +138,10 @@ pub fn fit(
         }
     }
     let fits = metrics.len() + 1;
-    if !tell(fits - 1, fits) {
+    if !tell(Some((fits - 1, fits))) {
         return Err("stopped".into());
     }
-    let model = s.fit(x, y, weights)?;
+    let model = s.fit(x, y, weights, &mut || tell(None))?;
     let pred = suitability(&model, x)?;
     let (p, a): (Vec<f64>, Vec<f64>) = (
         (0..y.len()).filter(|&i| y[i] == 1.0).map(|i| pred[i]).collect(),
@@ -215,13 +216,15 @@ pub fn response_curves(m: &Model, x: &Frame, predictors: &[String], n: usize, fi
 }
 
 /// Permutation importance: the mean drop of AUC (and its standard deviation) when each predictor is shuffled
-/// (numpy's generator), the most important first.
+/// (numpy's generator), the most important first. `tell` is told the shuffle it is at (of how many): false when
+/// the run was stopped (the importance then fails, stopped).
 pub fn importance(
     m: &Model,
     x: &Frame,
     y: &[f64],
     n_repeats: usize,
     seed: u64,
+    tell: &mut dyn FnMut(usize, usize) -> bool,
 ) -> Result<Vec<(String, f64, f64)>, String> {
     let xs = x;
     let mut rng = NumpyRng::new(seed);
@@ -236,7 +239,10 @@ pub fn importance(
     let mut rows = Vec::new();
     for (j, name) in xs.names.iter().enumerate() {
         let mut drops = Vec::with_capacity(n_repeats);
-        for _ in 0..n_repeats {
+        for r in 0..n_repeats {
+            if !tell(j * n_repeats + r, xs.names.len() * n_repeats) {
+                return Err("stopped".into());
+            }
             let mut xp = xs.clone();
             rng.shuffle(&mut xp.columns[j]);
             drops.push(auc0 - auc(&suitability(m, &xp)?)?);

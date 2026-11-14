@@ -166,17 +166,18 @@ fn boosting_settings_of(args: &Args) -> Result<boosting::Settings> {
 }
 
 /// A model of the node's method fitted to the records: of classes, or of values (`regression`).
-fn fit_model(args: &Args, x: &Frame, y: &[f64], regression: bool) -> Result<Fitted> {
+/// `stop` is asked while it fits: false when the run was stopped (the fit then fails, stopped).
+fn fit_model(args: &Args, x: &Frame, y: &[f64], regression: bool, stop: &mut dyn FnMut() -> bool) -> Result<Fitted> {
     let method: String = args.param("method", "random_forest".to_string())?;
     let fitted = match method.as_str() {
         "random_forest" => {
             let s = settings_of(args, regression)?;
-            if regression { forest::regressor(x, y, None, &s) } else { forest::classifier(x, y, None, &s) }
+            if regression { forest::regressor(x, y, None, &s, stop) } else { forest::classifier(x, y, None, &s, stop) }
                 .map(Fitted::Forest)
         }
         "gradient_boosting" => {
             let s = boosting_settings_of(args)?;
-            if regression { boosting::regressor(x, y, &s) } else { boosting::classifier(x, y, &s) }
+            if regression { boosting::regressor(x, y, &s, stop) } else { boosting::classifier(x, y, &s, stop) }
                 .map(Fitted::Boosting)
         }
         m => return Err(fail(args, format!("method: random_forest or gradient_boosting, not {m:?}"))),
@@ -360,7 +361,7 @@ impl Operator for Fit {
         )
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let (x, y) = match (args.get("table"), args.get("predictors")) {
             (Some(_), Some(_)) => return Err(fail(args, "a table or maps (predictors), not both")),
             (Some(Value::Table(t)), None) => {
@@ -442,7 +443,7 @@ impl Operator for Fit {
                 (frame, pick.iter().map(|&k| y[k]).collect())
             }
         };
-        let f = fit_model(args, &x, &y, regression)?;
+        let f = fit_model(args, &x, &y, regression, &mut || !ctx.stopped())?;
         let importance = importance_table(f.predictors(), &[(None, f.importances())]);
         let model = match f {
             Fitted::Forest(f) => Model::Forest(f),
@@ -667,7 +668,7 @@ impl Operator for Potential {
                     ),
                 ));
             }
-            let f = fit_model(args, &frame_of(&names, &layers, &idx), &labels, false)?;
+            let f = fit_model(args, &frame_of(&names, &layers, &idx), &labels, false, &mut || !ctx.stopped())?;
             importance.push((Some(c), f.importances()));
             match f {
                 Fitted::Forest(f) => forests.push(f),

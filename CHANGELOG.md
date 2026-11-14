@@ -23,6 +23,12 @@ minor versions.
   `prioritize.optimize`'s, for the replacement cost and the rank importance: the base and rank solves with the
   node's threads, the replacement's parallel solves with one Gurobi thread each, as landschaft's
   `eval_replacement_importance`; HiGHS and a warning where Gurobi is not installed or licensed.
+- **Stop ends more long nodes at once, and they tell how far they are:** `sdm.fit` stops within a fit (each Newton
+  step of the GLM, each batch of trees of the random forest, each boosting iteration), not only between folds;
+  `sdm.importance` stops and tells its shuffles (k of n), `sdm.folds` its random tries of spatial blocks, `ml.fit`
+  and the per-class fits stop within the fit. The results are the same to the bit. A single call into landschaft's
+  C++ (the MSPA, the circuits, maxnet) still runs to its end in the background after Stop: they need a check in
+  landschaft itself.
 
 ### Fixed
 - **landschaft's C++ is optimised on Windows:** the build compiled every C++ source under Terraflux (landschaft's

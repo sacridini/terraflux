@@ -1259,7 +1259,13 @@ depois:
    (custo de reposição e rank: as configurações `solver` e `threads`, uma thread do Gurobi em cada re-solução em
    paralelo, teste `importance_is_prioritizrs`). Falta: o `prioritize.calibrate` (soluções em paralelo: uma thread do Gurobi em cada), o `restoration.plan` e o
    `prioritize.actions`.
-3. **Parar no meio e dizer quanto falta em outros operadores longos:** hoje só os solvers param; um nó que não
+3. **Parar no meio e dizer quanto falta em outros operadores longos:** **feito** (Unreleased) nos laços em Rust: o
+   `sdm.fit` dentro de cada ajuste (os passos de Newton do GLM, os lotes de árvores da floresta, as iterações do
+   boosting), o `sdm.importance`, o `sdm.folds` e o `ml.fit` (`stop: &mut dyn FnMut() -> bool` nos ajustes; teste
+   `sdm_fit_reports_and_stops` em `crates/ops/tests/stopping.rs`). O `prioritize.evaluate`, as métricas por blocos,
+   o MSPA por tiles e o `circuit.one_to_all` já paravam. Falta o que é uma chamada só ao C++ do landschaft (o MSPA,
+   os circuitos, o maxnet): registrado no IDEAS.md do landschaft ("Parar no meio fora da priorização"). Antes:
+   hoje só os solvers param; um nó que não
    para (o `prioritize.evaluate`, o MSPA, os circuitos, o ajuste dos SDM, as métricas por blocos) é deixado
    terminar em segundo plano um segundo depois do Stop. Basta o operador chamar `ctx.stopped()` nos seus laços e
    `ctx.progress(...)`; no C++, perguntar `opt::stop_asked()` (ou um equivalente fora do `opt`).

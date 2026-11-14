@@ -54,12 +54,19 @@ pub enum Learner<'a> {
 }
 
 impl Learner<'_> {
-    /// The model fitted to the records, with their weights (MaxNet takes none, as landschaft's).
-    pub fn fit(&self, x: &Frame, y: &[f64], weights: Option<&[f64]>) -> Result<Model, String> {
+    /// The model fitted to the records, with their weights (MaxNet takes none, as landschaft's). `stop` is asked
+    /// during the GLM's and the forest's fits (false: the run was stopped; MaxNet's is one call).
+    pub fn fit(
+        &self,
+        x: &Frame,
+        y: &[f64],
+        weights: Option<&[f64]>,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<Model, String> {
         Ok(match self {
             Learner::Maxnet(s) => Model::Maxnet(Box::new(maxnet::fit(x, y, s)?)),
-            Learner::Glm(s) => Model::Glm(logistic::fit(x, y, weights, s)?),
-            Learner::RandomForest(s) => Model::RandomForest(forest::fit(x, y, weights, s)?),
+            Learner::Glm(s) => Model::Glm(logistic::fit(x, y, weights, s, stop)?),
+            Learner::RandomForest(s) => Model::RandomForest(forest::fit(x, y, weights, s, stop)?),
         })
     }
 }

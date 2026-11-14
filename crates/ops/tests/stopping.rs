@@ -111,3 +111,40 @@ fn draws_and_steps_report_and_stop() {
         assert!(stopped && e.contains("stopped"), "{op}: {e}");
     }
 }
+
+/// sdm.fit tells the fold it is at, and stops between two fits and within one (the GLM's Newton steps, the
+/// forest's batches of trees): the node fails, stopped, with no output.
+#[test]
+fn sdm_fit_reports_and_stops() {
+    let mut records = terraflux_ops::Table::new(["presence", "fold", "a", "b"].map(String::from).to_vec());
+    records.rows = (0..120)
+        .map(|i| {
+            let (a, b) = (f64::from(i % 17) * 0.3, f64::from((i * 7) % 11) * 0.5);
+            vec![f64::from(u8::from((a + b + f64::from(i % 5)) > 5.0)), f64::from(i % 3 + 1), a, b]
+        })
+        .collect();
+    let cases = [
+        ("glm", serde_json::json!({"model": "glm"})),
+        ("random_forest", serde_json::json!({"model": "random_forest", "n_estimators": 60})),
+    ];
+    for (name, params) in cases {
+        let inputs = vec![("records", Value::Table(records.clone()))];
+        let mut told = Vec::new();
+        let (e, stopped) = run_with("sdm.fit", inputs.clone(), params.clone(), &mut |p| {
+            told.extend(p.map(|p| p.text.clone()));
+            true
+        });
+        assert!(e.is_none() && !stopped, "{name}: {e:?}");
+        assert!(told.len() > 1, "{name}: told {told:?}");
+        // stopped between two fits
+        let mut seen = 0;
+        let (e, stopped) = run_with("sdm.fit", inputs.clone(), params.clone(), &mut |p| {
+            seen += usize::from(p.is_some());
+            seen <= 1
+        });
+        assert!(stopped && e.unwrap_or_default().contains("stopped"), "{name}: between");
+        // stopped within a fit: only the asks (no progress) say stop
+        let (e, stopped) = run_with("sdm.fit", inputs, params, &mut |p| p.is_some());
+        assert!(stopped && e.unwrap_or_default().contains("stopped"), "{name}: within");
+    }
+}

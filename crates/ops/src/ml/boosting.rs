@@ -552,8 +552,9 @@ fn logit(x: f64) -> f64 {
     }
 }
 
-/// HistGradientBoostingClassifier.fit: the classes are the distinct values of `y`, increasing.
-pub fn classifier(x: &Frame, y: &[f64], s: &Settings) -> Result<Boosting, String> {
+/// HistGradientBoostingClassifier.fit: the classes are the distinct values of `y`, increasing. `stop` is asked
+/// before each iteration: false when the run was stopped (the fit then fails, stopped).
+pub fn classifier(x: &Frame, y: &[f64], s: &Settings, stop: &mut dyn FnMut() -> bool) -> Result<Boosting, String> {
     if y.iter().any(|v| !v.is_finite()) {
         return Err("the classes have missing values".into());
     }
@@ -564,18 +565,24 @@ pub fn classifier(x: &Frame, y: &[f64], s: &Settings) -> Result<Boosting, String
         return Err("a classifier needs two classes or more".into());
     }
     let codes: Vec<f64> = y.iter().map(|v| classes.partition_point(|c| c < v) as f64).collect();
-    fit(x, &codes, classes, s)
+    fit(x, &codes, classes, s, stop)
 }
 
 /// HistGradientBoostingRegressor.fit (the half squared error).
-pub fn regressor(x: &Frame, y: &[f64], s: &Settings) -> Result<Boosting, String> {
+pub fn regressor(x: &Frame, y: &[f64], s: &Settings, stop: &mut dyn FnMut() -> bool) -> Result<Boosting, String> {
     if y.iter().any(|v| !v.is_finite()) {
         return Err("the values have missing values".into());
     }
-    fit(x, y, Vec::new(), s)
+    fit(x, y, Vec::new(), s, stop)
 }
 
-fn fit(x: &Frame, y: &[f64], classes: Vec<f64>, s: &Settings) -> Result<Boosting, String> {
+fn fit(
+    x: &Frame,
+    y: &[f64],
+    classes: Vec<f64>,
+    s: &Settings,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<Boosting, String> {
     use rayon::prelude::*;
     let n = y.len();
     if n == 0 {
@@ -634,6 +641,9 @@ fn fit(x: &Frame, y: &[f64], classes: Vec<f64>, s: &Settings) -> Result<Boosting
     let mut gradients = vec![vec![0f32; n]; k_trees];
     let mut hessians = vec![vec![0f32; n]; k_trees];
     for _ in 0..s.max_iter {
+        if !stop() {
+            return Err("stopped".into());
+        }
         // the gradients and hessians of the loss at the raw predictions
         if classes.is_empty() {
             gradients[0].par_iter_mut().enumerate().for_each(|(i, g)| *g = (raw[0][i] - y[i]) as f32);

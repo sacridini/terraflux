@@ -698,15 +698,28 @@ fn max_features_of(v: &serde_json::Value, n: usize) -> Result<usize, String> {
 
 /// RandomForestClassifier.fit on the records (presence 1, background 0), with their weights (scikit-learn's
 /// sample_weight: the bootstraps drawn with them, or the trees weighted by them without bootstraps).
-pub fn fit(x: &Frame, y: &[f64], weights: Option<&[f64]>, s: &Settings) -> Result<Forest, String> {
+/// `stop` is asked between batches of trees: false when the run was stopped (the fit then fails, stopped).
+pub fn fit(
+    x: &Frame,
+    y: &[f64],
+    weights: Option<&[f64]>,
+    s: &Settings,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<Forest, String> {
     if y.iter().any(|v| *v != 0.0 && *v != 1.0) || !y.contains(&0.0) || !y.contains(&1.0) {
         return Err("a forest needs presences (1) and background or absences (0)".into());
     }
-    classifier(x, y, weights, s)
+    classifier(x, y, weights, s, stop)
 }
 
 /// RandomForestClassifier.fit: the classes are the distinct values of `y`, increasing.
-pub fn classifier(x: &Frame, y: &[f64], weights: Option<&[f64]>, s: &Settings) -> Result<Forest, String> {
+pub fn classifier(
+    x: &Frame,
+    y: &[f64],
+    weights: Option<&[f64]>,
+    s: &Settings,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<Forest, String> {
     if y.iter().any(|v| !v.is_finite()) {
         return Err("the classes have missing values".into());
     }
@@ -717,22 +730,35 @@ pub fn classifier(x: &Frame, y: &[f64], weights: Option<&[f64]>, s: &Settings) -
         return Err("a classifier needs two classes or more".into());
     }
     let codes: Vec<usize> = y.iter().map(|v| classes.partition_point(|c| c < v)).collect();
-    let trees = grow(x, Target::Classes(&codes), classes.len(), weights, s)?;
+    let trees = grow(x, Target::Classes(&codes), classes.len(), weights, s, stop)?;
     Ok(Forest { predictors: x.names.clone(), trees, classes })
 }
 
 /// RandomForestRegressor.fit (the squared error; scikit-learn's max_features for it is 1.0, all).
-pub fn regressor(x: &Frame, y: &[f64], weights: Option<&[f64]>, s: &Settings) -> Result<Forest, String> {
+pub fn regressor(
+    x: &Frame,
+    y: &[f64],
+    weights: Option<&[f64]>,
+    s: &Settings,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<Forest, String> {
     if y.iter().any(|v| !v.is_finite()) {
         return Err("the values have missing values".into());
     }
-    let trees = grow(x, Target::Values(y), 1, weights, s)?;
+    let trees = grow(x, Target::Values(y), 1, weights, s, stop)?;
     Ok(Forest { predictors: x.names.clone(), trees, classes: Vec::new() })
 }
 
 /// BaseForest.fit: the trees' seeds drawn from the forest's, each tree grown from its bootstrap (in parallel:
-/// each from its own seed, the same trees).
-fn grow(x: &Frame, y: Target, k: usize, weights: Option<&[f64]>, s: &Settings) -> Result<Vec<Tree>, String> {
+/// each from its own seed, the same trees; in batches, `stop` asked before each).
+fn grow(
+    x: &Frame,
+    y: Target,
+    k: usize,
+    weights: Option<&[f64]>,
+    s: &Settings,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<Vec<Tree>, String> {
     use rayon::prelude::*;
     let n = match y {
         Target::Classes(c) => c.len(),
@@ -774,9 +800,8 @@ fn grow(x: &Frame, y: Target, k: usize, weights: Option<&[f64]>, s: &Settings) -
     });
     let mut forest_rng = Mt19937::new(s.random_state);
     let seeds: Vec<u32> = (0..s.n_estimators).map(|_| forest_rng.randint(0, i64::from(i32::MAX)) as u32).collect();
-    Ok(seeds
-        .into_par_iter()
-        .map(|seed| {
+    let build = |seed: u32| -> Tree {
+        {
             let w: Vec<f64> = if s.bootstrap {
                 let mut r = Mt19937::new(seed);
                 let mut counts = vec![0.0f64; n];
@@ -814,8 +839,17 @@ fn grow(x: &Frame, y: Target, k: usize, weights: Option<&[f64]>, s: &Settings) -
                 crit: Criterion::new(k),
             };
             g.grow(weighted)
-        })
-        .collect())
+        }
+    };
+    // batches of a few trees per thread, the stop asked before each (the trees and their order are the same)
+    let mut trees = Vec::with_capacity(seeds.len());
+    for batch in seeds.chunks(rayon::current_num_threads().max(1) * 4) {
+        if !stop() {
+            return Err("stopped".into());
+        }
+        trees.extend(batch.par_iter().map(|&seed| build(seed)).collect::<Vec<Tree>>());
+    }
+    Ok(trees)
 }
 
 impl Forest {

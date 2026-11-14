@@ -1025,7 +1025,7 @@ impl Operator for Folds {
         }
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let p = partitioned(args)?;
         let r = folds::Records { x: &p.x, y: &p.y, lonlat: p.lonlat, classes: p.classes.as_deref() };
         let need = |c: &Option<Vec<f64>>| -> Result<()> {
@@ -1067,7 +1067,7 @@ impl Operator for Folds {
                     deg_to_metre: args.param("deg_to_metre", 111_325.0)?,
                     seed: args.param("seed", 1)?,
                 };
-                folds::spatial_blocks(&r, &b).map_err(|e| bad(args, e))?
+                folds::spatial_blocks(&r, &b, &mut || !ctx.stopped()).map_err(|e| bad(args, e))?
             }
             "clusters" => {
                 let env = match args.get("env") {
@@ -1380,7 +1380,8 @@ impl Operator for Fit {
             },
         };
         // (stopped between two fits: the folds' and the last on every record)
-        let mut tell = |k: usize, of: usize| {
+        let mut tell = |at: Option<(usize, usize)>| {
+            let Some((k, of)) = at else { return !ctx.stopped() };
             let what =
                 if k + 1 < of { format!("fold {} of {}", k + 1, of - 1) } else { "the model on every record".into() };
             ctx.progress(Some(k as f64 / of as f64), what)
@@ -1476,10 +1477,12 @@ impl Operator for Importance {
         .param(PortSpec::optional("seed", Type::Integer, "numpy's seed (default 1)"))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let Some(Value::SdmModel(m)) = args.get("model") else { return Err(bad(args, "connect a fitted model")) };
         let (x, y, _) = records_xy(args)?;
-        let rows = workflow::importance(m, &x, &y, args.param("n_repeats", 5)?, args.param("seed", 1)?)
+        let mut tell =
+            |k: usize, of: usize| ctx.progress(Some(k as f64 / of as f64), format!("shuffle {} of {of}", k + 1));
+        let rows = workflow::importance(m, &x, &y, args.param("n_repeats", 5)?, args.param("seed", 1)?, &mut tell)
             .map_err(|e| bad(args, e))?;
         let mut t = Table::new(vec!["importance".into(), "sd".into()]);
         t.rows = rows.iter().map(|r| vec![r.1, r.2]).collect();
