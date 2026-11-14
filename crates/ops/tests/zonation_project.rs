@@ -20,7 +20,9 @@ fn projects() -> serde_json::Value {
 
 /// A case's project written into a directory of its own.
 fn write_case(name: &str, case: &serde_json::Value) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("terraflux-z5-{}-{name}", std::process::id()));
+    // a folder of the test's own (the test's thread is named after it): tests in parallel write the same cases
+    let test = std::thread::current().name().unwrap_or("main").replace("::", "-");
+    let dir = std::env::temp_dir().join(format!("terraflux-z5-{}-{test}-{name}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     for (file, text) in case["files"].as_object().unwrap() {
         std::fs::write(dir.join(file), text.as_str().unwrap()).unwrap();
