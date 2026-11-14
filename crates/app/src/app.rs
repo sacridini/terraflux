@@ -610,6 +610,8 @@ pub struct Session {
     pub cutting: Option<crate::frame::Cutting>,
     /// The window that adds a layer from an address on the web (the Layers' add menu).
     pub url_layer: Option<crate::remote::Dialog>,
+    /// The vector layers on the web read by the view (see [`crate::view_vector`]).
+    pub view_vectors: crate::view_vector::ViewVectors,
     /// The Problems pane asked for (why a node failed).
     pub ask_problems: bool,
     /// The calculator asked for (the script of the node selected).
@@ -941,6 +943,7 @@ impl Session {
             export: None,
             cutting: None,
             url_layer: None,
+            view_vectors: Default::default(),
             ask_problems: false,
             ask_calculator: false,
             ask_viewer: false,
@@ -3870,6 +3873,19 @@ impl TerrafluxApp {
                     );
                 });
                 ui.end_row();
+                ui.label("Cloud storage");
+                ui.vertical(|ui| {
+                    crate::settings::cloud_panel(ui, &mut st.cloud);
+                    ui.label(
+                        RichText::new(
+                            "the keys for s3://, gs:// and /vsiaz/ data, secrets in the system's store of credentials (never in a model); \
+                             the command line and the workers use the environment's variables",
+                        )
+                        .weak()
+                        .size(11.0),
+                    );
+                });
+                ui.end_row();
                 ui.label("Node libraries");
                 ui.vertical(|ui| {
                     ui.label(RichText::new(crate::my_nodes::dir().display().to_string()).size(11.0))
@@ -4037,6 +4053,7 @@ impl TerrafluxApp {
                     node_libraries: st.node_libraries.clone(),
                     node_remotes: st.node_remotes.clone(),
                     shortcuts: st.shortcuts.clone(),
+                    cloud: st.cloud.clone(),
                     ..Default::default()
                 };
             }

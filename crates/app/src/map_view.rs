@@ -739,6 +739,11 @@ impl MapView {
         e.iter().all(|v| v.is_finite()).then_some(e)
     }
 
+    /// The part of the map in view as a box (as [`MapView::view_extent`]) and the coordinate system of the map.
+    pub fn view_box(&self) -> Option<([f64; 4], Option<String>)> {
+        Some((self.view_extent()?, crs_of(self.shown_grid.as_ref()?)))
+    }
+
     /// The view on a box of the map's coordinates now (a place gone to), at the size the view was drawn last; false
     /// when no map was drawn or the box has no cells on it.
     pub fn go_extent(&mut self, extent: [f64; 4]) -> bool {

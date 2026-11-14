@@ -2771,10 +2771,23 @@ item, na ordem; release só quando pedido.
    cabeçalhos de remotos fora da thread da janela. `basemap.rs`: `Basemap::Custom`, `validate`, `register` (5, o
    último primeiro), `custom_window`, o cache por um hash da URL. Testes: `tests/web_layers.rs` (um servidor em
    127.0.0.1 com faixas de bytes: o COG de 22 MB, 404, o servidor que passa a falhar, o GeoJSON, o XYZ próprio, as
-   configurações). Também: `every_test_file_runs` aceita os módulos de `ui.rs`. Falta: WMTS; um vetor remoto lido
-   por filtro espacial (hoje inteiro); `{s}` vira `a`; o cache de resultados não vê um remoto que mudou; credenciais
-   de S3/GS; ~~*A URL...* também no cabeçalho do Viewer~~ (feito: o botão no cabeçalho abre o mesmo `remote::Dialog`,
-   `remote::URL_HELP` comum; teste `a_url_from_the_viewers_header_opens_the_dialog`).
+   configurações). Também: `every_test_file_runs` aceita os módulos de `ui.rs`. Falta: `{s}` vira `a`; o cache de
+   resultados não vê um remoto que mudou; ~~*A URL...* também no cabeçalho do Viewer~~ (feito: o botão no cabeçalho
+   abre o mesmo `remote::Dialog`, `remote::URL_HELP` comum; teste `a_url_from_the_viewers_header_opens_the_dialog`).
+   **Feito depois** (Unreleased): ~~WMTS~~ (`WMTS:https://.../WMTSCapabilities.xml,layer=...` é um raster:
+   `terraflux_graph::service_of`/`is_wmts`, `raster.read`, *A URL...*; também `WFS:`/`OAPIF:` como vetor; teste
+   `a_wmts_service_added_as_a_layer_by_its_address` com capacidades e tiles num servidor em 127.0.0.1; o basemap segue
+   só XYZ); ~~um vetor remoto lido por filtro espacial~~ (`terraflux_gdal::read_vector_in` com
+   `OGR_L_SetSpatialFilterRect`, `vector.read` com `extent`/`extent_crs`; no Viewer `view_vector.rs`: um job por
+   (camada, caixa da vista arredondada para fora numa grade grossa), as 6 últimas caixas guardadas, só sobre um mapa já
+   mostrado e enquanto o nó não rodou; testes `vector_read_in_an_extent`, `features_are_read_in_a_box`,
+   `a_vector_layer_on_the_web_is_read_by_the_view`); ~~credenciais de S3/GS/Azure~~ (`settings::Cloud`, aplicadas
+   com `CPLSetConfigOption` global ao iniciar e ao mudar; os segredos no armazém de credenciais do sistema via trait `SecretStore`, com `Memory` nos testes; o resto no arquivo de configurações `0600` no Unix; a CLI e os workers
+   usam as variáveis de ambiente; `read_vector` abre pelo mesmo caminho dos rasters). **Falta (dessas):** o basemap
+   por WMTS; o Viewer com um vetor remoto sozinho (sem mapa) ainda o lê inteiro, para enquadrar, e a tabela de
+   atributos e os estilos por atributo de uma camada lida pela vista só aparecem depois de rodar o nó; ler pela vista
+   com o `extent` na saída do `terraflux plot`/figuras; o RGB automático de um WMTS (4 bandas: hoje a banda 1 em cinza
+   até escolher *RGB* na camada); testar S3/GS de verdade (nenhum teste toca uma nuvem).
    **Visto de passagem:** `surface::the_terrain_is_landschafts` (crates/ops) falha no VRM por 2e-16
    (`0.008092000620180229` contra `...180007`), com ou sem este item: a paridade bit a bit do VRM com o numpy.
 8. **As sobras das partes já feitas.**

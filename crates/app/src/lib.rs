@@ -100,6 +100,7 @@ pub mod update;
 pub mod vector_tiles;
 pub mod vector_view;
 pub mod versions_view;
+pub mod view_vector;
 pub mod watch;
 pub mod wizard;
 pub mod woe_view;

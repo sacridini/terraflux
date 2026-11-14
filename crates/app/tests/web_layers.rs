@@ -390,6 +390,164 @@ fn vector_features_on_the_web_added_as_a_layer() {
     assert!(terraflux_app::builder::add_url(s, &r, "data/points.geojson").unwrap_err().contains("not an address"));
 }
 
+/// The capabilities of a WMTS service of one layer (`colour`) in web Mercator, two levels (1 and 2 tiles a side), its
+/// tiles at `/wmts/{level}/{row}/{col}.png` of the server on `port`.
+fn wmts_capabilities(port: u16) -> String {
+    let e = 20037508.342789244;
+    let level = |z: u32, scale: f64| {
+        format!(
+            "<TileMatrix><ows:Identifier>{z}</ows:Identifier><ScaleDenominator>{scale}</ScaleDenominator>\
+             <TopLeftCorner>-{e} {e}</TopLeftCorner><TileWidth>256</TileWidth><TileHeight>256</TileHeight>\
+             <MatrixWidth>{n}</MatrixWidth><MatrixHeight>{n}</MatrixHeight></TileMatrix>",
+            n = 1u32 << z
+        )
+    };
+    format!(
+        "<?xml version=\"1.0\"?>\
+         <Capabilities xmlns=\"http://www.opengis.net/wmts/1.0\" xmlns:ows=\"http://www.opengis.net/ows/1.1\" \
+         xmlns:xlink=\"http://www.w3.org/1999/xlink\" version=\"1.0.0\"><Contents><Layer>\
+         <ows:Title>Colour</ows:Title><ows:Identifier>colour</ows:Identifier>\
+         <ows:WGS84BoundingBox><ows:LowerCorner>-180 -85.0511287798</ows:LowerCorner>\
+         <ows:UpperCorner>180 85.0511287798</ows:UpperCorner></ows:WGS84BoundingBox>\
+         <Style isDefault=\"true\"><ows:Identifier>default</ows:Identifier></Style><Format>image/png</Format>\
+         <TileMatrixSetLink><TileMatrixSet>mercator</TileMatrixSet></TileMatrixSetLink>\
+         <ResourceURL format=\"image/png\" resourceType=\"tile\" \
+         template=\"http://127.0.0.1:{port}/wmts/{{TileMatrix}}/{{TileRow}}/{{TileCol}}.png\"/></Layer>\
+         <TileMatrixSet><ows:Identifier>mercator</ows:Identifier>\
+         <ows:SupportedCRS>urn:ogc:def:crs:EPSG::3857</ows:SupportedCRS>{}{}</TileMatrixSet></Contents></Capabilities>",
+        level(0, 559082264.0287178),
+        level(1, 279541132.0143589)
+    )
+}
+
+/// A WMTS service (`WMTS:http://.../capabilities.xml,layer=colour`) added as a layer by its address: its capabilities
+/// and tiles from a server on this computer, opened as a raster (RGBA, the finest level), the tiles asked for by place
+/// and the cells those of the tiles.
+#[test]
+fn a_wmts_service_added_as_a_layer_by_its_address() {
+    if !terraflux_gdal::has_driver("WMTS") {
+        return;
+    }
+    let port = std::sync::Arc::new(std::sync::atomic::AtomicU16::new(0));
+    let (png, p) = (tile_png([200, 40, 40]), port.clone());
+    let web = Web::new(move |path| match path {
+        "/wmts/caps.xml" => Some(wmts_capabilities(p.load(std::sync::atomic::Ordering::Relaxed)).into_bytes()),
+        _ if path.starts_with("/wmts/") && path.ends_with(".png") => Some(png.clone()),
+        _ => None,
+    });
+    port.store(web.port, std::sync::atomic::Ordering::Relaxed);
+    let address = format!("WMTS:{},layer=colour", web.url("/wmts/caps.xml"));
+    let info = terraflux_app::remote::probe(&address).unwrap();
+    assert_eq!(info.kind, terraflux_app::remote::Kind::Raster);
+    assert_eq!(info.path, address, "GDAL's own syntax, as it is");
+    assert_eq!((info.size, info.bands, info.driver.as_str()), ((512, 512), 4, "WMTS"), "{info:?}");
+    assert!(info.crs.as_deref().is_some_and(|c| c.contains("3857") || c.contains("Mercator")), "{:?}", info.crs);
+    // an address of the service with nothing after the scheme, or a layer it does not have, says why
+    assert!(terraflux_app::remote::probe("WMTS:").unwrap_err().contains("not an address"));
+    let e = terraflux_app::remote::probe(&format!("WMTS:{},layer=none", web.url("/wmts/caps.xml"))).unwrap_err();
+    assert!(e.contains("none") || e.contains("layer"), "{e}");
+    let r = terraflux_ops::Registry::standard();
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    h.state_mut().focus(Pane::Viewer);
+    let id = {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let id = terraflux_app::builder::add_url(s, &r, &address).unwrap();
+        let n = s.source.nodes.iter().find(|n| n.id == id).unwrap();
+        assert_eq!(n.op, "raster.read");
+        assert_eq!(n.params["path"], address, "not made /vsicurl/");
+        id
+    };
+    layers_run(&mut h, &[&id]);
+    let s = h.state().session.as_ref().unwrap();
+    let Some(terraflux_ops::Value::Raster(wmts)) = s.value_of(&id, "raster") else { panic!("a raster") };
+    assert_eq!((wmts.grid.width, wmts.grid.height), (512, 512));
+    let win = terraflux_raster::tiff::Window { x0: 300, y0: 100, width: 1, height: 1 };
+    let rgba: Vec<f64> = (0..4).map(|b| wmts.window(b, win).unwrap()[0]).collect();
+    assert_eq!(rgba, [200.0, 40.0, 40.0, 255.0], "the tile's colour");
+    // the tiles of the finest level, by their row and column
+    let tiles: Vec<String> = web.hits().into_iter().map(|h| h.path).filter(|p| p.ends_with(".png")).collect();
+    assert!(tiles.iter().any(|p| p == "/wmts/1/0/1.png"), "{tiles:?}");
+}
+
+/// The names of the features of a layer.
+fn names_of(v: &terraflux_raster::vector::Vector) -> Vec<String> {
+    match v.column("name") {
+        Some(terraflux_raster::vector::Column::Texts(t)) => t.clone(),
+        _ => panic!("no names"),
+    }
+}
+
+/// Features on the web over a map are read for the view: the features of the box in view (rounded outward), one read
+/// per box, the last few kept (a box seen again asks for nothing), and the node is not run whole. Over Sibuyan in
+/// degrees: three points by its south-west corner and two far from them.
+#[test]
+fn a_vector_layer_on_the_web_is_read_by_the_view() {
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let features = r#"{"type":"FeatureCollection","features":[
+        {"type":"Feature","properties":{"name":"a"},"geometry":{"type":"Point","coordinates":[122.350,12.400]}},
+        {"type":"Feature","properties":{"name":"b"},"geometry":{"type":"Point","coordinates":[122.360,12.410]}},
+        {"type":"Feature","properties":{"name":"c"},"geometry":{"type":"Point","coordinates":[122.370,12.420]}},
+        {"type":"Feature","properties":{"name":"d"},"geometry":{"type":"Point","coordinates":[122.550,12.550]}},
+        {"type":"Feature","properties":{"name":"e"},"geometry":{"type":"Point","coordinates":[122.600,12.580]}}]}"#;
+    let web = Web::of_files(vec![("/five.geojson", features.as_bytes().to_vec())]);
+    let url = web.url("/five.geojson");
+    let mut h = viewed(&in_degrees("web_by_view.tif"), "web_by_view");
+    let r = terraflux_ops::Registry::standard();
+    let id = {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let id = terraflux_app::builder::add_url(s, &r, &url).unwrap();
+        let n = s.source.nodes.iter().find(|n| n.id == id).unwrap();
+        assert_eq!(n.op, "vector.read");
+        assert!(!s.show_queue.contains(&id), "not run whole: it is read for the view");
+        id
+    };
+    let source = (format!("/vsicurl/{url}"), None);
+    let settled = |h: &mut Harness<TerrafluxApp>, reads: usize| {
+        until(h, "the features of the view", |a| {
+            let v = &a.session.as_ref().unwrap().view_vectors;
+            v.started() >= reads && v.reading() == 0
+        });
+        h.run_steps(3);
+    };
+    let shown = |h: &Harness<TerrafluxApp>| {
+        h.state().session.as_ref().unwrap().view_vectors.shown(&source).map(|v| names_of(&v))
+    };
+    // the whole map in view: all five features
+    settled(&mut h, 1);
+    assert_eq!(shown(&h).unwrap(), ["a", "b", "c", "d", "e"]);
+    assert!(h.state().session.as_ref().unwrap().value_of(&id, "vector").is_none(), "the node did not run");
+    // the view on the south-west corner: its three
+    assert!(map(&mut h).go_extent([122.34, 12.39, 122.38, 12.43]));
+    settled(&mut h, 2);
+    assert_eq!(shown(&h).unwrap(), ["a", "b", "c"]);
+    // the north-east: the other two
+    assert!(map(&mut h).go_extent([122.53, 12.53, 122.62, 12.60]));
+    settled(&mut h, 3);
+    assert_eq!(shown(&h).unwrap(), ["d", "e"]);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!((s.view_vectors.started(), s.view_vectors.kept(&source)), (3, 3), "a box each");
+    // a view seen again: its box was kept, nothing is read
+    assert!(map(&mut h).go_extent([122.34, 12.39, 122.38, 12.43]));
+    h.run_steps(6);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.view_vectors.started(), 3, "no new read");
+    assert_eq!(names_of(&s.view_vectors.shown(&source).unwrap()), ["a", "b", "c"]);
+    // (the file was asked for by ranges of bytes, as GDAL reads it, by GDAL's own threads' requests)
+    assert!(web.hits().iter().any(|h| h.path == "/five.geojson"));
+    // a node that ran (the whole layer read) is drawn from its value, as any other
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.start_to(Some(id.clone()), Box::new(|| {}));
+    }
+    layers_run(&mut h, &[&id]);
+    let s = h.state().session.as_ref().unwrap();
+    let Some(terraflux_ops::Value::Vector(v)) = s.value_of(&id, "vector") else { panic!("features") };
+    assert_eq!(v.len(), 5);
+}
+
 /// A tile of one colour as a PNG.
 fn tile_png(rgb: [u8; 3]) -> Vec<u8> {
     let img = image::RgbImage::from_pixel(256, 256, image::Rgb(rgb));
@@ -581,4 +739,86 @@ fn the_custom_basemaps_are_kept_in_the_settings() {
     assert_eq!(own[0].attribution(), "(c) again");
     // (the test's own settings: none left for the other tests' choosers)
     terraflux_app::settings::update(|s| s.custom_basemaps.clear());
+}
+
+/// The credentials of cloud storage are kept in the settings file and given to GDAL when they change, and never reach
+/// a model that reads `s3://` data. Nothing is read from a cloud: no node runs.
+#[test]
+fn the_cloud_credentials_are_in_the_settings_and_never_in_a_model() {
+    setup();
+    static CLOUD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = CLOUD.lock().unwrap_or_else(|e| e.into_inner());
+    let cloud = terraflux_app::settings::Cloud {
+        aws_access_key_id: "AKIAMODELTEST".into(),
+        aws_secret_access_key: "model-test-secret".into(),
+        aws_session_token: "model-test-token".into(),
+        aws_region: "eu-west-3".into(),
+        aws_endpoint: "http://127.0.0.1:9000".into(),
+        gs_access_key_id: "GOOGMODELTEST".into(),
+        gs_secret_access_key: "model-test-gs-secret".into(),
+        ..Default::default()
+    };
+    // (the secrets in memory: the test never reaches the system's store)
+    terraflux_app::settings::use_store(Box::new(terraflux_app::settings::Memory::default()));
+    // (the settings window of another test, running at the same time, may write its own copy of the settings over
+    // these: set again until the file has them)
+    let file = terraflux_app::settings::file().unwrap();
+    let mut kept = String::new();
+    for _ in 0..20 {
+        terraflux_app::settings::update(|s| s.cloud = cloud.clone());
+        kept = std::fs::read_to_string(&file).unwrap_or_default();
+        if kept.contains("AKIAMODELTEST") && terraflux_app::settings::get().cloud == cloud {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    // the settings file has what is not secret and none of the secrets
+    assert!(kept.contains("AKIAMODELTEST") && kept.contains("eu-west-3"));
+    for secret in ["model-test-secret", "model-test-token", "model-test-gs-secret"] {
+        assert!(!kept.contains(secret), "{secret} in the settings file");
+    }
+    assert_eq!(terraflux_app::settings::get().cloud, cloud, "the session has them");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600, "the owner's alone");
+    }
+    // a model that reads from S3, saved and written as text: none of them in it
+    let mut m = terraflux_graph::Model::new("cloud");
+    m.nodes.push(terraflux_graph::Node::new("dem", "raster.read").param("path", "s3://bucket/dem.tif"));
+    m.nodes.push(terraflux_graph::Node::new("roads", "vector.read").param("path", "gs://bucket/roads.fgb"));
+    let saved = tmp("cloud-model.toml");
+    m.save(&saved).unwrap();
+    let text = std::fs::read_to_string(&saved).unwrap();
+    assert!(text.contains("s3://bucket/dem.tif"), "the model names the data");
+    for secret in ["AKIAMODELTEST", "model-test-secret", "model-test-token", "GOOGMODELTEST", "model-test-gs-secret"] {
+        assert!(!text.contains(secret), "{secret} in the model");
+        assert!(!m.to_toml().unwrap().contains(secret), "{secret} in the model's text");
+    }
+    // GDAL has them (for every thread: read back by another), when it is there
+    if terraflux_gdal::gdal().is_ok() {
+        let read = || {
+            [
+                "AWS_ACCESS_KEY_ID",
+                "AWS_SECRET_ACCESS_KEY",
+                "AWS_REGION",
+                "AWS_S3_ENDPOINT",
+                "AWS_HTTPS",
+                "GS_SECRET_ACCESS_KEY",
+            ]
+            .map(terraflux_gdal::config)
+        };
+        let got = std::thread::spawn(read).join().unwrap();
+        assert_eq!(
+            got.each_ref().map(|v| v.as_deref().unwrap_or("")),
+            ["AKIAMODELTEST", "model-test-secret", "eu-west-3", "127.0.0.1:9000", "NO", "model-test-gs-secret"]
+        );
+    }
+    // cleared in the settings: cleared for GDAL (the environment's variables, if any, in charge again)
+    terraflux_app::settings::update(|s| s.cloud = Default::default());
+    assert!(!std::fs::read_to_string(&file).unwrap().contains("model-test-secret"));
+    if terraflux_gdal::gdal().is_ok() {
+        assert_eq!(terraflux_gdal::config("AWS_SECRET_ACCESS_KEY"), std::env::var("AWS_SECRET_ACCESS_KEY").ok());
+    }
+    let _ = std::fs::remove_file(saved);
 }

@@ -7,6 +7,29 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **WMTS services as raster sources.** An address in GDAL's own syntax, `WMTS:https://host/WMTSCapabilities.xml,
+  layer=name` (and `tilematrixset=`), is a raster for `raster.read`, *A URL...* in the Layers and the Viewer's header
+  (it is checked in a thread: size, bands, coordinate system, or why not) and anything else that reads a raster from
+  the web; it is kept as it is (never made `/vsicurl/`, never relativized, never checked as a file), read by windows at
+  the level that fits the screen. `WFS:https://...` and `OAPIF:https://...` are web addresses of vector features the
+  same way. The basemap stays XYZ.
+- **`vector.read` with an `extent`, and remote features read by the view.** `vector.read` takes an optional `extent`
+  (`[xmin, ymin, xmax, ymax]`, in the layer's coordinate system or in `extent_crs`) and reads only the features that
+  meet it (OGR's spatial filter, `terraflux_gdal::read_vector_in`; a folder or a pattern, each file), useful from the
+  command line too. In the Viewer, a vector layer on the web (`https://`, `/vsicurl/`, `WFS:`, `OAPIF:`, a bucket)
+  added over a map is no longer run whole: the features that meet the view are read, in a thread, per box of the view
+  rounded outward to a coarse grid, the last six boxes kept for each layer (a box seen again asks for nothing, the
+  last one read drawn while the new one is). A node that was run (the whole layer) is drawn from its value as before,
+  and local files stay read whole.
+- **Credentials of S3, Google Cloud and Azure storage in the settings.** *Settings > General > Cloud storage*: AWS
+  access key id, secret key (masked), session token (masked), region, endpoint (any S3-compatible storage; `http://`
+  or `https://` accepted), public buckets without signing; Google's interoperability keys or a service account's
+  `.json`; Azure's account and key. The secrets (secret keys, session token, Azure's key) are kept in the system's store of
+  credentials, as the assistant's keys are, and the rest in the settings file (written for its owner alone on Unix);
+  none is ever in a model, a script or the logs. They are given to GDAL as options for the whole program at the start and whenever they
+  change, so the Viewer's tile threads and the runs' threads read `s3://`, `gs://` and `/vsiaz/` data with them. The
+  command line and the workers use the environment's variables (`AWS_ACCESS_KEY_ID`...), as GDAL does by itself; a
+  field left empty leaves the variable in charge. Vector files are opened by the same path as rasters.
 - **The land-change Sankey over every step of a series.** In the window of a series' transitions (the "first to
   last..." button under the area of the classes along the steps), *Every step* draws a column of classes per step
   (the same classes in the same order at each, a class absent at a step keeping its row at zero height), the bands

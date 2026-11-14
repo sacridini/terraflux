@@ -85,6 +85,119 @@ fn vectors_are_read_and_written() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// Five points (WGS 84) served by a web server on 127.0.0.1 (a port the system chose) at `/features.geojson`, with
+/// HTTP ranges as GDAL's /vsicurl/ asks. Its port.
+fn serve_five() -> u16 {
+    use std::io::{BufRead, BufReader, Write};
+    let body: &'static str = r#"{"type":"FeatureCollection","features":[
+     {"type":"Feature","properties":{"name":"a"},"geometry":{"type":"Point","coordinates":[10.0,10.0]}},
+     {"type":"Feature","properties":{"name":"b"},"geometry":{"type":"Point","coordinates":[11.0,11.0]}},
+     {"type":"Feature","properties":{"name":"c"},"geometry":{"type":"Point","coordinates":[12.0,12.0]}},
+     {"type":"Feature","properties":{"name":"d"},"geometry":{"type":"Point","coordinates":[20.0,20.0]}},
+     {"type":"Feature","properties":{"name":"e"},"geometry":{"type":"Point","coordinates":[30.0,30.0]}}]}"#;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            std::thread::spawn(move || {
+                let mut out = stream.try_clone().unwrap();
+                let mut input = BufReader::new(stream);
+                loop {
+                    let mut first = String::new();
+                    if input.read_line(&mut first).unwrap_or(0) == 0 {
+                        return;
+                    }
+                    let mut range = None;
+                    loop {
+                        let mut l = String::new();
+                        if input.read_line(&mut l).unwrap_or(0) == 0 || l == "\r\n" {
+                            break;
+                        }
+                        if let Some((k, v)) = l.split_once(':')
+                            && k.eq_ignore_ascii_case("range")
+                        {
+                            range = Some(v.trim().to_string());
+                        }
+                    }
+                    let all = body.as_bytes();
+                    let head = first.split_whitespace().next().unwrap_or("") == "HEAD";
+                    let span = range.as_deref().and_then(|r| r.strip_prefix("bytes=")).and_then(|r| {
+                        let (a, b) = r.split_once('-')?;
+                        Some((a.parse::<usize>().ok()?, b.parse().unwrap_or(all.len() - 1).min(all.len() - 1)))
+                    });
+                    let mut answer = match (head, span) {
+                        (true, _) => {
+                            format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\n\r\n", all.len())
+                                .into_bytes()
+                        }
+                        (_, Some((a, b))) if a <= b => {
+                            let mut v = format!(
+                                "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {a}-{b}/{}\r\n\r\n",
+                                b - a + 1,
+                                all.len()
+                            )
+                            .into_bytes();
+                            v.extend_from_slice(&all[a..=b]);
+                            v
+                        }
+                        _ => {
+                            let mut v =
+                                format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", all.len()).into_bytes();
+                            v.extend_from_slice(all);
+                            v
+                        }
+                    };
+                    if !first.contains("/features.geojson") {
+                        answer = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".to_vec();
+                    }
+                    if out.write_all(&answer).is_err() {
+                        return;
+                    }
+                    let _ = out.flush();
+                }
+            });
+        }
+    });
+    port
+}
+
+/// `vector.read` with an extent reads only the features that meet it, in the layer's coordinate system or another
+/// (extent_crs), of a layer on the web as of a file; a wrong extent is told.
+#[test]
+fn vector_read_in_an_extent() {
+    if !gdal() {
+        return;
+    }
+    let url = format!("http://127.0.0.1:{}/features.geojson", serve_five());
+    let names = |params: serde_json::Value| -> Vec<String> {
+        let out = run("vector.read", vec![], params);
+        let Value::Vector(v) = &out["vector"] else { panic!() };
+        match v.column("name") {
+            Some(terraflux_raster::vector::Column::Texts(t)) => t.clone(),
+            _ => panic!("no names"),
+        }
+    };
+    assert_eq!(names(json!({"path": url})).len(), 5, "no extent: all");
+    assert_eq!(names(json!({"path": url, "extent": [10.5, 10.5, 12.5, 12.5]})), ["b", "c"]);
+    assert_eq!(names(json!({"path": url, "extent": [10.5, 10.5, 12.5, 12.5], "extent_crs": "EPSG:4326"})), ["b", "c"]);
+    // the box in web Mercator (metres)
+    let (mut x, mut y) = ([10.5, 12.5], [10.5, 12.5]);
+    terraflux_gdal::Transform::new("EPSG:4326", "EPSG:3857").unwrap().points(&mut x, &mut y);
+    assert_eq!(names(json!({"path": url, "extent": [x[0], y[0], x[1], y[1]], "extent_crs": "EPSG:3857"})), ["b", "c"]);
+    assert!(names(json!({"path": url, "extent": [50.0, 50.0, 60.0, 60.0]})).is_empty());
+    // a file the same, and an extent that is not four numbers
+    let file = std::env::temp_dir().join(format!("terraflux_vector_extent_{}.geojson", std::process::id()));
+    let whole = run("vector.read", vec![], json!({"path": url}));
+    let Value::Vector(all) = &whole["vector"] else { panic!() };
+    run("vector.write", vec![("vector", Value::Vector(all.clone()))], json!({"path": file.to_string_lossy()}));
+    assert_eq!(names(json!({"path": file.to_string_lossy(), "extent": [19.0, 19.0, 31.0, 31.0]})), ["d", "e"]);
+    std::fs::remove_file(&file).ok();
+    let params = json!({"path": url, "extent": [1, 2, 3]});
+    let args = Args { node: "n", inputs: Default::default(), params: params.as_object().unwrap() };
+    let e = Registry::standard().get("vector.read").unwrap().run(&mut Ctx::default(), &args).err().unwrap();
+    assert!(e.to_string().contains("extent is [xmin, ymin, xmax, ymax]"), "{e}");
+}
+
 /// A folder or a pattern: the features of its files as one layer, with every attribute (none where a file has
 /// none) and the file each comes from; a `.json` of a folder left out.
 #[test]

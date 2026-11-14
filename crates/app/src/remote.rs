@@ -75,6 +75,11 @@ pub fn crs_name(wkt: &str) -> String {
 
 /// Whether an address names vector features, by the extension of its file (before any `?` or `#`).
 pub fn kind_of(address: &str) -> Kind {
+    match terraflux_graph::service_of(address) {
+        Some("WMTS") => return Kind::Raster,
+        Some(_) => return Kind::Vector,
+        None => {}
+    }
     let end = address.find(['?', '#']).unwrap_or(address.len());
     let file = address[..end].rsplit('/').next().unwrap_or("");
     let ext = file.rsplit_once('.').map(|(_, e)| e.to_lowercase()).unwrap_or_default();
@@ -90,7 +95,9 @@ pub fn kind_of(address: &str) -> Kind {
 pub fn probe(address: &str) -> Result<Info, String> {
     let address = address.trim();
     let path = terraflux_graph::remote_path(address).ok_or_else(|| {
-        format!("{address}: not an address on the web (https://..., http://..., s3://..., gs://... or /vsicurl/...)")
+        format!(
+            "{address}: not an address on the web (https://..., http://..., s3://..., gs://..., /vsicurl/... or WMTS:https://...)"
+        )
     })?;
     match kind_of(&path) {
         Kind::Vector => {
@@ -129,8 +136,10 @@ pub fn probe(address: &str) -> Result<Info, String> {
 }
 
 /// The help of *A URL...* (the Layers panel and the Viewer's header).
-pub const URL_HELP: &str = "a COG or any raster GDAL reads over the web (read by windows, as the map asks), or vector \
-                            features: https://..., s3://..., gs://..., /vsicurl/...";
+pub const URL_HELP: &str = "a COG or any raster GDAL reads over the web (read by windows, as the map asks), a WMTS \
+                            service (WMTS:https://host/WMTSCapabilities.xml,layer=name), or vector features (a \
+                            WFS:https://... or OAPIF:https://... service is read for the view): https://..., \
+                            s3://..., gs://..., /vsicurl/...";
 
 /// The window that adds a layer from an address: what is typed, the address being checked, what was found.
 #[derive(Default)]
@@ -192,7 +201,11 @@ pub fn window(ctx: &egui::Context, s: &mut Session, r: &Registry) {
     let mut add = false;
     egui::Window::new("Add a layer from a URL").open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
         ui.label("A COG or any raster GDAL reads over the web, or vector features (GeoJSON, FlatGeobuf...).");
-        ui.label(RichText::new("https://..., s3://..., gs://... or /vsicurl/...").weak().size(11.5));
+        ui.label(
+            RichText::new("https://..., s3://..., gs://..., /vsicurl/... or WMTS:https://...,layer=name")
+                .weak()
+                .size(11.5),
+        );
         ui.add_space(4.0);
         let resp = ui.add(
             egui::TextEdit::singleline(&mut d.url)
@@ -263,6 +276,9 @@ mod tests {
             ("https://host.org/a.GeoJSON?x=a.tif", Kind::Vector),
             ("/vsicurl/https://host.org/roads.fgb#frag", Kind::Vector),
             ("gs://bucket/dir.v2/a.parquet", Kind::Vector),
+            ("WMTS:https://host.org/caps.xml,layer=a.json", Kind::Raster),
+            ("WFS:https://host.org/wfs?SERVICE=WFS&a=b.tif", Kind::Vector),
+            ("OAPIF:https://host.org/collections", Kind::Vector),
         ] {
             assert_eq!(kind_of(a), k, "{a}");
         }

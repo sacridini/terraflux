@@ -362,6 +362,17 @@ impl Operator for Read {
             "a file, a folder or a pattern (their features as one layer), relative to the model's folder",
         ))
         .param(PortSpec::optional("layer", Type::Text, "the layer (default the first)"))
+        .param(PortSpec::optional(
+            "extent",
+            Type::Any,
+            "[xmin, ymin, xmax, ymax]: read only the features that meet this box (a layer on the web is not read \
+             whole), in the layer's coordinate system unless extent_crs says another",
+        ))
+        .param(PortSpec::optional(
+            "extent_crs",
+            Type::Text,
+            "the coordinate system of extent (EPSG:4326, WKT...)",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -371,17 +382,28 @@ impl Operator for Read {
         }
         let layer: Option<String> = args.opt_param("layer")?;
         let layer = layer.as_deref().filter(|l| !l.is_empty());
+        let extent: Option<[f64; 4]> = match args.opt_param::<Vec<f64>>("extent")?.filter(|e| !e.is_empty()) {
+            Some(e) => Some(
+                <[f64; 4]>::try_from(e)
+                    .map_err(|_| Error::msg(format!("node {:?}: extent is [xmin, ymin, xmax, ymax]", args.node)))?,
+            ),
+            None => None,
+        };
+        let extent_crs: Option<String> = args.opt_param::<String>("extent_crs")?.filter(|c| !c.trim().is_empty());
+        let read = |at: &Path| match extent {
+            Some(e) => terraflux_gdal::read_vector_in(at, layer, e, extent_crs.as_deref()),
+            None => terraflux_gdal::read_vector(at, layer),
+        };
         let v = match vector_files_of(&path) {
             None => {
                 let at = terraflux_graph::remote_path(&path).unwrap_or_else(|| path.clone());
-                terraflux_gdal::read_vector(&at, layer).map_err(Error::msg)?
+                read(Path::new(&at)).map_err(Error::msg)?
             }
             Some(files) => {
                 let parts = files?
                     .iter()
                     .map(|f| {
-                        let v = terraflux_gdal::read_vector(f, layer)
-                            .map_err(|e| Error::msg(format!("{}: {e}", f.display())))?;
+                        let v = read(f).map_err(|e| Error::msg(format!("{}: {e}", f.display())))?;
                         let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                         Ok((name, v))
                     })

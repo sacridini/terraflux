@@ -90,6 +90,7 @@ struct Api {
     GDALDatasetCommitTransaction: unsafe extern "C" fn(H) -> c_int,
     OGR_L_GetName: unsafe extern "C" fn(H) -> *const c_char,
     OGR_L_ResetReading: unsafe extern "C" fn(H),
+    OGR_L_SetSpatialFilterRect: unsafe extern "C" fn(H, f64, f64, f64, f64),
     OGR_L_GetNextFeature: unsafe extern "C" fn(H) -> H,
     OGR_L_GetLayerDefn: unsafe extern "C" fn(H) -> H,
     OGR_L_GetSpatialRef: unsafe extern "C" fn(H) -> H,
@@ -179,6 +180,7 @@ struct Api {
     CPLErrorReset: unsafe extern "C" fn(),
     CPLSetConfigOption: unsafe extern "C" fn(*const c_char, *const c_char),
     CPLSetThreadLocalConfigOption: unsafe extern "C" fn(*const c_char, *const c_char),
+    CPLGetConfigOption: unsafe extern "C" fn(*const c_char, *const c_char) -> *const c_char,
     CPLSetErrorHandler: unsafe extern "C" fn(*const c_void) -> *const c_void,
     CPLQuietErrorHandler: *const c_void,
     OSRSetPROJSearchPaths: unsafe extern "C" fn(*const *const c_char),
@@ -351,6 +353,7 @@ impl Gdal {
             GDALDatasetCommitTransaction: f!(GDALDatasetCommitTransaction),
             OGR_L_GetName: f!(OGR_L_GetName),
             OGR_L_ResetReading: f!(OGR_L_ResetReading),
+            OGR_L_SetSpatialFilterRect: f!(OGR_L_SetSpatialFilterRect),
             OGR_L_GetNextFeature: f!(OGR_L_GetNextFeature),
             OGR_L_GetLayerDefn: f!(OGR_L_GetLayerDefn),
             OGR_L_GetSpatialRef: f!(OGR_L_GetSpatialRef),
@@ -426,6 +429,7 @@ impl Gdal {
             CPLErrorReset: f!(CPLErrorReset),
             CPLSetConfigOption: f!(CPLSetConfigOption),
             CPLSetThreadLocalConfigOption: f!(CPLSetThreadLocalConfigOption),
+            CPLGetConfigOption: f!(CPLGetConfigOption),
             CPLSetErrorHandler: f!(CPLSetErrorHandler),
             CPLQuietErrorHandler: *quiet,
             OSRSetPROJSearchPaths: f!(OSRSetPROJSearchPaths),
@@ -490,6 +494,16 @@ impl Gdal {
     fn open_handle(&self, path: &str, update: bool) -> Result<H> {
         // GDAL_OF_RASTER, and GDAL_OF_UPDATE to change it
         let flags: c_uint = 0x02 | if update { 0x01 } else { 0 };
+        self.open_with(path, flags, "GDAL cannot open it")
+    }
+
+    /// A vector dataset opened the way a raster is (the same handling of the web).
+    fn open_vector(&self, path: &str) -> Result<H> {
+        // GDAL_OF_VECTOR
+        self.open_with(path, 0x04, "GDAL cannot open it as vectors")
+    }
+
+    fn open_with(&self, path: &str, flags: c_uint, failed: &str) -> Result<H> {
         unsafe { (self.api.CPLErrorReset)() };
         // a file on the web: its folder is not listed for the files that go with it (sidecars, overviews): a
         // request for nothing, and a 404 or a 403 where the server lists no folders; this open only, so that the
@@ -505,7 +519,7 @@ impl Gdal {
         if web {
             unsafe { (self.api.CPLSetThreadLocalConfigOption)(readdir.as_ptr(), std::ptr::null()) };
         }
-        if h.is_null() { Err(self.last_error(&format!("{path}: GDAL cannot open it"))) } else { Ok(h) }
+        if h.is_null() { Err(self.last_error(&format!("{path}: {failed}"))) } else { Ok(h) }
     }
 }
 
@@ -529,6 +543,29 @@ pub fn gdal() -> std::result::Result<&'static Gdal, &'static str> {
     })
     .as_ref()
     .map_err(String::as_str)
+}
+
+/// Whether GDAL has a driver (by its short name: "WMTS", "GeoJSON"...).
+pub fn has_driver(name: &str) -> bool {
+    gdal().is_ok_and(|g| !unsafe { (g.api.GDALGetDriverByName)(cstr(name).as_ptr()) }.is_null())
+}
+
+/// A configuration option of GDAL set for the whole program (every thread, those of the tile workers too; none for
+/// the value: unset again, so that the environment's variable of the same name, which GDAL reads by itself, is the
+/// value). Not set for a thread alone: a thread-local option would not reach the others.
+pub fn set_config(key: &str, value: Option<&str>) -> Result<()> {
+    let g = gdal().map_err(String::from)?;
+    let v = value.map(cstr);
+    unsafe { (g.api.CPLSetConfigOption)(cstr(key).as_ptr(), v.as_ref().map_or(std::ptr::null(), |v| v.as_ptr())) };
+    Ok(())
+}
+
+/// A configuration option of GDAL as it reads it: the one set by [`set_config`], else the environment's variable of
+/// that name; none when it has neither.
+pub fn config(key: &str) -> Option<String> {
+    let g = gdal().ok()?;
+    let p = unsafe { (g.api.CPLGetConfigOption)(cstr(key).as_ptr(), std::ptr::null()) };
+    (!p.is_null()).then(|| text(p))
 }
 
 /// GDAL's data types, as Terraflux's.
@@ -1006,13 +1043,7 @@ pub fn vector_layers(path: impl AsRef<Path>) -> Result<Vec<String>> {
     let g = gdal().map_err(String::from)?;
     let path = path.as_ref().to_string_lossy().into_owned();
     let a = &g.api;
-    unsafe { (a.CPLErrorReset)() };
-    // GDAL_OF_VECTOR
-    let ds =
-        unsafe { (a.GDALOpenEx)(cstr(&path).as_ptr(), 0x04, std::ptr::null(), std::ptr::null(), std::ptr::null()) };
-    if ds.is_null() {
-        return Err(g.last_error(&format!("{path}: GDAL cannot open it as vectors")));
-    }
+    let ds = g.open_vector(&path)?;
     let n = unsafe { (a.GDALDatasetGetLayerCount)(ds) };
     let names = (0..n).map(|i| text(unsafe { (a.OGR_L_GetName)((a.GDALDatasetGetLayer)(ds, i)) })).collect();
     unsafe { (a.GDALClose)(ds) };
@@ -1022,15 +1053,48 @@ pub fn vector_layers(path: impl AsRef<Path>) -> Result<Vec<String>> {
 /// The features of a layer of a vector file (the first without a name): every geometry (in 2-D), the attributes
 /// (numbers for OGR's integers and reals, texts for the others), the coordinate system.
 pub fn read_vector(path: impl AsRef<Path>, layer: Option<&str>) -> Result<Vector> {
-    let g = gdal().map_err(String::from)?;
-    let path = path.as_ref().to_string_lossy().into_owned();
-    let a = &g.api;
-    unsafe { (a.CPLErrorReset)() };
-    let ds =
-        unsafe { (a.GDALOpenEx)(cstr(&path).as_ptr(), 0x04, std::ptr::null(), std::ptr::null(), std::ptr::null()) };
-    if ds.is_null() {
-        return Err(g.last_error(&format!("{path}: GDAL cannot open it as vectors")));
+    read_vector_filtered(path.as_ref(), layer, None)
+}
+
+/// The features of a layer whose extent meets a box `[xmin, ymin, xmax, ymax]` (OGR's spatial filter: a server or a
+/// format with a spatial index gives only those, a remote layer is not read whole), as [`read_vector`]. The box in
+/// `crs` (anything OGR reads: EPSG:4326, WKT); none: the layer's own.
+pub fn read_vector_in(
+    path: impl AsRef<Path>,
+    layer: Option<&str>,
+    bbox: [f64; 4],
+    crs: Option<&str>,
+) -> Result<Vector> {
+    read_vector_filtered(path.as_ref(), layer, Some((bbox, crs)))
+}
+
+/// A box in a coordinate system as the smallest box of another that holds it (its edges sampled: a curved edge in
+/// the other system is not cut short).
+fn box_in(bbox: [f64; 4], from: &str, to: &str) -> Result<[f64; 4]> {
+    let n = 16;
+    let (mut xs, mut ys) = (Vec::new(), Vec::new());
+    for i in 0..=n {
+        let t = i as f64 / n as f64;
+        let (x, y) = (bbox[0] + (bbox[2] - bbox[0]) * t, bbox[1] + (bbox[3] - bbox[1]) * t);
+        xs.extend([x, x, bbox[0], bbox[2]]);
+        ys.extend([bbox[1], bbox[3], y, y]);
     }
+    Transform::new(from, to)?.points(&mut xs, &mut ys);
+    let ok = |v: &[f64]| {
+        v.iter().copied().filter(|v| v.is_finite()).fold((f64::MAX, f64::MIN), |(a, b), v| (a.min(v), b.max(v)))
+    };
+    let ((x0, x1), (y0, y1)) = (ok(&xs), ok(&ys));
+    if x0 > x1 || y0 > y1 {
+        return Err("the box cannot be carried to the layer's coordinate system".into());
+    }
+    Ok([x0, y0, x1, y1])
+}
+
+fn read_vector_filtered(path: &Path, layer: Option<&str>, filter: Option<([f64; 4], Option<&str>)>) -> Result<Vector> {
+    let g = gdal().map_err(String::from)?;
+    let path = path.to_string_lossy().into_owned();
+    let a = &g.api;
+    let ds = g.open_vector(&path)?;
     let close = |r: Result<Vector>| {
         unsafe { (a.GDALClose)(ds) };
         r
@@ -1041,6 +1105,17 @@ pub fn read_vector(path: impl AsRef<Path>, layer: Option<&str>) -> Result<Vector
     };
     if lyr.is_null() {
         return close(Err(format!("{path}: no layer {}", layer.unwrap_or("(the file has none)"))));
+    }
+    if let Some((bbox, crs)) = filter {
+        let own = g.wkt_of(unsafe { (a.OGR_L_GetSpatialRef)(lyr) });
+        let b = match (crs, own) {
+            (Some(c), Some(w)) if !same_crs(c, &w).unwrap_or(true) => match box_in(bbox, c, &w) {
+                Ok(b) => b,
+                Err(e) => return close(Err(format!("{path}: {e}"))),
+            },
+            _ => bbox,
+        };
+        unsafe { (a.OGR_L_SetSpatialFilterRect)(lyr, b[0], b[1], b[2], b[3]) };
     }
     let defn = unsafe { (a.OGR_L_GetLayerDefn)(lyr) };
     let nf = unsafe { (a.OGR_FD_GetFieldCount)(defn) };

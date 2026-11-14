@@ -109,11 +109,37 @@ pub fn is_remote(path: &str) -> bool {
     REMOTE_PREFIXES.iter().any(|x| p.starts_with(x)) || remote_path(p).is_some()
 }
 
+/// The web service a path names in GDAL's own syntax, `WMTS:https://host/WMTSCapabilities.xml,layer=name` (map
+/// tiles: a raster), `WFS:https://host/wfs` or `OAPIF:https://host/collections` (features: a vector): "WMTS", "WFS"
+/// or "OAPIF" (any case); None for any other path.
+pub fn service_of(path: &str) -> Option<&'static str> {
+    let p = path.trim();
+    ["WMTS", "WFS", "OAPIF"].into_iter().find(|name| {
+        let n = name.len();
+        let Some(head) = p.get(..n + 1) else { return false };
+        let rest = &p[n + 1..];
+        head[..n].eq_ignore_ascii_case(name)
+            && head.ends_with(':')
+            && ["http://", "https://"]
+                .iter()
+                .any(|s| rest.get(..s.len()).is_some_and(|h| h.eq_ignore_ascii_case(s)) && rest.len() > s.len())
+    })
+}
+
+/// Whether a path is a web map tile service in GDAL's WMTS syntax (see [`service_of`]).
+pub fn is_wmts(path: &str) -> bool {
+    service_of(path) == Some("WMTS")
+}
+
 /// The path GDAL reads an address by: `https://host/a.tif` as `/vsicurl/https://host/a.tif`, `s3://bucket/a.tif` as
 /// `/vsis3/bucket/a.tif`, `gs://bucket/a.tif` as `/vsigs/bucket/a.tif`; a path of GDAL's network file systems as it
-/// is. None for anything else (a file of the disk).
+/// is. A web service by GDAL's own syntax (`WMTS:https://host/WMTSCapabilities.xml,layer=name`, `WFS:https://...`,
+/// `OAPIF:https://...`) is its own path. None for anything else (a file of the disk).
 pub fn remote_path(address: &str) -> Option<String> {
     let a = address.trim();
+    if service_of(a).is_some() {
+        return Some(a.to_string());
+    }
     let after = |scheme: &str| {
         let head = a.get(..scheme.len())?;
         (head.eq_ignore_ascii_case(scheme) && a.len() > scheme.len()).then(|| &a[scheme.len()..])
@@ -1113,12 +1139,32 @@ mod tests {
             ("gs://bucket/b.tif", "/vsigs/bucket/b.tif"),
             ("/vsicurl/https://host/b.tif", "/vsicurl/https://host/b.tif"),
             ("/vsis3/bucket/b.tif", "/vsis3/bucket/b.tif"),
+            (
+                " WMTS:https://host.org/WMTSCapabilities.xml,layer=a,tilematrixset=b ",
+                "WMTS:https://host.org/WMTSCapabilities.xml,layer=a,tilematrixset=b",
+            ),
+            ("wmts:http://127.0.0.1:80/c.xml", "wmts:http://127.0.0.1:80/c.xml"),
+            ("WFS:https://host.org/wfs?SERVICE=WFS", "WFS:https://host.org/wfs?SERVICE=WFS"),
+            ("OAPIF:https://host.org/collections", "OAPIF:https://host.org/collections"),
         ] {
             assert_eq!(remote_path(given).as_deref(), Some(path), "{given}");
             assert!(is_remote(given) && is_sent(given), "{given}");
         }
         // files of the disk, and addresses with nothing after the scheme
-        for local in ["data/b.tif", "C:\\data\\b.tif", "/home/me/b.tif", "https://", "s3://", "", "bundle:ab/c.tif"] {
+        for local in [
+            "data/b.tif",
+            "C:\\data\\b.tif",
+            "/home/me/b.tif",
+            "https://",
+            "s3://",
+            "",
+            "bundle:ab/c.tif",
+            "WMTS:",
+            "WMTS:c.xml",
+            "WMTS:https://",
+            "WFS:data.gml",
+            "OAPIF:",
+        ] {
             assert_eq!(remote_path(local), None, "{local}");
             assert!(!is_remote(local), "{local}");
         }

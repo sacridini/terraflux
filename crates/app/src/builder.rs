@@ -2238,7 +2238,9 @@ pub fn read_to_show(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Vec<Str
 pub fn add_url(s: &mut Session, r: &Registry, address: &str) -> Result<String, String> {
     let address = address.trim();
     let path = terraflux_graph::remote_path(address).ok_or_else(|| {
-        format!("{address}: not an address on the web (https://..., s3://..., gs://... or /vsicurl/...)")
+        format!(
+            "{address}: not an address on the web (https://..., s3://..., gs://..., /vsicurl/... or WMTS:https://...)"
+        )
     })?;
     let op = match crate::remote::kind_of(&path) {
         crate::remote::Kind::Vector => "vector.read",
@@ -2299,7 +2301,13 @@ pub fn as_layers(s: &mut Session, r: &Registry, made: &[String], showing: bool) 
     if rasters.len() > 1 {
         s.dropped_rasters = rasters;
     }
-    s.show_queue.extend(shown.into_iter().map(|(id, _, _)| id));
+    // (features on the web over a map shown are read for the view, not run whole: see [`crate::view_vector`])
+    let by_view = |s: &Session, id: &str| {
+        showing && s.source.nodes.iter().any(|n| n.id == id && crate::view_vector::source_of(n).is_some())
+    };
+    let queue: Vec<String> =
+        shown.into_iter().filter(|(id, _, features)| !(*features && by_view(s, id))).map(|(id, _, _)| id).collect();
+    s.show_queue.extend(queue);
 }
 
 /// The files dragged from the Files pane (`egui`'s drag and drop).
@@ -4036,7 +4044,9 @@ struct Drawn {
 /// The `layers` of a view drawn with its map (the first at the bottom): the one at `at` is the map itself; those
 /// under it come before it, those over it after (`over` first, the maps a plot stacks), the vectors on top of all.
 /// `overlays` are vectors drawn before the layers' own, `attributes` the table open (its layer's place noted); `main`
-/// the map the view shows, whose shade (when its layer has one) goes right over it.
+/// the map the view shows, whose shade (when its layer has one) goes right over it. `view` is the part of the map in
+/// view (its box and coordinate system): a vector layer on the web that has not run is read for it, see
+/// [`crate::view_vector`].
 #[allow(clippy::too_many_arguments)]
 fn draw_layers(
     s: &mut Session,
@@ -4047,6 +4057,7 @@ fn draw_layers(
     mut overlays: Vec<crate::vector_tiles::Overlay>,
     mut over: Vec<LayerMap>,
     main: Option<&Source>,
+    view: Option<&([f64; 4], Option<String>)>,
 ) -> Drawn {
     // (the place of the layer whose attributes are in the table among the features drawn)
     let mut table_at: Option<usize> = None;
@@ -4084,7 +4095,13 @@ fn draw_layers(
             }
             continue;
         }
-        match s.value_of(&l.node, &l.port) {
+        let value = s.value_of(&l.node, &l.port).or_else(|| {
+            // (a layer on the web that was not run: the features of the view)
+            let source = s.source.nodes.iter().find(|n| n.id == l.node).and_then(crate::view_vector::source_of)?;
+            (l.port == "vector").then_some(())?;
+            s.view_vectors.get(ctx, &source, view?).map(Value::Vector)
+        });
+        match value {
             Some(Value::Vector(v)) => {
                 if attributes.is_some_and(|o| o.is(&l.node, &l.port)) {
                     table_at = Some(overlays.len());
@@ -5327,8 +5344,21 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     }
     // (a hidden group's layers not drawn, a group's opacity in its layers')
     let drawn_list = drawn_layers(&sh.layers, &sh.groups);
-    let Drawn { rasters, overlays, table_at } =
-        draw_layers(s, ui.ctx(), &drawn_list, at, sh.attributes.as_ref(), overlays, over, Some(&maps[k]));
+    let view_box = sh.view.view_box();
+    let Drawn { rasters, overlays, table_at } = draw_layers(
+        s,
+        ui.ctx(),
+        &drawn_list,
+        at,
+        sh.attributes.as_ref(),
+        overlays,
+        over,
+        Some(&maps[k]),
+        view_box.as_ref(),
+    );
+    if let Some(e) = s.view_vectors.take_error() {
+        s.editor.message = Some(e);
+    }
     // the layers of the views side by side that have layers of their own (the compared one first, then the views
     // more), drawn on the map of each
     let own_layers: Vec<Option<Drawn>> = if sh.compare.how == How::SideBySide && compared.is_some() {
@@ -5346,7 +5376,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     Some(CompareWith::Output(n, p)) => l.iter().position(|x| x.is(n, p)),
                     _ => None,
                 };
-                Some(draw_layers(s, ui.ctx(), &l, at, None, Vec::new(), Vec::new(), None))
+                Some(draw_layers(s, ui.ctx(), &l, at, None, Vec::new(), Vec::new(), None, view_box.as_ref()))
             })
             .collect()
     } else {
