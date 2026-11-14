@@ -32,6 +32,20 @@ pub enum Kind {
     Missing,
 }
 
+/// What a script reads: the attributes of features (their geometry too) or the columns of a table (no geometry), a
+/// value per row.
+pub struct Frame<'a> {
+    pub n: usize,
+    pub attributes: &'a [(String, Column)],
+    pub vector: Option<&'a Vector>,
+}
+
+impl Frame<'_> {
+    pub fn column(&self, name: &str) -> Option<&Column> {
+        self.attributes.iter().find(|(n, _)| n == name).map(|(_, c)| c)
+    }
+}
+
 const COMPARISONS: [&str; 6] = ["<", "<=", ">", ">=", "==", "!="];
 
 /// The measures, for the errors.
@@ -60,7 +74,7 @@ fn unify(a: Kind, b: Kind, what: &str) -> Result<Kind> {
 /// The kinds of the values of a script over features, statement by statement, and the script written over
 /// numbers: its texts by their numbers, `float(x)` by the attribute read as numbers (a name of the scope).
 struct Kinds<'a> {
-    v: &'a Vector,
+    v: &'a Frame<'a>,
     inputs: &'a BTreeMap<String, Value>,
     texts: &'a [String],
     /// The kinds of the names the script gave values.
@@ -79,6 +93,9 @@ impl Kinds<'_> {
             return Ok(*k);
         }
         if n == "geometry" {
+            if self.v.vector.is_none() {
+                return Err(Error::msg("a table has no geometry"));
+            }
             return Err(Error::msg(format!("the geometry is read by its measures: {}", measures())));
         }
         if let Some(c) = self.v.column(n) {
@@ -92,8 +109,10 @@ impl Kinds<'_> {
             Some(v) if v.as_number().is_some() => Ok(Kind::Number),
             _ => {
                 let names: Vec<&str> = self.v.attributes.iter().map(|(a, _)| a.as_str()).collect();
+                let (what, of) =
+                    if self.v.vector.is_none() { ("a column", "table's") } else { ("an attribute", "features'") };
                 Err(Error::msg(format!(
-                    "the script names {n:?}, neither an attribute (the features': {}) nor an input",
+                    "the script names {n:?}, neither {what} (the {of}: {}) nor an input",
                     if names.is_empty() { "none".into() } else { names.join(", ") }
                 )))
             }
@@ -119,6 +138,9 @@ impl Kinds<'_> {
             Expr::Num(x) => Ok((if x.is_nan() { Kind::Missing } else { Kind::Number }, e.clone())),
             Expr::Str(t) => Ok((Kind::Text, Expr::Num(self.code(t)))),
             Expr::Var(name) => Ok((self.name(name)?, e.clone())),
+            Expr::Layer(of, _) if of == "geometry" && self.v.vector.is_none() => {
+                Err(Error::msg("a table has no geometry"))
+            }
             Expr::Layer(of, m) if of == "geometry" && !self.vars.contains_key(of) => {
                 if MEASURES.contains(&m.as_str()) {
                     n(e.clone())
@@ -306,6 +328,11 @@ fn met(script: &Script) -> (BTreeSet<String>, BTreeSet<String>, BTreeSet<String>
 pub fn run(v: &Vector, inputs: &BTreeMap<String, Value>, script: &Script) -> Result<Vec<(String, Column)>> {
     let renamed = by_script_names(v);
     let v = renamed.as_ref().unwrap_or(v);
+    run_frame(&Frame { n: v.len(), attributes: &v.attributes, vector: Some(v) }, inputs, script)
+}
+
+/// [`run`] over a frame: the features' attributes, or the columns of a table (texts by their names).
+pub fn run_frame(v: &Frame, inputs: &BTreeMap<String, Value>, script: &Script) -> Result<Vec<(String, Column)>> {
     let mut others = BTreeMap::new();
     for (port, x) in inputs {
         match x {
@@ -355,7 +382,7 @@ pub fn run(v: &Vector, inputs: &BTreeMap<String, Value>, script: &Script) -> Res
     let floats = std::mem::take(&mut k.floats);
     let numbers = Script { statements, ..script.clone() };
     // the scope: the attributes it reads (texts by their numbers), `feature`, the measures, the inputs
-    let n = v.len();
+    let n = v.n;
     let mut made: Vec<(String, Vec<f64>)> = Vec::new();
     for name in &names {
         if let Some(Column::Texts(t)) = v.column(name) {
@@ -370,10 +397,13 @@ pub fn run(v: &Vector, inputs: &BTreeMap<String, Value>, script: &Script) -> Res
     if v.column("feature").is_none() {
         made.push(("feature".into(), (1..=n).map(|i| i as f64).collect()));
     }
-    let measured: Vec<(String, Vec<f64>)> = geometry.iter().filter_map(|m| Some((m.clone(), measure(v, m)?))).collect();
+    let measured: Vec<(String, Vec<f64>)> = match v.vector {
+        Some(vec) => geometry.iter().filter_map(|m| Some((m.clone(), measure(vec, m)?))).collect(),
+        None => Vec::new(),
+    };
     let mut scope =
         Scope { width: n, height: 1, maps: BTreeMap::new(), numbers: BTreeMap::new(), stacks: BTreeMap::new() };
-    for (name, c) in &v.attributes {
+    for (name, c) in v.attributes {
         if let Column::Numbers(x) = c
             && name != "geometry"
         {

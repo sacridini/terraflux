@@ -31,8 +31,15 @@ pub fn cell_of(t: &Table, j: usize, x: f64) -> String {
     t.columns.get(j).and_then(|c| t.label(c, x)).map_or_else(|| cell(x), String::from)
 }
 
-/// A condition on a column: its index, the comparison and the number.
-fn condition(t: &Table, filter: &str) -> Option<Result<(usize, &'static str, f64), String>> {
+/// What a condition compares a column with: a number, or (a column of names) a name.
+enum Target {
+    Number(f64),
+    Name(String),
+}
+
+/// A condition on a column: its index, the comparison and the number, or the name for a column of names
+/// (`cover = forest`, case ignored, quotes optional).
+fn condition(t: &Table, filter: &str) -> Option<Result<(usize, &'static str, Target), String>> {
     // the longest operators first
     let op = ["<=", ">=", "!=", "==", "<", ">", "="].into_iter().find(|op| filter.contains(op))?;
     let (name, value) = filter.split_once(op)?;
@@ -41,6 +48,10 @@ fn condition(t: &Table, filter: &str) -> Option<Result<(usize, &'static str, f64
         return Some(Err(format!("no column {name:?}")));
     };
     let value = value.trim();
+    if t.is_text(&t.columns[j]) && !value.eq_ignore_ascii_case("na") {
+        let name = value.trim_matches(['"', '\'']);
+        return Some(Ok((j, op, Target::Name(name.to_lowercase()))));
+    }
     let v = if value.eq_ignore_ascii_case("na") {
         f64::NAN
     } else {
@@ -49,7 +60,7 @@ fn condition(t: &Table, filter: &str) -> Option<Result<(usize, &'static str, f64
             Err(_) => return Some(Err(format!("{value:?} is no number"))),
         }
     };
-    Some(Ok((j, op, v)))
+    Some(Ok((j, op, Target::Number(v))))
 }
 
 /// The rows a state shows, in its order: those the filter keeps (every word of a text in some cell, or a
@@ -69,7 +80,20 @@ pub fn rows_shown(t: &Table, st: &TableState) -> Result<Vec<usize>, String> {
                 .collect()
         }
         Some(Err(e)) => return Err(e),
-        Some(Ok((j, op, v))) => (0..t.rows.len())
+        Some(Ok((j, op, Target::Name(name)))) => (0..t.rows.len())
+            .filter(|&i| {
+                let Some(x) = t.label(&t.columns[j], t.rows[i][j]).map(str::to_lowercase) else { return false };
+                match op {
+                    "<=" => x <= name,
+                    ">=" => x >= name,
+                    "<" => x < name,
+                    ">" => x > name,
+                    "!=" => x != name,
+                    _ => x == name,
+                }
+            })
+            .collect(),
+        Some(Ok((j, op, Target::Number(v)))) => (0..t.rows.len())
             .filter(|&i| {
                 let x = t.rows[i][j];
                 if v.is_nan() {
@@ -95,12 +119,18 @@ pub fn rows_shown(t: &Table, st: &TableState) -> Result<Vec<usize>, String> {
     {
         rows.sort_by(|&a, &b| {
             let (x, y) = (t.rows[a][j], t.rows[b][j]);
+            // (a column of names by their characters)
+            let c = &t.columns[j];
+            let o = match (t.label(c, x), t.label(c, y)) {
+                (Some(p), Some(q)) => p.cmp(q),
+                _ => x.total_cmp(&y),
+            };
             match (x.is_nan(), y.is_nan()) {
                 (true, true) => std::cmp::Ordering::Equal,
                 (true, false) => std::cmp::Ordering::Greater,
                 (false, true) => std::cmp::Ordering::Less,
-                _ if ascending => x.total_cmp(&y),
-                _ => y.total_cmp(&x),
+                _ if ascending => o,
+                _ => o.reverse(),
             }
         });
     }

@@ -54,6 +54,15 @@ minor versions.
   landschaft does (node cuts at the root and in HiGHS's tree: the same selection as landschaft's in the same time).
   The Python script writes `add_corridor_constraints`.
 
+- **The table operators read text.** `table.filter` and `table.calc` take `cover == "forest"` (and `or` for a list)
+  over a column of names, as `vector.filter` does over attributes (the same evaluator); a calc giving texts makes a
+  column of names, one giving numbers in place of a column of names drops its names. `table.sort` sorts a column of
+  names by the names, and `select`, `filter`, `aggregate` (the group keys), `pivot` (a column per name) and `join`
+  keep the names; `join` matches names by their text, so tables with different dictionaries join, and the result
+  merges them. `Table::concat` merges the dictionaries instead of keeping the first, `vector.from_table` gives text
+  attributes, the sensitivity's `factor` column holds the factors' names and the rows of a `control.each` over a
+  table keep the labels (a text first column names the row). The table viewer's condition takes `cover = forest`.
+
 ### Changed
 - **`table.read` keeps the text columns**, as columns of names (codes 1, 2... by first appearance, with the names
   beside them) for CSV, TSV and JSON, instead of leaving them out; a column with any value that is not a number is

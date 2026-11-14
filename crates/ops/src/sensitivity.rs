@@ -616,6 +616,7 @@ impl Operator for Analyze {
                 for k in 0..factors.len() {
                     t.rows.push(row(k, &[m.mu[k], m.mu_star[k], m.sigma[k], m.mu_star_conf[k]]));
                 }
+                t.labels.insert("factor".into(), factors.clone());
                 Ok(outputs([("indices", Value::Table(t))]))
             }
             "sobol" => {
@@ -625,10 +626,11 @@ impl Operator for Analyze {
                 for k in 0..factors.len() {
                     t.rows.push(row(k, &[s.s1[k], s.s1_conf[k], s.st[k], s.st_conf[k]]));
                 }
+                t.labels.insert("factor".into(), factors.clone());
                 let pairs = |m: &[Vec<f64>]| Table {
                     columns: std::iter::once("factor".to_string()).chain(factors.iter().cloned()).collect(),
                     rows: m.iter().enumerate().map(|(k, r)| row(k, r)).collect(),
-                    ..Default::default()
+                    labels: [("factor".to_string(), factors.clone())].into(),
                 };
                 let mut out = outputs([("indices", Value::Table(t))]);
                 if so {
@@ -650,6 +652,46 @@ mod tests {
     fn oat_runs_the_base_then_each_factor_at_its_ends() {
         let rows = oat_sample(&[(0.0, 4.0), (10.0, 20.0)]);
         assert_eq!(rows, vec![vec![2.0, 15.0], vec![0.0, 15.0], vec![4.0, 15.0], vec![2.0, 10.0], vec![2.0, 20.0]]);
+    }
+
+    /// The indices' factor column names the factors (Morris and Sobol, and the second order's rows).
+    #[test]
+    fn the_factor_column_has_the_factors_names() {
+        let reg = crate::Registry::standard();
+        let go = |op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value| {
+            let params = params.as_object().cloned().unwrap();
+            let args = Args {
+                node: "n",
+                inputs: inputs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(),
+                params: &params,
+            };
+            reg.get(op).unwrap().run(&mut Ctx::default(), &args).unwrap()
+        };
+        for (method, n) in [("morris", 6), ("sobol", 8)] {
+            let design = go(
+                "sensitivity.design",
+                vec![],
+                serde_json::json!({ "method": method, "n": n, "factors": [["slope", 0, 1], ["rain", 0, 2]] }),
+            )
+            .remove("table")
+            .unwrap();
+            let Value::Table(d) = &design else { panic!("a table") };
+            let y: Vec<Vec<f64>> = d.rows.iter().map(|r| vec![r[1] + 3.0 * r[2]]).collect();
+            let mut results = Table::new(vec!["y".into()]);
+            results.rows = y;
+            let mut out = go(
+                "sensitivity.analyze",
+                vec![("design", design.clone()), ("results", Value::Table(results))],
+                serde_json::json!({ "method": method, "resamples": 10 }),
+            );
+            let Some(Value::Table(t)) = out.remove("indices") else { panic!("indices") };
+            assert_eq!(t.labels["factor"], ["slope", "rain"], "{method}");
+            assert_eq!(t.cell(0, 2.0), "rain");
+            if method == "sobol" {
+                let Some(Value::Table(s2)) = out.remove("s2") else { panic!("s2") };
+                assert_eq!(s2.labels["factor"], ["slope", "rain"]);
+            }
+        }
     }
 
     #[test]

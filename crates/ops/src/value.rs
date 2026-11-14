@@ -139,14 +139,38 @@ impl Table {
         }
         let mut out = Table::new(columns.clone());
         for p in parts {
-            for (c, names) in &p.labels {
-                out.labels.entry(c.clone()).or_insert_with(|| names.clone());
-            }
+            // the codes of this part's names in the merged dictionary of each column (a name met first kept)
+            let remap: Vec<Option<Vec<f64>>> = columns
+                .iter()
+                .map(|c| {
+                    let names = p.labels.get(c)?;
+                    let merged = out.labels.entry(c.clone()).or_default();
+                    Some(
+                        names
+                            .iter()
+                            .map(|n| {
+                                let k = merged.iter().position(|m| m == n).unwrap_or_else(|| {
+                                    merged.push(n.clone());
+                                    merged.len() - 1
+                                });
+                                (k + 1) as f64
+                            })
+                            .collect(),
+                    )
+                })
+                .collect();
             for r in &p.rows {
                 out.rows.push(
                     columns
                         .iter()
-                        .map(|c| p.columns.iter().position(|x| x == c).map(|j| r[j]).unwrap_or(f64::NAN))
+                        .enumerate()
+                        .map(|(k, c)| {
+                            let v = p.columns.iter().position(|x| x == c).map(|j| r[j]).unwrap_or(f64::NAN);
+                            match &remap[k] {
+                                Some(m) if v.fract() == 0.0 && v >= 1.0 => m.get(v as usize - 1).copied().unwrap_or(v),
+                                _ => v,
+                            }
+                        })
                         .collect(),
                 );
             }

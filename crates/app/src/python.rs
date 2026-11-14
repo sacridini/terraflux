@@ -2961,6 +2961,21 @@ from = "counted.table"
         // only the helpers of features: not the calculator's
         assert!(!t.contains("def _calc("), "{t}");
         parses(&t);
+        // a table with text: its names are strings in the pandas frame (the table's labels, as texts)
+        let m = Model::from_json(
+            r#"{"format": "terraflux/1", "nodes": [
+                {"id": "t", "op": "table.of", "params": {"columns": ["cover", "ha"],
+                 "rows": [["forest, dense", 1.5], ["pasture", null], ["forest, dense", 2]]}},
+                {"id": "pts", "op": "vector.from_table", "inputs": {"table": "t.table"}, "params": {"x": "ha", "y": "ha"}}
+            ]}"#,
+        )
+        .unwrap();
+        let t = script(&m, &r, None).text;
+        assert!(
+            t.contains("t = _table([\"cover\", \"ha\"], [[\"forest, dense\", 1.5], [\"pasture\", None], [\"forest, dense\", 2]])\n"),
+            "{t}"
+        );
+        parses(&t);
     }
 
     #[test]

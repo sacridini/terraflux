@@ -655,7 +655,16 @@ impl Operator for FromTable {
             geometries: keep.iter().map(|r| Geometry::Point([r[x], r[y]])).collect(),
             attributes: others
                 .iter()
-                .map(|&j| (t.columns[j].clone(), Column::Numbers(keep.iter().map(|r| r[j]).collect())))
+                .map(|&j| {
+                    let c = &t.columns[j];
+                    // (a column of names gives texts: none as an empty text)
+                    let col = if t.is_text(c) {
+                        Column::Texts(keep.iter().map(|r| t.label(c, r[j]).unwrap_or_default().to_string()).collect())
+                    } else {
+                        Column::Numbers(keep.iter().map(|r| r[j]).collect())
+                    };
+                    (c.clone(), col)
+                })
                 .collect(),
             crs: args.opt_param::<String>("crs")?.filter(|c| !c.trim().is_empty()),
         };

@@ -2451,13 +2451,16 @@ fn elements(v: Value) -> Option<Vec<(String, Value)>> {
             .rows
             .iter()
             .map(|row| {
-                let name = row.first().map_or(String::new(), |x| number(*x));
+                // (a text first column names the row by its text; the labels stay with each row)
+                let name = row.first().map_or(String::new(), |x| {
+                    t.columns.first().and_then(|c| t.label(c, *x)).map_or_else(|| number(*x), String::from)
+                });
                 (
                     name,
                     Value::Table(terraflux_ops::Table {
                         columns: t.columns.clone(),
                         rows: vec![row.clone()],
-                        ..Default::default()
+                        labels: t.labels.clone(),
                     }),
                 )
             })
@@ -2601,6 +2604,19 @@ mod tests {
         assert_eq!(b.columns, t.columns);
         assert_eq!(b.labels, t.labels);
         assert!(b.rows[0][0].is_nan() && b.rows[0][1] == 1.0 && b.rows[1][0] == 2.5 && b.rows[1][1].is_nan());
+    }
+
+    /// The rows of a table iterated by a loop keep the table's labels, and a text first column names the row.
+    #[test]
+    fn the_rows_of_a_table_keep_their_labels() {
+        let mut t = terraflux_ops::Table::new(vec!["cover".into(), "ha".into()]);
+        t.rows = vec![vec![2.0, 1.5], vec![1.0, 3.0]];
+        t.labels.insert("cover".into(), vec!["forest".into(), "wetland".into()]);
+        let rows = elements(Value::Table(t.clone())).unwrap();
+        assert_eq!(rows.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["wetland", "forest"]);
+        let Value::Table(first) = &rows[0].1 else { panic!("a table") };
+        assert_eq!(first.labels, t.labels);
+        assert_eq!(first.cell(0, first.rows[0][0]), "wetland");
     }
 
     /// `test.add`: x + y.

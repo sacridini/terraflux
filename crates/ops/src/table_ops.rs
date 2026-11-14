@@ -11,8 +11,11 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
+use terraflux_raster::vector::Column;
 
-use crate::algebra::{Scope, parse};
+use crate::algebra::parse_script;
+use crate::tables::coded;
+use crate::vector_algebra::{Frame, run_frame};
 use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Table, Value, outputs};
 
 pub fn register(r: &mut Registry) {
@@ -53,44 +56,35 @@ fn index(t: &Table, name: &str, node: &str) -> Result<usize> {
     })
 }
 
-/// An expression's value at every row of a table: its columns by name, the node's numbers by port.
-pub(crate) fn evaluate(args: &Args, t: &Table, text: &str) -> Result<Vec<f64>> {
+/// A table's columns as an expression reads them: those with names as texts (none: empty), the others as numbers.
+fn frame_columns(t: &Table) -> Vec<(String, Column)> {
+    t.columns
+        .iter()
+        .enumerate()
+        .map(|(j, c)| {
+            let col = if t.is_text(c) {
+                Column::Texts(t.rows.iter().map(|r| t.label(c, r[j]).unwrap_or_default().to_string()).collect())
+            } else {
+                Column::Numbers(t.rows.iter().map(|r| r[j]).collect())
+            };
+            (c.clone(), col)
+        })
+        .collect()
+}
+
+/// An expression's value at every row of a table (numbers, or texts): its columns by name (those with names as
+/// texts: `cover == "forest"`), the node's other inputs by port, as the expressions over a vector's features.
+pub(crate) fn evaluate(args: &Args, t: &Table, text: &str) -> Result<Column> {
     let node = args.node;
-    let e = parse(text).map_err(|x| Error::msg(format!("node {node:?}: the expression: {}", x.0)))?;
-    if e.radius() > 0 {
-        return Err(Error::msg(format!(
-            "node {node:?}: a table's rows have no neighbours: nbsum and the like are for maps"
-        )));
+    let script = parse_script(text).map_err(|x| Error::msg(format!("node {node:?}: the expression: {}", x.0)))?;
+    let attributes = frame_columns(t);
+    let frame = Frame { n: t.rows.len(), attributes: &attributes, vector: None };
+    let mut given =
+        run_frame(&frame, &args.inputs, &script).map_err(|x| Error::msg(format!("node {node:?}: {}", x.0)))?;
+    if given.is_empty() {
+        return Err(Error::msg(format!("node {node:?}: the expression gives no value")));
     }
-    let columns: Vec<Vec<f64>> = (0..t.columns.len()).map(|j| t.rows.iter().map(|r| r[j]).collect()).collect();
-    let mut scope = Scope {
-        width: t.rows.len(),
-        height: 1,
-        maps: BTreeMap::new(),
-        numbers: BTreeMap::new(),
-        stacks: BTreeMap::new(),
-    };
-    for (c, values) in t.columns.iter().zip(&columns) {
-        scope.maps.insert(c.as_str(), values.as_slice());
-    }
-    for (port, v) in &args.inputs {
-        if matches!(v, Value::Table(_) | Value::Vector(_)) {
-            continue;
-        }
-        let x = v.as_number().ok_or_else(|| {
-            Error::msg(format!("node {node:?}: {port} is not a number (an expression's other inputs are)"))
-        })?;
-        scope.numbers.insert(port.as_str(), x);
-    }
-    for name in e.names() {
-        if !scope.maps.contains_key(name.as_str()) && !scope.numbers.contains_key(name.as_str()) {
-            return Err(Error::msg(format!(
-                "node {node:?}: the expression names {name:?}, neither a column (the table's: {}) nor an input",
-                t.columns.join(", ")
-            )));
-        }
-    }
-    e.evaluate(&scope).map_err(|x| Error::msg(format!("node {node:?}: {}", x.0)))
+    Ok(given.remove(0).1)
 }
 
 /// `table.filter`.
@@ -115,8 +109,14 @@ impl Operator for Filter {
         let t = table(args, "table")?;
         let text: String =
             args.opt_param("expression")?.ok_or_else(|| Error::msg(format!("node {:?}: no expression", args.node)))?;
-        let keep = evaluate(args, t, &text)?;
+        let Column::Numbers(keep) = evaluate(args, t, &text)? else {
+            return Err(Error::msg(format!(
+                "node {:?}: the expression gives texts: a row is kept where it is true (cover == \"forest\")",
+                args.node
+            )));
+        };
         let mut out = Table::new(t.columns.clone());
+        out.labels = t.labels.clone();
         out.rows =
             t.rows.iter().zip(&keep).filter(|(_, k)| !k.is_nan() && **k != 0.0).map(|(r, _)| r.clone()).collect();
         Ok(outputs([("table", Value::Table(out))]))
@@ -149,14 +149,25 @@ impl Operator for Calc {
             args.opt_param("column")?.ok_or_else(|| Error::msg(format!("node {:?}: no column's name", args.node)))?;
         let text: String =
             args.opt_param("expression")?.ok_or_else(|| Error::msg(format!("node {:?}: no expression", args.node)))?;
-        let values = evaluate(args, t, &text)?;
+        // a text result is a column of names (coded by first appearance); numbers replacing a column drop its names
+        let (values, names) = match evaluate(args, t, &text)? {
+            Column::Numbers(v) => (v, None),
+            Column::Texts(s) => {
+                let (codes, names) = coded(s.into_iter().map(|x| (!x.is_empty()).then_some(x)));
+                (codes, Some(names))
+            }
+        };
         let mut out = t.clone();
+        out.labels.remove(&column);
         match out.columns.iter().position(|c| *c == column) {
             Some(j) => out.rows.iter_mut().zip(&values).for_each(|(r, v)| r[j] = *v),
             None => {
-                out.columns.push(column);
+                out.columns.push(column.clone());
                 out.rows.iter_mut().zip(&values).for_each(|(r, v)| r.push(*v));
             }
+        }
+        if let Some(names) = names {
+            out.labels.insert(column, names);
         }
         Ok(outputs([("table", Value::Table(out))]))
     }
@@ -286,6 +297,12 @@ impl Operator for Aggregate {
             }
         }
         let mut out = Table::new(head);
+        // (the group keys keep their names)
+        for &j in &by {
+            if let Some(names) = t.labels.get(&t.columns[j]) {
+                out.labels.insert(t.columns[j].clone(), names.clone());
+            }
+        }
         for (k, rows) in groups {
             let mut row = k;
             row.push(rows.len() as f64);
@@ -365,17 +382,45 @@ impl Operator for Join {
             let c = &r.columns[j];
             head.push(if l.columns.contains(c) { format!("{c}{suffix}") } else { c.clone() });
         }
-        // the right's rows by key (a missing value matches nothing)
-        let bits = |row: &[f64], k: &[usize]| -> Option<Vec<u64>> {
-            k.iter().map(|&j| (!row[j].is_nan()).then(|| (row[j] + 0.0).to_bits())).collect()
+        // a key of names matches by name (the tables' dictionaries may differ), one of numbers by value
+        for (&a, &b) in lk.iter().zip(&rk) {
+            if l.is_text(&l.columns[a]) != r.is_text(&r.columns[b]) {
+                return Err(Error::msg(format!(
+                    "node {node:?}: the key {:?} is text in one table and numbers in the other",
+                    l.columns[a]
+                )));
+            }
+        }
+        // the right's rows by key (a missing value, or a code with no name, matches nothing)
+        let key = |t: &Table, row: &[f64], k: &[usize]| -> Option<Vec<String>> {
+            k.iter()
+                .map(|&j| {
+                    let v = row[j];
+                    if v.is_nan() {
+                        None
+                    } else if t.is_text(&t.columns[j]) {
+                        t.label(&t.columns[j], v).map(String::from)
+                    } else {
+                        Some(format!("{}", (v + 0.0).to_bits()))
+                    }
+                })
+                .collect()
         };
-        let mut index_r: BTreeMap<Vec<u64>, Vec<usize>> = BTreeMap::new();
+        let bits = |row: &[f64], k: &[usize]| key(l, row, k);
+        let mut index_r: BTreeMap<Vec<String>, Vec<usize>> = BTreeMap::new();
         for (i, row) in r.rows.iter().enumerate() {
-            if let Some(k) = bits(row, &rk) {
+            if let Some(k) = key(r, row, &rk) {
                 index_r.entry(k).or_default().push(i);
             }
         }
+        // the dictionaries merged: the left's, the right's other columns' under their new names
         let mut out = Table::new(head);
+        out.labels = l.labels.clone();
+        for (n, &j) in others.iter().enumerate() {
+            if let Some(names) = r.labels.get(&r.columns[j]) {
+                out.labels.insert(out.columns[l.columns.len() + n].clone(), names.clone());
+            }
+        }
         let mut matched = vec![false; r.rows.len()];
         for row in &l.rows {
             let hits = bits(row, &lk).and_then(|k| index_r.get(&k)).cloned().unwrap_or_default();
@@ -398,7 +443,18 @@ impl Operator for Join {
             for (i, row) in r.rows.iter().enumerate().filter(|(i, _)| !matched[*i]) {
                 let mut x = vec![f64::NAN; l.columns.len()];
                 for (a, &b) in lk.iter().zip(&rk) {
-                    x[*a] = row[b];
+                    x[*a] = match r.label(&r.columns[b], row[b]) {
+                        // a name of the right's dictionary, in the merged one of the key
+                        Some(name) => {
+                            let names = out.labels.entry(l.columns[*a].clone()).or_default();
+                            let k = names.iter().position(|n| n == name).unwrap_or_else(|| {
+                                names.push(name.to_string());
+                                names.len() - 1
+                            });
+                            (k + 1) as f64
+                        }
+                        None => row[b],
+                    };
                 }
                 x.extend(others.iter().map(|&j| r.rows[i][j]));
                 out.rows.push(x);
@@ -436,31 +492,35 @@ impl Operator for Sort {
         let descending: bool = args.param("descending", false)?;
         let top: Option<usize> = args.opt_param("top")?;
         let mut rows = t.rows.clone();
-        let key = |r: &Vec<f64>| by.iter().map(|&j| r[j]).collect::<Vec<f64>>();
-        // (stable: rows of the same key in their order; missing values last either way)
+        // (stable: rows of the same key in their order; missing values last either way; a column of names by
+        // their characters, not their codes)
         rows.sort_by(|a, b| {
-            let (ka, kb) = (key(a), key(b));
-            if descending {
-                for (x, y) in ka.iter().zip(&kb) {
-                    let o = match (x.is_nan(), y.is_nan()) {
-                        (true, true) => std::cmp::Ordering::Equal,
-                        (true, false) => std::cmp::Ordering::Greater,
-                        (false, true) => std::cmp::Ordering::Less,
-                        _ => y.total_cmp(x),
-                    };
-                    if o != std::cmp::Ordering::Equal {
-                        return o;
+            for &j in &by {
+                let (x, y) = (a[j], b[j]);
+                let o = match (x.is_nan(), y.is_nan()) {
+                    (true, true) => std::cmp::Ordering::Equal,
+                    (true, false) => std::cmp::Ordering::Greater,
+                    (false, true) => std::cmp::Ordering::Less,
+                    _ => {
+                        let c = &t.columns[j];
+                        let o = match (t.label(c, x), t.label(c, y)) {
+                            (Some(p), Some(q)) => p.cmp(q),
+                            _ => x.total_cmp(&y),
+                        };
+                        if descending { o.reverse() } else { o }
                     }
+                };
+                if o != std::cmp::Ordering::Equal {
+                    return o;
                 }
-                std::cmp::Ordering::Equal
-            } else {
-                key_cmp(&ka, &kb)
             }
+            std::cmp::Ordering::Equal
         });
         if let Some(n) = top {
             rows.truncate(n);
         }
         let mut out = Table::new(t.columns.clone());
+        out.labels = t.labels.clone();
         out.rows = rows;
         Ok(outputs([("table", Value::Table(out))]))
     }
@@ -504,6 +564,11 @@ impl Operator for Select {
         }
         let head: Vec<String> = keep.iter().map(|c| rename.get(c).cloned().unwrap_or_else(|| c.clone())).collect();
         let mut out = Table::new(head);
+        for (c, new) in keep.iter().zip(&out.columns.clone()) {
+            if let Some(names) = t.labels.get(c) {
+                out.labels.insert(new.clone(), names.clone());
+            }
+        }
         out.rows = t.rows.iter().map(|r| cols.iter().map(|&j| r[j]).collect()).collect();
         Ok(outputs([("table", Value::Table(out))]))
     }
@@ -568,8 +633,18 @@ impl Operator for Pivot {
                 keys.sort_by(|a, b| key_cmp(a, b));
                 keys.dedup_by(|a, b| key_cmp(a, b) == std::cmp::Ordering::Equal);
                 let mut head: Vec<String> = id.iter().map(|&j| t.columns[j].clone()).collect();
-                head.extend(levels.iter().map(|v| format!("{prefix}{}", crate::value::class_label(*v))));
+                // (the new columns of a column of names are named by them)
+                let by_name = &t.columns[names_c];
+                head.extend(levels.iter().map(|v| match t.label(by_name, *v) {
+                    Some(name) => format!("{prefix}{name}"),
+                    None => format!("{prefix}{}", crate::value::class_label(*v)),
+                }));
                 let mut out = Table::new(head);
+                for &j in &id {
+                    if let Some(names) = t.labels.get(&t.columns[j]) {
+                        out.labels.insert(t.columns[j].clone(), names.clone());
+                    }
+                }
                 for k in &keys {
                     let mut row = k.clone();
                     for lv in &levels {
@@ -602,6 +677,11 @@ impl Operator for Pivot {
                 head.push(names_to);
                 head.push(values_to);
                 let mut out = Table::new(head);
+                for &j in &id {
+                    if let Some(names) = t.labels.get(&t.columns[j]) {
+                        out.labels.insert(t.columns[j].clone(), names.clone());
+                    }
+                }
                 for r in &t.rows {
                     for (&j, label) in cols.iter().zip(&labels) {
                         let mut row: Vec<f64> = id.iter().map(|&i| r[i]).collect();
@@ -744,6 +824,156 @@ mod tests {
         assert!(
             run("table.aggregate", vec![("table", Value::Table(patches()))], serde_json::json!({ "stats": "mode" }))
                 .is_err()
+        );
+    }
+
+    /// Covers by name (codes in order of first appearance: forest 1, wetland 2, field 3), a number and a place.
+    fn covers() -> Table {
+        let mut c = t(
+            &["cover", "ha", "x"],
+            &[&[3.0, 5.0, 1.0], &[1.0, 12.0, 2.0], &[2.0, 7.0, 3.0], &[1.0, 8.0, 4.0], &[f64::NAN, 1.0, 5.0]],
+        );
+        c.labels.insert("cover".into(), vec!["forest".into(), "wetland".into(), "field".into()]);
+        c
+    }
+
+    fn names_of(t: &Table, column: &str) -> Vec<String> {
+        let j = t.columns.iter().position(|c| c == column).unwrap();
+        t.rows.iter().map(|r| t.cell(j, r[j])).collect()
+    }
+
+    fn texts(op: &str, table: Table, params: serde_json::Value) -> Table {
+        run(op, vec![("table", Value::Table(table))], params).unwrap()
+    }
+
+    #[test]
+    fn filter_and_calc_by_text() {
+        let f = |e: &str| texts("table.filter", covers(), serde_json::json!({ "expression": e }));
+        let out = f("cover == \"forest\"");
+        assert_eq!(names_of(&out, "cover"), ["forest", "forest"]);
+        assert_eq!(out.labels["cover"], ["forest", "wetland", "field"], "labels kept");
+        assert_eq!(f("cover == 'forest' or cover == 'wetland'").rows.len(), 3);
+        assert_eq!(f("cover != 'forest' and ha > 6").rows.len(), 1);
+        assert!(
+            run("table.filter", vec![("table", Value::Table(covers()))], serde_json::json!({ "expression": "cover" }))
+                .unwrap_err()
+                .0
+                .contains("gives texts")
+        );
+        // a text result is a labelled column, by first appearance
+        let out = texts(
+            "table.calc",
+            covers(),
+            serde_json::json!({ "column": "size", "expression": "'big' if ha > 6 else 'small'" }),
+        );
+        assert_eq!(names_of(&out, "size"), ["small", "big", "big", "big", "small"]);
+        assert_eq!(out.labels["size"], ["small", "big"]);
+        assert_eq!(out.labels["cover"].len(), 3);
+        // numbers in place of a labelled column drop its names
+        let out = texts("table.calc", covers(), serde_json::json!({ "column": "cover", "expression": "ha * 2" }));
+        assert!(out.labels.is_empty() && out.rows[0][0] == 10.0);
+        // text in place of a number column
+        let out = texts("table.calc", covers(), serde_json::json!({ "column": "ha", "expression": "cover" }));
+        assert_eq!(names_of(&out, "ha"), ["field", "forest", "wetland", "forest", ""]);
+    }
+
+    #[test]
+    fn sort_select_aggregate_pivot_keep_names() {
+        // sorted by name, not by code (field < forest < wetland); missing last
+        let out = texts("table.sort", covers(), serde_json::json!({ "by": "cover" }));
+        assert_eq!(names_of(&out, "cover"), ["field", "forest", "forest", "wetland", ""]);
+        let out = texts("table.sort", covers(), serde_json::json!({ "by": "cover", "descending": true }));
+        assert_eq!(names_of(&out, "cover"), ["wetland", "forest", "forest", "field", ""]);
+        let out = texts(
+            "table.select",
+            covers(),
+            serde_json::json!({ "columns": ["ha", "cover"], "rename": { "cover": "kind" } }),
+        );
+        assert_eq!(names_of(&out, "kind"), ["field", "forest", "wetland", "forest", ""]);
+        let out = texts("table.aggregate", covers(), serde_json::json!({ "by": "cover", "columns": ["ha"] }));
+        assert_eq!(names_of(&out, "cover"), ["forest", "wetland", "field", ""]);
+        assert_eq!(out.column("ha_sum").unwrap(), [20.0, 7.0, 5.0, 1.0]);
+        // wider: a column per name
+        let mut long = t(&["id", "cover", "ha"], &[&[1.0, 1.0, 5.0], &[1.0, 2.0, 6.0], &[2.0, 1.0, 7.0]]);
+        long.labels.insert("cover".into(), vec!["forest".into(), "wetland".into()]);
+        let out = texts(
+            "table.pivot",
+            long,
+            serde_json::json!({ "direction": "wider", "id": "id", "names": "cover", "values": "ha", "prefix": "" }),
+        );
+        assert_eq!(out.columns, ["id", "forest", "wetland"]);
+        assert_eq!(out.rows[0], [1.0, 5.0, 6.0]);
+        assert!(out.rows[1][2].is_nan());
+    }
+
+    #[test]
+    fn joins_by_name_across_dictionaries() {
+        // the right lists the covers in another order and has one more
+        let mut right = t(&["cover", "cost"], &[&[1.0, 10.0], &[2.0, 20.0], &[3.0, 30.0]]);
+        right.labels.insert("cover".into(), vec!["wetland".into(), "forest".into(), "urban".into()]);
+        let join = |how: &str| {
+            let r = Registry::standard();
+            let params = serde_json::json!({ "on": "cover", "how": how });
+            let params = params.as_object().cloned().unwrap();
+            let inputs =
+                [("left".to_string(), Value::Table(covers())), ("right".to_string(), Value::Table(right.clone()))];
+            let args = Args { node: "n", inputs: inputs.into_iter().collect(), params: &params };
+            match r.get("table.join").unwrap().run(&mut Ctx::default(), &args).unwrap().remove("table") {
+                Some(Value::Table(t)) => t,
+                _ => panic!("no table"),
+            }
+        };
+        let out = join("left");
+        assert_eq!(out.columns, ["cover", "ha", "x", "cost"]);
+        // field and the missing cover have no cost; forest and wetland match by name, not by code
+        let cost = out.column("cost").unwrap();
+        assert!(cost[0].is_nan() && cost[4].is_nan());
+        assert_eq!(cost[1..4], [20.0, 10.0, 20.0]);
+        assert_eq!(names_of(&out, "cover"), ["field", "forest", "wetland", "forest", ""]);
+        // inner: only those in both
+        assert_eq!(join("inner").rows.len(), 3);
+        // full: urban added, the dictionaries merged
+        let out = join("full");
+        assert_eq!(out.rows.len(), 6);
+        assert_eq!(names_of(&out, "cover")[5], "urban");
+        assert_eq!(out.labels["cover"], ["forest", "wetland", "field", "urban"]);
+        assert_eq!(out.column("cost").unwrap()[5], 30.0);
+        // text on one side, numbers on the other: refused
+        let r = Registry::standard();
+        let params = serde_json::json!({ "on": "cover" });
+        let params = params.as_object().cloned().unwrap();
+        let mut numeric = right.clone();
+        numeric.labels.clear();
+        let inputs = [("left".to_string(), Value::Table(covers())), ("right".to_string(), Value::Table(numeric))];
+        let args = Args { node: "n", inputs: inputs.into_iter().collect(), params: &params };
+        assert!(r.get("table.join").unwrap().run(&mut Ctx::default(), &args).unwrap_err().0.contains("text in one"));
+    }
+
+    #[test]
+    fn concat_remaps_dictionaries() {
+        let mut a = t(&["k", "v"], &[&[1.0, 1.0], &[2.0, 2.0]]);
+        a.labels.insert("k".into(), vec!["x".into(), "y".into()]);
+        let mut b = t(&["k", "v"], &[&[1.0, 3.0], &[2.0, 4.0], &[f64::NAN, 5.0]]);
+        b.labels.insert("k".into(), vec!["y".into(), "z".into()]);
+        let c = Table::concat(&[a, b]);
+        assert_eq!(c.labels["k"], ["x", "y", "z"]);
+        assert_eq!(names_of(&c, "k"), ["x", "y", "y", "z", ""]);
+    }
+
+    #[test]
+    fn from_table_makes_texts() {
+        let r = Registry::standard();
+        let params = serde_json::json!({ "x": "x", "y": "ha" });
+        let params = params.as_object().cloned().unwrap();
+        let args = Args { node: "n", inputs: [("table".to_string(), Value::Table(covers()))].into(), params: &params };
+        let Some(Value::Vector(v)) =
+            r.get("vector.from_table").unwrap().run(&mut Ctx::default(), &args).unwrap().remove("vector")
+        else {
+            panic!("a vector")
+        };
+        assert_eq!(
+            v.column("cover"),
+            Some(&Column::Texts(["field", "forest", "wetland", "forest", ""].map(String::from).to_vec()))
         );
     }
 

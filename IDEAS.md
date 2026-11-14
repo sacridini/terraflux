@@ -2172,7 +2172,9 @@ modelos antigos abrem convertidos (um `$x` vira esse nó).
 nome (o ano de `forest_2010`) ou a posição (1, 2...), não o nome do arquivo. Texto nas tabelas é uma mudança grande
 (o `Table` inteiro); por ora o registro `.json` e o relatório dão o nome de cada número. **Resolvido** sem texto
 nas tabelas: `Table::labels` dá nomes aos números de uma coluna (a posição 1 é o primeiro nome), e a coluna `layer`
-mostra e grava o nome do arquivo. Colunas de texto de verdade (vindas de um CSV, por exemplo) seguem por fazer.
+mostra e grava o nome do arquivo. **Feito** (Unreleased): colunas de texto de verdade, como códigos mais o
+dicionário `Table::labels`: `table.read` (CSV, TSV, JSON) as mantém, as tabelas congeladas voltam iguais, e
+`table.filter`/`calc`/`sort`/`select`/`aggregate`/`pivot`/`join`, `Table::concat` e `vector.from_table` as entendem.
 
 **A ordem:** (fase 1) a cadeia por arquivo, os nomes, o `raster.write` na cadeia, as falhas que não param, as
 entradas de raster ×N e o "Run on a folder..." (itens 1 a 3); (fase 2) o paralelo, o retomável, o registro e o
@@ -2223,8 +2225,8 @@ nome, o "Processar uma pasta", a conversão do `batch.run` e o tutorial (itens 6
   (`editor::batch_to_chain`), explícito e não ao abrir, porque um `batch.run` cuja tabela ou relatório alguém lê
   não tem equivalente (é recusado, dizendo quem lê); também recusados uma lista de arquivos e o `recursive`. O
   tutorial "Batch processing" reescrito na forma nova (rodado nos 16 tiles do CORINE), e a seção de lotes de
-  "Large maps" também. Falta: a lista das falhas num painel (fase 2) e, com texto nas tabelas, o nome do arquivo
-  na coluna `layer`.
+  "Large maps" também. Falta: a lista das falhas num painel (fase 2). (O nome do arquivo na coluna `layer` já
+  existe: texto nas tabelas feito.)
 - **Feito** (Unreleased), o que faltava: as tabelas nomeiam os números de uma coluna (`Table::labels`, como um
   fator do R; o resto do `Table` continua de números), e a coluna `layer` de uma tabela juntada dos arquivos de uma
   pasta dá os nomes deles (o CSV, o `table.write`, as saídas, o visualizador e os gráficos mostram os nomes; nomes

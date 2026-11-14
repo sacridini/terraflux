@@ -196,7 +196,7 @@ pub fn csv_records(text: &str, sep: char) -> std::result::Result<Vec<Vec<String>
 }
 
 /// A text column as codes: 1, 2... by the order of first appearance of each text, NaN for none; and the texts.
-fn coded(cells: impl Iterator<Item = Option<String>>) -> (Vec<f64>, Vec<String>) {
+pub(crate) fn coded(cells: impl Iterator<Item = Option<String>>) -> (Vec<f64>, Vec<String>) {
     let mut names: Vec<String> = Vec::new();
     let mut at: std::collections::HashMap<String, usize> = Default::default();
     let codes = cells
