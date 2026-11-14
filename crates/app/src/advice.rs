@@ -243,6 +243,28 @@ pub fn advise(m: &Model, r: &Registry, dir: &Path, inputs: Option<&BTreeMap<Stri
                     ),
                     guide: "landscape-metrics",
                 });
+            } else {
+                // whole values, but so many classes that the metrics per class mean little
+                let mut seen: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
+                for v in map.data.iter().take(1_000_000).filter(|v| v.is_finite()) {
+                    seen.insert(v.to_bits());
+                    if seen.len() > 100 {
+                        break;
+                    }
+                }
+                if seen.len() > 100 {
+                    out.push(Advice {
+                        level: Level::Advice,
+                        at: vec![n.id.clone()],
+                        message: format!(
+                            "{} computes metrics per class, and ${name} has more than 100 classes (a map of ids or \
+                             of a continuous quantity rounded): group them first (raster.reclassify), or check \
+                             that it is the map of classes meant",
+                            n.op
+                        ),
+                        guide: "landscape-metrics",
+                    });
+                }
             }
         }
     }
@@ -592,6 +614,32 @@ mod tests {
         m.nodes.push(Node::new("utm", "raster.reproject").input("raster", "$land"));
         let inputs = BTreeMap::from([("land".to_string(), map(true, vec![1.0, 2.0, 1.0, 2.0]))]);
         assert!(!advise(&m, &r, Path::new("."), Some(&inputs)).iter().any(|a| a.message.contains("longitudes")));
+    }
+
+    #[test]
+    fn metrics_on_a_map_of_too_many_classes() {
+        let mut m = Model::new("metrics");
+        m.nodes.push(Node::new("lsm", "metrics.landscape").input("map", "$land"));
+        let r = registry();
+        let many = |n: usize, k: usize| {
+            let mut g = Grid::new(n, 1);
+            g.geo.wkt = Some("PROJCS[\"UTM\"]".into());
+            Value::Map(Map::new(Arc::new(g), (0..n).map(|i| (i % k) as f64).collect()))
+        };
+        let msg = "more than 100 classes";
+        let inputs = BTreeMap::from([("land".to_string(), many(300, 150))]);
+        let a = advise(&m, &r, Path::new("."), Some(&inputs));
+        assert!(a.iter().any(|a| a.level == Level::Advice && a.message.contains(msg)), "{a:?}");
+        let inputs = BTreeMap::from([("land".to_string(), many(300, 5))]);
+        let a = advise(&m, &r, Path::new("."), Some(&inputs));
+        assert!(!a.iter().any(|a| a.message.contains(msg)), "{a:?}");
+        let inputs = BTreeMap::from([("land".to_string(), many(300, 150))]);
+        let Some(Value::Map(mp)) = inputs.get("land") else { panic!() };
+        let data: Vec<f64> = mp.data.iter().map(|v| v + 0.5).collect();
+        let inputs = BTreeMap::from([("land".to_string(), Value::Map(Map::new(mp.grid.clone(), data)))]);
+        let a = advise(&m, &r, Path::new("."), Some(&inputs));
+        assert!(a.iter().any(|a| a.message.contains("not whole")), "{a:?}");
+        assert!(!a.iter().any(|a| a.message.contains(msg)), "{a:?}");
     }
 
     #[test]

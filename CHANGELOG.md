@@ -7,6 +7,9 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **Advice and tips:** a metrics operator on a map of whole values but more than 100 classes (a map of ids, or a
+  continuous quantity rounded) is advised to group them first; tips for `conn.metapopulation`, `conn.overall`,
+  `conn.link_importance` and `conn.distances`.
 - **`prioritize.optimize` with `solver = anneal`:** landschaft's anneal solver, Marxan's simulated annealing on the
   compiled minimum-set model (every pair column of a boundary or connectivity penalty a Marxan boundary), each run
   repaired to meet every target and trimmed, the best run's objective, the bound of the linear relaxation without

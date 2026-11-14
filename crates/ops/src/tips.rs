@@ -141,6 +141,34 @@ pub const TIPS: &[(&str, &str)] = &[
          of ECA is of the habitat and of its connections together, so show the change of the habitat area beside it.",
     ),
     (
+        "conn.metapopulation",
+        "`alpha` is 1 / the species' mean dispersal distance, in the inverse units of the patches' coordinates \
+         (metres for a projected map): 0.002 is 500 m. `x`, `y` and `e` are the incidence function's extinction \
+         and colonisation parameters: take them from a fitted model or the literature, and say where. A run is one \
+         possible future, as the seed draws it: use many `steps`, several seeds (control.each) and report the \
+         spread of the incidence.",
+    ),
+    (
+        "conn.overall",
+        "A row per distance: give several to see how the indices change with the dispersal distance. IIC counts \
+         the links and PC their probabilities, both from the graph's distances, so the graph's distance type (edge \
+         or least-cost) and its units set the result. Say the species' distance and `probability` used.",
+    ),
+    (
+        "conn.link_importance",
+        "Each link is removed in turn and the share of IIC or PC lost is the importance: it takes one distance, \
+         and the cost grows with the number of links (a run per link): limit the graph with `max_distance`. Rank the \
+         links at the species' dispersal distance; with least-cost distances the detours a removal forces are not \
+         measured again.",
+    ),
+    (
+        "conn.distances",
+        "`distance` edge is the gap between the patches' closest cells (Euclidean, ignores the matrix); centroid \
+         joins their centres; least-cost and commute-time need a `resistance` and join the centroids, in the \
+         resistance's units, not in metres. `max_distance` keeps the pairs up to it (the dispersal distance of \
+         the species), which makes the table much smaller on many patches.",
+    ),
+    (
         "conn.node_importance",
         "The importance of a patch (dPC, dIIC: the loss when it goes) depends on the dispersal distance of the \
          graph: rank the patches at the species' distance, and say it.",
