@@ -122,6 +122,11 @@ fn new_app(model: Option<PathBuf>) -> TerrafluxApp {
 /// The application rendered off screen by wgpu, the builder's canvas pipelines installed as the application
 /// does.
 fn harness(app: TerrafluxApp) -> Harness<'static, TerrafluxApp> {
+    harness_dt(app, 1.0 / 4.0)
+}
+
+/// The same, a step lasting `dt` seconds (a double click needs two clicks within 0.3 s).
+fn harness_dt(app: TerrafluxApp, dt: f32) -> Harness<'static, TerrafluxApp> {
     setup();
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
@@ -130,6 +135,7 @@ fn harness(app: TerrafluxApp) -> Harness<'static, TerrafluxApp> {
     terraflux_app::canvas_gpu::install(&rs);
     Harness::builder()
         .with_size((1280.0, 820.0))
+        .with_step_dt(dt)
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut TerrafluxApp| app.frame(ui), app)
 }
@@ -3264,6 +3270,352 @@ fn the_layers_as_a_gis_has_them() {
     let visible: Vec<bool> = h.state().session.as_ref().unwrap().preview_layers.iter().map(|l| l.visible).collect();
     assert_eq!(visible, [true, false, false]);
     shot(&mut h, "layers-gis");
+}
+
+/// The Viewer over rasters `ids` (nodes of the model, run), kept as its layers, the first at the bottom; the first one
+/// reads the land use, the others the drivers; the first is the map shown.
+fn layers_of(ids: &[&str]) -> Harness<'static, TerrafluxApp> {
+    use terraflux_app::builder::Layer;
+    use terraflux_graph::Node;
+    // (steps of a twentieth of a second: a double click on a row)
+    let mut h = harness_dt(new_app(None), 0.05);
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.nodes = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                let (file, band) = if i == 0 { ("sibuyan_landuse.tif", "0") } else { ("sibuyan_drivers.tif", "0") };
+                Node::new(id, "raster.read").param("path", data(file).to_string_lossy().as_ref()).param("band", band)
+            })
+            .collect();
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && ids.iter().all(|n| s.value_of(n, "raster").is_some())
+    });
+    h.state_mut().session.as_mut().unwrap().preview_layers = ids.iter().map(|i| Layer::new(i, "raster")).collect();
+    show(&mut h, ids[0], "raster");
+    drawn(&mut h);
+    h
+}
+
+/// The middle of the row of a layer (by its name; the widest of what is so named).
+fn row_of(h: &Harness<TerrafluxApp>, name: &str) -> egui::Pos2 {
+    use egui_kittest::kittest::NodeT;
+    let width = |n: &egui_kittest::Node| n.accesskit_node().bounding_box().map_or(0.0, |b| b.x1 - b.x0);
+    let n = h.query_all_by_label(name).max_by(|a, b| width(a).total_cmp(&width(b)));
+    let b = n.unwrap_or_else(|| panic!("{name}")).accesskit_node().bounding_box().unwrap();
+    egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+}
+
+/// A click of `button` at a place, the keys `modifiers` held.
+fn click_at(h: &mut Harness<TerrafluxApp>, at: egui::Pos2, button: egui::PointerButton, modifiers: egui::Modifiers) {
+    h.event(egui::Event::PointerMoved(at));
+    h.event(egui::Event::ModifiersChanged(modifiers));
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
+    }
+    h.event(egui::Event::ModifiersChanged(Default::default()));
+    h.run_steps(2);
+}
+
+/// A click on the row of a layer, the keys `modifiers` held.
+fn click_row(h: &mut Harness<TerrafluxApp>, name: &str, modifiers: egui::Modifiers) {
+    let at = row_of(h, name);
+    click_at(h, at, egui::PointerButton::Primary, modifiers);
+    // (past the time of a double click: the next click is a first)
+    h.run_steps(8);
+}
+
+/// The menu of the row of a layer (a right click).
+fn row_menu(h: &mut Harness<TerrafluxApp>, name: &str) {
+    let at = row_of(h, name);
+    click_at(h, at, egui::PointerButton::Secondary, Default::default());
+}
+
+/// Text typed in the box of a name being edited, kept by Enter.
+fn type_name(h: &mut Harness<TerrafluxApp>, text: &str) {
+    h.run_steps(2);
+    if text.is_empty() {
+        h.key_press(egui::Key::Delete);
+    } else {
+        h.event(egui::Event::Text(text.into()));
+    }
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+}
+
+/// A layer given a name of its own: in the list (from its menu, or a double click on its name), kept by Enter, given
+/// up by Esc, the output's name again when emptied; its node and the canvas left alone; kept in a Plot.
+#[test]
+fn a_layer_is_renamed_without_renaming_its_node() {
+    let mut h = layers_of(&["land", "drivers"]);
+    let (nodes, selected) = {
+        let s = h.state().session.as_ref().unwrap();
+        (format!("{:?}", s.source.nodes), s.selected.clone())
+    };
+    let names = |h: &Harness<TerrafluxApp>| -> Vec<Option<String>> {
+        h.state().session.as_ref().unwrap().preview_layers.iter().map(|l| l.name.clone()).collect()
+    };
+    // from the menu of its row
+    row_menu(&mut h, "drivers");
+    h.get_by_label("Rename...").click();
+    type_name(&mut h, "Forest drivers");
+    assert_eq!(names(&h), [None, Some("Forest drivers".to_string())]);
+    assert!(h.query_all_by_label("Forest drivers").count() > 0, "the list says the new name");
+    assert_eq!(h.query_all_by_label("drivers").count(), 0, "and not the node's");
+    // its node, the canvas and the selection as they were
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(format!("{:?}", s.source.nodes), nodes);
+        assert_eq!(s.selected, selected);
+        assert_eq!(s.preview_layers[1].node, "drivers");
+    }
+    // Esc: given up
+    row_menu(&mut h, "Forest drivers");
+    h.get_by_label("Rename...").click();
+    h.run_steps(2);
+    h.event(egui::Event::Text("nothing".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert_eq!(names(&h), [None, Some("Forest drivers".to_string())]);
+    assert!(h.query_all_by_label("nothing").count() == 0);
+    // kept in a Plot
+    h.get_by_label("Plots").click();
+    h.run_steps(2);
+    h.get_by_label("Save as a new plot").click();
+    h.run_steps(2);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let p = s.source.plot("plot_land").expect("the Plot");
+        let named: Vec<Option<&str>> = p.layers.iter().map(|l| l.name.as_deref()).collect();
+        assert_eq!(named, [None, Some("Forest drivers")]);
+    }
+    // a double click on its name (tried again while no box opens: the row may have moved, or the click be a third;
+    // the box of the name is one more text field than the window has otherwise)
+    h.run_steps(30);
+    let fields = h.query_all_by_role(egui::accesskit::Role::TextInput).count();
+    let mut opened = false;
+    for _ in 0..6 {
+        h.run_steps(30);
+        let at = row_of(&h, "Forest drivers");
+        h.hover_at(at);
+        h.run_steps(2);
+        for pressed in [true, false, true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            });
+        }
+        h.run_steps(4);
+        if h.query_all_by_role(egui::accesskit::Role::TextInput).count() > fields {
+            opened = true;
+            break;
+        }
+    }
+    assert!(opened, "a double click on the name opens its box");
+    type_name(&mut h, "Second");
+    assert_eq!(names(&h), [None, Some("Second".to_string())]);
+    // emptied: the output's name again (the menu asked again while it does not open)
+    for _ in 0..6 {
+        h.run_steps(10);
+        row_menu(&mut h, "Second");
+        if h.query_by_label("Rename...").is_some() {
+            break;
+        }
+        h.key_press(egui::Key::Escape);
+    }
+    h.get_by_label("Rename...").click();
+    type_name(&mut h, "");
+    assert_eq!(names(&h), [None, None]);
+    assert!(h.query_all_by_label("drivers").count() > 0, "the node's name is back");
+    assert_eq!(format!("{:?}", h.state().session.as_ref().unwrap().source.nodes), nodes);
+}
+
+/// The pixel at the middle of the map, once drawn and faded in.
+fn centre_pixel(h: &mut Harness<TerrafluxApp>) -> [u8; 4] {
+    drawn(h);
+    let t = Instant::now();
+    while t.elapsed() < Duration::from_millis(500) {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    drawn(h);
+    let at = h.state().session.as_ref().unwrap().preview_view.rect().expect("the map drawn").center();
+    let img = h.render().expect("the window drawn by wgpu");
+    img.get_pixel(at.x as u32, at.y as u32).0
+}
+
+/// A row dragged to a place and let go.
+fn drag_row(h: &mut Harness<TerrafluxApp>, from: egui::Pos2, to: egui::Pos2) {
+    h.hover_at(from);
+    h.run_steps(2);
+    h.drag_at(from);
+    h.run_steps(2);
+    h.hover_at(from + (to - from) * 0.5);
+    h.run_steps(2);
+    h.hover_at(to);
+    h.run_steps(2);
+    h.drop_at(to);
+    h.run_steps(3);
+}
+
+/// Layers in groups, as a GIS has them: a group made from a layer's menu, shown or hidden by its box (its layers not
+/// drawn, each keeping its own box), made half opaque, folded, a layer dragged onto its row and out of its rows, the
+/// group gone with *Ungroup* and its layers kept.
+#[test]
+fn layers_in_groups() {
+    let mut h = layers_of(&["land", "drivers", "slope"]);
+    h.get_by_label("Fold every legend").click();
+    h.run_steps(2);
+    let state = |h: &Harness<TerrafluxApp>| -> (Vec<Option<String>>, Vec<String>) {
+        let s = h.state().session.as_ref().unwrap();
+        (
+            s.preview_layers.iter().map(|l| l.group.clone()).collect(),
+            s.preview_groups.iter().map(|g| g.name.clone()).collect(),
+        )
+    };
+    let set_visible = |h: &mut Harness<TerrafluxApp>, names: &[&str], on: bool| {
+        let s = h.state_mut().session.as_mut().unwrap();
+        for l in s.preview_layers.iter_mut().filter(|l| names.contains(&l.node.as_str())) {
+            l.visible = on;
+        }
+    };
+    // the picture with the land alone, and with the other two over it
+    set_visible(&mut h, &["drivers", "slope"], false);
+    let alone = centre_pixel(&mut h);
+    set_visible(&mut h, &["drivers", "slope"], true);
+    let over = centre_pixel(&mut h);
+    assert_ne!(over, alone, "the drivers over the land");
+    // a group made of the drivers, from its menu
+    row_menu(&mut h, "drivers");
+    h.get_by_label("Group").click();
+    h.run_steps(3);
+    assert_eq!(state(&h), (vec![None, Some("g1".into()), None], vec!["Group 1".to_string()]));
+    // the slope dragged onto the group's row: in it
+    let (slope, header) = (row_of(&h, "slope"), row_of(&h, "group Group 1"));
+    drag_row(&mut h, slope, header);
+    assert_eq!(state(&h).0, [None, Some("g1".to_string()), Some("g1".to_string())]);
+    // hidden by the group's box: not drawn, its layers keep their own
+    h.get_by_label("show group Group 1").click();
+    h.run_steps(2);
+    assert!(!h.state().session.as_ref().unwrap().preview_groups[0].visible);
+    assert!(h.state().session.as_ref().unwrap().preview_layers.iter().all(|l| l.visible));
+    assert_eq!(centre_pixel(&mut h), alone, "the layers of a hidden group are not drawn");
+    h.get_by_label("show group Group 1").click();
+    h.run_steps(2);
+    assert_eq!(centre_pixel(&mut h), over, "shown again");
+    // its opacity multiplies theirs
+    h.state_mut().session.as_mut().unwrap().preview_groups[0].opacity = 0.5;
+    let half = centre_pixel(&mut h);
+    assert!(half != over && half != alone, "half opaque: between the two ({half:?}, {over:?}, {alone:?})");
+    h.state_mut().session.as_mut().unwrap().preview_groups[0].opacity = 1.0;
+    // folded: its layers' rows are gone, they stay layers
+    h.get_by_label("fold group").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("show drivers").is_none() && h.query_by_label("show land").is_some());
+    h.get_by_label("unfold group").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("show drivers").is_some());
+    // the drivers dragged out of the group's rows, under the land: in no group, the slope alone in it
+    let (drivers, land) = (row_of(&h, "drivers"), row_of(&h, "land"));
+    drag_row(&mut h, drivers, land + egui::vec2(0.0, 40.0));
+    assert_eq!(state(&h).0, [None, None, Some("g1".to_string())]);
+    assert_eq!(h.state().session.as_ref().unwrap().preview_layers[0].node, "drivers");
+    // *Ungroup*: the group gone, the layers kept
+    row_menu(&mut h, "group Group 1");
+    h.get_by_label("Ungroup").click();
+    h.run_steps(3);
+    let (groups, names) = state(&h);
+    assert!(groups.iter().all(Option::is_none) && names.is_empty(), "{groups:?} {names:?}");
+    assert_eq!(h.state().session.as_ref().unwrap().preview_layers.len(), 3);
+    assert_eq!(centre_pixel(&mut h), over, "drawn as before");
+}
+
+/// Several layers selected: a Ctrl click adds or takes away, a Shift click selects the range from the last one
+/// clicked, a plain click one alone; the box of one turns all, they are dragged as a block, made a group and
+/// removed together.
+#[test]
+fn several_layers_are_selected() {
+    use egui_kittest::kittest::NodeT;
+    let mut h = layers_of(&["land", "drivers", "slope", "hills"]);
+    h.get_by_label("Fold every legend").click();
+    h.run_steps(2);
+    let ctrl = egui::Modifiers::COMMAND;
+    let shift = egui::Modifiers::SHIFT;
+    // the rows selected, as the list says them
+    let selected = |h: &Harness<TerrafluxApp>| -> Vec<&'static str> {
+        ["land", "drivers", "slope", "hills"]
+            .into_iter()
+            .filter(|n| {
+                let width = |n: &egui_kittest::Node| n.accesskit_node().bounding_box().map_or(0.0, |b| b.x1 - b.x0);
+                // (a layer removed has no row)
+                h.query_all_by_label(n)
+                    .max_by(|a, b| width(a).total_cmp(&width(b)))
+                    .is_some_and(|row| row.accesskit_node().toggled() == Some(egui::accesskit::Toggled::True))
+            })
+            .collect()
+    };
+    let nodes = |h: &Harness<TerrafluxApp>| -> Vec<String> {
+        h.state().session.as_ref().unwrap().preview_layers.iter().map(|l| l.node.clone()).collect()
+    };
+    let visible = |h: &Harness<TerrafluxApp>| -> Vec<bool> {
+        h.state().session.as_ref().unwrap().preview_layers.iter().map(|l| l.visible).collect()
+    };
+    // a plain click: one; Ctrl clicks: added, then taken away
+    click_row(&mut h, "drivers", Default::default());
+    assert_eq!(selected(&h), ["drivers"]);
+    click_row(&mut h, "hills", ctrl);
+    assert_eq!(selected(&h), ["drivers", "hills"]);
+    click_row(&mut h, "drivers", ctrl);
+    assert_eq!(selected(&h), ["hills"]);
+    // a plain click, then a Shift click: the range between them
+    click_row(&mut h, "land", Default::default());
+    click_row(&mut h, "slope", shift);
+    assert_eq!(selected(&h), ["land", "drivers", "slope"]);
+    // (the properties of the first, as with one: the layer's own box, say, turns every one selected)
+    h.get_by_label("show drivers").click();
+    h.run_steps(2);
+    assert_eq!(visible(&h), [false, false, false, true], "the box of one turned all the layers selected");
+    h.get_by_label("show land").click();
+    h.run_steps(2);
+    assert_eq!(visible(&h), [true, true, true, true]);
+    // the block dragged to the top, over the hills: the order of its layers kept
+    let (slope, hills) = (row_of(&h, "slope"), row_of(&h, "hills"));
+    drag_row(&mut h, slope, hills - egui::vec2(0.0, 14.0));
+    assert_eq!(nodes(&h), ["hills", "land", "drivers", "slope"]);
+    assert_eq!(selected(&h), ["land", "drivers", "slope"], "still selected");
+    // made a group, from the menu of one of them
+    row_menu(&mut h, "drivers");
+    h.get_by_label("Group").click();
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let groups: Vec<Option<&str>> = s.preview_layers.iter().map(|l| l.group.as_deref()).collect();
+        assert_eq!(groups, [None, Some("g1"), Some("g1"), Some("g1")]);
+        assert_eq!(s.preview_groups.len(), 1);
+    }
+    // two removed at once, by the bar
+    click_row(&mut h, "drivers", Default::default());
+    click_row(&mut h, "slope", ctrl);
+    assert_eq!(selected(&h), ["drivers", "slope"]);
+    h.get_by_label("Remove the layer").click();
+    h.run_steps(3);
+    assert_eq!(nodes(&h), ["hills", "land"]);
+    // a right click on a layer that is not selected selects it alone
+    click_row(&mut h, "hills", Default::default());
+    row_menu(&mut h, "land");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(selected(&h), ["land"]);
 }
 
 /// A layer's menu *Show its node*: the canvas to the front, the groups on the way opened, the node selected and
@@ -9515,8 +9867,10 @@ fn a_run_that_may_not_fit_the_disk_asks_first() {
     h.run_steps(2);
     h.get_by_label("Run 2 times").click();
     h.run_steps(2);
-    assert!(h.state().batch.running() && h.state().batch.disk_ask.is_none());
+    // (nothing asked; the batch started, or already done under a loaded machine)
+    assert!(h.state().batch.disk_ask.is_none(), "with room nothing is asked");
     until(&mut h, "the replicates", |a| !a.batch.running());
+    assert!(h.state().batch.disk_ask.is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

@@ -278,10 +278,16 @@ fn panel_from(
         Some((layer, format!("{name}: {}", shade.label())))
     };
     for (i, (l, node, port, k)) in kept.iter().enumerate() {
-        let name = if node.is_empty() { format!("${port}") } else { output_name(node, port) };
+        // (the name the layer was given says it wherever it is named)
+        let given = l.name.is_some();
+        let name = match &l.name {
+            Some(n) => n.clone(),
+            None if node.is_empty() => format!("${port}"),
+            None => output_name(node, port),
+        };
         match k {
             Kind::Map(src, diff) if i == first => {
-                let name = diff.as_deref().map_or(name, |(_, n)| n.clone());
+                let name = diff.as_deref().filter(|_| !given).map_or(name, |(_, n)| n.clone());
                 drawn.push(match l.opacity {
                     Some(o) if o < 1.0 => format!("{name} (the map, drawn opaque)"),
                     _ => format!("{name} (the map)"),
@@ -294,7 +300,7 @@ fn panel_from(
             }
             Kind::Map(src, diff) => {
                 let (coloring, _) = colour(l, node, port, src, diff.as_deref());
-                let name = diff.as_deref().map_or(name, |(_, n)| n.clone());
+                let name = diff.as_deref().filter(|_| !given).map_or(name, |(_, n)| n.clone());
                 let opacity = l.opacity.unwrap_or(1.0).clamp(0.0, 1.0) as f32;
                 let blend = crate::blend::Blend::of_plot(l.blend.as_deref());
                 drawn.push(at(name.clone(), l));
@@ -329,7 +335,9 @@ fn side_by_side(c: &terraflux_graph::PlotCompare) -> bool {
 
 fn made(m: &Model, plot: &Plot, value: &dyn Fn(&str) -> Option<Value>) -> Result<Made, String> {
     let mut skipped = Vec::new();
-    let (mut panel, drawn) = panel_from(m, &plot.id, &plot.layers, value, &mut skipped)?;
+    // (the layers of a hidden group left out, a group's opacity in its layers')
+    let layers = plot.drawn_layers();
+    let (mut panel, drawn) = panel_from(m, &plot.id, &layers, value, &mut skipped)?;
     // the views beside the map when the Plot compares side by side: each the map of `with` (and `also`) in the
     // map's colours with the Plot's layers over it, or the layers of its own
     let mut beside = Vec::new();
@@ -520,6 +528,31 @@ mod tests {
         assert!(made.skipped[1].contains("forest.diff") && made.skipped[1].contains("no value"));
         assert!(made.skipped[2].contains("land.missing") && made.skipped[2].contains("no value"));
         assert!(made.compare.is_none());
+    }
+
+    /// A layer's own name says it in the list of what is drawn; a hidden group's layers are left out, a group's opacity
+    /// multiplies its layers'.
+    #[test]
+    fn the_names_and_the_groups_of_layers_are_drawn() {
+        let (mut m, v) = setup();
+        let p = &mut m.plots[0];
+        p.layers[4].name = Some("Forest cover".into());
+        p.layers[6].group = Some("g".into());
+        p.groups = vec![terraflux_graph::PlotGroup {
+            id: "g".into(),
+            name: "Over".into(),
+            opacity: Some(0.8),
+            ..Default::default()
+        }];
+        let made = panel_of(&m, "all", &|from| v.get(from).cloned()).unwrap();
+        assert_eq!(made.drawn[2..], ["Forest cover", "land.over at 20%"]);
+        assert_eq!(made.panel.rasters[1].opacity, 0.2);
+        assert_eq!(made.panel.rasters[0].name, "Forest cover");
+        // the group hidden: its layer is left out, with the reason
+        m.plots[0].groups[0].hidden = true;
+        let made = panel_of(&m, "all", &|from| v.get(from).cloned()).unwrap();
+        assert_eq!(made.panel.rasters.len(), 1);
+        assert!(made.skipped.iter().any(|s| s.contains("land.over") && s.contains("hidden")));
     }
 
     /// A layer's blend mode and its relief, as the Plot keeps them, are in the picture `terraflux plot` writes.

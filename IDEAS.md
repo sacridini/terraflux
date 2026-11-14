@@ -2413,8 +2413,17 @@ responder no próprio Viewer as perguntas de quem estuda mudança de uso, sem mo
    QGIS (`builder::ranged`, `range_of`). As camadas agora são desenhadas na paleta e na legenda do modelo como
    quando mostradas (`default_palette`, `legend_of`), como o símbolo. Testes: `a_row_moved_among_the_others`,
    `the_layers_as_a_gis_has_them` (UI), `maps_stack_and_cells_show_their_series` (UI, refeito para a barra, o menu
-   e o arrasto). Falta: agrupar camadas (grupos do QGIS); renomear uma camada sem renomear o nó; a faixa de cores
-   nas vistas lado a lado com camadas próprias; selecionar várias camadas de uma vez.
+   e o arrasto). **Feito** (Unreleased): grupos de camadas como no QGIS, um nível (`Plot.groups`, `PlotGroup`,
+   `PlotLayer.group`; `Group` e `drawn_layers` no builder, `tidy` e a linha do grupo em `layers_panel.rs`: seta,
+   caixa, opacidade que multiplica a das camadas, renomear, *Ungroup*; arrastar uma camada sobre a linha do grupo
+   a põe dentro, arrastar para fora a tira; grupo escondido não desenha); renomear uma camada sem renomear o nó
+   (`PlotLayer.name`, *Rename...* no menu ou duplo clique no nome; vale na lista, na legenda, no export do Plot e
+   nas vistas lado a lado); selecionar várias camadas (Ctrl alterna, Shift pega o intervalo; a caixa de uma vale
+   para todas, o arrasto leva o bloco, *Group* e remover agem na seleção). As edições da lista vivem na sessão
+   (como a visibilidade e a opacidade): entram no modelo, e no desfazer, quando o Plot é salvo. Testes:
+   `a_layer_is_renamed_without_renaming_its_node`, `layers_in_groups`, `several_layers_are_selected` (UI),
+   `the_layers_of_a_group_are_together`, `a_block_of_rows_moved_among_the_others`. Falta: a faixa de cores nas
+   vistas lado a lado com camadas próprias.
 8. **Vários arquivos de uma vez, séries e stacks** (pedido de 2026-11-04): arrastar vários rasters/vetores da pasta
    criava os nós, mas o Viewer só mostrava o último (o último selecionado).
    **Feito** (Unreleased): `builder::as_layers` (a parte de `drop_on_viewer` que fixa as camadas, os mapas e depois

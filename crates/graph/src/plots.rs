@@ -34,6 +34,46 @@ pub struct Plot {
     /// the Document show only it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view: Option<PlotView>,
+    /// The groups of layers, as a GIS has them (one level): a layer is in one by its `group`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<PlotGroup>,
+}
+
+/// A group of the layers of a Plot: shown or hidden, and as opaque as asked, all together (its opacity multiplies
+/// its layers').
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PlotGroup {
+    pub id: String,
+    pub name: String,
+    /// Its layers folded under its row in the Viewer's list.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub collapsed: bool,
+    /// Its layers kept without being drawn.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
+    /// How opaque, 0 to 1 (default 1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<f64>,
+}
+
+impl Plot {
+    /// The layers as they are drawn: a layer of a hidden group hidden, the opacity of a group multiplied into its
+    /// layers' (a `group` that is none of the Plot's is as if none).
+    pub fn drawn_layers(&self) -> Vec<PlotLayer> {
+        self.layers
+            .iter()
+            .map(|l| {
+                let mut l = l.clone();
+                if let Some(g) = l.group.as_ref().and_then(|id| self.groups.iter().find(|g| &g.id == id)) {
+                    l.hidden |= g.hidden;
+                    if let Some(o) = g.opacity.filter(|o| *o != 1.0) {
+                        l.opacity = Some(l.opacity.unwrap_or(1.0) * o);
+                    }
+                }
+                l
+            })
+            .collect()
+    }
 }
 
 /// The frame of a Plot: a box in the coordinates of its map (not the window's pixels, so it does not depend on the
@@ -96,6 +136,12 @@ pub struct PlotLayer {
     /// A map of values shaded as a relief made of itself (a hillshade multiplied under its colours).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shade: Option<PlotShade>,
+    /// The name the Viewer's list, legend and figure give the layer, instead of its output's (the node keeps its own).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// The group of the Plot (`PlotGroup::id`) the layer is in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 /// A map of values shaded with its own relief: where the sun is (degrees clockwise from north, degrees over the
@@ -331,6 +377,7 @@ impl Model {
                 note: n.note.clone(),
                 why: n.why.clone(),
                 view: None,
+                groups: Vec::new(),
             });
             notes.push(format!("node {:?}: a view.plot, kept now as the Plot {:?} (shown in the Viewer)", n.id, n.id));
         }
@@ -469,6 +516,55 @@ mod tests {
         assert_eq!(back.plots, m.plots);
         // a model without plots writes none
         assert!(!Model::new("none").to_toml().unwrap().contains("plots"));
+    }
+
+    #[test]
+    fn a_layer_keeps_its_own_name() {
+        let mut m = model();
+        m.plots_from_nodes();
+        // without a name the file has no key for it
+        let keys = m.to_toml().unwrap().matches("name = ").count();
+        m.plots[0].layers[0].name = Some("The cover, 2020".into());
+        let text = m.to_toml().unwrap();
+        assert_eq!(text.matches("name = ").count(), keys + 1, "{text}");
+        assert!(text.contains("name = \"The cover, 2020\""), "{text}");
+        let back = Model::from_toml(&text).unwrap();
+        assert_eq!(back.plots, m.plots);
+        assert_eq!(back.plots[0].layers[0].name.as_deref(), Some("The cover, 2020"));
+        assert_eq!(back.plots[1].layers[0].name, None);
+    }
+
+    #[test]
+    fn groups_of_layers_are_kept_and_drawn() {
+        let mut m = model();
+        m.plots_from_nodes();
+        let text = m.to_toml().unwrap();
+        assert!(!text.contains("group"), "{text}");
+        let p = &mut m.plots[1];
+        p.groups = vec![
+            PlotGroup { id: "g1".into(), name: "Forest".into(), hidden: true, ..Default::default() },
+            PlotGroup {
+                id: "g2".into(),
+                name: "Roads".into(),
+                collapsed: true,
+                opacity: Some(0.5),
+                ..Default::default()
+            },
+        ];
+        p.layers[0].group = Some("g1".into());
+        p.layers[1].group = Some("g2".into());
+        p.layers[1].opacity = Some(0.5);
+        p.layers[2].group = Some("gone".into());
+        let text = m.to_toml().unwrap();
+        let back = Model::from_toml(&text).unwrap();
+        assert_eq!(back.plots, m.plots, "{text}");
+        // a hidden group hides its layers, a group's opacity multiplies theirs, a group unknown is none
+        let drawn = back.plots[1].drawn_layers();
+        assert!(drawn[0].hidden && !drawn[1].hidden && !drawn[2].hidden);
+        assert_eq!(drawn[1].opacity, Some(0.25));
+        assert_eq!(drawn[2].opacity, None);
+        // (the Plot itself is as it was kept)
+        assert!(!back.plots[1].layers[0].hidden);
     }
 
     #[test]

@@ -2902,6 +2902,8 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                         .map(|b| b as usize)
                         .filter(|_| minus.is_some()),
                     hidden: o.get("hidden").and_then(Value::as_bool).unwrap_or(false),
+                    name: o.get("name").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty()).map(String::from),
+                    group: None,
                     style: o.get("style").cloned(),
                     palette: palette.and_then(crate::builder::palette_named).and_then(crate::builder::palette_name),
                     range,
@@ -3079,6 +3081,7 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
         note: opt_text(a, "note").map(String::from),
         why: opt_text(a, "why").map(String::from),
         view,
+        groups: Vec::new(),
     };
     let shown: Vec<&str> = plot.layers.iter().map(|l| l.from.as_str()).collect();
     let mut said = format!("{} ({})", id, shown.join(", "));

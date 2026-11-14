@@ -874,7 +874,10 @@ pub fn window(ctx: &egui::Context, s: &mut Session) {
         }
         // and the layers drawn with it
         // (not a difference: no file of it)
-        for l in s.preview_layers.iter().filter(|l| l.visible && l.minus.is_none()) {
+        for l in crate::builder::drawn_layers(&s.preview_layers, &s.preview_groups)
+            .iter()
+            .filter(|l| l.visible && l.minus.is_none())
+        {
             if all.iter().any(|(m, q, _)| (m, q) == (&l.node, &l.port)) {
                 c.insert((l.node.clone(), l.port.clone()));
             }

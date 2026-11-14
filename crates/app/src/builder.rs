@@ -3276,6 +3276,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
             layers_follow(&mut layers, &s.source, None);
             layers
         },
+        groups: std::mem::take(&mut s.preview_groups),
         compare: std::mem::take(&mut s.preview_compare),
         playing: s.preview_playing,
         attributes: s.preview_attributes.take(),
@@ -3304,6 +3305,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
     }
     s.preview_view = shown.view;
     s.preview_layers = shown.layers;
+    s.preview_groups = shown.groups;
     s.preview_compare = shown.compare;
     s.preview_playing = shown.playing;
     s.preview_attributes = shown.attributes;
@@ -3322,6 +3324,8 @@ pub struct Shown {
     pub view: crate::map_view::MapView,
     /// The layers drawn with the map shown, the first at the bottom (see [`Layer`]).
     pub layers: Vec<Layer>,
+    /// The groups the layers are in (see [`Group`]), in the order of their rows.
+    pub groups: Vec<Group>,
     /// Another map compared with this one.
     pub compare: Compare,
     /// Playing the layers (a series' steps, a stack's maps): when the last one came.
@@ -3419,6 +3423,7 @@ pub fn view_plot(s: &mut Session) -> Option<terraflux_graph::Plot> {
         band: s.preview_band,
         chosen: s.preview_chosen,
         layers: s.preview_layers.clone(),
+        groups: s.preview_groups.clone(),
         compare: std::mem::take(&mut s.preview_compare),
         kept: s.preview_kept.clone(),
         ..Default::default()
@@ -3440,6 +3445,7 @@ pub fn show_plot(s: &mut Session, r: &Registry, p: &terraflux_graph::Plot) {
         _ => None,
     };
     s.preview_layers = layers_of_plot(&p.layers);
+    s.preview_groups = p.groups.iter().map(Group::of_plot).collect();
     // the features selected (one layer has a selection at a time: the first): its table of attributes open with them
     // (all the layers' selections are kept, the table closed or not)
     s.preview_kept = p
@@ -3536,6 +3542,8 @@ fn plot_layer(
         selected: Vec::new(),
         blend: l.blend.to_plot(),
         shade: l.shade.as_ref().filter(|_| l.minus.is_none() && l.rgb.is_none()).map(crate::shade::Shade::to_plot),
+        name: l.name.clone(),
+        group: l.group.clone(),
     }
 }
 
@@ -3560,6 +3568,8 @@ fn layers_of_plot(list: &[terraflux_graph::PlotLayer]) -> Vec<Layer> {
                 rgb: l.rgb.as_ref().map(crate::rgb::Rgb::of_plot),
                 blend: crate::blend::Blend::of_plot(l.blend.as_deref()),
                 shade: l.shade.as_ref().map(crate::shade::Shade::of_plot),
+                name: l.name.clone(),
+                group: l.group.clone(),
             })
         })
         .collect()
@@ -3611,7 +3621,8 @@ fn plot_of(
             // (side by side, the views more of other outputs, each with the layers of its own, those of the
             // compared view first)
             let own = |l: &Option<Vec<Layer>>| -> Vec<PlotLayer> {
-                l.iter().flatten().map(|l| plot_layer(l, l.band, None, None)).collect()
+                // (a view's layers are in no group: the groups are the Viewer's list's)
+                l.iter().flatten().map(|l| PlotLayer { group: None, ..plot_layer(l, l.band, None, None) }).collect()
             };
             let (mut also, mut views) = (Vec::new(), vec![own(&sh.compare.layers)]);
             let mut also_bands = Vec::new();
@@ -3660,6 +3671,7 @@ fn plot_of(
         why: was.and_then(|p| p.why.clone()),
         // (the frame is kept by its own buttons, not by updating the layers)
         view: was.and_then(|p| p.view.clone()),
+        groups: sh.groups.iter().map(Group::to_plot).collect(),
     }
 }
 
@@ -3824,6 +3836,65 @@ pub struct Layer {
     /// Shaded with its own relief, a hillshade of its values multiplied under its colours (see [`crate::shade`]);
     /// only a layer of values.
     pub shade: Option<crate::shade::Shade>,
+    /// The name the Viewer gives it instead of its output's (the node keeps its own); none: the output's.
+    pub name: Option<String>,
+    /// The id of the [`Group`] it is in, among the Viewer's groups.
+    pub group: Option<String>,
+}
+
+/// A group of the Viewer's layers, as a GIS has them (one level): its layers are shown or hidden and made more or
+/// less opaque together. Kept in a Plot as a `PlotGroup`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Group {
+    pub id: String,
+    pub name: String,
+    /// Its layers folded under its row in the list.
+    pub collapsed: bool,
+    pub visible: bool,
+    pub opacity: f32,
+}
+
+impl Group {
+    pub fn new(id: &str, name: &str) -> Group {
+        Group { id: id.into(), name: name.into(), collapsed: false, visible: true, opacity: 1.0 }
+    }
+
+    /// As a Plot keeps it.
+    pub fn to_plot(&self) -> terraflux_graph::PlotGroup {
+        terraflux_graph::PlotGroup {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            collapsed: self.collapsed,
+            hidden: !self.visible,
+            opacity: (self.opacity != 1.0).then_some(self.opacity as f64),
+        }
+    }
+
+    pub fn of_plot(g: &terraflux_graph::PlotGroup) -> Group {
+        Group {
+            id: g.id.clone(),
+            name: g.name.clone(),
+            collapsed: g.collapsed,
+            visible: !g.hidden,
+            opacity: g.opacity.unwrap_or(1.0).clamp(0.0, 1.0) as f32,
+        }
+    }
+}
+
+/// The layers as they are drawn: those of a hidden group hidden, the opacity of a group multiplied into its layers'
+/// (the same places in the list, no longer in a group; a layer of a group that is none of `groups` is as if in none).
+pub fn drawn_layers(layers: &[Layer], groups: &[Group]) -> Vec<Layer> {
+    layers
+        .iter()
+        .map(|l| {
+            let mut l = l.clone();
+            if let Some(g) = l.group.take().and_then(|id| groups.iter().find(|g| g.id == id)) {
+                l.visible &= g.visible;
+                l.opacity *= g.opacity;
+            }
+            l
+        })
+        .collect()
 }
 
 /// The maps a difference is of: the one subtracted (node, port, band), then the other.
@@ -3843,6 +3914,8 @@ impl Layer {
             rgb: None,
             blend: Default::default(),
             shade: None,
+            name: None,
+            group: None,
         }
     }
 
@@ -3885,6 +3958,10 @@ impl Layer {
         made: Option<&crate::difference::Made>,
         band_name: impl Fn(&str, &str, usize) -> String,
     ) -> String {
+        // (the name it was given: the list, the legend, the figure and the compared views say it)
+        if let Some(n) = &self.name {
+            return n.clone();
+        }
         let side = |n: &str, p: &str, band: Option<usize>, short: bool| match band {
             Some(i) if short => band_name(n, p, i),
             Some(i) => format!("{} {}", output_name(n, p), band_name(n, p, i)),
@@ -3976,6 +4053,14 @@ fn draw_layers(
     let mut table_at: Option<usize> = None;
     let mut under: Vec<LayerMap> = Vec::new();
     let mut above: Vec<LayerMap> = Vec::new();
+    // (the names the layers were given, for the legend of the map: the output's otherwise)
+    let given: std::collections::HashMap<(String, String), String> = layers
+        .iter()
+        .filter(|l| l.minus.is_none())
+        .filter_map(|l| Some(((l.node.clone(), l.port.clone()), l.name.clone()?)))
+        .collect();
+    let named =
+        |n: &str, p: &str| given.get(&(n.to_string(), p.to_string())).cloned().unwrap_or_else(|| output_name(n, p));
     for (i, l) in layers.iter().enumerate() {
         if l.visible && Some(i) == at && l.minus.is_none() && l.rgb.is_none() {
             // (the map shown: its shade goes first of those over it)
@@ -4008,7 +4093,7 @@ fn draw_layers(
                 overlays.push(crate::vector_tiles::Overlay {
                     vector: v,
                     style: l.style.clone(),
-                    name: output_name(&l.node, &l.port),
+                    name: named(&l.node, &l.port),
                 });
             }
             Some(v) => {
@@ -4020,7 +4105,7 @@ fn draw_layers(
                 });
                 if let Some(src) = rgb {
                     if let Some(src) = src {
-                        let name = output_name(&l.node, &l.port);
+                        let name = named(&l.node, &l.port);
                         let item =
                             (src, l.opacity, l.node.clone(), l.port.clone(), Some((Coloring::Packed, name)), l.blend);
                         if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
@@ -4057,7 +4142,7 @@ fn draw_layers(
                 Some(c) => crate::legend_view::apply(&look, &c),
                 None => look,
             };
-            let name = output_name(&n, &p);
+            let name = named(&n, &p);
             let below = i < below;
             Some(crate::map_view::RasterLayer { source: src, coloring: look.coloring, opacity, below, name, blend })
         })
@@ -5165,7 +5250,13 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     let look = look.map(|l| ranged(l, range));
     // the map compared with it: its source, its name and its look; the two in one colouring (the same value the
     // same colour on both sides), the legend that colouring's
-    let main_name = if maps.len() > 1 { format!("{title} {}", names[k]) } else { title.clone() };
+    // (the name its layer was given, when it is a layer that has one)
+    let given_name = sh.layers.iter().find(|l| l.is(&node, &port)).and_then(|l| l.name.clone());
+    let main_name = match given_name {
+        Some(n) => n,
+        None if maps.len() > 1 => format!("{title} {}", names[k]),
+        None => title.clone(),
+    };
     let (cw, cb) = (sh.compare.with.clone(), sh.compare.band);
     let compared = cw.and_then(|w| compared_map(s, ui.ctx(), &w, cb, &maps, &names, &title, palette));
     // side by side, the maps of the views more (none: not chosen, or not run)
@@ -5235,8 +5326,10 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         s.layer_differences
             .retain(|k, _| sh.layers.iter().chain(own.iter().copied()).any(|l| l.difference_key().as_ref() == Some(k)));
     }
+    // (a hidden group's layers not drawn, a group's opacity in its layers')
+    let drawn_list = drawn_layers(&sh.layers, &sh.groups);
     let Drawn { rasters, overlays, table_at } =
-        draw_layers(s, ui.ctx(), &sh.layers, at, sh.attributes.as_ref(), overlays, over, Some(&maps[k]));
+        draw_layers(s, ui.ctx(), &drawn_list, at, sh.attributes.as_ref(), overlays, over, Some(&maps[k]));
     // the layers of the views side by side that have layers of their own (the compared one first, then the views
     // more), drawn on the map of each
     let own_layers: Vec<Option<Drawn>> = if sh.compare.how == How::SideBySide && compared.is_some() {
@@ -5297,7 +5390,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 if let Some(l) = &look
                     && (figure || export)
                 {
-                    let vectors = figure_vectors(s, &plot_vectors, &sh.layers, maps[k].grid());
+                    let vectors = figure_vectors(s, &plot_vectors, &drawn_list, maps[k].grid());
                     // the Plot open: its saved view, the part of the map the figure and the export show
                     let frame = s
                         .plot_open
@@ -5700,7 +5793,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         );
                     });
                     if cmp.how == How::SideBySide {
-                        beside_controls(ui, s, r, cmp, &sh.layers, &others, &names, k, salt);
+                        beside_controls(ui, s, r, cmp, &drawn_list, &others, &names, k, salt);
                     }
                     if cmp.how == How::Difference {
                         match cmp.difference.made.clone() {
@@ -5805,7 +5898,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     ui.data_mut(|d| d.insert_temp(id, layers_open));
     sh.view.name = main_name.clone();
     // the map shown as opaque as its layer is (hidden when its layer is)
-    sh.view.opacity = sh.layers.iter().find(|l| l.is(&node, &port)).map(|l| if l.visible { l.opacity } else { 0.0 });
+    sh.view.opacity = drawn_list.iter().find(|l| l.is(&node, &port)).map(|l| if l.visible { l.opacity } else { 0.0 });
     let mut hover = None;
     // the map compared, in the colouring of both (none while its look is being made)
     let other = match (&compared, &shared) {
@@ -7764,6 +7857,43 @@ params = { expression = "x * 0 + k" }
         let again = sh.open_table("v", "vector");
         assert_eq!(again.pick.rows.iter().copied().collect::<Vec<_>>(), [0, 1, 2, 6]);
         assert!(sh.open_table("a", "map").pick.rows.is_empty());
+    }
+
+    /// A layer's own name and its group are kept in the Plot and back, with the groups (their name, fold, box and
+    /// opacity); an older Plot, without them, loads with none; a layer's name is the name the list says.
+    #[test]
+    fn the_names_and_the_groups_of_layers_are_kept_in_the_plot() {
+        let mut sh = Shown { node: "a".into(), port: "map".into(), ..Default::default() };
+        sh.layers = vec![
+            Layer { name: Some("Forest, 2020".into()), group: Some("g1".into()), ..Layer::new("a", "map") },
+            Layer::new("b", "map"),
+        ];
+        sh.groups = vec![Group { collapsed: true, visible: false, opacity: 0.5, ..Group::new("g1", "Cover") }];
+        let p = plot_of(&sh, (&Default::default(), &Default::default()), None, "p", None);
+        assert_eq!(p.layers[0].name.as_deref(), Some("Forest, 2020"));
+        assert_eq!(p.layers[0].group.as_deref(), Some("g1"));
+        assert_eq!((p.layers[1].name.as_deref(), p.layers[1].group.as_deref()), (None, None));
+        let g = &p.groups[0];
+        assert_eq!(
+            (g.id.as_str(), g.name.as_str(), g.collapsed, g.hidden, g.opacity),
+            ("g1", "Cover", true, true, Some(0.5))
+        );
+        // back as the Viewer has them
+        let back = layers_of_plot(&p.layers);
+        assert_eq!(back[0].name.as_deref(), Some("Forest, 2020"));
+        assert_eq!(back[0].group.as_deref(), Some("g1"));
+        assert_eq!(sh.groups, p.groups.iter().map(Group::of_plot).collect::<Vec<_>>());
+        // the name is what the list says, the node's output otherwise
+        assert_eq!(back[0].name(None), "Forest, 2020");
+        assert_eq!(back[1].name(None), "b.map");
+        // the group's box and opacity as the layers are drawn
+        let drawn = drawn_layers(&sh.layers, &sh.groups);
+        assert_eq!((drawn[0].visible, drawn[0].opacity, drawn[1].visible), (false, 0.5, true));
+        // none given: the Plot has none
+        sh.layers = vec![Layer::new("a", "map")];
+        sh.groups.clear();
+        let plain = plot_of(&sh, (&Default::default(), &Default::default()), None, "p", None);
+        assert!(plain.groups.is_empty() && plain.layers[0].name.is_none() && plain.layers[0].group.is_none());
     }
 
     /// A layer's blend mode and its relief are kept in the Plot and back (the defaults written as nothing); an older

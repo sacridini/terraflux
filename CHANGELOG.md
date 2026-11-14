@@ -7,6 +7,16 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **The Viewer's layers can be renamed, grouped and selected several at a time.** *Rename...* in a layer's menu (or a
+  double click on its name) edits its name in the row: Enter keeps it, Esc gives it up, empty goes back to the
+  output's name; the node keeps its own, and the new name is the one in the list, the legend, the figure and export
+  of the Plot, and the views side by side (`name` of a layer in a `[[plots]]`). *Group* makes a group of the layers
+  selected, as in QGIS (one level): its row has a fold arrow, a box that shows or hides its layers, an opacity that
+  multiplies theirs and a rename; drag a layer onto the group's row to put it in, out of its rows to take it out,
+  *Ungroup* keeps the layers (`groups` of a Plot and `group` of a layer). A Ctrl click adds a layer to the selection
+  or takes it away, a Shift click selects the range from the last one clicked; the box of one turns all, a drag
+  moves them as a block, *Group* and remove act on them all (the properties show the first). The list's edits live
+  in the session, as visibility and opacity do; saving the Plot makes them model edits, with their undo.
 - **An input's box can have copies in its scope, as Blender's several Group Input nodes.** Duplicate (the box's
   menu, Ctrl+D) on the box of a model's input (`$name`), a container's value (`@step`, `@item`) or an outer node
   makes another box of the same reference below it, kept in the model's places as `scope|reference#2`, `#3`... (the

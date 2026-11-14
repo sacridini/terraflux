@@ -696,8 +696,8 @@ fn each_step(steps: &mut [Step], f: &mut dyn FnMut(&mut Step)) {
 /// a series, a table), else of its top layer; the layers kept without being drawn and the model's inputs aside.
 pub fn plotted(m: &Model, r: &Registry, p: &Plot) -> Option<(String, String)> {
     let ports: Vec<(String, String)> = p
-        .layers
-        .iter()
+        .drawn_layers()
+        .into_iter()
         .rev()
         .filter(|l| !l.hidden && l.minus.is_none())
         .filter_map(|l| match Ref::parse(&l.from).ok()? {

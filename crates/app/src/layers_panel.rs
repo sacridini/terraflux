@@ -1,10 +1,14 @@
 //! The Layers of the Viewer, as a GIS has them: a bar of icons (add a layer of the run or a file, remove, up,
 //! down, zoom to it, all shown or hidden, every legend folded) over a list of rows, the top layer first, that
-//! scrolls when long; then the properties of the layer selected. A row: its arrow (its legend folded under it, as
-//! in QGIS), whether it is shown (its box), its symbol, its name, what it is (how many maps, features) and its ⋯;
-//! a click selects it (a map: it is shown, its statistics at the right), a double click zooms to it, a drag puts it
-//! over or under the others, a right click (or its ⋯) gives what can be done with it. The properties: how opaque,
-//! which map of a stack, the palette (a click on it gives the others) and the histogram, the style of features.
+//! scrolls when long; then the properties of the layer selected (the first, when several are). A row: its arrow
+//! (its legend folded under it, as in QGIS), whether it is shown (its box), its symbol, its name (its own when it was
+//! renamed, the output's otherwise), what it is (how many maps, features) and its ⋯; a click selects it (a map: it is
+//! shown, its statistics at the right; Ctrl adds it to the ones selected or takes it away, Shift selects the range
+//! from the last clicked), a double click on its name renames it, elsewhere zooms to it, a drag puts it (and the
+//! ones selected with it) over or under the others, a right click (or its ⋯) gives what can be done with it. The
+//! layers can be in groups, one level (a row with its arrow, its box, its opacity), whose layers a drag onto its row
+//! puts in and a drag out takes out. The properties: how opaque, which map of a stack, the palette (a click on it
+//! gives the others) and the histogram, the style of features.
 
 use super::*;
 use crate::map_view::cell_text;
@@ -13,7 +17,8 @@ use egui::{Pos2, Sense};
 /// What the Layers asked for in a frame, done once the rows are drawn.
 #[derive(Default)]
 struct Asked {
-    remove: Option<usize>,
+    /// The layers to remove (their indices).
+    remove: Vec<usize>,
     /// A map whose legend and settings go to the right (it is the map shown).
     show: Option<(String, String)>,
     zoom: Option<usize>,
@@ -22,8 +27,18 @@ struct Asked {
     down: Option<usize>,
     top: Option<usize>,
     bottom: Option<usize>,
-    /// A layer dragged and let go: its index, and the place among the rows (from the top) it goes to.
-    moved: Option<(usize, usize)>,
+    /// Layers dragged and let go (a block, when selected together): their indices, the place among the layers (from
+    /// the top) they go to, and the id of the group they go into (none: out of any).
+    moved: Option<(Vec<usize>, usize, Option<String>)>,
+    /// The layers selected with a box turned: all of them shown or hidden as it is.
+    visible: Option<(Vec<usize>, bool)>,
+    /// The layers asked to be made a group.
+    group: Vec<usize>,
+    /// A layer to take out of its group, just over it.
+    leave: Option<usize>,
+    /// A group (by its id) to remove, its layers kept; one to rename in its row.
+    ungroup: Option<String>,
+    rename_group: Option<String>,
     /// Shown alone (the others hidden).
     solo: Option<usize>,
     /// All shown, or all hidden.
@@ -43,6 +58,40 @@ struct Asked {
     fold: Option<bool>,
     /// A layer's node to show on the canvas: its path, the containers' ids first.
     node: Option<Vec<String>>,
+    /// A layer whose name is to be edited in its row.
+    rename: Option<usize>,
+}
+
+/// How a name edited in place stands: still being typed, kept (Enter, or a click elsewhere), or given up (Esc).
+enum Edit {
+    On,
+    Keep,
+    Cancel,
+}
+
+/// A name edited in place over `rect`: its box takes the focus (the whole text selected) when `first`.
+fn name_edit(ui: &mut Ui, rect: Rect, id: egui::Id, text: &mut String, first: bool) -> Edit {
+    let out = ui
+        .scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+            egui::TextEdit::singleline(text).id(id).desired_width(rect.width()).font(egui::TextStyle::Body).show(ui)
+        })
+        .inner;
+    if first {
+        out.response.request_focus();
+        let mut state = out.state;
+        let all =
+            egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()));
+        state.cursor.set_char_range(Some(all));
+        state.store(ui.ctx(), out.response.id);
+        return Edit::On;
+    }
+    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        Edit::Cancel
+    } else if out.response.lost_focus() {
+        Edit::Keep
+    } else {
+        Edit::On
+    }
 }
 
 /// What a row is: a map (of values or classes), vector features, a difference of two maps.
@@ -51,6 +100,74 @@ enum Kind {
     Map,
     Features,
     Difference,
+}
+
+/// What a row of the list is: a group's (by its place among the groups) or a layer's (by its index).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Item {
+    Group(usize),
+    Layer(usize),
+}
+
+/// The place among `groups` of the group a layer is in.
+fn group_at(l: &Layer, groups: &[Group]) -> Option<usize> {
+    let id = l.group.as_deref()?;
+    groups.iter().position(|g| g.id == id)
+}
+
+/// The rows of the list from the top: each layer's, a group's before its first layer (the layers of a group are
+/// together, see [`tidy`]).
+fn items_of(layers: &[Layer], groups: &[Group]) -> Vec<Item> {
+    let mut out = Vec::new();
+    let mut last = None;
+    for i in (0..layers.len()).rev() {
+        let g = group_at(&layers[i], groups);
+        if let Some(gi) = g.filter(|gi| last != Some(*gi)) {
+            out.push(Item::Group(gi));
+        }
+        last = g;
+        out.push(Item::Layer(i));
+    }
+    out
+}
+
+/// The groups and their layers put in order: a layer of a group that is none is in no group, a group without
+/// layers is gone, and the layers of a group are together (at the place of the highest of them).
+pub(super) fn tidy(layers: &mut Vec<Layer>, groups: &mut Vec<Group>) {
+    for l in layers.iter_mut() {
+        if l.group.as_ref().is_some_and(|id| !groups.iter().any(|g| &g.id == id)) {
+            l.group = None;
+        }
+    }
+    groups.retain(|g| layers.iter().any(|l| l.group.as_deref() == Some(g.id.as_str())));
+    // (the layers from the top: each group's all at once, when its first is met)
+    let mut rows: Vec<Option<Layer>> = layers.drain(..).rev().map(Some).collect();
+    let mut order: Vec<usize> = Vec::with_capacity(rows.len());
+    for i in 0..rows.len() {
+        if order.contains(&i) {
+            continue;
+        }
+        let group = rows[i].as_ref().and_then(|l| l.group.clone());
+        match group {
+            None => order.push(i),
+            Some(g) => order.extend(
+                (i..rows.len()).filter(|&j| rows[j].as_ref().is_some_and(|l| l.group.as_deref() == Some(g.as_str()))),
+            ),
+        }
+    }
+    *layers = order.into_iter().rev().filter_map(|i| rows[i].take()).collect();
+}
+
+/// The layers `idx` made a group (a new one, of a name nobody has), the rest of the work done by [`tidy`].
+fn make_group(layers: &mut [Layer], groups: &mut Vec<Group>, idx: &[usize]) {
+    let id = (1..).map(|k| format!("g{k}")).find(|id| !groups.iter().any(|g| &g.id == id)).unwrap_or_default();
+    let name = (1..).map(|k| format!("Group {k}")).find(|n| !groups.iter().any(|g| &g.name == n)).unwrap_or_default();
+    for &i in idx {
+        if let Some(l) = layers.get_mut(i) {
+            l.group = Some(id.clone());
+        }
+    }
+    groups.push(Group::new(&id, &name));
 }
 
 /// A layer's key among the others (a difference by the maps it is of).
@@ -106,14 +223,23 @@ pub(super) fn layers_section(
     salt: &str,
 ) {
     let (node, port) = (sh.node.clone(), sh.port.clone());
+    tidy(&mut sh.layers, &mut sh.groups);
     let vectors = vector_values(s, r);
     let shown_is_layer = sh.layers.iter().any(|l| l.is(&node, &port));
     let n = sh.layers.len();
     let selected_id = egui::Id::new(("layer selected", salt));
-    let selected: Option<usize> = ui
-        .data(|d| d.get_temp::<String>(selected_id))
-        .and_then(|k| sh.layers.iter().position(|l| key_of(l) == k))
-        .or_else(|| sh.layers.iter().position(|l| l.is(&node, &port)));
+    // the layers selected, in the order they were: the first is the one whose properties are shown (the map shown
+    // when none is, as a click on a node does)
+    let mut chosen: Vec<usize> = ui
+        .data(|d| d.get_temp::<Vec<String>>(selected_id))
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|k| sh.layers.iter().position(|l| key_of(l) == *k))
+        .collect();
+    if chosen.is_empty() {
+        chosen.extend(sh.layers.iter().position(|l| l.is(&node, &port)));
+    }
+    let selected: Option<usize> = chosen.first().copied();
     let mut asked = Asked::default();
     // the run's other maps and features, to add
     let more: Vec<(String, String)> = others
@@ -122,7 +248,7 @@ pub(super) fn layers_section(
         .chain(vectors.iter().map(|(n, p, _)| (n.clone(), p.clone())))
         .filter(|(n, p)| !sh.layers.iter().any(|l| l.is(n, p)))
         .collect();
-    toolbar(ui, sh, &more, (shown_is_layer, main_name), selected, &mut asked);
+    toolbar(ui, sh, &more, (shown_is_layer, main_name), (selected, &chosen), &mut asked);
     if let Some(fold) = asked.fold.take() {
         ui.data_mut(|d| {
             d.insert_temp(egui::Id::new("layers unfolded"), !fold);
@@ -188,34 +314,52 @@ pub(super) fn layers_section(
                             indented(ui, |ui| shown_legend(ui, s, (&node, &port), shown));
                         }
                     }
-                    // the rows, the top layer first; where each is (its row, then its legend)
-                    let mut rows: Vec<Rect> = Vec::new();
+                    // the rows, the top layer first, a group's before its layers; where each is (its row, then its
+                    // legend; none: the layer of a group folded)
+                    let items = items_of(&sh.layers, &sh.groups);
+                    let mut rows: Vec<(Item, Option<Rect>)> = Vec::new();
                     let mut let_go = None;
-                    for i in (0..n).rev() {
-                        let kind = match &sh.layers[i] {
-                            l if l.minus.is_some() => Kind::Difference,
-                            l if vectors.iter().any(|(vn, vp, _)| l.is(vn, vp)) => Kind::Features,
-                            _ => Kind::Map,
-                        };
-                        let (rect, started, released) = layer_row(
-                            ui,
-                            s,
-                            sh,
-                            &vectors,
-                            (i, kind),
-                            (&node, &port),
-                            selected == Some(i),
-                            shown,
-                            salt,
-                            &mut asked,
-                        );
-                        if started {
-                            ui.data_mut(|d| d.insert_temp(dragged_id, i));
+                    for it in items {
+                        match it {
+                            Item::Group(gi) => {
+                                let rect = group_row(ui, sh, gi, salt, &mut asked);
+                                rows.push((it, Some(rect)));
+                            }
+                            Item::Layer(i) => {
+                                let group = group_at(&sh.layers[i], &sh.groups);
+                                if group.is_some_and(|gi| sh.groups[gi].collapsed) {
+                                    rows.push((it, None));
+                                    continue;
+                                }
+                                let kind = match &sh.layers[i] {
+                                    l if l.minus.is_some() => Kind::Difference,
+                                    l if vectors.iter().any(|(vn, vp, _)| l.is(vn, vp)) => Kind::Features,
+                                    _ => Kind::Map,
+                                };
+                                // (in a group: further in, and dim while the group is hidden)
+                                let inside = group.map(|gi| !sh.groups[gi].visible);
+                                let (rect, started, released) = layer_row(
+                                    ui,
+                                    s,
+                                    sh,
+                                    &vectors,
+                                    (i, kind),
+                                    (&node, &port),
+                                    (&chosen, selected_id),
+                                    inside,
+                                    shown,
+                                    salt,
+                                    &mut asked,
+                                );
+                                if started {
+                                    ui.data_mut(|d| d.insert_temp(dragged_id, i));
+                                }
+                                if released {
+                                    let_go = Some(i);
+                                }
+                                rows.push((it, Some(rect)));
+                            }
                         }
-                        if released {
-                            let_go = Some(i);
-                        }
-                        rows.push(rect);
                     }
                     if n == 0 {
                         ui.add_space(6.0);
@@ -232,7 +376,7 @@ pub(super) fn layers_section(
                         });
                         ui.add_space(6.0);
                     }
-                    drag_feedback(ui, s, sh, &rows, let_go, dragged_id, &mut asked);
+                    drag_feedback(ui, s, sh, &rows, &chosen, let_go, dragged_id, &mut asked);
                 });
         });
     // files of the Files pane let go over the Layers: read by new nodes, their layers on top
@@ -258,6 +402,7 @@ pub(super) fn layers_section(
         properties(ui, s, sh, &vectors, (i, kind), (&node, &port), salt, &mut asked);
     }
     act(ui, s, r, sh, asked, (&node, &port), selected_id);
+    tidy(&mut sh.layers, &mut sh.groups);
 }
 
 /// The map shown that is no layer: its name in italics and the pin that keeps it as a layer.
@@ -310,13 +455,42 @@ fn shown_row(ui: &mut Ui, main_name: &str, asked: &mut Asked) {
     ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, line);
 }
 
-/// A row dragged: a line where it would go (between two rows), the name carried by the pointer, and there once
-/// let go.
+/// Where a row dragged would go, by where the pointer is over the rows: the place among the rows (the number of
+/// rows over it), the group it would be in (the middle of a group's row: that group's, over its layers; between two
+/// layers of a group, or a group's row and its first layer: that group's; else none), and the group's row it is on.
+fn drop_place(sh: &Shown, rows: &[(Item, Option<Rect>)], p: Pos2) -> (usize, Option<usize>, Option<usize>) {
+    let group_of = |it: &Item| match it {
+        Item::Group(g) => Some(*g),
+        Item::Layer(i) => group_at(&sh.layers[*i], &sh.groups),
+    };
+    // (the middle half of a group's row: onto it, put in it, the first of its layers)
+    let onto = rows.iter().position(|(it, r)| {
+        matches!(it, Item::Group(_))
+            && r.is_some_and(|r| {
+                r.x_range().contains(p.x)
+                    && (r.top() + r.height() * 0.25..=r.bottom() - r.height() * 0.25).contains(&p.y)
+            })
+    });
+    if let Some(k) = onto {
+        let Item::Group(g) = rows[k].0 else { unreachable!("a group's row") };
+        return (k + 1, Some(g), Some(g));
+    }
+    // (hidden layers, of a group folded, are over the first row shown that is under the pointer)
+    let at = rows.iter().position(|(_, r)| r.is_some_and(|r| r.center().y >= p.y)).unwrap_or(rows.len());
+    let above = at.checked_sub(1).and_then(|k| group_of(&rows[k].0));
+    let below = rows.get(at).and_then(|(it, _)| group_of(it));
+    (at, above.filter(|a| Some(*a) == below), None)
+}
+
+/// A row dragged: a line where it would go (between two rows, or a frame on the group's row it would go into), the
+/// name carried by the pointer, and there once let go.
+#[allow(clippy::too_many_arguments)]
 fn drag_feedback(
     ui: &mut Ui,
     s: &Session,
     sh: &Shown,
-    rows: &[Rect],
+    rows: &[(Item, Option<Rect>)],
+    chosen: &[usize],
     let_go: Option<usize>,
     dragged_id: egui::Id,
     asked: &mut Asked,
@@ -325,32 +499,50 @@ fn drag_feedback(
     let from: Option<usize> = ui.data(|d| d.get_temp(dragged_id));
     if let Some(from) = from.filter(|f| *f < n)
         && let Some(p) = ui.ctx().pointer_latest_pos()
-        && !rows.is_empty()
+        && rows.iter().any(|(_, r)| r.is_some())
     {
-        let slot = rows.iter().filter(|r| r.center().y < p.y).count();
-        let at_from = n - 1 - from;
-        let moves = slot != at_from && slot != at_from + 1;
+        let (at, group, onto) = drop_place(sh, rows, p);
+        // (the place among the layers: the layers over it)
+        let slot = rows[..at].iter().filter(|(it, _)| matches!(it, Item::Layer(_))).count();
+        // (a row of the selection takes the others with it, as one block)
+        let block: Vec<usize> = if chosen.contains(&from) { chosen.to_vec() } else { vec![from] };
+        let mut at_rows: Vec<usize> = block.iter().map(|i| n - 1 - i).collect();
+        at_rows.sort_unstable();
+        let together = at_rows.windows(2).all(|w| w[1] == w[0] + 1);
+        let group_id = group.map(|gi| sh.groups[gi].id.clone());
+        // (where it is already: the block at that place, in that group)
+        let there = together
+            && slot >= at_rows[0]
+            && slot <= at_rows[at_rows.len() - 1] + 1
+            && block.iter().all(|i| sh.layers[*i].group == group_id);
+        let moves = !there;
         if let_go.is_some() {
             if moves {
-                asked.moved = Some((from, slot));
+                asked.moved = Some((block.clone(), slot, group_id));
             }
             ui.data_mut(|d| d.remove::<usize>(dragged_id));
         } else {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-            let y = match rows.get(slot) {
+            let y = match rows[at..].iter().find_map(|(_, r)| *r) {
                 Some(r) => r.top() + 0.5,
-                None => rows[rows.len() - 1].bottom() - 0.5,
+                None => rows.iter().rev().find_map(|(_, r)| *r).map_or(0.0, |r| r.bottom() - 0.5),
             };
-            if moves {
+            let accent = theme::accent();
+            if let Some(r) = onto.and_then(|g| rows.iter().find(|(it, _)| *it == Item::Group(g))).and_then(|(_, r)| *r)
+            {
+                ui.painter().rect_stroke(r, 3.0, egui::Stroke::new(1.5, accent), egui::StrokeKind::Inside);
+            } else if moves {
                 let (l, rt) = (ui.min_rect().left(), ui.min_rect().right());
-                let accent = theme::accent();
                 ui.painter()
                     .line_segment([Pos2::new(l + 4.0, y), Pos2::new(rt - 2.0, y)], egui::Stroke::new(2.0, accent));
                 ui.painter().circle_stroke(Pos2::new(l + 4.0, y), 3.0, egui::Stroke::new(1.5, accent));
             }
             // (the name carried by the pointer)
-            let name =
-                sh.layers[from].name_by(made_of(s, &sh.layers[from]).as_deref(), |n, p, b| band_name(s, n, p, b));
+            let name = if block.len() > 1 {
+                format!("{} layers", block.len())
+            } else {
+                sh.layers[from].name_by(made_of(s, &sh.layers[from]).as_deref(), |n, p, b| band_name(s, n, p, b))
+            };
             let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, dragged_id));
             let galley = painter.layout_no_wrap(name, egui::FontId::proportional(12.0), ui.visuals().text_color());
             let at = p + Vec2::new(12.0, 4.0);
@@ -475,7 +667,7 @@ fn toolbar(
     sh: &Shown,
     more: &[(String, String)],
     (shown_is_layer, main_name): (bool, &str),
-    selected: Option<usize>,
+    (selected, chosen): (Option<usize>, &[usize]),
     asked: &mut Asked,
 ) {
     let n = sh.layers.len();
@@ -533,10 +725,10 @@ fn toolbar(
             });
             let at = selected.filter(|i| *i < n);
             if icon_button(ui, Icon::Remove, at.is_some(), "Remove the layer")
-                .on_hover_text("remove the layer selected (no longer a layer; the node stays)")
+                .on_hover_text("remove the layers selected (no longer layers; the nodes stay)")
                 .clicked()
             {
-                asked.remove = at;
+                asked.remove = chosen.to_vec();
             }
             ui.add_space(4.0);
             if icon_button(ui, Icon::Down, at.is_some_and(|i| i > 0), "Down")
@@ -585,12 +777,14 @@ fn layer_row(
     vectors: &[(String, String, Arc<terraflux_raster::vector::Vector>)],
     (i, kind): (usize, Kind),
     (node, port): (&str, &str),
-    selected: bool,
+    (chosen, selected_id): (&[usize], egui::Id),
+    inside: Option<bool>,
     shown: Option<&ShownLegend<'_>>,
     salt: &str,
     asked: &mut Asked,
 ) -> (Rect, bool, bool) {
     let n = sh.layers.len();
+    let selected = chosen.contains(&i);
     let ctx = ui.ctx().clone();
     let active = sh.layers[i].is(node, port);
     let made = made_of(s, &sh.layers[i]);
@@ -626,7 +820,8 @@ fn layer_row(
         let bar = Rect::from_min_size(rect.min + Vec2::new(0.0, 4.0), Vec2::new(2.5, rect.height() - 8.0));
         ui.painter().rect_filled(bar, 1.0, theme::accent());
     }
-    let mut x = rect.left() + 5.0;
+    // (in a group: further in)
+    let mut x = rect.left() + 5.0 + if inside.is_some() { 14.0 } else { 0.0 };
     // the arrow that folds its legend
     let arrow = ui.interact(
         Rect::from_center_size(Pos2::new(x + 6.0, rect.center().y), Vec2::splat(16.0)),
@@ -650,12 +845,19 @@ fn layer_row(
     }
     x += 16.0;
     let l = &mut sh.layers[i];
-    ui.put(
-        Rect::from_min_size(Pos2::new(x, rect.top()), Vec2::new(18.0, rect.height())),
-        egui::Checkbox::without_text(&mut l.visible),
-    )
-    .on_hover_text("shown on the map, or hidden")
-    .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, l.visible, format!("show {name}")));
+    let shown_box = ui
+        .put(
+            Rect::from_min_size(Pos2::new(x, rect.top()), Vec2::new(18.0, rect.height())),
+            egui::Checkbox::without_text(&mut l.visible),
+        )
+        .on_hover_text("shown on the map, or hidden (every layer selected with it, when it is one of them)");
+    shown_box.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, l.visible, format!("show {name}"))
+    });
+    // (the box of a layer selected with others: all of them as it now is)
+    if shown_box.changed() && selected && chosen.len() > 1 {
+        asked.visible = Some((chosen.to_vec(), l.visible));
+    }
     x += 22.0;
     let symbol = Rect::from_min_size(Pos2::new(x, rect.center().y - 7.0), Vec2::new(18.0, 14.0));
     let packed = Coloring::Packed;
@@ -689,33 +891,82 @@ fn layer_row(
         }
     }
     // its name, cut to the room left
-    let colour = if l.visible { visuals.text_color() } else { visuals.weak_text_color() };
+    let colour = if l.visible && inside != Some(true) { visuals.text_color() } else { visuals.weak_text_color() };
     let text = if active { RichText::new(&name).strong().color(colour) } else { RichText::new(&name).color(colour) };
     let room = (right - x).max(10.0);
-    let galley =
-        egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Truncate), room, egui::TextStyle::Body);
-    ui.painter().galley(Pos2::new(x, rect.center().y - galley.size().y / 2.0), galley, colour);
+    // its name, or the box it is typed in
+    let renaming_id = egui::Id::new(("layer renaming", salt));
+    let me = key_of(&sh.layers[i]);
+    let editing: Option<(String, String, bool)> =
+        ui.data(|d| d.get_temp::<(String, String, bool)>(renaming_id)).filter(|(k, ..)| *k == me);
+    let name_rect = Rect::from_min_max(Pos2::new(x, rect.top()), Pos2::new(x + room, rect.bottom()));
+    let mut named: Option<Option<String>> = None;
+    match editing {
+        Some((key, mut buf, started)) => {
+            let box_rect = name_rect.shrink2(Vec2::new(0.0, 2.0));
+            match name_edit(ui, box_rect, renaming_id.with("box"), &mut buf, !started) {
+                Edit::On => ui.data_mut(|d| {
+                    d.insert_temp(renaming_id, (key, buf, true));
+                }),
+                done => {
+                    // (what is typed, when it says something else than the name shown: empty is the output's name)
+                    if matches!(done, Edit::Keep) && buf.trim() != name {
+                        named = Some(Some(buf.trim().to_string()).filter(|t| !t.is_empty()));
+                    }
+                    ui.data_mut(|d| d.remove::<(String, String, bool)>(renaming_id));
+                }
+            }
+        }
+        None => {
+            let galley = egui::WidgetText::from(text).into_galley(
+                ui,
+                Some(egui::TextWrapMode::Truncate),
+                room,
+                egui::TextStyle::Body,
+            );
+            ui.painter().galley(Pos2::new(x, rect.center().y - galley.size().y / 2.0), galley, colour);
+        }
+    }
     let row = row.on_hover_text(format!(
-        "{name}: a click selects it (its properties under the list{}); a double click zooms to it; drag it over or \
-         under the others; a right click: more",
+        "{name}: a click selects it (its properties under the list{}); a double click on its name renames it, \
+         elsewhere zooms to it; drag it over or under the others; a right click: more",
         if kind == Kind::Map && !active { ", it is shown, its statistics at the right" } else { "" }
     ));
     let row = if row.dragged() { row } else { row.on_hover_cursor(egui::CursorIcon::Grab) };
     if row.clicked() {
-        ui.data_mut(|d| d.insert_temp(egui::Id::new(("layer selected", salt)), key_of(&sh.layers[i])));
-        if kind == Kind::Map && !active {
+        let keys = clicked_selection(ui, sh, chosen, i, salt);
+        ui.data_mut(|d| d.insert_temp(selected_id, keys));
+        // (a plain click: the map is shown too)
+        let plain = ui.input(|k| !k.modifiers.command && !k.modifiers.shift);
+        if plain && kind == Kind::Map && !active {
             asked.show = Some((sh.layers[i].node.clone(), sh.layers[i].port.clone()));
         }
     }
+    // (a right click on a layer not selected: it is the one selected, and its menu is for it)
+    if row.secondary_clicked() && !selected {
+        ui.data_mut(|d| d.insert_temp(selected_id, vec![key_of(&sh.layers[i])]));
+    }
     if row.double_clicked() {
-        asked.zoom = Some(i);
+        if row.interact_pointer_pos().is_some_and(|p| name_rect.contains(p)) {
+            asked.rename = Some(i);
+        } else {
+            asked.zoom = Some(i);
+        }
+    }
+    if let Some(n) = named {
+        sh.layers[i].name = n;
     }
     let coloring = look.as_ref().map(|x| x.1.coloring.clone());
     let menu = |ui: &mut Ui, s: &mut Session, asked: &mut Asked| {
-        layer_menu(ui, s, &sh.layers, (i, n, kind, active), coloring.as_ref(), table_open, asked);
+        layer_menu(ui, s, &sh.layers, (i, n, kind, active), chosen, coloring.as_ref(), table_open, asked);
     };
     row.context_menu(|ui| menu(ui, s, asked));
     egui::Popup::menu(&dots).show(|ui| menu(ui, s, asked));
+    // (its name edited in its row, from the first frame the text of it shown now)
+    if asked.rename == Some(i) {
+        asked.rename = None;
+        ui.data_mut(|d| d.insert_temp(renaming_id, (me.clone(), name.clone(), false)));
+    }
     let (started, released) = (row.drag_started(), row.drag_stopped());
     // its legend, under it (as a GIS has it): the map shown's whole, with its palette and editor
     if open {
@@ -748,6 +999,189 @@ fn layer_row(
     ui.data_mut(|d| d.insert_temp(open_id, open));
     let whole = Rect::from_min_max(Pos2::new(rect.left(), top), Pos2::new(rect.right(), ui.cursor().top()));
     (whole, started, released)
+}
+
+/// The layers selected (their keys, the first the one whose properties show) after a click on the row of layer `i`
+/// with the keys held: Shift, the layers from the anchor (the last one clicked without Shift) to it; Ctrl, it added
+/// to the ones selected or taken away from them; none, it alone.
+fn clicked_selection(ui: &mut Ui, sh: &Shown, chosen: &[usize], i: usize, salt: &str) -> Vec<String> {
+    let anchor_id = egui::Id::new(("layer anchor", salt));
+    let m = ui.input(|k| k.modifiers);
+    let key = |j: usize| key_of(&sh.layers[j]);
+    if m.shift {
+        let anchor = ui
+            .data(|d| d.get_temp::<String>(anchor_id))
+            .and_then(|k| sh.layers.iter().position(|l| key_of(l) == k))
+            .or(chosen.first().copied())
+            .unwrap_or(i);
+        let (lo, hi) = (anchor.min(i), anchor.max(i));
+        return std::iter::once(anchor).chain((lo..=hi).filter(|j| *j != anchor)).map(key).collect();
+    }
+    ui.data_mut(|d| d.insert_temp(anchor_id, key(i)));
+    if m.command {
+        let mut keys: Vec<String> = chosen.iter().map(|j| key(*j)).collect();
+        match keys.iter().position(|k| *k == key(i)) {
+            Some(at) => {
+                keys.remove(at);
+            }
+            None => keys.push(key(i)),
+        }
+        return keys;
+    }
+    vec![key(i)]
+}
+
+/// A group's row (its arrow that folds its layers, its box, its name, its opacity on a slider, its ⋯): where it is.
+fn group_row(ui: &mut Ui, sh: &mut Shown, gi: usize, salt: &str, asked: &mut Asked) -> Rect {
+    let id = sh.groups[gi].id.clone();
+    let count = sh.layers.iter().filter(|l| l.group.as_deref() == Some(id.as_str())).count();
+    let row_id = egui::Id::new(("group row", salt, &id));
+    let renaming_id = egui::Id::new(("group renaming", salt));
+    let (rect, row) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 24.0), Sense::click());
+    let visuals = ui.visuals().clone();
+    ui.painter().rect_filled(rect, 3.0, visuals.widgets.inactive.weak_bg_fill.gamma_multiply(0.8));
+    let g = &mut sh.groups[gi];
+    let name = g.name.clone();
+    row.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("group {name}")));
+    let mut x = rect.left() + 5.0;
+    // the arrow that folds its layers
+    let arrow = ui.interact(
+        Rect::from_center_size(Pos2::new(x + 6.0, rect.center().y), Vec2::splat(16.0)),
+        row_id.with("fold"),
+        Sense::click(),
+    );
+    arrow.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            true,
+            if g.collapsed { "unfold group" } else { "fold group" },
+        )
+    });
+    {
+        let c = if arrow.hovered() { visuals.strong_text_color() } else { visuals.weak_text_color() };
+        let m = arrow.rect.center();
+        let pts = if g.collapsed {
+            vec![m + Vec2::new(-1.5, -3.5), m + Vec2::new(2.0, 0.0), m + Vec2::new(-1.5, 3.5)]
+        } else {
+            vec![m + Vec2::new(-3.5, -1.5), m + Vec2::new(0.0, 2.0), m + Vec2::new(3.5, -1.5)]
+        };
+        ui.painter().add(egui::Shape::line(pts, egui::Stroke::new(1.5, c)));
+    }
+    if arrow.on_hover_text("its layers, under it, or folded").clicked() {
+        g.collapsed = !g.collapsed;
+    }
+    x += 16.0;
+    ui.put(
+        Rect::from_min_size(Pos2::new(x, rect.top()), Vec2::new(18.0, rect.height())),
+        egui::Checkbox::without_text(&mut g.visible),
+    )
+    .on_hover_text("its layers shown on the map, or hidden")
+    .widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, g.visible, format!("show group {name}"))
+    });
+    x += 24.0;
+    // its ⋯ at the right: rename, ungroup (a right click on the row too)
+    let dots_rect = Rect::from_center_size(Pos2::new(rect.right() - 12.0, rect.center().y), Vec2::new(20.0, 20.0));
+    let dots = ui
+        .interact(dots_rect, row_id.with("more"), Sense::click())
+        .on_hover_text("what can be done with the group: rename, ungroup (a right click on the row too)");
+    dots.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("group {name}: its menu")));
+    if row.hovered() || dots.hovered() || ui.rect_contains_pointer(rect) {
+        if dots.hovered() {
+            ui.painter().rect_filled(dots_rect, 3.0, visuals.widgets.hovered.weak_bg_fill);
+        }
+        let dot = if dots.hovered() { visuals.strong_text_color() } else { visuals.weak_text_color() };
+        for dx in [-4.5, 0.0, 4.5] {
+            ui.painter().circle_filled(dots_rect.center() + Vec2::new(dx, 0.0), 1.5, dot);
+        }
+    }
+    // its opacity, a slider before it
+    let slider = Rect::from_min_size(Pos2::new(dots_rect.left() - 72.0, rect.center().y - 9.0), Vec2::new(68.0, 18.0));
+    ui.scope_builder(egui::UiBuilder::new().max_rect(slider), |ui| {
+        ui.spacing_mut().slider_width = 64.0;
+        let r = ui.add(egui::Slider::new(&mut g.opacity, 0.0..=1.0).show_value(false)).on_hover_text(format!(
+            "how opaque its layers are, {:.0}%: it multiplies the opacity of each",
+            g.opacity * 100.0
+        ));
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Slider, true, format!("group {name} opacity")));
+    });
+    // its name (and how many layers it holds), or the box it is typed in
+    let room = (slider.left() - 4.0 - x).max(10.0);
+    let name_rect = Rect::from_min_max(Pos2::new(x, rect.top()), Pos2::new(x + room, rect.bottom()));
+    let editing: Option<(String, String, bool)> =
+        ui.data(|d| d.get_temp::<(String, String, bool)>(renaming_id)).filter(|(k, ..)| *k == id);
+    match editing {
+        Some((key, mut buf, started)) => {
+            match name_edit(ui, name_rect.shrink2(Vec2::new(0.0, 2.0)), renaming_id.with("box"), &mut buf, !started) {
+                Edit::On => ui.data_mut(|d| {
+                    d.insert_temp(renaming_id, (key, buf, true));
+                }),
+                done => {
+                    // (nothing typed: the name it had)
+                    if matches!(done, Edit::Keep) && !buf.trim().is_empty() {
+                        g.name = buf.trim().to_string();
+                    }
+                    ui.data_mut(|d| d.remove::<(String, String, bool)>(renaming_id));
+                }
+            }
+        }
+        None => {
+            let mut job = egui::text::LayoutJob::default();
+            job.append(
+                &g.name,
+                0.0,
+                egui::TextFormat {
+                    font_id: egui::FontId::proportional(13.0),
+                    color: visuals.strong_text_color(),
+                    ..Default::default()
+                },
+            );
+            job.append(
+                &format!("   {count}"),
+                0.0,
+                egui::TextFormat {
+                    font_id: egui::FontId::proportional(10.5),
+                    color: visuals.weak_text_color(),
+                    ..Default::default()
+                },
+            );
+            job.wrap = egui::text::TextWrapping {
+                max_width: room,
+                max_rows: 1,
+                break_anywhere: true,
+                overflow_character: Some('…'),
+            };
+            let galley = ui.fonts_mut(|f| f.layout_job(job));
+            ui.painter().galley(Pos2::new(x, rect.center().y - galley.size().y / 2.0), galley, Color32::WHITE);
+        }
+    }
+    let row = row.on_hover_text(format!(
+        "the group {name}: its layers shown, hidden and made opaque together; drag a layer onto its row to put it in, \
+         out of its rows to take it out; a double click on its name renames it; a right click: more"
+    ));
+    if row.double_clicked() && row.interact_pointer_pos().is_some_and(|p| name_rect.contains(p)) {
+        asked.rename_group = Some(id.clone());
+    }
+    let menu = |ui: &mut Ui, asked: &mut Asked| {
+        ui.set_min_width(160.0);
+        if ui.button("Rename...").clicked() {
+            asked.rename_group = Some(id.clone());
+            ui.close();
+        }
+        if ui.button("Ungroup").on_hover_text("the group gone, its layers kept where they are").clicked() {
+            asked.ungroup = Some(id.clone());
+            ui.close();
+        }
+    };
+    row.context_menu(|ui| menu(ui, asked));
+    egui::Popup::menu(&dots).show(|ui| menu(ui, asked));
+    if asked.rename_group.as_deref() == Some(id.as_str()) {
+        asked.rename_group = None;
+        ui.data_mut(|d| d.insert_temp(renaming_id, (id.clone(), name.clone(), false)));
+    }
+    let line = ui.visuals().widgets.noninteractive.bg_stroke;
+    ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, line);
+    rect
 }
 
 /// Classes as a legend has them, a line each: a swatch and the name (the first `most`, then how many more).
@@ -1062,16 +1496,20 @@ fn vector_legend(ui: &mut Ui, v: &terraflux_raster::vector::Vector, style: &crat
 }
 
 /// What a right click on a row (or its ⋯) gives.
+#[allow(clippy::too_many_arguments)]
 fn layer_menu(
     ui: &mut Ui,
     s: &mut Session,
     layers: &[Layer],
     (i, n, kind, active): (usize, usize, Kind, bool),
+    chosen: &[usize],
     coloring: Option<&Coloring>,
     table_open: bool,
     asked: &mut Asked,
 ) {
     let l = &layers[i];
+    // (what is asked of a layer selected with others is asked of them all; of another, of it alone)
+    let targets: Vec<usize> = if chosen.contains(&i) { chosen.to_vec() } else { vec![i] };
     ui.set_min_width(200.0);
     if ui.button("🔍 Zoom to layer").clicked() {
         asked.zoom = Some(i);
@@ -1125,6 +1563,31 @@ fn layer_menu(
         asked.node = at;
         ui.close();
     }
+    if ui
+        .button("Rename...")
+        .on_hover_text("the name the Viewer gives this layer (its node keeps its own); empty: the output's name")
+        .clicked()
+    {
+        asked.rename = Some(i);
+        ui.close();
+    }
+    if ui
+        .button("Group")
+        .on_hover_text("a group of the layers selected (this one too): shown, hidden and made opaque together")
+        .clicked()
+    {
+        asked.group = targets.clone();
+        ui.close();
+    }
+    if l.group.is_some()
+        && ui
+            .button("Take out of its group")
+            .on_hover_text("the layer over its group, in none (a drag out of the group's rows does the same)")
+            .clicked()
+    {
+        asked.leave = Some(i);
+        ui.close();
+    }
     ui.separator();
     if ui.button("Show only this layer").clicked() {
         asked.solo = Some(i);
@@ -1153,7 +1616,7 @@ fn layer_menu(
     }
     ui.separator();
     if ui.button("🗑 Remove layer").on_hover_text("no longer a layer (the node stays)").clicked() {
-        asked.remove = Some(i);
+        asked.remove = targets;
         ui.close();
     }
 }
@@ -1797,18 +2260,27 @@ pub(super) fn range_histogram(
     }
 }
 
-/// A layer moved among the rows: from its index to a place among the rows from the top (0: over them all; the
-/// number of rows: under them all).
-pub(super) fn move_to_slot(layers: &mut Vec<Layer>, from: usize, slot: usize) {
+/// Layers moved among the rows together, in the order they have: their indices, and the place among the rows from
+/// the top they go to (0: over them all; the number of rows: under them all), the block of them one after the other
+/// there.
+pub(super) fn move_block(layers: &mut Vec<Layer>, block: &[usize], slot: usize) {
     let n = layers.len();
-    if from >= n {
+    // (their places among the rows from the top)
+    let mut at: Vec<usize> = block.iter().filter(|i| **i < n).map(|i| n - 1 - i).collect();
+    at.sort_unstable();
+    at.dedup();
+    if at.is_empty() {
         return;
     }
-    let at_from = n - 1 - from;
     let mut rows: Vec<Layer> = layers.drain(..).rev().collect();
-    let l = rows.remove(at_from);
-    let at = if slot > at_from { slot - 1 } else { slot };
-    rows.insert(at.min(rows.len()), l);
+    // (the rows over the place they go to that were in the block leave it one place nearer)
+    let over = at.iter().filter(|a| **a < slot).count();
+    let mut taken: Vec<Layer> = at.iter().rev().map(|a| rows.remove(*a)).collect();
+    taken.reverse();
+    let to = slot - over;
+    for (k, l) in taken.into_iter().enumerate() {
+        rows.insert((to + k).min(rows.len()), l);
+    }
     *layers = rows.into_iter().rev().collect();
 }
 
@@ -1847,14 +2319,46 @@ fn act(
         for (j, l) in sh.layers.iter_mut().enumerate() {
             l.visible = j == i;
         }
+        // (its group shown, or it would be seen no more than before)
+        if let Some(gi) = group_at(&sh.layers[i], &sh.groups) {
+            sh.groups[gi].visible = true;
+        }
     }
     if let Some(on) = asked.all {
         for l in &mut sh.layers {
             l.visible = on;
         }
+        for g in &mut sh.groups {
+            g.visible = on;
+        }
     }
-    if let Some((from, slot)) = asked.moved {
-        move_to_slot(&mut sh.layers, from, slot);
+    if let Some((idx, on)) = asked.visible {
+        for i in idx.into_iter().filter(|i| *i < n) {
+            sh.layers[i].visible = on;
+        }
+    }
+    if !asked.group.is_empty() {
+        make_group(&mut sh.layers, &mut sh.groups, &asked.group);
+    }
+    if let Some(id) = asked.ungroup {
+        // (the layers stay where they are)
+        for l in sh.layers.iter_mut().filter(|l| l.group.as_deref() == Some(id.as_str())) {
+            l.group = None;
+        }
+        sh.groups.retain(|g| g.id != id);
+    }
+    if let Some(i) = asked.leave.filter(|i| *i < n && sh.layers[*i].group.is_some()) {
+        // (over the group it was in, which keeps its other layers together)
+        let mut l = sh.layers.remove(i);
+        let was = l.group.take();
+        let at = sh.layers.iter().rposition(|x| x.group == was).map_or(i, |top| top + 1);
+        sh.layers.insert(at.min(sh.layers.len()), l);
+    }
+    if let Some((block, slot, group)) = asked.moved {
+        for i in block.iter().copied().filter(|i| *i < n) {
+            sh.layers[i].group = group.clone();
+        }
+        move_block(&mut sh.layers, &block, slot);
     }
     if let Some(i) = asked.up.filter(|i| i + 1 < n) {
         sh.layers.swap(i, i + 1);
@@ -1870,8 +2374,14 @@ fn act(
         let l = sh.layers.remove(i);
         sh.layers.insert(0, l);
     }
-    if let Some(i) = asked.remove.filter(|i| *i < n) {
-        sh.layers.remove(i);
+    if !asked.remove.is_empty() {
+        // (from the last, so that the places of the others stay)
+        let mut gone = asked.remove;
+        gone.sort_unstable_by(|a, b| b.cmp(a));
+        gone.dedup();
+        for i in gone.into_iter().filter(|i| *i < n) {
+            sh.layers.remove(i);
+        }
     }
     // a map clicked: it is the map shown (its legend and settings at the right)
     if let Some((n, p)) = asked.show {
@@ -1887,7 +2397,7 @@ fn act(
     }
     if let Some((n, p)) = asked.add {
         sh.layers.push(Layer::new(&n, &p));
-        ui.data_mut(|d| d.insert_temp(selected_id, format!("{n}.{p}")));
+        ui.data_mut(|d| d.insert_temp(selected_id, vec![format!("{n}.{p}")]));
     }
     if asked.url && s.url_layer.is_none() {
         s.url_layer = Some(crate::remote::Dialog::default());
@@ -1948,6 +2458,60 @@ mod tests {
 
     fn names(l: &[Layer]) -> Vec<&str> {
         l.iter().map(|l| l.node.as_str()).collect()
+    }
+
+    /// A layer moved among the rows: from its index to a place among the rows from the top.
+    fn move_to_slot(layers: &mut Vec<Layer>, from: usize, slot: usize) {
+        move_block(layers, &[from], slot);
+    }
+
+    /// The layers of a group are together, a group of no layer is gone, a layer of a group that is none is in none, and
+    /// the rows have a group's before its layers.
+    #[test]
+    fn the_layers_of_a_group_are_together() {
+        let layer = |n: &str, g: Option<&str>| Layer { group: g.map(String::from), ..Layer::new(n, "map") };
+        let mut l = vec![layer("a", Some("g1")), layer("b", None), layer("c", Some("g1")), layer("d", Some("gone"))];
+        let mut g = vec![Group::new("g1", "One"), Group::new("empty", "Nobody")];
+        tidy(&mut l, &mut g);
+        // (from the bottom: b alone, then the group's c over a, together at the place of c, d in none)
+        assert_eq!(names(&l), ["b", "a", "c", "d"]);
+        assert_eq!(g.len(), 1);
+        assert_eq!(l[3].group, None);
+        // the rows from the top: d, the group's, c, a, b
+        assert_eq!(items_of(&l, &g), [Item::Layer(3), Item::Group(0), Item::Layer(2), Item::Layer(1), Item::Layer(0)]);
+        // a group made of two layers apart: at the place of the higher
+        let mut l = vec![Layer::new("a", "map"), Layer::new("b", "map"), Layer::new("c", "map")];
+        let mut g = Vec::new();
+        make_group(&mut l, &mut g, &[0, 2]);
+        tidy(&mut l, &mut g);
+        assert_eq!(names(&l), ["b", "a", "c"]);
+        assert_eq!((g[0].id.as_str(), g[0].name.as_str()), ("g1", "Group 1"));
+        // (another group: a name of its own)
+        make_group(&mut l, &mut g, &[0]);
+        assert_eq!((g[1].id.as_str(), g[1].name.as_str()), ("g2", "Group 2"));
+    }
+
+    /// Several layers moved together keep their order, one after the other at the place asked.
+    #[test]
+    fn a_block_of_rows_moved_among_the_others() {
+        let start =
+            || vec![Layer::new("a", "map"), Layer::new("b", "map"), Layer::new("c", "map"), Layer::new("d", "map")];
+        // rows: d, c, b, a; a and c (apart) over them all: c, a, d, b
+        let mut l = start();
+        move_block(&mut l, &[0, 2], 0);
+        assert_eq!(names(&l), ["b", "d", "a", "c"]);
+        // b and c under them all: d, a, c, b over nothing
+        let mut l = start();
+        move_block(&mut l, &[1, 2], 4);
+        assert_eq!(names(&l), ["b", "c", "a", "d"]);
+        // c and d (the top two) between b and a
+        let mut l = start();
+        move_block(&mut l, &[3, 2], 3);
+        assert_eq!(names(&l), ["a", "c", "d", "b"]);
+        // none that is there: as it was
+        let mut l = start();
+        move_block(&mut l, &[9], 1);
+        assert_eq!(names(&l), ["a", "b", "c", "d"]);
     }
 
     /// The rows from the top are the layers from the last: a row moved to a place among them.
