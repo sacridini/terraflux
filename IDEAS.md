@@ -1362,8 +1362,13 @@ linhas de C++ novas em `hydro`, `serv`, `swat`, `surf` e `sim`, e três bibliote
        o projeto guarda a bacia de onde veio (`watershed` no `swat_project`); a cadeia `swat.watershed` →
        `swat.from_tables` → `swat.run` dá, bit a bit, a rodada do `from_rasters` do landschaft. O `from_rasters` não
        é um operador: é essa cadeia.
-     - Falta: os mapas das HRUs e dos trechos (`hru_map`,
-       `channel_map`, `reach_discharge`), o projeto como valor viajando entre máquinas (a pasta ou o zip de
+     - **Feito** (Unreleased): os resultados no mapa (`swat.hru_map`, `swat.channel_map`, `swat.reach_discharge`, bit a
+       bit com o `hru_map`, o `channel_map` e o `reach_discharge` do landschaft em 28 casos: cada `how`, variáveis das
+       quatro tabelas de HRU e do canal, a `c_factor` plant, valores dados por HRU e por canal, rotações de culturas, o
+       exemplo); leem as tabelas de um `swat.run` do mesmo projeto, ligadas (`hru_wb`, `hru_nb`, `hru_ls`, `hru_pw`,
+       `channel_sd`; o passo `aa` para `annual`, `day` para os outros, com a mensagem dizendo o que mudar no
+       `swat.run`), ou rodam o projeto elas mesmas; o projeto precisa vir do `swat.from_tables`.
+     - Falta: o projeto como valor viajando entre máquinas (a pasta ou o zip de
        `swat.load` e `swat.run` já vão com o modelo nos lotes distribuídos, Unreleased), os templates e os
        tutoriais.
 3. **Tutoriais e templates** de cada um, como os do site do landschaft (a hidrologia do terreno, o SWAT+).

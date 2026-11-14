@@ -961,3 +961,254 @@ fn a_project_with_its_watershed_is_written_and_read_back() {
     let again: Project = serde_json::from_str(&serde_json::to_string(&*plain).unwrap()).unwrap();
     assert!(again.watershed.is_none());
 }
+
+// ------------------------------------------------------------------ the results on the map
+// (tests/data/reference/swat_maps.npz, tools/make_swat_maps_reference.py)
+
+fn maps_reference() -> (BTreeMap<String, Array>, serde_json::Value) {
+    let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/swat_maps.npz")).unwrap();
+    let meta =
+        serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/swat_maps.json")).unwrap())
+            .unwrap();
+    (z, meta)
+}
+
+/// The project of a case of the maps' reference: built as the chain test does, from swat_project's inputs (the
+/// crops case with the whole weather, not its year).
+fn maps_project(name: &str) -> Value {
+    let (z, meta) = project_reference();
+    let (zw, wmeta) = reference();
+    let rec = meta["cases"].as_array().unwrap().iter().find(|c| c["name"] == name).unwrap();
+    let (landscape, wname) = match name {
+        "ex" => ("ex", "ex_default"),
+        _ => ("syn", "syn_filter_options"),
+    };
+    let mut case = wmeta["cases"].as_array().unwrap().iter().find(|c| c["name"] == wname).unwrap().clone();
+    if name == "syn_crops" {
+        case["landuse_lookup"] = serde_json::json!({ "1": "CORN", "2": "WWHT", "3": "URMD" });
+    }
+    let w = ws(&land(&zw, &wmeta, landscape), &case);
+    let mut params = project_params(rec);
+    if name == "syn_crops" {
+        params.as_object_mut().unwrap().retain(|k, _| k != "start" && k != "end");
+    }
+    project_of(&w, &weather_inputs(&z, rec), params).unwrap().remove("project").unwrap()
+}
+
+fn projects() -> &'static BTreeMap<String, Value> {
+    static P: std::sync::OnceLock<BTreeMap<String, Value>> = std::sync::OnceLock::new();
+    P.get_or_init(|| ["syn", "syn_crops", "ex"].iter().map(|n| (n.to_string(), maps_project(n))).collect())
+}
+
+fn pairs(v: &serde_json::Value, columns: [&str; 2]) -> Value {
+    let mut t = Table::new(columns.iter().map(|c| c.to_string()).collect());
+    t.rows = v.as_array().unwrap().iter().map(|p| vec![p[0].as_f64().unwrap(), p[1].as_f64().unwrap()]).collect();
+    Value::Table(t)
+}
+
+/// The inputs and settings of a case's operator.
+fn maps_call(rec: &serde_json::Value) -> (&'static str, Vec<(&'static str, Value)>, serde_json::Value) {
+    let project = projects()[rec["project"].as_str().unwrap()].clone();
+    let mut inputs = vec![("project", project)];
+    let mut params = serde_json::Map::new();
+    let s = rec["settings"].as_object().unwrap();
+    let series = rec.get("series").filter(|v| !v.is_null());
+    let name = match rec["kind"].as_str().unwrap() {
+        "hru" => {
+            for (k, v) in s {
+                if !(k == "variable" && series.is_some()) {
+                    params.insert(k.clone(), v.clone());
+                }
+            }
+            if let Some(v) = series {
+                inputs.push(("values", pairs(v, ["hru", "value"])));
+            }
+            "swat.hru_map"
+        }
+        "channel" => {
+            for (k, v) in s {
+                match (k.as_str(), series) {
+                    ("values", Some(_)) => {}
+                    ("values", None) => {
+                        params.insert("column".into(), v.clone());
+                    }
+                    _ => {
+                        params.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            if let Some(v) = series {
+                inputs.push(("values", pairs(v, ["channel", "value"])));
+            }
+            "swat.channel_map"
+        }
+        _ => "swat.reach_discharge",
+    };
+    (name, inputs, serde_json::Value::Object(params))
+}
+
+fn call(
+    name: &str,
+    inputs: &[(&'static str, Value)],
+    params: &serde_json::Value,
+) -> Result<Outputs, terraflux_ops::Error> {
+    let refs: Vec<(&str, &Value)> = inputs.iter().map(|(k, v)| (*k, v)).collect();
+    op(name, &refs, params.clone())
+}
+
+/// The values of a map or a table output against the reference array: the count of values not bit for bit.
+fn maps_bits(case: &str, out: &Outputs, want: &Array) -> usize {
+    match out.get("map").or(out.get("table")).unwrap() {
+        Value::Map(m) => {
+            assert_eq!(m.data.len(), want.data.len(), "{case}: shape");
+            m.data.iter().zip(&want.data).filter(|(a, b)| !same(**a, **b)).count()
+        }
+        Value::Table(t) => {
+            let width = t.columns.len();
+            assert_eq!(t.rows.len() * width, want.data.len(), "{case}: shape");
+            t.rows.iter().flatten().zip(&want.data).filter(|(a, b)| !same(**a, **b)).count()
+        }
+        _ => panic!("{case}: the output"),
+    }
+}
+
+/// Every case against landschaft's, the project run by the operator itself (no table connected), to the bit.
+#[test]
+fn swat_maps_are_landschafts() {
+    let (z, meta) = maps_reference();
+    let mut compared = 0;
+    for rec in meta["cases"].as_array().unwrap() {
+        let n = rec["name"].as_str().unwrap();
+        let (op_name, inputs, params) = maps_call(rec);
+        let out = call(op_name, &inputs, &params).unwrap_or_else(|e| panic!("{n}: {e}"));
+        let want = &z[n];
+        let bad = maps_bits(n, &out, want);
+        let finite = want.data.iter().filter(|v| v.is_finite()).count();
+        eprintln!("maps {n}: {bad} of {} values not bit for bit ({finite} finite)", want.data.len());
+        assert!(finite > 0, "{n}: a map with nothing on it");
+        assert_eq!(bad, 0, "{n}");
+        if let Some(Value::Table(t)) = out.get("table") {
+            let names: Vec<String> =
+                rec["channels"].as_array().unwrap().iter().map(|c| format!("channel_{c}")).collect();
+            assert_eq!(&t.columns[2..], names.as_slice(), "{n}: channels");
+        }
+        compared += want.data.len();
+    }
+    assert!(compared > 100_000);
+}
+
+/// A swat.run of a project with the tables the maps read, by its step.
+fn simulated(project: &Value, step: &str, tables: &[&str], nyskip: Option<i64>) -> Outputs {
+    let mut params = serde_json::json!({ "step": step, "tables": tables });
+    if let Some(n) = nyskip {
+        params["nyskip"] = n.into();
+    }
+    op("swat.run", &[("project", project)], params).unwrap()
+}
+
+/// The same maps with the run's tables connected and without them (the node running the project itself), and with
+/// the other settings the run has.
+#[test]
+fn swat_maps_read_the_run_as_they_run_it() {
+    let (z, meta) = maps_reference();
+    let rec = |n: &str| meta["cases"].as_array().unwrap().iter().find(|c| c["name"] == n).unwrap().clone();
+    let project = projects()["syn"].clone();
+    let aa = simulated(&project, "aa", &["hru_ls", "hru_wb", "channel_sd"], None);
+    let day = simulated(&project, "day", &["hru_ls", "hru_wb", "channel_sd"], None);
+    // (case, the table port, the run with the tables of its step)
+    for (n, port, run) in [
+        ("syn_hru_sedyld", "hru_ls", &aa),
+        ("syn_hru_surq_annual", "hru_wb", &aa),
+        ("syn_hru_sedyld_mean", "hru_ls", &day),
+        ("syn_hru_sedyld_max", "hru_ls", &day),
+        ("syn_hru_sedyld_sum", "hru_ls", &day),
+        ("syn_hru_et_sum", "hru_wb", &day),
+        ("syn_channel_flow", "channel_sd", &day),
+        ("syn_channel_flow_max", "channel_sd", &day),
+        ("syn_channel_sed_annual", "channel_sd", &aa),
+        ("syn_channel_sed_sum", "channel_sd", &day),
+        ("syn_reach", "channel_sd", &day),
+    ] {
+        let (op_name, mut inputs, params) = maps_call(&rec(n));
+        let own = call(op_name, &inputs, &params).unwrap();
+        inputs.push((port, run[port].clone()));
+        let connected = call(op_name, &inputs, &params).unwrap_or_else(|e| panic!("{n}: {e}"));
+        assert_eq!(maps_bits(n, &connected, &z[n]), 0, "{n}: connected");
+        assert_eq!(maps_bits(n, &own, &z[n]), 0, "{n}: by itself");
+        eprintln!("maps {n}: the table {port} connected and the project run by the node give landschaft's");
+    }
+    // a table of another print does not stand in for the one the variable is in: the node runs the project
+    let (op_name, mut inputs, params) = maps_call(&rec("syn_hru_sedyld"));
+    inputs.push(("hru_wb", aa["hru_wb"].clone()));
+    assert_eq!(maps_bits("hru_wb", &call(op_name, &inputs, &params).unwrap(), &z["syn_hru_sedyld"]), 0);
+    // nyskip and c_factor are those of swat.run, for the run the node makes
+    let (op_name, inputs, _) = maps_call(&rec("syn_hru_sedyld"));
+    let own = call(op_name, &inputs, &serde_json::json!({ "variable": "sedyld", "nyskip": 0 })).unwrap();
+    let with = simulated(&project, "aa", &["hru_ls"], Some(0));
+    let mut connected_in = inputs.clone();
+    connected_in.push(("hru_ls", with["hru_ls"].clone()));
+    let connected = call(op_name, &connected_in, &serde_json::json!({ "variable": "sedyld" })).unwrap();
+    let (Value::Map(a), Value::Map(b)) = (&own["map"], &connected["map"]) else { panic!() };
+    assert!(a.data.iter().zip(&*b.data).all(|(x, y)| same(*x, *y)));
+    let default = call(op_name, &inputs, &serde_json::json!({ "variable": "sedyld" })).unwrap();
+    let Value::Map(d) = &default["map"] else { panic!() };
+    assert!(a.data.iter().zip(&*d.data).any(|(x, y)| !same(*x, *y)), "a year skipped changes nothing");
+    let plant = call(op_name, &inputs, &serde_json::json!({ "variable": "sedyld", "c_factor": "plant" })).unwrap();
+    let Value::Map(p) = &plant["map"] else { panic!() };
+    assert!(d.data.iter().zip(&*p.data).any(|(x, y)| !same(*x, *y)), "C's method changes nothing");
+}
+
+#[test]
+fn swat_maps_refuse_what_does_not_fit() {
+    let project = projects()["syn"].clone();
+    let aa = simulated(&project, "aa", &["hru_ls", "basin_wb", "channel_sd"], None);
+    let year = simulated(&project, "year", &["hru_ls", "channel_sd"], Some(0));
+    let day = simulated(&project, "day", &["hru_ls", "channel_sd"], None);
+    let fail = |name: &str, inputs: Vec<(&str, &Value)>, params: serde_json::Value| -> String {
+        op(name, &inputs, params).err().unwrap().to_string()
+    };
+    // a project of swat.load has no map of its HRUs
+    let plain = load();
+    let e = fail("swat.hru_map", vec![("project", &plain)], serde_json::json!({ "variable": "sedyld" }));
+    assert!(e.contains("swat.from_tables"), "{e}");
+    let e = fail("swat.channel_map", vec![("project", &plain)], serde_json::json!({}));
+    assert!(e.contains("swat.from_tables"), "{e}");
+    // ... and none at all
+    let e = fail("swat.hru_map", vec![], serde_json::json!({ "variable": "sedyld" }));
+    assert!(e.contains("connect a project"), "{e}");
+    let e = fail("swat.reach_discharge", vec![], serde_json::json!({}));
+    assert!(e.contains("connect a project"), "{e}");
+    // the table of a step the result does not read: which setting of swat.run to change
+    let both = serde_json::json!({ "variable": "sedyld", "how": "mean" });
+    let e = fail("swat.hru_map", vec![("project", &project), ("hru_ls", &aa["hru_ls"])], both);
+    assert!(e.contains("not a daily one") && e.contains("step to day"), "{e}");
+    let annual = serde_json::json!({ "variable": "sedyld" });
+    let e = fail("swat.hru_map", vec![("project", &project), ("hru_ls", &day["hru_ls"])], annual.clone());
+    assert!(e.contains("several rows") && e.contains("step to aa"), "{e}");
+    let e = fail(
+        "swat.channel_map",
+        vec![("project", &project), ("channel_sd", &year["channel_sd"])],
+        serde_json::json!({ "how": "annual" }),
+    );
+    assert!(e.contains("step to aa"), "{e}");
+    let e = fail("swat.reach_discharge", vec![("channel_sd", &aa["channel_sd"])], serde_json::json!({}));
+    assert!(e.contains("step to day"), "{e}");
+    // a table that is not the one of the port
+    let e = fail("swat.hru_map", vec![("project", &project), ("hru_ls", &aa["basin_wb"])], annual.clone());
+    assert!(e.contains("not the hru_ls of a swat.run"), "{e}");
+    // the settings
+    let e = fail("swat.hru_map", vec![("project", &project)], serde_json::json!({ "variable": "nothing" }));
+    assert!(e.contains("unknown HRU output"), "{e}");
+    let e = fail("swat.hru_map", vec![("project", &project)], serde_json::json!({}));
+    assert!(e.contains("choose the variable"), "{e}");
+    let e =
+        fail("swat.hru_map", vec![("project", &project)], serde_json::json!({ "variable": "sedyld", "how": "median" }));
+    assert!(e.contains("how must be"), "{e}");
+    let e = fail("swat.channel_map", vec![("project", &project)], serde_json::json!({ "column": "nothing" }));
+    assert!(e.contains("unknown channel output"), "{e}");
+    // reach_discharge needs no watershed: the Hubbard Brook example gives a day per row and a column per channel
+    let q = op("swat.reach_discharge", &[("project", &plain)], serde_json::json!({ "nyskip": 0 })).unwrap();
+    let Value::Table(t) = &q["table"] else { panic!() };
+    assert_eq!(&t.columns[..3], ["year", "day", "channel_1"]);
+    assert!(t.rows.len() > 300 && t.rows.iter().flatten().any(|v| *v > 0.0));
+}

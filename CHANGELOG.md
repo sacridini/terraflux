@@ -7,6 +7,16 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **SWAT+ results on the map: `swat.hru_map`, `swat.channel_map`, `swat.reach_discharge`:** landschaft's `hru_map`,
+  `channel_map` and `reach_discharge`, bit for bit (28 cases: each `how` (annual, mean, max, sum), variables of the
+  four HRU tables and of the channel table, `c_factor` plant, values given by HRU or channel, crop rotations, the
+  example landscape). An HRU's or a channel's value is painted on its cells (the project must come from
+  `swat.from_tables`, which keeps the watershed); `reach_discharge` gives the daily discharge, a row per date and a
+  column per channel. They read the tables of a `swat.run` of the same project, connected (`hru_wb`, `hru_nb`,
+  `hru_ls`, `hru_pw`, `channel_sd`: the average annual one, step `aa`, for `annual`; the daily one for the others;
+  a table of another step is refused with the `swat.run` setting to change), so several maps of one run simulate it
+  once; with no table connected the node runs the project itself, as landschaft does without a result (`nyskip` and
+  `c_factor` as `swat.run`'s).
 - **`swat.watershed` divides a watershed as QSWAT+ does:** landschaft's `watershed`, bit for bit (18 cases: each HRU
   method, thresholds, outlets and snap, slope bands, areas in ha and in percent, exempt land uses, a usersoil table,
   land use on another grid; only the degrees differ, by 7e-15 at most, between the two PROJ versions). The DEM is

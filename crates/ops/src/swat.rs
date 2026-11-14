@@ -493,7 +493,7 @@ impl Project {
 }
 
 /// A table of records: year, day of the year, the object (none for the basin) and the columns.
-fn records_table(r: &ffi::SwatRecords, object: Option<&str>, columns: &[&str]) -> Table {
+pub(crate) fn records_table(r: &ffi::SwatRecords, object: Option<&str>, columns: &[&str]) -> Table {
     let mut cols = vec!["year".to_string(), "day".to_string()];
     cols.extend(object.map(String::from));
     cols.extend(columns.iter().map(|c| c.to_string()));

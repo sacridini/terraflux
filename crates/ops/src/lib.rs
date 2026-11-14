@@ -96,6 +96,7 @@ pub mod special;
 pub mod stats;
 pub mod surface;
 pub mod swat;
+pub mod swat_maps;
 pub mod swat_project;
 pub mod swat_tables;
 pub mod swat_watershed;
@@ -415,6 +416,7 @@ impl Registry {
         swat_watershed::register(&mut r);
         swat_weather::register(&mut r);
         swat_project::register(&mut r);
+        swat_maps::register(&mut r);
         hydro::register(&mut r);
         rivers::register(&mut r);
         river_network::register(&mut r);
