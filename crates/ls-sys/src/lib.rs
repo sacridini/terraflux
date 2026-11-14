@@ -2931,6 +2931,8 @@ pub mod ffi {
         fn hydro_stream_links(dir: &[i8], stream: &[u8], breaks: &[u8], ny: i32, nx: i32) -> Result<HydroLinks>;
         /// The seed each cell drains to along the D8 directions (0: none).
         fn hydro_watersheds(dir: &[i8], seeds: &[i32], ny: i32, nx: i32) -> Result<Vec<i32>>;
+        /// The length of the D8 path from each cell to the first target cell (NaN: none reached).
+        fn hydro_flow_distance(dir: &[i8], targets: &[u8], ny: i32, nx: i32, dx: f64, dy: f64) -> Result<Vec<f64>>;
 
         /// The class index of every cell (-1 missing, -2 a code not in `codes`) and the first of unknown code.
         fn serv_classify(lulc: &[i64], valid: &[u8], codes: &[i64], threads: i32) -> Result<ServClasses>;

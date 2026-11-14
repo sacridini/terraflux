@@ -1349,8 +1349,12 @@ linhas de C++ novas em `hydro`, `serv`, `swat`, `surf` e `sim`, e três bibliote
        `calibration.cal` e, se faltar, no `cal_parms.cal`; pctchg, abschg, absval; camadas do solo e HRUs; os 69
        parâmetros que a porta calibra; condições e plantas recusadas) e `swat.run` lendo o projeto (`project` ou
        `path`).
-     - Falta: o projeto a partir de rasters (o `watershed` do QSWAT+ e o `from_tables` do SWAT+ Editor, o clima
-       com o gerador, `from_rasters`) como um valor do grafo, os mapas das HRUs e dos trechos (`hru_map`,
+     - **Feito** (Unreleased): o `watershed` do QSWAT+ (`swat.watershed`, o valor `swat_watershed` com as tabelas
+       `gis_*`, `soils_sol*` e as grades das sub-bacias, dos trechos e das HRUs, bit a bit com o landschaft em 18
+       casos: os quatro métodos de HRU, limiares, exutórios e `snap`, faixas de declive, ha e percentual, usos
+       isentos, `usersoil`, o uso do solo em outra grade; só lat/lon diferem, em até 7e-15 graus pelo PROJ).
+     - Falta: o projeto a partir das tabelas e dos rasters (o `from_tables` do SWAT+ Editor, o clima com o
+       gerador, `from_rasters`) como um valor do grafo, os mapas das HRUs e dos trechos (`hru_map`,
        `channel_map`, `reach_discharge`), o projeto como valor viajando entre máquinas (a pasta ou o zip de
        `swat.load` e `swat.run` já vão com o modelo nos lotes distribuídos, Unreleased), os templates e os
        tutoriais.

@@ -60,6 +60,8 @@ pub enum Type {
     StepDistribution,
     /// A SWAT+ project: the files of a TxtInOut folder (`swat.*`).
     SwatProject,
+    /// A watershed divided as QSWAT+ divides it: its tables and grids (`swat.watershed`).
+    SwatWatershed,
 }
 
 impl Type {
@@ -93,6 +95,7 @@ impl Type {
             Type::MlModel => "fitted model",
             Type::StepDistribution => "step distribution",
             Type::SwatProject => "SWAT+ project",
+            Type::SwatWatershed => "SWAT+ watershed",
         }
     }
 

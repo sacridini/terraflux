@@ -429,6 +429,8 @@ pub enum Value {
     StepDistribution(Arc<crate::movement::Distribution>),
     /// A SWAT+ project (the files of a TxtInOut folder).
     SwatProject(Arc<crate::swat::Project>),
+    /// A watershed divided as QSWAT+ divides it.
+    SwatWatershed(Arc<crate::swat_watershed::Watershed>),
 }
 
 impl Value {
@@ -461,6 +463,7 @@ impl Value {
             Value::MlModel(_) => Type::MlModel,
             Value::StepDistribution(_) => Type::StepDistribution,
             Value::SwatProject(_) => Type::SwatProject,
+            Value::SwatWatershed(_) => Type::SwatWatershed,
         }
     }
 

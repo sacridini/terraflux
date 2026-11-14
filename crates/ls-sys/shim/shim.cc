@@ -4457,6 +4457,12 @@ rust::Vec<std::int32_t> hydro_watersheds(rust::Slice<const std::int8_t> dir, rus
                                                    sized(seeds, ny, nx, "the seeds differ in size"), ny, nx));
 }
 
+rust::Vec<double> hydro_flow_distance(rust::Slice<const std::int8_t> dir, rust::Slice<const std::uint8_t> targets,
+                                      std::int32_t ny, std::int32_t nx, double dx, double dy) {
+    return to_rust<double>(hydro::flow_distance(sized(dir, ny, nx, "the directions differ in size"),
+                                                sized(targets, ny, nx, "the targets differ in size"), ny, nx, dx, dy));
+}
+
 // -- ecosystem services (landschaft's serv: InVEST's models) ----------------------------------------------------
 
 ServClasses serv_classify(rust::Slice<const std::int64_t> lulc, rust::Slice<const std::uint8_t> valid,

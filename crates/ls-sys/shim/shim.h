@@ -785,6 +785,8 @@ HydroLinks hydro_stream_links(rust::Slice<const std::int8_t> dir, rust::Slice<co
                               rust::Slice<const std::uint8_t> breaks, std::int32_t ny, std::int32_t nx);
 rust::Vec<std::int32_t> hydro_watersheds(rust::Slice<const std::int8_t> dir, rust::Slice<const std::int32_t> seeds,
                                          std::int32_t ny, std::int32_t nx);
+rust::Vec<double> hydro_flow_distance(rust::Slice<const std::int8_t> dir, rust::Slice<const std::uint8_t> targets,
+                                      std::int32_t ny, std::int32_t nx, double dx, double dy);
 
 // ecosystem services (landschaft's serv: InVEST's models)
 ServClasses serv_classify(rust::Slice<const std::int64_t> lulc, rust::Slice<const std::uint8_t> valid,

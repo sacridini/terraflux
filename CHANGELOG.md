@@ -7,6 +7,14 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **`swat.watershed` divides a watershed as QSWAT+ does:** landschaft's `watershed`, bit for bit (18 cases: each HRU
+  method, thresholds, outlets and snap, slope bands, areas in ha and in percent, exempt land uses, a usersoil table,
+  land use on another grid; only the degrees differ, by 7e-15 at most, between the two PROJ versions). The DEM is
+  filled and drained along D8 directions, streams come from a drainage area, each stream link is a channel with its
+  subbasin and landscape unit, HRUs are selected as QSWAT+ does. New type `swat_watershed` (written as JSON, kept in
+  frozen outputs) holding QSWAT+'s project tables and the grids of subbasins, channels and HRUs; the node's other
+  outputs are those three maps and the table of the HRUs; the kernel `hydro_flow_distance` joins landschaft's
+  hydrology bindings.
 - **A SWAT+ project is a value of the graph:** the new type `swat_project` (written as JSON, kept in frozen
   outputs); `swat.load` reads a TxtInOut folder or a zip (checked as `swat.run` does); `swat.set` changes a
   parameter of a project as SWAT+'s hard calibration does (a row in calibration.cal, and in cal_parms.cal when it

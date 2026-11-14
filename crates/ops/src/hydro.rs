@@ -640,8 +640,14 @@ pub(crate) fn down(d: &[i8], ny: i64, nx: i64) -> Vec<i64> {
 }
 
 /// The stream cell each outlet point stands for (landschaft's snap_outlets): the nearest stream cell within the
-/// distance, of equally near ones the first in raster order.
-fn snap(points: &[[f64; 2]], on: &[u8], grid: &Grid, distance: Option<f64>) -> Result<Vec<usize>> {
+/// distance, of equally near ones the one with the largest accumulation (when given), then the first in raster order.
+pub(crate) fn snap(
+    points: &[[f64; 2]],
+    on: &[u8],
+    grid: &Grid,
+    distance: Option<f64>,
+    acc: Option<&[f64]>,
+) -> Result<Vec<usize>> {
     let (e, lonlat) = crate::surface::extent_of(grid);
     let (ny, nx) = (grid.height, grid.width);
     let (rx, ry) = ((e[1] - e[0]) / nx as f64, (e[3] - e[2]) / ny as f64);
@@ -653,20 +659,44 @@ fn snap(points: &[[f64; 2]], on: &[u8], grid: &Grid, distance: Option<f64>) -> R
     let distance = distance.unwrap_or(if projected { 300.0 } else { 3.0 * rx.max(ry) });
     let mut out = Vec::with_capacity(points.len());
     for (i, &[x, y]) in points.iter().enumerate() {
-        let mut best = (f64::INFINITY, 0);
-        for &k in &cells {
-            let (cx, cy) = (e[0] + ((k % nx) as f64 + 0.5) * rx, e[3] - ((k / nx) as f64 + 0.5) * ry);
-            let d2 = (cx - x).powi(2) + (cy - y).powi(2);
-            if d2 < best.0 {
-                best = (d2, k);
-            }
-        }
-        if best.0 > distance * distance * (1.0 + 1e-12) {
+        let d2s: Vec<f64> = cells
+            .iter()
+            .map(|&k| {
+                let (cx, cy) = (e[0] + ((k % nx) as f64 + 0.5) * rx, e[3] - ((k / nx) as f64 + 0.5) * ry);
+                (cx - x).powi(2) + (cy - y).powi(2)
+            })
+            .collect();
+        let best = d2s.iter().copied().fold(f64::INFINITY, f64::min);
+        if best > distance * distance * (1.0 + 1e-12) {
             return Err(Error::msg(format!("outlet {i} ({x}, {y}) is farther than {distance} from every stream cell")));
         }
-        out.push(best.1);
+        let mut near = cells.iter().zip(&d2s).filter(|(_, d)| **d == best).map(|(&k, _)| k);
+        let first = near.next().ok_or_else(|| Error::msg(format!("outlet {i} ({x}, {y}) has no stream cell")))?;
+        let mut pick = first;
+        if let Some(acc) = acc {
+            // the largest accumulation among the equally near ones (NaN left out), the first in raster order
+            let near: Vec<usize> = std::iter::once(first).chain(near).collect();
+            let top = near.iter().map(|&k| acc[k]).filter(|a| !a.is_nan()).fold(f64::NEG_INFINITY, f64::max);
+            pick = near.iter().copied().find(|&k| acc[k] == top).unwrap_or(first);
+        }
+        out.push(pick);
     }
     Ok(out)
+}
+
+/// The outlet points of the vector input `outlets`, in the map's coordinate system.
+pub(crate) fn outlet_points(args: &Args, grid: &Grid) -> Result<Vec<[f64; 2]>> {
+    let v = crate::vector::on_grid(crate::vector::vector_of(args, "outlets")?, grid)?;
+    let mut pts = Vec::new();
+    for g in &v.geometries {
+        match g {
+            Geometry::Point(p) => pts.push(*p),
+            Geometry::MultiPoint(ps) => pts.extend(ps.iter().copied()),
+            Geometry::Empty => {}
+            _ => return Err(Error::msg("the outlets are points")),
+        }
+    }
+    Ok(pts)
 }
 
 fn stream_links(args: &Args, m: &Map, d: &Dem, flats: bool) -> Result<Outputs> {
@@ -675,18 +705,9 @@ fn stream_links(args: &Args, m: &Map, d: &Dem, flats: bool) -> Result<Outputs> {
     let on: Vec<u8> = st.iter().zip(&dir).map(|(v, &k)| u8::from(*v == 1.0 && k != -2)).collect();
     let mut breaks = Vec::new();
     if args.get("outlets").is_some() {
-        let v = crate::vector::on_grid(crate::vector::vector_of(args, "outlets")?, &m.grid)?;
-        let mut pts = Vec::new();
-        for g in &v.geometries {
-            match g {
-                Geometry::Point(p) => pts.push(*p),
-                Geometry::MultiPoint(ps) => pts.extend(ps.iter().copied()),
-                Geometry::Empty => {}
-                _ => return Err(Error::msg("the outlets are points")),
-            }
-        }
+        let pts = outlet_points(args, &m.grid)?;
         breaks = vec![0u8; on.len()];
-        for k in snap(&pts, &on, &m.grid, args.opt_param("snap")?)? {
+        for k in snap(&pts, &on, &m.grid, args.opt_param("snap")?, None)? {
             breaks[k] = 1;
         }
     }
@@ -699,7 +720,7 @@ fn stream_links(args: &Args, m: &Map, d: &Dem, flats: bool) -> Result<Outputs> {
 
 /// landschaft's _link_table: by link, its downstream link, outlet, first and last cell, cells, length, elevations
 /// and Strahler order.
-fn link_table(d: &Dem, dir: &[i8], links: &ffi::HydroLinks, breaks: &[u8]) -> Table {
+pub(crate) fn link_table(d: &Dem, dir: &[i8], links: &ffi::HydroLinks, breaks: &[u8]) -> Table {
     let (ny, nx) = (i64::from(d.ny), i64::from(d.nx));
     let n = links.start.len();
     let diag = d.dx.hypot(d.dy);
