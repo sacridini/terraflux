@@ -39,6 +39,7 @@ mod mspa_tiled;
 mod nlm;
 mod ops;
 mod optimize;
+mod parity;
 mod prioritize_tools;
 mod protconn;
 mod proxirr;

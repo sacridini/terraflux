@@ -1254,7 +1254,21 @@ depois:
      a mesma busca do landschaft a partir das mesmas seleções, o modelo compilado passado ao landschaft bit a bit).
      O caminho inteiro (o motor largo com limite de tempo, depois a busca) depende da velocidade: num caso 150x40 o
      landschaft foi de 19 a 20 alvos e o Terraflux ficou em 19, por partir de outra solução do motor largo;
-   - comparar com o landschaft, nos mesmos dados, cada objetivo e cada tipo de unidade (tabelas, polígonos, H3).
+   - **Feito** (Unreleased): comparar com o landschaft (1.58.1, HiGHS, roteamento padrão, 4 threads), nos mesmos dados,
+     cada objetivo (os 10) em cada tipo de unidade (raster, tabela, polígonos, hexágonos H3 em duas resoluções, e
+     zonas em raster e tabela com os objetivos que as aceitam), em dois conjuntos (os casos do landschaft, 12x15
+     células, e outro de 40x50 para os tempos significarem algo): 114 casos. Ferramenta
+     `tools/make_optimize_parity_reference.py` (escreve `tests/data/reference/optimize_parity.json`,
+     `optimize_parity_inputs.npz` e `vectors/parity_*.gpkg`), teste `parity::optimize_is_landschafts` em
+     `crates/ops/tests/parity.rs` (`#[ignore]`, release, `--test-threads 1`). Resultado: o modelo compilado, o estado
+     e o objetivo iguais em todos; as unidades escolhidas iguais onde o ótimo é único; o tempo do Terraflux igual ao
+     do landschaft (soma 139 s contra 141 s nos 114 casos; nenhum passa de 1,5x + 0,25 s). Os hexágonos do H3 vão
+     ao Terraflux como o landschaft os fez: os casos ficam em x = 0 da zona UTM 23S (latitude -85), onde o PROJ 9.5.1
+     (pyproj) e o 9.7.1 (GDAL do Terraflux) diferem em 1e-8 m, o bastante para mexer nas quantidades das células só
+     tocadas por um hexágono (e o modelo, e o caminho do HiGHS, com elas). Os casos que o limite de tempo
+     (8 s) corta, `min_penalties` com a penalidade de borda, só têm o tempo comparado;
+   - o que falta: o solver `anneal` como solver do `prioritize.optimize` (`_milp_solve.py:265-267`) e os corredores
+     (`_milp_solve.py:154`, `_milp.py:842`), que o landschaft tem e o Terraflux não.
 2. **O Gurobi além do `prioritize.optimize`:** **feito** (Unreleased) nas re-soluções do `prioritize.evaluate`
    (custo de reposição e rank: as configurações `solver` e `threads`, uma thread do Gurobi em cada re-solução em
    paralelo, teste `importance_is_prioritizrs`) e no `prioritize.calibrate` (candidatas em paralelo, uma thread do
