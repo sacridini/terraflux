@@ -89,6 +89,73 @@ fn projects_rank_as_zonation() {
     assert_eq!(all.as_object().unwrap().len(), 65);
 }
 
+/// The output files of every project that Zonation's LOAD tables exist for (`output`): the curves line by line as
+/// Zonation's (the header of feature_curves.csv names the features of a feature list with names, and landschaft's
+/// reference runs have none: its names are left out), rankmap.tif as the rank.
+#[test]
+fn projects_write_zonations_files() {
+    let all = projects();
+    let mut refs: BTreeMap<String, (BTreeMap<String, Array>, serde_json::Value)> = BTreeMap::new();
+    let (mut n, mut lines) = (0, 0);
+    for (name, case) in all.as_object().unwrap() {
+        let group = case["group"].as_str().unwrap();
+        let (arrays, _) = refs.entry(group.to_string()).or_insert_with(|| reference(group));
+        if !arrays.contains_key(&format!("{name}/load/feature_curves")) {
+            continue;
+        }
+        let dir = write_case(name, case);
+        let out_dir = dir.join("z5-output");
+        let out = run(serde_json::json!({
+            "path": dir.join("settings.z5").to_string_lossy(),
+            "flags": case["flags"],
+            "mode": case["mode"],
+            "bits": case["bits"],
+            "output": out_dir.to_string_lossy(),
+        }))
+        .unwrap_or_else(|e| panic!("{name}: {e}"));
+        // a feature list with a name column
+        let named = case["files"].as_object().unwrap().values().any(|t| {
+            t.as_str().unwrap().lines().next().is_some_and(|h| {
+                let cols: Vec<&str> = h.split_whitespace().map(|c| c.trim_matches('"')).collect();
+                cols.contains(&"filename") && cols.contains(&"name")
+            })
+        });
+        for (key, file) in [
+            ("feature_curves", "feature_curves.csv"),
+            ("summary_curves", "summary_curves.csv"),
+            ("density_curves", "feature_density_curves.csv"),
+            ("group_curves", "group_curves.csv"),
+        ] {
+            let Some(text) = arrays.get(&format!("{name}/load/{key}")) else {
+                assert!(key == "group_curves" && !out_dir.join(file).exists(), "{name}: {file} without Zonation's");
+                continue;
+            };
+            let mut bytes: Vec<u8> = Vec::new();
+            let packed: Vec<u8> = text.data.iter().map(|v| *v as u8).collect();
+            lzma_rs::xz_decompress(&mut std::io::Cursor::new(packed), &mut bytes).unwrap();
+            let want: Vec<String> = String::from_utf8(bytes).unwrap().lines().map(|l| l.trim().to_string()).collect();
+            let got = std::fs::read_to_string(out_dir.join(file)).unwrap_or_else(|e| panic!("{name}: {file}: {e}"));
+            let got: Vec<String> = got.lines().map(|l| l.trim().to_string()).collect();
+            assert_eq!(got.len(), want.len(), "{name}: {file}: lines");
+            let from = usize::from(named && key == "feature_curves");
+            if let Some(i) = (from..got.len()).find(|&i| got[i] != want[i]) {
+                panic!("{name}: {file}: line {i}: {:?} vs Zonation's {:?}", got[i], want[i]);
+            }
+            lines += got.len();
+        }
+        let Value::Map(rank) = &out["rank"] else { panic!() };
+        let tif = terraflux_raster::tiff::read(out_dir.join("rankmap.tif")).unwrap();
+        assert_eq!(tif.nodata, Some(f64::NEG_INFINITY), "{name}: rankmap NoData");
+        let same_rank = tif.bands[0].data.iter().zip(rank.data.iter()).all(|(a, b)| {
+            if b.is_nan() { *a == f64::NEG_INFINITY } else { (*a as f32).to_bits() == (*b as f32).to_bits() }
+        });
+        assert!(same_rank, "{name}: rankmap.tif is not the rank");
+        std::fs::remove_dir_all(dir).ok();
+        n += 1;
+    }
+    println!("{n} projects, {lines} lines");
+}
+
 /// A post-processing file's calls (statistics of external areas, of a range of ranks and of its separate areas,
 /// a comparison, two histograms, two flexibility maps) one after another: the tables numbered by call, the masks
 /// as Zonation's files bit for bit, the maps named as its files.

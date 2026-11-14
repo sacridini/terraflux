@@ -7,6 +7,13 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **Zonation 5's output files:** `prioritize.zonation` and `prioritize.zonation_project` take `output` (a folder) and
+  write `rankmap.tif` (float32, NoData -inf, LZW with the floating-point predictor, tiled by 512 from 512 x 512
+  cells), `feature_curves.csv`, `summary_curves.csv`, `feature_density_curves.csv`, `group_curves.csv` (with
+  output groups) and `features_info.csv` as landschaft writes them: the same lines as Zonation's own files in 64
+  cases (the means are Zonation's float32 sums, Eigen's order). `prioritize.zonation`'s `output_names` chooses the
+  curves' header: the features' names (default) or their numbers, as z5 without names. The post-processing files
+  and the impacts' are not written yet.
 - **Advice and tips:** a metrics operator on a map of whole values but more than 100 classes (a map of ids, or a
   continuous quantity rounded) is advised to group them first; tips for `conn.metapopulation`, `conn.overall`,
   `conn.link_importance` and `conn.distances`.

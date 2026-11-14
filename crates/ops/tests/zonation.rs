@@ -66,6 +66,16 @@ impl Cases {
 
     /// A case run with more inputs.
     fn run_with(&self, name: &str, extra: Vec<(&str, Value)>) -> terraflux_ops::Outputs {
+        self.run_params(name, extra, serde_json::Map::new())
+    }
+
+    /// A case run with more inputs and settings.
+    fn run_params(
+        &self,
+        name: &str,
+        extra: Vec<(&str, Value)>,
+        more: serde_json::Map<String, serde_json::Value>,
+    ) -> terraflux_ops::Outputs {
         let case = &self.all["cases"][name];
         let layers: Vec<String> =
             case["layers"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_string()).collect();
@@ -78,6 +88,7 @@ impl Cases {
             })
         };
         let mut params = case["params"].as_object().unwrap().clone();
+        params.extend(more);
         // the NoData values of the features' files
         let nodata: Vec<serde_json::Value> = layers.iter().map(|l| self.all["nodata"][l].clone()).collect();
         if nodata.iter().any(|v| !v.is_null()) {
@@ -451,6 +462,131 @@ fn impacts_are_zonations() {
         }
     }
     assert_eq!(names.len(), 5);
+}
+
+/// The text of a stored table (xz-compressed CSV).
+fn table_text(a: &Array) -> String {
+    let bytes: Vec<u8> = a.data.iter().map(|v| *v as u8).collect();
+    let mut out = Vec::new();
+    lzma_rs::xz_decompress(&mut std::io::Cursor::new(bytes), &mut out).unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+/// A short or long value of a tag of the first image of a little-endian TIFF or BigTIFF.
+fn tiff_tag(path: &Path, tag: u16) -> Option<u64> {
+    let b = std::fs::read(path).unwrap();
+    let u = |at: usize, n: usize| (0..n).fold(0u64, |s, k| s | u64::from(b[at + k]) << (8 * k));
+    let big = u(2, 2) == 43;
+    let (ifd, count_len, entry) = if big { (u(8, 8) as usize, 8, 20) } else { (u(4, 4) as usize, 2, 12) };
+    let n = u(ifd, count_len) as usize;
+    (0..n).find_map(|i| {
+        let e = ifd + count_len + i * entry;
+        (u(e, 2) == u64::from(tag)).then(|| {
+            if u(e + 2, 2) == 3 { u(e + if big { 12 } else { 8 }, 2) } else { u(e + if big { 12 } else { 8 }, 4) }
+        })
+    })
+}
+
+/// The output files of z5 (`output`): feature_curves, summary_curves, feature_density_curves and group_curves
+/// line by line as Zonation's own tables of its LOAD run (stripped of the spaces at the ends, as landschaft's test
+/// does), features_info's numbers and counts, and the sums with Zonation's 6 digits; rankmap.tif read back is the
+/// rank bit for bit with -inf as NoData. Every case of the groups that has the tables.
+#[test]
+fn files_are_zonations() {
+    let c = cases();
+    let tmp = std::env::temp_dir().join(format!("tf_zonation_files_{}", std::process::id()));
+    let (mut cases_run, mut kinds) = (0, BTreeMap::<&str, usize>::new());
+    for group in ["core", "transform", "connectivity", "post", "impact"] {
+        let (names, reference, meta) = c.group(group);
+        for name in names.iter().filter(|n| reference.contains_key(&format!("{n}/load/feature_curves"))) {
+            let dir = tmp.join(name);
+            let more = serde_json::json!({"output": dir.to_string_lossy(), "output_names": false});
+            let extra = if group == "impact" {
+                let layers = c.all["cases"][name]["layers"].as_array().unwrap();
+                let first = &c.inputs[layers[0].as_str().unwrap()];
+                let on_grid: Vec<&String> =
+                    c.inputs.iter().filter(|(_, a)| a.shape == first.shape).map(|(k, _)| k).collect();
+                vec![(
+                    "impact_maps",
+                    Value::Stack(Stack {
+                        grid: Arc::new(Grid::new(first.shape[1], first.shape[0])),
+                        keys: on_grid.iter().map(|l| Key::Name((*l).clone())).collect(),
+                        layers: on_grid.iter().map(|l| Arc::new(c.inputs[*l].data.clone())).collect(),
+                    }),
+                )]
+            } else {
+                Vec::new()
+            };
+            let out = c.run_params(name, extra, more.as_object().unwrap().clone());
+            for (key, file) in [
+                ("feature_curves", "feature_curves.csv"),
+                ("summary_curves", "summary_curves.csv"),
+                ("density_curves", "feature_density_curves.csv"),
+                ("group_curves", "group_curves.csv"),
+            ] {
+                let Some(text) = reference.get(&format!("{name}/load/{key}")) else {
+                    assert!(key == "group_curves" && !dir.join(file).exists(), "{name}: {file} without Zonation's");
+                    continue;
+                };
+                let want: Vec<String> = table_text(text).lines().map(|l| l.trim().to_string()).collect();
+                let got = std::fs::read_to_string(dir.join(file)).unwrap_or_else(|e| panic!("{name}: {file}: {e}"));
+                let got: Vec<String> = got.lines().map(|l| l.trim().to_string()).collect();
+                assert_eq!(got.len(), want.len(), "{name}: {file}: lines");
+                if let Some(i) = (0..got.len()).find(|&i| got[i] != want[i]) {
+                    panic!("{name}: {file}: line {i}: {:?} vs Zonation's {:?}", got[i], want[i]);
+                }
+                *kinds.entry(file).or_default() += 1;
+            }
+            // features_info: Zonation prints the sums with 6 digits
+            let info = &reference[&format!("{name}/features_info")];
+            let cols: Vec<String> =
+                serde_json::from_value(meta["cases"][format!("{name}/features_info")].clone()).unwrap();
+            let text = std::fs::read_to_string(dir.join("features_info.csv")).unwrap();
+            let rows: Vec<Vec<&str>> = text.lines().skip(1).map(|l| l.split(' ').collect()).collect();
+            assert!(text.starts_with("\"number\" \"dsum\" \"count\" \"missing\" \"quant_error\" \"name\"\n"));
+            assert_eq!(rows.len() * cols.len(), info.data.len(), "{name}: features_info rows");
+            let at = |col: &str| cols.iter().position(|c| c == col).unwrap();
+            for (i, r) in rows.iter().enumerate() {
+                let w = |col: &str| info.data[i * cols.len() + at(col)];
+                for (k, col) in ["number", "dsum", "count", "missing", "quant_error"].into_iter().enumerate() {
+                    let ours = r[k];
+                    let want = if col == "dsum" || col == "quant_error" {
+                        fmt_g(w(col))
+                    } else {
+                        format!("{}", w(col) as i64)
+                    };
+                    assert_eq!(ours, want, "{name}: features_info {col} of feature {i}");
+                }
+            }
+            *kinds.entry("features_info.csv").or_default() += 1;
+            // rankmap.tif
+            let Value::Map(rank) = &out["rank"] else { panic!() };
+            let tif = terraflux_raster::tiff::read(dir.join("rankmap.tif")).unwrap();
+            assert_eq!(tif.dtype, terraflux_raster::DataType::F32, "{name}: rankmap type");
+            assert_eq!(tif.nodata, Some(f64::NEG_INFINITY), "{name}: rankmap NoData");
+            let back = &tif.bands[0].data;
+            assert_eq!(back.len(), rank.data.len());
+            for (a, b) in back.iter().zip(rank.data.iter()) {
+                if b.is_nan() {
+                    assert_eq!(*a, f64::NEG_INFINITY, "{name}: rankmap");
+                } else {
+                    assert_eq!((*a as f32).to_bits(), (*b as f32).to_bits(), "{name}: rankmap");
+                }
+            }
+            if terraflux_gdal::gdal().is_ok() {
+                let (comp, pred) = (tiff_tag(&dir.join("rankmap.tif"), 259), tiff_tag(&dir.join("rankmap.tif"), 317));
+                assert_eq!(
+                    (comp, pred),
+                    (Some(5), Some(3)),
+                    "{name}: rankmap is LZW with the floating-point predictor"
+                );
+            }
+            *kinds.entry("rankmap.tif").or_default() += 1;
+            cases_run += 1;
+        }
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
+    println!("{cases_run} cases: {kinds:?}; GDAL for rankmap.tif: {}", terraflux_gdal::gdal().is_ok());
 }
 
 /// The rule's forms, empty features left out, and the settings checked.

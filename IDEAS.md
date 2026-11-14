@@ -55,9 +55,12 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
      custo de monitoramento, features e ameaças em camadas, custos das ações em números ou mapas, a solução em
      mapas), as mesmas tabelas e os mesmos ótimos do landschaft.
    - **Feito** (0.68.0): os projetos do Zonation 5 (`prioritize.zonation_project`: o `.z5`, a lista de features
-     e os arquivos de ligação, o pós-processamento), os mesmos rank maps do z5 nos 65 projetos do landschaft. Falta
-     escrever as saídas nos arquivos do z5 (`rankmap.tif`, as curvas, `features_info.csv`, pós-processamento e
-     impactos), dígito a dígito como o landschaft (as somas do Eigen em float).
+     e os arquivos de ligação, o pós-processamento), os mesmos rank maps do z5 nos 65 projetos do landschaft.
+   - **Feito** (Unreleased): as saídas nos arquivos do z5 (`output` em `prioritize.zonation` e
+     `prioritize.zonation_project`: `rankmap.tif`, `feature_curves.csv`, `summary_curves.csv`,
+     `feature_density_curves.csv`, `group_curves.csv`, `features_info.csv`), as mesmas linhas do z5 em 64 casos
+     (as somas do Eigen em float). Falta escrever os arquivos do pós-processamento (`area_stats`,
+     `coverage_matrix`, ...) e a pasta `impacts/`, dígito a dígito como o landschaft.
 
 ## Vetores
 

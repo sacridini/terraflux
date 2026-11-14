@@ -9,7 +9,7 @@ use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 
 use crate::{Args, Ctx, Error, Key, Map, Operator, Outputs, Registry, Result, Stack, Table, Value, outputs};
-use crate::{milp, zonation};
+use crate::{milp, zonation, zonation_files};
 
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(Zonation));
@@ -296,11 +296,25 @@ impl Operator for Zonation {
             Type::Integer,
             "Zonation adds the features up by blocks of rows: those of the files read (default: one block)",
         ))
+        .param(PortSpec::optional(
+            "output",
+            Type::Text,
+            "a folder for Zonation 5's output files: rankmap.tif, feature_curves.csv, summary_curves.csv, \
+             feature_density_curves.csv, group_curves.csv (with groups) and features_info.csv, the same digits as z5",
+        ))
+        .param(PortSpec::optional(
+            "output_names",
+            Type::Bool,
+            "the header of feature_curves.csv: the features' names (default) or their numbers (z5 without names)",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let (mut out, ranked) = self.rank(args)?;
         self.post(args, &ranked, &mut out)?;
+        if let Some(dir) = args.opt_param::<String>("output")?.filter(|d| !d.is_empty()) {
+            ranked.write_files(std::path::Path::new(&dir), args.param("output_names", true)?)?;
+        }
         Ok(out)
     }
 }
@@ -612,6 +626,11 @@ impl Zonation {
         }
         let ranked = Ranked {
             sets: zonation::feature_sets(&w, weights_on, groups.as_deref()),
+            numbers: kept.clone(),
+            weights_on,
+            groups,
+            count: kept.iter().map(|&i| (stats.pixels - stats.nodata[i] - stats.zeros[i]) as i64).collect(),
+            missing: kept.iter().map(|&i| stats.nodata[i] as i64).collect(),
             cost: map_data("cost")?,
             hmask: map_data("hierarchic_mask")?,
             data,
@@ -638,6 +657,59 @@ pub(crate) struct Ranked {
     grid: Arc<terraflux_raster::Grid>,
     cost: Vec<f64>,
     hmask: Vec<f64>,
+    /// The features' numbers (0-based, among those given).
+    numbers: Vec<usize>,
+    weights_on: bool,
+    /// The output groups of the features kept.
+    groups: Option<Vec<i64>>,
+    /// The cells with values and those without data, per feature kept.
+    count: Vec<i64>,
+    missing: Vec<i64>,
+}
+
+impl Ranked {
+    /// Zonation 5's output files (rankmap.tif, the curves, features_info.csv) in a folder; the curves' headers
+    /// are the features' names (quoted) or their numbers.
+    pub(crate) fn write_files(&self, dir: &std::path::Path, named: bool) -> Result<()> {
+        let fail = |e: std::io::Error| Error::msg(format!("{}: {e}", dir.display()));
+        std::fs::create_dir_all(dir).map_err(fail)?;
+        let headers: Vec<String> = if named {
+            self.names.iter().map(|n| format!("\"{n}\"")).collect()
+        } else {
+            self.numbers.iter().map(|n| n.to_string()).collect()
+        };
+        let curves = zonation_files::Curves {
+            rank: &self.r.curve_rank,
+            levels: &self.r.curve_levels,
+            cost: &self.r.curve_cost,
+            weights: &self.w,
+            weights_on: self.weights_on,
+            cells: self.cells.len(),
+            groups: self.groups.as_deref(),
+            headers: &headers,
+        };
+        let put = |name: &str, text: String| std::fs::write(dir.join(name), text).map_err(fail);
+        put("feature_curves.csv", curves.feature_curves())?;
+        put("summary_curves.csv", curves.summary_curves())?;
+        put("feature_density_curves.csv", curves.density_curves())?;
+        if let Some(t) = curves.group_curves() {
+            put("group_curves.csv", t)?;
+        }
+        let features = zonation_files::Features {
+            numbers: &self.numbers,
+            names: &self.names,
+            dsum: &self.r.orig_abs_sums,
+            count: &self.count,
+            missing: &self.missing,
+            quant_error: &self.r.quantization_errors,
+        };
+        put("features_info.csv", features.text())?;
+        let mut rank = vec![f64::NAN; self.grid.cells()];
+        for (c, v) in self.r.cell_index.iter().zip(&self.r.rank) {
+            rank[*c as usize] = f64::from(*v);
+        }
+        zonation_files::write_rankmap(&dir.join("rankmap.tif"), &self.grid, &rank)
+    }
 }
 
 impl Zonation {

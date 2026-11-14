@@ -116,6 +116,7 @@ pub mod view;
 pub mod woe;
 mod ziggurat;
 pub mod zonation;
+mod zonation_files;
 pub mod zonation_project;
 
 use std::collections::BTreeMap;

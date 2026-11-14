@@ -837,7 +837,13 @@ impl Operator for ZonationProject {
             Type::Text,
             "the marginal loss rule, z5's --mode (CAZ2 by default; \"ABF 0.25\"...); a --mode= in flags too",
         ))
-        .param(PortSpec::optional("bits", Type::Integer, "8 (z5, the default) or 16 (z5_16bit)").choices([8, 16]));
+        .param(PortSpec::optional("bits", Type::Integer, "8 (z5, the default) or 16 (z5_16bit)").choices([8, 16]))
+        .param(PortSpec::optional(
+            "output",
+            Type::Text,
+            "a folder for z5's output files: rankmap.tif, feature_curves.csv, summary_curves.csv, \
+             feature_density_curves.csv, group_curves.csv (with -g) and features_info.csv, the same digits as z5",
+        ));
         sig.outputs = zonation.outputs.into_iter().filter(|o| !post.contains(&o.name.as_str())).collect();
         sig.outputs.extend([
             PortSpec::optional(
@@ -875,6 +881,10 @@ impl Operator for ZonationProject {
         }
         let zargs = Args { node, inputs: ins, params: &params };
         let (mut out, ranked) = Zonation.rank(&zargs)?;
+        if let Some(dir) = args.opt_param::<String>("output")?.filter(|d| !d.is_empty()) {
+            // z5's headers name the features only when the feature list has names
+            ranked.write_files(Path::new(&dir), project.features.iter().any(|f| f.name.is_some()))?;
+        }
         let Some(pp) = &project.post else { return Ok(out) };
         let at = parent(pp);
         let grid = ranked_grid(&out);
