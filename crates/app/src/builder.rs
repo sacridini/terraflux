@@ -1135,6 +1135,33 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
     if finding && s.editor.find.is_none() {
         s.editor.find = Some(Default::default());
     }
+    // (the keys of the canvas below read it too)
+    let here = canvas
+        && !typing
+        && s.editor.quick.is_none()
+        && s.editor.find.is_none()
+        && s.editor.renaming.is_none()
+        && !s.editor.text;
+    // alt+shift and the arrows, C, M, H, V: the Align menu's entries, each one step of undo (distributing needs three)
+    if here {
+        let ids: Vec<&str> = crate::editor_view::ALIGN_KEYS.iter().map(|(id, _)| *id).collect();
+        let hit = ui.input_mut(|i| crate::keymap::consume(i, &ids));
+        if let Some((_, how)) = crate::editor_view::ALIGN_KEYS.iter().find(|(id, _)| hit.contains(id)) {
+            use crate::editor_view::Align;
+            let least = if matches!(how, Align::SpreadX | Align::SpreadY) { 3 } else { 2 };
+            let few = chosen_ids(s).len() < least;
+            if !few {
+                match align_chosen(s, *how) {
+                    Ok(true) => {
+                        s.editor.message = None;
+                        s.edited();
+                    }
+                    Ok(false) => {}
+                    Err(e) => s.editor.message = Some(e),
+                }
+            }
+        }
+    }
     if canvas
         && over
         && !typing
@@ -1196,12 +1223,6 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
     // ctrl+D duplicates the nodes selected; ctrl+C copies them (as text, to the system's clipboard: to another
     // scope, model or window) and ctrl+V pastes them, with the model's tab in focus (the events taken, so that no
     // label copies its text then)
-    let here = canvas
-        && !typing
-        && s.editor.quick.is_none()
-        && s.editor.find.is_none()
-        && s.editor.renaming.is_none()
-        && !s.editor.text;
     // ctrl+G groups the nodes selected, ctrl+shift+G takes the group selected apart
     let (group, ungroup) = ui.input_mut(|i| {
         if !here {

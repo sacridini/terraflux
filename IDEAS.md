@@ -2556,9 +2556,14 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
    modelo inteiro.
    **Feito** (Unreleased, por um sub-agente): o submenu *Align* do menu da seleção; `editor_view::Align` (dez modos)
    e `aligned` (pura, os deslocamentos), `EditorState::rects_of` (as caixas reais), `builder::align_chosen` (pelo
-   `editor::move_node`, um passo de desfazer). Teste: `the_selections_menu_aligns_and_distributes`. Falta: atalhos
-   (os naturais chocam com a navegação e o mapa); os espaços de coluna e linha (20 e 60) são uma escolha, não uma
-   constante comum com o *Arrange*.
+   `editor::move_node`, um passo de desfazer). Teste: `the_selections_menu_aligns_and_distributes`.
+   **Atalhos feitos** (Unreleased): alt+shift+setas (bordas), C e M (centros), H e V (distribuir), ações `canvas_align_*` e
+   `canvas_spread_*` do `keymap` (remapeáveis), lidas em `builder::keys` antes das setas simples (o egui ignora alt e shift
+   a mais no `consume_key`); teste `the_align_keys_do_what_the_menu_does`. Falta: atalhos para coluna e linha; os
+   espaços de coluna e linha (20 e 60) são uma escolha, não uma constante comum com o *Arrange*.
+   **Tema claro dos grupos feito** (Unreleased): `editor_view::group_look` (borda e cabeçalho a 3:1 do canvas, título a
+   4.5:1, o ícone do grupo a 4.5:1), `notes::inks` para notas e molduras; o tema escuro intacto (testes
+   `a_group_reads_in_the_light_themes`, `a_group_in_the_dark_themes_is_as_it_was`).
 9. **Duplicar arrastando** (ctrl+arrastar) e **duplicar com as entradas** (ctrl+shift+D: a cópia lê o mesmo que o
    original), útil para um ramo de análise paralelo. **Feito** (Unreleased): ctrl+arrastar copia o nó (ou a
    seleção, arrastada por um nó dela) para onde é solto, só contornos seguindo o ponteiro, num passo de desfazer;

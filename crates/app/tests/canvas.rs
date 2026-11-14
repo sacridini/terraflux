@@ -1848,6 +1848,77 @@ fn the_selections_menu_aligns_and_distributes() {
     }
 }
 
+/// The Align menu's keys (alt+shift and the arrows, C, M, H, V) do what its entries do to the nodes selected, each
+/// one step of undo, in a group too; with one node selected, or two to distribute, nothing; the menu shows them.
+#[test]
+fn the_align_keys_do_what_the_menu_does() {
+    use egui_kittest::kittest::{NodeT, Queryable};
+    let alt_shift = egui::Modifiers { alt: true, shift: true, ..egui::Modifiers::NONE };
+    for inside in [false, true] {
+        let mut h = scoped_model(inside, "canvas-align-keys.toml");
+        let all = ["a", "b", "c", "z"];
+        let before = places_now(&h, inside, &all);
+        let select = |h: &mut Harness<TerrafluxApp>, ids: &[&str]| {
+            let s = h.state_mut().session.as_mut().unwrap();
+            s.selected = ids.first().map(|s| s.to_string());
+            s.editor.chosen = ids.iter().map(|s| s.to_string()).collect();
+            h.run_steps(2);
+            let at = editor(h).screen_of(ids[0]).unwrap();
+            h.hover_at(at);
+            h.run_steps(1);
+        };
+        // alt+shift+left: the left edges, as "Left edges" does (the same places)
+        select(&mut h, &["b", "c", "z"]);
+        h.key_press_modifiers(alt_shift, egui::Key::ArrowLeft);
+        h.run_steps(3);
+        let by_key = places_now(&h, inside, &all);
+        assert_eq!(by_key, [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [0.0, 300.0]], "inside {inside}");
+        undo(&mut h);
+        assert_eq!(places_now(&h, inside, &all), before, "one step of undo");
+        select(&mut h, &["b", "c", "z"]);
+        menu_of(&mut h, &["b", "c", "z"], "b");
+        pick(&mut h, "Align");
+        pick(&mut h, "Left edges");
+        assert_eq!(places_now(&h, inside, &all), by_key, "the menu's and the key's");
+        undo(&mut h);
+        // the top edges, the centres, the distribution: each one step
+        select(&mut h, &["a", "b", "z"]);
+        h.key_press_modifiers(alt_shift, egui::Key::ArrowUp);
+        h.run_steps(3);
+        assert_eq!(places_now(&h, inside, &["a", "b", "z"]), [[0.0, 0.0], [350.0, 0.0], [0.0, 0.0]]);
+        undo(&mut h);
+        assert_eq!(places_now(&h, inside, &all), before);
+        select(&mut h, &["a", "b", "c"]);
+        h.key_press_modifiers(alt_shift, egui::Key::C);
+        h.run_steps(3);
+        let r = boxes_now(&h, &["a", "b", "c"]);
+        assert!((r[0].center().x - r[1].center().x).abs() < 0.5 && (r[1].center().x - r[2].center().x).abs() < 0.5);
+        undo(&mut h);
+        let r0 = boxes_now(&h, &["a", "b", "c"]);
+        select(&mut h, &["a", "b", "c"]);
+        h.key_press_modifiers(alt_shift, egui::Key::H);
+        h.run_steps(3);
+        let r = boxes_now(&h, &["a", "b", "c"]);
+        assert!((r[0].min.x - r0[0].min.x).abs() < 0.01 && (r[2].min.x - r0[2].min.x).abs() < 0.01);
+        assert!(((r[1].min.x - r[0].max.x) - (r[2].min.x - r[1].max.x)).abs() < 0.5, "{r:?}");
+        undo(&mut h);
+        assert_eq!(places_now(&h, inside, &all), before, "one step of undo");
+        // two nodes cannot be distributed, one cannot be aligned: nothing moves
+        select(&mut h, &["a", "b"]);
+        h.key_press_modifiers(alt_shift, egui::Key::H);
+        h.run_steps(3);
+        select(&mut h, &["c"]);
+        h.key_press_modifiers(alt_shift, egui::Key::ArrowLeft);
+        h.run_steps(3);
+        assert_eq!(places_now(&h, inside, &all), before, "inside {inside}");
+        // the menu shows the keys
+        menu_of(&mut h, &["a", "b", "c"], "a");
+        pick(&mut h, "Align");
+        assert!(!h.get_by_label_contains("Left edges    shift+alt+Left").accesskit_node().is_disabled());
+        assert!(!h.get_by_label_contains("Distribute horizontally    shift+alt+H").accesskit_node().is_disabled());
+    }
+}
+
 /// `r1` and `r2` into a `calc`'s `a` and `b`; a table and `r2` into a `fit`'s `table` and `target` (types that do
 /// not swap); at the top level, or in a group `grp` that is shown.
 fn wired_model(inside: bool, name: &str) -> Harness<'static, TerrafluxApp> {

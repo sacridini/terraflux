@@ -202,6 +202,23 @@ pub enum NodeStatus {
     Failed,
 }
 
+/// The keyboard actions ([`crate::keymap`]) that put the nodes selected in line, as the "Align" menu does.
+pub const ALIGN_KEYS: [(&str, Align); 8] = [
+    ("canvas_align_left", Align::Left),
+    ("canvas_align_right", Align::Right),
+    ("canvas_align_top", Align::Top),
+    ("canvas_align_bottom", Align::Bottom),
+    ("canvas_align_centre_x", Align::CentreX),
+    ("canvas_align_centre_y", Align::CentreY),
+    ("canvas_spread_x", Align::SpreadX),
+    ("canvas_spread_y", Align::SpreadY),
+];
+
+/// The id of the keyboard action that does `how` (none for a column and a row).
+fn align_key(how: Align) -> Option<&'static str> {
+    ALIGN_KEYS.iter().find(|(_, a)| *a == how).map(|(id, _)| *id)
+}
+
 /// How the nodes selected are put in line (the selection's menu, "Align").
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Align {
@@ -1170,6 +1187,43 @@ fn segment_distance(p: Pos2, a: Pos2, b: Pos2) -> f32 {
     p.distance(a + ab * t)
 }
 
+/// The colours of a group's box: its border, its header, and the accent as ink (the stack icon and its count) on
+/// the box's fill.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GroupLook {
+    pub border: Color32,
+    pub head: Color32,
+    pub ink: Color32,
+}
+
+/// A group's colours over the node `fill` and the `canvas`, its `border` before the accent (what a node has), the
+/// theme's `accent` and its `strong` text. The dark themes: the accent mixed in, as it always was. The light ones: the
+/// same mixes washed out, so the border and the header darken until they read at 3:1 on the canvas, the title in
+/// `strong` at 4.5:1 on the header, and the accent as ink at 4.5:1 on the fill.
+pub fn group_look(
+    dark: bool,
+    fill: Color32,
+    border: Color32,
+    accent: Color32,
+    canvas: Color32,
+    strong: Color32,
+) -> GroupLook {
+    let mixed = border.lerp_to_gamma(accent, 0.75);
+    if dark {
+        return GroupLook { border: mixed, head: fill.lerp_to_gamma(accent, 0.22), ink: accent };
+    }
+    use crate::theme::{contrast, readable};
+    let head = (8..=40)
+        .map(|k| fill.lerp_to_gamma(accent, k as f32 / 40.0))
+        .find(|h| contrast(*h, canvas) >= 3.05 && contrast(strong, *h) >= 4.5)
+        .unwrap_or(accent);
+    GroupLook {
+        border: readable(mixed.lerp_to_gamma(accent, 0.5), canvas, 3.05),
+        head,
+        ink: readable(accent, fill, 4.5),
+    }
+}
+
 /// The rectangles the GPU draws of a box: the box, its header's colour, the line over its file, its ports and the
 /// light of its state.
 fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: bool) -> Vec<RectInstance> {
@@ -1188,11 +1242,9 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
     // accent
     let group = b.op == terraflux_graph::GROUP;
     let accent = crate::theme::accent();
-    let (border, width) = if group && state != Some(NodeStatus::Failed) && !b.bypass {
-        (border.lerp_to_gamma(accent, 0.75), 1.5)
-    } else {
-        (border, width)
-    };
+    let look = group_look(v.dark_mode, fill, border, accent, crate::theme::canvas(), v.strong_text_color());
+    let (border, width) =
+        if group && state != Some(NodeStatus::Failed) && !b.bypass { (look.border, 1.5) } else { (border, width) };
     if group {
         for k in [2.0, 1.0] {
             let (card, edge) = (fill.lerp_to_gamma(accent, 0.05 * k), border.gamma_multiply(0.35 + 0.25 * (3.0 - k)));
@@ -1204,12 +1256,11 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
     rects.push(RectInstance::new(b.rect.min.into(), b.rect.size().into(), radius, fill, border, width));
     if group {
         let head = b.head().shrink(2.0);
-        let tint = fill.lerp_to_gamma(accent, if v.dark_mode { 0.22 } else { 0.16 });
         rects.push(RectInstance::new(
             head.min.into(),
             head.size().into(),
             radius - 1.0,
-            tint,
+            look.head,
             Color32::TRANSPARENT,
             0.0,
         ));
@@ -2451,7 +2502,9 @@ fn selection_menu(
             ("In a column", Align::Column, None),
             ("In a row", Align::Row, None),
         ] {
-            entry(ui, text, align_help(how), off, Action::AlignChosen(how));
+            let key = align_key(how).map(crate::keymap::text).unwrap_or_default();
+            let text = if key.is_empty() { text.to_string() } else { format!("{text}    {key}") };
+            entry(ui, &text, align_help(how), off, Action::AlignChosen(how));
         }
     });
     ui.separator();
@@ -3390,6 +3443,15 @@ pub fn show(
                 if b.op == terraflux_graph::GROUP {
                     // a group: the icon of a stack of cards, and what is inside it
                     let accent = crate::theme::accent();
+                    let look = group_look(
+                        v.dark_mode,
+                        v.widgets.inactive.bg_fill,
+                        v.widgets.noninteractive.bg_stroke.color,
+                        accent,
+                        crate::theme::canvas(),
+                        v.strong_text_color(),
+                    );
+                    let accent = look.ink;
                     let card = |x: f32, y: f32| {
                         Rect::from_min_size(top + Vec2::new(x, y) * cam.zoom, Vec2::new(9.0, 7.0) * cam.zoom)
                     };
@@ -3994,4 +4056,56 @@ pub fn show(
         ui.ctx().request_repaint();
     }
     actions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme::{THEMES, contrast};
+
+    /// What a node's box is made of in a theme, as `box_rects` reads it from the visuals: its fill and its border.
+    fn node_of(p: &crate::theme::Palette) -> (Color32, Color32) {
+        (p.raised, p.line)
+    }
+
+    /// In every light theme a group's border and header read at 3:1 on the canvas, its title (the strong text, black)
+    /// on the header and its accent ink on the node's fill at 4.5:1; and so do the notes' and frames' colours.
+    #[test]
+    fn a_group_reads_in_the_light_themes() {
+        let mut light = 0;
+        for p in THEMES.iter().filter(|p| !p.dark) {
+            light += 1;
+            let (fill, line) = node_of(p);
+            let look = group_look(false, fill, line, p.accent, p.canvas, Color32::BLACK);
+            assert!(contrast(look.border, p.canvas) >= 3.0, "{}: border {}", p.name, contrast(look.border, p.canvas));
+            assert!(contrast(look.head, p.canvas) >= 3.0, "{}: header {}", p.name, contrast(look.head, p.canvas));
+            assert!(
+                contrast(Color32::BLACK, look.head) >= 4.5,
+                "{}: title {}",
+                p.name,
+                contrast(Color32::BLACK, look.head)
+            );
+            assert!(contrast(look.ink, fill) >= 4.5, "{}: ink {}", p.name, contrast(look.ink, fill));
+            for name in terraflux_graph::NOTE_COLOURS {
+                let (edge, ink) = crate::notes::inks(crate::notes::colour(Some(name)), false, p.canvas);
+                assert!(contrast(edge, p.canvas) >= 3.0, "{}: {name} edge", p.name);
+                assert!(contrast(ink, p.canvas) >= 4.5, "{}: {name} title", p.name);
+            }
+        }
+        assert_eq!(light, 3);
+    }
+
+    /// The dark themes keep what they had: the accent mixed into the border and the header, the accent as it is.
+    #[test]
+    fn a_group_in_the_dark_themes_is_as_it_was() {
+        for p in THEMES.iter().filter(|p| p.dark) {
+            let (fill, line) = node_of(p);
+            let look = group_look(true, fill, line, p.accent, p.canvas, Color32::WHITE);
+            assert_eq!(look.border, line.lerp_to_gamma(p.accent, 0.75), "{}", p.name);
+            assert_eq!(look.head, fill.lerp_to_gamma(p.accent, 0.22), "{}", p.name);
+            assert_eq!(look.ink, p.accent, "{}", p.name);
+            let c = crate::notes::colour(Some("amber"));
+            assert_eq!(crate::notes::inks(c, true, p.canvas), (c, c));
+        }
+    }
 }

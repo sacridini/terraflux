@@ -216,6 +216,10 @@ const fn cmd_alt(k: Key) -> Shortcut {
     Shortcut::new(true, false, true, k)
 }
 
+const fn alt_shift(k: Key) -> Shortcut {
+    Shortcut::new(false, true, true, k)
+}
+
 const fn global(id: &'static str, name: &'static str, default: &'static [Shortcut]) -> Action {
     Action { id, name, scope: Scope::Global, default, fixed: false, idle: false }
 }
@@ -303,6 +307,25 @@ pub static ACTIONS: &[Action] = &[
     at("canvas_find", Scope::Canvas, "Find a node by id, operator, note or file (inside groups too)", &[cmd(Key::F)]),
     at("canvas_rename", Scope::Canvas, "Rename the node selected", &[cmd(Key::R)]),
     at("canvas_arrange", Scope::Canvas, "Arrange the nodes", &[cmd(Key::L)]),
+    // (the Align menu's: alt+shift, the arrows for the edges, C and M for the centres, H and V to distribute)
+    at("canvas_align_left", Scope::Canvas, "Align the nodes selected: left edges", &[alt_shift(Key::ArrowLeft)]),
+    at("canvas_align_right", Scope::Canvas, "Align the nodes selected: right edges", &[alt_shift(Key::ArrowRight)]),
+    at("canvas_align_top", Scope::Canvas, "Align the nodes selected: top edges", &[alt_shift(Key::ArrowUp)]),
+    at("canvas_align_bottom", Scope::Canvas, "Align the nodes selected: bottom edges", &[alt_shift(Key::ArrowDown)]),
+    at("canvas_align_centre_x", Scope::Canvas, "Align the nodes selected: horizontal centres", &[alt_shift(Key::C)]),
+    at("canvas_align_centre_y", Scope::Canvas, "Align the nodes selected: vertical centres", &[alt_shift(Key::M)]),
+    at(
+        "canvas_spread_x",
+        Scope::Canvas,
+        "Distribute the nodes selected horizontally (three or more)",
+        &[alt_shift(Key::H)],
+    ),
+    at(
+        "canvas_spread_y",
+        Scope::Canvas,
+        "Distribute the nodes selected vertically (three or more)",
+        &[alt_shift(Key::V)],
+    ),
     at("canvas_group", Scope::Canvas, "Group the nodes selected", &[cmd(Key::G)]),
     at("canvas_ungroup", Scope::Canvas, "Ungroup the group selected", &[cmd_shift(Key::G)]),
     at(
@@ -975,6 +998,14 @@ mod tests {
             ("canvas_find", &["Ctrl+F"], "ctrl+F"),
             ("canvas_rename", &["Ctrl+R"], "ctrl+R"),
             ("canvas_arrange", &["Ctrl+L"], "ctrl+L"),
+            ("canvas_align_left", &["Shift+Alt+Left"], "shift+alt+Left"),
+            ("canvas_align_right", &["Shift+Alt+Right"], "shift+alt+Right"),
+            ("canvas_align_top", &["Shift+Alt+Up"], "shift+alt+Up"),
+            ("canvas_align_bottom", &["Shift+Alt+Down"], "shift+alt+Down"),
+            ("canvas_align_centre_x", &["Shift+Alt+C"], "shift+alt+C"),
+            ("canvas_align_centre_y", &["Shift+Alt+M"], "shift+alt+M"),
+            ("canvas_spread_x", &["Shift+Alt+H"], "shift+alt+H"),
+            ("canvas_spread_y", &["Shift+Alt+V"], "shift+alt+V"),
             ("canvas_group", &["Ctrl+G"], "ctrl+G"),
             ("canvas_ungroup", &["Ctrl+Shift+G"], "ctrl+shift+G"),
             ("canvas_bypass", &["B"], "B"),
@@ -1131,6 +1162,34 @@ mod tests {
     #[test]
     fn the_defaults_do_not_clash() {
         assert!(clashes(&Overrides::new()).is_empty());
+    }
+
+    /// The Align menu's keys exist, can be changed (not fixed) and are bound to nothing else.
+    #[test]
+    fn the_align_keys_exist_and_can_be_remapped() {
+        let ids = [
+            "canvas_align_left",
+            "canvas_align_right",
+            "canvas_align_top",
+            "canvas_align_bottom",
+            "canvas_align_centre_x",
+            "canvas_align_centre_y",
+            "canvas_spread_x",
+            "canvas_spread_y",
+        ];
+        let mut map = BTreeMap::new();
+        for id in ids {
+            let a = action(id).unwrap_or_else(|| panic!("{id}"));
+            assert!(!a.fixed && a.scope == Scope::Canvas && a.default.len() == 1, "{id}");
+            let s = a.default[0];
+            assert!(s.shift && s.alt && !s.cmd, "{id}");
+            assert_eq!(ACTIONS.iter().filter(|b| b.default.contains(&s)).count(), 1, "{id} is alone on its keys");
+        }
+        map.insert("canvas_align_left".to_string(), vec!["F7".to_string()]);
+        let o = parse_map(&map);
+        let a = action("canvas_align_left").unwrap();
+        assert_eq!(bindings(&o, a), vec![Shortcut::new(false, false, false, Key::F7)]);
+        assert!(clashes(&o).iter().all(|c| !c.error));
     }
 
     #[test]

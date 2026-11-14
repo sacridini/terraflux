@@ -351,6 +351,27 @@ pub fn weak() -> Color32 {
     current().weak
 }
 
+/// WCAG's contrast of two colours (1 to 21).
+pub fn contrast(a: Color32, b: Color32) -> f32 {
+    let lum = |c: Color32| {
+        let ch = |v: u8| {
+            let v = v as f32 / 255.0;
+            if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+        };
+        0.2126 * ch(c.r()) + 0.7152 * ch(c.g()) + 0.0722 * ch(c.b())
+    };
+    let (x, y) = (lum(a), lum(b));
+    (x.max(y) + 0.05) / (x.min(y) + 0.05)
+}
+
+/// `c` itself when it reads at `min`:1 on `bg`, else darkened (its hue kept) until it does: for a light background.
+pub fn readable(c: Color32, bg: Color32, min: f32) -> Color32 {
+    (0..=20)
+        .map(|k| c.lerp_to_gamma(Color32::BLACK, k as f32 / 20.0))
+        .find(|d| contrast(*d, bg) >= min)
+        .unwrap_or(Color32::BLACK)
+}
+
 pub fn visuals() -> Visuals {
     let p = current();
     let sh = shape();

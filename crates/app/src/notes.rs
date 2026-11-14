@@ -39,6 +39,15 @@ pub fn colour(name: Option<&str>) -> Color32 {
     }
 }
 
+/// A note's or frame's colour as its edge (3:1 on the canvas) and as its title (4.5:1): as it is in a dark theme, in
+/// a light one darkened until it reads on the `canvas`.
+pub fn inks(c: Color32, dark: bool, canvas: Color32) -> (Color32, Color32) {
+    if dark {
+        return (c, c);
+    }
+    (crate::theme::readable(c, canvas, 3.0), crate::theme::readable(c, canvas, 4.5))
+}
+
 /// The notes and frames of a scope laid out: a frame around the boxes of its nodes there (`boxed`: a node's box,
 /// none when it is not in the scene), a note at its place, as tall as its text wrapped needs (`measure`: the height
 /// of a text wrapped to a width, in graph units). `moving`: a note dragged, where it is now.
@@ -123,7 +132,8 @@ pub fn draw(
             continue;
         }
         let picked = chosen == Some(l.id.as_str());
-        let stroke = Stroke::new(if picked { 2.5 } else { 1.2 }, if picked { v.strong_text_color() } else { l.colour });
+        let (edge, ink) = inks(l.colour, v.dark_mode, crate::theme::canvas());
+        let stroke = Stroke::new(if picked { 2.5 } else { 1.2 }, if picked { v.strong_text_color() } else { edge });
         let radius = 8.0 * zoom.min(1.5);
         if l.frame {
             painter.rect_filled(on, radius, l.colour.gamma_multiply(0.07));
@@ -136,7 +146,7 @@ pub fn draw(
                 Align2::LEFT_CENTER,
                 title,
                 FontId::proportional(size),
-                l.colour,
+                ink,
             );
         } else {
             let fill = v.extreme_bg_color.lerp_to_gamma(l.colour, 0.22);

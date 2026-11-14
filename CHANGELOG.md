@@ -13,6 +13,13 @@ minor versions.
   taken away; the nodes of another chain, and the other nodes of a group, stay as they ran.
 
 ### Added
+- **Keys for Align, and groups that read in the light themes.** The selection's *Align* entries have shortcuts, shown in
+  the menu and in the sheet of shortcuts (F1) and changed in Settings (Keyboard) like the others: alt+shift with the
+  arrows for the left, right, top and bottom edges, C and M for the horizontal and vertical centres, H and V to
+  distribute horizontally and vertically (three nodes or more); one step of undo each, as the menu. In the light
+  themes a group's border and header now read at 3:1 on the canvas (its title at 4.5:1 on the header, its accent
+  icon and count at 4.5:1 on the box), and the notes' and frames' colours are darkened to read on it; the dark themes
+  are as they were.
 - **Find a node in the command palette, and the camera glides to it.** *Find a node* (ctrl+K, with its ctrl+F) opens
   the canvas's search from anywhere; going to a node from the search, and from a node of the Problems pane, moves the
   camera with the same eased glide as F (none when animations are off), instead of jumping.
