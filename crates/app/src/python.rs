@@ -1178,9 +1178,9 @@ fn hoist_pandas(body: &str) -> (String, bool) {
     if renamed {
         out = rename_word(&out, "_pd.", "pd.");
     }
-    let uses = out.match_indices("pd.").any(|(i, _)| {
-        out[..i].chars().next_back().is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '.'))
-    });
+    let uses = out
+        .match_indices("pd.")
+        .any(|(i, _)| out[..i].chars().next_back().is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '.')));
     (out, uses)
 }
 
