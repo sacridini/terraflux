@@ -7,6 +7,7 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **The application's pictures redrawn** in the theme Slate: the README's, the calculator's and the tour's (the window, the Templates menu, a node's settings panel, now drawn off screen by `tour_images` instead of cut from desktop captures); their texts describe the drawers, the boxes' settings and the panel beside a box.
 - **The Settings window opens in the middle of the screen** (it stays movable).
 - **A setting's wire has a tip, points and can be drawn from the socket.** The pointer resting on the wire of a
   setting that reads a value tells what it feeds ("→ node.setting"), the type and the last value, as a connection's

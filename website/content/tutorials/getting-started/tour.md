@@ -60,13 +60,13 @@ Open Terraflux (from the Start menu on Windows, Applications on macOS, the menu 
 typing `terraflux app` in a terminal). The window starts empty, with a message in the middle of the canvas:
 *Open a raster, click an operator of the library or press / to start; or begin from a template (Templates)*.
 
-![The empty window of Terraflux](/img/tutorials/getting-started/tour/empty.png "Terraflux as it opens: the toolbar at the top, the Model pane (an empty canvas) in the whole window, the Operators and Files drawers at its left edge, and a line of keyboard hints at the bottom. The other panes come when they have something to show. Screenshot of Terraflux 1.34 on Windows.")
+![The empty window of Terraflux](/img/tutorials/getting-started/tour/empty.png "Terraflux as it opens: the toolbar at the top, the Model pane (an empty canvas) in the whole window, the Operators and Files drawers at its left edge, and a line of keyboard hints at the bottom. The other panes come when they have something to show. Screenshot of Terraflux 1.51 on Windows (the theme Slate).")
 
-Here is the same window after a template has run, with its parts numbered. The template brings the Node and
-Prepare panes at the left, and the Document and the Viewer as tabs behind the Model's; here the Viewer's tab was
-dragged below the Model, to see both:
+Here is the same window after a template has run, with its parts numbered. The template brings the Document and
+the Viewer as tabs behind the Model's, and the **Prepare** drawer at the window's left edge, with the Operators
+and Files drawers; here the Viewer's tab was dragged below the Model, to see both:
 
-![The parts of the window](/img/tutorials/getting-started/tour/window.png "The window with the template 'MSPA of a forest' run, the Viewer dragged below the Model. Numbers are explained below. Screenshot of Terraflux 1.34 on Windows (the theme Default).")
+![The parts of the window](/img/tutorials/getting-started/tour/window.png "The window with the template 'MSPA of a forest' run, the Viewer dragged below the Model. Numbers are explained below. Screenshot of Terraflux 1.51 on Windows (the theme Slate).")
 
 1. **The toolbar.** The **File** menu (*New model*, *Open...*, *Open recent*, *Save*, *Save as...*, *Open a raster
    or vectors...*, *Compare* and *Export report*), *Templates* (models to start from), *Operators* (the library
@@ -75,13 +75,21 @@ dragged below the Model, to see both:
 2. **Run and Stop**, then the model's name and how long the last run took (*done in 0.04 s*). **Run** (++f5++) runs
    the whole model. Beside them, **Step** pauses a run after each step of a loop, until *Next* or *Continue* (see
    [Loops](../../building-models/loops/#step-5-run-it-step-by-step)).
-3. **The Node pane**: the node you selected. Its name (which you can change with *Rename*), its operator
-   (`landscape.mspa`) and what that operator does, its **Inputs** (what is connected to it), its **Settings**, then
-   its record: **Note** (what the node is for, shown on the canvas), **Why** (why this operator and these
-   settings), the collapsible **References, assumptions, alternatives**, and *Delete node*. With no node selected,
-   the pane holds the model's own record (its name, description, request, summary and author).
-4. **The Prepare pane**, a tab beside Node: the data of the node selected compared with the model's *reference
-   grid*, and the steps that put it on that grid in a click (see [One grid for all your maps](../one-grid/)).
+3. **A node's box**, here the selected one (outlined in blue): its name, its operator (`landscape.mspa`) in
+   small letters and the **⚙** at the right of it, its inputs at the left and its outputs at the right, and under
+   them its main **settings**, a row each (`connectivity 8`, `edge_width 1`; a row *+ 2 settings* counts the
+   others and unfolds them). Click a value to change it on the box. The **⚙**, a setting the box cannot edit
+   (a script, a table, a file) or ++shift+enter++ open all the node's settings in a panel beside the box (shown
+   [below](#change-a-setting)): its name (which you can change), what its operator does, its **Inputs** (what is
+   connected to it), its **Settings**, then its record: **Note** (what the node is for, shown on the canvas),
+   **Why** (why this operator and these settings), the collapsible **References, assumptions, alternatives**, and
+   *Delete node*. The same content is in the **Node** pane (**View > Node**), which does not open by itself unless
+   you turn on **open the Node pane by itself** in the settings; with no node selected, it holds the model's own
+   record (its name, description, request, summary and author).
+4. **The drawers** at the window's left edge: **Operators** and **Files**, and **Prepare**, which appears with
+   the first data. Move the pointer to a tab and its drawer slides out; a click on the tab opens it as a pane.
+   Prepare holds the data of the node selected compared with the model's *reference grid*, and the steps that put
+   it on that grid in a click (see [One grid for all your maps](../one-grid/)).
 5. **The Model pane**: the canvas where the nodes and their connections are drawn. Its tab has the **Document**
    tab beside it, the same model read as text ([The model's document](../../building-models/the-model-document/)).
    A node is as wide as its
@@ -162,7 +170,7 @@ pattern analysis*, MSPA (Soille & Vogt, 2009). You do not need to understand MSP
    a few hundredths of a second.
 3. The Viewer shows the result, the template's Plot **MSPA** (the Viewer's header says *Plot: MSPA*): the forest
    split into core (green), edge (black), perforation (blue), islets, bridges, loops and branches.
-4. The node `mspa` is selected (orange outline), so the Node pane shows its settings.
+4. The node `mspa` is selected (outlined in blue), and its box shows its main settings.
 
 </div>
 
@@ -210,7 +218,7 @@ connection from `landscape.map` to `forest`'s input `map` is how the map travels
 model file is not a node: it is a **Plot**, a view of the result kept with the model, listed in the Viewer's
 **Plots** menu (see [Plots and figures](../../building-models/plots-and-tables/)).
 
-![The Model pane with the template](/img/tutorials/getting-started/tour/model-pane.png "The Model pane: the nodes, each with its name, its operator in small grey letters, its inputs (left) and outputs (right). The green dot at the top right of a node says that it ran; mspa is selected (orange).")
+![The Model pane with the template](/img/tutorials/getting-started/tour/model-pane.png "The Model pane: the nodes, each with its name, its operator in small letters and its ⚙, its inputs (left) and outputs (right), and its main settings in rows. The green dot at the top right of a node says that it ran; mspa is selected (blue outline).")
 
 ### Look at any step
 
@@ -224,13 +232,14 @@ its result came from the cache (nothing it depends on had changed), orange while
 
 ### Change a setting
 
-Select `mspa`. In the Node pane, under **Settings**, the box `edge_width` holds 1: the edge of the forest is one
-cell wide. Click in it, type `3` and press ++tab++ (or click elsewhere). Because **update after every edit** is
+Select `mspa`. On its box, the row `edge_width` holds 1: the edge of the forest is one cell wide. Click the
+value, type `3` and press ++enter++ (or click elsewhere). Because **update after every edit** is
 ticked, the model runs again at once: only `mspa` runs, `landscape` and `forest` come from the cache, and the
 Viewer shows wider edges and smaller cores. Settings with a few possible values, such as
-`connectivity` (8 or 4 neighbours), are chosen in a list instead.
+`connectivity` (8 or 4 neighbours), are chosen in a list instead. The **⚙** of the box (or ++shift+enter++) opens
+all the settings of the node, with what each one means, in a panel beside it:
 
-![The Node pane of mspa](/img/tutorials/getting-started/tour/node-pane.png "The Node pane of the node mspa: its operator and what it does, Why (the note of the template), its input map connected to forest.map, and its settings. A star marks an input that must be connected.")
+![The settings panel of mspa](/img/tutorials/getting-started/tour/node-pane.png "The settings panel opened beside the box of mspa (it is placed at the left of the box when the canvas has no room at its right): its operator and what it does, its input map connected to forest.map, and its settings, those the box shows (connectivity, edge_width) and the others. A star marks an input that must be connected. Screenshot of Terraflux 1.51 (the theme Slate).")
 
 Hover over the name of a setting to read what it means. Every setting of every operator is also in the
 [operator reference](/operators/).
@@ -524,18 +533,22 @@ brings Terraflux to the front. Both can be turned off in the settings.
 
 ## Settings
 
-**⚙** at the right of the toolbar opens the settings, a small window:
+**⚙** at the right of the toolbar opens the settings, a window in sections (*Appearance*, *Model builder*, *Runs*,
+*Performance*, *Cloud storage*, *Node libraries*, *Keyboard* and *About & updates*), which opens in the middle of
+the screen (you can move it). The ones to know:
 
-- **Theme**: the colours of the window. The modern themes (*Slate*, dark blue, the default; *Graphite*, dark grey
+- **Theme** (*Appearance*): the colours of the window. The modern themes (*Slate*, dark blue, the default; *Graphite*, dark grey
   and orange; *Midnight*, deep navy and violet; *Canopy*, dark green; *Paper*, light, in the colours of this
   website; *Ash*, light grey and orange) have rounded panes and cards, switches and a font of their own; the
   classic themes (*Classic*, *Immaterial*, *Field Notes*, *Riparian*, *Angst Robot*, *Twenty Four Carat*) keep the
   square look;
-- **Text size** and **Interface zoom**: for a small laptop screen or a projector;
-- **Start**: *reopen the models open last* (on at first);
+- **Text size** and **Interface zoom** (*Appearance*): for a small laptop screen or a projector;
+- **Model builder**: how the canvas looks (*a node's main settings on its box*, on at first; *a minimap*, *wires go
+  around the boxes*), *open the Node pane by itself* (off at first: a node's settings open in the panel beside its
+  box) and, under *When Terraflux starts*, *reopen the models open last* (on at first);
 - **Runs**: *keep the computer awake while a model runs*, and *tell when a run of more than 10 s ends* (a
   notification when Terraflux is not in front; the seconds can be changed);
-- **Threads**: how many of the computer's cores the operators use. By default three quarters of them (a quarter
+- **Threads** (*Performance*): how many of the computer's cores the operators use. By default three quarters of them (a quarter
   left free), so that the computer stays usable while a model runs; the change takes effect at the next start.
 
 Settings, favourites and the layout are kept in your user's application data (`%APPDATA%\Terraflux` on Windows,

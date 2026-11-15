@@ -29,7 +29,7 @@ without root), the command line on macOS, and what to do when something does not
 Start Terraflux from the Start menu (Windows), Applications (macOS) or your desktop's menu (Linux). The window
 opens empty:
 
-![The empty window](/img/tutorials/getting-started/tour/empty.png "Terraflux as it opens. Left: the Node pane (the node you select) with Prepare beside it. Right: the Model pane, where a model is drawn, and the Viewer, which shows maps. Top: the toolbar.")
+![The empty window](/img/tutorials/getting-started/tour/empty.png "Terraflux as it opens (version 1.51, the theme Slate). Top: the toolbar. Left edge: the Operators and Files drawers (a Prepare drawer joins them when there is data), which slide out when the pointer reaches them. The rest is the Model pane, where a model is drawn; the Viewer, which shows maps, comes when there is something to show.")
 
 A model in Terraflux is a chain of **nodes**, boxes that each do one thing (read a map, reclassify it, analyse it),
 joined by **connections** that carry maps from one to the next. You will not build one from scratch today: you
@@ -45,11 +45,11 @@ will start from a **template**, a model that is ready to run.
 
 </div>
 
-![The Templates menu](/img/tutorials/getting-started/tour/templates-menu.png "Templates > Patterns (GuidosToolbox) > MSPA of a forest.")
+![The Templates menu](/img/tutorials/getting-started/tour/templates-menu.png "Templates > Patterns (GuidosToolbox) > MSPA of a forest. Screenshot of Terraflux 1.51 on Windows (the theme Slate).")
 
 The template opens and **runs by itself**, in a fraction of a second. You now see this:
 
-![The template after its run](/img/tutorials/getting-started/tour/window.png "The template 'MSPA of a forest' run: its nodes in the Model pane (5), their settings in the Node pane (3), and the result in the Viewer (7) with its legend (9). The tour of the application explains every number.")
+![The template after its run](/img/tutorials/getting-started/tour/window.png "The template 'MSPA of a forest' run: its nodes in the Model pane (5), each box with its main settings (3), and the result in the Viewer (7) with its legend (9). The tour of the application explains every number. Screenshot of Terraflux 1.51 on Windows (the theme Slate).")
 
 What happened? The three nodes in the Model pane ran from left to right:
 
@@ -77,8 +77,9 @@ in cells.
 <div class="steps" markdown>
 
 1. Click the node `mspa` in the Model pane (it is selected already after the template opens).
-2. In the **Node** pane on the left, under **Settings**, find `edge_width`. It says `1`.
-3. Click in the box, replace `1` with `3`, and press ++tab++.
+2. On its box, find the row `edge_width`. It says `1`. (The **⚙** at the right of the box's operator opens all its
+   settings in a panel beside it.)
+3. Click the value, replace `1` with `3`, and press ++enter++.
 
 </div>
 
@@ -93,7 +94,7 @@ after: { src: /img/quickstart/edge3.png, label: "edge_width = 3" }
 ```
 
 That one number changed the core forest by 60%. Every setting of every operator has an explanation: hover over
-its name in the Node pane, or look it up in the [operator reference](/operators/).
+its name in the settings panel of the node (its **⚙**), or look it up in the [operator reference](/operators/).
 
 ## 5. Use your own map (4 minutes)
 
@@ -103,7 +104,7 @@ The template drew its map by chance. Now run the same analysis on a real one. Th
 
 1. **Templates > Patterns (GuidosToolbox) > MSPA of your map**. Its first node, `read`, has no file yet, so it
    does not run.
-2. Click the node `read`. In the Node pane, next to `path`, click **Choose...** and pick your land cover map, a
+2. Click the **⚙** of the node `read`. In the panel that opens beside it, next to `path`, click **Choose...** and pick your land cover map, a
    GeoTIFF (`.tif`) or any raster file. Its map appears in the Viewer, with its classes.
 3. Click the node `forest`. Its rules say `1 -> 2` and `* -> 1`: class 1 becomes the forest, every other class the
    background. Replace `1` with the code of the forest in **your** map. If you do not know it, click **A rule per

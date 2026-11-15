@@ -36,7 +36,13 @@ type Marks = std::sync::Arc<std::sync::Mutex<Vec<(egui::Pos2, String)>>>;
 fn harness_marked(size: (f32, f32), ppp: f32, marks: Marks) -> Harness<'static, TerrafluxApp> {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(&dir).unwrap();
-    unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("readme-settings.json")) };
+    // (the pictures show the default theme, Slate: the settings file starts from the defaults, written once)
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        std::fs::write(dir.join("readme-settings.json"), r#"{ "theme": "Slate" }"#).unwrap();
+        unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("readme-settings.json")) };
+    });
+    terraflux_app::settings::update(|s| s.theme = "Slate".into());
     terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
@@ -105,13 +111,12 @@ fn save(h: &mut Harness<TerrafluxApp>, name: &str) {
     img.save(images().join(name)).unwrap();
 }
 
-/// The panes for a picture, as the application first has them: the model over `below` (the first in front), the
-/// node in the inspector at the right (the operators in their drawer).
+/// The panes for a picture, as the application has them now: the model over `below` (the first in front), no
+/// Node pane (a node's settings are on its box and in the panel beside it), the operators and the preparation in
+/// their drawers at the window's left edge.
 fn layout(below: Vec<Pane>) -> DockState<Pane> {
     let mut d = DockState::new(vec![Pane::Model]);
-    let s = d.main_surface_mut();
-    let [model, _] = s.split_right(NodeIndex::root(), 0.78, vec![Pane::Node, Pane::Prepare, Pane::Files]);
-    s.split_below(model, 0.4, below);
+    d.main_surface_mut().split_below(NodeIndex::root(), 0.52, below);
     d
 }
 
@@ -207,8 +212,9 @@ fn document_image() {
     let a = h.state_mut();
     let s = a.session.as_mut().unwrap();
     terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "suitability");
+    // (the Node pane opened beside it by hand: it does not open by itself; the Prepare pane is a drawer)
     let mut d = DockState::new(vec![Pane::Document, Pane::Model]);
-    let _ = d.main_surface_mut().split_right(NodeIndex::root(), 0.74, vec![Pane::Node, Pane::Prepare, Pane::Files]);
+    let _ = d.main_surface_mut().split_right(NodeIndex::root(), 0.74, vec![Pane::Node]);
     a.dock = Some(d);
     save(&mut h, "document.png");
 }
@@ -334,7 +340,7 @@ out mean_hsi = hsi.mean()";
     m.save(&p).unwrap();
     // (a smaller window drawn larger: each picture is cut to the part it shows, and its words stay readable)
     const PPP: f32 = 1.5;
-    let mut h = harness_at((1300.0, 760.0), PPP);
+    let mut h = harness_at((1300.0, 860.0), PPP);
     h.state_mut().open(&p);
     h.state_mut().session.as_mut().unwrap().wait();
     h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
@@ -351,7 +357,9 @@ out mean_hsi = hsi.mean()";
         a.session.as_mut().unwrap().editor.fit();
     }
     h.run_steps(5);
-    // the previews, then a line of the console
+    // the console is a bar until it is wanted: opened, then the previews, then a line of it
+    h.get_by_label_contains("console").click();
+    h.run_steps(3);
     let t = Instant::now();
     while h.query_all_by_label_contains(" · max ").next().is_none() && t.elapsed() < Duration::from_secs(60) {
         h.step();
@@ -369,6 +377,8 @@ out mean_hsi = hsi.mean()";
     }
     // the window, or the part of it at x, y of width w and height h (in points)
     let shoot = |h: &mut Harness<TerrafluxApp>, name: &str, part: Option<[f32; 4]>| {
+        // (the pointer, left over the console's bar, not in the picture)
+        h.event(egui::Event::PointerGone);
         let t = Instant::now();
         while t.elapsed() < Duration::from_secs(2) {
             h.step();
@@ -384,14 +394,14 @@ out mean_hsi = hsi.mean()";
         };
         img.save(site.join(name)).unwrap();
     };
-    shoot(&mut h, "pane.png", Some([0.0, 0.0, 1012.0, 760.0]));
+    shoot(&mut h, "pane.png", Some([0.0, 0.0, 1012.0, 860.0]));
     // a stack's layers offered after the dot
     h.ctx.memory_mut(|m| m.request_focus(egui::Id::new("calculator script")));
     h.run_steps(2);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::End);
     h.event(egui::Event::Text("\nout remote = d.dist_".into()));
     h.run_steps(3);
-    shoot(&mut h, "completion.png", Some([30.0, 268.0, 720.0, 355.0]));
+    shoot(&mut h, "completion.png", Some([30.0, 278.0, 720.0, 400.0]));
     // (the line typed taken back: leaving the editor would give it to the node)
     for _ in "\nout remote = d.dist_".chars() {
         h.key_press(egui::Key::Backspace);
@@ -423,11 +433,13 @@ out mean_hsi = hsi.mean()";
         h.state_mut().session.as_mut().unwrap().editor.fit();
     }
     h.run_steps(3);
-    shoot(&mut h, "my-node.png", Some([228.0, 45.0, 1062.0, 625.0]));
+    shoot(&mut h, "my-node.png", Some([228.0, 45.0, 1062.0, 700.0]));
 }
 
-/// The tour's pictures of the window (website/static/img/tutorials/getting-started/tour): the template "MSPA of a
-/// forest" run, its parts numbered as the tour explains them, and the Model pane alone.
+/// The tour's pictures (website/static/img/tutorials/getting-started/tour): the window as it opens, the Templates
+/// menu with its group Patterns open, the template "MSPA of a forest" run with the window's parts numbered as the
+/// tour explains them, the Model pane alone, and a node's settings panel beside its box (`node-pane.png`).
+/// `cargo test --release -p terraflux-app --test readme_images tour -- --ignored`.
 #[test]
 #[ignore = "the website's pictures: run with --ignored"]
 fn tour_images() {
@@ -439,34 +451,6 @@ fn tour_images() {
     let marks = Marks::default();
     // (wide enough for the bar's tools on it, not in its Tools menu)
     let mut h = harness_marked((1280.0, 760.0), 1.0, marks.clone());
-    // the window as it opens
-    settled(&mut h);
-    h.render().expect("the window drawn by wgpu").save(out.join("empty.png")).unwrap();
-    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "MSPA of a forest").expect("the template");
-    let ctx = h.ctx.clone();
-    h.state_mut().start_template(&ctx, t);
-    settled(&mut h);
-    {
-        // the panes as the template opens them, the Viewer dragged below the Model (the tour's tip says how)
-        let a = h.state_mut();
-        let mut d = DockState::new(vec![Pane::Model, Pane::Document]);
-        let s = d.main_surface_mut();
-        let [right, _] = s.split_left(NodeIndex::root(), 0.2, vec![Pane::Node, Pane::Prepare]);
-        s.split_below(right, 0.45, vec![Pane::Viewer]);
-        a.dock = Some(d);
-        let s = a.session.as_mut().unwrap();
-        terraflux_app::builder::open_plot(s, &terraflux_ops::Registry::standard(), "plot");
-        s.selected = Some("mspa".into());
-        s.ask_viewer = false;
-    }
-    h.run_steps(3);
-    h.state_mut().session.as_mut().unwrap().editor.fit();
-    settled(&mut h);
-    let t = Instant::now();
-    while t.elapsed() < Duration::from_secs(2) {
-        h.step();
-        std::thread::sleep(Duration::from_millis(20));
-    }
     // where a part is: the first widget whose words have these (its rectangle, points); the panes' tabs are not
     // widgets, so they are found from the widgets of their panes
     let rect = |h: &Harness<TerrafluxApp>, words: &str| -> egui::Rect {
@@ -480,25 +464,74 @@ fn tour_images() {
         let b = n.accesskit_node().bounding_box().expect("a place");
         egui::Rect::from_min_max(egui::pos2(b.x0 as f32, b.y0 as f32), egui::pos2(b.x1 as f32, b.y1 as f32))
     };
+    // the window as it opens
+    settled(&mut h);
+    h.render().expect("the window drawn by wgpu").save(out.join("empty.png")).unwrap();
+    // the Templates menu, its group Patterns open (the window's top left corner, as far as the menus reach)
+    h.get_by_label("Templates").click();
+    h.run_steps(3);
+    h.get_by_label_contains("Patterns").click();
+    h.run_steps(3);
+    let (yours, item) = (rect(&h, "Yours"), rect(&h, "MSPA of a forest"));
+    let img = h.render().expect("the window drawn by wgpu");
+    let (w, ht) = ((item.right() + 20.0) as u32, (yours.bottom() + 18.0) as u32);
+    image::imageops::crop_imm(&img, 0, 0, w.min(img.width()), ht.min(img.height()))
+        .to_image()
+        .save(out.join("templates-menu.png"))
+        .unwrap();
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "MSPA of a forest").expect("the template");
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, t);
+    settled(&mut h);
+    // the panes as the template opens them (the Viewer and the Document behind the Model's), the Viewer dragged
+    // below the Model (the tour's tip says how); the Node pane is not there: the node's settings are on its box
+    let tour_dock = |h: &mut Harness<TerrafluxApp>, below: f32| {
+        let a = h.state_mut();
+        let mut d = DockState::new(vec![Pane::Model, Pane::Document]);
+        d.main_surface_mut().split_below(NodeIndex::root(), below, vec![Pane::Viewer]);
+        a.dock = Some(d);
+        let s = a.session.as_mut().unwrap();
+        terraflux_app::builder::open_plot(s, &terraflux_ops::Registry::standard(), "plot");
+        s.selected = Some("mspa".into());
+        s.ask_viewer = false;
+    };
+    let wait = |h: &mut Harness<TerrafluxApp>| {
+        h.run_steps(3);
+        h.state_mut().session.as_mut().unwrap().editor.fit();
+        settled(h);
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_secs(2) {
+            h.step();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    tour_dock(&mut h, 0.5);
+    wait(&mut h);
+    // (the pointer, left from the menu, out of the pictures)
+    h.event(egui::Event::PointerGone);
+    h.run_steps(2);
     let (whole, save, metadata) = (rect(&h, "Whole model"), rect(&h, "Save output"), rect(&h, "Metadata"));
-    // the Model pane alone: from its tab (above its bar) to the Viewer's tabs, as wide as the Viewer's pane
+    // the Model pane alone: from its tab (above its bar) to the Viewer's tab, as wide as the Viewer's pane
     let img = h.render().expect("the window drawn by wgpu");
     let (x0, y0) = ((whole.left() - 14.0) as u32, (whole.top() - 36.0) as u32);
-    let (x1, y1) = ((metadata.right() + 15.0) as u32, (save.top() - 40.0) as u32);
+    let (x1, y1) = ((metadata.right() + 15.0) as u32, (save.top() - 70.0) as u32);
     image::imageops::crop_imm(&img, x0, y0, x1 - x0, y1 - y0).to_image().save(out.join("model-pane.png")).unwrap();
     // the window, its parts numbered as the tour explains them
     let beside = |r: egui::Rect| egui::pos2(r.right() + 16.0, r.center().y);
     let before = |r: egui::Rect| egui::pos2(r.left() - 16.0, r.center().y);
-    let rename = rect(&h, "Rename");
+    let mspa = h.state().session.as_ref().unwrap().editor.drawn_rect_of("mspa").expect("the box of mspa");
     let places = [
         ("1", before(rect(&h, "Wizard"))),
         ("2", beside(rect(&h, "done in"))),
-        ("3", beside(rename)),
-        // (the Prepare tab, above the Node pane's name; the Viewer's tab, above its bar)
-        ("4", egui::pos2(rename.left() + 2.0, rename.top() - 29.0)),
-        ("5", egui::pos2(whole.left() + 200.0, whole.bottom() + 50.0)),
+        // (the box of mspa, selected: its settings are its rows, its gear opens the panel beside it)
+        ("3", mspa.left_top() + egui::vec2(-8.0, 8.0)),
+        // (the drawers' tabs at the window's left edge)
+        ("4", egui::pos2(46.0, 305.0)),
+        ("5", egui::pos2(whole.left() + 90.0, whole.bottom() + 40.0)),
         ("6", beside(rect(&h, "Text"))),
-        ("7", egui::pos2(whole.left() + 81.0, save.top() - 25.0)),
+        ("7", egui::pos2(whole.left() + 81.0, save.top() - 26.0)),
         ("8", egui::pos2(save.center().x, save.top() - 12.0)),
         ("9", before(rect(&h, "Background")) - egui::vec2(18.0, 0.0)),
         ("10", rect(&h, "add an operator").left_top() + egui::vec2(10.0, -12.0)),
@@ -507,4 +540,24 @@ fn tour_images() {
     h.run_steps(2);
     let img = h.render().expect("the window drawn by wgpu");
     img.save(out.join("window.png")).unwrap();
+    // a node's settings in the panel beside its box (its gear opens it): the Model pane alone, tall enough for
+    // the panel, the picture cut to the box and the panel
+    marks.lock().unwrap().clear();
+    h.state_mut().dock = Some(DockState::new(vec![Pane::Model]));
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.chosen = ["mspa".to_string()].into();
+        s.editor.panel = Some(s.editor.path.clone());
+    }
+    wait(&mut h);
+    h.event(egui::Event::PointerGone);
+    h.run_steps(2);
+    let b = h.state().session.as_ref().unwrap().editor.drawn_rect_of("mspa").expect("the box of mspa");
+    let img = h.render().expect("the window drawn by wgpu");
+    let canvas = h.state().session.as_ref().unwrap().editor.canvas().expect("the canvas");
+    // (the panel opens at the box's right, or at its left when the canvas has no room there)
+    let (x0, y0) =
+        ((b.left() - 380.0).max(canvas.left() - 6.0) as u32, (b.top() - 190.0).max(canvas.top() - 6.0) as u32);
+    let (x1, y1) = ((b.right() + 40.0).min(canvas.right() + 6.0) as u32, (canvas.bottom() + 6.0) as u32);
+    image::imageops::crop_imm(&img, x0, y0, x1 - x0, y1 - y0).to_image().save(out.join("node-pane.png")).unwrap();
 }

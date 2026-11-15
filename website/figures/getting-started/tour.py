@@ -1,53 +1,15 @@
-"""Figures of 'A tour of Terraflux': the application's window with its parts numbered (from real screenshots of the
-application, kept in app-shots/; app_shots.ps1 took them), the Templates menu, the Node pane, and what six
-templates give, from runs of the templates with the command line."""
+"""Figures of 'A tour of Terraflux': what six templates give, from runs of the templates with the command line.
 
-from PIL import Image
+The pictures of the application itself (empty.png, window.png with its parts numbered, model-pane.png,
+templates-menu.png and node-pane.png) are no longer made here: they are drawn off screen by the application's own
+test, `cargo test --release -p terraflux-app --test readme_images tour_images -- --ignored`, in the default theme.
+(They were cut from desktop captures, app_shots.ps1 and app-shots/, which went out of date with the window.)"""
 
 from _common import figs, np, plt, save
 
 SLUG = "getting-started/tour"
 out = figs.img_dir(SLUG)
 work = figs.workdir(SLUG)
-SHOTS = figs.WEB / "figures" / "getting-started" / "app-shots"
-
-# ------------------------------------------------------------------ the window, its parts numbered
-win = Image.open(SHOTS / "mspa-of-a-forest.png").convert("RGB")
-W, H = win.size
-marks = [
-    (1, 1190, 14, "toolbar"),
-    (2, 867, 44, "run"),
-    (3, 292, 80, "node"),
-    (4, 178, 42, "prepare"),
-    (5, 560, 150, "model"),
-    (6, 800, 77, "bar"),
-    (7, 505, 424, "map tab"),
-    (8, 1120, 458, "save"),
-    (9, 1158, 600, "legend"),
-    (10, 40, 785, "keys"),
-]
-fig = plt.figure(figsize=(W / 150, H / 150), dpi=150)
-ax = fig.add_axes([0, 0, 1, 1])
-ax.imshow(np.asarray(win))
-ax.set_axis_off()
-for n, x, y, _ in marks:
-    ax.add_patch(plt.Circle((x, y), 15, color=figs.EMBER, ec="white", lw=1.6, zorder=5))
-    ax.text(x, y + 0.5, str(n), color="white", ha="center", va="center", fontsize=8.5, fontweight="bold", zorder=6)
-fig.savefig(work / "window_big.png", dpi=150)
-plt.close(fig)
-im = Image.open(work / "window_big.png").convert("RGB")
-im = im.resize((1100, round(1100 * im.height / im.width)), Image.LANCZOS)
-im.save(out / "window.png", optimize=True)
-
-# ------------------------------------------------------------------ the empty window
-im = Image.open(SHOTS / "empty.png").convert("RGB")
-im = im.resize((1100, round(1100 * im.height / im.width)), Image.LANCZOS)
-im.save(out / "empty.png", optimize=True)
-
-# ------------------------------------------------------------------ the Templates menu and the Node pane, cropped
-Image.open(SHOTS / "templates-menu.png").convert("RGB").crop((0, 0, 700, 270)).save(out / "templates-menu.png", optimize=True)
-Image.open(SHOTS / "mspa-of-a-forest.png").convert("RGB").crop((0, 30, 332, 570)).save(out / "node-pane.png", optimize=True)
-Image.open(SHOTS / "mspa-of-a-forest.png").convert("RGB").crop((335, 30, 1384, 405)).save(out / "model-pane.png", optimize=True)
 
 # ------------------------------------------------------------------ what six templates give (run by the command line)
 runs = [
