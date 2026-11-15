@@ -9021,10 +9021,8 @@ fn wait(h: &mut Harness<TerrafluxApp>, seconds: f64) {
     }
 }
 
-/// Step until the run an edit asks for has ended. The Viewer runs the model again 250 ms (real time) after an edit,
-/// and while it runs a strip at the top of the map takes some of it: a slow frame leaves the map smaller where a
-/// quick one has it whole, and what a test computed from the map's size (the zoom of a place, the cells in view)
-/// would not hold.
+/// Step until the run an edit asks for has ended. The Viewer runs the model again 250 ms (real time) after an edit:
+/// a test that reads the map in the middle of that run reads a view the run is about to redraw.
 fn after_edit(h: &mut Harness<TerrafluxApp>) {
     wait(h, 0.6);
     drawn(h);
@@ -9189,7 +9187,7 @@ fn places_are_kept_with_the_model_and_gone_back_to() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num1);
     // (a place is an edit: the map is where it was once the run after it has ended)
     after_edit(&mut h);
-    // (and it stays smaller by that strip, in the frames after: going back fits the box in what there is)
+    // (going back fits the box in the map's size as it is now)
     let kept_rect = map(&mut h).rect().expect("drawn");
     assert_eq!(kept_rect.left_top().x, rect.left_top().x);
     let fit = (kept_rect.width() / rect.width()).min(kept_rect.height() / rect.height());
@@ -10668,4 +10666,24 @@ fn a_loop_in_a_loop_shows_the_outer_step_and_then_the_inner() {
     let inner = ["outer".to_string(), "inner".to_string()];
     assert_eq!(s.status_at(&inner, "step"), Some(NodeStatus::Done { cached: false }));
     assert_eq!(s.status_at(&["outer".to_string()], "inner"), Some(NodeStatus::Done { cached: false }));
+}
+
+/// The header of the Viewer keeps its rows when the node's run ends again (the status in it changes from "run" to
+/// "nothing changed: from the cache"): the map's top does not move after an edit and the run it asks for.
+#[test]
+fn the_map_stays_in_place_after_an_edit_and_its_run() {
+    let mut h = viewed(&data("sibuyan_landuse.tif"), "sibuyan_landuse");
+    until(&mut h, "the first view settling", |a| a.session.as_ref().unwrap().preview_view.history_len() >= 1);
+    let rect = map(&mut h).rect().expect("drawn");
+    let top = rect.top();
+    h.event(egui::Event::PointerMoved(rect.center()));
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num1);
+    // (every frame of the edit and of the run after it)
+    let t = Instant::now();
+    while t.elapsed().as_secs_f64() < 0.8 {
+        h.step();
+        assert_eq!(map(&mut h).rect().expect("drawn").top(), top, "the map's top moved");
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }

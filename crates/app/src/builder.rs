@@ -5320,6 +5320,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 {
                     s.trace_asked = Some((node.clone(), port.clone(), grid, cell, explain));
                 }
+                let before_status = ui.min_rect().width();
                 ui.separator();
                 let weak = ui.visuals().weak_text_color();
                 match s.status.get(&node) {
@@ -5341,7 +5342,16 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     }
                     None => {}
                 }
-                ui.min_rect().width()
+                // (the width without the status, which changes as the node runs and is done: running, then the
+                // cache's note, then "run"; the choice of one row or two must not change with it, or the map jumps
+                // by a row when a run ends)
+                let font = egui::TextStyle::Body.resolve(ui.style());
+                let widest = ["nothing changed: from the cache", "from an earlier run"]
+                    .iter()
+                    .map(|t| ui.painter().layout_no_wrap(t.to_string(), font.clone(), weak).size().x)
+                    .fold(0.0, f32::max);
+                let room = widest + ui.spacing().item_spacing.x * 2.0 + 6.0;
+                before_status + room
             });
             // (measured in one row only: the width the two parts take side by side)
             if !two_rows {

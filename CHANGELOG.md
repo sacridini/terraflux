@@ -29,6 +29,9 @@ minor versions.
   halving their curves. The wires look the same, and when the node is let go they are as a new look at the whole
   model finds them.
 
+### Fixed
+- **The map no longer drops a row after an edit.** The Viewer's header put its buttons on a second row when the status beside them grew (to "nothing changed: from the cache" once the run an edit asks for had ended), moving the map down by 24 px; the choice of one row or two no longer depends on the status.
+
 ## [1.51.0] - 2026-11-15
 
 ### Changed
