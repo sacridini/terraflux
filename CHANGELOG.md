@@ -7,6 +7,7 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **The Settings window opens in the middle of the screen** (it stays movable).
 - **A setting's wire has a tip, points and can be drawn from the socket.** The pointer resting on the wire of a
   setting that reads a value tells what it feeds ("→ node.setting"), the type and the last value, as a connection's
   tip does. A wire dragged from the socket of a free setting and let go on an output that fits it makes the setting

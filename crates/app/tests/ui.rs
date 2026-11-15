@@ -5941,6 +5941,33 @@ fn the_files_that_failed_are_listed_in_the_node_pane() {
 #[test]
 #[ignore]
 fn theme_gallery() {
+    held(true);
+    setup(); // (first: its first call sets the Classic theme)
+    // the main window with a small model, and the Settings (Appearance, About): `theme-<name>-main.png`, `-settings`
+    // and `-settings-about` (no `ui-` prefix)
+    let plain = |h: &mut Harness<TerrafluxApp>, name: &str| {
+        drawn(h);
+        if let Ok(img) = h.render() {
+            img.save(tmp(&format!("{name}.png"))).unwrap();
+        }
+    };
+    for name in ["Slate", "Graphite", "Midnight", "Ash", "Classic"] {
+        terraflux_app::settings::update(|s| s.theme = name.into());
+        let mut h = harness(new_app(None));
+        h.run_steps(2);
+        let ctx = h.ctx.clone();
+        h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+        h.run_steps(5);
+        h.state_mut().focus(Pane::Model);
+        h.run_steps(3);
+        plain(&mut h, &format!("theme-{name}-main"));
+        h.state_mut().settings_open = true;
+        h.run_steps(3);
+        plain(&mut h, &format!("theme-{name}-settings"));
+        h.get_by_label("About & updates").click();
+        h.run_steps(3);
+        plain(&mut h, &format!("theme-{name}-settings-about"));
+    }
     for name in ["Classic", "Immaterial", "Slate", "Graphite", "Midnight", "Paper", "Ash", "Canopy"] {
         terraflux_app::settings::update(|s| s.theme = name.into());
         let mut h = harness(new_app(Some(model())));

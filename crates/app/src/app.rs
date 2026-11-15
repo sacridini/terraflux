@@ -3824,9 +3824,15 @@ impl TerrafluxApp {
             Vec2::new(wide.min(screen.width() - 40.0).max(360.0), 520.0f32.min(screen.height() - 60.0).max(240.0));
         let nav_w = 150.0;
         let update_ready = matches!(self.updater.state(), crate::update::State::Available(_));
-        egui::Window::new("Settings").open(&mut open).resizable(false).collapsible(false).fixed_size(size).show(
-            ctx,
-            |ui| {
+        // (opens centred; the default position only counts the first time, so it stays movable)
+        egui::Window::new("Settings")
+            .open(&mut open)
+            .resizable(false)
+            .collapsible(false)
+            .fixed_size(size)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(screen.center())
+            .show(ctx, |ui| {
                 let full = ui.available_size();
                 ui.horizontal_top(|ui| {
                     // the sections
@@ -3888,8 +3894,7 @@ impl TerrafluxApp {
                         });
                     });
                 });
-            },
-        );
+            });
         terraflux_ops::cache::set_limit(st.cache_gb);
         // (only when changed here: written every frame, it would undo what another thread changed meanwhile)
         if st != before {
