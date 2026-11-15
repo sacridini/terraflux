@@ -311,7 +311,7 @@ pub static ACTIONS: &[Action] = &[
     at("canvas_find", Scope::Canvas, "Find a node by id, operator, note or file (inside groups too)", &[cmd(Key::F)]),
     at("canvas_rename", Scope::Canvas, "Rename the node selected", &[cmd(Key::R)]),
     at("canvas_arrange", Scope::Canvas, "Arrange the nodes", &[cmd(Key::L)]),
-    // (the Align menu's: alt+shift, the arrows for the edges, C and M for the centres, H and V to distribute)
+    // (the Align menu's: alt+shift, the arrows for the edges, C and M for the centres, H and V to distribute, K for a column and R for a row)
     at("canvas_align_left", Scope::Canvas, "Align the nodes selected: left edges", &[alt_shift(Key::ArrowLeft)]),
     at("canvas_align_right", Scope::Canvas, "Align the nodes selected: right edges", &[alt_shift(Key::ArrowRight)]),
     at("canvas_align_top", Scope::Canvas, "Align the nodes selected: top edges", &[alt_shift(Key::ArrowUp)]),
@@ -330,6 +330,13 @@ pub static ACTIONS: &[Action] = &[
         "Distribute the nodes selected vertically (three or more)",
         &[alt_shift(Key::V)],
     ),
+    at(
+        "canvas_stack_column",
+        Scope::Canvas,
+        "Put the nodes selected in a column, one under the other",
+        &[alt_shift(Key::K)],
+    ),
+    at("canvas_stack_row", Scope::Canvas, "Put the nodes selected in a row, side by side", &[alt_shift(Key::R)]),
     at("canvas_group", Scope::Canvas, "Group the nodes selected", &[cmd(Key::G)]),
     at("canvas_ungroup", Scope::Canvas, "Ungroup the group selected", &[cmd_shift(Key::G)]),
     at(
@@ -1011,6 +1018,8 @@ mod tests {
             ("canvas_align_centre_y", &["Shift+Alt+M"], "shift+alt+M"),
             ("canvas_spread_x", &["Shift+Alt+H"], "shift+alt+H"),
             ("canvas_spread_y", &["Shift+Alt+V"], "shift+alt+V"),
+            ("canvas_stack_column", &["Shift+Alt+K"], "shift+alt+K"),
+            ("canvas_stack_row", &["Shift+Alt+R"], "shift+alt+R"),
             ("canvas_group", &["Ctrl+G"], "ctrl+G"),
             ("canvas_ungroup", &["Ctrl+Shift+G"], "ctrl+shift+G"),
             ("canvas_bypass", &["B"], "B"),
@@ -1181,6 +1190,8 @@ mod tests {
             "canvas_align_centre_y",
             "canvas_spread_x",
             "canvas_spread_y",
+            "canvas_stack_column",
+            "canvas_stack_row",
         ];
         let mut map = BTreeMap::new();
         for id in ids {

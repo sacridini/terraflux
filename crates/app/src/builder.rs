@@ -1271,7 +1271,7 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
         && s.editor.find.is_none()
         && s.editor.renaming.is_none()
         && !s.editor.text;
-    // alt+shift and the arrows, C, M, H, V: the Align menu's entries, each one step of undo (distributing needs three)
+    // alt+shift and the arrows, C, M, H, V, K, R: the Align menu's entries, each one step of undo (distributing needs three)
     if here {
         let ids: Vec<&str> = crate::editor_view::ALIGN_KEYS.iter().map(|(id, _)| *id).collect();
         let hit = ui.input_mut(|i| crate::keymap::consume(i, &ids));

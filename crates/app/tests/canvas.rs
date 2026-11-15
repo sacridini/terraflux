@@ -2256,7 +2256,7 @@ fn the_selections_menu_aligns_and_distributes() {
     }
 }
 
-/// The Align menu's keys (alt+shift and the arrows, C, M, H, V) do what its entries do to the nodes selected, each
+/// The Align menu's keys (alt+shift and the arrows, C, M, H, V, K, R) do what its entries do to the nodes selected, each
 /// one step of undo, in a group too; with one node selected, or two to distribute, nothing; the menu shows them.
 #[test]
 fn the_align_keys_do_what_the_menu_does() {
@@ -2311,6 +2311,34 @@ fn the_align_keys_do_what_the_menu_does() {
         assert!(((r[1].min.x - r[0].max.x) - (r[2].min.x - r[1].max.x)).abs() < 0.5, "{r:?}");
         undo(&mut h);
         assert_eq!(places_now(&h, inside, &all), before, "one step of undo");
+        // alt+shift+K and R: a column and a row, as "In a column" and "In a row" do (the same places), one step of undo
+        for (key, text) in [(egui::Key::K, "In a column"), (egui::Key::R, "In a row")] {
+            let column = key == egui::Key::K;
+            select(&mut h, &["a", "b", "c"]);
+            h.key_press_modifiers(alt_shift, key);
+            h.run_steps(3);
+            let by_key = places_now(&h, inside, &all);
+            assert_ne!(by_key, before, "{text}: moved");
+            let mut r = boxes_now(&h, &["a", "b", "c"]);
+            r.sort_by(|p, q| if column { p.min.y.total_cmp(&q.min.y) } else { p.min.x.total_cmp(&q.min.x) });
+            for w in r.windows(2) {
+                // (one after the other, none over another; across, all on the first one's line)
+                if column {
+                    assert!(w[1].min.y >= w[0].max.y && (w[1].min.x - w[0].min.x).abs() < 0.5, "{text}: {r:?}");
+                } else {
+                    assert!(w[1].min.x >= w[0].max.x && (w[1].min.y - w[0].min.y).abs() < 0.5, "{text}: {r:?}");
+                }
+            }
+            undo(&mut h);
+            assert_eq!(places_now(&h, inside, &all), before, "{text}: one step of undo");
+            select(&mut h, &["a", "b", "c"]);
+            menu_of(&mut h, &["a", "b", "c"], "a");
+            pick(&mut h, "Align");
+            pick(&mut h, text);
+            assert_eq!(places_now(&h, inside, &all), by_key, "{text}: the menu's and the key's");
+            undo(&mut h);
+            assert_eq!(places_now(&h, inside, &all), before);
+        }
         // two nodes cannot be distributed, one cannot be aligned: nothing moves
         select(&mut h, &["a", "b"]);
         h.key_press_modifiers(alt_shift, egui::Key::H);
@@ -2324,6 +2352,8 @@ fn the_align_keys_do_what_the_menu_does() {
         pick(&mut h, "Align");
         assert!(!h.get_by_label_contains("Left edges    shift+alt+Left").accesskit_node().is_disabled());
         assert!(!h.get_by_label_contains("Distribute horizontally    shift+alt+H").accesskit_node().is_disabled());
+        assert!(!h.get_by_label_contains("In a column    shift+alt+K").accesskit_node().is_disabled());
+        assert!(!h.get_by_label_contains("In a row    shift+alt+R").accesskit_node().is_disabled());
     }
 }
 

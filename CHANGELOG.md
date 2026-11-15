@@ -114,7 +114,7 @@ minor versions.
 - **Keys for Align, and groups that read in the light themes.** The selection's *Align* entries have shortcuts, shown in
   the menu and in the sheet of shortcuts (F1) and changed in Settings (Keyboard) like the others: alt+shift with the
   arrows for the left, right, top and bottom edges, C and M for the horizontal and vertical centres, H and V to
-  distribute horizontally and vertically (three nodes or more); one step of undo each, as the menu. In the light
+  distribute horizontally and vertically (three nodes or more), K and R to put them in a column and in a row; one step of undo each, as the menu. In the light
   themes a group's border and header now read at 3:1 on the canvas (its title at 4.5:1 on the header, its accent
   icon and count at 4.5:1 on the box), and the notes' and frames' colours are darkened to read on it; the dark themes
   are as they were.

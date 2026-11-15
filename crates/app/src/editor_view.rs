@@ -528,7 +528,7 @@ pub enum NodeStatus {
 }
 
 /// The keyboard actions ([`crate::keymap`]) that put the nodes selected in line, as the "Align" menu does.
-pub const ALIGN_KEYS: [(&str, Align); 8] = [
+pub const ALIGN_KEYS: [(&str, Align); 10] = [
     ("canvas_align_left", Align::Left),
     ("canvas_align_right", Align::Right),
     ("canvas_align_top", Align::Top),
@@ -537,9 +537,11 @@ pub const ALIGN_KEYS: [(&str, Align); 8] = [
     ("canvas_align_centre_y", Align::CentreY),
     ("canvas_spread_x", Align::SpreadX),
     ("canvas_spread_y", Align::SpreadY),
+    ("canvas_stack_column", Align::Column),
+    ("canvas_stack_row", Align::Row),
 ];
 
-/// The id of the keyboard action that does `how` (none for a column and a row).
+/// The id of the keyboard action that does `how` (all ten of the menu).
 fn align_key(how: Align) -> Option<&'static str> {
     ALIGN_KEYS.iter().find(|(_, a)| *a == how).map(|(id, _)| *id)
 }

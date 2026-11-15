@@ -2576,7 +2576,9 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
    `editor::move_node`, um passo de desfazer). Teste: `the_selections_menu_aligns_and_distributes`.
    **Atalhos feitos** (Unreleased): alt+shift+setas (bordas), C e M (centros), H e V (distribuir), ações `canvas_align_*` e
    `canvas_spread_*` do `keymap` (remapeáveis), lidas em `builder::keys` antes das setas simples (o egui ignora alt e shift
-   a mais no `consume_key`); teste `the_align_keys_do_what_the_menu_does`. Falta: atalhos para coluna e linha; os
+   a mais no `consume_key`); teste `the_align_keys_do_what_the_menu_does`. **Coluna e linha feitas** (Unreleased): alt+shift+K
+   (coluna) e alt+shift+R (linha), `canvas_stack_column` e `canvas_stack_row` em `ALIGN_KEYS`, remapeáveis, no menu e no F1;
+   teste estendido. Falta: os
    espaços de coluna e linha (20 e 60) são uma escolha, não uma constante comum com o *Arrange*.
    **Tema claro dos grupos feito** (Unreleased): `editor_view::group_look` (borda e cabeçalho a 3:1 do canvas, título a
    4.5:1, o ícone do grupo a 4.5:1), `notes::inks` para notas e molduras; o tema escuro intacto (testes
