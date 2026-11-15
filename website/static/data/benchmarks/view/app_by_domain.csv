@@ -1,0 +1,14 @@
+group,c0,c1,c2,c3
+Land change,6,5,0,2
+Species distributions,9,4,1,1
+Spatial prioritization,4,9,2,0
+Landscape metrics,0,1,2,1
+GuidosToolbox,4,0,0,0
+Connectivity,3,4,1,0
+Terrain and surface,2,0,0,1
+SWAT+,2,3,0,0
+Ecosystem services,0,2,0,0
+Biodiversity,2,1,0,0
+Movement ecology,1,0,0,0
+Neutral landscape models,1,0,0,0
+Other,2,2,1,2

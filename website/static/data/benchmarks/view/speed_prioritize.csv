@@ -1,0 +1,6 @@
+case,z5_1,z5_12,tf1,tf12,sp1,sp12,since,short
+1000 × 1000 · 30 features · CAZ2 · 60 iterations,20.6,12.4,9.5,1.86,2.17,6.67,v0.95,"1000², 30 features, CAZ2"
+2000 × 2000 · 30 features · CAZ2 · 60 iterations,102.8,48,45.6,7.29,2.25,6.58,v0.95,"2000², 30 features, CAZ2"
+2000 × 2000 · 30 features · ABF · 20 iterations,53.6,23.4,36.5,5.9,1.47,3.97,v0.95,"2000², 30 features, ABF"
+"2000 × 2000 · 30 features · CAZ2, 16 bits · 60 iterations",104.4,49.7,46.2,8.71,2.26,5.71,v0.95,"2000², CAZ2, 16 bits"
+1000 × 1000 · 200 sparse features · CAZ2 · 59 iterations,105.8,33.6,15,3.16,7.05,10.6,v0.95,"1000², 200 sparse features"

@@ -1,0 +1,6 @@
+case,reference_s,terraflux_s,speedup,since,note,tool,short
+2000 small polygons (16 million cells) · rasterstats,2.34,0.37,6.32,v0.98,,rasterstats,Small polygons · rasterstats
+2000 small polygons (16 million cells) · exactextract,3.59,0.37,9.7,v0.98,,exactextract,Small polygons · exactextract
+20 large polygons (22 million cells) · rasterstats,1.14,0.37,3.08,v0.98,,rasterstats,Large polygons · rasterstats
+20 large polygons (22 million cells) · exactextract,8.37,0.37,22.6,v0.98,,exactextract,Large polygons · exactextract
+values at 1 million points · rasterstats,119,0.028,4250,v0.98,reference time given as about 119 s,rasterstats,1 M points · rasterstats

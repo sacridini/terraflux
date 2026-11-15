@@ -19,7 +19,7 @@ prioritization, restoration planning, species distributions, biodiversity analys
 - **The same numbers as the reference tools.** Methods are re-implemented from their publications and source
   code, and the test suite checks each against its reference implementation (GuidosToolbox, landscapemetrics,
   Conefor, Circuitscape, gdistance, Zonation, Marxan, MaxNet, Biodiverse, Dinamica EGO,
-  lulcc, PLUS and others), most to the last bit: see [validation and benchmarks](/about/validation/).
+  lulcc, PLUS and others), most to the last bit: see the [benchmarks](/benchmarks/).
 - **Any scale.** The same model runs on a laptop, on the computers of a lab, on a university cluster or in the
   cloud, and maps larger than memory run in tiles with the same result whatever the number of machines.
 

@@ -1,0 +1,39 @@
+version,date,kind,area,what_was_checked,against_what,result,changelog_line
+1.52.0,2026-11-15,performance,Application: node canvas,"Frame time of dragging one node in a model of 10,000 nodes (and of 1,000)",the same model before the change,"31 ms -> about 5 ms (10,000 nodes); 2.8 ms -> 0.5 ms (1,000 nodes)",34
+1.49.0,2026-11-15,parity,Zonation 5 output files,"rankmap.tif, feature_curves.csv, summary_curves.csv, feature_density_curves.csv, group_curves.csv, features_info.csv",Zonation 5's own files in 64 cases (landschaft's references),"the same lines (means are z5's float32 sums, Eigen's order); rasters bit for bit; also 4 post-processing and 5 impact projects",226
+1.49.0,2026-11-15,parity,Optimized prioritization (corridors),add_corridor_constraints: 5 compiled models,landschaft,models bit for bit; same selection in the same time,248
+1.48.0,2026-11-14,parity,SWAT+,"swat.hru_map, channel_map, reach_discharge: 28 cases",landschaft,bit for bit,292
+1.48.0,2026-11-14,parity,SWAT+,"swat.watershed: 18 cases (each HRU method, thresholds, outlets and snap, slope bands, ...)",landschaft (QSWAT+),"bit for bit; only degrees differ, by 7e-15 at most, between two PROJ versions",301
+1.48.0,2026-11-14,parity,SWAT+,swat.from_tables and swat.wgn: 6 project cases,landschaft (SWAT+ Editor 4.0.2),every file byte for byte (the date on the first line aside); statistics bit for bit,311
+1.47.0,2026-11-14,performance,Optimized prioritization (zones),Zones with boundary penalties or connectivity rewards go to the zones cut engine before HiGHS,HiGHS MIP alone (minutes),"about a hundredth of a second; same plan, bound and status as landschaft 1.58.1",374
+1.47.0,2026-11-14,performance,Build (Windows),landschaft's C++ compiled with optimisation under MSVC (CMake's /O2 /Ob2 /DNDEBUG) instead of none,landschaft's wheels,"a prioritization with zones that went on to HiGHS: 22.7 s -> 7.0 s, as in landschaft",396
+1.45.1,2026-11-07,parity,Circuits,Parity tests of Circuitscape's modes against landschaft failed now and then: the CPU's cache sizes (efficient vs performance cores) changed the last bits,landschaft,"fixed by fixing the cache sizes (48 KB, 2 MB, 24 MB) before any product",426
+1.45.1,2026-11-07,parity,Surface metrics,"VRM and spherical standard deviation square with x * x, as numpy's ** 2 (a debug build's powi(2) went to the C library's pow, which Windows' UCRT does not always round to the square)",numpy / landschaft,same bits,429
+1.39.0,2026-11-04,performance,Application: viewer,Folder of rasters opened (overviews made in memory once),before: still loading after 20 s,map in view under 1 s; every layer in about 4 s; as one stack under 1 s,946
+1.34.0,2026-11-03,external check,Export to QGIS,"The QGIS project (.qgz) with labels, markers and rules, read in PyQGIS by tools/check_qgz.py",QGIS 3.34 itself,"layers valid, classes paletted, labels, marker and rules as written",1128
+1.24.1,2026-10-29,performance,Vectors: GeoPackage writing,"47,000 points written in one transaction",a commit per feature,29 s -> 0.5 s,1604
+1.24.0,2026-10-29,parity,Animal movement,move.* (the methods of move2 and amt) on landschaft's reference tracks,landschaft,bit for bit,1612
+1.16.0,2026-10-26,performance,Map algebra,"Expressions compiled and run in parallel blocks; nbmin/nbmax by van Herk and Gil-Werman, on 9 million cells with 4 threads","the previous evaluator, same results to the bit","local expressions 5-20 times faster; nbmax(a, 5) 18 times; nbmin(b, 25) 400 times (45 s -> 0.11 s)",1916
+0.86.0,2026-10-17,parity,Terrain hydrology,"hydro.* (fill, breach, D8, D-infinity, FD8, MFD, HAND, streams ...)",landschaft 1.50,bit for bit,2432
+0.86.0,2026-10-17,parity,Ecosystem services,"InVEST models in float32 with numpy's own AVX2 exp, sin, cos ported (terraflux_ops::npmath)",landschaft's InVEST references,same float32 bits,2445
+0.86.0,2026-10-17,parity,SWAT+,swat.run on the Hubbard Brook example (SWAT+ 62.0.1 port),landschaft 1.50,bit for bit,2458
+0.83.0,2026-10-16,performance,Optimized prioritization,"Minimum set of 49 species with a boundary penalty and locked-in areas on 85,732 cells",HiGHS's MIP alone,"45 minutes -> 4 seconds, the same plan as landschaft",2568
+0.63.0,2026-10-14,parity,Vectors (out of core),vector.exact_sum and vector.distance by strips,the same operators in memory,same bits,2941
+0.42.0,2026-10-13,parity,Circuits,Circuitscape INI runs: 51 raster test cases and landschaft's Omniscape configurations,landschaft,"same, to the bit; files written byte for byte",3188
+0.27.0,2026-10-13,parity,Circuits,circuit.omniscape and circuit.advanced,landschaft (itself checked against Omniscape.jl and Circuitscape.jl),"same maps, to the bit",3365
+0.20.0,2026-10-13,parity,Landscape metrics (out of core),block_rows: blocks of rows and rasters on disk of more than 250 million cells,the same metrics in memory,"same tables, to the bit",3482
+0.19.0,2026-10-13,performance,Application: vector layers,"Layer of a quarter of a million polygons indexed and drawn (R-tree, tiny-skia, thread of its own)",,"indexed in 60 ms, drawn in 90 ms",3505
+0.13.0,2026-10-12,parity,Vectors / prioritization,vector.exact_sum and polygon planning units,exactextractr exact_extract; prioritizr models,sums bit for bit; prioritizr's models bit for bit,3701
+0.11.0,2026-10-12,parity,Spatial prioritization,All 65 Zonation cases (24 transform/connectivity/post-processing/impact + 41 core),z5 binary outputs kept by landschaft,"ranks bit for bit; transformed and pre-processing maps, impact maps; post-processing tables word for word",3742
+0.10.0,2026-10-12,parity,Spatial prioritization,prioritize.zonation rank maps and iterations,"z5 binary, 41 cases",bit for bit,3867
+0.9.0,2026-10-11,parity,GuidosToolbox,Landscape mosaic of 103 classes against GTB's own outputs; the other GTB tools against landschaft's,GTB digests; landschaft,"every map bit for bit, reports' numbers to their last bits",3917
+0.8.0,2026-10-11,parity,GuidosToolbox,"SPA, accounting, FAD, FAD-MS, FOS, mosaic ... through landschaft's port",GTB outputs that landschaft keeps,same bits,3930
+0.8.0,2026-10-11,performance,Application: viewer,A raster of 7.3 billion cells shown from a pyramid of tiles; a view 67 times closer,,0.4 s to show; 0.3 s for the closer view; frames under 10 ms,3984
+0.8.0,2026-10-11,parity,GuidosToolbox,landscape.mspa,GuidosToolbox's mspa executable outputs kept by landschaft,bit for bit,4005
+0.8.0,2026-10-11,performance,Application: node canvas,"Canvas drawn by the GPU, 10,000 nodes","the previous canvas (2,000 nodes took 4.7 s a frame)",frame about 0.1 ms; dragging a node 0.5 ms; an edit about 30 ms,4012
+0.8.0,2026-10-11,performance,Application: viewer,Frame time with a map of 2048 x 1728 cells shown while MSPA runs on it,,frames under 4 ms,4039
+0.8.0,2026-10-11,performance,Application: model checking,"Checking a model and ordering its nodes (10,000 nodes)",before: time grew with the square of the nodes,141 ms -> 10 ms,4044
+0.5.0,2026-10-10,performance,Land change simulation (tiled engine),"56.6 million cells, 10 transitions, 3 steps on 4 threads",(no reference; recorded as a scale figure),"318 s in all: 43 s of fits, about 92 s a step",4123
+0.5.0,2026-10-10,performance,Land change simulation,woe.probability computes the buckets of a variable once per origin class,before,"about twice as fast, the same values",4132
+0.2.0,2026-10-10,parity,Land change simulation,Models written by landschaft 1.44.0 (Model.save) run here,ls.simulate,bit for bit,4175
+0.1.0,2026-10-10,parity,Land change simulation,First parity tests: Dinamica EGO's model on Sibuyan; CLUE-S and the ordered allocation on Plum Island with every rule,landschaft,bit for bit,4207

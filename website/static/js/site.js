@@ -428,21 +428,23 @@
     }
     function esc(t) { return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
     function drawH() {
-      var dot = cfg.type === "dot", W = plot.clientWidth || 600, narrow = W < 520, GAP = 2;
+      var dot = cfg.type === "dot", stk = !!cfg.stacked && !dot, W = plot.clientWidth || 600, narrow = W < 520, GAP = 2;
       var keys = cfg.y.filter(function (k) { return !off[k] && rows.some(function (r) { return typeof r[k] === "number"; }); });
       if (cfg.color_by) keys = keys.slice(0, 1);
       var vis = [];
       rows.forEach(function (r, i) { if (!(cfg.color_by && off[r[cfg.color_by]])) vis.push(i); });
       var vals = [];
-      vis.forEach(function (i) { keys.forEach(function (k) { if (typeof rows[i][k] === "number") vals.push(rows[i][k]); }); });
+      var total = function (r) { var t = 0; keys.forEach(function (k) { t += +r[k] || 0; }); return t; };
+      if (stk) vis.forEach(function (i) { vals.push(total(rows[i])); });
+      else vis.forEach(function (i) { keys.forEach(function (k) { if (typeof rows[i][k] === "number") vals.push(rows[i][k]); }); });
       if (!vals.length) vals = [1, 10];
-      var n = dot ? 1 : Math.max(keys.length, 1), bh = n === 1 ? 20 : n === 2 ? 16 : 14;
+      var n = dot || stk ? 1 : Math.max(keys.length, 1), bh = n === 1 ? 20 : n === 2 ? 16 : 14;
       var stack = dot ? 14 : n * bh + (n - 1) * GAP, labH = narrow ? 19 : 0, pitch = labH + stack + (narrow ? 16 : 18);
       var catFont = (narrow ? "13px" : "13.5px"), valFont = "600 12.5px";
       var cats = vis.map(function (i) { return String(rows[i][cfg.x]); });
       var lw = 0;
       if (!narrow) { cats.forEach(function (t) { lw = Math.max(lw, tw(t, catFont)); }); lw = Math.min(Math.ceil(lw), Math.floor(W * 0.36), 240); }
-      var ends = vis.map(function (i) { var out = []; (dot ? keys.slice(-1) : keys).forEach(function (k) { if (typeof rows[i][k] === "number") out.push(fv(rows[i][k])); }); return out; });
+      var ends = vis.map(function (i) { var out = []; if (stk) return [fv(total(rows[i]))]; (dot ? keys.slice(-1) : keys).forEach(function (k) { if (typeof rows[i][k] === "number") out.push(fv(rows[i][k])); }); return out; });
       var ew = 0;
       if (cfg.labels_at_end) ends.forEach(function (o) { o.forEach(function (t) { ew = Math.max(ew, tw(t, valFont)); }); });
       var m = { l: narrow ? 14 : lw + 16, r: Math.max(22, cfg.labels_at_end ? Math.ceil(ew) + 14 : 0), t: cfg.rule ? 26 : 10, b: cfg.xlabel ? 52 : 30 };
@@ -472,7 +474,7 @@
       vis.forEach(function (ri, vi) {
         var r = rows[ri], top = m.t + vi * pitch, mt = top + (narrow ? 8 : 9) + labH, full = cats[vi];
         var shown = trunc(full, narrow ? W - 24 : lw, catFont);
-        var aria = full + ": " + keys.map(function (k) { return label(k) + " " + fv(r[k]); }).join(", ");
+        var aria = full + ": " + keys.map(function (k) { return label(k) + " " + fv(r[k]); }).join(", ") + (stk ? ", total " + fv(total(r)) : "");
         s += '<g class="row" data-i="' + vi + '">';
         s += '<text class="cat" x="' + (narrow ? m.l : 0) + '" y="' + (narrow ? top + 15 : mt + stack / 2 + 4.5) + '">' + esc(shown) + "</text>";
         if (dot) {
@@ -486,6 +488,19 @@
             var lk = vs[vs.length - 1], rx = Math.max.apply(null, vs.map(function (k) { return xp(r[k]); }));
             s += '<text class="val" x="' + (rx + 12) + '" y="' + (cy + 4.2) + '">' + esc(fv(r[lk])) + "</text>";
           }
+        } else if (stk) {
+          var base = 0, lastK = null, y = mt, SG = 2;
+          keys.forEach(function (k) { if ((+r[k] || 0) > 0) lastK = k; });
+          keys.forEach(function (k) {
+            var v = +r[k] || 0; if (v <= 0) return;
+            var a = xp(base) + (base > 0 ? SG / 2 : 0), b = xp(base + v) - (k === lastK ? 0 : SG / 2); base += v;
+            b = Math.max(b, a + 1);
+            if (k === lastK) {
+              var rr = Math.min(4, bh / 2, (b - a) / 2);
+              s += '<path class="bar" fill="' + color(k, cfg.y.indexOf(k)) + '" d="M' + a + "," + y + "H" + (b - rr) + "A" + rr + "," + rr + " 0 0 1 " + b + "," + (y + rr) + "V" + (y + bh - rr) + "A" + rr + "," + rr + " 0 0 1 " + (b - rr) + "," + (y + bh) + "H" + a + 'Z"/>';
+            } else s += '<rect class="bar" fill="' + color(k, cfg.y.indexOf(k)) + '" x="' + a + '" y="' + y + '" width="' + (b - a) + '" height="' + bh + '"/>';
+          });
+          if (cfg.labels_at_end) s += '<text class="val" x="' + (xp(base) + 7) + '" y="' + (y + bh / 2 + 4.2) + '">' + esc(fv(base)) + "</text>";
         } else keys.forEach(function (k, j) {
           var v = r[k]; if (typeof v !== "number") return;
           var y = mt + j * (bh + GAP), x0 = xp(lo), x1 = Math.max(xp(v), x0 + 2), rr = Math.min(4, bh / 2, (x1 - x0) / 2);
@@ -504,6 +519,21 @@
       var svg = $("svg", plot);
       function show(vi, cx) {
         var r = rows[vis[vi]];
+        if (stk) {
+          var cum = 0, hk = null;
+          if (cx != null) keys.forEach(function (k) { var v = +r[k] || 0; if (v > 0 && hk === null && cx <= xp(cum + v) + 1) hk = k; if (v > 0) cum += v; });
+          svg.classList.add("has-hover");
+          $$(".row", svg).forEach(function (g, i) { g.classList.toggle("is-hover", i === vi); });
+          tip.innerHTML = "<b>" + esc(cats[vi]) + "</b>" + keys.map(function (k) {
+            var t = '<i style="background:' + color(k, cfg.y.indexOf(k)) + '"></i>' + esc(label(k)) + ": " + esc(fv(+r[k] || 0));
+            return "<br>" + (k === hk ? "<b>" + t + "</b>" : t);
+          }).join("") + "<br>Total: " + esc(fv(total(r)));
+          tip.hidden = false;
+          var hf = tip.offsetWidth / 2, xx = cx == null ? m.l + pw / 2 : cx;
+          tip.style.left = Math.min(Math.max(xx, hf + 2), Math.max(hf + 2, W - hf - 2)) + "px";
+          tip.style.top = (plot.offsetTop + m.t + vi * pitch + 4) + "px";
+          return;
+        }
         svg.classList.add("has-hover");
         $$(".row", svg).forEach(function (g, i) { g.classList.toggle("is-hover", i === vi); });
         var head = "<b>" + esc(cats[vi]) + "</b>";

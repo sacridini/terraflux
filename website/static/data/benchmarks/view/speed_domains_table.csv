@@ -1,0 +1,14 @@
+domain,cases,min,median,max
+Landscape metrics,7,17.5,171,1.33e+03
+Species distributions,11,6.13,22.9,650
+Habitat networks,6,7.57,16.9,624
+Circuit connectivity,8,3.22,15.1,45.9
+Surface metrics,16,2.86,14.8,6.09e+03
+Grid distances,9,3.45,11.9,400
+Zonal statistics,5,3.08,9.7,4.25e+03
+MSPA,6,7.98,9.36,13.7
+Neutral landscape models,18,1.74,9.18,6.33e+03
+Land change simulation,10,1.75,9.18,549
+Optimized plans,10,1.45,8.35,81.4
+Spatial prioritization,10,1.47,4.84,10.6
+Terrain hydrology,5,1.21,1.53,3.15

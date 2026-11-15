@@ -1,0 +1,32 @@
+scope,kind,files,tests,ignored,notes
+terraflux-app,integration (crates/app/tests),16,251,13,test functions; one function often loops over many reference cases
+terraflux-app,unit (crates/app/src),107,550,9,#[test] inside the source files
+terraflux-calc-web,integration (crates/calc-web/tests),0,0,0,test functions; one function often loops over many reference cases
+terraflux-calc-web,unit (crates/calc-web/src),1,0,0,#[test] inside the source files
+terraflux-cli,integration (crates/cli/tests),1,1,0,test functions; one function often loops over many reference cases
+terraflux-cli,unit (crates/cli/src),3,25,0,#[test] inside the source files
+terraflux-dist,integration (crates/dist/tests),3,16,0,test functions; one function often loops over many reference cases
+terraflux-dist,unit (crates/dist/src),20,34,0,#[test] inside the source files
+terraflux-engine,integration (crates/engine/tests),1,4,0,test functions; one function often loops over many reference cases
+terraflux-engine,unit (crates/engine/src),8,5,0,#[test] inside the source files
+terraflux-exec,integration (crates/exec/tests),17,82,0,test functions; one function often loops over many reference cases
+terraflux-exec,unit (crates/exec/src),7,34,0,#[test] inside the source files
+terraflux-gdal,integration (crates/gdal/tests),1,5,0,test functions; one function often loops over many reference cases
+terraflux-gdal,unit (crates/gdal/src),2,0,0,#[test] inside the source files
+terraflux-graph,integration (crates/graph/tests),0,0,0,test functions; one function often loops over many reference cases
+terraflux-graph,unit (crates/graph/src),9,50,0,#[test] inside the source files
+terraflux-ls-sys,integration (crates/ls-sys/tests),1,6,0,test functions; one function often loops over many reference cases
+terraflux-ls-sys,unit (crates/ls-sys/src),1,0,0,#[test] inside the source files
+terraflux-ops,integration (crates/ops/tests),76,314,21,test functions; one function often loops over many reference cases
+terraflux-ops,unit (crates/ops/src),156,119,1,#[test] inside the source files
+terraflux-raster,integration (crates/raster/tests),2,13,0,test functions; one function often loops over many reference cases
+terraflux-raster,unit (crates/raster/src),7,9,0,#[test] inside the source files
+Terraflux workspace,total integration,,692,,all crates
+Terraflux workspace,total unit,,826,,all crates
+Terraflux workspace,total,,1518,,"counted by grep of #[test] and #[tokio::test]; run counts can differ (macros, ignored tests)"
+Terraflux workspace,reference data (tests/data/reference),316,,,"182 top-level entries (files and folders), 316 files in all; stored outputs of the library and of original tools"
+Terraflux workspace,bridge fixtures (tests/data/bridge),13,,,"models saved by the Python library, run again here (crates/exec/tests/bridge.rs)"
+Python library terraflux-py 1.59.0,test files,171,,,"validation.md, The test suite"
+Python library terraflux-py 1.59.0,test functions,,1665,,git grep of def test_ in tests
+Python library terraflux-py 1.59.0,collected tests (pytest),,4678,,parametrised cases counted one by one
+Python library terraflux-py 1.59.0,tests that need an original tool (marker live_reference),,81,,"of the 4,678"

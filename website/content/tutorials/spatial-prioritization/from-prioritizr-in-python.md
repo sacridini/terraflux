@@ -274,7 +274,7 @@ methods of 8.1 (`spec_*_targets()`). Open an issue if you need one of them.
 - **The gap means the same.** `gap=0.1` stops within 10 % of the optimum, as in prioritizr; for a final
   plan use a small gap.
 - **Faster, not different.** Terraflux's own engines (covering, cuts, closure) reach the solutions faster
-  than the solver alone and prove the same bounds; the [benchmarks](/about/validation/) list the times.
+  than the solver alone and prove the same bounds; the [benchmarks](/benchmarks/speed/#optimized-plans) list the times.
 - **Top fractions count cells by position.** Landscape identification and comparison follow Zonation,
   not a quantile of the surface (where ties can add units): the cells are ranked by position (ties: the
   earlier cell in row order ranks lower) and the top fraction is the cells ranked at or above

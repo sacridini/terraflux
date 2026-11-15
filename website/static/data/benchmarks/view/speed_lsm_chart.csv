@@ -1,0 +1,8 @@
+case,reference_s,terraflux_s,speedup,since,note,tool,short
+All 133 metrics of augusta_nlcd (440 × 678),15.6,0.03,520,v0.14,,landscapemetrics (R),"All 133 metrics, 440 × 678"
+"sample_lsm, 6 plots of augusta_nlcd",3.7,0.02,185,v0.15,,landscapemetrics (R),"sample_lsm, 6 plots"
+Nearest-neighbour distances (enn) of augusta_nlcd,2.4,0.014,171,v0.14,,landscapemetrics (R),Nearest neighbour (enn)
+"get_nearestneighbour, 1000 × 1000",1.8,0.05,36,v0.18,,landscapemetrics (R),"get_nearestneighbour, 1000²"
+"augusta_nlcd 440x678, the first 91 metrics",8.6,0.1,86,,,landscapemetrics (R),First 91 metrics
+"augusta_nlcd, circle",0.14,0.008,17.5,,,landscapemetrics (R),Circle
+"9x11 map, 5x5 window, 10 metrics (window_lsm)",4,0.003,1333,,reference time given as about 4 s,landscapemetrics (R),"window_lsm, 9 × 11, 5 × 5"

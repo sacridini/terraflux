@@ -1,0 +1,7 @@
+case,gtb,tf1,tf19,sp1,sp19,identical,short
+"Sample, 1000² · 8, 1",0.46,0.04,0.029,11.5,15.9,identical,"Sample 1000², 8 / 1"
+"Sample, 1000² · 8, 5",0.56,0.065,0.054,8.62,10.4,identical,"Sample 1000², 8 / 5"
+"Sample, 1000² · 4, 20",0.68,0.079,0.068,8.61,10,identical,"Sample 1000², 4 / 20"
+"CORINE, 2000² · 8, 1",1.3,0.095,0.078,13.7,16.7,identical,"CORINE 2000², 8 / 1"
+"CORINE, 2000² · 8, 5",1.53,0.151,0.137,10.1,11.2,identical,"CORINE 2000², 8 / 5"
+"CORINE, 2000² · 4, 20",1.7,0.213,0.174,7.98,9.77,identical,"CORINE 2000², 4 / 20"

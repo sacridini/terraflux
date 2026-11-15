@@ -1,0 +1,6 @@
+case,terraflux_s,note
+2000x2000 (4 M cells): transition,0.15,
+2000x2000: cost surface,0.6,
+2000x2000: random-walk passage map,4.5,
+2000x2000: randomised-shortest-path passage map,4.6,
+"2000x2000: randomised-shortest-path passage map, asymmetric transition",7.8,

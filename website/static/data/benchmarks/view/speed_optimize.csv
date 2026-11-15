@@ -1,0 +1,10 @@
+label,highs_s,gurobi_s,terraflux_s,sp_highs,sp_gurobi,since,note,short
+"minimum set, 100,000 units",7,2,0.44,15.9,4.55,v1.21,,"Minimum set, 100 k units"
+"minimum set, 1 million units *",120,20,1.7,70.6,11.8,v1.21,HiGHS: no answer in 120 s (its best plan 2.1 times the optimum). Terraflux's gap 0.002 %. The speed-up over HiGHS is a lower bound.,"Minimum set, 1 M units *"
+"boundary penalty, 1 million units *",960,289,27,35.6,10.7,v1.21,HiGHS: no answer in 16 min. Terraflux's gap 0.77 %. The speed-up over HiGHS is a lower bound.,"Boundary penalty, 1 M units *"
+"minimum penalties with boundary, gap 10 %, 2400 units *",150,,12,12.5,,v1.27,HiGHS: more than 150 s. The speed-up over HiGHS is a lower bound.,"Penalties, boundary, 2400 *"
+"multi-action, least cost, 100,000 units",57,3,0.7,81.4,4.29,v1.22,,"Multi-action, 100 k units"
+"multi-action, least cost, gap 0, 100,000 units *",300,13,6,50,2.17,v1.22,HiGHS: no answer in 300 s. The speed-up over HiGHS is a lower bound.,"Multi-action, gap 0, 100 k *"
+"multi-action with boundaries, 10,000 units",,7.5,0.18,,41.7,v1.22,,"Multi-action, boundaries, 10 k"
+"multi-action with river dependencies (soft), 100,000 units",,6,1,,6,v1.22,,"Multi-action, soft rivers"
+"multi-action with river dependencies (hard), 100,000 units",,8,5.5,,1.45,v1.22,,"Multi-action, hard rivers"

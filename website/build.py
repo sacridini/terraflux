@@ -464,8 +464,9 @@ def fence_gallery(source, language, class_name, options, md, **kwargs):
 def fence_table(source, language, class_name, options, md, **kwargs):
     """A table from a CSV (`data:` a file under static/, or `csv: |` inline): `columns` picks and orders them,
     `labels` renames them, `digits` rounds numbers (one number, or one per column), `format` gives a column's text
-    (`{v}×`), `align` aligns a column, `badge` turns a column's values into status pills (the text stays), `heat: true`
-    shades numeric cells by value (a matrix) and `sortable: true` sorts by a click on a header."""
+    (`{v}×`), `align` aligns a column, `badge` turns a column's values into status pills (the text stays), `link` turns
+    the file paths in a column (`tools/x.py`) into links under a base address, `heat: true` shades numeric cells by
+    value (a matrix) and `sortable: true` sorts by a click on a header."""
     s = spec_of(source, "tftable")
     rows = read_table(s)
     if not rows:
@@ -484,6 +485,7 @@ def fence_table(source, language, class_name, options, md, **kwargs):
     if isinstance(aligns, str):
         aligns = {c: aligns for c in cols[1:]}
     badges = s.get("badge") or {}
+    links = s.get("link") or {}
     tones = {"good": "good", "warning": "warning", "bad": "bad", "danger": "bad", "info": "info", "neutral": "info"}
     glyph = {"good": "✓", "warning": "!", "bad": "✕", "info": ""}
     sortable = bool(s.get("sortable"))
@@ -516,6 +518,10 @@ def fence_table(source, language, class_name, options, md, **kwargs):
             cls = "num" + (f" a-{al}" if al else "")
             return f'<td class="{cls}" data-v="{v}"{style}>{esc(txt)}</td>'
         cls = f' class="a-{al}"' if al else ""
+        if c in links and isinstance(v, str) and v:
+            base = str(links[c])
+            html = re.sub(r"(tools/[\w./-]+\.(?:py|R|patch))", lambda m: f'<a href="{esc(base + m.group(1))}">{m.group(1)}</a>', esc(v))
+            return f'<td{cls} data-v="{esc(str(v).lower())}">{html}</td>'
         return f'<td{cls} data-v="{esc(str(v).lower())}">{esc(v)}</td>'
 
     def th(c):

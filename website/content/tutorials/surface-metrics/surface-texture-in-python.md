@@ -299,7 +299,7 @@ mean square height and the moments built on it, the seven-point slopes, the
 valley search, the summit curvature, the bearing area curve's areas, the
 centre of the Fourier images, the fractal dimension's prisms, the choice of
 trend surface, curvature's second derivatives, hsp's z-scores and the heat
-load's southern hemisphere; see the [benchmarks](/about/validation/#accuracy)
+load's southern hemisphere; see the [benchmarks](/benchmarks/accuracy/)
 and each function's notes. Typical gains in speed are tens to thousands of
 times over the R packages. `hilltop` follows the law rather than a program
 (Dinamica EGO's `CalcHilltop` applies the older CONAMA rule with other

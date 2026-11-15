@@ -1,0 +1,13 @@
+case,terraflux_s,page_mb,note
+"float32 raster, 10 000 × 10 000, in memory",0.25,4.7,tf.plot; library 1.32.0; fastest of 3; first plot in a session adds ~0.7 s once
+"class raster, 10 000 × 10 000, in memory",0.14,1.6,tf.plot; library 1.32.0; fastest of 3; first plot in a session adds ~0.7 s once
+"float32 raster, 10 000 × 10 000, read lazily from a file",0.61,4.7,tf.plot; library 1.32.0; fastest of 3; first plot in a session adds ~0.7 s once
+"float32 raster, 2000 × 2000",0.23,5.1,tf.plot; library 1.32.0; fastest of 3; first plot in a session adds ~0.7 s once
+"stack of 47 bands of 1000 × 1000 (a band per thread, 16 million pixels in all)",0.85,14.0,tf.plot; library 1.32.0; fastest of 3; first plot in a session adds ~0.7 s once
+10 000 polygons coloured by a column (GeoJSON),0.14,2.7,tf.plot; library 1.32.0; fastest of 3; first plot in a session adds ~0.7 s once
+50 000 polygons coloured by a column (WebGL),0.36,1.5,tf.plot; library 1.32.0; fastest of 3; first plot in a session adds ~0.7 s once
+"200 000 polygons coloured by a column (WebGL, with their columns)",0.99,5.3,tf.plot; library 1.32.0; fastest of 3; first plot in a session adds ~0.7 s once
+2 million points coloured by a column (WebGL),0.7,13.0,tf.plot; library 1.32.0; fastest of 3; first plot in a session adds ~0.7 s once
+"50 000 polygons, static figure (`static=True`, drawn as a PNG)",0.57,0.7,tf.plot; library 1.32.0; fastest of 3; first plot in a session adds ~0.7 s once
+"200 000 polygons, static figure (burnt into an image)",0.8,0.6,tf.plot; library 1.32.0; fastest of 3; first plot in a session adds ~0.7 s once
+a table of landscape metrics (a chart),0.03,4.3,tf.plot; library 1.32.0; fastest of 3; first plot in a session adds ~0.7 s once

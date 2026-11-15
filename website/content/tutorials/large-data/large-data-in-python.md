@@ -171,4 +171,4 @@ morph_stack.shape
 ## Next steps
 
 - The [API reference](/python/api/batch/) lists every option.
-- The [benchmarks](/about/validation/) show the speed you can expect.
+- The [benchmarks](/benchmarks/speed/) show the speed you can expect.

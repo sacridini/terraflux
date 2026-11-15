@@ -160,10 +160,10 @@ parallel functions use most of the cores unless given `n_threads` (never all of 
 ## Why Terraflux
 
 - **Fast.** A C++17 core with OpenMP, cache-friendly algorithms and exact sparse solvers. Typical runs take
-  seconds where the original tools take minutes or hours. [See the benchmarks](/about/validation/).
+  seconds where the original tools take minutes or hours. [See the benchmarks](/benchmarks/speed/).
 - **Exact.** The tools are checked against the reference implementations of their methods, to the last bit where
   the method allows it and to the solver's precision where it does not.
-  [How each tool is checked](/about/validation/).
+  [How each tool is checked](/benchmarks/accuracy/).
 - **Pythonic.** numpy arrays, georeferenced `xarray.DataArray`s, dask, GeoTIFFs, GeoDataFrames and pandas tables
   in and out. No GUI, no temporary files, no other language to install.
 - **Scales.** Rasters larger than memory by tiles or row blocks, collections of maps in parallel within a memory
@@ -180,7 +180,7 @@ Circuitscape and Omniscape (circuit connectivity), gdistance (routes on grids), 
 metrics), NLMR (neutral landscape models), Zonation 5 (spatial prioritization), the R packages for species
 distributions (CoordinateCleaner, usdm, dismo, blockCV, ENMeval, predicts, ecospat, maxnet) and the land change
 models (lulcc, CLUMondo, FUTURES, MOLUSCE, Dinamica EGO) and SWAT+ (watershed simulation), and is
-[tested against their outputs](/about/validation/). You do not need to know any of them to use it: the
+[tested against their outputs](/benchmarks/accuracy/). You do not need to know any of them to use it: the
 [tutorials](/python/tutorials/) start from scratch, and the [application's tutorials](/tutorials/) explain the landscape
 ecology behind every tool.
 
@@ -196,7 +196,7 @@ ecology behind every tool.
 | Species distributions | CoordinateCleaner, spThin, usdm, dismo, blockCV, ENMeval, predicts, maxnet | identical bits, random steps included (same seed) | maxnet 14x, kmeans 8x, weighted sampling 70x |
 | Land change simulation | lulcc, OpenLand, diffeR, CLUMondo, r.futures, MOLUSCE; Dinamica EGO (measured) | identical bits (R's and NumPy's random numbers included); Dinamica to its 15 digits | 7-43x |
 
-Methods, machines, full tables and the known differences are on the [benchmarks and accuracy](/about/validation/)
+Methods, machines, full tables and the known differences are on the [benchmarks and accuracy](/benchmarks/)
 page.
 
 ## License

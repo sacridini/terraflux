@@ -50,6 +50,7 @@ nav:
   - { title: Python, url: /python/ }
   - { title: CLI, url: /cli/ }
   - { title: Operators, url: /operators/ }
+  - { title: Benchmarks, url: /benchmarks/ }
 
 # The sections of the documentation: a folder of content/ each, its pages ordered by their `order`.
 # A section whose pages live in subfolders (content/python/api/x.md) shows its sidebar in groups, a heading for each
@@ -68,6 +69,7 @@ sections:
   calculators: { title: Calculators, dir: calculators }
   parallel: { title: Parallel and distributed computing, dir: parallel }
   cli: { title: CLI reference, dir: cli }
+  benchmarks: { title: Benchmarks, dir: benchmarks }
   about: { title: About, dir: about }
   glossary: { title: Glossary, dir: glossary }
 

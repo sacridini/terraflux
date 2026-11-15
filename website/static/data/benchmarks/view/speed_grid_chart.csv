@@ -1,0 +1,10 @@
+case,reference_s,terraflux_s,speedup,since,note,tool,short
+Transition (1 / mean) and geographic correction,2,0.005,400,v0.75,,gdistance (R),Transition and correction
+Cost surface from one point (accCost),0.1,0.011,9.09,v0.76,,gdistance (R),Cost surface (accCost)
+Least-cost distances between 20 points,0.31,0.026,11.9,v0.76,,gdistance (R),Least-cost distances
+Least-cost paths to 5 goals,0.05,0.012,4.17,v0.76,,gdistance (R),Least-cost paths
+Commute distances between 10 points,0.29,0.084,3.45,v0.77,,gdistance (R),Commute distances
+Random-walk passages,0.36,0.066,5.45,v0.77,,gdistance (R),Random-walk passages
+Randomised-shortest-path passages (theta = 0.5),5.98,0.078,76.7,v0.80,,gdistance (R),Randomised shortest paths
+… the same on 60 × 60,0.23,0.0043,53.5,v0.80,,gdistance (R),"Randomised shortest paths, 60²"
+"Route overlap from a common origin, 10 locations",5.97,0.16,37.3,v0.79,,gdistance (R),Route overlap

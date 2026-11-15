@@ -179,7 +179,7 @@ HAND and the indices are those of WhiteboxTools 2.4 bit for bit, and the
 pygeoprocessing 2.4 (InVEST 3.20). The filling and the breaching are those of
 WhiteboxTools with the map's edge as an outlet; WhiteboxTools raises the
 depressions that touch the edge and leaves channels to the edge uncut. See
-the [benchmarks](/about/validation/).
+the [benchmarks](/benchmarks/accuracy/#results-by-tool).
 
 ## Next steps
 

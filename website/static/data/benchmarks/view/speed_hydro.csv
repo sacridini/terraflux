@@ -1,0 +1,6 @@
+case,reference_s,terraflux_s,speedup,since,note,tool
+Filling depressions,3.16,2.07,1.53,v1.48,,WhiteboxTools
+Least-cost breaching (channels up to 20 cells),3.86,2.35,1.64,v1.48,,WhiteboxTools
+D8 flow accumulation,1.95,0.62,3.15,v1.48,,WhiteboxTools
+D-infinity flow accumulation,1.84,1.22,1.51,v1.48,,WhiteboxTools
+FD8 flow accumulation,2,1.65,1.21,v1.48,,WhiteboxTools

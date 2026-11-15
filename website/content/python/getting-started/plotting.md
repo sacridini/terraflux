@@ -170,7 +170,7 @@ Firefox, Safari or VS Code). A static figure draws all the
 features of a layer at once (50 000 polygons in under a second) and burns more
 than 100 000 into an image. The bands of a stack share 16 million pixels, so a
 page of many bands stays light. A map of 100 million cells takes a fraction of
-a second; see [Benchmarks](/about/validation/#plotting).
+a second; see [Benchmarks](/benchmarks/speed/#plotting).
 
 In tests and in scripts that only save plots, the environment variable
 `TERRAFLUX_PLOT_SHOW=0` keeps windows from opening. Where no window can open

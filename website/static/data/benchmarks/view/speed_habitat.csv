@@ -1,0 +1,7 @@
+case,reference_s,terraflux_s,speedup,since,note,tool
+"IIC and node importances, 404 patches (MK_dPCIIC)",1.4,0.005,280,v0.30,,Makurhini (R)
+"PC and node importances, 404 patches (MK_dPCIIC)",10.6,0.017,624,v0.30,,Makurhini (R)
+"Least-cost distances, 398 patches over 222 k cells",10.2,0.5,20.4,v0.32,,Makurhini (R)
+"Commute-time distances, habitat_nodes_raster 222 k cells",50,3.7,13.5,v0.39,,Makurhini (R)
+"Centrality, habitat_nodes_raster 398 patches, 20 km, binary",0.53,0.07,7.57,,,Makurhini (R)
+"Centrality, same, weighted (79 k edges)",1.1,0.14,7.86,,,Makurhini (R)

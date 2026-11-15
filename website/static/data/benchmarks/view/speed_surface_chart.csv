@@ -1,0 +1,17 @@
+case,reference_s,terraflux_s,speedup,since,note,tool,short
+"Amplitude (sa, sq, ssk, sku)",0.029,0.0039,7.44,v0.85,,geodiv,Amplitude
+Best trend surface of order 0-3,0.15,0.025,6,v0.85,,geodiv,Best trend surface
+"Slopes and developed area (sdq, sdq6, sdr)",2.16,0.0048,450,v0.85,,geodiv,Slopes and developed area
+"Peaks and valleys (sds, ssc, s10z)",1.84,0.0017,1082,v0.85,,geodiv,Peaks and valleys
+"Bearing area parameters (sbi, sci, svi, sk, spk, svk)",0.88,0.011,80,v0.85,,geodiv,Bearing area parameters
+"Correlation lengths and aspect ratio (scl, stxr)",0.13,0.028,4.64,v0.85,,geodiv,Correlation lengths
+"Texture direction and wavelength (std, srw)",0.61,0.028,21.8,v0.85,,geodiv,"Texture direction, wavelength"
+Fractal dimension (sfd),0.0063,0.0022,2.86,v0.85,,geodiv,Fractal dimension
+"Texture image, Sa in 5 × 5 windows, 100 × 100 (focal_metrics)",0.17,0.001,170,v0.85,,geodiv,"Texture image Sa, 100²"
+"Texture image, Sk in 5 × 5 windows, 30 × 30 (focal_metrics)",134,0.022,6091,v0.85,,geodiv,"Texture image Sk, 30²"
+"TPI, 5 × 5",0.0085,0.0025,3.4,v0.88,,spatialEco and terra,"TPI, 5 × 5"
+TRI,0.97,0.0019,511,v0.88,,spatialEco and terra,TRI
+VRM,0.08,0.015,5.33,v0.86,,spatialEco and terra,VRM
+Curvature (total),1.58,0.0016,988,v0.88,,spatialEco and terra,Total curvature
+"Hierarchical slope position, scales 3-27",0.11,0.014,7.86,v0.88,,spatialEco and terra,Hierarchical slope position
+Spherical standard deviation,0.073,0.012,6.08,v0.86,,spatialEco and terra,Spherical standard deviation

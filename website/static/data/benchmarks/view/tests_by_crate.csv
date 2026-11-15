@@ -1,0 +1,11 @@
+crate,integration,unit
+terraflux-app,251,550
+terraflux-ops,314,119
+terraflux-exec,82,34
+terraflux-dist,16,34
+terraflux-graph,0,50
+terraflux-cli,1,25
+terraflux-raster,13,9
+terraflux-engine,4,5
+terraflux-ls-sys,6,0
+terraflux-gdal,5,0

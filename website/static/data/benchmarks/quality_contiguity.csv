@@ -1,0 +1,6 @@
+problem,terraflux_best_patch,terraflux_gap_pct,gurobi_best_patch,gurobi_gap_pct,gurobi_plus_cuts_best_patch,gurobi_plus_cuts_gap_pct,note
+"prioritizr's contiguity test, raster (166 units)",1642.83,2.4,1646.49,2.1,1643.33,0.9,Gurobi + cuts: 1643.33 / 0.9 % in 15 s
+"prioritizr's contiguity test, table (166 units)",1496.98,1.7,1496.98,1.5,1499.86,0.9,Gurobi + cuts: 1499.86 / 0.9 % in 10 s
+"feature contiguity, raster (166 units)",509.27,18.8,,,,,"Gurobi: 509.27, optimal in 76 s; Gurobi + cuts: optimal in 62 s"
+"13 × 13 grid, 10 features",111.30,8.7,111.30,8.5,111.30,5.0,
+"Serra Verde at 3 km (543 units, 8 features)",30141,13.0,30679,13.1,30706,12.4,

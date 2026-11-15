@@ -1,0 +1,4 @@
+case,rasterstats_s,exactextract_s,terraflux_1_thread_s,terraflux_12_threads_s,speedup_vs_rasterstats_1_thread,speedup_vs_exactextract_1_thread,since_version
+"zonal statistics, 2000 small polygons (16 million cells)",2.34,3.59,0.37,0.16,6.32,9.7,0.98
+"zonal statistics, 20 large polygons (22 million cells)",1.14,8.37,0.37,0.18,3.08,22.6,0.98
+values at 1 million points,119,,0.028,0.014,4250,,0.98

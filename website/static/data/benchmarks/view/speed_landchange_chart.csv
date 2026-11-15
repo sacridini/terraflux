@@ -1,0 +1,11 @@
+case,reference_s,terraflux_s,speedup,since,note,tool,short
+"CLUE-S allocation, Plum Island, 14 steps (lulcc allocate)",36.4,4.12,8.83,v1.8,,lulcc,CLUE-S allocation
+"Ordered allocation, Plum Island, 14 steps (lulcc allocate)",2.9,0.4,7.25,v1.8,,lulcc,Ordered allocation
+"Land systems, 400 × 500 cells, 8 years (CLUMondo)",16.2,1.7,9.53,v1.9,,CLUMondo,Land systems
+"Urban growth, 600 × 800 cells, 5 steps (r.futures.simulation)",0.35,0.2,1.75,v1.10,,GRASS r.futures,Urban growth
+"Weights of evidence and 3 simulator iterations, 180 × 240 (MOLUSCE)",1.99,0.053,37.5,v1.15,,MOLUSCE,Weights of evidence
+"Three-map comparison, agreement budget and figure of merit, Plum Island, 6 resolutions (lulcc)",7.21,0.17,42.4,v1.17,,lulcc,Three-map comparison
+"Fuzzy similarity of the differences, windows 1-11, 480 × 640 (Dinamica EGO)",0.67,0.049,13.7,v1.18,,Dinamica EGO,Fuzzy similarity
+"Gravity potential, 1000 × 1000, 1000 sources (Dinamica EGO CalcInteractionPotentialMap)",0.42,0.13,3.23,v1.46,,Dinamica EGO,Gravity potential
+"Stock taken by patches, 3000 × 3000, 50 000 cells (Dinamica EGO PatcherContinuousState)",3.8,0.59,6.44,v1.46,,Dinamica EGO,Stock taken by patches
+"Cost surface to a road network, 3000 × 3000 (Dinamica EGO CalcCostMap, passes until exact)",769,1.4,549,v1.46,,Dinamica EGO,Cost surface to roads

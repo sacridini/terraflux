@@ -168,4 +168,4 @@ spectral models, the diamond-square steps, the labelling and gap filling of the
 cluster models, the rasterisation of the mosaics. Typical gains over NLMR are
 2 to 8 times for the models NLMR computes in C++ or with FFTs, and 100 to 6000
 times for those it computes cell by cell in R (`percolation`, `random_cluster`,
-`mosaic_field`); see the [benchmarks](/about/validation/).
+`mosaic_field`); see the [benchmarks](/benchmarks/speed/#neutral-landscape-models).

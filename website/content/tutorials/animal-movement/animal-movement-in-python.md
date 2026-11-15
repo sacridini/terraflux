@@ -361,7 +361,7 @@ Terraflux does what they intend: move2's local projection is centred with
 the wrong datum code (EPSG:4236 instead of 4326, about 900 m off here), amt
 measures directions in longitude and latitude from the east and converts
 sinuosity's radians as if they were degrees. See
-[benchmarks & accuracy](/about/validation/#accuracy).
+[benchmarks & accuracy](/benchmarks/accuracy/).
 
 ## Next steps
 

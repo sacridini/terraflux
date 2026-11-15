@@ -703,8 +703,8 @@ th[aria-sort="descending"] .sort-ind { opacity: 1; clip-path: polygon(0 25%, 100
   .topbar-in { gap: 18px; }
   .mainnav a { padding: 6px 8px; }
 }
-@media (max-width: 1180px) {
-  /* eight sections do not fit beside the tools: the menu folds behind its button sooner than the layout does */
+@media (max-width: 1200px) {
+  /* nine sections do not fit beside the tools: the menu folds behind its button sooner than the layout does */
   .menu-toggle { display: grid; }
   .mainnav { display: none; position: absolute; top: var(--top); left: 0; right: 0; flex-direction: column; gap: 0; padding: 8px 12px 14px; background: var(--paper); border-bottom: 1px solid var(--rule); box-shadow: var(--shadow); }
   .mainnav.is-open { display: flex; }

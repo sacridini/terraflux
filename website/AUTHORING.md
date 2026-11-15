@@ -239,6 +239,8 @@ violet; `colors: { key: "#hex" }` still overrides one).
 | `labels_at_end: true` | The value at the end of each bar (for `dot`: of the last series, right of the row's rightmost dot), in text ink and in the `format`. |
 | `type: dot` | A dot plot: one 10 px marker per category and series, with a thin segment between the series of a row (reference against Terraflux). Use it with `log: true`. |
 | `color_by: domain` | With one series: colours the bars by a column's values, one palette slot per group in the order they first appear (five at most; more gives a warning), with a legend to hide a group. |
+| `horizontal: true` + `stacked: true` | Stacked horizontal bars: one bar per category (the full names of the areas; never abbreviate), the series left to right in `y` order on a linear axis from 0, a 2 px surface gap between segments, the last segment's end rounded (4 px). A segment of 0 is not drawn. The pointer or focus on a row lists every series with its count (the segment under the pointer in bold) and the row total; `labels_at_end` writes the row total at the end of the bar. The legend works as for grouped bars. |
+| a short label column | A category label is cut with an ellipsis when it is wider than the label column (about 240 px), so give each chart a short column of distinct labels (`short`, used as `x: short`) and keep the full text in the table: `"Sample 1000², 8 / 1"`, with the abbreviation (connectivity / edge width) explained in the caption. |
 
 ```yaml
 type: bar
@@ -273,6 +275,21 @@ csv: |
   Random walk,12,1200
 ```
 
+```yaml
+type: bar
+horizontal: true
+stacked: true
+labels_at_end: true
+x: area
+y: [exact, tolerance]
+labels: { exact: Identical, tolerance: Within a tolerance }
+xlabel: Comparison groups
+csv: |
+  area,exact,tolerance
+  Landscape metrics,2,1
+  Habitat networks,0,4
+```
+
 Every row takes the pointer or the keyboard focus (Tab), and shows the tooltip; the other rows dim. The charts redraw
 on a theme switch and on a resize.
 
@@ -286,6 +303,7 @@ on a theme switch and on a resize.
 | `sortable: true` | A click on a header sorts by it (ascending, descending, the CSV order again); the headers are buttons (Tab, Enter or Space) and `aria-sort` follows. |
 | `badge: { result: { identical: good, differs: warning } }` | Turns the listed values of a column into small pills: `good`, `warning`, `bad` or `info`. A pill always carries the text (and a mark: check, !, cross), never the colour alone. |
 | `caption` | The line under the table (Markdown); the table is labelled by it. |
+| `link: { script: "https://github.com/user/repo/blob/main/" }` | Turns the file paths of a column that start with `tools/` and end in `.py`, `.R` or `.patch` into links, the path appended to the base address (the text stays the path). |
 
 ```yaml
 sortable: true

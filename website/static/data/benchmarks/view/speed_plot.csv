@@ -1,0 +1,13 @@
+case,terraflux_s,page_mb,short
+"float32 raster, 10 000 × 10 000, in memory",0.25,4.7,"Raster 10 000², in memory"
+"class raster, 10 000 × 10 000, in memory",0.14,1.6,"Class raster 10 000², in memory"
+"float32 raster, 10 000 × 10 000, read lazily from a file",0.61,4.7,"Raster 10 000², lazy from file"
+"float32 raster, 2000 × 2000",0.23,5.1,Raster 2000²
+"stack of 47 bands of 1000 × 1000 (a band per thread, 16 million pixels in all)",0.85,14.0,"Stack of 47 bands, 1000²"
+10 000 polygons coloured by a column (GeoJSON),0.14,2.7,10 000 polygons (GeoJSON)
+50 000 polygons coloured by a column (WebGL),0.36,1.5,50 000 polygons (WebGL)
+"200 000 polygons coloured by a column (WebGL, with their columns)",0.99,5.3,200 000 polygons (WebGL)
+2 million points coloured by a column (WebGL),0.7,13.0,2 M points (WebGL)
+"50 000 polygons, static figure (static=True, drawn as a PNG)",0.57,0.7,"50 000 polygons, static"
+"200 000 polygons, static figure (burnt into an image)",0.8,0.6,"200 000 polygons, static"
+a table of landscape metrics (a chart),0.03,4.3,Table of landscape metrics

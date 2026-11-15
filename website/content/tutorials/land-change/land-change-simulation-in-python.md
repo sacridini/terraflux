@@ -36,7 +36,7 @@ lulcc runs them, CLUMondo, FUTURES (GRASS's `r.futures`) and MOLUSCE; the
 weights of evidence, transition rates, Expander and Patcher, fuzzy
 similarity, gravity potential, road constructor and continuous Patcher of
 Dinamica EGO, measured on the program; PLUS's random patch
-seeds, written from its paper. The [benchmarks page](/about/validation/)
+seeds, written from its paper. The [accuracy page](/benchmarks/accuracy/)
 lists every comparison.
 
 ## The data

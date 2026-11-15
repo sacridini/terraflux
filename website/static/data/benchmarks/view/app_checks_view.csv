@@ -1,0 +1,39 @@
+version,date,kind,area,checked,against,result
+v1.52.0,2026-11-15,timing,Application: node canvas,"Frame time of dragging one node in a model of 10,000 nodes (and of 1,000)",the same model before the change,"31 ms -> about 5 ms (10,000 nodes); 2.8 ms -> 0.5 ms (1,000 nodes)"
+v1.49.0,2026-11-15,comparison,Zonation 5 output files,"rankmap.tif, feature_curves.csv, summary_curves.csv, feature_density_curves.csv, group_curves.csv, features_info.csv",Zonation 5's own files in 64 cases (the library's references),"the same lines (means are z5's float32 sums, Eigen's order); rasters bit for bit; also 4 post-processing and 5 impact projects"
+v1.49.0,2026-11-15,comparison,Optimized prioritization (corridors),add_corridor_constraints: 5 compiled models,the library,models bit for bit; same selection in the same time
+v1.48.0,2026-11-14,comparison,SWAT+,"swat.hru_map, channel_map, reach_discharge: 28 cases",the library,bit for bit
+v1.48.0,2026-11-14,comparison,SWAT+,"swat.watershed: 18 cases (each HRU method, thresholds, outlets and snap, slope bands, ...)",the library (QSWAT+),"bit for bit; only degrees differ, by 7e-15 at most, between two PROJ versions"
+v1.48.0,2026-11-14,comparison,SWAT+,swat.from_tables and swat.wgn: 6 project cases,the library (SWAT+ Editor 4.0.2),every file byte for byte (the date on the first line aside); statistics bit for bit
+v1.47.0,2026-11-14,timing,Optimized prioritization (zones),Zones with boundary penalties or connectivity rewards go to the zones cut engine before HiGHS,HiGHS MIP alone (minutes),"about a hundredth of a second; same plan, bound and status as the library 1.58.1"
+v1.47.0,2026-11-14,timing,Build (Windows),the library's C++ compiled with optimisation under MSVC (CMake's /O2 /Ob2 /DNDEBUG) instead of none,the library's wheels,"a prioritization with zones that went on to HiGHS: 22.7 s -> 7.0 s, as in the library"
+v1.45.1,2026-11-07,comparison,Circuits,Parity tests of Circuitscape's modes against the library failed now and then: the CPU's cache sizes (efficient vs performance cores) changed the last bits,the library,"fixed by fixing the cache sizes (48 KB, 2 MB, 24 MB) before any product"
+v1.45.1,2026-11-07,comparison,Surface metrics,"VRM and spherical standard deviation square with x * x, as numpy's ** 2 (a debug build's powi(2) went to the C library's pow, which Windows' UCRT does not always round to the square)",numpy / the library,same bits
+v1.39.0,2026-11-04,timing,Application: viewer,Folder of rasters opened (overviews made in memory once),before: still loading after 20 s,map in view under 1 s; every layer in about 4 s; as one stack under 1 s
+v1.34.0,2026-11-03,external check,Export to QGIS,"The QGIS project (.qgz) with labels, markers and rules, read in PyQGIS by tools/check_qgz.py",QGIS 3.34 itself,"layers valid, classes paletted, labels, marker and rules as written"
+v1.24.1,2026-10-29,timing,Vectors: GeoPackage writing,"47,000 points written in one transaction",a commit per feature,29 s -> 0.5 s
+v1.24.0,2026-10-29,comparison,Animal movement,move.* (the methods of move2 and amt) on the library's reference tracks,the library,bit for bit
+v1.16.0,2026-10-26,timing,Map algebra,"Expressions compiled and run in parallel blocks; nbmin/nbmax by van Herk and Gil-Werman, on 9 million cells with 4 threads","the previous evaluator, same results to the bit","local expressions 5-20 times faster; nbmax(a, 5) 18 times; nbmin(b, 25) 400 times (45 s -> 0.11 s)"
+v0.86.0,2026-10-17,comparison,Terrain hydrology,"hydro.* (fill, breach, D8, D-infinity, FD8, MFD, HAND, streams ...)",the library 1.50,bit for bit
+v0.86.0,2026-10-17,comparison,Ecosystem services,"InVEST models in float32 with numpy's own AVX2 exp, sin, cos ported (terraflux_ops::npmath)",the library's InVEST references,same float32 bits
+v0.86.0,2026-10-17,comparison,SWAT+,swat.run on the Hubbard Brook example (SWAT+ 62.0.1 port),the library 1.50,bit for bit
+v0.83.0,2026-10-16,timing,Optimized prioritization,"Minimum set of 49 species with a boundary penalty and locked-in areas on 85,732 cells",HiGHS's MIP alone,"45 minutes -> 4 seconds, the same plan as the library"
+v0.63.0,2026-10-14,comparison,Vectors (out of core),vector.exact_sum and vector.distance by strips,the same operators in memory,same bits
+v0.42.0,2026-10-13,comparison,Circuits,Circuitscape INI runs: 51 raster test cases and the library's Omniscape configurations,the library,"same, to the bit; files written byte for byte"
+v0.27.0,2026-10-13,comparison,Circuits,circuit.omniscape and circuit.advanced,the library (itself checked against Omniscape.jl and Circuitscape.jl),"same maps, to the bit"
+v0.20.0,2026-10-13,comparison,Landscape metrics (out of core),block_rows: blocks of rows and rasters on disk of more than 250 million cells,the same metrics in memory,"same tables, to the bit"
+v0.19.0,2026-10-13,timing,Application: vector layers,"Layer of a quarter of a million polygons indexed and drawn (R-tree, tiny-skia, thread of its own)",,"indexed in 60 ms, drawn in 90 ms"
+v0.13.0,2026-10-12,comparison,Vectors / prioritization,vector.exact_sum and polygon planning units,exactextractr exact_extract; prioritizr models,sums bit for bit; prioritizr's models bit for bit
+v0.11.0,2026-10-12,comparison,Spatial prioritization,All 65 Zonation cases (24 transform/connectivity/post-processing/impact + 41 core),z5 binary outputs kept by the library,"ranks bit for bit; transformed and pre-processing maps, impact maps; post-processing tables word for word"
+v0.10.0,2026-10-12,comparison,Spatial prioritization,prioritize.zonation rank maps and iterations,"z5 binary, 41 cases",bit for bit
+v0.9.0,2026-10-11,comparison,GuidosToolbox,Landscape mosaic of 103 classes against GTB's own outputs; the other GTB tools against the library's,GTB digests; the library,"every map bit for bit, reports' numbers to their last bits"
+v0.8.0,2026-10-11,comparison,GuidosToolbox,"SPA, accounting, FAD, FAD-MS, FOS, mosaic ... through the library's port",GTB outputs that the library keeps,same bits
+v0.8.0,2026-10-11,timing,Application: viewer,A raster of 7.3 billion cells shown from a pyramid of tiles; a view 67 times closer,,0.4 s to show; 0.3 s for the closer view; frames under 10 ms
+v0.8.0,2026-10-11,comparison,GuidosToolbox,landscape.mspa,GuidosToolbox's mspa executable outputs kept by the library,bit for bit
+v0.8.0,2026-10-11,timing,Application: node canvas,"Canvas drawn by the GPU, 10,000 nodes","the previous canvas (2,000 nodes took 4.7 s a frame)",frame about 0.1 ms; dragging a node 0.5 ms; an edit about 30 ms
+v0.8.0,2026-10-11,timing,Application: viewer,Frame time with a map of 2048 x 1728 cells shown while MSPA runs on it,,frames under 4 ms
+v0.8.0,2026-10-11,timing,Application: model checking,"Checking a model and ordering its nodes (10,000 nodes)",before: time grew with the square of the nodes,141 ms -> 10 ms
+v0.5.0,2026-10-10,timing,Land change simulation (tiled engine),"56.6 million cells, 10 transitions, 3 steps on 4 threads",(no reference; recorded as a scale figure),"318 s in all: 43 s of fits, about 92 s a step"
+v0.5.0,2026-10-10,timing,Land change simulation,woe.probability computes the buckets of a variable once per origin class,before,"about twice as fast, the same values"
+v0.2.0,2026-10-10,comparison,Land change simulation,Models written by the library 1.44.0 (Model.save) run here,ls.simulate,bit for bit
+v0.1.0,2026-10-10,comparison,Land change simulation,First parity tests: Dinamica EGO's model on Sibuyan; CLUE-S and the ordered allocation on Plum Island with every rule,the library,bit for bit
