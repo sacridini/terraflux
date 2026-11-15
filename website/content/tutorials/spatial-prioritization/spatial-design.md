@@ -463,3 +463,5 @@ how much of the targets may be met by land that is used.
 - Önal, H., & Briers, R. A. (2006). Optimal selection of a connected reserve network. *Operations Research*, 54(2), 379–388. https://doi.org/10.1287/opre.1060.0272
 - Watts, M. E., Ball, I. R., Stewart, R. S., Klein, C. J., Wilson, K., Steinback, C., et al. (2009). Marxan with Zones: software for optimal conservation based land- and sea-use zoning. *Environmental Modelling & Software*, 24(12), 1513–1521. https://doi.org/10.1016/j.envsoft.2009.06.005
 - Williams, J. C., ReVelle, C. S., & Levin, S. A. (2005). Spatial attributes and reserve design models: a review. *Environmental Modeling & Assessment*, 10(3), 163–181. https://doi.org/10.1007/s10666-005-9007-5
+
+In Python: [Optimized conservation plans in Python](/tutorials/spatial-prioritization/conservation-plans-in-python/).

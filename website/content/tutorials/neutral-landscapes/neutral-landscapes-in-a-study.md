@@ -435,3 +435,5 @@ ranges until the copy matches one metric is a simple way to fit a neutral model 
 - Wang, X., Blanchet, F. G., & Koper, N. (2014). Measuring habitat fragmentation: an evaluation of landscape pattern metrics. *Methods in Ecology and Evolution*, 5(7), 634–646. https://doi.org/10.1111/2041-210X.12198
 - With, K. A. (1997). The application of neutral landscape models in conservation biology. *Conservation Biology*, 11(5), 1069–1080. https://doi.org/10.1046/j.1523-1739.1997.96210.x
 - With, K. A., & Crist, T. O. (1995). Critical thresholds in species' responses to landscape structure. *Ecology*, 76(8), 2446–2459. https://doi.org/10.2307/2265819
+
+In Python: [Neutral landscapes in Python](/tutorials/neutral-landscapes/neutral-landscapes-in-python/).

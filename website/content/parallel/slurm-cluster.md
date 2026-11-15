@@ -234,3 +234,5 @@ A cluster is shared by hundreds of people; its rules are there so that everyone 
 ## References
 
 - Yoo, A. B., Jette, M. A., & Grondona, M. (2003). SLURM: Simple Linux Utility for Resource Management. In D. Feitelson, L. Rudolph, & U. Schwiegelshohn (Eds.), *Job Scheduling Strategies for Parallel Processing* (Lecture Notes in Computer Science, Vol. 2862, pp. 44–60). Springer. https://doi.org/10.1007/10968987_3
+
+In Python: [On a cluster (HPC, Slurm) in Python](/parallel/hpc-slurm-in-python/).

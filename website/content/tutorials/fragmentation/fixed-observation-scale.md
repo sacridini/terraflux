@@ -424,3 +424,5 @@ the developed corner are under pressures that their density alone does not show.
 - Riitters, K. H., Wickham, J. D., Wade, T. G., & Vogt, P. (2012). Global survey of anthropogenic neighborhood threats to conservation of grass-shrub and forest vegetation. *Journal of Environmental Management*, 97, 116–121. https://doi.org/10.1016/j.jenvman.2011.11.009
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
 - Vogt, P., Riitters, K., Rambaud, P., d'Annunzio, R., Lindquist, E., & Pekkarinen, A. (2022). GuidosToolbox Workbench: spatial analysis of raster maps for ecological applications. *Ecography*, 2022(3), e05864. https://doi.org/10.1111/ecog.05864
+
+In Python: [Fragmentation in Python](/tutorials/fragmentation/fragmentation-in-python/).

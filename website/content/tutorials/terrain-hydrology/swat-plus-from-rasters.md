@@ -430,3 +430,5 @@ minimum, the earlier method). The sediment of a project whose plants are bare ch
 - Bieger, K., Arnold, J. G., Rathjens, H., White, M. J., Bosch, D. D., Allen, P. M., Volk, M., & Srinivasan, R. (2017). Introduction to SWAT+, a completely restructured version of the Soil and Water Assessment Tool. *Journal of the American Water Resources Association*, 53(1), 115–130. https://doi.org/10.1111/1752-1688.12482
 - Dile, Y. T., Daggupati, P., George, C., Srinivasan, R., & Arnold, J. (2016). Introducing a new open source GIS user interface for the SWAT model. *Environmental Modelling & Software*, 85, 129–138. https://doi.org/10.1016/j.envsoft.2016.08.004
 - Moriasi, D. N., Arnold, J. G., Van Liew, M. W., Bingner, R. L., Harmel, R. D., & Veith, T. L. (2007). Model evaluation guidelines for systematic quantification of accuracy in watershed simulations. *Transactions of the ASABE*, 50(3), 885–900. https://doi.org/10.13031/2013.23153
+
+In Python: [Watershed simulation in Python](/tutorials/terrain-hydrology/watershed-model-in-python/).

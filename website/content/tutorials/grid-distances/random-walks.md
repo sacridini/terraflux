@@ -334,3 +334,5 @@ Random walkers waste so much on wandering that distance matters relatively less 
 - Saerens, M., Achbany, Y., Fouss, F., & Yen, L. (2009). Randomized shortest-path problems: two related models. *Neural Computation*, 21(8), 2363–2404. https://doi.org/10.1162/neco.2009.11-07-643
 - van Etten, J. (2017). R package gdistance: distances and routes on geographical grids. *Journal of Statistical Software*, 76(13). https://doi.org/10.18637/jss.v076.i13
 - van Etten, J., & Hijmans, R. J. (2010). A geospatial modelling approach integrating archaeobotany and genetics to trace the origin and dispersal of domesticated plants. *PLoS ONE*, 5(8), e12060. https://doi.org/10.1371/journal.pone.0012060
+
+In Python: [Routes on grids in Python](/tutorials/grid-distances/grid-routes-in-python/).

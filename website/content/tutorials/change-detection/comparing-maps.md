@@ -634,3 +634,5 @@ table; the standard errors are the short calculation of the formula above, in a 
 - Pontius, R. G., Jr., & Santacruz, A. (2014). Quantity, exchange, and shift components of difference in a square contingency table. *International Journal of Remote Sensing*, 35(21), 7543–7554. https://doi.org/10.1080/2150704X.2014.969814
 - Pontius, R. G., Jr., Thontteh, O., & Chen, H. (2008). Components of information for multiple resolution comparison between maps that share a real variable. *Environmental and Ecological Statistics*, 15(2), 111–142. https://doi.org/10.1007/s10651-007-0043-y
 - van Vliet, J., Bregt, A. K., & Hagen-Zanker, A. (2011). Revisiting Kappa to account for change in the accuracy assessment of land-use change models. *Ecological Modelling*, 222(8), 1367–1375. https://doi.org/10.1016/j.ecolmodel.2011.01.017
+
+In Python: [Change detection in Python](/tutorials/change-detection/change-detection-in-python/).

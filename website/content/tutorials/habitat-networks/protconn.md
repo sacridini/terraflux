@@ -344,3 +344,5 @@ protected-area planning: the next hectare protected is worth most where it joins
 - Saura, S., Bastin, L., Battistella, L., Mandrici, A., & Dubois, G. (2017). Protected areas in the world's ecoregions: how well connected are they? *Ecological Indicators*, 76, 144–158. https://doi.org/10.1016/j.ecolind.2016.12.047
 - Saura, S., Bertzky, B., Bastin, L., Battistella, L., Mandrici, A., & Dubois, G. (2018). Protected area connectivity: shortfalls in global targets and country-level priorities. *Biological Conservation*, 219, 53–67. https://doi.org/10.1016/j.biocon.2017.12.020
 - Saura, S., Bertzky, B., Bastin, L., Battistella, L., Mandrici, A., & Dubois, G. (2019). Global trends in protected area connectivity from 2010 to 2018. *Biological Conservation*, 238, 108183. https://doi.org/10.1016/j.biocon.2019.07.028
+
+In Python: [Habitat networks in Python](/tutorials/habitat-networks/habitat-networks-in-python/).

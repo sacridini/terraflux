@@ -564,3 +564,5 @@ should stay on (with a filled DEM it is what gives the filled areas a direction)
 - Schietti, J., Emilio, T., Rennó, C. D., Drucker, D. P., Costa, F. R. C., Nogueira, A., Baccaro, F. B., Figueiredo, F., Castilho, C. V., Kinupp, V., Guillaumet, J.-L., Garcia, A. R. M., Lima, A. P., & Magnusson, W. E. (2014). Vertical distance from drainage drives floristic composition changes in an Amazonian rainforest. *Plant Ecology & Diversity*, 7(1–2), 241–253. https://doi.org/10.1080/17550874.2013.783642
 - Strahler, A. N. (1957). Quantitative analysis of watershed geomorphology. *Eos, Transactions American Geophysical Union*, 38(6), 913–920. https://doi.org/10.1029/TR038i006p00913
 - Tarboton, D. G., Bras, R. L., & Rodriguez-Iturbe, I. (1991). On the extraction of channel networks from digital elevation data. *Hydrological Processes*, 5(1), 81–100. https://doi.org/10.1002/hyp.3360050107
+
+In Python: [Terrain hydrology in Python](/tutorials/terrain-hydrology/terrain-hydrology-in-python/).

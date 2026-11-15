@@ -348,3 +348,5 @@ by the question.
 - Jackson, H. B., & Fahrig, L. (2015). Are ecologists conducting research at the optimal scale? *Global Ecology and Biogeography*, 24(1), 52–63. https://doi.org/10.1111/geb.12233
 - Pasher, J., Mitchell, S. W., King, D. J., Fahrig, L., Smith, A. C., & Lindsay, K. E. (2013). Optimizing landscape selection for estimating relative effects of landscape variables on ecological responses. *Landscape Ecology*, 28(3), 371–383. https://doi.org/10.1007/s10980-013-9852-6
 - Riitters, K. H., O'Neill, R. V., Hunsaker, C. T., Wickham, J. D., Yankee, D. H., Timmins, S. P., et al. (1995). A factor analysis of landscape pattern and structure metrics. *Landscape Ecology*, 10(1), 23–39. https://doi.org/10.1007/BF00158551
+
+In Python: [Landscape metrics in Python](/tutorials/landscape-metrics/landscape-metrics-in-python/).

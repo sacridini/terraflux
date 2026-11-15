@@ -319,3 +319,5 @@ submit
 ```tfcli
 calibrate
 ```
+
+In Python: [Several computers in Python](/parallel/many-computers-in-python/).

@@ -404,3 +404,5 @@ interval; `random` with a different `seed` gives a different track).
 - Rowcliffe, J. M., Carbone, C., Kays, R., Kranstauber, B., & Jansen, P. A. (2012). Bias in estimating animal
   travel distance: the effect of sampling frequency. *Methods in Ecology and Evolution*, 3(4), 653-662.
   https://doi.org/10.1111/j.2041-210X.2012.00197.x
+
+In Python: [Animal movement in Python](/tutorials/animal-movement/animal-movement-in-python/).

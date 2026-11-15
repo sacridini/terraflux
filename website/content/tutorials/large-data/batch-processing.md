@@ -314,3 +314,5 @@ in memory: see them in the files.
 ## References
 
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
+
+In Python: [Large data & batch in Python](/tutorials/large-data/large-data-in-python/).

@@ -360,3 +360,5 @@ the coherence gain *and* the efficiency: the first says what a corridor achieves
 - Saura, S., Estreguil, C., Mouton, C., & Rodríguez-Freire, M. (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990–2000). *Ecological Indicators*, 11(2), 407–416. https://doi.org/10.1016/j.ecolind.2010.06.011
 - Tambosi, L. R., Martensen, A. C., Ribeiro, M. C., & Metzger, J. P. (2014). A framework to optimize biodiversity restoration efforts based on habitat amount and landscape connectivity. *Restoration Ecology*, 22(2), 169–177. https://doi.org/10.1111/rec.12049
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
+
+In Python: [Distance & restoration in Python](/tutorials/distance-restoration/distance-restoration-in-python/).

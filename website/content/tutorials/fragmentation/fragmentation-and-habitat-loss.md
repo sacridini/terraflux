@@ -255,3 +255,5 @@ fragmented, so it combines amount and fragmentation in one indicator.
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
 - Vogt, P., Riitters, K. H., Caudullo, G., & Eckhardt, B. (2019). *FAO – State of the World's Forests: Forest fragmentation* (EUR 29972 EN). Publications Office of the European Union. https://doi.org/10.2760/145325
 - Wickham, J., & Riitters, K. H. (2019). Influence of high-resolution data on the assessment of forest fragmentation. *Landscape Ecology*, 34(9), 2169–2182. https://doi.org/10.1007/s10980-019-00820-z
+
+In Python: [Fragmentation in Python](/tutorials/fragmentation/fragmentation-in-python/).

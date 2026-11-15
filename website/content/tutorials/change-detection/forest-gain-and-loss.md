@@ -474,3 +474,5 @@ Morphological change has no setting: its 5 × 5 cores and 3 × 3 closing are Gui
 - Seebach, L., Strobl, P., Vogt, P., Mehl, W., & San-Miguel-Ayanz, J. (2013). Enhancing post-classification change detection through morphological post-processing – a sensitivity analysis. *International Journal of Remote Sensing*, 34(20), 7145–7162. https://doi.org/10.1080/01431161.2013.815382
 - Townshend, J. R. G., Justice, C. O., Gurney, C., & McManus, J. (1992). The impact of misregistration on change detection. *IEEE Transactions on Geoscience and Remote Sensing*, 30(5), 1054–1060. https://doi.org/10.1109/36.175340
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
+
+In Python: [Change detection in Python](/tutorials/change-detection/change-detection-in-python/).

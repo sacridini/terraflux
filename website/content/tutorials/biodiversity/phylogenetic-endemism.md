@@ -251,3 +251,5 @@ documentation reports for the same data and seed, which Biodiverse also gives.
 - Mishler, B. D., Knerr, N., González-Orozco, C. E., Thornhill, A. H., Laffan, S. W., & Miller, J. T. (2014). Phylogenetic measures of biodiversity and neo- and paleo-endemism in Australian *Acacia*. *Nature Communications*, 5, 4473. https://doi.org/10.1038/ncomms5473
 - Rosauer, D., Laffan, S. W., Crisp, M. D., Donnellan, S. C., & Cook, L. G. (2009). Phylogenetic endemism: a new approach for identifying geographical concentrations of evolutionary history. *Molecular Ecology*, 18(19), 4061–4072. https://doi.org/10.1111/j.1365-294X.2009.04311.x
 - Thornhill, A. H., Baldwin, B. G., Freyman, W. A., et al. (2017). Spatial phylogenetics of the native California flora. *BMC Biology*, 15(1). https://doi.org/10.1186/s12915-017-0435-x
+
+In Python: [Biodiversity analysis in Python](/tutorials/biodiversity/biodiversity-in-python/).

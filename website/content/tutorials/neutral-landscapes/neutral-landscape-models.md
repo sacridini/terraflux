@@ -397,3 +397,5 @@ its input `real` connected to a real map, it takes the shares of that map's clas
 - Stauffer, D., & Aharony, A. (1994). *Introduction to percolation theory* (2nd ed.). Taylor & Francis.
 - With, K. A. (1997). The application of neutral landscape models in conservation biology. *Conservation Biology*, 11(5), 1069–1080. https://doi.org/10.1046/j.1523-1739.1997.96210.x
 - With, K. A., & Crist, T. O. (1995). Critical thresholds in species' responses to landscape structure. *Ecology*, 76(8), 2446–2459. https://doi.org/10.2307/2265819
+
+In Python: [Neutral landscapes in Python](/tutorials/neutral-landscapes/neutral-landscapes-in-python/).

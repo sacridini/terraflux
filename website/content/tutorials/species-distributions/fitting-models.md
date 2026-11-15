@@ -495,3 +495,5 @@ within the region, clusters or quadrants when the model will be projected elsewh
 - Valavi, R., Guillera-Arroita, G., Lahoz-Monfort, J. J., & Elith, J. (2022). Predictive performance of presence-only species distribution models: a benchmark study with reproducible code. *Ecological Monographs*, 92(1), e01486. https://doi.org/10.1002/ecm.1486
 - Warton, D. I., & Shepherd, L. C. (2010). Poisson point process models solve the "pseudo-absence problem" for presence-only data in ecology. *The Annals of Applied Statistics*, 4(3), 1383–1402. https://doi.org/10.1214/10-AOAS331
 - Zurell, D., Franklin, J., König, C., Bouchet, P. J., Dormann, C. F., Elith, J., et al. (2020). A standard protocol for reporting species distribution models. *Ecography*, 43(9), 1261–1277. https://doi.org/10.1111/ecog.04960
+
+In Python: [Species distributions in Python](/tutorials/species-distributions/species-distributions-in-python/).

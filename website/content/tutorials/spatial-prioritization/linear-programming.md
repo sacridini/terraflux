@@ -389,3 +389,5 @@ the solver. [Part 6](../evaluating-plans/) measures each place's importance dire
 - Rodrigues, A. S. L., & Gaston, K. J. (2002). Optimisation in reserve selection procedures: why not? *Biological Conservation*, 107(1), 123–129. https://doi.org/10.1016/S0006-3207(02)00042-3
 - Schuster, R., Hanson, J. O., Strimas-Mackey, M., & Bennett, J. R. (2020). Exact integer linear programming solvers outperform simulated annealing for solving conservation planning problems. *PeerJ*, 8, e9258. https://doi.org/10.7717/peerj.9258
 - Underhill, L. G. (1994). Optimal and suboptimal reserve selection algorithms. *Biological Conservation*, 70(1), 85–87. https://doi.org/10.1016/0006-3207(94)90302-6
+
+In Python: [Optimized conservation plans in Python](/tutorials/spatial-prioritization/conservation-plans-in-python/).

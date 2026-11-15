@@ -328,3 +328,5 @@ Report the benefit with its uncertainty; compare plans on the same z.
 - Strassburg, B. B. N., Beyer, H. L., Crouzeilles, R., Iribarrem, A., Barros, F., de Siqueira, M. F., et al. (2019). Strategic approaches to restoring ecosystems can triple conservation gains and halve costs. *Nature Ecology & Evolution*, 3(1), 62–70. https://doi.org/10.1038/s41559-018-0743-8
 - Strassburg, B. B. N., Iribarrem, A., Beyer, H. L., Cordeiro, C. L., Crouzeilles, R., Jakovac, C. C., et al. (2020). Global priority areas for ecosystem restoration. *Nature*, 586(7831), 724–729. https://doi.org/10.1038/s41586-020-2784-9
 - Thomas, C. D., Cameron, A., Green, R. E., Bakkenes, M., Beaumont, L. J., Collingham, Y. C., et al. (2004). Extinction risk from climate change. *Nature*, 427(6970), 145–148. https://doi.org/10.1038/nature02121
+
+In Python: [Restoration priorities in Python](/tutorials/distance-restoration/restoration-plans-in-python/).

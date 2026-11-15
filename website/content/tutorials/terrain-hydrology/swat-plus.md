@@ -415,3 +415,5 @@ daily one. Print daily only what you need daily (streamflow for a hydrograph), a
 - Moriasi, D. N., Arnold, J. G., Van Liew, M. W., Bingner, R. L., Harmel, R. D., & Veith, T. L. (2007). Model evaluation guidelines for systematic quantification of accuracy in watershed simulations. *Transactions of the ASABE*, 50(3), 885–900. https://doi.org/10.13031/2013.23153
 - Nash, J. E., & Sutcliffe, J. V. (1970). River flow forecasting through conceptual models part I — A discussion of principles. *Journal of Hydrology*, 10(3), 282–290. https://doi.org/10.1016/0022-1694(70)90255-6
 - Williams, J. R. (1975). Sediment-yield prediction with universal equation using runoff energy factor. In *Present and Prospective Technology for Predicting Sediment Yields and Sources* (ARS-S-40, pp. 244–252). USDA Agricultural Research Service.
+
+In Python: [Watershed simulation in Python](/tutorials/terrain-hydrology/watershed-model-in-python/).

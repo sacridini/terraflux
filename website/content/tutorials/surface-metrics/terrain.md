@@ -723,3 +723,5 @@ The windows of TRI and VRM work the same way: at 3 × 3 cells they describe the 
 - Weiss, A. D. (2001). *Topographic position and landforms analysis*. Poster presentation, ESRI User Conference, San Diego, CA.
 - Wilson, M. F. J., O'Connell, B., Brown, C., Guinan, J. C., & Grehan, A. J. (2007). Multiscale terrain analysis of multibeam bathymetry data for habitat mapping on the continental slope. *Marine Geodesy*, 30(1–2), 3–35. https://doi.org/10.1080/01490410701295962
 - Zevenbergen, L. W., & Thorne, C. R. (1987). Quantitative analysis of land surface topography. *Earth Surface Processes and Landforms*, 12(1), 47–56. https://doi.org/10.1002/esp.3290120107
+
+In Python: [Surface texture in Python](/tutorials/surface-metrics/surface-texture-in-python/).

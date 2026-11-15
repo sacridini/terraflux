@@ -310,3 +310,5 @@ the scale while keeping the cells' precision.
 - Laffan, S. W., & Crisp, M. D. (2003). Assessing endemism at multiple spatial scales, with an example from the Australian vascular flora. *Journal of Biogeography*, 30(4), 511–520. https://doi.org/10.1046/j.1365-2699.2003.00875.x
 - Laffan, S. W., Lubarsky, E., & Rosauer, D. F. (2010). Biodiverse, a tool for the spatial analysis of biological and related diversity. *Ecography*, 33(4), 643–647. https://doi.org/10.1111/j.1600-0587.2010.06237.x
 - Laffan, S. W., Ramp, D., & Roger, E. (2013). Using endemism to assess representation of protected areas – the family Myrtaceae in the Greater Blue Mountains World Heritage Area. *Journal of Biogeography*, 40(3), 570–578. https://doi.org/10.1111/jbi.12001
+
+In Python: [Biodiversity analysis in Python](/tutorials/biodiversity/biodiversity-in-python/).

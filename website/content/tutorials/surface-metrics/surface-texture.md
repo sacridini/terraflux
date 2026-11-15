@@ -570,3 +570,5 @@ how much the results depend on it.
 - Smith, A. C., Dahlin, K. M., Record, S., Costanza, J. K., Wilson, A. M., & Zarnetske, P. L. (2021). The geodiv R package: Tools for calculating gradient surface metrics. *Methods in Ecology and Evolution*, 12(11), 2094–2100. https://doi.org/10.1111/2041-210X.13677
 - Clarke, K. C. (1986). Computation of the fractal dimension of topographic surfaces using the triangular prism surface area method. *Computers & Geosciences*, 12(5), 713–722. https://doi.org/10.1016/0098-3004(86)90047-6
 - ISO 25178-2 (2012). *Geometrical product specifications (GPS) — Surface texture: Areal — Part 2: Terms, definitions and surface texture parameters*. International Organization for Standardization.
+
+In Python: [Surface texture in Python](/tutorials/surface-metrics/surface-texture-in-python/).

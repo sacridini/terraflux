@@ -269,3 +269,5 @@ areas that matter.
 - Landau, V. A., Shah, V. B., Anantharaman, R., & Hall, K. R. (2021). Omniscape.jl: software to compute omnidirectional landscape connectivity. *Journal of Open Source Software*, 6(57), 2829. https://doi.org/10.21105/joss.02829
 - McRae, B. H., Popper, K., Jones, A., et al. (2016). *Conserving nature's stage: mapping omnidirectional connectivity for resilient terrestrial landscapes in the Pacific Northwest*. The Nature Conservancy, Portland, Oregon.
 - Phillips, P., Clark, M. M., Baral, S., Koen, E. L., & Bowman, J. (2021). Comparison of methods for estimating omnidirectional landscape connectivity. *Landscape Ecology*, 36(6), 1647–1661. https://doi.org/10.1007/s10980-021-01254-2
+
+In Python: [Circuit connectivity in Python](/tutorials/circuit-connectivity/circuit-connectivity-in-python/).

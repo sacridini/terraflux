@@ -323,3 +323,5 @@ The reports of the series:
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
 - Vogt, P., Riitters, K. H., Caudullo, G., & Eckhardt, B. (2019). *FAO – State of the World's Forests: Forest fragmentation* (EUR 29972 EN). Publications Office of the European Union. https://doi.org/10.2760/145325
 - Wickham, J. D., Riitters, K. H., Wade, T. G., & Homer, C. (2008). Temporal change in fragmentation of continental US forests. *Landscape Ecology*. https://doi.org/10.1007/s10980-008-9258-z
+
+In Python: [Fragmentation in Python](/tutorials/fragmentation/fragmentation-in-python/).

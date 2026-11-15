@@ -347,3 +347,5 @@ and none of them appears on the corridor map. The effective resistance between t
 - McRae, B. H., & Beier, P. (2007). Circuit theory predicts gene flow in plant and animal populations. *Proceedings of the National Academy of Sciences*, 104(50), 19885–19890. https://doi.org/10.1073/pnas.0706568104
 - McRae, B. H., Dickson, B. G., Keitt, T. H., & Shah, V. B. (2008). Using circuit theory to model connectivity in ecology, evolution, and conservation. *Ecology*, 89(10), 2712–2724. https://doi.org/10.1890/07-1861.1
 - McRae, B. H., Hall, S. A., Beier, P., & Theobald, D. M. (2012). Where to restore ecological connectivity? Detecting barriers and quantifying restoration benefits. *PLoS ONE*, 7(12), e52604. https://doi.org/10.1371/journal.pone.0052604
+
+In Python: [Circuit connectivity in Python](/tutorials/circuit-connectivity/circuit-connectivity-in-python/).

@@ -562,3 +562,5 @@ to the steepest neighbour and, as they grow, approach D8.
 - Quinn, P., Beven, K., Chevallier, P., & Planchon, O. (1991). The prediction of hillslope flow paths for distributed hydrological modelling using digital terrain models. *Hydrological Processes*, 5(1), 59–79. https://doi.org/10.1002/hyp.3360050106
 - Sørensen, R., Zinko, U., & Seibert, J. (2006). On the calculation of the topographic wetness index: Evaluation of different methods based on field observations. *Hydrology and Earth System Sciences*, 10(1), 101–112. https://doi.org/10.5194/hess-10-101-2006
 - Tarboton, D. G. (1997). A new method for the determination of flow directions and upslope areas in grid digital elevation models. *Water Resources Research*, 33(2), 309–319. https://doi.org/10.1029/96WR03137
+
+In Python: [Terrain hydrology in Python](/tutorials/terrain-hydrology/terrain-hydrology-in-python/).

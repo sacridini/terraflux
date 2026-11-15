@@ -383,3 +383,5 @@ mean different things; turn them off when a later step expects the plain codes.
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
 - Wickham, J. D., Riitters, K. H., Wade, T. G., & Vogt, P. (2010). A national assessment of green infrastructure and change for the conterminous United States using morphological image processing. *Landscape and Urban Planning*, 94(3–4), 186–195. https://doi.org/10.1016/j.landurbplan.2009.10.003
 - Wickham, J., & Riitters, K. H. (2019). Influence of high-resolution data on the assessment of forest fragmentation. *Landscape Ecology*, 34(9), 2169–2182. https://doi.org/10.1007/s10980-019-00820-z
+
+In Python: [Habitat patterns in Python](/tutorials/habitat-patterns/patterns-in-python/).

@@ -458,3 +458,5 @@ and the day's 1,300 strata give the day's coefficient its wider interval.
   https://doi.org/10.1002/ece3.4823
 - Thurfjell, H., Ciuti, S., & Boyce, M. S. (2014). Applications of step-selection functions in ecology and
   conservation. *Movement Ecology*, 2, 4. https://doi.org/10.1186/2051-3933-2-4
+
+In Python: [Animal movement in Python](/tutorials/animal-movement/animal-movement-in-python/).
