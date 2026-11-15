@@ -1,22 +1,22 @@
-//! The model as a Python script of landschaft (the library whose kernels Terraflux runs): for the paper, the
-//! supervisor or the reviewer who asks for the code. Each node becomes a call of landschaft's function of the same
+//! The model as a Python script of terraflux (the Python library whose kernels Terraflux runs): for the paper, the
+//! supervisor or the reviewer who asks for the code. Each node becomes a call of the library's function of the same
 //! method, in the order the model runs them: its inputs as the values of the nodes before, its settings as the
-//! function's arguments (by their names in landschaft), its outputs as the result or its fields. A calculator's
+//! function's arguments (by their names in the library), its outputs as the result or its fields. A calculator's
 //! script is kept as it is, run in numpy by a helper written into the script; reclassification rules become
 //! `tf.reclassify`'s table; the foreground of the habitat patterns (MSPA, FAD...) `tf.reclassify(foreground=...)`.
 //! Containers become Python's own: a loop (`control.repeat`) a `for` over its steps, its carried values assigned
 //! at the end of each, what it collects appended to lists; `control.each` a `for` over the collection's elements;
 //! `control.switch` an `if`/`elif` per branch; a group its body in place. The species distribution models
-//! (landschaft's prepare, fit and predict), the landscape metrics, a prioritization (prioritizr's `problem()`, as
-//! landschaft builds it), Zonation and the pieces of the land change models (Markov, weights of evidence, the
+//! (the library's prepare, fit and predict), the landscape metrics, a prioritization (prioritizr's `problem()`, as
+//! the library builds it), Zonation and the pieces of the land change models (Markov, weights of evidence, the
 //! changes and their validation, the logistic regressions, the demands, Dinamica's roads and continuous patcher)
-//! are calls of their own; the allocation of Dinamica, CLUE-S and PLUS, which landschaft runs only as a whole model
-//! (`tf.simulate.run`), is said so. SWAT+ is landschaft's `tf.hydro.swat` (`load_txtinout`, `watershed`, `climate` with
+//! are calls of their own; the allocation of Dinamica, CLUE-S and PLUS, which the library runs only as a whole model
+//! (`tf.simulate.run`), is said so. SWAT+ is the library's `tf.hydro.swat` (`load_txtinout`, `watershed`, `climate` with
 //! `from_tables`, `wgn_from_series`, `run`, `hru_map`, `channel_map`, `reach_discharge`); swat.set a helper written
 //! into the script that adds the calibration.cal row as Terraflux does, and the weather's tables and the results'
-//! (year, day, object) helpers that put them in landschaft's shape and back.
+//! (year, day, object) helpers that put them in the library's shape and back.
 //! Tables are pandas' DataFrames and vector features geopandas' GeoDataFrames. Reading features, burning them,
-//! their zones' statistics and the values at points are landschaft's (`load_vector`, `rasterize`, `zonal_stats`,
+//! their zones' statistics and the values at points are the library's (`load_vector`, `rasterize`, `zonal_stats`,
 //! `extract`); the operators of tables (filter, calc, aggregate, select, sort, join, pivot) and of features (filter,
 //! calc, buffer, clip, dissolve, reproject, join, spatial_join, overlay, points, from_table, polygonize, geometry,
 //! distance, grid_zones) helpers written into the script that do what Terraflux does, features given also as the
@@ -46,14 +46,14 @@ enum Kind {
     Method,
 }
 
-/// An operator's counterpart in landschaft.
+/// An operator's counterpart in the library.
 struct Py {
     op: &'static str,
     call: &'static str,
     /// The node's inputs and settings, by their names here, and the function's argument (`""`: the first, by
     /// position).
     args: &'static [(&'static str, &'static str)],
-    /// Arguments given when the node does not give them (Terraflux's defaults where landschaft's differ).
+    /// Arguments given when the node does not give them (Terraflux's defaults where the library's differ).
     defaults: &'static [(&'static str, &'static str)],
     /// The outputs: the port and what of the result it is (`""`: the result, `.field`).
     outs: &'static [(&'static str, &'static str)],
@@ -396,7 +396,7 @@ fn family_special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, Strin
     Ok(None)
 }
 
-/// Operators whose inputs and settings are the arguments of landschaft's function of the same name, by the same
+/// Operators whose inputs and settings are the arguments of the library's function of the same name, by the same
 /// names, and that give one output: called with them as they are.
 const BY_NAME: &[(&str, &str)] = &[
     ("conn.eca_change_grid", "tf.conn.eca_change_grid"),
@@ -453,7 +453,7 @@ fn swat_helper() -> String {
     format!("{}\n\n_SWAT_PARAMETERS = {{\n{}}}\n", SWAT_HELPER.trim_end(), parms.concat())
 }
 
-/// Zonation's settings and inputs of the same name in landschaft's `zonation`.
+/// Zonation's settings and inputs of the same name in the library's `zonation`.
 const ZONATION: &[&str] = &[
     "rule",
     "rule_param",
@@ -497,7 +497,7 @@ const ZONATION: &[&str] = &[
     "solution",
 ];
 
-/// The objectives of a prioritization landschaft's problem takes, and whether they take a budget.
+/// The objectives of a prioritization the library's problem takes, and whether they take a budget.
 const OBJECTIVES: &[(&str, bool)] = &[
     ("min_set", false),
     ("max_utility", true),
@@ -1124,7 +1124,13 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
         }
     }
     head.push_str("\"\"\"\n\n");
-    head.push_str("from pathlib import Path\n\nimport numpy as np\n\nimport terraflux as tf\n\n");
+    // pandas, imported once here when a node's code uses it (the nodes' own `import pandas as pd` lines taken out)
+    let (body, pandas) = hoist_pandas(&body);
+    head.push_str("from pathlib import Path\n\nimport numpy as np\n");
+    if pandas {
+        head.push_str("import pandas as pd\n");
+    }
+    head.push_str("\nimport terraflux as tf\n\n");
     let dir = model_path.and_then(|p| p.parent()).filter(|d| !d.as_os_str().is_empty());
     head.push_str(&match dir {
         Some(d) => format!(
@@ -1153,6 +1159,46 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
         head.push_str("# --- the model ---\n\n");
     }
     out.text = format!("{head}\n{}", body.trim_end()) + "\n";
+    out
+}
+
+/// The script's body without the nodes' own top-level `import pandas as pd` (or `as _pd`, renamed `pd`), and whether
+/// it uses pandas (then imported once in the header).
+fn hoist_pandas(body: &str) -> (String, bool) {
+    let mut out = String::with_capacity(body.len());
+    let mut renamed = false;
+    for line in body.split_inclusive('\n') {
+        // (a node's code inside a loop or a branch too: its import is followed by the code that uses it)
+        match line.trim() {
+            "import pandas as pd" => {}
+            "import pandas as _pd" => renamed = true,
+            _ => out.push_str(line),
+        }
+    }
+    if renamed {
+        out = rename_word(&out, "_pd.", "pd.");
+    }
+    let uses = out.match_indices("pd.").any(|(i, _)| {
+        out[..i].chars().next_back().is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '.'))
+    });
+    (out, uses)
+}
+
+/// `from` replaced by `to` where it starts a name (not inside a longer one, as `my_pd.`).
+fn rename_word(s: &str, from: &str, to: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find(from) {
+        out.push_str(&rest[..i]);
+        let before = out.chars().next_back();
+        if before.is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '.')) {
+            out.push_str(to);
+        } else {
+            out.push_str(from);
+        }
+        rest = &rest[i + from.len()..];
+    }
+    out.push_str(rest);
     out
 }
 
@@ -1362,7 +1408,7 @@ fn node(n: &Node, r: &Registry, var: &str, sc: &Scope) -> Result<Code, String> {
         } else {
             code.push_str(&format!("{var} = {}({})\n", py.call, args.join(", ")));
         }
-        // a drawn landscape's places and coordinate system (landschaft's models have none): `like`'s, else the setting's
+        // a drawn landscape's places and coordinate system (the library's models have none): `like`'s, else the setting's
         if py.kind == Kind::Grid {
             if let Some(like) = value_of(n, "like", sc)? {
                 code.push_str(&format!(
@@ -1412,7 +1458,7 @@ fn choice<'n>(n: &'n Node, name: &str) -> Option<&'n str> {
     n.params.get(name).and_then(Value::as_str)
 }
 
-/// The node's inputs and settings outside `known` refused: a setting landschaft is not given changes the result.
+/// The node's inputs and settings outside `known` refused: a setting the library is not given changes the result.
 fn refuse_others(n: &Node, known: &[&str]) -> Result<(), String> {
     for (k, what) in n.inputs.keys().map(|k| (k, "input")).chain(n.params.keys().map(|k| (k, "setting"))) {
         if !known.contains(&k.as_str()) {
@@ -1422,7 +1468,7 @@ fn refuse_others(n: &Node, known: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
-/// The swat.run whose tables are connected to `ports` of the node (the `result=` of landschaft's maps): `None` when
+/// The swat.run whose tables are connected to `ports` of the node (the `result=` of the library's maps): `None` when
 /// none is, an error when one is not a swat.run's or they come from different runs.
 fn swat_result(n: &Node, ports: &[&str], sc: &Scope) -> Result<Option<String>, String> {
     let mut found: Option<String> = None;
@@ -1441,14 +1487,14 @@ fn swat_result(n: &Node, ports: &[&str], sc: &Scope) -> Result<Option<String>, S
 }
 
 /// The run a map makes itself (no table connected) when it has the years to skip or the C factor to use, which
-/// landschaft's `channel_map` and `reach_discharge` take only in a run of their own: the table at `step`.
+/// the library's `channel_map` and `reach_discharge` take only in a run of their own: the table at `step`.
 fn own_run(n: &Node, project: &str, step: &str, sc: &Scope) -> Result<Option<String>, String> {
     let mut args = vec![project.to_string(), format!("tables={{\"channel_sd\": {}}}", text(step))];
     args.extend(given(n, &[("nyskip", "nyskip"), ("c_factor", "c_factor")], sc)?);
     Ok((args.len() > 2).then(|| format!("tf.hydro.swat.run({})", args.join(", "))))
 }
 
-/// The statistics of the weather generator given by station (`{"station": 4}`) are Terraflux's: landschaft takes a
+/// The statistics of the weather generator given by station (`{"station": 4}`) are Terraflux's: the library takes a
 /// value, twelve or a table of month and station.
 fn monthly_by_station(n: &Node) -> Result<(), String> {
     match n.params.get("monthly") {
@@ -1479,11 +1525,11 @@ fn step_seed(n: &Node, sc: &Scope, mask: Option<&str>) -> Result<String, String>
 }
 
 /// The operators translated by code of their own, not one call with the arguments mapped: stacks and tables
-/// written in the model, the species distribution models (landschaft's prepare, fit and predict), the landscape
-/// metrics, a prioritization (prioritizr's problem, as landschaft builds it), Zonation, weights of evidence's
+/// written in the model, the species distribution models (the library's prepare, fit and predict), the landscape
+/// metrics, a prioritization (prioritizr's problem, as the library builds it), Zonation, weights of evidence's
 /// probability, the logistic regressions (fitted, predicted, given), Dinamica's cost maps, destinations, pathways,
 /// roads and continuous patcher (the seed of a step as Terraflux makes it), a demand given as a table; the
-/// allocation of the land change models, which landschaft runs only as a whole model, said so.
+/// allocation of the land change models, which the library runs only as a whole model, said so.
 fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
     let v = |k: &str| value_of(n, k, sc);
     let need =
@@ -1643,7 +1689,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 match k.as_str() {
                     "show" | "patches_path" => {}
                     "metrics" => args.push(format!("metric={}", setting(n, k, sc)?.unwrap_or_else(|| literal(x)))),
-                    // (landschaft's types end in " metric": "diversity metric")
+                    // (the library's types end in " metric": "diversity metric")
                     "type" if x.as_str().is_some_and(|t| !t.ends_with(" metric")) => {
                         args.push(format!("type={}", text(&format!("{} metric", x.as_str().unwrap_or("")))))
                     }
@@ -1768,7 +1814,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 let e = given(n, &[("edge_factor", "edge_factor")], sc)?.into_iter().map(|e| format!(", {e}"));
                 chain.push(format!(".add_boundary_penalties({p}{})", e.collect::<String>()));
             }
-            // the connectivity of pairs of units (a table i, j, x of every cell) as landschaft's units x units matrix
+            // the connectivity of pairs of units (a table i, j, x of every cell) as the library's units x units matrix
             let mut pairs = false;
             for (k, data, method) in [
                 ("connectivity_penalty", "connectivity_data", "add_connectivity_penalties"),
@@ -1787,7 +1833,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             if n.params.get("contiguity").and_then(Value::as_bool) == Some(true) {
                 chain.push(".add_contiguity_constraints()".into());
             }
-            // corridors: a layer of terminals per network (landschaft's list of rasters), the resistance a map
+            // corridors: a layer of terminals per network (the library's list of rasters), the resistance a map
             if let Some(t) = v("corridor_terminals")? {
                 if zoned {
                     return Err("corridors with zones: not in the script yet".into());
@@ -1848,7 +1894,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 given(n, &[("gap", "gap"), ("time_limit", "time_limit")], sc)?
             };
             if solver == "gurobi" {
-                s.extend(given(n, &[("threads", "threads")], sc)?);
+                s.extend(given(n, &[("threads", "n_threads")], sc)?);
             }
             if !s.is_empty() || solver != "highs" {
                 chain.push(format!(".add_{solver}_solver({})", s.join(", ")));
@@ -2051,7 +2097,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             let watershed = need("watershed", "its watershed")?;
             let mut args = vec![watershed.clone(), format!("tf.hydro.swat.climate({})", weather.join(", "))];
             args.extend(given(n, &[("start", "start"), ("end", "end"), ("codes", "codes"), ("name", "name")], sc)?);
-            // the project keeps its division for the maps of the results, as landschaft's from_rasters sets it
+            // the project keeps its division for the maps of the results, as the library's from_rasters sets it
             let code =
                 format!("{var} = tf.hydro.swat.from_tables({})\n{var}.watershed = {watershed}\n", args.join(", "));
             (code, one("project"), Need::Swat)
@@ -2126,7 +2172,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             refuse_others(n, &["landscape", "drivers", "formulas", "maxit", "epsilon"])?;
             let landscape = need("landscape", "its landscape")?;
             let drivers = need("drivers", "its drivers")?;
-            // Terraflux fits the classes in their order, landschaft in the formulas'
+            // Terraflux fits the classes in their order, the library in the formulas'
             let mut args = Vec::new();
             match n.params.get("formulas") {
                 None | Some(Value::Null) => {}
@@ -2175,7 +2221,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 let coefficients: Vec<f64> = list("coefficients").iter().filter_map(Value::as_f64).collect();
                 let pivot: Vec<i64> = list("pivot").iter().filter_map(Value::as_i64).collect();
                 let p = drivers.len() + 1;
-                // landschaft's from_coefficients makes every driver count (pivot 1, 2..., full rank)
+                // the library's from_coefficients makes every driver count (pivot 1, 2..., full rank)
                 if coefficients.len() != p
                     || pivot != (1..=p as i64).collect::<Vec<_>>()
                     || f.get("rank").and_then(Value::as_i64) != Some(p as i64)
@@ -2264,7 +2310,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             if let Some(m) = v("mask")? {
                 args.push(format!("mask={m}"));
             }
-            // Terraflux's seed of a step kept to 63 bits, as landschaft's run gives its steps
+            // Terraflux's seed of a step kept to 63 bits, as the library's run gives its steps
             let seed = step_seed(n, sc, Some("0x7FFFFFFFFFFFFFFF"))?;
             let code = format!("{var} = tf.simulate.RoadBuilder({}).step({network}, seed={seed})\n", args.join(", "));
             let outs = HashMap::from([
@@ -2490,7 +2536,7 @@ fn script_text(s: &str) -> String {
 }
 
 /// The operators of tables (pandas' DataFrames) and of vector features (geopandas' GeoDataFrames): a call of
-/// landschaft's (load_vector, rasterize, zonal_stats) or of a helper written into the script (python_flow.py) that
+/// the library's (load_vector, rasterize, zonal_stats) or of a helper written into the script (python_flow.py) that
 /// does what Terraflux does; the expressions of the filters and calculators as they are, run by the calculator's
 /// helper over the columns. A setting with no counterpart that would change the result is refused.
 fn tables_and_features(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
@@ -2722,6 +2768,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pandas_imported_once_in_the_header() {
+        let body = "import pandas as pd\na = pd.DataFrame(x)\nimport pandas as _pd\nb = _pd.Series(my_pd.y)\nfor i in r:\n    import pandas as pd\n    c = pd.Series(i)\n";
+        let (out, uses) = hoist_pandas(body);
+        assert!(uses);
+        assert_eq!(out, "a = pd.DataFrame(x)\nb = pd.Series(my_pd.y)\nfor i in r:\n    c = pd.Series(i)\n");
+        assert!(!hoist_pandas("x = np.zeros(3)\ny = gpd.read_file(p)\n").1);
+    }
+
+    #[test]
     fn literals_names_and_rules() {
         assert_eq!(
             literal(&serde_json::json!({"a": [1, 2.5, null, true], "b": "x\"y"})),
@@ -2815,10 +2870,15 @@ mod tests {
     }
 
     /// The object of the library a dotted name is: through the aliases (of the name or of a prefix, as a method of an
-    /// aliased class), as many hops as it takes.
+    /// aliased class), as many hops as it takes. A name bound in a package comes first: `tf.circuit.omniscape` is the
+    /// function the package imports, not its module of the same name.
     fn api_object<'a>(api: &'a Value, name: &str) -> Option<&'a Value> {
         let mut name = name.to_string();
         for _ in 0..10 {
+            if let Some(to) = api["aliases"].get(&name).and_then(Value::as_str).filter(|to| *to != name) {
+                name = to.to_string();
+                continue;
+            }
             if let Some(o) = api["objects"].get(&name) {
                 return Some(o);
             }
@@ -3372,7 +3432,7 @@ from = "roads.distance"
         parses(t);
     }
 
-    /// The counterparts as JSON (to check them against landschaft's functions: TERRAFLUX_PY_DUMP=file).
+    /// The counterparts as JSON (to check them against the library's functions: TERRAFLUX_PY_DUMP=file).
     #[test]
     #[ignore]
     fn dump_counterparts() {
@@ -3394,7 +3454,7 @@ from = "roads.distance"
         std::fs::write(file, serde_json::to_string(&all).unwrap()).unwrap();
     }
 
-    /// SWAT+ as landschaft's `tf.hydro.swat`: a project loaded and changed, one made from maps and the weather, run,
+    /// SWAT+ as the library's `tf.hydro.swat`: a project loaded and changed, one made from maps and the weather, run,
     /// the results on the map; the template of the project from rasters is all translated.
     #[test]
     fn swat_as_terraflux() {
@@ -3780,7 +3840,7 @@ op = "dinamica.step"
             "{t}"
         );
         assert!(t.contains("markov = tf.simulate.Markov.from_maps(a, b, steps=5)"), "{t}");
-        // the allocation: landschaft runs it as a whole model
+        // the allocation: the library runs it as a whole model
         let step = s.left.iter().find(|(id, _, _)| id == "step").unwrap();
         assert!(step.2.contains("tf.simulate.run(t0, t1, drivers, preset=\"dinamica\""), "{}", step.2);
     }

@@ -1117,7 +1117,7 @@ params = { factor = 4 }
         assert!(s.left.is_empty(), "{:?}\n{}", s.left, s.text);
         let t = &s.text;
         assert!(t.contains("bm = tf.prioritize.boundary_matrix(cost)\n"), "{t}");
-        assert!(t.contains("bm_table = _pd.DataFrame({\"i\": bm.tocoo().row + 1"), "{t}");
+        assert!(t.contains("bm_table = pd.DataFrame({\"i\": bm.tocoo().row + 1"), "{t}");
         assert!(
             t.contains("check_problem = (\n    tf.prioritize.problem(cost, features)\n    .add_min_set_objective()\n    .add_relative_targets(0.2)\n    .add_binary_decisions()\n)\ncheck_solution = plan.selection\n"),
             "{t}"
