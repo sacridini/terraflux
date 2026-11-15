@@ -97,7 +97,7 @@ grids: species distribution models saved one per file, for example.
 
 Without `like=`, a folder or a pattern (`tf.load_raster("tiles/*.tif")`) gives a `RasterCollection`: it only reads
 the headers of the files (size, CRS, data type), so that thousands of tiles can be listed and passed on to
-`tf.batch` or `tf.mspa_batch` without loading them (see [batch processing](/python/algorithms/batch-processing/)).
+`tf.batch` or `tf.mspa_batch` without loading them (see [Large data & batch](/python/api/batch/)).
 
 Only a study area is often needed from a large raster. `clip=` reads only the
 window of a region (polygons, or bounds in the raster's CRS) and makes the

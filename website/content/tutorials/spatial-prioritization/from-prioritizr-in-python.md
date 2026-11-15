@@ -1,16 +1,17 @@
 ---
-title: From prioritizr, prioriactions and prioripy
+title: "From prioritizr and prioriactions to Python"
+short: "From prioritizr to Python"
 description: "tf.prioritize builds the same optimization models as the R packages prioritizr (8.0.6) and prioriactions (0.5.0), row by row, and keeps their vocabulary, so most scripts translate line by line."
-order: 85
+order: 918
+level: intermediate
+time: 20 min
 ---
 
 `tf.prioritize` builds the same optimization models as the R packages
 [prioritizr](https://prioritizr.net) (8.0.6) and
 [prioriactions](https://prioriactions.github.io/prioriactions/) (0.5.0), row by row, and keeps their
 vocabulary, so most scripts translate line by line. This page is the dictionary: what changes in the
-syntax, the equivalent of every function, what to expect when you compare the results, and the
-replacements for [prioripy](https://github.com/sacridini/prioripy), the Python package `tf.prioritize`
-grew out of. The ideas behind each function are in the
+syntax, the equivalent of every function, and what to expect when you compare the results. The ideas behind each function are in the
 [spatial prioritization tutorials](/tutorials/spatial-prioritization/); the full reference is the
 [Spatial prioritization](/python/api/prioritization/) API page.
 
@@ -274,11 +275,11 @@ methods of 8.1 (`spec_*_targets()`). Open an issue if you need one of them.
   plan use a small gap.
 - **Faster, not different.** Terraflux's own engines (covering, cuts, closure) reach the solutions faster
   than the solver alone and prove the same bounds; the [benchmarks](/about/validation/) list the times.
-- **Top fractions count cells by position.** prioripy's landscape identification and comparison take
-  every unit at or above a quantile of the surface, so ties can add units. Terraflux follows Zonation:
-  the cells are ranked by position (ties: the earlier cell in row order ranks lower) and the top
-  fraction is the cells ranked at or above 1 − fraction, which on a Zonation ranking gives Zonation's
-  own areas. The areas are 8-connected by default (prioripy: 4) and keep Zonation's numbers.
+- **Top fractions count cells by position.** Landscape identification and comparison follow Zonation,
+  not a quantile of the surface (where ties can add units): the cells are ranked by position (ties: the
+  earlier cell in row order ranks lower) and the top fraction is the cells ranked at or above
+  1 − fraction, which on a Zonation ranking gives Zonation's own areas. The areas are 8-connected by
+  default and keep Zonation's numbers.
 
 To check a migrated analysis, export R's compiled model and compare:
 
@@ -341,77 +342,6 @@ The example of prioriactions's documentation, in both:
     sa = m.add_highs_solver(gap=0.01).solve()
     sa.action_summary()
     ```
-
-## prioripy
-
-prioripy 0.11 was the starting point of `tf.prioritize`'s design. The core was rewritten to build
-prioritizr's models exactly, so some results change (see the next section).
-
-| prioripy | `tf.prioritize` |
-|---|---|
-| `problem("pu.tif", ["sp1.tif", ...], feature_names)` | `P.problem(tf.load_raster("pu.tif"), tf.load_raster(["sp1.tif", ...]))` (names from the files or the bands) |
-| `add_min_set_objective()`, `add_min_shortfall_objective(budget)`, `add_min_largest_shortfall_objective(budget)` | the same |
-| `add_max_utility_objective(budget)`, `add_max_wtd_sum_objective(budget)` | `.add_max_utility_objective(budget)` |
-| `add_max_cover_objective(budget)` (the most targets met) | `.add_max_features_objective(budget)`; `add_max_cover_objective` is prioritizr's (the most features held at all) |
-| `add_relative_targets`, `add_absolute_targets` | the same |
-| `add_subregional_targets(...)` | `.add_subregional_targets(regions, targets)` |
-| `add_feature_weights(default_weight, specific_weights, csv_path)` | `.add_feature_weights(weights)` (one per feature, in the features' order) |
-| `add_condition_layer(condition, feature_indices)` | `features * condition` before `P.problem`, or `P.zonation_features(features, condition=...)` |
-| `apply_feature_smoothing(i, radius_cells)` | `P.zonation_features(features, connectivity=[P.Kernel("gaussian", radius), ...])` |
-| `add_extra_variable(data, weight)` | another band of `features` with its weight in `.add_feature_weights()` |
-| `add_locked_in_constraints`, `add_locked_out_constraints`, `add_contiguity_constraints` | the same |
-| `add_linear_constraints(sense, threshold, data)` | `.add_linear_constraints(threshold, sense, data)` (prioritizr's order) |
-| `add_neighbor_constraints(k)` | `.add_neighbor_constraints(k)` |
-| `add_corridors(terminals, resistance)` | `.add_corridor_constraints(terminals, resistance, penalty)` |
-| `add_boundary_penalties`, `add_connectivity_penalties`, `add_linear_penalties` | the same (the connectivity penalties now work in every objective) |
-| `add_neighbor_penalties(penalty, data)` | `.add_neighbor_penalties(penalty, data)` (data optional: the units' adjacency by default) |
-| `add_continuous_bounds(upper, lower)` | `.add_proportion_decisions().add_manual_bounded_constraints(lower=lower, upper=upper)` |
-| `add_solver("auto")`, `add_highs_solver(gap, time_limit)`, `add_gurobi_solver(...)` | `.add_highs_solver(gap, time_limit)`, `.add_gurobi_solver(...)` |
-| `add_single_portfolio`, `add_top_portfolio`, `add_cuts_portfolio`, `add_gap_portfolio`, `add_shuffle_portfolio`, `add_extra_portfolio` | the same (`add_extra_portfolio` → `add_gap_portfolio`), all on HiGHS as well |
-| `add_actions(...)`, `add_threats(...)`, `add_sensitivity(...)`, `add_multi_action_boundary_penalties(...)` | `P.actions_raster_data(monitoring_cost, features, threats, action_cost, sensitivity=..., blm_actions=...)` |
-| `add_directional_dependencies(df_flow, penalty_multiplier)` | `ActionsProblem.add_directional_dependencies(flow, penalty)` (`source_pu`, `target_pu`, `strength`) |
-| `solve_iteratively(...)` | `P.iterative_solve(p, update, steps)` |
-| `calibrate_penalty(...)` | `P.calibrate_penalty(p, ...)` |
-| `calibrate_feature_weight(...)` | `P.calibrate(lambda w: ..., values, criterion)` |
-| `generate_pareto_front(...)` | `P.pareto_front(p, ...)` |
-| `eval_target_coverage_summary`, `eval_rank_importance` | the same |
-| `eval_ferrier_importance` (a simplified ratio) | `P.eval_ferrier_importance`: Ferrier et al.'s index, as prioritizr |
-| `eval_irreplaceability(prob, portfolio)` | `p.add_cuts_portfolio(n).solve().frequency` (flexibility: 1 − frequency) |
-| `eval_marginal_loss(prob, s)` | `P.eval_replacement_importance(p, s)` (the objective's loss, by re-solving) |
-| `eval_landscape_identification(prob, importance, top_fraction, min_size, connectivity, merge_distance)` | `P.eval_landscape_identification(surface, top_fraction, min_size=, connectivity=, merge_distance=, problem=p)` (8-connected by default, as Zonation; the top fraction by Zonation's rule, see below) |
-| `eval_landscape_comparison(prob, a, b, thresholds)` | `P.eval_landscape_comparison(a, b, fractions)` |
-| `eval_roi_vulnerability(...)` | the features' sum over the cost, in numpy (below) |
-| `eval_proxirr(...)` | `P.eval_proxirr(p, triage)`, or `P.eval_proxirr_marxan(pu, spec, puvspr)` for Marxan's tables (the CRAN package proxirr's results, bit for bit) |
-| `calc_extinction_risk_features(...)` | `.add_min_extinction_risk_objective(budget, z)` and `P.eval_extinction_risk(p, s, z)` |
-| `prob.write_raster(path)` | `tf.write_raster(s.selection, path)` or `s.save(folder)` |
-| `prob.plot()`, `prob.explore()` | `tf.plot(s)` |
-| `prob.generate_report(path)`, `generate_calibration_report(...)` | `P.report(p, s).save("report.html")`, `tf.plot(tradeoffs)` |
-
-Two of the prioripy measures in a few lines:
-
-```python
-import numpy as np
-
-p0 = P.problem(cost, features).add_min_set_objective().add_relative_targets(0.2).add_binary_decisions()
-s0 = p0.solve()
-amount = features.sum("band").values                   # every cell's total amount of the features
-roi = np.where(s0.selection.values == 1, amount / cost.values, 0.0)     # return on investment
-frequency = p0.add_shuffle_portfolio(4, seed=1).solve().frequency       # selection frequency
-```
-
-### What changes from prioripy
-
-- **One model for every solver.** prioripy built different models for Gurobi and HiGHS (penalties
-  scaled by 1e-5 on one of them), so its results depended on what was installed; here the solver
-  only solves.
-- **The order of the calls does not matter**: relative targets, conditions and weights are resolved
-  when the problem is solved. Values per feature follow the features' order and tables name the
-  features; there is no 0- or 1-based feature index to guess.
-- **`max_cover` is prioritizr's.** prioripy's `max_cover` (the most targets met) is
-  `add_max_features_objective` here.
-- **Errors are raised.** prioripy swallowed failed steps in the calibrations and the rank importance;
-  here a failed step stops with its error.
-- **Ferrier's index** is the published one, and the replacement importance exists.
 
 ## See also
 

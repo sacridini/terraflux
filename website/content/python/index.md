@@ -35,9 +35,7 @@ Where to go:
 - [Get started](/python/getting-started/): installation, a first run, configuration, concepts, data and plotting.
 - [Tutorials](/python/tutorials/): each topic from the basics to the advanced options, on real maps.
 - The [API reference](/python/api/): every function and class, with its parameters and a runnable example.
-- The [algorithms](/python/algorithms/): what each method computes as the library implements it, with its parameters,
-  class codes and references.
-- [Migrating from prioritizr, prioriactions and prioripy](/python/migrate-from-prioritizr/), and the
+- [Migrating from prioritizr and prioriactions](/tutorials/spatial-prioritization/from-prioritizr-in-python/), and the
   [changelog](/python/changelog/).
 
 ## What you can do

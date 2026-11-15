@@ -273,7 +273,7 @@ the `python` section: `content/python/` (getting started, tutorials, API referen
 `*-in-python.md` pages beside the GUI tutorials.
 
 **Sidebar groups.** A section whose pages live in subfolders (`python/getting-started/x.md`, `python/api/x.md`,
-`python/algorithms/x.md`) shows a heading for each subfolder, with a fold that opens
+`python/api/x.md`) shows a heading for each subfolder, with a fold that opens
 for the page being read; the section's own pages (`python/index.md`, `python/changelog.md`) stay in the list. A
 section with no subfolder is a flat list, as before. Pages are ordered by their front matter `order:` (then by
 title). A group's heading comes from `groups:` of its section in `site.yaml` (a text, or `{ title, order }`);

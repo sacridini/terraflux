@@ -2074,7 +2074,7 @@ pub enum Spatial {
     Contiguity { data: Option<Matrix> },
     /// add_feature_contiguity_constraints(data): every feature's units (where it counts) form one patch
     FeatureContiguity { data: Option<Matrix> },
-    /// add_corridor_constraints(terminals, resistance, penalty, data) (landschaft's, after prioripy): the terminal
+    /// add_corridor_constraints(terminals, resistance, penalty, data) (the Python library's): the terminal
     /// units of every network (a value per cell or row of each; > 0 marks a terminal) are selected and joined by
     /// selected units, a flow from the first terminal to each of the others on the edges of the adjacency (default
     /// 4-adjacency, or a matrix of every unit); with a resistance (a value per cell or row; an edge takes the mean
@@ -2461,7 +2461,7 @@ fn add_connected(b: &mut Builder, nodes: &[usize], d: &Csc, tag: &str) {
     b.connected.push(Connected { nodes: nodes.to_vec(), root, arc, tail, head });
 }
 
-/// Corridors (landschaft's `_apply_corridors`, an extension after prioripy's): every network's terminal units are
+/// Corridors (the Python library's `_apply_corridors`, an extension of prioritizr): every network's terminal units are
 /// selected and joined through selected units. A single-commodity flow on the edges between units, both ways: the
 /// first terminal sends one unit of flow to each of the K others, flows <= K x at both ends, and with a resistance,
 /// `penalty` x resistance x flow added to the objective (subtracted when it is maximised).

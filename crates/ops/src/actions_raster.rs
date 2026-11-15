@@ -1,4 +1,4 @@
-//! Multi-action problems from rasters (landschaft's actions_raster_data, after prioripy's raster input): the
+//! Multi-action problems from rasters (the Python library's actions_raster_data): the
 //! planning units are the cells with a monitoring cost, a layer per feature (its amount in every cell) and per
 //! threat (its intensity, > 0 where it occurs), the actions' costs numbers or maps; prioriactions's tables built
 //! from them as landschaft builds them, solved as prioritize.actions solves them, the solution as maps.

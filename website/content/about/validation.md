@@ -285,7 +285,7 @@ find hard on their own.
 
 Contiguity constraints are the exception. prioritizr's contiguity model is a
 restriction (it misses some patches, see the
-[migration guide](/python/migrate-from-prioritizr/#what-to-expect-when-you-compare-the-results));
+[migration guide](/tutorials/spatial-prioritization/from-prioritizr-in-python/#what-to-expect-when-you-compare-the-results));
 Terraflux solves the exact model: a patch heuristic, a first patch of the
 restricted model, directed cuts at the root, then HiGHS's branch and bound with
 the same cuts separated at its nodes (HiGHS is patched for it). Measured with

@@ -128,8 +128,8 @@ to a guaranteed gap. The grammar and the models are prioritizr's (Hanson et al.)
 prioritizr 8.0.6's model bit for bit and the solvers reach the same optima as prioritizr on Gurobi.
 HiGHS is built in, with Terraflux's own engines in front of it for the problems it finds hard
 (covering problems of millions of units, budgeted objectives, boundary penalties by minimum cuts,
-multi-action plans); Gurobi is used when installed and asked for. Coming from R or prioripy? The
-[migration guide](/python/migrate-from-prioritizr/) lists the equivalent of every function.
+multi-action plans); Gurobi is used when installed and asked for. Coming from R? The
+[migration guide](/tutorials/spatial-prioritization/from-prioritizr-in-python/) lists the equivalent of every function.
 
 ```python
 import terraflux as tf

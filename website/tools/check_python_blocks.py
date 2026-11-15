@@ -1,7 +1,7 @@
 """Run the Python examples of the site's pages, as the library's tools/check_docs.py did for its own docs.
 
     python website/tools/check_python_blocks.py                      # every page below
-    python website/tools/check_python_blocks.py python/quickstart.md python/algorithms/mspa-and-spa.md
+    python website/tools/check_python_blocks.py python/index.md python/api/patterns.md
     python website/tools/check_python_blocks.py --list              # the pages that would run
     python website/tools/check_python_blocks.py --python PATH --jobs 2 --timeout 900
 
