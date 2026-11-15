@@ -36,7 +36,7 @@ The **Graph** tab of the application edits the model:
   move it; its place is saved in the model (`pos`).
 - **The side panel:** a node's settings open in a panel beside its box (the gear at the right end of its
   operator line, a click on a setting the box does not edit, shift+Enter, or *Settings...* in its menu; Esc, its
-  x or a click on the empty canvas close it), or in the Node tab (*Settings* can open it by itself). You can rename it (its references follow), type the
+  x or a click on the empty canvas close it; opened from a setting's row it scrolls to that setting), or in the Node tab (*Settings* can open it by itself). You can rename it (its references follow), type the
   value of an input, change its settings, add inputs (map algebra, groups, plugins), set a container's
   outputs, or delete it. Below them is the node's record: its note (what it is for), why it was chosen, the
   references it rests on, its assumptions and the alternatives set aside. With no node selected, the panel shows
@@ -291,7 +291,10 @@ model), `"@step"` or `"@name"` (a loop's step or carried value, a group's input)
 canvas a setting that can read a value has a small socket on its row, at the box's left edge: a wire dragged from an
 output (a node's, a model input's or a container's value) onto the socket or anywhere on the row makes the setting
 read it, drawn as a wire to the socket; a wire dragged off the socket, or *Use a value of its own* in the row's
-right-click menu, puts the setting's own value (its default) back.
+right-click menu, puts the setting's own value (its default) back. A wire can also be drawn the other way, from
+the socket of a free setting to an output that fits it; the pointer resting on a setting's wire tells what it
+feeds, and a double click on it adds a reroute point (as on a connection), kept in the node's `wires` under
+`setting:<name>`.
 
 ```toml
 [[nodes.body.nodes]]

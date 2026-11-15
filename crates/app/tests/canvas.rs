@@ -3390,3 +3390,169 @@ fn a_setting_is_hidden_from_the_box_and_shown_on_it() {
     h.run_steps(3);
     assert!(names(&h).contains(&"seed".to_string()), "a setting that reads a value is not hidden");
 }
+
+/// The panel opened from a setting the box does not edit is scrolled to it (a long list of settings: the one
+/// clicked far down is in view, marked for a moment); opened from the gear it stays at the top.
+#[test]
+fn the_panel_opens_scrolled_to_the_setting_clicked() {
+    use egui_kittest::kittest::Queryable;
+    let _lock = settings_lock();
+    terraflux_app::settings::update(|s| s.node_settings = true);
+    let mut m = Model::new("scrolled");
+    // (a list given: not edited on the box, far down the operator's settings, in its folded part)
+    let mut opt = Node::new("opt", "prioritize.optimize").param("num_temp", serde_json::json!([1, 2, 3]));
+    opt.pos = Some([0.0, 0.0]);
+    m.nodes = vec![opt];
+    let mut h = harness(open(&m, "canvas-panel-scroll.toml"));
+    h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(20.0, 20.0), 0.8);
+    h.run_steps(8);
+    let label = terraflux_app::node_view::label_of("num_temp");
+    let field = |h: &Harness<TerrafluxApp>| h.query_all_by_label(&label).map(|n| n.rect()).next();
+    // by the gear: the panel at its top, the setting far below the panel's end
+    let gear = editor(&h).screen_of_gear("opt").expect("a gear");
+    click(&mut h, gear);
+    h.run_steps(6);
+    let panel = panel_rect(&h).expect("the panel");
+    assert!(field(&h).is_none_or(|r| !panel.contains_rect(r)), "{:?} not in {panel:?}", field(&h));
+    assert!(h.state().session.as_ref().unwrap().editor.panel_focus.is_none());
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(panel_rect(&h).is_none());
+    // by its row: scrolled to it
+    let at = row_of(&mut h, "opt", "num_temp");
+    click(&mut h, at);
+    h.run_steps(30);
+    let panel = panel_rect(&h).expect("the panel");
+    let r = field(&h).expect("the setting's field is drawn");
+    assert!(panel.contains_rect(r), "{r:?} not in {panel:?}");
+    // (the scroll is done once, then the panel is the user's: scrolled up, it stays)
+    assert!(editor(&h).panel_focus.is_none());
+    h.hover_at(panel.center());
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 4000.0),
+        modifiers: egui::Modifiers::NONE,
+        phase: egui::TouchPhase::Move,
+    });
+    h.run_steps(60);
+    assert!(field(&h).is_none_or(|r| !panel.contains_rect(r)), "{:?}: left where the user scrolled it", field(&h));
+}
+
+/// A click on the row of a choice opens its list, a click on the same row again closes it (changing nothing), a
+/// third opens it again; Esc and a click on an option close it as before.
+#[test]
+fn a_click_on_the_row_of_a_choice_toggles_its_list() {
+    use egui_kittest::kittest::Queryable;
+    let _lock = settings_lock();
+    terraflux_app::settings::update(|s| s.node_settings = true);
+    let mut h = settings_harness("canvas-choice-toggle.toml");
+    let listed = |h: &Harness<TerrafluxApp>| h.query_by_label_contains("gurobi").is_some();
+    let at = row_of(&mut h, "opt", "solver");
+    assert!(!listed(&h));
+    click(&mut h, at);
+    assert!(listed(&h), "opened");
+    click(&mut h, at);
+    assert!(!listed(&h), "closed by a click on its row");
+    assert_eq!(param_now(&h, "opt", "solver"), Some(serde_json::json!("highs")));
+    click(&mut h, at);
+    assert!(listed(&h), "opened again");
+    // (the press and the release in one frame, as a quick click)
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    assert!(!listed(&h), "closed by a quick click too");
+    // another row's click, with the list open, closes it
+    click(&mut h, at);
+    assert!(listed(&h));
+    let gap = row_of(&mut h, "opt", "gap");
+    click(&mut h, gap);
+    assert!(!listed(&h));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    // a click on an option sets it and closes the list
+    click(&mut h, at);
+    h.get_by_label_contains("gurobi").click();
+    h.run_steps(3);
+    assert!(!listed(&h));
+    assert_eq!(param_now(&h, "opt", "solver"), Some(serde_json::json!("gurobi")));
+}
+
+/// A setting's wire: a tooltip says what it feeds, a wire dragged from a free setting's socket to an output makes the
+/// setting read it, a double click adds a reroute point (kept under the setting's name, saved, moved, removed, gone
+/// with the wire), each one step of undo.
+#[test]
+fn a_settings_wire_has_a_tip_points_and_can_be_drawn_from_the_socket() {
+    use egui_kittest::kittest::Queryable;
+    let _lock = settings_lock();
+    terraflux_app::settings::update(|s| s.node_settings = true);
+    let mut h = pins_harness("canvas-setting-wire.toml");
+    // from the socket to an output that feeds it (one that does not is refused)
+    let socket = editor(&h).screen_of_socket("opt", "gap").unwrap();
+    let far = editor(&h).screen_of_output("ent", "pairs").unwrap();
+    drag(&mut h, socket, far);
+    assert_eq!(param_now(&h, "opt", "gap"), Some(serde_json::json!(0.2)), "a table does not feed a number");
+    let out = editor(&h).screen_of_output("ent", "index").unwrap();
+    drag(&mut h, socket, out);
+    assert_eq!(
+        param_now(&h, "opt", "gap"),
+        Some(serde_json::json!({ "from": "ent.index" })),
+        "{:?}",
+        editor(&h).message
+    );
+    assert_eq!(editor(&h).setting_wires(), 1);
+    // the tooltip, once the pointer rests on the wire
+    let mid = |h: &Harness<TerrafluxApp>| {
+        let w = editor(h).setting_wire_path("opt", "gap").expect("the wire");
+        w[w.len() / 2]
+    };
+    let at = graph_to_screen(&h, mid(&h));
+    h.hover_at(at + egui::vec2(0.0, 300.0));
+    h.run_steps(2);
+    rest_on(&mut h, at, 3);
+    assert!(h.query_by_label_contains("→ opt.gap").is_none(), "not before the pointer rests");
+    rest_on(&mut h, at, 60);
+    assert!(h.query_by_label_contains("→ opt.gap").is_some(), "the setting it feeds");
+    h.hover_at(at + egui::vec2(0.0, 300.0));
+    h.run_steps(2);
+    // a point: added by a double click, the wire through it
+    let key = "setting:gap".to_string();
+    let points = |h: &Harness<TerrafluxApp>| points_of(h, false, "opt");
+    assert!(points(&h).is_empty());
+    let m = mid(&h);
+    double_click_graph(&mut h, m);
+    let pts = points(&h);
+    assert_eq!(pts[&key].len(), 1, "{pts:?} {:?}", editor(&h).message);
+    let p = pts[&key][0];
+    assert!(is_near(p, m, 12.0), "{p:?} near {m:?}");
+    let through = editor(&h).setting_wire_path("opt", "gap").unwrap();
+    assert!(through.iter().any(|q| q.distance(egui::pos2(p[0], p[1])) < 1.0), "the wire goes through the point");
+    // moved: dragged, one step of undo for the drag
+    let from = graph_to_screen(&h, egui::pos2(p[0], p[1]));
+    drag(&mut h, from, from + egui::vec2(30.0, 50.0));
+    let moved = points(&h)[&key][0];
+    assert!(moved[1] - p[1] > 20.0 && moved[0] - p[0] > 10.0, "{p:?} -> {moved:?}");
+    undo(&mut h);
+    assert_eq!(points(&h)[&key][0], p, "one undo for the drag");
+    // saved with the model (under a key no port has), loaded again
+    let text = h.state().session.as_ref().unwrap().source.to_toml().unwrap();
+    let back = Model::from_toml(&text).unwrap();
+    assert_eq!(back.node("opt").unwrap().wires[&key], vec![p], "{text}");
+    // removed by a double click on the point, one step of undo
+    double_click_graph(&mut h, egui::pos2(p[0], p[1]));
+    assert!(points(&h).is_empty());
+    undo(&mut h);
+    assert_eq!(points(&h)[&key].len(), 1);
+    // the wire taken off its socket: the setting has its own value again, and the points go with the wire
+    let at = editor(&h).screen_of_socket("opt", "gap").unwrap();
+    drag(&mut h, at, at + egui::vec2(-150.0, 250.0));
+    assert_eq!(param_now(&h, "opt", "gap"), None);
+    assert!(points(&h).is_empty(), "{:?}", points(&h));
+    undo(&mut h);
+    assert_eq!(param_now(&h, "opt", "gap"), Some(serde_json::json!({ "from": "ent.index" })));
+}

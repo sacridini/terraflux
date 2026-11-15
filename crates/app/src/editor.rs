@@ -816,9 +816,9 @@ fn relink(n: &mut Node, new: &HashMap<String, String>, shadow: &HashSet<String>,
         Source::Ref(r) => relinked(r, new, shadow, outside, inner),
         Source::Literal(_) => true,
     });
-    prune_wires(n);
     n.params
         .retain(|_, v| terraflux_graph::setting_ref_mut(v).is_none_or(|r| relinked(r, new, shadow, outside, inner)));
+    prune_wires(n);
     if let Some(b) = &mut n.body {
         let mut shadow = shadow.clone();
         shadow.extend(b.nodes.iter().map(|x| x.id.clone()));
@@ -1007,9 +1007,9 @@ pub fn remove_node(m: &mut Model, path: &[String], id: &str) -> Result<()> {
     let reads = |s: &Source| matches!(s, Source::Ref(r) if r.starts_with(&from));
     for n in scope_mut(m, path)?.iter_mut() {
         n.inputs.retain(|_, s| !reads(s));
-        prune_wires(n);
         // (a setting that read it goes back to its default)
         n.params.retain(|_, v| !terraflux_graph::setting_ref(v).is_some_and(|r| r.starts_with(&from)));
+        prune_wires(n);
     }
     if path.is_empty() {
         m.outputs.retain(|_, o| !o.from.starts_with(&from));
@@ -1119,7 +1119,7 @@ pub fn lift_out(m: &mut Model, path: &[String], node: &str, rewire: &[(String, S
     let mut copy = m.clone();
     let own = node_mut(&mut copy, path, node)?;
     own.inputs.retain(|_, s| !matches!(s, Source::Ref(_)));
-    own.wires.clear();
+    own.wires.retain(|k, _| setting_of_wire(k).is_some());
     for (n, port, source) in rewire {
         let n = node_mut(&mut copy, path, n)?;
         match source {
@@ -1196,19 +1196,39 @@ pub fn swap_wires(
     })
 }
 
-/// Let go the reroute points of the wires a node no longer reads (a port that reads no node has none).
+/// The key the reroute points of the wire into a node's setting `name` are kept under in [`Node::wires`]: no port
+/// is named so (a port name has no colon), and the points go with the setting as a port's go with its connection.
+pub fn setting_wire(name: &str) -> String {
+    format!("{SETTING_WIRE}{name}")
+}
+
+const SETTING_WIRE: &str = "setting:";
+
+/// The setting a key of [`Node::wires`] is of, if it is one a setting's.
+fn setting_of_wire(key: &str) -> Option<&str> {
+    key.strip_prefix(SETTING_WIRE)
+}
+
+/// Let go the reroute points of the wires a node no longer reads (a port or a setting that reads no node has none).
 fn prune_wires(n: &mut Node) {
-    let Node { inputs, wires, .. } = n;
-    wires.retain(|port, pts| !pts.is_empty() && matches!(inputs.get(port), Some(Source::Ref(_))));
+    let Node { inputs, params, wires, .. } = n;
+    wires.retain(|key, pts| {
+        !pts.is_empty()
+            && match setting_of_wire(key) {
+                Some(name) => params.get(name).and_then(terraflux_graph::setting_ref).is_some(),
+                None => matches!(inputs.get(key), Some(Source::Ref(_))),
+            }
+    });
 }
 
 /// The reroute points of a node's wires moved by `by` (a node taken to another scope's coordinates), those of the
 /// wires that read a node `keep` says only: the others read from another scope, where the points mean nothing.
 fn shift_wires(n: &mut Node, by: [f32; 2], keep: impl Fn(&str) -> bool) {
-    let Node { inputs, wires, .. } = n;
-    wires.retain(|port, _| match inputs.get(port) {
-        Some(Source::Ref(rf)) => matches!(Ref::parse(rf), Ok(Ref::Port { node, .. }) if keep(&node)),
-        _ => false,
+    let Node { inputs, params, wires, .. } = n;
+    let reads = |rf: &str| matches!(Ref::parse(rf), Ok(Ref::Port { node, .. }) if keep(&node));
+    wires.retain(|key, _| match setting_of_wire(key) {
+        Some(name) => params.get(name).and_then(terraflux_graph::setting_ref).is_some_and(reads),
+        None => matches!(inputs.get(key), Some(Source::Ref(rf)) if reads(rf)),
     });
     for p in wires.values_mut().flatten() {
         *p = [p[0] + by[0], p[1] + by[1]];
@@ -1218,7 +1238,11 @@ fn shift_wires(n: &mut Node, by: [f32; 2], keep: impl Fn(&str) -> bool) {
 /// The points of a node's wire into `port` (a connection that is there), to change.
 fn wire_points<'a>(m: &'a mut Model, path: &[String], node: &str, port: &str) -> Result<&'a mut Vec<[f32; 2]>> {
     let n = node_mut(m, path, node)?;
-    if !matches!(n.inputs.get(port), Some(Source::Ref(_))) {
+    let reads = match setting_of_wire(port) {
+        Some(name) => n.params.get(name).and_then(terraflux_graph::setting_ref).is_some(),
+        None => matches!(n.inputs.get(port), Some(Source::Ref(_))),
+    };
+    if !reads {
         return Err(format!("{node}.{port} reads no node"));
     }
     Ok(n.wires.entry(port.to_string()).or_default())
@@ -1281,7 +1305,7 @@ pub fn disconnect_all(m: &mut Model, path: &[String], ids: &[String]) -> Result<
         let n = node_mut(m, path, id)?;
         let before = n.inputs.len();
         n.inputs.retain(|_, s| !matches!(s, Source::Ref(_)));
-        n.wires.clear();
+        n.wires.retain(|k, _| setting_of_wire(k).is_some());
         gone += before - n.inputs.len();
     }
     Ok(gone)
@@ -1359,6 +1383,8 @@ pub fn set_param(m: &mut Model, path: &[String], node: &str, name: &str, text: &
     } else {
         n.params.insert(name.to_string(), value_of(text));
     }
+    // (the points of the wire it read are not those of another)
+    n.wires.remove(&setting_wire(name));
     Ok(())
 }
 
@@ -1382,6 +1408,7 @@ pub fn connect_setting(
     guarded(m, r, &[format!("{at}.{name}"), at.clone()], |c| {
         let n = node_mut(c, path, node)?;
         n.params.insert(name.to_string(), setting_of(&Source::Ref(reference.to_string())));
+        n.wires.remove(&setting_wire(name));
         Ok(())
     })
 }

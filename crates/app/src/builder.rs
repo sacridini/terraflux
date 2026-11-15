@@ -1317,6 +1317,7 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
             select(s, r, &id);
             s.editor.chosen = [id].into();
             s.editor.panel = Some(s.editor.path.clone());
+            s.editor.panel_focus = None;
         }
         let dir = [
             (left, egui::vec2(-1.0, 0.0)),
@@ -2951,7 +2952,8 @@ fn wire_text(s: &Session, a: &crate::editor_view::WireAsk) -> String {
         Some(_) => "changed since the last run".to_string(),
         None => "not run yet".to_string(),
     };
-    format!("{}\n{what}", a.ty.name())
+    let into = if a.into.is_empty() { String::new() } else { format!("{}\n", a.into) };
+    format!("{into}{}\n{what}", a.ty.name())
 }
 
 fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
@@ -3117,10 +3119,11 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 Ok(false)
             }
             // the panel of a node's settings opens beside its box (the node selected)
-            Action::OpenSettings(id) => {
+            Action::OpenSettings(id, setting) => {
                 select(s, r, &id);
                 s.editor.chosen = [id].into();
                 s.editor.panel = Some(path.clone());
+                s.editor.panel_focus = setting;
                 Ok(false)
             }
             Action::Preview(id, port) => {

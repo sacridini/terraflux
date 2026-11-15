@@ -627,8 +627,9 @@ pub enum Action {
     Open(String),
     Enter(String),
     Move(String, [f32; 2]),
-    /// The panel of a node's settings opened beside its box (its gear, a row the box does not edit, shift+Enter, its menu).
-    OpenSettings(String),
+    /// The panel of a node's settings opened beside its box (its gear, a row the box does not edit, shift+Enter, its
+    /// menu), scrolled to the setting it was opened from (its name), if any.
+    OpenSettings(String, Option<String>),
     /// A node's box given a width (dragged by its right edge), or none: as wide as its texts need (a double click
     /// on the edge).
     Resize(String, Option<f32>),
@@ -972,6 +973,9 @@ enum Drag {
     /// A connection drawn from a free input, backwards: the node, the port, its type and where it is (graph
     /// units). Let go on an output that fits it connects; on the empty canvas the search of what gives it.
     Feed(String, String, Type, Pos2),
+    /// The same from the socket of a free row of settings: the node, the setting, the type it takes, where the
+    /// socket is. Let go on an output that feeds it, the setting reads it.
+    FeedSetting(String, String, Type, Pos2),
     /// The nodes selected moved: where the pointer started and each node's corner then (graph units); whether
     /// alt was held (a node connected is lifted out of its connections when let go).
     Move(Pos2, Vec<(String, Pos2)>, bool),
@@ -1064,11 +1068,18 @@ pub struct EditorState {
     /// The panel of the node selected's settings beside its box is open, in this scope (it closes when the scope
     /// changes).
     pub panel: Option<Vec<String>>,
+    /// The setting the panel was opened from, still to be scrolled to (taken when it is), and the one marked for a
+    /// moment after (its name, the time it was reached).
+    pub panel_focus: Option<String>,
+    pub panel_flash: Option<(String, f64)>,
     folds: u64,
     /// A connection let go on a node that several of its free inputs fit: the list to choose one from.
     picking: Option<Pick>,
     /// The setting being edited on its box (one at most).
     editing: Option<SettingEdit>,
+    /// The list of a choice on a box a press closed (node, setting): the click that follows it on the same row
+    /// closes it, it does not open it again.
+    choice_closed: Option<(String, String)>,
     /// The nodes marked (of the top level), in a colour each: those changed in a review ([`crate::review`]).
     pub marks: HashMap<String, Color32>,
     /// The nodes the assistant reads or changes now (their scope, their id, when): a halo that fades.
@@ -1111,6 +1122,8 @@ pub struct WireAsk {
     pub ty: Type,
     pub source: bool,
     pub fresh: bool,
+    /// What it feeds, when it is the wire of a setting ("→ node.setting"); empty for a connection.
+    pub into: String,
 }
 
 /// The inputs of a node a connection may go to, offered where it was let go.
@@ -1486,6 +1499,16 @@ impl EditorState {
         Some((s.boxes[s.setting_wires[w].from.0].key.clone(), self.on_screen(a)?, self.on_screen(z)?))
     }
 
+    /// The wire into a node's setting as it is drawn (graph units), sampled: through its reroute points, or bent
+    /// around the boxes it would cross, else the plain curve.
+    pub fn setting_wire_path(&self, node: &str, name: &str) -> Option<Vec<Pos2>> {
+        let s = self.scene.as_ref()?;
+        let to = *s.index.get(node)?;
+        let k = s.boxes[to].settings.rows.iter().position(|r| r.name == name)?;
+        let w = s.setting_wires.iter().position(|w| w.to == (to, k))?;
+        Some(wire_path(&s.setting_route(w)))
+    }
+
     /// How many wires of settings reading a value the scene draws.
     pub fn setting_wires(&self) -> usize {
         self.scene.as_ref().map_or(0, |s| s.setting_wires.len())
@@ -1704,6 +1727,8 @@ struct EdgeAt {
 struct SettingWire {
     from: (usize, usize),
     to: (usize, usize),
+    /// The reroute points the model keeps for it (under [`crate::editor::setting_wire`]), else the bends.
+    via: Vec<Pos2>,
     bend: Vec<Pos2>,
     colour: [u8; 4],
 }
@@ -2358,9 +2383,14 @@ impl Scene {
                 let colour = type_colour(boxes[s].outputs[o].1, v.dark_mode)
                     .or_else(|| row.feed.and_then(|t| type_colour(t, v.dark_mode)))
                     .unwrap_or(line);
+                let via = n
+                    .wires
+                    .get(&crate::editor::setting_wire(&row.name))
+                    .map_or_else(Vec::new, |w| w.iter().map(|p| Pos2::new(p[0], p[1])).collect());
                 setting_wires.push(SettingWire {
                     from: (s, o),
                     to: (n_src + k, row_k),
+                    via,
                     bend: Vec::new(),
                     colour: colour.to_array(),
                 });
@@ -2467,9 +2497,9 @@ impl Scene {
     /// The waypoints of the wire of a setting that reads a value, from its output to its row's socket.
     fn setting_route(&self, w: usize) -> Vec<Pos2> {
         let sw = &self.setting_wires[w];
-        let mut out = Vec::with_capacity(sw.bend.len() + 2);
+        let mut out = Vec::with_capacity(sw.via.len() + sw.bend.len() + 2);
         out.push(self.boxes[sw.from.0].output_at(sw.from.1));
-        out.extend(&sw.bend);
+        out.extend(if sw.via.is_empty() { &sw.bend } else { &sw.via });
         out.push(self.boxes[sw.to.0].setting_at(sw.to.1));
         out
     }
@@ -2527,9 +2557,12 @@ impl Scene {
         self.detour_between(p0, p3, ed.from.0, ed.to.0, skip)
     }
 
-    /// The same for the wire of a setting that reads a value (it has no points of its own).
+    /// The same for the wire of a setting that reads a value.
     fn setting_detour(&self, w: usize, skip: Option<usize>) -> Vec<Pos2> {
         let w = &self.setting_wires[w];
+        if !w.via.is_empty() {
+            return Vec::new();
+        }
         let (p0, p3) = (self.boxes[w.from.0].output_at(w.from.1), self.boxes[w.to.0].setting_at(w.to.1));
         self.detour_between(p0, p3, w.from.0, w.to.0, skip)
     }
@@ -2646,6 +2679,9 @@ impl Scene {
             }
             for w in 0..self.setting_wires.len() {
                 let sw = &self.setting_wires[w];
+                if !sw.via.is_empty() {
+                    continue;
+                }
                 let ends = Rect::from_two_pos(
                     self.boxes[sw.from.0].output_at(sw.from.1),
                     self.boxes[sw.to.0].setting_at(sw.to.1),
@@ -2661,9 +2697,20 @@ impl Scene {
         shapes.generation = generation;
     }
 
+    /// The reroute points of a wire: the connections come first in the numbering of the wires, the wires of the
+    /// settings that read a value after them.
+    fn via_mut(&mut self, e: usize) -> Option<&mut Vec<Pos2>> {
+        let n = self.edges.len();
+        if e < n {
+            self.edges.get_mut(e).map(|ed| &mut ed.via)
+        } else {
+            self.setting_wires.get_mut(e - n).map(|w| &mut w.via)
+        }
+    }
+
     /// A reroute point of a wire moved (graph units): the wire drawn again.
     fn move_point(&mut self, e: usize, k: usize, to: Pos2, generation: u64) {
-        let Some(p) = self.edges.get_mut(e).and_then(|ed| ed.via.get_mut(k)) else { return };
+        let Some(p) = self.via_mut(e).and_then(|via| via.get_mut(k)) else { return };
         if *p == to {
             return;
         }
@@ -2927,10 +2974,9 @@ impl Scene {
 
     /// The reroute point (wire, its index) under a point (graph units), the nearest within `reach`.
     fn point_at(&self, p: Pos2, reach: f32) -> Option<(usize, usize)> {
-        self.edges
-            .iter()
-            .enumerate()
-            .flat_map(|(e, ed)| ed.via.iter().enumerate().map(move |(k, q)| (e, k, q.distance(p))))
+        let vias = self.edges.iter().map(|ed| &ed.via).chain(self.setting_wires.iter().map(|w| &w.via));
+        vias.enumerate()
+            .flat_map(|(e, via)| via.iter().enumerate().map(move |(k, q)| (e, k, q.distance(p))))
             .filter(|(_, _, d)| *d <= reach)
             .min_by(|a, b| a.2.total_cmp(&b.2))
             .map(|(e, k, _)| (e, k))
@@ -2941,8 +2987,13 @@ impl Scene {
     /// its bends to the point).
     fn wire_at(&self, p: Pos2, reach: f32) -> Option<(usize, usize)> {
         let mut best: Option<(f32, usize, usize)> = None;
-        for (e, ed) in self.edges.iter().enumerate() {
-            let route = self.route(e);
+        let n = self.edges.len();
+        for e in 0..n + self.setting_wires.len() {
+            let (route, via) = if e < n {
+                (self.route(e), self.edges[e].via.len())
+            } else {
+                (self.setting_route(e - n), self.setting_wires[e - n].via.len())
+            };
             let area = route.iter().fold(Rect::NOTHING, |r, q| r.union(Rect::from_min_max(*q, *q)));
             if !area.expand(reach).contains(p) {
                 continue;
@@ -2952,7 +3003,7 @@ impl Scene {
                 let d = segment_distance(p, w[0], w[1]);
                 if d <= reach && best.is_none_or(|(b, _, _)| d < b) {
                     // (the piece of the chain the segment is in, `SAMPLES` segments to a piece)
-                    let at = if ed.via.is_empty() { 0 } else { (k / SAMPLES).min(ed.via.len()) };
+                    let at = if via == 0 { 0 } else { (k / SAMPLES).min(via) };
                     best = Some((d, e, at));
                 }
             }
@@ -2960,10 +3011,27 @@ impl Scene {
         best.map(|(_, e, at)| (e, at))
     }
 
-    /// The node and input a wire goes into.
+    /// The node and input a wire goes into (for a setting's wire, the key its points are kept under).
     fn wire_into(&self, e: usize) -> (String, String) {
-        let to = self.edges[e].to;
-        (self.boxes[to.0].key.clone(), self.boxes[to.0].inputs[to.1].name.clone())
+        match self.edges.get(e) {
+            Some(ed) => (self.boxes[ed.to.0].key.clone(), self.boxes[ed.to.0].inputs[ed.to.1].name.clone()),
+            None => {
+                let to = self.setting_wires[e - self.edges.len()].to;
+                let b = &self.boxes[to.0];
+                (b.key.clone(), crate::editor::setting_wire(&b.settings.rows[to.1].name))
+            }
+        }
+    }
+
+    /// The output a wire comes from (box, output), and the colour it is drawn in.
+    fn wire_from(&self, e: usize) -> ((usize, usize), [u8; 4]) {
+        match self.edges.get(e) {
+            Some(ed) => (ed.from, ed.colour),
+            None => {
+                let w = &self.setting_wires[e - self.edges.len()];
+                (w.from, w.colour)
+            }
+        }
     }
 
     fn hit(&self, p: Pos2, reach: f32) -> Option<Hit> {
@@ -3452,9 +3520,8 @@ pub fn show(
         let w = to_world(o, cam);
         // a reroute point: moved
         let point = scene.point_at(w, reach(cam)).map(|(e, k)| {
-            let ed = &scene.edges[e];
-            let (b, p) = (&scene.boxes[ed.to.0], &scene.boxes[ed.to.0].inputs[ed.to.1]);
-            Drag::Point(e, k, b.key.clone(), p.name.clone())
+            let (node, port) = scene.wire_into(e);
+            Drag::Point(e, k, node, port)
         });
         st.drag = Some(if let Some(d) = point {
             d
@@ -3490,6 +3557,11 @@ pub fn show(
                         }
                         None => Drag::Select(w),
                     }
+                }
+                // the socket of a free setting: a connection drawn from it to an output
+                Some(Hit::Socket(i, k)) if !scene.boxes[i].source && scene.boxes[i].settings.rows[k].feed.is_some() => {
+                    let (b, row) = (&scene.boxes[i], &scene.boxes[i].settings.rows[k]);
+                    Drag::FeedSetting(b.key.clone(), row.name.clone(), row.feed.unwrap_or(Type::Any), b.setting_at(k))
                 }
                 // a free input: a connection drawn from it to an output
                 Some(Hit::Input(i, k)) if !scene.boxes[i].source && !scene.boxes[i].inputs[k].name.is_empty() => {
@@ -3555,7 +3627,7 @@ pub fn show(
     }
     let pointer = resp.hover_pos().or(ui.input(|i| i.pointer.interact_pos()));
     // escape while copies are dragged: no copies (and the selection stays); while a free input's wire is: none
-    if matches!(st.drag, Some(Drag::Copy(..) | Drag::Feed(..)))
+    if matches!(st.drag, Some(Drag::Copy(..) | Drag::Feed(..) | Drag::FeedSetting(..)))
         && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
     {
         st.drag = None;
@@ -3807,6 +3879,17 @@ pub fn show(
                 _ => {}
             }
         }
+        // a free setting's wire let go on an output that feeds it: the setting reads it (the check tells if not)
+        if let (Some(Drag::FeedSetting(node, name, ty, _)), Some(q)) = (&st.drag, pointer)
+            && let Some(Hit::Output(j, o)) = scene.hit(to_world(q, cam), reach(cam))
+            && feeds(scene.boxes[j].outputs[o].1, *ty)
+        {
+            actions.push(Action::ConnectSetting {
+                reference: scene.boxes[j].reference(o),
+                node: node.clone(),
+                name: name.clone(),
+            });
+        }
         // the nodes in the box: the selection (added to it with shift or ctrl)
         if let Some(r) = boxed {
             if !adding {
@@ -3834,10 +3917,14 @@ pub fn show(
             Some(_) => None,
         };
         // a setting being edited stays open only for the click that opened it (a field typed in is kept: set)
-        if let Some(SettingEdit { node, name, how: Editing::Text { text, init, .. }, .. }) = st.editing.take()
-            && text != init
-        {
-            actions.push(Action::SetParam { node, name, text });
+        let mut closed = st.choice_closed.take();
+        match st.editing.take() {
+            Some(SettingEdit { node, name, how: Editing::Text { text, init, .. }, .. }) if text != init => {
+                actions.push(Action::SetParam { node, name, text });
+            }
+            // (a list still open: this click closes it)
+            Some(SettingEdit { node, name, how: Editing::Choice { .. }, .. }) => closed = Some((node, name)),
+            _ => {}
         }
         let hit = scene.hit(w, reach(cam));
         match hit {
@@ -3887,7 +3974,7 @@ pub fn show(
             && !scene.boxes[i].source
             && scene.boxes[i].gear().contains(w)
         {
-            actions.push(Action::OpenSettings(scene.boxes[i].key.clone()));
+            actions.push(Action::OpenSettings(scene.boxes[i].key.clone(), None));
         }
         // a click on a row of settings (not a drag: it moved the node) also edits the setting, by its kind
         if !adding
@@ -3895,12 +3982,19 @@ pub fn show(
             && let Some(Hit::Body(i)) = hit
             && !scene.boxes[i].source
             && let Some(k) = scene.boxes[i].row_at(w)
+            // (the row whose list a press just closed: a click on it again closes the list, it does not open it)
+            && closed.as_ref().is_none_or(|(n, name)| {
+                *n != scene.boxes[i].key || scene.boxes[i].settings.rows.get(k).is_none_or(|row| row.name != *name)
+            })
         {
             match start_edit(&scene.boxes[i], k, nodes, r, &path) {
                 Some(Ok(a)) => actions.push(a),
                 Some(Err(e)) => st.editing = Some(e),
                 // (what the box does not edit: the panel beside it does)
-                None => actions.push(Action::OpenSettings(scene.boxes[i].key.clone())),
+                None => actions.push(Action::OpenSettings(
+                    scene.boxes[i].key.clone(),
+                    scene.boxes[i].settings.rows.get(k).map(|row| row.name.clone()),
+                )),
             }
         }
     }
@@ -4052,7 +4146,8 @@ pub fn show(
                 }
                 ui.separator();
             }
-            item(ui, "Settings...", SETTINGS_HELP, Action::OpenSettings(key.clone()));
+            let on = st.menu_row.as_ref().filter(|(k, _)| *k == key).map(|(_, name)| name.clone());
+            item(ui, "Settings...", SETTINGS_HELP, Action::OpenSettings(key.clone(), on));
             // the settings its box folds: each can be shown on it
             let folded = this.map(|n| folded_settings(n, r)).unwrap_or_default();
             if !folded.is_empty() {
@@ -4792,7 +4887,12 @@ pub fn show(
         }
     }
     // a free input's connection being drawn, backwards: from the input to the pointer
-    if let (Some(Drag::Feed(_, _, ty, at)), Some(q)) = (&st.drag, pointer) {
+    let feeding = match &st.drag {
+        Some(Drag::Feed(_, _, ty, at)) => Some((ty, at, false)),
+        Some(Drag::FeedSetting(_, _, ty, at)) => Some((ty, at, true)),
+        _ => None,
+    };
+    if let (Some((ty, at, setting)), Some(q)) = (feeding, pointer) {
         let p0 = screen(*at);
         let colour = type_colour(*ty, v.dark_mode).unwrap_or(v.selection.bg_fill);
         let dx = ((p0.x - q.x).abs() * 0.5).max(30.0 * cam.zoom);
@@ -4804,7 +4904,9 @@ pub fn show(
         ));
         // over an output it fits: lit; over one it does not, not
         if let Some(Hit::Output(j, o)) = scene.hit(to_world(q, &cam), reach(&cam)) {
-            let ring = if scene.boxes[j].outputs[o].1.fits(*ty) { colour } else { v.error_fg_color };
+            let out = scene.boxes[j].outputs[o].1;
+            let fits = if setting { feeds(out, *ty) } else { out.fits(*ty) };
+            let ring = if fits { colour } else { v.error_fg_color };
             painter.circle_stroke(screen(scene.boxes[j].output_at(o)), PORT * cam.zoom + 4.0, Stroke::new(2.0, ring));
         }
     }
@@ -4825,13 +4927,14 @@ pub fn show(
         _ => None,
     };
     let near = pointer.filter(|_| st.drag.is_none()).and_then(|q| scene.point_at(to_world(q, &cam), reach(&cam)));
-    for (e, ed) in scene.edges.iter().enumerate() {
-        for (k, p) in ed.via.iter().enumerate() {
+    let vias = scene.edges.iter().map(|ed| (&ed.via, ed.colour));
+    for (e, (via, colour)) in vias.chain(scene.setting_wires.iter().map(|w| (&w.via, w.colour))).enumerate() {
+        for (k, p) in via.iter().enumerate() {
             let c = screen(*p);
             if !rect.expand(8.0).contains(c) {
                 continue;
             }
-            let [r, g, b, a] = ed.colour;
+            let [r, g, b, a] = colour;
             let colour = Color32::from_rgba_premultiplied(r, g, b, a);
             let lit = held == Some((e, k)) || near == Some((e, k));
             painter.circle(
@@ -4996,8 +5099,17 @@ pub fn show(
                         }
                     };
                     if let Some(e) = found {
-                        let b = &scene.boxes[scene.edges[e].from.0];
-                        let (port, ty) = &b.outputs[scene.edges[e].from.1];
+                        let (from, _) = scene.wire_from(e);
+                        let b = &scene.boxes[from.0];
+                        let (port, ty) = &b.outputs[from.1];
+                        // (a setting's wire says which setting it feeds)
+                        let into = match e.checked_sub(scene.edges.len()) {
+                            Some(w) => {
+                                let to = scene.setting_wires[w].to;
+                                format!("→ {}.{}", scene.boxes[to.0].key, scene.boxes[to.0].settings.rows[to.1].name)
+                            }
+                            None => String::new(),
+                        };
                         let place: String = path.iter().map(|q| format!("{q}/")).collect::<String>() + &b.key;
                         // (inside a container, `status` is its nodes' by id, and the top-level container's under "/")
                         let top = if path.is_empty() { b.key.as_str() } else { "/" };
@@ -5008,6 +5120,7 @@ pub fn show(
                             ty: *ty,
                             source: b.source,
                             fresh: ran || b.source,
+                            into,
                         });
                     }
                 }
@@ -5046,6 +5159,9 @@ pub fn show(
     }
     // the setting being edited on its box: dropped when its box is gone or out of view, the scope changed or the
     // zoom too small to read it
+    if ui.input(|i| i.pointer.any_pressed()) {
+        st.choice_closed = None;
+    }
     if let Some(mut e) = st.editing.take() {
         let at = (e.path == path && ports)
             .then(|| scene.index.get(e.node.as_str()).copied())
@@ -5146,6 +5262,10 @@ pub fn show(
                     let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
                     if away || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                         keep = false;
+                    }
+                    // (a press on the row itself: its click, as it is let go, must not open the list again)
+                    if away && ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| rs.contains(p)) {
+                        st.choice_closed = Some((e.node.clone(), e.name.clone()));
                     }
                 }
             }

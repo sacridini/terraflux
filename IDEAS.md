@@ -3574,7 +3574,9 @@ sensível (até cerca de 10 %, dentro do ruído).
    `editor::set_param` do painel, um só editor aberto (`EditorState::editing`), Tab para a próxima linha de texto, os
    atalhos do canvas parados enquanto se digita; um duplo clique numa linha editável não abre o Viewer. Medido: sem
    diferença nos quadros nem na edição. Testes: `a_yes_or_no_and_a_choice_are_set_on_the_box`,
-   `a_number_is_typed_on_the_box`. Falta: um clique na linha de uma lista aberta a reabre em vez de fechar.
+   `a_number_is_typed_on_the_box`. **Feito também** (Unreleased): um clique na linha de uma lista aberta a fecha
+   (`EditorState::choice_closed`: o clique que segue o aperto que fechou a lista não a reabre); teste
+   `a_click_on_the_row_of_a_choice_toggles_its_list`.
 3. **O painel ao lado do nó.** O painel do nó (o mesmo da aba Node) num quadro flutuante junto da caixa, aberto pelo
    ⚙ da caixa ou por um ajuste que não se edita nela, fechado por um clique fora ou Esc. A aba Node deixa de abrir
    sozinha: continua no menu de painéis para quem a quer sempre aberta. **Feito** (Unreleased):
@@ -3583,7 +3585,10 @@ sensível (até cerca de 10 %, dentro do ruído).
    (`canvas_settings`, configurável: Enter já mostra o que o nó dá) e por *Settings...* no menu do nó; fechado por ×,
    Esc, um clique no canvas vazio ou a troca de escopo. A preferência "open the Node pane by itself" (desligada).
    Testes: `a_nodes_settings_open_in_a_panel_beside_it`, `the_panel_opens_from_a_row_enter_and_the_menu`,
-   `the_node_tab_opens_by_itself_only_when_asked`. Falta: rolar o painel até o ajuste clicado.
+   `the_node_tab_opens_by_itself_only_when_asked`. **Feito também** (Unreleased): o painel rola até o ajuste clicado
+   (`Action::OpenSettings(nó, Some(ajuste))`, `EditorState::panel_focus`; `node_view::setting_marked` rola até a linha
+   nos primeiros 0,3 s, abre o "Advanced" se o ajuste está nele e o marca com um contorno que some em 1,6 s; pela
+   engrenagem, sem ajuste, fica no topo); teste `the_panel_opens_scrolled_to_the_setting_clicked`.
 4. **O ajuste como pino.** Cada linha de ajuste tem uma bolinha à esquerda, como uma entrada: um fio solto nela faz
    o ajuste ler aquela saída (`{ from = "no.porta" }`, ou `$nome` de uma entrada do modelo), o valor dá lugar ao fio;
    tirar o fio volta ao valor. Botão direito numa linha: *Show on the node* / *Hide from the node* (guardado no nó,
@@ -3593,5 +3598,14 @@ sensível (até cerca de 10 %, dentro do ruído).
    uma conexão, `Action::ConnectSetting`/`ShowSetting`, *Use a value of its own*, *Hide from the node* e o submenu
    *Show on the node*; `Node::shown`/`hidden` fora do cache, do que fica velho e da comparação do arquivo seguido (só
    desenho). Medido: sem diferença. Testes: `a_wire_dropped_on_a_setting_makes_it_read_the_value`,
-   `a_setting_is_hidden_from_the_box_and_shown_on_it`. Falta: os fios dos ajustes não têm pontos próprios nem dica
-   ao passar o ponteiro; arrastar da bolinha de um ajuste livre até uma saída.
+   `a_setting_is_hidden_from_the_box_and_shown_on_it`. **Feito também** (Unreleased): (1) a dica ao passar o ponteiro
+   num fio de ajuste ("→ no.ajuste", o tipo e o último valor, como a de uma conexão: `WireAsk::into`); (2) arrastar da
+   bolinha de um ajuste livre até uma saída que o alimenta (`Drag::FeedSetting`, o mesmo `Action::ConnectSetting`);
+   (3) pontos de dobra próprios, sem mudar o formato do modelo: em `Node::wires` sob a chave `setting:<nome>` (nenhuma
+   porta tem dois-pontos no nome), `editor::setting_wire`; `add/move/remove_wire_point` aceitam a chave, `prune_wires`
+   e `shift_wires` a conhecem, `set_param`/`connect_setting` a apagam (os pontos vão com o fio); na cena os fios dos
+   ajustes seguem os das conexões na numeração (`Scene::wire_into`, `via_mut`). Medido (`canvas::timings`, antes →
+   depois, 100/1.000/10.000 nós, mediana): de longe 92 µs → 90, 137 µs → 139, 856 µs → 849; de perto 114 → 116, 195 →
+   205, 843 → 758; arrastando 333 µs → 332, 2,70 ms → 2,80, 30,8 ms → 32,1; uma edição (conferida) 1,41 → 1,39 ms, 3,88
+   → 3,99, 32,8 → 39 (ruído da máquina; o grafo do teste não tem fios de ajuste); teste
+   `a_settings_wire_has_a_tip_points_and_can_be_drawn_from_the_socket`.

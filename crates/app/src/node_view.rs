@@ -625,7 +625,7 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 essentials.is_none() || spec.as_ref().is_none_or(|p| p.required) || (essential(name) && !input(name))
             });
             for (name, doc, spec) in &main {
-                if let Some(c) = setting(ui, s, &n, &path, name, doc, spec.as_ref(), label_w, readable) {
+                if let Some(c) = setting_marked(ui, s, &n, &path, name, doc, spec.as_ref(), label_w, readable) {
                     change = Some(c);
                 }
             }
@@ -637,12 +637,18 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                     format!("Advanced ({})", advanced.len())
                 };
                 ui.add_space(2.0);
+                // (opened from a setting folded here: unfolded, to show it)
+                let wanted =
+                    s.editor.panel_focus.as_deref().is_some_and(|f| advanced.iter().any(|(name, _, _)| name == f));
                 egui::CollapsingHeader::new(RichText::new(title).size(11.5))
                     .id_salt(("advanced settings", &n.id))
                     .default_open(given > 0)
+                    .open(wanted.then_some(true))
                     .show(ui, |ui| {
                         for (name, doc, spec) in &advanced {
-                            if let Some(c) = setting(ui, s, &n, &path, name, doc, spec.as_ref(), label_w, readable) {
+                            if let Some(c) =
+                                setting_marked(ui, s, &n, &path, name, doc, spec.as_ref(), label_w, readable)
+                            {
                                 change = Some(c);
                             }
                         }
@@ -1253,6 +1259,59 @@ fn script(
         change = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, &text));
     }
     change
+}
+
+/// How long the panel keeps scrolling to the setting it was opened from (its header may be unfolding), and how
+/// long that setting stays marked (seconds).
+const SCROLL_FOR: f64 = 0.3;
+const FLASH_FOR: f64 = 1.6;
+
+/// A setting's row as [`setting`] draws it; the one the panel was opened from is scrolled into view (centred, in
+/// the first frames after it opens: its place may still move) and marked with an outline that fades. The others
+/// cost one comparison.
+#[allow(clippy::too_many_arguments)]
+fn setting_marked(
+    ui: &mut Ui,
+    s: &mut Session,
+    n: &Node,
+    path: &[String],
+    name: &str,
+    doc: &str,
+    spec: Option<&terraflux_graph::PortSpec>,
+    label_w: f32,
+    readable: &[String],
+) -> Option<Result<(), String>> {
+    let wanted = s.editor.panel_focus.as_deref() == Some(name);
+    let marked = s.editor.panel_flash.as_ref().is_some_and(|(f, _)| f == name);
+    if !wanted && !marked {
+        return setting(ui, s, n, path, name, doc, spec, label_w, readable);
+    }
+    let out = ui.scope(|ui| setting(ui, s, n, path, name, doc, spec, label_w, readable));
+    let now = ui.input(|i| i.time);
+    // (the first, sizing frame of a window is not its real layout)
+    if wanted && !ui.is_sizing_pass() {
+        s.editor.panel_focus = None;
+        s.editor.panel_flash = Some((name.to_string(), now));
+    }
+    if let Some((_, t0)) = s.editor.panel_flash.as_ref().filter(|(f, _)| f == name) {
+        let age = now - t0;
+        if age < SCROLL_FOR {
+            ui.scroll_to_rect(out.response.rect, Some(egui::Align::Center));
+        }
+        if age < FLASH_FOR {
+            let fade = (1.0 - age / FLASH_FOR) as f32;
+            ui.painter().rect_stroke(
+                out.response.rect.expand(2.0),
+                3.0,
+                egui::Stroke::new(1.5, crate::theme::accent().gamma_multiply(fade)),
+                egui::StrokeKind::Outside,
+            );
+            ui.ctx().request_repaint();
+        } else {
+            s.editor.panel_flash = None;
+        }
+    }
+    out.inner
 }
 
 /// A setting, a row: its name at the left ([`name_cell`]), at the right what edits its value: a list to choose

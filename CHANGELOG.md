@@ -6,6 +6,22 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- **A setting's wire has a tip, points and can be drawn from the socket.** The pointer resting on the wire of a
+  setting that reads a value tells what it feeds ("→ node.setting"), the type and the last value, as a connection's
+  tip does. A wire dragged from the socket of a free setting and let go on an output that fits it makes the setting
+  read that output (the same check as a wire dropped on the socket; one that does not fit is not made). A double
+  click on the wire adds a reroute point, which is dragged, removed by a double click or right click, and saved with
+  the node's `wires` under `setting:<name>` (no port has such a name: a model without them is read and written as
+  before); the points go with the wire when the setting gets a value of its own or another wire.
+
+### Changed
+- **The settings panel scrolls to the setting you clicked.** Opened from a row the box does not edit (or from the
+  node's menu on a row), the panel beside the box scrolls to that setting, unfolds Advanced if it is there, and marks
+  it with an outline that fades; opened from the gear it stays at the top.
+- **A click on the row of an open list closes it.** On the box, a click on the row of a setting with a list of
+  values opens the list, and a click on the same row again closes it (it reopened it before).
+
 ## [1.51.0] - 2026-11-15
 
 ### Changed
