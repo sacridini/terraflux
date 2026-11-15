@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.51.0] - 2026-11-15
+
 ### Changed
 - **Thinner top bars.** The tab bars of the panes are lower (21 px in Classic, 25 in the modern themes, from 24 and 30) and so are the title bars of the windows (about a quarter lower: a smaller title text and less padding above and below it, the sides as before).
 - **Settings, in sections.** The Settings window is a fixed size (it fits small screens) with a column of sections at the left (Appearance, Model builder, Runs, Performance, Cloud storage, Node libraries, Keyboard, About & updates) and the chosen one at the right, each with a heading and small named groups; on/off settings are switches in the modern themes. "Back to the defaults" stays at the foot of the column, the GDAL line moved to About & updates, and the update button is orange (a dot beside About & updates tells a new version is out).
@@ -13,7 +15,7 @@ minor versions.
 - **Themes.** The theme named *Default* is now *Classic* (it was not the default any more: Slate is); a settings file that still holds "Default" reads as Slate. Three new modern themes: *Graphite* (the old greys and orange, modern), *Ash* (light greys and orange) and *Midnight* (deep navy, violet accent). The Settings list shows the modern themes first, then the classic, under two small headings, and Slate as "Slate (default)".
 
 ### Removed
-- **Portuguese output.** Documents, reports, methods, guides and the search of operators and templates by Portuguese words, and the `--language` option of `report` and `methods`; Terraflux is in English only
+- **Portuguese output.** Documents, reports, methods, guides and the search of operators and templates by Portuguese words, and the `--language` option of `report` and `methods`; Terraflux is in English only.
 
 ## [1.50.0] - 2026-11-15
 
