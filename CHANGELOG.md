@@ -7,6 +7,7 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- **Google Cloud Storage's public buckets can be read without keys**: the cloud settings have the box "public buckets, requests not signed" for `gs://` as they had for `s3://` (`GS_NO_SIGN_REQUEST`). Ignored tests read a public COG of S3 and a public GeoTIFF of GCS by `raster.read` (`cargo test -p terraflux-app --test app cloud_public:: -- --ignored`).
 - **A group's outputs can be renamed and ordered** in its panel: each output's name is a field (Enter renames it, and what reads `group.old` follows: nodes, settings, the model's outputs, the Plots; refused when the name is not a port name or is taken) and ↑ ↓ move it in the order the group's box shows its ports. One step of undo each. The order is an optional `order` list next to `outputs` in the body; older files read the same and older versions ignore it.
 - **The application's pictures redrawn** in the theme Slate: the README's, the calculator's and the tour's (the window, the Templates menu, a node's settings panel, now drawn off screen by `tour_images` instead of cut from desktop captures); their texts describe the drawers, the boxes' settings and the panel beside a box.
 - **The Settings window opens in the middle of the screen** (it stays movable).

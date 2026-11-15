@@ -2842,7 +2842,7 @@ item, na ordem; release só quando pedido.
    por WMTS; o Viewer com um vetor remoto sozinho (sem mapa) ainda o lê inteiro, para enquadrar, e a tabela de
    atributos e os estilos por atributo de uma camada lida pela vista só aparecem depois de rodar o nó; ler pela vista
    com o `extent` na saída do `terraflux plot`/figuras; o RGB automático de um WMTS (4 bandas: hoje a banda 1 em cinza
-   até escolher *RGB* na camada); testar S3/GS de verdade (nenhum teste toca uma nuvem).
+   até escolher *RGB* na camada); ~~testar S3/GS de verdade~~ (testes `#[ignore]` `cloud_public::` em crates/app/tests: um COG público do S3 e um GeoTIFF público do GCS, lidos sem chaves por `raster.read` com `s3://`/`gs://` e pelo https; falta Azure e o teste com chaves de verdade).
    **Visto de passagem:** `surface::the_terrain_is_landschafts` (crates/ops) falha no VRM por 2e-16
    (`0.008092000620180229` contra `...180007`), com ou sem este item: a paridade bit a bit do VRM com o numpy.
 8. **As sobras das partes já feitas.**

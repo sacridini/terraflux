@@ -150,6 +150,8 @@ pub struct Cloud {
     #[serde(skip_serializing)]
     pub gs_secret_access_key: String,
     pub gs_credentials_file: String,
+    /// The access of public buckets without signing the requests (`GS_NO_SIGN_REQUEST`).
+    pub gs_no_sign_request: bool,
     /// Azure Blob Storage: the storage account and its key.
     pub azure_account: String,
     #[serde(skip_serializing)]
@@ -272,6 +274,7 @@ impl std::fmt::Debug for Cloud {
             .field("aws_region", &self.aws_region)
             .field("aws_endpoint", &self.aws_endpoint)
             .field("aws_no_sign_request", &self.aws_no_sign_request)
+            .field("gs_no_sign_request", &self.gs_no_sign_request)
             .finish_non_exhaustive()
     }
 }
@@ -300,6 +303,7 @@ pub fn cloud_options(c: &Cloud) -> Vec<(&'static str, Option<String>)> {
         ("AWS_NO_SIGN_REQUEST", c.aws_no_sign_request.then(|| "YES".to_string())),
         ("GS_ACCESS_KEY_ID", text(&c.gs_access_key_id)),
         ("GS_SECRET_ACCESS_KEY", text(&c.gs_secret_access_key)),
+        ("GS_NO_SIGN_REQUEST", c.gs_no_sign_request.then(|| "YES".to_string())),
         ("GOOGLE_APPLICATION_CREDENTIALS", text(&c.gs_credentials_file)),
         ("AZURE_STORAGE_ACCOUNT", text(&c.azure_account)),
         ("AZURE_STORAGE_ACCESS_KEY", text(&c.azure_key)),
@@ -312,7 +316,7 @@ pub const CLOUD_HELP: &str = "Terraflux gives these to GDAL for reading s3://, g
     never in a model. The command line (terraflux run) and \
     the workers use the environment's variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, \
     AWS_REGION, AWS_S3_ENDPOINT, AWS_NO_SIGN_REQUEST, GS_ACCESS_KEY_ID, GS_SECRET_ACCESS_KEY, \
-    GOOGLE_APPLICATION_CREDENTIALS, AZURE_STORAGE_ACCOUNT, AZURE_STORAGE_ACCESS_KEY), as GDAL does by itself; a field \
+    GS_NO_SIGN_REQUEST, GOOGLE_APPLICATION_CREDENTIALS, AZURE_STORAGE_ACCOUNT, AZURE_STORAGE_ACCESS_KEY), as GDAL does by itself; a field \
     left empty here leaves the variable in charge.";
 
 /// The fields of the cloud credentials, secrets masked.
@@ -354,6 +358,10 @@ pub fn cloud_panel(ui: &mut egui::Ui, c: &mut Cloud) {
             "the key's .json file",
             "GOOGLE_APPLICATION_CREDENTIALS: the file of a service account's key",
         );
+        ui.label("");
+        ui.checkbox(&mut c.gs_no_sign_request, "public buckets, requests not signed")
+            .on_hover_text(format!("GS_NO_SIGN_REQUEST\n\n{CLOUD_HELP}"));
+        ui.end_row();
         ui.label(egui::RichText::new("Azure Blob Storage").strong().size(11.5));
         ui.end_row();
         field(ui, "account", &mut c.azure_account, false, "", "AZURE_STORAGE_ACCOUNT");
@@ -675,6 +683,7 @@ mod tests {
             gs_access_key_id: "GOOGTESTKEY".into(),
             gs_secret_access_key: "gs-secret-of-the-test".into(),
             gs_credentials_file: "C:\\keys\\service.json".into(),
+            gs_no_sign_request: true,
             azure_account: "account".into(),
             azure_key: "azure-key-of-the-test".into(),
         }
@@ -693,6 +702,7 @@ mod tests {
         assert_eq!((v("AWS_HTTPS"), v("AWS_VIRTUAL_HOSTING")), (Some("NO"), Some("FALSE")));
         assert_eq!(v("AWS_NO_SIGN_REQUEST"), Some("YES"));
         assert_eq!(v("GS_ACCESS_KEY_ID"), Some("GOOGTESTKEY"));
+        assert_eq!(v("GS_NO_SIGN_REQUEST"), Some("YES"));
         assert_eq!(v("GOOGLE_APPLICATION_CREDENTIALS"), Some("C:\\keys\\service.json"));
         assert_eq!(
             (v("AZURE_STORAGE_ACCOUNT"), v("AZURE_STORAGE_ACCESS_KEY")),

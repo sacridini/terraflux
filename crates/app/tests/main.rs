@@ -6,6 +6,7 @@
 mod calculator;
 mod canvas;
 mod charts;
+mod cloud_public;
 mod my_nodes;
 mod prepare;
 mod vector_calc;
