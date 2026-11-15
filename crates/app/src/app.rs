@@ -2183,6 +2183,8 @@ pub struct TerrafluxApp {
     pub(crate) hover: Option<Hover>,
     /// Where the Viewer was drawn last (none: not shown), to tell files dropped over it.
     pub viewer_rect: Option<egui::Rect>,
+    /// The read node lit while a file hovers over it (its id), as the last frame drew it.
+    pub drop_lit: Option<String>,
     /// The window (viewport) the Viewer was drawn in last.
     viewer_viewport: Option<egui::ViewportId>,
     /// The Viewer is to be in a window of its own: kept between sessions, and where it opens.
@@ -2343,6 +2345,7 @@ impl TerrafluxApp {
             library,
             hover: None,
             viewer_rect: None,
+            drop_lit: None,
             viewer_viewport: None,
             viewer_out: false,
             raise: None,
@@ -4752,11 +4755,13 @@ impl TerrafluxApp {
             let (id, op) = s.editor.node_at(pointer?)?;
             crate::builder::fits_read(&op, &f).then_some(id)
         });
+        self.drop_lit = None;
         if over > 0 {
             // (drawn again and again while they are over the window: it is told of no move of the pointer then)
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
             let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("files over")));
             let node = target.as_ref().and_then(|id| Some((id, self.session.as_ref()?.editor.drawn_rect_of(id)?)));
+            self.drop_lit = node.map(|(id, _)| id.clone());
             if let Some((id, r)) = node {
                 // (the node alone lit, not the window)
                 p.rect_filled(r, 4.0, theme::accent().gamma_multiply(0.25));

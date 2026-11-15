@@ -28,7 +28,7 @@ fn model() -> Model {
 fn harness() -> Harness<'static, TerrafluxApp> {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(&dir).unwrap();
-    unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("settings.json")) };
+    crate::point_settings();
     terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
     let p = dir.join("calculator.toml");
     model().save(&p).unwrap();

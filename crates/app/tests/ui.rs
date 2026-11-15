@@ -3806,6 +3806,82 @@ fn a_layers_colours_are_given_to_all_similar_layers() {
     assert!(entry.accesskit_node().is_disabled(), "greyed out");
 }
 
+/// *Same colours for all similar layers* on a map of classes: the other map of the same classes gets its palette, a
+/// map of values does not (nor a range: classes have none).
+#[test]
+fn a_layers_colours_are_given_to_the_layers_of_the_same_classes() {
+    use egui_kittest::kittest::NodeT;
+    use terraflux_app::builder::{Layer, Palette};
+    use terraflux_graph::Node;
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let land = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        s.source.nodes = vec![
+            Node::new("land", "raster.read").param("path", land.as_str()).param("band", "0"),
+            Node::new("land2", "raster.read").param("path", land.as_str()).param("band", "0"),
+            Node::new("a", "raster.read")
+                .param("path", data("sibuyan_drivers.tif").to_string_lossy().as_ref())
+                .param("band", "0"),
+        ];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && ["land", "land2", "a"].iter().all(|n| s.value_of(n, "raster").is_some())
+    });
+    let key = |n: &str| (n.to_string(), "raster".to_string());
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_layers = vec![Layer::new("land2", "raster"), Layer::new("a", "raster")];
+        // (a palette chosen for the classes: the one the others are to get)
+        s.palettes.insert(key("land"), Palette::Auto);
+    }
+    show(&mut h, "land", "raster");
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_layers.push(Layer::new("land", "raster"));
+    }
+    drawn(&mut h);
+    let menu = |h: &mut Harness<TerrafluxApp>, name: &str| {
+        let width = |n: &egui_kittest::Node| n.accesskit_node().bounding_box().map_or(0.0, |b| b.x1 - b.x0);
+        let n = h.query_all_by_label(name).max_by(|a, b| width(a).total_cmp(&width(b)));
+        let b = n.unwrap_or_else(|| panic!("{name}")).accesskit_node().bounding_box().unwrap();
+        let at = egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32);
+        h.event(egui::Event::PointerMoved(at));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: Default::default(),
+            });
+        }
+        h.run_steps(2);
+    };
+    let t = Instant::now();
+    loop {
+        menu(&mut h, "land");
+        if h.query_by_label("Same colours for all similar layers").is_some() {
+            break;
+        }
+        assert!(t.elapsed() < Duration::from_secs(60), "the layer's menu has no entry for the colours");
+        h.key_press(egui::Key::Escape);
+        drawn(&mut h);
+    }
+    let entry = h.get_by_label("Same colours for all similar layers");
+    assert!(!entry.accesskit_node().is_disabled(), "land2 is of its kind");
+    entry.click();
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.palettes.get(&key("land2")), Some(&Palette::Auto), "the classes of the same classes");
+    assert_eq!(s.ranges.get(&key("land2")), None, "no range for classes");
+    assert_eq!(s.palettes.get(&key("a")), None, "a map of values is left as it is");
+    assert_eq!(s.ranges.get(&key("a")), None);
+}
+
 /// A layer's band and palette kept in a Plot, and given back when it opens; the Document's colours by the Plot.
 #[test]
 fn a_layers_band_and_palette_are_kept_in_its_plot() {
@@ -4256,11 +4332,27 @@ fn a_plot_keeps_the_frame_of_its_map() {
         |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().preview_view.visible().map(|(_, b)| b).unwrap();
     let before = seen(&h);
     assert!(before[2] - before[0] < w * 0.6, "zoomed in: {before:?}");
+    // an entry of the Plot's menu clicked: the menu is opened again while the entry is missing (under load a click
+    // takes more frames to open it, or lands while the menu of the one before is still closing and shuts it)
+    let entry = |h: &mut Harness<TerrafluxApp>, label: &str| {
+        let t = Instant::now();
+        loop {
+            if h.query_by_label(label).is_none() {
+                h.get_by_label("Plot: framed").click();
+                h.run_steps(3);
+            }
+            if let Some(e) = h.query_by_label(label) {
+                e.click();
+                h.run_steps(3);
+                return;
+            }
+            assert!(t.elapsed() < Duration::from_secs(60), "the Plot's menu has no {label:?}");
+            h.run_steps(2);
+        }
+    };
     // kept in the Plot
-    h.get_by_label("Plot: framed").click();
-    h.run_steps(2);
-    h.get_by_label("Keep this view in the plot").click();
-    h.run_steps(2);
+    entry(&mut h, "Keep this view in the plot");
+    until(&mut h, "the view kept", |a| a.session.as_ref().unwrap().source.plot("framed").unwrap().view.is_some());
     let saved = {
         let s = h.state().session.as_ref().unwrap();
         s.source.plot("framed").unwrap().view.clone().expect("the saved view")
@@ -4278,17 +4370,12 @@ fn a_plot_keeps_the_frame_of_its_map() {
         assert!((a - b).abs() <= 1.5, "back on the frame: {after:?} was {before:?}");
     }
     // Update the plot leaves the frame as it is
-    h.get_by_label("Plot: framed").click();
-    h.run_steps(2);
-    h.get_by_label("Update the plot").click();
-    h.run_steps(2);
+    entry(&mut h, "Update the plot");
+    h.run_steps(4);
     assert_eq!(h.state().session.as_ref().unwrap().source.plot("framed").unwrap().view, Some(saved));
     // forgotten
-    h.get_by_label("Plot: framed").click();
-    h.run_steps(2);
-    h.get_by_label("Forget the saved view").click();
-    h.run_steps(2);
-    assert!(h.state().session.as_ref().unwrap().source.plot("framed").unwrap().view.is_none());
+    entry(&mut h, "Forget the saved view");
+    until(&mut h, "the view forgotten", |a| a.session.as_ref().unwrap().source.plot("framed").unwrap().view.is_none());
 }
 
 /// A Plot whose layer is a node inside a group (`g.land.raster`, or `g/land.raster`): the model is accepted, and the
@@ -7084,7 +7171,10 @@ fn features_selected_by_area_on_the_map() {
     assert_eq!(rows(&h), [1, 3], "the square and the line that reaches into the rectangle");
     // a lasso (shift+alt) round the point: a triangle of whose box the point is in, but not of the triangle: none
     drag(&mut h, &[(0.6, 0.4), (0.95, 0.4), (0.95, 0.1), (0.61, 0.4)], Modifiers::SHIFT | Modifiers::ALT);
-    h.run_steps(3);
+    // (the two of the rectangle gone: the lasso told, however long a frame takes)
+    until(&mut h, "the lasso's features", |a| {
+        a.session.as_ref().unwrap().preview_attributes.as_ref().is_some_and(|o| o.pick.rows.len() != 2)
+    });
     assert_eq!(rows(&h), Vec::<usize>::new(), "the point is in the lasso's box, not in the lasso");
     assert_eq!(selected(&h), None);
     assert!(h.get_by_label("Filter the selection").accesskit_node().is_disabled(), "nothing to filter by");
@@ -9546,14 +9636,19 @@ fn a_setting_is_changed_in_the_nodes_selected_at_once() {
     assert_eq!(s.fields.get("many.nodata").map(String::as_str), Some(""));
     assert_eq!(s.fields.get("many.path"), Some(&file));
     assert_eq!(h.get_all_by_label_contains("several values").count(), 1, "only the setting that differs");
-    // a value for all of them: one step of undo
+    // a value for all of them, typed into the setting's field (found by its label): one step of undo
     {
-        let r = terraflux_ops::Registry::standard();
-        let s = h.state_mut().session.as_mut().unwrap();
-        let ids: Vec<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
-        terraflux_app::editor::set_param_many(&mut s.source, &r, &[], &ids, "nodata", "-9999").unwrap();
-        s.edited();
+        use egui_kittest::kittest::NodeT;
+        let mut fields = h
+            .get_all_by_label_contains("odata")
+            .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::TextInput);
+        let field = fields.next().expect("the nodata's field, by its label");
+        assert!(fields.next().is_none(), "only one field is the nodata's");
+        field.focus();
+        field.type_text("-9999");
     }
+    h.run_steps(1);
+    h.key_press(egui::Key::Enter);
     h.run_steps(3);
     assert_eq!(nodata(&h), vec![Some(serde_json::json!(-9999)); 3]);
     assert!(h.query_by_label_contains("several values: ").is_none());

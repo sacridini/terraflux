@@ -28,10 +28,8 @@ fn model() -> Model {
 }
 
 fn harness(dir: &std::path::Path) -> Harness<'static, TerrafluxApp> {
-    unsafe {
-        std::env::set_var("TERRAFLUX_SETTINGS", dir.join("settings.json"));
-        std::env::set_var("TERRAFLUX_NODES", dir.join("nodes"));
-    }
+    crate::point_settings();
+    unsafe { std::env::set_var("TERRAFLUX_NODES", dir.join("nodes")) };
     terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
     let p = dir.join("my-nodes.toml");
     model().save(&p).unwrap();
@@ -241,7 +239,7 @@ fn a_calculator_saved_as_my_node_and_used_again() {
     // a remote library (its copy here, as pulled): its nodes offered, only read
     let url = "https://lab.example.org/nodes/";
     let copy = terraflux_app::node_remotes::dir_of(url);
-    assert!(copy.starts_with(&dir), "{}", copy.display());
+    assert!(copy.starts_with(terraflux_app::settings::data_dir()), "{}", copy.display());
     let mut w = u.clone();
     w.name = "web_ndvi".into();
     terraflux_graph::user_node::Library::new(&copy).save(&w).unwrap();

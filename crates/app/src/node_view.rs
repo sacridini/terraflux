@@ -245,12 +245,18 @@ fn many_setting(
     let mut out = None;
     ui.horizontal_top(|ui| {
         let given = seen.iter().any(|v| v.is_some());
-        ui.allocate_ui_with_layout(egui::vec2(label_w, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-            ui.set_min_width(label_w);
-            let words = if given { format!("• {}", label_of(name)) } else { label_of(name) };
-            let hover = if doc.is_empty() { name.to_string() } else { format!("{name}: {doc}") };
-            ui.add(egui::Label::new(words).truncate()).on_hover_text(hover);
-        });
+        let label_id = ui
+            .allocate_ui_with_layout(
+                egui::vec2(label_w, 20.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.set_min_width(label_w);
+                    let words = if given { format!("• {}", label_of(name)) } else { label_of(name) };
+                    let hover = if doc.is_empty() { name.to_string() } else { format!("{name}: {doc}") };
+                    ui.add(egui::Label::new(words).truncate()).on_hover_text(hover).id
+                },
+            )
+            .inner;
         ui.vertical(|ui| {
             ui.set_width(ui.available_width());
             let options: Option<Vec<String>> = spec.and_then(|p| match (p.ty, p.choices.is_empty()) {
@@ -285,8 +291,10 @@ fn many_setting(
                 let key = format!("many.{name}");
                 let mut text = field(s, &key, init.clone());
                 let hint = if several { "several values".to_string() } else { default_of(doc) };
-                let resp =
-                    ui.add(egui::TextEdit::singleline(&mut text).desired_width(ui.available_width()).hint_text(hint));
+                // (named by the setting's label, for a screen reader and the tests)
+                let resp = ui
+                    .add(egui::TextEdit::singleline(&mut text).desired_width(ui.available_width()).hint_text(hint))
+                    .labelled_by(label_id);
                 s.fields.insert(key, text.clone());
                 if resp.lost_focus() && text != init {
                     out = Some((name.to_string(), text));

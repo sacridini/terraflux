@@ -11,6 +11,27 @@ use terraflux_app::TerrafluxApp;
 use terraflux_app::app::Pane;
 use terraflux_graph::{Model, Node};
 
+/// The settings are global (one per process): a test that changes one (the minimap, the wires around boxes), or
+/// reads what depends on them (the wires drawn), holds this while it runs, so no other test sees them half changed.
+static SETTINGS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn settings_lock() -> std::sync::MutexGuard<'static, ()> {
+    let guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+    // (as every test of the canvas finds them: the minimap off, wires around boxes; a test sets what it tests)
+    crate::point_settings();
+    terraflux_app::settings::update(|s| {
+        s.minimap = false;
+        s.wires_around = true;
+    });
+    guard
+}
+
+/// An application without a model, its settings the tests' own (never the user's).
+fn fresh() -> TerrafluxApp {
+    crate::point_settings();
+    TerrafluxApp::new(None)
+}
+
 /// A model of `n` nodes of map algebra, each reading the one before and another earlier one; placed in a grid
 /// (`placed`) or left to the automatic layout.
 fn graph(n: usize, placed: bool) -> Model {
@@ -37,6 +58,7 @@ fn open(m: &Model, name: &str) -> TerrafluxApp {
     let p = dir.join(name);
     m.save(&p).unwrap();
     terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
+    crate::point_settings();
     let mut app = TerrafluxApp::new(Some(p));
     app.session.as_mut().unwrap().wait();
     app
@@ -219,7 +241,7 @@ fn the_canvas_answers_the_pointer() {
 fn big_raster_shows_at_once() {
     let Ok(path) = std::env::var("TERRAFLUX_BIG_RASTER") else { return };
     terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(fresh());
     h.run_steps(2);
     let t = Instant::now();
     {
@@ -509,7 +531,7 @@ fn new_inputs_are_named_after_what_they_read() {
 /// generation was 1: the template's boxes were never drawn, only their texts).
 #[test]
 fn another_model_is_drawn() {
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(fresh());
     h.run_steps(3);
     let before = editor(&h).generation();
     assert!(before > 0, "the blank model's canvas drawn");
@@ -527,7 +549,7 @@ fn another_model_is_drawn() {
 #[test]
 fn a_layout_kept_with_the_viewer_in_front_shows_the_model() {
     // a layout drawn (its rectangles known, as the application keeps it), the viewer in front of the model
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(fresh());
     h.state_mut().focus(Pane::Viewer);
     h.run_steps(3);
     let dock = h.state().dock.clone().unwrap();
@@ -536,7 +558,7 @@ fn a_layout_kept_with_the_viewer_in_front_shows_the_model() {
     let path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-layout.json");
     let text = serde_json::json!({ "version": 7, "main": dock, "windows": [] });
     std::fs::write(&path, text.to_string()).unwrap();
-    let mut app = TerrafluxApp::new(None);
+    let mut app = fresh();
     app.restore_layout(path);
     assert!(!app.is_open(Pane::Viewer), "the viewer comes with the data");
     assert!(!app.is_open(Pane::Node) && !app.is_open(Pane::Prepare), "the node's pane comes with the first node");
@@ -552,7 +574,7 @@ fn a_layout_kept_with_the_viewer_in_front_shows_the_model() {
 /// in it.
 #[test]
 fn the_node_prepare_and_calculator_come_when_they_make_sense() {
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(fresh());
     h.run_steps(2);
     for p in [Pane::Node, Pane::Document, Pane::Prepare, Pane::Calculator, Pane::Viewer] {
         assert!(!h.state().is_open(p), "{p:?} at the start");
@@ -1011,6 +1033,36 @@ fn a_node_dragged_with_alt_is_lifted_out_of_its_connections() {
         assert_eq!(find(&v, "mspa").inputs["map"], Source::Ref("mid.map".into()), "inside {inside}");
         assert_eq!(find(&v, "mid").inputs["map"], Source::Ref("read.raster".into()), "inside {inside}");
     }
+}
+
+/// What a lift cuts is told: `read -> poly (vector) -> buf`, where what `poly` read (a map) does not fit what `buf`
+/// reads (vectors), so `buf` is left unconnected and the message names it; a lift that cuts nothing says nothing.
+#[test]
+fn a_lift_that_cuts_a_connection_says_so() {
+    use terraflux_graph::Source;
+    let mut m = Model::new("lift-cut");
+    let mut poly = Node::new("poly", "vector.polygonize").input("map", "read.raster");
+    let mut buf = Node::new("buf", "vector.buffer").input("vector", "poly.vector").param("distance", 1.0);
+    (poly.pos, buf.pos) = (Some([350.0, 0.0]), Some([700.0, 0.0]));
+    m.nodes = vec![reader("read", [0.0, 0.0]), poly, buf];
+    let mut h = harness(open(&m, "canvas-lift-cut.toml"));
+    h.run_steps(3);
+    assert!(editor(&h).message.is_none());
+    let from = editor(&h).screen_of("poly").unwrap();
+    let alt = |h: &mut Harness<TerrafluxApp>, on: bool| {
+        let m = if on { egui::Modifiers::ALT } else { egui::Modifiers::NONE };
+        h.event(egui::Event::ModifiersChanged(m));
+        h.run_steps(1);
+    };
+    alt(&mut h, true);
+    drag(&mut h, from, from + egui::vec2(0.0, 300.0));
+    alt(&mut h, false);
+    let v = nodes_now(&h, false);
+    let find = |id: &str| v.iter().find(|n| n.id == id).cloned().unwrap();
+    assert!(find("buf").inputs.get("vector").is_none_or(|s| !matches!(s, Source::Ref(_))), "{:?}", find("buf").inputs);
+    assert!(find("poly").inputs.is_empty());
+    let said = editor(&h).message.clone().expect("the cut is told");
+    assert_eq!(said, "poly taken out; nothing it read fits buf.vector: left unconnected");
 }
 
 /// `top` and a group `grp` holding `inner` (at the far side of its scope) and a second group `deep` with `core`.
@@ -1753,7 +1805,22 @@ fn a_file_dropped_on_a_read_node_replaces_its_file() {
         h.run_steps(2);
         h.input_mut().hovered_files.push(egui::HoveredFile { path: Some(other.clone()), mime: String::new() });
         h.run_steps(2);
+        assert_eq!(h.state().drop_lit.as_deref(), Some("a"), "the node lit, inside {inside}");
+        // the pointer leaves the node: it goes out; back on it: lit again
+        h.hover_at(canvas.left_bottom() + egui::vec2(5.0, -5.0));
+        h.run_steps(2);
+        assert_eq!(h.state().drop_lit, None, "pointer away, inside {inside}");
+        h.hover_at(at);
+        h.run_steps(2);
+        assert_eq!(h.state().drop_lit.as_deref(), Some("a"), "back on it, inside {inside}");
+        // a file of another kind hovering does not light it
         h.input_mut().hovered_files.clear();
+        h.input_mut().hovered_files.push(egui::HoveredFile { path: Some(geojson.clone()), mime: String::new() });
+        h.run_steps(2);
+        assert_eq!(h.state().drop_lit, None, "a vector over a raster, inside {inside}");
+        h.input_mut().hovered_files.clear();
+        h.run_steps(2);
+        assert_eq!(h.state().drop_lit, None, "no file hovering, inside {inside}");
         h.input_mut().dropped_files.push(std::sync::Arc::new(Dropped(other.clone())));
         h.run_steps(3);
         let v = nodes_now(&h, inside);
@@ -2043,10 +2110,11 @@ fn on_minimap(m: egui::Rect, world: egui::Rect, scale: f32, g: egui::Pos2) -> eg
 /// the group's body, and its button hides it (and another shows it again).
 #[test]
 fn the_minimap_shows_a_large_model_and_moves_the_view() {
+    let _settings = settings_lock();
     use egui_kittest::kittest::Queryable;
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(&dir).unwrap();
-    unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("minimap-settings.json")) };
+    crate::point_settings();
     terraflux_app::settings::update(|s| s.minimap = true);
     let ids = ["a", "b", "c", "d"];
     let mut h = harness(open(&spread_model(false), "canvas-minimap.toml"));
@@ -2164,6 +2232,7 @@ fn is_near(a: [f32; 2], b: egui::Pos2, within: f32) -> bool {
 /// "Remove point") takes it away: each one step of undo, and the wire is drawn through it. In a group too.
 #[test]
 fn a_wire_gets_reroute_points_that_are_added_moved_and_removed() {
+    let _settings = settings_lock();
     use egui_kittest::kittest::Queryable;
     for inside in [false, true] {
         let mut h = scoped_model(inside, "canvas-points.toml");
@@ -2217,6 +2286,7 @@ fn a_wire_gets_reroute_points_that_are_added_moved_and_removed() {
 /// points has no `wires` in its text.
 #[test]
 fn reroute_points_are_saved_and_loaded() {
+    let _settings = settings_lock();
     let mut m = selection_model();
     assert!(!m.to_toml().unwrap().contains("wires"));
     m.nodes[1].wires.insert("map".into(), vec![[250.0, -40.0], [280.0, 60.0]]);
@@ -2235,6 +2305,7 @@ fn reroute_points_are_saved_and_loaded() {
 /// A connection taken away, or a wire moved to another input, loses its points; so does a swap.
 #[test]
 fn a_wire_taken_off_loses_its_points() {
+    let _settings = settings_lock();
     for inside in [false, true] {
         let mut h = scoped_model(inside, "canvas-points-gone.toml");
         double_click_wire(&mut h, "b", "map");
@@ -2265,6 +2336,7 @@ fn a_wire_taken_off_loses_its_points() {
 /// A duplicate (ctrl+D) carries the points of its wires, moved with the copy.
 #[test]
 fn a_duplicate_carries_the_reroute_points() {
+    let _settings = settings_lock();
     for inside in [false, true] {
         let mut m = selection_model();
         m.nodes[1].wires.insert("map".into(), vec![[250.0, -40.0]]);
@@ -2307,6 +2379,7 @@ fn a_duplicate_carries_the_reroute_points() {
 /// the pane; deleted, only its place goes; saved and read again, the copy is there.
 #[test]
 fn an_input_box_has_copies_and_each_reader_takes_the_nearest() {
+    let _settings = settings_lock();
     let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs/sibuyan_landuse.tif");
     let mut m = Model::new("copies");
     m.inputs.insert(
@@ -2394,9 +2467,10 @@ fn crosses(path: &[egui::Pos2], r: egui::Rect) -> bool {
 /// points of its own or the setting is off, when it is the plain curve.
 #[test]
 fn a_wire_across_a_box_goes_around_it() {
+    let _settings = settings_lock();
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(&dir).unwrap();
-    unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("minimap-settings.json")) };
+    crate::point_settings();
     terraflux_app::settings::update(|s| s.wires_around = true);
     let mut h = harness(open(&blocked_model(), "canvas-around.toml"));
     h.run_steps(3);
@@ -2429,6 +2503,7 @@ fn a_wire_across_a_box_goes_around_it() {
     let from = editor(&h).screen_of("block").unwrap();
     drag(&mut h, from, from + egui::vec2(0.0, 400.0));
     assert_eq!(editor(&h).bends("b", "map"), 0, "nothing in the way now");
+    terraflux_app::settings::update(|s| s.wires_around = true);
 }
 
 /// Run the model open and step until it is done.
@@ -2479,6 +2554,7 @@ fn map_model(inside: bool) -> Model {
 /// while dragging.
 #[test]
 fn a_connection_tells_its_type_and_value() {
+    let _settings = settings_lock();
     use egui_kittest::kittest::Queryable;
     for inside in [false, true] {
         let mut h = harness(open(&map_model(inside), "canvas-wire-tip.toml"));
@@ -2530,6 +2606,7 @@ fn a_connection_tells_its_type_and_value() {
 /// A connection that carries a number shows the number; after an edit it says the value is out of date.
 #[test]
 fn a_connection_of_a_number_shows_the_number() {
+    let _settings = settings_lock();
     use egui_kittest::kittest::Queryable;
     let mut a = Node::new("a", "value.calc").param("expression", "6 * 7");
     a.pos = Some([0.0, 0.0]);

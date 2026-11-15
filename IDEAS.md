@@ -2538,7 +2538,7 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
    `Scene::lifting`, as ações `Insert` e `Lift` na soltura de um nó só (`Drag::Move` lembra o alt do começo), o fio
    alvo em destaque. Testes: `a_node_let_go_over_a_connection_goes_in_the_middle`,
    `a_node_dragged_with_alt_is_lifted_out_of_its_connections`. Falta: o desfazer volta as ligações mas não o
-   movimento (o passo do arrasto já fechado, `undo.rs`); a inserção de vários nós; um teste da mensagem de corte.
+   movimento (o passo do arrasto já fechado, `undo.rs`); a inserção de vários nós. Teste da mensagem de corte: `a_lift_that_cuts_a_connection_says_so`.
 6. **O menu da seleção**: botão direito com vários nós selecionados dá apagar, duplicar, desligar tudo, agrupar,
    rodar até eles, congelar, alinhar; hoje o menu é de um nó só.
    **Feito** (Unreleased, por um sub-agente): `editor_view::selection_menu` (as `Action`s `DeleteChosen`,
@@ -2554,8 +2554,7 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
    **Feito** (Unreleased, por um sub-agente): `editor::set_param_many` (em `guarded`: recusado num, em nenhum);
    `node_view::many_panel` e `many_setting` (o valor comum ou "several values: …", escolhas e booleanos num ComboBox,
    o texto confirmado ao perder o foco; operadores misturados listados, um clique seleciona um). Teste:
-   `a_setting_is_changed_in_the_nodes_selected_at_once`. Falta: o teste digitar no campo de verdade (sem rótulo
-   acessível); as listas, regras e scripts editados como no painel de um nó; uma nota para todos; o painel de um nó
+   `a_setting_is_changed_in_the_nodes_selected_at_once`. O campo de texto tem rótulo acessível (`labelled_by`) e o teste digita nele de verdade. Falta: as listas, regras e scripts editados como no painel de um nó; uma nota para todos; o painel de um nó
    ainda aceita um valor que o checker recusaria (o de vários recusa).
 8. **Alinhar e distribuir** os selecionados (à esquerda, centro, em coluna com o mesmo espaço), além do *Arrange* do
    modelo inteiro.
@@ -2590,8 +2589,7 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     `read_op_of`/`fits_read` (a detecção do `add_file`), `file_dialog_for`; `EditorState::node_at` e
     `drawn_rect_of` (pela câmera desenhada, `EditorState::drawn`); em `app.rs::take_dropped` o nó acende e o
     arquivo solto troca o dele. Testes: `a_read_nodes_file_is_changed_keeping_its_links`,
-    `a_file_dropped_on_a_read_node_replaces_its_file`. Falta: o id seguindo o arquivo (o item 15); uma asserção
-    sobre o brilho do hover; o caminho guardado pelo `value_of` (um nome sem extensão que pareça número seria lido
+    `a_file_dropped_on_a_read_node_replaces_its_file`. O brilho do hover é testado (`TerrafluxApp::drop_lit`: acende com o arquivo em cima, apaga ao sair do nó ou com outro tipo de arquivo). Falta: o id seguindo o arquivo (o item 15); o caminho guardado pelo `value_of` (um nome sem extensão que pareça número seria lido
     como número).
 12. **Buscar um nó do modelo** (ctrl+F no canvas): pelo id, operador ou arquivo, a câmera vai até ele (dentro de
     grupos também, abrindo o grupo).
@@ -2636,7 +2634,7 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     **Feito** (Unreleased, por um sub-agente): *Same colours for all similar layers* no menu de uma camada;
     `layers_panel::similar` (contínuo com contínuo; classes com os mesmos valores; Packed, Shade, RGB, diferenças
     e vetores fora) e `same_colours` (`s.palettes`/`s.ranges`, os mesmos da escolha à mão, gravados no Plot). Teste:
-    `a_layers_colours_are_given_to_all_similar_layers`. Falta: um teste de classes para classes; um passo de
+    `a_layers_colours_are_given_to_all_similar_layers`. Teste de classes para classes: `a_layers_colours_are_given_to_the_layers_of_the_same_classes`. Falta: um passo de
     desfazer (as paletas não têm undo hoje); camadas ainda sem dados não contam.
 18. **Fios com redirecionamento** (um ponto no meio do fio, arrastável) e fios que desviam das caixas em modelos
     densos.
@@ -2646,8 +2644,7 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     cadeia de béziers (`wire_path`), `Drag::Point`, `menu_point`, o desvio (`Scene::detour`: 48 amostras, dois pontos
     acima ou abaixo por caixa, só fios sem pontos, refeito ao mover uma caixa); `settings.wires_around`; o *Arrange*
     (canvas e MCP) limpa os pontos. Testes: cinco em canvas.rs (`a_wire_gets_reroute_points_...`,
-    `a_wire_across_a_box_goes_around_it`...) e `reroute_points_are_saved_only_when_there_are_some`. Falta: o teste do
-    desvio e o do minimapa mudam a mesma `settings` global (frágil em paralelo); não medido com milhares de nós; sem
+    `a_wire_across_a_box_goes_around_it`...) e `reroute_points_are_saved_only_when_there_are_some`. Os testes que mudam ou dependem da `settings` global (minimapa, desvio, fios) seguram um mesmo `settings_lock()` em canvas.rs. Falta: não medido com milhares de nós; sem
     dica ao passar sobre um fio (o item 19).
 19. **Ver o tipo e o valor numa conexão**: passar o ponteiro sobre um fio mostra o tipo e um resumo do último valor
     (um mapa: tamanho e faixa; um número: ele).
