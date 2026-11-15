@@ -27,6 +27,10 @@ Cite the version you used (`terraflux --version` prints it):
 }
 ```
 
+The repository has a `CITATION.cff` file, which GitHub reads: the **Cite this repository** button on the
+repository's page gives the reference in APA and BibTeX, and reference managers such as Zotero read the file too.
+Its version is that of the latest release.
+
 A paper describing Terraflux is in preparation; this page will give its reference when it is published.
 
 ## The methods

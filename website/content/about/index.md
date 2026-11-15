@@ -53,12 +53,36 @@ Union (Joint Research Centre), authors Pierre Soille, Peter Vogt et al., both GP
 in the library come from the [GTB repository](https://github.com/ec-jrc/GTB). GuidosToolbox's `mspa` notes that its
 interface is made available for non-commercial purposes: contact the JRC for commercial use of MSPA.
 
+## Supported systems and versions
+
+Each release is built and tested for these systems:
+
+| System | Supported |
+|---|---|
+| Windows | Windows 10 and 11, 64-bit |
+| macOS | Apple silicon (M1 or later) |
+| Linux | x86-64, glibc 2.39 or newer (Ubuntu 24.04 and later, Debian 13 and later, Fedora 40 and later, Arch) |
+
+GDAL is bundled with the packages. A build from source on another system may work, but is not tested.
+
+**Only the latest release is supported.** A bug, or a security problem, is fixed in the next release; fixes are not
+back-ported to older ones. Terraflux tells you when a newer version is out (see [Privacy and network
+access](/about/privacy/)), and the [release notes](/about/changelog/) say what changed.
+
+**Version numbers** follow [Semantic Versioning](https://semver.org/). Since version 1.0, **a model saved by an
+earlier version opens in later ones**; a change that would break that, in the model format, the command line or the
+Python interface, comes only with a new major version. New features and fixes come in minor and patch versions.
+
 ## Taking part
 
 - **Report a problem or ask for a feature** in the [issues](https://github.com/sacridini/terraflux/issues) of the repository: say what you
-  did, what you expected, what happened, and attach the model file (`.toml`) if you can.
+  did, what you expected, what happened, and attach the model file (`.toml`) if you can. [Contributing](/about/contributing/)
+  says what makes a report easy to act on.
 - **Improve this documentation:** every page has a link at its end, "Suggest a change to this page".
-- **Contribute code:** the repository's README explains how to build Terraflux and run its tests.
+- **Contribute code:** [Contributing](/about/contributing/) explains how to build Terraflux, run its tests and send a change.
+- **Behave kindly:** everyone follows the [Code of Conduct](https://github.com/sacridini/terraflux/blob/main/CODE_OF_CONDUCT.md).
+- **Report a security problem in private**, as the [security policy](https://github.com/sacridini/terraflux/blob/main/SECURITY.md) says.
+- **Know what Terraflux sends over the network:** [Privacy and network access](/about/privacy/).
 
 ## Citing
 
