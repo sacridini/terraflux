@@ -350,7 +350,7 @@
  },
  {
   "name": "batch.run",
-  "doc": "An operator run on many rasters in parallel (landschaft's batch, GuidosToolbox's Batch Process): each worker reads one raster, runs the operator on it and writes what it gives to the output folder, named after the input and the operator: maps <name>_<operator>[_<output>].tif, tables .csv, texts .txt, and <name>_<operator>.json with the parameters, the files, the numbers and the time (an input whose JSON exists is skipped unless overwrite). MSPA with GuidosToolbox's naming. A row per input: ok, skipped (done before), seconds, files written; the errors in the report. A folder given to any node that takes a map does the same, its maps seen and its settings in its pane (Make it a chain of nodes, in the app).",
+  "doc": "An operator run on many rasters in parallel (the Python library's batch, GuidosToolbox's Batch Process): each worker reads one raster, runs the operator on it and writes what it gives to the output folder, named after the input and the operator: maps <name>_<operator>[_<output>].tif, tables .csv, texts .txt, and <name>_<operator>.json with the parameters, the files, the numbers and the time (an input whose JSON exists is skipped unless overwrite). MSPA with GuidosToolbox's naming. A row per input: ok, skipped (done before), seconds, files written; the errors in the report. A folder given to any node that takes a map does the same, its maps seen and its settings in its pane (Make it a chain of nodes, in the app).",
   "inputs": [],
   "outputs": [
    {
@@ -421,7 +421,7 @@
  },
  {
   "name": "bio.cluster",
-  "doc": "Biodiverse's cluster analysis (landschaft's cluster): groups joined pair by pair by the dissimilarity of their labels (SORENSON, JACCARD, S2, BRAY_CURTIS, PHYLO_SORENSON...; the linkage giving cluster to cluster values), within the first spatial condition first. Ties broken by Biodiverse's Mersenne Twister. The dendrogram, its nodes (Biodiverse's values), the calculations of each node's groups and, with k, k clusters.",
+  "doc": "Biodiverse's cluster analysis (the Python library's cluster): groups joined pair by pair by the dissimilarity of their labels (SORENSON, JACCARD, S2, BRAY_CURTIS, PHYLO_SORENSON...; the linkage giving cluster to cluster values), within the first spatial condition first. Ties broken by Biodiverse's Mersenne Twister. The dendrogram, its nodes (Biodiverse's values), the calculations of each node's groups and, with k, k clusters.",
   "inputs": [
    {
     "name": "basedata",
@@ -542,7 +542,7 @@
  },
  {
   "name": "bio.h3",
-  "doc": "A basedata of lon/lat records in H3 cells (landschaft's BaseData.from_h3): the groups the centres of the cells of a resolution holding the records, the cells' ids kept.",
+  "doc": "A basedata of lon/lat records in H3 cells (the Python library's BaseData.from_h3): the groups the centres of the cells of a resolution holding the records, the cells' ids kept.",
   "inputs": [
    {
     "name": "records",
@@ -596,7 +596,7 @@
  },
  {
   "name": "bio.hex",
-  "doc": "A basedata of records in a grid of hexagons (landschaft's BaseData.from_hex): the groups the centres of the hexagons (pointy or flat, of a circumradius) holding the records, so that Biodiverse's distance conditions work on them.",
+  "doc": "A basedata of records in a grid of hexagons (the Python library's BaseData.from_hex): the groups the centres of the hexagons (pointy or flat, of a circumradius) holding the records, so that Biodiverse's distance conditions work on them.",
   "inputs": [
    {
     "name": "records",
@@ -666,7 +666,7 @@
  },
  {
   "name": "bio.matrix",
-  "doc": "A label matrix from a Biodiverse matrix file (landschaft's read_matrix): full or a triangle (the element of each row from its columns, the values in the rows' order), or sparse pairs; the first value read for a pair wins. For the matrix calculations (matrix_stats, compare_dissim_matrix_values, mx_rao_qe).",
+  "doc": "A label matrix from a Biodiverse matrix file (the Python library's read_matrix): full or a triangle (the element of each row from its columns, the values in the rows' order), or sparse pairs; the first value read for a pair wins. For the matrix calculations (matrix_stats, compare_dissim_matrix_values, mx_rao_qe).",
   "inputs": [],
   "outputs": [
    {
@@ -743,7 +743,7 @@
  },
  {
   "name": "bio.occurrences",
-  "doc": "A basedata of occurrence records (landschaft's BaseData.from_occurrences and read_occurrences): a GBIF download (the zip or its table), a Darwin Core Archive (a zip or a folder with meta.xml), a delimited file, or records with Darwin Core columns (sdm.download_gbif's); those without a label or valid coordinates, absent, too uncertain, of other bases of record or with some GBIF issues left out, one per label and place; in cells (degrees, or of to_crs), read a line at a time.",
+  "doc": "A basedata of occurrence records (the Python library's BaseData.from_occurrences and read_occurrences): a GBIF download (the zip or its table), a Darwin Core Archive (a zip or a folder with meta.xml), a delimited file, or records with Darwin Core columns (sdm.download_gbif's); those without a label or valid coordinates, absent, too uncertain, of other bases of record or with some GBIF issues left out, one per label and place; in cells (degrees, or of to_crs), read a line at a time.",
   "inputs": [
    {
     "name": "occurrences",
@@ -833,7 +833,7 @@
  },
  {
   "name": "bio.points",
-  "doc": "A basedata of point records read like Biodiverse's feature import (landschaft's BaseData.from_points): each point in the cell holding it, its label the label attributes joined with ':', its count 1 or a count attribute's.",
+  "doc": "A basedata of point records read like Biodiverse's feature import (the Python library's BaseData.from_points): each point in the cell holding it, its label the label attributes joined with ':', its count 1 or a count attribute's.",
   "inputs": [
    {
     "name": "points",
@@ -881,7 +881,7 @@
  },
  {
   "name": "bio.properties",
-  "doc": "Label or group properties of a basedata from a Biodiverse properties file (landschaft's read_properties and set_label_properties / set_group_properties): the element from its columns joined with ':', property names upper-cased, only values that look like numbers (empty fields set but undefined), a later row overriding. They feed the lbprop and gpprop calculations; RANGE and ABUNDANCE set the labels' ranges and abundances.",
+  "doc": "Label or group properties of a basedata from a Biodiverse properties file (the Python library's read_properties and set_label_properties / set_group_properties): the element from its columns joined with ':', property names upper-cased, only values that look like numbers (empty fields set but undefined), a later row overriding. They feed the lbprop and gpprop calculations; RANGE and ABUNDANCE set the labels' ranges and abundances.",
   "inputs": [
    {
     "name": "basedata",
@@ -945,7 +945,7 @@
  },
  {
   "name": "bio.randomise",
-  "doc": "Randomisations of a spatial analysis (landschaft's randomise, Biodiverse's): each iteration randomises the basedata (rand_structured, Biodiverse's default; its spatial forms rand_spatially_structured, rand_diffusion, rand_random_walk; the swaps rand_independent_swaps, rand_independent_swaps_modified, rand_curveball; rand_csr_by_group; rand_nochange), runs the analysis again with the same neighbourhoods and counts how often each observed index exceeds, ties and is compared with the randomised one. The p-ranks, z-scores, the counters (C, P, Q, SUMX, SUMXX, T) and, with pe and phylo_rpe2, CANAPE (0 not significant, 1 neo, 2 palaeo, 3 mixed, 4 super). Biodiverse's Mersenne Twister: the same seed gives its randomisations.",
+  "doc": "Randomisations of a spatial analysis (the Python library's randomise, Biodiverse's): each iteration randomises the basedata (rand_structured, Biodiverse's default; its spatial forms rand_spatially_structured, rand_diffusion, rand_random_walk; the swaps rand_independent_swaps, rand_independent_swaps_modified, rand_curveball; rand_csr_by_group; rand_nochange), runs the analysis again with the same neighbourhoods and counts how often each observed index exceeds, ties and is compared with the randomised one. The p-ranks, z-scores, the counters (C, P, Q, SUMX, SUMXX, T) and, with pe and phylo_rpe2, CANAPE (0 not significant, 1 neo, 2 palaeo, 3 mixed, 4 super). Biodiverse's Mersenne Twister: the same seed gives its randomisations.",
   "inputs": [
    {
     "name": "basedata",
@@ -1169,7 +1169,7 @@
  },
  {
   "name": "bio.raster",
-  "doc": "A basedata of rasters read like Biodiverse's raster import (landschaft's BaseData.from_raster): each layer a label (its name) and the values its counts in the cells' groups (with a threshold, presence from species distribution models), or the values themselves labels, each cell counting 1; the cells snapped to the group cells (default the raster's).",
+  "doc": "A basedata of rasters read like Biodiverse's raster import (the Python library's BaseData.from_raster): each layer a label (its name) and the values its counts in the cells' groups (with a threshold, presence from species distribution models), or the values themselves labels, each cell counting 1; the cells snapped to the group cells (default the raster's).",
   "inputs": [
    {
     "name": "raster",
@@ -1229,7 +1229,7 @@
  },
  {
   "name": "bio.region_grower",
-  "doc": "Biodiverse's region grower (landschaft's region_grower): pairs of groups joined in decreasing order of an index of the pair's groups together (RICHNESS_ALL, PE_WE...), recomputed for each merged region; with one condition selecting every group, joining stops once a region reaches the value of all the groups. The dendrogram, its nodes, the calculations of each node and, with k, k regions.",
+  "doc": "Biodiverse's region grower (the Python library's region_grower): pairs of groups joined in decreasing order of an index of the pair's groups together (RICHNESS_ALL, PE_WE...), recomputed for each merged region; with one condition selecting every group, joining stops once a region reaches the value of all the groups. The dendrogram, its nodes, the calculations of each node and, with k, k regions.",
   "inputs": [
    {
     "name": "basedata",
@@ -1337,7 +1337,7 @@
  },
  {
   "name": "bio.spatial",
-  "doc": "Biodiverse's spatial analysis (landschaft's spatial_analysis): its indices over the neighbourhood of every group. Neighbourhoods are spatial conditions in Biodiverse's Perl (sp_circle (radius => 200000), sp_block (size => 500000), $D <= 3 && $nbr_y > $y, sp_select_all()...): one, or two (the second leaves out the first) for the indices comparing two sets. Calculations by Biodiverse's names, with or without calc_ (richness, endemism_whole, sorenson, rarity_central, abc_counts...). A table of the indices of each group, and their maps when the groups are cells of two axes.",
+  "doc": "Biodiverse's spatial analysis (the Python library's spatial_analysis): its indices over the neighbourhood of every group. Neighbourhoods are spatial conditions in Biodiverse's Perl (sp_circle (radius => 200000), sp_block (size => 500000), $D <= 3 && $nbr_y > $y, sp_select_all()...): one, or two (the second leaves out the first) for the indices comparing two sets. Calculations by Biodiverse's names, with or without calc_ (richness, endemism_whole, sorenson, rarity_central, abc_counts...). A table of the indices of each group, and their maps when the groups are cells of two axes.",
   "inputs": [
    {
     "name": "basedata",
@@ -1409,7 +1409,7 @@
  },
  {
   "name": "bio.table",
-  "doc": "A basedata of a delimited text file read like Biodiverse's import (landschaft's BaseData.from_table): group coordinates from the group columns snapped to cells (> 0), kept as given (0) or as text (< 0), labels from the label columns joined with ':', counts summed per group and label (1 per record without count columns). Columns by name or 0-based position; separator and quote guessed.",
+  "doc": "A basedata of a delimited text file read like Biodiverse's import (the Python library's BaseData.from_table): group coordinates from the group columns snapped to cells (> 0), kept as given (0) or as text (< 0), labels from the label columns joined with ':', counts summed per group and label (1 per record without count columns). Columns by name or 0-based position; separator and quote guessed.",
   "inputs": [],
   "outputs": [
    {
@@ -1486,7 +1486,7 @@
  },
  {
   "name": "bio.tree",
-  "doc": "A phylogenetic tree of a Newick or Nexus file read as Biodiverse reads it (landschaft's read_tree): unnamed nodes 0___, 1___..., duplicated names __dup1..., the Nexus Translate table applied, all-zero lengths made 1, a forest given a new root.",
+  "doc": "A phylogenetic tree of a Newick or Nexus file read as Biodiverse reads it (the Python library's read_tree): unnamed nodes 0___, 1___..., duplicated names __dup1..., the Nexus Translate table applied, all-zero lengths made 1, a forest given a new root.",
   "inputs": [],
   "outputs": [
    {
@@ -1525,7 +1525,7 @@
  },
  {
   "name": "bio.vector",
-  "doc": "A basedata of vector features read like Biodiverse's feature import (landschaft's BaseData.from_vector): points in the cell holding them; lines and polygons over a fishnet of cells spanning the layer, every cell they touch counting 1, or (measure) the area or length of their part in it (GEOS through GDAL); the labels from attributes joined with ':'.",
+  "doc": "A basedata of vector features read like Biodiverse's feature import (the Python library's BaseData.from_vector): points in the cell holding them; lines and polygons over a fishnet of cells spanning the layer, every cell they touch counting 1, or (measure) the area or length of their part in it (GEOS through GDAL); the labels from attributes joined with ':'.",
   "inputs": [
    {
     "name": "features",
@@ -1772,7 +1772,7 @@
  },
  {
   "name": "change.components",
-  "doc": "The components of the difference between two maps of classes (Pontius & Santacruz 2014, diffeR's diffTablej and overallDiff through landschaft): of each class its gain (omission), persistence (agreement) and loss (commission), and the difference split into quantity, exchange and shift; overall too (the last row, class empty).",
+  "doc": "The components of the difference between two maps of classes (Pontius & Santacruz 2014, diffeR's diffTablej and overallDiff through the Python library): of each class its gain (omission), persistence (agreement) and loss (commission), and the difference split into quantity, exchange and shift; overall too (the last row, class empty).",
   "inputs": [
    {
     "name": "from",
@@ -1824,7 +1824,7 @@
  },
  {
   "name": "change.composite",
-  "doc": "The cross-tabulation of two maps at a coarser resolution by the composite method (diffeR's composite through landschaft, Pontius & Cheuk 2006): each block of factor x factor cells a mix of classes, the agreement of a class the smaller of its two shares, the rest shared among the pairs of classes; blocks with a missing cell or cut by the edge left out. Proportions of the domain.",
+  "doc": "The cross-tabulation of two maps at a coarser resolution by the composite method (diffeR's composite through the Python library, Pontius & Cheuk 2006): each block of factor x factor cells a mix of classes, the agreement of a class the smaller of its two shares, the rest shared among the pairs of classes; blocks with a missing cell or cut by the edge left out. Proportions of the domain.",
   "inputs": [
    {
     "name": "comp",
@@ -1860,7 +1860,7 @@
  },
  {
   "name": "change.count",
-  "doc": "How many times each cell changed along a series of maps of classes (OpenLand's acc_changes through landschaft): a map of the counts (none where any map has no value) and the cells of each count.",
+  "doc": "How many times each cell changed along a series of maps of classes (OpenLand's acc_changes through the Python library): a map of the counts (none where any map has no value) and the cells of each count.",
   "inputs": [
    {
     "name": "maps",
@@ -1902,7 +1902,7 @@
  },
  {
   "name": "change.crosstab",
-  "doc": "The transition matrix between two maps of classes (landschaft's crosstab, diffeR's crosstabm): the cells of each class of the first (rows) that hold each class of the second (columns); classes found in neither left out.",
+  "doc": "The transition matrix between two maps of classes (the Python library's crosstab, diffeR's crosstabm): the cells of each class of the first (rows) that hold each class of the second (columns); classes found in neither left out.",
   "inputs": [
    {
     "name": "from",
@@ -1931,7 +1931,7 @@
  },
  {
   "name": "change.fad",
-  "doc": "The change of fragmentation between two dates measured by FAD at several scales, as GuidosToolbox's Change -> FAD Multiscale (landschaft's fad_multiscale_change): FAD-MS of both maps, and at every window and for the average the cells moved between the classes background, rare, patchy, transitional, dominant, interior and intact; the change of the average FAD (FAD_AV, AVCON).",
+  "doc": "The change of fragmentation between two dates measured by FAD at several scales, as GuidosToolbox's Change -> FAD Multiscale (the Python library's fad_multiscale_change): FAD-MS of both maps, and at every window and for the average the cells moved between the classes background, rare, patchy, transitional, dominant, interior and intact; the change of the average FAD (FAD_AV, AVCON).",
   "inputs": [
    {
     "name": "before",
@@ -2026,7 +2026,7 @@
  },
  {
   "name": "change.intensity",
-  "doc": "The intensity analysis of land change (Aldwaik & Pontius 2012) as OpenLand's intensityAnalysis through landschaft: at the interval level how fast the map changed in each period against a uniform rate; at the category level each class's gains and losses against the period's rate (active or dormant); at the transition level which classes the gains of one class (gain) take, and which take the losses of another (loss), against uniform (targeted or avoided); with the stationarity of each along the periods. Rates in % a year (a time unit); areas in km2 or cells.",
+  "doc": "The intensity analysis of land change (Aldwaik & Pontius 2012) as OpenLand's intensityAnalysis through the Python library: at the interval level how fast the map changed in each period against a uniform rate; at the category level each class's gains and losses against the period's rate (active or dormant); at the transition level which classes the gains of one class (gain) take, and which take the losses of another (loss), against uniform (targeted or avoided); with the stationarity of each along the periods. Rates in % a year (a time unit); areas in km2 or cells.",
   "inputs": [
    {
     "name": "maps",
@@ -2128,7 +2128,7 @@
  },
  {
   "name": "change.mad",
-  "doc": "The mean absolute deviation between two continuous maps and its components (diffeR's MAD through landschaft): the deviation split into quantity (its mean), strata (deviations that cancel within each stratum) and element (the rest), at the maps' resolution and at blocks of 2, 4, 8... cells (sums of the deviations).",
+  "doc": "The mean absolute deviation between two continuous maps and its components (diffeR's MAD through the Python library): the deviation split into quantity (its mean), strata (deviations that cancel within each stratum) and element (the rest), at the maps' resolution and at blocks of 2, 4, 8... cells (sums of the deviations).",
   "inputs": [
    {
     "name": "grid1",
@@ -2170,7 +2170,7 @@
  },
  {
   "name": "change.memberships",
-  "doc": "The share of each class in each block of factor x factor cells (diffeR's memberships through landschaft: terra's segregate and aggregate by the mean); blocks with a missing cell, and those cut by the right and bottom edges, have none.",
+  "doc": "The share of each class in each block of factor x factor cells (diffeR's memberships through the Python library: terra's segregate and aggregate by the mean); blocks with a missing cell, and those cut by the right and bottom edges, have none.",
   "inputs": [
    {
     "name": "map",
@@ -2242,7 +2242,7 @@
  },
  {
   "name": "change.mosaic",
-  "doc": "The change of the landscape mosaic's heatmap between two dates, as GuidosToolbox's Change -> Landscape Mosaic Heatmap (landschaft's landscape_mosaic_change): the share of every class of 103 at both dates and B - A, the triangle of the change, GTB's delta_heatmap.csv.",
+  "doc": "The change of the landscape mosaic's heatmap between two dates, as GuidosToolbox's Change -> Landscape Mosaic Heatmap (the Python library's landscape_mosaic_change): the share of every class of 103 at both dates and B - A, the triangle of the change, GTB's delta_heatmap.csv.",
   "inputs": [
    {
     "name": "before",
@@ -2308,7 +2308,7 @@
  },
  {
   "name": "change.resolutions",
-  "doc": "The quantity, exchange and shift differences between two maps at coarser and coarser resolutions (diffeR's differenceMR through landschaft): the cross-tabulation at the maps' resolution, then the composite one at blocks of factor, factor^2... cells per side up to the larger side; shift shrinks as the resolution coarsens, quantity stays.",
+  "doc": "The quantity, exchange and shift differences between two maps at coarser and coarser resolutions (diffeR's differenceMR through the Python library): the cross-tabulation at the maps' resolution, then the composite one at blocks of factor, factor^2... cells per side up to the larger side; shift shrinks as the resolution coarsens, quantity stays.",
   "inputs": [
    {
     "name": "comp",
@@ -2356,7 +2356,7 @@
  },
  {
   "name": "change.sample_to_population",
-  "doc": "A sample's cross-tabulation scaled to the population of each row's class (diffeR's sample2pop through landschaft, by the row's class rather than its position): each row times its population over its sum.",
+  "doc": "A sample's cross-tabulation scaled to the population of each row's class (diffeR's sample2pop through the Python library, by the row's class rather than its position): each row times its population over its sum.",
   "inputs": [
    {
     "name": "matrix",
@@ -2475,7 +2475,7 @@
  },
  {
   "name": "change.transitions",
-  "doc": "The transitions of a series of maps of classes, as landschaft's changes (OpenLand's contingencyTable): between consecutive dates (and from the first to the last), a row per pair of classes with cells: the years, the classes, the area in km2 (cells times a cell's area) and the cells; and the cells of each class at each date.",
+  "doc": "The transitions of a series of maps of classes, as the Python library's changes (OpenLand's contingencyTable): between consecutive dates (and from the first to the last), a row per pair of classes with cells: the years, the classes, the area in km2 (cells times a cell's area) and the cells; and the cells of each class at each date.",
   "inputs": [
    {
     "name": "maps",
@@ -2845,7 +2845,7 @@
  },
  {
   "name": "circuit.advanced",
-  "doc": "Currents and voltages of a raster circuit with sources and grounds, Circuitscape 6.1's advanced mode through landschaft's C++: each cell with a conductance a node joined to its 8 neighbours (4 asked) by the average conductance; current injected at the sources, drawn at the grounds (a conductance to ground, or a direct ground: inf); every component with both solved exactly. The node current is the larger of a cell's inflow and outflow.",
+  "doc": "Currents and voltages of a raster circuit with sources and grounds, Circuitscape 6.1's advanced mode through terraflux-py's C++: each cell with a conductance a node joined to its 8 neighbours (4 asked) by the average conductance; current injected at the sources, drawn at the grounds (a conductance to ground, or a direct ground: inf); every component with both solved exactly. The node current is the larger of a cell's inflow and outflow.",
   "inputs": [
    {
     "name": "conductance",
@@ -2893,7 +2893,7 @@
  },
  {
   "name": "circuit.circuitscape_ini",
-  "doc": "Run a Circuitscape INI file on rasters, as Circuitscape.compute(path) does (landschaft's circuitscape_ini): advanced, pairwise, one-to-all and all-to-one, with its polygons, mask, reclassification, included pairs and variable source strengths; the inputs read as Circuitscape reads them (ASCII grids in double, GeoTIFFs, text lists; paths from the working directory or next to the INI), the outputs written as it names them next to output_file (ASCII grids, or GeoTIFF with write_as_tif). solver, precision and parallelize have no effect: every solve is exact in double.",
+  "doc": "Run a Circuitscape INI file on rasters, as Circuitscape.compute(path) does (the Python library's circuitscape_ini): advanced, pairwise, one-to-all and all-to-one, with its polygons, mask, reclassification, included pairs and variable source strengths; the inputs read as Circuitscape reads them (ASCII grids in double, GeoTIFFs, text lists; paths from the working directory or next to the INI), the outputs written as it names them next to output_file (ASCII grids, or GeoTIFF with write_as_tif). solver, precision and parallelize have no effect: every solve is exact in double.",
   "inputs": [],
   "outputs": [
    {
@@ -2958,7 +2958,7 @@
  },
  {
   "name": "circuit.network_advanced",
-  "doc": "Circuitscape's advanced mode on a network (data_type = network; landschaft's circuitscape_network_advanced): currents injected at nodes and grounds (a resistance of 0 a direct ground) on a graph of edges numbered from 1 (or 0, then every number shifted, as Circuitscape.jl). Duplicate edges add up. Every component with a source and a ground is solved.",
+  "doc": "Circuitscape's advanced mode on a network (data_type = network; the Python library's circuitscape_network_advanced): currents injected at nodes and grounds (a resistance of 0 a direct ground) on a graph of edges numbered from 1 (or 0, then every number shifted, as Circuitscape.jl). Duplicate edges add up. Every component with a source and a ground is solved.",
   "inputs": [
    {
     "name": "graph",
@@ -3048,7 +3048,7 @@
  },
  {
   "name": "circuit.network_pairwise",
-  "doc": "Circuitscape's pairwise mode on a network (landschaft's circuitscape_network_pairwise): the effective resistance between every pair of focal nodes (-1: not connected), every component factorised once; included or excluded pairs from Circuitscape's file; with the map options every pair's node voltages, node and branch currents (JSON), and the currents summed over the pairs.",
+  "doc": "Circuitscape's pairwise mode on a network (the Python library's circuitscape_network_pairwise): the effective resistance between every pair of focal nodes (-1: not connected), every component factorised once; included or excluded pairs from Circuitscape's file; with the map options every pair's node voltages, node and branch currents (JSON), and the currents summed over the pairs.",
   "inputs": [
    {
     "name": "graph",
@@ -3126,7 +3126,7 @@
  },
  {
   "name": "circuit.omniscape",
-  "doc": "Omnidirectional connectivity with Omniscape's moving-window circuits (Omniscape 0.7 through landschaft's C++): a target every block_size cells injects its block's source strength into the sources within radius, grounded at the target; the node currents of every window add up into the cumulative current. The flow potential (the same on a conductance of 1) and the current normalised by it (above 1: channelled; below: impeded) when asked. Sources from the resistance (its conductance) unless given; conditions keep the sources whose values match the target's.",
+  "doc": "Omnidirectional connectivity with Omniscape's moving-window circuits (Omniscape 0.7 through terraflux-py's C++): a target every block_size cells injects its block's source strength into the sources within radius, grounded at the target; the node currents of every window add up into the cumulative current. The flow potential (the same on a conductance of 1) and the current normalised by it (above 1: channelled; below: impeded) when asked. Sources from the resistance (its conductance) unless given; conditions keep the sources whose values match the target's.",
   "inputs": [
    {
     "name": "resistance",
@@ -3331,7 +3331,7 @@
  },
  {
   "name": "circuit.omniscape_ini",
-  "doc": "Run an Omniscape INI file, as run_omniscape(path) does (landschaft's omniscape_ini): every option of Omniscape 0.7 with its defaults (radius, resistance_file and project_name required), paths from the working directory or next to the INI; the outputs written to project_name (_1, _2... when it exists) as Omniscape writes them: config.ini, cum_currmap, flow_potential, normalized_cum_currmap, classified_resistance (GeoTIFF or ASCII grids, no data -9999).",
+  "doc": "Run an Omniscape INI file, as run_omniscape(path) does (the Python library's omniscape_ini): every option of Omniscape 0.7 with its defaults (radius, resistance_file and project_name required), paths from the working directory or next to the INI; the outputs written to project_name (_1, _2... when it exists) as Omniscape writes them: config.ini, cum_currmap, flow_potential, normalized_cum_currmap, classified_resistance (GeoTIFF or ASCII grids, no data -9999).",
   "inputs": [],
   "outputs": [
    {
@@ -3378,7 +3378,7 @@
  },
  {
   "name": "circuit.one_to_all",
-  "doc": "Circuitscape's one-to-all (or all-to-one) mode on rasters (landschaft's circuitscape_one_to_all): for every focal point in turn, 1 A (or its strength) injected there with every other point a direct ground (one-to-all), or the point grounded and the others injecting (all-to-one); the voltage over the strength at each point (one-to-all), the cumulative and largest current maps when asked. Circuitscape's quirks kept (strengths by position); all-to-one measures no resistances, so its table's `value` column is 0, as Circuitscape's: read its current maps.",
+  "doc": "Circuitscape's one-to-all (or all-to-one) mode on rasters (the Python library's circuitscape_one_to_all): for every focal point in turn, 1 A (or its strength) injected there with every other point a direct ground (one-to-all), or the point grounded and the others injecting (all-to-one); the voltage over the strength at each point (one-to-all), the cumulative and largest current maps when asked. Circuitscape's quirks kept (strengths by position); all-to-one measures no resistances, so its table's `value` column is 0, as Circuitscape's: read its current maps.",
   "inputs": [
    {
     "name": "habitat",
@@ -3492,7 +3492,7 @@
  },
  {
   "name": "circuit.pairwise",
-  "doc": "Circuitscape's pairwise mode on rasters (landschaft's circuitscape_pairwise): the effective resistance between every pair of focal points (-1: not connected), every component factorised once and its pairs solved together; the cumulative and the largest current maps when asked.",
+  "doc": "Circuitscape's pairwise mode on rasters (the Python library's circuitscape_pairwise): the effective resistance between every pair of focal points (-1: not connected), every component factorised once and its pairs solved together; the cumulative and the largest current maps when asked.",
   "inputs": [
    {
     "name": "habitat",
@@ -3743,7 +3743,7 @@
     "name": "settings",
     "type": "any",
     "required": true,
-    "doc": "{ systems, services, supply, demand, order, weights, resistance, allowed, deviation, mean_deviation, max_deviation, speed, max_loops, ... } as landschaft's Model.save writes them"
+    "doc": "{ systems, services, supply, demand, order, weights, resistance, allowed, deviation, mean_deviation, max_deviation, speed, max_loops, ... } as the Python library's Model.save writes them"
    }
   ],
   "access": "global",
@@ -3823,7 +3823,7 @@
  },
  {
   "name": "conn.connectivity_grid",
-  "doc": "Connectivity per cell of a grid over a region (Makurhini's MK_Connect_grid, landschaft's connectivity_grid): ProtConn's indicators of the protected areas in each cell, or the PC of their dissolved parts (Protected_surface, LA, ECA, ECA_Normalized, PC).",
+  "doc": "Connectivity per cell of a grid over a region (Makurhini's MK_Connect_grid, the Python library's connectivity_grid): ProtConn's indicators of the protected areas in each cell, or the PC of their dissolved parts (Protected_surface, LA, ECA, ECA_Normalized, PC).",
   "inputs": [
    {
     "name": "protected",
@@ -3907,7 +3907,7 @@
  },
  {
   "name": "conn.distances",
-  "doc": "The distances between the patches of a raster or between features (landschaft's distance_table, Makurhini's distancefile): between their centroids (R's means of the cells' centres; the features' largest part's, or GEOS's point on the surface when it falls outside), their edges (the gap between their closest cells; GEOS's distance), least-cost over a resistance (gdistance's) or commute times, from centroid to centroid as Makurhini's; the straight distance for the pairs the resistance does not join.",
+  "doc": "The distances between the patches of a raster or between features (the Python library's distance_table, Makurhini's distancefile): between their centroids (R's means of the cells' centres; the features' largest part's, or GEOS's point on the surface when it falls outside), their edges (the gap between their closest cells; GEOS's distance), least-cost over a resistance (gdistance's) or commute times, from centroid to centroid as Makurhini's; the straight distance for the pairs the resistance does not join.",
   "inputs": [
    {
     "name": "map",
@@ -4085,7 +4085,7 @@
  },
  {
   "name": "conn.eca_change_grid",
-  "doc": "The change of ECA per cell of a grid between consecutive times (Makurhini's MK_dECA_grid, landschaft's eca_change_grid): the habitat of each time clipped to the cell, its graph (areas, centroid distances), ECA of IIC or PC, their change and how it reads.",
+  "doc": "The change of ECA per cell of a grid between consecutive times (Makurhini's MK_dECA_grid, the Python library's eca_change_grid): the habitat of each time clipped to the cell, its graph (areas, centroid distances), ECA of IIC or PC, their change and how it reads.",
   "inputs": [
    {
     "name": "times",
@@ -4173,7 +4173,7 @@
  },
  {
   "name": "conn.focal_nodes",
-  "doc": "The importance of every node in its neighbourhood (Makurhini's MK_Focal_nodes, landschaft's focal_nodes): the graph of the nodes within a search buffer of it (their points on the surface, the landscape their bounding box) and, in it, EC and IIC or PC, the node's dI and its fractions, and IComp (the index times dI). A row per node and distance.",
+  "doc": "The importance of every node in its neighbourhood (Makurhini's MK_Focal_nodes, the Python library's focal_nodes): the graph of the nodes within a search buffer of it (their points on the surface, the landscape their bounding box) and, in it, EC and IIC or PC, the node's dI and its fractions, and IComp (the index times dI). A row per node and distance.",
   "inputs": [
    {
     "name": "vector",
@@ -4255,7 +4255,7 @@
  },
  {
   "name": "conn.graph",
-  "doc": "A habitat graph (landschaft's HabitatGraph): nodes with an attribute (an area, a quality) and the distances, probabilities or links between pairs of them, from a table of nodes and a table of pairs (from, to, value) or an n x n matrix.",
+  "doc": "A habitat graph (the Python library's HabitatGraph): nodes with an attribute (an area, a quality) and the distances, probabilities or links between pairs of them, from a table of nodes and a table of pairs (from, to, value) or an n x n matrix.",
   "inputs": [
    {
     "name": "nodes",
@@ -4348,7 +4348,7 @@
  },
  {
   "name": "conn.graph_from_raster",
-  "doc": "A habitat graph of the patches of a raster (landschaft's HabitatGraph.from_raster): the nodes' attributes and the distances between them (conn.nodes and conn.distances); its values map back onto the patches (conn.to_map).",
+  "doc": "A habitat graph of the patches of a raster (the Python library's HabitatGraph.from_raster): the nodes' attributes and the distances between them (conn.nodes and conn.distances); its values map back onto the patches (conn.to_map).",
   "inputs": [
    {
     "name": "map",
@@ -4512,7 +4512,7 @@
  },
  {
   "name": "conn.graph_from_samc",
-  "doc": "A habitat graph of settlement probabilities (landschaft's HabitatGraph.from_samc, Makurhini's MK_dPCIIC with samc): the nodes' attributes and, between them, the probability that a walker leaving one settles in the other (conn.settlement_probabilities).",
+  "doc": "A habitat graph of settlement probabilities (the Python library's HabitatGraph.from_samc, Makurhini's MK_dPCIIC with samc): the nodes' attributes and, between them, the probability that a walker leaving one settles in the other (conn.settlement_probabilities).",
   "inputs": [
    {
     "name": "vector",
@@ -4647,7 +4647,7 @@
  },
  {
   "name": "conn.graph_from_vector",
-  "doc": "A habitat graph of vector features (landschaft's HabitatGraph.from_vector): the nodes' attributes and the distances between them (conn.nodes and conn.distances on the features); its values join back onto the features (conn.to_vector).",
+  "doc": "A habitat graph of vector features (the Python library's HabitatGraph.from_vector): the nodes' attributes and the distances between them (conn.nodes and conn.distances on the features); its values join back onto the features (conn.to_vector).",
   "inputs": [
    {
     "name": "vector",
@@ -5154,7 +5154,7 @@
  },
  {
   "name": "conn.nodes",
-  "doc": "The nodes of a habitat graph from a raster of patches or from features (landschaft's node_table, Makurhini's nodesfile): each patch's id and attribute, its area by default (GDAL's area of the polygons).",
+  "doc": "The nodes of a habitat graph from a raster of patches or from features (the Python library's node_table, Makurhini's nodesfile): each patch's id and attribute, its area by default (GDAL's area of the polygons).",
   "inputs": [
    {
     "name": "map",
@@ -5273,7 +5273,7 @@
  },
  {
   "name": "conn.protconn",
-  "doc": "Saura's ProtConn (Makurhini's MK_ProtConn, landschaft's protconn): the share of a region protected and connected. The protected areas clipped to the region and dissolved are the nodes (and the transboundary ones within a distance of it; the region's parts with `bound`); PC's numerator over the most probable paths between them gives ECA, PC, Prot, ProtConn, ProtUnconn, RelConn and ProtConn's fractions. With `delta`, every protected area's importance.",
+  "doc": "Saura's ProtConn (Makurhini's MK_ProtConn, the Python library's protconn): the share of a region protected and connected. The protected areas clipped to the region and dissolved are the nodes (and the transboundary ones within a distance of it; the region's parts with `bound`); PC's numerator over the most probable paths between them gives ECA, PC, Prot, ProtConn, ProtUnconn, RelConn and ProtConn's fractions. With `delta`, every protected area's importance.",
   "inputs": [
    {
     "name": "region",
@@ -5410,7 +5410,7 @@
  },
  {
   "name": "conn.protconn_raster",
-  "doc": "ProtConn of a raster of protected areas (landschaft's protconn_raster): its patches inside the region (the region's features rasterized on its grid, or a raster of the region) are the nodes, at their centroids; transboundary patches within a distance of them or of the region, and the region's parts with `bound`.",
+  "doc": "ProtConn of a raster of protected areas (the Python library's protconn_raster): its patches inside the region (the region's features rasterized on its grid, or a raster of the region) are the nodes, at their centroids; transboundary patches within a distance of them or of the region, and the region's parts with `bound`.",
   "inputs": [
    {
     "name": "protected",
@@ -5492,7 +5492,7 @@
  },
  {
   "name": "conn.protconn_regions",
-  "doc": "ProtConn for every region of several (landschaft's protconn_regions): conn.protconn's indicators with a row per region and distance.",
+  "doc": "ProtConn for every region of several (the Python library's protconn_regions): conn.protconn's indicators with a row per region and distance.",
   "inputs": [
    {
     "name": "regions",
@@ -5678,7 +5678,7 @@
  },
  {
   "name": "conn.settlement_probabilities",
-  "doc": "The probabilities of settling between habitat nodes (landschaft's settlement_probabilities, the samc package's model): a random walk over a resistance (to a neighbour with the probability of its conductance, 1 / the mean resistance by default), absorbed at each cell with a probability (an absorption raster, or none inside the nodes and exp(-1.247 - 1.788 log(dispersal distance / cell)) elsewhere); the probability that a walker leaving one node settles in another, over the cells of their boundary vertices.",
+  "doc": "The probabilities of settling between habitat nodes (the Python library's settlement_probabilities, the samc package's model): a random walk over a resistance (to a neighbour with the probability of its conductance, 1 / the mean resistance by default), absorbed at each cell with a probability (an absorption raster, or none inside the nodes and exp(-1.247 - 1.788 log(dispersal distance / cell)) elsewhere); the probability that a walker leaving one node settles in another, over the cells of their boundary vertices.",
   "inputs": [
    {
     "name": "vector",
@@ -5768,7 +5768,7 @@
  },
  {
   "name": "conn.to_map",
-  "doc": "Per-node values on the patches of a graph made from a raster (landschaft's HabitatGraph.to_raster): every cell of a node the value of its id in the table; missing elsewhere.",
+  "doc": "Per-node values on the patches of a graph made from a raster (the Python library's HabitatGraph.to_raster): every cell of a node the value of its id in the table; missing elsewhere.",
   "inputs": [
    {
     "name": "graph",
@@ -5810,7 +5810,7 @@
  },
  {
   "name": "conn.to_vector",
-  "doc": "A table of nodes joined onto the features of a graph made from them (landschaft's HabitatGraph.to_geodataframe): a feature per row of the table (its id's), with the table's columns.",
+  "doc": "A table of nodes joined onto the features of a graph made from them (the Python library's HabitatGraph.to_geodataframe): a feature per row of the table (its id's), with the table's columns.",
   "inputs": [
    {
     "name": "graph",
@@ -5972,7 +5972,7 @@
  },
  {
   "name": "cost.acc_cost",
-  "doc": "The accumulated cost from the nearest origin over a transition of conductances (gdistance's accCost through landschaft's C++): inf where no origin can be reached.",
+  "doc": "The accumulated cost from the nearest origin over a transition of conductances (gdistance's accCost through terraflux-py's C++): inf where no origin can be reached.",
   "inputs": [
    {
     "name": "transition",
@@ -6124,7 +6124,7 @@
  },
  {
   "name": "cost.commute_distance",
-  "doc": "The expected commute distances of a random walk between points (gdistance's commuteDistance through landschaft's C++): how long a walk that moves to a neighbour with a probability proportional to the conductance takes, on average, to reach the other point and come back; the effective resistance times the graph's volume. inf between separate parts of the graph, no value for points outside it.",
+  "doc": "The expected commute distances of a random walk between points (gdistance's commuteDistance through terraflux-py's C++): how long a walk that moves to a neighbour with a probability proportional to the conductance takes, on average, to reach the other point and come back; the effective resistance times the graph's volume. inf between separate parts of the graph, no value for points outside it.",
   "inputs": [
    {
     "name": "transition",
@@ -6153,7 +6153,7 @@
  },
  {
   "name": "cost.distance",
-  "doc": "The least costs between points over a transition of conductances (gdistance's costDistance through landschaft's C++): from every point to every other (a symmetric matrix when the transition is), or to every point of another set; no value for points outside the grid.",
+  "doc": "The least costs between points over a transition of conductances (gdistance's costDistance through terraflux-py's C++): from every point to every other (a symmetric matrix when the transition is), or to every point of another set; no value for points outside the grid.",
   "inputs": [
    {
     "name": "transition",
@@ -6188,7 +6188,7 @@
  },
  {
   "name": "cost.geo_correction",
-  "doc": "A transition corrected for the distances between cells' centres (gdistance's geoCorrection through landschaft's C++): divided by them (type c, least-cost distances), or also by the cells' widths across the connection (type r, random walks); great-circle distances on longitude/latitude grids.",
+  "doc": "A transition corrected for the distances between cells' centres (gdistance's geoCorrection through terraflux-py's C++): divided by them (type c, least-cost distances), or also by the cells' widths across the connection (type r, random walks); great-circle distances on longitude/latitude grids.",
   "inputs": [
    {
     "name": "transition",
@@ -6263,7 +6263,7 @@
  },
  {
   "name": "cost.math",
-  "doc": "A function of a transition's values on its connections (landschaft's Transition.map, R's maths to the bit): sqrt, exp, log, pow (to a value), multiply (by a value) or divide (a value by each, the reciprocal for 1); NaN results leave the connection out.",
+  "doc": "A function of a transition's values on its connections (the Python library's Transition.map, R's maths to the bit): sqrt, exp, log, pow (to a value), multiply (by a value) or divide (a value by each, the reciprocal for 1); NaN results leave the connection out.",
   "inputs": [
    {
     "name": "transition",
@@ -6342,7 +6342,7 @@
  },
  {
   "name": "cost.passage",
-  "doc": "The passages of a random walk from origins to goals through every cell (gdistance's passage through landschaft's C++). Without theta: the net number of times a random walk passes through each cell, the current of a unit current from the origins to the goals (a symmetric transition; 1 at the origins and goals, 0 off the graph). With theta (0 to 20): randomised shortest paths (Saerens et al. 2009), that prefer cheap routes more as theta grows; no value off the graph.",
+  "doc": "The passages of a random walk from origins to goals through every cell (gdistance's passage through terraflux-py's C++). Without theta: the net number of times a random walk passes through each cell, the current of a unit current from the origins to the goals (a symmetric transition; 1 at the origins and goals, 0 off the graph). With theta (0 to 20): randomised shortest paths (Saerens et al. 2009), that prefer cheap routes more as theta grows; no value off the graph.",
   "inputs": [
    {
     "name": "transition",
@@ -6400,7 +6400,7 @@
  },
  {
   "name": "cost.path_inc",
-  "doc": "The overlap and non-overlap of the routes from a common origin to each location (gdistance's pathInc through landschaft's C++, van Etten & Hijmans 2010): the flow of a random walk (or, with theta, of randomised shortest paths) from the origin to each location on every connection, then for each pair of locations the sum over the connections of min(f1, f2) (overlap) or max(f1, f2)(1 - min) - min (non-overlap), weighted by the cost of each connection or by weights (a transition, or a set: cost.barriers, cost.areas; a result per transition).",
+  "doc": "The overlap and non-overlap of the routes from a common origin to each location (gdistance's pathInc through terraflux-py's C++, van Etten & Hijmans 2010): the flow of a random walk (or, with theta, of randomised shortest paths) from the origin to each location on every connection, then for each pair of locations the sum over the connections of min(f1, f2) (overlap) or max(f1, f2)(1 - min) - min (non-overlap), weighted by the cost of each connection or by weights (a transition, or a set: cost.barriers, cost.areas; a result per transition).",
   "inputs": [
    {
     "name": "transition",
@@ -6466,7 +6466,7 @@
  },
  {
   "name": "cost.rsp_distance",
-  "doc": "Randomised-shortest-path distances between points (gdistance's rSPDistance through landschaft's C++): the expected cost of the walk from each point to each other, near a random walk's with theta near 0, near the least cost with large theta. No value for points off the grid.",
+  "doc": "Randomised-shortest-path distances between points (gdistance's rSPDistance through terraflux-py's C++): the expected cost of the walk from each point to each other, near a random walk's with theta near 0, near the least cost with large theta. No value for points off the grid.",
   "inputs": [
    {
     "name": "transition",
@@ -6528,7 +6528,7 @@
  },
  {
   "name": "cost.shortest_path",
-  "doc": "The least-cost paths from an origin to goals over a transition of conductances (gdistance's shortestPath through landschaft's C++, igraph's ties): lines through the cells' centres, and a map of the share of the paths that cross each cell.",
+  "doc": "The least-cost paths from an origin to goals over a transition of conductances (gdistance's shortestPath through terraflux-py's C++, igraph's ties): lines through the cells' centres, and a map of the share of the paths that cross each cell.",
   "inputs": [
    {
     "name": "transition",
@@ -6636,7 +6636,7 @@
  },
  {
   "name": "cost.transition",
-  "doc": "A transition between neighbouring cells (gdistance's transition through landschaft's C++): the connection of every cell with its 4, 8 or 16 neighbours, a function of the two cells' values (mean, min, max, sum, prod, from, to, diff, harmonic, geometric), none where either has no value. Usually of a conductance (1 / resistance), then corrected for the cells' distances (cost.geo_correction).",
+  "doc": "A transition between neighbouring cells (gdistance's transition through terraflux-py's C++): the connection of every cell with its 4, 8 or 16 neighbours, a function of the two cells' values (mean, min, max, sum, prod, from, to, diff, harmonic, geometric), none where either has no value. Usually of a conductance (1 / resistance), then corrected for the cells' distances (cost.geo_correction).",
   "inputs": [
    {
     "name": "map",
@@ -7099,7 +7099,7 @@
  },
  {
   "name": "dinamica.continuous_patcher",
-  "doc": "Dinamica EGO's Patcher of a continuous state (PatcherContinuousState), landschaft's ContinuousPatcher: new patches (logging, clearing, harvest) that take the stock of their cells (biomass, carbon, timber) until a quota is met. Seeds drawn among the cells with stock and probability ranked from the highest (prune_factor x quota of stock), in proportion to the probability; lognormal patch sizes grown as the Patcher's.",
+  "doc": "Dinamica EGO's Patcher of a continuous state (PatcherContinuousState), the Python library's ContinuousPatcher: new patches (logging, clearing, harvest) that take the stock of their cells (biomass, carbon, timber) until a quota is met. Seeds drawn among the cells with stock and probability ranked from the highest (prune_factor x quota of stock), in proportion to the probability; lognormal patch sizes grown as the Patcher's.",
   "inputs": [
    {
     "name": "stock",
@@ -7212,7 +7212,7 @@
  },
  {
   "name": "dinamica.cost_map",
-  "doc": "The cost of reaching every cell from the nearest source over a friction surface, Dinamica EGO's CalcCostMap (landschaft's friction_cost): a step into a cell costs its friction (x sqrt 2 on a diagonal), 8 neighbours, Dijkstra's sums; and the direction of each cell's predecessor (1 NW, 2 N, 3 NE, 4 E, 5 SE, 6 S, 7 SW, 8 W; 0 at the sources, 255 unreached).",
+  "doc": "The cost of reaching every cell from the nearest source over a friction surface, Dinamica EGO's CalcCostMap (the Python library's friction_cost): a step into a cell costs its friction (x sqrt 2 on a diagonal), 8 neighbours, Dijkstra's sums; and the direction of each cell's predecessor (1 NW, 2 N, 3 NE, 4 E, 5 SE, 6 S, 7 SW, 8 W; 0 at the sources, 255 unreached).",
   "inputs": [
    {
     "name": "sources",
@@ -7260,7 +7260,7 @@
  },
  {
   "name": "dinamica.destinations",
-  "doc": "Cells drawn by attraction in quadrants of a map, Dinamica EGO's CalcDestinationMap (landschaft's destinations): in each of the horizontal x vertical parts, up to per_quadrant cells in proportion to their attraction, a draw closer than min_distance to an earlier one drawn again.",
+  "doc": "Cells drawn by attraction in quadrants of a map, Dinamica EGO's CalcDestinationMap (the Python library's destinations): in each of the horizontal x vertical parts, up to per_quadrant cells in proportion to their attraction, a draw closer than min_distance to an earlier one drawn again.",
   "inputs": [
    {
     "name": "attraction",
@@ -7314,7 +7314,7 @@
  },
  {
   "name": "dinamica.pathways",
-  "doc": "Paths from source cells to a network, Dinamica EGO's CalcPathwayMap (landschaft's pathways): from each source (row order) to the cheapest of its 8 neighbours until a cell of cost <= 0 (the network), or along the directions of a cost map until the network.",
+  "doc": "Paths from source cells to a network, Dinamica EGO's CalcPathwayMap (the Python library's pathways): from each source (row order) to the cheapest of its 8 neighbours until a cell of cost <= 0 (the network), or along the directions of a cost map until the network.",
   "inputs": [
    {
     "name": "network",
@@ -7380,7 +7380,7 @@
  },
  {
   "name": "dinamica.roads",
-  "doc": "A step of endogenous road building, Dinamica EGO's road constructor (landschaft's RoadBuilder.step): the attraction kept where the distance to the roads is within distance (and the mask allows), destinations drawn in quadrants, each joined to the network down the cost of reaching it over the friction; the network with the new roads, and the distance to them (a dynamic variable).",
+  "doc": "A step of endogenous road building, Dinamica EGO's road constructor (the Python library's RoadBuilder.step): the attraction kept where the distance to the roads is within distance (and the mask allows), destinations drawn in quadrants, each joined to the network down the cost of reaching it over the friction; the network with the new roads, and the distance to them (a dynamic variable).",
   "inputs": [
    {
     "name": "network",
@@ -7609,7 +7609,7 @@
  },
  {
   "name": "distance.influence_zones",
-  "doc": "The zones of influence of the foreground objects, as GuidosToolbox's Distance -> Influence Zones (landschaft's influence_zones): the objects (8-connected, holes filled, of min_area cells at least, or their cores) and the watershed of the distance to them; a background buffer around them. Experimental in landschaft: IDL's distance transform is not yet reproduced exactly.",
+  "doc": "The zones of influence of the foreground objects, as GuidosToolbox's Distance -> Influence Zones (the Python library's influence_zones): the objects (8-connected, holes filled, of min_area cells at least, or their cores) and the watershed of the distance to them; a background buffer around them. Experimental in the Python library: IDL's distance transform is not yet reproduced exactly.",
   "inputs": [
    {
     "name": "map",
@@ -7675,7 +7675,7 @@
  },
  {
   "name": "distance.objects_proximity",
-  "doc": "The proximity between neighbouring foreground objects, as GuidosToolbox's Distance -> Proximity (landschaft's proximity): the objects (8-connected, holes filled, of min_area cells at least) split the map into zones of influence (the watershed of the distance to them); along the zones' lines the gap between the objects and their connected area gain. Experimental in landschaft: IDL's distance transform is not yet reproduced exactly.",
+  "doc": "The proximity between neighbouring foreground objects, as GuidosToolbox's Distance -> Proximity (the Python library's proximity): the objects (8-connected, holes filled, of min_area cells at least) split the map into zones of influence (the watershed of the distance to them); along the zones' lines the gap between the objects and their connected area gain. Experimental in the Python library: IDL's distance transform is not yet reproduced exactly.",
   "inputs": [
    {
     "name": "map",
@@ -8596,7 +8596,7 @@
  },
  {
   "name": "futures.calibrate",
-  "doc": "The calibration of FUTURES' patches (r.futures.calib through landschaft's calibrate_patches): the patches developed between the start and the end give the patch library and the histograms of patch area and compactness (perimeter / (2 sqrt(pi area))); every combination of the compactness means, ranges and discount factors is simulated repeat times from the start (futures.simulation's settings, seeds (seed + k) 10000 + i) and its patches compared with the observed ones by the histograms' chi-square distance. The combinations from the best, as landschaft's.",
+  "doc": "The calibration of FUTURES' patches (r.futures.calib through the Python library's calibrate_patches): the patches developed between the start and the end give the patch library and the histograms of patch area and compactness (perimeter / (2 sqrt(pi area))); every combination of the compactness means, ranges and discount factors is simulated repeat times from the start (futures.simulation's settings, seeds (seed + k) 10000 + i) and its patches compared with the observed ones by the histograms' chi-square distance. The combinations from the best, as the Python library's.",
   "inputs": [
    {
     "name": "landscape",
@@ -8831,7 +8831,7 @@
  },
  {
   "name": "futures.devpressure",
-  "doc": "The development pressure of each cell (r.futures.devpressure through landschaft): the sum over the developed cells within a radius (a circular window, the cell itself left out) of 1 (occurrence), scaling / d^gamma (gravity) or scaling exp(-2 d / gamma) (kernel), as GRASS's r.mfilter computes it; the pressure futures.simulation starts from.",
+  "doc": "The development pressure of each cell (r.futures.devpressure through the Python library): the sum over the developed cells within a radius (a circular window, the cell itself left out) of 1 (occurrence), scaling / d^gamma (gravity) or scaling exp(-2 d / gamma) (kernel), as GRASS's r.mfilter computes it; the pressure futures.simulation starts from.",
   "inputs": [
    {
     "name": "developed",
@@ -8890,7 +8890,7 @@
  },
  {
   "name": "futures.patch_library",
-  "doc": "The sizes of the patches developed between two maps (r.futures.calib's patch library through landschaft): the 4-connected groups of cells developed in the end and not at the start (inside a subregion), in cells, sorted; one library per subregion (each patch cut to its part in it), or one for all. The patch_sizes futures.simulation draws from.",
+  "doc": "The sizes of the patches developed between two maps (r.futures.calib's patch library through the Python library): the 4-connected groups of cells developed in the end and not at the start (inside a subregion), in cells, sorted; one library per subregion (each patch cut to its part in it), or one for all. The patch_sizes futures.simulation draws from.",
   "inputs": [
    {
     "name": "start",
@@ -9591,7 +9591,7 @@
  },
  {
   "name": "hydro.fill",
-  "doc": "Fill the depressions of a DEM so that water flows from every cell to the edge: each depression raised to where it would spill over (Priority-Flood, Barnes, Lehman & Mulla 2014; the DEM of WhiteboxTools' FillDepressions), through landschaft's C++.",
+  "doc": "Fill the depressions of a DEM so that water flows from every cell to the edge: each depression raised to where it would spill over (Priority-Flood, Barnes, Lehman & Mulla 2014; the DEM of WhiteboxTools' FillDepressions), through terraflux-py's C++.",
   "inputs": [
    {
     "name": "dem",
@@ -10520,7 +10520,7 @@
  },
  {
   "name": "landscape.mspa_tiled",
-  "doc": "MSPA of a map larger than memory by overlapping tiles, GuidosToolbox's MSPA Tiling as landschaft's mspa_tiled, the same maps: MSPA of every tile (tile_size cells with an overlap), of each overlap the half nearest to each tile kept. An approximation, as GTB warns: near the seams the classes can differ from MSPA of the whole map where objects are larger than the overlap. Rasters on disk are read and written tile by tile (to path, a GeoTIFF; for a folder, a file of each by its name); a map in memory gives a map.",
+  "doc": "MSPA of a map larger than memory by overlapping tiles, GuidosToolbox's MSPA Tiling as the Python library's mspa_tiled, the same maps: MSPA of every tile (tile_size cells with an overlap), of each overlap the half nearest to each tile kept. An approximation, as GTB warns: near the seams the classes can differ from MSPA of the whole map where objects are larger than the overlap. Rasters on disk are read and written tile by tile (to path, a GeoTIFF; for a folder, a file of each by its name); a map in memory gives a map.",
   "inputs": [
    {
     "name": "map",
@@ -11089,7 +11089,7 @@
  },
  {
   "name": "metrics.cluster",
-  "doc": "Groups of landscapes or zones with similar metrics (landschaft's SpatialSignatureAnalysis.cluster): k-means of the z-scores (or of the first principal components) from numpy's generator, so the same groups as landschaft, or scipy's hierarchical linkages cut into k clusters. The groups are numbered 0.. in order of first appearance.",
+  "doc": "Groups of landscapes or zones with similar metrics (the Python library's SpatialSignatureAnalysis.cluster): k-means of the z-scores (or of the first principal components) from numpy's generator, so the same groups as the Python library, or scipy's hierarchical linkages cut into k clusters. The groups are numbered 0.. in order of first appearance.",
   "inputs": [
    {
     "name": "table",
@@ -11159,7 +11159,7 @@
  },
  {
   "name": "metrics.clustergram",
-  "doc": "Clusters for a range of k (Schonlau's clustergram, landschaft's SpatialSignatureAnalysis.clustergram): for every k each row's cluster and the mean of its cluster, the cluster's centre projected on the first principal axis (pca_weighted) or averaged over the metrics.",
+  "doc": "Clusters for a range of k (Schonlau's clustergram, the Python library's SpatialSignatureAnalysis.clustergram): for every k each row's cluster and the mean of its cluster, the cluster's centre projected on the first principal axis (pca_weighted) or averaged over the metrics.",
   "inputs": [
    {
     "name": "table",
@@ -11454,7 +11454,7 @@
  },
  {
   "name": "metrics.nmf",
-  "doc": "Non-negative factors of spatial signatures (landschaft's SpatialSignatureAnalysis.nmf): each metric scaled to [0, 1] (constant ones left out), approximated by scores times components, both non-negative (NNDSVDa start, HALS sweeps; scikit-learn's NMF(init=\"nndsvda\", solver=\"cd\")).",
+  "doc": "Non-negative factors of spatial signatures (the Python library's SpatialSignatureAnalysis.nmf): each metric scaled to [0, 1] (constant ones left out), approximated by scores times components, both non-negative (NNDSVDa start, HALS sweeps; scikit-learn's NMF(init=\"nndsvda\", solver=\"cd\")).",
   "inputs": [
    {
     "name": "table",
@@ -11710,7 +11710,7 @@
  },
  {
   "name": "metrics.pca",
-  "doc": "The principal components of spatial signatures (landschaft's SpatialSignatureAnalysis.pca): the metrics as z-scores (constant ones left out, rows with NA too), their singular value decomposition, each component's largest loading positive.",
+  "doc": "The principal components of spatial signatures (the Python library's SpatialSignatureAnalysis.pca): the metrics as z-scores (constant ones left out, rows with NA too), their singular value decomposition, each component's largest loading positive.",
   "inputs": [
    {
     "name": "table",
@@ -11968,7 +11968,7 @@
  },
  {
   "name": "metrics.series",
-  "doc": "Landscape metrics along a series of maps (a layer per date), as pylandstats' SpatioTemporalAnalysis in landschaft: of the whole maps, of zones (polygons), of buffers around points or of square zones tiling the maps (grid). Landscape level: a row per (zone and) date; class level: a row per class, (zone and) date, every class at every date, 0 instead of NA for the area, edge and count metrics of a class absent (fillna).",
+  "doc": "Landscape metrics along a series of maps (a layer per date), as pylandstats' SpatioTemporalAnalysis in the Python library: of the whole maps, of zones (polygons), of buffers around points or of square zones tiling the maps (grid). Landscape level: a row per (zone and) date; class level: a row per class, (zone and) date, every class at every date, 0 instead of NA for the area, edge and count metrics of a class absent (fillna).",
   "inputs": [
    {
     "name": "maps",
@@ -12182,7 +12182,7 @@
  },
  {
   "name": "metrics.signatures",
-  "doc": "Spatial signatures, as pylandstats' SpatialSignatureAnalysis in landschaft: landscapes described by their metrics, a row per zone of a map (polygons, buffers around points or a grid of squares) or per layer of a stack, a column per landscape metric and per class metric and class (pland_11...), in alphabetical order. For metrics.pca, metrics.nmf, metrics.cluster and metrics.clustergram.",
+  "doc": "Spatial signatures, as pylandstats' SpatialSignatureAnalysis in the Python library: landscapes described by their metrics, a row per zone of a map (polygons, buffers around points or a grid of squares) or per layer of a stack, a column per landscape metric and per class metric and class (pland_11...), in alphabetical order. For metrics.pca, metrics.nmf, metrics.cluster and metrics.clustergram.",
   "inputs": [
    {
     "name": "maps",
@@ -12843,7 +12843,7 @@
  },
  {
   "name": "ml.potential",
-  "doc": "The potential of each class from a model per class (landschaft's Estimator with scikit-learn's RandomForestClassifier, or HistGradientBoostingClassifier, the same maps): where each class is (presence, as lulcc's models), or where it appeared between two maps among the cells without it (expansion: PLUS's land expansion analysis, LEAS, the growth probability CARS takes); with each driver's contribution (the models' importances).",
+  "doc": "The potential of each class from a model per class (the Python library's Estimator with scikit-learn's RandomForestClassifier, or HistGradientBoostingClassifier, the same maps): where each class is (presence, as lulcc's models), or where it appeared between two maps among the cells without it (expansion: PLUS's land expansion analysis, LEAS, the growth probability CARS takes); with each driver's contribution (the models' importances).",
   "inputs": [
    {
     "name": "landscape",
@@ -13180,7 +13180,7 @@
  },
  {
   "name": "move.aeqd_crs",
-  "doc": "An azimuthal equidistant projection centred on the tracks (move2's mt_aeqd_crs): distances and directions from the centre are true in it, a local metric projection for tracks anywhere; and the tracks in it. The centre: the centroid of the locations (on the sphere for longitude / latitude), the middle of their longitude and latitude ranges (center), or [longitude, latitude]. move2 takes the centroid to EPSG:4236 (Hu Tzu Shan) where WGS84 is meant, about a kilometre off; here it stays in WGS84, as landschaft's.",
+  "doc": "An azimuthal equidistant projection centred on the tracks (move2's mt_aeqd_crs): distances and directions from the centre are true in it, a local metric projection for tracks anywhere; and the tracks in it. The centre: the centroid of the locations (on the sphere for longitude / latitude), the middle of their longitude and latitude ranges (center), or [longitude, latitude]. move2 takes the centroid to EPSG:4236 (Hu Tzu Shan) where WGS84 is meant, about a kilometre off; here it stays in WGS84, as the Python library's.",
   "inputs": [
    {
     "name": "tracks",
@@ -13232,7 +13232,7 @@
  },
  {
   "name": "move.as_tracks",
-  "doc": "Tracks from points or a table of locations (move2's mt_as_move2, landschaft's as_tracks): ordered by track and time (stable), the tracks in the order they first appear, as every move node needs. The time is a column of datetimes as text (ISO 8601, UTC) or of numbers; the track one of names or numbers. A table's x and y columns become points in the coordinate system given.",
+  "doc": "Tracks from points or a table of locations (move2's mt_as_move2, the Python library's as_tracks): ordered by track and time (stable), the tracks in the order they first appear, as every move node needs. The time is a column of datetimes as text (ISO 8601, UTC) or of numbers; the track one of names or numbers. A table's x and y columns become points in the coordinate system given.",
   "inputs": [
    {
     "name": "vector",
@@ -14028,7 +14028,7 @@
  },
  {
   "name": "move.read_tracks",
-  "doc": "Animal tracks from a Movebank file (move2's mt_read, landschaft's load_tracks): the CSV files Movebank exports (also .csv.gz) and the zip files of Env-DATA (the CSV inside), as points in EPSG:4326, one per record. The time is timestamp (UTC), the track the individual (individual-local-identifier; when an individual carried several tags, the individual and the tag, in a new individual-tag-local-identifier column, as move2 does); the outlier flags are numbers 1 and 0. Records without coordinates (other sensors) keep an empty location. Ordered by track and time (stable), as every move node needs.",
+  "doc": "Animal tracks from a Movebank file (move2's mt_read, the Python library's load_tracks): the CSV files Movebank exports (also .csv.gz) and the zip files of Env-DATA (the CSV inside), as points in EPSG:4326, one per record. The time is timestamp (UTC), the track the individual (individual-local-identifier; when an individual carried several tags, the individual and the tag, in a new individual-tag-local-identifier column, as move2 does); the outlier flags are numbers 1 and 0. Records without coordinates (other sensors) keep an empty location. Ordered by track and time (stable), as every move node needs.",
   "inputs": [],
   "outputs": [
    {
@@ -14646,7 +14646,7 @@
  },
  {
   "name": "networks.conefor",
-  "doc": "The habitat network of an MSPA map as Conefor Sensinode's inputs, as GuidosToolbox's nw_cs22 (landschaft's conefor_inputs): the cores as nodes (negative ids, their area) and the bridges (positive ids, area 0), a link from every bridge to every core it touches at distance 1.",
+  "doc": "The habitat network of an MSPA map as Conefor Sensinode's inputs, as GuidosToolbox's nw_cs22 (the Python library's conefor_inputs): the cores as nodes (negative ids, their area) and the bridges (positive ids, area 0), a link from every bridge to every core it touches at distance 1.",
   "inputs": [
    {
     "name": "map",
@@ -14687,7 +14687,7 @@
  },
  {
   "name": "networks.gtn_components",
-  "doc": "The components of the habitat network of an MSPA map, as GuidosToolbox's nw_components (landschaft's gtn_components): cores (nodes) and bridges (links) grouped into 8-connected components, only the cores habitat; the equivalent connected area ECA = sqrt(sum of the components' core areas squared), ECA_max (all one component) and the coherence ECA / ECA_max.",
+  "doc": "The components of the habitat network of an MSPA map, as GuidosToolbox's nw_components (the Python library's gtn_components): cores (nodes) and bridges (links) grouped into 8-connected components, only the cores habitat; the equivalent connected area ECA = sqrt(sum of the components' core areas squared), ECA_max (all one component) and the coherence ECA / ECA_max.",
   "inputs": [
    {
     "name": "map",
@@ -14741,7 +14741,7 @@
  },
  {
   "name": "networks.gtn_importance",
-  "doc": "The importance of every link (bridge) and stepping-stone node (core with two links or more) of the habitat network of an MSPA map, as GuidosToolbox's nw_importance (landschaft's gtn_importance): the loss of connectivity (dPC, the drop of PC's numerator, %) without it; links positive and nodes negative on the maps; in GTB's colours, those within 1, 5 and 10 % of the most important (at least 99, 95 and 90 % of its dPC).",
+  "doc": "The importance of every link (bridge) and stepping-stone node (core with two links or more) of the habitat network of an MSPA map, as GuidosToolbox's nw_importance (the Python library's gtn_importance): the loss of connectivity (dPC, the drop of PC's numerator, %) without it; links positive and nodes negative on the maps; in GTB's colours, those within 1, 5 and 10 % of the most important (at least 99, 95 and 90 % of its dPC).",
   "inputs": [
    {
     "name": "map",
@@ -16216,7 +16216,7 @@
  },
  {
   "name": "prioritize.actions",
-  "doc": "Multi-action planning as a mixed integer program (Salgado-Rojas et al. 2020): which planning units to monitor and which actions against which threats to take in them, so that the features recover (or are kept) to their targets at the least cost (minimizeCosts), or recover the most within a budget (maximizeBenefits); the boundary of the units and of every threat's actions weighed; linear, quadratic or cubic responses. The model of Salgado-Rojas et al. with its checks and defaults, solved by landschaft's closure engine and HiGHS.",
+  "doc": "Multi-action planning as a mixed integer program (Salgado-Rojas et al. 2020): which planning units to monitor and which actions against which threats to take in them, so that the features recover (or are kept) to their targets at the least cost (minimizeCosts), or recover the most within a budget (maximizeBenefits); the boundary of the units and of every threat's actions weighed; linear, quadratic or cubic responses. The model of Salgado-Rojas et al. with its checks and defaults, solved by the Python library's closure engine and HiGHS.",
   "inputs": [
    {
     "name": "pu",
@@ -16373,7 +16373,7 @@
     "name": "solver",
     "type": "text",
     "required": false,
-    "doc": "highs (default: landschaft's closure engine, then HiGHS) or gurobi: Gurobi when it is installed and licensed, else HiGHS with a warning",
+    "doc": "highs (default: the Python library's closure engine, then HiGHS) or gurobi: Gurobi when it is installed and licensed, else HiGHS with a warning",
     "choices": [
      "highs",
      "gurobi"
@@ -16391,7 +16391,7 @@
  },
  {
   "name": "prioritize.actions_raster",
-  "doc": "Multi-action planning on rasters (landschaft's actions_raster_data): the planning units are the cells with a monitoring cost, a layer per feature its amounts and per threat its intensity (> 0 where it occurs; the action there removes it), the actions' costs numbers or maps; the tables of prioritize.actions built as landschaft builds them (relative targets shares of what each feature has where a threat harms it and where none does), solved as prioritize.actions solves them, the monitored cells and every threat's actions as maps.",
+  "doc": "Multi-action planning on rasters (the Python library's actions_raster_data): the planning units are the cells with a monitoring cost, a layer per feature its amounts and per threat its intensity (> 0 where it occurs; the action there removes it), the actions' costs numbers or maps; the tables of prioritize.actions built as the Python library builds them (relative targets shares of what each feature has where a threat harms it and where none does), solved as prioritize.actions solves them, the monitored cells and every threat's actions as maps.",
   "inputs": [
    {
     "name": "monitoring_cost",
@@ -16602,7 +16602,7 @@
     "name": "solver",
     "type": "text",
     "required": false,
-    "doc": "highs (default: landschaft's closure engine, then HiGHS) or gurobi: Gurobi when it is installed and licensed, else HiGHS with a warning",
+    "doc": "highs (default: the Python library's closure engine, then HiGHS) or gurobi: Gurobi when it is installed and licensed, else HiGHS with a warning",
     "choices": [
      "highs",
      "gurobi"
@@ -16620,7 +16620,7 @@
  },
  {
   "name": "prioritize.adjacency_matrix",
-  "doc": "1 for every two adjacent planning units (landschaft's adjacency_matrix): cells with data sharing an edge (4 directions) or a corner too (8); polygons that meet.",
+  "doc": "1 for every two adjacent planning units (the Python library's adjacency_matrix): cells with data sharing an edge (4 directions) or a corner too (8); polygons that meet.",
   "inputs": [
    {
     "name": "units",
@@ -16650,7 +16650,7 @@
  },
  {
   "name": "prioritize.binary_stack",
-  "doc": "A 0/1 layer per zone from a map of zone numbers (landschaft's binary_stack), for the locked-in constraints of zones (an existing zoning plan); cells with 0 are in no zone, missing ones stay missing.",
+  "doc": "A 0/1 layer per zone from a map of zone numbers (the Python library's binary_stack), for the locked-in constraints of zones (an existing zoning plan); cells with 0 are in no zone, missing ones stay missing.",
   "inputs": [
    {
     "name": "zones",
@@ -16680,7 +16680,7 @@
  },
  {
   "name": "prioritize.boundary_matrix",
-  "doc": "The length of the boundary every two planning units share, and every unit's perimeter on the diagonal (landschaft's boundary_matrix): raster cells with data share xres with those above and below and yres with those left and right; polygons their common paths, rounded to 8 decimals.",
+  "doc": "The length of the boundary every two planning units share, and every unit's perimeter on the diagonal (the Python library's boundary_matrix): raster cells with data share xres with those above and below and yres with those left and right; polygons their common paths, rounded to 8 decimals.",
   "inputs": [
    {
     "name": "units",
@@ -17000,7 +17000,7 @@
  },
  {
   "name": "prioritize.coarsen",
-  "doc": "A problem's rasters on blocks of factor x factor cells (landschaft's coarsen, for continental problems: solve the coarse problem, then prioritize.refine the selection): every block's cost and amounts the sums of its cells with a cost (a block without any has none).",
+  "doc": "A problem's rasters on blocks of factor x factor cells (the Python library's coarsen, for continental problems: solve the coarse problem, then prioritize.refine the selection): every block's cost and amounts the sums of its cells with a cost (a block without any has none).",
   "inputs": [
    {
     "name": "cost",
@@ -17042,7 +17042,7 @@
  },
  {
   "name": "prioritize.connectivity_matrix",
-  "doc": "The connectivity of adjacent planning units (landschaft's connectivity_matrix): the length of their shared boundary times the mean of y in the two (a map on the units' grid; for polygons a map averaged over each, exactextract's, or an attribute).",
+  "doc": "The connectivity of adjacent planning units (the Python library's connectivity_matrix): the length of their shared boundary times the mean of y in the two (a map on the units' grid; for polygons a map averaged over each, exactextract's, or an attribute).",
   "inputs": [
    {
     "name": "units",
@@ -17078,7 +17078,7 @@
  },
  {
   "name": "prioritize.decay_connectivity",
-  "doc": "Connectivity from the distances between planning units as a dispersal probability (landschaft's decay_connectivity, Conefor's negative exponential): exp(-ln 2 d / median), 0.5 at the median dispersal distance, left out below a probability, 0 on the diagonal and for pairs out of reach. The distances from cost.distance, cost.commute_distance or circuits between unit points.",
+  "doc": "Connectivity from the distances between planning units as a dispersal probability (the Python library's decay_connectivity, Conefor's negative exponential): exp(-ln 2 d / median), 0.5 at the median dispersal distance, left out below a probability, 0 on the diagonal and for pairs out of reach. The distances from cost.distance, cost.commute_distance or circuits between unit points.",
   "inputs": [
    {
     "name": "distances",
@@ -17418,7 +17418,7 @@
  },
  {
   "name": "prioritize.h3_units",
-  "doc": "H3 hexagons as planning units, as landschaft's h3_units: the hexagons of an H3 resolution that cover a cost map (its footprint in longitude and latitude, every hexagon that overlaps it), in the map's coordinate system, those over cells with a cost, each with the sum of the costs of the cells it covers weighted by the exact share of each cell inside it. For prioritize.optimize as polygons (cost_column cost).",
+  "doc": "H3 hexagons as planning units, as the Python library's h3_units: the hexagons of an H3 resolution that cover a cost map (its footprint in longitude and latitude, every hexagon that overlaps it), in the map's coordinate system, those over cells with a cost, each with the sum of the costs of the cells it covers weighted by the exact share of each cell inside it. For prioritize.optimize as polygons (cost_column cost).",
   "inputs": [
    {
     "name": "cost",
@@ -17894,7 +17894,7 @@
     "name": "objective",
     "type": "text",
     "required": false,
-    "doc": "min_set (default), min_shortfall, min_largest_shortfall, max_utility, max_features, max_cover, min_penalties, max_phylo_div, max_phylo_end, min_extinction_risk (landschaft's: the least sum of the features' species-area risk 1 - (held / total)^z within the budget)",
+    "doc": "min_set (default), min_shortfall, min_largest_shortfall, max_utility, max_features, max_cover, min_penalties, max_phylo_div, max_phylo_end, min_extinction_risk (the Python library's: the least sum of the features' species-area risk 1 - (held / total)^z within the budget)",
     "choices": [
      "min_set",
      "min_shortfall",
@@ -18282,7 +18282,7 @@
  },
  {
   "name": "prioritize.protected_cells",
-  "doc": "The selected cells of a solution on raster planning units (landschaft's protected_cells): 1 where more than half selected, 0 elsewhere (missing too), for the restrictions of a land change simulation.",
+  "doc": "The selected cells of a solution on raster planning units (the Python library's protected_cells): 1 where more than half selected, 0 elsewhere (missing too), for the restrictions of a land change simulation.",
   "inputs": [
    {
     "name": "solution",
@@ -18305,7 +18305,7 @@
  },
  {
   "name": "prioritize.proximity_matrix",
-  "doc": "1 for every two planning units within a distance of each other (landschaft's proximity_matrix): cell centres, or polygons by their nearest points.",
+  "doc": "1 for every two planning units within a distance of each other (the Python library's proximity_matrix): cell centres, or polygons by their nearest points.",
   "inputs": [
    {
     "name": "units",
@@ -18419,7 +18419,7 @@
  },
  {
   "name": "prioritize.refine",
-  "doc": "A selection on coarse blocks (of a prioritize.coarsen-ed problem) back on the fine grid (landschaft's refine): every cell its block's value, none where the fine map has none.",
+  "doc": "A selection on coarse blocks (of a prioritize.coarsen-ed problem) back on the fine grid (the Python library's refine): every cell its block's value, none where the fine map has none.",
   "inputs": [
    {
     "name": "selection",
@@ -18448,7 +18448,7 @@
  },
  {
   "name": "prioritize.unit_points",
-  "doc": "A point per planning unit (landschaft's unit_points): the centre of every cell of a map, or a point inside every polygon (GEOS's point on surface); to measure distances between units with cost.distance or cost.commute_distance.",
+  "doc": "A point per planning unit (the Python library's unit_points): the centre of every cell of a map, or a point inside every polygon (GEOS's point on surface); to measure distances between units with cost.distance or cost.commute_distance.",
   "inputs": [
    {
     "name": "units",
@@ -18928,7 +18928,7 @@
  },
  {
   "name": "prioritize.zonation_project",
-  "doc": "A Zonation 5 project run as the z5 binary runs it (landschaft's run_project): the settings file (.z5), its feature list and link files (conditions, retention, connectivity, weight groups, impact scenarios, binning) read with the switches of the z5 command line, the rasters they name read from disk; the ranking of prioritize.zonation, and with -p the calls of the post-processing file one after another.",
+  "doc": "A Zonation 5 project run as the z5 binary runs it (the Python library's run_project): the settings file (.z5), its feature list and link files (conditions, retention, connectivity, weight groups, impact scenarios, binning) read with the switches of the z5 command line, the rasters they name read from disk; the ranking of prioritize.zonation, and with -p the calls of the post-processing file one after another.",
   "inputs": [],
   "outputs": [
    {
@@ -19748,7 +19748,7 @@
  },
  {
   "name": "raster.match",
-  "doc": "Rasters on the grid of another (its CRS, extent and cells: landschaft's match_grid, by gdalwarp), so that their cells are the same cells; the method by the data unless one is given.",
+  "doc": "Rasters on the grid of another (its CRS, extent and cells: the Python library's match_grid, by gdalwarp), so that their cells are the same cells; the method by the data unless one is given.",
   "inputs": [
    {
     "name": "raster",
@@ -20484,7 +20484,7 @@
     "name": "product",
     "type": "text",
     "required": false,
-    "doc": "the product of GuidosToolbox the map is (MSPA, FAD...), written as landschaft_product: by default that of the operator that made it"
+    "doc": "the product of GuidosToolbox the map is (MSPA, FAD...), written as terraflux_product: by default that of the operator that made it"
    }
   ],
   "access": "global",
@@ -20788,7 +20788,7 @@
  },
  {
   "name": "restoration.corridor",
-  "doc": "The gain of restoring the least-cost corridor between two areas, as GuidosToolbox's Restoration Planner (landschaft's restoration_corridor): the path's background cells turned habitat, the ECA and coherence before and after, and the gain per resistance restored.",
+  "doc": "The gain of restoring the least-cost corridor between two areas, as GuidosToolbox's Restoration Planner (the Python library's restoration_corridor): the path's background cells turned habitat, the ECA and coherence before and after, and the gain per resistance restored.",
   "inputs": [
    {
     "name": "resistance",
@@ -20847,7 +20847,7 @@
  },
  {
   "name": "restoration.cost_distance",
-  "doc": "The accumulated cost of travelling from the sources across a resistance, as GuidosToolbox (landschaft's cost_distance): 8 neighbours, a step the two cells' mean resistance times its length (1, or sqrt(2) diagonally).",
+  "doc": "The accumulated cost of travelling from the sources across a resistance, as GuidosToolbox (the Python library's cost_distance): 8 neighbours, a step the two cells' mean resistance times its length (1, or sqrt(2) diagonally).",
   "inputs": [
    {
     "name": "resistance",
@@ -21126,7 +21126,7 @@
  },
  {
   "name": "restoration.isochrone",
-  "doc": "The isochrone map of GuidosToolbox's Restoration Planner (landschaft's isochrone_map and isochrone_map_ab, GTB's ggeo): the accumulated cost of reaching every cell from object A across a resistance (a step between neighbours their mean resistance, the habitat 1), or with an object B the cost of the cheapest route from A to B through every cell and its least-cost path; scaled 0-100 in GTB's codes.",
+  "doc": "The isochrone map of GuidosToolbox's Restoration Planner (the Python library's isochrone_map and isochrone_map_ab, GTB's ggeo): the accumulated cost of reaching every cell from object A across a resistance (a step between neighbours their mean resistance, the habitat 1), or with an object B the cost of the cheapest route from A to B through every cell and its least-cost path; scaled 0-100 in GTB's codes.",
   "inputs": [
    {
     "name": "resistance",
@@ -21173,7 +21173,7 @@
  },
  {
   "name": "restoration.least_cost_path",
-  "doc": "The least-cost path between two areas across a resistance, as GuidosToolbox (landschaft's least_cost_path): the cells of the least cost from A plus from B.",
+  "doc": "The least-cost path between two areas across a resistance, as GuidosToolbox (the Python library's least_cost_path): the cells of the least cost from A plus from B.",
   "inputs": [
    {
     "name": "resistance",
@@ -21696,7 +21696,7 @@
  },
  {
   "name": "restoration.resistance",
-  "doc": "A resistance growing with the distance to the habitat, as GuidosToolbox's Setup Tools -> Distance -> Resistance (landschaft's distance_to_resistance): the background round(distance + 2) up to 100 (3 next to the habitat), the habitat 2, missing 0; IDL's quasi-Euclidean distance.",
+  "doc": "A resistance growing with the distance to the habitat, as GuidosToolbox's Setup Tools -> Distance -> Resistance (the Python library's distance_to_resistance): the background round(distance + 2) up to 100 (3 next to the habitat), the habitat 2, missing 0; IDL's quasi-Euclidean distance.",
   "inputs": [
    {
     "name": "map",
@@ -21726,7 +21726,7 @@
  },
  {
   "name": "restoration.status",
-  "doc": "How connected the habitat is and how much reconnecting it could add, as GuidosToolbox's Restoration Status (landschaft's restoration_status): the habitat's objects (8-connected), the equivalent connected area ECA = sqrt(sum of their areas squared), the coherence ECA / habitat (%), the restoration potential (100 - coherence), the habitat's share of the area with data (RAC), the average patch size and the critical new object area.",
+  "doc": "How connected the habitat is and how much reconnecting it could add, as GuidosToolbox's Restoration Status (the Python library's restoration_status): the habitat's objects (8-connected), the equivalent connected area ECA = sqrt(sum of their areas squared), the coherence ECA / habitat (%), the restoration potential (100 - coherence), the habitat's share of the area with data (RAC), the average patch size and the critical new object area.",
   "inputs": [
    {
     "name": "map",
@@ -21779,7 +21779,7 @@
  },
  {
   "name": "rng.r",
-  "doc": "R's random number generator after set.seed(seed) (Mersenne-Twister), as lulcc and landschaft use it: carry it along a loop so that every step draws after the previous one.",
+  "doc": "R's random number generator after set.seed(seed) (Mersenne-Twister), as lulcc and the Python library use it: carry it along a loop so that every step draws after the previous one.",
   "inputs": [
    {
     "name": "seed",
@@ -21802,7 +21802,7 @@
  },
  {
   "name": "sdm.accessible_area",
-  "doc": "The area the species could have reached, where its background is drawn (landschaft's accessible_area, the M of the BAM diagram): the land within a distance of the records (geodesic circles, merged), their convex hull or the regions that hold them (widened by the distance if given), cut at the antimeridian, within a mask.",
+  "doc": "The area the species could have reached, where its background is drawn (the Python library's accessible_area, the M of the BAM diagram): the land within a distance of the records (geodesic circles, merged), their convex hull or the regions that hold them (widened by the distance if given), cut at the antimeridian, within a mask.",
   "inputs": [
    {
     "name": "occurrences",
@@ -21975,7 +21975,7 @@
  },
  {
   "name": "sdm.autocorrelation_range",
-  "doc": "The range of spatial autocorrelation of the predictors (landschaft's autocorrelation_range, blockCV's cv_spatial_autocor): gstat's variograms (spherical, exponential, Gaussian and Matern) fitted to a sample of every layer, the best one's range; their median and the block size it gives for spatial blocks.",
+  "doc": "The range of spatial autocorrelation of the predictors (the Python library's autocorrelation_range, blockCV's cv_spatial_autocor): gstat's variograms (spherical, exponential, Gaussian and Matern) fitted to a sample of every layer, the best one's range; their median and the block size it gives for spatial blocks.",
   "inputs": [
    {
     "name": "env",
@@ -22035,7 +22035,7 @@
  },
  {
   "name": "sdm.background",
-  "doc": "Background points for a species distribution model (landschaft's background, dismo's randomPoints): cells with values in every predictor drawn with R's sampling (weighted by the cells' widths on lon/lat grids, or by a bias), within an area, a band of distances from the records or outside their environmental envelope, the records' cells left out.",
+  "doc": "Background points for a species distribution model (the Python library's background, dismo's randomPoints): cells with values in every predictor drawn with R's sampling (weighted by the cells' widths on lon/lat grids, or by a bias), within an area, a band of distances from the records or outside their environmental envelope, the records' cells left out.",
   "inputs": [
    {
     "name": "env",
@@ -22131,7 +22131,7 @@
  },
  {
   "name": "sdm.bias_surface",
-  "doc": "The sampling effort as a surface (landschaft's bias_surface): a Gaussian kernel density of the records of a whole group (the same taxa, collectors and decades) on the grid of the predictors, MASS::kde2d's at the cells' centres, with R's bw.nrd in each direction by default. The bias of sdm.background, which draws the background with the records' bias (a target-group background, Phillips et al. 2009; Maxent's bias file). kde2d(h = H) is bandwidth = H / 4.",
+  "doc": "The sampling effort as a surface (the Python library's bias_surface): a Gaussian kernel density of the records of a whole group (the same taxa, collectors and decades) on the grid of the predictors, MASS::kde2d's at the cells' centres, with R's bw.nrd in each direction by default. The bias of sdm.background, which draws the background with the records' bias (a target-group background, Phillips et al. 2009; Maxent's bias file). kde2d(h = H) is bandwidth = H / 4.",
   "inputs": [
    {
     "name": "occurrences",
@@ -22215,7 +22215,7 @@
  },
  {
   "name": "sdm.boyce",
-  "doc": "The continuous Boyce index (landschaft's boyce, ecospat's ecospat.boyce): the correlation between the classes of suitability and their ratio of predicted to expected presences, in a moving window (default) or in classes.",
+  "doc": "The continuous Boyce index (the Python library's boyce, ecospat's ecospat.boyce): the correlation between the classes of suitability and their ratio of predicted to expected presences, in a moving window (default) or in classes.",
   "inputs": [
    {
     "name": "presences",
@@ -22406,7 +22406,7 @@
  },
  {
   "name": "sdm.clean_occurrences",
-  "doc": "Occurrence records with suspicious coordinates flagged or dropped (landschaft's clean_occurrences, CoordinateCleaner's tests): invalid coordinates, equal longitude and latitude, 0/0, capitals, country and province centroids, the sea, towns, outside the country they claim, geographic outliers of their species, GBIF's headquarters, biodiversity institutions, duplicates and artificial hotspots. Each test takes false (skip it), true (its defaults), a number (its main option) or an object of its options. CoordinateCleaner's tables travel with Terraflux; Natural Earth's land, urban areas and countries are downloaded on first use (or connect your own).",
+  "doc": "Occurrence records with suspicious coordinates flagged or dropped (the Python library's clean_occurrences, CoordinateCleaner's tests): invalid coordinates, equal longitude and latitude, 0/0, capitals, country and province centroids, the sea, towns, outside the country they claim, geographic outliers of their species, GBIF's headquarters, biodiversity institutions, duplicates and artificial hotspots. Each test takes false (skip it), true (its defaults), a number (its main option) or an object of its options. CoordinateCleaner's tables travel with Terraflux; Natural Earth's land, urban areas and countries are downloaded on first use (or connect your own).",
   "inputs": [
    {
     "name": "occurrences",
@@ -22572,7 +22572,7 @@
  },
  {
   "name": "sdm.dataset",
-  "doc": "The records of a species distribution model (landschaft's dataset): presences (or a table with a y, presence or pa column of 1 and 0) and background points with the predictors' values at their cells, those without a value in some predictor left out.",
+  "doc": "The records of a species distribution model (the Python library's dataset): presences (or a table with a y, presence or pa column of 1 and 0) and background points with the predictors' values at their cells, those without a value in some predictor left out.",
   "inputs": [
    {
     "name": "presences",
@@ -22620,7 +22620,7 @@
  },
  {
   "name": "sdm.download_gbif",
-  "doc": "Occurrence records of a species from GBIF (landschaft's download_gbif, the occurrence search API, no account needed): the records with coordinates, up to 100 000 per query (narrow it by country, area or years), as points with their Darwin Core terms and GBIF's issues. For larger queries, and the DOI to cite, request a download on gbif.org.",
+  "doc": "Occurrence records of a species from GBIF (the Python library's download_gbif, the occurrence search API, no account needed): the records with coordinates, up to 100 000 per query (narrow it by country, area or years), as points with their Darwin Core terms and GBIF's issues. For larger queries, and the DOI to cite, request a download on gbif.org.",
   "inputs": [
    {
     "name": "area",
@@ -22698,7 +22698,7 @@
  },
  {
   "name": "sdm.evaluate",
-  "doc": "How well predictions separate presences from the background (landschaft's evaluate, dismo's): AUC, the point-biserial correlation and its p-value, the prevalence, the largest TSS and the Boyce index; the confusion table at every threshold (kappa, sensitivity, specificity, TSS...) and the thresholds that optimize them (max_kappa, max_spec_sens, no_omission, equal_prevalence, equal_sens_spec, mtp, p10).",
+  "doc": "How well predictions separate presences from the background (the Python library's evaluate, dismo's): AUC, the point-biserial correlation and its p-value, the prevalence, the largest TSS and the Boyce index; the confusion table at every threshold (kappa, sensitivity, specificity, TSS...) and the thresholds that optimize them (max_kappa, max_spec_sens, no_omission, equal_prevalence, equal_sens_spec, mtp, p10).",
   "inputs": [
    {
     "name": "presences",
@@ -22758,7 +22758,7 @@
  },
  {
   "name": "sdm.exdet",
-  "doc": "Mesgaran's extrapolation detection (landschaft's exdet): NT1, below 0 where a predictor falls outside the reference's range, and inside the ranges NT2, the Mahalanobis distance against the reference's largest (above 1 a novel combination); mic, the most influential covariate, by its 1-based place among the predictors (0: no novelty).",
+  "doc": "Mesgaran's extrapolation detection (the Python library's exdet): NT1, below 0 where a predictor falls outside the reference's range, and inside the ranges NT2, the Mahalanobis distance against the reference's largest (above 1 a novel combination); mic, the most influential covariate, by its 1-based place among the predictors (0: no novelty).",
   "inputs": [
    {
     "name": "reference",
@@ -22787,7 +22787,7 @@
  },
  {
   "name": "sdm.fit",
-  "doc": "A species distribution model with cross-validation (landschaft's fit): MaxNet (the default), a GLM (scikit-learn's StandardScaler and LogisticRegression) or a random forest (scikit-learn's RandomForestClassifier, the same trees); one fit per fold of the records (AUC of the training and test records and their difference, the largest TSS, Boyce's index, the omission rates at the minimum and 10th percentile training presence), their means and standard deviations, the records' out-of-fold predictions (for models stacked on them), and the model on every record with its threshold of maximum sensitivity plus specificity.",
+  "doc": "A species distribution model with cross-validation (the Python library's fit): MaxNet (the default), a GLM (scikit-learn's StandardScaler and LogisticRegression) or a random forest (scikit-learn's RandomForestClassifier, the same trees); one fit per fold of the records (AUC of the training and test records and their difference, the largest TSS, Boyce's index, the omission rates at the minimum and 10th percentile training presence), their means and standard deviations, the records' out-of-fold predictions (for models stacked on them), and the model on every record with its threshold of maximum sensitivity plus specificity.",
   "inputs": [
    {
     "name": "records",
@@ -22975,7 +22975,7 @@
  },
  {
   "name": "sdm.importance",
-  "doc": "The permutation importance of a model's predictors (landschaft's importance): the mean drop of AUC over the records when each predictor is shuffled (numpy's generator), and its standard deviation; the most important first.",
+  "doc": "The permutation importance of a model's predictors (the Python library's importance): the mean drop of AUC over the records when each predictor is shuffled (numpy's generator), and its standard deviation; the most important first.",
   "inputs": [
    {
     "name": "model",
@@ -23083,7 +23083,7 @@
  },
  {
   "name": "sdm.maxnet",
-  "doc": "A MaxNet species distribution model (landschaft's MaxNet, the maxnet package): Maxent as a lasso logistic regression of presences against background points over linear, quadratic, product, hinge, threshold and categorical features of the predictors (glmnet's path, maxnet's regularisation).",
+  "doc": "A MaxNet species distribution model (the Python library's MaxNet, the maxnet package): Maxent as a lasso logistic regression of presences against background points over linear, quadratic, product, hinge, threshold and categorical features of the predictors (glmnet's path, maxnet's regularisation).",
   "inputs": [
    {
     "name": "data",
@@ -23221,7 +23221,7 @@
  },
  {
   "name": "sdm.mess",
-  "doc": "Elith's multivariate environmental similarity surface (landschaft's mess, dismo's): per predictor the similarity of each value to the reference's (negative outside their range), and the least of them; negative where the model extrapolates.",
+  "doc": "Elith's multivariate environmental similarity surface (the Python library's mess, dismo's): per predictor the similarity of each value to the reference's (negative outside their range), and the least of them; negative where the model extrapolates.",
   "inputs": [
    {
     "name": "reference",
@@ -23381,7 +23381,7 @@
  },
  {
   "name": "sdm.mop",
-  "doc": "The mobility-oriented parity of new conditions (landschaft's mop, the mop package): the mean distance of each to its nearest reference conditions (Euclidean or Mahalanobis), and where the predictors fall outside the reference's ranges (basic; simple: how many; detailed: which, below and above, as sums of 2^k).",
+  "doc": "The mobility-oriented parity of new conditions (the Python library's mop, the mop package): the mean distance of each to its nearest reference conditions (Euclidean or Mahalanobis), and where the predictors fall outside the reference's ranges (basic; simple: how many; detailed: which, below and above, as sums of 2^k).",
   "inputs": [
    {
     "name": "reference",
@@ -23468,7 +23468,7 @@
  },
  {
   "name": "sdm.omission_rate",
-  "doc": "The share of test presences predicted below the training presences' minimum (mtp) or 10th percentile (p10, default) (landschaft's omission_rate, ENMeval's).",
+  "doc": "The share of test presences predicted below the training presences' minimum (mtp) or 10th percentile (p10, default) (the Python library's omission_rate, ENMeval's).",
   "inputs": [
    {
     "name": "train",
@@ -23514,7 +23514,7 @@
  },
  {
   "name": "sdm.one_per_cell",
-  "doc": "A record per cell of a raster (landschaft's one_per_cell): the first in each cell, those outside the raster left out (and with drop_missing those on cells without a value in any layer).",
+  "doc": "A record per cell of a raster (the Python library's one_per_cell): the first in each cell, those outside the raster left out (and with drop_missing those on cells without a value in any layer).",
   "inputs": [
    {
     "name": "occurrences",
@@ -23562,7 +23562,7 @@
  },
  {
   "name": "sdm.prepare",
-  "doc": "The preparation of a species distribution model in one node (landschaft's prepare): the records cleaned (CoordinateCleaner's tests), one per cell, thinned; the accessible area; the predictors without collinearity in it; background points in it; the predictors' values at the records; the folds. Each step takes false (skip it), true, a number (its main setting) or an object of the settings of its node; one seed for every random step. The report counts what each step removed.",
+  "doc": "The preparation of a species distribution model in one node (the Python library's prepare): the records cleaned (CoordinateCleaner's tests), one per cell, thinned; the accessible area; the predictors without collinearity in it; background points in it; the predictors' values at the records; the folds. Each step takes false (skip it), true, a number (its main setting) or an object of the settings of its node; one seed for every random step. The report counts what each step removed.",
   "inputs": [
    {
     "name": "occurrences",
@@ -23772,7 +23772,7 @@
  },
  {
   "name": "sdm.random_folds",
-  "doc": "Random folds of the presences (landschaft's random_folds, ENMeval's randomkfold): k groups of near-equal size drawn with R's generator; background 0.",
+  "doc": "Random folds of the presences (the Python library's random_folds, ENMeval's randomkfold): k groups of near-equal size drawn with R's generator; background 0.",
   "inputs": [
    {
     "name": "records",
@@ -23827,7 +23827,7 @@
  },
  {
   "name": "sdm.reference_data",
-  "doc": "The geographic reference data of the cleaning of records (landschaft's reference_data): CoordinateCleaner's centroids and capitals of countries and provinces (countryref, at the centroids), biodiversity institutions and artificial hotspots (aohi), and Natural Earth's land (land110, land50, land10), urban areas (urban50) and countries (countries50), downloaded on first use.",
+  "doc": "The geographic reference data of the cleaning of records (the Python library's reference_data): CoordinateCleaner's centroids and capitals of countries and provinces (countryref, at the centroids), biodiversity institutions and artificial hotspots (aohi), and Natural Earth's land (land110, land50, land10), urban areas (urban50) and countries (countries50), downloaded on first use.",
   "inputs": [],
   "outputs": [
    {
@@ -23860,7 +23860,7 @@
  },
  {
   "name": "sdm.response_curves",
-  "doc": "A model's response curves (landschaft's response_curves): each predictor over its range in the records, the others at their mean or median; a column of values and one of suitability per predictor.",
+  "doc": "A model's response curves (the Python library's response_curves): each predictor over its range in the records, the others at their mean or median; a column of values and one of suitability per predictor.",
   "inputs": [
    {
     "name": "model",
@@ -23930,7 +23930,7 @@
  },
  {
   "name": "sdm.select_predictors",
-  "doc": "Predictors without collinearity (landschaft's select_predictors, usdm's vifcor and vifstep): the most correlated pairs above a correlation dropped one by one (the one of larger VIF), then the predictors of the largest VIF above a threshold; those to keep stay.",
+  "doc": "Predictors without collinearity (the Python library's select_predictors, usdm's vifcor and vifstep): the most correlated pairs above a correlation dropped one by one (the one of larger VIF), then the predictors of the largest VIF above a threshold; those to keep stay.",
   "inputs": [
    {
     "name": "env",
@@ -24198,7 +24198,7 @@
  },
  {
   "name": "sdm.thin",
-  "doc": "Occurrence records thinned (landschaft's thin, spThin's thin.algorithm): records dropped at random until none is closer than the distance to another (great-circle, on lon/lat), the repetition that keeps the most.",
+  "doc": "Occurrence records thinned (the Python library's thin, spThin's thin.algorithm): records dropped at random until none is closer than the distance to another (great-circle, on lon/lat), the repetition that keeps the most.",
   "inputs": [
    {
     "name": "occurrences",
@@ -24258,7 +24258,7 @@
  },
  {
   "name": "sdm.threshold",
-  "doc": "A threshold of suitability from presences and background (landschaft's threshold, dismo's): max_spec_sens (default), max_kappa, no_omission, equal_prevalence, equal_sens_spec, mtp, p10, or the highest that keeps a sensitivity.",
+  "doc": "A threshold of suitability from presences and background (the Python library's threshold, dismo's): max_spec_sens (default), max_kappa, no_omission, equal_prevalence, equal_sens_spec, mtp, p10, or the highest that keeps a sensitivity.",
   "inputs": [
    {
     "name": "presences",
@@ -24306,7 +24306,7 @@
  },
  {
   "name": "sdm.vif",
-  "doc": "The variance inflation factor of every predictor (landschaft's vif, usdm's vif): 1 / (1 - R^2) of its regression on the others (R's lm), over the cells of the stack (a sample of them on large grids) or the rows of a table.",
+  "doc": "The variance inflation factor of every predictor (the Python library's vif, usdm's vif): 1 / (1 - R^2) of its regression on the others (R's lm), over the cells of the stack (a sample of them on large grids) or the rows of a table.",
   "inputs": [
    {
     "name": "env",
@@ -24493,7 +24493,7 @@
  },
  {
   "name": "services.carbon",
-  "doc": "Carbon storage of a landscape and its change between two land use maps: InVEST's carbon model (natcap.invest 3.20) bit for bit, through landschaft. Each class holds a density (t C / ha) in four pools (above and below ground biomass, soil, dead matter); the storage is their sum, the sequestration the future minus the baseline, valued with a price.",
+  "doc": "Carbon storage of a landscape and its change between two land use maps: InVEST's carbon model (natcap.invest 3.20) bit for bit, through the Python library. Each class holds a density (t C / ha) in four pools (above and below ground biomass, soil, dead matter); the storage is their sum, the sequestration the future minus the baseline, valued with a price.",
   "inputs": [
    {
     "name": "lulc",
@@ -24596,7 +24596,7 @@
  },
  {
   "name": "services.habitat_quality",
-  "doc": "Habitat degradation, quality and rarity: InVEST's habitat quality model (natcap.invest 3.20) bit for bit, through landschaft. Each threat degrades the habitat around it, decaying linearly or exponentially with the distance to its nearest cell up to its maximum distance, weighed by its weight, the sensitivity of the cell's class and the access; quality h (1 - D^2.5 / (D^2.5 + k^2.5)). With a base map, the rarity of each class.",
+  "doc": "Habitat degradation, quality and rarity: InVEST's habitat quality model (natcap.invest 3.20) bit for bit, through the Python library. Each threat degrades the habitat around it, decaying linearly or exponentially with the distance to its nearest cell up to its maximum distance, weighed by its weight, the sensitivity of the cell's class and the access; quality h (1 - D^2.5 / (D^2.5 + k^2.5)). With a base map, the rarity of each class.",
   "inputs": [
    {
     "name": "lulc",
@@ -24729,7 +24729,7 @@
  },
  {
   "name": "services.ndr",
-  "doc": "Nutrient export and retention: InVEST's nutrient delivery ratio model (natcap.invest 3.20) bit for bit, through landschaft. The nitrogen and phosphorus loads of each land use (scaled by the runoff proxy over its mean) split into a surface part and, for nitrogen, a dissolved subsurface part; the surface load reaches a stream in the share NDR = (1 - eff') / (1 + exp((IC_0 - IC) / k)), eff' the retention of the cells it crosses on its way down and IC the index of connectivity (Borselli et al. 2008), the subsurface load in the share 1 - eff_sub (1 - exp(-5 l / l_sub)). The DEM filled and routed by pygeoprocessing's algorithms, as InVEST; the subsurface distance in metres (InVEST takes it in cells).",
+  "doc": "Nutrient export and retention: InVEST's nutrient delivery ratio model (natcap.invest 3.20) bit for bit, through the Python library. The nitrogen and phosphorus loads of each land use (scaled by the runoff proxy over its mean) split into a surface part and, for nitrogen, a dissolved subsurface part; the surface load reaches a stream in the share NDR = (1 - eff') / (1 + exp((IC_0 - IC) / k)), eff' the retention of the cells it crosses on its way down and IC the index of connectivity (Borselli et al. 2008), the subsurface load in the share 1 - eff_sub (1 - exp(-5 l / l_sub)). The DEM filled and routed by pygeoprocessing's algorithms, as InVEST; the subsurface distance in metres (InVEST takes it in cells).",
   "inputs": [
    {
     "name": "dem",
@@ -24920,7 +24920,7 @@
  },
  {
   "name": "services.pollination",
-  "doc": "Crop pollination by wild bees: InVEST's pollination model (natcap.invest 3.20) bit for bit, through landschaft. Each species nests where the land uses (and the farms) offer its substrates and forages on their flowers by season within its flight distance (an exponential kernel of mean alpha); its supply and its abundance by season follow, summed over the species by season; with farms, the pollinator abundance on them (their half saturation), the total and wild pollinator yields and the means by farm.",
+  "doc": "Crop pollination by wild bees: InVEST's pollination model (natcap.invest 3.20) bit for bit, through the Python library. Each species nests where the land uses (and the farms) offer its substrates and forages on their flowers by season within its flight distance (an exponential kernel of mean alpha); its supply and its abundance by season follow, summed over the species by season; with farms, the pollinator abundance on them (their half saturation), the total and wild pollinator yields and the means by farm.",
   "inputs": [
    {
     "name": "lulc",
@@ -24999,7 +24999,7 @@
  },
  {
   "name": "services.sdr",
-  "doc": "Sediment export, deposition and retention: InVEST's sediment delivery ratio model (natcap.invest 3.20), through landschaft. The soil loss of the RUSLE (R K LS C P, the LS of Desmet & Govers from the flow accumulation) and the share that reaches a stream, SDR = SDR_max / (1 + exp((IC_0 - IC) / k)) of the index of connectivity (Borselli et al. 2008); the DEM filled and routed by pygeoprocessing's algorithms, as InVEST.",
+  "doc": "Sediment export, deposition and retention: InVEST's sediment delivery ratio model (natcap.invest 3.20), through the Python library. The soil loss of the RUSLE (R K LS C P, the LS of Desmet & Govers from the flow accumulation) and the share that reaches a stream, SDR = SDR_max / (1 + exp((IC_0 - IC) / k)) of the index of connectivity (Borselli et al. 2008); the DEM filled and routed by pygeoprocessing's algorithms, as InVEST.",
   "inputs": [
    {
     "name": "dem",
@@ -25160,7 +25160,7 @@
  },
  {
   "name": "services.seasonal_water_yield",
-  "doc": "Quickflow, local recharge and baseflow: InVEST's seasonal water yield model (natcap.invest 3.20) bit for bit, through landschaft. The quickflow of each month from the curve numbers of the land use and soil group and the rain events; the local recharge P - QF - AET, the evapotranspiration limited by the water from upslope (alpha, beta, gamma); the baseflow the recharge gives the cells down to the streams; with a recharge map instead (and no climate), its routing only. The DEM filled and routed by pygeoprocessing's algorithms, as InVEST.",
+  "doc": "Quickflow, local recharge and baseflow: InVEST's seasonal water yield model (natcap.invest 3.20) bit for bit, through the Python library. The quickflow of each month from the curve numbers of the land use and soil group and the rain events; the local recharge P - QF - AET, the evapotranspiration limited by the water from upslope (alpha, beta, gamma); the baseflow the recharge gives the cells down to the streams; with a recharge map instead (and no climate), its routing only. The DEM filled and routed by pygeoprocessing's algorithms, as InVEST.",
   "inputs": [
    {
     "name": "dem",
@@ -25367,7 +25367,7 @@
  },
  {
   "name": "services.water_yield",
-  "doc": "Annual water yield, consumption and hydropower: InVEST's annual water yield model (natcap.invest 3.20) bit for bit, through landschaft. The water balance of each cell on the Budyko curve (Fu and Zhang): AET / P from the potential evapotranspiration Kc ET0, the plant available water and the seasonality Z; the yield P - AET. With watersheds, their means and volumes; with a demand table, the consumption and the realized supply; with a valuation table, the hydropower energy and value.",
+  "doc": "Annual water yield, consumption and hydropower: InVEST's annual water yield model (natcap.invest 3.20) bit for bit, through the Python library. The water balance of each cell on the Budyko curve (Fu and Zhang): AET / P from the potential evapotranspiration Kc ET0, the plant available water and the seasonality Z; the yield P - AET. With watersheds, their means and volumes; with a demand table, the consumption and the realized supply; with a valuation table, the hydropower energy and value.",
   "inputs": [
    {
     "name": "lulc",
@@ -26252,7 +26252,7 @@
  },
  {
   "name": "surface.geomorphons",
-  "doc": "Landforms of a DEM by geomorphons (Jasiewicz & Stepinski 2013), GRASS's r.geomorphon (8.4) bit for bit with four of its errors corrected, through landschaft's C++: from each cell the terrain is looked at along 8 directions up to the search radius; the signs (higher, level, lower) name the landform (1 flat, 2 peak, 3 ridge, 4 shoulder, 5 spur, 6 slope, 7 hollow, 8 footslope, 9 valley, 10 pit) and one of 498 patterns. A projected DEM.",
+  "doc": "Landforms of a DEM by geomorphons (Jasiewicz & Stepinski 2013), GRASS's r.geomorphon (8.4) bit for bit with four of its errors corrected, through terraflux-py's C++: from each cell the terrain is looked at along 8 directions up to the search radius; the signs (higher, level, lower) name the landform (1 flat, 2 peak, 3 ridge, 4 shoulder, 5 spur, 6 slope, 7 hollow, 8 footslope, 9 valley, 10 pit) and one of 498 patterns. A projected DEM.",
   "inputs": [
    {
     "name": "dem",
@@ -26405,7 +26405,7 @@
  },
  {
   "name": "surface.gravity",
-  "doc": "Gravitational interaction potential of source cells, Dinamica EGO's CalcInteractionPotentialMap (landschaft's): every cell the sum over the sources of their mass over the distance to them raised to the exponent, P = sum m / d^beta (a source's own cell at one cell); a pressure of towns, markets or roads, a driver of land change.",
+  "doc": "Gravitational interaction potential of source cells, Dinamica EGO's CalcInteractionPotentialMap (the Python library's): every cell the sum over the sources of their mass over the distance to them raised to the exponent, P = sum m / d^beta (a source's own cell at one cell); a pressure of towns, markets or roads, a driver of land change.",
   "inputs": [
    {
     "name": "sources",
@@ -26462,7 +26462,7 @@
  },
  {
   "name": "surface.hilltop",
-  "doc": "Hilltops as permanent protection areas (APP de topo de morro, Lei 12.651/2012, art. 4, IX), landschaft's open implementation: every summit with its base (the saddle to higher terrain, the plain or water body it meets, or the lowest cell of its area), its height and slope; the hills at least min_height high and steeper than min_slope protected above base + fraction x height.",
+  "doc": "Hilltops as permanent protection areas (APP de topo de morro, Lei 12.651/2012, art. 4, IX), the Python library's open implementation: every summit with its base (the saddle to higher terrain, the plain or water body it meets, or the lowest cell of its area), its height and slope; the hills at least min_height high and steeper than min_slope protected above base + fraction x height.",
   "inputs": [
    {
     "name": "dem",
@@ -26675,7 +26675,7 @@
  },
  {
   "name": "surface.metrics",
-  "doc": "Surface metrics of a continuous raster (an elevation, a canopy height, an NDVI...), ISO 25178 as the R package geodiv computes them, through landschaft's C++ (geodiv's bits): roughness and its distribution (amplitude), slopes and the area developed (hybrid), summits (features), the bearing area curve, the autocorrelation's lengths and directions and the fractal dimension (spatial). Usually of a surface with its trend removed. A table of one row.",
+  "doc": "Surface metrics of a continuous raster (an elevation, a canopy height, an NDVI...), ISO 25178 as the R package geodiv computes them, through terraflux-py's C++ (geodiv's bits): roughness and its distribution (amplitude), slopes and the area developed (hybrid), summits (features), the bearing area curve, the autocorrelation's lengths and directions and the fractal dimension (spatial). Usually of a surface with its trend removed. A table of one row.",
   "inputs": [
    {
     "name": "map",
@@ -26801,7 +26801,7 @@
  },
  {
   "name": "surface.terrain",
-  "doc": "Slope or aspect of a surface as terra::terrain (Horn's 8 or 4 neighbours), through landschaft's C++; no value on the edge cells.",
+  "doc": "Slope or aspect of a surface as terra::terrain (Horn's 8 or 4 neighbours), through terraflux-py's C++; no value on the edge cells.",
   "inputs": [
    {
     "name": "map",
@@ -26984,7 +26984,7 @@
  },
  {
   "name": "surface.window",
-  "doc": "Surface metrics in a moving window around every cell (landschaft's surface.window_metrics through its C++): the metrics of the window's surface at its centre, no value beyond the edges (and beyond window / 2 cells in a circle). A map per metric, in a stack.",
+  "doc": "Surface metrics in a moving window around every cell (the Python library's surface.window_metrics through its C++): the metrics of the window's surface at its centre, no value beyond the edges (and beyond window / 2 cells in a circle). A map per metric, in a stack.",
   "inputs": [
    {
     "name": "map",
@@ -27030,7 +27030,7 @@
  },
  {
   "name": "swat.channel_map",
-  "doc": "A channel result of SWAT+ on the stream cells (landschaft's channel_map; by default the mean discharge, m3/s): NaN off the streams. The project must carry its watershed (swat.from_tables). It reads the channel_sd table of a swat.run of the same project (the average annual one, step aa, for how annual; the daily one, step day, for the others); with none connected it runs the project itself.",
+  "doc": "A channel result of SWAT+ on the stream cells (the Python library's channel_map; by default the mean discharge, m3/s): NaN off the streams. The project must carry its watershed (swat.from_tables). It reads the channel_sd table of a swat.run of the same project (the average annual one, step aa, for how annual; the daily one, step day, for the others); with none connected it runs the project itself.",
   "inputs": [
    {
     "name": "project",
@@ -27161,7 +27161,7 @@
  },
  {
   "name": "swat.from_tables",
-  "doc": "A SWAT+ project from a watershed (swat.watershed: QSWAT+'s tables) and the weather, as the SWAT+ Editor 4.0.2 makes it (landschaft's from_tables, file for file): the TxtInOut files (hru-data.hru, the connections, routing units, aquifers, SWAT-DEG channels, land uses and their plant communities and crop rotations, soils, weather stations at the coordinates of the weather files with each object matched to the nearest station, the weather generator, time.sim and file.cio) as a value to run (swat.run) or to change (swat.set); it keeps the watershed for the maps of the results. The weather is tables: the stations (name, lat, lon, elev) and a daily series each of precipitation, maximum and minimum temperature and, if there are, solar radiation, humidity and wind (one row per day: date, as 2001-01-31 or 20010131, or year and day; a column per station; empty for a missing day). The weather generator's statistics are computed from them (swat.wgn) unless given in wgn. Wetland land uses are refused (the port does not simulate them). The first line of each file carries the date it was written (UTC).",
+  "doc": "A SWAT+ project from a watershed (swat.watershed: QSWAT+'s tables) and the weather, as the SWAT+ Editor 4.0.2 makes it (the Python library's from_tables, file for file): the TxtInOut files (hru-data.hru, the connections, routing units, aquifers, SWAT-DEG channels, land uses and their plant communities and crop rotations, soils, weather stations at the coordinates of the weather files with each object matched to the nearest station, the weather generator, time.sim and file.cio) as a value to run (swat.run) or to change (swat.set); it keeps the watershed for the maps of the results. The weather is tables: the stations (name, lat, lon, elev) and a daily series each of precipitation, maximum and minimum temperature and, if there are, solar radiation, humidity and wind (one row per day: date, as 2001-01-31 or 20010131, or year and day; a column per station; empty for a missing day). The weather generator's statistics are computed from them (swat.wgn) unless given in wgn. Wetland land uses are refused (the port does not simulate them). The first line of each file carries the date it was written (UTC).",
   "inputs": [
    {
     "name": "watershed",
@@ -27249,7 +27249,7 @@
     "name": "name",
     "type": "text",
     "required": false,
-    "doc": "the project's name (object.cnt; default landschaft)"
+    "doc": "the project's name (object.cnt; default terraflux)"
    },
    {
     "name": "monthly",
@@ -27263,7 +27263,7 @@
  },
  {
   "name": "swat.hru_map",
-  "doc": "An HRU result of SWAT+ on the map (landschaft's hru_map): each cell takes the value of its HRU (NaN outside the watershed and on cells whose land use, soil and slope combination was folded into other HRUs). The project must carry its watershed (swat.from_tables). It reads the table of the variable from a swat.run of the same project (hru_wb, hru_nb, hru_ls or hru_pw: the average annual one, step aa, for how annual; the daily one, step day, for the others), so that several variables of one run do not simulate it again; with no table connected it runs the project itself.",
+  "doc": "An HRU result of SWAT+ on the map (the Python library's hru_map): each cell takes the value of its HRU (NaN outside the watershed and on cells whose land use, soil and slope combination was folded into other HRUs). The project must carry its watershed (swat.from_tables). It reads the table of the variable from a swat.run of the same project (hru_wb, hru_nb, hru_ls or hru_pw: the average annual one, step aa, for how annual; the daily one, step day, for the others), so that several variables of one run do not simulate it again; with no table connected it runs the project itself.",
   "inputs": [
    {
     "name": "project",
@@ -27451,7 +27451,7 @@
  },
  {
   "name": "swat.load",
-  "doc": "Load a SWAT+ project (landschaft's load_txtinout): a TxtInOut folder (with file.cio) or a zip of one, as a value to run (swat.run) or to change (swat.set). The files SWAT+ itself wrote in earlier runs are left out.",
+  "doc": "Load a SWAT+ project (the Python library's load_txtinout): a TxtInOut folder (with file.cio) or a zip of one, as a value to run (swat.run) or to change (swat.set). The files SWAT+ itself wrote in earlier runs are left out.",
   "inputs": [],
   "outputs": [
    {
@@ -27474,7 +27474,7 @@
  },
  {
   "name": "swat.reach_discharge",
-  "doc": "The daily discharge leaving each channel (landschaft's reach_discharge; m3/s, channel_sd's flo_out): a row per date (year, day of the year) and a column per channel (channel_1...). It reads the daily channel_sd table (step day) of a swat.run of the project; with none connected it runs the project itself.",
+  "doc": "The daily discharge leaving each channel (the Python library's reach_discharge; m3/s, channel_sd's flo_out): a row per date (year, day of the year) and a column per channel (channel_1...). It reads the daily channel_sd table (step day) of a swat.run of the project; with none connected it runs the project itself.",
   "inputs": [
    {
     "name": "project",
@@ -27520,7 +27520,7 @@
  },
  {
   "name": "swat.run",
-  "doc": "Simulate a SWAT+ project (a TxtInOut folder or a zip of one) as SWAT+ 62.0.1 does, through landschaft's port of it (bit for bit with SWAT+ for what the port covers: measured and generated weather, HRUs with snow, ET, curve number runoff, MUSLE erosion, percolation, lateral flow, nutrients, plant growth and management, routing units, aquifers, SWAT-DEG channels). The tables SWAT+ prints, at a step: a row per date (year, day of the year) and object (HRU, channel, aquifer; the basin's by date).",
+  "doc": "Simulate a SWAT+ project (a TxtInOut folder or a zip of one) as SWAT+ 62.0.1 does, through the Python library's port of it (bit for bit with SWAT+ for what the port covers: measured and generated weather, HRUs with snow, ET, curve number runoff, MUSLE erosion, percolation, lateral flow, nutrients, plant growth and management, routing units, aquifers, SWAT-DEG channels). The tables SWAT+ prints, at a step: a row per date (year, day of the year) and object (HRU, channel, aquifer; the basin's by date).",
   "inputs": [
    {
     "name": "project",
@@ -27780,7 +27780,7 @@
  },
  {
   "name": "swat.watershed",
-  "doc": "Divide a watershed into subbasins, channels and HRUs as QSWAT+ does (landschaft's watershed, bit for bit): the DEM is filled and drains along D8 directions, every cell whose drainage area reaches the stream threshold is a stream, each stream link (split at the outlets) is a channel with its subbasin and one landscape unit; HRUs are the combinations of land use, soil and slope band in a landscape unit, selected by the method chosen (QSWAT+'s: one HRU per unit, or every combination above thresholds or above an area; removed HRUs give their area to the others). Gives QSWAT+'s project tables as a value (the SWAT+ Editor's import) and the maps of the subbasins, channels and HRUs; channel width and depth come from the drainage area (1.29 A^0.6, 0.13 A^0.4, A in km2).",
+  "doc": "Divide a watershed into subbasins, channels and HRUs as QSWAT+ does (the Python library's watershed, bit for bit): the DEM is filled and drains along D8 directions, every cell whose drainage area reaches the stream threshold is a stream, each stream link (split at the outlets) is a channel with its subbasin and one landscape unit; HRUs are the combinations of land use, soil and slope band in a landscape unit, selected by the method chosen (QSWAT+'s: one HRU per unit, or every combination above thresholds or above an area; removed HRUs give their area to the others). Gives QSWAT+'s project tables as a value (the SWAT+ Editor's import) and the maps of the subbasins, channels and HRUs; channel width and depth come from the drainage area (1.29 A^0.6, 0.13 A^0.4, A in km2).",
   "inputs": [
    {
     "name": "dem",
@@ -27918,7 +27918,7 @@
  },
  {
   "name": "swat.wgn",
-  "doc": "SWAT's weather generator statistics (WXGEN, landschaft's wgn_from_series, bit for bit with numpy's sums) of each station from its daily series: by calendar month over all years, the means and standard deviations of the maximum and minimum temperature, the mean monthly precipitation (the month's total averaged over the years with data), the standard deviation and skew of the daily precipitation, the probabilities of a wet day after a dry and after a wet day, the mean number of wet days, and the mean daily solar radiation, dew point and wind speed when their series are given (the dew point from the humidity by Magnus' formula at the mean temperature). What is not derived from daily data (pcp_hhr, the largest half-hour rainfall of each month, at least) is given in monthly. A series is a table of one row per day: a column date (2001-01-31 or 20010131) or year and day (of the year), and a column per station, empty for a missing day.",
+  "doc": "SWAT's weather generator statistics (WXGEN, the Python library's wgn_from_series, bit for bit with numpy's sums) of each station from its daily series: by calendar month over all years, the means and standard deviations of the maximum and minimum temperature, the mean monthly precipitation (the month's total averaged over the years with data), the standard deviation and skew of the daily precipitation, the probabilities of a wet day after a dry and after a wet day, the mean number of wet days, and the mean daily solar radiation, dew point and wind speed when their series are given (the dew point from the humidity by Magnus' formula at the mean temperature). What is not derived from daily data (pcp_hhr, the largest half-hour rainfall of each month, at least) is given in monthly. A series is a table of one row per day: a column date (2001-01-31 or 20010131) or year and day (of the year), and a column per station, empty for a missing day.",
   "inputs": [
    {
     "name": "pcp",
@@ -28425,7 +28425,7 @@
  },
  {
   "name": "uncertainty.delta",
-  "doc": "The uncertainty of an expression of the node's maps and numbers (raster.calc's) from the uncertainty of its parameters, by the delta method (landschaft's delta_method, the GUM's first order): the derivatives by finite differences (central, or forward as Strassburg et al. 2020), the standard deviation sqrt(sum (df/dp sigma)^2) (quadratic) or sum |df/dp sigma| (linear).",
+  "doc": "The uncertainty of an expression of the node's maps and numbers (raster.calc's) from the uncertainty of its parameters, by the delta method (the Python library's delta_method, the GUM's first order): the derivatives by finite differences (central, or forward as Strassburg et al. 2020), the standard deviation sqrt(sum (df/dp sigma)^2) (quadratic) or sum |df/dp sigma| (linear).",
   "inputs": [],
   "outputs": [
    {
@@ -28487,7 +28487,7 @@
  },
  {
   "name": "uncertainty.interval",
-  "doc": "The normal confidence interval of a value: value -/+ z sd, z the normal quantile of the level (landschaft's interval; scipy's norm.ppf, cephes' ndtri; Strassburg et al. 2020 fix z at 1.96).",
+  "doc": "The normal confidence interval of a value: value -/+ z sd, z the normal quantile of the level (the Python library's interval; scipy's norm.ppf, cephes' ndtri; Strassburg et al. 2020 fix z at 1.96).",
   "inputs": [
    {
     "name": "value",
@@ -28529,7 +28529,7 @@
  },
  {
   "name": "uncertainty.monte_carlo",
-  "doc": "The uncertainty of an expression of the node's maps and numbers by drawing its parameters (landschaft's monte_carlo): n draws from normal distributions with numpy's generator and seed, the expression computed for each, their mean, standard deviation and quantiles (numpy's).",
+  "doc": "The uncertainty of an expression of the node's maps and numbers by drawing its parameters (the Python library's monte_carlo): n draws from normal distributions with numpy's generator and seed, the expression computed for each, their mean, standard deviation and quantiles (numpy's).",
   "inputs": [],
   "outputs": [
    {
@@ -28589,7 +28589,7 @@
  },
  {
   "name": "uncertainty.product_sd",
-  "doc": "The standard deviation of the product of two independent uncertain values x v (landschaft's product_sd): Goodman's exact variance x^2 sigma_v^2 + v^2 sigma_x^2 + sigma_x^2 sigma_v^2, cell by cell, or of the sum of the products (total: quadratic or linear).",
+  "doc": "The standard deviation of the product of two independent uncertain values x v (the Python library's product_sd): Goodman's exact variance x^2 sigma_v^2 + v^2 sigma_x^2 + sigma_x^2 sigma_v^2, cell by cell, or of the sum of the products (total: quadratic or linear).",
   "inputs": [
    {
     "name": "x",
@@ -28647,7 +28647,7 @@
  },
  {
   "name": "uncertainty.sum_sd",
-  "doc": "The standard deviation of a total of uncertain values, the sum of w v (landschaft's sum_sd): independent errors sqrt(sum (sigma w)^2), errors adding up sum |sigma w|, or with a correlation rho of every pair sqrt((1 - rho) sum s^2 + rho (sum s)^2). Missing cells left out.",
+  "doc": "The standard deviation of a total of uncertain values, the sum of w v (the Python library's sum_sd): independent errors sqrt(sum (sigma w)^2), errors adding up sum |sigma w|, or with a correlation rho of every pair sqrt((1 - rho) sum s^2 + rho (sum s)^2). Missing cells left out.",
   "inputs": [
    {
     "name": "sd",
@@ -28728,7 +28728,7 @@
  },
  {
   "name": "validate.error_budget",
-  "doc": "MOLUSCE's error budget (Pontius 2002, through landschaft): the agreement of the maps when the simulation has no, medium or perfect information of quantity and location, at the maps' resolution and coarser ones, merging scale x scale cells each time (the edges left over dropped).",
+  "doc": "MOLUSCE's error budget (Pontius 2002, through the Python library): the agreement of the maps when the simulation has no, medium or perfect information of quantity and location, at the maps' resolution and coarser ones, merging scale x scale cells each time (the edges left over dropped).",
   "inputs": [
    {
     "name": "reference",
@@ -28770,7 +28770,7 @@
  },
  {
   "name": "validate.futures",
-  "doc": "FUTURES' validation (r.futures.validation through landschaft): the quantity and allocation disagreement per class and in total (Pontius & Millones 2011) and kappa; with the original map, kappa simulation (van Vliet et al. 2011) and, for 0/1 maps, misses, hits, false alarms, null successes, the figure of merit, producer's and user's accuracy (Pontius et al. 2008).",
+  "doc": "FUTURES' validation (r.futures.validation through the Python library): the quantity and allocation disagreement per class and in total (Pontius & Millones 2011) and kappa; with the original map, kappa simulation (van Vliet et al. 2011) and, for 0/1 maps, misses, hits, false alarms, null successes, the figure of merit, producer's and user's accuracy (Pontius et al. 2008).",
   "inputs": [
    {
     "name": "reference",
@@ -28811,7 +28811,7 @@
  },
  {
   "name": "validate.futures_grid",
-  "doc": "FUTURES' validation per tile or per region (r.futures.gridvalidation through landschaft): a row per tile of size x size cells from the top-left (its row, column and centre) or per region, the metrics of validate.futures and the cells compared.",
+  "doc": "FUTURES' validation per tile or per region (r.futures.gridvalidation through the Python library): a row per tile of size x size cells from the top-left (its row, column and centre) or per region, the metrics of validate.futures and the cells compared.",
   "inputs": [
    {
     "name": "reference",
@@ -28859,7 +28859,7 @@
  },
  {
   "name": "validate.kappa",
-  "doc": "MOLUSCE's comparison of two maps of classes (DependenceCoef through landschaft): kappa, kappa location and kappa histogram and the % of cells of the same class over the classes of both maps; Cramer's V and the joint information uncertainty; the correlation of the class values.",
+  "doc": "MOLUSCE's comparison of two maps of classes (DependenceCoef through the Python library): kappa, kappa location and kappa histogram and the % of cells of the same class over the classes of both maps; Cramer's V and the joint information uncertainty; the correlation of the class values.",
   "inputs": [
    {
     "name": "reference",
@@ -28941,7 +28941,7 @@
  },
  {
   "name": "validate.three_map",
-  "doc": "The three-map comparison of a simulation (Pontius, Peethambaram & Castella 2011; lulcc's ThreeMapComparison through landschaft): the reference at the start and at the end and the simulated end compared at blocks of several sizes, the budget of agreement and disagreement (misses, hits, wrong hits, false alarms, correct rejections; overall, per class, per transition) and the figure of merit. The cells without a value in any map are left out of all three.",
+  "doc": "The three-map comparison of a simulation (Pontius, Peethambaram & Castella 2011; lulcc's ThreeMapComparison through the Python library): the reference at the start and at the end and the simulated end compared at blocks of several sizes, the budget of agreement and disagreement (misses, hits, wrong hits, false alarms, correct rejections; overall, per class, per transition) and the figure of merit. The cells without a value in any map are left out of all three.",
   "inputs": [
    {
     "name": "t0",
@@ -29345,7 +29345,7 @@
  },
  {
   "name": "vector.extract",
-  "doc": "The values of a map (or of every layer of a stack) at points, landschaft's extract: the cell holding each point (nearest) or interpolated from the four nearest cell centres (bilinear, the weights over those with a value); with a buffer, the statistics of the cells within that radius of each point (zonal_stats of GEOS's circles). The points are reprojected to the map. No value outside it. Out of              core (block_rows, or rasters on disk of more than 250 million cells) only the strips of rows holding              points are read, the same values.",
+  "doc": "The values of a map (or of every layer of a stack) at points, the Python library's extract: the cell holding each point (nearest) or interpolated from the four nearest cell centres (bilinear, the weights over those with a value); with a buffer, the statistics of the cells within that radius of each point (zonal_stats of GEOS's circles). The points are reprojected to the map. No value outside it. Out of              core (block_rows, or rasters on disk of more than 250 million cells) only the strips of rows holding              points are read, the same values.",
   "inputs": [
    {
     "name": "vector",
@@ -29536,7 +29536,7 @@
  },
  {
   "name": "vector.grid_zones",
-  "doc": "Square zones tiling a map, as landschaft's grid_zones: squares of a side (map units) from the map's top-left corner, partial squares at its right and bottom, row by row; for metrics.sample and metrics.series by zones.",
+  "doc": "Square zones tiling a map, as the Python library's grid_zones: squares of a side (map units) from the map's top-left corner, partial squares at its right and bottom, row by row; for metrics.sample and metrics.series by zones.",
   "inputs": [
    {
     "name": "map",
@@ -29755,7 +29755,7 @@
  },
  {
   "name": "vector.rasterize",
-  "doc": "Burn vector features into the grid of a map, as GDAL's rasterizer (landschaft's rasterize): the cells whose centre a polygon takes (or every cell it touches), the cells of lines and of points; an attribute's value or one value; the later features over the earlier, or added up (counting overlaps). The features reprojected to the map's coordinate system first. Out of core (block_rows, a              path, or rasters on disk of more than 250 million cells) burnt strip by strip into a GeoTIFF, the              same cells (but where GDAL draws a line through cells' corners with all_touched).",
+  "doc": "Burn vector features into the grid of a map, as GDAL's rasterizer (the Python library's rasterize): the cells whose centre a polygon takes (or every cell it touches), the cells of lines and of points; an attribute's value or one value; the later features over the earlier, or added up (counting overlaps). The features reprojected to the map's coordinate system first. Out of core (block_rows, a              path, or rasters on disk of more than 250 million cells) burnt strip by strip into a GeoTIFF, the              same cells (but where GDAL draws a line through cells' corners with all_touched).",
   "inputs": [
    {
     "name": "vector",
@@ -30014,7 +30014,7 @@
  },
  {
   "name": "vector.zonal",
-  "doc": "Statistics of a map (or of every layer of a stack) in every polygon, landschaft's zonal_stats: each polygon's cells as GDAL burns them (polygons may overlap), the cells with a value. Out of core              (block_rows, or rasters on disk of more than 250 million cells) by strips of rows, the same values.",
+  "doc": "Statistics of a map (or of every layer of a stack) in every polygon, the Python library's zonal_stats: each polygon's cells as GDAL burns them (polygons may overlap), the cells with a value. Out of core              (block_rows, or rasters on disk of more than 250 million cells) by strips of rows, the same values.",
   "inputs": [
    {
     "name": "vector",
