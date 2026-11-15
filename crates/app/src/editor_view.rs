@@ -15,7 +15,10 @@
 //! colour of the type they give (a map's blue, vectors' pink...), an option of the settings.
 //!
 //! A box shows the inputs its node needs and those given; its optional others are folded in a row ("+ 9
-//! optional") that a click unfolds. A connection let go on a node rather than on an input goes to the free input it
+//! optional") that a click unfolds. Under its ports a box shows its main settings, a row each (the name at the
+//! left, the value at the right, a default in grey; those the operator needs, those given and its essential
+//! ones, four at most; a row that counts the others, "+ 5 settings · 2 given", unfolds them), a setting the
+//! check has a problem with in red or amber; a settings option turns them off. A connection let go on a node rather than on an input goes to the free input it
 //! fits, or to the one chosen in a list when several fit. Zoomed out, the ports' names give way and the nodes' names
 //! stay readable (never smaller than a size that can be read, cut to their box).
 //!
@@ -84,13 +87,15 @@ pub fn estimate(text: &str, font: &FontId) -> f32 {
 }
 
 /// The width a box needs for its texts: its name (the light of its state after it), its operator, and on every
-/// row the name of an input and that of the output across from it, a gap between them; never under [`WIDTH`],
+/// row the name of an input and that of the output across from it, a gap between them; on a row of settings its
+/// name and the first [`VALUE_FIT`] characters of its value (the rest is cut on the box); never under [`WIDTH`],
 /// rounded up to 10.
 fn fitted(
     name: &str,
     op: &str,
     inputs: &[&str],
     outputs: &[&str],
+    settings: &[(&str, &str)],
     measure: &mut dyn FnMut(&str, &FontId) -> f32,
 ) -> f32 {
     let mut w = 8.0 + measure(name, &name_font()) + 24.0;
@@ -102,6 +107,11 @@ fn fitted(
         let (l, r) = (side(inputs.get(k)), side(outputs.get(k)));
         let gap = if l > 0.0 && r > 0.0 { GAP } else { 0.0 };
         w = w.max(PAD + l + gap + r + PAD);
+    }
+    for (setting, value) in settings {
+        let end = value.char_indices().nth(VALUE_FIT).map_or(value.len(), |(i, _)| i);
+        let v = measure(&value[..end], &port_font());
+        w = w.max(PAD + measure(setting, &port_font()) + if v > 0.0 { GAP + v } else { 0.0 } + PAD);
     }
     ((w / 10.0).ceil() * 10.0).max(WIDTH)
 }
@@ -152,10 +162,183 @@ fn fold_label(folded: usize, unfolded: bool) -> String {
     if unfolded { "- fewer".to_string() } else { format!("+ {folded} optional") }
 }
 
-/// The rows of a node's box, its optional inputs folded (for laying nodes out).
-fn rows_of(n: &Node, r: &Registry) -> usize {
+/// The most rows of settings a box shows folded; the others are counted in the row that unfolds them.
+const MAX_SETTINGS: usize = 4;
+/// The space between the last row of ports and the rows of settings, a thin line in it.
+const SEP: f32 = 6.0;
+/// How many characters of a setting's value widen a box (a longer one is cut on the box), and how many a row keeps.
+const VALUE_FIT: usize = 14;
+const VALUE_MAX: usize = 40;
+
+/// One setting of a node as its box shows it: its name, its value (the one given, else the default its doc
+/// says), whether it was given, whether it reads another value, and whether the check has a problem with it (an
+/// error, else a warning).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettingRow {
+    pub name: String,
+    pub value: String,
+    pub given: bool,
+    pub reads: bool,
+    pub problem: Option<bool>,
+}
+
+/// The settings a box shows: the rows, how many it leaves out and how many of those were given (the row that
+/// unfolds them tells), and whether they are all shown (a row that folds them then).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SettingRows {
+    pub rows: Vec<SettingRow>,
+    pub folded: usize,
+    pub folded_given: usize,
+    pub open: bool,
+    /// The words of the row that unfolds them, or folds them again.
+    pub label: String,
+}
+
+impl SettingRows {
+    /// The rows a box needs for them: each setting and the one that folds or unfolds the others.
+    fn count(&self) -> usize {
+        self.rows.len() + usize::from(self.folded > 0)
+    }
+}
+
+/// The words of the row that unfolds the settings folded, or folds them again: how many there are and how many
+/// of those were given.
+fn more_label(folded: usize, given: usize, open: bool) -> String {
+    if open {
+        return "- fewer".to_string();
+    }
+    let s = if folded == 1 { "" } else { "s" };
+    match given {
+        0 => format!("+ {folded} setting{s}"),
+        k => format!("+ {folded} setting{s} · {k} given"),
+    }
+}
+
+/// An operator's setting as the choice of the rows sees it.
+struct Candidate<'a> {
+    name: &'a str,
+    required: bool,
+    given: bool,
+}
+
+/// Which settings a box shows (indices of `all`, in the order they are shown) and which it folds. Those the
+/// operator needs come first, then those given (a changed setting is never hidden unseen), then its essential
+/// ones in the order of the list; at most [`MAX_SETTINGS`] shown, the rest folded. An operator without a list of
+/// essentials and of at most three settings shows them all; `open`: all shown, in that order.
+fn choose(all: &[Candidate], essentials: Option<&[&str]>, open: bool) -> (Vec<usize>, Vec<usize>) {
+    let mut order: Vec<(u8, usize, usize)> = all
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            if c.required {
+                (0, i, i)
+            } else if c.given {
+                (1, i, i)
+            } else if let Some(p) = essentials.and_then(|e| e.iter().position(|x| *x == c.name)) {
+                (2, p, i)
+            } else {
+                (3, i, i)
+            }
+        })
+        .collect();
+    order.sort_unstable();
+    let few = essentials.is_none() && all.len() <= 3;
+    let wanted = order.iter().filter(|(class, ..)| few || *class <= 2).count();
+    let shown = wanted.min(MAX_SETTINGS);
+    let at = |from: usize, to: usize| order[from..to].iter().map(|(_, _, i)| *i).collect::<Vec<_>>();
+    let folded = at(shown, order.len());
+    (if open { at(0, order.len()) } else { at(0, shown) }, folded)
+}
+
+/// A setting's value as a row says it: a text as it is, a value it reads as `← $name`, another value as JSON; on
+/// one line, cut to [`VALUE_MAX`] characters.
+fn value_text(v: &serde_json::Value) -> String {
+    let s = match (terraflux_graph::setting_ref(v), v) {
+        (Some(r), _) => format!("← {r}"),
+        (None, serde_json::Value::String(s)) => s.clone(),
+        (None, other) => other.to_string(),
+    };
+    // (a copy made only when there is something to change: the scene is laid out again at every edit)
+    let s = if s.contains(['\n', '\r', '\t']) { s.replace(['\n', '\r', '\t'], " ") } else { s };
+    if s.char_indices().nth(VALUE_MAX).is_none() { s } else { cut(&s, VALUE_MAX) }
+}
+
+/// `s` in at most `max` characters, the last one an ellipsis when it was cut.
+fn cut(s: &str, max: usize) -> String {
+    match s.char_indices().nth(max) {
+        None => s.to_string(),
+        Some(_) => s.chars().take(max.saturating_sub(1)).chain(['…']).collect(),
+    }
+}
+
+/// The file a node reads or writes, named in the foot of its box.
+fn file_of(n: &Node) -> Option<&str> {
+    n.params.get("path").and_then(|v| v.as_str()).filter(|p| !p.trim().is_empty())
+}
+
+/// A node's settings as its box shows them (none when `on` is false, for a node of the user's library, a
+/// container, or an operator with no settings): what its operator needs, what is given and its essential ones,
+/// each with its value or the default its doc says; `open` shows them all.
+fn node_settings(n: &Node, r: &Registry, open: bool, on: bool) -> SettingRows {
+    let Some(sig) = r.sig(&n.op).filter(|_| on && n.uses.is_none() && n.body.is_none()) else {
+        return SettingRows::default();
+    };
+    let file = file_of(n).is_some();
+    // (a name that is an input's is the input's; the file a box names in its foot is not a row)
+    let params: Vec<&terraflux_graph::PortSpec> = sig
+        .params
+        .iter()
+        .filter(|p| !sig.inputs.iter().any(|i| i.name == p.name) && !(file && p.name == "path"))
+        .collect();
+    let all: Vec<Candidate> = params
+        .iter()
+        .map(|p| Candidate { name: &p.name, required: p.required, given: n.params.contains_key(&p.name) })
+        .collect();
+    let (shown, folded) = choose(&all, terraflux_ops::essentials::essentials(&n.op), open);
+    let rows = shown
+        .into_iter()
+        .map(|i| {
+            let p = params[i];
+            match n.params.get(&p.name) {
+                Some(v) => SettingRow {
+                    name: p.name.clone(),
+                    value: value_text(v),
+                    given: true,
+                    reads: terraflux_graph::setting_ref(v).is_some(),
+                    problem: None,
+                },
+                None => SettingRow {
+                    name: p.name.clone(),
+                    // (the default as the doc says it, without the word)
+                    value: {
+                        let d = crate::node_view::default_of(&p.doc);
+                        cut(d.strip_prefix("default ").unwrap_or(&d), VALUE_MAX)
+                    },
+                    given: false,
+                    reads: false,
+                    problem: None,
+                },
+            }
+        })
+        .collect();
+    let folded_given = folded.iter().filter(|&&i| all[i].given).count();
+    let open = open && !folded.is_empty();
+    let label = if folded.is_empty() { String::new() } else { more_label(folded.len(), folded_given, open) };
+    SettingRows { rows, folded: folded.len(), folded_given, open, label }
+}
+
+/// The height of a box (graph units): its header, `ports` rows of ports, `settings` rows (the one that folds them
+/// included) under a line, and the row naming its file. The one place a box's height is worked out.
+fn box_height(ports: usize, settings: usize, file: bool) -> f32 {
+    let settings = if settings > 0 { SEP + settings as f32 * ROW } else { 0.0 };
+    HEAD + ports as f32 * ROW + settings + 6.0 + if file { FOOT } else { 0.0 }
+}
+
+/// The height of a node's box, its optional inputs and its settings folded (for laying nodes out).
+fn node_height(n: &Node, r: &Registry) -> f32 {
     let (shown, folded) = shown_inputs(n, r, false);
-    (shown.len() + usize::from(!folded.is_empty())).max(editor::output_ports(n, r).len()).max(1)
+    let ports = (shown.len() + usize::from(!folded.is_empty())).max(editor::output_ports(n, r).len()).max(1);
+    box_height(ports, node_settings(n, r, false, crate::settings::node_settings()).count(), file_of(n).is_some())
 }
 
 /// The width of a node's box (its texts measured without the fonts at hand: for laying nodes out), the width
@@ -164,8 +347,18 @@ pub fn node_width(n: &Node, r: &Registry) -> f32 {
     let (inputs, outputs) = port_names(n, r);
     let (i, o): (Vec<&str>, Vec<&str>) =
         (inputs.iter().map(String::as_str).collect(), outputs.iter().map(String::as_str).collect());
-    let w = fitted(&n.id, &op_label(n), &i, &o, &mut estimate);
+    let set = node_settings(n, r, false, crate::settings::node_settings());
+    let w = fitted(&n.id, &op_label(n), &i, &o, &setting_texts(&set), &mut estimate);
     n.width.map_or(w, |u| u.max(w))
+}
+
+/// The texts of a node's settings that widen its box: each name with its value, and the row that unfolds them.
+fn setting_texts(set: &SettingRows) -> Vec<(&str, &str)> {
+    let mut out: Vec<(&str, &str)> = set.rows.iter().map(|s| (s.name.as_str(), s.value.as_str())).collect();
+    if set.folded > 0 {
+        out.push((set.label.as_str(), ""));
+    }
+    out
 }
 
 /// The operators by name, for the widths of nodes laid out where no registry is at hand.
@@ -709,6 +902,8 @@ pub struct EditorState {
     pub note_window_at: Pos2,
     /// The nodes whose optional inputs are unfolded, and a counter of their changes (the scene made again then).
     pub unfolded: HashSet<String>,
+    /// The nodes whose settings are all shown (the others folded in a row), the changes counted with `folds`.
+    pub settings_open: HashSet<String>,
     folds: u64,
     /// A connection let go on a node that several of its free inputs fit: the list to choose one from.
     picking: Option<Pick>,
@@ -909,7 +1104,13 @@ impl EditorState {
         let w = ((p - rect.min - cam.pan) / cam.zoom).to_pos2();
         let scene = self.scene.as_ref()?;
         let b = scene.boxes.get(match scene.hit(w, 0.0)? {
-            Hit::Output(i, _) | Hit::Input(i, _) | Hit::Edge(i) | Hit::Head(i) | Hit::Fold(i) | Hit::Body(i) => i,
+            Hit::Output(i, _)
+            | Hit::Input(i, _)
+            | Hit::Edge(i)
+            | Hit::Head(i)
+            | Hit::Fold(i)
+            | Hit::Settings(i)
+            | Hit::Body(i) => i,
         })?;
         (!b.source).then(|| (b.key.clone(), b.op.clone()))
     }
@@ -1003,6 +1204,26 @@ impl EditorState {
         self.on_screen(b.fold()?.center())
     }
 
+    /// The settings a node's box shows (as the scene was last made).
+    pub fn settings_of(&self, node: &str) -> Option<&SettingRows> {
+        let s = self.scene.as_ref()?;
+        Some(&s.boxes[*s.index.get(node)?].settings)
+    }
+
+    /// Where a node's row of the setting `name` is on the screen.
+    pub fn screen_of_setting(&self, node: &str, name: &str) -> Option<Pos2> {
+        let s = self.scene.as_ref()?;
+        let b = &s.boxes[*s.index.get(node)?];
+        self.on_screen(b.setting_row(b.settings.rows.iter().position(|r| r.name == name)?).center())
+    }
+
+    /// Where the row that unfolds or folds a node's settings is on the screen.
+    pub fn screen_of_more_settings(&self, node: &str) -> Option<Pos2> {
+        let s = self.scene.as_ref()?;
+        let b = &s.boxes[*s.index.get(node)?];
+        self.on_screen(b.more_settings()?.center())
+    }
+
     /// Where a node's input port is on the screen.
     pub fn screen_of_input(&self, node: &str, port: &str) -> Option<Pos2> {
         let s = self.scene.as_ref()?;
@@ -1042,6 +1263,11 @@ struct BoxAt {
     /// Its optional inputs not shown, and whether they are unfolded (shown, the row then folds them).
     folded: Vec<(String, Type)>,
     unfolded: bool,
+    /// The rows of its ports (its inputs and the row that folds the optional ones, or its outputs), above its
+    /// settings.
+    rows: usize,
+    /// Its settings, under its ports (the row that unfolds the others after them).
+    settings: SettingRows,
     /// Turned off (its inputs passed on): drawn faint.
     bypass: bool,
     /// Its result frozen (kept on disk, used instead of running it): a mark at its top left.
@@ -1096,6 +1322,27 @@ impl BoxAt {
         Some(Rect::from_min_size(Pos2::new(self.rect.left(), y), Vec2::new(self.rect.width() * 0.6, ROW)))
     }
 
+    /// Where its first row of settings begins: under its ports and the line over them.
+    fn settings_top(&self) -> f32 {
+        self.rect.top() + HEAD + self.rows as f32 * ROW + SEP
+    }
+
+    /// The line over its settings, if it shows some (its y).
+    fn settings_line(&self) -> Option<f32> {
+        (self.settings.count() > 0).then(|| self.rect.top() + HEAD + self.rows as f32 * ROW + 2.0)
+    }
+
+    /// Where its `k`th row of settings is (the row that unfolds the others after the last).
+    fn setting_row(&self, k: usize) -> Rect {
+        let y = self.settings_top() + k as f32 * ROW;
+        Rect::from_min_size(Pos2::new(self.rect.left(), y), Vec2::new(self.rect.width(), ROW))
+    }
+
+    /// The row that unfolds its other settings, or folds them again, if it has some.
+    fn more_settings(&self) -> Option<Rect> {
+        (self.settings.folded > 0).then(|| self.setting_row(self.settings.rows.len()))
+    }
+
     /// The row naming its file, if it has one.
     fn foot(&self) -> Option<Rect> {
         self.file.as_ref()?;
@@ -1126,6 +1373,8 @@ enum Hit {
     Head(usize),
     /// The row that folds or unfolds a node's optional inputs.
     Fold(usize),
+    /// The row that unfolds or folds a node's settings.
+    Settings(usize),
     Body(usize),
 }
 
@@ -1294,6 +1543,17 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
         let at = [f.left() + 6.0, f.top()];
         rects.push(RectInstance::new(at, [f.width() - 12.0, 1.0], 0.0, stroke, Color32::TRANSPARENT, 0.0));
     }
+    // the line over its settings
+    if let Some(y) = b.settings_line() {
+        rects.push(RectInstance::new(
+            [b.rect.left() + 6.0, y],
+            [b.rect.width() - 12.0, 1.0],
+            0.0,
+            stroke,
+            Color32::TRANSPARENT,
+            0.0,
+        ));
+    }
     let dot = |c: Pos2, colour: Color32| {
         RectInstance::new([c.x - PORT, c.y - PORT], [2.0 * PORT; 2], PORT, colour, Color32::TRANSPARENT, 0.0)
     };
@@ -1396,7 +1656,7 @@ fn slowest(ui: &mut Ui, times: &HashMap<String, (f64, usize, bool)>, rect: Rect,
 /// A scope laid out: its boxes, a grid of them, and the shapes the GPU draws (each box's rectangles at
 /// `ranges[box]`; the connections, as curves through their points, are made again when a box moves).
 struct Scene {
-    key: (u64, Vec<String>, u64, &'static str, bool, u64, bool),
+    key: (u64, Vec<String>, u64, &'static str, bool, u64, bool, bool),
     boxes: Vec<BoxAt>,
     index: HashMap<String, usize>,
     grid: HashMap<(i32, i32), Vec<usize>>,
@@ -1501,7 +1761,8 @@ pub fn auto_positions(nodes: &[Node]) -> HashMap<String, [f32; 2]> {
         let d = depth[i];
         let y = column.entry(d).or_insert(0.0);
         out.insert(n.id.clone(), [xs[d], *y]);
-        *y += HEAD + 6.0 * ROW + 20.0;
+        // (at least the room of a box of six rows: a node with many settings takes what it needs)
+        *y += node_height(n, standard()).max(HEAD + 6.0 * ROW) + 20.0;
     }
     out
 }
@@ -1551,14 +1812,8 @@ pub fn arrange(nodes: &[Node], r: &Registry) -> HashMap<String, [f32; 2]> {
         let mut y = 0.0;
         for &i in c {
             let n = &nodes[i];
-            let rows = rows_of(n, r);
             out.insert(n.id.clone(), [xs[d], y]);
-            let foot = if n.params.get("path").and_then(|v| v.as_str()).is_some_and(|p| !p.trim().is_empty()) {
-                FOOT
-            } else {
-                0.0
-            };
-            y += HEAD + rows as f32 * ROW + 6.0 + foot + 30.0;
+            y += node_height(n, r) + 30.0;
         }
     }
     out
@@ -1575,6 +1830,7 @@ impl Scene {
         v: &egui::Visuals,
         colours: bool,
         unfolded: &HashSet<String>,
+        settings: Option<(&HashSet<String>, &HashMap<String, bool>)>,
         around: bool,
         measure: &mut dyn FnMut(&str, &FontId) -> f32,
     ) -> Scene {
@@ -1598,7 +1854,7 @@ impl Scene {
         }
         let mut boxes: Vec<BoxAt> = Vec::with_capacity(sources.len() + nodes.len());
         // a column as wide as the longest name of what the scope reads
-        let sources_w = sources.iter().map(|(s, _)| fitted(s, "", &[], &[], measure)).fold(WIDTH, f32::max);
+        let sources_w = sources.iter().map(|(s, _)| fitted(s, "", &[], &[], &[], measure)).fold(WIDTH, f32::max);
         let sources_x = -(sources_w + 80.0);
         let mut y = 0.0;
         for (s, t) in &sources {
@@ -1635,6 +1891,8 @@ impl Scene {
                     file: file.clone(),
                     folded: Vec::new(),
                     unfolded: false,
+                    rows: 1,
+                    settings: SettingRows::default(),
                     bypass: false,
                     frozen: false,
                 });
@@ -1656,19 +1914,27 @@ impl Scene {
             let outputs = editor::output_ports(n, r);
             let fold = (!folded.is_empty() || open).then(|| fold_label(folded.len(), open));
             let rows = (inputs.len() + usize::from(fold.is_some())).max(outputs.len()).max(1);
+            // its settings (their texts made here, once per change of the scene)
+            let mut set = node_settings(n, r, settings.is_some_and(|(o, _)| o.contains(&n.id)), settings.is_some());
+            if let Some((_, bad)) = settings.filter(|(_, bad)| !bad.is_empty()) {
+                for row in &mut set.rows {
+                    row.problem = bad.get(&format!("{}.{}", n.id, row.name)).copied();
+                }
+            }
             // as wide as its texts need, or as it was made
             let mut names: Vec<&str> =
                 inputs.iter().map(|p| if p.name.is_empty() { NEW_INPUT } else { p.name.as_str() }).collect();
             names.extend(fold.as_deref());
             let outs: Vec<&str> = outputs.iter().map(|(p, _)| p.as_str()).collect();
             let label = op_label(n);
-            let need = fitted(&n.id, &label, &names, &outs, measure);
+            let need = fitted(&n.id, &label, &names, &outs, &setting_texts(&set), measure);
             let width = n.width.map_or(need, |w| w.max(need));
             // the file it reads or writes
-            let file = n.params.get("path").and_then(|v| v.as_str()).filter(|p| !p.trim().is_empty()).map(String::from);
-            let foot = if file.is_some() { FOOT } else { 0.0 };
-            let rect =
-                Rect::from_min_size(Pos2::new(p[0], p[1]), Vec2::new(width, HEAD + rows as f32 * ROW + 6.0 + foot));
+            let file = file_of(n).map(String::from);
+            let rect = Rect::from_min_size(
+                Pos2::new(p[0], p[1]),
+                Vec2::new(width, box_height(rows, set.count(), file.is_some())),
+            );
             boxes.push(BoxAt {
                 key: n.id.clone(),
                 op: n.op.clone(),
@@ -1687,6 +1953,8 @@ impl Scene {
                 file,
                 folded,
                 unfolded: open,
+                rows,
+                settings: set,
                 bypass: n.bypass,
                 frozen: n.frozen,
             });
@@ -1803,7 +2071,7 @@ impl Scene {
             vec![None; boxes.len()]
         };
         let mut scene = Scene {
-            key: (0, Vec::new(), 0, "", false, 0, around),
+            key: (0, Vec::new(), 0, "", false, 0, around, settings.is_some()),
             boxes,
             index,
             grid,
@@ -2329,6 +2597,9 @@ impl Scene {
             if b.fold().is_some_and(|f| f.contains(p)) {
                 return Some(Hit::Fold(i));
             }
+            if b.more_settings().is_some_and(|f| f.contains(p)) {
+                return Some(Hit::Settings(i));
+            }
             if b.rect.contains(p) {
                 return Some(Hit::Body(i));
             }
@@ -2543,7 +2814,8 @@ fn selection_menu(
 }
 
 /// Draw the scope; what the user did. `revision` and `status_rev` change when the model and the nodes' states
-/// do (the scene is made again then only).
+/// do (the scene is made again then only). `bad_settings`: the settings of this scope's nodes the check has a
+/// problem with (`node.setting`: whether an error, else a warning), changing with the model.
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut Ui,
@@ -2556,6 +2828,7 @@ pub fn show(
     status_rev: u64,
     shown: Option<(&str, &str)>,
     problems: &HashMap<String, Vec<(bool, String)>>,
+    bad_settings: &HashMap<String, bool>,
     layers: &HashMap<String, usize>,
     checks: &HashMap<String, crate::checks::Verdict>,
     breakpoints: &HashSet<String>,
@@ -2581,17 +2854,26 @@ pub fn show(
         }
     }
     // (built again when the model, the place in it, the nodes' states or the theme change)
-    let (colours, minimap_on, around) = {
+    let (colours, minimap_on, around, on) = {
         let s = crate::settings::get();
-        (s.node_colours, s.minimap, s.wires_around)
+        (s.node_colours, s.minimap, s.wires_around, s.node_settings)
     };
-    let key = (revision, st.path.clone(), status_rev, crate::theme::current().name, colours, st.folds, around);
+    let key = (revision, st.path.clone(), status_rev, crate::theme::current().name, colours, st.folds, around, on);
     if st.scene.as_ref().is_none_or(|s| s.key != key) {
         // the texts measured in the fonts they are written in
         let v = ui.visuals().clone();
         let mut scene = ui.ctx().fonts_mut(|f| {
-            let mut measure = |s: &str, font: &FontId| s.chars().map(|c| f.glyph_width(font, c)).sum::<f32>();
-            Scene::build(model, nodes, r, &st.path, status, &v, colours, &st.unfolded, around, &mut measure)
+            // (a monospace text of plain letters: its count of them times the width of one, every glyph of the font
+            // as wide; the others glyph by glyph)
+            let mut measure = |s: &str, font: &FontId| {
+                if font.family == egui::FontFamily::Monospace && s.is_ascii() {
+                    s.len() as f32 * f.glyph_width(font, 'x')
+                } else {
+                    s.chars().map(|c| f.glyph_width(font, c)).sum::<f32>()
+                }
+            };
+            let settings = on.then_some((&st.settings_open, bad_settings));
+            Scene::build(model, nodes, r, &st.path, status, &v, colours, &st.unfolded, settings, around, &mut measure)
         });
         st.generation = next_generation();
         scene.key = key;
@@ -2795,7 +3077,7 @@ pub fn show(
                     Drag::Resize(b.key.clone(), b.rect.left(), b.fitted)
                 }
                 // a node, or the box of something the scope reads: moved
-                Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i)) => {
+                Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i) | Hit::Settings(i)) => {
                     let key = &scene.boxes[i].key;
                     // ctrl held (the drag has begun: a ctrl+click was a click): copies dragged, the originals stay;
                     // a node out of the selection alone
@@ -2950,7 +3232,7 @@ pub fn show(
                     std::iter::once((reference.clone(), *from)).chain(along.iter().cloned()).collect();
                 match scene.hit(to_world(q, cam), reach(cam)) {
                     Some(Hit::Input(i, _)) => scene.links_into(i, &all, true).map(|l| (i, l)),
-                    Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i)) => {
+                    Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i) | Hit::Settings(i)) => {
                         scene.links_into(i, &all, false).map(|l| (i, l))
                     }
                     _ => None,
@@ -2996,7 +3278,7 @@ pub fn show(
                     Some((i, new_input(reference, &names)))
                 }
                 // on a node: the free input of its (shown or folded) that what is dragged fits; a list when several do
-                Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i)) if !scene.boxes[i].source => {
+                Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i) | Hit::Settings(i)) if !scene.boxes[i].source => {
                     let b = &scene.boxes[i];
                     let ty = scene.output_type(reference);
                     let free: Vec<(String, Type)> = b
@@ -3111,6 +3393,14 @@ pub fn show(
                 let key = scene.boxes[i].key.clone();
                 if !st.unfolded.remove(&key) {
                     st.unfolded.insert(key);
+                }
+                st.folds += 1;
+                ui.ctx().request_repaint();
+            }
+            Some(Hit::Settings(i)) => {
+                let key = scene.boxes[i].key.clone();
+                if !st.settings_open.remove(&key) {
+                    st.settings_open.insert(key);
                 }
                 st.folds += 1;
                 ui.ctx().request_repaint();
@@ -3550,6 +3840,54 @@ pub fn show(
                     screen(Pos2::new(f.left() + 9.0, f.center().y)),
                     Align2::LEFT_CENTER,
                     fold_label(b.folded.len(), b.unfolded),
+                    FontId::monospace(size(10.5)),
+                    faint,
+                );
+            }
+            // the settings: the name at the left, the value at the right cut to the box (the texts were made with
+            // the scene)
+            for (k, row) in b.settings.rows.iter().enumerate() {
+                let y = screen(Pos2::new(b.rect.left(), b.setting_row(k).center().y)).y;
+                let colour = match row.problem {
+                    Some(true) => v.error_fg_color,
+                    Some(false) => v.warn_fg_color,
+                    None => v.text_color(),
+                };
+                let name = painter.text(
+                    Pos2::new(on_screen.left() + 9.0 * cam.zoom, y),
+                    Align2::LEFT_CENTER,
+                    &row.name,
+                    FontId::monospace(size(11.0)),
+                    colour,
+                );
+                if row.value.is_empty() {
+                    continue;
+                }
+                let ink = if row.reads {
+                    crate::theme::accent()
+                } else if row.given {
+                    v.text_color()
+                } else {
+                    faint
+                };
+                let room = on_screen.right() - 9.0 * cam.zoom - name.right() - 8.0 * cam.zoom;
+                let mut job =
+                    egui::text::LayoutJob::simple_singleline(row.value.clone(), FontId::monospace(size(11.0)), ink);
+                job.wrap = egui::text::TextWrapping {
+                    max_width: room.max(8.0),
+                    max_rows: 1,
+                    break_anywhere: true,
+                    overflow_character: Some('…'),
+                };
+                let galley = painter.layout_job(job);
+                let at = Pos2::new(on_screen.right() - 9.0 * cam.zoom - galley.size().x, y - galley.size().y / 2.0);
+                painter.galley(at, galley, ink);
+            }
+            if let Some(f) = b.more_settings() {
+                painter.text(
+                    screen(Pos2::new(f.left() + 9.0, f.center().y)),
+                    Align2::LEFT_CENTER,
+                    &b.settings.label,
                     FontId::monospace(size(10.5)),
                     faint,
                 );
@@ -3998,6 +4336,14 @@ pub fn show(
                     resp.clone().on_hover_text_at_pointer(text.join("\n"));
                 }
             }
+            Some(Hit::Settings(i)) => {
+                let text = if scene.boxes[i].settings.open {
+                    "fold the settings not needed or given"
+                } else {
+                    "the other settings of the node (a click shows them all)"
+                };
+                resp.clone().on_hover_text_at_pointer(text);
+            }
             Some(Hit::Fold(i)) => {
                 let b = &scene.boxes[i];
                 let text = if b.unfolded {
@@ -4231,5 +4577,122 @@ mod tests {
             let c = crate::notes::colour(Some("amber"));
             assert_eq!(crate::notes::inks(c, true, p.canvas), (c, c));
         }
+    }
+
+    /// `n` settings named `s0`..: `required` and `given` are the indices of those the operator needs and those given.
+    fn settings(n: usize, required: &[usize], given: &[usize]) -> Vec<(String, bool, bool)> {
+        (0..n).map(|i| (format!("s{i}"), required.contains(&i), given.contains(&i))).collect()
+    }
+
+    /// The names chosen (shown, folded) of settings made by `settings`.
+    fn picked(all: &[(String, bool, bool)], essentials: Option<&[&str]>, open: bool) -> (Vec<String>, Vec<String>) {
+        let c: Vec<Candidate> =
+            all.iter().map(|(name, required, given)| Candidate { name, required: *required, given: *given }).collect();
+        let (shown, folded) = choose(&c, essentials, open);
+        let names = |v: Vec<usize>| v.into_iter().map(|i| all[i].0.clone()).collect::<Vec<_>>();
+        (names(shown), names(folded))
+    }
+
+    /// The order: what the operator needs, then what is given, then the essential ones in the list's order; the
+    /// others folded.
+    #[test]
+    fn settings_are_chosen_in_order() {
+        let all = settings(8, &[5], &[3]);
+        let (shown, folded) = picked(&all, Some(&["s7", "s1"]), false);
+        assert_eq!(shown, ["s5", "s3", "s7", "s1"]);
+        assert_eq!(folded, ["s0", "s2", "s4", "s6"]);
+    }
+
+    /// At most four rows, the surplus folded (given ones too, counted in the fold row's words).
+    #[test]
+    fn settings_shown_are_capped() {
+        let all = settings(9, &[0, 1], &[2, 3, 4]);
+        let (shown, folded) = picked(&all, Some(&["s8"]), false);
+        assert_eq!(shown, ["s0", "s1", "s2", "s3"]);
+        assert_eq!(folded.len(), 5);
+        assert!(folded.contains(&"s4".to_string()) && folded.contains(&"s8".to_string()));
+        // unfolded: all of them, the order kept
+        let (open, _) = picked(&all, Some(&["s8"]), true);
+        assert_eq!(open.len(), 9);
+        assert_eq!(&open[..5], ["s0", "s1", "s2", "s3", "s4"]);
+        assert_eq!(open[5], "s8");
+    }
+
+    /// An operator without a list of essentials and of at most three settings shows them all; of more, those it
+    /// needs and those given.
+    #[test]
+    fn few_settings_are_all_shown() {
+        let (shown, folded) = picked(&settings(3, &[], &[]), None, false);
+        assert_eq!((shown.len(), folded.len()), (3, 0));
+        let (shown, folded) = picked(&settings(5, &[1], &[4]), None, false);
+        assert_eq!(shown, ["s1", "s4"]);
+        assert_eq!(folded.len(), 3);
+        // (a list of essentials, even of nothing, makes the operator one of many)
+        let (shown, _) = picked(&settings(3, &[], &[]), Some(&[]), false);
+        assert!(shown.is_empty());
+    }
+
+    /// The words of the row that unfolds the settings: the given ones counted only when there are some.
+    #[test]
+    fn the_settings_fold_row_counts_what_is_given() {
+        assert_eq!(more_label(5, 2, false), "+ 5 settings · 2 given");
+        assert_eq!(more_label(1, 0, false), "+ 1 setting");
+        assert_eq!(more_label(5, 2, true), "- fewer");
+    }
+
+    /// A value as its row says it.
+    #[test]
+    fn values_are_told_short() {
+        use serde_json::json;
+        assert_eq!(value_text(&json!("queen")), "queen");
+        assert_eq!(value_text(&json!(0.25)), "0.25");
+        assert_eq!(value_text(&json!([1, 2])), "[1,2]");
+        assert_eq!(value_text(&json!("$gap")), "← $gap");
+        assert_eq!(value_text(&json!({ "from": "a.out" })), "← a.out");
+        assert_eq!(value_text(&json!("a\nb")), "a b");
+        let long = value_text(&json!("x".repeat(100)));
+        assert_eq!(long.chars().count(), VALUE_MAX);
+        assert!(long.ends_with('…'));
+    }
+
+    /// A node of an operator of many settings: the box's rows follow the choice, a setting given comes first, the
+    /// height counts the rows, nothing when the preference is off, nothing for a container or a node of the
+    /// library.
+    #[test]
+    fn a_nodes_settings_are_its_rows() {
+        let r = standard();
+        let plain = Node::new("m", "metrics.landscape");
+        let none = node_settings(&plain, r, false, false);
+        assert!(none.rows.is_empty() && none.folded == 0);
+        let set = node_settings(&plain, r, false, true);
+        let sig = r.sig("metrics.landscape").unwrap();
+        let essentials = terraflux_ops::essentials::essentials("metrics.landscape").unwrap();
+        assert!(!set.rows.is_empty() && set.rows.len() <= MAX_SETTINGS);
+        for row in &set.rows {
+            let p = sig.params.iter().find(|p| p.name == row.name).unwrap();
+            assert!(p.required || essentials.contains(&p.name.as_str()), "{}", row.name);
+            assert!(!row.given);
+        }
+        // a setting that is not essential, given: first, and told in the fold row
+        let odd = sig
+            .params
+            .iter()
+            .find(|p| {
+                !p.required && !essentials.contains(&p.name.as_str()) && !sig.inputs.iter().any(|i| i.name == p.name)
+            })
+            .expect("a setting that is not essential")
+            .name
+            .clone();
+        let given = Node::new("m", "metrics.landscape").param(&odd, 7);
+        let set = node_settings(&given, r, false, true);
+        assert_eq!(set.rows[0].name, odd);
+        assert!(set.rows[0].given && set.rows[0].value == "7");
+        assert!(set.rows.len() <= MAX_SETTINGS && set.folded > 0);
+        let all = node_settings(&given, r, true, true);
+        assert!(all.open && all.rows.len() > set.rows.len() && all.label == "- fewer");
+        // the height counts the rows
+        let (rows, with) = (1, box_height(1, set.count(), false));
+        assert_eq!(with, box_height(rows, 0, false) + SEP + set.count() as f32 * ROW);
+        assert_eq!(box_height(2, 0, true), HEAD + 2.0 * ROW + 6.0 + FOOT);
     }
 }

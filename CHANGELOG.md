@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- **A node's main settings on its box.** Under its ports a box shows a row for each setting the operator needs,
+  each one given and its essential ones (four at most): the name at the left, the value at the right (cut to the
+  box; a default the operator's doc tells in grey; a setting that reads another value as `← $name`), a setting the
+  check has a problem with in red or amber. The others are counted in a row, "+ 5 settings · 2 given" (a setting
+  you changed is never hidden unseen), that a click unfolds and folds again. The boxes are taller by the rows, and
+  Arrange and the automatic layout make room for them. *Settings* has an option, "a node's main settings on its
+  box", to have the boxes as before. The rows are for reading: they are edited in the Node pane for now.
+
 ## [1.49.0] - 2026-11-15
 
 ### Changed

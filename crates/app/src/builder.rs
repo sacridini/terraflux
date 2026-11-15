@@ -2958,6 +2958,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
         })
         .collect();
     let problems = problems(s);
+    let bad_settings = bad_settings(s);
     let layers = per_layer(s, r);
     let checks = crate::checks::badges(&crate::checks::of(s), &s.editor.path);
     // the nodes of this scope with a breakpoint (by their ids)
@@ -2999,6 +3000,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
         s.status_rev,
         shown.as_ref().map(|(n, p)| (n.as_str(), p.as_str())),
         &problems,
+        &bad_settings,
         &layers,
         &checks,
         &breakpoints,
@@ -3344,6 +3346,21 @@ fn per_layer(s: &Session, r: &Registry) -> std::collections::HashMap<String, usi
                 .map(|k| (n.id.clone(), k))
         })
         .collect()
+}
+
+/// The settings of the nodes of the scope shown that the check has a problem with (`node.setting`, as the check
+/// names them): whether it is an error, else a warning.
+fn bad_settings(s: &Session) -> std::collections::HashMap<String, bool> {
+    let prefix = if s.editor.path.is_empty() { String::new() } else { format!("{}/", s.editor.path.join("/")) };
+    let mut out = std::collections::HashMap::new();
+    for i in s.shown_issues() {
+        let Some(rest) = i.at.strip_prefix(&prefix).filter(|r| !r.contains('/')) else { continue };
+        if rest.contains('.') {
+            let error = i.severity == terraflux_graph::Severity::Error;
+            *out.entry(rest.to_string()).or_insert(false) |= error;
+        }
+    }
+    out
 }
 
 fn problems(s: &Session) -> std::collections::HashMap<String, Vec<(bool, String)>> {

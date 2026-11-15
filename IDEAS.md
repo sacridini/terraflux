@@ -3533,3 +3533,47 @@ sensibilidade (7); os lugares marcados (6); os atalhos configuráveis (5, por ú
 espalhados para uma tabela). Cada item: testes (unitários e, quando há interface, do kittest), clippy, fmt,
 CHANGELOG (Unreleased), README quando muda o que o usuário faz, a marca **Feito** aqui, um commit local; release só
 quando pedido.
+
+## Os ajustes no próprio nó: menos dependência da aba Node
+
+Pedido de 2026-11-15: "colocar os parâmetros mais comuns/usados/necessários no próprio node como em programas como a
+Unreal Engine 5 faz. E só abrir a aba de nodes para os nodes que realmente precisarem de mais parâmetros", para dar
+mais espaço ao canvas e ao Viewer. Depois, "gostei das ideias. O desempenho da interface não pode ser ruim... tem que
+continuar sendo 100% responsiva" e "pode implementar as ideias tb". Um commit por item; release só quando pedido.
+
+O que já existe e é aproveitado: a lista dos ajustes essenciais (`terraflux_ops::essentials`, 30 operadores), a
+linha "+ N optional" que dobra as entradas opcionais, o ajuste que lê outro valor (`$nome`, `@nome`,
+`{ from = "no.porta" }`, `setting_ref`), a cena do canvas feita só quando o grafo muda (os textos só das caixas em
+vista). Um ajuste "dado" é o que está no `params` do nó (o modelo guarda só os dados; voltar ao padrão o tira):
+contar os dados não pede um padrão no schema.
+
+**A regra do desempenho, para todos os itens.** Nada novo por quadro que cresça com o modelo: os textos das linhas
+(nome, valor cortado, padrão) feitos na montagem da cena (`Scene::build`, a cada edição), nunca por quadro; desenhados
+só nas caixas em vista e do zoom 0.6 para cima (como os nomes das portas); no máximo 4 linhas de ajustes por caixa,
+o resto na linha que dobra; um só campo de edição aberto por vez (os outros são texto pintado); as bolinhas dos
+ajustes pelo GPU com as portas. Medido antes e depois com `canvas::timings` (100, 1.000 e 10.000 nós; `--release
+--ignored`): os quadros de perto, de longe, arrastando um nó e o tempo de uma edição não podem piorar de forma
+sensível (até cerca de 10 %, dentro do ruído).
+
+1. **Os ajustes à vista no nó.** Abaixo das entradas, uma linha por ajuste, o nome à esquerda e o valor à direita
+   (cortado à caixa; um ajuste não dado, o padrão do seu doc em cinza): os que o operador precisa, os dados e os
+   essenciais, no máximo 4; os outros dobrados em "+ 5 settings · 2 given" (nunca um ajuste mudado escondido sem
+   aviso). Um ajuste com problema (o check) com a linha em vermelho ou âmbar. A altura da caixa conta as linhas
+   (o arranjo e o layout automático também). Uma opção do canvas, *Settings on nodes* (ligada), guardada nas
+   preferências, para quem quer as caixas de antes. **Feito** (Unreleased): `editor_view::node_settings`
+   (`choose`, `MAX_SETTINGS`), os textos feitos em `Scene::build`, uma só conta da altura (`box_height`, usada pelo
+   arranjo e pelo layout automático), a opção em *Settings* ("a node's main settings on its box"), as linhas de
+   erro do check (`at = "no.ajuste"`; o aviso "does not read the setting" não diz qual e fica sem marca).
+   Medido: os quadros iguais, uma edição de 10.000 nós igual (os textos monoespaçados medidos pela conta das letras),
+   arrastar um nó de 10.000 cerca de 6 % mais lento (as caixas mais altas desviam mais fios). Teste:
+   `a_nodes_box_shows_its_settings`.
+2. **Editar no nó.** Um clique no valor: um sim/não troca; uma lista de escolhas abre o menu ali; um número ou texto
+   abre um campo no lugar do valor (Enter grava, Esc desiste; um passo de desfazer). Clicar na linha que dobra
+   desdobra todos os ajustes. Arquivos, listas, tabelas e scripts não são editados na caixa: abrem o painel do item 3.
+3. **O painel ao lado do nó.** O painel do nó (o mesmo da aba Node) num quadro flutuante junto da caixa, aberto pelo
+   ⚙ da caixa ou por um ajuste que não se edita nela, fechado por um clique fora ou Esc. A aba Node deixa de abrir
+   sozinha: continua no menu de painéis para quem a quer sempre aberta.
+4. **O ajuste como pino.** Cada linha de ajuste tem uma bolinha à esquerda, como uma entrada: um fio solto nela faz
+   o ajuste ler aquela saída (`{ from = "no.porta" }`, ou `$nome` de uma entrada do modelo), o valor dá lugar ao fio;
+   tirar o fio volta ao valor. Botão direito numa linha: *Show on the node* / *Hide from the node* (guardado no nó,
+   `shown`/`hidden`), por cima da regra do item 1.

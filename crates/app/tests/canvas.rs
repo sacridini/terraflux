@@ -676,9 +676,10 @@ fn nodes_fit_their_texts_and_are_resized_by_their_edge() {
     assert!(plan_w > folded_w, "{plan_w} unfolded, {folded_w} folded");
     h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-widths.png")).unwrap();
     // its right edge dragged 100 points to the right: 100 / zoom wider, kept in the model
+    // (on the header's height: lower down a box with settings has an output port near its middle)
     let edge = |h: &Harness<TerrafluxApp>, id: &str| {
         let r = editor(h).screen_rect_of(id).unwrap();
-        egui::pos2(r.right(), r.center().y + 7.0)
+        egui::pos2(r.right(), r.top() + 28.0 * editor(h).zoom())
     };
     let zoom = editor(&h).zoom();
     let at = edge(&h, "calc");
@@ -746,6 +747,79 @@ fn optional_inputs_fold_and_a_connection_dropped_on_a_node_picks_one() {
     h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(300.0, 300.0), 0.25);
     h.run_steps(2);
     h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-far.png")).unwrap();
+}
+
+/// A node's box shows its main settings in rows under its ports: those given first (a value, a default faint, a
+/// reference as `← $name`), four at most, the others counted in a row (with how many were given) that unfolds
+/// them; the box is taller by the rows; a setting the check has a problem with is marked; the preference turns
+/// them off (the box as it was).
+#[test]
+fn a_nodes_box_shows_its_settings() {
+    let _lock = settings_lock();
+    terraflux_app::settings::update(|s| s.node_settings = true);
+    let mut m = Model::new("settings");
+    let mut plan =
+        Node::new("plan", "prioritize.optimize").param("gap", 0.2).param("seed", 3).param("time_limit", "$nothere");
+    plan.pos = Some([0.0, 0.0]);
+    m.nodes.push(plan);
+    let mut many = Node::new("many", "prioritize.optimize");
+    for (k, v) in [("gap", 0.2), ("seed", 3.0), ("pool_gap", 0.1), ("number_solutions", 5.0), ("edge_factor", 0.5)] {
+        many = many.param(k, v);
+    }
+    many.pos = Some([500.0, 0.0]);
+    m.nodes.push(many);
+    let mut h = harness(open(&m, "canvas-settings.toml"));
+    h.state_mut().session.as_mut().unwrap().editor.fit();
+    h.run_steps(4);
+    let rows = |h: &Harness<TerrafluxApp>, id: &str| editor(h).settings_of(id).unwrap().clone();
+    let height = |h: &Harness<TerrafluxApp>, id: &str| {
+        let r = editor(h).screen_rect_of(id).unwrap();
+        r.height() / editor(h).zoom()
+    };
+    let plan = rows(&h, "plan");
+    assert_eq!(plan.rows.len(), 4, "{plan:?}");
+    assert!(plan.rows[..3].iter().all(|r| r.given), "the given ones first: {plan:?}");
+    let gap = plan.rows.iter().find(|r| r.name == "gap").expect("gap");
+    assert_eq!(gap.value, "0.2");
+    let limit = plan.rows.iter().find(|r| r.name == "time_limit").expect("time_limit");
+    assert_eq!(limit.value, "← $nothere");
+    assert!(limit.reads && limit.problem == Some(true), "the check's error marks its row: {limit:?}");
+    assert!(plan.rows.iter().all(|r| r.name == "gap" || r.name == "time_limit" || r.problem.is_none()));
+    let default = plan.rows.iter().find(|r| !r.given).expect("an essential not given");
+    assert!(!default.reads && default.problem.is_none());
+    assert!(plan.folded > 0 && plan.folded_given == 0 && !plan.open);
+    assert_eq!(plan.label, format!("+ {} settings", plan.folded));
+    let many_rows = rows(&h, "many");
+    assert_eq!(many_rows.rows.len(), 4);
+    assert_eq!((many_rows.folded_given, many_rows.folded > many_rows.folded_given), (1, true));
+    assert!(many_rows.label.ends_with("· 1 given"), "{}", many_rows.label);
+    // the box is taller by the rows and the line over them (the row that unfolds the others counted)
+    let (tall, before) = (height(&h, "plan"), height(&h, "many"));
+    terraflux_app::settings::update(|s| s.node_settings = false);
+    h.run_steps(3);
+    assert!(editor(&h).settings_of("plan").unwrap().rows.is_empty(), "off: no rows");
+    let (short, short_many) = (height(&h, "plan"), height(&h, "many"));
+    assert!((tall - short - (6.0 + 18.0 * 5.0)).abs() < 0.5, "{tall} on, {short} off");
+    assert!((before - short_many - (6.0 + 18.0 * 5.0)).abs() < 0.5, "{before} on, {short_many} off");
+    terraflux_app::settings::update(|s| s.node_settings = true);
+    h.run_steps(3);
+    // a click on the row that counts the others unfolds them all (and the box is taller), another folds them
+    let more = editor(&h).screen_of_more_settings("plan").expect("the row that unfolds");
+    click(&mut h, more);
+    let open = rows(&h, "plan");
+    assert!(open.open && open.rows.len() > 4 && open.label == "- fewer", "{open:?}");
+    assert!(height(&h, "plan") > tall + 17.0);
+    h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-settings.png")).unwrap();
+    // (zoomed out: the row of an unfolded operator of many settings is far below)
+    h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(200.0, 80.0), 0.3);
+    h.run_steps(2);
+    let more = editor(&h).screen_of_more_settings("plan").unwrap();
+    click(&mut h, more);
+    assert_eq!(rows(&h, "plan").rows.len(), 4, "folded again");
+    // a click on a row selects the node as a click on the box does
+    let row = editor(&h).screen_of_setting("many", "edge_factor").expect("a row");
+    click(&mut h, row);
+    assert_eq!(h.state().session.as_ref().unwrap().selected.as_deref(), Some("many"));
 }
 
 /// A raster node at a place: the models of the wires let go on the empty canvas.

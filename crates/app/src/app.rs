@@ -3811,6 +3811,10 @@ impl TerrafluxApp {
                         "a wire that would cross another node's box is bent above or below it (a wire with \
                          points of your own is left as you drew it)",
                     );
+                    ui.checkbox(&mut st.node_settings, "a node's main settings on its box").on_hover_text(
+                        "the settings a node needs, those given and its essential ones in rows under its ports, \
+                         the others counted in a row that unfolds them (off: the boxes show ports only)",
+                    );
                 });
                 ui.end_row();
                 ui.label("Start");
