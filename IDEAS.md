@@ -3570,6 +3570,11 @@ sensível (até cerca de 10 %, dentro do ruído).
 2. **Editar no nó.** Um clique no valor: um sim/não troca; uma lista de escolhas abre o menu ali; um número ou texto
    abre um campo no lugar do valor (Enter grava, Esc desiste; um passo de desfazer). Clicar na linha que dobra
    desdobra todos os ajustes. Arquivos, listas, tabelas e scripts não são editados na caixa: abrem o painel do item 3.
+   **Feito** (Unreleased): `editor_view::Kind` (decidido na montagem da cena), `Action::SetParam` pelo mesmo
+   `editor::set_param` do painel, um só editor aberto (`EditorState::editing`), Tab para a próxima linha de texto, os
+   atalhos do canvas parados enquanto se digita; um duplo clique numa linha editável não abre o Viewer. Medido: sem
+   diferença nos quadros nem na edição. Testes: `a_yes_or_no_and_a_choice_are_set_on_the_box`,
+   `a_number_is_typed_on_the_box`. Falta: um clique na linha de uma lista aberta a reabre em vez de fechar.
 3. **O painel ao lado do nó.** O painel do nó (o mesmo da aba Node) num quadro flutuante junto da caixa, aberto pelo
    ⚙ da caixa ou por um ajuste que não se edita nela, fechado por um clique fora ou Esc. A aba Node deixa de abrir
    sozinha: continua no menu de painéis para quem a quer sempre aberta.

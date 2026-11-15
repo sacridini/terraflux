@@ -13,7 +13,13 @@ minor versions.
   check has a problem with in red or amber. The others are counted in a row, "+ 5 settings · 2 given" (a setting
   you changed is never hidden unseen), that a click unfolds and folds again. The boxes are taller by the rows, and
   Arrange and the automatic layout make room for them. *Settings* has an option, "a node's main settings on its
-  box", to have the boxes as before. The rows are for reading: they are edited in the Node pane for now.
+  box", to have the boxes as before. A click on a row (a drag on it still moves the node) selects the node and
+  edits the setting there: a yes or no turns over at once, a setting with a few values opens their list under the
+  row ("default" first when it is optional, the current one marked), and a number or a text opens a field over the
+  value (Enter or a click elsewhere sets it, Tab goes to the next row, Esc gives up, an empty field puts the
+  default back). Each edit is one step of undo, set as the Node pane sets it, and the canvas's keys wait while you
+  type. What reads another value, a file, a script, the metrics, a table of rules or a list is not edited on the
+  box (its row says so on hover): the Node pane has it.
 
 ## [1.49.0] - 2026-11-15
 

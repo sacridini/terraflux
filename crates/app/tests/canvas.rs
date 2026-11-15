@@ -822,6 +822,144 @@ fn a_nodes_box_shows_its_settings() {
     assert_eq!(h.state().session.as_ref().unwrap().selected.as_deref(), Some("many"));
 }
 
+/// A node's setting as the model has it.
+fn param_now(h: &Harness<TerrafluxApp>, id: &str, name: &str) -> Option<serde_json::Value> {
+    nodes_now(h, false).iter().find(|n| n.id == id).and_then(|n| n.params.get(name).cloned())
+}
+
+/// Where a node's row of a setting is, once the layout has settled (the side panel follows the node selected).
+fn row_of(h: &mut Harness<TerrafluxApp>, node: &str, name: &str) -> egui::Pos2 {
+    h.run_steps(12);
+    editor(h).screen_of_setting(node, name).expect("a row")
+}
+
+/// Nodes with a yes or no (`batch.run`'s overwrite), a choice and numbers (`prioritize.optimize`'s solver and gap)
+/// and a script (`raster.calc`'s expression), their boxes at a readable zoom.
+fn settings_harness(name: &str) -> Harness<'static, TerrafluxApp> {
+    let mut m = Model::new("edit");
+    let mut opt = Node::new("opt", "prioritize.optimize").param("gap", 0.2).param("solver", "highs");
+    opt.pos = Some([0.0, 0.0]);
+    let mut job = Node::new("job", "batch.run").param("operator", "landscape.mspa").param("overwrite", true);
+    job.pos = Some([400.0, 0.0]);
+    let mut calc = Node::new("calc", "raster.calc").param("expression", "out r = 1");
+    calc.pos = Some([400.0, 300.0]);
+    m.nodes = vec![opt, job, calc];
+    let mut h = harness(open(&m, name));
+    h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(20.0, 20.0), 0.8);
+    h.run_steps(4);
+    h
+}
+
+/// A click on a yes or no turns it over at once; on a choice it opens the list under the row, and the one picked
+/// is set ("default" takes the setting away); each is one step of undo. A click that is not on a row opens nothing.
+#[test]
+fn a_yes_or_no_and_a_choice_are_set_on_the_box() {
+    let _lock = settings_lock();
+    terraflux_app::settings::update(|s| s.node_settings = true);
+    let mut h = settings_harness("canvas-edit-choice.toml");
+    let kind = |h: &Harness<TerrafluxApp>, id: &str, name: &str| {
+        editor(h).settings_of(id).unwrap().rows.iter().find(|r| r.name == name).map(|r| r.kind)
+    };
+    use terraflux_app::editor_view::Kind;
+    assert_eq!(kind(&h, "job", "overwrite"), Some(Kind::Bool));
+    assert_eq!(kind(&h, "opt", "solver"), Some(Kind::Choice));
+    assert_eq!(kind(&h, "opt", "gap"), Some(Kind::Text));
+    assert_eq!(kind(&h, "calc", "expression"), Some(Kind::Complex));
+    let at = row_of(&mut h, "job", "overwrite");
+    click(&mut h, at);
+    assert_eq!(param_now(&h, "job", "overwrite"), Some(serde_json::json!(false)));
+    assert_eq!(h.state().session.as_ref().unwrap().selected.as_deref(), Some("job"), "and the node is selected");
+    let at = row_of(&mut h, "job", "overwrite");
+    click(&mut h, at);
+    assert_eq!(param_now(&h, "job", "overwrite"), Some(serde_json::json!(true)));
+    // the choice: its list opens under the row, the current one marked
+    use egui_kittest::kittest::Queryable;
+    let at = row_of(&mut h, "opt", "solver");
+    click(&mut h, at);
+    assert_eq!(param_now(&h, "opt", "solver"), Some(serde_json::json!("highs")), "the click alone changes nothing");
+    h.get_by_label_contains("gurobi").click();
+    h.run_steps(3);
+    assert_eq!(param_now(&h, "opt", "solver"), Some(serde_json::json!("gurobi")));
+    click(&mut h, at);
+    h.get_by_label_contains("default").click();
+    h.run_steps(3);
+    assert_eq!(param_now(&h, "opt", "solver"), None, "default takes the setting away");
+    // Esc closes the list and changes nothing
+    let at = row_of(&mut h, "opt", "gap");
+    click(&mut h, at);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert_eq!(param_now(&h, "opt", "gap"), Some(serde_json::json!(0.2)));
+    // each was one step of undo: the last one, "default", is undone
+    undo(&mut h);
+    assert_eq!(param_now(&h, "opt", "solver"), Some(serde_json::json!("gurobi")));
+}
+
+/// A click on a number opens a field over its value: typed in and Enter set it, Esc leaves it as it was, an empty
+/// one takes it away, a click elsewhere sets what was typed; Delete typed in the field does not delete the node;
+/// the keys of the canvas wait; a drag from the row still moves the node; a script is not edited on the box.
+#[test]
+fn a_number_is_typed_on_the_box() {
+    let _lock = settings_lock();
+    terraflux_app::settings::update(|s| s.node_settings = true);
+    let mut h = settings_harness("canvas-edit-text.toml");
+    // typed in and Enter: set (the text there was selected, so typing replaces it)
+    let at = row_of(&mut h, "opt", "gap");
+    click(&mut h, at);
+    h.event(egui::Event::Text("0.5".into()));
+    h.run_steps(2);
+    assert_eq!(param_now(&h, "opt", "gap"), Some(serde_json::json!(0.2)), "set when it is accepted");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(param_now(&h, "opt", "gap"), Some(serde_json::json!(0.5)));
+    // Esc gives up
+    let at = row_of(&mut h, "opt", "gap");
+    click(&mut h, at);
+    h.event(egui::Event::Text("9".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert_eq!(param_now(&h, "opt", "gap"), Some(serde_json::json!(0.5)));
+    // a script is not edited on the box: the node is selected, no field opens
+    let at = row_of(&mut h, "calc", "expression");
+    click(&mut h, at);
+    assert_eq!(h.state().session.as_ref().unwrap().selected.as_deref(), Some("calc"));
+    h.event(egui::Event::Text("x".into()));
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(param_now(&h, "calc", "expression"), Some(serde_json::json!("out r = 1")));
+    // a drag from a row moves the node and edits nothing
+    let before = nodes_now(&h, false).iter().find(|n| n.id == "job").unwrap().pos;
+    let at = row_of(&mut h, "job", "overwrite");
+    drag(&mut h, at, at + egui::vec2(60.0, 40.0));
+    assert_ne!(nodes_now(&h, false).iter().find(|n| n.id == "job").unwrap().pos, before, "moved");
+    assert_eq!(param_now(&h, "job", "overwrite"), Some(serde_json::json!(true)), "and not turned over");
+    // a click elsewhere on the canvas sets what was typed (one step of undo, as each of these)
+    let at = row_of(&mut h, "opt", "gap");
+    click(&mut h, at);
+    h.event(egui::Event::Text("4".into()));
+    h.run_steps(2);
+    click(&mut h, egui::pos2(900.0, 800.0));
+    assert_eq!(param_now(&h, "opt", "gap"), Some(serde_json::json!(4)));
+    // Delete in the field is the field's, not the canvas's
+    let at = row_of(&mut h, "opt", "gap");
+    click(&mut h, at);
+    h.event(egui::Event::Text("7".into()));
+    h.key_press(egui::Key::Delete);
+    h.run_steps(3);
+    assert!(nodes_now(&h, false).iter().any(|n| n.id == "opt"), "the node stays");
+    // an empty field takes the setting away
+    h.key_press(egui::Key::Backspace);
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(param_now(&h, "opt", "gap"), None);
+    assert!(nodes_now(&h, false).iter().any(|n| n.id == "opt"));
+    // one step of undo puts it back
+    undo(&mut h);
+    assert_eq!(param_now(&h, "opt", "gap"), Some(serde_json::json!(4)));
+}
+
 /// A raster node at a place: the models of the wires let go on the empty canvas.
 fn reader(id: &str, at: [f32; 2]) -> Node {
     let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs/sibuyan_landuse.tif");

@@ -3139,6 +3139,13 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             Action::Disconnect { node, port } => {
                 crate::editor::disconnect(&mut s.source, &path, &node, &port).map(|_| true)
             }
+            // a setting set on its box, as the Node pane sets it (what the pane keeps of its fields forgotten)
+            Action::SetParam { node, name, text } => {
+                crate::editor::set_param(&mut s.source, &path, &node, &name, &text).map(|_| {
+                    s.fields.clear();
+                    true
+                })
+            }
             Action::RunOnFolder(node) => match rfd::FileDialog::new()
                 .set_title("The folder of the rasters")
                 .pick_folder()

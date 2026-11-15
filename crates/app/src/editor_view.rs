@@ -18,7 +18,11 @@
 //! optional") that a click unfolds. Under its ports a box shows its main settings, a row each (the name at the
 //! left, the value at the right, a default in grey; those the operator needs, those given and its essential
 //! ones, four at most; a row that counts the others, "+ 5 settings · 2 given", unfolds them), a setting the
-//! check has a problem with in red or amber; a settings option turns them off. A connection let go on a node rather than on an input goes to the free input it
+//! check has a problem with in red or amber; a settings option turns them off. A click on a row (a drag still
+//! moves the node) edits its setting there: a yes or no turns over, a few values are chosen from in a list under
+//! the row, a number or a text is typed in a field over its value (Enter or a click elsewhere sets it, Tab goes to
+//! the next row, Esc gives up, empty puts the default back); what reads another value, a file, a script, a table
+//! or a list is edited in the Node pane. A connection let go on a node rather than on an input goes to the free input it
 //! fits, or to the one chosen in a list when several fit. Zoomed out, the ports' names give way and the nodes' names
 //! stay readable (never smaller than a size that can be read, cut to their box).
 //!
@@ -170,16 +174,57 @@ const SEP: f32 = 6.0;
 const VALUE_FIT: usize = 14;
 const VALUE_MAX: usize = 40;
 
+/// How a click on a setting's row edits it on the box (decided when the scene is made).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// A yes or no: a click turns it over.
+    Bool,
+    /// A few values to choose from: a click opens their list under the row.
+    Choice,
+    /// A number or a text of one line: a click opens a field over the value.
+    Text,
+    /// What the box does not edit (it reads another value, a file, a script, a table of rules or metrics, a list):
+    /// a click only selects the node, the setting is edited in the Node pane.
+    Complex,
+}
+
 /// One setting of a node as its box shows it: its name, its value (the one given, else the default its doc
-/// says), whether it was given, whether it reads another value, and whether the check has a problem with it (an
-/// error, else a warning).
+/// says), whether it was given, whether it reads another value, how a click edits it and whether the check has a
+/// problem with it (an error, else a warning).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SettingRow {
     pub name: String,
     pub value: String,
     pub given: bool,
     pub reads: bool,
+    pub kind: Kind,
     pub problem: Option<bool>,
+}
+
+/// How a setting of the operator `op` (`v`: the value it was given, if any) is edited on the box.
+fn setting_kind(op: &str, p: &terraflux_graph::PortSpec, v: Option<&serde_json::Value>) -> Kind {
+    let by_hand = |v: &serde_json::Value| {
+        v.is_array()
+            || v.is_object()
+            || terraflux_graph::setting_ref(v).is_some()
+            || v.as_str().is_some_and(|s| s.contains('\n'))
+    };
+    let metrics =
+        op.starts_with("metrics.") && ["metrics", "landscape_metrics", "class_metrics"].contains(&p.name.as_str());
+    if p.name == "path"
+        || metrics
+        || (op == "raster.calc" && p.name == "expression")
+        || (op == "raster.reclassify" && p.name == "rules")
+        || v.is_some_and(by_hand)
+    {
+        Kind::Complex
+    } else if !p.choices.is_empty() {
+        Kind::Choice
+    } else if p.ty == Type::Bool {
+        Kind::Bool
+    } else {
+        Kind::Text
+    }
 }
 
 /// The settings a box shows: the rows, how many it leaves out and how many of those were given (the row that
@@ -305,6 +350,7 @@ fn node_settings(n: &Node, r: &Registry, open: bool, on: bool) -> SettingRows {
                     value: value_text(v),
                     given: true,
                     reads: terraflux_graph::setting_ref(v).is_some(),
+                    kind: setting_kind(&n.op, p, Some(v)),
                     problem: None,
                 },
                 None => SettingRow {
@@ -316,6 +362,7 @@ fn node_settings(n: &Node, r: &Registry, open: bool, on: bool) -> SettingRows {
                     },
                     given: false,
                     reads: false,
+                    kind: setting_kind(&n.op, p, None),
                     problem: None,
                 },
             }
@@ -528,6 +575,12 @@ pub enum Action {
     Disconnect {
         node: String,
         port: String,
+    },
+    /// A setting of a node set on its box (empty text: put back to its default), as the Node pane sets it.
+    SetParam {
+        node: String,
+        name: String,
+        text: String,
     },
     /// A node run on every raster of a folder (chosen in a dialog): its menu's "Run on a folder...".
     RunOnFolder(String),
@@ -907,6 +960,8 @@ pub struct EditorState {
     folds: u64,
     /// A connection let go on a node that several of its free inputs fit: the list to choose one from.
     picking: Option<Pick>,
+    /// The setting being edited on its box (one at most).
+    editing: Option<SettingEdit>,
     /// The nodes marked (of the top level), in a colour each: those changed in a review ([`crate::review`]).
     pub marks: HashMap<String, Color32>,
     /// The nodes the assistant reads or changes now (their scope, their id, when): a halo that fades.
@@ -956,6 +1011,77 @@ struct Pick {
     node: String,
     ports: Vec<(String, Type)>,
     at: Pos2,
+}
+
+/// A setting of a box being edited: its node, its name and the scope they are of; what edits it.
+#[derive(Debug, Clone)]
+struct SettingEdit {
+    node: String,
+    name: String,
+    path: Vec<String>,
+    how: Editing,
+}
+
+#[derive(Debug, Clone)]
+enum Editing {
+    /// A field over the value: the text as typed, the text it began as, the default (the hint), and whether it was
+    /// given the focus yet.
+    Text { text: String, init: String, hint: String, focused: bool },
+    /// A list under the row: the values to choose from ("default" first when the setting is optional), the
+    /// current one (empty: the default).
+    Choice { options: Vec<String>, current: String },
+}
+
+/// A setting's value as the Node pane's field shows it: a text as it is, another value as JSON; empty when not given.
+fn value_in_field(v: Option<&serde_json::Value>) -> String {
+    match v {
+        Some(serde_json::Value::String(t)) => t.clone(),
+        Some(v) => v.to_string(),
+        None => String::new(),
+    }
+}
+
+/// What a click on the `k`th row of settings of a box does: the action of a yes or no (turned over), or the editor
+/// the others open (none for a setting the box does not edit: [`Kind::Complex`]).
+fn start_edit(
+    b: &BoxAt,
+    k: usize,
+    nodes: &[Node],
+    r: &Registry,
+    path: &[String],
+) -> Option<Result<Action, SettingEdit>> {
+    let row = b.settings.rows.get(k).filter(|row| row.kind != Kind::Complex)?;
+    let n = nodes.iter().find(|n| n.id == b.key)?;
+    let spec = r.sig(&n.op)?.params.iter().find(|p| p.name == row.name)?;
+    let given = n.params.get(&spec.name);
+    let how = match row.kind {
+        Kind::Bool => {
+            // (not given: the opposite of its default; a value that is no yes or no: set to yes)
+            let now = match given {
+                Some(serde_json::Value::Bool(b)) => *b,
+                Some(_) => false,
+                None => crate::node_view::default_of(&spec.doc) == "true",
+            };
+            return Some(Ok(Action::SetParam {
+                node: n.id.clone(),
+                name: spec.name.clone(),
+                text: (!now).to_string(),
+            }));
+        }
+        Kind::Choice => {
+            let mut options = Vec::new();
+            if !spec.required {
+                options.push("default".to_string());
+            }
+            options.extend(spec.choices.iter().cloned());
+            Editing::Choice { options, current: value_in_field(given) }
+        }
+        _ => {
+            let init = value_in_field(given);
+            Editing::Text { text: init.clone(), init, hint: crate::node_view::default_of(&spec.doc), focused: false }
+        }
+    };
+    Some(Err(SettingEdit { node: n.id.clone(), name: spec.name.clone(), path: path.to_vec(), how }))
 }
 
 impl EditorState {
@@ -1336,6 +1462,15 @@ impl BoxAt {
     fn setting_row(&self, k: usize) -> Rect {
         let y = self.settings_top() + k as f32 * ROW;
         Rect::from_min_size(Pos2::new(self.rect.left(), y), Vec2::new(self.rect.width(), ROW))
+    }
+
+    /// Which of its rows of settings (not the one that unfolds the others) a point of the graph is on: by
+    /// arithmetic, no search.
+    fn row_at(&self, p: Pos2) -> Option<usize> {
+        let k = (p.y - self.settings_top()) / ROW;
+        (k >= 0.0 && p.x >= self.rect.left() && p.x <= self.rect.right())
+            .then_some(k as usize)
+            .filter(|&k| k < self.settings.rows.len())
     }
 
     /// The row that unfolds its other settings, or folds them again, if it has some.
@@ -3385,7 +3520,14 @@ pub fn show(
             None => crate::notes::hit(&notes_now, w).map(|l| l.id.clone()),
             Some(_) => None,
         };
-        match scene.hit(w, reach(cam)) {
+        // a setting being edited stays open only for the click that opened it (a field typed in is kept: set)
+        if let Some(SettingEdit { node, name, how: Editing::Text { text, init, .. }, .. }) = st.editing.take()
+            && text != init
+        {
+            actions.push(Action::SetParam { node, name, text });
+        }
+        let hit = scene.hit(w, reach(cam));
+        match hit {
             Some(Hit::Output(i, k)) if !scene.boxes[i].source => {
                 actions.push(Action::Preview(scene.boxes[i].key.clone(), scene.boxes[i].outputs[k].0.clone()));
             }
@@ -3421,6 +3563,19 @@ pub fn show(
             }
             None if !adding => st.chosen.clear(),
             _ => {}
+        }
+        // a click on a row of settings (not a drag: it moved the node) also edits the setting, by its kind
+        if !adding
+            && cam.zoom >= PORTS_FROM
+            && let Some(Hit::Body(i)) = hit
+            && !scene.boxes[i].source
+            && let Some(k) = scene.boxes[i].row_at(w)
+        {
+            match start_edit(&scene.boxes[i], k, nodes, r, &path) {
+                Some(Ok(a)) => actions.push(a),
+                Some(Err(e)) => st.editing = Some(e),
+                None => {}
+            }
         }
     }
     // a right click on a connected input takes its connection away
@@ -3615,6 +3770,12 @@ pub fn show(
         match scene.hit(w, reach(cam)) {
             // a double click on the right edge: as wide as the texts need
             Some(Hit::Edge(i)) => actions.push(Action::Resize(scene.boxes[i].key.clone(), None)),
+            // (a row of settings the box edits: its clicks edit it, a double click does not open the node)
+            Some(Hit::Body(i))
+                if cam.zoom >= PORTS_FROM
+                    && scene.boxes[i]
+                        .row_at(w)
+                        .is_some_and(|k| scene.boxes[i].settings.rows[k].kind != Kind::Complex) => {}
             Some(Hit::Head(i) | Hit::Body(i)) if !scene.boxes[i].source => {
                 let b = &scene.boxes[i];
                 actions.push(if b.container { Action::Enter(b.key.clone()) } else { Action::Open(b.key.clone()) });
@@ -4303,7 +4464,31 @@ pub fn show(
     if st.drag.is_none()
         && let Some(p) = resp.hover_pos()
     {
-        match scene.hit(to_world(p, &cam), reach(&cam)) {
+        let hovered = scene.hit(to_world(p, &cam), reach(&cam));
+        // (the row of settings under the pointer, by arithmetic from the box)
+        let row = match hovered {
+            Some(Hit::Body(i)) if ports && !scene.boxes[i].source => {
+                scene.boxes[i].row_at(to_world(p, &cam)).map(|k| (i, k))
+            }
+            _ => None,
+        };
+        match hovered {
+            Some(Hit::Body(_)) if row.is_some() => {
+                let (i, k) = row.unwrap();
+                let (b, kind) = (&scene.boxes[i], scene.boxes[i].settings.rows[k].kind);
+                if kind == Kind::Complex {
+                    resp.clone().on_hover_text_at_pointer("edited in the Node pane");
+                } else if st.editing.is_none() {
+                    let r = b.setting_row(k);
+                    painter.rect_filled(
+                        Rect::from_min_max(screen(r.min), screen(r.max)).shrink(1.0),
+                        3.0,
+                        v.widgets.hovered.bg_fill.gamma_multiply(0.45),
+                    );
+                    let icon = if kind == Kind::Text { egui::CursorIcon::Text } else { egui::CursorIcon::PointingHand };
+                    resp.clone().on_hover_cursor(icon);
+                }
+            }
             Some(Hit::Head(i)) => {
                 let b = &scene.boxes[i];
                 let mut text: Vec<String> =
@@ -4440,6 +4625,114 @@ pub fn show(
         let away = ui.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
         if away || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             st.picking = None;
+        }
+    }
+    // the setting being edited on its box: dropped when its box is gone or out of view, the scope changed or the
+    // zoom too small to read it
+    if let Some(mut e) = st.editing.take() {
+        let at = (e.path == path && ports)
+            .then(|| scene.index.get(e.node.as_str()).copied())
+            .flatten()
+            .and_then(|i| Some((i, scene.boxes[i].settings.rows.iter().position(|r| r.name == e.name)?)));
+        let row = at.map(|(i, k)| {
+            let r = scene.boxes[i].setting_row(k);
+            (i, k, Rect::from_min_max(screen(r.min), screen(r.max)))
+        });
+        if let Some((i, k, rs)) = row.filter(|(.., rs)| rs.intersects(rect)) {
+            let ctx = ui.ctx().clone();
+            let mut keep = true;
+            let mut next = None;
+            match &mut e.how {
+                Editing::Text { text, init, hint, focused } => {
+                    // (the keys the field uses are its own: Tab goes to the next row of the box, Esc gives up)
+                    let (tab, esc) = ctx.input_mut(|i| {
+                        (
+                            i.consume_key(egui::Modifiers::NONE, egui::Key::Tab),
+                            i.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
+                        )
+                    });
+                    let name_w = estimate(&e.name, &port_font());
+                    let left = (rs.left() + (PAD + name_w + GAP / 2.0) * cam.zoom).min(rs.right() - 40.0 * cam.zoom);
+                    let width = (rs.right() - PAD * cam.zoom * 0.5 - left).max(48.0);
+                    let font = FontId::monospace((11.0 * cam.zoom).max(11.0));
+                    let id = egui::Id::new(("setting field", &e.node, &e.name));
+                    let out = egui::Area::new(id.with("area"))
+                        .order(egui::Order::Foreground)
+                        .fixed_pos(Pos2::new(left, rs.center().y - font.size * 0.5 - 2.0))
+                        .show(&ctx, |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(text)
+                                    .id(id)
+                                    .font(font)
+                                    .desired_width(width)
+                                    .margin(egui::Margin::symmetric(3, 1))
+                                    .hint_text(hint.as_str()),
+                            )
+                        });
+                    let field = out.inner;
+                    if !*focused {
+                        *focused = true;
+                        field.request_focus();
+                        // (what is there selected: typing replaces it)
+                        if let Some(mut state) = egui::TextEdit::load_state(&ctx, id) {
+                            let end = egui::text::CCursor::new(text.chars().count());
+                            state
+                                .cursor
+                                .set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(0), end)));
+                            state.store(&ctx, id);
+                        }
+                    }
+                    if esc {
+                        keep = false;
+                    } else if tab || field.lost_focus() {
+                        keep = false;
+                        if text != init {
+                            actions.push(Action::SetParam {
+                                node: e.node.clone(),
+                                name: e.name.clone(),
+                                text: text.clone(),
+                            });
+                        }
+                        // Tab: the next row of the box that takes a text
+                        if tab {
+                            let b = &scene.boxes[i];
+                            next = (k + 1..b.settings.rows.len())
+                                .find(|&j| b.settings.rows[j].kind == Kind::Text)
+                                .and_then(|j| start_edit(b, j, nodes, r, &path))
+                                .and_then(Result::err);
+                        }
+                    }
+                }
+                Editing::Choice { options, current } => {
+                    let area = egui::Area::new(egui::Id::new("setting choice"))
+                        .order(egui::Order::Foreground)
+                        .fixed_pos(Pos2::new(rs.left(), rs.bottom() + 1.0))
+                        .constrain_to(resp.rect)
+                        .show(&ctx, |ui| {
+                            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                for o in options.iter() {
+                                    let on = o == current || (o == "default" && current.is_empty());
+                                    if ui.selectable_label(on, egui::RichText::new(o).monospace()).clicked() {
+                                        if !on {
+                                            let text = if o == "default" { String::new() } else { o.clone() };
+                                            actions.push(Action::SetParam {
+                                                node: e.node.clone(),
+                                                name: e.name.clone(),
+                                                text,
+                                            });
+                                        }
+                                        keep = false;
+                                    }
+                                }
+                            });
+                        });
+                    let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
+                    if away || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        keep = false;
+                    }
+                }
+            }
+            st.editing = if keep { Some(e) } else { next };
         }
     }
     // the zoom, in the corner
@@ -4694,5 +4987,52 @@ mod tests {
         let (rows, with) = (1, box_height(1, set.count(), false));
         assert_eq!(with, box_height(rows, 0, false) + SEP + set.count() as f32 * ROW);
         assert_eq!(box_height(2, 0, true), HEAD + 2.0 * ROW + 6.0 + FOOT);
+    }
+
+    /// How a click edits a setting: a yes or no turns over, a few values are chosen from, a number or a text is
+    /// typed; what reads another value, a file, a script, the metrics, a table of rules and a list are left to the
+    /// Node pane.
+    #[test]
+    fn a_settings_kind_is_decided_by_what_it_is() {
+        use serde_json::json;
+        use terraflux_graph::PortSpec;
+        let yes = PortSpec::optional("yes", Type::Bool, "a flag (default true)");
+        let number = PortSpec::optional("number", Type::Number, "a number (default 1)");
+        let pick = PortSpec::optional("pick", Type::Text, "one of them").choices(["a", "b"]);
+        let kind = |op: &str, p: &PortSpec, v: Option<serde_json::Value>| setting_kind(op, p, v.as_ref());
+        assert_eq!(kind("x.y", &yes, None), Kind::Bool);
+        assert_eq!(kind("x.y", &yes, Some(json!(false))), Kind::Bool);
+        assert_eq!(kind("x.y", &pick, Some(json!("a"))), Kind::Choice);
+        assert_eq!(kind("x.y", &number, None), Kind::Text);
+        assert_eq!(kind("x.y", &number, Some(json!(3))), Kind::Text);
+        // reading another value, a list or a table, a text of several lines
+        for v in [
+            json!("$size"),
+            json!({ "from": "a.b" }),
+            json!([1, 2]),
+            json!({ "a": 1 }),
+            json!(
+                "a
+b"
+            ),
+        ] {
+            assert_eq!(kind("x.y", &number, Some(v.clone())), Kind::Complex, "{v}");
+            assert_eq!(kind("x.y", &yes, Some(v)), Kind::Complex);
+        }
+        let text = PortSpec::optional("expression", Type::Text, "a script");
+        assert_eq!(kind("raster.calc", &text, None), Kind::Complex);
+        assert_eq!(kind("vector.calc", &text, None), Kind::Text);
+        let rules = PortSpec::optional("rules", Type::Any, "a table");
+        assert_eq!(kind("raster.reclassify", &rules, None), Kind::Complex);
+        let metrics = PortSpec::optional("metrics", Type::Text, "which");
+        assert_eq!(kind("metrics.landscape", &metrics, None), Kind::Complex);
+        assert_eq!(kind("x.y", &metrics, None), Kind::Text);
+        let path = PortSpec::optional("path", Type::Text, "a file");
+        assert_eq!(kind("raster.read", &path, None), Kind::Complex);
+        // the rows of a real operator carry it
+        let n = Node::new("opt", "prioritize.optimize").param("solver", "highs").param("gap", 0.1);
+        let set = node_settings(&n, standard(), false, true);
+        let of = |name: &str| set.rows.iter().find(|r| r.name == name).map(|r| r.kind);
+        assert_eq!((of("solver"), of("gap")), (Some(Kind::Choice), Some(Kind::Text)));
     }
 }
