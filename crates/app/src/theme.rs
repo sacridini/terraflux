@@ -709,8 +709,9 @@ pub fn toggle<'a>(on: &'a mut bool, text: &'a str) -> impl egui::Widget + 'a {
 
 /// The modern shape's switch.
 fn switch(ui: &mut egui::Ui, on: &mut bool, text: &str) -> egui::Response {
-    let galley =
-        egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, TextStyle::Body);
+    // (a long text wraps at the width left)
+    let room = (ui.available_width() - 32.0).max(120.0);
+    let galley = egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Wrap), room, TextStyle::Body);
     let track = Vec2::new(26.0, 14.0);
     let size = Vec2::new(track.x + 6.0 + galley.size().x, ui.spacing().interact_size.y.max(galley.size().y));
     let (rect, mut resp) = ui.allocate_exact_size(size, egui::Sense::click());

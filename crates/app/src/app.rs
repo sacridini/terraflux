@@ -2205,8 +2205,9 @@ pub struct TerrafluxApp {
     styled: Option<(String, u32, u32)>,
     /// The settings' window is open.
     pub settings_open: bool,
-    /// The settings' Keyboard section shown, instead of the others, and its state ([`crate::keymap::Panel`]).
-    pub settings_keys: bool,
+    /// The settings' section shown.
+    pub settings_section: SettingsSection,
+    /// The Keyboard section's state ([`crate::keymap::Panel`]).
     pub keyboard: crate::keymap::Panel,
     /// The updates of Terraflux: the latest release asked, its installer downloaded ([`crate::update`]).
     pub updater: crate::update::Updater,
@@ -2314,6 +2315,62 @@ fn row(ui: &mut Ui, selected: bool, name: &str, note: &str) -> egui::Response {
     ui.add(egui::Button::selectable(selected, name).right_text(note).min_size(Vec2::new(ui.available_width(), 22.0)))
 }
 
+/// The sections of the settings' window, in the order of its column.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SettingsSection {
+    #[default]
+    Appearance,
+    ModelBuilder,
+    Runs,
+    Performance,
+    Cloud,
+    Libraries,
+    Keyboard,
+    About,
+}
+
+impl SettingsSection {
+    pub const ALL: [SettingsSection; 8] = [
+        SettingsSection::Appearance,
+        SettingsSection::ModelBuilder,
+        SettingsSection::Runs,
+        SettingsSection::Performance,
+        SettingsSection::Cloud,
+        SettingsSection::Libraries,
+        SettingsSection::Keyboard,
+        SettingsSection::About,
+    ];
+
+    /// The name in the column and over the section.
+    pub fn title(self) -> &'static str {
+        match self {
+            SettingsSection::Appearance => "Appearance",
+            SettingsSection::ModelBuilder => "Model builder",
+            SettingsSection::Runs => "Runs",
+            SettingsSection::Performance => "Performance",
+            SettingsSection::Cloud => "Cloud storage",
+            SettingsSection::Libraries => "Node libraries",
+            SettingsSection::Keyboard => "Keyboard",
+            SettingsSection::About => "About & updates",
+        }
+    }
+}
+
+/// A group of the settings: a small strong name and its controls under it, a gap after.
+fn settings_group(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
+    ui.add_space(6.0);
+    ui.label(RichText::new(title).strong());
+    ui.add_space(2.0);
+    add(ui);
+    ui.add_space(8.0);
+    ui.separator();
+}
+
+/// A weak note under the control it explains.
+fn settings_note(ui: &mut Ui, text: &str) {
+    ui.label(RichText::new(text).weak().size(11.0));
+}
+
 /// A button in the accent when it may be pressed.
 pub(crate) fn accent_button(text: &str, on: bool) -> egui::Button<'_> {
     if on {
@@ -2357,7 +2414,7 @@ impl TerrafluxApp {
             screen: None,
             styled: None,
             settings_open: false,
-            settings_keys: false,
+            settings_section: SettingsSection::default(),
             keyboard: Default::default(),
             updater: crate::update::Updater::default(),
             update_asked: None,
@@ -3745,8 +3802,9 @@ impl TerrafluxApp {
         }
     }
 
-    /// The settings, in a window of the application: the theme, the text's size, the interface's zoom, the
-    /// threads the functions use; kept at once, the look changed at once.
+    /// The settings, in a window of the application: a column of sections at the left (the look, the model
+    /// builder, the runs, the performance, the cloud, the node libraries, the keyboard, the updates) and the one
+    /// chosen at the right; kept at once, the look changed at once.
     fn settings_window(&mut self, ctx: &egui::Context) {
         if !self.settings_open {
             self.keyboard.recording = None;
@@ -3755,107 +3813,198 @@ impl TerrafluxApp {
         let mut open = true;
         let mut st = crate::settings::get();
         let before = st.clone();
-        if !self.settings_keys {
+        if self.settings_section != SettingsSection::Keyboard {
             self.keyboard.recording = None;
         }
-        egui::Window::new("Settings").open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.settings_keys, false, "General");
-                ui.selectable_value(&mut self.settings_keys, true, "Keyboard");
-            });
-            ui.separator();
-            if self.settings_keys {
-                ui.set_min_width(620.0);
-                crate::keymap::panel(ui, &mut self.keyboard, &mut st.shortcuts);
-                return;
-            }
-            egui::Grid::new("settings").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
-                ui.label("Theme");
-                let shown = |name: &str| if name == theme::DEFAULT { format!("{name} (default)") } else { name.to_string() };
-                egui::ComboBox::from_id_salt("theme").selected_text(shown(&st.theme)).width(180.0).show_ui(ui, |ui| {
-                    for (modern, title) in [(true, "Modern"), (false, "Classic")] {
-                        ui.label(egui::RichText::new(title).small().color(theme::weak()));
-                        for t in theme::THEMES.iter().filter(|t| t.modern == modern) {
-                            ui.horizontal(|ui| {
-                                for c in [t.panel, t.canvas, t.accent] {
-                                    let (r, _) = ui.allocate_exact_size(Vec2::new(10.0, 14.0), egui::Sense::hover());
-                                    ui.painter().rect_filled(r, 1.0, c);
+        // a fixed size, kept inside the screen; the keyboard's table wants more width
+        let screen = ctx.content_rect();
+        let wide: f32 = if self.settings_section == SettingsSection::Keyboard { 860.0 } else { 760.0 };
+        let size =
+            Vec2::new(wide.min(screen.width() - 40.0).max(360.0), 520.0f32.min(screen.height() - 60.0).max(240.0));
+        let nav_w = 150.0;
+        let update_ready = matches!(self.updater.state(), crate::update::State::Available(_));
+        egui::Window::new("Settings").open(&mut open).resizable(false).collapsible(false).fixed_size(size).show(
+            ctx,
+            |ui| {
+                let full = ui.available_size();
+                ui.horizontal_top(|ui| {
+                    // the sections
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(nav_w, full.y),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                            ui.set_width(nav_w);
+                            ui.spacing_mut().item_spacing.y = 3.0;
+                            for s in SettingsSection::ALL {
+                                let on = self.settings_section == s;
+                                let r =
+                                    ui.add(egui::Button::selectable(on, s.title()).min_size(Vec2::new(nav_w, 28.0)));
+                                if s == SettingsSection::About && update_ready {
+                                    let c = egui::pos2(r.rect.right() - 10.0, r.rect.center().y);
+                                    ui.painter().circle_filled(c, 4.0, theme::orange());
                                 }
-                                ui.selectable_value(&mut st.theme, t.name.to_string(), shown(t.name));
-                            });
-                        }
-                    }
-                });
-                ui.end_row();
-                ui.label("Text size");
-                ui.add(
-                    egui::Slider::new(&mut st.text, 0.8..=1.6)
-                        .step_by(0.05)
-                        .custom_formatter(|v, _| format!("{:.0} %", v * 100.0)),
-                );
-                ui.end_row();
-                ui.label("Interface zoom");
-                ui.add(
-                    egui::Slider::new(&mut st.zoom, 0.75..=2.0)
-                        .step_by(0.05)
-                        .custom_formatter(|v, _| format!("{:.0} %", v * 100.0)),
-                );
-                ui.end_row();
-                ui.label("Model");
-                ui.vertical(|ui| {
-                    ui.checkbox(&mut st.node_colours, "the nodes of data in the colour of their type").on_hover_text(
-                        "the model's inputs and the nodes that read, write, stack or plot, with a header in the \
-                         colour of what they give (a map blue, vectors pink...), as their connections",
+                                if r.clicked() {
+                                    self.settings_section = s;
+                                }
+                            }
+                            let left = ui.available_height() - 26.0;
+                            if left > 0.0 {
+                                ui.add_space(left);
+                            }
+                            let back = egui::Button::new(RichText::new("Back to the defaults").size(11.0).weak());
+                            if ui.add(back).clicked() {
+                                let favourites = std::mem::take(&mut st.favourites);
+                                let collection_names = std::mem::take(&mut st.collection_names);
+                                // the computers' choices are not looks: they stay
+                                st = crate::settings::Settings {
+                                    favourites,
+                                    collection_names,
+                                    share: st.share,
+                                    share_code: st.share_code.clone(),
+                                    lend: st.lend,
+                                    lend_code: st.lend_code.clone(),
+                                    lend_threads: st.lend_threads,
+                                    lend_idle: st.lend_idle,
+                                    node_libraries: st.node_libraries.clone(),
+                                    node_remotes: st.node_remotes.clone(),
+                                    shortcuts: st.shortcuts.clone(),
+                                    cloud: st.cloud.clone(),
+                                    ..Default::default()
+                                };
+                            }
+                        },
                     );
-                    ui.checkbox(&mut st.minimap, "a minimap of a large model on the canvas").on_hover_text(
+                    ui.separator();
+                    // the section chosen
+                    let w = (ui.available_width()).max(100.0);
+                    ui.allocate_ui_with_layout(Vec2::new(w, full.y), egui::Layout::top_down(egui::Align::Min), |ui| {
+                        ui.set_width(w);
+                        ui.label(RichText::new(self.settings_section.title()).strong().size(18.0));
+                        ui.add_space(4.0);
+                        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            self.settings_section_body(ui, ctx, &mut st);
+                        });
+                    });
+                });
+            },
+        );
+        terraflux_ops::cache::set_limit(st.cache_gb);
+        // (only when changed here: written every frame, it would undo what another thread changed meanwhile)
+        if st != before {
+            crate::settings::update(|s| *s = st);
+        }
+        self.settings_open = open;
+    }
+
+    /// The controls of the settings' section chosen.
+    fn settings_section_body(&mut self, ui: &mut Ui, ctx: &egui::Context, st: &mut crate::settings::Settings) {
+        match self.settings_section {
+            SettingsSection::Appearance => {
+                settings_group(ui, "Theme", |ui| {
+                    let shown = |name: &str| {
+                        if name == theme::DEFAULT { format!("{name} (default)") } else { name.to_string() }
+                    };
+                    egui::ComboBox::from_id_salt("theme").selected_text(shown(&st.theme)).width(180.0).show_ui(
+                        ui,
+                        |ui| {
+                            for (modern, title) in [(true, "Modern"), (false, "Classic")] {
+                                ui.label(egui::RichText::new(title).small().color(theme::weak()));
+                                for t in theme::THEMES.iter().filter(|t| t.modern == modern) {
+                                    ui.horizontal(|ui| {
+                                        for c in [t.panel, t.canvas, t.accent] {
+                                            let (r, _) =
+                                                ui.allocate_exact_size(Vec2::new(10.0, 14.0), egui::Sense::hover());
+                                            ui.painter().rect_filled(r, 1.0, c);
+                                        }
+                                        ui.selectable_value(&mut st.theme, t.name.to_string(), shown(t.name));
+                                    });
+                                }
+                            }
+                        },
+                    );
+                });
+                settings_group(ui, "Text size", |ui| {
+                    ui.add(
+                        egui::Slider::new(&mut st.text, 0.8..=1.6)
+                            .step_by(0.05)
+                            .custom_formatter(|v, _| format!("{:.0} %", v * 100.0)),
+                    );
+                });
+                settings_group(ui, "Interface zoom", |ui| {
+                    ui.add(
+                        egui::Slider::new(&mut st.zoom, 0.75..=2.0)
+                            .step_by(0.05)
+                            .custom_formatter(|v, _| format!("{:.0} %", v * 100.0)),
+                    );
+                });
+            }
+            SettingsSection::ModelBuilder => {
+                settings_group(ui, "Model", |ui| {
+                    ui.add(theme::toggle(&mut st.node_colours, "the nodes of data in the colour of their type"))
+                        .on_hover_text(
+                            "the model's inputs and the nodes that read, write, stack or plot, with a header in the \
+                             colour of what they give (a map blue, vectors pink...), as their connections",
+                        );
+                    ui.add(theme::toggle(&mut st.minimap, "a minimap of a large model on the canvas")).on_hover_text(
                         "a small map in the canvas's corner when the model does not fit the view: click or drag \
                          on it to move the view",
                     );
-                    ui.checkbox(&mut st.wires_around, "wires go around the boxes").on_hover_text(
+                    ui.add(theme::toggle(&mut st.wires_around, "wires go around the boxes")).on_hover_text(
                         "a wire that would cross another node's box is bent above or below it (a wire with \
                          points of your own is left as you drew it)",
                     );
-                    ui.checkbox(&mut st.node_settings, "a node's main settings on its box").on_hover_text(
+                    ui.add(theme::toggle(&mut st.node_settings, "a node's main settings on its box")).on_hover_text(
                         "the settings a node needs, those given and its essential ones in rows under its ports, \
                          the others counted in a row that unfolds them (off: the boxes show ports only)",
                     );
-                    ui.checkbox(&mut st.node_pane_opens, "open the Node pane by itself").on_hover_text(
+                    ui.add(theme::toggle(&mut st.node_pane_opens, "open the Node pane by itself")).on_hover_text(
                         "the Node tab beside the model with its first node (off: a node's settings open in a \
                          panel beside its box, from its gear or a click on a setting the box does not edit; the \
                          tab stays in the panes' menu)",
                     );
                 });
-                ui.end_row();
-                ui.label("Start");
-                ui.checkbox(&mut st.reopen_last, "reopen the models open last").on_hover_text(
-                    "when Terraflux starts without a model given: the models that were open, each with its view \
-                     (where the canvas looked, the node selected, what the Viewer showed); a model opened gets its view \
-                     back either way",
-                );
-                ui.end_row();
-                ui.label("Runs");
-                ui.vertical(|ui| {
-                    ui.checkbox(&mut st.keep_awake, "keep the computer awake while a model runs").on_hover_text(
-                        "while a model runs, Many runs goes on or this computer works for another's batch, the \
-                         computer does not go to sleep (the screen may still go dark)",
+                settings_group(ui, "When Terraflux starts", |ui| {
+                    ui.add(theme::toggle(&mut st.reopen_last, "reopen the models open last")).on_hover_text(
+                        "when Terraflux starts without a model given: the models that were open, each with its view \
+                         (where the canvas looked, the node selected, what the Viewer showed); a model opened gets its view \
+                         back either way",
                     );
+                });
+            }
+            SettingsSection::Runs => {
+                settings_group(ui, "While a model runs", |ui| {
+                    ui.add(theme::toggle(&mut st.keep_awake, "keep the computer awake while a model runs"))
+                        .on_hover_text(
+                            "while a model runs, Many runs goes on or this computer works for another's batch, the \
+                             computer does not go to sleep (the screen may still go dark)",
+                        );
                     if let Some(e) = self.awake.as_ref().and_then(|a| a.failed.as_ref()) {
                         ui.label(RichText::new(e).color(ui.visuals().warn_fg_color).size(11.0));
                     }
-                    ui.horizontal(|ui| {
+                });
+                settings_group(ui, "Outputs", |ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.label("keep a copy of each run's outputs up to").on_hover_text(KEEP_HOVER);
-                        ui.add(egui::DragValue::new(&mut st.keep_outputs_mb).range(0..=100_000).speed(1.0).suffix(" MB"))
-                            .on_hover_text(KEEP_HOVER);
+                        ui.add(
+                            egui::DragValue::new(&mut st.keep_outputs_mb).range(0..=100_000).speed(1.0).suffix(" MB"),
+                        )
+                        .on_hover_text(KEEP_HOVER);
                         ui.label("(all copies up to");
                         ui.add_enabled(
                             st.keep_outputs_mb > 0,
-                            egui::DragValue::new(&mut st.keep_outputs_total_mb).range(1..=1_000_000).speed(10.0).suffix(" MB"),
+                            egui::DragValue::new(&mut st.keep_outputs_total_mb)
+                                .range(1..=1_000_000)
+                                .speed(10.0)
+                                .suffix(" MB"),
                         )
                         .on_hover_text(KEEP_HOVER);
                         ui.label(")");
                     });
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut st.notify_runs, "tell when a run of more than").on_hover_text(
+                });
+                settings_group(ui, "When a run ends", |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.add(theme::toggle(&mut st.notify_runs, "tell when a run of more than")).on_hover_text(
                             "when a run you asked for, or a batch of Many runs, ends while Terraflux is not in \
                              front: a notification of the system, and the window's button in the taskbar lit",
                         );
@@ -3865,39 +4014,39 @@ impl TerrafluxApp {
                         );
                         ui.label("ends");
                     });
-                    ui.checkbox(
+                });
+                settings_group(ui, "Python", |ui| {
+                    ui.add(theme::toggle(
                         &mut st.python_beside,
                         "write the model's Python script (landschaft) beside it, <model>.py, on each save and run",
-                    )
+                    ))
                     .on_hover_text(
                         "the same script as the menu's \"Python script (landschaft)...\", rewritten beside the \
                          model's file each time the model is saved and each time a run you asked for starts",
                     );
                 });
-                ui.end_row();
-                ui.label("Threads");
-                ui.vertical(|ui| {
+            }
+            SettingsSection::Performance => {
+                settings_group(ui, "Threads", |ui| {
                     let most = terraflux_ops::threads::most();
                     let mut n = st.threads.unwrap_or(most).clamp(1, most);
                     let mut auto = st.threads.is_none();
                     let cores = terraflux_ops::threads::cores();
-                    ui.checkbox(&mut auto, format!("{most} of the {cores} cores (a quarter left free)"));
+                    let text = format!("{most} of the {cores} cores (a quarter left free)");
+                    ui.add(theme::toggle(&mut auto, &text));
                     ui.add_enabled_ui(!auto, |ui| {
                         ui.add(egui::Slider::new(&mut n, 1..=most));
                     });
                     st.threads = if auto { None } else { Some(n) };
-                    ui.label(
-                        RichText::new(format!(
+                    settings_note(
+                        ui,
+                        &format!(
                             "the threads the functions use; from the next start (now {})",
                             terraflux_ops::threads::ensure()
-                        ))
-                        .weak()
-                        .size(11.0),
+                        ),
                     );
                 });
-                ui.end_row();
-                ui.label("Cache");
-                ui.vertical(|ui| {
+                settings_group(ui, "Cache", |ui| {
                     let mut gb = st.cache_gb.unwrap_or(terraflux_ops::cache::DEFAULT_GB);
                     ui.add(egui::Slider::new(&mut gb, 1.0..=200.0).logarithmic(true).suffix(" GB").max_decimals(0));
                     st.cache_gb = (gb != terraflux_ops::cache::DEFAULT_GB).then_some(gb);
@@ -3918,31 +4067,25 @@ impl TerrafluxApp {
                     })
                     .response
                     .on_hover_text(terraflux_ops::cache::root().display().to_string());
-                    ui.label(
-                        RichText::new(
-                            "the rasters made without a file (reprojected, clipped...) and the data downloaded: kept \
-                             to be used again, the least recently used removed beyond this size",
-                        )
-                        .weak()
-                        .size(11.0),
+                    settings_note(
+                        ui,
+                        "the rasters made without a file (reprojected, clipped...) and the data downloaded: kept \
+                         to be used again, the least recently used removed beyond this size",
                     );
                 });
-                ui.end_row();
-                ui.label("Cloud storage");
-                ui.vertical(|ui| {
+            }
+            SettingsSection::Cloud => {
+                settings_group(ui, "Keys", |ui| {
                     crate::settings::cloud_panel(ui, &mut st.cloud);
-                    ui.label(
-                        RichText::new(
-                            "the keys for s3://, gs:// and /vsiaz/ data, secrets in the system's store of credentials (never in a model); \
-                             the command line and the workers use the environment's variables",
-                        )
-                        .weak()
-                        .size(11.0),
+                    settings_note(
+                        ui,
+                        "the keys for s3://, gs:// and /vsiaz/ data, secrets in the system's store of credentials (never in a model); \
+                         the command line and the workers use the environment's variables",
                     );
                 });
-                ui.end_row();
-                ui.label("Node libraries");
-                ui.vertical(|ui| {
+            }
+            SettingsSection::Libraries => {
+                settings_group(ui, "Shared libraries", |ui| {
                     ui.label(RichText::new(crate::my_nodes::dir().display().to_string()).size(11.0))
                         .on_hover_text("your own library: the nodes you save");
                     let mut gone = None;
@@ -3966,20 +4109,19 @@ impl TerrafluxApp {
                         st.node_libraries.push(d);
                         crate::my_nodes::changed();
                     }
-                    ui.label(
-                        RichText::new(
-                            "folders of nodes shared with others (a group's folder on a shared drive, a repository \
-                             cloned): their nodes offered beside yours, and saved in them when chosen; a folder's \
-                             library.toml may name its writers (writers = [\"ana\", \"bruno\"]), the only ones \
-                             who save in it",
-                        )
-                        .weak()
-                        .size(11.0),
+                    settings_note(
+                        ui,
+                        "folders of nodes shared with others (a group's folder on a shared drive, a repository \
+                         cloned): their nodes offered beside yours, and saved in them when chosen; a folder's \
+                         library.toml may name its writers (writers = [\"ana\", \"bruno\"]), the only ones \
+                         who save in it",
                     );
-                    // the remote ones: pulled, only read
+                });
+                // the remote ones: pulled, only read
+                settings_group(ui, "Remote libraries", |ui| {
                     let mut gone = None;
                     for (k, url) in st.node_remotes.iter().enumerate() {
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             if ui.small_button("x").on_hover_text("no longer used here (its copy stays)").clicked() {
                                 gone = Some(k);
                             }
@@ -4010,7 +4152,7 @@ impl TerrafluxApp {
                         st.node_remotes.remove(k);
                         crate::my_nodes::changed();
                     }
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         let id = egui::Id::new("remote node library");
                         let mut url = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_default();
                         ui.add(
@@ -4029,24 +4171,40 @@ impl TerrafluxApp {
                         }
                         ui.data_mut(|d| d.insert_temp(id, url));
                     });
-                    ui.label(
-                        RichText::new(
-                            "a git repository (cloned and pulled when Terraflux starts; git installed) or a folder \
-                             on the web (its index.txt, which Terraflux writes in each library it saves in): its \
-                             nodes offered beside yours, only read",
-                        )
-                        .weak()
-                        .size(11.0),
+                    settings_note(
+                        ui,
+                        "a git repository (cloned and pulled when Terraflux starts; git installed) or a folder \
+                         on the web (its index.txt, which Terraflux writes in each library it saves in): its \
+                         nodes offered beside yours, only read",
                     );
                 });
-                ui.end_row();
-                ui.label("Updates");
-                ui.vertical(|ui| {
-                    use crate::update::{State, show};
+            }
+            SettingsSection::Keyboard => {
+                crate::keymap::panel(ui, &mut self.keyboard, &mut st.shortcuts);
+            }
+            SettingsSection::About => {
+                use crate::update::{State, show};
+                settings_group(ui, "Version", |ui| {
                     ui.label(RichText::new(format!("Terraflux {}", env!("CARGO_PKG_VERSION"))).strong());
-                    ui.checkbox(&mut st.check_updates, "look for a new version when Terraflux starts (once a day)")
-                        .on_hover_text("asks GitHub which Terraflux is the latest; nothing else is sent");
-                    ui.horizontal(|ui| {
+                    // which GDAL reads the other formats and does the warping, if any
+                    match terraflux_gdal::gdal() {
+                        Ok(g) => ui
+                            .label(
+                                RichText::new(format!("GDAL {} · {} formats", g.version, g.drivers)).weak().size(11.0),
+                            )
+                            .on_hover_text(g.library.display().to_string()),
+                        Err(e) => ui
+                            .label(RichText::new("no GDAL: GeoTIFF only").color(ui.visuals().warn_fg_color).size(11.0))
+                            .on_hover_text(e.to_string()),
+                    };
+                });
+                settings_group(ui, "Updates", |ui| {
+                    ui.add(theme::toggle(
+                        &mut st.check_updates,
+                        "look for a new version when Terraflux starts (once a day)",
+                    ))
+                    .on_hover_text("asks GitHub which Terraflux is the latest; nothing else is sent");
+                    ui.horizontal_wrapped(|ui| {
                         let state = self.updater.state();
                         let busy = matches!(state, State::Checking | State::Downloading(..) | State::Ready(..));
                         if ui.add_enabled(!busy, egui::Button::new("Check now")).clicked() {
@@ -4063,7 +4221,13 @@ impl TerrafluxApp {
                                 ui.label(RichText::new("this is the latest").weak());
                             }
                             State::Available(r) => {
-                                if ui.button(format!("Update to {}...", show(r.version))).clicked() {
+                                let b = egui::Button::new(
+                                    RichText::new(format!("Update to {}...", show(r.version)))
+                                        .color(theme::on_orange())
+                                        .strong(),
+                                )
+                                .fill(theme::orange());
+                                if ui.add(b).clicked() {
                                     self.update_asked = Some(r);
                                 }
                             }
@@ -4079,46 +4243,8 @@ impl TerrafluxApp {
                         }
                     });
                 });
-                ui.end_row();
-            });
-            // which GDAL reads the other formats and does the warping, if any
-            ui.add_space(6.0);
-            match terraflux_gdal::gdal() {
-                Ok(g) => ui
-                    .label(RichText::new(format!("GDAL {} · {} formats", g.version, g.drivers)).weak().size(11.0))
-                    .on_hover_text(g.library.display().to_string()),
-                Err(e) => ui
-                    .label(RichText::new("no GDAL: GeoTIFF only").color(ui.visuals().warn_fg_color).size(11.0))
-                    .on_hover_text(e.to_string()),
-            };
-            ui.add_space(6.0);
-            if ui.button("Back to the defaults").clicked() {
-                let favourites = std::mem::take(&mut st.favourites);
-                let collection_names = std::mem::take(&mut st.collection_names);
-                // the computers' choices are not looks: they stay
-                st = crate::settings::Settings {
-                    favourites,
-                    collection_names,
-                    share: st.share,
-                    share_code: st.share_code.clone(),
-                    lend: st.lend,
-                    lend_code: st.lend_code.clone(),
-                    lend_threads: st.lend_threads,
-                    lend_idle: st.lend_idle,
-                    node_libraries: st.node_libraries.clone(),
-                    node_remotes: st.node_remotes.clone(),
-                    shortcuts: st.shortcuts.clone(),
-                    cloud: st.cloud.clone(),
-                    ..Default::default()
-                };
             }
-        });
-        terraflux_ops::cache::set_limit(st.cache_gb);
-        // (only when changed here: written every frame, it would undo what another thread changed meanwhile)
-        if st != before {
-            crate::settings::update(|s| *s = st);
         }
-        self.settings_open = open;
     }
 
     /// The panes with a drawer now: the operators' and the files' while closed, the preparation's while closed and

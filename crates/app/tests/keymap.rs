@@ -92,7 +92,7 @@ fn a_shortcut_changed_in_the_settings_is_the_one_that_works() {
     h.run_steps(2);
     h.get_by_label("Keyboard").click();
     h.run_steps(2);
-    assert!(h.state().settings_keys);
+    assert_eq!(h.state().settings_section, terraflux_app::app::SettingsSection::Keyboard);
     assert!(h.query_by_label("Run the whole model").is_some());
     shot(&mut h, "40-keyboard-settings");
     // click its shortcut, then press the new one
@@ -112,7 +112,9 @@ fn a_shortcut_changed_in_the_settings_is_the_one_that_works() {
     h.state_mut().settings_open = false;
     h.run_steps(2);
 
-    // ctrl+R runs the model and F5 no longer does
+    // ctrl+R runs the model and F5 no longer does (the pointer off the canvas, where the canvas' keys would win)
+    h.get_by_label("Run").hover();
+    h.run_steps(3);
     assert!(runs(&mut h, ctrl, egui::Key::R), "ctrl+R runs the model");
     assert!(!runs(&mut h, none, egui::Key::F5), "F5 runs nothing now");
 

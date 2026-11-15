@@ -223,7 +223,7 @@ card or a remote desktop.
 
 ### The computer is slow while a model runs
 
-Terraflux uses all the cores but one by default, so the computer stays usable. Use fewer with **Settings >
+Terraflux uses all the cores but one by default, so the computer stays usable. Use fewer with **Settings > Performance >
 Threads** in the application (from the next start), `--threads 4` on any command, or the environment variable
 `TERRAFLUX_THREADS`.
 

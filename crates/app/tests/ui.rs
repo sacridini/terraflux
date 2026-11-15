@@ -2886,6 +2886,38 @@ fn maps_stack_and_cells_show_their_series() {
     }
 }
 
+/// The settings' window: a column of sections at the left, the one chosen at the right.
+#[test]
+fn settings_sections() {
+    held(true);
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    h.state_mut().settings_open = true;
+    h.run_steps(3);
+    for s in terraflux_app::app::SettingsSection::ALL {
+        assert!(h.query_all_by_label(s.title()).next().is_some(), "the section {} is listed", s.title());
+    }
+    assert!(h.query_by_label("Back to the defaults").is_some());
+    // the first section: the look
+    assert!(h.query_by_label("Theme").is_some() && h.query_by_label("Text size").is_some());
+    assert!(h.query_by_label("Cache").is_none());
+    shot(&mut h, "23-settings-appearance");
+    h.get_by_label("Performance").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Threads").is_some() && h.query_by_label("Cache").is_some());
+    assert!(h.query_by_label("Theme").is_none());
+    h.get_by_label("About & updates").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Check now").is_some());
+    shot(&mut h, "23-settings-about");
+    h.get_by_label("Keyboard").click();
+    h.run_steps(3);
+    assert_eq!(h.state().settings_section, terraflux_app::app::SettingsSection::Keyboard);
+    assert!(h.query_by_label("Run the whole model").is_some());
+    h.state_mut().settings_open = false;
+    h.run_steps(2);
+}
+
 /// The settings: a window from the toolbar, the theme changed at once (each drawn); the favourites: an operator
 /// in the red collection shown in the operators' pane when the collection is.
 #[test]
@@ -2901,7 +2933,7 @@ fn settings_themes_and_favourites() {
     h.get_by_label("⚙").click();
     h.run_steps(2);
     assert!(h.state().settings_open);
-    assert!(h.query_by_label("Theme").is_some() && h.query_by_label("Threads").is_some());
+    assert!(h.query_by_label("Theme").is_some() && h.query_by_label("Performance").is_some());
     for (k, t) in terraflux_app::theme::THEMES.iter().enumerate() {
         terraflux_app::settings::update(|s| s.theme = t.name.to_string());
         h.run_steps(3);
