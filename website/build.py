@@ -727,6 +727,14 @@ def tables(text: str) -> str:
     return text.replace("<table>", '<div class="table-wrap"><table>').replace("</table>", "</table></div>")
 
 
+def _id_refs(h: str) -> str:
+    """Gives each <li> of a list of references the id of its reference (ref_key)."""
+    def one(m):
+        plain = html.unescape(re.sub(r"<[^>]+>", "", m.group(1)))
+        return f'<li id="{ref_key(plain)}">{m.group(1)}</li>'
+    return re.sub(r"<li>(.*?)</li>", one, h, flags=re.S)
+
+
 def render_markdown(page: Page) -> None:
     CURRENT["page"] = page
     cfg = md_config()
@@ -741,6 +749,9 @@ def render_markdown(page: Page) -> None:
     out = figures(out)
     out = _wrap_code(out)
     out = tables(out)
+    if page.src == "about/citing.md":  # an anchor on each reference, for the operators' "Cite" lines
+        head, sep, tail = out.partition('<h2 id="references"')
+        out = head + sep + _id_refs(tail)
     page.html = out
     page.toc = md.toc_tokens
     page.text = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"<svg.*?</svg>", " ", out, flags=re.S))))
@@ -935,6 +946,106 @@ def operator_usage(pages: list[Page], cats):
     return used, tmpl
 
 
+CITING = CONTENT / "about" / "citing.md"
+
+
+def ref_key(text: str) -> str:
+    """A reference's anchor from its APA line or its short citation: the first author's family name and the year
+    ("Soille & Vogt (2009)" and "Soille, P., & Vogt, P. (2009). ..." both give ref-soille-2009)."""
+    fam = re.split(r",| &| et al\.| \(", text.strip(), 1)[0]
+    year = re.search(r"\((\d{4})\)", text).group(1)
+    return "ref-" + slug(f"{fam} {year}")
+
+
+def citation_rules():
+    """The methods table and the references of the citing page (`## The methods`, `## References`), read when the site
+    is built so that the page is the one source: ([{method, pats, related, cites: [(label, key)]}], {key: APA text})."""
+    text = CITING.read_text(encoding="utf-8")
+    sect = lambda h: re.search(rf"^## {h}\n(.*?)(?=^## |\Z)", text, re.S | re.M).group(1)
+    refs = {}
+    for line in sect("References").splitlines():
+        if line.startswith("- "):
+            refs[ref_key(line[2:])] = line[2:].replace("*", "").strip()
+    rules = []
+    for line in sect("The methods").splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) != 3 or cells[0] in ("Method", "---") or set(cells[0]) <= set("-"):
+            continue
+        cites = []
+        for c in cells[2].split(";"):
+            c = c.strip()
+            if ref_key(c) not in refs:
+                warn(f"{CITING.name}: the citation '{c}' has no reference in the list")
+            cites.append((c, ref_key(c)))
+        rules.append({"method": cells[0], "pats": re.findall(r"`([^`]+)`", cells[1]),
+                      "related": "related" in cells[1], "cites": cites})
+    return rules, refs
+
+
+def operator_citations(names):
+    """Per operator, the methods of the citing page that apply to it: [{method, cites: [{label, url, apa}]}]. A pattern
+    is `prefix.*`, `prefix*` or an exact name; "X and related" takes the operators of X's group that no other row
+    of the group names (the prioritization's, apart from Zonation and the multi-action planning)."""
+    rules, refs = citation_rules()
+
+    def hit(pat: str, op: str) -> bool:
+        if pat.endswith("*"):
+            return op.startswith(pat[:-1])
+        return op == pat
+
+    out: dict[str, list[dict]] = {}
+    for r in rules:
+        for pat in r["pats"]:
+            group = pat.split(".")[0] + "."
+            others = [q for o in rules if o is not r and not o["related"] for q in o["pats"] if q.startswith(group)]
+            for op in names:
+                if hit(pat, op) or (r["related"] and op.startswith(group) and not any(hit(q, op) for q in others)):
+                    cur = out.setdefault(op, [])
+                    if not any(c["method"] == r["method"] for c in cur):
+                        cur.append({"method": r["method"],
+                                    "cites": [{"label": l, "url": "/about/citing/#" + k, "apa": refs.get(k, "")} for l, k in r["cites"]]})
+    return out
+
+
+def node_skeleton(o: dict) -> str | None:
+    """A node of the operator as a model file writes it: its required inputs wired to placeholders (`upstream.<type>`,
+    the node and port that give it), its required settings as placeholders and the optional ones named in a comment.
+    Containers hold a body, so they get none."""
+    if o.get("container"):
+        return None
+    ids = o["name"].split(".", 1)[1]
+    if ids == "upstream":  # not the placeholder's own name
+        ids = o["name"].replace(".", "_")
+    lines = ["[[nodes]]", f'id = "{ids}"', f'op = "{o["name"]}"']
+    ins = []
+    for i in o["inputs"]:
+        if not i["required"]:
+            continue
+        port = {"raster": "map", "any": "map"}.get(i["type"], i["type"])
+        ins.append(f'{i["name"]} = 1' if i["type"] in ("integer", "number") else f'{i["name"]} = "upstream.{port}"')
+    if ins:
+        lines.append("inputs = { " + ", ".join(ins) + " }")
+    req = [f'{p["name"]} = ' + ("1" if p["type"] in ("integer", "number") else f'"<{p["name"]}>"')
+           for p in o["params"] if p["required"]]
+    if req:
+        lines.append("params = { " + ", ".join(req) + " }")
+    if ins or req:
+        lines[0:0] = ['# "upstream.map" stands for the node and port that give an input; "<name>" and 1 for values to fill']
+    opt = [p["name"] for p in o["params"] if not p["required"]]
+    if opt:  # their defaults are the operator's own: a node leaves them out
+        lines.append("# optional settings: " + ", ".join(opt))
+    return "\n".join(lines)
+
+
+def skeleton_html(o: dict) -> str:
+    code = node_skeleton(o)
+    if not code:
+        return ""
+    return ('<details class="op-node"><summary>As a node in a model file</summary>'
+            f'<div class="codeblock"><button class="copy" type="button" aria-label="Copy">Copy</button>{highlight(code, "toml")}</div></details>')
+
+
+
 def search_entry(url: str, title: str, section: str, text: str, headings: list[str]):
     return {"u": url.lstrip("/"), "t": title, "s": section, "h": " · ".join(headings)[:400], "x": text[:4000]}
 
@@ -1126,12 +1237,19 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
         search.append({"u": url.lstrip("/") + "#" + anchor, "t": anchor, "s": "Python API", "h": "", "x": plain})
     opgroups = operators_pages()
     used_in, templates_of = operator_usage(all_pages, cats)
+    cites = operator_citations(list(OPS))
+    since_file = DATA / "ops_since.json"  # tools/ops_since.py; operators of the first snapshot have no "Since"
+    sinces = json.loads(since_file.read_text(encoding="utf-8")) if since_file.is_file() else {"floor": None, "ops": {}}
+    since = {n: v for n, v in sinces["ops"].items() if v != sinces["floor"]}
+    skeletons = {n: skeleton_html(o) for n, o in OPS.items()}
+    print(f"operators: {len(cites)} cited, {len(since)} with a version, {sum(1 for v in skeletons.values() if v)} with a node")
     write("/operators/", env.get_template("operators_index.html").render(groups=opgroups, root=rel_prefix("/operators/"), page_url="/operators/",
                                                                          page=None, total=len(OPS)))
     for g in opgroups:
         url = f"/operators/{g['slug']}/"
         write(url, env.get_template("operators.html").render(group=g, groups=opgroups, root=rel_prefix(url), page=None, page_url=url,
-                                                             md_op=md_op, used_in=used_in, templates_of=templates_of))
+                                                             md_op=md_op, used_in=used_in, templates_of=templates_of,
+                                                             cites=cites, since=since, skeletons=skeletons))
         for o in g["ops"]:
             search.append({"u": url.lstrip("/") + "#" + op_anchor(o["name"]), "t": o["name"], "s": "Operators: " + g["title"],
                            "h": "", "x": o["doc"]})

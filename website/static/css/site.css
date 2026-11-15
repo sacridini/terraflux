@@ -732,3 +732,9 @@ html, body { overflow-x: clip; }
 .op-usage details { display: inline; }
 .op-usage summary { display: inline; cursor: pointer; color: var(--ink-2); }
 .op-usage details[open] summary { display: none; }
+
+/* operator reference: since version, citations, the node to copy */
+.op-since { font-size: 13px; font-weight: 500; color: var(--ink-3); margin-left: 12px; font-family: inherit; }
+.op-node { margin: 10px 0 0; }
+.op-node > summary { cursor: pointer; font-size: 14px; color: var(--ink-2); }
+.op-node .codeblock { margin: 6px 0 0; }

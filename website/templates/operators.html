@@ -36,7 +36,7 @@
     <div class="prose ops-list">
     {% for o in group.ops %}
       <section class="op" id="{{ op_anchor(o.name) }}">
-        <h2><code>{{ o.name }}</code><a class="headerlink" href="#{{ op_anchor(o.name) }}" title="Link to this operator">#</a></h2>
+        <h2><code>{{ o.name }}</code><a class="headerlink" href="#{{ op_anchor(o.name) }}" title="Link to this operator">#</a>{% if since.get(o.name) %}<small class="op-since" title="The first version of Terraflux with this operator">Since {{ since[o.name] }}</small>{% endif %}</h2>
         <p>{{ md_op(o.doc) }}</p>
         {{ ports(o.inputs, "Input") }}
         {{ ports(o.outputs, "Output") }}
@@ -44,6 +44,10 @@
         {% if o.extra %}<p class="extra">Takes any other inputs by name ({{ o.extra }}).</p>{% endif %}
         {{ usage("Used in", used_in.get(o.name, [])) }}
         {{ usage("Templates", templates_of.get(o.name, [])) }}
+        {% for c in cites.get(o.name, []) %}
+        <div class="op-usage"><span>Cite:</span> {{ c.method }}: {% for r in c.cites %}<a href="{{ r.url }}" title="{{ r.apa }}">{{ r.label }}</a>{% if not loop.last %}; {% endif %}{% endfor %}</div>
+        {% endfor %}
+        {{ skeletons.get(o.name, "")|safe }}
       </section>
     {% endfor %}
     </div>

@@ -44,6 +44,7 @@ sliders, before-and-after, charts, galleries, calculator playgrounds), how figur
 ```bash
 python website/tools/refresh_data.py       # operators and commands from target/release/terraflux
 python website/tools/extract_templates.py  # the application's templates
+python website/tools/ops_since.py          # the first version of each operator (data/ops_since.json), from the git history
 python website/figures/<category>/<tutorial>.py   # figures whose operators changed
 python website/tools/build_calc.py          # the calculators' engine (WebAssembly), when the map algebra changed
 python website/figures/calculators/playground.py   # the playgrounds' data, their examples checked against terraflux run
