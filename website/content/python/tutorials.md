@@ -15,9 +15,9 @@ and follow along.
     habitat maps are coded, which all tutorials rely on.
 
 !!! info "New to landscape ecology?"
-    The [Learn](/learn/) course explains what each analysis
-    measures, the theory behind it and when to use it. The tutorials focus on
-    how to run the tools.
+    The [application's tutorials](/tutorials/) explain what each analysis
+    measures, the theory behind it and when to use it. These pages focus on
+    how to run the tools from Python.
 
 !!! app "In the application"
     Each page here has a counterpart in the application's [tutorials](/tutorials/), which builds the same analysis as

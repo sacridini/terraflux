@@ -1,11 +1,11 @@
 """Run the Python examples of the site's pages, as the library's tools/check_docs.py did for its own docs.
 
     python website/tools/check_python_blocks.py                      # every page below
-    python website/tools/check_python_blocks.py python/quickstart.md learn/scale.md
+    python website/tools/check_python_blocks.py python/quickstart.md python/algorithms/mspa-and-spa.md
     python website/tools/check_python_blocks.py --list              # the pages that would run
     python website/tools/check_python_blocks.py --python PATH --jobs 2 --timeout 900
 
-The pages: content/python/**, content/learn/** and every content/**/*-in-python.md. Every fenced ```python block
+The pages: content/python/** and every content/**/*-in-python.md. Every fenced ```python block
 of a page runs in order, the blocks of one page sharing a namespace, in a temporary working directory (what the
 examples write goes there). A block preceded by a line `<!-- no-run -->` is skipped; blocks inside tabs (indented)
 run like the others. A page stops at its first failing block (the next ones depend on it). Each page runs in a
@@ -76,7 +76,7 @@ def pages(args: list[str]) -> list[pathlib.Path]:
                 sys.exit(f"{a}: no such page (paths are relative to website/content)")
             out.append(p.resolve())
         return out
-    found = set(CONTENT.glob("python/**/*.md")) | set(CONTENT.glob("learn/**/*.md")) | set(CONTENT.rglob("*-in-python.md"))
+    found = set(CONTENT.glob("python/**/*.md")) | set(CONTENT.rglob("*-in-python.md"))
     return sorted(p for p in found if not p.name.startswith("_"))
 
 

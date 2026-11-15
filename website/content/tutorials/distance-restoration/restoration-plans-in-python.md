@@ -27,9 +27,9 @@ restoration*, solved exactly.
 - report the uncertainty of the results, and save them.
 
 !!! info "Background"
-    [Chapter 9](/learn/restoration/) of the course introduces restoration, and
-    [chapter 12](/learn/prioritization/) conservation planning: targets, costs, objectives and why a plan
-    made by optimization does better than ranking cells one by one.
+    The [distance and restoration tutorials](/tutorials/distance-restoration/) introduce restoration, and
+    the [spatial prioritization tutorials](/tutorials/spatial-prioritization/) conservation planning: targets, costs,
+    objectives and why a plan made by optimization does better than ranking cells one by one.
 
 ## How the model works
 
@@ -482,7 +482,7 @@ page = tf.plot(plan.restored, show=False)              # an interactive map
   slope at the start: it pays where the footprint can be cleared. The total intactness is not concave, so the plan
   is a local optimum with a bound on the best (status `"local"` unless they meet).
 - **Restoration in other planners.** To choose whole cells against targets, use [optimized conservation
-  plans](/tutorials/spatial-prioritization/conservation-plans-in-python/) with the gains as features ([recipe](/learn/prioritization/process/#restoration));
+  plans](/tutorials/spatial-prioritization/conservation-plans-in-python/) with the gains as features;
   to restore corridors between habitat patches, see [distance and restoration](/tutorials/distance-restoration/distance-restoration-in-python/).
 - The [API reference](/python/api/prioritization/#restoration-planning) lists every method;
   [original vegetation and intactness](/python/api/distance/) and [area of habitat](/python/api/sdm/#area-of-habitat)

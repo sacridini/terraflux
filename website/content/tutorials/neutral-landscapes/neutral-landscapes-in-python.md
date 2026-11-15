@@ -86,7 +86,7 @@ maps = tf.nlm.binarize(surface, [0.2, 0.4, 0.6])     # 1 matrix, 2 habitat
 
 The same surface keeps its structure at every share: the habitat grows from
 the peaks, and the patches merge as the share rises (the percolation
-threshold of [Learn chapter 3](/learn/fragmentation/)).
+threshold, see [fragmentation and habitat loss](/tutorials/fragmentation/fragmentation-and-habitat-loss/)).
 
 ## A null-model test
 

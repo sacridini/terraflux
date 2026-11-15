@@ -14,8 +14,9 @@ much changed, where and with what shape, and projects it forward, under
 the observed trend or under scenarios. `tf.simulate` builds such models from
 interchangeable pieces (a demand, a transition potential, an allocation and
 rules), runs them, compares them with what really happened, calibrates them
-and runs scenarios with replicates. The ideas behind it are in the course
-chapter [Simulating land change](/learn/simulation/).
+and runs scenarios with replicates. The ideas behind it are in the
+[land change simulation tutorials](/tutorials/land-change/) (start with
+[What land change models are](/tutorials/land-change/what-land-change-models-are/)).
 
 **You will learn to:**
 

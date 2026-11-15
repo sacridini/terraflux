@@ -12,8 +12,8 @@ The same in the app: [Optimal plans with linear programming](/tutorials/spatial-
 Which set of places meets a conservation goal at the least cost, or achieves the most with a fixed budget?
 `tf.prioritize` answers it with exact optimization, as the R package prioritizr does (the same models, row
 by row), with engines of its own that solve large and spatial problems much faster. This tutorial builds a
-complete plan for Serra Verde, the example region of the course chapters
-[12.1 to 12.10](/learn/prioritization/), which explain the ideas behind every step.
+complete plan for Serra Verde, the example region of the
+[spatial prioritization tutorials](/tutorials/spatial-prioritization/), which explain the ideas behind every step.
 
 **You will learn to:**
 
@@ -78,13 +78,13 @@ plan.coverage[["feature", "relative_target", "relative_held", "met"]].round(3)
 
 `plan.selection` is the plan as a raster, `tf.plot(plan)` draws it, and `plan.save("plan.tif")` writes it.
 The solver proves the plan is within 0.1 % of the cheapest possible (the **gap**,
-[chapter 12.4](/learn/prioritization/optimization/#the-optimality-gap)).
+[optimal plans](/tutorials/spatial-prioritization/linear-programming/)).
 
 ## A compact plan
 
 The plan is scattered over many patches. A **boundary penalty** makes it compact at some extra cost. Its
 value must be calibrated: solve with several values and choose on the curve of cost against boundary
-([chapter 12.6](/learn/prioritization/tradeoffs/#calibrating-a-penalty)):
+([compact plans](/tutorials/spatial-prioritization/spatial-design/)):
 
 ```python
 cal = P.calibrate_penalty(p1.add_highs_solver(gap=0.02), "boundary", values=[0.001, 0.003, 0.01, 0.03])
@@ -125,7 +125,7 @@ millions and slowly with the last. Every budget includes the reserves, so the fr
 
 Which cells could not be replaced? **Replacement cost** solves the problem again without each selected cell;
 a **portfolio** of near-optimal plans shows which cells are always chosen
-([chapter 12.7](/learn/prioritization/evaluation/)):
+([evaluating plans](/tutorials/spatial-prioritization/evaluating-plans/)):
 
 ```python
 rc = P.eval_replacement_importance(p1, plan)
@@ -140,7 +140,7 @@ print(f"{len(port)} plans within 2 %: {int(np.nansum(f == 1))} cells in all of t
 ## Actions against threats
 
 Deforestation and fire threaten the features. A **multi-action** plan decides where to manage land and
-where to act against each threat ([chapter 12.8](/learn/prioritization/actions/)):
+where to act against each threat ([multi-action planning](/tutorials/spatial-prioritization/multi-action-planning/)):
 
 ```python
 threats = tf.load_raster(P.example_data("threats"))
@@ -159,7 +159,7 @@ A plan can also give every unit a **zone**: strict protection, sustainable use o
 own cost and its own worth for the features. Sustainable use is cheaper but counts half of every feature;
 restoring pasture and cropland brings back their share of the cell; the targets are met by the sum over the
 zones, and 10 % of every feature must be under strict protection
-([chapter 12.8](/learn/prioritization/actions/#zones-actions-or-restoration)):
+([multi-action planning](/tutorials/spatial-prioritization/multi-action-planning/)):
 
 ```python
 lc = tf.load_raster(P.example_data("land_cover"))
@@ -192,7 +192,7 @@ P.eval_n_summary(pz, zplan)
 ## Compared with a Zonation ranking
 
 A Zonation ranking cut at the same cost holds more of the rare features and less of the common ones
-([chapter 12.9](/learn/prioritization/together/)):
+([Zonation](/tutorials/spatial-prioritization/zonation/)):
 
 ```python
 comp = P.compare_zonation(p1, plan)
@@ -211,16 +211,16 @@ page = tf.plot(r, show=False).save("serra_verde_plan.html")
 ## Going further
 
 - **Other objectives**: maximum utility, minimum shortfall, maximum features, phylogenetic diversity, and
-  minimum extinction risk ([chapter 12.4](/learn/prioritization/optimization/#budget-objectives)).
+  minimum extinction risk ([optimal plans](/tutorials/spatial-prioritization/linear-programming/)).
 - **Spatial rules**: neighbours, contiguity, corridors and connectivity
-  ([chapter 12.5](/learn/prioritization/spatial/)).
+  ([compact and connected plans](/tutorials/spatial-prioritization/spatial-design/)).
 - **Polygons and H3 cells** as planning units: `P.problem(polygons, features, cost_column="cost")`,
   `P.h3_units(cost, resolution)`.
 - **Large problems**: `coarsen` and `refine`
-  ([chapter 12.9](/learn/prioritization/together/#large-problems)).
+  ([optimal plans](/tutorials/spatial-prioritization/linear-programming/)).
 - **Marxan**: `P.marxan` runs Marxan's own tables and annealing; `add_anneal_solver` solves a problem with it.
 - **Restoration**: how much of every converted cell to restore, for species, carbon and intactness:
   [restoration priorities](/tutorials/distance-restoration/restoration-plans-in-python/).
-- **Recipes** for 30x30, restoration, offsets, regions and carbon:
-  [chapter 12.10](/learn/prioritization/process/#recipes).
+- **The ideas behind the steps**:
+  [systematic conservation planning](/tutorials/spatial-prioritization/systematic-conservation-planning/).
 - The [API reference](/python/api/prioritization/#optimization) lists every function.

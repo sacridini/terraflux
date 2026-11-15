@@ -26,7 +26,7 @@ consistent. Terraflux gives the rank maps and curves of the z5 program (v2.4)
 bit for bit, faster, with the curves of the ranking it returns (Zonation's own
 report those of the order before its last sort). The
 [tutorial](/tutorials/spatial-prioritization/prioritization-in-python/) walks through a project, and the
-course chapter [Conservation priorities](/learn/prioritization/) explains
+[spatial prioritization tutorials](/tutorials/spatial-prioritization/) explain
 the method.
 
 <!-- no-run -->

@@ -27,8 +27,8 @@ could have taken instead, with the landscape at the end of each.
 - draw random steps from fitted step-length and turn-angle distributions;
 - attach the landscape to every step, observed or random.
 
-Everything lives in `tf.move`. The [Learn chapter](/learn/movement/)
-explains the ideas behind steps and step selection.
+Everything lives in `tf.move`. The [animal movement tutorials](/tutorials/animal-movement/)
+explain the ideas behind steps and step selection.
 
 ## Reading the tracks
 
@@ -366,7 +366,7 @@ sinuosity's radians as if they were degrees. See
 ## Next steps
 
 - The [API reference](/python/api/move/) lists every option.
-- The [Learn chapter on animal movement](/learn/movement/) explains
+- The [animal movement tutorials](/tutorials/animal-movement/) explain
   steps, sampling rates and step selection.
 - [Circuit connectivity](/tutorials/circuit-connectivity/circuit-connectivity-in-python/) and
   [distance & restoration](/tutorials/distance-restoration/distance-restoration-in-python/) model movement across a

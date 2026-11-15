@@ -34,7 +34,6 @@ Where to go:
 
 - [Get started](/python/getting-started/): installation, a first run, configuration, concepts, data and plotting.
 - [Tutorials](/python/tutorials/): each topic from the basics to the advanced options, on real maps.
-- [Learn landscape ecology](/learn/): the course that explains the landscape ecology behind every tool.
 - The [API reference](/python/api/): every function and class, with its parameters and a runnable example.
 - [Migrating from prioritizr, prioriactions and prioripy](/python/migrate-from-prioritizr/), and the
   [changelog](/python/changelog/).
@@ -182,7 +181,7 @@ metrics), NLMR (neutral landscape models), Zonation 5 (spatial prioritization), 
 distributions (CoordinateCleaner, usdm, dismo, blockCV, ENMeval, predicts, ecospat, maxnet) and the land change
 models (lulcc, CLUMondo, FUTURES, MOLUSCE, Dinamica EGO) and SWAT+ (watershed simulation), and is
 [tested against their outputs](/about/validation/). You do not need to know any of them to use it: the
-[tutorials](/python/tutorials/) start from scratch, and the [Learn](/learn/) course explains the landscape
+[tutorials](/python/tutorials/) start from scratch, and the [application's tutorials](/tutorials/) explain the landscape
 ecology behind every tool.
 
 | Tools | Compared with | Agreement | Speed-up |

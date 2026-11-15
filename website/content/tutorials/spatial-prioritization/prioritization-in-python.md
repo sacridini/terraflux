@@ -13,8 +13,8 @@ Which places matter most for a set of species, habitats or ecosystem
 services, taken together? `tf.prioritize` ranks every cell of a landscape
 from the least to the most important, as [Zonation 5](https://zonationteam.github.io/Zonation5/)
 does (Moilanen et al. 2022): same rank maps and curves, bit for bit, several
-times faster. The ideas behind it are in the course chapter
-[Conservation priorities](/learn/prioritization/).
+times faster. The ideas behind it are in the
+[spatial prioritization tutorials](/tutorials/spatial-prioritization/).
 
 **You will learn to:**
 
@@ -128,8 +128,8 @@ The hotspots are the forests, where four species overlap: they take more of
 the forest species, but leave the farmland bird with 4 %. Zonation's order is
 **complementary**: once a species is well covered, its cells lose value, and
 the cells of species still poorly covered come first. The rule decides how
-the losses of the features combine (see the
-[course](/learn/prioritization/ranking/#how-zonation-ranks)):
+the losses of the features combine (see
+[Ranking a landscape with Zonation](/tutorials/spatial-prioritization/zonation/)):
 
 ```python
 for rule in ("CAZMAX", "CAZ1", "CAZ2", "ABF"):

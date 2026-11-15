@@ -43,7 +43,6 @@ downloads:
 # The bar at the top of every page.
 nav:
   - { title: Quickstart, url: /quickstart/ }
-  - { title: Learn, url: /learn/ }
   - { title: Tutorials, url: /tutorials/ }
   - { title: Calculators, url: /calculators/ }
   - { title: Parallel computing, url: /parallel/ }
@@ -64,12 +63,7 @@ sections:
     groups:
       getting-started: { title: Getting started, order: 10 }
       api: { title: API reference, order: 90 }
-  learn:
-    title: Learn landscape ecology
-    dir: learn
-    groups:
-      prioritization: { title: Conservation priorities, order: 120 }
-      algorithms: { title: Algorithms, order: 200 }
+      algorithms: { title: Algorithms, order: 100 }  # declared ahead: no pages yet (a group without pages is not shown)
   calculators: { title: Calculators, dir: calculators }
   parallel: { title: Parallel and distributed computing, dir: parallel }
   cli: { title: CLI reference, dir: cli }

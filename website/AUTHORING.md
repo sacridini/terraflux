@@ -266,14 +266,14 @@ block gives the top-level help).
 - Keys: `++ctrl+enter++`, `++f5++`. Tables, footnotes, definition lists, `==highlight==`.
 - Code blocks with a language (`toml`, `bash`, `powershell`, `python`, `text`).
 
-## The Python library's pages (`python` and `learn` sections)
+## The Python library's pages (`python` section)
 
 The library (`extern/terraflux-py`, a submodule; `git submodule update --init extern/terraflux-py`) has its docs in
-these two sections: `content/python/` (getting started, tutorials, API reference, changelog) and `content/learn/`
-(the course), plus the `*-in-python.md` pages beside the GUI tutorials.
+the `python` section: `content/python/` (getting started, tutorials, API reference, algorithms, changelog), plus the
+`*-in-python.md` pages beside the GUI tutorials.
 
 **Sidebar groups.** A section whose pages live in subfolders (`python/getting-started/x.md`, `python/api/x.md`,
-`learn/prioritization/x.md`, `learn/algorithms/x.md`) shows a heading for each subfolder, with a fold that opens
+`python/algorithms/x.md`) shows a heading for each subfolder, with a fold that opens
 for the page being read; the section's own pages (`python/index.md`, `python/changelog.md`) stay in the list. A
 section with no subfolder is a flat list, as before. Pages are ordered by their front matter `order:` (then by
 title). A group's heading comes from `groups:` of its section in `site.yaml` (a text, or `{ title, order }`);
@@ -318,7 +318,7 @@ repository stays the source of `content/python/changelog.md`. Without the submod
 the `CI` variable is set).
 
 **Checking the examples.** `python website/tools/check_python_blocks.py [pages]` runs every ```` ```python ````
-block of `content/python/**`, `content/learn/**` and `content/**/*-in-python.md` in page order, the blocks of a page
+block of `content/python/**` and `content/**/*-in-python.md` in page order, the blocks of a page
 sharing a namespace, in a temporary folder, a process per page with a time limit (`--timeout`, 600 s), and reports
 the page and the block that fails. A block that cannot run (a file the reader has, a long job) is preceded by a
 line `<!-- no-run -->`. `--list` shows the pages and their blocks; `--python` names the interpreter with the library

@@ -17,7 +17,7 @@ predictors, and splitting the data so that the evaluation is honest.
 `tf.sdm` does each of those steps with one call, keeps a record of every
 choice, and hands the data to scikit-learn, whose models it then
 cross-validates, combines and projects. The ideas behind it are in the
-course chapter [Species distributions](/learn/sdm/).
+[species distributions tutorials](/tutorials/species-distributions/).
 
 **You will learn to:**
 
@@ -421,7 +421,7 @@ print(round(whole.summary.loc["glm", ("auc_test", "mean")], 2))
 
 The model is not better: telling the Amazon from Patagonia is easy. AUCs
 can only be compared between models with the same background and folds
-(see [AUC](/learn/sdm/#auc) in the course).
+(see [AUC](/tutorials/species-distributions/evaluation-and-thresholds/#auc-ranking-presences-above-the-background)).
 
 ## Projecting the models
 

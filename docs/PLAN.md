@@ -844,11 +844,13 @@ Fases:
    submódulo e o release do Terraflux.
 4. **A documentação no site do Terraflux:** seção `/python/` (instalação, início, conceitos, dados, gráficos,
    configuração); API gerada pelo griffe em `data/python_api.json`, páginas pelo `build.py`; os 23 tutoriais em
-   Python nas categorias correspondentes; o livro *Learn* como seção; o que só existe no landschaft (validação e
-   benchmarks, o `DOCUMENTATION.md` como algoritmos, `stats`, REDD/VT0007, migração do prioritizr, bibliografia,
-   guia de escolha e checklist, teoria de superfícies, glossário unido, changelog); as 90 figuras; os exemplos em
+   Python nas categorias correspondentes; o que só existe no landschaft (validação e benchmarks, o
+   `DOCUMENTATION.md` como algoritmos em `/python/algorithms/`, `stats`, REDD/VT0007 e migração do prioritizr na
+   API, changelog); as figuras; os exemplos em
    Python rodados no CI do site (o `check_docs.py`); `AUTHORING.md` sem `extern/landschaft/docs`. Antes, a tabela
-   página antiga → destino, que é o checklist e a fonte dos redirecionamentos.
+   página antiga → destino, que é o checklist e a fonte dos redirecionamentos. O curso *Learn* do landschaft (os 16
+   capítulos, o glossário e a bibliografia) **não** é portado (decisão do usuário, 2026-11-15): suas páginas antigas
+   redirecionam para a categoria de tutoriais do mesmo assunto.
 5. **O site do landschaft sai do ar:** o Pages não redireciona depois do rename, então uma pasta `landschaft/` no
    repositório `sacridini.github.io` com um redirecionamento por `.html` antigo (da tabela); `docs.yml`, mkdocs e
    `docs/` removidos.

@@ -10,8 +10,8 @@ order: 85
 vocabulary, so most scripts translate line by line. This page is the dictionary: what changes in the
 syntax, the equivalent of every function, what to expect when you compare the results, and the
 replacements for [prioripy](https://github.com/sacridini/prioripy), the Python package `tf.prioritize`
-grew out of. The ideas behind each function are in the course part
-[Conservation priorities](/learn/prioritization/); the full reference is the
+grew out of. The ideas behind each function are in the
+[spatial prioritization tutorials](/tutorials/spatial-prioritization/); the full reference is the
 [Spatial prioritization](/python/api/prioritization/) API page.
 
 ## What changes, what stays
@@ -417,4 +417,4 @@ frequency = p0.add_shuffle_portfolio(4, seed=1).solve().frequency       # select
 
 - [Spatial prioritization](/python/api/prioritization/): the API reference.
 - [Optimized conservation plans](/tutorials/spatial-prioritization/conservation-plans-in-python/): a complete plan, step by step.
-- [12.10 The planning process](/learn/prioritization/process/): where the software fits.
+- [Systematic conservation planning: the ideas](/tutorials/spatial-prioritization/systematic-conservation-planning/): where the software fits.
