@@ -12,10 +12,10 @@ C++17/OpenMP core behind a numpy / xarray / dask / rasterio API. It reproduces t
 checked against their outputs in the test suite, and runs from a few to several hundred times faster.
 
 Python 3.10+ · C++17 / OpenMP core · numpy · xarray · dask · GPL-3.0-or-later ·
-[PyPI](https://pypi.org/project/terraflux/) · [GitHub](https://github.com/sacridini/terraflux-py)
+[PyPI](https://pypi.org/project/terraflux-py/) · [GitHub](https://github.com/sacridini/terraflux-py)
 
 ```bash
-pip install terraflux
+pip install terraflux-py
 ```
 
 !!! note "Called landschaft until 1.58"

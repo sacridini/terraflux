@@ -3039,7 +3039,7 @@ impl TerrafluxApp {
             }
             if ui
                 .button("Python script...")
-                .on_hover_text("the model as a Python script of terraflux (the Python library, `pip install terraflux`): for a paper, a supervisor, a reviewer")
+                .on_hover_text("the model as a Python script of terraflux (the Python library, `pip install terraflux-py`): for a paper, a supervisor, a reviewer")
                 .clicked()
             {
                 ui.close();

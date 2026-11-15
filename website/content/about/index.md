@@ -33,7 +33,7 @@ prioritization, restoration planning, species distributions, biodiversity analys
 | Many machines | gRPC between a coordinator and its workers, TLS with pairing codes |
 | Python | The Python library terraflux (`import terraflux as tf`) writes and reads Terraflux models (`tf.simulate`) |
 
-**terraflux-py** is Terraflux's sister project: a Python library (`pip install terraflux`) with the same methods, for those who prefer to
+**terraflux-py** is Terraflux's sister project: a Python library (`pip install terraflux-py`) with the same methods, for those who prefer to
 work in notebooks. A model fitted in Python runs in Terraflux unchanged, and the other way round.
 
 ## License

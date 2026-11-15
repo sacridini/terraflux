@@ -431,7 +431,7 @@ and **Methods and citations** drafts the methods section of a paper from the mod
 [The model's document](../../building-models/the-model-document/) explains it all.
 
 **File > Python script...** writes the model as a Python script of
-[terraflux](https://github.com/sacridini/terraflux-py) (`pip install terraflux`, `import terraflux as tf`), the Python library whose methods Terraflux runs, for the paper's
+[terraflux](https://github.com/sacridini/terraflux-py) (`pip install terraflux-py`, `import terraflux as tf`), the Python library whose methods Terraflux runs, for the paper's
 code availability, a supervisor or a reviewer who asks for the code: a call of the library a node, in the order the
 model runs them, its note as a comment and its settings as the function's arguments. A calculator keeps its script,
 run in numpy by a helper written at the top of the file; reclassification rules become `tf.reclassify`'s table, and

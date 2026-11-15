@@ -11,7 +11,7 @@ examples write goes there). A block preceded by a line `<!-- no-run -->` is skip
 run like the others. A page stops at its first failing block (the next ones depend on it). Each page runs in a
 process of its own with a time limit (`--timeout`, 600 s), so one that hangs does not stop the others.
 
-The interpreter must have the library installed (`pip install terraflux`, or an editable install of
+The interpreter must have the library installed (`pip install terraflux-py`, or an editable install of
 extern/terraflux-py): `--python`, else the environment variable TERRAFLUX_CHECK_PYTHON, else the one running this
 script. Threads: at most 4 in all. `--jobs` pages run at once (default 2, TERRAFLUX_CHECK_JOBS; never above 4) and the
 threads of each (OMP_NUM_THREADS, RAYON_NUM_THREADS, TERRAFLUX_THREADS...) are 4 divided among them.

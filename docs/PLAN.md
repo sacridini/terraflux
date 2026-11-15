@@ -818,9 +818,9 @@ Pendências gerais, depois das fases:
 ## O landschaft passa a se chamar terraflux (planejado 2026-11-15)
 
 O pacote Python e o aplicativo ficam com um nome só. Decisões:
-- PyPI `terraflux`, `import terraflux as tf`, comando `terraflux-py`. A numeração continua a do landschaft: a
+- PyPI `terraflux-py` (o PyPI recusou o nome `terraflux`, 2026-11-15), `import terraflux as tf`, comando `terraflux-py`. A numeração continua a do landschaft: a
   primeira versão com o nome novo é a **1.59.0** (o app segue com a dele).
-- `landschaft` continua no PyPI como pacote de compatibilidade (Python puro, `terraflux==1.59.*`, apelidos em
+- `landschaft` continua no PyPI como pacote de compatibilidade (Python puro, `terraflux-py==1.59.*`, apelidos em
   `sys.modules`, `DeprecationWarning`, o comando `landschaft`), até a próxima versão maior.
 - O repositório `sacridini/landschaft` vira `sacridini/terraflux-py`; os repositórios seguem separados (submódulo).
 - A biblioteca segue a regra de núcleos do app: nunca todos (`most` = núcleos − max(núcleos/4, 1), também para
@@ -839,7 +839,7 @@ Fases:
 2. **O Terraflux:** submódulo `extern/terraflux-py`; `ls-sys` com as opções novas (`LANDSCHAFT_DIR` ainda lido);
    `python.rs` e os helpers gerando `import terraflux as tf`; menu, MCP `python_script`, guias e modelos; leitura das
    duas chaves de produto; testes de texto gerado; caminhos das figuras do site; README.
-3. **GitHub, PyPI e release** (com o usuário): renomear o repositório; trusted publisher pendente de `terraflux` e o
+3. **GitHub, PyPI e release** (com o usuário): renomear o repositório; trusted publisher pendente de `terraflux-py` e o
    do `landschaft` atualizado para o repositório novo; `release.yml` publicando os dois; tag `v1.59.0`, depois o
    submódulo e o release do Terraflux.
 4. **A documentação no site do Terraflux:** seção `/python/` (instalação, início, conceitos, dados, gráficos,

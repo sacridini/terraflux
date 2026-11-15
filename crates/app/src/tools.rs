@@ -90,7 +90,7 @@ control.switch, control.group) hold a body: edit inside one with `scope` (guide 
 - check_model checks the model and its data and advises on the method: follow its warnings. run_model runs it \
 and writes its outputs; a failed run says what does not fit: read it before changing anything. inspect_file looks \
 at a file, trace_cell explains a cell, methods drafts a paper's methods section, python_script writes it as a \
-Python script of terraflux (the Python library, `pip install terraflux`), export_plot writes a Plot as a PNG or a GeoTIFF.
+Python script of terraflux (the Python library, `pip install terraflux-py`), export_plot writes a Plot as a PNG or a GeoTIFF.
 - open_in_app opens the model in Terraflux's application, which follows the file (the user can undo each edit).
 ";
 
@@ -1915,7 +1915,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "python_script",
-            "The model as a Python script of terraflux (the Python library, `pip install terraflux`, whose methods Terraflux runs): each node a call of terraflux's function of the same method, in the order the model runs them; calculators kept as they are, run in numpy; nodes with no counterpart left as comments, said which. Returns the script, or writes it (`out`, or `beside`: <model>.py beside the model).",
+            "The model as a Python script of terraflux (the Python library, `pip install terraflux-py`, whose methods Terraflux runs): each node a call of terraflux's function of the same method, in the order the model runs them; calculators kept as they are, run in numpy; nodes with no counterpart left as comments, said which. Returns the script, or writes it (`out`, or `beside`: <model>.py beside the model).",
             json!({
                 "model": model,
                 "out": { "type": "string", "description": "The .py file to write (relative to the model's folder)." },

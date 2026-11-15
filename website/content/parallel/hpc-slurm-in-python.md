@@ -41,7 +41,7 @@ nodes see too:
 module load python/3.12            # the name of the module differs between clusters
 python -m venv ~/venvs/terraflux
 source ~/venvs/terraflux/bin/activate
-pip install terraflux
+pip install terraflux-py
 ```
 
 The wheels need glibc 2.28 or newer (Rocky/Alma Linux 8, Ubuntu 20.04, Debian

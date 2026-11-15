@@ -78,7 +78,7 @@ minor versions.
   and *Settings* has an option, "open the Node pane by itself", to have it come as before (off by default).
 
 ### Changed
-- **The Python library is now terraflux** (`pip install terraflux`, `import terraflux as tf`; it was landschaft, `import
+- **The Python library is now terraflux** (`pip install terraflux-py`, `import terraflux as tf`; it was landschaft, `import
   landschaft as ls`). File > Python script (the menu entry lost the "(landschaft)"), `terraflux python` and the MCP's
   `python_script` write `import terraflux as tf` and call `tf.`; the generated script's name `tf` is taken, as `ls` was. A
   GeoTIFF carries the product of a map as `terraflux_product` (the files that only say `landschaft_product` are still
