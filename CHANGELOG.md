@@ -21,6 +21,11 @@ minor versions.
   it with an outline that fades; opened from the gear it stays at the top.
 - **A click on the row of an open list closes it.** On the box, a click on the row of a setting with a list of
   values opens the list, and a click on the same row again closes it (it reopened it before).
+- **Dragging a node in a big model is smooth.** In a model of 10,000 nodes a frame of a node being dragged took 31 ms
+  and now takes about 5 ms (1,000 nodes: 2.8 to 0.5 ms): the wires are not gone around the box that is dragged, so
+  once it is left out of them only the wires at its ends are made again, and the wires near it are looked for by
+  halving their curves. The wires look the same, and when the node is let go they are as a new look at the whole
+  model finds them.
 
 ## [1.51.0] - 2026-11-15
 

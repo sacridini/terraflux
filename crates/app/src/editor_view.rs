@@ -1755,6 +1755,34 @@ fn wire_curve(a: Pos2, b: Pos2) -> [Pos2; 4] {
     [a, a + Vec2::new(dx, 0.0), b - Vec2::new(dx, 0.0), b]
 }
 
+/// How many pieces the straight curve of a wire is cut in to look for the boxes it crosses (`detour_between`).
+const DETOUR_PIECES: usize = 48;
+
+/// Whether a box at `r` can change the detour of the wire from `p0` to `p3`: whether one of the points
+/// `detour_between` looks at on its straight curve is within 4 of `r`. The same answer as looking at each, but
+/// found by halving: the curve runs one way in x and in y, so the points between two of them are inside the
+/// rectangle of the two. A wire running backwards or short is always said to (its detour is empty at once anyway).
+fn passes(p0: Pos2, p3: Pos2, r: Rect) -> bool {
+    if p3.x - p0.x < 4.0 * AROUND {
+        return true;
+    }
+    let curve = wire_curve(p0, p3);
+    let r = r.expand(4.0);
+    // (the points `from..=to` of the curve, `a` and `b` the first and the last of them)
+    fn look(curve: &[Pos2; 4], r: Rect, from: usize, to: usize, a: Pos2, b: Pos2) -> bool {
+        if !Rect::from_two_pos(a, b).expand(0.01).intersects(r) {
+            return false;
+        }
+        if to - from <= 1 {
+            return [(from, a), (to, b)].iter().any(|&(k, q)| (1..DETOUR_PIECES).contains(&k) && r.contains(q));
+        }
+        let mid = (from + to) / 2;
+        let q = bezier_at(curve, mid as f32 / DETOUR_PIECES as f32);
+        look(curve, r, from, mid, a, q) || look(curve, r, mid, to, q, b)
+    }
+    look(&curve, r, 0, DETOUR_PIECES, p0, p3)
+}
+
 /// The point of a cubic curve at `t`.
 fn bezier_at(c: &[Pos2; 4], t: f32) -> Pos2 {
     let u = 1.0 - t;
@@ -2001,13 +2029,36 @@ fn slowest(ui: &mut Ui, times: &HashMap<String, (f64, usize, bool)>, rect: Rect,
     go
 }
 
+/// The cells of the grid and the boxes in each: hashed by a multiplication (it is looked up for each point a wire
+/// is looked at, many times a frame while a node is dragged).
+type Grid = HashMap<(i32, i32), Vec<usize>, std::hash::BuildHasherDefault<CellHasher>>;
+
+#[derive(Default)]
+struct CellHasher(u64);
+
+impl std::hash::Hasher for CellHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0.rotate_left(5) ^ b as u64).wrapping_mul(0x517c_c1b7_2722_0a95);
+        }
+    }
+
+    fn write_i32(&mut self, n: i32) {
+        self.0 = (self.0.rotate_left(5) ^ n as u32 as u64).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+}
+
 /// A scope laid out: its boxes, a grid of them, and the shapes the GPU draws (each box's rectangles at
 /// `ranges[box]`; the connections, as curves through their points, are made again when a box moves).
 struct Scene {
     key: (u64, Vec<String>, u64, &'static str, bool, u64, bool, bool),
     boxes: Vec<BoxAt>,
     index: HashMap<String, usize>,
-    grid: HashMap<(i32, i32), Vec<usize>>,
+    grid: Grid,
     bounds: Rect,
     shapes: Arc<Shapes>,
     ranges: Vec<std::ops::Range<usize>>,
@@ -2018,6 +2069,9 @@ struct Scene {
     extra: Vec<EdgeInstance>,
     /// Whether wires go around the boxes they would cross.
     around: bool,
+    /// The boxes moved since the wires last went around all of them: the wires do not go around these (see
+    /// `follow`).
+    lifted: HashSet<usize>,
     /// The stage of each box of the top level, when it has no groups (the model's inputs are data): what the
     /// canvas frames when zoomed out.
     stage_of: Vec<Option<crate::document::Stage>>,
@@ -2310,7 +2364,7 @@ impl Scene {
             });
         }
         let index: HashMap<String, usize> = boxes.iter().enumerate().map(|(i, b)| (b.key.clone(), i)).collect();
-        let mut grid: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
+        let mut grid = Grid::default();
         let mut bounds = Rect::NOTHING;
         for (i, b) in boxes.iter().enumerate() {
             bounds = bounds.union(b.rect);
@@ -2459,6 +2513,7 @@ impl Scene {
             setting_wires,
             extra,
             around,
+            lifted: HashSet::new(),
             stage_of,
         };
         if around {
@@ -2514,11 +2569,27 @@ impl Scene {
         if !self.around {
             return;
         }
+        // (the wires that were not gone around the boxes lifted: those at their ends and those with a point of
+        // their curve near where they are now; of a great many boxes lifted, all of them)
+        let lifted = std::mem::take(&mut self.lifted);
+        let rects: Vec<Rect> = lifted.iter().map(|&i| self.boxes[i].rect).collect();
+        let all = lifted.len() > 8;
+        let hit = |p0: Pos2, p3: Pos2, a: usize, b: usize| {
+            all || lifted.contains(&a) || lifted.contains(&b) || rects.iter().any(|&r| passes(p0, p3, r))
+        };
         for e in 0..self.edges.len() {
-            self.edges[e].bend = self.detour(e, None);
+            let ed = &self.edges[e];
+            let (p0, p3) = (self.boxes[ed.from.0].output_at(ed.from.1), self.boxes[ed.to.0].input_at(ed.to.1));
+            if hit(p0, p3, ed.from.0, ed.to.0) {
+                self.edges[e].bend = self.detour(e, None);
+            }
         }
         for w in 0..self.setting_wires.len() {
-            self.setting_wires[w].bend = self.setting_detour(w, None);
+            let sw = &self.setting_wires[w];
+            let (p0, p3) = (self.boxes[sw.from.0].output_at(sw.from.1), self.boxes[sw.to.0].setting_at(sw.to.1));
+            if hit(p0, p3, sw.from.0, sw.to.0) {
+                self.setting_wires[w].bend = self.setting_detour(w, None);
+            }
         }
         let edges = self.edge_shapes();
         let shapes = Arc::make_mut(&mut self.shapes);
@@ -2574,8 +2645,8 @@ impl Scene {
         }
         let curve = wire_curve(p0, p3);
         let mut hits: Vec<usize> = Vec::new();
-        for k in 1..48 {
-            let q = bezier_at(&curve, k as f32 / 48.0);
+        for k in 1..DETOUR_PIECES {
+            let q = bezier_at(&curve, k as f32 / DETOUR_PIECES as f32);
             for &j in self.grid.get(&cell(q)).into_iter().flatten() {
                 if j != a
                     && j != b
@@ -2663,17 +2734,18 @@ impl Scene {
     /// `old` is where the box was: the wires near it, there or now, go around the boxes again.
     fn follow(&mut self, i: usize, old: Rect, generation: u64) {
         if self.around {
-            let near = old.union(self.boxes[i].rect).expand(AROUND);
+            // The wires do not go around the box (`skip`): once it is left out of them, where it goes does not
+            // change them, but for the wires it is at the end of. The first time, those with a point of their
+            // curve near where it was (they went around it) or is are made again.
+            let first = self.lifted.insert(i);
+            let near = old.union(self.boxes[i].rect);
             for e in 0..self.edges.len() {
                 let ed = &self.edges[e];
                 if !ed.via.is_empty() {
                     continue;
                 }
-                let ends = Rect::from_two_pos(
-                    self.boxes[ed.from.0].output_at(ed.from.1),
-                    self.boxes[ed.to.0].input_at(ed.to.1),
-                );
-                if ed.from.0 == i || ed.to.0 == i || ends.expand(AROUND).intersects(near) || !ed.bend.is_empty() {
+                let (p0, p3) = (self.boxes[ed.from.0].output_at(ed.from.1), self.boxes[ed.to.0].input_at(ed.to.1));
+                if ed.from.0 == i || ed.to.0 == i || (first && passes(p0, p3, near)) {
                     self.edges[e].bend = self.detour(e, Some(i));
                 }
             }
@@ -2682,11 +2754,8 @@ impl Scene {
                 if !sw.via.is_empty() {
                     continue;
                 }
-                let ends = Rect::from_two_pos(
-                    self.boxes[sw.from.0].output_at(sw.from.1),
-                    self.boxes[sw.to.0].setting_at(sw.to.1),
-                );
-                if sw.from.0 == i || sw.to.0 == i || ends.expand(AROUND).intersects(near) || !sw.bend.is_empty() {
+                let (p0, p3) = (self.boxes[sw.from.0].output_at(sw.from.1), self.boxes[sw.to.0].setting_at(sw.to.1));
+                if sw.from.0 == i || sw.to.0 == i || (first && passes(p0, p3, near)) {
                     self.setting_wires[w].bend = self.setting_detour(w, Some(i));
                 }
             }
@@ -5662,5 +5731,48 @@ b"
         let set = node_settings(&n, standard(), false, true);
         let of = |name: &str| set.rows.iter().find(|r| r.name == name).map(|r| r.kind);
         assert_eq!((of("solver"), of("gap")), (Some(Kind::Choice), Some(Kind::Text)));
+    }
+
+    /// A node dragged in a scene of wires that go around boxes: after each step the wires are as a full look at all
+    /// of them finds (only those near the node were looked at), and what `settle` gives is the same as a new scene.
+    #[test]
+    fn a_node_dragged_leaves_the_wires_as_a_full_look_finds_them() {
+        let mut m = Model::new("around");
+        // a grid of nodes, each reading the one before and the first one (long wires crossing the boxes)
+        for k in 0..60 {
+            let mut n = Node::new(&format!("n{k}"), "raster.calc").param("expression", "a + b");
+            if k > 0 {
+                n = n.input("a", &format!("n{}.map", k - 1));
+            }
+            if k > 2 {
+                n = n.input("b", &format!("n{}.map", k * 5 % 3));
+            }
+            n.pos = Some([(k % 10) as f32 * 260.0, (k / 10) as f32 * 120.0]);
+            m.nodes.push(n);
+        }
+        let v = egui::Visuals::dark();
+        let status = BTreeStatus::new();
+        let mut measure = |s: &str, _: &FontId| s.len() as f32 * 7.0;
+        let mut build = |m: &Model| {
+            Scene::build(m, &m.nodes, standard(), &[], &status, &v, true, &HashSet::new(), None, true, &mut measure)
+        };
+        let mut scene = build(&m);
+        assert!(scene.edges.iter().any(|e| !e.bend.is_empty()), "wires go around boxes");
+        let at = scene.index["n13"];
+        let start = scene.boxes[at].rect.min;
+        for k in 1..=40 {
+            let to = start + Vec2::new(k as f32 * 13.0, k as f32 * 9.0 - 100.0);
+            scene.move_box(at, to, k);
+            for e in 0..scene.edges.len() {
+                assert_eq!(scene.edges[e].bend, scene.detour(e, Some(at)), "wire {e} at step {k}");
+            }
+        }
+        scene.settle(99);
+        // a new scene, the node where it was let go
+        m.nodes[13].pos = Some([scene.boxes[at].rect.min.x, scene.boxes[at].rect.min.y]);
+        let fresh = build(&m);
+        for e in 0..fresh.edges.len() {
+            assert_eq!(scene.edges[e].bend, fresh.edges[e].bend, "wire {e} settled");
+        }
     }
 }

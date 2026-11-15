@@ -2644,8 +2644,21 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
     cadeia de béziers (`wire_path`), `Drag::Point`, `menu_point`, o desvio (`Scene::detour`: 48 amostras, dois pontos
     acima ou abaixo por caixa, só fios sem pontos, refeito ao mover uma caixa); `settings.wires_around`; o *Arrange*
     (canvas e MCP) limpa os pontos. Testes: cinco em canvas.rs (`a_wire_gets_reroute_points_...`,
-    `a_wire_across_a_box_goes_around_it`...) e `reroute_points_are_saved_only_when_there_are_some`. Os testes que mudam ou dependem da `settings` global (minimapa, desvio, fios) seguram um mesmo `settings_lock()` em canvas.rs. Falta: não medido com milhares de nós; sem
-    dica ao passar sobre um fio (o item 19).
+    `a_wire_across_a_box_goes_around_it`...) e `reroute_points_are_saved_only_when_there_are_some`. Os testes que mudam ou dependem da `settings` global (minimapa, desvio, fios) seguram um mesmo `settings_lock()` em canvas.rs. Falta: sem dica ao passar sobre um fio (o item 19).
+    **Medido com milhares de nós** (Unreleased; `canvas::timings`, release, medianas de 5 rodadas intercaladas, 10.000
+    nós, o benchmark liga todos a `n0`, então ~12 mil fios passam pelo nó arrastado): arrastar um nó custava 31 ms por
+    quadro (100 nós 0,33 ms; 1.000 nós 2,8 ms), todo em `Scene::follow` (28 ms): a cada passo refazia o desvio de todo fio
+    com curva torta (`!bend.is_empty()`) ou com caixa perto, 47 consultas à grade por fio; o resto (`edge_shapes` 1,1 ms,
+    `Arc::make_mut` das formas 0,5 ms, o quadro 3 ms) é pequeno. Agora: o nó arrastado fica "levantado" (`Scene::lifted`,
+    esvaziado em `settle`), então depois do primeiro passo só os fios ligados a ele são refeitos (o desvio com `skip`
+    não depende de onde o nó está); no primeiro, só os fios com um ponto da curva a 4 do lugar velho ou do novo
+    (`passes`: bisseção, a curva é monótona em x e y), e `settle` só os ligados e os perto. A grade usa um hasher por
+    multiplicação (`CellHasher`). Resultado: arrastar 10.000 nós 32,1 -> 4,7 ms (o pior quadro, o primeiro passo,
+    11,6 ms); 1.000 nós 2,77 -> 0,50 ms; 100 nós 0,34 -> 0,16 ms; quadros parados e "edit" (checado 35 ms, desenhado
+    81 ms em 10.000) iguais. Teste: `a_node_dragged_leaves_the_wires_as_a_full_look_finds_them` (a cada passo cada fio
+    igual ao desvio completo; depois de `settle`, igual a uma cena nova). Falta: os 4,7 ms ainda são O(fios) por
+    passo (a varredura dos fios ligados, `edge_shapes` inteiro e o `Arc::make_mut` das formas), um índice de fios por
+    nó e só as instâncias mudadas na GPU baixariam mais; o `edit` (35 + 81 ms em 10.000) não foi mexido.
 19. **Ver o tipo e o valor numa conexão**: passar o ponteiro sobre um fio mostra o tipo e um resumo do último valor
     (um mapa: tamanho e faixa; um número: ele).
     **Feito** (Unreleased, por um sub-agente): `metadata::brief` (o texto; a faixa até 20 milhões de células),
