@@ -2234,8 +2234,8 @@ pub struct TerrafluxApp {
     /// The model's document was opened (behind the model's tab) when the first node came (not again, if it is
     /// closed after).
     document_opened: bool,
-    /// The Prepare pane was opened when the first data came (not again, if it is closed after).
-    prepare_opened: bool,
+    /// The first data came: the Prepare drawer is there (its pane does not open by itself).
+    prepare_due: bool,
     /// The window to be maximized, at its third frame (the frames drawn so far): on Windows the window shown
     /// after its first frame loses the maximized state it was made with.
     pub maximize: Option<u32>,
@@ -2371,7 +2371,7 @@ impl TerrafluxApp {
             viewer_opened: false,
             node_opened: false,
             document_opened: false,
-            prepare_opened: false,
+            prepare_due: false,
             maximize: None,
             files: crate::files_view::Files::default(),
             batch: crate::batch_view::BatchState::new(),
@@ -4121,12 +4121,22 @@ impl TerrafluxApp {
         self.settings_open = open;
     }
 
+    /// The panes with a drawer now: the operators' and the files' while closed, the preparation's while closed and
+    /// the model has data.
+    fn closed_drawers(&self) -> Vec<Pane> {
+        let prepare = self.prepare_due || self.has_data();
+        [Pane::Operators, Pane::Files, Pane::Prepare]
+            .into_iter()
+            .filter(|p| !self.is_open(*p) && (*p != Pane::Prepare || prepare))
+            .collect()
+    }
+
     /// The strip at the window's left edge while the operators' or the files' pane is closed: a tab each, its name
     /// written along it; the pointer over a tab brings its drawer out, a click opens its pane. Where it is, and
     /// where its tabs are.
     fn drawers_strip(&mut self, ui: &mut Ui) -> (egui::Rect, Vec<(Pane, egui::Rect)>) {
         let open = self.drawer;
-        let closed: Vec<Pane> = [Pane::Operators, Pane::Files].into_iter().filter(|p| !self.is_open(*p)).collect();
+        let closed = self.closed_drawers();
         let (rect, tabs, clicked) = egui::Panel::left("drawers strip")
             .exact_size(20.0)
             .resizable(false)
@@ -4147,6 +4157,11 @@ impl TerrafluxApp {
                                  the Operators menu)",
                                 crate::keymap::text("commands")
                             ),
+                        ),
+                        Pane::Prepare => (
+                            "PREPARE  ›",
+                            84.0,
+                            "Put the data on the model's grid: here to see it, a click keeps its pane open".to_string(),
                         ),
                         _ => (
                             "FILES  ›",
@@ -4234,6 +4249,8 @@ impl TerrafluxApp {
                         ui.set_height(area.height());
                         if pane == Pane::Operators {
                             crate::builder::operators_pane(ui, s, &self.registry, &self.library);
+                        } else if pane == Pane::Prepare {
+                            crate::prepare_view::pane(ui, s, &self.registry);
                         } else if let Some(crate::files_view::Asked::Open(p)) =
                             crate::files_view::pane(ui, &mut self.files, s, &self.registry)
                         {
@@ -4835,8 +4852,8 @@ impl TerrafluxApp {
     }
 
     /// The panes that come when they make sense opened, once, when it comes: the viewer (beside the model, behind
-    /// it) and the preparation of the data (behind the node's pane) with the first data (a raster or vectors read,
-    /// a model with inputs, a template started), the node's pane (at the model's left) with the first node, if the settings ask for it.
+    /// it) with the first data (a raster or vectors read, a model with inputs, a template started; the
+    /// preparation of the data only gets its drawer), the node's pane (at the model's left) with the first node, if the settings ask for it.
     fn open_due(&mut self) {
         self.open_due_with(false);
     }
@@ -4857,15 +4874,8 @@ impl TerrafluxApp {
             self.document_opened = true;
             self.behind_model(Pane::Document);
         }
-        if !self.prepare_opened && data {
-            self.prepare_opened = true;
-            self.open_behind(Pane::Prepare);
-            // (the node's pane in front of it)
-            if let Some(d) = &mut self.dock
-                && let Some(p) = d.find_tab(&Pane::Node)
-            {
-                let _ = d.set_active_tab(p);
-            }
+        if data {
+            self.prepare_due = true;
         }
         if !self.viewer_opened && data {
             self.add_viewer();
@@ -4877,7 +4887,7 @@ impl TerrafluxApp {
         self.viewer_opened = false;
         self.node_opened = false;
         self.document_opened = false;
-        self.prepare_opened = false;
+        self.prepare_due = false;
     }
 
     /// A pane opened where it goes (if it is not open), the focus left where it was.
@@ -5207,8 +5217,7 @@ impl TerrafluxApp {
         }
         self.take_dropped(ui);
         // the operators' or the files' pane closed: a strip at the window's left edge says they are there
-        let strip = (self.session.is_some() && !(self.is_open(Pane::Operators) && self.is_open(Pane::Files)))
-            .then(|| self.drawers_strip(ui));
+        let strip = (self.session.is_some() && !self.closed_drawers().is_empty()).then(|| self.drawers_strip(ui));
         let area = ui.available_rect_before_wrap();
         egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::bar())).show(ui, |ui| self.docks(ui));
         self.drawer(ui.ctx(), area, strip);

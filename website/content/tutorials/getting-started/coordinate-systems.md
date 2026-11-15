@@ -163,7 +163,7 @@ The input is the `raster` output of [[raster.read]], the file on disk: reproject
 the size of the raster, and the result is again a raster on disk.
 
 !!! app "In the application: Prepare"
-    Select a node that gives a raster and open the **Prepare** pane (a tab beside the Node pane). It shows the
+    Select a node that gives a raster and open the **Prepare** pane (its tab, **PREPARE**, is at the window's left edge once the model has data; a click opens it). It shows the
     raster's coordinate system, cells and size next to the model's **reference grid**, and what differs. **Reproject
     to**, with a field for the CRS (EPSG:4326 by default), adds a [[raster.reproject]] node with the resampling
     chosen by what the values are; **Put on the reference grid** reprojects, resamples, cuts and aligns in one go.

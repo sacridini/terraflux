@@ -633,17 +633,12 @@ fn the_node_prepare_and_calculator_come_when_they_make_sense() {
     }
     h.run_steps(2);
     assert!(!h.state().is_open(Pane::Node), "closed, it stays closed");
-    // a template (of data): the node's pane and the preparation behind it, the viewer behind the graph
+    // a template (of data): the node's pane, the viewer behind the graph
     let ctx = h.ctx.clone();
     h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
     h.run_steps(2);
-    assert!(h.state().is_open(Pane::Node) && h.state().is_open(Pane::Prepare) && h.state().is_open(Pane::Viewer));
+    assert!(h.state().is_open(Pane::Node) && !h.state().is_open(Pane::Prepare) && h.state().is_open(Pane::Viewer));
     assert!(!h.state().is_open(Pane::Calculator), "the calculator only when a script is opened in it");
-    let dock = h.state().dock.as_ref().unwrap();
-    let node = dock.find_tab(&Pane::Node).unwrap();
-    assert_eq!(dock.find_tab(&Pane::Prepare).map(|p| p.node_path()), Some(node.node_path()), "together");
-    let leaf = dock.leaf(node.node_path()).unwrap();
-    assert_eq!(leaf.tabs().get(leaf.active.0), Some(&Pane::Node), "the node's pane in front");
 }
 
 /// A box is as wide as its texts need (an input's and an output's names side by side never overlap), wider when

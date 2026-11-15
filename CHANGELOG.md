@@ -7,6 +7,7 @@ minor versions.
 ## [Unreleased]
 
 ### Changed
+- **Prepare in a drawer.** The Prepare pane no longer comes open by itself with the first data: a PREPARE tab waits at the window's left edge, under OPERATORS and FILES, while the model has data and the pane is closed (the pointer over it brings the drawer out, a click opens the pane docked). It still opens from the View menu.
 - **Themes.** The theme named *Default* is now *Classic* (it was not the default any more: Slate is); a settings file that still holds "Default" reads as Slate. Three new modern themes: *Graphite* (the old greys and orange, modern), *Ash* (light greys and orange) and *Midnight* (deep navy, violet accent). The Settings list shows the modern themes first, then the classic, under two small headings, and Slate as "Slate (default)".
 
 ## [1.50.0] - 2026-11-15

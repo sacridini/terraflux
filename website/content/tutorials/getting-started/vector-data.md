@@ -371,7 +371,7 @@ params = { path = "corridor.gpkg" }
 the distance to cells of some values (to class 40, water courses, for example), on a file of any size.
 
 !!! app "In the application: Prepare"
-    Select a [[vector.read]] node and open the **Prepare** pane (beside the Node pane, on the left). Once the model
+    Select a [[vector.read]] node and open the **Prepare** pane (its tab, **PREPARE**, is at the window's left edge once the model has data; a click opens it). Once the model
     has a reference grid (usually its land cover map), Prepare offers the vector steps in one click each:
     **Distance to these features**, **Burn into the grid** and **Statistics of the reference map in each
     polygon**. Each adds the operator's node, already connected, with a note saying why. See

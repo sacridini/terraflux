@@ -2497,6 +2497,51 @@ fn data_is_put_on_the_reference_grid_in_a_click() {
     assert_eq!(s.selected.as_deref(), Some(n.id.as_str()));
 }
 
+/// The preparation does not come open by itself: a model without data has no tab of it at the window's left edge, a
+/// model with data has one (and its drawer under the pointer), and a click on it opens the pane.
+#[test]
+fn the_preparation_waits_in_its_drawer() {
+    let d = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    let empty = d.join("prepare-drawer-empty.toml");
+    terraflux_graph::Model::new("empty").save(&empty).unwrap();
+    let mut h = harness(new_app(Some(empty)));
+    loaded(&mut h);
+    h.run_steps(3);
+    assert!(h.query_by_label("PREPARE  ›").is_none(), "no data, no tab");
+    let mut m = terraflux_graph::Model::new("with data");
+    m.nodes.push(
+        terraflux_graph::Node::new("land", "raster.read").param("path", data("pie_landuse.tif").to_string_lossy()),
+    );
+    let path = d.join("prepare-drawer-data.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    h.run_steps(4);
+    assert!(!h.state().is_open(Pane::Prepare), "not open by itself");
+    let top = h.state().dock.as_ref().and_then(|d| d.find_tab(&Pane::Model).map(|p| d[p.surface][p.node].rect()));
+    let top = top.flatten().expect("the model's rect").top();
+    // the tab: the third of the strip, under the operators' and the files'
+    let at = egui::pos2(8.0, top + 250.0);
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(3);
+    assert_eq!(h.state().drawer, Some(Pane::Prepare), "its drawer under the pointer");
+    h.event(egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.event(egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(3);
+    assert!(h.state().is_open(Pane::Prepare), "a click opens its pane");
+    assert_ne!(h.state().drawer, Some(Pane::Prepare));
+}
+
 /// The panes' places: the model in most of the window, the node's pane at its left (the preparation in a tab beside
 /// it), nothing at the right; the operators and the files in drawers the pointer opens at the window's left edge
 /// (and closes leaving it), the operators in the toolbar too, their panes, shown, at the left edge; the assistant
@@ -2510,7 +2555,7 @@ fn the_operators_drawer_and_windows_of_their_own() {
     h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
     h.run_steps(4);
     assert!(!h.state().is_open(Pane::Operators), "the operators in their drawer at first");
-    assert!(h.state().is_open(Pane::Node) && h.state().is_open(Pane::Prepare));
+    assert!(h.state().is_open(Pane::Node) && !h.state().is_open(Pane::Prepare), "the preparation in its drawer");
     assert!(!h.state().is_open(Pane::Files) && !h.state().is_open(Pane::Assistant), "nothing more at first");
     let rect = |h: &Harness<TerrafluxApp>, pane: Pane| {
         let dock = h.state().dock.as_ref().unwrap();
