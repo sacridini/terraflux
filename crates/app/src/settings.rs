@@ -111,6 +111,8 @@ pub struct Settings {
     /// On the Viewer's map: the scale bar (on unless turned off) and the coordinate grid (off unless turned on).
     pub scale_bar: bool,
     pub map_grid: bool,
+    /// The figure's typeface and text size, and where its legend and scale bar stand (the last figure's).
+    pub figure_look: crate::figure::Look,
     /// The Viewer's window of its own, where it was last: its place on the screen and its size (x, y, width,
     /// height, in points).
     pub viewer_window: Option<[f32; 4]>,
@@ -447,6 +449,7 @@ impl Default for Settings {
             node_remotes: Vec::new(),
             scale_bar: true,
             map_grid: false,
+            figure_look: crate::figure::Look::default(),
             viewer_window: None,
             custom_basemaps: Vec::new(),
             shortcuts: BTreeMap::new(),

@@ -1021,11 +1021,6 @@ pub(crate) fn ansi(c: char) -> Vec<u8> {
     }
 }
 
-/// A text's width in Helvetica (points).
-pub(crate) fn helvetica_width(size: f32, text: &str) -> f32 {
-    width(Font::Regular, size, text)
-}
-
 fn width(font: Font, size: f32, text: &str) -> f32 {
     let w: u32 = text
         .chars()

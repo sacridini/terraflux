@@ -396,7 +396,12 @@ in red, in its bottom right corner); the preview follows. The vector layers draw
 over it in the figure too, in their colours, cut at the map's edge. **Save PNG...** records the
 resolution in the file, so that a word processor places it at its width; **Save SVG...** keeps the text as text,
 to change in Inkscape or Illustrator; **Save PDF...** writes a PDF of the figure's size, its lines and text as
-lines and text (in Helvetica) and the maps as pictures.
+lines and text (the font embedded) and the maps as pictures. The **Font** (Source Sans 3, Inter or the
+application's Ubuntu Light) and the **Text size** are those of every format: the SVG names the font in its text, the
+PDF embeds it and the PNG draws its letters. The **legend** and the **scale bar** stand where they fall by themselves,
+in a corner or at a place of your own (x and y in percent), or you drag them in the preview; a legend by hand goes
+over the figure (over each map when the maps have their own legends), and nothing leaves it. The font, the size and
+the places are kept for the next figure.
 
 A map of several layers (a stack, the steps of a loop, the bands of a raster) has **Play** beside its slider
 (the layers one after another, again and again; the arrows or the slider stop it), a **speed** in frames a second

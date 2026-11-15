@@ -6264,6 +6264,88 @@ fn a_map_as_a_figure() {
     }
     assert!(h.query_by_label("Save PNG...").is_some() && h.query_by_label("Save PDF...").is_some());
     shot(&mut h, "14f-figure");
+    // the scale bar and the legend taken with the pointer in the preview and dropped: first near the middle of
+    // the room (a place of its own), then far past a corner (the corner)
+    {
+        use terraflux_app::figure::{Item, Place};
+        let boxes =
+            |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().figure.as_ref().unwrap().boxes_on_screen();
+        let places = |h: &Harness<TerrafluxApp>| {
+            let f = h.state().session.as_ref().unwrap().figure.as_ref().unwrap();
+            (f.layout.look.legend_at, f.layout.look.scale_at)
+        };
+        let drag = |h: &mut Harness<TerrafluxApp>, from: egui::Pos2, to: egui::Pos2| {
+            h.event(egui::Event::PointerMoved(from));
+            h.run_steps(2);
+            h.event(egui::Event::PointerButton {
+                pos: from,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(2);
+            for k in 1..=4 {
+                h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / 4.0)));
+                h.run_steps(2);
+            }
+            h.event(egui::Event::PointerButton {
+                pos: to,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(4);
+        };
+        assert_eq!(places(&h), (Place::Auto, Place::Auto));
+        let mut moved = Vec::new();
+        for item in [Item::ScaleBar, Item::Legend] {
+            let Some(&(_, b, area)) = boxes(&h).iter().find(|b| b.0 == item) else {
+                // (a map without a legend of colours has none to take)
+                assert_eq!(item, Item::Legend, "the scale bar is in the preview");
+                continue;
+            };
+            // to where its middle is the room's
+            drag(&mut h, b.center(), area.center());
+            let (l, s) = places(&h);
+            let Place::At(x, y) = (if item == Item::Legend { l } else { s }) else {
+                panic!("{item:?} dropped in the middle is at a place of its own: {:?}", places(&h))
+            };
+            assert!((x - 0.5).abs() < 0.08 && (y - 0.5).abs() < 0.08, "{item:?} at {x}, {y}");
+            // and far past the top left corner: kept inside, snapped to it
+            let b = boxes(&h).into_iter().find(|b| b.0 == item).unwrap().1;
+            drag(&mut h, b.center(), b.center() - egui::vec2(3000.0, 3000.0));
+            let (l, s) = places(&h);
+            assert_eq!(if item == Item::Legend { l } else { s }, Place::TopLeft, "{item:?}");
+            moved.push(item);
+        }
+        assert!(moved.contains(&Item::ScaleBar));
+        // (the layout drawn again with them there)
+        h.run_steps(2);
+        let f = h.state().session.as_ref().unwrap().figure.as_ref().unwrap();
+        assert!(f.boxes_on_screen().iter().all(|(_, b, a)| a.expand(1.0).contains_rect(*b)), "inside the room");
+        // back to the usual for what follows
+        let f = h.state_mut().session.as_mut().unwrap().figure.as_mut().unwrap();
+        (f.layout.look.legend_at, f.layout.look.scale_at) = (Place::Auto, Place::Auto);
+        h.run_steps(3);
+    }
+    // the font and the places of the legend and the scale bar: in the window, and in what is written
+    assert!(h.query_by_label("Font").is_some() && h.query_by_label("Text size").is_some());
+    {
+        use terraflux_app::figure::{Face, Look, Place};
+        let f = h.state_mut().session.as_mut().unwrap().figure.as_mut().unwrap();
+        f.layout.look = Look { face: Face::Inter, size: 9.0, legend_at: Place::TopLeft, scale_at: Place::At(0.5, 0.5) };
+    }
+    h.run_steps(3);
+    {
+        let f = h.state().session.as_ref().unwrap().figure.as_ref().unwrap();
+        let svg = tmp("figure-inter.svg");
+        terraflux_app::figure::save(&f.choices[0].1, &f.layout, &svg).unwrap();
+        let text = std::fs::read_to_string(&svg).unwrap();
+        assert!(text.contains("font-family=\"'Inter'") && text.contains("font-size=\"9\""), "{}", &text[..300]);
+    }
+    // (kept for the next figure)
+    assert_eq!(terraflux_app::settings::get().figure_look.face, terraflux_app::figure::Face::Inter);
+    terraflux_app::settings::update(|s| s.figure_look = Default::default());
     // the raster read, of three bands: each of them a panel
     {
         let s = h.state_mut().session.as_mut().unwrap();

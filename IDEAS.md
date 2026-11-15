@@ -466,8 +466,8 @@ ordem de impacto (começando pelo 1 e pelo 3):
    com hemisfério ou em metros com espaços). A figura é montada uma vez em pontos (formas) e escrita em SVG (o texto
    como texto, a editar no Inkscape; os mapas como PNG dentro, `href` e `xlink:href`) ou em PNG pelo tiny-skia (as
    letras como contornos da fonte, `ab_glyph`), com o `pHYs` da resolução. Conferido: o SVG lido pelo Qt (QGIS).
-   Falta: PDF (o SVG abre no Inkscape e sai em PDF), um mapa de vetores por cima, o encarte de localização, a
-   fonte escolhida, mover a legenda e a barra à mão.
+   Falta: PDF (o SVG abre no Inkscape e sai em PDF), um mapa de vetores por cima, o encarte de localização (esses
+   três e a fonte e a legenda à mão estão no item 6 de baixo).
 6. **Catálogo visual de dados.** Os conjuntos que o `data.download` alcança (WorldClim, SoilGrids, MapBiomas,
    GBIF...) num catálogo com prévia, resolução, período e licença, em vez de só o operador.
    **Feito** (Unreleased): File > "Data catalog..." (e ctrl+K; `catalog.rs`): um cartão por fonte do
@@ -587,7 +587,18 @@ como o próximo bloco, nesta ordem (um commit por item):
    estilo (`vector_tiles::colours`). O encarte (`Layout::inset`, ligado por padrão): a terra do Natural Earth
    1:110m embutida (`assets/ne_110m_land.bin`, 20 KB, centésimos de grau), longitudes encolhidas pelo cosseno da
    latitude do meio, seis vezes o vão do mapa (24° pelo menos), o mapa em vermelho (um anel quando pequeno
-   demais). Falta: a fonte escolhida, mover a legenda e a barra à mão, o encarte num mapa sem CRS conhecido.
+   demais). A fonte e a legenda e a barra à mão: **Feito** (Unreleased): `Layout::look` (`Look`: `Face` Source Sans 3,
+   Inter ou a Ubuntu Light do egui; o tamanho-base do texto, 7,5 pt como antes, que multiplica o título, as legendas,
+   as coordenadas, a seta e a barra; `legend_at` e `scale_at`, um `Place`: `Auto` como antes, um canto, ou `At(x, y)`,
+   frações 0 a 1 do espaço livre). O SVG leva o `font-family` da fonte; o PDF embute a fonte inteira (Type 0,
+   Identity-H, com `ToUnicode`: o texto busca e copia) no lugar da Helvetica; o PNG desenha os contornos dela. A
+   legenda à mão fica sobre a figura (sobre o mapa de cada painel quando as legendas são por mapa), em fundo claro;
+   a barra, dentro do mapa. Na prévia arrasta-se cada uma (um quadro mostra onde cai; perto de um canto, gruda); a
+   janela tem Font, Text size e, para cada uma, Default, os cantos ou Custom (x e y em %). `Look` fica nas
+   configurações (`figure_look`) e vale para a próxima figura. Falta: subconjunto da fonte no PDF (hoje ~200 KB a
+   mais), uma serifa (nenhuma embutida), a legenda e a barra por painel com lugares diferentes. O encarte num mapa sem
+   CRS conhecido **não** foi feito: sem CRS não há lugar no mundo a marcar (as células podem ser metros, graus ou só
+   números de célula); só valeria com o usuário dando o CRS ou um ponto.
 7. **QGIS:** `.qgz` e as cores dos vetores do Viewer.
    **Feito** (Unreleased): o projeto em `.qgz` (padrão; um zip escrito à mão, deflate do `miniz_oxide`, CRC32 da
    figura) ou `.qgs`, escolha na janela. Os vetores com o estilo do Viewer (`preview_overlays`): cor, preenchimento

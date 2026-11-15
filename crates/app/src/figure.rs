@@ -11,6 +11,7 @@ use std::sync::mpsc::{Receiver, channel};
 
 use ab_glyph::{Font, FontRef, OutlineCurve};
 use egui::{Color32, RichText};
+use serde::{Deserialize, Serialize};
 
 use crate::map_view::Source;
 use crate::palette::Coloring;
@@ -68,8 +69,152 @@ impl Vectors {
     }
 }
 
+/// The typeface of the figure's text.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Face {
+    /// The website's (and the figure's before the choice).
+    #[default]
+    SourceSans,
+    Inter,
+    /// The application's own when no theme font is chosen (Ubuntu Light).
+    Egui,
+}
+
+impl Face {
+    pub const ALL: [Face; 3] = [Face::SourceSans, Face::Inter, Face::Egui];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Face::SourceSans => "Source Sans 3",
+            Face::Inter => "Inter",
+            Face::Egui => "Ubuntu Light (egui)",
+        }
+    }
+
+    /// The font's name in a PDF.
+    fn ps_name(self) -> &'static str {
+        match self {
+            Face::SourceSans => "SourceSans3-Regular",
+            Face::Inter => "Inter-Regular",
+            Face::Egui => "Ubuntu-Light",
+        }
+    }
+
+    /// The `font-family` of the SVG's text: the face, then what a program without it falls back to.
+    fn css(self) -> &'static str {
+        match self {
+            Face::SourceSans => "'Source Sans 3', 'Source Sans Pro', Arial, sans-serif",
+            Face::Inter => "'Inter', Arial, sans-serif",
+            Face::Egui => "'Ubuntu Light', 'Ubuntu', Arial, sans-serif",
+        }
+    }
+
+    /// The font file's bytes.
+    fn bytes(self) -> &'static [u8] {
+        match self {
+            Face::SourceSans => include_bytes!("../assets/fonts/SourceSans3-Regular.ttf"),
+            Face::Inter => include_bytes!("../assets/fonts/Inter-Regular.ttf"),
+            Face::Egui => {
+                static EGUI: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+                EGUI.get_or_init(|| {
+                    let d = egui::FontDefinitions::default();
+                    let name = d.families.get(&egui::FontFamily::Proportional).and_then(|f| f.first());
+                    name.and_then(|n| d.font_data.get(n)).map(|f| f.font.to_vec()).unwrap_or_default()
+                })
+            }
+        }
+    }
+}
+
+/// Where the legend or the scale bar stands: where it falls by itself, in a corner, or at a place of the free
+/// room (0 to 1 across and down: 0 is the box against the left or top edge, 1 against the right or bottom).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum Place {
+    /// The legend at the right of the maps (under each map when they differ), the scale bar at the map's bottom left.
+    #[default]
+    Auto,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    At(f32, f32),
+}
+
+impl Place {
+    /// The top left corner of a box `size` big in `area` (x, y, width, height), always inside it; none for `Auto`.
+    fn corner(self, (ax, ay, aw, ah): (f32, f32, f32, f32), (w, h): (f32, f32), m: f32) -> Option<(f32, f32)> {
+        let (fx, fy) = match self {
+            Place::Auto => return None,
+            Place::TopLeft => (0.0, 0.0),
+            Place::TopRight => (1.0, 0.0),
+            Place::BottomLeft => (0.0, 1.0),
+            Place::BottomRight => (1.0, 1.0),
+            Place::At(x, y) => (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)),
+        };
+        // (a corner leaves a margin; a place of the free room is the box itself in it)
+        let m = if matches!(self, Place::At(..)) { 0.0 } else { m };
+        let (rx, ry) = ((aw - w - 2.0 * m).max(0.0), (ah - h - 2.0 * m).max(0.0));
+        Some((ax + m + fx * rx, ay + m + fy * ry))
+    }
+
+    /// The place a box at (`x`, `y`) of its `area` is at, a corner when it is close to one.
+    fn of_box((ax, ay, aw, ah): (f32, f32, f32, f32), (w, h): (f32, f32), (x, y): (f32, f32)) -> Place {
+        let f = |v: f32, a: f32, room: f32| if room > 0.5 { ((v - a) / room).clamp(0.0, 1.0) } else { 0.0 };
+        let (fx, fy) = (f(x, ax, aw - w), f(y, ay, ah - h));
+        let snap = |v: f32| {
+            if v < 0.04 {
+                0.0
+            } else if v > 0.96 {
+                1.0
+            } else {
+                v
+            }
+        };
+        match (snap(fx), snap(fy)) {
+            (0.0, 0.0) => Place::TopLeft,
+            (1.0, 0.0) => Place::TopRight,
+            (0.0, 1.0) => Place::BottomLeft,
+            (1.0, 1.0) => Place::BottomRight,
+            (x, y) => Place::At(x, y),
+        }
+    }
+
+    /// The place as fractions (a corner as its own), for the dialog's fields.
+    pub fn fractions(self) -> (f32, f32) {
+        match self {
+            Place::Auto | Place::TopLeft => (0.0, 0.0),
+            Place::TopRight => (1.0, 0.0),
+            Place::BottomLeft => (0.0, 1.0),
+            Place::BottomRight => (1.0, 1.0),
+            Place::At(x, y) => (x, y),
+        }
+    }
+}
+
+/// The typeface and size of the text, and where the legend and the scale bar stand: what the figures of a user
+/// keep alike (kept in the settings).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Look {
+    pub face: Face,
+    /// The base size of the text, points: the legend's (the title, the captions and the coordinates follow it).
+    pub size: f32,
+    pub legend_at: Place,
+    pub scale_at: Place,
+}
+
+/// The legend's text size (points) when the figure is as it was before the size could be chosen.
+pub const BASE_SIZE: f32 = 7.5;
+
+impl Default for Look {
+    fn default() -> Self {
+        Look { face: Face::default(), size: BASE_SIZE, legend_at: Place::Auto, scale_at: Place::Auto }
+    }
+}
+
 /// How the figure is laid out.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Layout {
     pub title: String,
     /// The width of the figure, millimetres (a journal's column: about 85; the page: about 180).
@@ -82,6 +227,8 @@ pub struct Layout {
     pub grid: bool,
     /// A small map of where in the world the map is.
     pub inset: bool,
+    /// The typeface and size of the text, the legend's and the scale bar's places.
+    pub look: Look,
 }
 
 impl Default for Layout {
@@ -96,6 +243,7 @@ impl Default for Layout {
             north: true,
             grid: true,
             inset: true,
+            look: Look::default(),
         }
     }
 }
@@ -159,11 +307,36 @@ enum Shape {
     },
 }
 
-/// A figure laid out: its size in points and what is drawn.
+/// What can be moved by hand in a figure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Item {
+    Legend,
+    ScaleBar,
+}
+
+/// A legend or a scale bar where it is drawn: its box and the room it may move in (x, y, width, height, in points
+/// from the figure's top left corner).
+#[derive(Clone, Copy, Debug)]
+pub struct Slot {
+    pub item: Item,
+    pub rect: (f32, f32, f32, f32),
+    pub area: (f32, f32, f32, f32),
+}
+
+impl Slot {
+    /// The place of this item when its box is moved to (`x`, `y`).
+    pub fn place_at(&self, x: f32, y: f32) -> Place {
+        Place::of_box(self.area, (self.rect.2, self.rect.3), (x, y))
+    }
+}
+
+/// A figure laid out: its size in points, what is drawn, its typeface, and where its legends and scale bars are.
 pub struct Drawing {
     pub w: f32,
     pub h: f32,
     shapes: Vec<Shape>,
+    face: Face,
+    pub slots: Vec<Slot>,
 }
 
 const INK: Color32 = Color32::from_rgb(34, 34, 34);
@@ -174,13 +347,24 @@ const HALO: Color32 = Color32::from_rgba_premultiplied(230, 230, 230, 230);
 struct Type {
     font: FontRef<'static>,
     upem: f32,
+    face: Face,
+    /// The text's size over [`BASE_SIZE`]: what the sizes and the spaces around the text are multiplied by.
+    k: f32,
 }
 
 impl Type {
     fn new() -> Type {
-        let font = crate::animation::font();
+        Type::of(Look::default())
+    }
+
+    fn of(look: Look) -> Type {
+        let (font, face) = match FontRef::try_from_slice(look.face.bytes()) {
+            Ok(f) => (f, look.face),
+            Err(_) => (crate::animation::font(), Face::SourceSans),
+        };
         let upem = font.units_per_em().unwrap_or(1000.0);
-        Type { font, upem }
+        let size = if look.size.is_finite() { look.size.clamp(3.0, 40.0) } else { BASE_SIZE };
+        Type { font, upem, face, k: size / BASE_SIZE }
     }
 
     fn width(&self, size: f32, text: &str) -> f32 {
@@ -266,7 +450,7 @@ fn georeferenced(g: &terraflux_raster::Grid) -> bool {
 fn legend(t: &Type, out: &mut Vec<Shape>, p: &Panel, x: f32, y: f32) -> (f32, f32) {
     let (mut w, mut h) = raster_legend(t, out, p, x, y);
     for v in p.vectors.iter().filter(|v| !v.legend.is_plain()) {
-        let gap = if h > 0.0 { 6.0 } else { 0.0 };
+        let gap = if h > 0.0 { 6.0 * t.k } else { 0.0 };
         let (vw, vh) = vector_legend(t, out, v, x, y + h + gap);
         w = w.max(vw);
         h += gap + vh;
@@ -284,8 +468,8 @@ fn ramp_bar(
     ramp: crate::palette::Ramp,
     values: [f64; 3],
 ) -> (f32, f32) {
-    const SIZE: f32 = 7.5;
-    let (bw, bh) = (8.0, 72.0);
+    let (k, size) = (t.k, BASE_SIZE * t.k);
+    let (bw, bh) = (8.0 * k, 72.0 * k);
     let n = 64;
     for k in 0..n {
         let t0 = k as f32 / n as f32;
@@ -304,20 +488,20 @@ fn ramp_bar(
     for (v, at) in [(values[0], 0.0), (values[1], 0.5), (values[2], 1.0)] {
         let label = crate::animation::short(v);
         out.push(Shape::Line {
-            points: vec![(x + bw, y + bh * at), (x + bw + 2.5, y + bh * at)],
+            points: vec![(x + bw, y + bh * at), (x + bw + 2.5 * k, y + bh * at)],
             colour: INK,
             width: 0.4,
         });
         out.push(Shape::Text {
-            x: x + bw + 4.0,
-            y: y + bh * at + 2.6,
-            size: SIZE,
+            x: x + bw + 4.0 * k,
+            y: y + bh * at + 2.6 * k,
+            size,
             text: label.clone(),
             anchor: Anchor::Start,
             colour: INK,
             up: false,
         });
-        w = w.max(bw + 4.0 + t.width(SIZE, &label));
+        w = w.max(bw + 4.0 * k + t.width(size, &label));
     }
     (w, bh)
 }
@@ -326,23 +510,23 @@ fn ramp_bar(
 /// class (at most 12, then "and k more") or the ramp; the attribute that sizes its points over a few of the sizes.
 fn vector_legend(t: &Type, out: &mut Vec<Shape>, v: &Vectors, x: f32, y: f32) -> (f32, f32) {
     use crate::vector_tiles::Swatches;
-    const SIZE: f32 = 7.5;
+    let (k, size) = (t.k, BASE_SIZE * t.k);
     const MAX: usize = 12;
-    let row = 11.0;
+    let row = 11.0 * k;
     let (mut w, mut h): (f32, f32) = (0.0, 0.0);
     let text = |out: &mut Vec<Shape>, s: String, x: f32, y: f32| {
-        out.push(Shape::Text { x, y, size: SIZE, text: s.clone(), anchor: Anchor::Start, colour: INK, up: false });
-        t.width(SIZE, &s)
+        out.push(Shape::Text { x, y, size, text: s.clone(), anchor: Anchor::Start, colour: INK, up: false });
+        t.width(size, &s)
     };
     let l = &v.legend;
     if let (Some(a), false) = (&l.attribute, matches!(l.swatches, Swatches::One)) {
-        w = w.max(text(out, a.clone(), x, y + 7.0));
+        w = w.max(text(out, a.clone(), x, y + 7.0 * k));
         h += row;
         match &l.swatches {
             Swatches::Ramp { ramp, min, max } => {
                 let (rw, rh) = ramp_bar(t, out, x, y + h, *ramp, [*max, (min + max) / 2.0, *min]);
                 w = w.max(rw);
-                h += rh + 2.0;
+                h += rh + 2.0 * k;
             }
             _ => {
                 let rows = l.rows();
@@ -350,17 +534,17 @@ fn vector_legend(t: &Type, out: &mut Vec<Shape>, v: &Vectors, x: f32, y: f32) ->
                     out.push(Shape::Rect {
                         x,
                         y: y + h,
-                        w: 8.0,
-                        h: 8.0,
+                        w: 8.0 * k,
+                        h: 8.0 * k,
                         fill: Some(*c),
                         stroke: Some((Color32::from_gray(110), 0.4)),
                     });
-                    w = w.max(12.0 + text(out, name.clone(), x + 12.0, y + h + 7.0));
+                    w = w.max(12.0 * k + text(out, name.clone(), x + 12.0 * k, y + h + 7.0 * k));
                     h += row;
                 }
                 let more = rows.len().saturating_sub(MAX) + l.more();
                 if more > 0 {
-                    w = w.max(text(out, format!("and {more} more"), x, y + h + 7.0));
+                    w = w.max(text(out, format!("and {more} more"), x, y + h + 7.0 * k));
                     h += row;
                 }
             }
@@ -368,15 +552,15 @@ fn vector_legend(t: &Type, out: &mut Vec<Shape>, v: &Vectors, x: f32, y: f32) ->
     }
     if let (Some(a), false) = (&l.size_by, l.sizes.is_empty()) {
         if h > 0.0 {
-            h += 4.0;
+            h += 4.0 * k;
         }
-        w = w.max(text(out, format!("size: {a}"), x, y + h + 7.0));
+        w = w.max(text(out, format!("size: {a}"), x, y + h + 7.0 * k));
         h += row;
         // (the diameters in points, 0.6 of the Viewer's pixels)
-        let biggest = l.sizes.iter().map(|(d, _)| d * 0.6).fold(0.0, f32::max);
+        let biggest = l.sizes.iter().map(|(d, _)| d * 0.6 * k).fold(0.0, f32::max);
         for (d, label) in &l.sizes {
-            let r = d * 0.6 / 2.0;
-            let line = (r * 2.0 + 2.0).max(row);
+            let r = d * 0.6 * k / 2.0;
+            let line = (r * 2.0 + 2.0 * k).max(row);
             let (cx, cy) = (x + biggest / 2.0, y + h + line / 2.0);
             let ring = v.symbol.outline(r).into_iter().map(|(dx, dy)| (cx + dx, cy + dy)).collect();
             out.push(Shape::Path {
@@ -385,7 +569,7 @@ fn vector_legend(t: &Type, out: &mut Vec<Shape>, v: &Vectors, x: f32, y: f32) ->
                 fill: Some(Color32::from_gray(150)),
                 stroke: Some((Color32::from_gray(60), 0.4)),
             });
-            w = w.max(biggest + 4.0 + text(out, label.clone(), x + biggest + 4.0, cy + 2.6));
+            w = w.max(biggest + 4.0 * k + text(out, label.clone(), x + biggest + 4.0 * k, cy + 2.6 * k));
             h += line;
         }
     }
@@ -394,12 +578,12 @@ fn vector_legend(t: &Type, out: &mut Vec<Shape>, v: &Vectors, x: f32, y: f32) ->
 
 /// The legend of a map's colouring: its height at `x`, `y` (top) when drawn, and its width.
 fn raster_legend(t: &Type, out: &mut Vec<Shape>, p: &Panel, x: f32, y: f32) -> (f32, f32) {
-    const SIZE: f32 = 7.5;
+    let (k, size) = (t.k, BASE_SIZE * t.k);
     const MAX: usize = 20;
     match &p.coloring {
         Coloring::Classes(classes) => {
             let mut w: f32 = 0.0;
-            let row = 11.0;
+            let row = 11.0 * k;
             let shown = classes.len().min(MAX);
             for (i, (v, c)) in classes.iter().take(MAX).enumerate() {
                 let name = p
@@ -411,29 +595,29 @@ fn raster_legend(t: &Type, out: &mut Vec<Shape>, p: &Panel, x: f32, y: f32) -> (
                 out.push(Shape::Rect {
                     x,
                     y: yy,
-                    w: 8.0,
-                    h: 8.0,
+                    w: 8.0 * k,
+                    h: 8.0 * k,
                     fill: Some(*c),
                     stroke: Some((Color32::from_gray(110), 0.4)),
                 });
                 out.push(Shape::Text {
-                    x: x + 12.0,
-                    y: yy + 7.0,
-                    size: SIZE,
+                    x: x + 12.0 * k,
+                    y: yy + 7.0 * k,
+                    size,
                     text: name.clone(),
                     anchor: Anchor::Start,
                     colour: INK,
                     up: false,
                 });
-                w = w.max(12.0 + t.width(SIZE, &name));
+                w = w.max(12.0 * k + t.width(size, &name));
             }
             let mut h = shown as f32 * row;
             if classes.len() > MAX {
                 let more = format!("and {} more", classes.len() - MAX);
                 out.push(Shape::Text {
                     x,
-                    y: y + h + 7.0,
-                    size: SIZE,
+                    y: y + h + 7.0 * k,
+                    size,
                     text: more,
                     anchor: Anchor::Start,
                     colour: INK,
@@ -447,27 +631,27 @@ fn raster_legend(t: &Type, out: &mut Vec<Shape>, p: &Panel, x: f32, y: f32) -> (
         Coloring::Shade { .. } => (0.0, 0.0),
         Coloring::Packed => {
             let Source::Rgb(r) = &p.source else { return (0.0, 0.0) };
-            let (mut w, row): (f32, f32) = (0.0, 11.0);
+            let (mut w, row): (f32, f32) = (0.0, 11.0 * k);
             for (i, (c, text)) in r.legend().into_iter().enumerate() {
                 let yy = y + i as f32 * row;
                 out.push(Shape::Rect {
                     x,
                     y: yy,
-                    w: 8.0,
-                    h: 8.0,
+                    w: 8.0 * k,
+                    h: 8.0 * k,
                     fill: Some(c),
                     stroke: Some((Color32::from_gray(110), 0.4)),
                 });
                 out.push(Shape::Text {
-                    x: x + 12.0,
-                    y: yy + 7.0,
-                    size: SIZE,
+                    x: x + 12.0 * k,
+                    y: yy + 7.0 * k,
+                    size,
                     text: text.clone(),
                     anchor: Anchor::Start,
                     colour: INK,
                     up: false,
                 });
-                w = w.max(12.0 + t.width(SIZE, &text));
+                w = w.max(12.0 * k + t.width(size, &text));
             }
             (w, 3.0 * row)
         }
@@ -478,16 +662,16 @@ fn raster_legend(t: &Type, out: &mut Vec<Shape>, p: &Panel, x: f32, y: f32) -> (
             if *log {
                 out.push(Shape::Text {
                     x,
-                    y: y + bh + 9.0,
-                    size: 6.5,
+                    y: y + bh + 9.0 * k,
+                    size: 6.5 * k,
                     text: "logarithmic".into(),
                     anchor: Anchor::Start,
                     colour: INK,
                     up: false,
                 });
-                return (w.max(t.width(6.5, "logarithmic")), bh + 10.0);
+                return (w.max(t.width(6.5 * k, "logarithmic")), bh + 10.0 * k);
             }
-            (w, bh + 2.0)
+            (w, bh + 2.0 * k)
         }
     }
 }
@@ -562,7 +746,7 @@ pub fn plain_over(p: &Panel, scale: usize, max_side: usize, under: Option<&Under
             vectors(&mut shapes, &v, &at);
         }
     }
-    Ok(Drawing { w, h, shapes })
+    Ok(Drawing { w, h, shapes, face: Face::default(), slots: Vec::new() })
 }
 
 /// Features as shapes: polygons filled (and outlined), lines, points as small discs; `at` from the map's
@@ -755,34 +939,68 @@ fn inset(out: &mut Vec<Shape>, g: &terraflux_raster::Grid, (mx, my, mw, mh): (f3
     out.push(Shape::Rect { x: x0, y: y0, w: iw, h: ih, fill: None, stroke: Some((INK, 0.5)) });
 }
 
+/// A legend where `at` puts it in `area`, on its halo (over a map or the figure); drawn at `auto` when `at` is
+/// `Auto`. Its box is told in `slots`.
+fn put_legend(
+    t: &Type,
+    out: &mut Vec<Shape>,
+    slots: &mut Vec<Slot>,
+    p: &Panel,
+    area: (f32, f32, f32, f32),
+    at: Place,
+    auto: (f32, f32),
+) -> (f32, f32) {
+    let (lw, lh) = legend_size(t, p);
+    let pad = 3.0 * t.k;
+    let (bw, bh) = (lw + 2.0 * pad, lh + 2.0 * pad);
+    let (x, y) = match at.corner(area, (bw, bh), 4.0 * t.k) {
+        Some((bx, by)) => {
+            if lw > 0.0 && lh > 0.0 {
+                out.push(Shape::Rect { x: bx, y: by, w: bw, h: bh, fill: Some(HALO), stroke: None });
+            }
+            (bx + pad, by + pad)
+        }
+        None => auto,
+    };
+    let (w, h) = legend(t, out, p, x, y);
+    if w > 0.0 && h > 0.0 {
+        slots.push(Slot { item: Item::Legend, rect: (x - pad, y - pad, w + 2.0 * pad, h + 2.0 * pad), area });
+    }
+    (w, h)
+}
+
 /// The figure of the panels laid out: its shapes, its size. `px_per_pt` sets how finely the maps are read.
 pub fn lay_out(panels: &[Panel], l: &Layout, px_per_pt: f32) -> Result<Drawing, String> {
     if panels.is_empty() {
         return Err("no map".into());
     }
-    let t = Type::new();
+    let t = Type::of(l.look);
+    let k = t.k;
     let mut out = Vec::new();
+    let mut slots = Vec::new();
     let width = l.width_mm / 25.4 * 72.0;
     let (margin, gap) = (8.0, 12.0);
     let mut y = margin;
     if !l.title.trim().is_empty() {
         out.push(Shape::Text {
             x: margin,
-            y: y + 10.0,
-            size: 11.0,
+            y: y + 10.0 * k,
+            size: 11.0 * k,
             text: l.title.trim().to_string(),
             anchor: Anchor::Start,
             colour: INK,
             up: false,
         });
-        y += 18.0;
+        y += 18.0 * k;
     }
-    // one legend for all when they share their colours, at the right; else each map's under it
+    // one legend for all when they share their colours, at the right; else each map's under it (a place chosen
+    // puts it over the figure, or over each map, instead)
     let shared = panels.iter().all(|p| p.coloring.key() == panels[0].coloring.key());
-    let side = if l.legend && shared { legend_size(&t, &panels[0]).0 + gap } else { 0.0 };
+    let by_hand = l.look.legend_at != Place::Auto;
+    let side = if l.legend && shared && !by_hand { legend_size(&t, &panels[0]).0 + gap } else { 0.0 };
     let n = panels.len();
     let cols = l.columns.clamp(1, n);
-    let (left, bottom) = if l.grid { (13.0, 11.0) } else { (0.0, 0.0) };
+    let (left, bottom) = if l.grid { (13.0 * k, 11.0 * k) } else { (0.0, 0.0) };
     let cell = (width - 2.0 * margin - side - (cols - 1) as f32 * gap) / cols as f32;
     let map_w = cell - left;
     if map_w < 30.0 {
@@ -805,14 +1023,14 @@ pub fn lay_out(panels: &[Panel], l: &Layout, px_per_pt: f32) -> Result<Drawing, 
                 };
                 out.push(Shape::Text {
                     x: x0 + left,
-                    y: yy + 8.0,
-                    size: 8.5,
+                    y: yy + 8.0 * k,
+                    size: 8.5 * k,
                     text: text.trim().to_string(),
                     anchor: Anchor::Start,
                     colour: INK,
                     up: false,
                 });
-                yy += 12.0;
+                yy += 12.0 * k;
             }
             let g = p.source.grid();
             let (west, south, east, north) = extent(g);
@@ -826,36 +1044,53 @@ pub fn lay_out(panels: &[Panel], l: &Layout, px_per_pt: f32) -> Result<Drawing, 
             let at_x = |v: f64| mx + ((v - west) / (east - west)) as f32 * map_w;
             let at_y = |v: f64| yy + ((north - v) / (north - south)) as f32 * map_h;
             if l.grid && east > west && north > south {
-                // lines across the map at round coordinates, their values outside it
+                // lines across the map at round coordinates, their values outside it: each kept inside the map's
+                // extent along its edge (so that the corner's two never meet, nor a panel's last reach the next),
+                // one that would touch the one before left out
                 let step = nice_step((east - west).max(north - south), 4.0);
                 let mut v = (west / step).ceil() * step;
+                let mut free = f32::NEG_INFINITY;
                 while v <= east + 1e-9 * step {
                     let px = at_x(v);
                     out.push(Shape::Line { points: vec![(px, yy), (px, yy + map_h)], colour: GRID, width: 0.3 });
-                    out.push(Shape::Text {
-                        x: px,
-                        y: yy + map_h + 8.0,
-                        size: 6.0,
-                        text: coordinate(v, step, geographic, true),
-                        anchor: Anchor::Middle,
-                        colour: INK,
-                        up: false,
-                    });
+                    let text = coordinate(v, step, geographic, true);
+                    let w = t.width(6.0 * k, &text);
+                    let c = if map_w > w { px.clamp(mx + w / 2.0, mx + map_w - w / 2.0) } else { px };
+                    if c - w / 2.0 >= free {
+                        free = c + w / 2.0 + 2.0 * k;
+                        out.push(Shape::Text {
+                            x: c,
+                            y: yy + map_h + 8.0 * k,
+                            size: 6.0 * k,
+                            text,
+                            anchor: Anchor::Middle,
+                            colour: INK,
+                            up: false,
+                        });
+                    }
                     v += step;
                 }
                 let mut v = (south / step).ceil() * step;
+                // (going up the map: the labels' tops, the next must end under the last's)
+                let mut free = f32::INFINITY;
                 while v <= north + 1e-9 * step {
                     let py = at_y(v);
                     out.push(Shape::Line { points: vec![(mx, py), (mx + map_w, py)], colour: GRID, width: 0.3 });
-                    out.push(Shape::Text {
-                        x: mx - 3.0,
-                        y: py,
-                        size: 6.0,
-                        text: coordinate(v, step, geographic, false),
-                        anchor: Anchor::Middle,
-                        colour: INK,
-                        up: true,
-                    });
+                    let text = coordinate(v, step, geographic, false);
+                    let w = t.width(6.0 * k, &text);
+                    let c = if map_h > w { py.clamp(yy + w / 2.0, yy + map_h - w / 2.0) } else { py };
+                    if c + w / 2.0 <= free {
+                        free = c - w / 2.0 - 2.0 * k;
+                        out.push(Shape::Text {
+                            x: mx - 3.0 * k,
+                            y: c,
+                            size: 6.0 * k,
+                            text,
+                            anchor: Anchor::Middle,
+                            colour: INK,
+                            up: true,
+                        });
+                    }
                     v += step;
                 }
             }
@@ -874,31 +1109,38 @@ pub fn lay_out(panels: &[Panel], l: &Layout, px_per_pt: f32) -> Result<Drawing, 
                 inset(&mut out, g, (mx, yy, map_w, map_h));
             }
             // a north arrow, top right, on a north-up map
-            if l.north && north_up && map_h > 40.0 {
-                let (cx, top) = (mx + map_w - 10.0, yy + 4.0);
-                out.push(Shape::Rect { x: cx - 7.0, y: top, w: 14.0, h: 24.0, fill: Some(HALO), stroke: None });
+            if l.north && north_up && map_h > 40.0 * k {
+                let (cx, top) = (mx + map_w - 10.0 * k, yy + 4.0 * k);
+                out.push(Shape::Rect {
+                    x: cx - 7.0 * k,
+                    y: top,
+                    w: 14.0 * k,
+                    h: 24.0 * k,
+                    fill: Some(HALO),
+                    stroke: None,
+                });
                 out.push(Shape::Text {
                     x: cx,
-                    y: top + 9.0,
-                    size: 8.0,
+                    y: top + 9.0 * k,
+                    size: 8.0 * k,
                     text: "N".into(),
                     anchor: Anchor::Middle,
                     colour: INK,
                     up: false,
                 });
-                let (tip, base, notch) = (top + 10.5, top + 22.0, top + 19.0);
+                let (tip, base, notch) = (top + 10.5 * k, top + 22.0 * k, top + 19.0 * k);
                 out.push(Shape::Polygon {
-                    points: vec![(cx, tip), (cx - 4.5, base), (cx, notch)],
+                    points: vec![(cx, tip), (cx - 4.5 * k, base), (cx, notch)],
                     fill: INK,
                     stroke: Some((INK, 0.4)),
                 });
                 out.push(Shape::Polygon {
-                    points: vec![(cx, tip), (cx + 4.5, base), (cx, notch)],
+                    points: vec![(cx, tip), (cx + 4.5 * k, base), (cx, notch)],
                     fill: Color32::WHITE,
                     stroke: Some((INK, 0.4)),
                 });
             }
-            // a scale bar, bottom left: about a quarter of the map, in metres or kilometres
+            // a scale bar, bottom left unless placed: about a quarter of the map, in metres or kilometres
             if l.scale_bar && geo && east > west && map_h > 30.0 {
                 let metres_per_unit = if geographic {
                     let lat = ((north + south) / 2.0).to_radians();
@@ -913,24 +1155,30 @@ pub fn lay_out(panels: &[Panel], l: &Layout, px_per_pt: f32) -> Result<Drawing, 
                     let km = len_m >= 1000.0;
                     let f = |m: f64| crate::animation::short(if km { m / 1000.0 } else { m });
                     let unit = if km { "km" } else { "m" };
-                    let (bx, by) = (mx + 6.0, yy + map_h - 9.0);
                     let label = format!("{} {unit}", f(len_m));
-                    let lw = t.width(6.5, &label);
+                    let lw = t.width(6.5 * k, &label);
+                    let (box_w, box_h) = (len + lw / 2.0 + 7.0 * k, 15.0 * k);
+                    let area = (mx, yy, map_w, map_h);
+                    let (bx, by) = match l.look.scale_at.corner(area, (box_w, box_h), 3.0 * k) {
+                        Some((x, y)) => (x + 3.0 * k, y + 9.0 * k),
+                        None => (mx + 6.0 * k, yy + map_h - 9.0 * k),
+                    };
+                    slots.push(Slot { item: Item::ScaleBar, rect: (bx - 3.0 * k, by - 9.0 * k, box_w, box_h), area });
                     out.push(Shape::Rect {
-                        x: bx - 3.0,
-                        y: by - 9.0,
-                        w: len + lw / 2.0 + 7.0,
-                        h: 15.0,
+                        x: bx - 3.0 * k,
+                        y: by - 9.0 * k,
+                        w: box_w,
+                        h: box_h,
                         fill: Some(HALO),
                         stroke: None,
                     });
-                    for k in 0..4 {
-                        let fill = if k % 2 == 0 { INK } else { Color32::WHITE };
+                    for j in 0..4 {
+                        let fill = if j % 2 == 0 { INK } else { Color32::WHITE };
                         out.push(Shape::Rect {
-                            x: bx + len * k as f32 / 4.0,
+                            x: bx + len * j as f32 / 4.0,
                             y: by,
                             w: len / 4.0,
-                            h: 2.6,
+                            h: 2.6 * k,
                             fill: Some(fill),
                             stroke: Some((INK, 0.35)),
                         });
@@ -938,8 +1186,8 @@ pub fn lay_out(panels: &[Panel], l: &Layout, px_per_pt: f32) -> Result<Drawing, 
                     for (at, text) in [(0.0, "0".to_string()), (0.5, f(len_m / 2.0)), (1.0, label)] {
                         out.push(Shape::Text {
                             x: bx + len * at,
-                            y: by - 2.0,
-                            size: 6.5,
+                            y: by - 2.0 * k,
+                            size: 6.5 * k,
                             text,
                             anchor: Anchor::Middle,
                             colour: INK,
@@ -950,19 +1198,33 @@ pub fn lay_out(panels: &[Panel], l: &Layout, px_per_pt: f32) -> Result<Drawing, 
             }
             let mut h = yy - y + map_h + bottom;
             if l.legend && !shared {
-                let (_, lh) = legend(&t, &mut out, p, mx, y + h + 4.0);
-                h += lh + 6.0;
+                // (by hand it stands over the map, not under it)
+                let (_, lh) = put_legend(
+                    &t,
+                    &mut out,
+                    &mut slots,
+                    p,
+                    (mx, yy, map_w, map_h),
+                    l.look.legend_at,
+                    (mx, y + h + 4.0 * k),
+                );
+                if !by_hand {
+                    h += lh + 6.0 * k;
+                }
             }
             row_h = row_h.max(h);
         }
         y += row_h + gap;
     }
-    if l.legend && shared {
-        let x = width - margin - side + gap;
-        legend(&t, &mut out, &panels[0], x, top_of_grid + if captions { 12.0 } else { 0.0 });
-    }
     let h = (y - gap + margin).max(top_of_grid + 80.0);
-    Ok(Drawing { w: width, h, shapes: out })
+    if l.legend && shared {
+        let top = top_of_grid + if captions { 12.0 * k } else { 0.0 };
+        // (the room of a legend by hand: the figure inside its margins)
+        let area = (margin, top_of_grid, width - 2.0 * margin, h - margin - top_of_grid);
+        let x = width - margin - side + gap;
+        put_legend(&t, &mut out, &mut slots, &panels[0], area, l.look.legend_at, (x, top));
+    }
+    Ok(Drawing { w: width, h, shapes: out, face: t.face, slots })
 }
 
 fn esc(s: &str) -> String {
@@ -984,15 +1246,17 @@ fn paint_attrs(kind: &str, c: Color32) -> String {
 type PdfImage = (usize, usize, Vec<u8>, Option<Vec<u8>>);
 
 impl Drawing {
-    /// The figure as SVG, `width_mm` wide: its text as text (in the application's font, else a sans serif).
+    /// The figure as SVG, `width_mm` wide: its text as text (in the typeface chosen, else a sans serif).
     pub fn svg(&self, width_mm: f32) -> String {
         let h_mm = width_mm * self.h / self.w;
         let mut s = format!(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" \
              xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"{width_mm:.2}mm\" height=\"{h_mm:.2}mm\" viewBox=\"0 0 {:.3} {:.3}\" \
-             font-family=\"'Source Sans 3', 'Source Sans Pro', Arial, sans-serif\">\n\
+             font-family=\"{}\">\n\
              <rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/>\n",
-            self.w, self.h
+            self.w,
+            self.h,
+            self.face.css()
         );
         let mut clips = 0;
         for sh in &self.shapes {
@@ -1125,6 +1389,9 @@ impl Drawing {
             }
             s
         };
+        let ty = Type::of(Look { face: self.face, ..Look::default() });
+        // the glyphs used (by number) and their advances, points at the font's units
+        let mut used: std::collections::BTreeMap<u16, (f32, char)> = std::collections::BTreeMap::new();
         for sh in &self.shapes {
             match sh {
                 Shape::Clip(Some((x, y, w, h))) => {
@@ -1187,15 +1454,20 @@ impl Drawing {
                     };
                     let _ = writeln!(c, "{op} Q");
                 }
-                Shape::Text { x, y, size, text: t, anchor, colour: col, up } => {
-                    let w = crate::report::helvetica_width(*size, t);
+                Shape::Text { x, y, size, text: tx, anchor, colour: col, up } => {
+                    let w = ty.width(*size, tx);
                     let back = match anchor {
                         Anchor::Start => 0.0,
                         Anchor::Middle => w / 2.0,
                     };
                     let (px, py) = if *up { (*x, page_h - y - back) } else { (x - back, page_h - y) };
                     let m = if *up { format!("0 1 -1 0 {px:.3} {py:.3}") } else { format!("1 0 0 1 {px:.3} {py:.3}") };
-                    let _ = writeln!(c, "q {} rg BT /F1 {size} Tf {m} Tm ({}) Tj ET Q", colour(*col), text(t));
+                    let _ = writeln!(
+                        c,
+                        "q {} rg BT /F1 {size} Tf {m} Tm [{}] TJ ET Q",
+                        colour(*col),
+                        pdf_glyphs(&ty, tx, &mut used)
+                    );
                 }
             }
         }
@@ -1231,7 +1503,22 @@ impl Drawing {
         content.extend(c.as_bytes());
         content.extend(b"\nendstream");
         objects.push(content);
-        objects.push(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_vec());
+        // the text's font: the typeface chosen, embedded (its glyphs by number: Type 0, Identity-H), the three
+        // objects after the pictures'; Helvetica, not embedded, when there is no text
+        let (cid, desc, file) = (next, next + 1, next + 2);
+        if used.is_empty() {
+            objects.push(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_vec());
+        } else {
+            let name = ty.face.ps_name();
+            objects.push(
+                format!(
+                    "<< /Type /Font /Subtype /Type0 /BaseFont /{name} /Encoding /Identity-H /DescendantFonts [{cid} 0 R] \
+                     /ToUnicode {} 0 R >>",
+                    file + 1
+                )
+                .into_bytes(),
+            );
+        }
         objects.push(
             format!("<< /Title ({}) /Producer (Terraflux {}) >>", text(title), env!("CARGO_PKG_VERSION")).into_bytes(),
         );
@@ -1257,6 +1544,61 @@ impl Drawing {
                 o.extend(b"\nendstream");
                 objects.push(o);
             }
+        }
+        if !used.is_empty() {
+            let name = ty.face.ps_name();
+            let to1000 = |v: f32| (v * 1000.0 / ty.upem).round() as i32;
+            let mut widths = String::new();
+            for (gid, (w, _)) in &used {
+                let _ = write!(widths, "{gid} [{}] ", to1000(*w));
+            }
+            let (asc, dsc) = (to1000(ty.font.ascent_unscaled()), to1000(ty.font.descent_unscaled()));
+            let bytes = ty.face.bytes();
+            objects.push(
+                format!(
+                    "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{name} /CIDSystemInfo << /Registry (Adobe) \
+                     /Ordering (Identity) /Supplement 0 >> /FontDescriptor {desc} 0 R /CIDToGIDMap /Identity \
+                     /DW 500 /W [{}] >>",
+                    widths.trim_end()
+                )
+                .into_bytes(),
+            );
+            objects.push(
+                format!(
+                    "<< /Type /FontDescriptor /FontName /{name} /Flags 32 /FontBBox [-300 {} 1300 {}] /ItalicAngle 0 \
+                     /Ascent {asc} /Descent {dsc} /CapHeight {} /StemV 80 /FontFile2 {file} 0 R >>",
+                    dsc - 50,
+                    asc + 50,
+                    asc * 7 / 9
+                )
+                .into_bytes(),
+            );
+            let z = miniz_oxide::deflate::compress_to_vec_zlib(bytes, 6);
+            let mut o = format!("<< /Length {} /Length1 {} /Filter /FlateDecode >>\nstream\n", z.len(), bytes.len())
+                .into_bytes();
+            o.extend(z);
+            o.extend(b"\nendstream");
+            objects.push(o);
+            // the glyphs' characters, so that the text can be searched and copied
+            let mut cmap = String::from(
+                "/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /Adobe-Identity-UCS def \
+                 /CMapType 2 def 1 begincodespacerange <0000> <FFFF> endcodespacerange\n",
+            );
+            let glyphs: Vec<(&u16, &(f32, char))> = used.iter().collect();
+            for chunk in glyphs.chunks(100) {
+                let _ = writeln!(cmap, "{} beginbfchar", chunk.len());
+                for (gid, (_, c)) in chunk {
+                    let mut u = [0u16; 2];
+                    let hex: String = c.encode_utf16(&mut u).iter().map(|x| format!("{x:04X}")).collect();
+                    let _ = writeln!(cmap, "<{gid:04X}> <{hex}>");
+                }
+                cmap.push_str("endbfchar\n");
+            }
+            cmap.push_str("endcmap CMapName currentdict /CMap defineresource pop end end");
+            let mut o = format!("<< /Length {} >>\nstream\n", cmap.len()).into_bytes();
+            o.extend(cmap.as_bytes());
+            o.extend(b"\nendstream");
+            objects.push(o);
         }
         let mut out = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n".to_vec();
         let mut offsets = Vec::new();
@@ -1293,7 +1635,7 @@ impl Drawing {
         let mut pm = tiny_skia::Pixmap::new(w.max(1), h.max(1)).ok_or("no picture of this size")?;
         pm.fill(background);
         let tr = tiny_skia::Transform::from_scale(k, k);
-        let t = Type::new();
+        let t = Type::of(Look { face: self.face, ..Look::default() });
         let paint = |c: Color32| {
             let mut p = tiny_skia::Paint::default();
             let [r, g, b, a] = c.to_srgba_unmultiplied();
@@ -1393,6 +1735,27 @@ impl Drawing {
     }
 }
 
+/// A text as the contents of a PDF's `TJ` array: its glyphs by number (two bytes each, in hex), the kerning between
+/// them as the adjustments in thousandths of the size. The glyphs and their advances (font units) go to `used`.
+fn pdf_glyphs(t: &Type, text: &str, used: &mut std::collections::BTreeMap<u16, (f32, char)>) -> String {
+    use std::fmt::Write as _;
+    let mut s = String::new();
+    let mut last = None;
+    for c in text.chars() {
+        let id = t.font.glyph_id(c);
+        if let Some(p) = last {
+            let kern = t.font.kern_unscaled(p, id);
+            if kern != 0.0 {
+                let _ = write!(s, " {} ", (-kern * 1000.0 / t.upem).round() as i32);
+            }
+        }
+        used.entry(id.0).or_insert((t.font.h_advance_unscaled(id), c));
+        let _ = write!(s, "<{:04x}>", id.0);
+        last = Some(id);
+    }
+    s
+}
+
 /// A line of text as the outlines of its letters (points), from its point on the baseline.
 fn text_path(t: &Type, x: f32, y: f32, size: f32, text: &str, anchor: Anchor, up: bool) -> Option<tiny_skia::Path> {
     let k = size / t.upem;
@@ -1462,7 +1825,7 @@ impl Drawing {
 
     /// An empty drawing of `w` x `h` points, for a chart laid out by hand.
     pub(crate) fn blank(w: f32, h: f32) -> Drawing {
-        Drawing { w, h, shapes: Vec::new() }
+        Drawing { w, h, shapes: Vec::new(), face: Face::default(), slots: Vec::new() }
     }
 
     pub(crate) fn rect(&mut self, (x, y, w, h): (f32, f32, f32, f32), fill: Option<Color32>) {
@@ -1562,21 +1925,163 @@ pub struct Composer {
     pub choices: Vec<(String, Vec<Panel>)>,
     pub chosen: usize,
     pub layout: Layout,
-    preview: Option<(Layout, usize, egui::TextureHandle, egui::Vec2, Option<String>)>,
+    preview: Option<Preview>,
+    /// The legend or scale bar being dragged in the preview.
+    drag: Option<Drag>,
+    /// Where the preview is on the screen (as last drawn).
+    shown: Option<egui::Rect>,
+    /// The look kept in the settings (written when it changes).
+    kept: Look,
     job: Option<(PathBuf, Receiver<Result<(), String>>)>,
     said: Option<String>,
 }
 
+/// The figure drawn for the window: for which layout and maps, its picture, its size in pixels and in points, the
+/// error, and what can be moved in it.
+struct Preview {
+    layout: Layout,
+    chosen: usize,
+    tex: egui::TextureHandle,
+    size: egui::Vec2,
+    points: (f32, f32),
+    err: Option<String>,
+    slots: Vec<Slot>,
+}
+
+/// A box taken in the preview: which, where it was grabbed (points from its corner), and where its corner is now.
+struct Drag {
+    slot: usize,
+    grab: (f32, f32),
+    at: (f32, f32),
+}
+
 impl Composer {
+    /// The legend's and the scale bars' boxes in the preview as it is on the screen, with the room each may move
+    /// in (for a test to take them with the pointer).
+    pub fn boxes_on_screen(&self) -> Vec<(Item, egui::Rect, egui::Rect)> {
+        let (Some(pv), Some(r)) = (&self.preview, self.shown) else { return Vec::new() };
+        let (kx, ky) = (r.width() / pv.points.0, r.height() / pv.points.1);
+        let at = |b: (f32, f32, f32, f32)| {
+            egui::Rect::from_min_size(r.min + egui::vec2(b.0 * kx, b.1 * ky), egui::vec2(b.2 * kx, b.3 * ky))
+        };
+        pv.slots.iter().map(|s| (s.item, at(s.rect), at(s.area))).collect()
+    }
+
     pub fn new(choices: Vec<(String, Vec<Panel>)>, title: String) -> Composer {
         let one = choices.first().is_some_and(|c| c.1.len() == 1);
+        // (the typeface, the size and the places of the last figure)
+        let look = crate::settings::get().figure_look;
         let layout = Layout {
             title,
             columns: if one { 1 } else { 2 },
             width_mm: if one { 85.0 } else { 180.0 },
+            look,
             ..Default::default()
         };
-        Composer { choices, chosen: 0, layout, preview: None, job: None, said: None }
+        Composer {
+            choices,
+            chosen: 0,
+            layout,
+            preview: None,
+            drag: None,
+            shown: None,
+            kept: look,
+            job: None,
+            said: None,
+        }
+    }
+}
+
+/// A choice of where a legend or scale bar stands: a corner, its own place, or where it falls by itself; its two
+/// fractions (percent) when it is at its own.
+fn place_row(ui: &mut egui::Ui, id: &str, label: &str, p: &mut Place) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        let name = |p: &Place| match p {
+            Place::Auto => "Default",
+            Place::TopLeft => "Top left",
+            Place::TopRight => "Top right",
+            Place::BottomLeft => "Bottom left",
+            Place::BottomRight => "Bottom right",
+            Place::At(..) => "Custom",
+        };
+        egui::ComboBox::from_id_salt(id).selected_text(name(p)).show_ui(ui, |ui| {
+            for v in [Place::Auto, Place::TopLeft, Place::TopRight, Place::BottomLeft, Place::BottomRight] {
+                ui.selectable_value(p, v, name(&v));
+            }
+            if ui.selectable_label(matches!(p, Place::At(..)), "Custom").clicked() && !matches!(p, Place::At(..)) {
+                let (x, y) = p.fractions();
+                *p = Place::At(x, y);
+            }
+        });
+    });
+    if let Place::At(x, y) = *p {
+        ui.horizontal(|ui| {
+            let (mut px, mut py) = (x * 100.0, y * 100.0);
+            ui.label("x");
+            let mut changed = ui.add(egui::DragValue::new(&mut px).range(0.0..=100.0).speed(0.5).suffix("%")).changed();
+            ui.label("y");
+            changed |= ui.add(egui::DragValue::new(&mut py).range(0.0..=100.0).speed(0.5).suffix("%")).changed();
+            if changed {
+                *p = Place::At(px / 100.0, py / 100.0);
+            }
+        });
+    }
+}
+
+/// The legend and the scale bar of the preview taken with the pointer and moved: while dragged, a frame where the
+/// box would be; let go, its place in the layout (a corner when it is close to one).
+fn move_boxes(ui: &mut egui::Ui, r: &egui::Response, pv: &Preview, drag: &mut Option<Drag>, layout: &mut Layout) {
+    let (kx, ky) = (r.rect.width() / pv.points.0, r.rect.height() / pv.points.1);
+    let to_pt = |p: egui::Pos2| ((p.x - r.rect.min.x) / kx, (p.y - r.rect.min.y) / ky);
+    let over = |p: egui::Pos2| {
+        let (x, y) = to_pt(p);
+        pv.slots
+            .iter()
+            .rposition(|s| x >= s.rect.0 && x <= s.rect.0 + s.rect.2 && y >= s.rect.1 && y <= s.rect.1 + s.rect.3)
+    };
+    if let Some(p) = r.hover_pos()
+        && over(p).is_some()
+    {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+    }
+    if r.drag_started()
+        && let Some(p) = r.interact_pointer_pos()
+        && let Some(i) = over(p)
+    {
+        let (x, y) = to_pt(p);
+        let s = &pv.slots[i];
+        *drag = Some(Drag { slot: i, grab: (x - s.rect.0, y - s.rect.1), at: (s.rect.0, s.rect.1) });
+    }
+    let Some(d) = drag else { return };
+    let Some(s) = pv.slots.get(d.slot).copied() else {
+        *drag = None;
+        return;
+    };
+    if r.dragged()
+        && let Some(p) = r.interact_pointer_pos()
+    {
+        let (x, y) = to_pt(p);
+        // (kept inside the room it may move in)
+        let (a, b) = (s.area, s.rect);
+        d.at = (
+            (x - d.grab.0).clamp(a.0, (a.0 + a.2 - b.2).max(a.0)),
+            (y - d.grab.1).clamp(a.1, (a.1 + a.3 - b.3).max(a.1)),
+        );
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    }
+    let frame = egui::Rect::from_min_size(
+        r.rect.min + egui::vec2(d.at.0 * kx, d.at.1 * ky),
+        egui::vec2(s.rect.2 * kx, s.rect.3 * ky),
+    );
+    ui.painter().rect_stroke(frame, 0.0, egui::Stroke::new(1.5, crate::theme::accent()), egui::StrokeKind::Outside);
+    if r.drag_stopped() {
+        let place = s.place_at(d.at.0, d.at.1);
+        match s.item {
+            Item::Legend => layout.look.legend_at = place,
+            Item::ScaleBar => layout.look.scale_at = place,
+        }
+        *drag = None;
     }
 }
 
@@ -1647,6 +2152,28 @@ pub fn window(ctx: &egui::Context, s: &mut crate::app::Session) {
                     "a small map of where in the world the map is, in its bottom right corner (its extent in \
                          WGS 84 longitude and latitude, as the land is, whatever the map's datum)",
                 );
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label("Font");
+                    egui::ComboBox::from_id_salt("figure font").selected_text(l.look.face.name()).show_ui(ui, |ui| {
+                        for f in Face::ALL {
+                            ui.selectable_value(&mut l.look.face, f, f.name());
+                        }
+                    });
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Text size");
+                    ui.add(egui::DragValue::new(&mut l.look.size).range(4.0..=16.0).speed(0.1).suffix(" pt"))
+                        .on_hover_text("the legend's text; the title, captions and coordinates follow it");
+                    if ui.small_button("reset").on_hover_text("the usual look: Source Sans 3, 7.5 pt").clicked() {
+                        (l.look.face, l.look.size) = (Face::default(), BASE_SIZE);
+                    }
+                });
+                place_row(ui, "figure legend place", "Legend", &mut l.look.legend_at);
+                place_row(ui, "figure scale place", "Scale bar", &mut l.look.scale_at);
+                ui.label(
+                    RichText::new("Drag the legend or the scale bar in the preview to place them.").size(10.5).weak(),
+                );
                 ui.add_space(8.0);
                 let busy = c.job.is_some();
                 ui.horizontal(|ui| {
@@ -1693,37 +2220,52 @@ pub fn window(ctx: &egui::Context, s: &mut crate::app::Session) {
                 );
             });
             // the preview: drawn again when the layout or the maps change
-            let fresh = c.preview.as_ref().is_some_and(|p| p.0 == c.layout && p.1 == c.chosen);
+            let fresh = c.preview.as_ref().is_some_and(|p| p.layout == c.layout && p.chosen == c.chosen);
             if !fresh {
                 let panels = c.choices.get(c.chosen).map(|p| p.1.as_slice()).unwrap_or_default();
                 let dpi = (560.0 / (c.layout.width_mm / 25.4)).clamp(30.0, 300.0);
-                let made = lay_out(panels, &c.layout, dpi / 72.0).and_then(|d| d.pixels(dpi.round() as u32));
-                let (img, err) = match made {
-                    Ok(pm) => (
+                let made = lay_out(panels, &c.layout, dpi / 72.0).and_then(|d| {
+                    let pm = d.pixels(dpi.round() as u32)?;
+                    Ok((pm, (d.w, d.h), d.slots))
+                });
+                let (img, points, slots, err) = match made {
+                    Ok((pm, points, slots)) => (
                         egui::ColorImage::from_rgba_premultiplied(
                             [pm.width() as usize, pm.height() as usize],
                             pm.data(),
                         ),
+                        points,
+                        slots,
                         None,
                     ),
-                    Err(e) => (egui::ColorImage::new([1, 1], vec![Color32::WHITE]), Some(e)),
+                    Err(e) => (egui::ColorImage::new([1, 1], vec![Color32::WHITE]), (1.0, 1.0), Vec::new(), Some(e)),
                 };
                 let size = egui::vec2(img.size[0] as f32, img.size[1] as f32);
                 let tex = ui.ctx().load_texture("figure preview", img, egui::TextureOptions::LINEAR);
-                c.preview = Some((c.layout.clone(), c.chosen, tex, size, err));
+                c.preview = Some(Preview { layout: c.layout.clone(), chosen: c.chosen, tex, size, points, err, slots });
+                c.drag = None;
             }
-            if let Some((_, _, tex, size, err)) = &c.preview {
+            if let Some(pv) = &c.preview {
+                let (layout, drag, shown) = (&mut c.layout, &mut c.drag, &mut c.shown);
                 egui::ScrollArea::both().show(ui, |ui| {
-                    if let Some(e) = err {
+                    if let Some(e) = &pv.err {
                         ui.colored_label(ui.visuals().error_fg_color, e);
                     } else {
-                        let w = ui.available_width().min(size.x);
-                        let sz = *size * (w / size.x);
+                        let w = ui.available_width().min(pv.size.x);
+                        let sz = pv.size * (w / pv.size.x);
                         egui::Frame::new().stroke(egui::Stroke::new(1.0, Color32::from_gray(90))).show(ui, |ui| {
-                            ui.add(egui::Image::new((tex.id(), sz)));
+                            let r = ui.add(egui::Image::new((pv.tex.id(), sz)).sense(egui::Sense::drag()));
+                            *shown = Some(r.rect);
+                            move_boxes(ui, &r, pv, drag, layout);
                         });
                     }
                 });
+            }
+            // the typeface, size and places kept for the next figure
+            if c.layout.look != c.kept {
+                c.kept = c.layout.look;
+                let look = c.kept;
+                crate::settings::update(|st| st.figure_look = look);
             }
         },
     );
@@ -1935,7 +2477,7 @@ mod tests {
         let pdf = d.pdf("A figure");
         let text = String::from_utf8_lossy(&pdf);
         assert!(text.starts_with("%PDF-1.4") && text.contains("/MediaBox [0 0 340.15"), "{}", &text[..400]);
-        assert!(text.contains(" re W n") && text.contains("B*") && text.contains("(N) Tj"));
+        assert!(text.contains(" re W n") && text.contains("B*") && text.contains("/Identity-H"));
         assert!(text.contains("/Title (A figure)") && text.contains("/Subtype /Image"));
         // without the inset: no land
         let l = Layout { inset: false, ..l };
@@ -1998,6 +2540,197 @@ mod tests {
             ranks.iter().map(|(i, _)| names[*i].to_string()).collect::<Vec<_>>()
         };
         assert_eq!(order(&["point", "small", "line", "big", "middle"]), ["big", "middle", "small", "line", "point"]);
+    }
+
+    fn slot(d: &Drawing, item: Item) -> Slot {
+        *d.slots.iter().find(|s| s.item == item).unwrap_or_else(|| panic!("no {item:?}"))
+    }
+
+    fn inside((x, y, w, h): (f32, f32, f32, f32), (ax, ay, aw, ah): (f32, f32, f32, f32)) -> bool {
+        x >= ax - 0.01 && y >= ay - 0.01 && x + w <= ax + aw + 0.01 && y + h <= ay + ah + 0.01
+    }
+
+    /// A layout written before the look could be chosen reads as the one of today: the same figure.
+    #[test]
+    fn an_old_layout_is_the_same_drawing() {
+        let old = r#"{"title":"Land use","width_mm":120.0,"dpi":300,"columns":1,"legend":true,"scale_bar":true,
+            "north":true,"grid":true,"inset":true}"#;
+        let l: Layout = serde_json::from_str(old).unwrap();
+        assert_eq!(l.look, Look::default());
+        let now = Layout { title: "Land use".into(), width_mm: 120.0, columns: 1, ..Default::default() };
+        assert_eq!(l, now);
+        let a = panel("", |i| 1.0 + (i % 2) as f64, classes());
+        let (x, y) = (lay_out(std::slice::from_ref(&a), &l, 2.0).unwrap(), lay_out(&[a], &now, 2.0).unwrap());
+        assert_eq!(x.svg(120.0), y.svg(120.0));
+        // and the look written and read back
+        let look = Look { face: Face::Inter, size: 9.0, legend_at: Place::At(0.25, 0.5), scale_at: Place::TopRight };
+        let back: Look = serde_json::from_str(&serde_json::to_string(&look).unwrap()).unwrap();
+        assert_eq!(back, look);
+        let partial: Look = serde_json::from_str(r#"{"face":"Inter"}"#).unwrap();
+        assert_eq!((partial.face, partial.size, partial.legend_at), (Face::Inter, BASE_SIZE, Place::Auto));
+    }
+
+    /// The typeface chosen reaches the three formats: the SVG's font-family, the PDF's embedded font, the PNG's
+    /// letters.
+    #[test]
+    fn the_font_chosen_is_in_every_format() {
+        let a = panel("map", |i| 1.0 + (i % 2) as f64, classes());
+        let with = |face| Layout { columns: 1, look: Look { face, ..Look::default() }, ..Default::default() };
+        let draw = |face| lay_out(std::slice::from_ref(&a), &with(face), 2.0).unwrap();
+        let svg = |face| draw(face).svg(180.0);
+        assert!(svg(Face::SourceSans).contains("font-family=\"'Source Sans 3', 'Source Sans Pro'"));
+        assert!(svg(Face::Inter).contains("font-family=\"'Inter', Arial, sans-serif\""));
+        assert!(svg(Face::Egui).contains("font-family=\"'Ubuntu Light'"));
+        let pdf = |face| String::from_utf8_lossy(&draw(face).pdf("t")).into_owned();
+        for (face, name) in
+            [(Face::SourceSans, "SourceSans3-Regular"), (Face::Inter, "Inter-Regular"), (Face::Egui, "Ubuntu-Light")]
+        {
+            let p = pdf(face);
+            assert!(p.contains(&format!("/BaseFont /{name}")) && p.contains("/FontFile2"), "{name}");
+            assert!(p.contains(" TJ ET"), "text drawn by glyph numbers");
+        }
+        // the letters are not the same pixels: another face, another picture
+        let px = |face| draw(face).pixels(150).unwrap().data().to_vec();
+        assert_ne!(px(Face::SourceSans), px(Face::Inter));
+        assert_ne!(px(Face::SourceSans), px(Face::Egui));
+        // the widths follow the face (Inter is wider than Source Sans)
+        let (s, i) = (Type::of(Look::default()), Type::of(Look { face: Face::Inter, ..Look::default() }));
+        assert!(i.width(7.5, "Land use") > s.width(7.5, "Land use"));
+    }
+
+    /// The text size multiplies the text and the room around it; the default is the figure of before.
+    #[test]
+    fn the_text_size_scales_the_text() {
+        let a = panel("map", |i| 1.0 + (i % 2) as f64, classes());
+        let size = |size| Layout { columns: 1, look: Look { size, ..Look::default() }, ..Default::default() };
+        let base = lay_out(std::slice::from_ref(&a), &size(BASE_SIZE), 2.0).unwrap();
+        let big = lay_out(std::slice::from_ref(&a), &size(15.0), 2.0).unwrap();
+        assert!(base.svg(180.0).contains("font-size=\"7.5\""));
+        let svg = big.svg(180.0);
+        assert!(svg.contains("font-size=\"15\"") && !svg.contains("font-size=\"7.5\""), "{svg}");
+        assert_eq!(big.w, base.w, "the width is the figure's, not the text's");
+    }
+
+    /// The legend and the scale bar where the layout says: a corner, or a place of the free room; always inside.
+    #[test]
+    fn the_legend_and_the_scale_bar_are_placed_by_hand() {
+        let a = panel("", |i| 1.0 + (i % 2) as f64, classes());
+        let at = |legend_at, scale_at| Layout {
+            columns: 1,
+            width_mm: 120.0,
+            look: Look { legend_at, scale_at, ..Look::default() },
+            ..Default::default()
+        };
+        let one = |l: &Layout| lay_out(std::slice::from_ref(&a), l, 2.0).unwrap();
+        // by itself: the legend at the right of the map, the scale bar at its bottom left
+        let auto = one(&at(Place::Auto, Place::Auto));
+        let (lg, sb) = (slot(&auto, Item::Legend), slot(&auto, Item::ScaleBar));
+        assert!(lg.rect.0 > sb.area.0 + sb.area.2, "the legend beside the map");
+        assert!((sb.rect.0 - (sb.area.0 + 3.0)).abs() < 0.01);
+        assert!((sb.rect.1 + sb.rect.3 - (sb.area.1 + sb.area.3 - 3.0)).abs() < 0.01);
+        // a corner of the figure for the legend: over the maps, which take the room it had
+        let top_left = one(&at(Place::TopLeft, Place::TopRight));
+        let (lg2, sb2) = (slot(&top_left, Item::Legend), slot(&top_left, Item::ScaleBar));
+        assert!((lg2.rect.0 - (lg2.area.0 + 4.0)).abs() < 0.01 && (lg2.rect.1 - (lg2.area.1 + 4.0)).abs() < 0.01);
+        assert!(sb2.rect.0 + sb2.rect.2 > sb2.area.0 + sb2.area.2 - 3.5, "the scale bar at the map's right");
+        assert!((sb2.rect.1 - (sb2.area.1 + 3.0)).abs() < 0.01, "and top");
+        assert!(sb2.area.2 > sb.area.2, "the map wider without the legend's column");
+        // their own place: 0 is against the edge, 1 against the other, and nothing leaves the figure
+        let whole = (0.0, 0.0, top_left.w, top_left.h);
+        for (fx, fy) in [(0.0, 0.0), (1.0, 1.0), (0.5, 0.25), (-3.0, 7.0)] {
+            let d = one(&at(Place::At(fx, fy), Place::At(fx, fy)));
+            for item in [Item::Legend, Item::ScaleBar] {
+                let s = slot(&d, item);
+                assert!(inside(s.rect, whole), "{item:?} at {fx}, {fy}: {:?}", s.rect);
+                assert!(inside(s.rect, s.area), "{item:?} at {fx}, {fy}: {:?} in {:?}", s.rect, s.area);
+            }
+            let (s, l) = (slot(&d, Item::ScaleBar), slot(&d, Item::Legend));
+            let (fx, fy) = (fx.clamp(0.0, 1.0), fy.clamp(0.0, 1.0));
+            assert!((s.rect.0 - (s.area.0 + fx * (s.area.2 - s.rect.2))).abs() < 0.01);
+            assert!((l.rect.1 - (l.area.1 + fy * (l.area.3 - l.rect.3))).abs() < 0.01);
+        }
+        // the legend's own text is drawn in its box (the class name after the swatch)
+        let d = one(&at(Place::At(1.0, 1.0), Place::Auto));
+        let l = slot(&d, Item::Legend);
+        let (tx, ty) = d
+            .shapes
+            .iter()
+            .find_map(|s| match s {
+                Shape::Text { x, y, text, .. } if text == "forest" => Some((*x, *y)),
+                _ => None,
+            })
+            .unwrap();
+        assert!(tx > l.rect.0 && tx < l.rect.0 + l.rect.2 && ty > l.rect.1 && ty < l.rect.1 + l.rect.3);
+        // the legend of each map when they differ: over its own map
+        let ramp = Coloring::Continuous { min: 0.0, max: 100.0, ramp: Default::default(), log: false };
+        let b = panel("values", |i| (i % 100) as f64, ramp);
+        let d = lay_out(&[a.clone(), b], &at(Place::BottomRight, Place::Auto), 2.0).unwrap();
+        let legends: Vec<&Slot> = d.slots.iter().filter(|s| s.item == Item::Legend).collect();
+        assert_eq!(legends.len(), 2);
+        for s in legends {
+            assert!(inside(s.rect, s.area) && s.area.3 > 20.0, "inside its map");
+        }
+    }
+
+    /// The boxes of the text of a drawing (x0, y0, x1, y1), the letters' height taken as 0.75 of the size over the
+    /// baseline and 0.25 under it.
+    fn text_boxes(d: &Drawing, look: Look) -> Vec<((f32, f32, f32, f32), String)> {
+        let t = Type::of(look);
+        d.shapes
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Text { x, y, size, text, anchor, up, colour, .. } if *colour == INK => {
+                    let w = t.width(*size, text);
+                    let a = if *anchor == Anchor::Middle { -w / 2.0 } else { 0.0 };
+                    let b = if *up {
+                        (x - 0.75 * size, y + a, x + 0.25 * size, y + a + w)
+                    } else {
+                        (x + a, y - 0.75 * size, x + a + w, y + 0.25 * size)
+                    };
+                    Some((b, text.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Whatever the text's size, no text of the figure touches another (the coordinates at a corner, the last of
+    /// a map and the first of the next, the captions, the legend) and all of it is inside the figure.
+    #[test]
+    fn the_text_of_a_figure_does_not_collide() {
+        let a = panel("2000", |i| if i % 60 < 30 { 1.0 } else { 2.0 }, classes());
+        let b = panel("2020", |i| if i % 60 < 20 { 1.0 } else { 2.0 }, classes());
+        for size in [7.5, 9.0, 12.0] {
+            for width_mm in [180.0, 120.0] {
+                let look = Look { size, ..Look::default() };
+                let l = Layout { title: "Land use".into(), width_mm, look, ..Default::default() };
+                let d = lay_out(&[a.clone(), b.clone()], &l, 2.0).unwrap();
+                let boxes = text_boxes(&d, look);
+                assert!(boxes.len() > 12, "the labels are there: {}", boxes.len());
+                for (i, (p, s)) in boxes.iter().enumerate() {
+                    assert!(p.0 >= 0.0 && p.1 >= 0.0 && p.2 <= d.w && p.3 <= d.h, "{s} outside at {size}: {p:?}");
+                    for (q, u) in &boxes[i + 1..] {
+                        let apart = p.2 <= q.0 || q.2 <= p.0 || p.3 <= q.1 || q.3 <= p.1;
+                        assert!(apart, "{s:?} {p:?} and {u:?} {q:?} overlap at {size} pt, {width_mm} mm");
+                    }
+                }
+            }
+        }
+    }
+
+    /// A box dragged to a place: a corner when close to one, else its fractions.
+    #[test]
+    fn a_dragged_box_snaps_to_a_corner() {
+        let s = Slot { item: Item::Legend, rect: (10.0, 10.0, 20.0, 10.0), area: (0.0, 0.0, 120.0, 60.0) };
+        assert_eq!(s.place_at(0.0, 0.0), Place::TopLeft);
+        assert_eq!(s.place_at(99.0, 49.0), Place::BottomRight);
+        assert_eq!(s.place_at(98.5, 1.0), Place::TopRight);
+        assert_eq!(s.place_at(50.0, 25.0), Place::At(0.5, 0.5));
+        assert_eq!(s.place_at(-30.0, 500.0), Place::BottomLeft);
+        // and back: the place puts the box where it was dropped
+        let Place::At(fx, fy) = s.place_at(30.0, 12.5) else { panic!() };
+        let (x, y) = Place::At(fx, fy).corner(s.area, (20.0, 10.0), 4.0).unwrap();
+        assert!((x - 30.0).abs() < 0.01 && (y - 12.5).abs() < 0.01);
     }
 
     #[test]
