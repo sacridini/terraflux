@@ -4911,7 +4911,7 @@ pub fn show(
         let nodes = || scene.boxes.iter().filter(|b| !b.source);
         let x = nodes().map(|b| b.rect.right()).reduce(f32::max).map_or(200.0, |x| x + 90.0);
         let y0 = nodes().map(|b| b.rect.top()).reduce(f32::min).unwrap_or(0.0);
-        for (k, (name, reference)) in body.outputs.iter().enumerate() {
+        for (k, (name, reference)) in body.outputs_in_order().into_iter().enumerate() {
             let bx = Rect::from_min_size(Pos2::new(x, y0 + k as f32 * (ROW + 18.0)), Vec2::new(OUTPUT_W, ROW + 8.0));
             let on = Rect::from_min_max(screen(bx.min), screen(bx.max));
             let from = reference.split_once('.').and_then(|(node, port)| {

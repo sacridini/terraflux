@@ -3196,6 +3196,64 @@ fn a_connection_let_go_on_the_edge_of_a_group_makes_an_output() {
     assert!(outputs(&h).is_empty());
 }
 
+/// The panel of a group lists its outputs with their names to edit and arrows to order them: a name typed (Enter)
+/// renames the output and what reads it follows, one step of undo; the arrows change the order its box shows its
+/// ports in, one step of undo each.
+#[test]
+fn a_groups_outputs_are_renamed_and_ordered_in_its_panel() {
+    use egui_kittest::kittest::{NodeT, Queryable};
+    use terraflux_graph::{Body, Source};
+    let _lock = settings_lock();
+    let mut m = Model::new("outs");
+    let mut grp = Node::new("grp", terraflux_graph::GROUP).body(Body {
+        nodes: vec![reader("r", [0.0, 0.0]), reader("q", [0.0, 200.0])],
+        outputs: [("alpha".to_string(), "r.raster".to_string()), ("beta".to_string(), "q.raster".to_string())].into(),
+        ..Default::default()
+    });
+    grp.pos = Some([0.0, 0.0]);
+    let mut rc = Node::new("rc", "raster.reclassify").input("map", "grp.alpha");
+    rc.pos = Some([600.0, 0.0]);
+    m.nodes = vec![grp, rc];
+    let mut h = harness(open(&m, "canvas-group-outputs.toml"));
+    h.run_steps(3);
+    let state = |h: &Harness<TerrafluxApp>| {
+        let s = h.state().session.as_ref().unwrap();
+        let b = s.source.node("grp").unwrap().body.as_ref().unwrap();
+        let names: Vec<String> = b.output_names().into_iter().cloned().collect();
+        (names, s.source.node("rc").unwrap().inputs["map"].clone())
+    };
+    let s = h.state_mut().session.as_mut().unwrap();
+    s.selected = Some("grp".into());
+    s.editor.chosen = ["grp".to_string()].into();
+    s.editor.panel = Some(Vec::new());
+    h.run_steps(6);
+    assert_eq!(state(&h).0, ["alpha", "beta"]);
+    // the first one down: the order the box shows
+    h.query_all_by_label("↓").next().expect("a down arrow").click();
+    h.run_steps(3);
+    assert_eq!(state(&h).0, ["beta", "alpha"]);
+    let s = h.state().session.as_ref().unwrap();
+    let ports =
+        terraflux_app::editor::output_ports(s.source.node("grp").unwrap(), &terraflux_ops::Registry::standard());
+    assert_eq!(ports.iter().map(|p| p.0.as_str()).collect::<Vec<_>>(), ["beta", "alpha"]);
+    undo(&mut h);
+    assert_eq!(state(&h).0, ["alpha", "beta"], "one step of undo");
+    // renamed: the node that reads it follows; one step of undo takes both back
+    let name = h.query_all_by_value("alpha").find(|n| n.accesskit_node().role() == egui::accesskit::Role::TextInput);
+    name.expect("the name's field").click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.event(egui::Event::Text("gamma".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(4);
+    let (names, read) = state(&h);
+    assert_eq!(names, ["gamma", "beta"], "its place kept");
+    assert_eq!(read, Source::Ref("grp.gamma".into()));
+    undo(&mut h);
+    assert_eq!(state(&h), (vec!["alpha".to_string(), "beta".to_string()], Source::Ref("grp.alpha".into())));
+}
+
 /// A free input's wire dragged backwards: on an output that fits it connects (one step of undo), on one that does
 /// not nothing changes; on the empty canvas the search lists only what gives its type, the one chosen is added
 /// there and wired into the input; escape leaves the model as it was.

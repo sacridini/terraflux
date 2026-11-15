@@ -222,10 +222,12 @@ fn bare(b: &Body) -> Body {
             n.shown.clear();
             n.hidden.clear();
             if let Some(b) = &mut n.body {
+                b.order.clear();
                 strip(&mut b.nodes);
             }
         }
     }
+    b.order.clear();
     strip(&mut b.nodes);
     b
 }

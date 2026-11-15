@@ -600,7 +600,7 @@ fn step(n: &Node, path: &[String], stage: Stage, r: &Registry, value: Option<(St
             times: n.inputs.get("times").filter(|_| n.op == "control.repeat").map(From::of),
             carry: b.carry.iter().map(|(k, each)| (k.clone(), n.inputs.get(k).map(From::of), each.clone())).collect(),
             collect: b.collect.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
-            outputs: b.outputs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            outputs: b.outputs_in_order().into_iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             until: b.until.clone(),
             steps: reading_order(&b.nodes)
                 .into_iter()

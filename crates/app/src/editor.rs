@@ -703,6 +703,9 @@ fn for_each_ref(m: &mut Model, path: &[String], f: &mut dyn FnMut(&mut String)) 
             b.carry.values_mut().for_each(&mut *f);
             b.collect.values_mut().for_each(&mut *f);
             b.outputs.values_mut().for_each(&mut *f);
+            if let Some(u) = &mut b.until {
+                f(u);
+            }
         }
     }
     if path.is_empty() {
@@ -727,6 +730,9 @@ fn for_each_ref(m: &mut Model, path: &[String], f: &mut dyn FnMut(&mut String)) 
         b.carry.values_mut().for_each(&mut *f);
         b.collect.values_mut().for_each(&mut *f);
         b.outputs.values_mut().for_each(&mut *f);
+        if let Some(u) = &mut b.until {
+            f(u);
+        }
     }
     if let Some(nodes) = m.scope_mut(path) {
         for n in nodes.iter_mut() {
@@ -1654,6 +1660,62 @@ pub fn expose_output(m: &mut Model, r: &Registry, path: &[String], node: &str, p
     Ok(name)
 }
 
+/// An output of the group `id` of the scope `path` renamed, and every reference to it (`id.old` in the nodes around,
+/// the settings that read it, the container's own maps, the model's outputs and Plots) following. Refused when the
+/// name is not a valid port name or an output has it already. Its place among the outputs is kept.
+pub fn rename_output(m: &mut Model, r: &Registry, path: &[String], id: &str, old: &str, new: &str) -> Result<()> {
+    if old == new {
+        return Ok(());
+    }
+    if !terraflux_graph::valid_port(new) {
+        return Err(format!("{new:?} is not a valid name (letters, digits, _ or -)"));
+    }
+    let g = m.scope(path).and_then(|v| v.iter().find(|n| n.id == id)).ok_or_else(|| format!("no node {id:?}"))?;
+    let b = g.body.as_ref().filter(|_| g.op == GROUP).ok_or_else(|| format!("{id:?} is not a group"))?;
+    if !b.outputs.contains_key(old) {
+        return Err(format!("{id} has no output {old:?}"));
+    }
+    if b.outputs.contains_key(new) {
+        return Err(format!("{id} has an output {new:?} already"));
+    }
+    guarded(m, r, &[prefix(path) + id], |c| {
+        let g = node_mut(c, path, id)?;
+        let mut body = g.body.take().ok_or_else(|| format!("{id} has no nodes"))?;
+        let mut names: Vec<String> = body.output_names().into_iter().cloned().collect();
+        names.iter_mut().filter(|k| *k == old).for_each(|k| *k = new.to_string());
+        let reference = body.outputs.remove(old).unwrap_or_default();
+        body.outputs.insert(new.to_string(), reference);
+        // (the order is kept in the file only when it is not the by-name one)
+        body.order = if names.windows(2).all(|w| w[0] <= w[1]) { Vec::new() } else { names };
+        // (its own nodes read nothing of it: the group is out of the way while the others are changed)
+        let (from, to) = (format!("{id}.{old}"), format!("{id}.{new}"));
+        for_each_ref(c, path, &mut |r| {
+            if let Some(rest) = r.strip_prefix(&from)
+                && (rest.is_empty() || rest.starts_with('.'))
+            {
+                *r = format!("{to}{rest}");
+            }
+        });
+        node_mut(c, path, id)?.body = Some(body);
+        Ok(())
+    })
+}
+
+/// An output of the group `id` of the scope `path` moved one place up (`up`) or down in the order its box and its
+/// panel show them in. Nothing changes at the first (up) or the last (down).
+pub fn move_output(m: &mut Model, path: &[String], id: &str, name: &str, up: bool) -> Result<()> {
+    let g = node_mut(m, path, id)?;
+    let b = g.body.as_mut().filter(|_| g.op == GROUP).ok_or_else(|| format!("{id:?} is not a group"))?;
+    let mut names: Vec<String> = b.output_names().into_iter().cloned().collect();
+    let at = names.iter().position(|k| k == name).ok_or_else(|| format!("{id} has no output {name:?}"))?;
+    let to = if up { at.checked_sub(1) } else { Some(at + 1).filter(|k| *k < names.len()) };
+    if let Some(to) = to {
+        names.swap(at, to);
+        b.order = names;
+    }
+    Ok(())
+}
+
 /// The output of a node that a free input of type `ty` takes, the best first: the type itself, then the first that
 /// fits.
 pub fn feeding_port(n: &Node, r: &Registry, ty: Type) -> Option<String> {
@@ -1817,7 +1879,7 @@ pub fn output_ports(n: &Node, r: &Registry) -> Vec<(String, Type)> {
         let collected = if n.op == terraflux_graph::EACH { Type::Any } else { Type::Series };
         out.extend(b.carry.keys().map(|k| (k.clone(), Type::Any)));
         out.extend(b.collect.keys().map(|k| (k.clone(), collected)));
-        out.extend(b.outputs.keys().map(|k| (k.clone(), Type::Any)));
+        out.extend(b.output_names().into_iter().map(|k| (k.clone(), Type::Any)));
         // a switch: its branches' outputs (the first's names)
         if n.op == terraflux_graph::SWITCH
             && let Some(first) = b.nodes.first().and_then(|g| g.body.as_ref())
@@ -2238,6 +2300,66 @@ mod tests {
         assert!(copies.is_empty());
         assert_eq!(paste_notes(&mut m, &[], &notes, &HashMap::new(), [5.0, 5.0]), ["note3"]);
         assert!(clip_nodes(&clip_text(&[], &[])).is_none());
+    }
+
+    /// A group's output renamed: what reads it follows, the place it had among the outputs is kept, a bad or taken
+    /// name refused; the outputs moved up and down.
+    #[test]
+    fn the_outputs_of_a_group_are_renamed_and_ordered() {
+        let r = Registry::standard();
+        let mut m = Model::new("t");
+        let body = terraflux_graph::Body {
+            nodes: vec![Node::new("a", "raster.read"), Node::new("b", "raster.read")],
+            outputs: [("x".to_string(), "a.raster".to_string()), ("y".to_string(), "b.raster".to_string())].into(),
+            ..Default::default()
+        };
+        m.nodes.push(Node::new("g", GROUP).body(body));
+        m.nodes.push(Node::new("use", "raster.reclassify").input("map", "g.x"));
+        m.nodes.push(Node::new("via", "raster.reclassify").input("map", "g.y"));
+        m.outputs
+            .insert("o".into(), terraflux_graph::Output { from: "g.x".into(), path: None, dtype: None, layer: None });
+        let order = |m: &Model| {
+            m.node("g").unwrap().body.as_ref().unwrap().output_names().into_iter().cloned().collect::<Vec<_>>()
+        };
+        assert_eq!(order(&m), ["x", "y"]);
+        // renamed: every reader follows, the place kept (`z` is after `y` by name, but not shown there)
+        rename_output(&mut m, &r, &[], "g", "x", "z").unwrap();
+        assert_eq!(m.node("use").unwrap().inputs["map"], Source::Ref("g.z".into()));
+        assert_eq!(m.node("via").unwrap().inputs["map"], Source::Ref("g.y".into()), "the other output untouched");
+        assert_eq!(m.outputs["o"].from, "g.z");
+        assert_eq!(m.node("g").unwrap().body.as_ref().unwrap().outputs["z"], "a.raster");
+        assert_eq!(order(&m), ["z", "y"]);
+        // refused: a name taken, one that is no name, one that is no output
+        assert!(rename_output(&mut m, &r, &[], "g", "z", "y").is_err());
+        assert!(rename_output(&mut m, &r, &[], "g", "z", "a b").is_err());
+        assert!(rename_output(&mut m, &r, &[], "g", "z", "").is_err());
+        assert!(rename_output(&mut m, &r, &[], "g", "nope", "q").is_err());
+        assert!(rename_output(&mut m, &r, &[], "use", "x", "q").is_err(), "not a group");
+        assert_eq!(order(&m), ["z", "y"]);
+        // moved
+        move_output(&mut m, &[], "g", "z", true).unwrap();
+        assert_eq!(order(&m), ["z", "y"], "the first stays");
+        move_output(&mut m, &[], "g", "y", true).unwrap();
+        assert_eq!(order(&m), ["y", "z"]);
+        move_output(&mut m, &[], "g", "z", false).unwrap();
+        assert_eq!(order(&m), ["y", "z"], "the last stays");
+        assert_eq!(output_ports(m.node("g").unwrap(), &r).iter().map(|p| p.0.as_str()).collect::<Vec<_>>(), ["y", "z"]);
+        // the order is only for show: the file without it reads the same, the outputs a map as before
+        let text = serde_json::to_string(&m).unwrap();
+        assert!(text.contains("\"order\":[\"y\",\"z\"]"));
+        let mut old: serde_json::Value = serde_json::from_str(&text).unwrap();
+        old["nodes"][0]["body"].as_object_mut().unwrap().remove("order");
+        let back: Model = serde_json::from_value(old).unwrap();
+        assert_eq!(order(&back), ["y", "z"], "by name when no order is kept");
+        assert_eq!(
+            back.node("g").unwrap().body.as_ref().unwrap().outputs,
+            m.node("g").unwrap().body.as_ref().unwrap().outputs
+        );
+        // a rename keeps the place of the output in the order kept
+        rename_output(&mut m, &r, &[], "g", "z", "w").unwrap();
+        assert_eq!(order(&m), ["y", "w"]);
+        move_output(&mut m, &[], "g", "w", true).unwrap();
+        assert_eq!(order(&m), ["w", "y"]);
     }
 
     /// A calculator made a group, the group a node of the user's library, a copy of it added, and both brought to

@@ -762,6 +762,8 @@ fn bare(n: &Node) -> Node {
     n.hidden.clear();
     n.frozen = false;
     if let Some(b) = &mut n.body {
+        // (the order its outputs are drawn in: drawing only)
+        b.order.clear();
         b.nodes = b.nodes.iter().map(bare).collect();
     }
     n

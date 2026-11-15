@@ -2521,8 +2521,13 @@ marca nas vistas ao lado, a seleção guardada no Plot com a tabela fechada, o b
    (`editor::expose_last`). Teste: `a_group_gives_the_results_of_its_last_nodes`. **Saída por arrastar feita** (Unreleased): dentro do grupo aberto, um fio solto na faixa "new output of the group" (à direita
    do canvas, desenhada enquanto se arrasta) faz da porta uma saída do grupo (`editor::expose_output`, nome livre: a porta, `porta_2`...;
    a mesma porta de novo não duplica), e as saídas do grupo aparecem como caixas à direita dos nós. Teste:
-   `a_connection_let_go_on_the_edge_of_a_group_makes_an_output`. Falta: criar uma *entrada* do grupo arrastando
-   um fio da borda esquerda; renomear e reordenar as saídas no painel do grupo.
+   `a_connection_let_go_on_the_edge_of_a_group_makes_an_output`. **Renomear e reordenar as saídas feito**
+   (Unreleased): no painel do grupo cada saída tem o nome para editar (Enter renomeia: `editor::rename_output`
+   troca `grupo.velho` em tudo que lê, saídas do modelo, Plots e contêiner, validando com `valid_port`, num passo
+   de desfazer) e setas ↑ ↓ (`editor::move_output`). A ordem fica em `Body.order`, lista opcional ao lado de
+   `outputs` (que continua um mapa por nome): arquivos antigos leem igual, versões antigas ignoram o campo.
+   Testes: `the_outputs_of_a_group_are_renamed_and_ordered`, `a_groups_outputs_are_renamed_and_ordered_in_its_panel`.
+   Falta: criar uma *entrada* do grupo arrastando um fio da borda esquerda.
 3. **O grupo com cara de grupo, e a entrada e a saída animadas.** Uma caixa que se lê como "vários nós dentro"
    (cartões empilhados, o número de nós, um ícone) e, ao entrar ou sair, o zoom para dentro da caixa e de volta.
    **Feito** (Unreleased): dois cartões atrás da caixa, a borda e o cabeçalho na cor de destaque, um ícone e

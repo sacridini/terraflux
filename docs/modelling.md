@@ -84,6 +84,13 @@ A `control.group` runs its body once. Its inputs (any names) are `@name` inside,
 references of its body (`body.outputs`). A group gathers a few nodes into one, for instance to compute a
 dynamic variable. Its body also reads the nodes around it (`node.port`), as a loop's does.
 
+A group's outputs are named and ordered in its panel (the gear of its box, or the Node pane): each output's name
+is a field (Enter renames it, and every `group.old` that reads it, a setting's value, the model's outputs and the
+Plots' layers follow, in one step of undo; a name that is not a port name or that another output has is refused),
+and the arrows move it up or down in the order the box shows its ports and the inside shows its output boxes.
+The order is kept in the body as an optional list, `order = ["map", "total"]`, next to `outputs`; without it (every
+older file) the outputs are shown by name, and an older version of Terraflux reads a file with it and ignores it.
+
 In the editor, ctrl+G puts the nodes selected into a new group (what read them from outside reads the group's
 outputs, named after them) and ctrl+shift+G takes a group apart. **Group the model by stage** (ctrl+K) puts the
 top level in a group per stage (data, preparation, model, validation, results), each with a note of what it is

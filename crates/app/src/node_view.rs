@@ -667,7 +667,42 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             } else {
                 vec![("carry", &b.carry), ("collect", &b.collect)]
             };
+            // a group's outputs: each with its name to edit and arrows to order them (as its box shows them)
+            let editable = n.op == terraflux_graph::GROUP && n.uses.is_none();
             for (which, map) in &maps {
+                if editable && *which == "outputs" {
+                    let names: Vec<String> = b.output_names().into_iter().cloned().collect();
+                    for (i, k) in names.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            let mut text = field(s, &format!("output_name {k}"), k.clone());
+                            let room = (ui.available_width() - 120.0).clamp(40.0, 110.0);
+                            let resp = ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut text)
+                                        .id_salt(("output name", &n.id, k))
+                                        .desired_width(room),
+                                )
+                                .on_hover_text("the output's name: Enter renames it, and what reads it follows");
+                            s.fields.insert(format!("output_name {k}"), text.clone());
+                            if resp.lost_focus() && text.trim() != k && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                change =
+                                    Some(crate::editor::rename_output(&mut s.source, r, &path, &n.id, k, text.trim()));
+                            }
+                            if ui.add_enabled(i > 0, egui::Button::new("↑").small()).on_hover_text("up").clicked() {
+                                change = Some(crate::editor::move_output(&mut s.source, &path, &n.id, k, true));
+                            }
+                            if ui
+                                .add_enabled(i + 1 < names.len(), egui::Button::new("↓").small())
+                                .on_hover_text("down")
+                                .clicked()
+                            {
+                                change = Some(crate::editor::move_output(&mut s.source, &path, &n.id, k, false));
+                            }
+                            ui.label(RichText::new(format!("<- {}", b.outputs[k])).monospace());
+                        });
+                    }
+                    continue;
+                }
                 for (k, v) in map.iter() {
                     ui.label(RichText::new(format!("{which}: {k} <- {v}")).monospace());
                 }

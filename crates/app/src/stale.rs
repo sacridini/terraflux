@@ -34,6 +34,7 @@ fn shallow(n: &Node) -> Node {
     n.hidden.clear();
     if let Some(b) = &mut n.body {
         b.nodes.clear();
+        b.order.clear();
     }
     n
 }

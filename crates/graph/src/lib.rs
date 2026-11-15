@@ -660,6 +660,10 @@ pub struct Body {
     /// Output name -> the reference giving it (a group's outputs).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub outputs: BTreeMap<String, String>,
+    /// The order a group's outputs are shown in (its box's ports, the panel): output names; those not listed come
+    /// after, by name. Only for show: a file without it (or an older version, which ignores it) reads the same.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub order: Vec<String>,
     /// A loop's end (control.repeat): a reference to a yes-or-no value; when it is true at the end of a step, the
     /// loop ends there, that step neither collected nor carried (a model that stops, as CLUMondo when a year has
     /// no solution).
@@ -681,6 +685,27 @@ pub struct Output {
     /// One layer of a stack (or of rasters, or a step of a series) written alone: its name or 0-based number.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layer: Option<String>,
+}
+
+impl Body {
+    /// The names of the outputs in the order they are shown: those of `order` that exist, then the others by name.
+    pub fn output_names(&self) -> Vec<&String> {
+        let mut names: Vec<&String> = Vec::with_capacity(self.outputs.len());
+        for k in &self.order {
+            if let Some((k, _)) = self.outputs.get_key_value(k)
+                && !names.contains(&k)
+            {
+                names.push(k);
+            }
+        }
+        names.extend(self.outputs.keys().filter(|k| !names.contains(k)).collect::<Vec<_>>());
+        names
+    }
+
+    /// The outputs (name, reference) in the order they are shown ([`Body::output_names`]).
+    pub fn outputs_in_order(&self) -> Vec<(&String, &String)> {
+        self.output_names().into_iter().map(|k| (k, &self.outputs[k])).collect()
+    }
 }
 
 impl Model {
@@ -1098,6 +1123,32 @@ pub fn dependencies_among(node: &Node, scope: &std::collections::HashSet<&str>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_order_of_a_groups_outputs_is_kept_in_the_file_and_optional() {
+        let mut b = Body {
+            nodes: vec![Node::new("a", "nlm.random")],
+            outputs: [("x", "a.map"), ("y", "a.map"), ("z", "a.map")].map(|(k, v)| (k.into(), v.into())).into(),
+            ..Default::default()
+        };
+        let names = |b: &Body| b.output_names().into_iter().cloned().collect::<Vec<_>>();
+        assert_eq!(names(&b), ["x", "y", "z"], "by name without an order");
+        // an order that lists some: those first, the others by name; an unknown name and a repeat left out
+        b.order = vec!["z".into(), "gone".into(), "z".into()];
+        assert_eq!(names(&b), ["z", "x", "y"]);
+        let mut m = Model::new("ordered");
+        m.nodes.push(Node::new("g", GROUP).body(b));
+        let text = m.to_toml().unwrap();
+        assert!(text.contains("order = ["), "{text}");
+        let back: Model = toml::from_str(&text).unwrap();
+        assert_eq!(names(back.node("g").unwrap().body.as_ref().unwrap()), ["z", "x", "y"]);
+        // a file without it (every file before, every older version's) reads the same, and none is written
+        m.nodes[0].body.as_mut().unwrap().order.clear();
+        let text = m.to_toml().unwrap();
+        assert!(!text.contains("order = "), "{text}");
+        let back: Model = toml::from_str(&text).unwrap();
+        assert_eq!(names(back.node("g").unwrap().body.as_ref().unwrap()), ["x", "y", "z"]);
+    }
 
     #[test]
     fn the_notes_and_frames_are_kept_with_the_model() {
