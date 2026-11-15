@@ -324,8 +324,7 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             let (args, said) = arguments(n, py, sc, None, &[])?;
             let crs = format!("{var}_crs");
             let code = format!("{said}{crs} = {}({})\n{var} = {tracks}.to_crs({crs})\n", py.call, args.join(", "));
-            let outs =
-                out(&[("crs", format!("{crs}.srs")), ("tracks", var.to_string()), ("table", frame_table(var))]);
+            let outs = out(&[("crs", format!("{crs}.srs")), ("tracks", var.to_string()), ("table", frame_table(var))]);
             (code, outs, Need::Nothing)
         }
         "move.segments" => {
@@ -592,7 +591,12 @@ params = { time = "t", track = "id", crs = "EPSG:32722" }
             "{t}"
         );
         assert!(t.contains("gamma = tf.move.make_distribution(\"gamma\", shape=2.0, rate=0.5)\n"), "{t}");
-        assert!(t.contains("located = tf.move.as_tracks(coords, time=\"t\", track=\"id\", crs=\"EPSG:32722\", x=\"x\", y=\"y\")\n"), "{t}");
+        assert!(
+            t.contains(
+                "located = tf.move.as_tracks(coords, time=\"t\", track=\"id\", crs=\"EPSG:32722\", x=\"x\", y=\"y\")\n"
+            ),
+            "{t}"
+        );
         parses(t);
     }
 }

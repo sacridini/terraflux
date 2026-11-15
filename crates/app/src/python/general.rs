@@ -406,7 +406,8 @@ fn keyed(var: &str, df: &str) -> String {
 /// The clustering's settings as the library's keywords.
 fn cluster_args(n: &Node, sc: &Scope) -> Result<Vec<String>, String> {
     let mut a = Vec::new();
-    for (ours, theirs) in [("method", "method"), ("components", "n_components"), ("n_init", "n_init"), ("seed", "seed")] {
+    for (ours, theirs) in [("method", "method"), ("components", "n_components"), ("n_init", "n_init"), ("seed", "seed")]
+    {
         if let Some(v) = setting(n, ours, sc)? {
             a.push(format!("{theirs}={v}"));
         }
@@ -433,7 +434,8 @@ fn query(n: &Node, sc: &Scope) -> Result<Option<String>, String> {
 /// The operators of this family translated by code of their own (as `special` in python.rs); `None`: not one of them.
 pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
     let v = |k: &str| value_of(n, k, sc);
-    let need = |k: &str, what: &str| -> Result<String, String> { v(k)?.ok_or_else(|| format!("{what} is not connected")) };
+    let need =
+        |k: &str, what: &str| -> Result<String, String> { v(k)?.ok_or_else(|| format!("{what} is not connected")) };
     let code: Code = match n.op.as_str() {
         // -- accuracy, stats, uncertainty, sensitivity ----------------------------------------------------------------
         "accuracy.sample" => {
@@ -492,7 +494,11 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             args.extend(given(n, &[("field", "field"), ("nmax", "nmax")], sc)?);
             let known = ["points", "like", "model", "field", "nmax", "shape", "psill", "range", "nugget"];
             let code = format!("{}{var} = tf.stats.kriging({})\n", rest(n, &known), args.join(", "));
-            (code, outs(&[("prediction", format!("{var}.prediction")), ("variance", format!("{var}.variance"))]), Need::Nothing)
+            (
+                code,
+                outs(&[("prediction", format!("{var}.prediction")), ("variance", format!("{var}.variance"))]),
+                Need::Nothing,
+            )
         }
         "sensitivity.analyze" => {
             let mut args = vec![need("design", "its design")?, need("results", "its results")?];
@@ -509,11 +515,16 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
                 ],
                 sc,
             )?);
-            let known = ["design", "results", "column", "method", "levels", "second_order", "resamples", "confidence", "seed"];
+            let known =
+                ["design", "results", "column", "method", "levels", "second_order", "resamples", "confidence", "seed"];
             let code = format!("{}{var} = tf.sensitivity.analyze({})\n", rest(n, &known), args.join(", "));
             // (the factors' names in a column `factor`)
             let table = |f: &str| format!("{var}.{f}.rename_axis(\"factor\").reset_index()");
-            (code, outs(&[("indices", table("indices")), ("s2", table("s2")), ("s2_conf", table("s2_conf"))]), Need::Nothing)
+            (
+                code,
+                outs(&[("indices", table("indices")), ("s2", table("s2")), ("s2_conf", table("s2_conf"))]),
+                Need::Nothing,
+            )
         }
         "uncertainty.delta" | "uncertainty.monte_carlo" => {
             let delta = n.op == "uncertainty.delta";
@@ -545,11 +556,18 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
                 ("monte_carlo", &[("n", "n"), ("seed", "seed"), ("quantiles", "quantiles")])
             };
             let inputs: Vec<&str> = n.inputs.keys().map(String::as_str).collect();
-            let known: Vec<&str> =
-                ["expression", "parameters", "method", "step", "scheme", "n", "seed", "quantiles"].into_iter().chain(inputs).collect();
+            let known: Vec<&str> = ["expression", "parameters", "method", "step", "scheme", "n", "seed", "quantiles"]
+                .into_iter()
+                .chain(inputs)
+                .collect();
             let mut code = rest(n, &known);
-            code.push_str(&format!("def _{var}_f(p):\n    return _calc({}, {})[\"map\"]\n", text(expr), f_args.join(", ")));
-            let mut args = vec![format!("_{var}_f"), format!("[{}]", values.join(", ")), format!("[{}]", sds.join(", "))];
+            code.push_str(&format!(
+                "def _{var}_f(p):\n    return _calc({}, {})[\"map\"]\n",
+                text(expr),
+                f_args.join(", ")
+            ));
+            let mut args =
+                vec![format!("_{var}_f"), format!("[{}]", values.join(", ")), format!("[{}]", sds.join(", "))];
             args.extend(given(n, keys, sc)?);
             code.push_str(&format!("{var} = tf.uncertainty.{call}({})\n", args.join(", ")));
             let o = if delta {
@@ -575,7 +593,11 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
                     vec![d, need("nrt", "its negligible risk threshold (nrt)")?],
                     &["distance", "nrt", "mask", "classes"],
                 ),
-                (None, Some(x)) => ("tf.redd.alternative", vec![x, need("forest", "its forest")?], &["vulnerability", "forest", "mask", "classes"]),
+                (None, Some(x)) => (
+                    "tf.redd.alternative",
+                    vec![x, need("forest", "its forest")?],
+                    &["vulnerability", "forest", "mask", "classes"],
+                ),
                 (None, None) => return Err("connect the distance to the edge, or a map of vulnerability".into()),
             };
             let args: Vec<String> = args.into_iter().chain(tail).collect();
@@ -604,7 +626,10 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
                 args.push(format!("mask={m}"));
             }
             let mut code = rest(n, &["density", "deforestation", "mask", "grid_area"]);
-            code.push_str(&format!("import pandas as pd\n{var} = tf.redd.assess({})\n_{var}_metrics = pd.DataFrame([{var}.metrics])\n", args.join(", ")));
+            code.push_str(&format!(
+                "import pandas as pd\n{var} = tf.redd.assess({})\n_{var}_metrics = pd.DataFrame([{var}.metrics])\n",
+                args.join(", ")
+            ));
             let o = outs(&[
                 ("table", format!("{var}.table")),
                 ("metrics", format!("_{var}_metrics")),
@@ -639,7 +664,11 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             }
             // (the library gives neither art. 61-B's recomposition nor the properties' table: those ports are not given)
             let code = format!("{}{var} = tf.forest_code.app({})\n", rest(n, &known), args.join(", "));
-            (code, outs(&[("app", format!("{var}.app")), ("table", format!("{var}.table.drop(columns=\"name\")"))]), Need::Nothing)
+            (
+                code,
+                outs(&[("app", format!("{var}.app")), ("table", format!("{var}.table.drop(columns=\"name\")"))]),
+                Need::Nothing,
+            )
         }
         "data.download" => {
             if n.inputs.contains_key("area") {
@@ -657,7 +686,11 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
                     ("tf.download.raster", vec!["url"])
                 }
                 Some(s @ ("worldclim" | "worldclim_future")) => {
-                    args.extend(given(n, &[("variable", "variable"), ("layers", "layers"), ("resolution", "resolution")], sc)?);
+                    args.extend(given(
+                        n,
+                        &[("variable", "variable"), ("layers", "layers"), ("resolution", "resolution")],
+                        sc,
+                    )?);
                     if s == "worldclim_future" {
                         args.push(format!("gcm={}", setting(n, "gcm", sc)?.unwrap_or_else(|| text("MPI-ESM1-2-HR"))));
                         args.extend(given(n, &[("ssp", "ssp"), ("period", "period")], sc)?);
@@ -707,11 +740,19 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
                 "{}import pandas as pd\n{var} = tf.spatial_entropy({m})\n_{var}_pairs = pd.DataFrame({{\"code\": np.flatnonzero({var}.histogram), \"count\": {var}.histogram[{var}.histogram > 0]}})\n",
                 rest(n, &["map", "foreground"])
             );
-            (code, outs(&[("index", format!("{var}.entropy_index")), ("pairs", format!("_{var}_pairs"))]), Need::Nothing)
+            (
+                code,
+                outs(&[("index", format!("{var}.entropy_index")), ("pairs", format!("_{var}_pairs"))]),
+                Need::Nothing,
+            )
         }
         "fragmentation.gray_convolution" => {
             let mut args = vec![format!("{}.fillna(255).astype(\"uint8\")", need("map", "its map")?)];
-            args.extend(given(n, &[("metric", "metric"), ("window", "window_size"), ("mask_missing", "mask_missing")], sc)?);
+            args.extend(given(
+                n,
+                &[("metric", "metric"), ("window", "window_size"), ("mask_missing", "mask_missing")],
+                sc,
+            )?);
             // (the library's missing is 255, or -0.01 in its output: no value)
             let code = format!(
                 "{}{var} = tf.gray_spatial_convolution({})\n{var} = {var}.where(({var} >= 0) & ({var} <= 100))\n",
@@ -801,7 +842,13 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             let mut args = vec![size("columns", "x")?, size("rows", "y")?];
             args.extend(given(
                 n,
-                &[("resolution", "resolution"), ("rescale", "rescale"), ("collect", "collect"), ("infinit", "infinit"), ("nlmr_compat", "nlmr_compat")],
+                &[
+                    ("resolution", "resolution"),
+                    ("rescale", "rescale"),
+                    ("collect", "collect"),
+                    ("infinit", "infinit"),
+                    ("nlmr_compat", "nlmr_compat"),
+                ],
                 sc,
             )?);
             args.extend(given(n, &[("mean", "mosaic_mean"), ("sd", "mosaic_sd")], sc)?);
@@ -813,10 +860,28 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             let flag = |k: &str| matches!(n.params.get(k), Some(Value::Bool(true)));
             // (with collect or infinit the library gives a dict of what was asked)
             let dict = flag("collect") || flag("infinit");
-            let known = ["like", "rows", "columns", "resolution", "crs", "seed", "rescale", "n", "mean", "sd", "collect", "infinit", "nlmr_compat"];
+            let known = [
+                "like",
+                "rows",
+                "columns",
+                "resolution",
+                "crs",
+                "seed",
+                "rescale",
+                "n",
+                "mean",
+                "sd",
+                "collect",
+                "infinit",
+                "nlmr_compat",
+            ];
             let mut code = rest(n, &known);
             code.push_str(&format!("{var} = tf.nlm.mosaic_field({})\n", args.join(", ")));
-            let field = if dict && n.params.get("n").and_then(Value::as_i64) != Some(0) { format!("{var}[\"mosaic_field\"]") } else { var.to_string() };
+            let field = if dict && n.params.get("n").and_then(Value::as_i64) != Some(0) {
+                format!("{var}[\"mosaic_field\"]")
+            } else {
+                var.to_string()
+            };
             // a drawn landscape's places and coordinate system (the library's models have none): `like`'s, else the setting's
             if let Some(l) = &like {
                 code.push_str(&format!(
@@ -828,7 +893,10 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             let mut o = outs(&[("map", field)]);
             let mut flow = Need::Nothing;
             if dict && flag("collect") {
-                o.insert("steps".into(), format!("_stack({{str(k): {var}[\"steps\"].sel(step=k) for k in {var}[\"steps\"].step.values}})"));
+                o.insert(
+                    "steps".into(),
+                    format!("_stack({{str(k): {var}[\"steps\"].sel(step=k) for k in {var}[\"steps\"].step.values}})"),
+                );
                 flow = Need::Flow;
             }
             if dict && flag("infinit") {
@@ -856,7 +924,10 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             let like = need("like", "the raster whose grid to take")?;
             let coarser = format!("abs({like}.rio.resolution()[0]) > abs({r}.rio.resolution()[0]) * 1.5");
             let m = resampling(n, sc, &r, &coarser)?;
-            let code = format!("{}{var} = tf.match_grid({r}, {like}, resampling={m})\n", rest(n, &["raster", "like", "resampling"]));
+            let code = format!(
+                "{}{var} = tf.match_grid({r}, {like}, resampling={m})\n",
+                rest(n, &["raster", "like", "resampling"])
+            );
             (code, one(var, "raster"), Need::Nothing)
         }
         "raster.resample" => {
@@ -865,7 +936,10 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             let x = first_number(n, "resolution", sc)?.ok_or("its resolution")?;
             let coarser = format!("{x} > abs({r}.rio.resolution()[0]) * 1.01");
             let m = resampling(n, sc, &r, &coarser)?;
-            let code = format!("{}{var} = tf.reproject({r}, res={res}, resampling={m})\n", rest(n, &["raster", "resolution", "resampling"]));
+            let code = format!(
+                "{}{var} = tf.reproject({r}, res={res}, resampling={m})\n",
+                rest(n, &["raster", "resolution", "resampling"])
+            );
             (code, one(var, "raster"), Need::Nothing)
         }
         "raster.reproject" => {
@@ -930,7 +1004,10 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
                 Some("km2") => "1",
                 Some(u) => return Err(format!("its units {u}: m2, hectares or km2")),
             };
-            let code = format!("{}{var} = {m}.copy(data=tf.sdm.cell_area_km2({m}) * {per})\n", rest(n, &["map", "units", "geographic"]));
+            let code = format!(
+                "{}{var} = {m}.copy(data=tf.sdm.cell_area_km2({m}) * {per})\n",
+                rest(n, &["map", "units", "geographic"])
+            );
             (code, one(var, "map"), Need::Nothing)
         }
         "raster.convert" => {
@@ -968,7 +1045,9 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             let w = setting(n, "window", sc)?.unwrap_or_else(|| "5".into());
             let window = match n.params.get("shape").and_then(Value::as_str) {
                 None | Some("square") => w,
-                Some("circle") => format!("np.hypot(*np.mgrid[-({w} // 2):{w} // 2 + 1, -({w} // 2):{w} // 2 + 1]) <= {w} // 2"),
+                Some("circle") => {
+                    format!("np.hypot(*np.mgrid[-({w} // 2):{w} // 2 + 1, -({w} // 2):{w} // 2 + 1]) <= {w} // 2")
+                }
                 Some(s) => return Err(format!("its shape {s}: square or circle")),
             };
             let mut args = vec![need("map", "its map")?, window, "level=\"landscape\"".to_string()];
@@ -984,13 +1063,31 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             let mut args = vec![format!("_{var}_layers")];
             args.extend(given(
                 n,
-                &[("landscape_metrics", "landscape_metrics"), ("class_metrics", "class_metrics"), ("classes", "classes"), ("fillna", "fillna")],
+                &[
+                    ("landscape_metrics", "landscape_metrics"),
+                    ("class_metrics", "class_metrics"),
+                    ("classes", "classes"),
+                    ("fillna", "fillna"),
+                ],
                 sc,
             )?);
             args.extend(kw);
             args.extend(metric_args(n, sc, &["metrics", "type", "extras"])?);
-            let known = with_metrics(&["maps", "plots", "landscape_metrics", "class_metrics", "classes", "fillna", "grid", "size", "shape"]);
-            code.push_str(&format!("{var} = tf.SpatialSignatureAnalysis({})\n_{var}_table = {var}.table.reset_index()\n", args.join(", ")));
+            let known = with_metrics(&[
+                "maps",
+                "plots",
+                "landscape_metrics",
+                "class_metrics",
+                "classes",
+                "fillna",
+                "grid",
+                "size",
+                "shape",
+            ]);
+            code.push_str(&format!(
+                "{var} = tf.SpatialSignatureAnalysis({})\n_{var}_table = {var}.table.reset_index()\n",
+                args.join(", ")
+            ));
             (format!("{}{code}", rest(n, &known)), outs(&[("table", format!("_{var}_table"))]), Need::Nothing)
         }
         "metrics.series" => {
@@ -1015,7 +1112,10 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             let metrics = setting(n, "metrics", sc)?.unwrap_or_else(|| "None".into());
             let (call, fillna) = match n.params.get("level").and_then(Value::as_str) {
                 None | Some("landscape") => ("landscape_metrics", String::new()),
-                Some("class") => ("class_metrics", format!(", fillna={}", setting(n, "fillna", sc)?.unwrap_or_else(|| "True".into()))),
+                Some("class") => (
+                    "class_metrics",
+                    format!(", fillna={}", setting(n, "fillna", sc)?.unwrap_or_else(|| "True".into())),
+                ),
                 Some(l) => return Err(format!("its level {l}: landscape or class")),
             };
             let known = with_metrics(&["maps", "plots", "level", "dates", "grid", "size", "shape", "fillna"]);
@@ -1061,7 +1161,11 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
                 args.join(", ")
             ));
             let known = ["table", "columns", "k", "method", "components", "n_init", "seed"];
-            (format!("{}{code}", rest(n, &known)), outs(&[("table", keyed(var, &format!("_{var}_table")))]), Need::Nothing)
+            (
+                format!("{}{code}", rest(n, &known)),
+                outs(&[("table", keyed(var, &format!("_{var}_table")))]),
+                Need::Nothing,
+            )
         }
         "metrics.clustergram" => {
             let mut code = signatures_of(n, var, sc)?;
@@ -1071,16 +1175,28 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             args.extend(cluster_args(n, sc)?);
             args.extend(given(n, &[("pca_weighted", "pca_weighted")], sc)?);
             code.push_str(&format!("{var} = _{var}_sig.clustergram({})\n", args.join(", ")));
-            let named = |f: &str| keyed(var, &format!("{var}.{f}.rename(columns=lambda k: f\"k{{k}}\").rename_axis(None, axis=1)"));
-            let known = ["table", "columns", "k_min", "k_max", "method", "components", "n_init", "seed", "pca_weighted"];
-            (format!("{}{code}", rest(n, &known)), outs(&[("labels", named("labels")), ("means", named("means"))]), Need::Nothing)
+            let named = |f: &str| {
+                keyed(var, &format!("{var}.{f}.rename(columns=lambda k: f\"k{{k}}\").rename_axis(None, axis=1)"))
+            };
+            let known =
+                ["table", "columns", "k_min", "k_max", "method", "components", "n_init", "seed", "pca_weighted"];
+            (
+                format!("{}{code}", rest(n, &known)),
+                outs(&[("labels", named("labels")), ("means", named("means"))]),
+                Need::Nothing,
+            )
         }
         // -- bio ------------------------------------------------------------------------------------------------------
         "bio.table" => {
             let mut args = vec![need("path", "its path")?];
             let group = listed(n, "group_columns", sc)?.ok_or("give the group columns")?;
             args.push(format!("group_columns={group}"));
-            let columns = [("label_columns", "label_columns"), ("count_columns", "sample_count_columns"), ("cell_sizes", "cell_sizes"), ("cell_origins", "cell_origins")];
+            let columns = [
+                ("label_columns", "label_columns"),
+                ("count_columns", "sample_count_columns"),
+                ("cell_sizes", "cell_sizes"),
+                ("cell_origins", "cell_origins"),
+            ];
             for (ours, theirs) in columns {
                 if let Some(x) = listed(n, ours, sc)? {
                     args.push(format!("{theirs}={x}"));
@@ -1092,12 +1208,27 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
                 }
             }
             args.extend(given(n, &[("binarise", "binarise_counts"), ("crs", "crs")], sc)?);
-            let known = ["path", "group_columns", "label_columns", "count_columns", "cell_sizes", "cell_origins", "separator", "quote", "binarise", "crs"];
+            let known = [
+                "path",
+                "group_columns",
+                "label_columns",
+                "count_columns",
+                "cell_sizes",
+                "cell_origins",
+                "separator",
+                "quote",
+                "binarise",
+                "crs",
+            ];
             let code = format!("{}{var} = tf.bio.BaseData.from_table({})\n", rest(n, &known), args.join(", "));
             (code, one(var, "basedata"), Need::Nothing)
         }
         "bio.vector" => {
-            let mut args = vec![need("features", "its features")?, need("label", "its label")?, need("cell_sizes", "its cell sizes")?];
+            let mut args = vec![
+                need("features", "its features")?,
+                need("label", "its label")?,
+                need("cell_sizes", "its cell sizes")?,
+            ];
             if let Some(x) = listed(n, "cell_origins", sc)? {
                 args.push(format!("cell_origins={x}"));
             }
@@ -1131,7 +1262,20 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
                 ("drop_duplicates", "drop_duplicates"),
             ];
             args.extend(given(n, &keys, sc)?);
-            let known = ["occurrences", "path", "cell_sizes", "cell_origins", "to_crs", "label", "count", "max_uncertainty", "basis_of_record", "exclude_issues", "present_only", "drop_duplicates"];
+            let known = [
+                "occurrences",
+                "path",
+                "cell_sizes",
+                "cell_origins",
+                "to_crs",
+                "label",
+                "count",
+                "max_uncertainty",
+                "basis_of_record",
+                "exclude_issues",
+                "present_only",
+                "drop_duplicates",
+            ];
             let code = format!("{}{var} = tf.bio.BaseData.from_occurrences({})\n", rest(n, &known), args.join(", "));
             (code, one(var, "basedata"), Need::Nothing)
         }
@@ -1151,14 +1295,26 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             }
             let count = given(n, &[("count", "count_column")], sc)?;
             let call = if hex {
-                let mut a = vec![format!("_{var}_d"), format!("_{var}_xy[0]"), format!("_{var}_xy[1]"), label, need("size", "its size")?];
+                let mut a = vec![
+                    format!("_{var}_d"),
+                    format!("_{var}_xy[0]"),
+                    format!("_{var}_xy[1]"),
+                    label,
+                    need("size", "its size")?,
+                ];
                 a.extend(given(n, &[("orientation", "orientation"), ("origin", "origin")], sc)?);
                 a.extend(count);
                 a.push(format!("crs=getattr(_{var}_d, \"crs\", None)"));
                 format!("tf.bio.BaseData.from_hex({})", a.join(", "))
             } else {
                 // (the library takes the latitude first)
-                let mut a = vec![format!("_{var}_d"), format!("_{var}_xy[1]"), format!("_{var}_xy[0]"), label, need("resolution", "its resolution")?];
+                let mut a = vec![
+                    format!("_{var}_d"),
+                    format!("_{var}_xy[1]"),
+                    format!("_{var}_xy[0]"),
+                    label,
+                    need("resolution", "its resolution")?,
+                ];
                 a.extend(count);
                 format!("tf.bio.BaseData.from_h3({})", a.join(", "))
             };
@@ -1175,8 +1331,13 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             }
             let label = setting(n, "label", sc)?.unwrap_or_else(|| text("layer"));
             let mut args = vec![format!("_{var}_r"), text("band")];
-            args.extend(given(n, &[("cell_sizes", "cell_sizes"), ("cell_origins", "cell_origins"), ("threshold", "threshold")], sc)?);
-            let known = ["raster", "labels_as_bands", "given_label", "label", "cell_sizes", "cell_origins", "threshold"];
+            args.extend(given(
+                n,
+                &[("cell_sizes", "cell_sizes"), ("cell_origins", "cell_origins"), ("threshold", "threshold")],
+                sc,
+            )?);
+            let known =
+                ["raster", "labels_as_bands", "given_label", "label", "cell_sizes", "cell_origins", "threshold"];
             let code = format!(
                 "{}_{var}_r = {r}\nif \"band\" not in _{var}_r.dims:\n    _{var}_r = _{var}_r.expand_dims(band=[{label}])\n{var} = tf.bio.BaseData.from_xarray({})\n",
                 rest(n, &known),
@@ -1190,7 +1351,8 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             }
             let mut args = vec![need("path", "its path")?];
             args.extend(given(n, &[("format", "format"), ("index", "index")], sc)?);
-            let code = format!("{}{var} = tf.bio.read_tree({})\n", rest(n, &["path", "format", "index"]), args.join(", "));
+            let code =
+                format!("{}{var} = tf.bio.read_tree({})\n", rest(n, &["path", "format", "index"]), args.join(", "));
             (code, one(var, "tree"), Need::Nothing)
         }
         "bio.matrix" => {
@@ -1202,7 +1364,12 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             }
             args.extend(given(
                 n,
-                &[("values_start_col", "values_start_col"), ("sparse", "sparse"), ("value_column", "value_column"), ("self_similarity", "self_similarity")],
+                &[
+                    ("values_start_col", "values_start_col"),
+                    ("sparse", "sparse"),
+                    ("value_column", "value_column"),
+                    ("self_similarity", "self_similarity"),
+                ],
                 sc,
             )?);
             for (ours, theirs) in [("separator", "sep"), ("quote", "quote")] {
@@ -1210,7 +1377,18 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
                     args.push(format!("{theirs}={x}"));
                 }
             }
-            let known = ["path", "element_columns", "row_columns", "col_columns", "values_start_col", "sparse", "value_column", "self_similarity", "separator", "quote"];
+            let known = [
+                "path",
+                "element_columns",
+                "row_columns",
+                "col_columns",
+                "values_start_col",
+                "sparse",
+                "value_column",
+                "self_similarity",
+                "separator",
+                "quote",
+            ];
             let code = format!("{}{var} = tf.bio.read_matrix({})\n", rest(n, &known), args.join(", "));
             (code, one(var, "matrix"), Need::Nothing)
         }
@@ -1221,21 +1399,47 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             if let Some(q) = query(n, sc)? {
                 args.push(format!("definition_query={q}"));
             }
-            args.extend(given(n, &[("calculations", "calculations"), ("tie_breaker", "tie_breaker"), ("clear_singletons", "clear_singletons")], sc)?);
+            args.extend(given(
+                n,
+                &[
+                    ("calculations", "calculations"),
+                    ("tie_breaker", "tie_breaker"),
+                    ("clear_singletons", "clear_singletons"),
+                ],
+                sc,
+            )?);
             for k in ["tree", "matrix"] {
                 if let Some(x) = v(k)? {
                     args.push(format!("{k}={x}"));
                 }
             }
             args.push(format!("prng_seed={}", setting(n, "seed", sc)?.unwrap_or_else(|| "1".into())));
-            let known = ["basedata", "index", "linkage", "conditions", "definition_query", "calculations", "tie_breaker", "clear_singletons", "tree", "matrix", "seed", "k"];
+            let known = [
+                "basedata",
+                "index",
+                "linkage",
+                "conditions",
+                "definition_query",
+                "calculations",
+                "tie_breaker",
+                "clear_singletons",
+                "tree",
+                "matrix",
+                "seed",
+                "k",
+            ];
             let mut code = rest(n, &known);
             code.push_str(&format!("{var} = tf.bio.cluster({})\n", args.join(", ")));
             let mut o = outs(&[("tree", format!("{var}.tree"))]);
             // (the dendrogram's nodes and the calculations' table are the library's own columns: not given)
             if let Some(k) = setting(n, "k", sc)? {
                 code.push_str(&format!("_{var}_cut = {var}.cut({k})\n"));
-                code.push_str(&group_table(var, &bd, &format!("_{var}_cut.to_frame(\"cluster\")"), &format!("_{var}_clusters")));
+                code.push_str(&group_table(
+                    var,
+                    &bd,
+                    &format!("_{var}_cut.to_frame(\"cluster\")"),
+                    &format!("_{var}_clusters"),
+                ));
                 code.push_str(&format!("_{var}_map = {bd}.to_raster(_{var}_cut) if {bd}.n_axes == 2 else None\n"));
                 o.insert("clusters".into(), format!("_{var}_clusters"));
                 o.insert("map".into(), format!("_{var}_map"));
@@ -1356,7 +1560,10 @@ params = { k = 3 }
         );
         let t = &s.text;
         assert!(s.left.is_empty(), "{:?}\n{t}", s.left);
-        assert!(t.contains("contagion = tf.contagion_pff(tf.reclassify(land, foreground=[1, 2]), window_size=13)"), "{t}");
+        assert!(
+            t.contains("contagion = tf.contagion_pff(tf.reclassify(land, foreground=[1, 2]), window_size=13)"),
+            "{t}"
+        );
         assert!(t.contains("entropy = tf.spatial_entropy(tf.reclassify(land, foreground=1))"), "{t}");
         assert!(
             t.contains("np.where(np.isin(land.values, [1, 2]), 1, np.where(np.isin(land.values, [3]), 2, np.where(np.isin(land.values, [4]), 3, 0)))"),
@@ -1436,7 +1643,10 @@ params = { units = "hectares" }
         );
         let t = &s.text;
         assert!(s.left.is_empty(), "{:?}\n{t}", s.left);
-        assert!(t.contains("size = tf.accuracy.sample_size(map_, user_accuracy={\"1\": 0.7, \"2\": 0.9}, minimum=30)"), "{t}");
+        assert!(
+            t.contains("size = tf.accuracy.sample_size(map_, user_accuracy={\"1\": 0.7, \"2\": 0.9}, minimum=30)"),
+            "{t}"
+        );
         assert!(t.contains("sample = tf.accuracy.sample(map_, sizes=size.table, seed=7)"), "{t}");
         assert!(t.contains("assess = tf.accuracy.assess(map_, points=reference, confidence=0.9)"), "{t}");
         assert!(t.contains("reproject = tf.reproject(clip, \"EPSG:4326\", resampling=\"nearest\")"), "{t}");
@@ -1557,8 +1767,12 @@ params = { grid_area = 100 }
 "#,
         );
         let t = &s.text;
-        assert!(s.left.is_empty(), "{:?}
-{t}", s.left);
+        assert!(
+            s.left.is_empty(),
+            "{:?}
+{t}",
+            s.left
+        );
         assert!(
             t.contains("t = tf.bio.BaseData.from_table(MODEL_DIR / \"data/d.csv\", group_columns=[\"x\", \"y\"], label_columns=[\"sp\"], cell_sizes=[1, 1], sep=\"\\t\")"),
             "{t}"
@@ -1568,7 +1782,10 @@ params = { grid_area = 100 }
         assert!(t.contains("cl = tf.bio.cluster(t, prng_seed=1)") && t.contains("_cl_cut = cl.cut(3)"), "{t}");
         assert!(t.contains("v = tf.stats.variogram(pts, field=\"z\", model=\"exponential\")"), "{t}");
         assert!(t.contains("k = tf.stats.kriging(pts, like, v.model, field=\"z\")"), "{t}");
-        assert!(t.contains("def _mc_f(p):") && t.contains("_calc(\"carbon * f\", carbon=like, f=p[0])[\"map\"]"), "{t}");
+        assert!(
+            t.contains("def _mc_f(p):") && t.contains("_calc(\"carbon * f\", carbon=like, f=p[0])[\"map\"]"),
+            "{t}"
+        );
         assert!(t.contains("mc = tf.uncertainty.monte_carlo(_mc_f, [0.5], [0.1], n=50, seed=3)"), "{t}");
         assert!(t.contains("dl = tf.uncertainty.delta_method(_dl_f, [2.0, 3.0], [0.1, 0.2])"), "{t}");
         assert!(t.contains("iv = tf.uncertainty.interval(dl.value, sd=dl.sd)"), "{t}");

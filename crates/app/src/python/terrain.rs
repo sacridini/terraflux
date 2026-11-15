@@ -457,8 +457,8 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             // the library takes the metrics always: every one by default
             let (notes, mut args) =
                 arguments(n, sc, &["map"], &[("window", "window"), ("shape", "shape")], &["metrics"])?;
-            let metrics = value_of(n, "metrics", sc)?
-                .unwrap_or_else(|| "tf.surface.list_metrics()[\"metric\"].tolist()".into());
+            let metrics =
+                value_of(n, "metrics", sc)?.unwrap_or_else(|| "tf.surface.list_metrics()[\"metric\"].tolist()".into());
             args.insert(1, metrics);
             let code = format!("{notes}{var} = tf.surface.window_metrics({})\n", args.join(", "));
             one(code, "maps", format!("_stack({{k: {var}[k] for k in {var}.data_vars}})"), Need::Flow)
@@ -469,10 +469,8 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             if let Some(m) = value_of(n, "metrics", sc)? {
                 args.push(m);
             }
-            let code = format!(
-                "{notes}{var} = tf.surface.metrics({}).to_frame().T.reset_index(drop=True)\n",
-                args.join(", ")
-            );
+            let code =
+                format!("{notes}{var} = tf.surface.metrics({}).to_frame().T.reset_index(drop=True)\n", args.join(", "));
             one(code, "table", var.to_string(), Need::Nothing)
         }
         "surface.peaks" => {
@@ -765,7 +763,10 @@ params = { half_saturation = 0.1, threats = [{ threat = "road", max_dist = 600, 
         assert!(t.contains("tf.services.carbon("), "{t}");
         assert!(t.contains("tf.services.habitat_quality("), "{t}");
         // the keys of a row in the model file's order (sorted), the library takes the columns by name
-        assert!(t.contains("_table([\"decay\", \"max_dist\", \"threat\", \"weight\"], [[\"linear\", 600, \"road\", 1.0]])"), "{t}");
+        assert!(
+            t.contains("_table([\"decay\", \"max_dist\", \"threat\", \"weight\"], [[\"linear\", 600, \"road\", 1.0]])"),
+            "{t}"
+        );
         parses(t);
     }
 }

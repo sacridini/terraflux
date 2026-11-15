@@ -319,10 +319,8 @@ fn clean(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
     code.push_str("import pandas as pd\n");
     code.push_str(&format!("{var} = tf.sdm.clean_occurrences({})\n", args.join(", ")));
     code.push_str(&format!("{var}_counts = pd.DataFrame([{var}.attrs[\"clean\"]])\n"));
-    let outs = HashMap::from([
-        ("occurrences".to_string(), var.to_string()),
-        ("counts".to_string(), format!("{var}_counts")),
-    ]);
+    let outs =
+        HashMap::from([("occurrences".to_string(), var.to_string()), ("counts".to_string(), format!("{var}_counts"))]);
     Ok((code, outs, Need::Nothing))
 }
 
@@ -352,9 +350,7 @@ fn habitat(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
     let original = value_of(n, "original", sc)?;
     // (where the original has no value Terraflux takes the current cover, class by class)
     if let Some(o) = &original {
-        args.push(format!(
-            "original={o}.sel(band={natural}).fillna({cover}.sel(band={natural}))"
-        ));
+        args.push(format!("original={o}.sel(band={natural}).fillna({cover}.sel(band={natural}))"));
     }
     if let Some(e) = value_of(n, "elevation", sc)? {
         args.push(format!("elevation={e}"));
@@ -428,10 +424,8 @@ fn boyce(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
     let mut code = format!("import pandas as pd\n{c1}{c2}");
     code.push_str(&format!("{var} = tf.sdm.boyce({})\n", args.join(", ")));
     code.push_str(&boyce_table(var, &format!("{var}_table")));
-    let outs = HashMap::from([
-        ("cor".to_string(), format!("{var}[\"cor\"]")),
-        ("table".to_string(), format!("{var}_table")),
-    ]);
+    let outs =
+        HashMap::from([("cor".to_string(), format!("{var}[\"cor\"]")), ("table".to_string(), format!("{var}_table"))]);
     Ok((code, outs, Need::Nothing))
 }
 
@@ -467,15 +461,15 @@ fn potential(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
     };
     let mut code = String::new();
     let mut a;
-    let model;
     let importance = if boosting {
-        code.push_str("# (importance: the share of the gain of the splits of Terraflux's boosting is not in scikit-learn)
-");
+        code.push_str(
+            "# (importance: the share of the gain of the splits of Terraflux's boosting is not in scikit-learn)\n",
+        );
         "None".to_string()
     } else {
         format!("{var}.importance(\"impurity\").T.rename_axis(\"class\").reset_index()")
     };
-    if boosting {
+    let model = if boosting {
         code.push_str("from sklearn.ensemble import HistGradientBoostingClassifier\n");
         a = given(
             n,
@@ -493,7 +487,7 @@ fn potential(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
         )?;
         // (Terraflux's boosting never stops early)
         a.push("early_stopping=False".into());
-        model = "HistGradientBoostingClassifier";
+        "HistGradientBoostingClassifier"
     } else {
         code.push_str("from sklearn.ensemble import RandomForestClassifier\n");
         a = given(
@@ -511,8 +505,8 @@ fn potential(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
             Some("all") => a.push("max_features=None".into()),
             _ => a.extend(given(n, &[("max_features", "max_features")], sc)?),
         }
-        model = "RandomForestClassifier";
-    }
+        "RandomForestClassifier"
+    };
     a.push(format!("random_state={}", setting(n, "random_state", sc)?.unwrap_or_else(|| "0".into())));
     let target = match setting(n, "target", sc)? {
         Some(t) => t,
@@ -648,14 +642,19 @@ params = { threshold = "mtp" }
         let t = &s.text;
         assert!(s.left.is_empty(), "{:?}\n{t}", s.left);
         assert!(
-            t.contains("clean = tf.sdm.clean_occurrences(occ, action=\"drop\", capitals=5000, seas=False, outliers=False)"),
+            t.contains(
+                "clean = tf.sdm.clean_occurrences(occ, action=\"drop\", capitals=5000, seas=False, outliers=False)"
+            ),
             "{t}"
         );
         assert!(t.contains("thin = tf.sdm.thin(clean, distance=10000, seed=1)"), "{t}");
         assert!(t.contains("data = tf.sdm.dataset(thin, env=env, background=None)"), "{t}");
         assert!(t.contains("folds = tf.sdm.spatial_blocks(data, size=50000, k=4, seed=1)"), "{t}");
         assert!(t.contains("ev = tf.sdm.evaluate(ev_presences, ev_background)"), "{t}");
-        assert!(t.contains("ev_presences = fit.predictions[\"maxnet\"] if hasattr(fit.predictions, \"columns\")"), "{t}");
+        assert!(
+            t.contains("ev_presences = fit.predictions[\"maxnet\"] if hasattr(fit.predictions, \"columns\")"),
+            "{t}"
+        );
         assert!(t.contains("thr = tf.sdm.threshold(thr_presences, thr_background, method=\"max_kappa\")"), "{t}");
         assert!(t.contains("om = tf.sdm.omission_rate(om_train, om_test, threshold=\"mtp\")"), "{t}");
         parses(t);

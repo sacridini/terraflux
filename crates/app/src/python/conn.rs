@@ -143,7 +143,7 @@ pub(super) const MAPPED: &[Py] = &[
             ("area_unit", "area_unit"),
             ("convention", "convention"),
             ("landscape_area", "landscape_area"),
-                    ],
+        ],
         defaults: &[],
         outs: &[("graph", "")],
         kind: Kind::Plain,
@@ -420,7 +420,14 @@ pub(super) const MAPPED: &[Py] = &[
         call: "tf.gtn_components",
         args: &[("map", ""), ("pixel_size", "pixel_size")],
         defaults: &[],
-        outs: &[("map", ".colored_map"), ("components", ".components"), ("stats", ".stats.rename(columns={\"component_id\": \"component\", \"core_pixels\": \"core\", \"bridge_pixels\": \"bridge\", \"total_pixels\": \"total\"})")],
+        outs: &[
+            ("map", ".colored_map"),
+            ("components", ".components"),
+            (
+                "stats",
+                ".stats.rename(columns={\"component_id\": \"component\", \"core_pixels\": \"core\", \"bridge_pixels\": \"bridge\", \"total_pixels\": \"total\"})",
+            ),
+        ],
         kind: Kind::Plain,
     },
     Py {
@@ -432,7 +439,10 @@ pub(super) const MAPPED: &[Py] = &[
             ("map", ".colored_map"),
             ("importance", ".importance_map"),
             ("ids", ".node_link_ids"),
-            ("links", ".links.rename(columns={\"link_id\": \"link\", \"component_id\": \"component\", \"connected_nodes\": \"nodes\"})"),
+            (
+                "links",
+                ".links.rename(columns={\"link_id\": \"link\", \"component_id\": \"component\", \"connected_nodes\": \"nodes\"})",
+            ),
             ("nodes", ".nodes.rename(columns={\"node_id\": \"node\", \"component_id\": \"component\"})"),
         ],
         kind: Kind::Plain,
@@ -477,8 +487,12 @@ fn eca_change(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
     }
     let mut used: Vec<&str> = names.iter().map(|(k, _)| *k).collect();
     used.push("graphs");
-    let code = format!("{}{var} = tf.conn.eca_change({})
-", unpassed(n, &used), args.join(", "));
+    let code = format!(
+        "{}{var} = tf.conn.eca_change({})
+",
+        unpassed(n, &used),
+        args.join(", ")
+    );
     let o = outs([("table", var.to_string()), ("readings", format!("{var}[[\"comparison\", \"change\"]]"))]);
     Ok((code, o, Need::Nothing))
 }
@@ -559,7 +573,19 @@ fn graph(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
     let named = ["from", "to", "value"].iter().any(|k| n.params.contains_key(*k));
     let mut code = unpassed(
         n,
-        &["nodes", "pairs", "id", "attribute", "restoration", "from", "to", "value", "kind", "convention", "landscape_area"],
+        &[
+            "nodes",
+            "pairs",
+            "id",
+            "attribute",
+            "restoration",
+            "from",
+            "to",
+            "value",
+            "kind",
+            "convention",
+            "landscape_area",
+        ],
     );
     // the pairs: the columns named, else from, to and value when the table has them, else the table as it is
     let connections = if named {
@@ -618,7 +644,8 @@ fn to_nodes(n: &Node, var: &str, sc: &Scope, method: &str, port: &str) -> Result
         let column = setting(n, "column", sc)?.ok_or("its column is not set")?;
         args.push(format!("name={column}"));
     }
-    let code = format!("{}{var} = {g}.{method}({})\n", unpassed(n, &["graph", "table", "id", "column"]), args.join(", "));
+    let code =
+        format!("{}{var} = {g}.{method}({})\n", unpassed(n, &["graph", "table", "id", "column"]), args.join(", "));
     Ok((code, outs([(port, var.to_string())]), Need::Nothing))
 }
 
@@ -773,8 +800,11 @@ fn network_pairwise(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
     let graph = network_table(n, sc, "graph", "graph_file", "its graph")?;
     let points = file(n, "focal_nodes", sc)?.ok_or("its focal nodes are not set")?;
     let mut args = vec![graph, points];
-    let names =
-        [("graph_is_resistance", "graph_is_resistance"), ("voltage_maps", "voltage_maps"), ("current_maps", "current_maps")];
+    let names = [
+        ("graph_is_resistance", "graph_is_resistance"),
+        ("voltage_maps", "voltage_maps"),
+        ("current_maps", "current_maps"),
+    ];
     args.extend(kw(n, sc, &names)?);
     if let Some(p) = file(n, "included_pairs", sc)? {
         args.push(format!("included_pairs={p}"));
@@ -912,7 +942,9 @@ from = "dpc.map"
         assert!(t.contains("imp = graph.node_importance(metrics=\"PC\", distance=100)\n"), "{t}");
         assert!(t.contains("links = graph.link_importance(metric=\"IIC\", distance=100)\n"), "{t}");
         assert!(
-            t.contains("comp = graph.components(distance=100).rename(\"component\").rename_axis(\"id\").reset_index()\n"),
+            t.contains(
+                "comp = graph.components(distance=100).rename(\"component\").rename_axis(\"id\").reset_index()\n"
+            ),
             "{t}"
         );
         assert!(t.contains("dpc = graph.to_raster(imp, name=\"dPC\")\n"), "{t}");
