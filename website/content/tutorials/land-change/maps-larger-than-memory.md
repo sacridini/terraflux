@@ -144,7 +144,7 @@ seconds on two workers through a coordinator: every pass over the tiles (each ro
 is a job sent through the network, so for a map that fits in memory the machines spend their time talking. The
 tiled engine pays off when the map does not fit, or when each tile's work is large. On a map eight times larger
 (1,024 × 864 cells) one computer ran it in 35 seconds with 1 thread and 11 to 12 seconds with 8 or more
-([timings](/parallel/many-runs/#how-much-faster)).
+([timings](/parallel/many-runs/#how-long-it-takes)).
 
 ### What to report
 

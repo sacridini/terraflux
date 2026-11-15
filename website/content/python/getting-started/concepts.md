@@ -143,6 +143,13 @@ figure = tf.plot(morph, static=True, basemap=None).figure   # a matplotlib figur
 tf.write_raster(morph, "mspa.tif")              # with the MSPA colour table
 ```
 
+The colour tables are extracted bit for bit from GuidosToolbox's own `.sav` colour tables, and are functions of
+`terraflux.io` (also at the top level, as `tf.fad_colormap()`): `mspa_colormap(transition=True)`,
+`gtn_components_colormap()`, `gtn_importance_colormap()`, `fad_colormap()`, `fad5_colormap()` (the 5-class FAD and
+FOS), `dist_colormap()`, `entropy_colormap()`, `lm_colormap()`, `contortion_colormap()`, `resistance_colormap()`,
+`change_colormap()` and `foschange_colormap()`. `write_raster` embeds the colour table of a class map (`colormap="auto"`, see
+[configuration](/python/getting-started/configuration/)).
+
 ## Large maps and many maps
 
 Everything runs in memory by default and uses the processor cores less a quarter (never all of them).
