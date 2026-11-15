@@ -41,6 +41,9 @@ enum Kind {
     Habitat,
     /// A neutral landscape: its size from `like` (columns, rows), else the settings or 256.
     Grid,
+    /// A method of a class: `call` is its full name (`tf.conn.HabitatGraph.centrality`), the argument with `""` the
+    /// receiver (`g.centrality(...)`).
+    Method,
 }
 
 /// An operator's counterpart in landschaft.
@@ -346,6 +349,52 @@ const MAPPED: &[Py] = &[
         kind: Kind::Plain,
     },
 ];
+
+// The counterparts of each family of operators, in a file of its own (python/*.rs).
+mod change;
+mod conn;
+mod cost;
+mod general;
+mod movement;
+mod prioritize;
+mod sdm;
+mod terrain;
+
+/// Every operator called with its arguments mapped: this file's and each family's.
+fn mapped() -> impl Iterator<Item = &'static Py> {
+    [
+        MAPPED,
+        change::MAPPED,
+        conn::MAPPED,
+        cost::MAPPED,
+        general::MAPPED,
+        movement::MAPPED,
+        prioritize::MAPPED,
+        sdm::MAPPED,
+        terrain::MAPPED,
+    ]
+    .into_iter()
+    .flatten()
+}
+
+/// A family's operators translated by code of their own.
+fn family_special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
+    for f in [
+        change::special,
+        conn::special,
+        cost::special,
+        general::special,
+        movement::special,
+        prioritize::special,
+        sdm::special,
+        terrain::special,
+    ] {
+        if let Some(code) = f(n, var, sc)? {
+            return Ok(Some(code));
+        }
+    }
+    Ok(None)
+}
 
 /// Operators whose inputs and settings are the arguments of landschaft's function of the same name, by the same
 /// names, and that give one output: called with them as they are.
@@ -1203,6 +1252,9 @@ fn node(n: &Node, r: &Registry, var: &str, sc: &Scope) -> Result<Code, String> {
     if let Some(code) = special(n, var, sc)? {
         return Ok(code);
     }
+    if let Some(code) = family_special(n, var, sc)? {
+        return Ok(code);
+    }
     if let Some(code) = tables_and_features(n, var, sc)? {
         return Ok(code);
     }
@@ -1235,10 +1287,11 @@ fn node(n: &Node, r: &Registry, var: &str, sc: &Scope) -> Result<Code, String> {
         }
         _ => {}
     }
-    if let Some(py) = MAPPED.iter().find(|p| p.op == n.op) {
+    if let Some(py) = mapped().find(|p| p.op == n.op) {
         let mut args: Vec<String> = Vec::new();
         let mut given: Vec<&str> = Vec::new();
         let mut skipped: Vec<String> = Vec::new();
+        let mut receiver: Option<String> = None;
         // a neutral landscape's size first: its `like`'s, else the settings', else 256
         if py.kind == Kind::Grid {
             let like = value_of(n, "like", sc)?;
@@ -1275,6 +1328,10 @@ fn node(n: &Node, r: &Registry, var: &str, sc: &Scope) -> Result<Code, String> {
                     None => skipped.push(format!("band = {} (by name)", literal(b))),
                 }
             }
+            if py.kind == Kind::Method && theirs.is_empty() {
+                receiver = Some(v);
+                continue;
+            }
             args.push(if theirs.is_empty() { v } else { format!("{theirs}={v}") });
             given.push(theirs);
         }
@@ -1298,7 +1355,13 @@ fn node(n: &Node, r: &Registry, var: &str, sc: &Scope) -> Result<Code, String> {
         for s in &skipped {
             code.push_str(&format!("# (not passed: {s})\n"));
         }
-        code.push_str(&format!("{var} = {}({})\n", py.call, args.join(", ")));
+        if py.kind == Kind::Method {
+            let recv = receiver.ok_or("its object is not connected")?;
+            let name = py.call.rsplit('.').next().unwrap_or(py.call);
+            code.push_str(&format!("{var} = {recv}.{name}({})\n", args.join(", ")));
+        } else {
+            code.push_str(&format!("{var} = {}({})\n", py.call, args.join(", ")));
+        }
         // a drawn landscape's places and coordinate system (landschaft's models have none): `like`'s, else the setting's
         if py.kind == Kind::Grid {
             if let Some(like) = value_of(n, "like", sc)? {
@@ -2677,7 +2740,7 @@ mod tests {
     #[test]
     fn every_counterpart_names_ports_of_its_operator() {
         let r = Registry::standard();
-        for p in MAPPED {
+        for p in mapped() {
             let sig = r.sig(p.op).unwrap_or_else(|| panic!("{}", p.op));
             let names: Vec<&str> = sig.inputs.iter().chain(&sig.params).map(|x| x.name.as_str()).collect();
             for (ours, _) in p.args {
@@ -2705,6 +2768,144 @@ mod tests {
                 assert!(sig.outputs.iter().any(|o| o.name == *port), "{}: {port}", f.op);
             }
         }
+    }
+
+    /// The parameters of a signature text (`f(\n a,\n *,\n b: int = 1) -> x`): their names, and whether it has `**kw`.
+    fn sig_params(sig: &str) -> (Vec<String>, bool) {
+        let open = sig.find('(').expect("a sig has a (");
+        let (mut depth, mut quote, mut start) = (0i32, None::<char>, open + 1);
+        let mut parts: Vec<&str> = Vec::new();
+        let mut prev = ' ';
+        for (i, c) in sig.char_indices().skip_while(|(i, _)| *i <= open) {
+            if let Some(q) = quote {
+                if c == q && prev != '\\' {
+                    quote = None;
+                }
+            } else {
+                match c {
+                    '"' | '\'' => quote = Some(c),
+                    '(' | '[' | '{' => depth += 1,
+                    ')' | ']' | '}' if depth == 0 => {
+                        parts.push(&sig[start..i]);
+                        break;
+                    }
+                    ')' | ']' | '}' => depth -= 1,
+                    ',' if depth == 0 => {
+                        parts.push(&sig[start..i]);
+                        start = i + 1;
+                    }
+                    _ => {}
+                }
+            }
+            prev = c;
+        }
+        let (mut names, mut kw) = (Vec::new(), false);
+        for p in parts {
+            let p = p.trim();
+            let name = p.split([':', '=']).next().unwrap_or("").trim();
+            if name.starts_with("**") {
+                kw = true;
+            }
+            let name = name.trim_start_matches('*');
+            if !name.is_empty() && name != "/" && name != "self" && name != "cls" {
+                names.push(name.to_string());
+            }
+        }
+        (names, kw)
+    }
+
+    /// The object of the library a dotted name is: through the aliases (of the name or of a prefix, as a method of an
+    /// aliased class), as many hops as it takes.
+    fn api_object<'a>(api: &'a Value, name: &str) -> Option<&'a Value> {
+        let mut name = name.to_string();
+        for _ in 0..10 {
+            if let Some(o) = api["objects"].get(&name) {
+                return Some(o);
+            }
+            let parts: Vec<&str> = name.split('.').collect();
+            let hop = (1..=parts.len()).rev().find_map(|n| {
+                let head = parts[..n].join(".");
+                api["aliases"].get(&head).and_then(Value::as_str).map(|to| (to.to_string(), n))
+            })?;
+            name = std::iter::once(hop.0.as_str()).chain(parts[hop.1..].iter().copied()).collect::<Vec<_>>().join(".");
+        }
+        None
+    }
+
+    /// The parameters of a library call (a class: its own sig, else its `__init__`'s), or why it has none.
+    fn api_params(api: &Value, call: &str) -> Result<(Vec<String>, bool), String> {
+        let full = call.replacen("tf.", "terraflux.", 1);
+        let o = api_object(api, &full).ok_or("not in the library")?;
+        let sig = match o["sig"].as_str() {
+            Some(s) => s.to_string(),
+            None => {
+                let init = api_object(api, &format!("{}.__init__", o["path"].as_str().unwrap_or(&full)))
+                    .and_then(|i| i["sig"].as_str());
+                init.ok_or(format!("a {} with no signature", o["kind"].as_str().unwrap_or("?")))?.to_string()
+            }
+        };
+        Ok(sig_params(&sig))
+    }
+
+    #[test]
+    fn calls_are_the_library_s() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../website/data/python_api.json");
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e} (it is tracked in git)"));
+        let api: Value = serde_json::from_str(&text).unwrap();
+        let r = Registry::standard();
+        let mut bad: Vec<String> = Vec::new();
+        for p in mapped() {
+            match api_params(&api, p.call) {
+                Err(e) => bad.push(format!("{} ({}): {e}", p.op, p.call)),
+                Ok((names, kw)) if !kw => {
+                    for k in p.args.iter().map(|(_, t)| t).chain(p.defaults.iter().map(|(k, _)| k)) {
+                        if !k.is_empty() && !names.iter().any(|n| n == k) {
+                            bad.push(format!("{} ({}): no argument {k} (has {})", p.op, p.call, names.join(", ")));
+                        }
+                    }
+                }
+                Ok(_) => {}
+            }
+        }
+        for (op, call) in BY_NAME {
+            match api_params(&api, call) {
+                Err(e) => bad.push(format!("{op} ({call}): {e}")),
+                Ok((names, false)) => {
+                    let sig = r.sig(op).unwrap_or_else(|| panic!("{op}"));
+                    for k in sig.inputs.iter().chain(&sig.params).map(|x| &x.name) {
+                        if !names.contains(k) {
+                            bad.push(format!("{op} ({call}): no argument {k} (has {})", names.join(", ")));
+                        }
+                    }
+                }
+                Ok(_) => {}
+            }
+        }
+        assert!(bad.is_empty(), "{} calls the library does not have:\n{}", bad.len(), bad.join("\n"));
+    }
+
+    #[test]
+    fn a_method_is_called_on_its_object() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[inputs.g]
+kind = "value"
+value = 1
+
+[[nodes]]
+id = "cent"
+op = "conn.centrality"
+inputs = { graph = "$g" }
+params = { distance = 500, binary = false }
+"#,
+        )
+        .unwrap();
+        let s = script(&m, &r, None);
+        assert!(s.text.contains("cent = g.centrality(distance=500, binary=False)"), "{}", s.text);
+        parses(&s.text);
     }
 
     /// The script parses as Python (when there is a Python to ask).
@@ -3175,8 +3376,7 @@ from = "roads.distance"
     #[test]
     #[ignore]
     fn dump_counterparts() {
-        let all: Vec<serde_json::Value> = MAPPED
-            .iter()
+        let all: Vec<serde_json::Value> = mapped()
             .map(|p| {
                 let mut args: Vec<&str> = p.args.iter().map(|(_, t)| *t).filter(|t| !t.is_empty()).collect();
                 args.extend(p.defaults.iter().map(|(k, _)| *k));
