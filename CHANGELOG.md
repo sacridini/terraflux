@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.49.0] - 2026-11-15
+
 ### Changed
 - **An edit takes the status only of what it reaches.** Moving a box, a note, a frame or a wire's reroute point no
   longer makes every connection say "changed since the last run": a node keeps how it did in the last run unless its
