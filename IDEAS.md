@@ -1365,9 +1365,22 @@ depois:
    de renomear do submenu *...* da linha do lugar, aberto sobre o botão (abre quando o ponteiro está no retângulo do
    *...*, e cobre o *Save this place...* da linha de baixo): o clique por ponto caiu nele. Não reproduzido em 5
    rodadas; o teste agora clica o *Save* pela ação do accesskit (não por ponto) e a falha diz também as posições do
-   menu e o mapa. Ainda instáveis (vistos em rodadas lentas da suíte do `ui`): `a_plot_keeps_the_frame_of_its_map` (`ui.rs`, *Forget the saved view* ausente logo depois de
-   abrir o menu) e `quality_of_life::the_end_of_a_run_is_told_when_terraflux_is_not_in_front` ("the run did not
-   end" em 120 s, numa rodada com o dobro do tempo).
+   menu e o mapa. Causas achadas em 2026-11-15 (suíte do `ui`, 4 threads; antes: `places_are_kept...` falhou em 2 de 11 rodadas):
+   um lugar guardado (ou um Plot salvo) é uma edição, o Viewer roda o modelo de novo 250 ms (relógio) depois,
+   e o mapa fica 24 pontos mais baixo (uma faixa no alto, 97 para 121); numa rodada lenta a faixa chega no meio do teste e o zoom
+   do lugar (ajustado à janela de agora), as células em vista e os cliques por posição não batem com o que o teste calculou.
+   Mostrado por uma asserção temporária (o mapa em 121 em 4 de 4 rodadas depois de esperar a corrida). Corrigidos no teste
+   (`after_edit`: espera 0,6 s e `drawn`; `places_...` espera o zoom ajustado à janela menor, `a_plot_keeps_the_frame...` aceita
+   a caixa ajustada no eixo que cabe e mais larga no outro, `features_selected_by_area...` e `the_layers_as_a_gis_has_them`
+   esperam depois de cada edição). Não achei bug do app (não identifiquei qual é a faixa), mas um mapa que muda de altura
+   depois de uma edição é um sinal a olhar se alguém reclamar do salto.
+   `quality_of_life::the_end_of_a_run_is_told...`: `run_to_the_end` só terminava depois de ver `running()` verdadeiro; uma corrida
+   curta que começa e termina dentro de um passo lento (rodada sob carga) nunca era vista, e o teste esperava os 120 s; agora termina
+   quando `elapsed` (zerado ao começar, posto ao terminar) está posto e nada corre. Não reproduzido (causa por leitura).
+   `web_layers::a_wmts_service...`: o servidor de teste anotava a requisição *depois* de enviar a resposta, e o teste olhava
+   `hits()` assim que tinha a resposta; agora anota antes de enviar. Não reproduzido (causa por leitura).
+   Visto uma vez, não explicado: `the_runs_are_shown_restored_and_compared` ficou 120 s em "drawing the maps" (a rodada levou
+   209 s em vez de 100 s, só esse teste parado); `drawn` agora diz qual dos três (visão do modelo, Viewer, corrida) segurava.
 
 ## Integrar o landschaft 1.50.0
 
@@ -2780,6 +2793,9 @@ item, na ordem; release só quando pedido.
    teste com outras threads vivas (ui.rs ~108; seguro no Windows, `unsafe` na edição 2024), dois runtimes de OpenMP
    no processo (o vcomp do ls-sys e outro; `dumpbin /dependents`). Quando voltar, rodar com `--nocapture` para ver o
    último teste e ligar o LocalDumps (HKLM, pede administrador).
+   2026-11-15: nenhuma queda em ~25 rodadas com `--nocapture` (4 threads); sem evidência, mas duas proteções baratas nos testes:
+   o `set_var("TERRAFLUX_SETTINGS")` do `setup()` só uma vez (dentro do `Once`) e a criação do device do wgpu (`render_state()`)
+   sob um mutex, um por vez. Se voltar, o último teste do `--nocapture` e o dump do Windows seguem sendo o caminho.
 6. **O Viewer numa janela à parte**, para um segundo monitor (`show_viewport_immediate`, como as outras janelas
    soltas), e de volta ao dock.
    **Feito** (Unreleased, por um sub-agente): sobre o `detach`/`attach` que já havia. *Pop out* / *Back into the

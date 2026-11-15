@@ -240,12 +240,12 @@ fn the_computer_is_kept_awake_while_a_model_runs() {
 /// Step until the run going on (or about to start) ends.
 fn run_to_the_end(h: &mut Harness<TerrafluxApp>) {
     let t = Instant::now();
-    let mut ran = false;
     loop {
         h.step();
         let s = h.state().session.as_ref().unwrap();
-        ran |= s.running();
-        if ran && !s.running() {
+        // (a run that began and ended within one step, as a quick one does when a step is slow under load, was
+        // never seen running: the time it took is set when it ends, and cleared when one starts)
+        if !s.running() && s.elapsed.is_some() {
             break;
         }
         assert!(t.elapsed() < Duration::from_secs(120), "the run did not end");

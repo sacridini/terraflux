@@ -105,8 +105,9 @@ fn held(alone: bool) {
 fn setup() {
     held(false);
     static ONCE: std::sync::Once = std::sync::Once::new();
-    unsafe { std::env::set_var("TERRAFLUX_SETTINGS", tmp("settings.json")) };
     ONCE.call_once(|| {
+        // (once: the same value each time, and an environment changed under the threads of other tests is not safe)
+        unsafe { std::env::set_var("TERRAFLUX_SETTINGS", tmp("settings.json")) };
         let _ = std::fs::remove_file(tmp("settings.json"));
         // (and the Node tab opening by itself, as these tests look for it: the panel beside the box is the canvas's)
         terraflux_app::settings::update(|st| {
@@ -123,6 +124,20 @@ fn new_app(model: Option<PathBuf>) -> TerrafluxApp {
     TerrafluxApp::new(model)
 }
 
+/// A wgpu device for a harness, made one at a time (two made and let go at once by tests of the same program were
+/// the suspect of its rare crash, STATUS_ACCESS_VIOLATION), the builder's canvas pipelines installed as the
+/// application does.
+fn render_state() -> eframe::egui_wgpu::RenderState {
+    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        eframe::egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    terraflux_app::canvas_gpu::install(&rs);
+    rs
+}
+
 /// The application rendered off screen by wgpu, the builder's canvas pipelines installed as the application
 /// does.
 fn harness(app: TerrafluxApp) -> Harness<'static, TerrafluxApp> {
@@ -132,11 +147,7 @@ fn harness(app: TerrafluxApp) -> Harness<'static, TerrafluxApp> {
 /// The same, a step lasting `dt` seconds (a double click needs two clicks within 0.3 s).
 fn harness_dt(app: TerrafluxApp, dt: f32) -> Harness<'static, TerrafluxApp> {
     setup();
-    let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
-        eframe::egui_wgpu::RendererOptions::PREDICTABLE,
-    );
-    terraflux_app::canvas_gpu::install(&rs);
+    let rs = render_state();
     Harness::builder()
         .with_size((1280.0, 820.0))
         .with_step_dt(dt)
@@ -170,9 +181,21 @@ fn drawn(h: &mut Harness<TerrafluxApp>) {
         assert!(t.elapsed() < Duration::from_secs(120), "the looks of the layers: too long");
     }
     h.run_steps(2);
-    until(h, "drawing the maps", |a| {
-        a.session.as_ref().is_none_or(|s| !s.view.busy() && !s.preview_view.busy() && !s.running())
-    });
+    let t = Instant::now();
+    while h.state().session.as_ref().is_some_and(|s| s.view.busy() || s.preview_view.busy() || s.running()) {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        if t.elapsed() > Duration::from_secs(120) {
+            // (which of them held it, for the rare time that it does)
+            let s = h.state().session.as_ref().unwrap();
+            panic!(
+                "drawing the maps: too long (the model's view busy {}, the Viewer's {}, running {})",
+                s.view.busy(),
+                s.preview_view.busy(),
+                s.running()
+            );
+        }
+    }
     // (and the numbers of the side panel worked out in threads, which make it longer when they come)
     let t = Instant::now();
     loop {
@@ -3331,6 +3354,8 @@ fn the_layers_as_a_gis_has_them() {
         let l = p.layers.iter().find(|l| l.from == "drivers.raster").expect("the map shown");
         assert_eq!((l.palette.as_deref(), l.range), (Some("terrain"), Some([range.0, range.1])));
     }
+    // (the Plot is an edit: the run after it moves what is below the strip it brings, the next click would be lost)
+    after_edit(&mut h);
     h.query_all_by_label("2% to 98%").max_by(|a, b| x(a).total_cmp(&x(b))).expect("at the right").click();
     drawn(&mut h);
     assert!(h.state().session.as_ref().unwrap().ranges.is_empty());
@@ -4434,6 +4459,8 @@ fn a_plot_keeps_the_frame_of_its_map() {
     // kept in the Plot
     entry(&mut h, "Keep this view in the plot");
     until(&mut h, "the view kept", |a| a.session.as_ref().unwrap().source.plot("framed").unwrap().view.is_some());
+    // (kept: an edit, and the run after it takes a strip of the map while it goes on)
+    after_edit(&mut h);
     let saved = {
         let s = h.state().session.as_ref().unwrap();
         s.source.plot("framed").unwrap().view.clone().expect("the saved view")
@@ -4447,12 +4474,20 @@ fn a_plot_keeps_the_frame_of_its_map() {
     open_plot(&mut h, "framed");
     h.run_steps(4);
     let after = seen(&h);
-    for (a, b) in after.iter().zip(&before) {
-        assert!((a - b).abs() <= 1.5, "back on the frame: {after:?} was {before:?}");
-    }
+    // (the map may have lost a strip of its height to the edit: the frame is then fitted in what is left, so the box
+    // is the same on the axis that fits and wider on the other, round the same centre)
+    let (cb, ca) = ([before[0] + before[2], before[1] + before[3]], [after[0] + after[2], after[1] + after[3]]);
+    assert!(
+        (cb[0] - ca[0]).abs() <= 3.0 && (cb[1] - ca[1]).abs() <= 3.0,
+        "back on the frame: {after:?} was {before:?}"
+    );
+    let (wb, hb) = (before[2] - before[0], before[3] - before[1]);
+    let (wa, ha) = (after[2] - after[0], after[3] - after[1]);
+    assert!(wa >= wb - 1.5 && ha >= hb - 1.5, "back on the frame: {after:?} was {before:?}");
+    assert!((wa - wb).abs() <= 1.5 || (ha - hb).abs() <= 1.5, "back on the frame: {after:?} was {before:?}");
     // Update the plot leaves the frame as it is
     entry(&mut h, "Update the plot");
-    h.run_steps(4);
+    after_edit(&mut h);
     assert_eq!(h.state().session.as_ref().unwrap().source.plot("framed").unwrap().view, Some(saved));
     // forgotten
     entry(&mut h, "Forget the saved view");
@@ -7248,7 +7283,7 @@ fn features_selected_by_area_on_the_map() {
         let Some(Column::Texts(uses)) = v.column("use") else { panic!("texts") };
         assert_eq!(uses, &["forest".to_string(), "urban".to_string()]);
     }
-    drawn(&mut h);
+    after_edit(&mut h);
     // one undo step takes the node away
     {
         let s = h.state_mut().session.as_mut().unwrap();
@@ -7256,7 +7291,7 @@ fn features_selected_by_area_on_the_map() {
         assert_eq!(s.source.nodes.len(), nodes);
     }
     h.run_steps(3);
-    drawn(&mut h);
+    after_edit(&mut h);
     // shift alone replaces: the rectangle around the second square and the end of the line
     drag(&mut h, &[(0.45, 0.75), (0.6, 0.85)], Modifiers::SHIFT);
     until(&mut h, "the rectangle's features", |a| {
@@ -8916,11 +8951,7 @@ fn a_group_looks_like_one_and_going_in_and_out_is_a_zoom() {
     m.nodes.push(after);
     m.save(&path).unwrap();
     setup();
-    let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
-        eframe::egui_wgpu::RendererOptions::PREDICTABLE,
-    );
-    terraflux_app::canvas_gpu::install(&rs);
+    let rs = render_state();
     // (short steps, to stop inside the transition)
     let mut h = Harness::builder()
         .with_size((1280.0, 820.0))
@@ -8988,6 +9019,15 @@ fn wait(h: &mut Harness<TerrafluxApp>, seconds: f64) {
         h.step();
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+/// Step until the run an edit asks for has ended. The Viewer runs the model again 250 ms (real time) after an edit,
+/// and while it runs a strip at the top of the map takes some of it: a slow frame leaves the map smaller where a
+/// quick one has it whole, and what a test computed from the map's size (the zoom of a place, the cells in view)
+/// would not hold.
+fn after_edit(h: &mut Harness<TerrafluxApp>) {
+    wait(h, 0.6);
+    drawn(h);
 }
 
 fn near(a: egui::Vec2, b: egui::Vec2, tol: f32) -> bool {
@@ -9147,7 +9187,12 @@ fn places_are_kept_with_the_model_and_gone_back_to() {
     h.event(egui::Event::PointerMoved(rect.center()));
     h.run_steps(2);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num1);
-    h.run_steps(3);
+    // (a place is an edit: the map is where it was once the run after it has ended)
+    after_edit(&mut h);
+    // (and it stays smaller by that strip, in the frames after: going back fits the box in what there is)
+    let kept_rect = map(&mut h).rect().expect("drawn");
+    assert_eq!(kept_rect.left_top().x, rect.left_top().x);
+    let fit = (kept_rect.width() / rect.width()).min(kept_rect.height() / rect.height());
     {
         let s = h.state().session.as_ref().unwrap();
         let p = s.source.bookmark_at(true, 1).expect("the place of slot 1");
@@ -9165,7 +9210,7 @@ fn places_are_kept_with_the_model_and_gone_back_to() {
     h.key_press(egui::Key::Num1);
     h.run_steps(3);
     let (z, c) = map(&mut h).camera();
-    assert!((z / z1 - 1.0).abs() < 1e-3 && near(c, c1, 0.05), "back to {z1} {c1:?}, at {z} {c:?}");
+    assert!((z / (z1 * fit) - 1.0).abs() < 1e-3 && near(c, c1, 0.05), "back to {} {c1:?}, at {z} {c:?}", z1 * fit);
     // a digit typed in a field is the field's: the map stays where it is (a text field clicked, the pointer back
     // over the map)
     map(&mut h).set_camera(z0, c0);

@@ -63,11 +63,12 @@ impl Web {
                         let (status, head, bytes) =
                             answer(&method, range.as_deref(), files(path.split('?').next().unwrap()));
                         let sent = if method == "HEAD" { 0 } else { bytes.len() };
+                        // (kept before it is sent: a client that has its answer may look at the hits at once)
+                        kept.lock().unwrap().push(Hit { method, path, range, status, sent });
                         if out.write_all(head.as_bytes()).is_err() || out.write_all(&bytes).is_err() {
                             return;
                         }
                         let _ = out.flush();
-                        kept.lock().unwrap().push(Hit { method, path, range, status, sent });
                     }
                 });
             }
