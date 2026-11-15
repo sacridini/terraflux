@@ -225,8 +225,46 @@ def highlight(code: str, lang: str) -> str:
     return ph(code, lexer, HtmlFormatter(cssclass="highlight", nowrap=False))
 
 
+HTML_TAGS = set("""a abbr address area article aside b base bdi bdo blockquote body br button canvas caption cite code
+col colgroup dd del details dfn div dl dt em figcaption figure footer h1 h2 h3 h4 h5 h6 head header hgroup hr html i img
+input ins kbd li link main mark meta nav ol p picture pre q rp rt ruby s samp script section small source span strong
+style sub summary sup table tbody td tfoot th thead title tr u ul var wbr math mi mn mo mrow msup msub mfrac msqrt mtext
+annotation semantics svg g path rect circle ellipse line polyline polygon text tspan textpath defs marker lineargradient
+radialgradient stop clippath mask pattern symbol use image foreignobject desc filter fegaussianblur feoffset feblend
+fecolormatrix fecomposite feflood femerge femergenode fedropshadow feturbulence fedisplacementmap femorphology""".split())
+# (form and interactive tags such as output, data, map, time, label, template or dialog are left out on purpose: no page
+# writes them, and operator docs use some of those words as placeholders, <output>)
+
+
+def _known_tag(name: str) -> bool:
+    name = name.lower()
+    return name in HTML_TAGS or "-" in name
+
+
+def escape_unknown_tags(html: str) -> str:
+    """Escapes, in rendered HTML, a `<name>` that is no HTML, MathML or SVG tag: texts write placeholders such as
+    `<variable>_<statistic>` or `d.<name>` outside code, which a browser takes for tags and hides. Code is already
+    escaped by then, so only such stray placeholders match."""
+    def one(m):
+        if m.group(4) or not _known_tag(m.group(2)):  # `percentile_<p>`: a <p> glued to a word is a placeholder
+            return m.group(0).replace("<", "&lt;").replace(">", "&gt;")
+        return m.group(0)
+    return re.sub(r"<(/?)([A-Za-z_][\w.-]*)((?:\s[^<>]*)?)>|(?<=\w)<(p)>", one, html)
+
+
+def _escape_placeholders(text: str) -> str:
+    """The same on a short Markdown text (an operator's doc), outside its code spans, before it is rendered: there a
+    `<p>` is never a paragraph the text means."""
+    parts = re.split(r"(`[^`]*`)", text)
+    for i in range(0, len(parts), 2):
+        parts[i] = re.sub(r"<(/?)([A-Za-z_][\w.-]*)>",
+                          lambda m: m.group(0) if _known_tag(m.group(2)) and m.group(2).lower() != "p"
+                          else m.group(0).replace("<", "&lt;").replace(">", "&gt;"), parts[i])
+    return "".join(parts)
+
+
 def md_inline(text: str) -> str:
-    out = markdown.markdown(text, extensions=["pymdownx.inlinehilite", "pymdownx.arithmatex"],
+    out = markdown.markdown(_escape_placeholders(text), extensions=["pymdownx.inlinehilite", "pymdownx.arithmatex"],
                             extension_configs={"pymdownx.arithmatex": {"generic": True}})
     return re.sub(r"^<p>(.*)</p>$", r"\1", out.strip(), flags=re.S)
 
@@ -843,7 +881,10 @@ def _wrap_code(text: str) -> str:
 
 
 def tables(text: str) -> str:
-    return text.replace("<table>", '<div class="table-wrap"><table>').replace("</table>", "</table></div>")
+    """Wraps each bare <table> of the Markdown in a scrolling box; the tables the components write (tftable, a chart's
+    data) come already wrapped, and a closing tag added to them would close the page's column early."""
+    return re.sub(r'(?<!<div class="table-wrap">)<table>(.*?)</table>', r'<div class="table-wrap"><table>\1</table></div>',
+                  text, flags=re.S)
 
 
 def _id_refs(h: str) -> str:
@@ -868,6 +909,7 @@ def render_markdown(page: Page) -> None:
     out = figures(out)
     out = _wrap_code(out)
     out = tables(out)
+    out = escape_unknown_tags(out)
     if page.src == "about/citing.md":  # an anchor on each reference, for the operators' "Cite" lines
         head, sep, tail = out.partition('<h2 id="references"')
         out = head + sep + _id_refs(tail)
