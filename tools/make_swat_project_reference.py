@@ -23,14 +23,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import landschaft as ls
-from landschaft.hydro.swat import TABLES
-from landschaft.hydro.swat._editor import _editor_data
-from landschaft.hydro.swat._weather import wgn_from_series
+import terraflux as tf
+from terraflux.hydro.swat import TABLES
+from terraflux.hydro.swat._editor import _editor_data
+from terraflux.hydro.swat._weather import wgn_from_series
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 import swat_landscape as syn  # noqa: E402
 
 CROPS = {1: "CORN", 2: "WWHT", 3: "URMD"}
@@ -119,11 +119,11 @@ def body(b: bytes) -> bytes:
 def main() -> None:
     static, _ = _editor_data()
     out: dict[str, np.ndarray] = {}
-    meta: dict = {"landschaft": ls.__version__, "cases": [], "wgn_cases": []}
+    meta: dict = {"landschaft": tf.__version__, "cases": [], "wgn_cases": []}
 
     # the watersheds of the cases: landschaft's synthetic valley (two land use lookups) and the example landscape
     dem, lu, so = syn.rasters()
-    ex = ls.hydro.swat.example_landscape()
+    ex = tf.hydro.swat.example_landscape()
     sets = {
         "syn": dict(dem=dem, landuse=lu, soils=so, landuse_lookup=syn.LANDUSE, soil_lookup=syn.SOILS,
                     soil_table=syn.soil_table(), **syn.OPTIONS),
@@ -132,7 +132,7 @@ def main() -> None:
         "ex": dict(dem=ex["dem"], landuse=ex["landuse"], soils=ex["soils"], landuse_lookup=ex["landuse_lookup"],
                    soil_lookup=ex["soil_lookup"], soil_table=ex["soil_table"], stream_threshold=1.0),
     }
-    watersheds = {k: ls.hydro.swat.watershed(**v) for k, v in sets.items()}
+    watersheds = {k: tf.hydro.swat.watershed(**v) for k, v in sets.items()}
     meta["watersheds"] = {}
     for k, w in watersheds.items():
         tables = {}
@@ -174,12 +174,12 @@ def main() -> None:
     for c in cases:
         n = c["name"]
         kwargs = {"wgn": c.get("wgn"), "monthly": c.get("monthly")}
-        wx = ls.hydro.swat.climate(c["stations"], **c["series"], **kwargs)
+        wx = tf.hydro.swat.climate(c["stations"], **c["series"], **kwargs)
         w = watersheds[c["watershed"]]
         opt = {k: c[k] for k in ("start", "end", "codes") if k in c}
         if "name_" in c:
             opt["name"] = c["name_"]
-        project = ls.hydro.swat.from_tables(w, wx, **opt)
+        project = tf.hydro.swat.from_tables(w, wx, **opt)
         project.watershed = w
         # the inputs
         rec = {"name": n, "watershed": c["watershed"], "stations": table_json(c["stations"].reset_index(names="name")),
@@ -204,7 +204,7 @@ def main() -> None:
                 out[f"{n}/file/{fname}"] = np.frombuffer(body(b), np.uint8)
         rec["files"] = sorted(project.files)
         if c.get("run"):
-            res = ls.hydro.swat.run(project, tables={t: (["year"] if t in RUN_TABLES else []) for t in TABLES},
+            res = tf.hydro.swat.run(project, tables={t: (["year"] if t in RUN_TABLES else []) for t in TABLES},
                                     nyskip=0)
             for t in RUN_TABLES:
                 out[f"{n}/run/{t}"] = frame(res.table(t, "year"), TABLES[t][1])

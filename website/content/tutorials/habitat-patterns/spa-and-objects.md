@@ -310,7 +310,7 @@ restore a link, before the more detailed tools of the
 [restoration planner](/tutorials/distance-restoration/).
 
 !!! warning "Experimental"
-    Influence zones and proximity are marked experimental in landschaft, the library Terraflux uses: GuidosToolbox's
+    Influence zones and proximity are marked experimental in terraflux-py, the library Terraflux uses: GuidosToolbox's
     distance transform is not yet reproduced exactly, so lines may differ from GuidosToolbox's by a cell here and
     there.
 

@@ -101,7 +101,7 @@ impl Operator for Metrics {
         OpSignature::new(
             "surface.metrics",
             "Surface metrics of a continuous raster (an elevation, a canopy height, an NDVI...), ISO 25178 as the R \
-             package geodiv computes them, through landschaft's C++ (geodiv's bits): roughness and its \
+             package geodiv computes them, through terraflux-py's C++ (geodiv's bits): roughness and its \
              distribution (amplitude), slopes and the area developed (hybrid), summits (features), the bearing \
              area curve, the autocorrelation's lengths and directions and the fractal dimension (spatial). Usually \
              of a surface with its trend removed. A table of one row.",
@@ -127,7 +127,7 @@ impl Operator for Window {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "surface.window",
-            "Surface metrics in a moving window around every cell (landschaft's surface.window_metrics through \
+            "Surface metrics in a moving window around every cell (the Python library's surface.window_metrics through \
              its C++): the metrics of the window's surface at its centre, no value beyond the edges (and beyond \
              window / 2 cells in a circle). A map per metric, in a stack.",
             Access::Global,
@@ -296,7 +296,7 @@ impl Operator for Terrain {
         match self.op {
             "terrain" => map_out(
                 surface(sig("Slope or aspect of a surface as terra::terrain (Horn's 8 or 4 neighbours), through \
-                             landschaft's C++; no value on the edge cells.")),
+                             terraflux-py's C++; no value on the edge cells.")),
                 "the slope or aspect",
             )
             .param(PortSpec::optional("v", Type::Text, "slope (default) or aspect").choices(["slope", "aspect"]))

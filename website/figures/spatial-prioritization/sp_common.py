@@ -1,7 +1,7 @@
 """Shared pieces of the figure scripts of the spatial prioritization tutorials.
 
-The tutorials use Serra Verde, the synthetic planning region shipped with landschaft
-(extern/landschaft/src/landschaft/prioritize/data): 60 x 90 cells of 1 km, eight features, a cost per cell,
+The tutorials use Serra Verde, the synthetic planning region shipped with terraflux-py
+(extern/terraflux-py/src/terraflux/prioritize/data): 60 x 90 cells of 1 km, eight features, a cost per cell,
 protected areas, cities, threats. Every script copies these rasters into its work folder, runs Terraflux models
 on them and draws what they write.
 """
@@ -24,7 +24,7 @@ import numpy as np  # noqa: E402
 from matplotlib import colors as mcolors  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
-DATA = figs.ROOT / "extern" / "landschaft" / "src" / "landschaft" / "prioritize" / "data"
+DATA = figs.ROOT / "extern" / "terraflux-py" / "src" / "terraflux" / "prioritize" / "data"
 CATEGORY = "spatial-prioritization"
 
 FEATURES = ["jaguar", "lowland_tapir", "harpy_eagle", "maned_wolf", "golden_lion_tamarin", "neotropical_otter",
@@ -224,7 +224,7 @@ def zip_data(slug: str, name: str, files: dict[str, pathlib.Path | str]):
 def serra_verde_zip(slug: str, layers=("features", "cost", "protected", "urban", "condition", "threats")):
     files = {f"serra-verde/{l}.tif": DATA / f"{l}.tif" for l in layers}
     files["serra-verde/README.txt"] = (
-        "Serra Verde: a synthetic planning region of 60 x 90 cells of 1 km (EPSG:31983), from landschaft's\n"
+        "Serra Verde: a synthetic planning region of 60 x 90 cells of 1 km (EPSG:31983), from terraflux-py's\n"
         "example data. The sea has no value (it is not part of the problem).\n\n"
         "features.tif   8 bands, the habitat suitability (0-1) of: " + ", ".join(FEATURES) + "\n"
         "cost.tif       the cost of every cell (thousand USD)\n"

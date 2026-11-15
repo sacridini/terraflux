@@ -266,7 +266,7 @@ hydro.stream_links, hydro.watersheds. The terrain's indices: hydro.hand, hydro.t
 hydro.distance_to_channel, hydro.connectivity_index. Gauges and dams on the network: hydro.snap, \
 hydro.upstream_catchment, hydro.upstream. Templates \"Terrain of a surface\", \"Rivers: the land upstream and the \
 gauges' catchments\", \"Rivers: dams and their connectivity (DCI)\".
-3. How much water, when, and how much soil: SWAT+ (landschaft's port of SWAT+ 62, bit for bit for what it covers). \
+3. How much water, when, and how much soil: SWAT+ (the Python library's port of SWAT+ 62, bit for bit for what it covers). \
 A project already made (a TxtInOut folder or a zip): swat.load (or the `path` of swat.run), swat.set to change a \
 parameter as SWAT+'s hard calibration does (cn2, awc, esco, perco...; pctchg, abschg or absval; a setting may read \
 a model input `$x`, which is how batches and calibrations vary it), swat.run for the tables SWAT+ prints. A \

@@ -1,9 +1,9 @@
 """Figures of the tutorial "Landforms with geomorphons" (surface-metrics/geomorphons).
 
-The SRTM elevation of south-western Oregon shipped with landschaft (the DEM of the tutorial "Terrain from an
+The SRTM elevation of south-western Oregon shipped with terraflux-py (the DEM of the tutorial "Terrain from an
 elevation model"), reprojected to UTM zone 10N in cells of 30 m, and its geomorphons computed by Terraflux at
 several search radii, flatness thresholds and options; the patterns, measures and shares they give; and a check
-of the forms against GRASS GIS's r.geomorphon on landschaft's reference DEMs.
+of the forms against GRASS GIS's r.geomorphon on terraflux-py's reference DEMs.
 
     python website/figures/surface-metrics/geomorphons.py
 """
@@ -24,8 +24,8 @@ SLUG = "surface-metrics/geomorphons"
 work = figs.workdir(SLUG)
 out = figs.img_dir(SLUG)
 data = figs.data_dir(SLUG)
-LS = figs.ROOT / "extern/landschaft"
-shutil.copy(LS / "src/landschaft/surface/data/orelevation.tif", work / "elevation.tif")
+LS = figs.ROOT / "extern/terraflux-py"
+shutil.copy(LS / "src/terraflux/surface/data/orelevation.tif", work / "elevation.tif")
 
 # the landforms with r.geomorphon's colours (as the application draws them: crates/ops/src/landscape.rs)
 FORMS = {1: ("Flat", "#dcdcdc"), 2: ("Peak", "#380000"), 3: ("Ridge", "#c80000"), 4: ("Shoulder", "#ff5014"),
@@ -174,7 +174,7 @@ figs.write_csv(data / "share.csv", table)
 print("share", [(t["name"], t["share (%)"]) for t in table])
 
 # ------------------------------------------------------------------ the lookup table of the forms
-# r.geomorphon's table (landschaft's src/cpp/surf/geomorphons.cpp): rows the number of lower directions (-),
+# r.geomorphon's table (terraflux-py's src/cpp/surf/geomorphons.cpp): rows the number of lower directions (-),
 # columns the number of higher ones (+); 0 an impossible count (more than 8 in all)
 FL, PK, RI, SH, SP, SL, HL, FS, VL, PT, ER = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0
 TABLE = [
@@ -440,7 +440,7 @@ for name in CASES:
     for k in ("forms", "ternary"):
         mine = rd(f"chk_{name}_{k}.tif").filled(np.nan)
         theirs = ref[f"{name}/{k}"].astype(np.float64)
-        # GRASS was given one more row of no value at the bottom (see landschaft's
+        # GRASS was given one more row of no value at the bottom (see terraflux-py's
         # tools/make_reference_geomorphons.py), so its border without forms is one row lower: compare where both
         # have a value
         valid = ~np.isnan(theirs) & ~np.isnan(mine)

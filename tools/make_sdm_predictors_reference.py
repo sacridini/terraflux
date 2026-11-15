@@ -21,19 +21,19 @@ import shapely
 import xarray as xr
 from affine import Affine
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-S = ls.sdm
+S = tf.sdm
 NAMES = ["p1", "p2", "p3", "p4", "p5"]
 
 
 def stack(ny, nx, t, crs=None, seed=0):
     rng = np.random.default_rng(seed)
-    a = ls.nlm.gaussian_field(nx, ny, autocorr_range=8, seed=71 + seed).values
-    b = ls.nlm.gaussian_field(nx, ny, autocorr_range=5, seed=72 + seed).values
-    c = ls.nlm.gaussian_field(nx, ny, autocorr_range=12, seed=73 + seed).values
+    a = tf.nlm.gaussian_field(nx, ny, autocorr_range=8, seed=71 + seed).values
+    b = tf.nlm.gaussian_field(nx, ny, autocorr_range=5, seed=72 + seed).values
+    c = tf.nlm.gaussian_field(nx, ny, autocorr_range=12, seed=73 + seed).values
     layers = [a, 0.9 * a + 0.1 * rng.uniform(size=a.shape), b, a + b, c]
     layers[2][3:6, 4:9] = np.nan
     da = xr.DataArray(np.round(np.stack(layers), 6), dims=("band", "y", "x"),

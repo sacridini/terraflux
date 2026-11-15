@@ -1,5 +1,5 @@
 //! Restoration planning's inputs against plangea's R: the outputs landschaft keeps
-//! (extern/landschaft/tests/data/reference/plangea) of the maps its tests draw (tests/data/reference/
+//! (extern/terraflux-py/tests/data/reference/plangea) of the maps its tests draw (tests/data/reference/
 //! plangea_inputs.npz, tools/make_plangea_inputs.py), compared as landschaft's test_plangea_reference.py does.
 
 use std::collections::BTreeMap;
@@ -19,7 +19,7 @@ struct Data {
 
 fn data() -> Data {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let refdir = root.join("extern/landschaft/tests/data/reference/plangea");
+    let refdir = root.join("extern/terraflux-py/tests/data/reference/plangea");
     let all: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(refdir.join("reference.json")).unwrap()).unwrap();
     Data {

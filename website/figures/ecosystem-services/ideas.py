@@ -1,7 +1,7 @@
 """Figures of 'Ecosystem service models: the ideas' (ecosystem-services/ideas).
 
 Ribeirão Claro's maps (land use of 1985, 2020 and 2040, elevation), the four models run on the land use of 2020
-and of 2040 with their headline numbers, and Terraflux against InVEST 3.20.2 on InVEST's own runs (landschaft's
+and of 2040 with their headline numbers, and Terraflux against InVEST 3.20.2 on InVEST's own runs (terraflux-py's
 reference cases): the maps cell by cell.
 """
 
@@ -16,7 +16,7 @@ SLUG = "ideas"
 OUT = es.img(SLUG)
 DAT = es.data(SLUG)
 REF = figs.ROOT / "tests" / "data" / "reference"
-INVEST = figs.ROOT / "extern" / "landschaft" / "tests" / "data" / "reference" / "invest"
+INVEST = figs.ROOT / "extern" / "terraflux-py" / "tests" / "data" / "reference" / "invest"
 
 THREATS = ",\n".join(
     f'  {{ threat = "{t["threat"]}", max_dist = {t["max_dist"]}, weight = {t["weight"]}, decay = "{t["decay"]}" }}'

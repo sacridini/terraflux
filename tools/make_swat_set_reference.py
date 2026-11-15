@@ -16,12 +16,12 @@ from pathlib import Path
 
 import numpy as np
 
-import landschaft as ls
-from landschaft.hydro.swat import TABLES
+import terraflux as tf
+from terraflux.hydro.swat import TABLES
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-EXAMPLE = ROOT / "extern" / "landschaft" / "src" / "landschaft" / "hydro" / "swat" / "data" / "hubbard_brook.zip"
+EXAMPLE = ROOT / "extern" / "terraflux-py" / "src" / "terraflux" / "hydro" / "swat" / "data" / "hubbard_brook.zip"
 
 CASES = [
     {"name": "awc", "changes": [{"parameter": "awc", "change": "pctchg", "value": 20}]},
@@ -59,18 +59,18 @@ def change(project, c) -> None:
 
 
 def main() -> None:
-    base = ls.hydro.swat.load_txtinout(EXAMPLE)
+    base = tf.hydro.swat.load_txtinout(EXAMPLE)
     out: dict[str, np.ndarray] = {}
     for case in CASES:
         project = base.copy()
         for c in case["changes"]:
             change(project, c)
         tables = {t: ["year"] for t in TABLES}
-        r = ls.hydro.swat.run(project, tables=tables)
+        r = tf.hydro.swat.run(project, tables=tables)
         for t in TABLES:
             out[f"{case['name']}/{t}"] = frame(r.table(t, "year"), TABLES[t][1])
     np.savez_compressed(REF / "swat_set.npz", **out)
-    meta = {"landschaft": ls.__version__, "cases": CASES}
+    meta = {"landschaft": tf.__version__, "cases": CASES}
     (REF / "swat_set.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")
     print(REF / "swat_set.npz", len(out))
 

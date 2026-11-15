@@ -29,7 +29,7 @@ const EDITOR_VERSION: &str = "4.0.2";
 /// The editor's data as landschaft ships it (`tools/swat/make_editor_data.py`): the files it writes the same for
 /// every project (`static/`) and its datasets database (`datasets.json`).
 const EDITOR_ZIP: &[u8] =
-    include_bytes!("../../../extern/landschaft/src/landschaft/hydro/swat/data/swatplus_editor.zip");
+    include_bytes!("../../../extern/terraflux-py/src/terraflux/hydro/swat/data/swatplus_editor.zip");
 
 struct Editor {
     statics: Vec<(String, String)>,
@@ -2008,7 +2008,7 @@ impl Operator for FromTables {
         OpSignature::new(
             "swat.from_tables",
             "A SWAT+ project from a watershed (swat.watershed: QSWAT+'s tables) and the weather, as the SWAT+ Editor \
-             4.0.2 makes it (landschaft's from_tables, file for file): the TxtInOut files (hru-data.hru, the \
+             4.0.2 makes it (the Python library's from_tables, file for file): the TxtInOut files (hru-data.hru, the \
              connections, routing units, aquifers, SWAT-DEG channels, land uses and their plant communities and \
              crop rotations, soils, weather stations at the coordinates of the weather files with each object \
              matched to the nearest station, the weather generator, time.sim and file.cio) as a value to run \
@@ -2051,7 +2051,7 @@ impl Operator for FromTables {
             Type::Any,
             "columns of codes.bsn to change, {\"pet\": 2} for Hargreaves, {\"rte_cha\": 1} for Muskingum",
         ))
-        .param(PortSpec::optional("name", Type::Text, "the project's name (object.cnt; default landschaft)"))
+        .param(PortSpec::optional("name", Type::Text, "the project's name (object.cnt; default terraflux)"))
         .param(PortSpec::optional(
             "monthly",
             Type::Any,
@@ -2081,7 +2081,7 @@ impl Operator for FromTables {
                 .opt_param::<serde_json::Map<String, serde_json::Value>>("codes")?
                 .map(|m| m.into_iter().collect())
                 .unwrap_or_default();
-            let name: String = args.param("name", "landschaft".to_string())?;
+            let name: String = args.param("name", "terraflux".to_string())?;
             let project = from_tables(w, &wx, date_setting(args, "start")?, date_setting(args, "end")?, &codes, &name)?;
             let mut o = Outputs::new();
             o.insert("project".into(), Value::SwatProject(Arc::new(project)));

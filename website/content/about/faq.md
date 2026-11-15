@@ -14,7 +14,7 @@ Do I need to know how to program?
 
 Do I need GDAL, Python or R?
 :   No. The installers bring GDAL and every library Terraflux needs. Python and R are only needed if you want to
-    use [landschaft](https://github.com/sacridini/landschaft) or compare with your own scripts.
+    use [terraflux-py](https://github.com/sacridini/terraflux-py) or compare with your own scripts.
 
 Which computer do I need?
 :   Any recent Windows, macOS (Apple silicon) or Linux computer. Most analyses of a study area of a few million

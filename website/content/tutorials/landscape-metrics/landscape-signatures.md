@@ -34,7 +34,7 @@ space are alike. Two families of methods then make sense of the cloud of points:
   to help choose \(k\).
 
 The approach follows pylandstats' spatial signature analysis (Bosch, 2019), which Terraflux reproduces through
-landschaft: the same signatures, the same PCA and NMF, the same k-means from the same seeds, so the groups are the
+terraflux-py: the same signatures, the same PCA and NMF, the same k-means from the same seeds, so the groups are the
 same as in Python. Nowosad and Stepinski (2019) used a related idea, two numbers of information theory per square, to
 map kinds of landscape over whole continents.
 

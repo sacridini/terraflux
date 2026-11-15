@@ -92,7 +92,7 @@ crop field and a road do not make the same edge.
 As in part 1, a map coded 0 missing, 1 background, 2 forest, or classes given in `foreground`:
 [`input.tif`](/data/tutorials/habitat-patterns/mspa/input.tif). For % cover, a map of 0–100 with 255 missing:
 GraySpatCon's sample, a map of tree cover of the conterminous United States at 2.43 km (1,289 × 1,990 cells), shipped
-with landschaft. For the mosaic, a land cover: [`clc.tif`](/data/tutorials/habitat-patterns/mspa/clc.tif), CORINE
+with terraflux-py. For the mosaic, a land cover: [`clc.tif`](/data/tutorials/habitat-patterns/mspa/clc.tif), CORINE
 around Hannover. In the application, **Templates > Patterns (GuidosToolbox) > Fragmentation of a forest** has FOS by
 FAC; **Landscape mosaic** has the mosaic, contagion and entropy.
 

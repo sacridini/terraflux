@@ -74,11 +74,11 @@ to people at all but the state of biodiversity, which is why it is so often run 
 ### InVEST in Terraflux
 
 Terraflux's seven operators (in the library's subject *Ecosystem services*) are InVEST 3.20's models as
-**landschaft**, the library behind Terraflux, reimplements them in C++: the same inputs, the same equations, and
+**terraflux-py**, the library behind Terraflux, reimplements them in C++: the same inputs, the same equations, and
 the same arithmetic (the same 32-bit floating point numbers, the same order of the sums), so that the maps are
 InVEST's **bit for bit**. You can check it: the table below compares Terraflux with InVEST 3.20.2 on InVEST's own
-runs (the reference cases landschaft is tested against), cell by cell. The seasonal water yield model is the one
-exception: landschaft corrects four errors of InVEST 3.20.2 in it, so only part of its maps are InVEST's to the bit
+runs (the reference cases terraflux-py is tested against), cell by cell. The seasonal water yield model is the one
+exception: terraflux-py corrects four errors of InVEST 3.20.2 in it, so only part of its maps are InVEST's to the bit
 ([part 7](/tutorials/ecosystem-services/seasonal-water-yield/) says which).
 
 ```tftable

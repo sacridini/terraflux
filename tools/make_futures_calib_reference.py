@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""landschaft's calibration of FUTURES' patches (ls.simulate.calibrate_patches, r.futures.calib), for Terraflux's
+"""landschaft's calibration of FUTURES' patches (tf.simulate.calibrate_patches, r.futures.calib), for Terraflux's
 tests of futures.calibrate.
 
 The case is landschaft's own (tests/simulate_cases.py's futures_calib_py: its world, a PatchGrowing model with one
@@ -24,12 +24,12 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 
-import landschaft as ls  # noqa: E402
+import terraflux as tf  # noqa: E402
 import simulate_cases as sc  # noqa: E402
 
-S = ls.simulate
+S = tf.simulate
 OUT = ROOT / "tests" / "data" / "reference" / "futures_calib"
 
 

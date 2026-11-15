@@ -320,7 +320,7 @@ impl Operator for Omniscape {
         OpSignature::new(
             "circuit.omniscape",
             "Omnidirectional connectivity with Omniscape's moving-window circuits (Omniscape 0.7 through \
-             landschaft's C++): a target every block_size cells injects its block's source strength into the \
+             terraflux-py's C++): a target every block_size cells injects its block's source strength into the \
              sources within radius, grounded at the target; the node currents of every window add up into the \
              cumulative current. The flow potential (the same on a conductance of 1) and the current normalised by \
              it (above 1: channelled; below: impeded) when asked. Sources from the resistance (its conductance) \
@@ -446,7 +446,7 @@ impl Operator for Advanced {
         OpSignature::new(
             "circuit.advanced",
             "Currents and voltages of a raster circuit with sources and grounds, Circuitscape 6.1's advanced mode \
-             through landschaft's C++: each cell with a conductance a node joined to its 8 neighbours (4 asked) by \
+             through terraflux-py's C++: each cell with a conductance a node joined to its 8 neighbours (4 asked) by \
              the average conductance; current injected at the sources, drawn at the grounds (a conductance to \
              ground, or a direct ground: inf); every component with both solved exactly. The node current is the \
              larger of a cell's inflow and outflow.",
@@ -652,7 +652,7 @@ impl Operator for Pairwise {
     fn signature(&self) -> OpSignature {
         raster_mode(OpSignature::new(
             "circuit.pairwise",
-            "Circuitscape's pairwise mode on rasters (landschaft's circuitscape_pairwise): the effective resistance \
+            "Circuitscape's pairwise mode on rasters (the Python library's circuitscape_pairwise): the effective resistance \
              between every pair of focal points (-1: not connected), every component factorised once and its \
              pairs solved together; the cumulative and the largest current maps when asked.",
             Access::Global,
@@ -776,7 +776,7 @@ impl Operator for OneToAll {
     fn signature(&self) -> OpSignature {
         raster_mode(OpSignature::new(
             "circuit.one_to_all",
-            "Circuitscape's one-to-all (or all-to-one) mode on rasters (landschaft's circuitscape_one_to_all): \
+            "Circuitscape's one-to-all (or all-to-one) mode on rasters (the Python library's circuitscape_one_to_all): \
              for every focal point in turn, 1 A (or its strength) injected there with every other point a direct \
              ground (one-to-all), or the point grounded and the others injecting (all-to-one); the voltage over \
              the strength at each point (one-to-all), the cumulative and largest current maps when asked. \
@@ -1265,7 +1265,7 @@ impl Operator for NetworkAdvanced {
     fn signature(&self) -> OpSignature {
         network_params(OpSignature::new(
             "circuit.network_advanced",
-            "Circuitscape's advanced mode on a network (data_type = network; landschaft's \
+            "Circuitscape's advanced mode on a network (data_type = network; the Python library's \
              circuitscape_network_advanced): currents injected at nodes and grounds (a resistance of 0 a direct \
              ground) on a graph of edges numbered from 1 (or 0, then every number shifted, as Circuitscape.jl). \
              Duplicate edges add up. Every component with a source and a ground is solved.",
@@ -1339,7 +1339,7 @@ impl Operator for NetworkPairwise {
     fn signature(&self) -> OpSignature {
         network_params(OpSignature::new(
             "circuit.network_pairwise",
-            "Circuitscape's pairwise mode on a network (landschaft's circuitscape_network_pairwise): the effective \
+            "Circuitscape's pairwise mode on a network (the Python library's circuitscape_network_pairwise): the effective \
              resistance between every pair of focal nodes (-1: not connected), every component factorised once; \
              included or excluded pairs from Circuitscape's file; with the map options every pair's node voltages, \
              node and branch currents (JSON), and the currents summed over the pairs.",

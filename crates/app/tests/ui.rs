@@ -6436,15 +6436,15 @@ fn the_model_as_a_python_script() {
     h.run_steps(2);
     h.get_by_label("File").click();
     h.run_steps(3);
-    h.get_by_label("Python script (landschaft)...").click();
+    h.get_by_label("Python script...").click();
     h.run_steps(3);
     let s = h.state().session.as_ref().unwrap();
     let v = s.python.as_ref().expect("the script's window");
     assert_eq!((v.script.translated, v.script.left.len()), (3, 0));
     let t = &v.script.text;
-    assert!(t.contains("nlm_random_cluster = ls.nlm.random_cluster(ncol=256, nrow=256, p=0.55, ai=[0.3, 0.7], seed=1, rescale=False)"), "{t}");
-    assert!(t.contains("raster_reclassify = ls.reclassify(nlm_random_cluster, {2: 2}, others=1)"), "{t}");
-    assert!(t.contains("landscape_mspa = ls.mspa(raster_reclassify.fillna(0).astype(\"uint8\"), edge_width=2)"), "{t}");
+    assert!(t.contains("nlm_random_cluster = tf.nlm.random_cluster(ncol=256, nrow=256, p=0.55, ai=[0.3, 0.7], seed=1, rescale=False)"), "{t}");
+    assert!(t.contains("raster_reclassify = tf.reclassify(nlm_random_cluster, {2: 2}, others=1)"), "{t}");
+    assert!(t.contains("landscape_mspa = tf.mspa(raster_reclassify.fillna(0).astype(\"uint8\"), edge_width=2)"), "{t}");
     assert!(h.query_by_label("Copy").is_some() && h.query_by_label("Save as...").is_some());
     shot(&mut h, "14i-python");
 }

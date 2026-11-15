@@ -144,7 +144,7 @@ impl Operator for Graph {
         graph_settings(
             OpSignature::new(
                 "conn.graph",
-                "A habitat graph (landschaft's HabitatGraph): nodes with an attribute (an area, a quality) and the \
+                "A habitat graph (the Python library's HabitatGraph): nodes with an attribute (an area, a quality) and the \
                  distances, probabilities or links between pairs of them, from a table of nodes and a table of \
                  pairs (from, to, value) or an n x n matrix.",
                 Access::Global,

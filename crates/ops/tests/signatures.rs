@@ -90,7 +90,7 @@ fn numpy_generator_is_numpys() {
 #[test]
 fn signature_table_is_landschafts() {
     let r = reference();
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/landschaft/tests/data/lsm/augusta.tif");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/tests/data/lsm/augusta.tif");
     let raster = terraflux_raster::Raster::read(&path).unwrap();
     let map = Map::new(Arc::new(raster.grid.clone()), raster.bands[0].masked(raster.nodata));
     let out = run(
@@ -177,7 +177,7 @@ fn clustergrams_are_landschafts() {
 /// zone), burnt into the map's grid; every cell of a zone has its zone's cluster.
 #[test]
 fn clusters_of_zones_as_a_map() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/landschaft/tests/data/lsm/augusta.tif");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/tests/data/lsm/augusta.tif");
     let raster = terraflux_raster::Raster::read(&path).unwrap();
     let map = Map::new(Arc::new(raster.grid.clone()), raster.bands[0].masked(raster.nodata));
     let zones = run("vector.grid_zones", vec![("map", Value::Map(map.clone()))], serde_json::json!({"size": 600}));

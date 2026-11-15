@@ -1,5 +1,5 @@
 //! prioritize.zonation against Zonation 5 v2.4: the rank maps of the z5 binary that landschaft keeps
-//! (extern/landschaft/tests/data/reference/prioritize), bit for bit, on the rasters of its cases
+//! (extern/terraflux-py/tests/data/reference/prioritize), bit for bit, on the rasters of its cases
 //! (tests/data/reference/zonation_inputs.npz, tools/make_zonation_inputs.py); with the transforms (conditions,
 //! retention, pre-processing maps, the features as ranked) and the connectivity transforms, their maps too.
 
@@ -39,7 +39,7 @@ fn cases() -> Cases {
 impl Cases {
     /// The cases of a group, and the z5 binary's outputs of the group.
     fn group(&self, group: &str) -> (Vec<String>, BTreeMap<String, Array>, serde_json::Value) {
-        let refdir = self.root.join("extern/landschaft/tests/data/reference/prioritize");
+        let refdir = self.root.join("extern/terraflux-py/tests/data/reference/prioritize");
         let reference = terraflux_raster::npy::read_npz(refdir.join(format!("{group}.npz"))).unwrap();
         let meta: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(refdir.join(format!("{group}.json"))).unwrap()).unwrap();

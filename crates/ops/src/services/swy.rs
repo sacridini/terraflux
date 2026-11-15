@@ -26,7 +26,7 @@ impl Operator for SeasonalWaterYield {
         OpSignature::new(
             "services.seasonal_water_yield",
             "Quickflow, local recharge and baseflow: InVEST's seasonal water yield model (natcap.invest 3.20) \
-             bit for bit, through landschaft. The quickflow of each month from the curve numbers of the land use \
+             bit for bit, through the Python library. The quickflow of each month from the curve numbers of the land use \
              and soil group and the rain events; the local recharge P - QF - AET, the evapotranspiration limited \
              by the water from upslope (alpha, beta, gamma); the baseflow the recharge gives the cells down to \
              the streams; with a recharge map instead (and no climate), its routing only. The DEM filled and \

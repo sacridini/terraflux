@@ -245,10 +245,10 @@ impl Operator for ActionsRaster {
         let base = Actions.signature();
         let mut sig = OpSignature::new(
             "prioritize.actions_raster",
-            "Multi-action planning on rasters (landschaft's actions_raster_data): the planning units are the \
+            "Multi-action planning on rasters (the Python library's actions_raster_data): the planning units are the \
              cells with a monitoring cost, a layer per feature its amounts and per threat its intensity (> 0 \
              where it occurs; the action there removes it), the actions' costs numbers or maps; the tables of \
-             prioritize.actions built as landschaft builds them (relative targets shares of what each feature has \
+             prioritize.actions built as the Python library builds them (relative targets shares of what each feature has \
              where a threat harms it and where none does), solved as prioritize.actions solves them, the \
              monitored cells and every threat's actions as maps.",
             Access::Global,

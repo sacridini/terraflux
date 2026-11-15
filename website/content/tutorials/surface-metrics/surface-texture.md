@@ -96,7 +96,7 @@ McGarigal et al. (2009) proposed them to landscape ecologists as an alternative 
 "height" of the surface being any continuous variable: greenness, canopy height, a habitat suitability, the
 elevation itself. Kedron et al. (2018) compared how they behave on landscape models across ecoregions and
 scales, and Smith et al. (2021) made them available in the R package geodiv, which Terraflux reproduces through
-landschaft's C++ (the same values, with geodiv's known errors corrected).
+terraflux-py's C++ (the same values, with geodiv's known errors corrected).
 
 The metrics fall into families. The first two need only the list of heights; the others need their positions.
 
@@ -161,8 +161,8 @@ an organism moving across them: for that, see [Habitat networks](../../habitat-n
   a forested area of south-western Oregon (its band is named `summer_ndvi_p45_r30_2000_2016_30m`), 371 × 371
   cells of 1 arc-second (about 30 m), in longitude and latitude. *NDVI*, the normalised difference vegetation
   index, compares the red and near-infrared light a satellite measures; from about 0.1 for bare ground to about
-  0.9 for dense, green canopy. It is the example map of geodiv and of landschaft (in Terraflux's repository,
-  `extern/landschaft/src/landschaft/surface/data/`); save it as `ndvi.tif` next to your model. For the
+  0.9 for dense, green canopy. It is the example map of geodiv and of terraflux-py (in Terraflux's repository,
+  `extern/terraflux-py/src/terraflux/surface/data/`); save it as `ndvi.tif` next to your model. For the
   comparison with terrain, `orelevation.tif` from the same folder, saved as `elevation.tif`.
 - **Coordinates.** Surface metrics in Terraflux take a map in longitude and latitude as it is: the spatial
   metrics measure distances on the ellipsoid, in metres. Slopes (\( S_{dq} \)) are per cell, so compare them only
@@ -221,7 +221,7 @@ note = "A table of one row: a column per metric."
 **order** is the degree of the polynomial: 0 a flat plane at the mean (removing only the mean), 1 a tilted
 plane, 2 and 3 curved surfaces, up to 6. With `best` (the default) it fits orders 0 to 3 and keeps the one with the
 smallest Bayesian information criterion (*BIC*, which balances the fit against the number of terms), as
-landschaft does (geodiv chooses by the smallest mean absolute residual instead).
+terraflux-py does (geodiv chooses by the smallest mean absolute residual instead).
 
 ```tfgallery
 columns: 3

@@ -9,7 +9,7 @@ plano e o andamento estão em [`docs/PLAN.md`](docs/PLAN.md). Uma ideia concluí
 Registro de 2026-10-11. O MSPA já está no builder (`landscape.mspa`, bit a bit com o GTB), com os modelos
 neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
 
-1. **O resto do GuidosToolbox.** O C++ está em `extern/landschaft/src/cpp/gtb` e a biblioteca `gtbcore` já é
+1. **O resto do GuidosToolbox.** O C++ está em `extern/terraflux-py/src/cpp/gtb` e a biblioteca `gtbcore` já é
    linkada pelo `terraflux-ls-sys`: falta a ponte (shim + operador), como foi com o MSPA. São raster → raster e
    encaixam direto no builder.
    - **Feito** (Unreleased): FAD e FAD multiescala, FOS, SPA e Accounting, bit a bit com as saídas do GTB, com
@@ -21,7 +21,7 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
      multiescala, o heatmap e o delta do landscape mosaic, e os relatórios de texto do FOS, SPA e Accounting no
      formato do GTB.
    - Cada produto com a sua paleta e os nomes das classes no viewer, como o MSPA e o FAD
-     (`terraflux_ops::landscape::Product`; os do landschaft estão em `src/landschaft/_plotting/_palettes.py`:
+     (`terraflux_ops::landscape::Product`; os do landschaft estão em `src/terraflux/_plotting/_palettes.py`:
      mudança simples e morfológica, a ordem da legenda do GTB).
 2. **Métricas de paisagem** (`lsm`). **Feito** (Unreleased): por mancha, classe, paisagem e em janela móvel,
    iguais às do landscapemetrics do R; o visualizador de tabelas ordena, filtra e desenha uma coluna em barras.

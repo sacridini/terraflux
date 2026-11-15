@@ -33,7 +33,7 @@ impl Operator for Geomorphons {
         let mut sig = OpSignature::new(
             "surface.geomorphons",
             "Landforms of a DEM by geomorphons (Jasiewicz & Stepinski 2013), GRASS's r.geomorphon (8.4) bit for bit \
-             with four of its errors corrected, through landschaft's C++: from each cell the terrain is looked at \
+             with four of its errors corrected, through terraflux-py's C++: from each cell the terrain is looked at \
              along 8 directions up to the search radius; the signs (higher, level, lower) name the landform (1 \
              flat, 2 peak, 3 ridge, 4 shoulder, 5 spur, 6 slope, 7 hollow, 8 footslope, 9 valley, 10 pit) and one of \
              498 patterns. A projected DEM.",
@@ -178,7 +178,7 @@ impl Operator for Hilltop {
         OpSignature::new(
             "surface.hilltop",
             "Hilltops as permanent protection areas (APP de topo de morro, Lei 12.651/2012, art. 4, IX), \
-             landschaft's open implementation: every summit with its base (the saddle to higher terrain, the plain \
+             the Python library's open implementation: every summit with its base (the saddle to higher terrain, the plain \
              or water body it meets, or the lowest cell of its area), its height and slope; the hills at least \
              min_height high and steeper than min_slope protected above base + fraction x height.",
             Access::Global,
@@ -319,7 +319,7 @@ impl Operator for Gravity {
         OpSignature::new(
             "surface.gravity",
             "Gravitational interaction potential of source cells, Dinamica EGO's CalcInteractionPotentialMap \
-             (landschaft's): every cell the sum over the sources of their mass over the distance to them raised to \
+             (the Python library's): every cell the sum over the sources of their mass over the distance to them raised to \
              the exponent, P = sum m / d^beta (a source's own cell at one cell); a pressure of towns, markets or \
              roads, a driver of land change.",
             Access::Global,

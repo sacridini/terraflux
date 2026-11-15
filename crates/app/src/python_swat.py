@@ -12,7 +12,7 @@ def _swat_dates(t):
 
 
 def _swat_series(t):
-    """A daily series of the weather as landschaft takes it: the days as the index, a column per station."""
+    """A daily series of the weather as terraflux takes it: the days as the index, a column per station."""
     t = t.copy()
     days = _swat_dates(t)
     t = t.drop(columns=[c for c in ("date", "year", "day") if c in t.columns])
@@ -21,12 +21,12 @@ def _swat_series(t):
 
 
 def _swat_stations(t):
-    """The weather stations as landschaft takes them: named by the index."""
+    """The weather stations as terraflux takes them: named by the index."""
     return t.set_index("name" if "name" in t.columns else t.columns[0])
 
 
 def _swat_wgn(t):
-    """The weather generator's statistics as landschaft takes them: indexed by station and month."""
+    """The weather generator's statistics as terraflux takes them: indexed by station and month."""
     return t.set_index(["station", "month"]) if "station" in t.columns else t
 
 
@@ -54,7 +54,7 @@ def _swat_weather(result):
 
 
 def _swat_discharge(q):
-    """The discharge by date and channel (landschaft's reach_discharge) as Terraflux gives it: year, day, channel_N."""
+    """The discharge by date and channel (terraflux's reach_discharge) as Terraflux gives it: year, day, channel_N."""
     t = q.copy()
     t.columns = [f"channel_{c}" for c in t.columns]
     t = t.reset_index()

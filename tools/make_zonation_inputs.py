@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The rasters Zonation 5's reference outputs were made from, for Terraflux's tests of prioritize.zonation.
 
-landschaft keeps the z5 binary's outputs (extern/landschaft/tests/data/reference/prioritize) of rasters its tests
+landschaft keeps the z5 binary's outputs (extern/terraflux-py/tests/data/reference/prioritize) of rasters its tests
 draw with numpy (tests/prioritize_cases.py) and write as one-strip GeoTIFFs; this writes those rasters, with the
 values the files hold (their type's rounding, NaN for NoData), into tests/data/reference/zonation_inputs.npz,
-the cases (their group, layers, ls.prioritize.zonation's arguments as prioritize.zonation's settings and the
+the cases (their group, layers, tf.prioritize.zonation's arguments as prioritize.zonation's settings and the
 post-processing calls) and the files' NoData values into zonation_inputs.json, Zonation's post-processing files
 (lzma-compressed by landschaft) as words into zonation_post.json, and the impacts landschaft accumulates for the
 impact cases (Zonation projects, read by its read_project) into zonation_impacts.json:
@@ -24,18 +24,18 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tools"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tools"))
 
 import prioritize_cases as pc  # noqa: E402
-from landschaft.prioritize import zonation  # noqa: E402
-from landschaft.prioritize._connectivity import Interaction, Kernel  # noqa: E402
-from landschaft.prioritize._impacts import CumulativeScenario, ImpactScenario  # noqa: E402
-from landschaft.prioritize._postprocess import parse_calls  # noqa: E402
-from landschaft.prioritize._project import read_project  # noqa: E402
+from terraflux.prioritize import zonation  # noqa: E402
+from terraflux.prioritize._connectivity import Interaction, Kernel  # noqa: E402
+from terraflux.prioritize._impacts import CumulativeScenario, ImpactScenario  # noqa: E402
+from terraflux.prioritize._postprocess import parse_calls  # noqa: E402
+from terraflux.prioritize._project import read_project  # noqa: E402
 from make_reference_prioritize import write_project  # noqa: E402
 
-REF = ROOT / "extern" / "landschaft" / "tests" / "data" / "reference" / "prioritize"
+REF = ROOT / "extern" / "terraflux-py" / "tests" / "data" / "reference" / "prioritize"
 # the groups of cases Terraflux runs
 GROUPS = ("core", "transform", "connectivity", "post", "impact")
 

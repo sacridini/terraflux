@@ -91,7 +91,7 @@ export TERRAFLUX_THREADS=8                  # every command of this shell (Linux
 $env:TERRAFLUX_THREADS = 8                  # the same in Windows' PowerShell
 ```
 
-The threads are shared by Terraflux's own tasks and by the C++ kernels of landschaft it calls (OpenMP), so the
+The threads are shared by Terraflux's own tasks and by the C++ kernels of terraflux-py it calls (OpenMP), so the
 total never exceeds what was asked. A batch of runs on one machine gives each of its workers an equal share.
 
 ### Measured: how much faster on one desktop computer

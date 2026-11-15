@@ -636,7 +636,7 @@ impl Operator for RngNew {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "rng.r",
-            "R's random number generator after set.seed(seed) (Mersenne-Twister), as lulcc and landschaft use it: \
+            "R's random number generator after set.seed(seed) (Mersenne-Twister), as lulcc and the Python library use it: \
              carry it along a loop so that every step draws after the previous one.",
             Access::None,
         )

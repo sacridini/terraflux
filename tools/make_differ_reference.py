@@ -20,11 +20,11 @@ import pandas as pd
 import xarray as xr
 from affine import Affine
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-S = ls.simulate
+S = tf.simulate
 
 
 def grid(values: np.ndarray) -> xr.DataArray:
@@ -36,17 +36,17 @@ def grid(values: np.ndarray) -> xr.DataArray:
 
 def main() -> None:
     ny, nx = 37, 45
-    a = ls.nlm.random_cluster(nx, ny, p=0.45, ai=[0.4, 0.3, 0.2, 0.1], seed=3, rescale=False).values.astype(float)
+    a = tf.nlm.random_cluster(nx, ny, p=0.45, ai=[0.4, 0.3, 0.2, 0.1], seed=3, rescale=False).values.astype(float)
     b = a.copy()
     rng = np.random.default_rng(5)
     flip = rng.random((ny, nx)) < 0.25
     b[flip] = rng.integers(1, 5, int(flip.sum()))
     a[3:5, 7:9] = np.nan
     b[20, 30] = np.nan
-    c1 = np.round(ls.nlm.gaussian_field(nx, ny, autocorr_range=8, seed=7).values * 50, 4)
+    c1 = np.round(tf.nlm.gaussian_field(nx, ny, autocorr_range=8, seed=7).values * 50, 4)
     c2 = np.round(c1 + rng.normal(0, 4, (ny, nx)), 4)
     c1[10, 10] = np.nan
-    strata = np.floor(ls.nlm.gaussian_field(nx, ny, autocorr_range=15, seed=8).values * 3)
+    strata = np.floor(tf.nlm.gaussian_field(nx, ny, autocorr_range=15, seed=8).values * 3)
     strata[0, :5] = np.nan
     A, B, C1, C2, ST = grid(a), grid(b), grid(c1), grid(c2), grid(strata)
     out: dict[str, np.ndarray] = {"in/a": a, "in/b": b, "in/c1": c1, "in/c2": c2, "in/strata": strata}

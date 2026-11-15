@@ -3,7 +3,7 @@
 Two DEMs: a synthetic landscape made here (hills.tif, with its plain as plain.tif; both offered for download), whose
 hills were drawn to show each part of the rule (a range of two peaks joined by a saddle, a lone hill, a hill too
 gentle, a knoll too low, on a valley floor that falls to the east), and the SRTM elevation of south-western Oregon
-shipped with landschaft, reprojected to UTM zone 10N, for real relief: its hills, the rule of CONAMA 303/2002's
+shipped with terraflux-py, reprojected to UTM zone 10N, for real relief: its hills, the rule of CONAMA 303/2002's
 thresholds, and how the cell size and the slope threshold change the answer. Every number is Terraflux's.
 
     python website/figures/surface-metrics/hilltops.py
@@ -24,8 +24,8 @@ SLUG = "surface-metrics/hilltops"
 work = figs.workdir(SLUG)
 out = figs.img_dir(SLUG)
 data = figs.data_dir(SLUG)
-LS = figs.ROOT / "extern/landschaft"
-shutil.copy(LS / "src/landschaft/surface/data/orelevation.tif", work / "elevation.tif")
+LS = figs.ROOT / "extern/terraflux-py"
+shutil.copy(LS / "src/terraflux/surface/data/orelevation.tif", work / "elevation.tif")
 
 APP = "#e8901f"
 PLAIN = "#9cc3de"

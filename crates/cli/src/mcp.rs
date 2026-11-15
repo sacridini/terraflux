@@ -1452,9 +1452,9 @@ mod tests {
         let (t, e) = call(&s, "methods", json!({ "model": model, "format": "bibtex" }));
         assert!(!e && t.starts_with("@software{terraflux,"), "{t}");
         assert!(call(&s, "methods", json!({ "model": model, "format": "docx" })).1);
-        // its script of landschaft: returned, or written beside the model
+        // its script of terraflux: returned, or written beside the model
         let (t, e) = call(&s, "python_script", json!({ "model": model }));
-        assert!(!e && t.contains("nodes translated") && t.contains("import landschaft as ls"), "{t}");
+        assert!(!e && t.contains("nodes translated") && t.contains("import terraflux as tf"), "{t}");
         assert!(!dir.join("t.py").exists());
         let (t, e) = call(&s, "python_script", json!({ "model": model, "beside": true }));
         assert!(!e && t.starts_with("wrote ") && dir.join("t.py").exists(), "{t}");

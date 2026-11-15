@@ -1,5 +1,5 @@
 //! Landscape metrics of sample plots against landscapemetrics' sample_lsm and scale_sample (the plots and results
-//! landschaft keeps in extern/landschaft/tests/data/reference/lsm_sample), the correlation of metrics against its
+//! landschaft keeps in extern/terraflux-py/tests/data/reference/lsm_sample), the correlation of metrics against its
 //! calculate_correlation (reference/lsm_utils), and the series and grid zones against landschaft
 //! (tests/data/reference/lsm_series.json, tools/make_lsm_reference.py).
 
@@ -20,7 +20,7 @@ const ULPS: u64 = 128;
 const NOT_BITWISE: [&str; 3] = ["circle", "gyrate", "enn"];
 
 fn landschaft() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/landschaft/tests/data")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/tests/data")
 }
 
 fn read_map(path: &Path) -> Map {

@@ -61,7 +61,7 @@ services (see [CLUMondo](/tutorials/land-change/clumondo/)).
 
 The original CLUE-S was a closed Windows program. Moulds, Buytaert and Mijic (2015) re-implemented it, together
 with a simpler **ordered** allocation (Fuchs et al., 2013), in the open-source R package **lulcc**, with the
-Plum Island data as its example. Terraflux runs lulcc's algorithm through the landschaft library: the same
+Plum Island data as its example. Terraflux runs lulcc's algorithm through the terraflux-py library: the same
 regressions (R's `glm` operation for operation), the same demand, the same decision rules and even the same
 random numbers as R (the `rng.r` node gives R's generator after `set.seed()`), so a Terraflux run of lulcc's
 model gives the same maps as lulcc itself.

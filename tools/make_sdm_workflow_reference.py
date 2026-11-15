@@ -20,19 +20,19 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-S = ls.sdm
+S = tf.sdm
 
 
 def main() -> None:
     layers = []
     for k in range(3):
-        f = ls.nlm.gaussian_field(40, 30, autocorr_range=8 + 3 * k, resolution=1000.0, seed=31 + k)
+        f = tf.nlm.gaussian_field(40, 30, autocorr_range=8 + 3 * k, resolution=1000.0, seed=31 + k)
         layers.append(f.copy(data=np.round(f.values * (10 + 5 * k) + k, 3)))
-    cover = ls.nlm.random_cluster(40, 30, p=0.5, ai=[0.4, 0.3, 0.2, 0.1], resolution=1000.0, seed=40,
+    cover = tf.nlm.random_cluster(40, 30, p=0.5, ai=[0.4, 0.3, 0.2, 0.1], resolution=1000.0, seed=40,
                                   rescale=False).astype(np.float64)
     layers.append(cover)
     names = ["temp", "prec", "soil", "cover"]

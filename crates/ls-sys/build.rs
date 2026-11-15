@@ -1,24 +1,26 @@
-//! Builds landschaft's C++ libraries (CMake, `LANDSCHAFT_PYTHON=OFF`) and the shim between them and Rust.
+//! Builds terraflux-py's C++ libraries (CMake, `TERRAFLUX_PYTHON=OFF`) and the shim between them and Rust.
 //!
-//! The landschaft sources are the submodule `extern/landschaft`, or the folder in `LANDSCHAFT_DIR`. A
-//! local copy of Eigen can be given in `LANDSCHAFT_EIGEN_DIR` (else CMake downloads it). On macOS the OpenMP
-//! runtime is Homebrew's libomp (`brew install libomp`), or the one in `OpenMP_ROOT`.
+//! The library's sources are the submodule `extern/terraflux-py`, or the folder in `TERRAFLUX_PY_DIR` (the old
+//! name `LANDSCHAFT_DIR` is read too). A local copy of Eigen can be given in `TERRAFLUX_EIGEN_DIR`
+//! (`LANDSCHAFT_EIGEN_DIR` too; else CMake downloads it). On macOS the OpenMP runtime is Homebrew's libomp
+//! (`brew install libomp`), or the one in `OpenMP_ROOT`.
 
 use std::path::PathBuf;
 
 fn main() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let source = std::env::var_os("LANDSCHAFT_DIR")
+    let source = env_either("TERRAFLUX_PY_DIR", "LANDSCHAFT_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| manifest.join("..").join("..").join("extern").join("landschaft"));
+        .unwrap_or_else(|| manifest.join("..").join("..").join("extern").join("terraflux-py"));
     if !source.join("CMakeLists.txt").exists() {
         panic!(
-            "landschaft's sources were not found in {}: run `git submodule update --init` or set LANDSCHAFT_DIR",
+            "terraflux-py's sources were not found in {}: run `git submodule update --init` or set TERRAFLUX_PY_DIR",
             source.display()
         );
     }
-    println!("cargo:rerun-if-env-changed=LANDSCHAFT_DIR");
-    println!("cargo:rerun-if-env-changed=LANDSCHAFT_EIGEN_DIR");
+    for var in ["TERRAFLUX_PY_DIR", "LANDSCHAFT_DIR", "TERRAFLUX_EIGEN_DIR", "LANDSCHAFT_EIGEN_DIR"] {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
     println!("cargo:rerun-if-changed={}", source.join("CMakeLists.txt").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("sim").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("cost").display());
@@ -50,15 +52,15 @@ fn main() {
     println!("cargo:rerun-if-env-changed=OpenMP_ROOT");
 
     let mut cfg = cmake::Config::new(&source);
-    // one build of landschaft per profile, `target/<profile>/landschaft`, not one per hash of this crate: a new
+    // one build of terraflux-py per profile, `target/<profile>/terraflux-py`, not one per hash of this crate: a new
     // toolchain, lock file or feature made a new full C++ build (about 1 GB) each time, the old ones never removed.
     // Cargo's lock on the profile's folder keeps two builds from writing it at once
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     if let Some(profile) = out.ancestors().nth(3) {
-        cfg.out_dir(profile.join("landschaft"));
+        cfg.out_dir(profile.join("terraflux-py"));
     }
     // the MILP prioritization too (optcore, with HiGHS)
-    cfg.define("LANDSCHAFT_PYTHON", "OFF").define("LANDSCHAFT_MILP", "ON").profile("Release");
+    cfg.define("TERRAFLUX_PYTHON", "OFF").define("TERRAFLUX_MILP", "ON").profile("Release");
     if target.contains("msvc") {
         // with MSVC the cmake crate sets CMAKE_<LANG>_FLAGS_RELEASE to cc's flags without their /O: Visual Studio's
         // projects then compiled every C++ source (HiGHS too) unoptimised (/Od) and with the asserts on, about three
@@ -67,7 +69,7 @@ fn main() {
             cfg.define(format!("CMAKE_{lang}_FLAGS_RELEASE"), "/MD /O2 /Ob2 /DNDEBUG");
         }
     }
-    if let Some(eigen) = std::env::var_os("LANDSCHAFT_EIGEN_DIR") {
+    if let Some(eigen) = env_either("TERRAFLUX_EIGEN_DIR", "LANDSCHAFT_EIGEN_DIR") {
         cfg.define("FETCHCONTENT_SOURCE_DIR_EIGEN", eigen);
     }
     if let Some(root) = &openmp {
@@ -112,7 +114,7 @@ fn main() {
     }
 
     // Eigen's headers, as landschaft's build fetched them (the sparse solves of the shim)
-    let eigen = std::env::var_os("LANDSCHAFT_EIGEN_DIR")
+    let eigen = env_either("TERRAFLUX_EIGEN_DIR", "LANDSCHAFT_EIGEN_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| dst.join("build").join("_deps").join("eigen-src"));
     let mut bridge = cxx_build::bridge("src/lib.rs");
@@ -130,6 +132,11 @@ fn main() {
     println!("cargo:rerun-if-changed=shim/shim.cc");
     println!("cargo:rerun-if-changed=shim/shim.h");
     println!("cargo:rerun-if-changed=src/lib.rs");
+}
+
+/// The variable `new`, else the old name `old` (the library was called landschaft).
+fn env_either(new: &str, old: &str) -> Option<std::ffi::OsString> {
+    std::env::var_os(new).or_else(|| std::env::var_os(old))
 }
 
 /// The libomp of macOS: `OpenMP_ROOT`, else Homebrew's.

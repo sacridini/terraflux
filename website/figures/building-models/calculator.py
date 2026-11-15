@@ -1,6 +1,6 @@
 """Figures of the tutorial "The raster calculator" (building-models/calculator).
 
-Sibuyan Island (Philippines), land use of 1997 and 2011 and its drivers at 250 m (lulcc's and landschaft's example
+Sibuyan Island (Philippines), land use of 1997 and 2011 and its drivers at 250 m (lulcc's and terraflux-py's example
 data): one raster.calc script gives the years each cell was forest, the forest lost, a habitat suitability index of
 the forest of 1997, its best quarter and its mean, in a real run of Terraflux. The application's own pictures of
 the calculator are drawn by `cargo test --release -p terraflux-app --test readme_images -- --ignored`.

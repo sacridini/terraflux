@@ -160,7 +160,7 @@ impl Operator for Components {
         OpSignature::new(
             "networks.gtn_components",
             "The components of the habitat network of an MSPA map, as GuidosToolbox's nw_components \
-             (landschaft's gtn_components): cores (nodes) and bridges (links) grouped into 8-connected components, \
+             (the Python library's gtn_components): cores (nodes) and bridges (links) grouped into 8-connected components, \
              only the cores habitat; the equivalent connected area ECA = sqrt(sum of the components' core areas \
              squared), ECA_max (all one component) and the coherence ECA / ECA_max.",
             Access::Global,
@@ -324,7 +324,7 @@ impl Operator for Importance {
         OpSignature::new(
             "networks.gtn_importance",
             "The importance of every link (bridge) and stepping-stone node (core with two links or more) of the \
-             habitat network of an MSPA map, as GuidosToolbox's nw_importance (landschaft's gtn_importance): the \
+             habitat network of an MSPA map, as GuidosToolbox's nw_importance (the Python library's gtn_importance): the \
              loss of connectivity (dPC, the drop of PC's numerator, %) without it; links positive and nodes \
              negative on the maps; in GTB's colours, those within 1, 5 and 10 % of the most important (at least \
              99, 95 and 90 % of its dPC).",
@@ -509,7 +509,7 @@ impl Operator for Importance {
             .map(|r| vec![r.id as f64, r.comp as f64, r.pixels as f64, r.dpc, r.degree as f64, norm(r.dpc, max_node)])
             .collect();
         // GTB's report
-        let title: String = args.param("title", "landschaft Connectivity Importance".to_string())?;
+        let title: String = args.param("title", "terraflux Connectivity Importance".to_string())?;
         let mut rep = format!(
             "{title}: Connectivity Importance(Node_max={max_node:.2}, Link_max={max_link:.2})\n(NOTE: node ID & \
              importance in the actual image data are\nNEGATIVE to distinguish them from link ID & importance)\n{}\n\
@@ -582,7 +582,7 @@ impl Operator for Conefor {
         OpSignature::new(
             "networks.conefor",
             "The habitat network of an MSPA map as Conefor Sensinode's inputs, as GuidosToolbox's nw_cs22 \
-             (landschaft's conefor_inputs): the cores as nodes (negative ids, their area) and the bridges (positive \
+             (the Python library's conefor_inputs): the cores as nodes (negative ids, their area) and the bridges (positive \
              ids, area 0), a link from every bridge to every core it touches at distance 1.",
             Access::Global,
         )

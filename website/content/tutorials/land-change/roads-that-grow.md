@@ -49,7 +49,7 @@ operators, and one operator that chains them:
 | CalcPathwayMap | [[dinamica.pathways]] | a path from each end down the cost, to the network |
 | (the road constructor) | [[dinamica.roads]] | one step of the three, with the distance to the new network |
 
-Terraflux runs landschaft's clean-room versions, written from Dinamica EGO's documentation and black-box runs of
+Terraflux runs terraflux-py's clean-room versions, written from Dinamica EGO's documentation and black-box runs of
 its version 8.13.
 
 ![One step of road building](/img/tutorials/land-change/roads-that-grow/one_step.png "One step of the road constructor on the map of the first year (a highway, black, with cleared land beside it). 1: the attraction is kept only 1.5 to 4 km from the roads. 2: the map is cut into 2 x 2 quadrants and one destination (orange) is drawn in each quadrant that has attractive cells: the eastern quadrants, more than 8 km from the highway, have none. 3: the cost of reaching every cell from the network over the friction. 4: from each destination a new road (red) runs down the cost to the network, avoiding rough ground (dark).")

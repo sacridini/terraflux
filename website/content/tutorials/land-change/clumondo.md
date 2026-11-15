@@ -299,12 +299,12 @@ order of `systems`) or per service (in the order of `services`).
     before the simulation stops.
 
 Optional entries add CLUMondo's neighbourhood functions (`neighbourhood`), location preferences
-(`preferences`), patches (`patches`), and landschaft's extensions: caps on the cells a transition may take per
+(`preferences`), patches (`patches`), and terraflux-py's extensions: caps on the cells a transition may take per
 year (`caps`) and resistances per transition (`pair_resistance`).
 
 !!! tip "Writing the settings from Python"
-    The settings are long to write by hand. [landschaft](https://github.com/sacridini/landschaft) builds them
-    from tables (`ls.simulate.CLUMondo`, `Supply`, `ServiceDemand`, `Rules`) and `Model.save` writes the whole
+    The settings are long to write by hand. [terraflux-py](https://github.com/sacridini/terraflux-py) builds them
+    from tables (`tf.simulate.CLUMondo`, `Supply`, `ServiceDemand`, `Rules`) and `Model.save` writes the whole
     model as a Terraflux graph, which `terraflux run` runs with the same result.
 
 Run the model with ++ctrl+enter++ on the loop, or from the command line:

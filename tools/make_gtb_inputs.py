@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The maps GuidosToolbox's reference outputs were made from, for Terraflux's tests of the GTB operators.
 
-landschaft keeps GTB's outputs as digests (extern/landschaft/tests/data/reference/idl_reference.json) of maps
+landschaft keeps GTB's outputs as digests (extern/terraflux-py/tests/data/reference/idl_reference.json) of maps
 its tools draw with numpy; this writes those maps, with the names the digests use, into
 tests/data/reference/gtb_inputs.npz so that Rust can run the same cases:
 
@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-LS = ROOT / "extern" / "landschaft"
+LS = ROOT / "extern" / "terraflux-py"
 sys.path.insert(0, str(LS / "tests"))
 sys.path.insert(0, str(LS / "tools"))
 

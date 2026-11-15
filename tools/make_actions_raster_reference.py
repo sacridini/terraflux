@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""landschaft's multi-action problems from rasters (ls.prioritize.actions_raster_data), for Terraflux's tests of
+"""landschaft's multi-action problems from rasters (tf.prioritize.actions_raster_data), for Terraflux's tests of
 prioritize.actions_raster.
 
 The rasters of landschaft's tests (tests/test_prioritize_actions.py's _rasters: a 9 x 8 grid with cells without a
@@ -23,12 +23,12 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 
-import landschaft as ls  # noqa: E402
+import terraflux as tf  # noqa: E402
 import optimize_cases  # noqa: E402
 
-P = ls.prioritize
+P = tf.prioritize
 OUT = ROOT / "tests" / "data" / "reference"
 
 
@@ -112,10 +112,10 @@ def main() -> None:
                      "objective": float(s.objective), "units": s.units.tolist(), "actions": s.actions.tolist()}
         print(name, s.status, s.objective)
     # landschaft's example
-    data = ROOT / "extern" / "landschaft" / "src" / "landschaft" / "prioritize" / "data"
-    cost_e = ls.load_raster(data / "cost.tif")
-    feats_e = ls.load_raster(data / "features.tif")
-    thr_e = ls.load_raster(data / "threats.tif")
+    data = ROOT / "extern" / "terraflux-py" / "src" / "terraflux" / "prioritize" / "data"
+    cost_e = tf.load_raster(data / "cost.tif")
+    feats_e = tf.load_raster(data / "features.tif")
+    thr_e = tf.load_raster(data / "threats.tif")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         d = P.actions_raster_data(cost_e, feats_e, thr_e, action_cost=[20, 5], target_recovery=0.2)

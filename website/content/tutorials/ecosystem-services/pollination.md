@@ -354,9 +354,9 @@ From the command line, with the model saved as `pollination.toml` in the folder 
 terraflux run ./pollination.toml --out results
 ```
 
-How close is this to InVEST? Terraflux's tests compare the operator, map by map, with landschaft's version of
+How close is this to InVEST? Terraflux's tests compare the operator, map by map, with terraflux-py's version of
 InVEST 3.20's model on five cases (several guilds, farms, a wide kernel...): every cell holds the same 32-bit
-number, and the farm table agrees to within \(10^{-12}\). landschaft's own tests compare those cases with InVEST's
+number, and the farm table agrees to within \(10^{-12}\). terraflux-py's own tests compare those cases with InVEST's
 outputs, to the bit on Windows.
 
 ## Read the results

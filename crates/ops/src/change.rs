@@ -217,7 +217,7 @@ impl Operator for Fad {
             OpSignature::new(
                 "change.fad",
                 "The change of fragmentation between two dates measured by FAD at several scales, as GuidosToolbox's \
-                 Change -> FAD Multiscale (landschaft's fad_multiscale_change): FAD-MS of both maps, and at every \
+                 Change -> FAD Multiscale (the Python library's fad_multiscale_change): FAD-MS of both maps, and at every \
                  window and for the average the cells moved between the classes background, rare, patchy, \
                  transitional, dominant, interior and intact; the change of the average FAD (FAD_AV, AVCON).",
                 Access::Global,

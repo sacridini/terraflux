@@ -218,7 +218,7 @@ Cada aviso vem com uma ação de correção sugerida.
 
 ```
 terraflux/                   Cargo workspace, GPL-3.0-or-later
-  extern/landschaft          submódulo git
+  extern/terraflux-py          submódulo git
   crates/ls-sys              bridge cxx para simcore/lsmcore/nlmcore (build.rs com crate cmake)
   crates/graph               IR do modelo: tipos, operadores, registro, formato texto, migrações, lint
   crates/ops                 operadores (wrappers dos kernels, álgebra de mapas, containers)

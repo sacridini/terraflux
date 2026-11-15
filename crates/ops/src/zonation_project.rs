@@ -824,7 +824,7 @@ impl Operator for ZonationProject {
             ["area_statistics", "coverage", "area_mask", "comparison", "comparison_map", "histogram", "flexibility"];
         let mut sig = OpSignature::new(
             "prioritize.zonation_project",
-            "A Zonation 5 project run as the z5 binary runs it (landschaft's run_project): the settings file (.z5), \
+            "A Zonation 5 project run as the z5 binary runs it (the Python library's run_project): the settings file (.z5), \
              its feature list and link files (conditions, retention, connectivity, weight groups, impact scenarios, \
              binning) read with the switches of the z5 command line, the rasters they name read from disk; the \
              ranking of prioritize.zonation, and with -p the calls of the post-processing file one after another.",

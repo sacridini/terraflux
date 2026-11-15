@@ -465,7 +465,7 @@ impl Operator for StepOp {
             "settings",
             Type::Any,
             "{ systems, services, supply, demand, order, weights, resistance, allowed, deviation, mean_deviation, \
-             max_deviation, speed, max_loops, ... } as landschaft's Model.save writes them",
+             max_deviation, speed, max_loops, ... } as the Python library's Model.save writes them",
         ))
     }
 

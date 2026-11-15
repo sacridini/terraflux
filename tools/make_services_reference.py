@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """What landschaft's InVEST models give, for Terraflux's tests: every case of landschaft's InVEST references
-(extern/landschaft/tests/data/reference/invest: carbon, habitat quality, annual water yield, sediment delivery
+(extern/terraflux-py/tests/data/reference/invest: carbon, habitat quality, annual water yield, sediment delivery
 ratio), run as landschaft's tests run them; the inputs as landschaft reads them (missing cells NaN) and the
 outputs written to tests/data/reference/services.npz (and the cases' settings to services.json):
 
@@ -17,17 +17,17 @@ from pathlib import Path
 
 import numpy as np
 
-import landschaft as ls
-from landschaft.surface._grid import read_surface
+import terraflux as tf
+from terraflux.surface._grid import read_surface
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 
 import test_services as T  # noqa: E402
 import test_services_sdr as S  # noqa: E402
 import test_services_water as W  # noqa: E402
-from landschaft.services._water import _wide  # noqa: E402
+from terraflux.services._water import _wide  # noqa: E402
 
 
 def values(x) -> np.ndarray:
@@ -40,7 +40,7 @@ def table(df) -> dict:
 
 def main() -> None:
     out: dict[str, np.ndarray] = {}
-    meta: dict = {"landschaft": ls.__version__, "pixel": T.PIXEL, "origin": list(T.ORIGIN), "cases": {}}
+    meta: dict = {"landschaft": tf.__version__, "pixel": T.PIXEL, "origin": list(T.ORIGIN), "cases": {}}
 
     for name in ("carbon_storage", "carbon_sequestration", "carbon_valuation", "carbon_valuation_flat",
                  "carbon_minus_one_patched"):
@@ -56,7 +56,7 @@ def main() -> None:
             kw.update(price=v["price"], discount_rate=v["discount"], rate_change=v["change"], year=v["years"][0],
                       future_year=v["years"][1])
             case["params"] = {k: kw[k] for k in ("price", "discount_rate", "rate_change", "year", "future_year")}
-        c = ls.services.carbon(T._raster(inputs["bas"], m["nodata"]), T._pools(inputs), **kw)
+        c = tf.services.carbon(T._raster(inputs["bas"], m["nodata"]), T._pools(inputs), **kw)
         out[f"{name}/storage"] = values(c.storage)
         for p in ("c_above", "c_below", "c_soil", "c_dead"):
             out[f"{name}/{p}"] = values(c.pools[p])

@@ -3,7 +3,7 @@
 
 MOLUSCE on Sibuyan Island (1997 and 2011; 1 forest, 2 coconut, 3 grassland, 4 rice, 5 other):
 
-1. MOLUSCE's weights of evidence fitted with landschaft (MolusceWoE: the elevation, the slope and the distance to
+1. MOLUSCE's weights of evidence fitted with terraflux-py (MolusceWoE: the elevation, the slope and the distance to
    roads cut into categories), written as molusce.total's settings;
 2. the cross table of 1997-2011 with change.crosstab (the cells of each transition, the "demand" of every
    iteration);
@@ -43,12 +43,12 @@ def inline(v) -> str:
 
 
 def fit_woe():
-    import landschaft as ls
-    from landschaft.simulate._graph import _molusce_json
+    import terraflux as tf
+    from terraflux.simulate._graph import _molusce_json
 
-    S = ls.simulate
-    lu = ls.load_raster(str(INPUTS / "sibuyan_landuse.tif"))
-    ef = ls.load_raster(str(INPUTS / "sibuyan_drivers.tif"))
+    S = tf.simulate
+    lu = tf.load_raster(str(INPUTS / "sibuyan_landuse.tif"))
+    ef = tf.load_raster(str(INPUTS / "sibuyan_drivers.tif"))
     t0, t1 = lu[0].where(lu[0] != 255), lu[1].where(lu[1] != 255)
     d = ef.sel(band=["elevation", "slope", "dist_roads"])
     woe = S.MolusceWoE(BINS).fit(t0, t1, d)

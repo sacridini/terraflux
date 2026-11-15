@@ -13,8 +13,8 @@ sys.path.insert(0, str(HERE.parents[1] / "tools"))
 import figs  # noqa: E402
 
 ROOT = figs.ROOT
-OREGON = ROOT / "extern/landschaft/src/landschaft/surface/data"
-SERRA = ROOT / "extern/landschaft/src/landschaft/prioritize/data"
+OREGON = ROOT / "extern/terraflux-py/src/terraflux/surface/data"
+SERRA = ROOT / "extern/terraflux-py/src/terraflux/prioritize/data"
 
 # Serra Verde's natural and anthropic classes, and which classes each species lives in
 NATURAL = ["forest", "savanna", "mangrove"]

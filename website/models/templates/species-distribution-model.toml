@@ -42,7 +42,7 @@ id = "data"
 op = "sdm.prepare"
 inputs = { occurrences = "presences.points", env = "predictors.stack" }
 params = { clean = false, background = 800, folds = 4, seed = 1 }
-note = "The preparation (landschaft's prepare): a record per cell, the predictors without collinearity (VIF 10), 800 background points, 4 folds of spatial blocks. With lon/lat records clean = true runs CoordinateCleaner's tests; area = a distance in metres draws the background near the records. report: what each step removed."
+note = "The preparation (the Python library's prepare, `tf.sdm.prepare`): a record per cell, the predictors without collinearity (VIF 10), 800 background points, 4 folds of spatial blocks. With lon/lat records clean = true runs CoordinateCleaner's tests; area = a distance in metres draws the background near the records. report: what each step removed."
 
 [[nodes]]
 id = "fit"

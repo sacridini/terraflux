@@ -397,7 +397,7 @@ impl Operator for TransitionOp {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "cost.transition",
-            "A transition between neighbouring cells (gdistance's transition through landschaft's C++): the \
+            "A transition between neighbouring cells (gdistance's transition through terraflux-py's C++): the \
              connection of every cell with its 4, 8 or 16 neighbours, a function of the two cells' values (mean, \
              min, max, sum, prod, from, to, diff, harmonic, geometric), none where either has no value. Usually of \
              a conductance (1 / resistance), then corrected for the cells' distances (cost.geo_correction).",
@@ -448,7 +448,7 @@ impl Operator for GeoCorrection {
         transition_port(OpSignature::new(
             "cost.geo_correction",
             "A transition corrected for the distances between cells' centres (gdistance's geoCorrection through \
-             landschaft's C++): divided by them (type c, least-cost distances), or also by the cells' widths across \
+             terraflux-py's C++): divided by them (type c, least-cost distances), or also by the cells' widths across \
              the connection (type r, random walks); great-circle distances on longitude/latitude grids.",
             Access::Global,
         ))
@@ -489,7 +489,7 @@ impl Operator for AccCost {
         transition_port(OpSignature::new(
             "cost.acc_cost",
             "The accumulated cost from the nearest origin over a transition of conductances (gdistance's accCost \
-             through landschaft's C++): inf where no origin can be reached.",
+             through terraflux-py's C++): inf where no origin can be reached.",
             Access::Global,
         ))
         .input(PortSpec::new("origins", Type::Any, "points (vector features) or a mask (its cells not 0)"))
@@ -533,7 +533,7 @@ impl Operator for CostDistance {
         transition_port(OpSignature::new(
             "cost.distance",
             "The least costs between points over a transition of conductances (gdistance's costDistance through \
-             landschaft's C++): from every point to every other (a symmetric matrix when the transition is), or to \
+             terraflux-py's C++): from every point to every other (a symmetric matrix when the transition is), or to \
              every point of another set; no value for points outside the grid.",
             Access::Global,
         ))
@@ -595,7 +595,7 @@ impl Operator for ShortestPath {
         transition_port(OpSignature::new(
             "cost.shortest_path",
             "The least-cost paths from an origin to goals over a transition of conductances (gdistance's \
-             shortestPath through landschaft's C++, igraph's ties): lines through the cells' centres, and a map of \
+             shortestPath through terraflux-py's C++, igraph's ties): lines through the cells' centres, and a map of \
              the share of the paths that cross each cell.",
             Access::Global,
         ))
@@ -662,7 +662,7 @@ impl Operator for CommuteDistance {
         transition_port(OpSignature::new(
             "cost.commute_distance",
             "The expected commute distances of a random walk between points (gdistance's commuteDistance through \
-             landschaft's C++): how long a walk that moves to a neighbour with a probability proportional to the \
+             terraflux-py's C++): how long a walk that moves to a neighbour with a probability proportional to the \
              conductance takes, on average, to reach the other point and come back; the effective resistance \
              times the graph's volume. inf between separate parts of the graph, no value for points outside it.",
             Access::Global,
@@ -703,7 +703,7 @@ impl Operator for Passage {
         transition_port(OpSignature::new(
             "cost.passage",
             "The passages of a random walk from origins to goals through every cell (gdistance's passage through \
-             landschaft's C++). Without theta: the net number of times a random walk passes through each cell, the \
+             terraflux-py's C++). Without theta: the net number of times a random walk passes through each cell, the \
              current of a unit current from the origins to the goals (a symmetric transition; 1 at the origins and \
              goals, 0 off the graph). With theta (0 to 20): randomised shortest paths (Saerens et al. 2009), that \
              prefer cheap routes more as theta grows; no value off the graph.",
@@ -755,7 +755,7 @@ impl Operator for RspDistance {
     fn signature(&self) -> OpSignature {
         transition_port(OpSignature::new(
             "cost.rsp_distance",
-            "Randomised-shortest-path distances between points (gdistance's rSPDistance through landschaft's C++): \
+            "Randomised-shortest-path distances between points (gdistance's rSPDistance through terraflux-py's C++): \
              the expected cost of the walk from each point to each other, near a random walk's with theta near 0, \
              near the least cost with large theta. No value for points off the grid.",
             Access::Global,
@@ -969,7 +969,7 @@ impl Operator for TransitionMath {
     fn signature(&self) -> OpSignature {
         transition_port(OpSignature::new(
             "cost.math",
-            "A function of a transition's values on its connections (landschaft's Transition.map, R's maths to the \
+            "A function of a transition's values on its connections (the Python library's Transition.map, R's maths to the \
              bit): sqrt, exp, log, pow (to a value), multiply (by a value) or divide (a value by each, the \
              reciprocal for 1); NaN results leave the connection out.",
             Access::Global,
@@ -1500,7 +1500,7 @@ impl Operator for PathInc {
         transition_port(OpSignature::new(
             "cost.path_inc",
             "The overlap and non-overlap of the routes from a common origin to each location (gdistance's pathInc \
-             through landschaft's C++, van Etten & Hijmans 2010): the flow of a random walk (or, with theta, of \
+             through terraflux-py's C++, van Etten & Hijmans 2010): the flow of a random walk (or, with theta, of \
              randomised shortest paths) from the origin to each location on every connection, then for each pair \
              of locations the sum over the connections of min(f1, f2) (overlap) or max(f1, f2)(1 - min) - min \
              (non-overlap), weighted by the cost of each connection or by weights (a transition, or a set: \

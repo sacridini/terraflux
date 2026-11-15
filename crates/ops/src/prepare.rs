@@ -379,7 +379,7 @@ impl Operator for Match {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "raster.match",
-            "Rasters on the grid of another (its CRS, extent and cells: landschaft's match_grid, by gdalwarp), so \
+            "Rasters on the grid of another (its CRS, extent and cells: the Python library's match_grid, by gdalwarp), so \
              that their cells are the same cells; the method by the data unless one is given.",
             Access::Global,
         )

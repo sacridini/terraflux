@@ -498,7 +498,7 @@ impl Operator for Aeqd {
              tracks in it. The centre: the centroid of the locations (on the sphere for longitude / latitude), \
              the middle of their longitude and latitude ranges (center), or [longitude, latitude]. move2 takes the \
              centroid to EPSG:4236 (Hu Tzu Shan) where WGS84 is meant, about a kilometre off; here it stays in \
-             WGS84, as landschaft's.",
+             WGS84, as the Python library's.",
             Access::None,
         )
         .input(PortSpec::new("tracks", Type::Vector, "the tracks"))

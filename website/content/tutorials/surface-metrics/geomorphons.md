@@ -368,8 +368,8 @@ forms, close in meaning to the TPI but measured over the lines of sight instead 
 
 ### How Terraflux compares with GRASS
 
-[[surface.geomorphons]] runs landschaft's port of `r.geomorphon` from GRASS GIS 8.4. On the six reference elevation
-models kept with landschaft's tests (real SRTM heights, heights rounded to whole metres, holes in the data, cells of
+[[surface.geomorphons]] runs terraflux-py's port of `r.geomorphon` from GRASS GIS 8.4. On the six reference elevation
+models kept with terraflux-py's tests (real SRTM heights, heights rounded to whole metres, holes in the data, cells of
 20 × 30 m, search in map units, the extended correction, all three comparisons), its forms and patterns are those of
 GRASS in all 73,500 cells where both give a value. It corrects four errors of `r.geomorphon` 8.4: the lines of sight
 of the cells in GRASS's bottom rows stop one row short of the map's last row; GRASS's `positive` and `negative`

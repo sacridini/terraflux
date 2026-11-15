@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's ls.move gives, for Terraflux's tests, written to tests/data/reference/move.npz and .json:
+"""What landschaft's tf.move gives, for Terraflux's tests, written to tests/data/reference/move.npz and .json:
 
     python tools/make_move_reference.py
 
@@ -25,15 +25,15 @@ import xarray as xr
 from affine import Affine
 from shapely import Point
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-LS = Path(ls.__file__).resolve().parents[2]
+LS = Path(tf.__file__).resolve().parents[2]
 sys.path.insert(0, str(LS / "tests"))
 from move_cases import EXTRACT_RASTER, track_sets  # noqa: E402
 
-M = ls.move
+M = tf.move
 
 
 def frame(s: dict) -> gpd.GeoDataFrame:
@@ -60,7 +60,7 @@ def main() -> None:
             if k in s:
                 out[f"in/{name}/{k}"] = np.asarray(s[k], np.float64)
         meta["sets"][name] = {"track": [str(v) for v in s["track"]], "crs": s["crs"]}
-    fishers = ls.load_tracks(fishers_src)
+    fishers = tf.load_tracks(fishers_src)
     fishers_ok = fishers[~fishers.geometry.is_empty].reset_index(drop=True)
 
     def put(key, v):

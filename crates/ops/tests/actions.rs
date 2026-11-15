@@ -1,4 +1,4 @@
-//! prioritize.actions against prioriactions 0.5.0: the model its problem() gives (extern/landschaft/tests/data/
+//! prioritize.actions against prioriactions 0.5.0: the model its problem() gives (extern/terraflux-py/tests/data/
 //! reference/optimize/actions) bit for bit, its optima (Gurobi's at gap 0), and the figures of prioriactions's own
 //! solutions (getCost, getSolutionBenefit, getPotentialBenefit, getConnectivityPenalty, getActions); on the tables of
 //! landschaft's cases (tests/data/reference/optimize_actions_tables.json, tools/make_optimize_inputs.py).
@@ -16,7 +16,7 @@ struct Reference {
 }
 
 fn reference() -> Reference {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/landschaft/tests/data/reference/optimize");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/tests/data/reference/optimize");
     Reference {
         arrays: terraflux_raster::npy::read_npz(dir.join("actions.npz")).unwrap(),
         meta: serde_json::from_str(&std::fs::read_to_string(dir.join("actions.json")).unwrap()).unwrap(),

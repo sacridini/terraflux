@@ -297,7 +297,7 @@ impl Operator for Run {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "batch.run",
-            "An operator run on many rasters in parallel (landschaft's batch, GuidosToolbox's Batch Process): each \
+            "An operator run on many rasters in parallel (the Python library's batch, GuidosToolbox's Batch Process): each \
              worker reads one raster, runs the operator on it and writes what it gives to the output folder, named \
              after the input and the operator: maps <name>_<operator>[_<output>].tif, tables .csv, texts .txt, \
              and <name>_<operator>.json with the parameters, the files, the numbers and the time (an input whose \

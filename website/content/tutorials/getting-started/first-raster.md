@@ -206,7 +206,7 @@ whole cell or disappears; this is the first thing to keep in mind when you choos
 
 ## Colours: classes or a ramp
 
-Terraflux chooses colours by **what the values are**, as landschaft's plots do: a map of a few whole numbers is
+Terraflux chooses colours by **what the values are**, as terraflux-py's plots do: a map of a few whole numbers is
 drawn as classes, a colour each (and a legend of classes); any other map is drawn with a **colour ramp** and a
 bar. Elevation, hillshades and NDVI are recognised by the names of their nodes, files and bands and get their own
 ramps; the products of GuidosToolbox (MSPA, fragmentation) get GuidosToolbox's colours and names.

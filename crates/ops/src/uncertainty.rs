@@ -221,7 +221,7 @@ impl Operator for SumSd {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "uncertainty.sum_sd",
-            "The standard deviation of a total of uncertain values, the sum of w v (landschaft's sum_sd): \
+            "The standard deviation of a total of uncertain values, the sum of w v (the Python library's sum_sd): \
              independent errors sqrt(sum (sigma w)^2), errors adding up sum |sigma w|, or \
              with a correlation rho of every pair sqrt((1 - rho) sum s^2 + rho (sum s)^2). Missing cells left out.",
             Access::Global,
@@ -268,7 +268,7 @@ impl Operator for ProductSd {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "uncertainty.product_sd",
-            "The standard deviation of the product of two independent uncertain values x v (landschaft's \
+            "The standard deviation of the product of two independent uncertain values x v (the Python library's \
              product_sd): Goodman's exact variance x^2 sigma_v^2 + v^2 sigma_x^2 + sigma_x^2 sigma_v^2, cell by \
              cell, or of the sum of the products (total: quadratic or linear).",
             Access::Local,
@@ -330,7 +330,7 @@ impl Operator for Interval {
         OpSignature::new(
             "uncertainty.interval",
             "The normal confidence interval of a value: value -/+ z sd, z the normal quantile of the level \
-             (landschaft's interval; scipy's norm.ppf, cephes' ndtri; Strassburg et al. 2020 fix z at 1.96).",
+             (the Python library's interval; scipy's norm.ppf, cephes' ndtri; Strassburg et al. 2020 fix z at 1.96).",
             Access::Local,
         )
         .input(PortSpec::new("value", Type::Any, "a map or a number"))
@@ -444,7 +444,7 @@ impl Operator for Delta {
         OpSignature::new(
             "uncertainty.delta",
             "The uncertainty of an expression of the node's maps and numbers (raster.calc's) from the uncertainty of \
-             its parameters, by the delta method (landschaft's delta_method, the GUM's first order): the \
+             its parameters, by the delta method (the Python library's delta_method, the GUM's first order): the \
              derivatives by finite differences (central, or forward as Strassburg et al. 2020), the standard deviation \
              sqrt(sum (df/dp sigma)^2) (quadratic) or sum |df/dp sigma| (linear).",
             Access::Local,
@@ -525,7 +525,7 @@ impl Operator for MonteCarlo {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "uncertainty.monte_carlo",
-            "The uncertainty of an expression of the node's maps and numbers by drawing its parameters (landschaft's \
+            "The uncertainty of an expression of the node's maps and numbers by drawing its parameters (the Python library's \
              monte_carlo): n draws from normal distributions with numpy's generator and seed, the expression \
              computed for each, their mean, standard deviation and quantiles (numpy's).",
             Access::Local,

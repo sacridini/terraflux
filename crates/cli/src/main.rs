@@ -191,7 +191,7 @@ enum Command {
         #[arg(short, long)]
         out: Option<PathBuf>,
     },
-    /// Write the model as a Python script of landschaft (each node a call of landschaft's function of the same
+    /// Write the model as a Python script of terraflux (each node a call of terraflux's function of the same
     /// method).
     Python {
         #[arg(required = true)]
@@ -202,7 +202,7 @@ enum Command {
         /// Write `<model>.py` beside each model (many models allowed).
         #[arg(long)]
         beside: bool,
-        /// Fail when a node was left as a comment (no counterpart in landschaft).
+        /// Fail when a node was left as a comment (no counterpart in the Python library).
         #[arg(long)]
         strict: bool,
     },
@@ -872,7 +872,7 @@ fn first_crs(m: &Model, dir: &Path) -> Option<String> {
     None
 }
 
-/// `terraflux python`: each model as a landschaft script, printed, written to `out` or beside the model; the
+/// `terraflux python`: each model as a terraflux script, printed, written to `out` or beside the model; the
 /// summary of each to the error output. `strict`: an error when a node was left as a comment, after all are done.
 fn python(
     models: &[PathBuf],
@@ -1542,7 +1542,7 @@ params = { path = \"a.tif\" }
         m.save(&b).unwrap();
         python(&[a.clone(), b.clone()], None, true, false, &r).unwrap();
         let py = std::fs::read_to_string(dir.join("a.py")).unwrap();
-        assert!(py.contains("import landschaft as ls") && py.contains("Path(__file__).parent"), "{py}");
+        assert!(py.contains("import terraflux as tf") && py.contains("Path(__file__).parent"), "{py}");
         assert!(dir.join("b.py").exists());
         // several models without --beside, and --out with --beside: refused
         assert!(python(&[a.clone(), b.clone()], None, false, false, &r).is_err());

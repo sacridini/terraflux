@@ -63,7 +63,7 @@ and when" across the world's regions.
 
 Both are integer linear programs, solved exactly to the gap you ask for. [[prioritize.actions]] builds the model of
 Salgado-Rojas et al. (2020), its checks and defaults included (the authors' code was its reference, and its results
-were checked against it); Terraflux solves it with landschaft's engine and HiGHS.
+were checked against it); Terraflux solves it with terraflux-py's engine and HiGHS.
 
 ## When to use it
 

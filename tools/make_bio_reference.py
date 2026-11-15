@@ -18,11 +18,11 @@ from pathlib import Path
 
 import numpy as np
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-B = ls.bio
+B = tf.bio
 
 BASEDATA = {
     "cells": dict(group_columns=["x", "y"], label_columns=["genus", "species"], cell_sizes=[100000, 100000]),
@@ -70,7 +70,7 @@ def calculations() -> list[str]:
 
 def main() -> None:
     sites = B.example_data()
-    out: dict = {"landschaft": ls.__version__, "basedata": {}, "spatial": []}
+    out: dict = {"landschaft": tf.__version__, "basedata": {}, "spatial": []}
     arrays: dict[str, np.ndarray] = {}
     for key, kw in BASEDATA.items():
         bd = B.BaseData.from_table(sites, **kw)
@@ -125,7 +125,7 @@ TREE_CASES = [
 
 def trees() -> None:
     """Trees read as Biodiverse reads them, and the phylogenetic indices (bio_trees.json, bio_phylo.npz)."""
-    data = ROOT / "extern" / "landschaft" / "tests" / "data" / "bio"
+    data = ROOT / "extern" / "terraflux-py" / "tests" / "data" / "bio"
     out: dict = {"files": {}, "newicks": [], "phylo": []}
 
     def dump(t):
@@ -266,7 +266,7 @@ PROP_RAND = [
 
 def properties() -> None:
     """Label and group properties, label matrices and the indices using them (bio_props.json, bio_props.npz)."""
-    data = ROOT / "extern" / "landschaft" / "tests" / "data" / "bio"
+    data = ROOT / "extern" / "terraflux-py" / "tests" / "data" / "bio"
     reg = B._spatial._registry()
     calcs = sorted(k.removeprefix("calc_") for k, v in reg.items() if not v["uses_tree"]
                    and k not in B._spatial._MATRIX_CALCS)

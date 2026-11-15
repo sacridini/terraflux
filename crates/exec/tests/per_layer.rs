@@ -182,7 +182,7 @@ fn bands_on_disk_run_once_each_and_are_written_a_file_each() {
     assert_eq!(files.len(), 2);
     for year in ["y2010", "y2020"] {
         let f = terraflux_raster::Raster::read(dir.join("out").join(format!("{year}_mspa.tif"))).unwrap();
-        assert_eq!(f.grid.geo.item("landschaft_product"), Some("MSPA"));
+        assert_eq!(f.grid.geo.item("terraflux_product"), Some("MSPA"));
     }
     assert_eq!(stack(r.get("alone.stack").unwrap()).layers.len(), 1);
     assert!(told.0.iter().any(|(at, w)| at == "alone" && w.contains("only \"y2010\" is used")), "{:?}", told.0);

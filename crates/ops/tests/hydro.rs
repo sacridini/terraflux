@@ -47,7 +47,7 @@ fn table_of(out: &Outputs) -> Vec<f64> {
 fn dem_of(name: &str, extent: &[f64], z: &[f64], shape: (usize, usize)) -> Map {
     let (ny, nx) = shape;
     if name == "lonlat" {
-        let p = root().join("extern/landschaft/src/landschaft/surface/data/orelevation.tif");
+        let p = root().join("extern/terraflux-py/src/terraflux/surface/data/orelevation.tif");
         let m = Rasters::open(p.to_str().unwrap(), None, None).unwrap().map().unwrap();
         let mut g = (*m.grid).clone();
         let w = g.width;

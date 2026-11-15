@@ -57,7 +57,7 @@ figure of merit and fuzzy similarity), though not the same draws.
 ## When to use it
 
 Use the tiled engine when the exact engine runs out of memory, or when one large run should use many machines.
-Keep the exact engine otherwise: it is Dinamica EGO's sequential allocation (and landschaft's, bit for bit), and on
+Keep the exact engine otherwise: it is Dinamica EGO's sequential allocation (and terraflux-py's, bit for bit), and on
 maps that fit in memory it is as fast. The tiled engine runs **Dinamica EGO's classic model** only: a Markov chain
 ([[markov.fit]] or [[markov.matrix]]), weights of evidence ([[woe.fit]] or [[woe.weights]]), the patches' settings
 ([[patches.observe]] or [[patches.settings]]) and a loop of [[woe.probability]] and [[dinamica.step]] with its

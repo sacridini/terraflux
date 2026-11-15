@@ -128,7 +128,7 @@ impl Operator for Mess {
     fn signature(&self) -> OpSignature {
         sides(OpSignature::new(
             "sdm.mess",
-            "Elith's multivariate environmental similarity surface (landschaft's mess, dismo's): per predictor \
+            "Elith's multivariate environmental similarity surface (the Python library's mess, dismo's): per predictor \
              the similarity of each value to the reference's (negative outside their range), and the least of \
              them; negative where the model extrapolates.",
             Access::Global,
@@ -150,7 +150,7 @@ impl Operator for Mop {
     fn signature(&self) -> OpSignature {
         sides(OpSignature::new(
             "sdm.mop",
-            "The mobility-oriented parity of new conditions (landschaft's mop, the mop package): the mean \
+            "The mobility-oriented parity of new conditions (the Python library's mop, the mop package): the mean \
              distance of each to its nearest reference conditions (Euclidean or Mahalanobis), and where the \
              predictors fall outside the reference's ranges (basic; simple: how many; detailed: which, below \
              and above, as sums of 2^k).",
@@ -209,7 +209,7 @@ impl Operator for Exdet {
     fn signature(&self) -> OpSignature {
         sides(OpSignature::new(
             "sdm.exdet",
-            "Mesgaran's extrapolation detection (landschaft's exdet): NT1, below 0 where a predictor falls outside \
+            "Mesgaran's extrapolation detection (the Python library's exdet): NT1, below 0 where a predictor falls outside \
              the reference's range, and inside the ranges NT2, the Mahalanobis distance against the reference's \
              largest (above 1 a novel combination); mic, the most influential covariate, by its 1-based place \
              among the predictors (0: no novelty).",
@@ -276,7 +276,7 @@ impl Operator for Evaluate {
         predicted(
             OpSignature::new(
                 "sdm.evaluate",
-                "How well predictions separate presences from the background (landschaft's evaluate, dismo's): \
+                "How well predictions separate presences from the background (the Python library's evaluate, dismo's): \
                  AUC, the point-biserial correlation and its p-value, the prevalence, the largest TSS and the \
                  Boyce index; the confusion table at every threshold (kappa, sensitivity, specificity, TSS...) and \
                  the thresholds that optimize them (max_kappa, max_spec_sens, no_omission, equal_prevalence, \
@@ -314,7 +314,7 @@ impl Operator for BoyceIndex {
         predicted(
             OpSignature::new(
                 "sdm.boyce",
-                "The continuous Boyce index (landschaft's boyce, ecospat's ecospat.boyce): the correlation \
+                "The continuous Boyce index (the Python library's boyce, ecospat's ecospat.boyce): the correlation \
                  between the classes of suitability and their ratio of predicted to expected presences, in a \
                  moving window (default) or in classes.",
                 Access::Global,
@@ -366,7 +366,7 @@ impl Operator for Threshold {
         predicted(
             OpSignature::new(
                 "sdm.threshold",
-                "A threshold of suitability from presences and background (landschaft's threshold, dismo's): \
+                "A threshold of suitability from presences and background (the Python library's threshold, dismo's): \
                  max_spec_sens (default), max_kappa, no_omission, equal_prevalence, equal_sens_spec, mtp, p10, or \
                  the highest that keeps a sensitivity.",
                 Access::Global,
@@ -396,7 +396,7 @@ impl Operator for OmissionRate {
             OpSignature::new(
                 "sdm.omission_rate",
                 "The share of test presences predicted below the training presences' minimum (mtp) or 10th \
-                 percentile (p10, default) (landschaft's omission_rate, ENMeval's).",
+                 percentile (p10, default) (the Python library's omission_rate, ENMeval's).",
                 Access::Global,
             )
             .output(PortSpec::new("rate", Type::Number, "the omission rate")),
@@ -460,7 +460,7 @@ impl Operator for FitMaxNet {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "sdm.maxnet",
-            "A MaxNet species distribution model (landschaft's MaxNet, the maxnet package): Maxent as a lasso \
+            "A MaxNet species distribution model (the Python library's MaxNet, the maxnet package): Maxent as a lasso \
              logistic regression of presences against background points over linear, quadratic, product, hinge, \
              threshold and categorical features of the predictors (glmnet's path, maxnet's regularisation).",
             Access::Global,
@@ -608,7 +608,7 @@ impl Operator for Thin {
         coordinate_settings(
             OpSignature::new(
                 "sdm.thin",
-                "Occurrence records thinned (landschaft's thin, spThin's thin.algorithm): records dropped at random \
+                "Occurrence records thinned (the Python library's thin, spThin's thin.algorithm): records dropped at random \
                  until none is closer than the distance to another (great-circle, on lon/lat), the repetition \
                  that keeps the most.",
                 Access::Global,
@@ -641,7 +641,7 @@ impl Operator for OnePerCell {
         coordinate_settings(
             OpSignature::new(
                 "sdm.one_per_cell",
-                "A record per cell of a raster (landschaft's one_per_cell): the first in each cell, those outside \
+                "A record per cell of a raster (the Python library's one_per_cell): the first in each cell, those outside \
                  the raster left out (and with drop_missing those on cells without a value in any layer).",
                 Access::Global,
             )
@@ -676,7 +676,7 @@ impl Operator for Background {
         coordinate_settings(
             OpSignature::new(
                 "sdm.background",
-                "Background points for a species distribution model (landschaft's background, dismo's \
+                "Background points for a species distribution model (the Python library's background, dismo's \
                  randomPoints): cells with values in every predictor drawn with R's sampling (weighted by the \
                  cells' widths on lon/lat grids, or by a bias), within an area, a band of distances from the \
                  records or outside their environmental envelope, the records' cells left out.",
@@ -779,7 +779,7 @@ impl Operator for BiasSurface {
         coordinate_settings(
             OpSignature::new(
                 "sdm.bias_surface",
-                "The sampling effort as a surface (landschaft's bias_surface): a Gaussian kernel density of the \
+                "The sampling effort as a surface (the Python library's bias_surface): a Gaussian kernel density of the \
                  records of a whole group (the same taxa, collectors and decades) on the grid of the predictors, \
                  MASS::kde2d's at the cells' centres, with R's bw.nrd in each direction by default. The bias of \
                  sdm.background, which draws the background with the records' bias (a target-group background, \
@@ -935,7 +935,7 @@ impl Operator for Folds {
         let (name, doc) = match self.kind {
             "random" => (
                 "sdm.random_folds",
-                "Random folds of the presences (landschaft's random_folds, ENMeval's randomkfold): k groups of \
+                "Random folds of the presences (the Python library's random_folds, ENMeval's randomkfold): k groups of \
                  near-equal size drawn with R's generator; background 0.",
             ),
             "jackknife" => {
@@ -1171,7 +1171,7 @@ impl Operator for Dataset {
         coordinate_settings(
             OpSignature::new(
                 "sdm.dataset",
-                "The records of a species distribution model (landschaft's dataset): presences (or a table with a \
+                "The records of a species distribution model (the Python library's dataset): presences (or a table with a \
                  y, presence or pa column of 1 and 0) and background points with the predictors' values at their \
                  cells, those without a value in some predictor left out.",
                 Access::Global,
@@ -1279,7 +1279,7 @@ impl Operator for Fit {
         maxnet_settings(records_settings(
             OpSignature::new(
                 "sdm.fit",
-                "A species distribution model with cross-validation (landschaft's fit): MaxNet (the default), a \
+                "A species distribution model with cross-validation (the Python library's fit): MaxNet (the default), a \
                  GLM (scikit-learn's StandardScaler and LogisticRegression) or a random forest (scikit-learn's \
                  RandomForestClassifier, the same trees); one fit per fold of the records (AUC of the training and test records and their difference, the largest TSS, \
                  Boyce's index, the omission rates at the minimum and 10th percentile training presence), their \
@@ -1419,7 +1419,7 @@ impl Operator for Responses {
         records_settings(
             OpSignature::new(
                 "sdm.response_curves",
-                "A model's response curves (landschaft's response_curves): each predictor over its range in the \
+                "A model's response curves (the Python library's response_curves): each predictor over its range in the \
                  records, the others at their mean or median; a column of values and one of suitability per \
                  predictor.",
                 Access::Global,
@@ -1460,7 +1460,7 @@ impl Operator for Importance {
         records_settings(
             OpSignature::new(
                 "sdm.importance",
-                "The permutation importance of a model's predictors (landschaft's importance): the mean drop of AUC \
+                "The permutation importance of a model's predictors (the Python library's importance): the mean drop of AUC \
                  over the records when each predictor is shuffled (numpy's generator), and its standard \
                  deviation; the most important first.",
                 Access::Global,
@@ -1531,7 +1531,7 @@ impl Operator for Vif {
         selection_settings(
             OpSignature::new(
                 "sdm.vif",
-                "The variance inflation factor of every predictor (landschaft's vif, usdm's vif): 1 / (1 - R^2) of \
+                "The variance inflation factor of every predictor (the Python library's vif, usdm's vif): 1 / (1 - R^2) of \
                  its regression on the others (R's lm), over the cells of the stack (a sample of them on large \
                  grids) or the rows of a table.",
                 Access::Global,
@@ -1556,7 +1556,7 @@ impl Operator for SelectPredictors {
         selection_settings(
             OpSignature::new(
                 "sdm.select_predictors",
-                "Predictors without collinearity (landschaft's select_predictors, usdm's vifcor and vifstep): the \
+                "Predictors without collinearity (the Python library's select_predictors, usdm's vifcor and vifstep): the \
                  most correlated pairs above a correlation dropped one by one (the one of larger VIF), then the \
                  predictors of the largest VIF above a threshold; those to keep stay.",
                 Access::Global,
@@ -1621,7 +1621,7 @@ impl Operator for AutocorrelationRange {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "sdm.autocorrelation_range",
-            "The range of spatial autocorrelation of the predictors (landschaft's autocorrelation_range, \
+            "The range of spatial autocorrelation of the predictors (the Python library's autocorrelation_range, \
              blockCV's cv_spatial_autocor): gstat's variograms (spherical, exponential, Gaussian and Matern) \
              fitted to a sample of every layer, the best one's range; their median and the block size it gives \
              for spatial blocks.",
@@ -1702,7 +1702,7 @@ impl Operator for CleanOccurrences {
         let mut sig = coordinate_settings(
             OpSignature::new(
                 "sdm.clean_occurrences",
-                "Occurrence records with suspicious coordinates flagged or dropped (landschaft's \
+                "Occurrence records with suspicious coordinates flagged or dropped (the Python library's \
                  clean_occurrences, CoordinateCleaner's tests): invalid coordinates, equal longitude and latitude, \
                  0/0, capitals, country and province centroids, the sea, towns, outside the country they claim, \
                  geographic outliers of their species, GBIF's headquarters, biodiversity institutions, duplicates \
@@ -1804,7 +1804,7 @@ impl Operator for ReferenceData {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "sdm.reference_data",
-            "The geographic reference data of the cleaning of records (landschaft's reference_data): \
+            "The geographic reference data of the cleaning of records (the Python library's reference_data): \
              CoordinateCleaner's centroids and capitals of countries and provinces (countryref, at the \
              centroids), biodiversity institutions and artificial hotspots (aohi), and Natural Earth's land \
              (land110, land50, land10), urban areas (urban50) and countries (countries50), downloaded on first \
@@ -1829,7 +1829,7 @@ impl Operator for AccessibleArea {
         coordinate_settings(
             OpSignature::new(
                 "sdm.accessible_area",
-                "The area the species could have reached, where its background is drawn (landschaft's \
+                "The area the species could have reached, where its background is drawn (the Python library's \
                  accessible_area, the M of the BAM diagram): the land within a distance of the records (geodesic \
                  circles, merged), their convex hull or the regions that hold them (widened by the distance if \
                  given), cut at the antimeridian, within a mask.",
@@ -1886,7 +1886,7 @@ impl Operator for DownloadGbif {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "sdm.download_gbif",
-            "Occurrence records of a species from GBIF (landschaft's download_gbif, the occurrence search API, no \
+            "Occurrence records of a species from GBIF (the Python library's download_gbif, the occurrence search API, no \
              account needed): the records with coordinates, up to 100 000 per query (narrow it by country, area \
              or years), as points with their Darwin Core terms and GBIF's issues. For larger queries, and the \
              DOI to cite, request a download on gbif.org.",

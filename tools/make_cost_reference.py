@@ -25,11 +25,11 @@ from pathlib import Path
 
 import numpy as np
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-C = ls.cost
+C = tf.cost
 BUILTINS = ["mean", "min", "max", "sum", "prod", "from", "to", "diff", "harmonic", "geometric"]
 
 # maungawhau: x 2667400..2668010, y 6478700..6479570
@@ -41,7 +41,7 @@ G_POINTS = [[175.5, 10.2], [-175.3, 12.7], [-20.0, -40.0], [100.1, 60.3], [179.9
 
 def main() -> None:
     out: dict[str, np.ndarray] = {}
-    cases: dict = {"landschaft": ls.__version__, "maungawhau": {"points": M_POINTS, "to": M_TO},
+    cases: dict = {"landschaft": tf.__version__, "maungawhau": {"points": M_POINTS, "to": M_TO},
                    "global": {"points": G_POINTS}}
     m = C.example_data("maungawhau")
     for f in BUILTINS:

@@ -24,7 +24,7 @@ sides: which HRUs there are and what land use, soil and slope each has, which ch
 and how wide the channels are, which weather station each object takes its weather from. Two programs did this
 until now. **QSWAT+** (Dile et al., 2016), a plugin of QGIS, divides the watershed (the part that works on rasters);
 the **SWAT+ Editor** then writes the files, adds the plants, the management and the weather, and starts SWAT+
-(Bieger et al., 2017). Terraflux does both through landschaft, which ports their methods one for one:
+(Bieger et al., 2017). Terraflux does both through terraflux-py, which ports their methods one for one:
 [[swat.watershed]] is QSWAT+'s division and [[swat.from_tables]] the Editor's writing, and the files they write
 are the Editor's, down to the spacing of the columns.
 
@@ -371,7 +371,7 @@ The daily discharge of every channel, from [[swat.reach_discharge]], gives the h
     Report how the project was built: the DEM and its resolution, the land use and soil maps and the source of the
     soil properties, the stream threshold and the HRU method with its thresholds, the weather stations and how
     the generator's statistics were found, the simulation period and the years skipped, the version of SWAT+ (here
-    62.0.1 through landschaft), the parameters changed and the calibration. Report the number of subbasins and HRUs.
+    62.0.1 through terraflux-py), the parameters changed and the calibration. Report the number of subbasins and HRUs.
 
 ## Settings that change the answer
 
@@ -419,7 +419,7 @@ minimum, the earlier method). The sediment of a project whose plants are bare ch
   and [[swat.load]], which reads a TxtInOut folder or a zip as a value that [[swat.set]] can change.
 - [Streams, watersheds and HAND](../streams-watersheds-and-hand/): the division of a terrain that QSWAT+ builds on.
 - **Many runs** and **Calibration** in the application: vary `cn2_change` and `awc_change` against observed flow.
-- In Python, the same model is written by `terraflux python` as a script of landschaft: `ls.hydro.swat.watershed`,
+- In Python, the same model is written by `terraflux python` as a script of terraflux-py: `tf.hydro.swat.watershed`,
   `from_tables`, `run`, `hru_map`, `channel_map` and `reach_discharge`.
 - The operators' reference: [[swat.watershed]], [[swat.from_tables]], [[swat.wgn]], [[swat.set]], [[swat.run]],
   [[swat.hru_map]], [[swat.channel_map]], [[swat.reach_discharge]].

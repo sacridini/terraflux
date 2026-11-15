@@ -1,5 +1,5 @@
 //! prioritize.optimize with management zones against prioritizr 8.0.6: the models its compile() gives
-//! (extern/landschaft/tests/data/reference/optimize/zones) bit for bit, and their optima (Gurobi's at gap 0); on the
+//! (extern/terraflux-py/tests/data/reference/optimize/zones) bit for bit, and their optima (Gurobi's at gap 0); on the
 //! zone problems of landschaft's cases (tests/data/reference/optimize_zones.npz and optimize_zone_tables.json,
 //! tools/make_optimize_inputs.py): three zones (protect, use, restore) on a 12 x 15 grid, every zone's own features.
 
@@ -17,7 +17,7 @@ struct Reference {
 }
 
 fn reference() -> Reference {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/landschaft/tests/data/reference/optimize");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/tests/data/reference/optimize");
     Reference {
         arrays: terraflux_raster::npy::read_npz(dir.join("zones.npz")).unwrap(),
         meta: serde_json::from_str(&std::fs::read_to_string(dir.join("zones.json")).unwrap()).unwrap(),

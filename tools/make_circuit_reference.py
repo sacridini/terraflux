@@ -16,15 +16,15 @@ import json
 import os
 from pathlib import Path
 
-os.environ["LANDSCHAFT_CIRCUIT_AVX2"] = "0"
+os.environ["TERRAFLUX_CIRCUIT_AVX2"] = "0"
 
 import numpy as np  # noqa: E402
 
-import landschaft as ls  # noqa: E402
+import terraflux as tf  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-LS = ROOT / "extern" / "landschaft" / "tests" / "data" / "reference" / "circuit"
+LS = ROOT / "extern" / "terraflux-py" / "tests" / "data" / "reference" / "circuit"
 OPTION_NAMES = {"connect_four_neighbors_only": "four_neighbors", "calc_flow_potential": "flow_potential",
                 "calc_normalized_current": "normalized_current"}
 
@@ -41,7 +41,7 @@ def main() -> None:
         options = json.loads(str(z[f"{name}/options"]))
         kw = {OPTION_NAMES.get(k, k): v for k, v in options.items() if k != "source_from_resistance"}
         source = None if options.get("source_from_resistance") else z[f"{name}/source"]
-        ds = ls.omniscape(z[f"{name}/resistance"], source=source, **kw)
+        ds = tf.omniscape(z[f"{name}/resistance"], source=source, **kw)
         cases[name] = {"options": kw, "source": source is not None}
         out[f"omniscape/{name}/resistance"] = z[f"{name}/resistance"]
         if source is not None:
@@ -51,14 +51,14 @@ def main() -> None:
     # conditions, a reclassification and single precision: os_test1's resistance rounded (plus 1), the condition
     r = np.round(z["os_test1/resistance"]) + 1
     cond = np.nan_to_num(r, nan=1.0)
-    ds = ls.omniscape(r, condition1=cond, **{k: v for k, v in EXTRA.items()})
+    ds = tf.omniscape(r, condition1=cond, **{k: v for k, v in EXTRA.items()})
     out["extra/resistance"] = r
     out["extra/condition1"] = cond
     for k in ds.data_vars:
         out[f"extra/{k}"] = ds[k].values.astype(np.float64)
     a = np.load(LS / "advanced_inputs.npz")
     for name in sorted({k.split("/")[0] for k in a.files}):
-        res = ls.circuit.advanced(a[f"{name}/conductance"], a[f"{name}/source"], a[f"{name}/ground"],
+        res = tf.circuit.advanced(a[f"{name}/conductance"], a[f"{name}/source"], a[f"{name}/ground"],
                                   four_neighbors=bool(a[f"{name}/four"]))
         for k in ("conductance", "source", "ground"):
             out[f"advanced/{name}/{k}"] = a[f"{name}/{k}"]
@@ -67,7 +67,7 @@ def main() -> None:
         out[f"advanced/{name}/voltage"] = np.asarray(res.voltage, dtype=np.float64)
     path = REF / "circuit_landschaft.npz"
     np.savez(path, **out)
-    (REF / "circuit_landschaft.json").write_text(json.dumps({"landschaft": ls.__version__, "omniscape": cases, "extra": EXTRA}) + "\n",
+    (REF / "circuit_landschaft.json").write_text(json.dumps({"landschaft": tf.__version__, "omniscape": cases, "extra": EXTRA}) + "\n",
                                                  encoding="utf-8")
     print(path, len(out))
 
@@ -112,7 +112,7 @@ def circuitscape_cases() -> None:
         if m is not None:
             out[f"{name}/mask"] = m
         kw = {"polygons": poly, "mask": m, "n_threads": 1}
-        p = ls.circuit.circuitscape_pairwise(r, pts, cum_map=True, max_map=True, **kw)
+        p = tf.circuit.circuitscape_pairwise(r, pts, cum_map=True, max_map=True, **kw)
         out[f"{name}/pairwise/resistances"] = p.resistances
         out[f"{name}/pairwise/cum"] = p.cum_current
         out[f"{name}/pairwise/max"] = p.max_current
@@ -121,7 +121,7 @@ def circuitscape_cases() -> None:
             # (strengths go by position: not with focal regions, where landschaft, as Circuitscape, fails)
             for st in (None,) if regions else (None, strengths):
                 key = f"{name}/{mode}" + ("_strengths" if st is not None else "")
-                o = ls.circuit.circuitscape_one_to_all(r, pts, all_to_one=all_to_one, strengths=st, cum_map=True,
+                o = tf.circuit.circuitscape_one_to_all(r, pts, all_to_one=all_to_one, strengths=st, cum_map=True,
                                                        max_map=True, set_focal_node_currents_to_zero=True, **kw)
                 out[f"{key}/resistances"] = o.resistances
                 out[f"{key}/cum"] = o.cum_current
@@ -144,7 +144,7 @@ def pairs_and_networks() -> None:
     """Included pairs on rasters (pairwise, one-to-all and all-to-one, with and without focal regions) and
     Circuitscape's network test cases (landschaft's tests/data/reference/circuit/circuitscape/input/network*),
     written to tests/data/reference/circuit_networks.npz and .json (and the pairs files)."""
-    from landschaft.circuit.ini import parse_ini
+    from terraflux.circuit.ini import parse_ini
 
     z = np.load(REF / "circuitscape_landschaft.npz")
     out: dict[str, np.ndarray] = {}
@@ -154,11 +154,11 @@ def pairs_and_networks() -> None:
         path.write_text(text, encoding="utf-8")
         for name in ("plain", "regions"):
             r, pts = z[f"{name}/habitat"], z[f"{name}/points"]
-            p = ls.circuit.circuitscape_pairwise(r, pts, cum_map=True, included_pairs=str(path), n_threads=1)
+            p = tf.circuit.circuitscape_pairwise(r, pts, cum_map=True, included_pairs=str(path), n_threads=1)
             out[f"{key}/{name}/pairwise/resistances"] = p.resistances
             out[f"{key}/{name}/pairwise/cum"] = p.cum_current
             for mode, all_to_one in (("one_to_all", False), ("all_to_one", True)):
-                o = ls.circuit.circuitscape_one_to_all(r, pts, all_to_one=all_to_one, cum_map=True, max_map=True,
+                o = tf.circuit.circuitscape_one_to_all(r, pts, all_to_one=all_to_one, cum_map=True, max_map=True,
                                                        included_pairs=str(path), n_threads=1)
                 out[f"{key}/{name}/{mode}/resistances"] = o.resistances
                 out[f"{key}/{name}/{mode}/cum"] = o.cum_current
@@ -175,7 +175,7 @@ def pairs_and_networks() -> None:
         if c["scenario"] == "advanced":
             case.update(sources=rel("source_file"), grounds=rel("ground_file"),
                         ground_is_resistance=t("ground_file_is_resistances"), policy=c.get("remove_src_or_gnd", "keepall"))
-            r = ls.circuit.circuitscape_network_advanced(f("habitat_file"), f("source_file"), f("ground_file"),
+            r = tf.circuit.circuitscape_network_advanced(f("habitat_file"), f("source_file"), f("ground_file"),
                                                          graph_is_resistance=case["graph_is_resistance"],
                                                          ground_is_resistance=case["ground_is_resistance"],
                                                          remove_src_or_gnd=case["policy"], n_threads=1)
@@ -187,7 +187,7 @@ def pairs_and_networks() -> None:
             case.update(points=rel("point_file"), included_pairs=rel("included_pairs_file") if pairs else None,
                         voltage_maps=t("write_volt_maps"),
                         current_maps=t("write_cur_maps"))
-            r = ls.circuit.circuitscape_network_pairwise(f("habitat_file"), f("point_file"),
+            r = tf.circuit.circuitscape_network_pairwise(f("habitat_file"), f("point_file"),
                                                          graph_is_resistance=case["graph_is_resistance"],
                                                          included_pairs=pairs, voltage_maps=case["voltage_maps"],
                                                          current_maps=case["current_maps"], n_threads=1)
@@ -220,7 +220,7 @@ def ini_cases() -> None:
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    r = ls.circuit.circuitscape_ini(rel, write_outputs=False, n_threads=1)
+                    r = tf.circuit.circuitscape_ini(rel, write_outputs=False, n_threads=1)
             except Exception as e:  # noqa: BLE001 - the error is part of the reference
                 meta["circuitscape"].append({"ini": rel, "error": f"{type(e).__name__}: {e}"})
                 continue
@@ -240,7 +240,7 @@ def ini_cases() -> None:
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                ds = ls.circuit.omniscape_ini(ini, write_outputs=False, n_threads=1)
+                ds = tf.circuit.omniscape_ini(ini, write_outputs=False, n_threads=1)
         except Exception as e:  # noqa: BLE001
             meta["omniscape"].append({"ini": ini.name, "error": f"{type(e).__name__}: {e}"})
             continue
@@ -280,7 +280,7 @@ def ini_outputs() -> None:
                 lines.append(line)
             ini = dest / f"{name}.ini"
             ini.write_text("\n".join(lines) + "\n", encoding="utf-8")
-            ls.circuit.circuitscape_ini(ini, n_threads=1)
+            tf.circuit.circuitscape_ini(ini, n_threads=1)
     finally:
         os.chdir(here)
     print(dest, sorted(p.name for p in dest.rglob("*") if p.is_file()))

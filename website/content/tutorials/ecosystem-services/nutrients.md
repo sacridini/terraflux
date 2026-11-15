@@ -278,13 +278,13 @@ connectivity, the effective retention, the delivery ratios and the exports. Its 
 | `watershed_table` | by watershed: `n_surface_load`, `n_surface_export`, `n_subsurface_export`, `n_total_export`, `n_subsurface_load`, `p_surface_load`, `p_surface_export` | kg / yr |
 | `ic_0`, `runoff_proxy_mean` | the numbers the run used | |
 
-Terraflux's node is InVEST 3.20's model, run through landschaft's port of it. landschaft's tests run
+Terraflux's node is InVEST 3.20's model, run through terraflux-py's port of it. terraflux-py's tests run
 InVEST 3.20.2 on synthetic landscapes (with multiple flow directions and D8, nitrogen and phosphorus) and require
 every raster of the chain to hold the same 32-bit numbers (on Windows), and the watershed totals to agree to
 float32 precision;
-Terraflux's tests require its maps to be landschaft's to the bit. One difference is deliberate: InVEST 3.20
+Terraflux's tests require its maps to be terraflux-py's to the bit. One difference is deliberate: InVEST 3.20
 measures the distance to the stream of the subsurface delivery in **cells** but compares it with a critical length
-in metres; Terraflux, like landschaft, measures it in metres (cells times the cell size). To reproduce a run of
+in metres; Terraflux, like terraflux-py, measures it in metres (cells times the cell size). To reproduce a run of
 InVEST exactly, give Terraflux InVEST's critical length times the cell size (6,000 for InVEST's 200 on cells of
 30 m).
 

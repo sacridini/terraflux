@@ -235,7 +235,7 @@ fn included_pairs_and_networks_are_landschafts() {
             }
         }
     }
-    let cs = root().join("extern/landschaft/tests/data/reference/circuit/circuitscape");
+    let cs = root().join("extern/terraflux-py/tests/data/reference/circuit/circuitscape");
     let path = |v: &serde_json::Value| v.as_str().map(|p| cs.join(p).to_str().unwrap().to_string());
     for case in meta["networks"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();

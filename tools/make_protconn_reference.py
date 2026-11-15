@@ -19,11 +19,11 @@ import geopandas as gpd
 import numpy as np
 import shapely
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-C = ls.conn
+C = tf.conn
 
 
 def main() -> None:
@@ -45,7 +45,7 @@ def main() -> None:
     pas = gpd.read_file(path, layer="protected")
     region = gpd.read_file(path, layer="region")
     regions = gpd.read_file(path, layer="regions")
-    resistance = ls.nlm.gaussian_field(45, 36, autocorr_range=6, resolution=30.0, seed=12) * 9 + 1
+    resistance = tf.nlm.gaussian_field(45, 36, autocorr_range=6, resolution=30.0, seed=12) * 9 + 1
 
     out: dict[str, np.ndarray] = {"in/resistance": resistance.values}
     cases: list[dict] = []
@@ -110,8 +110,8 @@ def main() -> None:
                              "texts": {c: g[c].tolist() for c in ("time", "comparison", "change")}})
 
     # ProtConn on a raster of protected areas
-    classes = ls.nlm.random_cluster(50, 40, p=0.3, ai=[0.75, 0.25], resolution=30.0, seed=21, rescale=False)
-    pa_ids = np.asarray(ls.Landscape(np.ma.masked_array((classes.values == 2).astype(np.int32),
+    classes = tf.nlm.random_cluster(50, 40, p=0.3, ai=[0.75, 0.25], resolution=30.0, seed=21, rescale=False)
+    pa_ids = np.asarray(tf.Landscape(np.ma.masked_array((classes.values == 2).astype(np.int32),
                                                         mask=classes.values != 2), res=(30.0, 30.0)).labels(),
                         dtype=np.float64)
     pa_ids[pa_ids == 0] = np.nan

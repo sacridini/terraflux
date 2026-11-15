@@ -20,7 +20,7 @@ by parts is.
 A **batch** is the same operation repeated over a list of inputs, each run independent of the others. Because they
 are independent, they can run at the same time, one per core of the computer: the work of 16 files on 8 cores takes
 about the time of 2. GuidosToolbox has offered this for a long time as *Batch Process* (Vogt & Riitters, 2017), and
-landschaft's `batch` module does the same in Python. In Terraflux there is no node for it: **a folder is a value
+terraflux-py's `batch` module does the same in Python. In Terraflux there is no node for it: **a folder is a value
 like a raster**, and any node given one runs once per file.
 
 !!! science "Key idea"

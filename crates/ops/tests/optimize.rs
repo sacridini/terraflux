@@ -1,4 +1,4 @@
-//! prioritize.optimize against prioritizr 8.0.6: the models its compile() gives (extern/landschaft/tests/data/
+//! prioritize.optimize against prioritizr 8.0.6: the models its compile() gives (extern/terraflux-py/tests/data/
 //! reference/optimize, core and objectives) for raster planning units, bit for bit, and their optima (Gurobi at
 //! gap 0) reached by HiGHS; on the rasters of landschaft's cases (tests/data/reference/optimize_inputs.npz,
 //! tools/make_optimize_inputs.py).
@@ -16,7 +16,7 @@ struct Reference {
 }
 
 fn reference(group: &str) -> Reference {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/landschaft/tests/data/reference/optimize");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/tests/data/reference/optimize");
     Reference {
         arrays: terraflux_raster::npy::read_npz(dir.join(format!("{group}.npz"))).unwrap(),
         meta: serde_json::from_str(&std::fs::read_to_string(dir.join(format!("{group}.json"))).unwrap()).unwrap(),

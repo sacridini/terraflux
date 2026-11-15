@@ -21,11 +21,11 @@ os.environ.setdefault("OMP_NUM_THREADS", "4")
 import numpy as np  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 
-import landschaft as ls  # noqa: E402
+import terraflux as tf  # noqa: E402
 import optimize_cases as oc  # noqa: E402
-from landschaft.prioritize._milp_compile import compile_problem  # noqa: E402
+from terraflux.prioritize._milp_compile import compile_problem  # noqa: E402
 
 REF = ROOT / "tests" / "data" / "reference"
 NX = oc.NX
@@ -38,7 +38,7 @@ def terminals(cells):
 
 
 def raster(objective, **kw):
-    p = ls.prioritize.problem(oc.pu_cost(), oc.features())
+    p = tf.prioritize.problem(oc.pu_cost(), oc.features())
     return objective(p).add_binary_decisions() if kw.get("binary", True) else objective(p)
 
 
@@ -75,7 +75,7 @@ def cases() -> dict:
     adj = oc._matrix(oc.adj_table(), len(pu))
     out["table_matrix"] = (
         {"objective": "min_set", "relative_targets": 0.2, "rows": ROWS, "resistance": True, "penalty": 1.0},
-        ls.prioritize.problem(pu, oc.FEATURES, cost_column="cost").add_min_set_objective()
+        tf.prioritize.problem(pu, oc.FEATURES, cost_column="cost").add_min_set_objective()
         .add_relative_targets(0.2).add_corridor_constraints("term", resistance="cost", penalty=1.0, data=adj)
         .add_binary_decisions())
     return out
@@ -102,7 +102,7 @@ def main() -> None:
                           for c in m.corridors]}
         print(name, m.nrow, m.ncol, len(m.corridors), "networks")
     np.savez_compressed(REF / "optimize_corridors.npz", **arrays)
-    (REF / "optimize_corridors.json").write_text(json.dumps({"landschaft": ls.__version__, "cases": meta},
+    (REF / "optimize_corridors.json").write_text(json.dumps({"landschaft": tf.__version__, "cases": meta},
                                                            separators=(",", ":")) + "\n", encoding="utf-8")
 
 

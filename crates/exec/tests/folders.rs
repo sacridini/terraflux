@@ -135,7 +135,7 @@ fn a_chain_runs_file_by_file_and_writes_each_by_its_name() {
     assert!(told.0.iter().any(|(at, w)| at == "first" && w == "thirty columns (file basin_a)"), "{:?}", told.0);
     for name in ["basin_a", "basin_b", "basin_c"] {
         let f = terraflux_raster::Raster::read(dir.join("out").join(format!("{name}_mspa.tif"))).unwrap();
-        assert_eq!(f.grid.geo.item("landschaft_product"), Some("MSPA"));
+        assert_eq!(f.grid.geo.item("terraflux_product"), Some("MSPA"));
         assert_eq!(f.grid.geo.item(terraflux_ops::files::LAYER_ITEM), None, "the name is not written");
     }
     // the maps of different grids a series, each with its name

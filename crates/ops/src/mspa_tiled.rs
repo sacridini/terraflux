@@ -123,7 +123,7 @@ impl Operator for MspaTiled {
         foreground_param(
             OpSignature::new(
                 "landscape.mspa_tiled",
-                "MSPA of a map larger than memory by overlapping tiles, GuidosToolbox's MSPA Tiling as landschaft's \
+                "MSPA of a map larger than memory by overlapping tiles, GuidosToolbox's MSPA Tiling as the Python library's \
                  mspa_tiled, the same maps: MSPA of every tile (tile_size cells with an overlap), of each overlap \
                  the half nearest to each tile kept. An approximation, as GTB warns: near the seams the classes \
                  can differ from MSPA of the whole map where objects are larger than the overlap. Rasters on disk \
@@ -242,7 +242,7 @@ fn to_file(
     read: &dyn Fn(usize, usize, usize, usize) -> Result<Vec<u8>>,
 ) -> Result<()> {
     let mut grid = r.grid_of(layer).clone();
-    grid.geo.set_item("landschaft_product", Some("MSPA"));
+    grid.geo.set_product(Some("MSPA"));
     let (ny, nx) = (grid.height, grid.width);
     let (rows, cols) = tiles_of(ny, nx, tile_size, overlap)?;
     let mut out = RowsWriter::create(path, &grid, "mspa", DataType::U8, None)?;

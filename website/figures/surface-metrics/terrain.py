@@ -1,6 +1,6 @@
 """Figures of the tutorial "Terrain from an elevation model" (surface-metrics/terrain).
 
-The SRTM elevation of south-western Oregon shipped with landschaft (1 arc-second, about 30 m), reprojected to UTM
+The SRTM elevation of south-western Oregon shipped with terraflux-py (1 arc-second, about 30 m), reprojected to UTM
 zone 10N, and its terrain indices computed by Terraflux: slope, aspect, hillshade, TPI at many scales, TRI, VRM,
 curvature, heat load and Weiss's slope positions.
 
@@ -22,7 +22,7 @@ SLUG = "surface-metrics/terrain"
 work = figs.workdir(SLUG)
 out = figs.img_dir(SLUG)
 data = figs.data_dir(SLUG)
-shutil.copy(figs.ROOT / "extern/landschaft/src/landschaft/surface/data/orelevation.tif", work / "elevation.tif")
+shutil.copy(figs.ROOT / "extern/terraflux-py/src/terraflux/surface/data/orelevation.tif", work / "elevation.tif")
 
 EXTENT = "[500010, 4760850, 508110, 4771920]"
 HEAD = f'''format = "terraflux/1"

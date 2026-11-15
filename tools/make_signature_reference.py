@@ -18,11 +18,11 @@ from pathlib import Path
 
 import numpy as np
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-AUGUSTA = ROOT / "extern" / "landschaft" / "tests" / "data" / "lsm" / "augusta.tif"
+AUGUSTA = ROOT / "extern" / "terraflux-py" / "tests" / "data" / "lsm" / "augusta.tif"
 
 LANDSCAPE = ["shdi", "ed", "np", "lpi", "contag"]
 CLASS = ["pland"]
@@ -39,9 +39,9 @@ def matrix(df) -> list:
 
 
 def main() -> None:
-    a = ls.load_raster(AUGUSTA)
-    sig = ls.SpatialSignatureAnalysis(a, grid=600, landscape_metrics=LANDSCAPE, class_metrics=CLASS)
-    out: dict = {"landschaft": ls.__version__, "grid": 600, "landscape_metrics": LANDSCAPE, "class_metrics": CLASS}
+    a = tf.load_raster(AUGUSTA)
+    sig = tf.SpatialSignatureAnalysis(a, grid=600, landscape_metrics=LANDSCAPE, class_metrics=CLASS)
+    out: dict = {"landschaft": tf.__version__, "grid": 600, "landscape_metrics": LANDSCAPE, "class_metrics": CLASS}
     out["columns"] = list(sig.table.columns)
     out["zones"] = [int(z) for z in sig.table.index]
     out["table"] = matrix(sig.table)

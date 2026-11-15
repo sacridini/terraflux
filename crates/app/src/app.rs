@@ -600,7 +600,7 @@ pub struct Session {
     pub qgis: crate::qgis::Export,
     /// The data catalog's window (the datasets data.download fetches).
     pub catalog: crate::catalog::Catalog,
-    /// The window of the model as a Python script of landschaft.
+    /// The window of the model as a Python script of terraflux.
     pub python: Option<crate::python::View>,
     /// A figure being composed of the map shown (the Viewer's Figure...).
     pub figure: Option<crate::figure::Composer>,
@@ -658,7 +658,7 @@ pub struct Session {
     pub recorded: Option<Result<PathBuf, String>>,
     /// The run asked for that is going, for the journal: the model as it ran and the node it runs up to.
     pub journal_run: Option<(Model, Option<String>, Option<String>)>,
-    /// A run asked for started with the model's file known: its script of landschaft is due beside it (written by
+    /// A run asked for started with the model's file known: its script of terraflux is due beside it (written by
     /// the application, which has the registry, when the setting is on).
     pub python_due: bool,
     /// The scenario the Parameters pane applied last, with the values it set: runs record its name while those
@@ -830,7 +830,7 @@ pub struct Ended {
     pub quiet: bool,
 }
 
-/// With the setting on, write the session's script of landschaft beside its model's file (`<model>.py`); a failure
+/// With the setting on, write the session's script of terraflux beside its model's file (`<model>.py`); a failure
 /// is told as a save's, a success is quiet.
 pub fn python_beside(s: &mut Session, r: &Registry) {
     if !crate::settings::get().python_beside {
@@ -3038,8 +3038,8 @@ impl TerrafluxApp {
                 s.methods_open = true;
             }
             if ui
-                .button("Python script (landschaft)...")
-                .on_hover_text("the model as a Python script of landschaft: for a paper, a supervisor, a reviewer")
+                .button("Python script...")
+                .on_hover_text("the model as a Python script of terraflux (the Python library, `pip install terraflux`): for a paper, a supervisor, a reviewer")
                 .clicked()
             {
                 ui.close();
@@ -3506,7 +3506,7 @@ impl TerrafluxApp {
             action("Methods and citations: the model as a paper's methods", String::new(), Do::Methods),
             action("Export to QGIS: the run's maps as a QGIS project", String::new(), Do::Qgis),
             action("Data catalog: climate, terrain, soil, land cover, rivers to download", String::new(), Do::Catalog),
-            action("The model as a Python script (landschaft)", String::new(), Do::Python),
+            action("The model as a Python script (terraflux)", String::new(), Do::Python),
             action("Reset the layout", String::new(), Do::ResetLayout),
         ];
         for p in Pane::ALL {
@@ -4019,10 +4019,10 @@ impl TerrafluxApp {
                 settings_group(ui, "Python", |ui| {
                     ui.add(theme::toggle(
                         &mut st.python_beside,
-                        "write the model's Python script (landschaft) beside it, <model>.py, on each save and run",
+                        "write the model's Python script beside it, <model>.py, on each save and run",
                     ))
                     .on_hover_text(
-                        "the same script as the menu's \"Python script (landschaft)...\", rewritten beside the \
+                        "the same script as the menu's \"Python script...\", rewritten beside the \
                          model's file each time the model is saved and each time a run you asked for starts",
                     );
                 });

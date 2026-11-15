@@ -19,10 +19,10 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 
 import geopandas as gpd  # noqa: E402
-import landschaft as ls  # noqa: E402
+import terraflux as tf  # noqa: E402
 import optimize_cases as oc  # noqa: E402
 import shapely  # noqa: E402
 from shapely.geometry import box  # noqa: E402
@@ -42,13 +42,13 @@ def main() -> None:
     x = rng.uniform(-150, 1650, 40)
     y = rng.uniform(-150, 1350, 40)
     points = gpd.GeoDataFrame({"site": np.arange(1, 41, dtype=float)}, geometry=gpd.points_from_xy(x, y), crs=crs)
-    out: dict = {"landschaft": ls.__version__, "geos": ".".join(map(str, shapely.geos_version)),
+    out: dict = {"landschaft": tf.__version__, "geos": ".".join(map(str, shapely.geos_version)),
                  "x": x.tolist(), "y": y.tolist()}
     for method in ("nearest", "bilinear"):
-        t = ls.extract(feats, points, method=method)
+        t = tf.extract(feats, points, method=method)
         out[f"extract_{method}"] = [[num(v) for v in t[str(b)]] for b in feats.band.values]
         out["bands"] = [str(b) for b in feats.band.values]
-    t = ls.extract(feats.isel(band=0), points, buffer=120.0, stats=["mean", "max", "count"])
+    t = tf.extract(feats.isel(band=0), points, buffer=120.0, stats=["mean", "max", "count"])
     out["extract_buffer"] = {s: [num(v) for v in t[s]] for s in ("mean", "max", "count")}
     pu = oc.pu_polygons()
     out["buffer_area"] = [float(a) for a in pu.geometry.buffer(35.0).area]

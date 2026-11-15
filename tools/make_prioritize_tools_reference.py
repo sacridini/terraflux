@@ -21,11 +21,11 @@ import numpy as np
 import shapely
 from scipy.spatial.distance import cdist
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-P = ls.prioritize
+P = tf.prioritize
 
 
 def coo(m) -> np.ndarray:
@@ -37,8 +37,8 @@ def coo(m) -> np.ndarray:
 
 
 def main() -> None:
-    cost = ls.load_raster(P.example_data("cost"))
-    features = ls.load_raster(P.example_data("features"))
+    cost = tf.load_raster(P.example_data("cost"))
+    features = tf.load_raster(P.example_data("features"))
     t = cost.rio.transform()
     out: dict[str, np.ndarray] = {"in/cost": cost.values.astype(np.float64)[0] if cost.ndim == 3 else
                                   cost.values.astype(np.float64),

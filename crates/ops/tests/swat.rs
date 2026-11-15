@@ -21,7 +21,7 @@ fn same(a: f64, b: f64) -> bool {
 }
 
 fn example() -> std::path::PathBuf {
-    root().join("extern/landschaft/src/landschaft/hydro/swat/data/hubbard_brook.zip")
+    root().join("extern/terraflux-py/src/terraflux/hydro/swat/data/hubbard_brook.zip")
 }
 
 /// An operator of the family run with inputs and settings.
@@ -52,7 +52,7 @@ fn swat_is_landschafts() {
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/swat.npz")).unwrap();
     let meta: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/swat.json")).unwrap()).unwrap();
-    let example = root().join("extern/landschaft/src/landschaft/hydro/swat/data/hubbard_brook.zip");
+    let example = root().join("extern/terraflux-py/src/terraflux/hydro/swat/data/hubbard_brook.zip");
     for case in meta["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let mut params = case.as_object().unwrap().clone();
@@ -624,6 +624,8 @@ fn project_params(rec: &serde_json::Value) -> serde_json::Value {
     if let Some(m) = rec.get("monthly").filter(|m| !m.is_null()) {
         p.insert("monthly".into(), m.clone());
     }
+    // the references were written by the library as landschaft, whose default project name it was (now terraflux)
+    p.entry("name").or_insert_with(|| "landschaft".into());
     serde_json::Value::Object(p)
 }
 

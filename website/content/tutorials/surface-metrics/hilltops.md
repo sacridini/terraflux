@@ -75,7 +75,7 @@ restoration in general.
 
 ## How Terraflux finds hills and their bases
 
-[[surface.hilltop]] runs landschaft's open implementation of the rule (written from the law, not from another
+[[surface.hilltop]] runs terraflux-py's open implementation of the rule (written from the law, not from another
 program). It has three steps.
 
 **1. Summits and saddles: a falling water level.** Imagine the landscape flooded above its highest point, and the
@@ -504,9 +504,9 @@ Terraflux implements none of those.
 Dinamica EGO, the land change platform of the Federal University of Minas Gerais (Soares-Filho et al., 2002), has a
 functor for hilltops, `CalcHilltop`, that follows the older CONAMA rule on an elevation model cut into elevation
 bands: a hill's base is the band of a local minimum reached downhill, and its slope criterion is the angle from the
-summit to the nearest cell of the base band that borders other features or the edge of the map. landschaft's authors
+summit to the nearest cell of the base band that borders other features or the edge of the map. terraflux-py's authors
 measured it, with Dinamica EGO 8.13, at 5° on an isolated cone of 21.8° on a plain. Its results therefore differ from
-both the 2012 law and [[surface.hilltop]], and the two should not be mixed in one study. In landschaft's validation,
+both the 2012 law and [[surface.hilltop]], and the two should not be mixed in one study. In terraflux-py's validation,
 only the heights of the two were compared (they agree to 0.05 m on cones); [[surface.hilltop]] is checked against an
 independent computation on random elevation models and on cones, ranges and lakes of known geometry.
 

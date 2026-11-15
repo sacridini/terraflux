@@ -460,7 +460,7 @@ impl Operator for Rasterize {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "vector.rasterize",
-            "Burn vector features into the grid of a map, as GDAL's rasterizer (landschaft's rasterize): the \
+            "Burn vector features into the grid of a map, as GDAL's rasterizer (the Python library's rasterize): the \
              cells whose centre a polygon takes (or every cell it touches), the cells of lines and of points; an \
              attribute's value or one value; the later features over the earlier, or added up (counting \
              overlaps). The features reprojected to the map's coordinate system first. Out of core (block_rows, a              path, or rasters on disk of more than 250 million cells) burnt strip by strip into a GeoTIFF, the              same cells (but where GDAL draws a line through cells' corners with all_touched).",
@@ -567,7 +567,7 @@ impl Operator for Zonal {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "vector.zonal",
-            "Statistics of a map (or of every layer of a stack) in every polygon, landschaft's zonal_stats: each \
+            "Statistics of a map (or of every layer of a stack) in every polygon, the Python library's zonal_stats: each \
              polygon's cells as GDAL burns them (polygons may overlap), the cells with a value. Out of core              (block_rows, or rasters on disk of more than 250 million cells) by strips of rows, the same values.",
             Access::Global,
         )
@@ -679,7 +679,7 @@ impl Operator for Extract {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "vector.extract",
-            "The values of a map (or of every layer of a stack) at points, landschaft's extract: the cell holding \
+            "The values of a map (or of every layer of a stack) at points, the Python library's extract: the cell holding \
              each point (nearest) or interpolated from the four nearest cell centres (bilinear, the weights over \
              those with a value); with a buffer, the statistics of the cells within that radius of each point \
              (zonal_stats of GEOS's circles). The points are reprojected to the map. No value outside it. Out of              core (block_rows, or rasters on disk of more than 250 million cells) only the strips of rows holding              points are read, the same values.",

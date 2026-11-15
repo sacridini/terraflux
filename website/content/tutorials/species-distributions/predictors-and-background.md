@@ -241,7 +241,7 @@ chosen for each.
 
 Two predictors have ranges of about 1 200 to 1 300 km. The other two have absurd ranges, far larger than the
 Earth: their variograms keep rising across the whole continent and never level off, so the fitted range runs away
-(their median, 740 807 km, is no guide at all). This is common with climate over a continent, and landschaft's
+(their median, 740 807 km, is no guide at all). This is common with climate over a continent, and terraflux-py's
 documentation warns about it: use the result as a guide, not blindly. Here the finite ranges suggest blocks of
 the order of 1 000 km; but blocks that large would leave only a handful of blocks for 83 records, and folds of very
 unequal sizes. We use **500 km**, a common order of magnitude for climate at this resolution, and check in [part

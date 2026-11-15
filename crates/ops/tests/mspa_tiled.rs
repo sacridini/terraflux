@@ -16,7 +16,7 @@ fn reference() -> serde_json::Value {
 }
 
 fn input() -> Map {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/landschaft/src/landschaft/data/input.tif");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/src/terraflux/data/input.tif");
     let r = Raster::read(&path).unwrap();
     Map::new(Arc::new(r.grid.clone()), r.bands[0].data.clone())
 }

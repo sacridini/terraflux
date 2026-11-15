@@ -1,6 +1,6 @@
 """What the figures of the getting-started tutorials share: the sample data, CORINE's legend, drawing helpers.
 
-The data are read in place from the repository (landschaft's examples and the test inputs); only figures go into
+The data are read in place from the repository (terraflux-py's examples and the test inputs); only figures go into
 the website.
 """
 
@@ -19,7 +19,7 @@ from matplotlib import colors as mcolors  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
 ROOT = figs.ROOT
-LS = ROOT / "extern" / "landschaft" / "src" / "landschaft"
+LS = ROOT / "extern" / "terraflux-py" / "src" / "terraflux"
 CLC = LS / "data" / "clc.tif"                       # CORINE land cover, 2000 x 2000 cells of 25 m, EPSG:3035
 FOREST_WGS84 = LS / "data" / "input.tif"            # a forest map in degrees (EPSG:4326): 0 missing, 1, 2 forest
 ELEVATION = LS / "surface" / "data" / "orelevation.tif"   # SRTM elevation, SW Oregon, EPSG:4326, about 30 m

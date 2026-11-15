@@ -769,7 +769,7 @@ impl Operator for MosaicChange {
         let mut sig = OpSignature::new(
             "change.mosaic",
             "The change of the landscape mosaic's heatmap between two dates, as GuidosToolbox's Change -> \
-             Landscape Mosaic Heatmap (landschaft's landscape_mosaic_change): the share of every class of 103 at \
+             Landscape Mosaic Heatmap (the Python library's landscape_mosaic_change): the share of every class of 103 at \
              both dates and B - A, the triangle of the change, GTB's delta_heatmap.csv.",
             Access::Global,
         )

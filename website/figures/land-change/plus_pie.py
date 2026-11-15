@@ -2,7 +2,7 @@
 
 PLUS on Plum Island Ecosystems (lulcc's example: 1 forest, 2 built, 3 other; 1985, 1991, 1999):
 
-1. LEAS, a random forest per class on where it expanded between 1985 and 1991 (landschaft's Estimator, as
+1. LEAS, a random forest per class on where it expanded between 1985 and 1991 (terraflux-py's Estimator, as
    presets.plus does: 50 trees, 5 % of the cells drawn from the expansions and the others separately), its
    growth probabilities written to potential.tif (a band per class) and the importance of each driver;
 2. CARS in Terraflux: a Markov chain of 1985-1991 (6 yearly steps) projected from 1991 for 8 years
@@ -28,14 +28,14 @@ WIN = (slice(170, 370), slice(150, 400))
 
 
 def leas(work: pathlib.Path):
-    """LEAS with landschaft: the growth probability of each class, from where it expanded in 1985-1991."""
-    import landschaft as ls
+    """LEAS with terraflux-py: the growth probability of each class, from where it expanded in 1985-1991."""
+    import terraflux as tf
     import rasterio
     from sklearn.ensemble import RandomForestClassifier
 
-    S = ls.simulate
-    lu = ls.load_raster(str(INPUTS / "pie_landuse.tif"))
-    ef = ls.load_raster(str(INPUTS / "pie_drivers.tif"))
+    S = tf.simulate
+    lu = tf.load_raster(str(INPUTS / "pie_landuse.tif"))
+    ef = tf.load_raster(str(INPUTS / "pie_drivers.tif"))
     t0 = lu[0].where(lu[0] != 255)
     t1 = lu[1].where(lu[1] != 255)
     est = S.Estimator(RandomForestClassifier(n_estimators=50, min_samples_leaf=50, random_state=1, n_jobs=1), target="expansion",

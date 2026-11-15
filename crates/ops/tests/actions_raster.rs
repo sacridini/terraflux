@@ -59,7 +59,7 @@ fn small() -> Inputs {
 
 /// landschaft's example: the cost, the eight features and two threats of its prioritize data.
 fn example() -> Inputs {
-    let data = root().join("extern/landschaft/src/landschaft/prioritize/data");
+    let data = root().join("extern/terraflux-py/src/terraflux/prioritize/data");
     let read = |f: &str| terraflux_raster::Raster::read(data.join(f)).unwrap();
     let as_stack = |r: &terraflux_raster::Raster, g: &Arc<Grid>| Stack {
         grid: g.clone(),

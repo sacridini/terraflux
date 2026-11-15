@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The reference outputs Terraflux is compared with: landschaft's ls.simulate on the same models.
+"""The reference outputs Terraflux is compared with: landschaft's tf.simulate on the same models.
 
 Run with the landschaft the submodule points at installed:
 
@@ -21,9 +21,9 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-import landschaft as ls
+import terraflux as tf
 
-S = ls.simulate
+S = tf.simulate
 ROOT = Path(__file__).resolve().parents[1] / "tests" / "data"
 INPUTS = ROOT / "inputs"
 REF = ROOT / "reference"
@@ -39,7 +39,7 @@ def copy_inputs():
     for name in ("pie_landuse", "pie_drivers", "sibuyan_landuse", "sibuyan_drivers"):
         shutil.copyfile(S.example_data(name), INPUTS / f"{name}.tif")
     # lulcc's reference case: a history (0-12 steps, seed 5) and a restricted block, as landschaft's tests
-    lu = ls.load_raster(INPUTS / "pie_landuse.tif")[0]
+    lu = tf.load_raster(INPUTS / "pie_landuse.tif")[0]
     nan = np.isnan(lu.values)
     hist = np.random.default_rng(5).integers(0, 13, lu.shape).astype(np.float64)
     hist[nan] = np.nan
@@ -53,7 +53,7 @@ def copy_inputs():
 
 
 def one_band(path):
-    da = ls.load_raster(path)
+    da = tf.load_raster(path)
     return da[0] if da.ndim == 3 else da
 
 
@@ -76,8 +76,8 @@ def save(case: str, arrays: dict, meta: dict | None = None):
 
 
 def dinamica():
-    lu = ls.load_raster(INPUTS / "sibuyan_landuse.tif")
-    dr = ls.load_raster(INPUTS / "sibuyan_drivers.tif")
+    lu = tf.load_raster(INPUTS / "sibuyan_landuse.tif")
+    dr = tf.load_raster(INPUTS / "sibuyan_drivers.tif")
     model = S.presets.dinamica(lu[0], lu[1], dr, steps=14, woe=250)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -92,8 +92,8 @@ def dinamica():
 
 
 def lulcc(case, allocation, seed, *, elasticity=None, rules=False, nb=False):
-    pie = ls.load_raster(INPUTS / "pie_landuse.tif")
-    drivers = ls.load_raster(INPUTS / "pie_drivers.tif")
+    pie = tf.load_raster(INPUTS / "pie_landuse.tif")
+    drivers = tf.load_raster(INPUTS / "pie_drivers.tif")
     r = S.Rules(elasticity=elasticity, neighbourhood=S.Neighbourhood(dict(NB)) if nb else None)
     if rules:
         r.allowed = np.array(RULES)
@@ -109,9 +109,9 @@ def lulcc(case, allocation, seed, *, elasticity=None, rules=False, nb=False):
 
 
 def bridge():
-    """Models saved by landschaft (Model.save) that Terraflux must run as ls.simulate does."""
-    lu = ls.load_raster(INPUTS / "sibuyan_landuse.tif")
-    dr = ls.load_raster(INPUTS / "sibuyan_drivers.tif")
+    """Models saved by landschaft (Model.save) that Terraflux must run as tf.simulate does."""
+    lu = tf.load_raster(INPUTS / "sibuyan_landuse.tif")
+    dr = tf.load_raster(INPUTS / "sibuyan_drivers.tif")
     names = [str(v) for v in dr.band.values]
     drivers = {n: dr[k] for k, n in enumerate(names)}
     land_path, drv_path = "../../inputs/sibuyan_landuse.tif", "../../inputs/sibuyan_drivers.tif"
@@ -165,7 +165,7 @@ def bridge():
     alloc = S.ExpanderPatcher(expansion=0.5, expander=(4, 2, 1.5), patcher=(6, 4, 1.5), steps=5)
     write("dinamica_regional", S.Model(dyn.potential, S.Regional(regions, rates), alloc), drv_path, dr, 13)
     # the accumulated cost from built land over the slope, a dynamic variable
-    tr = ls.cost.geo_correction(1 / ls.cost.transition(dr.sel(band="slope").fillna(0) + 1, "mean", 8))
+    tr = tf.cost.geo_correction(1 / tf.cost.transition(dr.sel(band="slope").fillna(0) + 1, "mean", 8))
     cost = S.distance_to(2, cost=tr)
     lr = S.LogisticRegression().fit(lu[0], {**drivers, "cost_built": cost(lu[0])})
     model = S.Model(lr, S.AreaDemand.from_maps(lu, times=[0, 14]), S.CLUE(max_diff=20, mean_diff=10),
@@ -225,7 +225,7 @@ def main():
     lulcc("ordered_pie_det", S.Ordered([2, 1, 3], stochastic=False), 3)
     lulcc("ordered_pie_rules", S.Ordered([2, 1, 3], stochastic=True), 5, rules=True, nb=True)
     bridge()
-    print(f"landschaft {ls.__version__}: references written to {REF}")
+    print(f"landschaft {tf.__version__}: references written to {REF}")
 
 
 if __name__ == "__main__":

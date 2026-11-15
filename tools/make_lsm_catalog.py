@@ -14,9 +14,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "src"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "src"))
 
-from landschaft.lsm.catalog import _full_table  # noqa: E402
+from terraflux.lsm.catalog import _full_table  # noqa: E402
 
 
 def rust_str(s: str) -> str:

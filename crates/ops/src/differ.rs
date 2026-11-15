@@ -197,7 +197,7 @@ impl Operator for Memberships {
         OpSignature::new(
             "change.memberships",
             "The share of each class in each block of factor x factor cells (diffeR's memberships through \
-             landschaft: terra's segregate and aggregate by the mean); blocks with a missing cell, and those cut \
+             the Python library: terra's segregate and aggregate by the mean); blocks with a missing cell, and those cut \
              by the right and bottom edges, have none.",
             Access::Global,
         )
@@ -230,7 +230,7 @@ impl Operator for Composite {
         OpSignature::new(
             "change.composite",
             "The cross-tabulation of two maps at a coarser resolution by the composite method (diffeR's composite \
-             through landschaft, Pontius & Cheuk 2006): each block of factor x factor cells a mix of classes, the \
+             through the Python library, Pontius & Cheuk 2006): each block of factor x factor cells a mix of classes, the \
              agreement of a class the smaller of its two shares, the rest shared among the pairs of classes; \
              blocks with a missing cell or cut by the edge left out. Proportions of the domain.",
             Access::Global,
@@ -284,7 +284,7 @@ impl Operator for Resolutions {
         OpSignature::new(
             "change.resolutions",
             "The quantity, exchange and shift differences between two maps at coarser and coarser resolutions \
-             (diffeR's differenceMR through landschaft): the cross-tabulation at the maps' resolution, then the \
+             (diffeR's differenceMR through the Python library): the cross-tabulation at the maps' resolution, then the \
              composite one at blocks of factor, factor^2... cells per side up to the larger side; shift shrinks \
              as the resolution coarsens, quantity stays.",
             Access::Global,
@@ -350,7 +350,7 @@ impl Operator for Mad {
         OpSignature::new(
             "change.mad",
             "The mean absolute deviation between two continuous maps and its components (diffeR's MAD through \
-             landschaft): the deviation split into quantity (its mean), strata (deviations that cancel within \
+             the Python library): the deviation split into quantity (its mean), strata (deviations that cancel within \
              each stratum) and element (the rest), at the maps' resolution and at blocks of 2, 4, 8... cells (sums \
              of the deviations).",
             Access::Global,
@@ -440,7 +440,7 @@ impl Operator for SampleToPopulation {
         OpSignature::new(
             "change.sample_to_population",
             "A sample's cross-tabulation scaled to the population of each row's class (diffeR's sample2pop through \
-             landschaft, by the row's class rather than its position): each row times its population over its \
+             the Python library, by the row's class rather than its position): each row times its population over its \
              sum.",
             Access::Global,
         )

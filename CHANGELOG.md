@@ -77,6 +77,15 @@ minor versions.
   node now that the settings are on the box and beside it; it stays in the panes' menu, a layout kept with it keeps it,
   and *Settings* has an option, "open the Node pane by itself", to have it come as before (off by default).
 
+### Changed
+- **The Python library is now terraflux** (`pip install terraflux`, `import terraflux as tf`; it was landschaft, `import
+  landschaft as ls`). File > Python script (the menu entry lost the "(landschaft)"), `terraflux python` and the MCP's
+  `python_script` write `import terraflux as tf` and call `tf.`; the generated script's name `tf` is taken, as `ls` was. A
+  GeoTIFF carries the product of a map as `terraflux_product` (the files that only say `landschaft_product` are still
+  read, the new tag winning). The library's submodule is `extern/terraflux-py` (the repository is renamed
+  terraflux-py), and the build reads `TERRAFLUX_PY_DIR` and `TERRAFLUX_EIGEN_DIR` (`LANDSCHAFT_DIR` and
+  `LANDSCHAFT_EIGEN_DIR` still read); the C++ is built with the CMake options `TERRAFLUX_PYTHON` and `TERRAFLUX_MILP`.
+
 ## [1.49.0] - 2026-11-15
 
 ### Changed

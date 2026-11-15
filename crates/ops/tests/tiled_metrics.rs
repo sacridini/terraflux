@@ -24,7 +24,7 @@ fn table(out: &Outputs) -> Table {
 }
 
 fn landschaft(name: &str) -> Map {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/landschaft/tests/data/lsm").join(name);
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/tests/data/lsm").join(name);
     let r = Raster::read(&path).unwrap();
     Map::new(Arc::new(r.grid.clone()), r.bands[0].masked(r.nodata))
 }

@@ -16,12 +16,12 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 
-import landschaft as ls  # noqa: E402
+import terraflux as tf  # noqa: E402
 import plangea_cases as pc  # noqa: E402
 
-P = ls.prioritize
+P = tf.prioritize
 
 
 def flat(a) -> list:
@@ -34,10 +34,10 @@ def main() -> None:
     cover = pc.grid(pc.land_cover(), names=pc.CLASSES)
     past = pc.grid(pc.past(), names=pc.NATURAL) if oa["past"] else None
     er = pc.grid(pc.ecoregions(), names=pc.NATURAL) if oa["er"] else None
-    veg = ls.original_vegetation(cover, pc.NATURAL, pc.ANTHROPIC, past=past, ecoregions=er, failsafe=oa["failsafe"],
+    veg = tf.original_vegetation(cover, pc.NATURAL, pc.ANTHROPIC, past=past, ecoregions=er, failsafe=oa["failsafe"],
                                  restore_to="current" if "D" in oa["problem"] else "original")
     names, r = pc.ranges()
-    aoh = ls.sdm.area_of_habitat(pc.grid(r, names=names), cover, pc.NATURAL, suitability=pc.habitat_table(),
+    aoh = tf.sdm.area_of_habitat(pc.grid(r, names=names), cover, pc.NATURAL, suitability=pc.habitat_table(),
                                  original=veg, include_unlisted=spec["include_absent"])
     p = P.restoration_problem(veg, cell_area=1.0).add_extinction_risk_benefit(aoh)
 

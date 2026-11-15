@@ -22,12 +22,12 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 
-import landschaft as ls
-from landschaft.sdm._refdata import reference_data
+import terraflux as tf
+from terraflux.sdm._refdata import reference_data
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 import sdm_cases  # noqa: E402
 
 OFF = dict(equal=False, zeros=False, capitals=False, centroids=False, seas=False, urban=False, countries=False,
@@ -49,7 +49,7 @@ def large() -> pd.DataFrame:
 
 
 def records() -> dict[str, pd.DataFrame]:
-    acaule = pd.read_csv(ROOT / "extern" / "landschaft" / "src" / "landschaft" / "sdm" / "data" / "acaule.csv")
+    acaule = pd.read_csv(ROOT / "extern" / "terraflux-py" / "src" / "terraflux" / "sdm" / "data" / "acaule.csv")
     acaule = acaule[["species", "country", "ISO2", "lat", "lon", "institution"]]
     return {"synthetic": sdm_cases.cc_synthetic(), "edges": sdm_cases.cc_edges(), "acaule": acaule, "large": large()}
 
@@ -138,7 +138,7 @@ def main() -> None:
                 kw[test] = ref
         if kw.get("countries"):
             kw["countries"] = {"column": kw["countries"], "ref": countries}
-        f = ls.sdm.clean_occurrences(recs[rec], action="flag", **kw)
+        f = tf.sdm.clean_occurrences(recs[rec], action="flag", **kw)
         for c in f.columns:
             if c.startswith("flag"):
                 out[f"{case}/{c}"] = f[c].to_numpy(np.float64)

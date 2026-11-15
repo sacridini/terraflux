@@ -1,5 +1,5 @@
 """Shared pieces of the figures of the landscape metrics tutorials: the real maps (the landscapemetrics sample of
-Augusta, Georgia, and the CORINE excerpt of landschaft), their colours, and small helpers to run a model and read
+Augusta, Georgia, and the CORINE excerpt of terraflux-py), their colours, and small helpers to run a model and read
 the tables it writes."""
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ import figs  # noqa: E402
 import numpy as np  # noqa: E402
 
 ROOT = figs.ROOT
-AUGUSTA = ROOT / "extern/landschaft/tests/data/lsm/augusta.tif"
-CLC = ROOT / "extern/landschaft/src/landschaft/data/clc.tif"
+AUGUSTA = ROOT / "extern/terraflux-py/tests/data/lsm/augusta.tif"
+CLC = ROOT / "extern/terraflux-py/src/terraflux/data/clc.tif"
 
 # the National Land Cover Database's classes and official colours (augusta.tif)
 NLCD = {

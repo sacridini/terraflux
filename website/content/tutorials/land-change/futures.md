@@ -30,7 +30,7 @@ not combine: a demand for developed land that comes from the population of each 
 development that differs between counties, and patches of development whose sizes and shapes are learned from the
 patches that really appeared. It has since been rewritten as the open-source GRASS GIS modules `r.futures`
 (Petrasova et al., 2016) and used, for example, to compare conservation strategies under urban growth (Dorning
-et al., 2015). Terraflux runs `r.futures`'s algorithms through the landschaft library.
+et al., 2015). Terraflux runs `r.futures`'s algorithms through the terraflux-py library.
 
 FUTURES models one transition, from undeveloped to developed, in three submodels:
 

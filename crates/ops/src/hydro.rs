@@ -182,7 +182,7 @@ impl Operator for Hydro {
                 dem_in(sig(
                     "Fill the depressions of a DEM so that water flows from every cell to the edge: each depression \
                      raised to where it would spill over (Priority-Flood, Barnes, Lehman & Mulla 2014; the DEM of \
-                     WhiteboxTools' FillDepressions), through landschaft's C++.",
+                     WhiteboxTools' FillDepressions), through terraflux-py's C++.",
                 )),
                 "the filled DEM",
             )

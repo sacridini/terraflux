@@ -86,7 +86,7 @@ use the continent's equal-area projection.
 ## Why areas and distances need a projected CRS
 
 Here is the same question answered three ways: how much forest is on a forest map of 1000 x 1000 cells in
-degrees (landschaft's example habitat map; cells of 0.000305°, at about 51.4° N in central Germany), with
+degrees (terraflux-py's example habitat map; cells of 0.000305°, at about 51.4° N in central Germany), with
 428,490 cells of forest?
 
 | Method | Forest area | Error |

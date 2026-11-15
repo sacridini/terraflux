@@ -2,7 +2,7 @@
 
 The data are the classic example of Maxent and of R's dismo: 116 records of the brown-throated sloth (*Bradypus
 variegatus*) and nine WorldClim bioclimatic variables at 0.5 degrees over Central and South America, as they travel
-with landschaft (extern/landschaft/src/landschaft/sdm/data). The models are run with the terraflux binary; this
+with terraflux-py (extern/terraflux-py/src/terraflux/sdm/data). The models are run with the terraflux binary; this
 module writes the data where the models read them, builds the models' TOML and draws maps with points over them.
 """
 
@@ -23,7 +23,7 @@ from matplotlib import colors as mcolors  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 
 CAT = "species-distributions"
-DATA = figs.ROOT / "extern" / "landschaft" / "src" / "landschaft" / "sdm" / "data"
+DATA = figs.ROOT / "extern" / "terraflux-py" / "src" / "terraflux" / "sdm" / "data"
 # the data a reader downloads: the records and the climate in the first part's folder
 PUBLIC = figs.WEB / "static" / "data" / "tutorials" / CAT / "ideas"
 

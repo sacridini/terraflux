@@ -90,7 +90,7 @@ impl Operator for DevPressure {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "futures.devpressure",
-            "The development pressure of each cell (r.futures.devpressure through landschaft): the sum over the \
+            "The development pressure of each cell (r.futures.devpressure through the Python library): the sum over the \
              developed cells within a radius (a circular window, the cell itself left out) of 1 (occurrence), \
              scaling / d^gamma (gravity) or scaling exp(-2 d / gamma) (kernel), as GRASS's r.mfilter computes it; \
              the pressure futures.simulation starts from.",
@@ -180,7 +180,7 @@ impl Operator for PatchLibrary {
         OpSignature::new(
             "futures.patch_library",
             "The sizes of the patches developed between two maps (r.futures.calib's patch library through \
-             landschaft): the 4-connected groups of cells developed in the end and not at the start (inside a \
+             the Python library): the 4-connected groups of cells developed in the end and not at the start (inside a \
              subregion), in cells, sorted; one library per subregion (each patch cut to its part in it), or one \
              for all. The patch_sizes futures.simulation draws from.",
             Access::Global,
@@ -372,12 +372,12 @@ impl Operator for Calibrate {
         let sim = crate::futures::Simulation.signature();
         let mut sig = OpSignature::new(
             "futures.calibrate",
-            "The calibration of FUTURES' patches (r.futures.calib through landschaft's calibrate_patches): the \
+            "The calibration of FUTURES' patches (r.futures.calib through the Python library's calibrate_patches): the \
              patches developed between the start and the end give the patch library and the histograms of patch \
              area and compactness (perimeter / (2 sqrt(pi area))); every combination of the compactness means, \
              ranges and discount factors is simulated repeat times from the start (futures.simulation's settings, \
              seeds (seed + k) 10000 + i) and its patches compared with the observed ones by the histograms' \
-             chi-square distance. The combinations from the best, as landschaft's.",
+             chi-square distance. The combinations from the best, as the Python library's.",
             Access::Global,
         );
         sig.inputs = sim.inputs.into_iter().filter(|p| p.name != "seed").collect();

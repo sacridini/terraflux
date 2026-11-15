@@ -618,7 +618,7 @@ impl Operator for Actions {
              (or are kept) to their targets at the least cost (minimizeCosts), or recover the most within a budget \
              (maximizeBenefits); the boundary of the units and of every threat's actions weighed; linear, \
              quadratic or cubic responses. The model of Salgado-Rojas et al. with its checks and defaults, \
-             solved by landschaft's closure engine and HiGHS.",
+             solved by the Python library's closure engine and HiGHS.",
             Access::Global,
         )
         .input(PortSpec::new("pu", Type::Table, "planning units: id, monitoring_cost, status (0, 2 locked in, 3 out)"))
@@ -671,7 +671,7 @@ impl Operator for Actions {
             PortSpec::optional(
                 "solver",
                 Type::Text,
-                "highs (default: landschaft's closure engine, then HiGHS) or gurobi: Gurobi when it is installed and \
+                "highs (default: the Python library's closure engine, then HiGHS) or gurobi: Gurobi when it is installed and \
                  licensed, else HiGHS with a warning",
             )
             .choices(["highs", "gurobi"]),

@@ -1,6 +1,6 @@
 """Shared bits of the figure scripts of the tutorials on terrain hydrology.
 
-The data: landschaft's SRTM elevation of south-western Oregon (orelevation.tif, 1 arc-second) and its summer NDVI
+The data: terraflux-py's SRTM elevation of south-western Oregon (orelevation.tif, 1 arc-second) and its summer NDVI
 (orforest.tif), read as `elevation.tif` and `ndvi.tif` and reprojected to UTM zone 10N in cells of 30 m, as in
 the tutorial "Terrain from an elevation model".
 """
@@ -20,8 +20,8 @@ from matplotlib import colors as mcolors  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
 ROOT = figs.ROOT
-OREGON = ROOT / "extern/landschaft/src/landschaft/surface/data"
-SWAT_EXAMPLE = ROOT / "extern/landschaft/src/landschaft/hydro/swat/data/hubbard_brook.zip"
+OREGON = ROOT / "extern/terraflux-py/src/terraflux/surface/data"
+SWAT_EXAMPLE = ROOT / "extern/terraflux-py/src/terraflux/hydro/swat/data/hubbard_brook.zip"
 
 EXTENT = "[500010, 4760850, 508110, 4771920]"
 CELL = 30.0

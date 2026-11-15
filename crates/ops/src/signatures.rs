@@ -1198,7 +1198,7 @@ impl Operator for Pca {
         columns_param(
             OpSignature::new(
                 "metrics.pca",
-                "The principal components of spatial signatures (landschaft's SpatialSignatureAnalysis.pca): the \
+                "The principal components of spatial signatures (the Python library's SpatialSignatureAnalysis.pca): the \
                  metrics as z-scores (constant ones left out, rows with NA too), their singular value \
                  decomposition, each component's largest loading positive.",
                 Access::None,
@@ -1241,7 +1241,7 @@ impl Operator for Nmf {
         columns_param(
             OpSignature::new(
                 "metrics.nmf",
-                "Non-negative factors of spatial signatures (landschaft's SpatialSignatureAnalysis.nmf): each metric \
+                "Non-negative factors of spatial signatures (the Python library's SpatialSignatureAnalysis.nmf): each metric \
                  scaled to [0, 1] (constant ones left out), approximated by scores times components, both \
                  non-negative (NNDSVDa start, HALS sweeps; scikit-learn's NMF(init=\"nndsvda\", solver=\"cd\")).",
                 Access::None,
@@ -1312,9 +1312,9 @@ impl Operator for Cluster {
         method_param(columns_param(
             OpSignature::new(
                 "metrics.cluster",
-                "Groups of landscapes or zones with similar metrics (landschaft's SpatialSignatureAnalysis.cluster): \
+                "Groups of landscapes or zones with similar metrics (the Python library's SpatialSignatureAnalysis.cluster): \
                  k-means of the z-scores (or of the first principal components) from numpy's generator, so the \
-                 same groups as landschaft, or scipy's hierarchical linkages cut into k clusters. The groups are \
+                 same groups as the Python library, or scipy's hierarchical linkages cut into k clusters. The groups are \
                  numbered 0.. in order of first appearance.",
                 Access::None,
             )
@@ -1348,7 +1348,7 @@ impl Operator for Clustergram {
         method_param(columns_param(
             OpSignature::new(
                 "metrics.clustergram",
-                "Clusters for a range of k (Schonlau's clustergram, landschaft's \
+                "Clusters for a range of k (Schonlau's clustergram, the Python library's \
                  SpatialSignatureAnalysis.clustergram): for every k each row's cluster and the mean of its cluster, \
                  the cluster's centre projected on the first principal axis (pca_weighted) or averaged over the \
                  metrics.",

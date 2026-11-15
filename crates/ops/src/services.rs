@@ -268,7 +268,7 @@ impl Operator for Carbon {
         OpSignature::new(
             "services.carbon",
             "Carbon storage of a landscape and its change between two land use maps: InVEST's carbon model \
-             (natcap.invest 3.20) bit for bit, through landschaft. Each class holds a density (t C / ha) in four \
+             (natcap.invest 3.20) bit for bit, through the Python library. Each class holds a density (t C / ha) in four \
              pools (above and below ground biomass, soil, dead matter); the storage is their sum, the \
              sequestration the future minus the baseline, valued with a price.",
             Access::Global,
@@ -489,7 +489,7 @@ impl Operator for Habitat {
         OpSignature::new(
             "services.habitat_quality",
             "Habitat degradation, quality and rarity: InVEST's habitat quality model (natcap.invest 3.20) bit for \
-             bit, through landschaft. Each threat degrades the habitat around it, decaying linearly or \
+             bit, through the Python library. Each threat degrades the habitat around it, decaying linearly or \
              exponentially with the distance to its nearest cell up to its maximum distance, weighed by its \
              weight, the sensitivity of the cell's class and the access; quality h (1 - D^2.5 / (D^2.5 + k^2.5)). \
              With a base map, the rarity of each class.",
@@ -671,7 +671,7 @@ impl Operator for Water {
         OpSignature::new(
             "services.water_yield",
             "Annual water yield, consumption and hydropower: InVEST's annual water yield model (natcap.invest \
-             3.20) bit for bit, through landschaft. The water balance of each cell on the Budyko curve (Fu and \
+             3.20) bit for bit, through the Python library. The water balance of each cell on the Budyko curve (Fu and \
              Zhang): AET / P from the potential evapotranspiration Kc ET0, the plant available water and the \
              seasonality Z; the yield P - AET. With watersheds, their means and volumes; with a demand table, \
              the consumption and the realized supply; with a valuation table, the hydropower energy and value.",
@@ -1036,7 +1036,7 @@ impl Operator for Sdr {
         OpSignature::new(
             "services.sdr",
             "Sediment export, deposition and retention: InVEST's sediment delivery ratio model (natcap.invest \
-             3.20), through landschaft. The soil loss of the RUSLE (R K LS C P, the LS of Desmet & Govers from the \
+             3.20), through the Python library. The soil loss of the RUSLE (R K LS C P, the LS of Desmet & Govers from the \
              flow accumulation) and the share that reaches a stream, SDR = SDR_max / (1 + exp((IC_0 - IC) / k)) of \
              the index of connectivity (Borselli et al. 2008); the DEM filled and routed by pygeoprocessing's \
              algorithms, as InVEST.",

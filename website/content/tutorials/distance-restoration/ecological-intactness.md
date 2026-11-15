@@ -83,7 +83,7 @@ movement (see the [corridors](../costs-and-corridors/) of the previous part, or
   classes in every cell, as six named bands: `forest`, `savanna`, `mangrove`, `pasture`, `cropland` and `urban`.
 
 !!! note "Serra Verde"
-    Serra Verde is an *imaginary* coastal region of 60 × 90 km, the example data of landschaft's prioritization
+    Serra Verde is an *imaginary* coastal region of 60 × 90 km, the example data of terraflux-py's prioritization
     module: mountains in the north-west, a coastal plain with three cities, a highway and two rivers, and the
     ocean (no data) in the south-east. The data are synthetic, made to behave like real planning data, so that
     every step of a plan can be shown on one small region. Replace them with your own maps of the same kinds.

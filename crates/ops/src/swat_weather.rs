@@ -609,7 +609,7 @@ impl Climate {
                 continue;
             }
             let mut listing =
-                vec![format!("{ext}.cli: {desc} file names - file written by landschaft"), "filename".to_string()];
+                vec![format!("{ext}.cli: {desc} file names - file written by terraflux"), "filename".to_string()];
             for i in names {
                 let st = &self.stations.names[i];
                 let fname = format!("{}.{ext}", file_stem(st));
@@ -626,7 +626,7 @@ impl Climate {
                 );
                 let (y0, y1) = (civil_from_days(first).0, civil_from_days(last).0);
                 let mut lines = vec![
-                    format!("{fname}: {desc} data - file written by landschaft"),
+                    format!("{fname}: {desc} data - file written by terraflux"),
                     rjust("nbyr", 4) + &rjust("tstep", 10) + &rjust("lat", 10) + &rjust("lon", 10) + &rjust("elev", 10),
                     rjust(&(y1 - y0 + 1).to_string(), 4)
                         + &rjust("0", 10)
@@ -741,7 +741,7 @@ impl Operator for WgnOp {
         let series = |name: &str, what: &str| PortSpec::new(name, Type::Table, what);
         OpSignature::new(
             "swat.wgn",
-            "SWAT's weather generator statistics (WXGEN, landschaft's wgn_from_series, bit for bit with numpy's \
+            "SWAT's weather generator statistics (WXGEN, the Python library's wgn_from_series, bit for bit with numpy's \
              sums) of each station from its daily series: by calendar month over all years, the means and standard \
              deviations of the maximum and minimum temperature, the mean monthly precipitation (the month's total \
              averaged over the years with data), the standard deviation and skew of the daily precipitation, the \

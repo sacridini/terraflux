@@ -1,6 +1,6 @@
 """Figures of the tutorial "Map algebra from scratch" (building-models/map-algebra).
 
-Sibuyan Island (Philippines), land use of 1997 and its drivers at 250 m (lulcc's and landschaft's example data):
+Sibuyan Island (Philippines), land use of 1997 and its drivers at 250 m (lulcc's and terraflux-py's example data):
 a habitat suitability index, buffers, an edge mask and the suitable habitat above a threshold, all computed by
 raster.calc in real runs of Terraflux.
 """

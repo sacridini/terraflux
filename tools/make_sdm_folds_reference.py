@@ -21,12 +21,12 @@ import pandas as pd
 import xarray as xr
 from affine import Affine
 
-import landschaft as ls
-from landschaft.sdm import SDMData
+import terraflux as tf
+from terraflux.sdm import SDMData
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-S = ls.sdm
+S = tf.sdm
 
 
 def main() -> None:
@@ -38,7 +38,7 @@ def main() -> None:
     coords = gpd.GeoDataFrame({"y": y}, geometry=gpd.points_from_xy(lon, lat), crs="EPSG:4326")
     data = SDMData(pd.DataFrame({"a": lon}), y, coords)
     t = (-60.5, 0.25, 0.0, -11.5, 0.0, -0.25)
-    layers = [ls.nlm.gaussian_field(48, 40, autocorr_range=6 + 4 * k, seed=61 + k).values * 10 for k in range(2)]
+    layers = [tf.nlm.gaussian_field(48, 40, autocorr_range=6 + 4 * k, seed=61 + k).values * 10 for k in range(2)]
     env = xr.DataArray(np.stack(layers), dims=("band", "y", "x"),
                        coords={"band": ["a", "b"], "y": t[3] + (np.arange(40) + 0.5) * t[5],
                                "x": t[0] + (np.arange(48) + 0.5) * t[1]})

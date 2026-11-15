@@ -3,7 +3,7 @@
 //! method, in the order the model runs them: its inputs as the values of the nodes before, its settings as the
 //! function's arguments (by their names in landschaft), its outputs as the result or its fields. A calculator's
 //! script is kept as it is, run in numpy by a helper written into the script; reclassification rules become
-//! `ls.reclassify`'s table; the foreground of the habitat patterns (MSPA, FAD...) `ls.reclassify(foreground=...)`.
+//! `tf.reclassify`'s table; the foreground of the habitat patterns (MSPA, FAD...) `tf.reclassify(foreground=...)`.
 //! Containers become Python's own: a loop (`control.repeat`) a `for` over its steps, its carried values assigned
 //! at the end of each, what it collects appended to lists; `control.each` a `for` over the collection's elements;
 //! `control.switch` an `if`/`elif` per branch; a group its body in place. The species distribution models
@@ -11,7 +11,7 @@
 //! landschaft builds it), Zonation and the pieces of the land change models (Markov, weights of evidence, the
 //! changes and their validation, the logistic regressions, the demands, Dinamica's roads and continuous patcher)
 //! are calls of their own; the allocation of Dinamica, CLUE-S and PLUS, which landschaft runs only as a whole model
-//! (`ls.simulate.run`), is said so. SWAT+ is landschaft's `ls.hydro.swat` (`load_txtinout`, `watershed`, `climate` with
+//! (`tf.simulate.run`), is said so. SWAT+ is landschaft's `tf.hydro.swat` (`load_txtinout`, `watershed`, `climate` with
 //! `from_tables`, `wgn_from_series`, `run`, `hru_map`, `channel_map`, `reach_discharge`); swat.set a helper written
 //! into the script that adds the calibration.cal row as Terraflux does, and the weather's tables and the results'
 //! (year, day, object) helpers that put them in landschaft's shape and back.
@@ -37,7 +37,7 @@ use terraflux_ops::Registry;
 enum Kind {
     /// The arguments as they are.
     Plain,
-    /// The map through `ls.reclassify(map, foreground=...)` when the node gives the foreground's classes.
+    /// The map through `tf.reclassify(map, foreground=...)` when the node gives the foreground's classes.
     Habitat,
     /// A neutral landscape: its size from `like` (columns, rows), else the settings or 256.
     Grid,
@@ -75,7 +75,7 @@ macro_rules! nlm {
 const MAPPED: &[Py] = &[
     Py {
         op: "raster.read",
-        call: "ls.load_raster",
+        call: "tf.load_raster",
         args: &[("path", "")],
         defaults: &[],
         outs: &[("raster", "")],
@@ -83,7 +83,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "raster.write",
-        call: "ls.write_raster",
+        call: "tf.write_raster",
         args: &[("value", ""), ("path", "path"), ("type", "dtype")],
         defaults: &[],
         outs: &[("path", "")],
@@ -91,7 +91,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "vector.write",
-        call: "ls.write_vector",
+        call: "tf.write_vector",
         args: &[("vector", ""), ("path", "path"), ("layer", "layer")],
         defaults: &[],
         outs: &[("path", "")],
@@ -99,7 +99,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "table.read",
-        call: "ls.load_table",
+        call: "tf.load_table",
         args: &[("path", "")],
         defaults: &[],
         outs: &[("table", "")],
@@ -107,7 +107,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "table.write",
-        call: "ls.write_table",
+        call: "tf.write_table",
         args: &[("table", ""), ("path", "path")],
         defaults: &[],
         outs: &[("path", "")],
@@ -115,7 +115,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "landscape.mspa",
-        call: "ls.mspa",
+        call: "tf.mspa",
         args: &[("map", ""), ("connectivity", "connectivity"), ("edge_width", "edge_width"), ("internal", "internal")],
         defaults: &[],
         outs: &[("map", "")],
@@ -123,7 +123,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "landscape.spa",
-        call: "ls.spa",
+        call: "tf.spa",
         args: &[("map", ""), ("variant", "variant")],
         defaults: &[],
         outs: &[("map", ".map"), ("stats", ".stats"), ("porosity", ".porosity")],
@@ -131,7 +131,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "landscape.accounting",
-        call: "ls.accounting",
+        call: "tf.accounting",
         args: &[
             ("map", ""),
             ("thresholds", "thresholds"),
@@ -145,7 +145,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "fragmentation.fad",
-        call: "ls.fad",
+        call: "tf.fad",
         args: &[("map", ""), ("window", "window_size")],
         defaults: &[],
         outs: &[("map", ".density"), ("classes", ".classes"), ("stats", ".stats")],
@@ -153,7 +153,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "fragmentation.fad_multiscale",
-        call: "ls.fad_multiscale",
+        call: "tf.fad_multiscale",
         args: &[("map", ""), ("windows", "window_sizes")],
         defaults: &[],
         outs: &[("map", ".multiscale_map"), ("classes", ".classes"), ("stats", ".stats")],
@@ -161,7 +161,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "fragmentation.fos",
-        call: "ls.fos",
+        call: "tf.fos",
         args: &[
             ("map", ""),
             ("window", "window_size"),
@@ -176,33 +176,33 @@ const MAPPED: &[Py] = &[
         outs: &[("map", ".map"), ("stats", ".stats")],
         kind: Kind::Habitat,
     },
-    nlm!("nlm.random", "ls.nlm.random", ["seed" => "seed", "rescale" => "rescale"], defaults: ["seed" = "1"]),
-    nlm!("nlm.gaussian_field", "ls.nlm.gaussian_field",
+    nlm!("nlm.random", "tf.nlm.random", ["seed" => "seed", "rescale" => "rescale"], defaults: ["seed" = "1"]),
+    nlm!("nlm.gaussian_field", "tf.nlm.gaussian_field",
          ["range" => "autocorr_range", "variance" => "mag_var", "nugget" => "nug", "seed" => "seed"], defaults: ["seed" = "1"]),
-    nlm!("nlm.fbm", "ls.nlm.fbm", ["dimension" => "fract_dim", "seed" => "seed"], defaults: ["seed" = "1"]),
-    nlm!("nlm.random_cluster", "ls.nlm.random_cluster",
+    nlm!("nlm.fbm", "tf.nlm.fbm", ["dimension" => "fract_dim", "seed" => "seed"], defaults: ["seed" = "1"]),
+    nlm!("nlm.random_cluster", "tf.nlm.random_cluster",
          ["p" => "p", "weights" => "ai", "neighbourhood" => "neighbourhood", "seed" => "seed"],
          defaults: ["seed" = "1", "rescale" = "False"]),
-    nlm!("nlm.distance_gradient", "ls.nlm.distance_gradient", ["origin" => "origin", "nlmr_compat" => "nlmr_compat", "rescale" => "rescale"],
+    nlm!("nlm.distance_gradient", "tf.nlm.distance_gradient", ["origin" => "origin", "nlmr_compat" => "nlmr_compat", "rescale" => "rescale"],
          defaults: []),
-    nlm!("nlm.planar_gradient", "ls.nlm.planar_gradient", ["direction" => "direction", "seed" => "seed", "rescale" => "rescale"], defaults: ["seed" = "1"]),
-    nlm!("nlm.edge_gradient", "ls.nlm.edge_gradient", ["direction" => "direction", "seed" => "seed", "rescale" => "rescale"], defaults: ["seed" = "1"]),
-    nlm!("nlm.mpd", "ls.nlm.mpd",
+    nlm!("nlm.planar_gradient", "tf.nlm.planar_gradient", ["direction" => "direction", "seed" => "seed", "rescale" => "rescale"], defaults: ["seed" = "1"]),
+    nlm!("nlm.edge_gradient", "tf.nlm.edge_gradient", ["direction" => "direction", "seed" => "seed", "rescale" => "rescale"], defaults: ["seed" = "1"]),
+    nlm!("nlm.mpd", "tf.nlm.mpd",
          ["roughness" => "roughness", "deviation" => "rand_dev", "torus" => "torus", "nlmr_compat" => "nlmr_compat", "seed" => "seed", "rescale" => "rescale"],
          defaults: ["seed" = "1"]),
-    nlm!("nlm.mosaic_tess", "ls.nlm.mosaic_tess", ["germs" => "germs", "nlmr_compat" => "nlmr_compat", "seed" => "seed", "rescale" => "rescale"], defaults: ["seed" = "1"]),
-    nlm!("nlm.mosaic_gibbs", "ls.nlm.mosaic_gibbs",
+    nlm!("nlm.mosaic_tess", "tf.nlm.mosaic_tess", ["germs" => "germs", "nlmr_compat" => "nlmr_compat", "seed" => "seed", "rescale" => "rescale"], defaults: ["seed" = "1"]),
+    nlm!("nlm.mosaic_gibbs", "tf.nlm.mosaic_gibbs",
          ["germs" => "germs", "r" => "R", "patch_classes" => "patch_classes", "nlmr_compat" => "nlmr_compat", "seed" => "seed", "rescale" => "rescale"],
          defaults: ["seed" = "1"]),
-    nlm!("nlm.percolation", "ls.nlm.percolation", ["prob" => "prob", "seed" => "seed"], defaults: ["seed" = "1"]),
-    nlm!("nlm.random_rectangular_cluster", "ls.nlm.random_rectangular_cluster", ["minl" => "minl", "maxl" => "maxl", "seed" => "seed", "rescale" => "rescale"],
+    nlm!("nlm.percolation", "tf.nlm.percolation", ["prob" => "prob", "seed" => "seed"], defaults: ["seed" = "1"]),
+    nlm!("nlm.random_rectangular_cluster", "tf.nlm.random_rectangular_cluster", ["minl" => "minl", "maxl" => "maxl", "seed" => "seed", "rescale" => "rescale"],
          defaults: ["seed" = "1"]),
-    nlm!("nlm.neigh", "ls.nlm.neigh",
+    nlm!("nlm.neigh", "tf.nlm.neigh",
          ["p_neigh" => "p_neigh", "p_empty" => "p_empty", "categories" => "categories",
           "neighbourhood" => "neighbourhood", "proportions" => "proportions", "seed" => "seed", "rescale" => "rescale"], defaults: ["seed" = "1"]),
     Py {
         op: "nlm.curds",
-        call: "ls.nlm.curds",
+        call: "tf.nlm.curds",
         args: &[
             ("curds", "curds"),
             ("steps", "recursion_steps"),
@@ -216,7 +216,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "sdm.background",
-        call: "ls.sdm.background",
+        call: "tf.sdm.background",
         args: &[
             ("env", ""),
             ("n", "n"),
@@ -238,7 +238,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "sdm.importance",
-        call: "ls.sdm.importance",
+        call: "tf.sdm.importance",
         args: &[("model", ""), ("n_repeats", "n_repeats"), ("seed", "seed")],
         defaults: &[],
         outs: &[("importance", "")],
@@ -246,7 +246,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "sdm.response_curves",
-        call: "ls.sdm.response_curves",
+        call: "tf.sdm.response_curves",
         args: &[("model", ""), ("of", "predictors"), ("n", "n"), ("fixed", "fixed")],
         defaults: &[],
         outs: &[("curves", "")],
@@ -254,7 +254,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "markov.fit",
-        call: "ls.simulate.Markov.from_maps",
+        call: "tf.simulate.Markov.from_maps",
         args: &[("t0", ""), ("t1", ""), ("steps", "steps")],
         defaults: &[],
         outs: &[("markov", "")],
@@ -262,7 +262,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "demand.from_maps",
-        call: "ls.simulate.AreaDemand.from_maps",
+        call: "tf.simulate.AreaDemand.from_maps",
         args: &[("maps", ""), ("times", "times"), ("out_times", "out_times")],
         defaults: &[],
         outs: &[("demand", ""), ("steps", ".steps")],
@@ -270,7 +270,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "woe.fit",
-        call: "ls.simulate.weights_of_evidence",
+        call: "tf.simulate.weights_of_evidence",
         args: &[
             ("t0", ""),
             ("t1", ""),
@@ -291,7 +291,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "change.transitions",
-        call: "ls.simulate.changes",
+        call: "tf.simulate.changes",
         args: &[("maps", ""), ("times", "times"), ("cell_area", "cell_area")],
         defaults: &[],
         outs: &[("table", ".table"), ("one_step", ".one_step"), ("areas", ".areas"), ("matrix", ".matrix()")],
@@ -299,7 +299,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "validate.three_map",
-        call: "ls.simulate.three_map_comparison",
+        call: "tf.simulate.three_map_comparison",
         args: &[("t0", ""), ("t1", ""), ("simulated", ""), ("factors", "factors"), ("categories", "categories")],
         defaults: &[],
         outs: &[("table", ".table"), ("budget", ".agreement_budget"), ("figure_of_merit", ".figure_of_merit")],
@@ -307,7 +307,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "surface.terrain",
-        call: "ls.surface.terrain",
+        call: "tf.surface.terrain",
         args: &[("map", ""), ("v", "v"), ("unit", "unit"), ("neighbors", "neighbors")],
         defaults: &[],
         outs: &[("map", "")],
@@ -315,7 +315,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "surface.tpi",
-        call: "ls.surface.tpi",
+        call: "tf.surface.tpi",
         args: &[("map", ""), ("scale", "scale"), ("win", "win"), ("normalize", "normalize")],
         defaults: &[],
         outs: &[("map", "")],
@@ -323,7 +323,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "surface.vrm",
-        call: "ls.surface.vrm",
+        call: "tf.surface.vrm",
         args: &[("map", ""), ("s", "s")],
         defaults: &[],
         outs: &[("map", "")],
@@ -331,7 +331,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "surface.curvature",
-        call: "ls.surface.curvature",
+        call: "tf.surface.curvature",
         args: &[("map", ""), ("type", "type")],
         defaults: &[],
         outs: &[("map", "")],
@@ -339,7 +339,7 @@ const MAPPED: &[Py] = &[
     },
     Py {
         op: "nlm.classify",
-        call: "ls.nlm.classify",
+        call: "tf.nlm.classify",
         args: &[("map", ""), ("n", "n"), ("weights", "weighting"), ("real", "real_land"), ("mask_value", "mask_val")],
         defaults: &[],
         outs: &[("classes", "")],
@@ -350,39 +350,39 @@ const MAPPED: &[Py] = &[
 /// Operators whose inputs and settings are the arguments of landschaft's function of the same name, by the same
 /// names, and that give one output: called with them as they are.
 const BY_NAME: &[(&str, &str)] = &[
-    ("conn.eca_change_grid", "ls.conn.eca_change_grid"),
-    ("conn.make_grid", "ls.conn.make_grid"),
-    ("hydro.breach", "ls.hydro.breach"),
-    ("hydro.centrality", "ls.hydro.centrality"),
-    ("hydro.connectivity_index", "ls.hydro.connectivity_index"),
-    ("hydro.distance_to_channel", "ls.hydro.distance_to_channel"),
-    ("hydro.fill", "ls.hydro.fill"),
-    ("hydro.flow_accumulation", "ls.hydro.flow_accumulation"),
-    ("hydro.flow_direction", "ls.hydro.flow_direction"),
-    ("hydro.hand", "ls.hydro.hand"),
-    ("hydro.network_distance", "ls.hydro.network_distance"),
-    ("hydro.spi", "ls.hydro.spi"),
-    ("hydro.sti", "ls.hydro.sti"),
-    ("hydro.streams", "ls.hydro.streams"),
-    ("hydro.twi", "ls.hydro.twi"),
-    ("hydro.watersheds", "ls.hydro.watersheds"),
-    ("nlm.merge", "ls.nlm.merge"),
-    ("prioritize.decay_connectivity", "ls.prioritize.decay_connectivity"),
-    ("prioritize.protected_cells", "ls.prioritize.protected_cells"),
-    ("prioritize.refine", "ls.prioritize.refine"),
-    ("redd.nrt", "ls.redd.nrt"),
-    ("sdm.exdet", "ls.sdm.exdet"),
-    ("sdm.mess", "ls.sdm.mess"),
-    ("sdm.mop", "ls.sdm.mop"),
-    ("sdm.reference_data", "ls.sdm.reference_data"),
-    ("sdm.vif", "ls.sdm.vif"),
-    ("sensitivity.design", "ls.sensitivity.design"),
-    ("stats.idw", "ls.stats.idw"),
-    ("stats.moran", "ls.stats.moran"),
-    ("surface.gravity", "ls.surface.gravity"),
-    ("surface.hli", "ls.surface.hli"),
-    ("uncertainty.product_sd", "ls.uncertainty.product_sd"),
-    ("uncertainty.sum_sd", "ls.uncertainty.sum_sd"),
+    ("conn.eca_change_grid", "tf.conn.eca_change_grid"),
+    ("conn.make_grid", "tf.conn.make_grid"),
+    ("hydro.breach", "tf.hydro.breach"),
+    ("hydro.centrality", "tf.hydro.centrality"),
+    ("hydro.connectivity_index", "tf.hydro.connectivity_index"),
+    ("hydro.distance_to_channel", "tf.hydro.distance_to_channel"),
+    ("hydro.fill", "tf.hydro.fill"),
+    ("hydro.flow_accumulation", "tf.hydro.flow_accumulation"),
+    ("hydro.flow_direction", "tf.hydro.flow_direction"),
+    ("hydro.hand", "tf.hydro.hand"),
+    ("hydro.network_distance", "tf.hydro.network_distance"),
+    ("hydro.spi", "tf.hydro.spi"),
+    ("hydro.sti", "tf.hydro.sti"),
+    ("hydro.streams", "tf.hydro.streams"),
+    ("hydro.twi", "tf.hydro.twi"),
+    ("hydro.watersheds", "tf.hydro.watersheds"),
+    ("nlm.merge", "tf.nlm.merge"),
+    ("prioritize.decay_connectivity", "tf.prioritize.decay_connectivity"),
+    ("prioritize.protected_cells", "tf.prioritize.protected_cells"),
+    ("prioritize.refine", "tf.prioritize.refine"),
+    ("redd.nrt", "tf.redd.nrt"),
+    ("sdm.exdet", "tf.sdm.exdet"),
+    ("sdm.mess", "tf.sdm.mess"),
+    ("sdm.mop", "tf.sdm.mop"),
+    ("sdm.reference_data", "tf.sdm.reference_data"),
+    ("sdm.vif", "tf.sdm.vif"),
+    ("sensitivity.design", "tf.sensitivity.design"),
+    ("stats.idw", "tf.stats.idw"),
+    ("stats.moran", "tf.stats.moran"),
+    ("surface.gravity", "tf.surface.gravity"),
+    ("surface.hli", "tf.surface.hli"),
+    ("uncertainty.product_sd", "tf.uncertainty.product_sd"),
+    ("uncertainty.sum_sd", "tf.uncertainty.sum_sd"),
 ];
 
 /// The helper that runs a calculator's script in numpy (written into the script when a calculator is in it).
@@ -537,7 +537,7 @@ const RESERVED: &[&str] = &[
     "while",
     "with",
     "yield",
-    "ls",
+    "tf",
     "np",
     "Path",
     "MODEL_DIR",
@@ -603,7 +603,7 @@ fn path(p: &str) -> String {
     }
 }
 
-/// Reclassification rules (`1 2 -> 1`, `0..10 -> 2`, `0 10 2`, `* -> 0`, `5 -> nan`) as `ls.reclassify`'s table
+/// Reclassification rules (`1 2 -> 1`, `0..10 -> 2`, `0 10 2`, `* -> 0`, `5 -> nan`) as `tf.reclassify`'s table
 /// (ranges `[low, high)`: both ends in, the high end just past its value) and `others`.
 pub fn reclassify_table(rules: &str) -> Result<(String, Option<String>), String> {
     let mut entries = Vec::new();
@@ -981,10 +981,10 @@ pub fn write_to(m: &Model, r: &Registry, model: &Path, py: &Path) -> Result<Scri
     Ok(s)
 }
 
-/// The model as a Python script of landschaft.
+/// The model as a Python script of terraflux.
 pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
     let mut w = Writer { r, out: Script::default(), calc: false, flow: false, swat: false, names: HashSet::new() };
-    for taken in ["np", "ls", "Path", "MODEL_DIR", "OUT"] {
+    for taken in ["np", "tf", "Path", "MODEL_DIR", "OUT"] {
         w.names.insert(taken.into());
     }
     let mut body = String::new();
@@ -1003,9 +1003,9 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
                     None => {}
                 }
                 let n = nodata.map_or(String::new(), |d| format!("  # no data: {d}"));
-                format!("{v} = ls.load_raster({}){n}", a.join(", "))
+                format!("{v} = tf.load_raster({}){n}", a.join(", "))
             }
-            Input::Stack { path: p, .. } => format!("{v} = ls.load_raster({})", path(p)),
+            Input::Stack { path: p, .. } => format!("{v} = tf.load_raster({})", path(p)),
             Input::Value { value, .. } => format!("{v} = {}", literal(value)),
         };
         if let Some(n) = input.note() {
@@ -1026,7 +1026,7 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
         let shown =
             crate::document::plotted(m, r, p).and_then(|(node, port)| reference(&format!("{node}.{port}"), &sc).ok());
         body.push_str(&match shown {
-            Some(v) => format!("# ls.plot({v})  # the Plot {:?} (matplotlib)\n", one_line(&name)),
+            Some(v) => format!("# tf.plot({v})  # the Plot {:?} (matplotlib)\n", one_line(&name)),
             None => format!("# (the Plot {:?}: a value not translated)\n", one_line(&name)),
         });
     }
@@ -1036,8 +1036,8 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
         for (name, o) in &m.outputs {
             let file = text(&o.path.clone().unwrap_or_else(|| name.clone()));
             body.push_str(&match reference(&o.from, &sc) {
-                Ok(value) => format!("ls.save({value}, OUT / {file})\n"),
-                Err(e) => format!("# ls.save(..., OUT / {file})  # {e}\n"),
+                Ok(value) => format!("tf.save({value}, OUT / {file})\n"),
+                Err(e) => format!("# tf.save(..., OUT / {file})  # {e}\n"),
             });
         }
     }
@@ -1051,14 +1051,14 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
         .unwrap_or_else(|| "a model".into());
     // (a raw docstring: the texts' backslashes as they are)
     let clean = |t: &str| t.replace("\"\"\"", "'''").trim_end_matches('\\').to_string();
-    let mut head = format!("r\"\"\"{} as a Python script of landschaft.\n\n", clean(&one_line(&title)));
+    let mut head = format!("r\"\"\"{} as a Python script of terraflux.\n\n", clean(&one_line(&title)));
     for t in [&m.description, &m.request].into_iter().flatten().filter(|t| !t.trim().is_empty()) {
         head.push_str(&wrap(&clean(t), 100));
         head.push_str("\n\n");
     }
     head.push_str(&wrap(
         &format!(
-            "Written by Terraflux {} from the model{}: each node a call of landschaft's function of the same \
+            "Written by Terraflux {} from the model{}: each node a call of terraflux's function of the same \
              method, in the order the model runs them ({} of {} nodes translated).",
             env!("CARGO_PKG_VERSION"),
             model_path.map_or(String::new(), |p| format!(" {}", p.to_string_lossy().replace('\\', "/"))),
@@ -1075,7 +1075,7 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
         }
     }
     head.push_str("\"\"\"\n\n");
-    head.push_str("from pathlib import Path\n\nimport numpy as np\n\nimport landschaft as ls\n\n");
+    head.push_str("from pathlib import Path\n\nimport numpy as np\n\nimport terraflux as tf\n\n");
     let dir = model_path.and_then(|p| p.parent()).filter(|d| !d.as_os_str().is_empty());
     head.push_str(&match dir {
         Some(d) => format!(
@@ -1195,7 +1195,7 @@ fn node(n: &Node, r: &Registry, var: &str, sc: &Scope) -> Result<Code, String> {
         // a chart: what it draws, by matplotlib (left as a comment: a window would stop the script)
         let shown = ["value", "table", "features"].iter().find_map(|k| value_of(n, k, sc).ok().flatten());
         let code = match shown {
-            Some(v) => format!("# ls.plot({v})  # the chart (matplotlib)\n"),
+            Some(v) => format!("# tf.plot({v})  # the chart (matplotlib)\n"),
             None => "# (a chart of a value not translated)\n".to_string(),
         };
         return Ok((code, HashMap::new(), Need::Nothing));
@@ -1230,7 +1230,7 @@ fn node(n: &Node, r: &Registry, var: &str, sc: &Scope) -> Result<Code, String> {
             let (table, others) = reclassify_table(rules)?;
             let map = value_of(n, "map", sc)?.ok_or("its map is not connected")?;
             let others = others.map_or(String::new(), |o| format!(", others={o}"));
-            let code = format!("{var} = ls.reclassify({map}, {table}{others})\n");
+            let code = format!("{var} = tf.reclassify({map}, {table}{others})\n");
             return Ok((code, HashMap::from([("map".to_string(), var.to_string())]), Need::Nothing));
         }
         _ => {}
@@ -1258,7 +1258,7 @@ fn node(n: &Node, r: &Registry, var: &str, sc: &Scope) -> Result<Code, String> {
             let Some(mut v) = value_of(n, ours, sc)? else { continue };
             if py.kind == Kind::Habitat && *ours == "map" {
                 v = match value_of(n, "foreground", sc)? {
-                    Some(fg) => format!("ls.reclassify({v}, foreground={fg})"),
+                    Some(fg) => format!("tf.reclassify({v}, foreground={fg})"),
                     // coded as GuidosToolbox's (0 missing, 1 background, 2 foreground): as bytes
                     None => format!("{v}.fillna(0).astype(\"uint8\")"),
                 };
@@ -1327,7 +1327,7 @@ fn node(n: &Node, r: &Registry, var: &str, sc: &Scope) -> Result<Code, String> {
         return Ok((code, outs, Need::Nothing));
     }
     Err(if r.sig(&n.op).is_some() {
-        "no landschaft function known for it yet".into()
+        "no function of the Python library known for it yet".into()
     } else {
         "an operator unknown".into()
     })
@@ -1382,7 +1382,7 @@ fn swat_result(n: &Node, ports: &[&str], sc: &Scope) -> Result<Option<String>, S
 fn own_run(n: &Node, project: &str, step: &str, sc: &Scope) -> Result<Option<String>, String> {
     let mut args = vec![project.to_string(), format!("tables={{\"channel_sd\": {}}}", text(step))];
     args.extend(given(n, &[("nyskip", "nyskip"), ("c_factor", "c_factor")], sc)?);
-    Ok((args.len() > 2).then(|| format!("ls.hydro.swat.run({})", args.join(", "))))
+    Ok((args.len() > 2).then(|| format!("tf.hydro.swat.run({})", args.join(", "))))
 }
 
 /// The statistics of the weather generator given by station (`{"station": 4}`) are Terraflux's: landschaft takes a
@@ -1482,9 +1482,9 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 }
             }
             if n.inputs.contains_key("background") {
-                code.push_str("# (not passed: the input background; its points drawn by ls.sdm.background instead)\n");
+                code.push_str("# (not passed: the input background; its points drawn by tf.sdm.background instead)\n");
             }
-            code.push_str(&format!("{var} = ls.sdm.prepare({})\n", args.join(", ")));
+            code.push_str(&format!("{var} = tf.sdm.prepare({})\n", args.join(", ")));
             let outs = HashMap::from([
                 ("records".to_string(), var.to_string()),
                 ("env".to_string(), format!("{env}.sel(band={var}.predictors)")),
@@ -1500,7 +1500,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             let mut code = unpassed(&["predictors", "presence", "fold", "weights"]);
             let estimator = match model {
                 "maxnet" => format!(
-                    "ls.sdm.MaxNet({})",
+                    "tf.sdm.MaxNet({})",
                     given(
                         n,
                         &[
@@ -1552,7 +1552,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 other => return Err(format!("the model {other:?}: not in the script yet")),
             };
             let cv = given(n, &[("cv", "cv")], sc)?.into_iter().map(|c| format!(", {c}")).collect::<String>();
-            code.push_str(&format!("{var} = ls.sdm.fit({records}, {{{}: {estimator}}}{cv})\n", text(model)));
+            code.push_str(&format!("{var} = tf.sdm.fit({records}, {{{}: {estimator}}}{cv})\n", text(model)));
             let outs = HashMap::from([
                 ("model".to_string(), var.to_string()),
                 ("metrics".to_string(), format!("{var}.metrics")),
@@ -1568,7 +1568,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             let mut code = unpassed(&["type"]);
             let clamp = given(n, &[("clamp", "clamp")], sc)?.into_iter().map(|c| format!(", {c}")).collect::<String>();
             code.push_str(&format!(
-                "{var} = ls.sdm.predict({model}, {env}, ensemble=None, sd=False{clamp}).isel(band=0, drop=True)\n"
+                "{var} = tf.sdm.predict({model}, {env}, ensemble=None, sd=False{clamp}).isel(band=0, drop=True)\n"
             ));
             (code, one("prediction"), Need::Nothing)
         }
@@ -1587,7 +1587,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                     _ => args.push(format!("{k}={}", setting(n, k, sc)?.unwrap_or_else(|| literal(x)))),
                 }
             }
-            let code = format!("{var} = ls.landscape_metrics({})\n", args.join(", "));
+            let code = format!("{var} = tf.landscape_metrics({})\n", args.join(", "));
             (code, one("table"), Need::Nothing)
         }
         "woe.probability" => {
@@ -1608,7 +1608,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 }
             }
             let mut code = unpassed(&skipped);
-            code.push_str(&format!("{var} = ls.prioritize.zonation({})\n", args.join(", ")));
+            code.push_str(&format!("{var} = tf.prioritize.zonation({})\n", args.join(", ")));
             let outs = HashMap::from([
                 ("rank".to_string(), format!("{var}.rank")),
                 ("curves".to_string(), format!("{var}.summary_curves")),
@@ -1682,7 +1682,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 Some(_) => return Err("contribution without zone_costs".into()),
                 None => String::new(),
             };
-            let mut chain = vec![format!("ls.prioritize.problem({cost}, {features}{contribution})")];
+            let mut chain = vec![format!("tf.prioritize.problem({cost}, {features}{contribution})")];
             let objective = choice(n, "objective").unwrap_or("min_set");
             match OBJECTIVES.iter().find(|(o, _)| *o == objective) {
                 Some((o, false)) => chain.push(format!(".add_{o}_objective()")),
@@ -1821,7 +1821,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
         "swat.load" => {
             refuse_others(n, &["path"])?;
             let p = v("path")?.ok_or("choose the TxtInOut folder (path)")?;
-            (format!("{var} = ls.hydro.swat.load_txtinout({p})\n"), one("project"), Need::Nothing)
+            (format!("{var} = tf.hydro.swat.load_txtinout({p})\n"), one("project"), Need::Nothing)
         }
         "swat.set" => {
             refuse_others(n, &["project", "parameter", "change", "value", "first_layer", "last_layer", "objects"])?;
@@ -1846,7 +1846,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             let project = match (n.inputs.contains_key("project"), v("path")?) {
                 (true, Some(_)) => return Err("a project and a path, not both".into()),
                 (true, None) => need("project", "its project")?,
-                (false, Some(p)) => format!("ls.hydro.swat.load_txtinout({p})"),
+                (false, Some(p)) => format!("tf.hydro.swat.load_txtinout({p})"),
                 (false, None) => return Err("neither a project nor a path".into()),
             };
             let step = setting(n, "step", sc)?.unwrap_or_else(|| text("year"));
@@ -1868,7 +1868,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 .collect();
             let mut args = vec![project, format!("tables={{{}}}", print.join(", "))];
             args.extend(given(n, &[("nyskip", "nyskip"), ("c_factor", "c_factor")], sc)?);
-            let code = format!("{var} = ls.hydro.swat.run({})\n", args.join(", "));
+            let code = format!("{var} = tf.hydro.swat.run({})\n", args.join(", "));
             let mut outs = HashMap::from([
                 ("weather".to_string(), format!("_swat_weather({var})")),
                 ("@result".to_string(), var.to_string()),
@@ -1927,7 +1927,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 ("hrus".to_string(), format!("{var}.hrus")),
                 ("table".to_string(), format!("{var}.tables[\"gis_hrus\"]")),
             ]);
-            (format!("{var} = ls.hydro.swat.watershed({})\n", args.join(", ")), outs, Need::Nothing)
+            (format!("{var} = tf.hydro.swat.watershed({})\n", args.join(", ")), outs, Need::Nothing)
         }
         "swat.wgn" => {
             refuse_others(n, &["pcp", "tmax", "tmin", "slr", "hmd", "wnd", "dewpoint", "monthly"])?;
@@ -1942,7 +1942,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             }
             args.extend(given(n, &[("monthly", "monthly")], sc)?);
             monthly_by_station(n)?;
-            let code = format!("{var} = ls.hydro.swat.wgn_from_series({})\n", args.join(", "));
+            let code = format!("{var} = tf.hydro.swat.wgn_from_series({})\n", args.join(", "));
             (code, HashMap::from([("wgn".to_string(), format!("_swat_wgn_table({var})"))]), Need::Swat)
         }
         "swat.from_tables" => {
@@ -1986,11 +1986,11 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             weather.extend(given(n, &[("monthly", "monthly")], sc)?);
             monthly_by_station(n)?;
             let watershed = need("watershed", "its watershed")?;
-            let mut args = vec![watershed.clone(), format!("ls.hydro.swat.climate({})", weather.join(", "))];
+            let mut args = vec![watershed.clone(), format!("tf.hydro.swat.climate({})", weather.join(", "))];
             args.extend(given(n, &[("start", "start"), ("end", "end"), ("codes", "codes"), ("name", "name")], sc)?);
             // the project keeps its division for the maps of the results, as landschaft's from_rasters sets it
             let code =
-                format!("{var} = ls.hydro.swat.from_tables({})\n{var}.watershed = {watershed}\n", args.join(", "));
+                format!("{var} = tf.hydro.swat.from_tables({})\n{var}.watershed = {watershed}\n", args.join(", "));
             (code, one("project"), Need::Swat)
         }
         "swat.hru_map" => {
@@ -2017,7 +2017,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 }
             }
             let helper = project.starts_with("_swat_") || args[0].starts_with("_swat_");
-            let code = format!("{var} = ls.hydro.swat.hru_map({project}, {})\n", args.join(", "));
+            let code = format!("{var} = tf.hydro.swat.hru_map({project}, {})\n", args.join(", "));
             (code, one("map"), if helper { Need::Swat } else { Need::Nothing })
         }
         "swat.channel_map" => {
@@ -2041,7 +2041,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 }
             }
             let helper = args[1].starts_with("_swat_");
-            let code = format!("{var} = ls.hydro.swat.channel_map({})\n", args.join(", "));
+            let code = format!("{var} = tf.hydro.swat.channel_map({})\n", args.join(", "));
             (code, one("map"), if helper { Need::Swat } else { Need::Nothing })
         }
         "swat.reach_discharge" => {
@@ -2056,7 +2056,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             let project = v("project")?.unwrap_or_else(|| "None".into());
             let mut args = vec![project];
             args.extend(result.map(|r| format!("result={r}")));
-            let code = format!("{var} = ls.hydro.swat.reach_discharge({})\n", args.join(", "));
+            let code = format!("{var} = tf.hydro.swat.reach_discharge({})\n", args.join(", "));
             (code, HashMap::from([("table".to_string(), format!("_swat_discharge({var})"))]), Need::Swat)
         }
         "glm.fit" => {
@@ -2088,7 +2088,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             }
             args.extend(given(n, &[("maxit", "maxit"), ("epsilon", "epsilon")], sc)?);
             let code =
-                format!("{var} = ls.simulate.LogisticRegression({}).fit({landscape}, {drivers})\n", args.join(", "));
+                format!("{var} = tf.simulate.LogisticRegression({}).fit({landscape}, {drivers})\n", args.join(", "));
             (code, one("model"), Need::Nothing)
         }
         "glm.predict" => {
@@ -2118,7 +2118,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                     || f.get("rank").and_then(Value::as_i64) != Some(p as i64)
                 {
                     return Err(format!(
-                        "{what}: an aliased driver or a pivot of its own (landschaft's \
+                        "{what}: an aliased driver or a pivot of its own (the Python library's \
                          LogisticRegression.from_coefficients takes models of full rank)"
                     ));
                 }
@@ -2137,7 +2137,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 classes.push(format!("{}: {{{}}}", class_number(class), terms.join(", ")));
             }
             let code = format!(
-                "{var} = ls.simulate.LogisticRegression.from_coefficients({{\n    {},\n}})\n",
+                "{var} = tf.simulate.LogisticRegression.from_coefficients({{\n    {},\n}})\n",
                 classes.join(",\n    ")
             );
             (code, one("model"), Need::Nothing)
@@ -2146,7 +2146,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             refuse_others(n, &["sources", "friction", "diagonal", "relative"])?;
             let mut args = vec![need("sources", "its sources")?, need("friction", "its friction")?];
             args.extend(given(n, &[("diagonal", "diagonal"), ("relative", "relative")], sc)?);
-            let code = format!("{var} = ls.simulate.friction_cost({}, directions=True)\n", args.join(", "));
+            let code = format!("{var} = tf.simulate.friction_cost({}, directions=True)\n", args.join(", "));
             let outs = HashMap::from([
                 ("cost".to_string(), format!("{var}[0]")),
                 ("direction".to_string(), format!("{var}[1]")),
@@ -2164,7 +2164,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             args.extend(setting(n, "quadrants", sc)?);
             args.extend(given(n, SETTINGS, sc)?);
             args.push(format!("seed={}", step_seed(n, sc, None)?));
-            (format!("{var} = ls.simulate.destinations({})\n", args.join(", ")), one("map"), Need::Nothing)
+            (format!("{var} = tf.simulate.destinations({})\n", args.join(", ")), one("map"), Need::Nothing)
         }
         "dinamica.pathways" => {
             refuse_others(
@@ -2179,7 +2179,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             }
             args.extend(given(n, &[("lottery", "lottery"), ("merge", "merge"), ("value", "value")], sc)?);
             args.push(format!("seed={}", step_seed(n, sc, None)?));
-            (format!("{var} = ls.simulate.pathways({})\n", args.join(", ")), one("map"), Need::Nothing)
+            (format!("{var} = tf.simulate.pathways({})\n", args.join(", ")), one("map"), Need::Nothing)
         }
         "dinamica.roads" => {
             const SETTINGS: &[(&str, &str)] = &[
@@ -2203,7 +2203,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             }
             // Terraflux's seed of a step kept to 63 bits, as landschaft's run gives its steps
             let seed = step_seed(n, sc, Some("0x7FFFFFFFFFFFFFFF"))?;
-            let code = format!("{var} = ls.simulate.RoadBuilder({}).step({network}, seed={seed})\n", args.join(", "));
+            let code = format!("{var} = tf.simulate.RoadBuilder({}).step({network}, seed={seed})\n", args.join(", "));
             let outs = HashMap::from([
                 ("network".to_string(), var.to_string()),
                 ("distance".to_string(), format!("_road_distance({var})")),
@@ -2227,7 +2227,7 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             let quota = need("quota", "its quota")?;
             let seed = step_seed(n, sc, None)?;
             let code = format!(
-                "{var} = ls.simulate.ContinuousPatcher({}).allocate({stock}, {probability}, {quota}, seed={seed})\n",
+                "{var} = tf.simulate.ContinuousPatcher({}).allocate({stock}, {probability}, {quota}, seed={seed})\n",
                 given(n, SETTINGS, sc)?.join(", ")
             );
             let outs = HashMap::from([
@@ -2250,10 +2250,10 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             let preset = match op {
                 "dinamica.step" => "preset=\"dinamica\"",
                 "cars.step" => "preset=\"plus\"",
-                _ => "preset=ls.simulate.presets.clue_s",
+                _ => "preset=tf.simulate.presets.clue_s",
             };
             return Err(format!(
-                "landschaft allocates only within a whole model: ls.simulate.run(t0, t1, drivers, {preset}, \
+                "the Python library allocates only within a whole model: tf.simulate.run(t0, t1, drivers, {preset}, \
                  until=...) fits, validates and projects it"
             ));
         }
@@ -2474,7 +2474,7 @@ fn tables_and_features(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, 
         "vector.read" => {
             let path = setting(n, "path", sc)?.ok_or("its file (path) is not given")?;
             let layer = named(&[("layer", "layer")])?.into_iter().map(|l| format!(", {l}")).collect::<String>();
-            let code = format!("{}{var} = ls.load_vector({path}{layer})\n", unpassed(&["path", "layer"]));
+            let code = format!("{}{var} = tf.load_vector({path}{layer})\n", unpassed(&["path", "layer"]));
             (code, features(var), Need::Flow)
         }
         "vector.rasterize" => {
@@ -2487,7 +2487,7 @@ fn tables_and_features(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, 
             }
             args.extend(named(&[("all_touched", "all_touched"), ("merge", "merge")])?);
             let mut code = unpassed(&["vector", "like", "field", "value", "fill", "all_touched", "merge"]);
-            code.push_str(&format!("{var} = ls.rasterize({})\n", args.join(", ")));
+            code.push_str(&format!("{var} = tf.rasterize({})\n", args.join(", ")));
             (code, one("map"), Need::Nothing)
         }
         "vector.zonal" => {
@@ -2495,7 +2495,7 @@ fn tables_and_features(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, 
             let mut args = vec![need("map")?, format!("{}.geometry", need("vector")?)];
             args.extend(named(&[("stats", "stats"), ("all_touched", "all_touched")])?);
             let mut code = unpassed(&["vector", "map", "stats", "all_touched"]);
-            code.push_str(&format!("{var} = _attributes(ls.zonal_stats({}))\n", args.join(", ")));
+            code.push_str(&format!("{var} = _attributes(tf.zonal_stats({}))\n", args.join(", ")));
             (code, one("table"), Need::Flow)
         }
         op @ ("table.filter" | "table.calc" | "vector.filter" | "vector.calc") => {
@@ -2540,13 +2540,15 @@ fn tables_and_features(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, 
             return Err("its geodesic areas (GDAL's, on the WGS84 ellipsoid): not in the script yet".into());
         }
         "vector.density" => {
-            return Err("no landschaft function for it: a kernel density of points on a map's grid (ArcGIS's \
+            return Err(
+                "no function of the Python library for it: a kernel density of points on a map's grid (ArcGIS's \
                         Kernel Density), to write by hand"
-                .into());
+                    .into(),
+            );
         }
         "vector.exact_sum" => {
-            return Err("landschaft's exact sums (exactextract's) are internal to its prioritization \
-                        (landschaft.prioritize._milp.exact_sums), not a function of its own"
+            return Err("the Python library's exact sums (exactextract's) are internal to its prioritization \
+                        (terraflux.prioritize._milp.exact_sums), not a function of its own"
                 .into());
         }
         op => {
@@ -2582,7 +2584,7 @@ pub struct View {
 pub fn window(ctx: &egui::Context, s: &mut crate::app::Session) {
     let Some(v) = &mut s.python else { return };
     let mut open = true;
-    egui::Window::new("Python script (landschaft)")
+    egui::Window::new("Python script")
         .open(&mut open)
         .default_size([760.0, 560.0])
         .resizable(true)
@@ -2591,7 +2593,7 @@ pub fn window(ctx: &egui::Context, s: &mut crate::app::Session) {
             let total = v.script.translated + v.script.left.len();
             ui.label(
                 egui::RichText::new(format!(
-                    "The model as a script of landschaft, the Python library whose methods Terraflux runs: {} of \
+                    "The model as a script of terraflux, the Python library whose methods Terraflux runs: {} of \
                      {total} nodes translated. A calculator keeps its script, run in numpy by a helper at the top.",
                     v.script.translated
                 ))
@@ -2809,7 +2811,7 @@ from = "kept.table"
         assert!(
             t.contains("kept = _select(joined, columns=[\"edge\", \"class\"], rename={\"edge\": \"perimeter\"})\n")
         );
-        assert!(t.contains("ls.save(kept, OUT / \"kept\")"), "{t}");
+        assert!(t.contains("tf.save(kept, OUT / \"kept\")"), "{t}");
         // the expressions need both helpers: the tables' and the calculator's
         assert!(t.contains("def _calc(script, **inputs):") && t.contains("def _evaluate(frame, script"), "{t}");
         parses(t);
@@ -2913,7 +2915,7 @@ from = "counted.table"
         .unwrap();
         let s = script(&m, &r, None);
         let t = &s.text;
-        assert!(t.contains("plots = ls.load_vector(MODEL_DIR / \"data/plots.gpkg\", layer=\"plots\")\n"), "{t}");
+        assert!(t.contains("plots = tf.load_vector(MODEL_DIR / \"data/plots.gpkg\", layer=\"plots\")\n"), "{t}");
         assert!(
             t.contains("forest = _features_filter(plots, \"uso == \\\"forest\\\" and geometry.area > 100\")\n"),
             "{t}"
@@ -2927,11 +2929,11 @@ from = "counted.table"
             t.contains("# (not passed: block_rows = 64)\nat = _extract(land, plots, method=\"bilinear\")\n"),
             "{t}"
         );
-        assert!(t.contains("zones = _attributes(ls.zonal_stats(land, ring.geometry, stats=[\"mean\", \"max\"]))\n"));
-        assert!(t.contains("burnt = ls.rasterize(plots, land, field=\"pop\", merge=\"add\")\n"), "{t}");
+        assert!(t.contains("zones = _attributes(tf.zonal_stats(land, ring.geometry, stats=[\"mean\", \"max\"]))\n"));
+        assert!(t.contains("burnt = tf.rasterize(plots, land, field=\"pop\", merge=\"add\")\n"), "{t}");
         // features' table: their attributes
         assert!(t.contains("counted = _spatial_join(ring, at, mode=\"summary\", fields=\"value\")\n"), "{t}");
-        assert!(t.contains("ls.save(_attributes(counted), OUT / \"counted\")"), "{t}");
+        assert!(t.contains("tf.save(_attributes(counted), OUT / \"counted\")"), "{t}");
         assert!(t.contains("joined = _join_features(plots, zones)\n"), "{t}");
         assert!(t.contains("near = _distance(plots, land)\n"), "{t}");
         assert!(t.contains("squares = _squares(land, 5)\n"), "{t}");
@@ -2954,8 +2956,8 @@ from = "counted.table"
         )
         .unwrap();
         let t = script(&m, &r, None).text;
-        assert!(t.contains("plots = ls.load_vector(Path(\"C:/data/plots.gpkg\"))\n"), "{t}");
-        assert!(t.contains("burnt = ls.rasterize(plots, land, fill=np.nan, all_touched=True)\n"), "{t}");
+        assert!(t.contains("plots = tf.load_vector(Path(\"C:/data/plots.gpkg\"))\n"), "{t}");
+        assert!(t.contains("burnt = tf.rasterize(plots, land, fill=np.nan, all_touched=True)\n"), "{t}");
         assert!(t.contains("t = _table([\"a\"], [[1], [None]])\n"), "{t}");
         assert!(t.contains("pts = _points_from(t, x=\"a\", y=\"a\")\n"), "{t}");
         // only the helpers of features: not the calculator's
@@ -2979,7 +2981,7 @@ from = "counted.table"
     }
 
     #[test]
-    fn land_change_as_landschaft() {
+    fn land_change_as_terraflux() {
         let r = Registry::standard();
         let m = Model::from_toml(
             r#"
@@ -3104,28 +3106,28 @@ from = "roads.distance"
         let t = &s.text;
         // the classes in their order, as Terraflux fits them
         assert!(
-            t.contains("glm = ls.simulate.LogisticRegression({2: [\"slope\", \"dist\"], 10: [\"slope\"]}, maxit=30).fit(a, drivers)\n"),
+            t.contains("glm = tf.simulate.LogisticRegression({2: [\"slope\", \"dist\"], 10: [\"slope\"]}, maxit=30).fit(a, drivers)\n"),
             "{t}"
         );
         assert!(t.contains("suitability = _by_class(glm.predict(drivers, landscape=a))\n"), "{t}");
         assert!(
-            t.contains("given = ls.simulate.LogisticRegression.from_coefficients({\n    1: {\"(Intercept)\": -1.5, \"slope\": 0.25},\n})\n"),
+            t.contains("given = tf.simulate.LogisticRegression.from_coefficients({\n    1: {\"(Intercept)\": -1.5, \"slope\": 0.25},\n})\n"),
             "{t}"
         );
-        assert!(t.contains("cost = ls.simulate.friction_cost(a, b, diagonal=False, directions=True)\n"), "{t}");
+        assert!(t.contains("cost = tf.simulate.friction_cost(a, b, diagonal=False, directions=True)\n"), "{t}");
         // the seed of a step as Terraflux makes it
         assert!(
-            t.contains("ends = ls.simulate.destinations(b, [2, 3], min_distance=50, seed=3 + 2 * 0x9E3779B9)\n"),
+            t.contains("ends = tf.simulate.destinations(b, [2, 3], min_distance=50, seed=3 + 2 * 0x9E3779B9)\n"),
             "{t}"
         );
-        assert!(t.contains("paths = ls.simulate.pathways(a, ends, directions=cost[1], merge=False, seed=1)\n"), "{t}");
+        assert!(t.contains("paths = tf.simulate.pathways(a, ends, directions=cost[1], merge=False, seed=1)\n"), "{t}");
         assert!(
-            t.contains("roads = ls.simulate.RoadBuilder(b, b, distance=[100, 500], spacing=200).step(a, seed=(1 + 4 * 0x9E3779B9) & 0x7FFFFFFFFFFFFFFF)\n"),
+            t.contains("roads = tf.simulate.RoadBuilder(b, b, distance=[100, 500], spacing=200).step(a, seed=(1 + 4 * 0x9E3779B9) & 0x7FFFFFFFFFFFFFFF)\n"),
             "{t}"
         );
-        assert!(t.contains("ls.save(_road_distance(roads), OUT / \"near\""), "{t}");
+        assert!(t.contains("tf.save(_road_distance(roads), OUT / \"near\""), "{t}");
         assert!(
-            t.contains("logged = ls.simulate.ContinuousPatcher(mean=4, unit=\"cells\", window=[5, 5]).allocate(a, b, 500, seed=1)\n"),
+            t.contains("logged = tf.simulate.ContinuousPatcher(mean=4, unit=\"cells\", window=[5, 5]).allocate(a, b, 500, seed=1)\n"),
             "{t}"
         );
         assert!(
@@ -3139,7 +3141,7 @@ from = "roads.distance"
             "{t}"
         );
         assert!(t.contains("wanted = _demand_table({\"classes\": [1, 2], \"rows\": [[5, 5], [4, 6]]})\n"), "{t}");
-        assert!(t.contains("observed = ls.simulate.AreaDemand.from_maps(drivers, times=[2000, 2010])\n"), "{t}");
+        assert!(t.contains("observed = tf.simulate.AreaDemand.from_maps(drivers, times=[2000, 2010])\n"), "{t}");
         assert!(
             t.contains(
                 "    .add_boundary_penalties(0.1)\n    .add_connectivity_penalties(2, _unit_pairs(pairs, a.size))\n"
@@ -3149,7 +3151,7 @@ from = "roads.distance"
         // management zones: a cost a zone, the features' contribution in each
         assert!(
             t.contains(
-                "ls.prioritize.problem(drivers, drivers, contribution={\"dist\": 0.5, \"slope\": 1})
+                "tf.prioritize.problem(drivers, drivers, contribution={\"dist\": 0.5, \"slope\": 1})
     .add_min_set_objective()
 "
             ),
@@ -3192,10 +3194,10 @@ from = "roads.distance"
         std::fs::write(file, serde_json::to_string(&all).unwrap()).unwrap();
     }
 
-    /// SWAT+ as landschaft's `ls.hydro.swat`: a project loaded and changed, one made from maps and the weather, run,
+    /// SWAT+ as landschaft's `tf.hydro.swat`: a project loaded and changed, one made from maps and the weather, run,
     /// the results on the map; the template of the project from rasters is all translated.
     #[test]
-    fn swat_as_landschaft() {
+    fn swat_as_terraflux() {
         let r = Registry::standard();
         let m = Model::from_toml(
             r#"
@@ -3238,7 +3240,7 @@ params = { path = "hubbard.zip", step = "aa", tables = ["hru_wb"] }
         let s = script(&m, &r, None);
         let t = &s.text;
         assert!(s.left.is_empty(), "{:?}", s.left);
-        assert!(t.contains("base = ls.hydro.swat.load_txtinout(MODEL_DIR / \"hubbard/TxtInOut\")\n"), "{t}");
+        assert!(t.contains("base = tf.hydro.swat.load_txtinout(MODEL_DIR / \"hubbard/TxtInOut\")\n"), "{t}");
         assert!(t.contains("curve = _swat_set(base, parameter=\"cn2\", change=\"pctchg\", value=cn2_change)\n"), "{t}");
         assert!(
             t.contains(
@@ -3246,11 +3248,11 @@ params = { path = "hubbard.zip", step = "aa", tables = ["hru_wb"] }
             ),
             "{t}"
         );
-        assert!(t.contains("run = ls.hydro.swat.run(layer, tables={\"hru_wb\": [], "), "{t}");
+        assert!(t.contains("run = tf.hydro.swat.run(layer, tables={\"hru_wb\": [], "), "{t}");
         assert!(t.contains("\"basin_wb\": [\"day\"]") && t.contains("\"channel_sd\": [\"day\"]"), "{t}");
         assert!(t.contains("nyskip=0, c_factor=\"plant\")\n"), "{t}");
         assert!(
-            t.contains("ls.hydro.swat.run(ls.hydro.swat.load_txtinout(MODEL_DIR / \"hubbard.zip\"), tables={"),
+            t.contains("tf.hydro.swat.run(tf.hydro.swat.load_txtinout(MODEL_DIR / \"hubbard.zip\"), tables={"),
             "{t}"
         );
         // the helpers, with the parameters the port calibrates
@@ -3266,22 +3268,22 @@ params = { path = "hubbard.zip", step = "aa", tables = ["hru_wb"] }
         let t = &s.text;
         assert!(s.left.is_empty(), "{:?}", s.left);
         assert!(t.contains(".rio.write_crs(\"+proj=tmerc "), "{t}");
-        assert!(t.contains("watershed = ls.hydro.swat.watershed(dem[\"map\"], cover, soils[\"map\"], landuse_lookup=landuse_lookup, soil_lookup=soil_lookup, soil_table=soil_table, stream_threshold=0.3)\n"), "{t}");
-        assert!(t.contains("wgn = ls.hydro.swat.wgn_from_series(_swat_series(pcp), _swat_series(tmax), _swat_series(tmin), monthly={"), "{t}");
+        assert!(t.contains("watershed = tf.hydro.swat.watershed(dem[\"map\"], cover, soils[\"map\"], landuse_lookup=landuse_lookup, soil_lookup=soil_lookup, soil_table=soil_table, stream_threshold=0.3)\n"), "{t}");
+        assert!(t.contains("wgn = tf.hydro.swat.wgn_from_series(_swat_series(pcp), _swat_series(tmax), _swat_series(tmin), monthly={"), "{t}");
         assert!(
-            t.contains("project = ls.hydro.swat.from_tables(watershed, ls.hydro.swat.climate(_swat_stations(stations), pcp=_swat_series(pcp)"),
+            t.contains("project = tf.hydro.swat.from_tables(watershed, tf.hydro.swat.climate(_swat_stations(stations), pcp=_swat_series(pcp)"),
             "{t}"
         );
         assert!(t.contains(", wgn=wgn))\n"), "{t}");
         assert!(
-            t.contains("sediment = ls.hydro.swat.hru_map(soil_water, \"sedyld\", how=\"annual\", result=yearly)\n"),
+            t.contains("sediment = tf.hydro.swat.hru_map(soil_water, \"sedyld\", how=\"annual\", result=yearly)\n"),
             "{t}"
         );
         assert!(
-            t.contains("flow = ls.hydro.swat.channel_map(soil_water, \"flo_out\", how=\"mean\", result=daily)\n"),
+            t.contains("flow = tf.hydro.swat.channel_map(soil_water, \"flo_out\", how=\"mean\", result=daily)\n"),
             "{t}"
         );
-        assert!(t.contains("discharge = ls.hydro.swat.reach_discharge(soil_water, result=daily)\n"), "{t}");
+        assert!(t.contains("discharge = tf.hydro.swat.reach_discharge(soil_water, result=daily)\n"), "{t}");
         parses(t);
     }
 
@@ -3360,13 +3362,13 @@ from = "mspa.map"
         .unwrap();
         let s = script(&m, &r, Some(Path::new("C:/models/forest.toml")));
         let t = &s.text;
-        assert!(t.contains("land = ls.load_raster(MODEL_DIR / \"data/land.tif\")"), "{t}");
+        assert!(t.contains("land = tf.load_raster(MODEL_DIR / \"data/land.tif\")"), "{t}");
         assert!(t.contains("forest = _calc("), "{t}");
         assert!(t.contains("land=land"), "{t}");
-        assert!(t.contains("mspa = ls.mspa(ls.reclassify(forest[\"forest\"], foreground=1), edge_width=2)"), "{t}");
-        assert!(t.contains("noise = ls.nlm.gaussian_field(ncol=land.sizes[\"x\"], nrow=land.sizes[\"y\"], autocorr_range=20, seed=1)"), "{t}");
-        assert!(t.contains("classes = ls.reclassify(noise, {(0, np.nextafter(0.5, np.inf)): 1}, others=2)"), "{t}");
-        assert!(t.contains("ls.save(mspa, OUT / \"mspa\")"), "{t}");
+        assert!(t.contains("mspa = tf.mspa(tf.reclassify(forest[\"forest\"], foreground=1), edge_width=2)"), "{t}");
+        assert!(t.contains("noise = tf.nlm.gaussian_field(ncol=land.sizes[\"x\"], nrow=land.sizes[\"y\"], autocorr_range=20, seed=1)"), "{t}");
+        assert!(t.contains("classes = tf.reclassify(noise, {(0, np.nextafter(0.5, np.inf)): 1}, others=2)"), "{t}");
+        assert!(t.contains("tf.save(mspa, OUT / \"mspa\")"), "{t}");
         assert!(t.contains("MODEL_DIR = Path(\"C:/models\")"), "{t}");
         assert_eq!(s.translated, 4);
         assert_eq!(s.left.len(), 1);
@@ -3486,7 +3488,7 @@ from = "pick.map"
         assert!(t.contains("else:\n    # otherwise (control.group)"), "{t}");
         assert!(t.contains("    pick = half[\"map\"]\n    pick_branch = \"near\"\n"), "{t}");
         assert!(t.contains("    otherwise_m = pick_map\n    pick = otherwise_m\n"), "{t}");
-        assert!(t.contains("ls.save(pick, OUT / \"picked\")"), "{t}");
+        assert!(t.contains("tf.save(pick, OUT / \"picked\")"), "{t}");
         assert!(t.contains("def _elements(v):") && t.contains("def _gather(values, names, column):"));
         // value.calc has no counterpart: left, by its place in the loop; the containers translated
         assert!(s.left.iter().any(|(id, _, _)| id == "growth/full"), "{:?}", s.left);
@@ -3563,23 +3565,23 @@ op = "dinamica.step"
         let s = script(&m, &r, None);
         let t = &s.text;
         assert!(t.contains("env = _stack({\"1_to_2\": b, \"temp\": a})"), "{t}");
-        assert!(t.contains("occ = ls.sdm.background(env, n=50, seed=1)"), "{t}");
+        assert!(t.contains("occ = tf.sdm.background(env, n=50, seed=1)"), "{t}");
         assert!(
-            t.contains("data = ls.sdm.prepare(occ, env, clean=false, folds=4)".replace("false", "False").as_str()),
+            t.contains("data = tf.sdm.prepare(occ, env, clean=false, folds=4)".replace("false", "False").as_str()),
             "{t}"
         );
-        assert!(t.contains("fit = ls.sdm.fit(data, {\"glm\": make_pipeline(StandardScaler(), LogisticRegression(C=0.5, max_iter=1000))})"), "{t}");
-        assert!(t.contains("map_ = ls.sdm.predict(fit, env.sel(band=data.predictors), ensemble=None, sd=False).isel(band=0, drop=True)"), "{t}");
-        assert!(t.contains("    ls.prioritize.problem(a, env)\n    .add_max_utility_objective(100)\n    .add_boundary_penalties(0.1)\n    .add_binary_decisions()\n    .add_highs_solver(gap=0.01)\n    .solve()\n"), "{t}");
+        assert!(t.contains("fit = tf.sdm.fit(data, {\"glm\": make_pipeline(StandardScaler(), LogisticRegression(C=0.5, max_iter=1000))})"), "{t}");
+        assert!(t.contains("map_ = tf.sdm.predict(fit, env.sel(band=data.predictors), ensemble=None, sd=False).isel(band=0, drop=True)"), "{t}");
+        assert!(t.contains("    tf.prioritize.problem(a, env)\n    .add_max_utility_objective(100)\n    .add_boundary_penalties(0.1)\n    .add_binary_decisions()\n    .add_highs_solver(gap=0.01)\n    .solve()\n"), "{t}");
         assert!(
             t.contains(
-                "metrics = ls.landscape_metrics(a, level=\"landscape\", directions=4, type=\"diversity metric\")"
+                "metrics = tf.landscape_metrics(a, level=\"landscape\", directions=4, type=\"diversity metric\")"
             ),
             "{t}"
         );
-        assert!(t.contains("markov = ls.simulate.Markov.from_maps(a, b, steps=5)"), "{t}");
+        assert!(t.contains("markov = tf.simulate.Markov.from_maps(a, b, steps=5)"), "{t}");
         // the allocation: landschaft runs it as a whole model
         let step = s.left.iter().find(|(id, _, _)| id == "step").unwrap();
-        assert!(step.2.contains("ls.simulate.run(t0, t1, drivers, preset=\"dinamica\""), "{}", step.2);
+        assert!(step.2.contains("tf.simulate.run(t0, t1, drivers, preset=\"dinamica\""), "{}", step.2);
     }
 }

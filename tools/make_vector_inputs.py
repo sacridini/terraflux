@@ -17,10 +17,10 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 
 import geopandas as gpd  # noqa: E402
-import landschaft as ls  # noqa: E402
+import terraflux as tf  # noqa: E402
 import optimize_cases as oc  # noqa: E402
 from shapely.geometry import LineString, MultiPoint, Point, box  # noqa: E402
 
@@ -54,12 +54,12 @@ def main() -> None:
         for key, kw in {"centre": {}, "touched": {"all_touched": True}, "field": {"field": "v"},
                         "add": {"field": "v", "merge": "add", "all_touched": True},
                         "fill": {"field": "v", "fill": np.nan}}.items():
-            arrays[f"rasterize/{key}"] = np.asarray(ls.rasterize(layers["mixed"], like, dtype="float64", **kw).values,
+            arrays[f"rasterize/{key}"] = np.asarray(tf.rasterize(layers["mixed"], like, dtype="float64", **kw).values,
                                                     dtype=np.float64)
         stats = ["count", "sum", "mean", "min", "max", "std", "median", "majority", "unique", "percentile_90"]
         for zones in ("shapes", "pu_polygons_partial"):
             for touched in (False, True):
-                t = ls.zonal_stats(oc.features(), layers[zones], stats=stats, all_touched=touched)
+                t = tf.zonal_stats(oc.features(), layers[zones], stats=stats, all_touched=touched)
                 t = t[[c for c in t.columns if c != "geometry" and np.issubdtype(t[c].dtype, np.number)]]
                 key = f"zonal/{zones}/{'touched' if touched else 'centre'}"
                 arrays[key] = t.to_numpy(np.float64)

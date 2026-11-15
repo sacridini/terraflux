@@ -41,7 +41,7 @@ memory.
 
 - **Results you can trust.** The methods follow their reference implementations, and many give the same
   results to the bit: GuidosToolbox, landscapemetrics, Zonation 5, Marxan, Dinamica EGO and lulcc's CLUE-S among
-  them. Parity tests against [landschaft](https://github.com/sacridini/landschaft) run in the
+  them. Parity tests against [terraflux-py](https://github.com/sacridini/terraflux-py) run in the
   test suite.
 - **No code needed, nothing hidden.** More than 340 operators in a searchable library, 45 ready-to-run templates and
   a wizard that checks and fixes the data. Every automatic choice is a visible node, with a note on why it is
@@ -55,9 +55,9 @@ memory.
 
 | Field | What Terraflux does | Methods of |
 |---|---|---|
-| **Land change simulation** | Dinamica EGO's model (Markov chains, weights of evidence, Expander and Patcher, the Patcher of a stock, endogenous roads), CLUE-S, ordered allocation, PLUS's land expansion analysis and CARS, cellular automata in loops, validation by fuzzy similarity | Dinamica EGO, lulcc, PLUS, landschaft |
+| **Land change simulation** | Dinamica EGO's model (Markov chains, weights of evidence, Expander and Patcher, the Patcher of a stock, endogenous roads), CLUE-S, ordered allocation, PLUS's land expansion analysis and CARS, cellular automata in loops, validation by fuzzy similarity | Dinamica EGO, lulcc, PLUS, terraflux-py |
 | **Carbon and REDD+** | Emissions and removals of land change with regrowth curves; Verra's VT0007 deforestation risk maps, their fit, allocation of the expected deforestation and assessment | IPCC, UDef-ARP |
-| **Machine learning** | Random forests and histogram gradient boosting of classes or values on tables and maps, their predictions, the predictors' importances (impurity, permutation) and partial dependence, the potential of each class to appear | scikit-learn, landschaft |
+| **Machine learning** | Random forests and histogram gradient boosting of classes or values on tables and maps, their predictions, the predictors' importances (impurity, permutation) and partial dependence, the potential of each class to appear | scikit-learn, terraflux-py |
 | **Map accuracy and area** | Stratified random samples sized and drawn for a map, the error matrix, user's, producer's and overall accuracies and each class's area with confidence intervals | Olofsson et al. (2014), mapaccuracy |
 | **Spatial statistics** | Every cell's trend along a series of maps (Mann-Kendall, Sen's slope), global and local Moran's I (LISA's clusters), Getis-Ord's Gi* hot and cold spots, variograms, ordinary kriging and inverse distance weighting of points | pymannkendall, PySAL's esda, gstat |
 | **Habitat patterns** | MSPA (also tiled, for maps larger than memory), SPA, Accounting, FAD and FOS fragmentation, landscape mosaic, spatial entropy, change between two dates | GuidosToolbox |
@@ -371,12 +371,12 @@ See [`docs/cluster.md`](docs/cluster.md) for the details, and `tools/slurm` for 
 
 ## From Python
 
-[landschaft](https://github.com/sacridini/landschaft) writes its fitted models as Terraflux graphs:
+[terraflux-py](https://github.com/sacridini/terraflux-py) writes its fitted models as Terraflux graphs:
 
 ```python
-import landschaft as ls
+import terraflux as tf
 
-S = ls.simulate
+S = tf.simulate
 model = S.presets.dinamica(lu[0], lu[1], drivers, steps=14)   # fitted in Python
 model.save("dinamica.json", lu[0], drivers, seed=1)            # the graph and its data
 maps = S.terraflux("dinamica.json")                            # run by Terraflux
@@ -397,20 +397,20 @@ maps = S.terraflux("dinamica.json")                            # run by Terraflu
 
 Terraflux needs Rust 1.85 or later, CMake and a C++17 compiler: Visual Studio on Windows, Apple's clang with
 Homebrew's OpenMP on macOS (`brew install cmake libomp`), GCC on Linux (`apt install build-essential cmake`).
-landschaft's C++ kernels come from a submodule. GDAL is loaded at run time and is not needed to build.
+terraflux-py's C++ kernels come from a submodule. GDAL is loaded at run time and is not needed to build.
 
 ```bash
 git clone --recurse-submodules git@github.com:sacridini/terraflux.git
 cd terraflux
 cargo build --release          # target/release/terraflux
-cargo test --release           # parity with landschaft included
+cargo test --release           # parity with terraflux-py included
 ```
 
 <details>
 <summary>Notes on building and testing</summary>
 
 - On Windows, keep the build folder's path short (`CARGO_TARGET_DIR`): MSBuild fails on paths over 260 characters.
-- `LANDSCHAFT_DIR` points the build at another landschaft checkout, `LANDSCHAFT_EIGEN_DIR` at a local copy of
+- `TERRAFLUX_PY_DIR` points the build at another terraflux-py checkout, `TERRAFLUX_EIGEN_DIR` at a local copy of
   Eigen 3.4.
 - GDAL is found next to the program (the folder `gdal`, which the packages bring and `tools/bundle-gdal.ps1`
   fills), in `TERRAFLUX_GDAL`, or installed. Without it, GeoTIFF is still read and written by Terraflux itself.
@@ -430,14 +430,14 @@ cargo test --release           # parity with landschaft included
 | `terraflux-engine` | The tiled engine: fits by reduction, counter-based random numbers, allocation by thresholds |
 | `terraflux-raster` | Grids, rasters and a pure-Rust GeoTIFF reader and writer (BigTIFF, tiles, LZW, Deflate) |
 | `terraflux-gdal` | GDAL and OGR, loaded at run time |
-| `terraflux-ls-sys` | The bridge to landschaft's C++ kernels |
+| `terraflux-ls-sys` | The bridge to terraflux-py's C++ kernels |
 | `terraflux-app` | The application (egui and wgpu) |
 | `terraflux-dist` | The coordinator, the workers and the batches (gRPC) |
 | `terraflux-cli` | The `terraflux` command |
 
 ## Acknowledgements
 
-Terraflux stands on [landschaft](https://github.com/sacridini/landschaft)'s C++ kernels and on
+Terraflux stands on [terraflux-py](https://github.com/sacridini/terraflux-py)'s C++ kernels and on
 [egui](https://github.com/emilk/egui), [wgpu](https://wgpu.rs), [GDAL](https://gdal.org) and
 [HiGHS](https://highs.dev). Its methods are those of the tools named above and of their authors' publications.
 

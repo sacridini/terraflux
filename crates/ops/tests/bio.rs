@@ -15,7 +15,7 @@ fn root() -> PathBuf {
 }
 
 fn sites() -> PathBuf {
-    root().join("extern/landschaft/src/landschaft/bio/data/example_sites.csv")
+    root().join("extern/terraflux-py/src/terraflux/bio/data/example_sites.csv")
 }
 
 fn same(a: f64, b: f64) -> bool {
@@ -189,7 +189,7 @@ fn trees_and_phylogenetic_indices_are_landschafts() {
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/bio_trees.json")).unwrap())
             .unwrap();
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/bio_phylo.npz")).unwrap();
-    let data = root().join("extern/landschaft/tests/data/bio");
+    let data = root().join("extern/terraflux-py/tests/data/bio");
     for (f, want) in reference["files"].as_object().unwrap() {
         let text = String::from_utf8_lossy(&std::fs::read(data.join(f)).unwrap()).into_owned();
         let got = read_trees(&text, None).unwrap();
@@ -247,7 +247,7 @@ fn the_tree_operator_feeds_the_analysis() {
             Args { node: "n", inputs: inputs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), params: &params };
         r.get(op).unwrap().run(&mut Ctx::default(), &args).unwrap()
     };
-    let nex = root().join("extern/landschaft/src/landschaft/bio/data/example_tree.nex");
+    let nex = root().join("extern/terraflux-py/src/terraflux/bio/data/example_tree.nex");
     let tree = run("bio.tree", vec![], serde_json::json!({"path": nex.to_str().unwrap()})).remove("tree").unwrap();
     let Value::Tree(t) = &tree else { panic!() };
     assert_eq!(t.terminal_names().len(), 31);
@@ -287,7 +287,7 @@ fn randomisations_are_landschafts() {
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/bio.json")).unwrap()).unwrap();
     let text = std::fs::read_to_string(sites()).unwrap();
     let bd = BaseData::from_table(&text, &import(&bd_ref["basedata"]["cells"]["options"])).unwrap();
-    let nex = root().join("extern/landschaft/src/landschaft/bio/data/example_tree.nex");
+    let nex = root().join("extern/terraflux-py/src/terraflux/bio/data/example_tree.nex");
     let tree = read_trees(&std::fs::read_to_string(nex).unwrap(), None).unwrap().remove(0);
     let calcs = strings(&reference["calculations"]);
     let conds = [Condition::new("sp_circle (radius => 200000)").unwrap()];
@@ -353,7 +353,7 @@ fn the_randomise_operator_gives_tables_and_maps() {
             Args { node: "n", inputs: inputs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), params: &params };
         r.get(op).unwrap().run(&mut Ctx::default(), &args).unwrap()
     };
-    let nex = root().join("extern/landschaft/src/landschaft/bio/data/example_tree.nex");
+    let nex = root().join("extern/terraflux-py/src/terraflux/bio/data/example_tree.nex");
     let tree = run("bio.tree", vec![], serde_json::json!({"path": nex.to_str().unwrap()})).remove("tree").unwrap();
     let bd = run(
         "bio.table",
@@ -393,7 +393,7 @@ fn clusters_are_landschafts() {
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/bio.json")).unwrap()).unwrap();
     let text = std::fs::read_to_string(sites()).unwrap();
     let bd = BaseData::from_table(&text, &import(&bd_ref["basedata"]["cells"]["options"])).unwrap();
-    let nex = root().join("extern/landschaft/src/landschaft/bio/data/example_tree.nex");
+    let nex = root().join("extern/terraflux-py/src/terraflux/bio/data/example_tree.nex");
     let tree = read_trees(&std::fs::read_to_string(nex).unwrap(), None).unwrap().remove(0);
     for (k, entry) in reference["cases"].as_array().unwrap().iter().enumerate() {
         let c = &entry["case"];
@@ -491,7 +491,7 @@ fn properties_and_matrices_are_landschafts() {
     let bd_ref: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/bio.json")).unwrap()).unwrap();
     let text = std::fs::read_to_string(sites()).unwrap();
-    let data = root().join("extern/landschaft/tests/data/bio");
+    let data = root().join("extern/terraflux-py/tests/data/bio");
     let read = |f: &str| String::from_utf8_lossy(&std::fs::read(data.join(f)).unwrap()).into_owned();
     let props = |f: &str, el: &[usize], cols: &[(&str, usize)]| {
         let cols: Vec<(String, usize)> = cols.iter().map(|(n, c)| (n.to_string(), *c)).collect();
@@ -594,7 +594,7 @@ fn the_properties_and_matrix_operators_feed_the_analysis() {
             Args { node: "n", inputs: inputs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), params: &params };
         r.get(op).unwrap().run(&mut Ctx::default(), &args).unwrap_or_else(|e| panic!("{op}: {e}"))
     };
-    let data = root().join("extern/landschaft/tests/data/bio");
+    let data = root().join("extern/terraflux-py/tests/data/bio");
     let bd = run(
         "bio.table",
         vec![],

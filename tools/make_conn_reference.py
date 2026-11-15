@@ -19,11 +19,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-HG = ls.conn.HabitatGraph
+HG = tf.conn.HabitatGraph
 
 
 def main() -> None:
@@ -52,7 +52,7 @@ def main() -> None:
     }
     frames = {"near": pd.DataFrame(near, columns=["from", "to", "value"])}
 
-    def make(name: str, **kw) -> ls.conn.HabitatGraph:
+    def make(name: str, **kw) -> tf.conn.HabitatGraph:
         g = graphs[name]
         conn = np.asarray(g["matrix"]) if "matrix" in g else frames["near"]
         extra = {"restoration": np.asarray(g["nodes"]["restoration"])} if "restoration" in g["nodes"] else {}
@@ -66,7 +66,7 @@ def main() -> None:
         cases.append({"name": name, "graph": graph, "settings": settings, "op": op, "params": params,
                       "columns": [str(c) for c in frame.columns], **extra})
 
-    all_metrics = list(ls.conn.METRICS)
+    all_metrics = list(tf.conn.METRICS)
     for conv, area_ in (("makurhini", None), ("conefor", 1e6)):
         st = {"convention": conv, **({"landscape_area": area_} if area_ else {})}
         g = make("matrix", convention=conv, landscape_area=area_)
@@ -117,7 +117,7 @@ def main() -> None:
     series = [HG(np.asarray(graphs[g]["nodes"]["attribute"]), np.asarray(graphs[g]["matrix"]),
                  ids=np.asarray(graphs[g]["nodes"]["id"])) for g in ("eca1", "eca2", "eca3")]
     for metric in ("PC", "IIC"):
-        t = ls.conn.eca_change(series, metric, distance=[300.0, 500.0], landscape_area=2e3)
+        t = tf.conn.eca_change(series, metric, distance=[300.0, 500.0], landscape_area=2e3)
         out[f"eca_{metric}"] = t.drop(columns=["time", "comparison", "change"]).to_numpy(dtype=np.float64)
         cases.append({"name": f"eca_{metric}", "graph": None, "op": "conn.eca_change", "graphs": ["eca1", "eca2", "eca3"],
                       "params": {"metric": metric, "distance": [300.0, 500.0], "landscape_area": 2e3},

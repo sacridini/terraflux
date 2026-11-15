@@ -60,7 +60,7 @@ impl Operator for ContinuousPatcher {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "dinamica.continuous_patcher",
-            "Dinamica EGO's Patcher of a continuous state (PatcherContinuousState), landschaft's ContinuousPatcher: \
+            "Dinamica EGO's Patcher of a continuous state (PatcherContinuousState), the Python library's ContinuousPatcher: \
              new patches (logging, clearing, harvest) that take the stock of their cells (biomass, carbon, timber) \
              until a quota is met. Seeds drawn among the cells with stock and probability ranked from the highest \
              (prune_factor x quota of stock), in proportion to the probability; lognormal patch sizes grown as the \
@@ -209,7 +209,7 @@ impl Operator for CostMap {
         OpSignature::new(
             "dinamica.cost_map",
             "The cost of reaching every cell from the nearest source over a friction surface, Dinamica EGO's \
-             CalcCostMap (landschaft's friction_cost): a step into a cell costs its friction (x sqrt 2 on a \
+             CalcCostMap (the Python library's friction_cost): a step into a cell costs its friction (x sqrt 2 on a \
              diagonal), 8 neighbours, Dijkstra's sums; and the direction of each cell's predecessor (1 NW, 2 N, 3 \
              NE, 4 E, 5 SE, 6 S, 7 SW, 8 W; 0 at the sources, 255 unreached).",
             Access::Global,
@@ -267,7 +267,7 @@ impl Operator for Destinations {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "dinamica.destinations",
-            "Cells drawn by attraction in quadrants of a map, Dinamica EGO's CalcDestinationMap (landschaft's \
+            "Cells drawn by attraction in quadrants of a map, Dinamica EGO's CalcDestinationMap (the Python library's \
              destinations): in each of the horizontal x vertical parts, up to per_quadrant cells in proportion to \
              their attraction, a draw closer than min_distance to an earlier one drawn again.",
             Access::Global,
@@ -335,7 +335,7 @@ impl Operator for Pathways {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "dinamica.pathways",
-            "Paths from source cells to a network, Dinamica EGO's CalcPathwayMap (landschaft's pathways): from each \
+            "Paths from source cells to a network, Dinamica EGO's CalcPathwayMap (the Python library's pathways): from each \
              source (row order) to the cheapest of its 8 neighbours until a cell of cost <= 0 (the network), or \
              along the directions of a cost map until the network.",
             Access::Global,
@@ -393,7 +393,7 @@ impl Operator for Roads {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "dinamica.roads",
-            "A step of endogenous road building, Dinamica EGO's road constructor (landschaft's RoadBuilder.step): \
+            "A step of endogenous road building, Dinamica EGO's road constructor (the Python library's RoadBuilder.step): \
              the attraction kept where the distance to the roads is within distance (and the mask allows), \
              destinations drawn in quadrants, each joined to the network down the cost of reaching it over the \
              friction; the network with the new roads, and the distance to them (a dynamic variable).",

@@ -50,7 +50,7 @@ solves it exactly, even with millions of decisions. When they must be whole, 0 (
     minimised or maximised and adds a budget, \(\sum_i c_i x_i \leq B\).
 
 [[prioritize.optimize]] builds this model row by row and solves it with **HiGHS** (Huangfu & Hall, 2018), an
-open-source solver of linear and integer programs, with landschaft's own engines in front of it for the problems
+open-source solver of linear and integer programs, with terraflux-py's own engines in front of it for the problems
 general solvers find slow. Its formulations of the objectives, penalties and constraints took the R package of
 Hanson et al. (2025) as their reference, and its results were checked against it.
 
@@ -191,7 +191,7 @@ With a fixed budget, the solver needs to know what "doing the most" means. Six o
 | `min_shortfall` | minus the sum of the shortfalls, each as a share of its target |
 | `min_largest_shortfall` | minus the largest shortfall of any feature |
 | `max_features` | the number of targets met in full |
-| `min_extinction_risk` | minus the sum of the features' risk, \(1 - (\text{held}/\text{total})^z\) (landschaft's) |
+| `min_extinction_risk` | minus the sum of the features' risk, \(1 - (\text{held}/\text{total})^z\) (terraflux-py's) |
 | `max_cover` | the number of features held at all (any amount) |
 
 `max_phylo_div` and `max_phylo_end` add a phylogeny (`tree`, in Newick) and value evolutionary history (Faith's
@@ -308,7 +308,7 @@ exploring, 1 % is plenty; for a final plan, ask for 0.1 % or less and report the
 
 ### The solver
 
-HiGHS comes with Terraflux, with landschaft's engines in front of it, exactly as landschaft solves the same
+HiGHS comes with Terraflux, with terraflux-py's engines in front of it, exactly as terraflux-py solves the same
 problem: a minimum set with boundary penalties (or symmetric connectivity rewards) goes first to the **cut
 engine**, which bounds the cost with minimum cuts and repairs selections until the gap asked for is proved, and to
 HiGHS's MIP only when the gap is not reached and the model is small; a budgeted minimisation with pair penalties

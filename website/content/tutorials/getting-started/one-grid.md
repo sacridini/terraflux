@@ -153,7 +153,7 @@ images:
 ## Put a map on another's grid: raster.match
 
 [[raster.resample]] keeps the CRS and the origin; it only changes the cell size. To put a map **on the grid of
-another**, with its CRS, cell size, alignment and extent in one step, use [[raster.match]] (landschaft's
+another**, with its CRS, cell size, alignment and extent in one step, use [[raster.match]] (terraflux-py's
 `match_grid`, by `gdalwarp`). Its inputs are `raster` (the rasters to move) and `like` (the raster whose grid to
 take: only its header is read). Its `resampling` follows the same `auto` rule.
 

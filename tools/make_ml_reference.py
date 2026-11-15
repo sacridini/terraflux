@@ -31,8 +31,8 @@ from sklearn.ensemble import (HistGradientBoostingClassifier, HistGradientBoosti
 
 from sklearn.inspection import partial_dependence, permutation_importance
 
-import landschaft as ls
-from landschaft.simulate._maps import read_map
+import terraflux as tf
+from terraflux.simulate._maps import read_map
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
@@ -122,8 +122,8 @@ def main() -> None:
         arrays[f"dependence/{name}/average"] = r["average"]
         meta[f"dependence/{name}"] = {"model": model, "feature": feature, "grid_resolution": res}
 
-    lu = ls.load_raster(ls.simulate.example_data("pie_landuse"))
-    ef = ls.load_raster(ls.simulate.example_data("pie_drivers"))
+    lu = tf.load_raster(tf.simulate.example_data("pie_landuse"))
+    ef = tf.load_raster(tf.simulate.example_data("pie_drivers"))
     arrays["pie/t0"] = read_map(lu[0]).as_float()
     arrays["pie/t1"] = read_map(lu[2]).as_float()
     names = [str(v) for v in ef[ef.dims[0]].values]
@@ -131,7 +131,7 @@ def main() -> None:
         arrays[f"pie/driver/{n}"] = read_map(ef[k]).as_float()
     meta["pie/drivers"] = names
     rf = RandomForestClassifier(n_estimators=10, random_state=0)
-    S = ls.simulate
+    S = tf.simulate
     for name, kw in {
         "expansion": {"target": "expansion", "sample": 4000, "seed": 1},
         "stratified": {"target": "expansion", "sample": 0.05, "stratify": True, "seed": 2},

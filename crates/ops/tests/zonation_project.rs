@@ -1,6 +1,6 @@
 //! prioritize.zonation_project against Zonation 5 v2.4: the projects of landschaft's 65 cases (settings.z5, the
 //! feature list, link files, rasters; tests/data/reference/zonation_projects, tools/make_zonation_projects.py) read
-//! and run, their rank maps as the z5 binary's (extern/landschaft/tests/data/reference/prioritize) bit for bit;
+//! and run, their rank maps as the z5 binary's (extern/terraflux-py/tests/data/reference/prioritize) bit for bit;
 //! a post-processing file's calls one after another.
 
 use std::collections::BTreeMap;
@@ -59,7 +59,7 @@ fn same(a: f64, b: f64) -> bool {
 }
 
 fn reference(group: &str) -> (BTreeMap<String, Array>, serde_json::Value) {
-    let refdir = root().join("extern/landschaft/tests/data/reference/prioritize");
+    let refdir = root().join("extern/terraflux-py/tests/data/reference/prioritize");
     let arrays = terraflux_raster::npy::read_npz(refdir.join(format!("{group}.npz"))).unwrap();
     let meta = serde_json::from_str(&std::fs::read_to_string(refdir.join(format!("{group}.json"))).unwrap()).unwrap();
     (arrays, meta)

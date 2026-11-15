@@ -753,11 +753,11 @@ fn producer(s: &Session, node: &str, port: &str) -> (Option<Product>, String) {
 /// where they are from. `shown` is the map drawn (none: not known).
 pub fn default_palette(nodes: &[terraflux_graph::Node], node: &str, port: &str, shown: Option<&Source>) -> Palette {
     let (mut made, mut hint) = producer_in(nodes, node, port);
-    // rasters on disk that say what product they are (landschaft_product, as landschaft writes it)
+    // rasters on disk that say what product they are (terraflux_product, or the old landschaft_product)
     if made.is_none()
         && let Some(Source::Rasters(r, l)) = shown
     {
-        made = r.grid_of(*l).geo.item("landschaft_product").and_then(Product::from_tag);
+        made = r.grid_of(*l).geo.product().and_then(Product::from_tag);
     }
     hint.push_str(port);
     if let Some(Source::Rasters(r, l)) = shown {

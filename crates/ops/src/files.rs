@@ -867,7 +867,7 @@ impl Operator for Write {
         .param(PortSpec::optional(
             "product",
             Type::Text,
-            "the product of GuidosToolbox the map is (MSPA, FAD...), written as landschaft_product: by default that \
+            "the product of GuidosToolbox the map is (MSPA, FAD...), written as terraflux_product: by default that \
              of the operator that made it",
         ))
     }
@@ -970,7 +970,7 @@ fn write_raster(
     let (dtype, nodata) = DataType::fitting(&refs, wanted);
     // the product the values are, not that of the maps they were made from
     let mut grid = grid.clone();
-    grid.geo.set_item("landschaft_product", product);
+    grid.geo.set_product(product);
     grid.geo.set_item(LAYER_ITEM, None);
     let raster = Raster {
         grid,
@@ -1084,7 +1084,7 @@ pub fn copy(r: &Rasters, path: &Path, wanted: Option<DataType>) -> Result<()> {
     copy_as(r, path, wanted, None)
 }
 
-/// [`copy`], the product the rasters are written as landschaft_product (none: the files' own).
+/// [`copy`], the product the rasters are written as terraflux_product (none: the files' own).
 pub fn copy_as(r: &Rasters, path: &Path, wanted: Option<DataType>, product: Option<&str>) -> Result<()> {
     const TILE: usize = 256;
     r.one_grid("writing them to one file")?;
@@ -1109,7 +1109,7 @@ pub fn copy_as(r: &Rasters, path: &Path, wanted: Option<DataType>, product: Opti
     let err = |e: terraflux_raster::Error| Error::msg(format!("{}: {e}", path.display()));
     let mut grid = (*r.grid).clone();
     if product.is_some() {
-        grid.geo.set_item("landschaft_product", product);
+        grid.geo.set_product(product);
     }
     let mut out = TiledWriter::create(path, &grid, names, dtype, nodata, TILE, Some(6)).map_err(err)?;
     for row in 0..h.div_ceil(TILE) {

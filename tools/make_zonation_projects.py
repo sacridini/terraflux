@@ -3,7 +3,7 @@
 
 landschaft runs the z5 binary on a project per case (tests/prioritize_cases.py, written by
 tools/make_reference_prioritize.py's write_project: settings.z5, the feature list, the link files and the rasters)
-and keeps its outputs (extern/landschaft/tests/data/reference/prioritize). This writes the rasters of the cases
+and keeps its outputs (extern/terraflux-py/tests/data/reference/prioritize). This writes the rasters of the cases
 once into tests/data/reference/zonation_projects/ (the same files, one-strip GeoTIFFs) and the cases into
 zonation_projects/projects.json: per case its group, the z5 switches, mode and bits, the text files of its project
 and the rasters it uses:
@@ -20,8 +20,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tools"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tools"))
 
 import prioritize_cases as pc  # noqa: E402
 from make_reference_prioritize import write_project  # noqa: E402

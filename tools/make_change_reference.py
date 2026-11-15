@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
@@ -39,10 +39,10 @@ def frame(df) -> dict:
 
 
 def main() -> None:
-    out: dict = {"landschaft": ls.__version__, "cases": []}
+    out: dict = {"landschaft": tf.__version__, "cases": []}
     for name, gain, loss in CASES:
-        lu = ls.load_raster(INPUTS / name)
-        ch = ls.simulate.changes(lu)
+        lu = tf.load_raster(INPUTS / name)
+        ch = tf.simulate.changes(lu)
         case = {"file": name, "gain": gain, "loss": loss, "times": [float(t) for t in ch.times],
                 "cell_area": ch.cell_area, "classes": [float(c) for c in ch.classes]}
         case["table"] = frame(ch.table)
@@ -58,8 +58,8 @@ def main() -> None:
                 "category_gain_stationarity", "category_loss_stationarity", "transition_gain_stationarity",
                 "transition_loss_stationarity")}
         case["components"] = frame(ch.components())
-        case["components_error"] = frame(ls.simulate.difference_components(m, analysis="error"))
-        case["overall"] = ls.simulate.overall_difference(m)
+        case["components_error"] = frame(tf.simulate.difference_components(m, analysis="error"))
+        case["overall"] = tf.simulate.overall_difference(m)
         count, table = ch.change_count()
         counts = np.asarray(count)
         case["change_count"] = {"values": [int(v) for v in counts.ravel()], "table": frame(table)}

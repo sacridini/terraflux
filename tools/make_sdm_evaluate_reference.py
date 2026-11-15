@@ -16,11 +16,11 @@ from pathlib import Path
 
 import numpy as np
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-S = ls.sdm
+S = tf.sdm
 
 
 def main() -> None:

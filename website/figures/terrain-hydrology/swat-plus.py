@@ -1,6 +1,6 @@
 """Figures of the tutorial "Watershed simulation with SWAT+" (terrain-hydrology/swat-plus).
 
-The SWAT+ project of Hubbard Brook watershed 2 that landschaft ships (hubbard_brook.zip, a TxtInOut folder,
+The SWAT+ project of Hubbard Brook watershed 2 that terraflux-py ships (hubbard_brook.zip, a TxtInOut folder,
 2000-2002) simulated by Terraflux's swat.run: yearly, monthly and daily water balances of the basin, the daily
 discharge of its channel, the average annual balance and soil loss of each HRU with both cover factors, and the
 year of spin-up.

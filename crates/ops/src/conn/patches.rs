@@ -184,7 +184,7 @@ impl Operator for Nodes {
         node_settings(patch_settings(
             OpSignature::new(
                 "conn.nodes",
-                "The nodes of a habitat graph from a raster of patches or from features (landschaft's \
+                "The nodes of a habitat graph from a raster of patches or from features (the Python library's \
                  node_table, Makurhini's nodesfile): each patch's id and attribute, its area by default (GDAL's \
                  area of the polygons).",
                 Access::Global,
@@ -207,7 +207,7 @@ impl Operator for Distances {
         distance_settings(patch_settings(
             OpSignature::new(
                 "conn.distances",
-                "The distances between the patches of a raster or between features (landschaft's \
+                "The distances between the patches of a raster or between features (the Python library's \
                  distance_table, Makurhini's distancefile): between their centroids (R's means of the cells' \
                  centres; the features' largest part's, or GEOS's point on the surface when it falls outside), \
                  their edges (the gap between their closest cells; GEOS's distance), least-cost over a \
@@ -236,7 +236,7 @@ impl Operator for FromRaster {
         graph_settings(distance_settings(node_settings(patch_settings(
             OpSignature::new(
                 "conn.graph_from_raster",
-                "A habitat graph of the patches of a raster (landschaft's HabitatGraph.from_raster): the nodes' \
+                "A habitat graph of the patches of a raster (the Python library's HabitatGraph.from_raster): the nodes' \
                  attributes and the distances between them (conn.nodes and conn.distances); its values map back \
                  onto the patches (conn.to_map).",
                 Access::Global,
@@ -268,7 +268,7 @@ impl Operator for ToMap {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "conn.to_map",
-            "Per-node values on the patches of a graph made from a raster (landschaft's HabitatGraph.to_raster): \
+            "Per-node values on the patches of a graph made from a raster (the Python library's HabitatGraph.to_raster): \
              every cell of a node the value of its id in the table; missing elsewhere.",
             Access::Global,
         )
@@ -321,7 +321,7 @@ impl Operator for FromVector {
         graph_settings(distance_settings(node_settings(vector_settings(
             OpSignature::new(
                 "conn.graph_from_vector",
-                "A habitat graph of vector features (landschaft's HabitatGraph.from_vector): the nodes' \
+                "A habitat graph of vector features (the Python library's HabitatGraph.from_vector): the nodes' \
                  attributes and the distances between them (conn.nodes and conn.distances on the features); its \
                  values join back onto the features (conn.to_vector).",
                 Access::Global,
@@ -350,7 +350,7 @@ impl Operator for ToVector {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "conn.to_vector",
-            "A table of nodes joined onto the features of a graph made from them (landschaft's \
+            "A table of nodes joined onto the features of a graph made from them (the Python library's \
              HabitatGraph.to_geodataframe): a feature per row of the table (its id's), with the table's columns.",
             Access::Global,
         )
@@ -403,7 +403,7 @@ impl Operator for FocalNodes {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "conn.focal_nodes",
-            "The importance of every node in its neighbourhood (Makurhini's MK_Focal_nodes, landschaft's \
+            "The importance of every node in its neighbourhood (Makurhini's MK_Focal_nodes, the Python library's \
              focal_nodes): the graph of the nodes within a search buffer of it (their points on the surface, \
              the landscape their bounding box) and, in it, EC and IIC or PC, the node's dI and its fractions, \
              and IComp (the index times dI). A row per node and distance.",
@@ -469,7 +469,7 @@ impl Operator for ProtConn {
         let sig = if self.regions {
             OpSignature::new(
                 "conn.protconn_regions",
-                "ProtConn for every region of several (landschaft's protconn_regions): conn.protconn's indicators \
+                "ProtConn for every region of several (the Python library's protconn_regions): conn.protconn's indicators \
                  with a row per region and distance.",
                 Access::Global,
             )
@@ -478,7 +478,7 @@ impl Operator for ProtConn {
         } else {
             OpSignature::new(
                 "conn.protconn",
-                "Saura's ProtConn (Makurhini's MK_ProtConn, landschaft's protconn): the share of a region \
+                "Saura's ProtConn (Makurhini's MK_ProtConn, the Python library's protconn): the share of a region \
                  protected and connected. The protected areas clipped to the region and dissolved are the nodes \
                  (and the transboundary ones within a distance of it; the region's parts with `bound`); PC's \
                  numerator over the most probable paths between them gives ECA, PC, Prot, ProtConn, ProtUnconn, \
@@ -687,7 +687,7 @@ impl Operator for ConnectivityGrid {
         grid_cells(
             OpSignature::new(
                 "conn.connectivity_grid",
-                "Connectivity per cell of a grid over a region (Makurhini's MK_Connect_grid, landschaft's \
+                "Connectivity per cell of a grid over a region (Makurhini's MK_Connect_grid, the Python library's \
                  connectivity_grid): ProtConn's indicators of the protected areas in each cell, or the PC of \
                  their dissolved parts (Protected_surface, LA, ECA, ECA_Normalized, PC).",
                 Access::Global,
@@ -732,7 +732,7 @@ impl Operator for EcaChangeGrid {
             OpSignature::new(
                 "conn.eca_change_grid",
                 "The change of ECA per cell of a grid between consecutive times (Makurhini's MK_dECA_grid, \
-                 landschaft's eca_change_grid): the habitat of each time clipped to the cell, its graph \
+                 the Python library's eca_change_grid): the habitat of each time clipped to the cell, its graph \
                  (areas, centroid distances), ECA of IIC or PC, their change and how it reads.",
                 Access::Global,
             )
@@ -792,7 +792,7 @@ impl Operator for Settlement {
             graph_settings(node_settings(
                 OpSignature::new(
                     "conn.graph_from_samc",
-                    "A habitat graph of settlement probabilities (landschaft's HabitatGraph.from_samc, Makurhini's \
+                    "A habitat graph of settlement probabilities (the Python library's HabitatGraph.from_samc, Makurhini's \
                      MK_dPCIIC with samc): the nodes' attributes and, between them, the probability that a walker \
                      leaving one settles in the other (conn.settlement_probabilities).",
                     Access::Global,
@@ -802,7 +802,7 @@ impl Operator for Settlement {
         } else {
             OpSignature::new(
                 "conn.settlement_probabilities",
-                "The probabilities of settling between habitat nodes (landschaft's settlement_probabilities, the \
+                "The probabilities of settling between habitat nodes (the Python library's settlement_probabilities, the \
                  samc package's model): a random walk over a resistance (to a neighbour with the probability of \
                  its conductance, 1 / the mean resistance by default), absorbed at each cell with a probability \
                  (an absorption raster, or none inside the nodes and exp(-1.247 - 1.788 log(dispersal distance / \
@@ -891,7 +891,7 @@ impl Operator for ProtConnRaster {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "conn.protconn_raster",
-            "ProtConn of a raster of protected areas (landschaft's protconn_raster): its patches inside the \
+            "ProtConn of a raster of protected areas (the Python library's protconn_raster): its patches inside the \
              region (the region's features rasterized on its grid, or a raster of the region) are the nodes, \
              at their centroids; transboundary patches within a distance of them or of the region, and the \
              region's parts with `bound`.",

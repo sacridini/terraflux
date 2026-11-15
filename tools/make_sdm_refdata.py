@@ -17,7 +17,7 @@ import io
 import math
 from pathlib import Path
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "crates" / "ops" / "data" / "sdm"
@@ -42,7 +42,7 @@ def cell(v) -> str:
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for name, cols in COLUMNS.items():
-        d = ls.sdm.reference_data(name)[cols]
+        d = tf.sdm.reference_data(name)[cols]
         buf = io.StringIO()
         w = csv.writer(buf, lineterminator="\n")
         w.writerow(cols)

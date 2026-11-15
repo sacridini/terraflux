@@ -20,23 +20,23 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-C = ls.conn
+C = tf.conn
 
 
 def main() -> None:
-    classes = ls.nlm.random_cluster(40, 32, p=0.42, ai=[0.35, 0.65], resolution=30.0, seed=11, rescale=False)
+    classes = tf.nlm.random_cluster(40, 32, p=0.42, ai=[0.35, 0.65], resolution=30.0, seed=11, rescale=False)
     classes = classes.astype(np.float64)
-    resistance = ls.nlm.gaussian_field(40, 32, autocorr_range=6, resolution=30.0, seed=12) * 9 + 1
+    resistance = tf.nlm.gaussian_field(40, 32, autocorr_range=6, resolution=30.0, seed=12) * 9 + 1
     r = resistance.values.copy()
     r[:, 19:21] = np.nan
     r[30:, 19:21] = 2.0
     r[10:13, 19:21] = 3.0
     resistance = resistance.copy(data=r)
-    ids = np.asarray(ls.Landscape(np.ma.masked_array((classes.values == 2).astype(np.int32),
+    ids = np.asarray(tf.Landscape(np.ma.masked_array((classes.values == 2).astype(np.int32),
                                                      mask=classes.values != 2), res=(30.0, 30.0)).labels(),
                      dtype=np.float64)
     ids[ids == 0] = np.nan

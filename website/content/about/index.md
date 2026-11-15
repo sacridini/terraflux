@@ -28,12 +28,12 @@ prioritization, restoration planning, species distributions, biodiversity analys
 | Part | Technology |
 |---|---|
 | The application | Rust, with an egui and wgpu interface drawn by the GPU |
-| Simulation and analysis kernels | C++17 and OpenMP from [landschaft](https://github.com/sacridini/landschaft), and Rust |
+| Simulation and analysis kernels | C++17 and OpenMP from [terraflux-py](https://github.com/sacridini/terraflux-py), and Rust |
 | Geographic data | GDAL (bundled with the installers), and a GeoTIFF reader and writer of its own |
 | Many machines | gRPC between a coordinator and its workers, TLS with pairing codes |
-| Python | landschaft writes and reads Terraflux models (`ls.simulate`) |
+| Python | The Python library terraflux (`import terraflux as tf`) writes and reads Terraflux models (`tf.simulate`) |
 
-**landschaft** is Terraflux's sister project: a Python library with the same methods, for those who prefer to
+**terraflux-py** is Terraflux's sister project: a Python library (`pip install terraflux`) with the same methods, for those who prefer to
 work in notebooks. A model fitted in Python runs in Terraflux unchanged, and the other way round.
 
 ## License

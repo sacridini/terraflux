@@ -82,7 +82,7 @@ impl Operator for Prepare {
         coordinate_settings(
             OpSignature::new(
                 "sdm.prepare",
-                "The preparation of a species distribution model in one node (landschaft's prepare): the records \
+                "The preparation of a species distribution model in one node (the Python library's prepare): the records \
                  cleaned (CoordinateCleaner's tests), one per cell, thinned; the accessible area; the predictors \
                  without collinearity in it; background points in it; the predictors' values at the records; the \
                  folds. Each step takes false (skip it), true, a number (its main setting) or an object of the \

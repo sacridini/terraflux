@@ -25,7 +25,7 @@ its area, perimeter and core must be those of the whole forest, not of its piece
 
 ![Blocks of rows and strips](/img/tutorials/landscape-metrics/large-maps/blocks.png "Left: a map read in three blocks of rows. The large forest crosses all three; it is still counted as one patch, its pieces joined across the blocks' boundaries. Right: a moving window by strips. To compute the windows of the cells of strip 2 (the red square is one window), the strip is read with half a window of rows above and below (the orange halo).")
 
-Terraflux uses landschaft's *out-of-core landscape*: the map is read block by block (blocks of a multiple of 64 rows,
+Terraflux uses terraflux-py's *out-of-core landscape*: the map is read block by block (blocks of a multiple of 64 rows,
 the strips in which the patches are labelled), a first time to label the patches and join the pieces that touch
 across blocks, a second time to sum the metrics of every patch, class and the landscape (a third or fourth time for
 core areas, the radius of gyration, the circumscribing circle and the nearest-neighbour distances). The sums are made

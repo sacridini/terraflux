@@ -617,11 +617,11 @@ def _in_crs(other, vector):
 
 def _extract(raster, points, **options):
     """vector.extract: the points as they are with the values of a map (value) or of every layer of a stack (by its
-    name) at them, landschaft's extract; with a buffer, the statistics of the cells around each (count, mean, min,
+    name) at them, terraflux's extract; with a buffer, the statistics of the cells around each (count, mean, min,
     max and std by default)."""
     if options.get("buffer") is not None:
         options.setdefault("stats", ["count", "mean", "min", "max", "std"])
-    got = ls.extract(raster, points.geometry, **options)
+    got = tf.extract(raster, points.geometry, **options)
     new = [c for c in got.columns if c != got.geometry.name]
     if options.get("buffer") is None and len(new) == 1:
         got, new = got.rename(columns={new[0]: "value"}), ["value"]
@@ -941,7 +941,7 @@ def _distance(vector, like, all_touched=False):
     them, exactly (scipy's Euclidean distance transform, in the map's units; infinity without any)."""
     from scipy import ndimage
 
-    burnt = ls.rasterize(vector, like, all_touched=all_touched)
+    burnt = tf.rasterize(vector, like, all_touched=all_touched)
     target = _np.asarray(burnt.values) != 0
     dx, dy = (abs(r) for r in burnt.rio.resolution())
     if target.any():
@@ -952,20 +952,20 @@ def _distance(vector, like, all_touched=False):
 
 
 def _squares(raster, size):
-    """vector.grid_zones: landschaft's squares tiling the map, numbered (zone), in its coordinate system."""
+    """vector.grid_zones: terraflux's squares tiling the map, numbered (zone), in its coordinate system."""
     import geopandas as gpd
     from shapely.geometry import shape
 
-    zones = ls.grid_zones(raster, size)
+    zones = tf.grid_zones(raster, size)
     return gpd.GeoDataFrame({"zone": _np.arange(1, len(zones) + 1)}, geometry=[shape(z) for z in zones],
                             crs=raster.rio.crs)
 
 
-# --- land change and prioritization (landschaft's simulate and prioritize) ---
+# --- land change and prioritization (terraflux's simulate and prioritize) ---
 
 
 def _by_class(probability):
-    """glm.predict: landschaft's layer per class (class, y, x) as a stack, a layer named by its class."""
+    """glm.predict: terraflux's layer per class (class, y, x) as a stack, a layer named by its class."""
     return probability.rename({"class": "band"}).assign_coords(band=[_text(c) for c in probability["class"].values])
 
 
@@ -990,12 +990,12 @@ def _stock_info(taken, quota):
 
 
 def _demand_table(spec):
-    """demand.table: { classes, rows, times } as landschaft's demand (the times 0, 1... unless given)."""
+    """demand.table: { classes, rows, times } as terraflux's demand (the times 0, 1... unless given)."""
     rows = [list(r) for r in spec["rows"]]
     times = spec.get("times") or list(range(len(rows)))
     if len(rows) < 2 or any(len(r) != len(spec["classes"]) for r in rows):
         raise ValueError("a demand needs the start and one step, each a value per class")
-    return ls.simulate.AreaDemand(_pd.DataFrame(rows, index=_pd.Index(times, name="time"),
+    return tf.simulate.AreaDemand(_pd.DataFrame(rows, index=_pd.Index(times, name="time"),
                                                 columns=list(spec["classes"])))
 
 

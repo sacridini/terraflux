@@ -29,7 +29,7 @@ it calls factors), the **area change** (the cross table of the two maps), the **
 **cellular automaton simulation** (a Monte Carlo simulator) and the **validation** (kappa statistics and an error
 budget). Its ease of use made it common in studies of land use change in Asia and Africa; Muhammad et al. (2022),
 for example, used it to project the land use of Linyi, China. Terraflux reproduces its potential (weights of
-evidence) and its simulator through landschaft, and offers any of its own potentials (a logistic regression here)
+evidence) and its simulator through terraflux-py, and offers any of its own potentials (a logistic regression here)
 in their place.
 
 ### The quantities: the cross table
@@ -129,7 +129,7 @@ rests on kappa. For yearly steps, patches and the quantities always met, use
 
 - The two maps of the calibration period, and the map to start from (Sibuyan's of 1997 and 2011).
 - Drivers, and the bounds of their categories (as in the plugin's *Weights of evidence* dialogue).
-- The weights: fitted by MOLUSCE (the plugin's table, or landschaft's `MolusceWoE` in Python, which gives the same
+- The weights: fitted by MOLUSCE (the plugin's table, or terraflux-py's `MolusceWoE` in Python, which gives the same
   values) and written into [[molusce.total]]'s settings; or another potential (a logistic regression).
 
 ## Build the model

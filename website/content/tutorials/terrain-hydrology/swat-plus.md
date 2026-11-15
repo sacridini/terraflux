@@ -63,10 +63,10 @@ litter protect the soil), \( P \) the support practice factor, \( LS \) the leng
 transport index of [part 3](../wetness-and-connectivity/) is the same idea) and CFRG a factor for coarse
 fragments; the result is in tonnes per day.
 
-**In Terraflux**, [[swat.run]] runs a SWAT+ project through landschaft's port of SWAT+ 62.0.1 to C++. For what
+**In Terraflux**, [[swat.run]] runs a SWAT+ project through terraflux-py's port of SWAT+ 62.0.1 to C++. For what
 the port covers (measured and generated weather; HRUs with snow, evapotranspiration, curve-number runoff,
 MUSLE erosion, percolation, lateral flow, nutrients, plant growth and management; routing units; aquifers;
-SWAT-DEG channels) it gives SWAT+'s own results, value for value: landschaft checks it against SWAT+ itself,
+SWAT-DEG channels) it gives SWAT+'s own results, value for value: terraflux-py checks it against SWAT+ itself,
 every printed field of every day, on official examples including this one. What it does not cover
 (reservoirs, wetlands, pesticides, salts and other constituents, Green-Ampt infiltration, the CENTURY carbon
 model, water allocation) is refused with an error rather than skipped.
@@ -102,8 +102,8 @@ parts 1 to 3 are simpler and need no parameters.
 - **A SWAT+ project**: a *TxtInOut* folder, the folder of text files that QSWAT+ and the SWAT+ Editor write and
   that SWAT+ reads (`file.cio` lists all the others), or a zip of it. Outputs of earlier runs left in the folder
   (`.txt`, `.out`, `.csv` files...) are ignored.
-- **Here**: `hubbard_brook.zip`, the example landschaft ships (in Terraflux's repository,
-  `extern/landschaft/src/landschaft/hydro/swat/data/`), one of the official SWAT+ examples
+- **Here**: `hubbard_brook.zip`, the example terraflux-py ships (in Terraflux's repository,
+  `extern/terraflux-py/src/terraflux/hydro/swat/data/`), one of the official SWAT+ examples
   (SWATPlus-datasets, LGPL-2.1). It models watershed 2 of the Hubbard Brook Experimental Forest, the watershed
   whose forest was cut in the deforestation experiment of Likens et al. (1970): 16.3 ha, 10 HRUs (young forest,
   mature forest and two small barren units), one routing unit, one channel, a shallow and a deep aquifer, 79
@@ -114,7 +114,7 @@ parts 1 to 3 are simpler and need no parameters.
     The fifth value of `parameters.bsn` is read by SWAT+ 62 as the *peak rate factor* (484 in projects written
     by the SWAT+ Editor 4). Files written for earlier versions, including the original official Hubbard Brook
     example, have 1 there, and SWAT+ 62 then computes peak rates, and erosion, hundreds of times too low
-    without a word. landschaft's copy has 484. [[swat.run]] warns when it finds a value below 10.
+    without a word. terraflux-py's copy has 484. [[swat.run]] warns when it finds a value below 10.
 
 ## Build the model
 
@@ -304,7 +304,7 @@ caption: "The basin's mean leaf area index and litter (basin_pw). The forest sta
 
 In this project the forest drops its leaves in the autumn of 2000 and never grows them back. Without leaves
 there is no transpiration, without litter the soil is bare, and the water that the trees should return to the
-air runs off and percolates instead. Since landschaft's port reproduces SWAT+ 62 exactly on this project, this
+air runs off and percolates instead. Since terraflux-py's port reproduces SWAT+ 62 exactly on this project, this
 is what SWAT+ itself computes: the cause lies in the project's plant settings, not in the program. It is an
 example made to test software, not a calibrated model of Hubbard Brook, and this is exactly the kind of error
 a calibration against measured streamflow would expose. Always look at `lai`, `bioms` and `et` (in `hru_pw`,
@@ -334,7 +334,7 @@ a year, and the basin 179 t/ha. These numbers are as wrong as the plants are: th
 steep ground.
 
 !!! paper "In the literature"
-    Report the SWAT+ version (here SWAT+ 62.0.1 through landschaft), how the project was built (QSWAT+ and
+    Report the SWAT+ version (here SWAT+ 62.0.1 through terraflux-py), how the project was built (QSWAT+ and
     editor versions, DEM, land use and soil maps, HRU thresholds), the weather data, the simulation period and
     the spin-up years, the calibration (parameters, method, period) and the validation statistics (NSE, percent
     bias...) on a period not used for calibration. Give water balances in mm, discharge in m³/s, soil loss in

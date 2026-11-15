@@ -1557,7 +1557,7 @@ fn zone_method(m: &Model) -> &'static str {
     }
 }
 
-const FLOW_SCALE: f64 = 1.0e7; // integer capacities, as landschaft's (scipy's maximum_flow)
+const FLOW_SCALE: f64 = 1.0e7; // integer capacities, as the Python library's (scipy's maximum_flow)
 const MAX_CANDIDATES: usize = 200; // nodes tried per set and round
 const MIN_RISE: f64 = 1.0e-3; // rounds stop when the bound rises less than this (relative) three times running
 const FIRST_PATCH_SECONDS: f64 = 120.0; // the first patch's time without a time limit (the exact MIP goes on)

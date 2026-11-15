@@ -100,7 +100,7 @@ fn hilltops_are_landschafts() {
     for h in d.meta["hilltop"].as_array().unwrap() {
         let name = h["name"].as_str().unwrap();
         let dem = if name == "lonlat" {
-            let p = root().join("extern/landschaft/src/landschaft/surface/data/orelevation.tif");
+            let p = root().join("extern/terraflux-py/src/terraflux/surface/data/orelevation.tif");
             let m = Rasters::open(p.to_str().unwrap(), None, None).unwrap().map().unwrap();
             let want = &d.z["hill/lonlat/dem"];
             let (ny, nx) = (want.shape[0], want.shape[1]);

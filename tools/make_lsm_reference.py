@@ -16,11 +16,11 @@ from pathlib import Path
 
 import numpy as np
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-AUGUSTA = ROOT / "extern" / "landschaft" / "tests" / "data" / "lsm" / "augusta.tif"
+AUGUSTA = ROOT / "extern" / "terraflux-py" / "tests" / "data" / "lsm" / "augusta.tif"
 
 LANDSCAPE = ["np", "shdi", "ed", "ta", "contag"]
 CLASS = ["pland", "np", "ca", "enn_mn", "ai"]
@@ -51,14 +51,14 @@ def rows(table, keys: int):
 
 
 def main() -> None:
-    a = ls.load_raster(AUGUSTA)
+    a = tf.load_raster(AUGUSTA)
     b = later_of(a)
-    out: dict = {"landschaft": ls.__version__}
+    out: dict = {"landschaft": tf.__version__}
     out["grid_zones"] = [{"size": s, "zones": [[[float(x), float(y)] for x, y in z["coordinates"][0]]
-                                               for z in ls.grid_zones(a, s)]} for s in (1000.0, 1500.0, 700.0)]
+                                               for z in tf.grid_zones(a, s)]} for s in (1000.0, 1500.0, 700.0)]
     dates = [2001, 2011]
-    series = ls.SpatioTemporalAnalysis([a, b], dates=dates)
-    zonal = ls.SpatioTemporalAnalysis([a, b], dates=dates, grid=1500)
+    series = tf.SpatioTemporalAnalysis([a, b], dates=dates)
+    zonal = tf.SpatioTemporalAnalysis([a, b], dates=dates, grid=1500)
     out["series"] = {
         "dates": dates, "landscape_metrics": LANDSCAPE, "class_metrics": CLASS,
         "landscape": rows(series.landscape_metrics(LANDSCAPE)[LANDSCAPE], 1),

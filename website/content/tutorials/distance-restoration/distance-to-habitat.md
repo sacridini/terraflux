@@ -76,7 +76,7 @@ connected the forest is as a whole: for that see [habitat networks](/tutorials/#
 
 - **A habitat map.** Here, `ndvi.tif`: summer greenness (the normalised difference vegetation index, NDVI, from
   0 for bare ground to about 0.9 for dense canopy) of 371 × 371 cells of about 30 m in south-western Oregon,
-  a composite of the summers of 2000 to 2016 from landschaft's example data. Your own map can be a land cover
+  a composite of the summers of 2000 to 2016 from terraflux-py's example data. Your own map can be a land cover
   classification, a forest mask from Global Forest Watch, or any map of the habitat of a species.
 - **A projected coordinate system.** A *coordinate reference system* (CRS) says what the numbers of the grid
   mean on the ground. `ndvi.tif` is in degrees of latitude and longitude (EPSG:4326), and a degree of longitude

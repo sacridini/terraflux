@@ -1,5 +1,5 @@
 //! Landscape metrics against the R package landscapemetrics: every value of calculate_lsm that landschaft keeps
-//! (extern/landschaft/tests/data/reference/lsm, made by its tools/make_reference_lsm.py) for its test rasters
+//! (extern/terraflux-py/tests/data/reference/lsm, made by its tools/make_reference_lsm.py) for its test rasters
 //! and option sets, and window_lsm's maps (reference/lsm_window).
 
 use std::collections::BTreeMap;
@@ -20,7 +20,7 @@ const ATOL: f64 = 1e-14;
 const NEIGHBOURHOOD_QUIRK: [&str; 4] = ["te", "ed", "iji", "contag"];
 
 fn landschaft() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/landschaft/tests/data")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/tests/data")
 }
 
 fn read_map(path: &Path) -> Map {

@@ -1,6 +1,6 @@
 """The landscape of the connectivity tutorials (habitat networks, circuit connectivity, grid distances).
 
-A 50 x 50 km excerpt of CORINE Land Cover (landschaft's example `clc`, 25 m cells, EPSG:3035) around Lake
+A 50 x 50 km excerpt of CORINE Land Cover (terraflux-py's example `clc`, 25 m cells, EPSG:3035) around Lake
 Steinhude and Hannover, Lower Saxony, Germany, made 100 m cells by terraflux (raster.resample, the most common
 class). Its forests (CLC classes 23, 24, 25) are the habitat; a resistance for a forest species is made from its
 classes with raster.reclassify. The scripts of the three categories import this module:
@@ -23,7 +23,7 @@ from matplotlib import colors as mcolors  # noqa: E402
 from matplotlib.collections import LineCollection  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
-CLC_SRC = figs.ROOT / "extern" / "landschaft" / "src" / "landschaft" / "data" / "clc.tif"
+CLC_SRC = figs.ROOT / "extern" / "terraflux-py" / "src" / "terraflux" / "data" / "clc.tif"
 # the data a reader downloads (shared by the three categories)
 DATA = figs.data_dir("habitat-networks/connectivity-as-a-graph")
 DATA_URL = "/data/tutorials/habitat-networks/connectivity-as-a-graph"

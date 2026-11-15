@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """What landschaft's nutrient delivery ratio, crop pollination and seasonal water yield models give, for
 Terraflux's tests: every case of landschaft's InVEST references of these models
-(extern/landschaft/tests/data/reference/invest: ndr_*, pollination_*, swy_*, those compared bit for bit there),
+(extern/terraflux-py/tests/data/reference/invest: ndr_*, pollination_*, swy_*, those compared bit for bit there),
 run as landschaft's tests run them; the inputs as landschaft reads them (missing cells NaN) and the outputs
 written to tests/data/reference/services_invest.npz (and the cases' settings to services_invest.json):
 
@@ -18,12 +18,12 @@ from pathlib import Path
 
 import numpy as np
 
-import landschaft as ls
-from landschaft.surface._grid import read_surface
+import terraflux as tf
+from terraflux.surface._grid import read_surface
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 
 import test_services as T  # noqa: E402
 import test_services_ndr as N  # noqa: E402
@@ -55,7 +55,7 @@ def array(x) -> np.ndarray:
 def version() -> str:
     import tomllib
 
-    with open(ROOT / "extern" / "landschaft" / "pyproject.toml", "rb") as f:
+    with open(ROOT / "extern" / "terraflux-py" / "pyproject.toml", "rb") as f:
         return tomllib.load(f)["project"]["version"]
 
 

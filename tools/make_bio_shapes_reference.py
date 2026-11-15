@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import shapely
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
@@ -47,8 +47,8 @@ def main() -> None:
     for ext in ("shp", "shx", "dbf", "cpg", "prj"):
         (REF / f"bio_shapes.{ext}").unlink(missing_ok=True)
     gdf.to_file(REF / "bio_shapes.shp")
-    bd = ls.bio.BaseData.from_dataframe(df, ["x", "y"], "sp", cell_sizes=[1, 1])
-    bd3 = ls.bio.BaseData.from_dataframe(df, ["z", "x", "y"], "sp", cell_sizes=[1, 1, 1])
+    bd = tf.bio.BaseData.from_dataframe(df, ["x", "y"], "sp", cell_sizes=[1, 1])
+    bd3 = tf.bio.BaseData.from_dataframe(df, ["z", "x", "y"], "sp", cell_sizes=[1, 1, 1])
     gp = (REF / "bio_shapes.gpkg").as_posix() + ":polys"
     shp = (REF / "bio_shapes").as_posix()
     queries = {
@@ -61,7 +61,7 @@ def main() -> None:
     }
     out = {"queries": {}, "neighbours": {}, "axes": {}}
     for name, q in queries.items():
-        out["queries"][name] = {"condition": q, "mask": ls.bio.definition_query(bd, q).astype(int).tolist()}
+        out["queries"][name] = {"condition": q, "mask": tf.bio.definition_query(bd, q).astype(int).tolist()}
     conds = {
         "in_poly": f"sp_point_in_poly_shape(file => '{gp}')",
         "in_poly_coord": f"sp_point_in_poly_shape(file => '{gp}', point => \\@coord) && sp_circle(radius => 2)",
@@ -70,13 +70,13 @@ def main() -> None:
         "same_shp": f"sp_points_in_same_poly_shape(file => '{shp}')",
     }
     for name, c in conds.items():
-        nb = ls.bio.neighbours(bd, [c])
+        nb = tf.bio.neighbours(bd, [c])
         out["neighbours"][name] = {"condition": c, "groups": np.asarray(nb.groups).tolist(),
                                    "indptr": np.asarray(nb.sets[0][0]).tolist(),
                                    "indices": np.asarray(nb.sets[0][1]).tolist()}
     for name, c in {"in_poly_axes": f"sp_point_in_poly_shape(file => '{gp}', axes => [1, 2])",
                     "same_axes": f"sp_points_in_same_poly_shape(file => '{gp}', axes => [1, 2])"}.items():
-        nb = ls.bio.neighbours(bd3, [c])
+        nb = tf.bio.neighbours(bd3, [c])
         out["axes"][name] = {"condition": c, "groups": np.asarray(nb.groups).tolist(),
                              "indptr": np.asarray(nb.sets[0][0]).tolist(), "indices": np.asarray(nb.sets[0][1]).tolist()}
     # the paths relative to the reference folder

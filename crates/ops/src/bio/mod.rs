@@ -116,7 +116,7 @@ impl Operator for FromTable {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "bio.table",
-            "A basedata of a delimited text file read like Biodiverse's import (landschaft's BaseData.from_table): \
+            "A basedata of a delimited text file read like Biodiverse's import (the Python library's BaseData.from_table): \
              group coordinates from the group columns snapped to cells (> 0), kept as given (0) or as text \
              (< 0), labels from the label columns joined with ':', counts summed per group and label (1 per \
              record without count columns). Columns by name or 0-based position; separator and quote guessed.",
@@ -166,7 +166,7 @@ impl Operator for FromPoints {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "bio.points",
-            "A basedata of point records read like Biodiverse's feature import (landschaft's BaseData.from_points): \
+            "A basedata of point records read like Biodiverse's feature import (the Python library's BaseData.from_points): \
              each point in the cell holding it, its label the label attributes joined with ':', its count 1 or a \
              count attribute's.",
             Access::None,
@@ -280,7 +280,7 @@ impl Operator for Spatial {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "bio.spatial",
-            "Biodiverse's spatial analysis (landschaft's spatial_analysis): its indices over the neighbourhood of \
+            "Biodiverse's spatial analysis (the Python library's spatial_analysis): its indices over the neighbourhood of \
              every group. Neighbourhoods are spatial conditions in Biodiverse's Perl (sp_circle (radius => \
              200000), sp_block (size => 500000), $D <= 3 && $nbr_y > $y, sp_select_all()...): one, or two (the \
              second leaves out the first) for the indices comparing two sets. Calculations by Biodiverse's names, \
@@ -393,7 +393,7 @@ impl Operator for ReadTree {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "bio.tree",
-            "A phylogenetic tree of a Newick or Nexus file read as Biodiverse reads it (landschaft's read_tree): \
+            "A phylogenetic tree of a Newick or Nexus file read as Biodiverse reads it (the Python library's read_tree): \
              unnamed nodes 0___, 1___..., duplicated names __dup1..., the Nexus Translate table applied, all-zero \
              lengths made 1, a forest given a new root.",
             Access::None,
@@ -479,7 +479,7 @@ impl Operator for Randomise {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "bio.randomise",
-            "Randomisations of a spatial analysis (landschaft's randomise, Biodiverse's): each iteration \
+            "Randomisations of a spatial analysis (the Python library's randomise, Biodiverse's): each iteration \
              randomises the basedata (rand_structured, Biodiverse's default; its spatial forms \
              rand_spatially_structured, rand_diffusion, rand_random_walk; the swaps rand_independent_swaps, \
              rand_independent_swaps_modified, rand_curveball; rand_csr_by_group; rand_nochange), runs the \
@@ -638,11 +638,10 @@ struct Cluster {
 
 impl Operator for Cluster {
     fn signature(&self) -> OpSignature {
-        let sig =
-            if self.region_grower {
-                OpSignature::new(
+        let sig = if self.region_grower {
+            OpSignature::new(
                 "bio.region_grower",
-                "Biodiverse's region grower (landschaft's region_grower): pairs of groups joined in decreasing order \
+                "Biodiverse's region grower (the Python library's region_grower): pairs of groups joined in decreasing order \
                  of an index of the pair's groups together (RICHNESS_ALL, PE_WE...), recomputed for each merged \
                  region; with one condition selecting every group, joining stops once a region reaches the value \
                  of all the groups. The dendrogram, its nodes, the calculations of each node and, with k, k \
@@ -650,21 +649,19 @@ impl Operator for Cluster {
                 Access::None,
             )
             .param(PortSpec::optional("index", Type::Text, "the index to maximise (RICHNESS_ALL, default)"))
-            } else {
-                OpSignature::new(
-                    "bio.cluster",
-                    "Biodiverse's cluster analysis (landschaft's cluster): groups joined pair by pair by the \
+        } else {
+            OpSignature::new(
+                "bio.cluster",
+                "Biodiverse's cluster analysis (the Python library's cluster): groups joined pair by pair by the \
                  dissimilarity of their labels (SORENSON, JACCARD, S2, BRAY_CURTIS, PHYLO_SORENSON...; the linkage \
                  giving cluster to cluster values), within the first spatial condition first. Ties broken by \
                  Biodiverse's Mersenne Twister. The dendrogram, its nodes (Biodiverse's values), the calculations \
                  of each node's groups and, with k, k clusters.",
-                    Access::None,
-                )
-                .param(PortSpec::optional("index", Type::Text, "the dissimilarity (SORENSON, default)"))
-                .param(
-                    PortSpec::optional("linkage", Type::Text, "link_average (default)...").choices(cluster::LINKAGES),
-                )
-            };
+                Access::None,
+            )
+            .param(PortSpec::optional("index", Type::Text, "the dissimilarity (SORENSON, default)"))
+            .param(PortSpec::optional("linkage", Type::Text, "link_average (default)...").choices(cluster::LINKAGES))
+        };
         sig.input(PortSpec::new("basedata", Type::BaseData, "groups x labels sample counts"))
             .input(PortSpec::optional("tree", Type::Tree, "a phylogeny for phylogenetic indices (bio.tree)"))
             .input(PortSpec::optional("matrix", Type::LabelMatrix, "a label matrix (bio.matrix)"))
@@ -790,7 +787,7 @@ impl Operator for ReadProperties {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "bio.properties",
-            "Label or group properties of a basedata from a Biodiverse properties file (landschaft's \
+            "Label or group properties of a basedata from a Biodiverse properties file (the Python library's \
              read_properties and set_label_properties / set_group_properties): the element from its columns \
              joined with ':', property names upper-cased, only values that look like numbers (empty fields set \
              but undefined), a later row overriding. They feed the lbprop and gpprop calculations; RANGE and \
@@ -838,7 +835,7 @@ impl Operator for ReadMatrix {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "bio.matrix",
-            "A label matrix from a Biodiverse matrix file (landschaft's read_matrix): full or a triangle (the \
+            "A label matrix from a Biodiverse matrix file (the Python library's read_matrix): full or a triangle (the \
              element of each row from its columns, the values in the rows' order), or sparse pairs; the first \
              value read for a pair wins. For the matrix calculations (matrix_stats, compare_dissim_matrix_values, \
              mx_rao_qe).",
@@ -898,7 +895,7 @@ impl Operator for FromRaster {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "bio.raster",
-            "A basedata of rasters read like Biodiverse's raster import (landschaft's BaseData.from_raster): each \
+            "A basedata of rasters read like Biodiverse's raster import (the Python library's BaseData.from_raster): each \
              layer a label (its name) and the values its counts in the cells' groups (with a threshold, presence \
              from species distribution models), or the values themselves labels, each cell counting 1; the cells \
              snapped to the group cells (default the raster's).",
@@ -953,7 +950,7 @@ impl Operator for FromVector {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "bio.vector",
-            "A basedata of vector features read like Biodiverse's feature import (landschaft's \
+            "A basedata of vector features read like Biodiverse's feature import (the Python library's \
              BaseData.from_vector): points in the cell holding them; lines and polygons over a fishnet of cells \
              spanning the layer, every cell they touch counting 1, or (measure) the area or length of their part \
              in it (GEOS through GDAL); the labels from attributes joined with ':'.",
@@ -1039,7 +1036,7 @@ impl Operator for FromHex {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "bio.hex",
-            "A basedata of records in a grid of hexagons (landschaft's BaseData.from_hex): the groups the centres \
+            "A basedata of records in a grid of hexagons (the Python library's BaseData.from_hex): the groups the centres \
              of the hexagons (pointy or flat, of a circumradius) holding the records, so that Biodiverse's \
              distance conditions work on them.",
             Access::Global,
@@ -1074,7 +1071,7 @@ impl Operator for FromH3 {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "bio.h3",
-            "A basedata of lon/lat records in H3 cells (landschaft's BaseData.from_h3): the groups the centres of \
+            "A basedata of lon/lat records in H3 cells (the Python library's BaseData.from_h3): the groups the centres of \
              the cells of a resolution holding the records, the cells' ids kept.",
             Access::Global,
         )
@@ -1103,7 +1100,7 @@ impl Operator for FromOccurrences {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "bio.occurrences",
-            "A basedata of occurrence records (landschaft's BaseData.from_occurrences and read_occurrences): a GBIF \
+            "A basedata of occurrence records (the Python library's BaseData.from_occurrences and read_occurrences): a GBIF \
              download (the zip or its table), a Darwin Core Archive (a zip or a folder with meta.xml), a \
              delimited file, or records with Darwin Core columns (sdm.download_gbif's); those without a label or \
              valid coordinates, absent, too uncertain, of other bases of record or with some GBIF issues left \

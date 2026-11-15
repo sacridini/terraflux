@@ -1,5 +1,5 @@
 //! prioritize.proxirr against R's proxirr 0.5, to the bit: the outputs landschaft keeps
-//! (extern/landschaft/tests/data/reference/optimize/proxirr.npz) of its inputs
+//! (extern/terraflux-py/tests/data/reference/optimize/proxirr.npz) of its inputs
 //! (tests/data/reference/proxirr_inputs.json, tools/make_proxirr_inputs.py), as its test_prioritize_proxirr.py.
 
 use std::collections::BTreeMap;
@@ -15,7 +15,7 @@ fn data() -> (serde_json::Value, BTreeMap<String, Array>) {
         serde_json::from_str(&std::fs::read_to_string(root.join("tests/data/reference/proxirr_inputs.json")).unwrap())
             .unwrap();
     let reference =
-        terraflux_raster::npy::read_npz(root.join("extern/landschaft/tests/data/reference/optimize/proxirr.npz"))
+        terraflux_raster::npy::read_npz(root.join("extern/terraflux-py/tests/data/reference/optimize/proxirr.npz"))
             .unwrap();
     (inputs, reference)
 }

@@ -770,7 +770,7 @@ impl Operator for CircuitscapeIni {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "circuit.circuitscape_ini",
-            "Run a Circuitscape INI file on rasters, as Circuitscape.compute(path) does (landschaft's \
+            "Run a Circuitscape INI file on rasters, as Circuitscape.compute(path) does (the Python library's \
              circuitscape_ini): advanced, pairwise, one-to-all and all-to-one, with its polygons, mask, \
              reclassification, included pairs and variable source strengths; the inputs read as Circuitscape \
              reads them (ASCII grids in double, GeoTIFFs, text lists; paths from the working directory or next to \
@@ -907,7 +907,7 @@ impl Operator for OmniscapeIni {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "circuit.omniscape_ini",
-            "Run an Omniscape INI file, as run_omniscape(path) does (landschaft's omniscape_ini): every option of \
+            "Run an Omniscape INI file, as run_omniscape(path) does (the Python library's omniscape_ini): every option of \
              Omniscape 0.7 with its defaults (radius, resistance_file and project_name required), paths from the \
              working directory or next to the INI; the outputs written to project_name (_1, _2... when it exists) \
              as Omniscape writes them: config.ini, cum_currmap, flow_potential, normalized_cum_currmap, \

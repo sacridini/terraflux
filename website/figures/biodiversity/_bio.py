@@ -1,4 +1,4 @@
-"""Shared by the biodiversity tutorials' figures: Biodiverse's example data (landschaft's copy: 1,795 records of 31
+"""Shared by the biodiversity tutorials' figures: Biodiverse's example data (terraflux-py's copy: 1,795 records of 31
 species in eastern Australia, coordinates in metres, and a tree made by clustering the species), copied where the
 pages offer them for download, and the drawing of maps of 100 km cells."""
 
@@ -15,7 +15,7 @@ import numpy as np  # noqa: E402
 from matplotlib import colors as mcolors  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
-SRC = figs.ROOT / "extern" / "landschaft" / "src" / "landschaft" / "bio" / "data"
+SRC = figs.ROOT / "extern" / "terraflux-py" / "src" / "terraflux" / "bio" / "data"
 DATA = figs.data_dir("biodiversity/richness-and-endemism")
 DATA_URL = "/data/tutorials/biodiversity/richness-and-endemism"
 

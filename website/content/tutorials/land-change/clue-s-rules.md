@@ -74,7 +74,7 @@ long a class may *stay*: `105` on forest's diagonal would force every forest cel
 
 ![The time codes](/img/tutorials/land-change/clue-s-rules/time_codes.png "When a conversion with each code is allowed (green), by the cell's history: 1 always; 105 while the cell has had its class for less than 5 steps; 1008 once it has had it for 8 steps or more.")
 
-The reference case of Plum Island with every rule, which Terraflux's tests run against landschaft's port of lulcc,
+The reference case of Plum Island with every rule, which Terraflux's tests run against terraflux-py's port of lulcc,
 uses this matrix:
 
 |  | to forest | to built | to other |

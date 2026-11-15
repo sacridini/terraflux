@@ -431,7 +431,7 @@ quadratic features are enough. Hinges earn their place with many records and res
     The default classes are maxnet's, chosen by the presences of each fit. Each fold of the cross-validation is
     fitted on about 66 presences (`lqh`), while the model returned is fitted on all 83 (`lqph`). The scores of
     `summary` are then those of a slightly different model from the one you map. This is maxnet's behaviour, kept so
-    that the results match landschaft's; the operator's description says so too. Set `classes` yourself (for
+    that the results match terraflux-py's; the operator's description says so too. Set `classes` yourself (for
     instance `classes = "lqh"`) so that the folds and the final model match.
 
 ### The folds

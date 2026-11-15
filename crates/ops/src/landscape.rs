@@ -123,7 +123,7 @@ pub fn mspa_colour(v: u8) -> [u8; 3] {
     base(v).or_else(|| if v > 100 && !matches!(v, 129 | 220) { base(v - 100) } else { None }).unwrap_or([0, 0, 0])
 }
 
-/// What GTB's operators give, for the names and colours of their values (as landschaft's `landschaft_product`).
+/// What GTB's operators give, for the names and colours of their values (as the Python library's `terraflux_product`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Product {
     Mspa,
@@ -178,7 +178,7 @@ const GEOMORPHONS: [(u8, &str, [u8; 3]); 10] = [
     (10, "Pit", [0, 0, 56]),
 ];
 
-/// landschaft's names of its products (`landschaft_product`, written in its GeoTIFFs).
+/// The names of the products of the Python library (`terraflux_product`, written in its GeoTIFFs).
 const TAGS: [(&str, Product); 21] = [
     ("MSPA", Product::Mspa),
     ("SPA2", Product::Spa),
@@ -204,7 +204,7 @@ const TAGS: [(&str, Product); 21] = [
 ];
 
 impl Product {
-    /// The product of a tag of landschaft's (`landschaft_product`).
+    /// The product of a tag of the Python library's (`terraflux_product`, or the old `landschaft_product`).
     pub fn from_tag(tag: &str) -> Option<Product> {
         let t = tag.trim().to_uppercase();
         if t.starts_with("ISOCHRONE") && !t.ends_with("COST") && !t.ends_with("LCP") {
@@ -213,7 +213,7 @@ impl Product {
         TAGS.iter().find(|(k, _)| *k == t).map(|(_, p)| *p)
     }
 
-    /// landschaft's tag of a product (the first of its names), for the GeoTIFFs written.
+    /// The Python library's tag of a product (the first of its names), for the GeoTIFFs written.
     pub fn tag(self) -> Option<&'static str> {
         match self {
             Product::Isochrone => Some("ISOCHRONE_A"),
@@ -914,9 +914,9 @@ impl Operator for Influence {
             OpSignature::new(
                 "distance.objects_proximity",
                 "The proximity between neighbouring foreground objects, as GuidosToolbox's Distance -> Proximity \
-                 (landschaft's proximity): the objects (8-connected, holes filled, of min_area cells at least) \
+                 (the Python library's proximity): the objects (8-connected, holes filled, of min_area cells at least) \
                  split the map into zones of influence (the watershed of the distance to them); along the zones' \
-                 lines the gap between the objects and their connected area gain. Experimental in landschaft: \
+                 lines the gap between the objects and their connected area gain. Experimental in the Python library: \
                  IDL's distance transform is not yet reproduced exactly.",
                 Access::Global,
             )
@@ -942,9 +942,9 @@ impl Operator for Influence {
             OpSignature::new(
                 "distance.influence_zones",
                 "The zones of influence of the foreground objects, as GuidosToolbox's Distance -> Influence Zones \
-                 (landschaft's influence_zones): the objects (8-connected, holes filled, of min_area cells at least, \
+                 (the Python library's influence_zones): the objects (8-connected, holes filled, of min_area cells at least, \
                  or their cores) and the watershed of the distance to them; a background buffer around them. \
-                 Experimental in landschaft: IDL's distance transform is not yet reproduced exactly.",
+                 Experimental in the Python library: IDL's distance transform is not yet reproduced exactly.",
                 Access::Global,
             )
             .param(PortSpec::optional(
@@ -1158,7 +1158,7 @@ fn accounting_report(
     let header = "          # Objects      Area[pixels]     % of all objects  % of total FGarea";
     let ha = resolution * resolution / 10000.0;
     let mut lines = vec![
-        "Accounting size classes result using: landschaft".to_string(),
+        "Accounting size classes result using: terraflux".to_string(),
         format!("Base settings: {connectivity}-connectivity, pixel resolution: {} [m]", g6(resolution)),
         format!("Conversion factor: pixel_to_hectare: {}, pixel_to_acres: {}", g6(ha), g6(ha * 2.47105)),
         rule.clone(),

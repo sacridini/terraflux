@@ -20,7 +20,7 @@ exists, when to use it, how to run it, and how to read and report what it gives*
   `templates.rs`). If unsure, leave it out.
 - Never invent references. Every paper you cite must be real: verify the authors, year, title, journal and
   DOI (Crossref: `https://api.crossref.org/works?query.bibliographic=...&rows=3`, or open
-  `https://doi.org/<doi>`). Good starting points: the docs of landschaft in `extern/landschaft/docs` (they cite
+  `https://doi.org/<doi>`). Good starting points: the docs of terraflux-py in `extern/terraflux-py/docs` (they cite
   the papers behind each method) and the doc strings in `crates/ops/src`. If you cannot verify a DOI, cite
   without it.
 

@@ -29,7 +29,7 @@ fn open(p: PathBuf) -> Map {
 }
 
 fn example(name: &str) -> Map {
-    open(root().join("extern/landschaft/src/landschaft/cost/data").join(format!("{name}.tif")))
+    open(root().join("extern/terraflux-py/src/terraflux/cost/data").join(format!("{name}.tif")))
 }
 
 fn points(xy: &serde_json::Value, crs: Option<String>) -> Value {

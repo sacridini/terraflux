@@ -17,12 +17,12 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 
-import landschaft as ls  # noqa: E402
+import terraflux as tf  # noqa: E402
 import optimize_cases as oc  # noqa: E402
 
-P = ls.prioritize
+P = tf.prioritize
 
 
 def model(m) -> dict:

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """What landschaft's QSWAT+ watershed delineation gives, for Terraflux's tests (swat.watershed): landschaft's
 synthetic valley of its tests (tests/swat_landscape.py) and the example landscape (``example_landscape()``) divided
-by ``ls.hydro.swat.watershed`` in the cases its tests use (each HRU method, thresholds, outlets and snap, slope bands,
+by ``tf.hydro.swat.watershed`` in the cases its tests use (each HRU method, thresholds, outlets and snap, slope bands,
 areas in ha and in percent, exempt land uses, a usersoil table, land use on another grid); the inputs, every table
 (numbers in the matrix, text columns in the json) and every grid, written to tests/data/reference/swat_watershed.npz
 (the cases to swat_watershed.json):
@@ -21,12 +21,12 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-import landschaft as ls
-from landschaft.surface._grid import read_surface
+import terraflux as tf
+from terraflux.surface._grid import read_surface
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 import swat_landscape as syn  # noqa: E402
 
 THRESHOLDS = {"stream_threshold": 0.15}
@@ -73,7 +73,7 @@ def landscape(name: str):
         dem, lu, so = syn.rasters()
         return {"dem": dem, "landuse": lu, "soils": so, "landuse_lookup": syn.LANDUSE, "soil_lookup": syn.SOILS,
                 "soil_table": syn.soil_table()}
-    return ls.hydro.swat.example_landscape()
+    return tf.hydro.swat.example_landscape()
 
 
 def case_list(base_points: list) -> list[dict]:
@@ -115,12 +115,12 @@ def case_list(base_points: list) -> list[dict]:
 def main() -> None:
     lands = {n: landscape(n) for n in ("syn", "ex")}
     # outlet points near the streams of a first run: a little off the outlets of two subbasins
-    first = ls.hydro.swat.watershed(lands["syn"]["dem"], lands["syn"]["landuse"], lands["syn"]["soils"],
+    first = tf.hydro.swat.watershed(lands["syn"]["dem"], lands["syn"]["landuse"], lands["syn"]["soils"],
                                     landuse_lookup=syn.LANDUSE, soil_lookup=syn.SOILS, soil_table=syn.soil_table(),
                                     **THRESHOLDS).tables["gis_points"]
     base_points = [[float(r.xpr) + 7.0, float(r.ypr) - 5.0] for r in first.sort_values("id").itertuples()][::-1][:2]
     out: dict[str, np.ndarray] = {}
-    meta: dict = {"landschaft": ls.__version__, "landscapes": {}, "cases": []}
+    meta: dict = {"landschaft": tf.__version__, "landscapes": {}, "cases": []}
     for name, ex in lands.items():
         s = read_surface(ex["dem"])
         meta["landscapes"][name] = {
@@ -153,7 +153,7 @@ def main() -> None:
         if "exempt" in kw:
             kw["exempt"] = tuple(kw["exempt"])
         landuse = regrid(ex["landuse"], 2) if "regrid" in case else ex["landuse"]
-        w = ls.hydro.swat.watershed(ex["dem"], landuse, ex["soils"], **kw)
+        w = tf.hydro.swat.watershed(ex["dem"], landuse, ex["soils"], **kw)
         tables = {}
         for t, df in w.tables.items():
             text = {}

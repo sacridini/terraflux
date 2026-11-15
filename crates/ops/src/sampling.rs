@@ -500,7 +500,7 @@ impl Operator for GridZones {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "vector.grid_zones",
-            "Square zones tiling a map, as landschaft's grid_zones: squares of a side (map units) from the map's \
+            "Square zones tiling a map, as the Python library's grid_zones: squares of a side (map units) from the map's \
              top-left corner, partial squares at its right and bottom, row by row; for metrics.sample and \
              metrics.series by zones.",
             Access::Global,
@@ -613,7 +613,7 @@ impl Operator for Series {
             OpSignature::new(
                 "metrics.series",
                 "Landscape metrics along a series of maps (a layer per date), as pylandstats' \
-                 SpatioTemporalAnalysis in landschaft: of the whole maps, of zones (polygons), of buffers around \
+                 SpatioTemporalAnalysis in the Python library: of the whole maps, of zones (polygons), of buffers around \
                  points or of square zones tiling the maps (grid). Landscape level: a row per (zone and) date; \
                  class level: a row per class, (zone and) date, every class at every date, 0 instead of NA for \
                  the area, edge and count metrics of a class absent (fillna).",
@@ -759,7 +759,7 @@ impl Operator for Signatures {
         metric_options(
             OpSignature::new(
                 "metrics.signatures",
-                "Spatial signatures, as pylandstats' SpatialSignatureAnalysis in landschaft: landscapes described by their metrics, a row per zone of a map (polygons, buffers around points or a grid of squares) or per layer of a stack, a column per landscape metric and per class metric and class (pland_11...), in alphabetical order. For metrics.pca, metrics.nmf, metrics.cluster and metrics.clustergram.",
+                "Spatial signatures, as pylandstats' SpatialSignatureAnalysis in the Python library: landscapes described by their metrics, a row per zone of a map (polygons, buffers around points or a grid of squares) or per layer of a stack, a column per landscape metric and per class metric and class (pland_11...), in alphabetical order. For metrics.pca, metrics.nmf, metrics.cluster and metrics.clustergram.",
                 Access::Global,
             )
             .input(PortSpec::new(

@@ -30,7 +30,7 @@ spreads further through a continuous fuel than through a patchwork. To test such
 and to measure it the same way in every study. Quantitative indices appeared in the 1980s (O'Neill et al., 1988);
 the program FRAGSTATS gathered them into one library with standard definitions (McGarigal & Marks, 1995), and the
 R package landscapemetrics reimplemented them in open source (Hesselbarth et al., 2019). Terraflux computes the
-metrics of landscapemetrics with the same definitions (through the library landschaft), so its numbers can be
+metrics of landscapemetrics with the same definitions (through the library terraflux-py), so its numbers can be
 compared with the literature.
 
 ### Composition and configuration

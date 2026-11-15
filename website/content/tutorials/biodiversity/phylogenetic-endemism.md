@@ -204,7 +204,7 @@ Read with care, given the artificial tree, the story is one of two centres: a la
 right arm, with two cells of **super-endemism** at its heart, where short and long range-restricted branches occur
 together; and a small **palaeo-endemic** centre on the left, where the restricted branches are long, the pattern of
 old lineages persisting in a small area. CANAPE has more cells (35) than the p-rank map of PE alone (17 above
-0.95), because its first test accepts significance on either tree. These counts are those landschaft's
+0.95), because its first test accepts significance on either tree. These counts are those terraflux-py's
 documentation reports for the same data and seed, which Biodiverse also gives.
 
 !!! paper "In the literature"

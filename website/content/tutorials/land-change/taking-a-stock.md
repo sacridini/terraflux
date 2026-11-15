@@ -36,7 +36,7 @@ the Brazilian Amazon at about 4.5 billion m³ and asked how much of it an indust
 cycle outside the protected areas. Questions like these need a model whose demand is a stock.
 
 Dinamica EGO's answer is the functor *PatcherContinuousState*, the Patcher of a continuous state. Terraflux runs
-landschaft's clean-room version of it, written from Dinamica EGO's documentation and black-box runs of its
+terraflux-py's clean-room version of it, written from Dinamica EGO's documentation and black-box runs of its
 version 8.13.
 
 ![The Patcher of a continuous state on a toy grid](/img/tutorials/land-change/taking-a-stock/toy.png "A real run on a toy grid of 24 x 24 cells. Left, the stock of each cell (2 to 10 units). Middle, the probability (dark low, light high); outlined, the candidates: the most probable cells, which together hold 3 times the quota (prune_factor = 3). Right, the four patches made: they take 151 units for a quota of 150, the last cell overshooting by 1.")
@@ -645,7 +645,7 @@ distance to the road is a good target).
   `terraflux submit --replicates`) and report the range.
 
 ??? note "How close is this to Dinamica EGO?"
-    landschaft wrote the functor from Dinamica EGO's documentation and black-box runs of its version 8.13. In
+    terraflux-py wrote the functor from Dinamica EGO's documentation and black-box runs of its version 8.13. In
     those runs Dinamica's functor stopped with an error for patches of more than one cell, so the candidates, the
     pruning, the draw of the seeds and the quota were measured with patches of one cell, and the growth of larger
     patches is the published Patcher's. Dinamica's random numbers also depend on more than its seed, so the two

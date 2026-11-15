@@ -64,7 +64,7 @@ impl Operator for Status {
             OpSignature::new(
                 "restoration.status",
                 "How connected the habitat is and how much reconnecting it could add, as GuidosToolbox's Restoration \
-                 Status (landschaft's restoration_status): the habitat's objects (8-connected), the equivalent \
+                 Status (the Python library's restoration_status): the habitat's objects (8-connected), the equivalent \
                  connected area ECA = sqrt(sum of their areas squared), the coherence ECA / habitat (%), the \
                  restoration potential (100 - coherence), the habitat's share of the area with data (RAC), the \
                  average patch size and the critical new object area.",
@@ -96,7 +96,7 @@ impl Operator for CostDistance {
         OpSignature::new(
             "restoration.cost_distance",
             "The accumulated cost of travelling from the sources across a resistance, as GuidosToolbox \
-             (landschaft's cost_distance): 8 neighbours, a step the two cells' mean resistance times its length \
+             (the Python library's cost_distance): 8 neighbours, a step the two cells' mean resistance times its length \
              (1, or sqrt(2) diagonally).",
             Access::Global,
         )
@@ -149,7 +149,7 @@ impl Operator for LeastCostPath {
     fn signature(&self) -> OpSignature {
         lcp_ports(OpSignature::new(
             "restoration.least_cost_path",
-            "The least-cost path between two areas across a resistance, as GuidosToolbox (landschaft's \
+            "The least-cost path between two areas across a resistance, as GuidosToolbox (the Python library's \
              least_cost_path): the cells of the least cost from A plus from B.",
             Access::Global,
         ))
@@ -181,7 +181,7 @@ impl Operator for Corridor {
         lcp_ports(OpSignature::new(
             "restoration.corridor",
             "The gain of restoring the least-cost corridor between two areas, as GuidosToolbox's Restoration \
-             Planner (landschaft's restoration_corridor): the path's background cells turned habitat, the ECA and \
+             Planner (the Python library's restoration_corridor): the path's background cells turned habitat, the ECA and \
              coherence before and after, and the gain per resistance restored.",
             Access::Global,
         ))
@@ -275,7 +275,7 @@ impl Operator for Resistance {
             OpSignature::new(
                 "restoration.resistance",
                 "A resistance growing with the distance to the habitat, as GuidosToolbox's Setup Tools -> Distance \
-                 -> Resistance (landschaft's distance_to_resistance): the background round(distance + 2) up to 100 \
+                 -> Resistance (the Python library's distance_to_resistance): the background round(distance + 2) up to 100 \
                  (3 next to the habitat), the habitat 2, missing 0; IDL's quasi-Euclidean distance.",
                 Access::Global,
             )
@@ -365,7 +365,7 @@ impl Operator for Isochrone {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "restoration.isochrone",
-            "The isochrone map of GuidosToolbox's Restoration Planner (landschaft's isochrone_map and \
+            "The isochrone map of GuidosToolbox's Restoration Planner (the Python library's isochrone_map and \
              isochrone_map_ab, GTB's ggeo): the accumulated cost of reaching every cell from object A across a \
              resistance (a step between neighbours their mean resistance, the habitat 1), or with an object B the \
              cost of the cheapest route from A to B through every cell and its least-cost path; scaled 0-100 in \

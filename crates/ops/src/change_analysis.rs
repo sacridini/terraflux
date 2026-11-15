@@ -514,7 +514,7 @@ impl Operator for Crosstab {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "change.crosstab",
-            "The transition matrix between two maps of classes (landschaft's crosstab, diffeR's crosstabm): the \
+            "The transition matrix between two maps of classes (the Python library's crosstab, diffeR's crosstabm): the \
              cells of each class of the first (rows) that hold each class of the second (columns); classes found \
              in neither left out.",
             Access::Global,
@@ -559,7 +559,7 @@ impl Operator for Transitions {
     fn signature(&self) -> OpSignature {
         maps_port(OpSignature::new(
             "change.transitions",
-            "The transitions of a series of maps of classes, as landschaft's changes (OpenLand's \
+            "The transitions of a series of maps of classes, as the Python library's changes (OpenLand's \
              contingencyTable): between consecutive dates (and from the first to the last), a row per pair of \
              classes with cells: the years, the classes, the area in km2 (cells times a cell's area) and the \
              cells; and the cells of each class at each date.",
@@ -616,7 +616,7 @@ impl Operator for Intensity {
         let mut sig = maps_port(OpSignature::new(
             "change.intensity",
             "The intensity analysis of land change (Aldwaik & Pontius 2012) as OpenLand's intensityAnalysis \
-             through landschaft: at the interval level how fast the map changed in each period against a uniform \
+             through the Python library: at the interval level how fast the map changed in each period against a uniform \
              rate; at the category level each class's gains and losses against the period's rate (active or \
              dormant); at the transition level which classes the gains of one class (gain) take, and which take \
              the losses of another (loss), against uniform (targeted or avoided); with the stationarity of each \
@@ -675,7 +675,7 @@ impl Operator for Components {
         OpSignature::new(
             "change.components",
             "The components of the difference between two maps of classes (Pontius & Santacruz 2014, diffeR's \
-             diffTablej and overallDiff through landschaft): of each class its gain (omission), persistence \
+             diffTablej and overallDiff through the Python library): of each class its gain (omission), persistence \
              (agreement) and loss (commission), and the difference split into quantity, exchange and shift; \
              overall too (the last row, class empty).",
             Access::Global,
@@ -725,7 +725,7 @@ impl Operator for Count {
         maps_port(OpSignature::new(
             "change.count",
             "How many times each cell changed along a series of maps of classes (OpenLand's acc_changes through \
-             landschaft): a map of the counts (none where any map has no value) and the cells of each count.",
+             the Python library): a map of the counts (none where any map has no value) and the cells of each count.",
             Access::Global,
         ))
         .output(PortSpec::new("map", Type::Map, "the changes of each cell"))

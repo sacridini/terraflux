@@ -19,11 +19,11 @@ import numpy as np
 import xarray as xr
 from affine import Affine
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-S = ls.simulate
+S = tf.simulate
 
 
 def grid(values: np.ndarray) -> xr.DataArray:
@@ -36,7 +36,7 @@ def grid(values: np.ndarray) -> xr.DataArray:
 def main() -> None:
     ny, nx = 40, 52
     rng = np.random.default_rng(11)
-    t0 = ls.nlm.random_cluster(nx, ny, p=0.5, ai=[0.4, 0.3, 0.2, 0.1], seed=12, rescale=False).values.astype(float)
+    t0 = tf.nlm.random_cluster(nx, ny, p=0.5, ai=[0.4, 0.3, 0.2, 0.1], seed=12, rescale=False).values.astype(float)
     t1 = t0.copy()
     ch = rng.random((ny, nx)) < 0.2
     t1[ch] = rng.integers(1, 5, int(ch.sum()))
@@ -62,13 +62,13 @@ def main() -> None:
     for scale in (2, 3):
         out[f"budget/{scale}"] = S.error_budget(T1, SIM, iterations=4, scale=scale).to_numpy(float)
     # FUTURES: developed land
-    orig = (ls.nlm.gaussian_field(nx, ny, autocorr_range=10, seed=20).values > 0.7).astype(float)
+    orig = (tf.nlm.gaussian_field(nx, ny, autocorr_range=10, seed=20).values > 0.7).astype(float)
     ref = orig.copy()
-    ref[(ls.nlm.gaussian_field(nx, ny, autocorr_range=6, seed=21).values > 0.6)] = 1.0
+    ref[(tf.nlm.gaussian_field(nx, ny, autocorr_range=6, seed=21).values > 0.6)] = 1.0
     fsim = orig.copy()
-    fsim[(ls.nlm.gaussian_field(nx, ny, autocorr_range=6, seed=22).values > 0.62)] = 1.0
+    fsim[(tf.nlm.gaussian_field(nx, ny, autocorr_range=6, seed=22).values > 0.62)] = 1.0
     ref[0, :4] = np.nan
-    regions = np.floor(ls.nlm.gaussian_field(nx, ny, autocorr_range=12, seed=23).values * 4) + 1
+    regions = np.floor(tf.nlm.gaussian_field(nx, ny, autocorr_range=12, seed=23).values * 4) + 1
     regions[5, 5] = np.nan
     three = np.where(np.isnan(t1), np.nan, t1 % 3)
     out.update({"in/orig": orig, "in/ref": ref, "in/fsim": fsim, "in/regions": regions, "in/three": three})

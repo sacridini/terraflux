@@ -20,11 +20,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 import swat_landscape as syn  # noqa: E402
 
 CROPS = {1: "CORN", 2: "WWHT", 3: "URMD"}
@@ -32,7 +32,7 @@ CROPS = {1: "CORN", 2: "WWHT", 3: "URMD"}
 
 def main() -> None:
     dem, lu, so = syn.rasters()
-    ex = ls.hydro.swat.example_landscape()
+    ex = tf.hydro.swat.example_landscape()
     st, pcp, tx, tn, monthly = syn.weather()
     sets = {
         "syn": (dict(dem=dem, landuse=lu, soils=so, landuse_lookup=syn.LANDUSE, soil_lookup=syn.SOILS,
@@ -48,8 +48,8 @@ def main() -> None:
     }
     projects = {}
     for k, (land, weather, opt) in sets.items():
-        wx = ls.hydro.swat.climate(**weather)
-        projects[k] = ls.hydro.swat.from_rasters(**land, climate=wx, **opt)
+        wx = tf.hydro.swat.climate(**weather)
+        projects[k] = tf.hydro.swat.from_rasters(**land, climate=wx, **opt)
 
     def by_hru(p):
         n = len(p.watershed.tables["gis_hrus"])
@@ -91,7 +91,7 @@ def main() -> None:
         ("ex_reach", "ex", "reach", {}),
     ]
     out: dict[str, np.ndarray] = {}
-    meta: dict = {"landschaft": ls.__version__, "cases": []}
+    meta: dict = {"landschaft": tf.__version__, "cases": []}
     for name, key, kind, kw in cases:
         p = projects[key]
         rec = {"name": name, "project": key, "kind": kind, "settings": dict(kw)}
@@ -101,7 +101,7 @@ def main() -> None:
                 s = by_hru(p)
                 rec["series"] = [[k, v] for k, v in s.items()]
                 kw["variable"] = pd.Series(s, name="mine")
-            da = ls.hydro.swat.hru_map(p, **kw)
+            da = tf.hydro.swat.hru_map(p, **kw)
             out[name] = da.values.astype(np.float64)
         elif kind == "channel":
             kw = dict(kw)
@@ -110,10 +110,10 @@ def main() -> None:
                 s = by_channel(p)
                 rec["series"] = [[k, x] for k, x in s.items()]
                 v = pd.Series(s, name="mine")
-            da = ls.hydro.swat.channel_map(p, v, **kw)
+            da = tf.hydro.swat.channel_map(p, v, **kw)
             out[name] = da.values.astype(np.float64)
         else:
-            q = ls.hydro.swat.reach_discharge(p)
+            q = tf.hydro.swat.reach_discharge(p)
             dates = q.index
             out[name] = np.column_stack([dates.year.to_numpy(np.float64), dates.dayofyear.to_numpy(np.float64),
                                          q.to_numpy(np.float64)])

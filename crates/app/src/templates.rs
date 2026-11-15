@@ -228,7 +228,7 @@ fn clue_s() -> Model {
 const SWAT_FROM_RASTERS: &str = r#"
 format = "terraflux/1"
 name = "SWAT+ from rasters"
-description = "A SWAT+ project made from maps, as QSWAT+ and the SWAT+ Editor make it, and run: a terrain, a land use and a soil drawn by chance (a valley of 3 km by 3 km, cells of 100 m, 700 to 1,000 m) are divided into subbasins, channels and HRUs; with made-up soils and two years of made-up daily weather they become a SWAT+ project (the Editor's files), which is changed (the curve number and the water the soil holds, by a percentage the model's inputs give: what a batch or a calibration varies) and simulated by landschaft's port of SWAT+ 62. The results come back on the map: the soil lost and the runoff of each HRU, the flow of each channel and its daily discharge."
+description = "A SWAT+ project made from maps, as QSWAT+ and the SWAT+ Editor make it, and run: a terrain, a land use and a soil drawn by chance (a valley of 3 km by 3 km, cells of 100 m, 700 to 1,000 m) are divided into subbasins, channels and HRUs; with made-up soils and two years of made-up daily weather they become a SWAT+ project (the Editor's files), which is changed (the curve number and the water the soil holds, by a percentage the model's inputs give: what a batch or a calibration varies) and simulated by the Python library's port of SWAT+ 62. The results come back on the map: the soil lost and the runoff of each HRU, the flow of each channel and its daily discharge."
 
 [inputs.cn2_change]
 kind = "value"
@@ -1696,7 +1696,7 @@ id = "data"
 op = "sdm.prepare"
 inputs = { occurrences = "presences.points", env = "predictors.stack" }
 params = { clean = false, background = 800, folds = 4, seed = 1 }
-note = "The preparation (landschaft's prepare): a record per cell, the predictors without collinearity (VIF 10), 800 background points, 4 folds of spatial blocks. With lon/lat records clean = true runs CoordinateCleaner's tests; area = a distance in metres draws the background near the records. report: what each step removed."
+note = "The preparation (the Python library's prepare, `tf.sdm.prepare`): a record per cell, the predictors without collinearity (VIF 10), 800 background points, 4 folds of spatial blocks. With lon/lat records clean = true runs CoordinateCleaner's tests; area = a distance in metres draws the background near the records. report: what each step removed."
 
 [[nodes]]
 id = "fit"

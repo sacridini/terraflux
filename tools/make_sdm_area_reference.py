@@ -19,14 +19,14 @@ import geopandas as gpd
 import pandas as pd
 from pyproj import Geod
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
 
 
 def main() -> None:
-    brad = pd.read_csv(ROOT / "extern" / "landschaft" / "src" / "landschaft" / "sdm" / "data" / "bradypus.csv")
+    brad = pd.read_csv(ROOT / "extern" / "terraflux-py" / "src" / "terraflux" / "sdm" / "data" / "bradypus.csv")
     fiji = pd.DataFrame({"lon": [179.2, 179.8, -179.6, -178.9, 178.4], "lat": [-16.5, -17.9, -16.2, -18.5, -17.1]})
     brad.to_csv(REF / "sdm_area_bradypus.csv", index=False)
     fiji.to_csv(REF / "sdm_area_fiji.csv", index=False)
@@ -55,7 +55,7 @@ def main() -> None:
             args["regions"] = countries
         if kw.get("_within"):
             args["within"] = land
-        a = ls.sdm.accessible_area(brad if rec == "bradypus" else fiji, **args)
+        a = tf.sdm.accessible_area(brad if rec == "bradypus" else fiji, **args)
         a.to_file(out, layer=name, driver="GPKG")
         g = a.geometry.iloc[0]
         meta[name] = {"records": rec, "settings": kw, "area": g.area, "geodesic": abs(geod.geometry_area_perimeter(g)[0]),

@@ -21,7 +21,7 @@ fn run(op: &str, map: Map, params: serde_json::Value) -> Outputs {
 }
 
 fn example(name: &str) -> Map {
-    let p = root().join("extern/landschaft/src/landschaft/surface/data").join(format!("{name}.tif"));
+    let p = root().join("extern/terraflux-py/src/terraflux/surface/data").join(format!("{name}.tif"));
     Rasters::open(p.to_str().unwrap(), None, None).unwrap().map().unwrap()
 }
 

@@ -224,7 +224,7 @@ fn the_viewer_draws_vectors() {
     render(&mut h, "alone");
 
     // the clusters of the zones of augusta.tif over its map
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/landschaft/tests/data/lsm/augusta.tif");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/tests/data/lsm/augusta.tif");
     let raster = terraflux_raster::Raster::read(&path).unwrap();
     let map = terraflux_ops::Map::new(Arc::new(raster.grid.clone()), raster.bands[0].masked(raster.nodata));
     let run = |op: &str, ins: Vec<(&str, terraflux_ops::Value)>, p: serde_json::Value| {

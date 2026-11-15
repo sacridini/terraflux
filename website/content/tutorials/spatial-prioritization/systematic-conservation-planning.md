@@ -105,7 +105,7 @@ and sea by 2030), from ecology (the area a viable population needs), or from the
 
 ### Serra Verde
 
-The series uses **Serra Verde**, a synthetic coastal region that comes with landschaft, the library behind
+The series uses **Serra Verde**, a synthetic coastal region that comes with terraflux-py, the library behind
 Terraflux's prioritization. It is imaginary but built to behave like real planning data: 60 × 90 cells of 1 km
 (4825 planning units on land; the sea has no value and is not part of the problem), mountains in the west where
 land is cheap, a coastal plain with three cities, a highway and two rivers where land is dear, three protected

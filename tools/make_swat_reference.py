@@ -15,13 +15,13 @@ from pathlib import Path
 
 import numpy as np
 
-import landschaft as ls
-from landschaft.hydro.swat import STEPS, TABLES, WEATHER_COLUMNS
-from landschaft.hydro.swat._run import _run_raw
+import terraflux as tf
+from terraflux.hydro.swat import STEPS, TABLES, WEATHER_COLUMNS
+from terraflux.hydro.swat._run import _run_raw
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-EXAMPLE = ROOT / "extern" / "landschaft" / "src" / "landschaft" / "hydro" / "swat" / "data" / "hubbard_brook.zip"
+EXAMPLE = ROOT / "extern" / "terraflux-py" / "src" / "terraflux" / "hydro" / "swat" / "data" / "hubbard_brook.zip"
 
 CASES = [
     {"name": "year", "step": "year"},
@@ -41,12 +41,12 @@ def frame(df, obj) -> np.ndarray:
 
 
 def main() -> None:
-    project = ls.hydro.swat.load_txtinout(EXAMPLE)
+    project = tf.hydro.swat.load_txtinout(EXAMPLE)
     out: dict[str, np.ndarray] = {}
     for case in CASES:
         chosen = case.get("tables", list(TABLES))
         tables = {t: ([case["step"]] if t in chosen else []) for t in TABLES}
-        r = ls.hydro.swat.run(project, tables=tables, nyskip=case.get("nyskip"), c_factor=case.get("c_factor", "swatplus"))
+        r = tf.hydro.swat.run(project, tables=tables, nyskip=case.get("nyskip"), c_factor=case.get("c_factor", "swatplus"))
         for t in chosen:
             out[f"{case['name']}/{t}"] = frame(r.table(t, case["step"]), TABLES[t][1])
         w = r.weather
@@ -58,7 +58,7 @@ def main() -> None:
              np.array([stations[s] for s in w.index.get_level_values("station")], np.float64)]
             + [w[c].to_numpy(np.float64) for c in WEATHER_COLUMNS])
     np.savez_compressed(REF / "swat.npz", **out)
-    meta = {"landschaft": ls.__version__, "steps": list(STEPS), "cases": CASES}
+    meta = {"landschaft": tf.__version__, "steps": list(STEPS), "cases": CASES}
     (REF / "swat.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")
     print(REF / "swat.npz", len(out))
 

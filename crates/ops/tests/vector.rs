@@ -1,7 +1,7 @@
 //! The vector operators and planning units of polygons: the polygons of landschaft's optimize cases
 //! (tests/data/reference/vectors, tools/make_vector_inputs.py) read by OGR; burnt and their zones' statistics as
 //! landschaft's rasterize and zonal_stats; exactextractr's sums, prioritizr's boundary and adjacency matrices and its
-//! models of polygon planning units (extern/landschaft/tests/data/reference/optimize). Skipped without GDAL.
+//! models of polygon planning units (extern/terraflux-py/tests/data/reference/optimize). Skipped without GDAL.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -308,7 +308,7 @@ struct Reference {
 }
 
 fn reference(group: &str) -> Reference {
-    let dir = root().join("extern/landschaft/tests/data/reference/optimize");
+    let dir = root().join("extern/terraflux-py/tests/data/reference/optimize");
     Reference {
         arrays: terraflux_raster::npy::read_npz(dir.join(format!("{group}.npz"))).unwrap(),
         meta: serde_json::from_str(&std::fs::read_to_string(dir.join(format!("{group}.json"))).unwrap()).unwrap(),

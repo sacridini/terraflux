@@ -3,7 +3,7 @@
 
     python tools/make_gtb_palettes.py
 
-The tables are those landschaft writes into its GeoTIFFs and plots (src/landschaft/_palettes.py), GTB's own.
+The tables are those landschaft writes into its GeoTIFFs and plots (src/terraflux/_palettes.py), GTB's own.
 """
 
 from __future__ import annotations
@@ -13,12 +13,12 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "src"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "src"))
 
-from landschaft import _palettes as P  # noqa: E402
-from landschaft._plotting._palettes import _fos_change_names  # noqa: E402
-from landschaft.io import gtn_components_colormap, gtn_importance_colormap  # noqa: E402
-from landschaft.mosaic import LM19_CLASSES, RECODE_103_TO_19  # noqa: E402
+from terraflux import _palettes as P  # noqa: E402
+from terraflux._plotting._palettes import _fos_change_names  # noqa: E402
+from terraflux.io import gtn_components_colormap, gtn_importance_colormap  # noqa: E402
+from terraflux.mosaic import LM19_CLASSES, RECODE_103_TO_19  # noqa: E402
 
 TABLES = {
     "MSPA_ON": ("GTB's MSPA table with transitions (mspacolorston): MSPA, SPA, Accounting", P.MSPA_ON_PALETTE),

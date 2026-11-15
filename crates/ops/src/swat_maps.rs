@@ -253,7 +253,7 @@ impl Operator for HruMap {
         }
         let mut sig = OpSignature::new(
             "swat.hru_map",
-            "An HRU result of SWAT+ on the map (landschaft's hru_map): each cell takes the value of its HRU (NaN \
+            "An HRU result of SWAT+ on the map (the Python library's hru_map): each cell takes the value of its HRU (NaN \
              outside the watershed and on cells whose land use, soil and slope combination was folded into other \
              HRUs). The project must carry its watershed (swat.from_tables). It reads the table of the variable from \
              a swat.run of the same project (hru_wb, hru_nb, hru_ls or hru_pw: the average annual one, step aa, for \
@@ -342,7 +342,7 @@ impl Operator for ChannelMap {
     fn signature(&self) -> OpSignature {
         let mut sig = OpSignature::new(
             "swat.channel_map",
-            "A channel result of SWAT+ on the stream cells (landschaft's channel_map; by default the mean discharge, \
+            "A channel result of SWAT+ on the stream cells (the Python library's channel_map; by default the mean discharge, \
              m3/s): NaN off the streams. The project must carry its watershed (swat.from_tables). It reads the \
              channel_sd table of a swat.run of the same project (the average annual one, step aa, for how annual; \
              the daily one, step day, for the others); with none connected it runs the project itself.",
@@ -422,7 +422,7 @@ impl Operator for ReachDischarge {
     fn signature(&self) -> OpSignature {
         let mut sig = OpSignature::new(
             "swat.reach_discharge",
-            "The daily discharge leaving each channel (landschaft's reach_discharge; m3/s, channel_sd's flo_out): a \
+            "The daily discharge leaving each channel (the Python library's reach_discharge; m3/s, channel_sd's flo_out): a \
              row per date (year, day of the year) and a column per channel (channel_1...). It reads the daily \
              channel_sd table (step day) of a swat.run of the project; with none connected it runs the project \
              itself.",

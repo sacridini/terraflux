@@ -522,7 +522,7 @@ impl Operator for Load {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "swat.load",
-            "Load a SWAT+ project (landschaft's load_txtinout): a TxtInOut folder (with file.cio) or a zip of one, as \
+            "Load a SWAT+ project (the Python library's load_txtinout): a TxtInOut folder (with file.cio) or a zip of one, as \
              a value to run (swat.run) or to change (swat.set). The files SWAT+ itself wrote in earlier runs are left \
              out.",
             Access::None,
@@ -614,7 +614,7 @@ impl Operator for Run {
     fn signature(&self) -> OpSignature {
         let mut sig = OpSignature::new(
             "swat.run",
-            "Simulate a SWAT+ project (a TxtInOut folder or a zip of one) as SWAT+ 62.0.1 does, through landschaft's \
+            "Simulate a SWAT+ project (a TxtInOut folder or a zip of one) as SWAT+ 62.0.1 does, through the Python library's \
              port of it (bit for bit with SWAT+ for what the port covers: measured and generated weather, HRUs with \
              snow, ET, curve number runoff, MUSLE erosion, percolation, lateral flow, nutrients, plant growth and \
              management, routing units, aquifers, SWAT-DEG channels). The tables SWAT+ prints, at a step: a row per \

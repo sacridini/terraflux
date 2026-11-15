@@ -1502,7 +1502,7 @@ impl Operator for WatershedOp {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "swat.watershed",
-            "Divide a watershed into subbasins, channels and HRUs as QSWAT+ does (landschaft's watershed, bit for \
+            "Divide a watershed into subbasins, channels and HRUs as QSWAT+ does (the Python library's watershed, bit for \
              bit): the DEM is filled and drains along D8 directions, every cell whose drainage area reaches the \
              stream threshold is a stream, each stream link (split at the outlets) is a channel with its subbasin and \
              one landscape unit; HRUs are the combinations of land use, soil and slope band in a landscape unit, \

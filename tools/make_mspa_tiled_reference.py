@@ -17,11 +17,11 @@ from pathlib import Path
 
 import numpy as np
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-INPUT = ROOT / "extern" / "landschaft" / "src" / "landschaft" / "data" / "input.tif"
+INPUT = ROOT / "extern" / "terraflux-py" / "src" / "terraflux" / "data" / "input.tif"
 
 CASES = [
     {"tile_size": 600, "overlap": 200},
@@ -47,14 +47,14 @@ def shortcuts(a: np.ndarray) -> np.ndarray:
 
 
 def main() -> None:
-    a = ls.load_raster(INPUT).values
-    out: dict = {"landschaft": ls.__version__, "cases": []}
+    a = tf.load_raster(INPUT).values
+    out: dict = {"landschaft": tf.__version__, "cases": []}
     for case in CASES:
-        out["cases"].append({**case, "map": "input", "digest": digest(ls.mspa_tiled(a, **case))})
+        out["cases"].append({**case, "map": "input", "digest": digest(tf.mspa_tiled(a, **case))})
     s = shortcuts(a)
     for case in [{"tile_size": 120, "overlap": 40}, {"tile_size": 90, "overlap": 30, "connectivity": 4}]:
-        out["cases"].append({**case, "map": "shortcuts", "digest": digest(ls.mspa_tiled(s, **case))})
-    out["whole"] = digest(ls.mspa(a))
+        out["cases"].append({**case, "map": "shortcuts", "digest": digest(tf.mspa_tiled(s, **case))})
+    out["whole"] = digest(tf.mspa(a))
     path = REF / "mspa_tiled.json"
     path.write_text(json.dumps(out, indent=1) + "\n", encoding="utf-8")
     print(path)

@@ -21,7 +21,7 @@ impl Operator for Pollination {
         OpSignature::new(
             "services.pollination",
             "Crop pollination by wild bees: InVEST's pollination model (natcap.invest 3.20) bit for bit, through \
-             landschaft. Each species nests where the land uses (and the farms) offer its substrates and forages \
+             the Python library. Each species nests where the land uses (and the farms) offer its substrates and forages \
              on their flowers by season within its flight distance (an exponential kernel of mean alpha); its \
              supply and its abundance by season follow, summed over the species by season; with farms, the \
              pollinator abundance on them (their half saturation), the total and wild pollinator yields and the \

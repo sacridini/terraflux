@@ -1,6 +1,6 @@
 """Figures of the tutorial "Surface metrics: texture without patches" (surface-metrics/surface-texture).
 
-Summer NDVI of a forested landscape in south-western Oregon (Landsat, 30 m, the example data of landschaft and of
+Summer NDVI of a forested landscape in south-western Oregon (Landsat, 30 m, the example data of terraflux-py and of
 the R package geodiv) and the elevation of the same place: thresholds turned into patches, the trend removed,
 ISO 25178's surface metrics, the bearing area curve, texture in moving windows, and Gaussian fields of known grain.
 
@@ -21,7 +21,7 @@ SLUG = "surface-metrics/surface-texture"
 work = figs.workdir(SLUG)
 out = figs.img_dir(SLUG)
 data = figs.data_dir(SLUG)
-src = figs.ROOT / "extern/landschaft/src/landschaft/surface/data"
+src = figs.ROOT / "extern/terraflux-py/src/terraflux/surface/data"
 shutil.copy(src / "orforest.tif", work / "ndvi.tif")
 shutil.copy(src / "orelevation.tif", work / "elevation.tif")
 numbers = {}

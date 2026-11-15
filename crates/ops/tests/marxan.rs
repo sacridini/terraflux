@@ -1,4 +1,4 @@
-//! prioritize.marxan against Marxan 4.0.6: the runs landschaft keeps (extern/landschaft/tests/data/reference/
+//! prioritize.marxan against Marxan 4.0.6: the runs landschaft keeps (extern/terraflux-py/tests/data/reference/
 //! optimize/marxan.npz) of the tables of its cases (tests/data/reference/marxan_inputs.json,
 //! tools/make_marxan_inputs.py), compared as landschaft's test_prioritize_marxan.py does: the reserves of every
 //! run exactly; the summary exactly for the corrected executable, to its 6 printed digits for the released one.
@@ -28,7 +28,7 @@ fn runs_are_marxans() {
         serde_json::from_str(&std::fs::read_to_string(root.join("tests/data/reference/marxan_inputs.json")).unwrap())
             .unwrap();
     let reference =
-        terraflux_raster::npy::read_npz(root.join("extern/landschaft/tests/data/reference/optimize/marxan.npz"))
+        terraflux_raster::npy::read_npz(root.join("extern/terraflux-py/tests/data/reference/optimize/marxan.npz"))
             .unwrap();
     let mut checked = 0;
     for (name, case) in cases.as_object().unwrap() {

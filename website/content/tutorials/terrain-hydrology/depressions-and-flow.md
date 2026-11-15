@@ -113,7 +113,7 @@ may not need to extract one; you will still need the directions to delineate cat
 
 - **An elevation model**, as a GeoTIFF or any format GDAL reads. Here: `orelevation.tif`, the SRTM elevation
   (1 arc-second, about 30 m) of a forested area in the Oregon Coast Range foothills, the example data of
-  landschaft (in Terraflux's repository, `extern/landschaft/src/landschaft/surface/data/`). Save it as
+  terraflux-py (in Terraflux's repository, `extern/terraflux-py/src/terraflux/surface/data/`). Save it as
   `elevation.tif` next to your model. It is the same file as in
   [Terrain from an elevation model](../../surface-metrics/terrain/).
 - **Projected coordinates**, ideally. The `hydro.*` operators take the size of the cells of a map in longitude
@@ -326,7 +326,7 @@ accumulation gives the share of the catchment that is open.
 1. Add a [[raster.read]] of `ndvi.tif` (rename it `ndvi_read`) and a [[raster.reproject]] after it with the same
    settings as `elevation` (rename it `ndvi`), so both maps share one grid.
 2. Add a [[raster.calc]] (subject **Map algebra**) named `open`; connect `ndvi`'s raster to an input named `n` and
-   write `1 if n <= 0.55 else 0`: open land where the summer NDVI is at most 0.55, the threshold landschaft's
+   write `1 if n <= 0.55 else 0`: open land where the summer NDVI is at most 0.55, the threshold terraflux-py's
    watershed example uses to separate forest from pasture.
 3. Add a second [[hydro.flow_accumulation]] named `open_acc`, its `dem` from `filled` and its `weights` from
    `open`.

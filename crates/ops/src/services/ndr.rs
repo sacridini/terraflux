@@ -17,7 +17,7 @@ impl Operator for Ndr {
         OpSignature::new(
             "services.ndr",
             "Nutrient export and retention: InVEST's nutrient delivery ratio model (natcap.invest 3.20) bit for \
-             bit, through landschaft. The nitrogen and phosphorus loads of each land use (scaled by the runoff \
+             bit, through the Python library. The nitrogen and phosphorus loads of each land use (scaled by the runoff \
              proxy over its mean) split into a surface part and, for nitrogen, a dissolved subsurface part; the \
              surface load reaches a stream in the share NDR = (1 - eff') / (1 + exp((IC_0 - IC) / k)), eff' the \
              retention of the cells it crosses on its way down and IC the index of connectivity (Borselli et al. \

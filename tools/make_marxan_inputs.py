@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The tables Marxan's reference runs were made from, for Terraflux's tests of prioritize.marxan.
 
-landschaft keeps Marxan 4.0.6's runs (extern/landschaft/tests/data/reference/optimize/marxan.npz) of tables its
+landschaft keeps Marxan 4.0.6's runs (extern/terraflux-py/tests/data/reference/optimize/marxan.npz) of tables its
 tests build with numpy (tests/marxan_cases.py); this writes every case's tables (pu, spec, puvspr, bound, as
 Terraflux's tables: columns and rows) and options into tests/data/reference/marxan_inputs.json:
 
@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 
 import marxan_cases as mc  # noqa: E402
 

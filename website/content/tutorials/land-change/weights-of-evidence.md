@@ -30,7 +30,7 @@ of operators (Rodrigues & Soares-Filho, 2017; Ferreira et al., 2019), much like 
 change model has three pieces: transition rates from a Markov chain (the [previous series](/tutorials/land-change/transition-rates-markov-chains/)),
 **weights of evidence** for the probabilities (this part) and the **Expander and Patcher** for the allocation
 (the [next part](/tutorials/land-change/expander-and-patcher/)). Terraflux reproduces the method from its
-publications and from measurements of the program, through the landschaft library.
+publications and from measurements of the program, through the terraflux-py library.
 
 ### Evidence for a transition
 

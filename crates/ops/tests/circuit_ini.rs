@@ -44,7 +44,7 @@ fn ini_files_are_landschafts() {
     let meta: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/circuit_ini.json")).unwrap())
             .unwrap();
-    let omni = root().join("extern/landschaft/tests/data/reference/circuit/omniscape_ini");
+    let omni = root().join("extern/terraflux-py/tests/data/reference/circuit/omniscape_ini");
     for case in meta["omniscape"].as_array().unwrap() {
         let ini = case["ini"].as_str().unwrap();
         let out = run(
@@ -67,7 +67,7 @@ fn ini_files_are_landschafts() {
         }
     }
 
-    let cs = root().join("extern/landschaft/tests/data/reference/circuit/circuitscape");
+    let cs = root().join("extern/terraflux-py/tests/data/reference/circuit/circuitscape");
     std::env::set_current_dir(&cs).unwrap();
     for case in meta["circuitscape"].as_array().unwrap() {
         let ini = case["ini"].as_str().unwrap();
@@ -114,7 +114,7 @@ fn ini_files_are_landschafts() {
 /// configuration.
 #[test]
 fn written_outputs_are_landschafts() {
-    let cs = root().join("extern/landschaft/tests/data/reference/circuit/circuitscape");
+    let cs = root().join("extern/terraflux-py/tests/data/reference/circuit/circuitscape");
     let want = root().join("tests/data/reference/circuit_ini_out");
     let tmp = root().join("target/tmp/circuit_ini_out");
     let _ = std::fs::remove_dir_all(&tmp);

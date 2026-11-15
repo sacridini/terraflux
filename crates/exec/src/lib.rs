@@ -2563,7 +2563,7 @@ fn tables(all: &[&Value], names: &[String], name: &str) -> terraflux_ops::Table 
 }
 
 /// raster.write of a map an operator made as a product of GuidosToolbox (MSPA, FAD...): the product's tag given to
-/// it (written in the GeoTIFF as landschaft_product, as landschaft does), unless the node gives one.
+/// it (written in the GeoTIFF as terraflux_product), unless the node gives one.
 fn with_product<'a>(node: &'a Node, nodes: &[Node]) -> std::borrow::Cow<'a, Node> {
     use std::borrow::Cow;
     if node.op != "raster.write" || node.params.contains_key("product") {

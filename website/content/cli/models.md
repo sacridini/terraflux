@@ -254,7 +254,7 @@ terraflux methods model.toml -f ris -o refs.ris    # for EndNote
 
 ## terraflux python
 
-Writes a model as a Python script of landschaft: each node a call of landschaft's function of the same method,
+Writes a model as a Python script of terraflux-py: each node a call of terraflux-py's function of the same method,
 in the order the model runs them; calculators are kept as they are and run in numpy; nodes with no counterpart are
 left as comments, with why. The summary goes to the error output.
 
@@ -297,7 +297,7 @@ plot
 ## terraflux convert
 
 Writes a model in the other format, chosen by the extension: TOML (easy to read and edit) or JSON (easy for
-programs, and the format landschaft writes from Python).
+programs, and the format terraflux-py writes from Python).
 
 ```bash
 terraflux convert model.toml model.json

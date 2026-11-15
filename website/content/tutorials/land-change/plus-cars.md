@@ -67,7 +67,7 @@ patches appear.
 
 !!! note "What Terraflux runs"
     PLUS is distributed by its authors as a Windows program, without its source code. Terraflux's `cars.step`
-    follows landschaft's implementation, written from the paper: where the paper is silent (the spread of the
+    follows terraflux-py's implementation, written from the paper: where the paper is silent (the spread of the
     threshold's random number, how a class is held at its demand) it makes a documented choice. Its random
     numbers come from a hash of the seed, the step, the iteration and the cell, so the same seed gives the same
     simulation on any number of threads.
@@ -98,7 +98,7 @@ model](/tutorials/land-change/choosing-a-model/).
   distance to built land in 1985).
 - **The growth probabilities of LEAS**: a raster with a band per class, named by the class (`1`, `2`, `3`).
   Terraflux has no random forest operator; the probabilities are made with
-  [landschaft](https://github.com/sacridini/landschaft) (below) or any other tool, and read with `raster.read`.
+  [terraflux-py](https://github.com/sacridini/terraflux-py) (below) or any other tool, and read with `raster.read`.
 
 ![Plum Island Ecosystems in 1991](/img/tutorials/land-change/plus-cars/observed_1991.png "The start of the simulation, 1991: forest (green), built land (purple) and other land, mostly farmland and wetland (ochre). The grey border is outside the study area.")
 
@@ -106,19 +106,19 @@ model](/tutorials/land-change/choosing-a-model/).
 
 ### 1. LEAS: the growth probabilities
 
-LEAS needs a classifier, which Terraflux does not have. landschaft's `Estimator` with `target="expansion"` does
+LEAS needs a classifier, which Terraflux does not have. terraflux-py's `Estimator` with `target="expansion"` does
 what LEAS does: for each class, the cells that gained it between the two maps are the presences, the cells that
 could have gained it and did not are the absences; a sample of both (5 % of the cells, drawn from each group
 separately, as in the paper) trains a random forest of 50 trees.
 
 ```python
-import landschaft as ls
+import terraflux as tf
 import numpy as np, rasterio
 from sklearn.ensemble import RandomForestClassifier
 
-S = ls.simulate
-lu = ls.load_raster("pie_landuse.tif")
-ef = ls.load_raster("pie_drivers.tif")
+S = tf.simulate
+lu = tf.load_raster("pie_landuse.tif")
+ef = tf.load_raster("pie_drivers.tif")
 t0, t1 = lu[0].where(lu[0] != 255), lu[1].where(lu[1] != 255)      # 1985, 1991
 
 leas = S.Estimator(RandomForestClassifier(n_estimators=50, min_samples_leaf=50, random_state=1),
@@ -130,7 +130,7 @@ p = leas.predict(ef, landscape=t1)            # a layer per class: the growth pr
 ```
 
 `min_samples_leaf=50` keeps each leaf of the trees above 50 cells, which smooths the probabilities: with leaves
-of single cells, a forest memorises its training cells and its map of probabilities becomes noisy. landschaft's
+of single cells, a forest memorises its training cells and its map of probabilities becomes noisy. terraflux-py's
 `presets.plus` does all of this and the Markov chain in one call, and `Model.save` writes the result as a
 Terraflux graph.
 

@@ -42,7 +42,7 @@ fn batch_runs_an_operator_on_every_raster() {
     let dir = root().join("target/tmp/batch");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("tiles")).unwrap();
-    let src = root().join("extern/landschaft/src/landschaft/data/input.tif");
+    let src = root().join("extern/terraflux-py/src/terraflux/data/input.tif");
     let m = Rasters::open(src.to_str().unwrap(), None, None).unwrap().map().unwrap();
     let tiles: Vec<Map> =
         [0, 300].iter().map(|&r| tile(&m, r, 300, &dir.join(format!("tiles/forest_{r}.tif")))).collect();

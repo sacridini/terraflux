@@ -1,6 +1,6 @@
 """Shared pieces of the change-detection figures: the data, their classes and colours, and small helpers.
 
-The data are landschaft's example maps, copied into each script's work folder so that the models read them with
+The data are terraflux-py's example maps, copied into each script's work folder so that the models read them with
 plain names, as a reader's model would:
 
 - sibuyan_landuse.tif: Sibuyan Island (Philippines), land use in 1997 and 2011 (bands named 1997 and 2011),

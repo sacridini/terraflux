@@ -171,7 +171,7 @@ fn similarity_of_differences() {
 #[test]
 fn mspa_is_guidos_toolbox() {
     let npz = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../extern/landschaft/tests/data/reference/gtb_input.npz");
+        .join("../../extern/terraflux-py/tests/data/reference/gtb_input.npz");
     let arrays = terraflux_raster::npy::read_npz(&npz).unwrap();
     let input = &arrays["input"];
     let (ny, nx) = (input.shape[0], input.shape[1]);
@@ -208,7 +208,8 @@ fn mspa_is_guidos_toolbox() {
 /// maps in `tests/data/reference/gtb_inputs.npz`), by tool.
 fn gtb_cases(tool: &str) -> (Vec<serde_json::Value>, std::collections::BTreeMap<String, terraflux_raster::npy::Array>) {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let text = std::fs::read_to_string(root.join("extern/landschaft/tests/data/reference/idl_reference.json")).unwrap();
+    let text =
+        std::fs::read_to_string(root.join("extern/terraflux-py/tests/data/reference/idl_reference.json")).unwrap();
     let all: serde_json::Value = serde_json::from_str(&text).unwrap();
     let inputs = terraflux_raster::npy::read_npz(root.join("tests/data/reference/gtb_inputs.npz")).unwrap();
     (all[tool].as_array().unwrap().clone(), inputs)

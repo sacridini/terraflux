@@ -19,11 +19,11 @@ import pandas as pd
 import xarray as xr
 from affine import Affine
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-S = ls.sdm
+S = tf.sdm
 
 
 def main() -> None:
@@ -31,7 +31,7 @@ def main() -> None:
     t = (300000.0, res, 0.0, 7000000.0, 0.0, -res)
     layers = []
     for k in range(2):
-        v = ls.nlm.gaussian_field(nx, ny, autocorr_range=7 + 4 * k, seed=61 + k).values * 10.0
+        v = tf.nlm.gaussian_field(nx, ny, autocorr_range=7 + 4 * k, seed=61 + k).values * 10.0
         if k == 1:
             v[35:41, 8:17] = np.nan
         layers.append(v)

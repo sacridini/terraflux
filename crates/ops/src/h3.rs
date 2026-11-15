@@ -35,7 +35,7 @@ impl Operator for H3Units {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "prioritize.h3_units",
-            "H3 hexagons as planning units, as landschaft's h3_units: the hexagons of an H3 resolution that cover \
+            "H3 hexagons as planning units, as the Python library's h3_units: the hexagons of an H3 resolution that cover \
              a cost map (its footprint in longitude and latitude, every hexagon that overlaps it), in the map's \
              coordinate system, those over cells with a cost, each with the sum of the costs of the cells it covers \
              weighted by the exact share of each cell inside it. For prioritize.optimize as polygons (cost_column \

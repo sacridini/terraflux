@@ -2,7 +2,7 @@
 """What landschaft 1.50's new surfaces and Dinamica functors give, for Terraflux's tests, written to
 tests/data/reference/landforms.npz (and the cases to landforms.json):
 
-- the geomorphons of every case of landschaft's r.geomorphon references (extern/landschaft/tests/data/reference/
+- the geomorphons of every case of landschaft's r.geomorphon references (extern/terraflux-py/tests/data/reference/
   surface/geomorphons.*), with their measures;
 - the hilltops of a cone, of the srtm DEM of those references (with a plain) and of a corner of orelevation
   (longitude / latitude);
@@ -22,11 +22,11 @@ from pathlib import Path
 
 import numpy as np
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-GEO = ROOT / "extern" / "landschaft" / "tests" / "data" / "reference" / "surface"
+GEO = ROOT / "extern" / "terraflux-py" / "tests" / "data" / "reference" / "surface"
 MEASURES = ("intensity", "exposition", "range", "variance", "elongation", "azimuth", "extend", "width")
 
 
@@ -36,7 +36,7 @@ def f64(x) -> np.ndarray:
 
 def main() -> None:
     out: dict[str, np.ndarray] = {}
-    meta: dict = {"landschaft": ls.__version__, "geomorphons": {}, "hilltop": [], "gravity": [], "roads": {}}
+    meta: dict = {"landschaft": tf.__version__, "geomorphons": {}, "hilltop": [], "gravity": [], "roads": {}}
 
     data = np.load(GEO / "geomorphons.npz")
     cases = json.loads((GEO / "geomorphons.json").read_text())["cases"]
@@ -48,7 +48,7 @@ def main() -> None:
         settings = {"search": c["search"], "skip": c["skip"], "flat": c["flat"], "dist": c["dist"],
                     "units": "map" if c.get("meters") else "cells", "comparison": c["comparison"],
                     "extended": c.get("extended", False), "measures": True}
-        g = ls.surface.geomorphons(z, extent=(x0, x0 + nx * ew, y0 - ny * ns, y0), **settings)
+        g = tf.surface.geomorphons(z, extent=(x0, x0 + nx * ew, y0 - ny * ns, y0), **settings)
         meta["geomorphons"][name] = {"transform": [x0, ew, 0.0, y0, 0.0, -ns], "settings": settings}
         out[f"geo/{name}/dem"] = f64(z)
         for k in ("forms", "ternary", "positive", "negative", *MEASURES):
@@ -70,7 +70,7 @@ def main() -> None:
     for name, z, t, pl, kw in hills:
         ny, nx = z.shape
         ext = (t[0], t[0] + nx * t[1], t[3] + ny * t[5], t[3])
-        h = ls.surface.hilltop(z, extent=ext, plain=pl, **kw)
+        h = tf.surface.hilltop(z, extent=ext, plain=pl, **kw)
         meta["hilltop"].append({"name": name, "transform": t, "settings": kw, "plain": pl is not None})
         out[f"hill/{name}/dem"] = f64(z)
         if pl is not None:
@@ -81,8 +81,8 @@ def main() -> None:
         tab["base_kind"] = tab["base_kind"].map({"saddle": 0, "plain": 1, "lowest": 2})
         tab["qualifies"] = tab["qualifies"].astype(float)
         out[f"hill/{name}/hills"] = tab.to_numpy(np.float64)
-    z = ls.load_raster(ls.surface.example_data("orelevation"))[:60, :70]
-    h = ls.surface.hilltop(z, min_height=40.0, min_slope=4.0)
+    z = tf.load_raster(tf.surface.example_data("orelevation"))[:60, :70]
+    h = tf.surface.hilltop(z, min_height=40.0, min_slope=4.0)
     meta["hilltop"].append({"name": "lonlat", "settings": {"min_height": 40.0, "min_slope": 4.0}, "plain": False})
     out["hill/lonlat/dem"] = f64(z)
     out["hill/lonlat/app"] = f64(h.app)
@@ -107,7 +107,7 @@ def main() -> None:
     for name, kw in [("cells", {}), ("map", {"unit": "map", "exponent": 1.5}), ("mask", {"exponent": 2.5}),
                      ("fft", {"method": "fft"})]:
         m = mask if name == "mask" else None
-        out[f"gravity/{name}"] = f64(ls.surface.gravity(towns, extent=ext, mask=m, **kw))
+        out[f"gravity/{name}"] = f64(tf.surface.gravity(towns, extent=ext, mask=m, **kw))
         meta["gravity"].append({"name": name, "settings": kw, "mask": m is not None})
 
     # the Patcher of a continuous state: biomass per hectare on 30 m cells
@@ -119,13 +119,13 @@ def main() -> None:
     stock, p = da_of(biomass, t), da_of(prob, t)
     out["stock/biomass"], out["stock/probability"] = biomass, prob
     meta["stock_transform"] = t
-    cp = ls.simulate.ContinuousPatcher(mean=1.5, variance=0.4, isometry=1.3)
+    cp = tf.simulate.ContinuousPatcher(mean=1.5, variance=0.4, isometry=1.3)
     a = cp.allocate(stock, p, quota=40000.0, seed=11)
     for k, attr in (("stock", "stock"), ("probability", "probability"), ("taken", "taken"), ("patch", "patches")):
         out[f"stock/allocate/{k}"] = f64(getattr(a, attr))
     out["stock/allocate/info"] = np.array([40000.0, float(np.asarray(a.taken).sum()), a.remaining, a.n_patches,
                                            a.n_cells])
-    cpc = ls.simulate.ContinuousPatcher(mean=6, variance=4, isometry=0.6, unit="cells", window=(3, 5))
+    cpc = tf.simulate.ContinuousPatcher(mean=6, variance=4, isometry=0.6, unit="cells", window=(3, 5))
     sim = cpc.run(biomass, prob, [500.0, 800.0, 300.0], seed=4)
     for k in range(1, 4):
         out[f"stock/run/{k}/stock"] = sim.stock.values[k]
@@ -145,16 +145,16 @@ def main() -> None:
     net_da, fr_da, att_da = da_of(net, t), da_of(friction, t), da_of(attraction, t)
     meta["roads_transform"] = t
     out["roads/network"], out["roads/friction"], out["roads/attraction"] = net, friction, attraction
-    cost, dirs = ls.simulate.friction_cost(net_da, fr_da, directions=True)
+    cost, dirs = tf.simulate.friction_cost(net_da, fr_da, directions=True)
     out["roads/cost"], out["roads/direction"] = f64(cost), f64(dirs)
-    cost_rel = ls.simulate.friction_cost(net_da, fr_da, diagonal=False, relative=True)
+    cost_rel = tf.simulate.friction_cost(net_da, fr_da, diagonal=False, relative=True)
     out["roads/cost_relative"] = f64(cost_rel)
-    dest = ls.simulate.destinations(att_da, (3, 4), per_quadrant=2, min_distance=800.0, seed=9)
+    dest = tf.simulate.destinations(att_da, (3, 4), per_quadrant=2, min_distance=800.0, seed=9)
     out["roads/destinations"] = f64(dest)
-    out["roads/paths_cost"] = f64(ls.simulate.pathways(net_da, dest, cost, seed=3))
-    out["roads/paths_dirs"] = f64(ls.simulate.pathways(net_da, dest, directions=dirs, merge=False, value=7.0))
-    out["roads/paths_lottery"] = f64(ls.simulate.pathways(net_da, dest, cost, lottery=True, seed=21))
-    rb = ls.simulate.RoadBuilder(fr_da, att_da, quadrants=(2, 3), distance=(800.0, 2500.0), spacing=600.0)
+    out["roads/paths_cost"] = f64(tf.simulate.pathways(net_da, dest, cost, seed=3))
+    out["roads/paths_dirs"] = f64(tf.simulate.pathways(net_da, dest, directions=dirs, merge=False, value=7.0))
+    out["roads/paths_lottery"] = f64(tf.simulate.pathways(net_da, dest, cost, lottery=True, seed=21))
+    rb = tf.simulate.RoadBuilder(fr_da, att_da, quadrants=(2, 3), distance=(800.0, 2500.0), spacing=600.0)
     first = rb.step(net_da, seed=17)
     out["roads/step"] = f64(first)
     runs = rb.run(net_da, 2, seed=8)

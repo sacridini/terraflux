@@ -19,7 +19,7 @@ import numpy as np  # noqa: E402
 from matplotlib import colors as mcolors  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
-DATA = figs.ROOT / "extern" / "landschaft" / "src" / "landschaft" / "data"
+DATA = figs.ROOT / "extern" / "terraflux-py" / "src" / "terraflux" / "data"
 CLC = DATA / "clc.tif"            # CORINE Land Cover, 2000 x 2000 cells of 25 m near Hannover (EPSG:3035)
 GTB_INPUT = DATA / "input.tif"    # GuidosToolbox's sample forest map, 1000 x 1000 cells, 0 missing 1 background 2 forest
 GSC_INPUT = DATA / "gscinput.tif" # GraySpatCon's sample: % tree cover, cells of 2430 m, 255 missing

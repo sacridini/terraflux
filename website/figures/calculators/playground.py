@@ -1,5 +1,5 @@
 """The data of the calculators' playgrounds (calculators/raster, calculators/vector): Sibuyan Island (Philippines),
-its land use of 1997 and 2011 and its drivers at 250 m (lulcc's and landschaft's example data).
+its land use of 1997 and 2011 and its drivers at 250 m (lulcc's and terraflux-py's example data).
 
 - The raster calculator's: the land use (a stack, its layers 1997 and 2011) and some of the drivers (a stack), as
   the files hold them, to website/static/data/calculators/raster.js.

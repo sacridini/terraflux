@@ -18,11 +18,11 @@ import numpy as np
 import xarray as xr
 from affine import Affine
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-S = ls.simulate
+S = tf.simulate
 
 
 def grid(values: np.ndarray) -> xr.DataArray:
@@ -34,11 +34,11 @@ def grid(values: np.ndarray) -> xr.DataArray:
 
 def main() -> None:
     ny, nx = 45, 60
-    start = (ls.nlm.gaussian_field(nx, ny, autocorr_range=9, seed=31).values > 0.68).astype(float)
+    start = (tf.nlm.gaussian_field(nx, ny, autocorr_range=9, seed=31).values > 0.68).astype(float)
     end = start.copy()
-    end[ls.nlm.gaussian_field(nx, ny, autocorr_range=4, seed=32).values > 0.62] = 1.0
+    end[tf.nlm.gaussian_field(nx, ny, autocorr_range=4, seed=32).values > 0.62] = 1.0
     start[10:12, 20:23] = np.nan
-    sub = np.floor(ls.nlm.gaussian_field(nx, ny, autocorr_range=15, seed=33).values * 3)
+    sub = np.floor(tf.nlm.gaussian_field(nx, ny, autocorr_range=15, seed=33).values * 3)
     out: dict[str, np.ndarray] = {"in/start": start, "in/end": end, "in/sub": sub}
     meta: dict = {"pressure": {}, "library": {}}
     cases = {"gravity": dict(size=6), "gravity_nopad": dict(size=4, pad=False),

@@ -63,16 +63,32 @@ pub struct GeoTags {
     /// (Always written: the workers' binary messages carry every field.)
     #[serde(default)]
     pub wkt: Option<String>,
-    /// The dataset's metadata items (GDAL_METADATA without a band), such as `landschaft_product`: the product of
-    /// GuidosToolbox (or of landschaft) the values are.
+    /// The dataset's metadata items (GDAL_METADATA without a band), such as `terraflux_product` (`landschaft_product`
+    /// in the files of before the Python library was renamed): the product of GuidosToolbox the values are.
     #[serde(default)]
     pub metadata: Vec<(String, String)>,
 }
+
+/// The metadata item that says what product of GuidosToolbox a raster is.
+pub const PRODUCT_ITEM: &str = "terraflux_product";
+/// The name of [`PRODUCT_ITEM`] before the Python library was renamed (read, no longer written).
+pub const OLD_PRODUCT_ITEM: &str = "landschaft_product";
 
 impl GeoTags {
     /// A metadata item's value.
     pub fn item(&self, name: &str) -> Option<&str> {
         self.metadata.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
+    }
+
+    /// The product of GuidosToolbox the values are: `terraflux_product`, else the old name `landschaft_product`.
+    pub fn product(&self) -> Option<&str> {
+        self.item(PRODUCT_ITEM).or_else(|| self.item(OLD_PRODUCT_ITEM))
+    }
+
+    /// The product set (or taken out, with none), as `terraflux_product`: the old name is dropped.
+    pub fn set_product(&mut self, product: Option<&str>) {
+        self.set_item(OLD_PRODUCT_ITEM, None);
+        self.set_item(PRODUCT_ITEM, product);
     }
 
     /// The metadata with an item set (or taken out, with none).

@@ -21,7 +21,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
@@ -29,7 +29,7 @@ REF = ROOT / "tests" / "data" / "reference"
 
 def main() -> None:
     occ = pd.read_csv(REF / "sdm_area_bradypus.csv", float_precision="round_trip")
-    env = ls.load_raster(ls.sdm.example_data("bioclim"))
+    env = tf.load_raster(tf.sdm.example_data("bioclim"))
     given = gpd.read_file(REF / "sdm_area.gpkg", layer="buffer")
     cases = {
         "steps": {"clean": False, "thin": 50_000, "area": 800_000, "predictors": {"vif": 10}, "background": 1500,
@@ -51,7 +51,7 @@ def main() -> None:
         args = {k: v for k, v in kw.items() if not k.startswith("_")}
         if kw.get("_area"):
             args["area"] = given
-        data = ls.sdm.prepare(occ, env, **args)
+        data = tf.sdm.prepare(occ, env, **args)
         t = data.table()
         cols = ["x", "y_coord", "y", *data.predictors] + (["fold"] if data.folds is not None else [])
         out[name] = t[cols].to_numpy(dtype=np.float64)

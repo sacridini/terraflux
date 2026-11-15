@@ -405,7 +405,7 @@ async fn a_swat_project_travels_whole_and_is_read_where_it_lands() {
     // the Hubbard Brook example as a TxtInOut folder (with an output of an earlier run, not part of the project)
     // read by swat.load and swat.run; every file the project holds is sent, localized paths load the same project
     let zip = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../extern/landschaft/src/landschaft/hydro/swat/data/hubbard_brook.zip");
+        .join("../../extern/terraflux-py/src/terraflux/hydro/swat/data/hubbard_brook.zip");
     let project = terraflux_ops::swat::Project::load(&zip).unwrap();
     let dir = tmp("swat-model");
     let folder = dir.join("TxtInOut");

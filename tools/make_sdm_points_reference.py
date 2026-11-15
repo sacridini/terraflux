@@ -21,17 +21,17 @@ import pandas as pd
 import shapely
 import xarray as xr
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-S = ls.sdm
+S = tf.sdm
 
 
 def stack(transform, crs=None) -> xr.DataArray:
     layers = []
     for k in range(2):
-        f = ls.nlm.gaussian_field(48, 40, autocorr_range=6 + 4 * k, seed=51 + k)
+        f = tf.nlm.gaussian_field(48, 40, autocorr_range=6 + 4 * k, seed=51 + k)
         v = f.values * 10.0
         if k == 0:
             v[30:34, 5:12] = np.nan

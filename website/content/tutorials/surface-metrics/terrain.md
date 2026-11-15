@@ -128,8 +128,8 @@ canopy height: for those, see the next part, [Surface metrics: texture without p
 
 - **An elevation model**, as a GeoTIFF or any format GDAL reads. Here: `orelevation.tif`, the Shuttle Radar
   Topography Mission (SRTM) elevation of a forested area of south-western Oregon in cells of 1 arc-second
-  (about 30 m), the example data of the R package geodiv and of landschaft (in Terraflux's repository,
-  `extern/landschaft/src/landschaft/surface/data/`). Save it as `elevation.tif` next to your model.
+  (about 30 m), the example data of the R package geodiv and of terraflux-py (in Terraflux's repository,
+  `extern/terraflux-py/src/terraflux/surface/data/`). Save it as `elevation.tif` next to your model.
 - **Projected coordinates.** The file is in longitude and latitude (EPSG:4326). Terrain indices compare heights
   in metres with distances, so they need the cells' sides in metres. Terraflux's slope and aspect handle
   longitude and latitude correctly, but the curvatures and anything built from fixed distances assume a grid in

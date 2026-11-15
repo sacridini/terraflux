@@ -134,8 +134,8 @@ part of the local recharge in every cell. The routing of the baseflow only matte
 [Settings](#gamma-a-warning)).
 
 !!! note "Terraflux and InVEST"
-    The operator is InVEST 3.20's model as **landschaft** computes it, in InVEST's types and with its
-    expressions; Terraflux's tests compare its maps and tables with landschaft's to the bit. landschaft is tested
+    The operator is InVEST 3.20's model as **terraflux-py** computes it, in InVEST's types and with its
+    expressions; Terraflux's tests compare its maps and tables with terraflux-py's to the bit. terraflux-py is tested
     cell by cell against natcap.invest 3.20.2 **with four of its bugs corrected**: InVEST takes the *mean* of the
     upslope terms of \(L_{\text{sum.avail}}\) instead of their sum by the shares of the flow (eq. 103 of its
     guide), gives \(B_{\text{sum}} = 0\) to cells that drain off the edge of the raster, computes a recharge for

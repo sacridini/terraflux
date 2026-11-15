@@ -183,7 +183,7 @@ impl Operator for ReadTracks {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "move.read_tracks",
-            "Animal tracks from a Movebank file (move2's mt_read, landschaft's load_tracks): the CSV files Movebank \
+            "Animal tracks from a Movebank file (move2's mt_read, the Python library's load_tracks): the CSV files Movebank \
              exports (also .csv.gz) and the zip files of Env-DATA (the CSV inside), as points in EPSG:4326, one per \
              record. The time is timestamp (UTC), the track the individual (individual-local-identifier; when an \
              individual carried several tags, the individual and the tag, in a new individual-tag-local-identifier \
@@ -221,7 +221,7 @@ impl Operator for AsTracks {
         column_params(
             OpSignature::new(
                 "move.as_tracks",
-                "Tracks from points or a table of locations (move2's mt_as_move2, landschaft's as_tracks): ordered \
+                "Tracks from points or a table of locations (move2's mt_as_move2, the Python library's as_tracks): ordered \
                  by track and time (stable), the tracks in the order they first appear, as every move node needs. \
                  The time is a column of datetimes as text (ISO 8601, UTC) or of numbers; the track one of names or \
                  numbers. A table's x and y columns become points in the coordinate system given.",

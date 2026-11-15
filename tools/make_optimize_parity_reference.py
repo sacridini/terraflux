@@ -33,9 +33,9 @@ os.environ.setdefault("RAYON_NUM_THREADS", "4")
 import numpy as np  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
+sys.path.insert(0, str(ROOT / "extern" / "terraflux-py" / "tests"))
 
-import landschaft as ls  # noqa: E402
+import terraflux as tf  # noqa: E402
 import optimize_cases as oc  # noqa: E402
 import scipy.sparse as sp  # noqa: E402
 
@@ -212,16 +212,16 @@ def zone_matrix() -> np.ndarray:
 def units_problem(case: dict, data: Data):
     kind = case["units"]
     if kind == "raster":
-        return ls.prioritize.problem(data.cost, data.features)
+        return tf.prioritize.problem(data.cost, data.features)
     if kind == "table":
-        return ls.prioritize.problem(data.table, FEATURES, cost_column="cost")
+        return tf.prioritize.problem(data.table, FEATURES, cost_column="cost")
     if kind == "rij":
-        return ls.prioritize.problem(data.table[["id", "cost"]], oc.spec_table(), cost_column="cost",
+        return tf.prioritize.problem(data.table[["id", "cost"]], oc.spec_table(), cost_column="cost",
                                      rij=oc.rij_table())
     if kind == "polygons":
-        return ls.prioritize.problem(data.polygons, data.features, cost_column="cost")
+        return tf.prioritize.problem(data.polygons, data.features, cost_column="cost")
     if kind.startswith("h3_"):
-        hexes = ls.prioritize.h3_units(data.cost, int(kind[3:]), n_threads=THREADS)
+        hexes = tf.prioritize.h3_units(data.cost, int(kind[3:]), n_threads=THREADS)
         # the hexagons go to Terraflux as they are: the cases lie at x = 0 of UTM zone 23S (latitude -85), where
         # PROJ's transverse Mercator differs between versions by 1e-8 m (9.5.1 here, 9.7.1 in Terraflux's GDAL),
         # enough to move the amounts of the cells a hexagon only touches
@@ -229,7 +229,7 @@ def units_problem(case: dict, data: Data):
         if path.exists():
             path.unlink()
         hexes.to_file(path, layer=path.stem, driver="GPKG")
-        return ls.prioritize.problem(hexes, data.features, cost_column="cost")
+        return tf.prioritize.problem(hexes, data.features, cost_column="cost")
     if kind == "zones_raster":
         return oc._zone_general()
     if kind == "zones_table":
@@ -316,7 +316,7 @@ def solved(p, gap: float, limit: float, params: dict | None = None):
 
 
 def model_of(p) -> dict:
-    from landschaft.prioritize._milp_compile import compile_problem
+    from terraflux.prioritize._milp_compile import compile_problem
 
     m, _ = compile_problem(p)
     nz = m.A.copy()
@@ -328,8 +328,8 @@ def model_of(p) -> dict:
 def is_unique(p, s) -> bool | None:
     """Whether the optimum's selection is the only one: the model with a cut that excludes it (the decisions' columns
     at 1 where selected, at 0 where not, not all as the solution) has a worse optimum, or none."""
-    from landschaft.prioritize._milp_compile import compile_problem
-    from landschaft.prioritize._milp_solve import solve_model
+    from terraflux.prioritize._milp_compile import compile_problem
+    from terraflux.prioritize._milp_solve import solve_model
 
     m, _ = compile_problem(p)
     cols = np.flatnonzero((np.asarray(m.col_ids) == "pu") & (np.asarray(m.vtype) == "B"))
@@ -409,7 +409,7 @@ def main() -> None:
         old = {r["name"]: r for r in json.loads(out.read_text(encoding="utf-8"))["cases"]}
         old.update({r["name"]: r for r in rows})
         rows = [old[c["name"]] for c in cases() if c["name"] in old]
-    doc = {"landschaft": ls.__version__, "threads": THREADS, "cases": rows}
+    doc = {"landschaft": tf.__version__, "threads": THREADS, "cases": rows}
     out.write_text(json.dumps(doc, indent=0, separators=(",", ":")) + "\n", encoding="utf-8")
     print(out, len(rows), "cases", math.fsum(r["seconds"] for r in rows), "s")
 

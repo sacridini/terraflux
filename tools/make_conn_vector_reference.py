@@ -20,11 +20,11 @@ import numpy as np
 import pandas as pd
 import shapely
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-C = ls.conn
+C = tf.conn
 
 
 def features() -> gpd.GeoDataFrame:
@@ -54,7 +54,7 @@ def main() -> None:
     path.unlink(missing_ok=True)
     nodes.to_file(path, layer="nodes", driver="GPKG")
     nodes = gpd.read_file(path, layer="nodes")
-    resistance = ls.nlm.gaussian_field(40, 32, autocorr_range=6, resolution=30.0, seed=12) * 9 + 1
+    resistance = tf.nlm.gaussian_field(40, 32, autocorr_range=6, resolution=30.0, seed=12) * 9 + 1
 
     out: dict[str, np.ndarray] = {"in/resistance": resistance.values}
     cases: list[dict] = []

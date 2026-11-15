@@ -19,17 +19,17 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-S = ls.sdm
+S = tf.sdm
 
 
 def main() -> None:
     layers = []
     for k, name in enumerate(["temp", "prec", "soil"]):
-        f = ls.nlm.gaussian_field(40, 30, autocorr_range=8 + 3 * k, resolution=1000.0, seed=31 + k)
+        f = tf.nlm.gaussian_field(40, 30, autocorr_range=8 + 3 * k, resolution=1000.0, seed=31 + k)
         v = f.values * (10 + 5 * k) + k
         if k == 1:
             v[4, 5:9] = np.nan

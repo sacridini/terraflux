@@ -556,7 +556,7 @@ impl Operator for Potential {
         forest_settings(
             OpSignature::new(
                 "ml.potential",
-                "The potential of each class from a model per class (landschaft's Estimator with scikit-learn's \
+                "The potential of each class from a model per class (the Python library's Estimator with scikit-learn's \
                  RandomForestClassifier, or HistGradientBoostingClassifier, the same maps): where each class is \
                  (presence, as lulcc's models), or where it appeared between two maps among the cells without it \
                  (expansion: PLUS's land expansion analysis, LEAS, the growth probability CARS takes); with each \

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """What landschaft's terrain hydrology gives, for Terraflux's tests: on the DEMs of landschaft's WhiteboxTools
-references (extern/landschaft/tests/data/reference/hydro/whitebox.npz: oregon, holes, walk, terraces, grids
+references (extern/terraflux-py/tests/data/reference/hydro/whitebox.npz: oregon, holes, walk, terraces, grids
 without a coordinate system from 0, 0) and on a corner of orelevation (longitude / latitude), every function of
-ls.hydro with some options, written to tests/data/reference/hydro.npz (and the cases to hydro.json):
+tf.hydro with some options, written to tests/data/reference/hydro.npz (and the cases to hydro.json):
 
     python tools/make_hydro_reference.py
 
@@ -16,12 +16,12 @@ from pathlib import Path
 
 import numpy as np
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-WHITEBOX = ROOT / "extern" / "landschaft" / "tests" / "data" / "reference" / "hydro" / "whitebox.npz"
-H = ls.hydro
+WHITEBOX = ROOT / "extern" / "terraflux-py" / "tests" / "data" / "reference" / "hydro" / "whitebox.npz"
+H = tf.hydro
 
 # (key, function, extra settings); the DEM is the filled one unless the function says "dem"
 CASES = [
@@ -60,7 +60,7 @@ def run(fn, dem, kw, extent):
     if kw.pop("weights", False):
         kw["weights"] = weights_of(dem.shape)
     if fn == "connectivity_index":
-        return H.connectivity_index(ls.surface._grid.read_surface(dem, extent=extent),
+        return H.connectivity_index(tf.surface._grid.read_surface(dem, extent=extent),
                                     weights_of(dem.shape) / 10.0, **kw)
     return getattr(H, fn)(dem, extent=extent, **kw)
 
@@ -68,14 +68,14 @@ def run(fn, dem, kw, extent):
 def main() -> None:
     wb = np.load(WHITEBOX)
     out: dict[str, np.ndarray] = {}
-    meta: dict = {"landschaft": ls.__version__, "dems": [], "cases": [[k, f, {**kw, "weights": bool(kw.get("weights"))}]
+    meta: dict = {"landschaft": tf.__version__, "dems": [], "cases": [[k, f, {**kw, "weights": bool(kw.get("weights"))}]
                                                                     for k, f, kw in CASES]}
     dems = {}
     for name in ("oregon", "holes", "walk", "terraces"):
         dem = wb[f"{name}/dem"].astype(np.float64)
         dx, dy = (float(v) for v in wb[f"{name}/cell"])
         dems[name] = (dem, (0.0, dem.shape[1] * dx, 0.0, dem.shape[0] * dy))
-    z = ls.load_raster(ls.surface.example_data("orelevation"))[:50, :60]
+    z = tf.load_raster(tf.surface.example_data("orelevation"))[:50, :60]
     dems["lonlat"] = (z.astype(np.float64), None)   # its own transform and coordinate system
     for name, (dem, extent) in dems.items():
         meta["dems"].append({"name": name, "extent": list(map(float, extent or (0, 0, 0, 0))),

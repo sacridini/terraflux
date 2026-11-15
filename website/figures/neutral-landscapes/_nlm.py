@@ -12,7 +12,7 @@ import figs  # noqa: E402
 import numpy as np  # noqa: E402,F401
 
 ROOT = figs.ROOT
-AUGUSTA = ROOT / "extern/landschaft/tests/data/lsm/augusta.tif"
+AUGUSTA = ROOT / "extern/terraflux-py/tests/data/lsm/augusta.tif"
 HEAD = 'format = "terraflux/1"\n'
 HAB = {1: ("Matrix", "#ece6d6"), 2: ("Habitat", figs.FOREST)}
 

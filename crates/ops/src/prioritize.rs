@@ -2749,7 +2749,7 @@ impl Operator for Optimize {
                 "objective",
                 Type::Text,
                 "min_set (default), min_shortfall, min_largest_shortfall, max_utility, max_features, max_cover, \
-                 min_penalties, max_phylo_div, max_phylo_end, min_extinction_risk (landschaft's: the least sum of \
+                 min_penalties, max_phylo_div, max_phylo_end, min_extinction_risk (the Python library's: the least sum of \
                  the features' species-area risk 1 - (held / total)^z within the budget)",
             )
             .choices(OBJECTIVES),

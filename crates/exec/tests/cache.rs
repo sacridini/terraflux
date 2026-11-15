@@ -449,7 +449,7 @@ fn only_what_changed_runs_again() {
 #[test]
 fn a_changed_file_of_a_swat_project_runs_its_node_again() {
     let zip = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../extern/landschaft/src/landschaft/hydro/swat/data/hubbard_brook.zip");
+        .join("../../extern/terraflux-py/src/terraflux/hydro/swat/data/hubbard_brook.zip");
     let project = terraflux_ops::swat::Project::load(&zip).unwrap();
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("swat-cache");
     let _ = std::fs::remove_dir_all(&dir);

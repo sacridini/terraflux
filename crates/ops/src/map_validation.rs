@@ -224,7 +224,7 @@ impl Operator for ThreeMap {
         OpSignature::new(
             "validate.three_map",
             "The three-map comparison of a simulation (Pontius, Peethambaram & Castella 2011; lulcc's \
-             ThreeMapComparison through landschaft): the reference at the start and at the end and the simulated \
+             ThreeMapComparison through the Python library): the reference at the start and at the end and the simulated \
              end compared at blocks of several sizes, the budget of agreement and disagreement (misses, hits, wrong \
              hits, false alarms, correct rejections; overall, per class, per transition) and the figure of merit. \
              The cells without a value in any map are left out of all three.",
@@ -451,7 +451,7 @@ impl Operator for Kappa {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "validate.kappa",
-            "MOLUSCE's comparison of two maps of classes (DependenceCoef through landschaft): kappa, kappa location \
+            "MOLUSCE's comparison of two maps of classes (DependenceCoef through the Python library): kappa, kappa location \
              and kappa histogram and the % of cells of the same class over the classes of both maps; Cramer's V \
              and the joint information uncertainty; the correlation of the class values.",
             Access::Global,
@@ -501,7 +501,7 @@ impl Operator for ErrorBudget {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "validate.error_budget",
-            "MOLUSCE's error budget (Pontius 2002, through landschaft): the agreement of the maps when the \
+            "MOLUSCE's error budget (Pontius 2002, through the Python library): the agreement of the maps when the \
              simulation has no, medium or perfect information of quantity and location, at the maps' resolution \
              and coarser ones, merging scale x scale cells each time (the edges left over dropped).",
             Access::Global,
@@ -733,7 +733,7 @@ impl Operator for Futures {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "validate.futures",
-            "FUTURES' validation (r.futures.validation through landschaft): the quantity and allocation \
+            "FUTURES' validation (r.futures.validation through the Python library): the quantity and allocation \
              disagreement per class and in total (Pontius & Millones 2011) and kappa; with the original map, kappa \
              simulation (van Vliet et al. 2011) and, for 0/1 maps, misses, hits, false alarms, null successes, the \
              figure of merit, producer's and user's accuracy (Pontius et al. 2008).",
@@ -768,7 +768,7 @@ impl Operator for FuturesGrid {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "validate.futures_grid",
-            "FUTURES' validation per tile or per region (r.futures.gridvalidation through landschaft): a row per \
+            "FUTURES' validation per tile or per region (r.futures.gridvalidation through the Python library): a row per \
              tile of size x size cells from the top-left (its row, column and centre) or per region, the metrics \
              of validate.futures and the cells compared.",
             Access::Global,

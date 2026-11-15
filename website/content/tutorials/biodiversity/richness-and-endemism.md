@@ -86,7 +86,7 @@ distributions](/tutorials/species-distributions/ideas/)) and import the predicte
 
 - **Species records with coordinates**: Biodiverse's example data, [`sites.csv`](/data/tutorials/biodiversity/richness-and-endemism/sites.csv)
   (1,795 records, 72 KB), with columns `num` (a record number), `genus`, `species`, `x` and `y` (coordinates in
-  metres). It has 31 species of an unnamed genus, which landschaft's documentation places in eastern Australia.
+  metres). It has 31 species of an unnamed genus, which terraflux-py's documentation places in eastern Australia.
   Use it to learn; the numbers have no biological meaning beyond this example.
 - **A coordinate system in metres** with equal areas, so that cells are equal: reproject records in degrees first
   (`to_crs` of [[bio.occurrences]]), or use cells in degrees knowing that they shrink towards the poles.

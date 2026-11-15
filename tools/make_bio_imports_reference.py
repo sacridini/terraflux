@@ -25,11 +25,11 @@ import rasterio
 import shapely
 from rasterio.transform import Affine
 
-import landschaft as ls
+import terraflux as tf
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
-BD = ls.bio.BaseData
+BD = tf.bio.BaseData
 
 
 def dump(bd) -> dict:
@@ -43,7 +43,7 @@ def rasters() -> dict:
     transform = Affine(1000.0, 0.0, 500000.0, 0.0, -1000.0, 8000000.0)
     bands = []
     for k in range(3):
-        f = ls.nlm.gaussian_field(nx, ny, autocorr_range=6 + 3 * k, seed=60 + k).values
+        f = tf.nlm.gaussian_field(nx, ny, autocorr_range=6 + 3 * k, seed=60 + k).values
         f = np.round(f, 3)
         f[k * 5:k * 5 + 4, 10:16] = np.nan
         bands.append(f)
