@@ -654,13 +654,22 @@ input[type="range"] { width: 100%; accent-color: var(--forest); }
 .notfound h1 { font-size: 46px; margin: 0 0 12px; }
 
 /* ------------------------------------------------------------------ responsive */
+@media (max-width: 1360px) {
+  .search-open { min-width: 0; } .search-open span, .search-open kbd { display: none; }
+}
 @media (max-width: 1240px) {
   .doc-layout { grid-template-columns: 250px minmax(0, 1fr); }
   .doc-toc { display: none; }
   .doc-main { padding: 30px 40px; }
-  .search-open { min-width: 0; } .search-open span, .search-open kbd { display: none; }
   .topbar-in { gap: 18px; }
   .mainnav a { padding: 6px 8px; }
+}
+@media (max-width: 1180px) {
+  /* eight sections do not fit beside the tools: the menu folds behind its button sooner than the layout does */
+  .menu-toggle { display: grid; }
+  .mainnav { display: none; position: absolute; top: var(--top); left: 0; right: 0; flex-direction: column; gap: 0; padding: 8px 12px 14px; background: var(--paper); border-bottom: 1px solid var(--rule); box-shadow: var(--shadow); }
+  .mainnav.is-open { display: flex; }
+  .mainnav a { padding: 11px 12px; font-size: 16.5px; }
 }
 @media (max-width: 1020px) {
   .hero-in { grid-template-columns: 1fr; padding-top: 48px; gap: 40px; }

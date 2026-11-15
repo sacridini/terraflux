@@ -1,0 +1,273 @@
+---
+title: The window and its panes
+short: Window and panes
+description: "Every pane of Terraflux's window and what View turns on and off, the menus item by item, the tabs of models, the Changes pane, the History, recovery, files not found, notes and frames, run progress and notifications."
+order: 10
+---
+
+This page lists the parts of Terraflux's window and what each one is for. For a first walk through them, with a
+model to look at, read [A tour of Terraflux](/tutorials/getting-started/tour/#the-window).
+
+![The parts of the window](/img/tutorials/getting-started/tour/window.png "The window with the template 'MSPA of a forest' run, the Viewer dragged below the Model. The tour numbers each part. Screenshot of Terraflux 1.51 on Windows (the theme Slate).")
+
+From top to bottom the window has:
+
+- the **toolbar**: the menus, **Run** and **Stop**, the model's name and how its run goes, and the tools at the right;
+- a **strip of tabs**, only when two or more models are open ([Several models at once](#several-models-at-once));
+- the **panes**, in the middle: tabs you can drag, split and move to another screen;
+- the **drawers** at the window's left edge: **Operators**, **Files** and, once the model has data, **Prepare**;
+- the **status bar** at the bottom: a reminder of the mouse and keys of the pane under the pointer, and the model's
+  health when it has checks ([Checks shown on nodes](/app/canvas/#checks-shown-on-nodes)).
+
+## The panes
+
+Every pane is a tab. **View** lists them all with a tick box: ticked means open. Terraflux starts with the
+**Model** pane only; the others open when you ask for them in **View**, or by themselves when they have something
+to show. Close the pane's tab in front with ++ctrl+w++, or remove its tick in **View**.
+
+| Pane | What it holds | Opens |
+|---|---|---|
+| **Model** | The canvas where the nodes and their wires are drawn, with its bar ([Building on the canvas](/app/canvas/)). | At the start. |
+| **Document** | The same model read as the methods section of a paper: stages, steps, settings in words, the maps and tables of the last run. | By itself with the first node. |
+| **Operators** | The library of operators, by subject, with a search box and your favourites at the top. | In a drawer at the left edge; a click on its tab opens it as a pane. |
+| **Files** | The computer's folders, to open a file or drag it onto the canvas or the Viewer. | In a drawer, like **Operators**. |
+| **Node** | The node selected: its name, what its operator does, its **Inputs**, its **Settings** and its record (**Note**, **Why**, references). With no node selected, the model's own record. | Only if **open the Node pane by itself** is on in the settings. Otherwise a node's settings open in a panel beside its box. |
+| **Prepare** | The data of the node selected compared with the model's reference grid, and the steps that put it on that grid ([One grid for all your maps](/tutorials/getting-started/one-grid/)). | In a drawer, once the model has data. |
+| **Viewer** | What the node selected gives: a map, a table, a number ([The viewer](/app/viewer/)). | By itself with the first data. |
+| **Simulation** | The maps of a run step by step, and the maps of an input's stack. | **View**. |
+| **Areas** | The area of each class along the steps of a run. | **View**. |
+| **Validation** | The last simulated map compared with an observed one, cell by cell (the figure of merit) and in neighbourhoods of growing size ([Land change simulation](/tutorials/land-change/)). | **View**. |
+| **Many runs** | The model run many times: replicates, scenarios, calibration, sensitivity analysis. Also the **Many runs** button of the toolbar. | **View**, or the toolbar. |
+| **Computers** | Other computers helping with the runs, and this one helping another ([Parallel computing](/parallel/)). | **View**, or the toolbar. |
+| **Assistant** | A chat with a language model that explains, changes and runs the model ([AI assistants](/cli/assistants/)). | **View**, or the toolbar. |
+| **Changes** | What changed in the model since an earlier version, node by node ([The Changes pane](#the-changes-pane)). | **View**, or **File > Compare**. |
+| **Parameters** | The model's parameters as a form, and its scenarios saved, applied and compared. | **View**. |
+| **Trace** | Why a cell of a result has its value: the chain of values that made it ([Trace](/app/canvas/#trace-why-a-cell-has-its-value)). | **Trace this cell**. |
+| **Problems** | What is wrong with the model: the failure of the last run explained, the checks of the graph, the problems of the data. | **View**; also when a run is asked with nodes not filled in. |
+| **Calculator** | The script of the map algebra node selected, with its names completed and its outputs previewed ([The raster calculator](/tutorials/building-models/calculator/)). | By itself when a script is opened. |
+| **Runs** | The journal of the model's runs, kept beside its file: when, how long, how they ended, what changed and what was written. | **View**. |
+
+Panes you drag:
+
+- Drag a tab to put it beside, above or below another, or on another pane to share its tabs.
+- Drag a tab out of the window, or right-click it and choose **Open in a window of its own**, to put it on a second
+  screen.
+- The Viewer also has **Pop out** in its header, and **View > Viewer in a window of its own** (then **Viewer back
+  into the window**). Terraflux remembers where the Viewer's window was.
+- **Tab** goes to the Model pane, and **Tab** again goes back to where you were.
+
+The layout is kept between sessions, in `layout.json` beside the settings file ([Settings](/app/settings/#where-the-settings-are-kept)).
+
+### Reset the layout
+
+**View > Reset the layout** brings back the window as it first was: the Model pane alone, the Viewer back in the
+window, windows of their own closed. Panes that open by themselves (the Viewer, the Document, Prepare, the
+Calculator) come again when there is something to show. It is the answer when a pane has disappeared.
+
+## The menu bar
+
+At the left of the toolbar: the logo and the version number, then four menus. **Operators** appears only when a
+model is open. Items that need a model are greyed out without one.
+
+### File
+
+| Item | Does |
+|---|---|
+| **New model** (++ctrl+n++) | A new empty model. With a model already open, it opens in a tab of its own. |
+| **Open...** (++ctrl+shift+o++) | Opens a model file (`.toml` or `.json`). |
+| **Open recent** | The last ten models opened or saved, the last first; files that are gone are left out. |
+| **Save** (++ctrl+s++) | Saves the model. Greyed out when there is nothing to save. |
+| **Save as...** (++ctrl+shift+s++) | Saves it under another name. |
+| **Save a version...** (++ctrl+alt+s++) | Keeps the model as it is now under a name, to review against or go back to (the **Runs** pane lists versions). |
+| **Clean outputs...** | Deletes the files and folders that the runs of the model wrote. |
+| **Open a raster or vectors...** (++ctrl+o++) | Opens a map or a vector file and adds a node that reads it. |
+| **Data catalog...** | The public datasets Terraflux downloads onto the model's grid ([The data catalog](/app/canvas/#the-data-catalog)). |
+| **Process a folder...** | Choose a folder, then an operator: it runs on every raster of the folder. |
+| **Compare** | Opens the **Changes** pane with the model compared with: **Compare with the saved file**, **Compare with the last commit (git)**, **Compare with a commit (git)** (a list of the file's commits) or **Compare with a file...**. The first three need a saved model. |
+| **Export report** | The model as a document, as a web page or a PDF. |
+| **Methods and citations...** | The model's methods as a paper tells them, and the papers to cite (BibTeX, RIS). |
+| **Python script...** | The model as a script of the [Python library](/python/). |
+| **Export to QGIS...** | The run's maps and vectors as a QGIS project ([Export to QGIS](/app/qgis/)). |
+
+**Open a raster or vectors...**, **Data catalog...**, **Compare**, **Export report**, **Methods and citations...**,
+**Python script...** and **Export to QGIS...** appear only when a model is open. **Save a version...** and
+**Clean outputs...** are greyed out without one.
+
+### Templates
+
+**Templates** opens with the line *Models to start from, run at once* and seven groups: **Patterns
+(GuidosToolbox)**, **Landscape metrics**, **Connectivity**, **Conservation and restoration**, **Species**,
+**Land change** and **Surfaces and uncertainty**. A click on a template opens it in the Model pane and runs it.
+Hover over a name to read what the template does; the [tour](/tutorials/getting-started/tour/#templates-models-to-start-from)
+lists them all.
+
+Under the groups, **Yours** lists the templates you saved. A small **x** beside one removes it. With a model open,
+a box and the button **Save this model as a template** add the model to the list (the name is the model's if the
+box is empty). Your templates are `.toml` files in a `templates` folder beside the layout file.
+
+### Operators
+
+The library as a menu, to add an operator after the node selected: **Open a raster or vectors...**, **Favourites**
+(by colour, empty until you put an operator in a collection), then one submenu per subject (data preparation,
+habitat patterns, landscape metrics...). The same library is in the **Operators** drawer and behind ++slash++.
+
+### View
+
+| Item | Does |
+|---|---|
+| The panes, each with a tick box | Opens or closes a pane ([The panes](#the-panes)). |
+| **Viewer in a window of its own** / **Viewer back into the window** | Takes the Viewer out of the window, to another screen, and back. |
+| **History of the edits** | Opens the [History](#history). Needs a model. |
+| **Reset the layout** | See [Reset the layout](#reset-the-layout). |
+| **Colour vision** | Draws every map, legend and chart as a reader with **normal colour vision**, **protanopia (red-blind)**, **deuteranopia (green-blind)** or **tritanopia (blue-blind)** sees them ([Colour vision and accessibility](/app/colour-vision/)). |
+| **Commands...** (++ctrl+k++ or ++ctrl+shift+p++) | The palette: anything the application does, by its name: a command, a pane, a template, a node, an operator, a place. |
+| **Keyboard shortcuts** (++f1++) | The sheet of shortcuts ([Keyboard and mouse](/app/shortcuts/#the-f1-sheet)). |
+
+### The rest of the toolbar
+
+After the menus come the controls of a run:
+
+| Control | Does |
+|---|---|
+| **Run** (++f5++) | Runs the whole model. Greyed out while nodes are not filled in; the **Problems** pane says which. |
+| **Check run** | Runs the model on the part of the map the Viewer shows, or at 1/2, 1/4 or 1/8 of the resolution, or both: a check in seconds. Its files go to a `runs/check` folder beside the model, not over the real outputs. Landscape metrics, distances and neighbourhoods change with the resolution, so it checks the model; it does not replace a run. |
+| **Stop** | Stops the run. |
+| **Step** | A run that pauses after each step of a loop, until **Next** or **Continue** ([Loops](/tutorials/building-models/loops/)). A node with a breakpoint pauses the run before it: **Next node** runs it and pauses before the next one. |
+
+Then the model's name (with a dot when it has edits not saved, and a colour bar when several models are open),
+the progress, and, once it has run, *done in 0.04 s* and a **manifest** link that opens the folder of the run's
+outputs and manifest.
+
+At the right: **Wizard** (a land change model built step by step from your maps), **Many runs**, **Computers**,
+**Assistant**, and **⚙**, the [settings](/app/settings/). The classic themes write *Wizard...*, *Many runs...* and
+so on. When the window is too narrow, these four go into one menu, **Tools**.
+
+When a colour vision is set, a button *seen with deuteranopia · back to normal* (or another) shows next to the
+version; a click sets it back.
+
+## The Model pane's bar
+
+Above the canvas, the bar says where you are in the model and holds the editing buttons:
+
+| Control | Does |
+|---|---|
+| **Whole model**, then a path | Where you are: the whole model, or inside a group or a loop (**‹ Back**, or ++esc++, goes up a level). |
+| **Run to here** (++ctrl+enter++) | Runs the node selected and what it needs; the rest comes from the cache. |
+| **Arrange** (++ctrl+l++) | Puts the nodes in tidy columns, by what they read. |
+| **Undo**, **Redo** | One edit back or forward (++ctrl+z++, ++ctrl+shift+z++). |
+| **History** | The edits by name ([History](#history)). |
+| **update after every edit** | Runs the model again up to the node shown after each change. |
+| **Times** | Colours the boxes by their share of the last run's time and lists the slowest ([How long things take](#progress-and-time-left)). |
+| **Text** / **Diagram** | The model as text (TOML), with the problems found in it, and back. |
+
+If another program changes the model's file while you have edits not saved, a line says so, with **Read it** and
+**Keep mine**.
+
+## Several models at once
+
+**New model** or **Open...** with a model already open puts the new one in a tab. A strip appears under the
+toolbar (*2 models open*): each model has a colour of its own, shown also in the toolbar beside its name.
+
+- A click on a tab brings its model to the front. ++ctrl+tab++ and ++ctrl+shift+tab++ go to the next and the
+  previous one.
+- ++ctrl+shift+w++, the tab's **x**, or a middle click on it closes the model in front. It asks first if it has
+  edits not saved.
+- The models behind keep running. Each tab keeps its own canvas, selection and Viewer. Nodes copied in one tab paste
+  in another.
+- When Terraflux starts with no model given, the models that were open when it closed open again, each with its view
+  as you left it. The setting is **reopen the models open last**.
+
+## The Changes pane
+
+**View > Changes** lists what changed in the model since an earlier version, node by node, each change to keep or
+to undo. The earlier version can be:
+
+- what an AI assistant changed;
+- the saved file, a commit of the model's file in git, or another model file (**File > Compare**);
+- a step of the **History** (**compare**).
+
+For a node changed, it shows its map or table before and now, side by side. Outlines in the colour of the change
+mark the changed nodes on the canvas. [AI assistants](/cli/assistants/#the-changes-pane-what-the-assistant-changed)
+explains the pane in full.
+
+## History
+
+**History**, in the Model pane's bar (or **View > History of the edits**), lists the edits of the model by name:
+*added suit (raster.calc)*, *reclass: setting threshold: 3 → 4*, *3 nodes moved*, *the MCP: add_node, connect* for
+an assistant's. The edit you are at is marked and those undone are faint. A click goes back, or forward, to any of
+them at once. **compare** opens the Changes pane with the model as it was then. ++ctrl+z++ and ++ctrl+shift+z++ still
+go one step at a time.
+
+## Edits are not lost
+
+- **Asking.** Closing the window, **New model**, **Open...** or a template with edits not saved first asks *Save
+  the changes to...?* with **Save**, **Don't save** and **Cancel**.
+- **Autosave.** While a model has edits not saved, Terraflux keeps a copy of it every 30 seconds in a `recovery`
+  folder of the application's data folder ([Settings](/app/settings/#where-the-settings-are-kept)). The copy is
+  deleted when the model is saved, or closed with *Don't save*.
+- **Recovery.** If Terraflux ends without saving (a crash, the power gone), the next time it opens a strip at the
+  top says *Terraflux closed with edits not saved in...* with **Recover** (opens the model with those edits),
+  **Discard** (throws them away) and **Later** (asks again next time).
+
+## Files not found
+
+A model written on another computer, or whose data folder moved, reads files that are not where it says. A strip
+over the canvas, and the **Problems** pane, say so: *2 files of the model are not found.*
+
+- If the model is saved in a folder, Terraflux first looks for the files around it (its folder and the one above).
+  A project copied whole is found at once: *2 found beside the model.* **Apply (2)** makes the model read them from
+  there, in one step of undo.
+- **Locate them...** opens the window *Files not found*, which lists each file with the nodes that read it.
+  **Look in a folder...** finds them by the end of their old path or by their name, and a folder found for one is
+  tried on the others. **Choose...** points to one file by hand.
+- Windows paths and Unix paths are read alike, so a model made on Windows finds its data on Linux or macOS and the
+  other way round.
+
+On the command line, [`terraflux relink`](/cli/models/#terraflux-relink) does the same.
+
+## Notes and frames
+
+A **note** is a card of text on the canvas for whoever reads the model; a **frame** is a rectangle with a title
+around some nodes. Both are kept in the model's file, and the frames become the sections of its
+[document](/tutorials/building-models/the-model-document/).
+
+- **Add a note here** (right click on the empty canvas) adds a note. A double click edits its text.
+- **Frame them** (in the menu of two or more nodes selected) draws a frame around them, titled by its text's first
+  line. The frame follows the nodes when they move. Drag a frame by its title to move its nodes.
+- A node let go inside a frame joins it. **Take it out of the frame** in the node's menu takes it out.
+- The menu of a note or a frame gives its **Colour**. ++delete++ removes the note or frame selected (a frame's nodes
+  stay).
+- Copying, duplicating or dragging nodes with ++ctrl++ takes the frames around them along.
+
+## Progress and time left
+
+- **Progress.** While a model runs, a bar in the toolbar shows how far it is, the node running and, once an
+  earlier run gives the times, the time left (*~14 min left*; *about* when it is guessed from how far the run is).
+  Its tooltip says when the run will end by the clock (*ends about 14:32*). On the canvas, the node running
+  has a bar along its bottom.
+- **Node times.** After a run, each box tells under its corner how long it took (*2.4 s*, or *cache* when it came
+  from the cache). A model opened again shows the times of its runs before, fainter (*~2.4 s*), until it runs. **Times**
+  colours the boxes by their share of the run.
+- **Node state.** The small dot at the top right of a box: green when it ran, darker green when its result came from
+  the cache, orange while it runs, red when it failed.
+- **The computer stays awake.** While a model runs, a batch of **Many runs** goes on or this computer works for
+  another's, the computer is kept from going to sleep (the screen may still go dark). Turn it off with **keep the
+  computer awake while a model runs** in the settings.
+
+## Notifications
+
+When a run you asked for, or a batch of **Many runs**, ends after more than 10 seconds while Terraflux is not in
+front, the system shows a notification (*land: done*, or *failed* and why) and the window's button in the taskbar
+lights up. The 10 seconds can be changed, and the notification turned off, in **Runs** of the
+[settings](/app/settings/#runs).
+
+- On Windows it is a toast. A click on it brings Terraflux to the front.
+- On Linux it uses the desktop's notifications (`notify-send`, else `gdbus`). A click brings Terraflux to the front
+  when `notify-send` is recent enough.
+- On macOS it uses the Notification Center. A click does not bring Terraflux to the front.
+
+## See also
+
+- [A tour of Terraflux](/tutorials/getting-started/tour/): the same window, step by step.
+- [Building on the canvas](/app/canvas/) and [The viewer](/app/viewer/): the two panes you use most.
+- [Keyboard and mouse](/app/shortcuts/): every shortcut.

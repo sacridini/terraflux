@@ -43,6 +43,7 @@ downloads:
 # The bar at the top of every page.
 nav:
   - { title: Quickstart, url: /quickstart/ }
+  - { title: Application, url: /app/ }
   - { title: Tutorials, url: /tutorials/ }
   - { title: Calculators, url: /calculators/ }
   - { title: Parallel computing, url: /parallel/ }
@@ -57,6 +58,7 @@ nav:
 # index.md, or <subfolder>.md), else the folder's name, and its place that page's `order`, else last.
 sections:
   quickstart: { title: Quickstart, dir: quickstart }
+  app: { title: Application, dir: app }
   python:
     title: Python library
     dir: python
