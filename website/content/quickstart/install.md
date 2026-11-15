@@ -224,7 +224,7 @@ card or a remote desktop.
 ### The computer is slow while a model runs
 
 Terraflux uses the cores less a quarter by default (and never more), so the computer stays usable. Use fewer with
-**Settings > Performance >Threads** in the application (from the next start), `--threads 4` on any command, or the environment variable
+**Settings > Performance > Threads** in the application (from the next start), `--threads 4` on any command, or the environment variable
 `TERRAFLUX_THREADS`.
 
 ### A basemap does not appear
