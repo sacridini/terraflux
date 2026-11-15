@@ -4015,7 +4015,8 @@
    }
   ],
   "access": "global",
-  "container": false
+  "container": false,
+  "advice": "`distance` edge is the gap between the patches' closest cells (Euclidean, ignores the matrix); centroid joins their centres; least-cost and commute-time need a `resistance` and join the centroids, in the resistance's units, not in metres. `max_distance` keeps the pairs up to it (the dispersal distance of the species), which makes the table much smaller on many patches."
  },
  {
   "name": "conn.eca_change",
@@ -4894,7 +4895,8 @@
    }
   ],
   "access": "global",
-  "container": false
+  "container": false,
+  "advice": "Each link is removed in turn and the share of IIC or PC lost is the importance: it takes one distance, and the cost grows with the number of links (a run per link): limit the graph with `max_distance`. Rank the links at the species' dispersal distance; with least-cost distances the detours a removal forces are not measured again."
  },
  {
   "name": "conn.make_grid",
@@ -5098,7 +5100,8 @@
    }
   ],
   "access": "none",
-  "container": false
+  "container": false,
+  "advice": "`alpha` is 1 / the species' mean dispersal distance, in the inverse units of the patches' coordinates (metres for a projected map): 0.002 is 500 m. `x`, `y` and `e` are the incidence function's extinction and colonisation parameters: take them from a fitted model or the literature, and say where. A run is one possible future, as the seed draws it: use many `steps`, several seeds (control.each) and report the spread of the incidence."
  },
  {
   "name": "conn.node_importance",
@@ -5265,7 +5268,8 @@
    }
   ],
   "access": "global",
-  "container": false
+  "container": false,
+  "advice": "A row per distance: give several to see how the indices change with the dispersal distance. IIC counts the links and PC their probabilities, both from the graph's distances, so the graph's distance type (edge or least-cost) and its units set the result. Say the species' distance and `probability` used."
  },
  {
   "name": "conn.protconn",
@@ -7903,7 +7907,7 @@
  },
  {
   "name": "forest_code.app",
-  "doc": "The Áreas de Preservação Permanente of Brazil's Forest Code (Lei 12.651/2012, art. 4): the margins of rivers from the channel's edge by their width (30 m below 10 m wide, 50 m to 50, 100 m to 200, 200 m to 600, 500 m beyond), of natural lakes by their area (100 m, 50 m up to 20 ha; 30 m in urban zones), 50 m around springs and from veredas, slopes above 45°, hilltops, land above 1,800 m and protected classes (mangroves, restingas); in rural areas consolidated by 22 July 2008, art. 61-A's narrower margins by the property's fiscal modules (rivers and lakes 5, 8 and 15 m up to 1, 2 and 4 modules, lakes 30 m and rivers the programme's width beyond; springs 15 m; veredas 30 or 50 m). In map units of metres.",
+  "doc": "The Áreas de Preservação Permanente of Brazil's Forest Code (Lei 12.651/2012, art. 4): the margins of rivers from the channel's edge by their width (30 m below 10 m wide, 50 m to 50, 100 m to 200, 200 m to 600, 500 m beyond), of natural lakes by their area (100 m, 50 m up to 20 ha; 30 m in urban zones), 50 m around springs and from veredas, slopes above 45°, hilltops, land above 1,800 m and protected classes (mangroves, restingas); in rural areas consolidated by 22 July 2008, art. 61-A's narrower margins by the property's fiscal modules (rivers and lakes 5, 8 and 15 m up to 1, 2 and 4 modules, lakes 30 m and rivers the programme's width beyond; springs 15 m; veredas 30 or 50 m); art. 61-B caps the recomposition of a property of up to 4 modules at 10% (up to 2 modules) or 20% of its area (output recompose). In map units of metres.",
   "inputs": [
    {
     "name": "rivers",
@@ -7990,6 +7994,18 @@
     "type": "table",
     "required": true,
     "doc": "a row per kind: kind (1-8), cells, area_ha (overlaps in each)"
+   },
+   {
+    "name": "recompose",
+    "type": "map",
+    "required": false,
+    "doc": "with properties and consolidated, art. 61-B: 1 where the recomposition is required (the consolidated APPs of rivers, lakes, springs and veredas, capped at 10% of a property up to 2 fiscal modules and 20% up to 4, the cells nearest the water kept), 0 elsewhere in the properties"
+   },
+   {
+    "name": "properties",
+    "type": "table",
+    "required": false,
+    "doc": "with recompose: a row per property: property, area_ha, modules, cap_pct (NaN above 4 modules), app_ha (before the cap), recompose_ha, capped (0 or 1)"
    }
   ],
   "params": [
@@ -17809,6 +17825,18 @@
     "type": "map",
     "required": false,
     "doc": "the linear constraint: a value per cell"
+   },
+   {
+    "name": "corridor_terminals",
+    "type": "stack",
+    "required": false,
+    "doc": "corridors: a layer per network, its terminal cells > 0 (selected and joined by selected units)"
+   },
+   {
+    "name": "corridor_resistance",
+    "type": "map",
+    "required": false,
+    "doc": "corridors: a value per cell; the flow's penalty x resistance (an edge: the mean of its two cells) joins the objective, so corridors run through low resistance"
    }
   ],
   "outputs": [
@@ -18065,6 +18093,24 @@
     "doc": "every feature's units form one patch"
    },
    {
+    "name": "corridor_columns",
+    "type": "any",
+    "required": false,
+    "doc": "corridors, tables: pu's columns of the networks' terminals (a column, or a list: a network each)"
+   },
+   {
+    "name": "corridor_resistance_column",
+    "type": "text",
+    "required": false,
+    "doc": "corridors, tables: pu's resistance column"
+   },
+   {
+    "name": "corridor_penalty",
+    "type": "number",
+    "required": false,
+    "doc": "corridors: the weight of the resistance (default 1)"
+   },
+   {
     "name": "cost_column",
     "type": "text",
     "required": false,
@@ -18116,7 +18162,7 @@
     "name": "spatial",
     "type": "any",
     "required": false,
-    "doc": "penalties and constraints in order: [{kind: boundary|connectivity|asym_connectivity|linear_penalty|linear_constraint|neighbors|contiguity|feature_contiguity, penalty, edge_factor, threshold, sense, column, k, clamp}, ...]"
+    "doc": "penalties and constraints in order: [{kind: boundary|connectivity|asym_connectivity|linear_penalty|linear_constraint|neighbors|contiguity|feature_contiguity|corridors, penalty, edge_factor, threshold, sense, column, columns, k, clamp}, ...]"
    },
    {
     "name": "portfolio",
@@ -18146,7 +18192,7 @@
     "name": "seed",
     "type": "number",
     "required": false,
-    "doc": "the shuffle portfolio's random orders (default 0)"
+    "doc": "the shuffle portfolio's random orders (default 0); the anneal solver's seed (default 1)"
    },
    {
     "name": "remove_duplicates",
@@ -18170,10 +18216,11 @@
     "name": "solver",
     "type": "text",
     "required": false,
-    "doc": "highs (default) or gurobi: Gurobi when it is installed and licensed, else HiGHS with a warning",
+    "doc": "highs (default), gurobi (when it is installed and licensed, else HiGHS with a warning) or anneal (Marxan's simulated annealing, every run repaired to meet the targets: minimum sets with binary decisions, without zones or portfolios)",
     "choices": [
      "highs",
-     "gurobi"
+     "gurobi",
+     "anneal"
     ]
    },
    {
@@ -18181,6 +18228,52 @@
     "type": "number",
     "required": false,
     "doc": "gurobi: the threads it uses (default and most: Terraflux's threads, never every core)"
+   },
+   {
+    "name": "num_reps",
+    "type": "integer",
+    "required": false,
+    "doc": "anneal: runs, from different random reserves (default 10)"
+   },
+   {
+    "name": "num_iters",
+    "type": "integer",
+    "required": false,
+    "doc": "anneal: annealing iterations per run (default 1000 per planning unit, at least a million)"
+   },
+   {
+    "name": "start_temp",
+    "type": "number",
+    "required": false,
+    "doc": "anneal: Marxan's schedule: below 0 Connolly's (-1, default) or the adaptive (-2) one, else the initial temperature"
+   },
+   {
+    "name": "cool_fac",
+    "type": "number",
+    "required": false,
+    "doc": "anneal: the cooling factor (default 0)"
+   },
+   {
+    "name": "num_temp",
+    "type": "integer",
+    "required": false,
+    "doc": "anneal: temperature decreases (default 10000)"
+   },
+   {
+    "name": "spf",
+    "type": "any",
+    "required": false,
+    "doc": "anneal: every feature's penalty factor during the annealing, one value or several taken by the runs in turn (default [1, 2])"
+   },
+   {
+    "name": "itimp_type",
+    "type": "integer",
+    "required": false,
+    "doc": "anneal: Marxan's iterative improvement, 0 (default) or 3",
+    "choices": [
+     "0",
+     "3"
+    ]
    }
   ],
   "access": "global",
@@ -18816,6 +18909,18 @@
     "type": "integer",
     "required": false,
     "doc": "Zonation adds the features up by blocks of rows: those of the files read (default: one block)"
+   },
+   {
+    "name": "output",
+    "type": "text",
+    "required": false,
+    "doc": "a folder for Zonation 5's output files: rankmap.tif, feature_curves.csv, summary_curves.csv, feature_density_curves.csv, group_curves.csv (with groups) and features_info.csv, the same digits as z5"
+   },
+   {
+    "name": "output_names",
+    "type": "bool",
+    "required": false,
+    "doc": "the header of feature_curves.csv: the features' names (default) or their numbers (z5 without names)"
    }
   ],
   "access": "global",
@@ -18945,6 +19050,12 @@
      "8",
      "16"
     ]
+   },
+   {
+    "name": "output",
+    "type": "text",
+    "required": false,
+    "doc": "a folder for z5's output files: rankmap.tif, feature_curves.csv, summary_curves.csv, feature_density_curves.csv, group_curves.csv (with -g) and features_info.csv; with -p the files of the calls in post_processing/ and with -s/-e impacts/; the same digits as z5"
    }
   ],
   "access": "global",
@@ -28153,7 +28264,7 @@
  },
  {
   "name": "table.read",
-  "doc": "A table from a file: comma-separated values (.csv), tab-separated (.tsv, .txt), with ; as Excel writes them where a comma marks the decimals (the separator and the decimal mark found by themselves), or JSON (.json, a list of rows). A header names the columns; an empty value, or NA, is none. The columns of text (names, not numbers) are left out: a table is of numbers.",
+  "doc": "A table from a file: comma-separated values (.csv), tab-separated (.tsv, .txt), with ; as Excel writes them where a comma marks the decimals (the separator and the decimal mark found by themselves), or JSON (.json, a list of rows). A header names the columns; an empty value, or NA, is none. A column with a value that is not a number is text: kept as names (coded 1, 2... by first appearance, with the names beside the codes).",
   "inputs": [],
   "outputs": [
    {
@@ -29748,6 +29859,18 @@
     "type": "text",
     "required": false,
     "doc": "the layer (default the first)"
+   },
+   {
+    "name": "extent",
+    "type": "any",
+    "required": false,
+    "doc": "[xmin, ymin, xmax, ymax]: read only the features that meet this box (a layer on the web is not read whole), in the layer's coordinate system unless extent_crs says another"
+   },
+   {
+    "name": "extent_crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system of extent (EPSG:4326, WKT...)"
    }
   ],
   "access": "global",
