@@ -1,0 +1,648 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sacridini.github.io/terraflux/schema/model.schema.json",
+  "title": "Terraflux model",
+  "description": "A Terraflux model file (format terraflux/1) in its JSON form. A TOML model maps one to one: parse the TOML into data and validate that. Objects accept keys the schema does not name, as Terraflux does when it reads a file (it ignores them, and drops them when it saves the model again). Some rules here (valid names, the form of references) are applied by `terraflux check` and not by loading.",
+  "type": "object",
+  "required": ["format"],
+  "properties": {
+    "format": {
+      "const": "terraflux/1",
+      "description": "The version of the model format. The only value this version of Terraflux reads is terraflux/1; any other is refused."
+    },
+    "name": {
+      "type": "string",
+      "description": "The model's name, shown in the application's title and in reports."
+    },
+    "description": {
+      "type": "string",
+      "description": "What the model is, in a sentence or two."
+    },
+    "request": {
+      "type": "string",
+      "description": "The request the model answers, in the words of whoever asked for it. Part of the record; it changes no result."
+    },
+    "summary": {
+      "type": "string",
+      "description": "A summary of the conversation or the work that led to the model. Part of the record; it changes no result."
+    },
+    "author": {
+      "type": "string",
+      "description": "Who made the model: a person, an assistant, or both. Part of the record; it changes no result."
+    },
+    "inputs": {
+      "type": "object",
+      "description": "The data the model reads, by name. A node reads one as \"$name\". A name is a letter or underscore followed by letters, digits, underscores or hyphens.",
+      "propertyNames": { "$ref": "#/$defs/id" },
+      "additionalProperties": { "$ref": "#/$defs/input" }
+    },
+    "nodes": {
+      "type": "array",
+      "description": "The operators of the graph, in any order: they run in the order of their dependencies. Node ids are unique within their level. Absent means no nodes.",
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "outputs": {
+      "type": "object",
+      "description": "What the model writes into the output folder, by name.",
+      "additionalProperties": { "$ref": "#/$defs/output" }
+    },
+    "parameters": {
+      "type": "array",
+      "description": "The values offered in a form to change a scenario without touching the graph, in the order shown. They do not change what the model gives.",
+      "items": { "$ref": "#/$defs/parameter" }
+    },
+    "scenarios": {
+      "type": "array",
+      "description": "Sets of values of the parameters kept by name, to run and compare.",
+      "items": { "$ref": "#/$defs/scenario" }
+    },
+    "tests": {
+      "type": "array",
+      "description": "What `terraflux test` checks: an output of the model against the file of what it should be.",
+      "items": { "$ref": "#/$defs/test" }
+    },
+    "plots": {
+      "type": "array",
+      "description": "The views of the results kept with the model (what the Viewer shows, saved). They sit outside the graph; the Document, the reports, the QGIS export and the Python script read them.",
+      "items": { "$ref": "#/$defs/plot" }
+    },
+    "places": {
+      "type": "object",
+      "description": "Layout only. Where the canvas draws the boxes of what a scope reads besides its nodes (a model's input, a container's value, a node outside it), moved by hand. The key is the scope's container ids joined by \"/\", then \"|\", then the reference (\"|$land\", \"loop|@step\"). The value is [x, y].",
+      "additionalProperties": { "$ref": "#/$defs/point" }
+    },
+    "notes": {
+      "type": "array",
+      "description": "Layout only. The notes and frames drawn on the canvas, for whoever reads the model. Checks and runs never see them.",
+      "items": { "$ref": "#/$defs/note" }
+    },
+    "bookmarks": {
+      "type": "array",
+      "description": "Layout only. Views of the Viewer's map and of the canvas kept by name, to go back to (optionally in a slot, 1 to 9).",
+      "items": { "$ref": "#/$defs/bookmark" }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+      "description": "A name: a letter or underscore, then letters, digits, underscores or hyphens (ASCII only)."
+    },
+    "reference": {
+      "type": "string",
+      "pattern": "^(\\$[A-Za-z_][A-Za-z0-9_-]*|@[A-Za-z_][A-Za-z0-9_-]*|[A-Za-z_][A-Za-z0-9_-]*\\.[A-Za-z_][A-Za-z0-9_-]*)$",
+      "description": "A reference to a value: \"node.port\" (an output of a node), \"$name\" (an input of the model) or \"@name\" (a value of the enclosing container)."
+    },
+    "point": {
+      "type": "array",
+      "description": "A point [x, y] in the coordinates of the canvas (graph units) of its scope.",
+      "prefixItems": [{ "type": "number" }, { "type": "number" }],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "type": {
+      "enum": [
+        "any", "number", "integer", "bool", "text", "map", "stack", "series", "table", "markov", "demand",
+        "regional", "glm", "woe", "patches", "rules", "rng", "agents", "raster", "vector", "base_data", "tree",
+        "label_matrix", "habitat_graph", "sdm_model", "ml_model", "step_distribution", "swat_project",
+        "swat_watershed"
+      ],
+      "description": "The type of a value that flows along the graph."
+    },
+    "input": {
+      "type": "object",
+      "description": "Data the model reads. The kind says which: a map, a stack of maps, or a value.",
+      "required": ["kind"],
+      "oneOf": [
+        {
+          "properties": {
+            "kind": { "const": "map", "description": "One band of a raster file." },
+            "path": {
+              "type": "string",
+              "description": "The raster file. A relative path is relative to the model's folder."
+            },
+            "band": {
+              "type": "string",
+              "description": "The band, by name or 0-based index (default: the first)."
+            },
+            "nodata": {
+              "type": "number",
+              "description": "A no-data value that replaces the file's."
+            },
+            "note": { "type": "string", "description": "What the input is, as its maker wrote it." }
+          },
+          "required": ["kind", "path"]
+        },
+        {
+          "properties": {
+            "kind": { "const": "stack", "description": "Every band of a raster file (or the bands named): a stack of maps." },
+            "path": {
+              "type": "string",
+              "description": "The raster file. A relative path is relative to the model's folder."
+            },
+            "bands": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "The bands to read, by name (default: all of them)."
+            },
+            "nodata": {
+              "type": "number",
+              "description": "A no-data value that replaces the file's."
+            },
+            "note": { "type": "string", "description": "What the input is, as its maker wrote it." }
+          },
+          "required": ["kind", "path"]
+        },
+        {
+          "properties": {
+            "kind": { "const": "value", "description": "A number or any structured value (a seed, a table of demands)." },
+            "value": { "description": "The value: any JSON value (a TOML value of any type)." },
+            "note": { "type": "string", "description": "What the input is, as its maker wrote it." }
+          },
+          "required": ["kind", "value"]
+        }
+      ]
+    },
+    "node": {
+      "type": "object",
+      "description": "One operator of the graph.",
+      "required": ["id", "op"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id",
+          "description": "The node's name, unique among the nodes of its level. Other nodes read its outputs as \"id.port\"."
+        },
+        "op": {
+          "type": "string",
+          "description": "The operator, such as raster.read or control.repeat. See the operator reference for the list, ports and settings. The names stack.layer and map.calc are read as stack.extract_layer and raster.calc."
+        },
+        "inputs": {
+          "type": "object",
+          "description": "What the node's input ports read, by port name. A text is a reference (\"node.port\", \"$name\" or \"@name\"); any other value (number, boolean, list, table) is a literal. A text can never be a literal input.",
+          "additionalProperties": true
+        },
+        "params": {
+          "type": "object",
+          "description": "The node's settings, by name. A value is a literal, a text \"$name\" or \"@name\" that reads a model input or a container value, or a table { from = \"node.port\" } that reads a node's output. A setting the operator does not read is kept, and `terraflux check` warns of it.",
+          "additionalProperties": true
+        },
+        "note": {
+          "type": "string",
+          "description": "What the node is for, in a sentence. Part of the record; it changes no result."
+        },
+        "why": {
+          "type": "string",
+          "description": "Why this operator and these settings were chosen. Part of the record; it changes no result."
+        },
+        "refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The references the choice rests on (papers, methods, the operator's documentation), as free text. Part of the record."
+        },
+        "assumptions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "What the node assumes to be true. Part of the record."
+        },
+        "alternatives": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The alternatives considered and set aside, and why. Part of the record."
+        },
+        "body": {
+          "$ref": "#/$defs/body",
+          "description": "The nodes of a container (control.repeat, control.each, control.switch, control.group), with what it carries, collects and gives. Required of a container, refused on any other operator, by `terraflux check`."
+        },
+        "pos": {
+          "$ref": "#/$defs/point",
+          "description": "Layout only. Where the node editor draws the node, in its scope's coordinates."
+        },
+        "wires": {
+          "type": "object",
+          "description": "Layout only. Reroute points of the wires the node reads, by input port name, or \"setting:<name>\" for the wire into a setting. Each value is a list of [x, y] points from the output to the input.",
+          "additionalProperties": { "type": "array", "items": { "$ref": "#/$defs/point" } }
+        },
+        "width": {
+          "type": "number",
+          "description": "Layout only. The width the node's box was given in the editor, never narrower than its texts need."
+        },
+        "bypass": {
+          "type": "boolean",
+          "description": "Turn the node off without taking it away: it does not run, and each of its outputs is the first of its inputs of the same type (default false). This changes the results."
+        },
+        "frozen": {
+          "type": "boolean",
+          "description": "Keep the node's outputs on disk next to the model (<model>.frozen/<id>/) and use them instead of running the node, until it is thawed. Top-level nodes only (default false)."
+        },
+        "shown": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Layout only. Settings the node's box always shows, beyond those it chooses itself."
+        },
+        "hidden": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Layout only. Settings the node's box never shows folded (they stay in the settings panel)."
+        },
+        "uses": {
+          "$ref": "#/$defs/uses",
+          "description": "Set on a control.group that is a node of the user's library: the name and version it was made from, and what it takes and gives."
+        }
+      }
+    },
+    "body": {
+      "type": "object",
+      "description": "The body of a container: its nodes, and how values pass through it.",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "description": "The nodes inside the container. Their ids are unique among themselves, and they read the container's values as \"@name\" and any node of an enclosing level as \"node.port\".",
+          "items": { "$ref": "#/$defs/node" }
+        },
+        "carry": {
+          "type": "object",
+          "description": "control.repeat: \"@name\" to the reference whose value becomes @name in the next step. The first value is the container's input of the same name.",
+          "additionalProperties": { "$ref": "#/$defs/reference" }
+        },
+        "collect": {
+          "type": "object",
+          "description": "control.repeat and control.each: output name to the reference whose value at every step (or element) is collected into a series, a stack or a table.",
+          "additionalProperties": { "$ref": "#/$defs/reference" }
+        },
+        "outputs": {
+          "type": "object",
+          "description": "control.group (and what a submodel becomes): output name to the reference that gives it, read outside as \"container.name\".",
+          "additionalProperties": { "$ref": "#/$defs/reference" }
+        },
+        "order": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Layout only. The order a group's outputs are shown in (output names). Those not listed come after, by name."
+        },
+        "until": {
+          "$ref": "#/$defs/reference",
+          "description": "control.repeat: a reference to a yes-or-no value. When it is true at the end of a step, the loop ends there, and that step is neither collected nor carried."
+        }
+      }
+    },
+    "uses": {
+      "type": "object",
+      "description": "A group that is a node of the user's library.",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "description": "The library node's name." },
+        "version": { "type": "integer", "minimum": 0, "description": "The version the group's body is a copy of." },
+        "description": { "type": "string", "description": "What the node does." },
+        "inputs": {
+          "type": "object",
+          "description": "What it takes, by name (\"@name\" in its body).",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "$ref": "#/$defs/type", "description": "The type of the input." },
+              "bands": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "For a stack, the layers it needs, by the names a script reads them."
+              },
+              "default": { "description": "Its value when none is given (the input is then optional)." },
+              "doc": { "type": "string", "description": "What the input is." }
+            }
+          }
+        },
+        "outputs": {
+          "type": "object",
+          "description": "What it gives, by name (the body's outputs).",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "$ref": "#/$defs/type", "description": "The type of the output." },
+              "doc": { "type": "string", "description": "What the output is." }
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "description": "A value the model writes.",
+      "required": ["from"],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/reference",
+          "description": "The value written, as \"node.port\"."
+        },
+        "path": {
+          "type": "string",
+          "description": "The file, relative to the output folder (default: the output's name with the usual extension)."
+        },
+        "dtype": {
+          "type": "string",
+          "description": "The cell type of a raster: u8, i32, f32 and so on."
+        },
+        "layer": {
+          "type": "string",
+          "description": "One layer of a stack (or of rasters, or one step of a series) written alone: its name or 0-based number, as text."
+        }
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "description": "A value of the model offered in a form, with what the form needs to show and bound it.",
+      "required": ["key"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "What it changes: \"$name\" (a value input) or \"node.setting\" (\"container/node.setting\" inside a container)."
+        },
+        "label": { "type": "string", "description": "Its name in the form (default: the key)." },
+        "unit": { "type": "string", "description": "Its unit, shown beside it." },
+        "min": { "type": "number", "description": "The smallest value (a slider when min and max are both given)." },
+        "max": { "type": "number", "description": "The largest value." },
+        "step": { "type": "number", "description": "The step of the slider." },
+        "choices": {
+          "type": "array",
+          "description": "The values it takes, when they are a few.",
+          "items": true
+        },
+        "help": { "type": "string", "description": "What it is and how it acts on the model, for whoever changes it." }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "description": "A named set of values of the model's parameters.",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "description": "The scenario's name, used by --scenario." },
+        "note": { "type": "string", "description": "What the scenario is." },
+        "values": {
+          "type": "object",
+          "description": "Parameter key to value, the keys as in a parameter's key (\"$name\" or \"node.setting\").",
+          "additionalProperties": true
+        }
+      }
+    },
+    "test": {
+      "type": "object",
+      "description": "A test of the model: a value it gives against the file of what it should be.",
+      "required": ["from", "expected"],
+      "properties": {
+        "from": { "type": "string", "description": "The value tested, as \"node.port\"." },
+        "expected": {
+          "type": "string",
+          "description": "The file of what it should be (a raster, a table, a JSON value or a text), relative to the model's folder."
+        },
+        "tolerance": {
+          "type": "number",
+          "description": "The largest difference of a number allowed (default 1e-9)."
+        },
+        "note": { "type": "string", "description": "What the test checks." }
+      }
+    },
+    "plot": {
+      "type": "object",
+      "description": "A view of the model's results kept with it.",
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id", "description": "The plot's name, unique among the plots." },
+        "title": { "type": "string", "description": "The plot's title, its caption in the Document." },
+        "layers": {
+          "type": "array",
+          "description": "What it shows, the first at the bottom.",
+          "items": { "$ref": "#/$defs/plot_layer" }
+        },
+        "compare": { "$ref": "#/$defs/plot_compare", "description": "A map compared with the top map." },
+        "chart": { "$ref": "#/$defs/plot_chart", "description": "A table's chart, when a layer is a table." },
+        "note": { "type": "string", "description": "What the plot shows. Part of the record." },
+        "why": { "type": "string", "description": "Why it is shown. Part of the record." },
+        "view": {
+          "type": "object",
+          "description": "The saved view: the part of the map the plot is drawn at.",
+          "required": ["extent"],
+          "properties": {
+            "extent": {
+              "type": "array",
+              "description": "West, south, east, north, in the coordinates of the map. It must have an area.",
+              "prefixItems": [
+                { "type": "number" }, { "type": "number" }, { "type": "number" }, { "type": "number" }
+              ],
+              "minItems": 4,
+              "maxItems": 4
+            }
+          }
+        },
+        "groups": {
+          "type": "array",
+          "description": "Groups of layers, one level; a layer is in one by its group.",
+          "items": {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+              "id": { "type": "string", "description": "The group's id, named by its layers' group." },
+              "name": { "type": "string", "description": "The group's name in the Viewer's list." },
+              "collapsed": { "type": "boolean", "description": "Its layers folded under its row (default false)." },
+              "hidden": { "type": "boolean", "description": "Its layers kept without being drawn (default false)." },
+              "opacity": {
+                "type": "number", "minimum": 0, "maximum": 1,
+                "description": "How opaque, 0 to 1 (default 1). It multiplies its layers' opacity."
+              }
+            }
+          }
+        }
+      }
+    },
+    "plot_layer": {
+      "type": "object",
+      "description": "A layer of a plot: an output or an input of the model, and how it is drawn.",
+      "required": ["from"],
+      "properties": {
+        "from": {
+          "type": "string",
+          "description": "The layer: \"node.port\", \"$name\", or a node inside containers (\"group.inner.port\" or \"group/inner.port\")."
+        },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1, "description": "How opaque, 0 to 1 (default 1)." },
+        "palette": { "type": "string", "description": "The palette, by its name in the Viewer (default: by what the map is)." },
+        "range": {
+          "type": "array",
+          "description": "The range of the colours of a map of values, [least, most] (default: the 2nd to 98th percentiles).",
+          "prefixItems": [{ "type": "number" }, { "type": "number" }],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "band": { "type": "integer", "minimum": 0, "description": "The band of a stack or the step of a loop shown (default the first)." },
+        "style": { "description": "Style of vector features, as the Viewer keeps it (any value)." },
+        "minus": {
+          "type": "string",
+          "description": "Drawn as a difference: from minus this map, for maps of values; the transitions from this map to from, for maps of classes."
+        },
+        "minus_band": { "type": "integer", "minimum": 0, "description": "The band or step of minus (default the first)." },
+        "hidden": { "type": "boolean", "description": "Kept in the plot without being drawn (default false)." },
+        "rgb": {
+          "type": "object",
+          "description": "Drawn as a colour composite of three maps.",
+          "required": ["bands"],
+          "properties": {
+            "bands": {
+              "type": "array",
+              "description": "The bands (from 0) of the red, green and blue channels.",
+              "prefixItems": [
+                { "type": "integer", "minimum": 0 }, { "type": "integer", "minimum": 0 }, { "type": "integer", "minimum": 0 }
+              ],
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "red": { "$ref": "#/$defs/range", "description": "The range of the red channel's values." },
+            "green": { "$ref": "#/$defs/range", "description": "The range of the green channel's values." },
+            "blue": { "$ref": "#/$defs/range", "description": "The range of the blue channel's values." },
+            "gamma": { "type": "number", "description": "The gamma of the three channels (default 1)." }
+          }
+        },
+        "selected": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 },
+          "description": "Features of a vector layer selected in the attribute table, by number from 1."
+        },
+        "blend": {
+          "type": "string",
+          "description": "How the layer mixes with the ones under it: normal (default), multiply or screen."
+        },
+        "shade": {
+          "type": "object",
+          "description": "A map of values shaded as a relief made of itself.",
+          "properties": {
+            "azimuth": { "type": "number", "description": "The sun's azimuth in degrees clockwise from north (default 315)." },
+            "altitude": { "type": "number", "description": "The sun's altitude over the horizon in degrees (default 45)." },
+            "z": { "type": "number", "description": "The vertical exaggeration (default 1)." },
+            "strength": { "type": "number", "description": "How strong the shade is, 0 to 1 (default 0.6)." }
+          }
+        },
+        "name": { "type": "string", "description": "The name the Viewer's list, legend and figure give the layer, instead of its output's." },
+        "group": { "type": "string", "description": "The id of the plot's group the layer is in." }
+      }
+    },
+    "range": {
+      "type": "array",
+      "description": "A range [least, most].",
+      "prefixItems": [{ "type": "number" }, { "type": "number" }],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "plot_compare": {
+      "type": "object",
+      "description": "A map compared with a plot's top map.",
+      "required": ["with"],
+      "properties": {
+        "with": { "type": "string", "description": "The map compared, as \"node.port\"." },
+        "how": {
+          "type": "string",
+          "description": "How: curtain, side by side (default) or difference."
+        },
+        "also": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Side by side, up to two more maps, each in a view of its own."
+        },
+        "band": { "type": "integer", "minimum": 0, "description": "The band or step of with (default the first)." },
+        "also_bands": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 },
+          "description": "The bands of the also maps, one each (0 or missing: the first)."
+        },
+        "layers": {
+          "type": "array",
+          "description": "The layers of the views side by side, the first the view of with, then those of also: a list each, the first layer at the bottom.",
+          "items": { "type": "array", "items": { "$ref": "#/$defs/plot_layer" } }
+        }
+      }
+    },
+    "plot_chart": {
+      "type": "object",
+      "description": "A table's chart.",
+      "properties": {
+        "kind": { "type": "string", "description": "bars, lines, points or boxes (default: suggested by the table)." },
+        "x": { "type": "string", "description": "The column along x." },
+        "y": { "type": "string", "description": "The columns drawn, comma-separated." },
+        "by": { "type": "string", "description": "The column whose values make the groups." }
+      }
+    },
+    "note": {
+      "type": "object",
+      "description": "A note on the canvas: a text put somewhere (at), or a frame around nodes (nodes), whose text's first line is its title.",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "description": "The note's id (note1, frame1 and so on), unique among the notes." },
+        "scope": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The ids of the containers, from the top, whose level the note is on (empty or absent: the top level)."
+        },
+        "text": { "type": "string", "description": "The text (a frame's title is its first line)." },
+        "colour": {
+          "type": "string",
+          "description": "The note's colour: amber, blue, green, red, purple or grey (absent: the note's own)."
+        },
+        "at": { "$ref": "#/$defs/point", "description": "Where a free note is put, in graph units." },
+        "nodes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The ids of the nodes a frame goes around. A note with nodes is a frame: its rectangle is the nodes' boxes'."
+        }
+      }
+    },
+    "bookmark": {
+      "type": "object",
+      "description": "A view kept by name.",
+      "required": ["name", "view"],
+      "properties": {
+        "name": { "type": "string", "description": "The place's name." },
+        "slot": {
+          "type": "integer", "minimum": 1, "maximum": 9,
+          "description": "The digit that goes to it, 1 to 9; one place of each kind to a slot."
+        },
+        "view": {
+          "type": "object",
+          "description": "What the place keeps. The kind says which: the Viewer's map or the canvas.",
+          "required": ["kind"],
+          "oneOf": [
+            {
+              "properties": {
+                "kind": { "const": "map", "description": "A part of a map in the Viewer." },
+                "extent": {
+                  "type": "array",
+                  "description": "West, south, east, north, in the coordinates of the map shown.",
+                  "prefixItems": [
+                    { "type": "number" }, { "type": "number" }, { "type": "number" }, { "type": "number" }
+                  ],
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "crs": { "type": "string", "description": "The map's coordinate system, as the map tells it (absent for a map without one)." },
+                "layers": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "The layers visible when it was saved (the from of each, as the plots tell them)."
+                }
+              },
+              "required": ["kind", "extent"]
+            },
+            {
+              "properties": {
+                "kind": { "const": "canvas", "description": "Where the node canvas looks." },
+                "scope": {
+                  "type": "string",
+                  "description": "The container whose body it shows, its path joined by \"/\" (empty: the top level)."
+                },
+                "x": { "type": "number", "description": "The graph point at the middle of the view, x." },
+                "y": { "type": "number", "description": "The graph point at the middle of the view, y." },
+                "zoom": { "type": "number", "description": "The zoom." }
+              },
+              "required": ["kind", "x", "y", "zoom"]
+            }
+          ]
+        }
+      }
+    }
+  }
+}
