@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.50.0] - 2026-11-15
+
 ### Added
 - **A node's main settings on its box.** Under its ports a box shows a row for each setting the operator needs,
   each one given and its essential ones (four at most): the name at the left, the value at the right (cut to the
