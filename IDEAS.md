@@ -3587,4 +3587,11 @@ sensível (até cerca de 10 %, dentro do ruído).
 4. **O ajuste como pino.** Cada linha de ajuste tem uma bolinha à esquerda, como uma entrada: um fio solto nela faz
    o ajuste ler aquela saída (`{ from = "no.porta" }`, ou `$nome` de uma entrada do modelo), o valor dá lugar ao fio;
    tirar o fio volta ao valor. Botão direito numa linha: *Show on the node* / *Hide from the node* (guardado no nó,
-   `shown`/`hidden`), por cima da regra do item 1.
+   `shown`/`hidden`), por cima da regra do item 1. **Feito** (Unreleased): a bolinha nas linhas de número, inteiro,
+   sim/não e texto (`SettingRow::feed`), os fios dos ajustes numa lista própria (`Scene::setting_wires`, seguindo as
+   caixas pelos mesmos caminhos dos outros fios, sem mexer nos das entradas), `editor::connect_setting` checado como
+   uma conexão, `Action::ConnectSetting`/`ShowSetting`, *Use a value of its own*, *Hide from the node* e o submenu
+   *Show on the node*; `Node::shown`/`hidden` fora do cache, do que fica velho e da comparação do arquivo seguido (só
+   desenho). Medido: sem diferença. Testes: `a_wire_dropped_on_a_setting_makes_it_read_the_value`,
+   `a_setting_is_hidden_from_the_box_and_shown_on_it`. Falta: os fios dos ajustes não têm pontos próprios nem dica
+   ao passar o ponteiro; arrastar da bolinha de um ajuste livre até uma saída.

@@ -3213,6 +3213,16 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                     true
                 })
             }
+            // a setting made to read a value, checked as a connection is (what the pane keeps of its fields forgotten)
+            Action::ConnectSetting { reference, node, name } => {
+                crate::editor::connect_setting(&mut s.source, r, &path, &reference, &node, &name).map(|_| {
+                    s.fields.clear();
+                    true
+                })
+            }
+            Action::ShowSetting { node, name, show } => {
+                crate::editor::show_setting(&mut s.source, &path, &node, &name, show).map(|_| true)
+            }
             Action::RunOnFolder(node) => match rfd::FileDialog::new()
                 .set_title("The folder of the rasters")
                 .pick_folder()

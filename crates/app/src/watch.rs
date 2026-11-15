@@ -102,12 +102,14 @@ pub fn follow(s: &mut Session, ctx: &egui::Context) {
     }
 }
 
-/// A model without the places (and widths) of its nodes.
+/// A model without the places (and widths, and the settings their boxes show or leave off) of its nodes.
 fn unplaced(m: &Model) -> Model {
     fn clear(nodes: &mut [terraflux_graph::Node]) {
         for n in nodes {
             n.pos = None;
             n.width = None;
+            n.shown.clear();
+            n.hidden.clear();
             if let Some(b) = &mut n.body {
                 clear(&mut b.nodes);
             }

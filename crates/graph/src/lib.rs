@@ -564,6 +564,12 @@ pub struct Node {
     /// either.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub frozen: bool,
+    /// Settings its box in the node editor always shows (beyond those it chooses itself), and those it never shows
+    /// folded (they stay in the settings panel). Drawing only: the engine ignores them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shown: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden: Vec<String>,
     /// A group that is a node of the user's library: the name and version it was made from, what it takes and
     /// gives (its body a copy of that version's: see [`user_node`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -588,6 +594,8 @@ impl Node {
             width: None,
             bypass: false,
             frozen: false,
+            shown: Vec::new(),
+            hidden: Vec::new(),
             uses: None,
         }
     }
@@ -1359,6 +1367,27 @@ op = "stack.layer"
         assert!(t.contains("wires"), "{t}");
         assert_eq!(Model::from_toml(&t).unwrap(), m, "{t}");
         assert_eq!(Model::from_json(&m.to_json().unwrap()).unwrap(), m);
+    }
+
+    #[test]
+    fn settings_shown_and_hidden_on_a_box_are_saved_only_when_there_are_some() {
+        let mut m = sample();
+        let before = m.to_toml().unwrap();
+        assert!(!before.contains("shown") && !before.contains("hidden"), "{before}");
+        // an old model loads with none, and serialises as it was
+        let old = Model::from_toml(&before).unwrap();
+        assert!(old.nodes.iter().all(|n| n.shown.is_empty() && n.hidden.is_empty()));
+        assert_eq!(old.to_toml().unwrap(), before);
+        m.nodes[1].shown.push("radius".into());
+        m.nodes[1].hidden.push("seed".into());
+        let t = m.to_toml().unwrap();
+        assert!(t.contains("shown") && t.contains("hidden"), "{t}");
+        assert_eq!(Model::from_toml(&t).unwrap(), m, "{t}");
+        let j = m.to_json().unwrap();
+        assert_eq!(Model::from_json(&j).unwrap(), m);
+        m.nodes[1].shown.clear();
+        m.nodes[1].hidden.clear();
+        assert_eq!(m.to_toml().unwrap(), before);
     }
 
     #[test]

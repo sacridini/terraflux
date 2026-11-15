@@ -3240,3 +3240,158 @@ fn a_free_inputs_wire_dragged_to_an_output_or_the_empty_canvas() {
     undo(&mut h);
     assert_eq!(nodes(&h), before);
 }
+
+/// A node that gives a number (`ent.index`), a model's input of a value (`$rate`) and a node of many settings (`opt`:
+/// `gap`, `seed` and `solver` given), their boxes in view.
+fn pins_harness(name: &str) -> Harness<'static, TerrafluxApp> {
+    let mut m = Model::new("pins");
+    m.inputs.insert("rate".into(), terraflux_graph::Input::Value { value: 0.5.into(), note: None });
+    let mut ent = Node::new("ent", "fragmentation.entropy");
+    ent.pos = Some([0.0, 0.0]);
+    let mut opt = Node::new("opt", "prioritize.optimize").param("gap", 0.2).param("seed", 3).param("solver", "highs");
+    opt.pos = Some([700.0, 0.0]);
+    m.nodes = vec![ent, opt];
+    let mut h = harness(open(&m, name));
+    h.state_mut().session.as_mut().unwrap().editor.fit();
+    h.run_steps(6);
+    h
+}
+
+/// A setting that may read a value has a socket on its row; a wire dragged from an output onto it (or anywhere on the
+/// row) makes the setting read it (`{ from }` for a node's output, `"$name"` for a model's input), drawn as a wire
+/// to the socket that follows the boxes; a wire that does not fit is refused with the reason; each is one step of
+/// undo.
+#[test]
+fn a_wire_dropped_on_a_setting_makes_it_read_the_value() {
+    let _lock = settings_lock();
+    terraflux_app::settings::update(|s| s.node_settings = true);
+    let mut h = pins_harness("canvas-pins.toml");
+    let before = nodes_now(&h, false);
+    assert_eq!(editor(&h).setting_wires(), 0);
+    // (a socket only for a setting that takes a number, a yes or no or a text)
+    let feed = |h: &Harness<TerrafluxApp>, name: &str| {
+        editor(h).settings_of("opt").unwrap().rows.iter().find(|r| r.name == name).and_then(|r| r.feed)
+    };
+    assert_eq!(feed(&h, "gap"), Some(terraflux_graph::Type::Number));
+    assert_eq!(feed(&h, "solver"), Some(terraflux_graph::Type::Text));
+    // a node's output let go on the socket
+    let from = editor(&h).screen_of_output("ent", "index").unwrap();
+    let socket = editor(&h).screen_of_socket("opt", "gap").unwrap();
+    drag(&mut h, from, socket);
+    assert_eq!(
+        param_now(&h, "opt", "gap"),
+        Some(serde_json::json!({ "from": "ent.index" })),
+        "{:?}",
+        editor(&h).message
+    );
+    let (source, a, z) = editor(&h).setting_wire("opt", "gap").expect("a wire to the socket");
+    assert_eq!(source, "ent");
+    assert!(a.distance(editor(&h).screen_of_output("ent", "index").unwrap()) < 1.0);
+    assert!(z.distance(editor(&h).screen_of_socket("opt", "gap").unwrap()) < 1.0);
+    assert_eq!(editor(&h).setting_wires(), 1);
+    let row = editor(&h).settings_of("opt").unwrap().rows.iter().find(|r| r.name == "gap").unwrap().clone();
+    assert!(row.reads && row.value == "← ent.index", "{row:?}");
+    // the wire follows the box dragged
+    let head = editor(&h).screen_of("ent").unwrap();
+    drag(&mut h, head, head + egui::vec2(-20.0, 90.0));
+    let (_, a2, z2) = editor(&h).setting_wire("opt", "gap").unwrap();
+    assert!(
+        (a2 - a).y > 50.0 && a2.distance(editor(&h).screen_of_output("ent", "index").unwrap()) < 1.0,
+        "{a} -> {a2}"
+    );
+    assert!(z2.distance(z) < 1.0, "the socket stays");
+    // one step of undo takes it back
+    undo(&mut h);
+    undo(&mut h);
+    assert_eq!(param_now(&h, "opt", "gap"), Some(serde_json::json!(0.2)));
+    let params = |h: &Harness<TerrafluxApp>| nodes_now(h, false).into_iter().map(|n| n.params).collect::<Vec<_>>();
+    assert_eq!(params(&h), before.iter().map(|n| n.params.clone()).collect::<Vec<_>>());
+    assert_eq!(editor(&h).setting_wires(), 0);
+    // what does not fit is refused, with the reason, and the model stays
+    let from = editor(&h).screen_of_output("ent", "pairs").unwrap();
+    let socket = editor(&h).screen_of_socket("opt", "gap").unwrap();
+    drag(&mut h, from, socket);
+    assert_eq!(param_now(&h, "opt", "gap"), Some(serde_json::json!(0.2)));
+    let why = editor(&h).message.clone().unwrap_or_default();
+    assert!(why.contains("Table"), "{why:?}");
+    // a model's input of a value, let go anywhere on the row: read as `"$rate"`
+    let from = editor(&h).screen_of_output("$rate", "").unwrap();
+    let on_row = editor(&h).screen_of_setting("opt", "seed").unwrap();
+    drag(&mut h, from, on_row);
+    assert_eq!(param_now(&h, "opt", "seed"), Some(serde_json::json!("$rate")), "{:?}", editor(&h).message);
+    assert_eq!(editor(&h).setting_wire("opt", "seed").map(|w| w.0), Some("$rate".to_string()));
+    // (a row that reads a value is edited in the settings, not on the box)
+    let kind = editor(&h).settings_of("opt").unwrap().rows.iter().find(|r| r.name == "seed").unwrap().kind;
+    assert_eq!(kind, terraflux_app::editor_view::Kind::Complex);
+    // the wire taken off the socket: the setting has its own value again (the default), one step of undo
+    let socket = editor(&h).screen_of_socket("opt", "seed").unwrap();
+    drag(&mut h, socket, socket + egui::vec2(-150.0, 250.0));
+    assert_eq!(param_now(&h, "opt", "seed"), None);
+    assert_eq!(editor(&h).setting_wires(), 0);
+    undo(&mut h);
+    assert_eq!(param_now(&h, "opt", "seed"), Some(serde_json::json!("$rate")));
+    // right click on the row: "Use a value of its own"
+    let on_row = editor(&h).screen_of_setting("opt", "seed").unwrap();
+    right_click(&mut h, on_row);
+    pick(&mut h, "Use a value of its own");
+    assert_eq!(param_now(&h, "opt", "seed"), None);
+    undo(&mut h);
+    assert_eq!(param_now(&h, "opt", "seed"), Some(serde_json::json!("$rate")));
+}
+
+/// A setting a node's box shows is chosen by the node too: "Hide from the node" on a row folds it (the row that
+/// unfolds the others counts it), "Show on the node" in the node's menu puts a folded one back, always; both are
+/// kept in the model, saved and loaded, one step of undo each. A setting that reads a value is always shown.
+#[test]
+fn a_setting_is_hidden_from_the_box_and_shown_on_it() {
+    let _lock = settings_lock();
+    terraflux_app::settings::update(|s| s.node_settings = true);
+    let mut h = pins_harness("canvas-hide.toml");
+    let names = |h: &Harness<TerrafluxApp>| -> Vec<String> {
+        editor(h).settings_of("opt").unwrap().rows.iter().map(|r| r.name.clone()).collect()
+    };
+    let folded = |h: &Harness<TerrafluxApp>| editor(h).settings_of("opt").unwrap().clone();
+    assert!(names(&h).contains(&"seed".to_string()), "{:?}", names(&h));
+    let (rows, count) = (names(&h).len(), folded(&h).folded);
+    assert_eq!(folded(&h).folded_given, 0);
+    let at = row_of(&mut h, "opt", "seed");
+    right_click(&mut h, at);
+    pick(&mut h, "Hide from the node");
+    assert!(!names(&h).contains(&"seed".to_string()), "{:?}", names(&h));
+    let set = folded(&h);
+    // (the row it leaves is taken by the next essential one: as many folded as before, and the hidden one counted
+    // among the given)
+    assert_eq!((set.folded, set.folded_given), (count, 1), "{set:?}: a given one hidden is still counted");
+    assert_eq!(nodes_now(&h, false).iter().find(|n| n.id == "opt").unwrap().hidden, ["seed"]);
+    // saved with the model, loaded again
+    let text = h.state().session.as_ref().unwrap().source.to_toml().unwrap();
+    let back = Model::from_toml(&text).unwrap();
+    assert_eq!(back.node("opt").unwrap().hidden, ["seed"]);
+    assert!(back.node("ent").unwrap().hidden.is_empty() && !text.contains("shown"), "{text}");
+    // the node's menu offers the folded ones: a click shows it, always
+    let head = editor(&h).screen_of("opt").unwrap();
+    right_click(&mut h, head);
+    use egui_kittest::kittest::Queryable;
+    h.get_by_label_contains("Show on the node").click();
+    h.run_steps(3);
+    h.get_by_label("seed").click();
+    h.run_steps(3);
+    assert!(names(&h).contains(&"seed".to_string()) && names(&h).len() == rows, "{:?}", names(&h));
+    let opt = nodes_now(&h, false).into_iter().find(|n| n.id == "opt").unwrap();
+    assert_eq!((opt.shown, opt.hidden), (vec!["seed".to_string()], Vec::<String>::new()));
+    // one step of undo each
+    undo(&mut h);
+    assert!(!names(&h).contains(&"seed".to_string()));
+    undo(&mut h);
+    assert_eq!(nodes_now(&h, false).iter().find(|n| n.id == "opt").unwrap().hidden, Vec::<String>::new());
+    assert!(names(&h).contains(&"seed".to_string()));
+    // a setting that reads a value stays on the box, hidden or not
+    let from = editor(&h).screen_of_output("$rate", "").unwrap();
+    let socket = editor(&h).screen_of_socket("opt", "seed").unwrap();
+    drag(&mut h, from, socket);
+    assert!(names(&h).contains(&"seed".to_string()));
+    h.state_mut().session.as_mut().unwrap().source.node_mut("opt").unwrap().hidden.push("seed".into());
+    h.state_mut().session.as_mut().unwrap().editor.rebuild();
+    h.run_steps(3);
+    assert!(names(&h).contains(&"seed".to_string()), "a setting that reads a value is not hidden");
+}

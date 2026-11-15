@@ -287,7 +287,11 @@ tolerance = 1e-6
 
 A setting holds a value of its own, or reads one when the model runs: `"$name"` (an input of a value of the
 model), `"@step"` or `"@name"` (a loop's step or carried value, a group's input), or `{ from = "node.port" }`
-(another node's number, true or false, or text; written so because a text such as `"a.b"` stays a text).
+(another node's number, true or false, or text; written so because a text such as `"a.b"` stays a text). On the
+canvas a setting that can read a value has a small socket on its row, at the box's left edge: a wire dragged from an
+output (a node's, a model input's or a container's value) onto the socket or anywhere on the row makes the setting
+read it, drawn as a wire to the socket; a wire dragged off the socket, or *Use a value of its own* in the row's
+right-click menu, puts the setting's own value (its default) back.
 
 ```toml
 [[nodes.body.nodes]]

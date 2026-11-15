@@ -1362,6 +1362,42 @@ pub fn set_param(m: &mut Model, path: &[String], node: &str, name: &str, text: &
     Ok(())
 }
 
+/// Make a setting read a reference (`$input`, `@carried`, `node.port`) instead of holding a value, checked as a
+/// connection is: refused with the checker's reason when what it gives does not fit the setting, or would make a
+/// cycle (the setting stays as it was).
+pub fn connect_setting(
+    m: &mut Model,
+    r: &Registry,
+    path: &[String],
+    reference: &str,
+    node: &str,
+    name: &str,
+) -> Result<()> {
+    Ref::parse(reference).map_err(|e| e.to_string())?;
+    let op = node_mut(m, path, node)?.op.clone();
+    if !r.sig(&op).is_some_and(|s| s.params.iter().any(|p| p.name == name)) {
+        return Err(format!("{op} has no setting {name:?}"));
+    }
+    let at = format!("{}{node}", prefix(path));
+    guarded(m, r, &[format!("{at}.{name}"), at.clone()], |c| {
+        let n = node_mut(c, path, node)?;
+        n.params.insert(name.to_string(), setting_of(&Source::Ref(reference.to_string())));
+        Ok(())
+    })
+}
+
+/// Ask a node's box to show a setting always (`show`) or to leave it off (its menus' "Show on the node" and "Hide
+/// from the node"): the choice is kept in the node, the other one forgotten.
+pub fn show_setting(m: &mut Model, path: &[String], node: &str, name: &str, show: bool) -> Result<()> {
+    let n = node_mut(m, path, node)?;
+    let (add, take) = if show { (&mut n.shown, &mut n.hidden) } else { (&mut n.hidden, &mut n.shown) };
+    take.retain(|k| k != name);
+    if !add.iter().any(|k| k == name) {
+        add.push(name.to_string());
+    }
+    Ok(())
+}
+
 /// Set a setting of several nodes of a scope at once (empty text: remove it from each), checked: when the checker
 /// refuses it on any of them, on none, and the model stays as it was.
 pub fn set_param_many(
@@ -2424,5 +2460,49 @@ out big = img > 5",
         let f = add_node(&mut m, &r, &[], "markov.fit", [0.0, 0.0]).unwrap();
         connect(&mut m, &r, &[], &format!("{g}.plus"), &f, "t0").unwrap();
         assert!(set_body_map(&mut m, &r, &path, "outputs", "bad", "nothing.here").is_err());
+    }
+
+    /// A setting made to read a node's output, a model's input or a loop's step, checked as a connection is: a
+    /// value of a type that does not fit and a setting the operator has not are refused, the model left as
+    /// it was.
+    #[test]
+    fn a_setting_is_made_to_read_a_value() {
+        let r = Registry::standard();
+        let mut m = model();
+        m.inputs.insert("rate".into(), Input::Value { value: 0.5.into(), note: None });
+        let e = add_node(&mut m, &r, &[], "fragmentation.entropy", [0.0, 0.0]).unwrap();
+        let o = add_node(&mut m, &r, &[], "prioritize.optimize", [300.0, 0.0]).unwrap();
+        connect_setting(&mut m, &r, &[], &format!("{e}.index"), &o, "gap").unwrap();
+        assert_eq!(m.node(&o).unwrap().params["gap"], serde_json::json!({ "from": "fragmentation_entropy.index" }));
+        connect_setting(&mut m, &r, &[], "$rate", &o, "seed").unwrap();
+        assert_eq!(m.node(&o).unwrap().params["seed"], serde_json::json!("$rate"));
+        // (back to its own value)
+        set_param(&mut m, &[], &o, "seed", "").unwrap();
+        assert!(!m.node(&o).unwrap().params.contains_key("seed"));
+        let was = m.clone();
+        // a table, a map; a text where a number goes; a setting that is not the operator's; a bad reference
+        let why = connect_setting(&mut m, &r, &[], &format!("{e}.pairs"), &o, "gap").unwrap_err();
+        assert!(why.contains("Table"), "{why}");
+        let why = connect_setting(&mut m, &r, &[], "$t0", &o, "gap").unwrap_err();
+        assert!(why.contains("Map"), "{why}");
+        assert!(connect_setting(&mut m, &r, &[], "$rate", &o, "nothing").is_err());
+        assert!(connect_setting(&mut m, &r, &[], "rate", &o, "gap").is_err());
+        assert!(connect_setting(&mut m, &r, &[], "$rate", "ghost", "gap").is_err());
+        assert_eq!(m, was, "refused: the model as it was");
+    }
+
+    /// A setting asked to be shown on a node's box, or hidden from it: the other choice forgotten, each kept once.
+    #[test]
+    fn a_setting_is_shown_or_hidden_on_the_box() {
+        let r = Registry::standard();
+        let mut m = model();
+        let o = add_node(&mut m, &r, &[], "prioritize.optimize", [0.0, 0.0]).unwrap();
+        show_setting(&mut m, &[], &o, "seed", false).unwrap();
+        show_setting(&mut m, &[], &o, "seed", false).unwrap();
+        assert_eq!(m.node(&o).unwrap().hidden, ["seed"]);
+        show_setting(&mut m, &[], &o, "seed", true).unwrap();
+        let n = m.node(&o).unwrap();
+        assert_eq!((n.shown.clone(), n.hidden.clone()), (vec!["seed".to_string()], Vec::<String>::new()));
+        assert!(show_setting(&mut m, &[], "ghost", "seed", true).is_err());
     }
 }

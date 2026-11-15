@@ -757,6 +757,9 @@ fn bare(n: &Node) -> Node {
     n.pos = None;
     n.wires.clear();
     n.width = None;
+    // (the settings its box shows or leaves off are drawing only: they change nothing it gives)
+    n.shown.clear();
+    n.hidden.clear();
     n.frozen = false;
     if let Some(b) = &mut n.body {
         b.nodes = b.nodes.iter().map(bare).collect();

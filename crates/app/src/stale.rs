@@ -30,6 +30,8 @@ fn shallow(n: &Node) -> Node {
     n.pos = None;
     n.wires.clear();
     n.width = None;
+    n.shown.clear();
+    n.hidden.clear();
     if let Some(b) = &mut n.body {
         b.nodes.clear();
     }

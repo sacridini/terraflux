@@ -219,6 +219,8 @@ fn bare(b: &Body) -> Body {
             n.pos = None;
             n.wires.clear();
             n.width = None;
+            n.shown.clear();
+            n.hidden.clear();
             if let Some(b) = &mut n.body {
                 strip(&mut b.nodes);
             }

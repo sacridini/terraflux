@@ -28,6 +28,20 @@ minor versions.
   node selected (*Open the settings of the node selected beside its box* in Settings, Keyboard; Enter still shows
   the node's output) and *Settings...* in the node's right-click menu. It closes with its x, Esc, a click on the empty
   canvas and when you go into or out of a group. Closed it costs nothing; open it costs what the Node tab does.
+- **A setting as a pin.** A setting that takes a number, a whole number, a yes or no or a text has a small hollow
+  socket on its row at the box's left edge (filled, in the colour of its type, when it reads a value). A wire
+  dragged from an output, from a model's input box or from a container's value and let go on the socket, or anywhere
+  on the row when its type fits, makes the setting read it (`{ from = "node.port" }`, `"$name"` or `"@name"`),
+  checked as a connection is (a value that does not fit is refused with the reason, the model left as it was), one
+  step of undo; the row is lit while a wire is over it. The reading is drawn as a wire from the output to the
+  socket, in the colour of the type and bent around the boxes, following the boxes as they are dragged. A wire
+  dragged off the socket, or *Use a value of its own* in the row's right-click menu, takes it off (the setting goes
+  back to its default). A setting that reads a value is always shown on the box, never folded or hidden.
+- **Show or hide a setting on the box.** *Hide from the node* in a row's right-click menu leaves the setting off the
+  box (it is folded in the row that counts the others, given or not, and shown when they are all unfolded);
+  *Show on the node* in the node's right-click menu (a list of the settings the box folds) or in the menu of a
+  hidden row puts it on the box, always, even beyond the four. The choice is kept in the node's `shown` and `hidden`
+  (absent when empty: a model without them is read and written as before), one step of undo each.
 
 ### Changed
 - **The Node pane no longer opens by itself.** The Node tab did not need to come beside the model with its first

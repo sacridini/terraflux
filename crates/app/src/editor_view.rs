@@ -24,7 +24,12 @@
 //! the next row, Esc gives up, empty puts the default back); what reads another value, a file, a script, a table
 //! or a list opens the node's settings in a panel beside its box, as the gear at the right end of the box's operator
 //! line does, shift+Enter on the node selected and "Settings..." in its menu (the Node pane's own content: it follows the
-//! node selected and closes with its x, Esc or a click on the empty canvas). A connection let go on a node rather than on an input goes to the free input it
+//! node selected and closes with its x, Esc or a click on the empty canvas). A setting that takes a number, a yes or
+//! no or a text has a socket on its row at the box's left edge: a connection let go on it (or on its row, when its
+//! type fits) makes the setting read that value, drawn as a wire (`SettingWire`, kept apart from the connections
+//! and following the boxes by the same paths); dragged off the socket it goes back to its own value. A node's
+//! `shown` and `hidden` settings (a row's menu) are put on its box or left off it, over the rules above. A
+//! connection let go on a node rather than on an input goes to the free input it
 //! fits, or to the one chosen in a list when several fit. Zoomed out, the ports' names give way and the nodes' names
 //! stay readable (never smaller than a size that can be read, cut to their box).
 //!
@@ -193,8 +198,9 @@ pub enum Kind {
 }
 
 /// One setting of a node as its box shows it: its name, its value (the one given, else the default its doc
-/// says), whether it was given, whether it reads another value, how a click edits it and whether the check has a
-/// problem with it (an error, else a warning).
+/// says), whether it was given, whether it reads another value, how a click edits it, the type a value it reads
+/// must have (none: the setting cannot read one, it has no socket) and whether the check has a problem with it
+/// (an error, else a warning).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SettingRow {
     pub name: String,
@@ -202,25 +208,47 @@ pub struct SettingRow {
     pub given: bool,
     pub reads: bool,
     pub kind: Kind,
+    pub feed: Option<Type>,
     pub problem: Option<bool>,
+}
+
+/// A setting the box does not edit by its name: a file, the metrics asked of a landscape, a script or a table of
+/// rules.
+fn by_hand_name(op: &str, p: &terraflux_graph::PortSpec) -> bool {
+    let metrics =
+        op.starts_with("metrics.") && ["metrics", "landscape_metrics", "class_metrics"].contains(&p.name.as_str());
+    p.name == "path"
+        || metrics
+        || (op == "raster.calc" && p.name == "expression")
+        || (op == "raster.reclassify" && p.name == "rules")
+}
+
+/// A value the box does not edit: a list or a table, a text of several lines (a value that reads another is one).
+fn by_hand_value(v: &serde_json::Value) -> bool {
+    v.is_array()
+        || v.is_object()
+        || terraflux_graph::setting_ref(v).is_some()
+        || v.as_str().is_some_and(|s| s.contains('\n'))
+}
+
+/// The type of what a setting may read instead of its own value, when it can read one: a number, a whole number,
+/// a yes or no or a text (what the check accepts), not a file, a script, a table of rules, a list or a table
+/// given.
+fn feed_type(op: &str, p: &terraflux_graph::PortSpec, v: Option<&serde_json::Value>) -> Option<Type> {
+    let scalar = matches!(p.ty, Type::Number | Type::Integer | Type::Bool | Type::Text);
+    let own = v.is_none_or(|v| terraflux_graph::setting_ref(v).is_some() || !by_hand_value(v));
+    (scalar && !by_hand_name(op, p) && own).then_some(p.ty)
+}
+
+/// Whether what a value of type `t` gives may feed a setting of type `want` (the check's rule, for the canvas to
+/// tell before the connection is made).
+fn feeds(t: Type, want: Type) -> bool {
+    matches!(t, Type::Number | Type::Integer | Type::Bool | Type::Text | Type::Any) && t.fits(want)
 }
 
 /// How a setting of the operator `op` (`v`: the value it was given, if any) is edited on the box.
 fn setting_kind(op: &str, p: &terraflux_graph::PortSpec, v: Option<&serde_json::Value>) -> Kind {
-    let by_hand = |v: &serde_json::Value| {
-        v.is_array()
-            || v.is_object()
-            || terraflux_graph::setting_ref(v).is_some()
-            || v.as_str().is_some_and(|s| s.contains('\n'))
-    };
-    let metrics =
-        op.starts_with("metrics.") && ["metrics", "landscape_metrics", "class_metrics"].contains(&p.name.as_str());
-    if p.name == "path"
-        || metrics
-        || (op == "raster.calc" && p.name == "expression")
-        || (op == "raster.reclassify" && p.name == "rules")
-        || v.is_some_and(by_hand)
-    {
+    if by_hand_name(op, p) || v.is_some_and(by_hand_value) {
         Kind::Complex
     } else if !p.choices.is_empty() {
         Kind::Choice
@@ -268,32 +296,56 @@ struct Candidate<'a> {
     name: &'a str,
     required: bool,
     given: bool,
+    /// It reads another value (it is given, and its row must stay: it has the wire's socket).
+    fed: bool,
+    /// The node asks to show it, or to hide it (a setting that reads another value is never hidden).
+    shown: bool,
+    hidden: bool,
+}
+
+impl Candidate<'_> {
+    /// Shown whatever the others are, beyond [`MAX_SETTINGS`] too.
+    fn pinned(&self) -> bool {
+        self.fed || (self.shown && !self.hidden)
+    }
+
+    fn hides(&self) -> bool {
+        self.hidden && !self.fed
+    }
 }
 
 /// Which settings a box shows (indices of `all`, in the order they are shown) and which it folds. Those the
-/// operator needs come first, then those given (a changed setting is never hidden unseen), then its essential
-/// ones in the order of the list; at most [`MAX_SETTINGS`] shown, the rest folded. An operator without a list of
+/// operator needs come first, then those given (a changed setting is never hidden unseen; one that reads another
+/// value is one given), then those the node asks to show, then its essential ones in the order of the list; at
+/// most [`MAX_SETTINGS`] shown, the rest folded, except what reads another value or what the node asks to show,
+/// which is always shown. A setting the node asks to hide is folded, last. An operator without a list of
 /// essentials and of at most three settings shows them all; `open`: all shown, in that order.
 fn choose(all: &[Candidate], essentials: Option<&[&str]>, open: bool) -> (Vec<usize>, Vec<usize>) {
     let mut order: Vec<(u8, usize, usize)> = all
         .iter()
         .enumerate()
         .map(|(i, c)| {
-            if c.required {
+            if c.hides() {
+                (5, i, i)
+            } else if c.required {
                 (0, i, i)
             } else if c.given {
                 (1, i, i)
+            } else if c.pinned() {
+                (2, i, i)
             } else if let Some(p) = essentials.and_then(|e| e.iter().position(|x| *x == c.name)) {
-                (2, p, i)
+                (3, p, i)
             } else {
-                (3, i, i)
+                (4, i, i)
             }
         })
         .collect();
     order.sort_unstable();
     let few = essentials.is_none() && all.len() <= 3;
-    let wanted = order.iter().filter(|(class, ..)| few || *class <= 2).count();
-    let shown = wanted.min(MAX_SETTINGS);
+    let wanted = order.iter().filter(|(class, ..)| if few { *class < 5 } else { *class <= 3 }).count();
+    // (what must be shown: down to the last of it in the order)
+    let must = order.iter().rposition(|(.., i)| all[*i].pinned()).map_or(0, |p| p + 1);
+    let shown = wanted.min(MAX_SETTINGS).max(must);
     let at = |from: usize, to: usize| order[from..to].iter().map(|(_, _, i)| *i).collect::<Vec<_>>();
     let folded = at(shown, order.len());
     (if open { at(0, order.len()) } else { at(0, shown) }, folded)
@@ -325,6 +377,42 @@ fn file_of(n: &Node) -> Option<&str> {
     n.params.get("path").and_then(|v| v.as_str()).filter(|p| !p.trim().is_empty())
 }
 
+/// The settings of an operator a node's box may show: not a name that is an input's (the input's), nor the file a
+/// box names in its foot.
+fn box_params<'a>(n: &Node, sig: &'a terraflux_graph::OpSignature) -> Vec<&'a terraflux_graph::PortSpec> {
+    let file = file_of(n).is_some();
+    sig.params.iter().filter(|p| !sig.inputs.iter().any(|i| i.name == p.name) && !(file && p.name == "path")).collect()
+}
+
+/// The settings of `params` as the choice of the rows sees them for a node.
+fn candidates<'a>(n: &Node, params: &[&'a terraflux_graph::PortSpec]) -> Vec<Candidate<'a>> {
+    params
+        .iter()
+        .map(|p| {
+            let v = n.params.get(&p.name);
+            Candidate {
+                name: &p.name,
+                required: p.required,
+                given: v.is_some(),
+                fed: v.is_some_and(|v| terraflux_graph::setting_ref(v).is_some()),
+                shown: n.shown.contains(&p.name),
+                hidden: n.hidden.contains(&p.name),
+            }
+        })
+        .collect()
+}
+
+/// The names of the settings a node's box folds (its menu's "Show on the node" offers them): those it was asked
+/// to hide first, then the others in the order of the rows.
+fn folded_settings(n: &Node, r: &Registry) -> Vec<String> {
+    let Some(sig) = r.sig(&n.op).filter(|_| n.uses.is_none() && n.body.is_none()) else { return Vec::new() };
+    let params = box_params(n, sig);
+    let all = candidates(n, &params);
+    let (_, folded) = choose(&all, terraflux_ops::essentials::essentials(&n.op), false);
+    let (hidden, rest): (Vec<usize>, Vec<usize>) = folded.into_iter().partition(|&i| all[i].hides());
+    hidden.into_iter().chain(rest).map(|i| params[i].name.clone()).collect()
+}
+
 /// A node's settings as its box shows them (none when `on` is false, for a node of the user's library, a
 /// container, or an operator with no settings): what its operator needs, what is given and its essential ones,
 /// each with its value or the default its doc says; `open` shows them all.
@@ -332,17 +420,8 @@ fn node_settings(n: &Node, r: &Registry, open: bool, on: bool) -> SettingRows {
     let Some(sig) = r.sig(&n.op).filter(|_| on && n.uses.is_none() && n.body.is_none()) else {
         return SettingRows::default();
     };
-    let file = file_of(n).is_some();
-    // (a name that is an input's is the input's; the file a box names in its foot is not a row)
-    let params: Vec<&terraflux_graph::PortSpec> = sig
-        .params
-        .iter()
-        .filter(|p| !sig.inputs.iter().any(|i| i.name == p.name) && !(file && p.name == "path"))
-        .collect();
-    let all: Vec<Candidate> = params
-        .iter()
-        .map(|p| Candidate { name: &p.name, required: p.required, given: n.params.contains_key(&p.name) })
-        .collect();
+    let params = box_params(n, sig);
+    let all = candidates(n, &params);
     let (shown, folded) = choose(&all, terraflux_ops::essentials::essentials(&n.op), open);
     let rows = shown
         .into_iter()
@@ -355,6 +434,7 @@ fn node_settings(n: &Node, r: &Registry, open: bool, on: bool) -> SettingRows {
                     given: true,
                     reads: terraflux_graph::setting_ref(v).is_some(),
                     kind: setting_kind(&n.op, p, Some(v)),
+                    feed: feed_type(&n.op, p, Some(v)),
                     problem: None,
                 },
                 None => SettingRow {
@@ -367,6 +447,7 @@ fn node_settings(n: &Node, r: &Registry, open: bool, on: bool) -> SettingRows {
                     given: false,
                     reads: false,
                     kind: setting_kind(&n.op, p, None),
+                    feed: feed_type(&n.op, p, None),
                     problem: None,
                 },
             }
@@ -560,6 +641,20 @@ pub enum Action {
     ConnectMany {
         node: String,
         links: Vec<(String, String)>,
+    },
+    /// A connection let go on a row of settings: the setting `name` of the node reads the reference (`$input`,
+    /// `@carried` or `node.port`), checked as a connection is.
+    ConnectSetting {
+        reference: String,
+        node: String,
+        name: String,
+    },
+    /// A setting of a node always shown on its box (`show`), or never shown folded (its menus' "Show on the node",
+    /// "Hide from the node").
+    ShowSetting {
+        node: String,
+        name: String,
+        show: bool,
     },
     /// A node let go over a connection put in the middle of it: what the connection carried (`from`) into the node's
     /// `input`, its output `out` into `to`'s `to_port`.
@@ -989,6 +1084,8 @@ pub struct EditorState {
     menu_many: bool,
     /// The open menu is a reroute point's (right-clicked): the node and input its wire goes into, and its index.
     menu_point: Option<(String, String, usize)>,
+    /// The row of settings (node, setting) the open menu was opened on, if it was.
+    menu_row: Option<(String, String)>,
     /// Why the selection's menu cannot freeze nodes, and run up to them (told by the application each frame).
     pub no_freeze: Option<&'static str>,
     pub no_run: Option<&'static str>,
@@ -1244,6 +1341,7 @@ impl EditorState {
         let b = scene.boxes.get(match scene.hit(w, 0.0)? {
             Hit::Output(i, _)
             | Hit::Input(i, _)
+            | Hit::Socket(i, _)
             | Hit::Edge(i)
             | Hit::Head(i)
             | Hit::Fold(i)
@@ -1369,6 +1467,30 @@ impl EditorState {
         self.on_screen(b.more_settings()?.center())
     }
 
+    /// Where the socket of a node's row of the setting `name` is on the screen.
+    pub fn screen_of_socket(&self, node: &str, name: &str) -> Option<Pos2> {
+        let s = self.scene.as_ref()?;
+        let b = &s.boxes[*s.index.get(node)?];
+        self.on_screen(b.setting_at(b.settings.rows.iter().position(|r| r.name == name)?))
+    }
+
+    /// The key of the box the wire into a node's setting comes from, and where its two ends are on the screen
+    /// (from the output, to the socket), if the setting reads a value the scene draws a wire for.
+    pub fn setting_wire(&self, node: &str, name: &str) -> Option<(String, Pos2, Pos2)> {
+        let s = self.scene.as_ref()?;
+        let to = *s.index.get(node)?;
+        let k = s.boxes[to].settings.rows.iter().position(|r| r.name == name)?;
+        let w = s.setting_wires.iter().position(|w| w.to == (to, k))?;
+        let route = s.setting_route(w);
+        let (a, z) = (*route.first()?, *route.last()?);
+        Some((s.boxes[s.setting_wires[w].from.0].key.clone(), self.on_screen(a)?, self.on_screen(z)?))
+    }
+
+    /// How many wires of settings reading a value the scene draws.
+    pub fn setting_wires(&self) -> usize {
+        self.scene.as_ref().map_or(0, |s| s.setting_wires.len())
+    }
+
     /// Where a node's input port is on the screen.
     pub fn screen_of_input(&self, node: &str, port: &str) -> Option<Pos2> {
         let s = self.scene.as_ref()?;
@@ -1491,6 +1613,11 @@ impl BoxAt {
         Rect::from_min_size(Pos2::new(self.rect.left(), y), Vec2::new(self.rect.width(), ROW))
     }
 
+    /// Where the socket of its `k`th row of settings is: at its left edge, as a port, in the middle of the row.
+    fn setting_at(&self, k: usize) -> Pos2 {
+        Pos2::new(self.rect.left(), self.settings_top() + (k as f32 + 0.5) * ROW)
+    }
+
     /// Which of its rows of settings (not the one that unfolds the others) a point of the graph is on: by
     /// arithmetic, no search.
     fn row_at(&self, p: Pos2) -> Option<usize> {
@@ -1498,6 +1625,12 @@ impl BoxAt {
         (k >= 0.0 && p.x >= self.rect.left() && p.x <= self.rect.right())
             .then_some(k as usize)
             .filter(|&k| k < self.settings.rows.len())
+    }
+
+    /// The row of settings a height of the graph is on (any x), by arithmetic.
+    fn settings_row_near(&self, y: f32) -> Option<usize> {
+        let k = (y - self.settings_top()) / ROW;
+        (k >= 0.0).then_some(k as usize).filter(|&k| k < self.settings.rows.len())
     }
 
     /// The row that unfolds its other settings, or folds them again, if it has some.
@@ -1530,6 +1663,8 @@ impl BoxAt {
 enum Hit {
     Output(usize, usize),
     Input(usize, usize),
+    /// The socket of a row of settings that may read another value (box, row).
+    Socket(usize, usize),
     /// A node's right edge, which resizes it.
     Edge(usize),
     Head(usize),
@@ -1558,6 +1693,17 @@ struct EdgeAt {
     from: (usize, usize),
     to: (usize, usize),
     via: Vec<Pos2>,
+    bend: Vec<Pos2>,
+    colour: [u8; 4],
+}
+
+/// A setting that reads another value: a wire from a box's output (box, output) to the socket of the setting's
+/// row (box, row), bent around the boxes like a connection. Kept apart from the connections: a wire into an input
+/// is found, taken off and rewired by (box, input), and a setting has no such place; it follows the boxes by the
+/// same paths.
+struct SettingWire {
+    from: (usize, usize),
+    to: (usize, usize),
     bend: Vec<Pos2>,
     colour: [u8; 4],
 }
@@ -1732,6 +1878,19 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
     for (i, (_, t)) in b.outputs.iter().enumerate() {
         rects.push(dot(b.output_at(i), type_colour(*t, v.dark_mode).unwrap_or(v.text_color())));
     }
+    // the sockets of the settings that may read another value: a smaller, hollow, fainter dot than a port's,
+    // filled in the colour of the type when one is read
+    for (k, row) in b.settings.rows.iter().enumerate() {
+        let Some(t) = row.feed else { continue };
+        let c = b.setting_at(k);
+        if row.reads {
+            rects.push(dot(c, type_colour(t, v.dark_mode).unwrap_or(v.text_color())));
+        } else {
+            let r = PORT - 1.0;
+            let edge = v.weak_text_color().gamma_multiply(0.7);
+            rects.push(RectInstance::new([c.x - r, c.y - r], [2.0 * r; 2], r, fill, edge, 1.2));
+        }
+    }
     if let Some(s) = state {
         let colour = match s {
             NodeStatus::Running => crate::theme::accent(),
@@ -1826,6 +1985,8 @@ struct Scene {
     shapes: Arc<Shapes>,
     ranges: Vec<std::ops::Range<usize>>,
     edges: Vec<EdgeAt>,
+    /// The wires of the settings that read a value, drawn with the connections.
+    setting_wires: Vec<SettingWire>,
     /// The thinner lines of what a container's body reads around it (drawn after the connections).
     extra: Vec<EdgeInstance>,
     /// Whether wires go around the boxes they would cross.
@@ -2144,25 +2305,28 @@ impl Scene {
                 copies_of_box.entry(editor::base_ref(&b.key).to_string()).or_default().push(i);
             }
         }
+        // the box and output a reference is read from, for a port or a socket at `at`
+        let source_of = |reference: &str, at: Pos2| -> Option<(usize, usize)> {
+            if let Some(&s) = index.get(reference).filter(|&&s| boxes[s].source) {
+                // from the nearest of its boxes (the first and its copies) to this port
+                let all: Vec<usize> =
+                    std::iter::once(s).chain(copies_of_box.get(reference).into_iter().flatten().copied()).collect();
+                let outs: Vec<[f32; 2]> = all.iter().map(|&j| boxes[j].output_at(0)).map(|p| [p.x, p.y]).collect();
+                Some((all[editor::nearest_copy(&outs, [at.x, at.y])], 0))
+            } else if let Ok(Ref::Port { node, port: out }) = Ref::parse(reference) {
+                index
+                    .get(node.as_str())
+                    .and_then(|&s| boxes[s].outputs.iter().position(|(p, _)| *p == out).map(|o| (s, o)))
+            } else {
+                None
+            }
+        };
         for (k, n) in nodes.iter().enumerate() {
             let b = &boxes[n_src + k];
             for (port, src) in &n.inputs {
                 let Source::Ref(reference) = src else { continue };
                 let Some(i) = b.inputs.iter().position(|p| p.name == *port) else { continue };
-                let from = if let Some(&s) = index.get(reference.as_str()).filter(|&&s| boxes[s].source) {
-                    // from the nearest of its boxes (the first and its copies) to this port
-                    let at = b.input_at(i);
-                    let all: Vec<usize> =
-                        std::iter::once(s).chain(copies_of_box.get(reference).into_iter().flatten().copied()).collect();
-                    let outs: Vec<[f32; 2]> = all.iter().map(|&j| boxes[j].output_at(0)).map(|p| [p.x, p.y]).collect();
-                    Some((all[editor::nearest_copy(&outs, [at.x, at.y])], 0))
-                } else if let Ok(Ref::Port { node, port: out }) = Ref::parse(reference) {
-                    index
-                        .get(node.as_str())
-                        .and_then(|&s| boxes[s].outputs.iter().position(|(p, _)| *p == out).map(|o| (s, o)))
-                } else {
-                    None
-                };
+                let from = source_of(reference, b.input_at(i));
                 if let Some((s, o)) = from {
                     let to_box = n_src + k;
                     // the type of what flows: the output's, else (an output of any type) the input's
@@ -2179,6 +2343,25 @@ impl Scene {
                         colour: colour.to_array(),
                     });
                 }
+            }
+        }
+        // the settings that read a value: a wire to the socket of their row, from the box that gives it (only the
+        // rows shown: a setting that reads a value is always shown)
+        let mut setting_wires = Vec::new();
+        for (k, n) in nodes.iter().enumerate() {
+            let b = &boxes[n_src + k];
+            for (row_k, row) in b.settings.rows.iter().enumerate().filter(|(_, row)| row.reads) {
+                let Some(reference) = n.params.get(&row.name).and_then(terraflux_graph::setting_ref) else { continue };
+                let Some((s, o)) = source_of(reference, b.setting_at(row_k)) else { continue };
+                let colour = type_colour(boxes[s].outputs[o].1, v.dark_mode)
+                    .or_else(|| row.feed.and_then(|t| type_colour(t, v.dark_mode)))
+                    .unwrap_or(line);
+                setting_wires.push(SettingWire {
+                    from: (s, o),
+                    to: (n_src + k, row_k),
+                    bend: Vec::new(),
+                    colour: colour.to_array(),
+                });
             }
         }
         // what a container's body reads around it (no input of the container gives it): a thinner line to the
@@ -2241,6 +2424,7 @@ impl Scene {
             shapes: Arc::new(Shapes { generation: 0, rects, edges: Vec::new() }),
             ranges,
             edges: edges_at,
+            setting_wires,
             extra,
             around,
             stage_of,
@@ -2248,6 +2432,9 @@ impl Scene {
         if around {
             for e in 0..scene.edges.len() {
                 scene.edges[e].bend = scene.detour(e, None);
+            }
+            for w in 0..scene.setting_wires.len() {
+                scene.setting_wires[w].bend = scene.setting_detour(w, None);
             }
         }
         Arc::make_mut(&mut scene.shapes).edges = scene.edge_shapes();
@@ -2275,6 +2462,16 @@ impl Scene {
         out
     }
 
+    /// The waypoints of the wire of a setting that reads a value, from its output to its row's socket.
+    fn setting_route(&self, w: usize) -> Vec<Pos2> {
+        let sw = &self.setting_wires[w];
+        let mut out = Vec::with_capacity(sw.bend.len() + 2);
+        out.push(self.boxes[sw.from.0].output_at(sw.from.1));
+        out.extend(&sw.bend);
+        out.push(self.boxes[sw.to.0].setting_at(sw.to.1));
+        out
+    }
+
     /// The curve of a wire as it is drawn, sampled.
     fn path(&self, e: usize) -> Vec<Pos2> {
         wire_path(&self.route(e))
@@ -2288,6 +2485,9 @@ impl Scene {
         for e in 0..self.edges.len() {
             self.edges[e].bend = self.detour(e, None);
         }
+        for w in 0..self.setting_wires.len() {
+            self.setting_wires[w].bend = self.setting_detour(w, None);
+        }
         let edges = self.edge_shapes();
         let shapes = Arc::make_mut(&mut self.shapes);
         shapes.edges = edges;
@@ -2296,10 +2496,15 @@ impl Scene {
 
     /// What the GPU draws of the wires: a curve for each piece of each, then the thinner lines.
     fn edge_shapes(&self) -> Vec<EdgeInstance> {
-        let mut out = Vec::with_capacity(self.edges.len() + self.extra.len());
+        let mut out = Vec::with_capacity(self.edges.len() + self.setting_wires.len() + self.extra.len());
         for (e, ed) in self.edges.iter().enumerate() {
             for w in self.route(e).windows(2) {
                 out.push(EdgeInstance { from: [w[0].x, w[0].y], to: [w[1].x, w[1].y], color: ed.colour, width: 1.6 });
+            }
+        }
+        for (k, sw) in self.setting_wires.iter().enumerate() {
+            for w in self.setting_route(k).windows(2) {
+                out.push(EdgeInstance { from: [w[0].x, w[0].y], to: [w[1].x, w[1].y], color: sw.colour, width: 1.6 });
             }
         }
         out.extend(self.extra.iter().cloned());
@@ -2313,8 +2518,23 @@ impl Scene {
     /// is not gone around.
     fn detour(&self, e: usize, skip: Option<usize>) -> Vec<Pos2> {
         let ed = &self.edges[e];
+        if !ed.via.is_empty() {
+            return Vec::new();
+        }
         let (p0, p3) = (self.boxes[ed.from.0].output_at(ed.from.1), self.boxes[ed.to.0].input_at(ed.to.1));
-        if !ed.via.is_empty() || p3.x - p0.x < 4.0 * AROUND {
+        self.detour_between(p0, p3, ed.from.0, ed.to.0, skip)
+    }
+
+    /// The same for the wire of a setting that reads a value (it has no points of its own).
+    fn setting_detour(&self, w: usize, skip: Option<usize>) -> Vec<Pos2> {
+        let w = &self.setting_wires[w];
+        let (p0, p3) = (self.boxes[w.from.0].output_at(w.from.1), self.boxes[w.to.0].setting_at(w.to.1));
+        self.detour_between(p0, p3, w.from.0, w.to.0, skip)
+    }
+
+    /// The waypoints of a wire from `p0` (of box `a`) to `p3` (of box `b`), which are not gone around.
+    fn detour_between(&self, p0: Pos2, p3: Pos2, a: usize, b: usize, skip: Option<usize>) -> Vec<Pos2> {
+        if p3.x - p0.x < 4.0 * AROUND {
             return Vec::new();
         }
         let curve = wire_curve(p0, p3);
@@ -2322,8 +2542,8 @@ impl Scene {
         for k in 1..48 {
             let q = bezier_at(&curve, k as f32 / 48.0);
             for &j in self.grid.get(&cell(q)).into_iter().flatten() {
-                if j != ed.from.0
-                    && j != ed.to.0
+                if j != a
+                    && j != b
                     && Some(j) != skip
                     && self.boxes[j].rect.expand(4.0).contains(q)
                     && !hits.contains(&j)
@@ -2420,6 +2640,16 @@ impl Scene {
                 );
                 if ed.from.0 == i || ed.to.0 == i || ends.expand(AROUND).intersects(near) || !ed.bend.is_empty() {
                     self.edges[e].bend = self.detour(e, Some(i));
+                }
+            }
+            for w in 0..self.setting_wires.len() {
+                let sw = &self.setting_wires[w];
+                let ends = Rect::from_two_pos(
+                    self.boxes[sw.from.0].output_at(sw.from.1),
+                    self.boxes[sw.to.0].setting_at(sw.to.1),
+                );
+                if sw.from.0 == i || sw.to.0 == i || ends.expand(AROUND).intersects(near) || !sw.bend.is_empty() {
+                    self.setting_wires[w].bend = self.setting_detour(w, Some(i));
                 }
             }
         }
@@ -2744,6 +2974,14 @@ impl Scene {
             if let Some(k) = (0..b.inputs.len()).find(|&k| b.input_at(k).distance(p) <= reach) {
                 return Some(Hit::Input(i, k));
             }
+            // (the sockets of the rows of settings, by arithmetic: only where the point is at the left edge)
+            if (p.x - b.rect.left()).abs() <= reach
+                && let Some(k) = b.settings_row_near(p.y)
+                && b.settings.rows[k].feed.is_some()
+                && b.setting_at(k).distance(p) <= reach
+            {
+                return Some(Hit::Socket(i, k));
+            }
         }
         for &i in candidates.iter().rev() {
             let b = &self.boxes[i];
@@ -2869,6 +3107,9 @@ fn stages_and_notes(
 /// What the entries of the selection's menu do.
 const RENAME_MANY_HELP: &str = "all their ids from a pattern: {n} the number on the canvas, {id}, {op}, {file}";
 const DELETE_MANY_HELP: &str = "the nodes selected taken away, with the connections into and out of them";
+const USE_OWN_HELP: &str = "the setting stops reading another value (its wire is taken off), back to its own value";
+const SHOW_SETTING_HELP: &str = "the setting always shown on the node's box, with those it chooses itself";
+const HIDE_SETTING_HELP: &str = "the setting left off the node's box (the row that unfolds the others counts it)";
 const DUPLICATE_SOURCE_HELP: &str = "another box of the same input below it, to move near what reads it: each node \
      takes its wire from the nearest box, so the wires do not cross the canvas";
 
@@ -3231,6 +3472,23 @@ pub fn show(
                     }
                     None => Drag::Select(w),
                 },
+                // the wire of a setting that reads a value, taken off its socket and carried by the pointer (the
+                // setting goes back to its own value; dropped on an input or a row: read there)
+                Some(Hit::Socket(i, k)) if scene.boxes[i].settings.rows[k].reads => {
+                    match scene.setting_wires.iter().find(|w| w.to == (i, k)) {
+                        Some(sw) => {
+                            let (b, from) = (&scene.boxes[i], &scene.boxes[sw.from.0]);
+                            actions.push(Action::SetParam {
+                                node: b.key.clone(),
+                                name: b.settings.rows[k].name.clone(),
+                                text: String::new(),
+                            });
+                            st.carried = None;
+                            Drag::Connect(from.reference(sw.from.1), from.output_at(sw.from.1), Vec::new(), true)
+                        }
+                        None => Drag::Select(w),
+                    }
+                }
                 // a free input: a connection drawn from it to an output
                 Some(Hit::Input(i, k)) if !scene.boxes[i].source && !scene.boxes[i].inputs[k].name.is_empty() => {
                     let b = &scene.boxes[i];
@@ -3242,7 +3500,7 @@ pub fn show(
                     Drag::Resize(b.key.clone(), b.rect.left(), b.fitted)
                 }
                 // a node, or the box of something the scope reads: moved
-                Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i) | Hit::Settings(i)) => {
+                Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i) | Hit::Settings(i) | Hit::Socket(i, _)) => {
                     let key = &scene.boxes[i].key;
                     // ctrl held (the drag has begun: a ctrl+click was a click): copies dragged, the originals stay;
                     // a node out of the selection alone
@@ -3431,8 +3689,24 @@ pub fn show(
                     port: port.clone(),
                 });
             }
-            let port = match scene.hit(to_world(q, cam), reach(cam)) {
-                _ if swap.is_some() => None,
+            // on a row of settings that may read it (anywhere on the row when its type fits, on the socket whatever
+            // it is: the check tells why when it does not): the setting reads it
+            let over = scene.hit(to_world(q, cam), reach(cam));
+            let row_drop = match over {
+                Some(Hit::Socket(i, k)) => Some((i, k, true)),
+                Some(Hit::Body(i)) if cam.zoom >= PORTS_FROM => {
+                    scene.boxes[i].row_at(to_world(q, cam)).map(|k| (i, k, false))
+                }
+                _ => None,
+            }
+            .filter(|_| swap.is_none())
+            .filter(|&(i, k, socket)| {
+                scene.boxes[i].settings.rows[k]
+                    .feed
+                    .is_some_and(|want| socket || scene.output_type(reference).is_none_or(|t| feeds(t, want)))
+            });
+            let port = match over {
+                _ if swap.is_some() || row_drop.is_some() => None,
                 Some(Hit::Input(i, k)) if !scene.boxes[i].inputs[k].name.is_empty() => {
                     Some((i, scene.boxes[i].inputs[k].name.clone()))
                 }
@@ -3498,6 +3772,13 @@ pub fn show(
             };
             if let Some((i, port)) = port {
                 actions.push(Action::Connect { reference: reference.clone(), node: scene.boxes[i].key.clone(), port });
+            }
+            if let Some((i, k, _)) = row_drop {
+                actions.push(Action::ConnectSetting {
+                    reference: reference.clone(),
+                    node: scene.boxes[i].key.clone(),
+                    name: scene.boxes[i].settings.rows[k].name.clone(),
+                });
             }
         }
         // a free input's wire let go: on an output that fits it, connected; on the empty canvas, the search of the
@@ -3577,7 +3858,7 @@ pub fn show(
                 st.folds += 1;
                 ui.ctx().request_repaint();
             }
-            Some(Hit::Head(i) | Hit::Body(i) | Hit::Input(i, _) | Hit::Edge(i)) => {
+            Some(Hit::Head(i) | Hit::Body(i) | Hit::Input(i, _) | Hit::Socket(i, _) | Hit::Edge(i)) => {
                 let key = scene.boxes[i].key.clone();
                 if adding {
                     // shift or ctrl: one more, or one less
@@ -3641,8 +3922,18 @@ pub fn show(
     // a right click on a node, or on the box of something the scope reads: its menu (elsewhere none)
     if resp.secondary_clicked() {
         let hit = at.and_then(|w| match scene.hit(w, reach(cam)) {
-            Some(Hit::Head(i) | Hit::Body(i)) => Some(i),
+            Some(Hit::Head(i) | Hit::Body(i) | Hit::Socket(i, _)) => Some(i),
             _ => None,
+        });
+        // (on a row of settings: what it offers is first in the node's menu)
+        st.menu_row = at.filter(|_| cam.zoom >= PORTS_FROM).and_then(|w| {
+            let (i, k) = match scene.hit(w, reach(cam)) {
+                Some(Hit::Socket(i, k)) => (i, k),
+                Some(Hit::Body(i)) => (i, scene.boxes[i].row_at(w)?),
+                _ => return None,
+            };
+            let b = &scene.boxes[i];
+            (!b.source).then(|| (b.key.clone(), b.settings.rows[k].name.clone()))
         });
         st.menu = hit.map(|i| (scene.boxes[i].key.clone(), scene.boxes[i].op.clone()));
         // on the empty canvas: a note there, or the menu of the note or frame under the pointer
@@ -3745,7 +4036,34 @@ pub fn show(
             }
         } else {
             let c = crate::commands::cmd();
+            let this = nodes.iter().find(|n| n.id == key);
+            // the row of settings it was opened on: its own value back, or hidden from the box (or shown again)
+            if let (Some(n), Some((_, name))) = (this, st.menu_row.as_ref().filter(|(k, _)| *k == key)) {
+                let (node, name) = (key.clone(), name.clone());
+                if n.params.get(&name).is_some_and(|v| terraflux_graph::setting_ref(v).is_some()) {
+                    let text = String::new();
+                    item(ui, "Use a value of its own", USE_OWN_HELP, Action::SetParam { node, name, text });
+                } else if n.hidden.contains(&name) {
+                    item(ui, "Show on the node", SHOW_SETTING_HELP, Action::ShowSetting { node, name, show: true });
+                } else {
+                    item(ui, "Hide from the node", HIDE_SETTING_HELP, Action::ShowSetting { node, name, show: false });
+                }
+                ui.separator();
+            }
             item(ui, "Settings...", SETTINGS_HELP, Action::OpenSettings(key.clone()));
+            // the settings its box folds: each can be shown on it
+            let folded = this.map(|n| folded_settings(n, r)).unwrap_or_default();
+            if !folded.is_empty() {
+                ui.menu_button("Show on the node", |ui| {
+                    // (a long list: scrolled)
+                    egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                        for name in folded {
+                            let show = Action::ShowSetting { node: key.clone(), name: name.clone(), show: true };
+                            item(ui, &name, SHOW_SETTING_HELP, show);
+                        }
+                    });
+                });
+            }
             ui.separator();
             // the nodes selected (besides this one): all connected to it
             if let Some(links) = st.menu_links.clone() {
@@ -4387,6 +4705,36 @@ pub fn show(
             painter.galley(at, galley, v.strong_text_color());
         }
     }
+    // a connection over a row of settings that may read it: the row and its socket lit, in the colour of the type
+    // when it fits (anywhere on the row, or the socket), the error's when it does not (the socket only)
+    if let (Some(Drag::Connect(reference, ..)), Some(q)) = (&st.drag, pointer) {
+        let w = to_world(q, &cam);
+        let over = match scene.hit(w, reach(&cam)) {
+            Some(Hit::Socket(i, k)) => Some((i, k, true)),
+            Some(Hit::Body(i)) if ports => scene.boxes[i].row_at(w).map(|k| (i, k, false)),
+            _ => None,
+        };
+        if let Some((i, k, socket)) = over
+            && let Some(want) = scene.boxes[i].settings.rows[k].feed
+        {
+            let fits = scene.output_type(reference).is_none_or(|t| feeds(t, want));
+            if fits || socket {
+                let colour = if fits {
+                    type_colour(want, v.dark_mode).unwrap_or(crate::theme::accent())
+                } else {
+                    v.error_fg_color
+                };
+                let b = &scene.boxes[i];
+                let r = b.setting_row(k);
+                painter.rect_filled(
+                    Rect::from_min_max(screen(r.min), screen(r.max)).shrink(1.0),
+                    3.0,
+                    colour.gamma_multiply(0.18),
+                );
+                painter.circle_stroke(screen(b.setting_at(k)), PORT * cam.zoom + 3.0, Stroke::new(2.0, colour));
+            }
+        }
+    }
     // inside a group: its outputs as small boxes at the right of its nodes, wired from what gives them
     if let Some((id, up)) = path.split_last()
         && let Some(body) = model.scope(up).and_then(|v| v.iter().find(|n| &n.id == id)).and_then(|n| n.body.as_ref())
@@ -4619,6 +4967,16 @@ pub fn show(
             }
             Some(Hit::Input(i, k)) if scene.boxes[i].inputs[k].name.is_empty() => {
                 resp.clone().on_hover_text_at_pointer("drop a connection here (or on the node) for one more input");
+            }
+            Some(Hit::Socket(i, k)) => {
+                let row = &scene.boxes[i].settings.rows[k];
+                let what = if row.reads {
+                    "drag the wire away, or right-click the row, to use a value of its own"
+                } else {
+                    "drop a connection here: the setting reads that value"
+                };
+                let ty = row.feed.map_or("", |t| t.name());
+                resp.clone().on_hover_text_at_pointer(format!("{}: {ty}\n{what}", row.name));
             }
             // on a connection (nothing else under the pointer): its type and value, once the pointer has rested
             None if near.is_none() => {
@@ -4936,8 +5294,17 @@ mod tests {
 
     /// The names chosen (shown, folded) of settings made by `settings`.
     fn picked(all: &[(String, bool, bool)], essentials: Option<&[&str]>, open: bool) -> (Vec<String>, Vec<String>) {
-        let c: Vec<Candidate> =
-            all.iter().map(|(name, required, given)| Candidate { name, required: *required, given: *given }).collect();
+        let c: Vec<Candidate> = all
+            .iter()
+            .map(|(name, required, given)| Candidate {
+                name,
+                required: *required,
+                given: *given,
+                fed: false,
+                shown: false,
+                hidden: false,
+            })
+            .collect();
         let (shown, folded) = choose(&c, essentials, open);
         let names = |v: Vec<usize>| v.into_iter().map(|i| all[i].0.clone()).collect::<Vec<_>>();
         (names(shown), names(folded))
@@ -4980,6 +5347,88 @@ mod tests {
         // (a list of essentials, even of nothing, makes the operator one of many)
         let (shown, _) = picked(&settings(3, &[], &[]), Some(&[]), false);
         assert!(shown.is_empty());
+    }
+
+    /// `n` settings named `s0`.., `fed` read another value, `shown` and `hidden` asked by the node: the names chosen.
+    fn picked_by(
+        n: usize,
+        (required, given, fed): (&[usize], &[usize], &[usize]),
+        (shown, hidden): (&[usize], &[usize]),
+        essentials: Option<&[&str]>,
+        open: bool,
+    ) -> (Vec<String>, Vec<String>) {
+        let names: Vec<String> = (0..n).map(|i| format!("s{i}")).collect();
+        let all: Vec<Candidate> = (0..n)
+            .map(|i| Candidate {
+                name: &names[i],
+                required: required.contains(&i),
+                given: given.contains(&i) || fed.contains(&i),
+                fed: fed.contains(&i),
+                shown: shown.contains(&i),
+                hidden: hidden.contains(&i),
+            })
+            .collect();
+        let (s, f) = choose(&all, essentials, open);
+        let names = |v: Vec<usize>| v.into_iter().map(|i| format!("s{i}")).collect::<Vec<_>>();
+        (names(s), names(f))
+    }
+
+    /// What the node asks: a setting to show comes after those needed and given, beyond the cap; one to hide is
+    /// folded, last, and counted among the folded (given or not); what reads another value is never hidden and
+    /// always shown, beyond the cap too; unfolded, the hidden ones come last.
+    #[test]
+    fn the_node_chooses_the_settings_on_its_box() {
+        let essentials: Option<&[&str]> = Some(&["s7", "s1"]);
+        // shown: a folded one, after those given
+        let (shown, folded) = picked_by(8, (&[5], &[3], &[]), (&[0], &[]), essentials, false);
+        assert_eq!(shown, ["s5", "s3", "s0", "s7"], "{shown:?}");
+        assert_eq!(folded.len(), 4);
+        // shown beyond the cap of four
+        let (shown, _) = picked_by(9, (&[0, 1], &[2, 3], &[]), (&[8], &[]), essentials, false);
+        assert_eq!(shown, ["s0", "s1", "s2", "s3", "s8"]);
+        // hidden: an essential left out, a given one folded too (counted by the caller among the given)
+        let (shown, folded) = picked_by(8, (&[], &[3], &[]), (&[], &[7, 3]), essentials, false);
+        assert!(!shown.contains(&"s7".to_string()) && !shown.contains(&"s3".to_string()), "{shown:?}");
+        assert!(folded.contains(&"s7".to_string()) && folded.contains(&"s3".to_string()));
+        assert_eq!(folded[folded.len() - 2..], ["s3", "s7"], "hidden last");
+        let (open, _) = picked_by(8, (&[], &[3], &[]), (&[], &[7, 3]), essentials, true);
+        assert_eq!(open.len(), 8);
+        assert_eq!(open[6..], ["s3", "s7"]);
+        // a setting that reads a value: shown even beyond the cap and when hidden
+        let (shown, _) = picked_by(9, (&[0, 1], &[2, 3], &[6]), (&[], &[6]), essentials, false);
+        assert!(shown.contains(&"s6".to_string()) && shown.len() == 5, "{shown:?}");
+        // few settings: all, but those hidden
+        let (shown, folded) = picked_by(3, (&[], &[], &[]), (&[], &[1]), None, false);
+        assert_eq!((shown, folded), (vec!["s0".to_string(), "s2".to_string()], vec!["s1".to_string()]));
+    }
+
+    /// A setting can read a value when it takes a number, a whole number, a yes or no or a text: not a file, a
+    /// script, a table of rules, the metrics, a list or a table given; one given as a reference or a plain value can.
+    #[test]
+    fn a_setting_that_can_read_a_value_has_a_socket() {
+        use serde_json::json;
+        use terraflux_graph::PortSpec;
+        let feed = |op: &str, p: &PortSpec, v: Option<serde_json::Value>| feed_type(op, p, v.as_ref());
+        let number = PortSpec::optional("number", Type::Number, "a number");
+        let yes = PortSpec::optional("yes", Type::Bool, "a flag");
+        let text = PortSpec::optional("text", Type::Text, "a text").choices(["a", "b"]);
+        let table = PortSpec::optional("table", Type::Table, "rows");
+        assert_eq!(feed("x.y", &number, None), Some(Type::Number));
+        assert_eq!(feed("x.y", &yes, Some(json!(true))), Some(Type::Bool));
+        assert_eq!(feed("x.y", &text, None), Some(Type::Text));
+        assert_eq!(feed("x.y", &number, Some(json!("$rate"))), Some(Type::Number));
+        assert_eq!(feed("x.y", &number, Some(json!({ "from": "a.b" }))), Some(Type::Number));
+        assert_eq!(feed("x.y", &table, None), None);
+        assert_eq!(feed("x.y", &number, Some(json!([1, 2]))), None);
+        let path = PortSpec::optional("path", Type::Text, "a file");
+        assert_eq!(feed("raster.read", &path, None), None);
+        let script = PortSpec::optional("expression", Type::Text, "a script");
+        assert_eq!(feed("raster.calc", &script, None), None);
+        // what may feed it: a number a number or a whole number, not a map, a table or a yes or no for a number
+        assert!(feeds(Type::Number, Type::Integer) && feeds(Type::Any, Type::Text) && feeds(Type::Bool, Type::Bool));
+        assert!(
+            !feeds(Type::Map, Type::Number) && !feeds(Type::Table, Type::Number) && !feeds(Type::Bool, Type::Number)
+        );
     }
 
     /// The words of the row that unfolds the settings: the given ones counted only when there are some.
