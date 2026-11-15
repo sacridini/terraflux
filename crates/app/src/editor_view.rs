@@ -22,7 +22,9 @@
 //! moves the node) edits its setting there: a yes or no turns over, a few values are chosen from in a list under
 //! the row, a number or a text is typed in a field over its value (Enter or a click elsewhere sets it, Tab goes to
 //! the next row, Esc gives up, empty puts the default back); what reads another value, a file, a script, a table
-//! or a list is edited in the Node pane. A connection let go on a node rather than on an input goes to the free input it
+//! or a list opens the node's settings in a panel beside its box, as the gear at the right end of the box's operator
+//! line does, shift+Enter on the node selected and "Settings..." in its menu (the Node pane's own content: it follows the
+//! node selected and closes with its x, Esc or a click on the empty canvas). A connection let go on a node rather than on an input goes to the free input it
 //! fits, or to the one chosen in a list when several fit. Zoomed out, the ports' names give way and the nodes' names
 //! stay readable (never smaller than a size that can be read, cut to their box).
 //!
@@ -104,7 +106,7 @@ fn fitted(
 ) -> f32 {
     let mut w = 8.0 + measure(name, &name_font()) + 24.0;
     if !op.is_empty() {
-        w = w.max(8.0 + measure(op, &port_font()) + 8.0);
+        w = w.max(8.0 + measure(op, &port_font()) + 8.0 + GEAR);
     }
     for k in 0..inputs.len().max(outputs.len()) {
         let mut side = |s: Option<&&str>| s.filter(|s| !s.is_empty()).map_or(0.0, |s| measure(s, &port_font()));
@@ -168,6 +170,8 @@ fn fold_label(folded: usize, unfolded: bool) -> String {
 
 /// The most rows of settings a box shows folded; the others are counted in the row that unfolds them.
 const MAX_SETTINGS: usize = 4;
+/// The width the gear at the right end of a box's operator line takes (a click on it opens the node's settings).
+const GEAR: f32 = 20.0;
 /// The space between the last row of ports and the rows of settings, a thin line in it.
 const SEP: f32 = 6.0;
 /// How many characters of a setting's value widen a box (a longer one is cut on the box), and how many a row keeps.
@@ -184,7 +188,7 @@ pub enum Kind {
     /// A number or a text of one line: a click opens a field over the value.
     Text,
     /// What the box does not edit (it reads another value, a file, a script, a table of rules or metrics, a list):
-    /// a click only selects the node, the setting is edited in the Node pane.
+    /// a click opens the node's settings panel beside the box.
     Complex,
 }
 
@@ -542,6 +546,8 @@ pub enum Action {
     Open(String),
     Enter(String),
     Move(String, [f32; 2]),
+    /// The panel of a node's settings opened beside its box (its gear, a row the box does not edit, shift+Enter, its menu).
+    OpenSettings(String),
     /// A node's box given a width (dragged by its right edge), or none: as wide as its texts need (a double click
     /// on the edge).
     Resize(String, Option<f32>),
@@ -674,6 +680,9 @@ pub enum Action {
     JoinFrame(String, String),
     LeaveFrame(String, String),
 }
+
+/// What "Settings..." does.
+const SETTINGS_HELP: &str = "the node's settings in a panel beside its box (its gear, or shift+Enter)";
 
 /// What "Group the nodes selected" does.
 pub const GROUP_HELP: &str = "the nodes in a group: one node on the canvas (double-click it to see them), what read \
@@ -957,6 +966,9 @@ pub struct EditorState {
     pub unfolded: HashSet<String>,
     /// The nodes whose settings are all shown (the others folded in a row), the changes counted with `folds`.
     pub settings_open: HashSet<String>,
+    /// The panel of the node selected's settings beside its box is open, in this scope (it closes when the scope
+    /// changes).
+    pub panel: Option<Vec<String>>,
     folds: u64,
     /// A connection let go on a node that several of its free inputs fit: the list to choose one from.
     picking: Option<Pick>,
@@ -1343,6 +1355,13 @@ impl EditorState {
         self.on_screen(b.setting_row(b.settings.rows.iter().position(|r| r.name == name)?).center())
     }
 
+    /// Where the gear of a node's box is on the screen.
+    pub fn screen_of_gear(&self, node: &str) -> Option<Pos2> {
+        let s = self.scene.as_ref()?;
+        let b = &s.boxes[*s.index.get(node)?];
+        self.on_screen(b.gear().center())
+    }
+
     /// Where the row that unfolds or folds a node's settings is on the screen.
     pub fn screen_of_more_settings(&self, node: &str) -> Option<Pos2> {
         let s = self.scene.as_ref()?;
@@ -1437,6 +1456,14 @@ impl BoxAt {
 
     fn head(&self) -> Rect {
         Rect::from_min_size(self.rect.min, Vec2::new(self.rect.width(), HEAD))
+    }
+
+    /// The gear at the right end of the line of its operator (by arithmetic: no search).
+    fn gear(&self) -> Rect {
+        Rect::from_center_size(
+            Pos2::new(self.rect.right() - GEAR / 2.0 - 2.0, self.rect.top() + 27.5),
+            Vec2::new(GEAR, 16.0),
+        )
     }
 
     /// The row that folds or unfolds its optional inputs, under its inputs, if it has optional inputs.
@@ -3034,7 +3061,10 @@ pub fn show(
         st.chosen = nodes.iter().map(|n| n.id.clone()).collect();
     }
     if !typing && none {
-        st.chosen.clear();
+        // (the panel of a node's settings closes first)
+        if st.panel.take().is_none() {
+            st.chosen.clear();
+        }
         st.note_chosen = None;
     }
     let adding = ui.input(|i| i.modifiers.shift || i.modifiers.command);
@@ -3561,8 +3591,20 @@ pub fn show(
                     actions.push(Action::Select(key));
                 }
             }
-            None if !adding => st.chosen.clear(),
+            None if !adding => {
+                st.chosen.clear();
+                st.panel = None;
+            }
             _ => {}
+        }
+        // a click on the gear of a box opens its settings
+        if !adding
+            && cam.zoom >= PORTS_FROM
+            && let Some(Hit::Head(i)) = hit
+            && !scene.boxes[i].source
+            && scene.boxes[i].gear().contains(w)
+        {
+            actions.push(Action::OpenSettings(scene.boxes[i].key.clone()));
         }
         // a click on a row of settings (not a drag: it moved the node) also edits the setting, by its kind
         if !adding
@@ -3574,7 +3616,8 @@ pub fn show(
             match start_edit(&scene.boxes[i], k, nodes, r, &path) {
                 Some(Ok(a)) => actions.push(a),
                 Some(Err(e)) => st.editing = Some(e),
-                None => {}
+                // (what the box does not edit: the panel beside it does)
+                None => actions.push(Action::OpenSettings(scene.boxes[i].key.clone())),
             }
         }
     }
@@ -3702,6 +3745,8 @@ pub fn show(
             }
         } else {
             let c = crate::commands::cmd();
+            item(ui, "Settings...", SETTINGS_HELP, Action::OpenSettings(key.clone()));
+            ui.separator();
             // the nodes selected (besides this one): all connected to it
             if let Some(links) = st.menu_links.clone() {
                 let nodes: BTreeSet<&str> = links.iter().map(|(r, _)| r.split('.').next().unwrap_or(r)).collect();
@@ -3984,6 +4029,15 @@ pub fn show(
                         colour,
                     );
                 }
+            }
+            if !b.source {
+                painter.text(
+                    screen(b.gear().center()),
+                    Align2::CENTER_CENTER,
+                    "⚙",
+                    FontId::proportional(size(12.5)),
+                    faint,
+                );
             }
             for (k, p) in b.inputs.iter().enumerate() {
                 let (name, colour) =
@@ -4477,7 +4531,7 @@ pub fn show(
                 let (i, k) = row.unwrap();
                 let (b, kind) = (&scene.boxes[i], scene.boxes[i].settings.rows[k].kind);
                 if kind == Kind::Complex {
-                    resp.clone().on_hover_text_at_pointer("edited in the Node pane");
+                    resp.clone().on_hover_text_at_pointer("a click opens the node's settings");
                 } else if st.editing.is_none() {
                     let r = b.setting_row(k);
                     painter.rect_filled(
@@ -4493,6 +4547,9 @@ pub fn show(
                 let b = &scene.boxes[i];
                 let mut text: Vec<String> =
                     problems.get(&b.key).into_iter().flatten().map(|(_, m)| format!("⚠ {m}")).collect();
+                if ports && !b.source && b.gear().contains(to_world(p, &cam)) {
+                    text.insert(0, "the node's settings (shift+Enter)".into());
+                }
                 if let Some(c) = checks.get(&b.key) {
                     let what =
                         if terraflux_ops::checks::is_check(&b.op) { "the check" } else { "the worst of its checks" };

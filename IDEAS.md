@@ -3577,7 +3577,13 @@ sensível (até cerca de 10 %, dentro do ruído).
    `a_number_is_typed_on_the_box`. Falta: um clique na linha de uma lista aberta a reabre em vez de fechar.
 3. **O painel ao lado do nó.** O painel do nó (o mesmo da aba Node) num quadro flutuante junto da caixa, aberto pelo
    ⚙ da caixa ou por um ajuste que não se edita nela, fechado por um clique fora ou Esc. A aba Node deixa de abrir
-   sozinha: continua no menu de painéis para quem a quer sempre aberta.
+   sozinha: continua no menu de painéis para quem a quer sempre aberta. **Feito** (Unreleased):
+   `builder::settings_panel` (o `node_view::panel` numa janela presa à caixa, à direita ou à esquerda, que segue a
+   vista e a seleção), aberto pelo ⚙ da linha do operador, por um ajuste que não se edita na caixa, por shift+Enter
+   (`canvas_settings`, configurável: Enter já mostra o que o nó dá) e por *Settings...* no menu do nó; fechado por ×,
+   Esc, um clique no canvas vazio ou a troca de escopo. A preferência "open the Node pane by itself" (desligada).
+   Testes: `a_nodes_settings_open_in_a_panel_beside_it`, `the_panel_opens_from_a_row_enter_and_the_menu`,
+   `the_node_tab_opens_by_itself_only_when_asked`. Falta: rolar o painel até o ajuste clicado.
 4. **O ajuste como pino.** Cada linha de ajuste tem uma bolinha à esquerda, como uma entrada: um fio solto nela faz
    o ajuste ler aquela saída (`{ from = "no.porta" }`, ou `$nome` de uma entrada do modelo), o valor dá lugar ao fio;
    tirar o fio volta ao valor. Botão direito numa linha: *Show on the node* / *Hide from the node* (guardado no nó,

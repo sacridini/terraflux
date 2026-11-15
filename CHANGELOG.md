@@ -19,7 +19,20 @@ minor versions.
   value (Enter or a click elsewhere sets it, Tab goes to the next row, Esc gives up, an empty field puts the
   default back). Each edit is one step of undo, set as the Node pane sets it, and the canvas's keys wait while you
   type. What reads another value, a file, a script, the metrics, a table of rules or a list is not edited on the
-  box (its row says so on hover): the Node pane has it.
+  box: a click on its row opens the node's settings panel.
+- **A node's settings in a panel beside its box.** The Node pane's content in a floating panel at the right of the
+  selected node's box (at its left when there is no room), inside the canvas, following the box as the view or the
+  box moves; it shows the node selected (another node clicked: it moves there; several selected: the pane of them
+  all, beside the first) and has a scroll of its own. A small gear at the right end of each box's operator line
+  opens it, as does a click on a setting row the box does not edit (a file, a script, a list...), shift+Enter with a
+  node selected (*Open the settings of the node selected beside its box* in Settings, Keyboard; Enter still shows
+  the node's output) and *Settings...* in the node's right-click menu. It closes with its x, Esc, a click on the empty
+  canvas and when you go into or out of a group. Closed it costs nothing; open it costs what the Node tab does.
+
+### Changed
+- **The Node pane no longer opens by itself.** The Node tab did not need to come beside the model with its first
+  node now that the settings are on the box and beside it; it stays in the panes' menu, a layout kept with it keeps it,
+  and *Settings* has an option, "open the Node pane by itself", to have it come as before (off by default).
 
 ## [1.49.0] - 2026-11-15
 

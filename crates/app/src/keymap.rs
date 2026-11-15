@@ -206,6 +206,9 @@ pub struct Action {
 const fn key(k: Key) -> Shortcut {
     Shortcut::new(false, false, false, k)
 }
+const fn shift(k: Key) -> Shortcut {
+    Shortcut::new(false, true, false, k)
+}
 const fn cmd(k: Key) -> Shortcut {
     Shortcut::new(true, false, false, k)
 }
@@ -300,6 +303,7 @@ pub static ACTIONS: &[Action] = &[
     ),
     part("canvas_show", Scope::Canvas, "Show what the node selected gives", &[key(Key::Enter)]),
     at("canvas_run_to", Scope::Canvas, "Run up to the node selected", &[cmd(Key::Enter)]),
+    at("canvas_settings", Scope::Canvas, "Open the settings of the node selected beside its box", &[shift(Key::Enter)]),
     at("canvas_delete", Scope::Canvas, "Delete the nodes selected", &[key(Key::Delete), key(Key::Backspace)]),
     at("canvas_duplicate", Scope::Canvas, "Duplicate the nodes selected", &[cmd(Key::D)]),
     part("canvas_copy", Scope::Canvas, "Copy the nodes selected", &[cmd(Key::C)]),
@@ -991,6 +995,7 @@ mod tests {
             ("canvas_beside", &["Left", "Right", "Up", "Down"], "Left"),
             ("canvas_show", &["Enter"], "Enter"),
             ("canvas_run_to", &["Ctrl+Enter"], "ctrl+Enter"),
+            ("canvas_settings", &["Shift+Enter"], "shift+Enter"),
             ("canvas_delete", &["Delete", "Backspace"], "Delete"),
             ("canvas_duplicate", &["Ctrl+D"], "ctrl+D"),
             ("canvas_copy", &["Ctrl+C"], "ctrl+C"),

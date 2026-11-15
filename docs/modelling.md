@@ -34,7 +34,9 @@ The **Graph** tab of the application edits the model:
   refused, with the reason.
 - **Adding and moving:** pick an operator in the bar and click **Add node**. Drag a node by its header to
   move it; its place is saved in the model (`pos`).
-- **The side panel:** click a node to edit it there. You can rename it (its references follow), type the
+- **The side panel:** a node's settings open in a panel beside its box (the gear at the right end of its
+  operator line, a click on a setting the box does not edit, shift+Enter, or *Settings...* in its menu; Esc, its
+  x or a click on the empty canvas close it), or in the Node tab (*Settings* can open it by itself). You can rename it (its references follow), type the
   value of an input, change its settings, add inputs (map algebra, groups, plugins), set a container's
   outputs, or delete it. Below them is the node's record: its note (what it is for), why it was chosen, the
   references it rests on, its assumptions and the alternatives set aside. With no node selected, the panel shows

@@ -59,6 +59,9 @@ pub struct Settings {
     pub wires_around: bool,
     /// On the model's canvas, a node's main settings in rows under its ports (on unless turned off).
     pub node_settings: bool,
+    /// The Node pane's tab opened by itself beside the model with its first node (off unless turned on: a node's
+    /// settings open in a panel beside its box on the canvas; the tab stays in the panes' menu).
+    pub node_pane_opens: bool,
     /// The models opened or saved last, the last first.
     pub recent_models: Vec<PathBuf>,
     /// The computer kept from sleeping while a model runs, a batch goes on or it works for another's (on unless
@@ -408,6 +411,7 @@ impl Default for Settings {
             minimap: true,
             wires_around: true,
             node_settings: true,
+            node_pane_opens: false,
             recent_models: Vec::new(),
             keep_awake: true,
             keep_outputs_mb: 50,
@@ -583,6 +587,11 @@ pub fn threads() -> Option<usize> {
 /// Whether the canvas shows a node's main settings on its box (read without copying the settings).
 pub fn node_settings() -> bool {
     global().lock().unwrap().node_settings
+}
+
+/// Whether the Node pane's tab opens by itself with a model's first node (read without copying the settings).
+pub fn node_pane_opens() -> bool {
+    global().lock().unwrap().node_pane_opens
 }
 
 /// The collections an operator is in.

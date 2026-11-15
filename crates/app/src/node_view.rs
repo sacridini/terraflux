@@ -7,6 +7,8 @@
 //! ([`terraflux_ops::essentials`]) and folds the others as advanced. Every field is editable. With no node
 //! selected, the model's record: its name, description, the request it answers, the summary of the conversation
 //! that led to it, its author.
+//! It is a tab of the dock and, by default, a panel beside the selected node's box on the canvas
+//! ([`crate::builder`]): the same content in both.
 
 use std::collections::BTreeMap;
 
@@ -1242,7 +1244,9 @@ fn script(
     };
     let key = format!("param.{name}");
     let mut text = field(s, &key, init.clone());
+    // (the panel beside the node's box has its own, as the pane's tab may show the same node)
     let id = egui::Id::new(("node script", path, &n.id));
+    let id = if ui.layer_id().order == egui::Order::Middle { id.with("panel") } else { id };
     let resp = crate::calc_view::script_field(ui, s, path, id, &mut text, n);
     s.fields.insert(key, text.clone());
     if resp.lost_focus() && text != init {

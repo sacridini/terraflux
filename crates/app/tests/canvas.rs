@@ -22,6 +22,7 @@ fn settings_lock() -> std::sync::MutexGuard<'static, ()> {
     terraflux_app::settings::update(|s| {
         s.minimap = false;
         s.wires_around = true;
+        s.node_pane_opens = false;
     });
     guard
 }
@@ -574,6 +575,9 @@ fn a_layout_kept_with_the_viewer_in_front_shows_the_model() {
 /// in it.
 #[test]
 fn the_node_prepare_and_calculator_come_when_they_make_sense() {
+    // (the pane that comes by itself is the one asked for in the settings)
+    let _lock = settings_lock();
+    terraflux_app::settings::update(|s| s.node_pane_opens = true);
     let mut h = harness(fresh());
     h.run_steps(2);
     for p in [Pane::Node, Pane::Document, Pane::Prepare, Pane::Calculator, Pane::Viewer] {
@@ -843,7 +847,10 @@ fn settings_harness(name: &str) -> Harness<'static, TerrafluxApp> {
     job.pos = Some([400.0, 0.0]);
     let mut calc = Node::new("calc", "raster.calc").param("expression", "out r = 1");
     calc.pos = Some([400.0, 300.0]);
-    m.nodes = vec![opt, job, calc];
+    let body = terraflux_graph::Body { nodes: vec![Node::new("inner", "nlm.random")], ..Default::default() };
+    let mut group = Node::new("grp", terraflux_graph::GROUP).body(body);
+    group.pos = Some([0.0, 600.0]);
+    m.nodes = vec![opt, job, calc, group];
     let mut h = harness(open(&m, name));
     h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(20.0, 20.0), 0.8);
     h.run_steps(4);
@@ -958,6 +965,133 @@ fn a_number_is_typed_on_the_box() {
     // one step of undo puts it back
     undo(&mut h);
     assert_eq!(param_now(&h, "opt", "gap"), Some(serde_json::json!(4)));
+}
+
+/// Where the panel of a node's settings is on the screen (none: closed).
+fn panel_rect(h: &Harness<TerrafluxApp>) -> Option<egui::Rect> {
+    let open = h.state().session.as_ref().unwrap().editor.panel.is_some();
+    open.then(|| h.ctx.memory(|m| m.area_rect(egui::Id::new("node settings panel")))).flatten()
+}
+
+fn panel_of(h: &Harness<TerrafluxApp>) -> bool {
+    use egui_kittest::kittest::Queryable;
+    h.query_by_label_contains("Rename").is_some()
+}
+
+/// A node's settings open in a panel beside its box, by the gear at the right end of its operator line; the panel
+/// holds the Node pane's content, sits at the box's right (at its left with no room there) and follows it; another
+/// node's gear moves it there; Esc and a click on the empty canvas close it.
+#[test]
+fn a_nodes_settings_open_in_a_panel_beside_it() {
+    let _lock = settings_lock();
+    terraflux_app::settings::update(|s| s.node_settings = true);
+    // (the second node far enough from the first for its panel not to cover it)
+    let mut m = Model::new("panel");
+    let mut opt = Node::new("opt", "prioritize.optimize").param("gap", 0.2);
+    opt.pos = Some([0.0, 0.0]);
+    let mut job = Node::new("job", "batch.run").param("operator", "landscape.mspa");
+    job.pos = Some([900.0, 0.0]);
+    m.nodes = vec![opt, job];
+    let mut h = harness(open(&m, "canvas-panel.toml"));
+    h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(20.0, 20.0), 0.8);
+    h.run_steps(8);
+    assert!(panel_rect(&h).is_none() && !panel_of(&h), "closed: nothing drawn");
+    assert!(!h.state().is_open(Pane::Node), "and the Node tab did not open by itself");
+    let gear = editor(&h).screen_of_gear("opt").expect("a gear");
+    click(&mut h, gear);
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!((s.selected.as_deref(), s.editor.panel.is_some()), (Some("opt"), true));
+    assert!(panel_of(&h), "the Node pane's content");
+    let panel = panel_rect(&h).expect("the panel");
+    let at = editor(&h).screen_rect_of("opt").unwrap();
+    assert!(panel.left() >= at.right() && (panel.top() - at.top()).abs() < 2.0, "{panel:?} beside {at:?}");
+    assert!(editor(&h).canvas().unwrap().contains_rect(panel), "inside the canvas");
+    // the view moves: the panel follows the box
+    h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(60.0, 120.0), 0.8);
+    h.run_steps(4);
+    let (moved, at) = (panel_rect(&h).unwrap(), editor(&h).screen_rect_of("opt").unwrap());
+    assert!(moved.min != panel.min && (moved.left() - at.right()).abs() < 12.0, "{moved:?} beside {at:?}");
+    // another node's gear: the panel moves to it
+    let gear = editor(&h).screen_of_gear("job").unwrap();
+    click(&mut h, gear);
+    h.run_steps(3);
+    assert_eq!(h.state().session.as_ref().unwrap().selected.as_deref(), Some("job"));
+    let (panel, at) = (panel_rect(&h).unwrap(), editor(&h).screen_rect_of("job").unwrap());
+    assert!(panel.left() >= at.right() - 1.0 && (panel.top() - at.top()).abs() < 2.0, "{panel:?} beside {at:?}");
+    // a box at the right edge: the panel at its left
+    h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(630.0, 120.0), 0.8);
+    h.run_steps(4);
+    let (panel, at) = (panel_rect(&h).unwrap(), editor(&h).screen_rect_of("job").unwrap());
+    assert!(panel.right() <= at.left() + 1.0, "{panel:?} at the left of {at:?}");
+    // Esc closes it, the gear opens it again, a click on the empty canvas closes it
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().editor.panel.is_none() && !panel_of(&h));
+    let gear = editor(&h).screen_of_gear("job").unwrap();
+    click(&mut h, gear);
+    h.run_steps(3);
+    assert!(panel_of(&h));
+    click(&mut h, egui::pos2(300.0, 900.0));
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().editor.panel.is_none() && !panel_of(&h), "the empty canvas");
+}
+
+/// A click on a setting the box does not edit (a script), shift+Enter on the node selected and "Settings..." in its
+/// menu open the panel; the x closes it; a script is edited in it.
+#[test]
+fn the_panel_opens_from_a_row_enter_and_the_menu() {
+    use egui_kittest::kittest::Queryable;
+    let _lock = settings_lock();
+    terraflux_app::settings::update(|s| s.node_settings = true);
+    let mut h = settings_harness("canvas-panel-open.toml");
+    let at = row_of(&mut h, "calc", "expression");
+    click(&mut h, at);
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!((s.selected.as_deref(), s.editor.panel.is_some()), (Some("calc"), true), "a script's row");
+    assert!(panel_of(&h));
+    // the x
+    h.get_by_label("Close window").click();
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().editor.panel.is_none() && !panel_of(&h), "closed by its x");
+    // shift+Enter on the node selected, the pointer over the canvas
+    let at = editor(&h).screen_of("job").unwrap();
+    click(&mut h, at);
+    assert!(h.state().session.as_ref().unwrap().editor.panel.is_none(), "a click on the box alone does not");
+    h.hover_at(at);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Enter);
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!((s.selected.as_deref(), s.editor.panel.is_some()), (Some("job"), true), "shift+Enter");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().editor.panel.is_none());
+    // the node's menu
+    menu_of(&mut h, &["opt"], "opt");
+    pick(&mut h, "Settings...");
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!((s.selected.as_deref(), s.editor.panel.is_some()), (Some("opt"), true), "the menu");
+    // a change of scope closes it
+    h.state_mut().session.as_mut().unwrap().editor.path = vec!["grp".into()];
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().editor.panel.is_none());
+}
+
+/// The Node tab no longer opens by itself with a model's first node; the preference brings it back.
+#[test]
+fn the_node_tab_opens_by_itself_only_when_asked() {
+    let _lock = settings_lock();
+    let mut m = Model::new("tab");
+    m.nodes.push(reader("read", [0.0, 0.0]));
+    let mut h = harness(open(&m, "canvas-tab-off.toml"));
+    h.run_steps(4);
+    assert!(!h.state().is_open(Pane::Node), "off by default");
+    terraflux_app::settings::update(|s| s.node_pane_opens = true);
+    let mut h = harness(open(&m, "canvas-tab-on.toml"));
+    h.run_steps(4);
+    assert!(h.state().is_open(Pane::Node), "asked for");
 }
 
 /// A raster node at a place: the models of the wires let go on the empty canvas.
@@ -1461,7 +1595,7 @@ fn f_frames_the_nodes_selected_and_home_the_whole_model() {
     // inside a group
     let mut m = Model::new("frame-in");
     let body = Body {
-        nodes: vec![reader("a", [0.0, 0.0]), reader("b", [3000.0, 0.0]), reader("c", [0.0, 1800.0])],
+        nodes: vec![reader("a", [0.0, 0.0]), reader("b", [9000.0, 0.0]), reader("c", [0.0, 1800.0])],
         ..Default::default()
     };
     m.nodes.push(Node::new("grp", terraflux_graph::GROUP).body(body));

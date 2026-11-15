@@ -3815,6 +3815,11 @@ impl TerrafluxApp {
                         "the settings a node needs, those given and its essential ones in rows under its ports, \
                          the others counted in a row that unfolds them (off: the boxes show ports only)",
                     );
+                    ui.checkbox(&mut st.node_pane_opens, "open the Node pane by itself").on_hover_text(
+                        "the Node tab beside the model with its first node (off: a node's settings open in a \
+                         panel beside its box, from its gear or a click on a setting the box does not edit; the \
+                         tab stays in the panes' menu)",
+                    );
                 });
                 ui.end_row();
                 ui.label("Start");
@@ -4827,7 +4832,7 @@ impl TerrafluxApp {
 
     /// The panes that come when they make sense opened, once, when it comes: the viewer (beside the model, behind
     /// it) and the preparation of the data (behind the node's pane) with the first data (a raster or vectors read,
-    /// a model with inputs, a template started), the node's pane (at the model's left) with the first node.
+    /// a model with inputs, a template started), the node's pane (at the model's left) with the first node, if the settings ask for it.
     fn open_due(&mut self) {
         self.open_due_with(false);
     }
@@ -4838,7 +4843,10 @@ impl TerrafluxApp {
         let nodes = data || self.session.as_ref().is_some_and(|s| !s.source.nodes.is_empty());
         if !self.node_opened && nodes {
             self.node_opened = true;
-            self.open_behind(Pane::Node);
+            // (the node's settings open in a panel on the canvas unless the tab is asked for)
+            if crate::settings::node_pane_opens() {
+                self.open_behind(Pane::Node);
+            }
         }
         // the model's document: a tab behind the model's, the graph in front
         if !self.document_opened && nodes {

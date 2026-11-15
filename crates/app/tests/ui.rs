@@ -108,7 +108,11 @@ fn setup() {
     unsafe { std::env::set_var("TERRAFLUX_SETTINGS", tmp("settings.json")) };
     ONCE.call_once(|| {
         let _ = std::fs::remove_file(tmp("settings.json"));
-        terraflux_app::settings::update(|st| st.theme = "Default".into());
+        // (and the Node tab opening by itself, as these tests look for it: the panel beside the box is the canvas's)
+        terraflux_app::settings::update(|st| {
+            st.theme = "Default".into();
+            st.node_pane_opens = true;
+        });
     });
     terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
 }

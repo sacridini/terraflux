@@ -976,8 +976,59 @@ pub fn model_pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
             .show(ui, |ui| canvas(ui, s, r));
     }
     rename_box(ui.ctx(), s, r);
+    settings_panel(ui.ctx(), s, r);
     batch_rename(ui.ctx(), s, r);
     crate::my_nodes::dialog(ui.ctx(), s, r);
+}
+
+/// How wide the panel of a node's settings is, and the space between it and the box.
+const PANEL_W: f32 = 340.0;
+const PANEL_GAP: f32 = 8.0;
+
+/// The settings of the node selected (the Node pane's own content) in a panel beside its box, at its right or, with
+/// no room there, at its left, inside the canvas; placed again each frame from the box's place on the screen, so it
+/// follows the view and the box. It shows the node selected (the first of those chosen, when there are several: the
+/// pane then edits them together), and closes with its x, with Esc (the canvas sees to it), with a click on the empty
+/// canvas, and when the scope changes or nothing is selected. Closed, it costs nothing.
+fn settings_panel(ctx: &egui::Context, s: &mut Session, r: &Registry) {
+    let Some(scope) = s.editor.panel.clone() else { return };
+    let canvas = s.editor.canvas().filter(|_| scope == s.editor.path && !s.editor.text);
+    let anchor = s.selected.clone().or_else(|| s.editor.chosen.iter().next().cloned());
+    let (Some(canvas), Some(id)) = (canvas, anchor) else {
+        s.editor.panel = None;
+        return;
+    };
+    // (the box scrolled out of the canvas: nothing drawn, the panel stays open for when it is back)
+    let Some(at) = s.editor.drawn_rect_of(&id).filter(|b| b.intersects(canvas)) else { return };
+    let many = s.editor.chosen.iter().filter(|k| !crate::editor::is_source(k)).count();
+    let title = if many >= 2 { format!("{many} nodes") } else { id };
+    let right = at.right() + PANEL_GAP + PANEL_W + 24.0 <= canvas.right();
+    let left = at.left() - PANEL_GAP - PANEL_W - 24.0 >= canvas.left();
+    let (pos, pivot) = if right || !left {
+        (egui::pos2(at.right() + PANEL_GAP, at.top()), egui::Align2::LEFT_TOP)
+    } else {
+        (egui::pos2(at.left() - PANEL_GAP, at.top()), egui::Align2::RIGHT_TOP)
+    };
+    let mut open = true;
+    egui::Window::new(title)
+        .id(egui::Id::new("node settings panel"))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .pivot(pivot)
+        .fixed_pos(pos)
+        .constrain_to(canvas)
+        .show(ctx, |ui| {
+            ui.set_width(PANEL_W);
+            egui::ScrollArea::vertical()
+                .id_salt("node settings scroll")
+                .max_height((canvas.height() * 0.75 - 40.0).max(120.0))
+                .auto_shrink([false, true])
+                .show(ui, |ui| crate::node_view::panel(ui, s, r));
+        });
+    if !open {
+        s.editor.panel = None;
+    }
 }
 
 /// The model as text, with its problems above: only the lines in view are laid out (a model of many thousands
@@ -1248,16 +1299,25 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
         && s.editor.renaming.is_none()
         && !s.editor.text
     {
-        let (left, right, up, down, enter) = ui.input_mut(|i| {
+        let (left, right, up, down, enter, settings) = ui.input_mut(|i| {
             let none = egui::Modifiers::NONE;
+            // (shift+Enter first: the Enter below would take it too)
+            let settings = crate::keymap::pressed(i, "canvas_settings");
             (
                 i.consume_key(none, egui::Key::ArrowLeft),
                 i.consume_key(none, egui::Key::ArrowRight),
                 i.consume_key(none, egui::Key::ArrowUp),
                 i.consume_key(none, egui::Key::ArrowDown),
                 i.consume_key(none, egui::Key::Enter),
+                settings,
             )
         });
+        // the settings of the node selected open beside its box
+        if settings && let Some(id) = s.selected.clone().filter(|id| !crate::editor::is_source(id)) {
+            select(s, r, &id);
+            s.editor.chosen = [id].into();
+            s.editor.panel = Some(s.editor.path.clone());
+        }
         let dir = [
             (left, egui::vec2(-1.0, 0.0)),
             (right, egui::vec2(1.0, 0.0)),
@@ -3054,6 +3114,13 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
         let result = match a {
             Action::Select(id) => {
                 select(s, r, &id);
+                Ok(false)
+            }
+            // the panel of a node's settings opens beside its box (the node selected)
+            Action::OpenSettings(id) => {
+                select(s, r, &id);
+                s.editor.chosen = [id].into();
+                s.editor.panel = Some(path.clone());
                 Ok(false)
             }
             Action::Preview(id, port) => {
