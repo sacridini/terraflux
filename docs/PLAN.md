@@ -815,6 +815,46 @@ Pendências gerais, depois das fases:
 - plugins WebAssembly para o comportamento de agentes;
 - autenticação e TLS no coordenador (feito: códigos de pareamento, 2026-10-14).
 
+## O landschaft passa a se chamar terraflux (planejado 2026-11-15)
+
+O pacote Python e o aplicativo ficam com um nome só. Decisões:
+- PyPI `terraflux`, `import terraflux as tf`, comando `terraflux-py`. A numeração continua a do landschaft: a
+  primeira versão com o nome novo é a **1.59.0** (o app segue com a dele).
+- `landschaft` continua no PyPI como pacote de compatibilidade (Python puro, `terraflux==1.59.*`, apelidos em
+  `sys.modules`, `DeprecationWarning`, o comando `landschaft`), até a próxima versão maior.
+- O repositório `sacridini/landschaft` vira `sacridini/terraflux-py`; os repositórios seguem separados (submódulo).
+- A biblioteca segue a regra de núcleos do app: nunca todos (`most` = núcleos − max(núcleos/4, 1), também para
+  um `n_threads` pedido); a variável é `TERRAFLUX_THREADS`, a mesma do app (`LANDSCHAFT_NUM_THREADS` ainda lida).
+- Grava `terraflux_product` nos GeoTIFFs e lê as duas chaves (Python e Rust).
+- O site do landschaft vai inteiro para o do Terraflux; depois sai do ar com redirecionamentos.
+
+Fases:
+1. **A biblioteca** (worktree `landschaft-rename`, branch `rename-terraflux`): `src/terraflux`, pyproject, CMake
+   `TERRAFLUX_*`; variáveis `TERRAFLUX_*` com as `LANDSCHAFT_*` de reserva; formatos lidos nos dois nomes
+   (`terraflux_product`, `terraflux-bio`, `.terraflux-batch`/`-partial`, a chave do registro de lotes, pickles por
+   um `find_class` que troca `landschaft.` por `terraflux.`); cache e configuração migrados; User-Agent, CLI, SWAT;
+   docstrings e testes em `tf.`; o pacote de compatibilidade em `compat/landschaft/`; Dockerfile e imagem
+   `ghcr.io/sacridini/terraflux-py`. Testes novos: arquivos gravados pelo 1.58 abertos, `import landschaft`, as
+   variáveis antigas.
+2. **O Terraflux:** submódulo `extern/terraflux-py`; `ls-sys` com as opções novas (`LANDSCHAFT_DIR` ainda lido);
+   `python.rs` e os helpers gerando `import terraflux as tf`; menu, MCP `python_script`, guias e modelos; leitura das
+   duas chaves de produto; testes de texto gerado; caminhos das figuras do site; README.
+3. **GitHub, PyPI e release** (com o usuário): renomear o repositório; trusted publisher pendente de `terraflux` e o
+   do `landschaft` atualizado para o repositório novo; `release.yml` publicando os dois; tag `v1.59.0`, depois o
+   submódulo e o release do Terraflux.
+4. **A documentação no site do Terraflux:** seção `/python/` (instalação, início, conceitos, dados, gráficos,
+   configuração); API gerada pelo griffe em `data/python_api.json`, páginas pelo `build.py`; os 23 tutoriais em
+   Python nas categorias correspondentes; o livro *Learn* como seção; o que só existe no landschaft (validação e
+   benchmarks, o `DOCUMENTATION.md` como algoritmos, `stats`, REDD/VT0007, migração do prioritizr, bibliografia,
+   guia de escolha e checklist, teoria de superfícies, glossário unido, changelog); as 90 figuras; os exemplos em
+   Python rodados no CI do site (o `check_docs.py`); `AUTHORING.md` sem `extern/landschaft/docs`. Antes, a tabela
+   página antiga → destino, que é o checklist e a fonte dos redirecionamentos.
+5. **O site do landschaft sai do ar:** o Pages não redireciona depois do rename, então uma pasta `landschaft/` no
+   repositório `sacridini.github.io` com um redirecionamento por `.html` antigo (da tabela); `docs.yml`, mkdocs e
+   `docs/` removidos.
+6. **Depois:** comentários internos aos poucos, memórias, `IDEAS.md`; fim do pacote de compatibilidade na próxima
+   versão maior.
+
 ## Verificação
 
 - **Fase 0:** `pytest` do landschaft passa sem alterar tolerâncias.
