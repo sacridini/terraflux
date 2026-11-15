@@ -1,8 +1,9 @@
 # Changelog
 
 All notable changes to Terraflux are documented here. The project follows
-[Semantic Versioning](https://semver.org/); before 1.0 the model format and the API may still change between
-minor versions.
+[Semantic Versioning](https://semver.org/). Since 1.0, a model saved by an earlier version opens in every later
+version; a change that breaks models, the command line or the Python library's API would come only with a new major
+version.
 
 ## [Unreleased]
 

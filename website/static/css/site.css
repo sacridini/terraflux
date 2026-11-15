@@ -723,3 +723,12 @@ html, body { overflow-x: clip; }
 .prose td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .g-item figcaption { overflow-wrap: anywhere; }
 .tf-gallery > figcaption, .tf-slider figcaption, figcaption { overflow-wrap: anywhere; }
+
+/* operator reference: where an operator is used */
+.op-usage { font-size: 14px; color: var(--ink-3); margin: 6px 0 0; }
+.op-usage > span { font-weight: 600; }
+.op-usage a { color: var(--ink-2); }
+.op-usage a:hover { color: var(--forest-ink); }
+.op-usage details { display: inline; }
+.op-usage summary { display: inline; cursor: pointer; color: var(--ink-2); }
+.op-usage details[open] summary { display: none; }

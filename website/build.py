@@ -729,7 +729,10 @@ def tables(text: str) -> str:
 
 def render_markdown(page: Page) -> None:
     CURRENT["page"] = page
-    md = markdown.Markdown(extensions=MD_EXT, extension_configs=md_config())
+    cfg = md_config()
+    if page.meta.get("toc_depth"):  # front matter `toc_depth: 2` keeps only the headings down to h2 in the contents
+        cfg["toc"]["toc_depth"] = f"2-{int(page.meta['toc_depth'])}"
+    md = markdown.Markdown(extensions=MD_EXT, extension_configs=cfg)
     body = expand_includes(page.body, page)
     body = API.expand(body, page.src, render_api)
     body = API.autorefs(body)
@@ -891,6 +894,47 @@ def operators_pages():
     return [{"title": t, "slug": slug(t), "ops": groups[t]} for t in order if t in groups]
 
 
+def og_image(page) -> str:
+    """The absolute URL of a page's sharing image: its front matter `image:`, else the first PNG or JPEG of its text
+    (crawlers read neither SVG nor WebP), else img/social.png."""
+    base = SITE["url"]
+    src = None
+    if page is not None and hasattr(page, "meta"):
+        src = page.meta.get("image")
+        if not src:
+            for m in re.finditer(r'<img src="(/img/[^"]+\.(?:png|jpe?g))"', getattr(page, "html", ""), re.I):
+                if (STATIC / m.group(1)[1:]).is_file():
+                    src = m.group(1)
+                    break
+    if not src:
+        return base + "img/social.png"
+    return src if src.startswith("http") else base + src.lstrip("/")
+
+
+def operator_usage(pages: list[Page], cats):
+    """Per operator: the pages that list it in their `ops` (tutorials by category and order, then other pages), and the
+    application's templates (models/templates/*.toml) with a node of it, linked to the page that starts from them."""
+    rank = {c["slug"]: i for i, c in enumerate(cats)}
+    key = lambda p: (rank.get(p.category, len(rank)) if p.category else len(rank), p.order, p.title)
+    used: dict[str, list[dict]] = {}
+    for p in sorted((p for p in pages if p.meta.get("ops")), key=key):
+        for o in dict.fromkeys(p.meta["ops"]):
+            used.setdefault(o, []).append({"title": p.meta.get("short") or p.title, "url": p.url})
+    by_template = {}
+    for p in pages:
+        if p.meta.get("template"):
+            by_template.setdefault(p.meta["template"], p.url)
+    tmpl: dict[str, list[dict]] = {}
+    for f in sorted((HERE / "models" / "templates").glob("*.toml")):
+        text = f.read_text(encoding="utf-8")
+        m = re.search(r'^name\s*=\s*"([^"]+)"', text, re.M)
+        if not m:
+            continue
+        for o in dict.fromkeys(re.findall(r'^\s*op\s*=\s*"([^"]+)"', text, re.M)):
+            tmpl.setdefault(o, []).append({"title": m.group(1), "url": by_template.get(m.group(1))})
+    return used, tmpl
+
+
 def search_entry(url: str, title: str, section: str, text: str, headings: list[str]):
     return {"u": url.lstrip("/"), "t": title, "s": section, "h": " · ".join(headings)[:400], "x": text[:4000]}
 
@@ -1016,7 +1060,7 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
 
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATES), autoescape=jinja2.select_autoescape(["html"]),
                              trim_blocks=True, lstrip_blocks=True)
-    env.globals.update(site=SITE, year=dt.date.today().year, slug=slug, op_url=op_url, op_anchor=op_anchor)
+    env.globals.update(site=SITE, year=dt.date.today().year, slug=slug, op_url=op_url, op_anchor=op_anchor, og_image=og_image)
     env.filters["md"] = lambda s: jinja2.utils.markupsafe.Markup(md_inline(s or ""))
     env.filters["cells"] = cells_svg
 
@@ -1054,7 +1098,7 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
         prev, nxt = prev_next(p, all_pages, cats)
         tpl = p.meta.get("layout", "page.html")  # `template` names the application's template a page starts from
         ctx = dict(page=p, sidebar=sidebar(p, all_pages, cats), prev=prev, next=nxt, cats=cats,
-                   series=series_info(p, cats), downloads=dl, root=rel_prefix(p.url))
+                   series=series_info(p, cats), downloads=dl, root=rel_prefix(p.url), page_url=p.url)
         if p.category:
             ctx["category"] = next((c for c in cats if c["slug"] == p.category), None)
         write(p.url, env.get_template(tpl).render(**ctx))
@@ -1065,15 +1109,15 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
     # pages made from data
     home_graph, _, _ = RENDERER.render((HERE / "models" / "home.toml").read_text(encoding="utf-8"))
     write("/", env.get_template("home.html").render(cats=cats, downloads=dl, ops_count=len(OPS), root="./", page=None,
-                                                    home_graph=home_graph, parity=PARITY, bibtex=bibtex()))
-    write("/download/", env.get_template("download.html").render(downloads=dl, root=rel_prefix("/download/"), page=None))
-    write("/tutorials/", env.get_template("tutorials.html").render(cats=cats, root=rel_prefix("/tutorials/"), page=None,
+                                                    home_graph=home_graph, parity=PARITY, bibtex=bibtex(), page_url="/"))
+    write("/download/", env.get_template("download.html").render(downloads=dl, root=rel_prefix("/download/"), page=None, page_url="/download/"))
+    write("/tutorials/", env.get_template("tutorials.html").render(cats=cats, root=rel_prefix("/tutorials/"), page=None, page_url="/tutorials/",
                                                                   sidebar={"kind": "tutorials", "cats": cats}))
     # a page per category of tutorials, its own address (/tutorials/<category>/), as the pages link to it
     for c in cats:
         url = f"/tutorials/{c['slug']}/"
         here = {"title": c["title"], "url": url, "category": c["slug"], "meta": {"description": c["blurb"]}}
-        write(url, env.get_template("tutorials.html").render(cats=[c], root=rel_prefix(url), page=here,
+        write(url, env.get_template("tutorials.html").render(cats=[c], root=rel_prefix(url), page=here, page_url=url,
                                                              heading=c["title"], lede=c["blurb"],
                                                              sidebar={"kind": "tutorials", "cats": cats}))
     for url, anchor, canon in API.documented:
@@ -1081,12 +1125,13 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
         plain = re.sub(r"\[`?([^\]`]*)`?\]\[[^\]]*\]", r"\1", o["summary"]).replace("`", "")
         search.append({"u": url.lstrip("/") + "#" + anchor, "t": anchor, "s": "Python API", "h": "", "x": plain})
     opgroups = operators_pages()
-    write("/operators/", env.get_template("operators_index.html").render(groups=opgroups, root=rel_prefix("/operators/"),
+    used_in, templates_of = operator_usage(all_pages, cats)
+    write("/operators/", env.get_template("operators_index.html").render(groups=opgroups, root=rel_prefix("/operators/"), page_url="/operators/",
                                                                          page=None, total=len(OPS)))
     for g in opgroups:
         url = f"/operators/{g['slug']}/"
-        write(url, env.get_template("operators.html").render(group=g, groups=opgroups, root=rel_prefix(url), page=None,
-                                                             md_op=md_op))
+        write(url, env.get_template("operators.html").render(group=g, groups=opgroups, root=rel_prefix(url), page=None, page_url=url,
+                                                             md_op=md_op, used_in=used_in, templates_of=templates_of))
         for o in g["ops"]:
             search.append({"u": url.lstrip("/") + "#" + op_anchor(o["name"]), "t": o["name"], "s": "Operators: " + g["title"],
                            "h": "", "x": o["doc"]})

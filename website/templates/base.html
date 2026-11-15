@@ -8,8 +8,22 @@
 <meta name="description" content="{% block description %}{{ (page.meta.description if page and page.meta.description else site.description)|striptags|trim }}{% endblock %}">
 <meta property="og:title" content="{{ self.title() }}">
 <meta property="og:description" content="{{ self.description() }}">
+{% if page_url %}
+{% set abs_url = site.url ~ page_url[1:] %}
+{% set share_image = og_image(page) %}
+<link rel="canonical" href="{{ abs_url }}">
+<meta property="og:url" content="{{ abs_url }}">
+<meta property="og:site_name" content="{{ site.name }}">
+<meta property="og:type" content="{{ 'article' if page and page.src else 'website' }}">
+<meta property="og:image" content="{{ share_image }}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ self.title() }}">
+<meta name="twitter:description" content="{{ self.description() }}">
+<meta name="twitter:image" content="{{ share_image }}">
+{% else %}
 <meta property="og:type" content="website">
 <meta property="og:image" content="{{ site.url }}img/social.png">
+{% endif %}
 <meta name="theme-color" content="#3B8A5A">
 <link rel="icon" href="/img/terraflux-icon.svg" type="image/svg+xml">
 <link rel="icon" href="/img/terraflux-icon-32.png" sizes="32x32">
@@ -69,9 +83,9 @@
         Released under the {{ site.license }} license.</p>
     </div>
     <div class="footer-cols">
-      <div><h2>Learn</h2><a href="/quickstart/">Quickstart</a><a href="/tutorials/">Tutorials</a><a href="/parallel/">Parallel computing</a><a href="/glossary/">Glossary</a></div>
-      <div><h2>Reference</h2><a href="/cli/">Command line</a><a href="/operators/">Operators</a><a href="/about/citing/">Cite Terraflux</a></div>
-      <div><h2>Project</h2><a href="/download/">Download</a><a href="{{ site.repo }}">Source code</a><a href="{{ site.repo }}/issues">Report an issue</a></div>
+      <div><h2>Learn</h2><a href="/quickstart/">Quickstart</a><a href="/tutorials/">Tutorials</a><a href="/calculators/">Calculators</a><a href="/parallel/">Parallel computing</a><a href="/glossary/">Glossary</a></div>
+      <div><h2>Reference</h2><a href="/python/">Python library</a><a href="/cli/">Command line</a><a href="/operators/">Operators</a><a href="/about/validation/">Validation</a><a href="/about/faq/">FAQ</a></div>
+      <div><h2>Project</h2><a href="/download/">Download</a><a href="/about/changelog/">Release notes</a><a href="/about/">About</a><a href="/about/citing/">Cite Terraflux</a><a href="{{ site.repo }}">Source code</a><a href="{{ site.repo }}/issues">Report an issue</a></div>
     </div>
   </div>
   <div class="footer-base">

@@ -12,6 +12,12 @@
 </table></div>
 {% endif %}
 {% endmacro %}
+{% macro link(x) %}{% if x.url %}<a href="{{ x.url }}">{{ x.title }}</a>{% else %}{{ x.title }}{% endif %}{% endmacro %}
+{% macro usage(label, items) %}
+{% if items %}
+<div class="op-usage"><span>{{ label }}:</span> {% for x in items[:6] %}{{ link(x) }}{% if not loop.last or items|length > 6 %}, {% endif %}{% endfor %}{% if items|length > 6 %}<details><summary>and {{ items|length - 6 }} more</summary>{% for x in items[6:] %}{{ link(x) }}{% if not loop.last %}, {% endif %}{% endfor %}</details>{% endif %}</div>
+{% endif %}
+{% endmacro %}
 {% block main %}
 <div class="doc-layout">
   <aside class="doc-side">
@@ -36,6 +42,8 @@
         {{ ports(o.outputs, "Output") }}
         {{ ports(o.params, "Setting") }}
         {% if o.extra %}<p class="extra">Takes any other inputs by name ({{ o.extra }}).</p>{% endif %}
+        {{ usage("Used in", used_in.get(o.name, [])) }}
+        {{ usage("Templates", templates_of.get(o.name, [])) }}
       </section>
     {% endfor %}
     </div>
