@@ -22,6 +22,8 @@ pub struct Shape {
     /// A row's height (at text size 1).
     pub row: f32,
     pub window_margin: i8,
+    /// A window's margin above and below (its title bar's padding): less than at its sides.
+    pub window_margin_y: i8,
     pub menu_margin: i8,
     /// A window's shadow: its offset down and its blur.
     pub shadow: (i8, u8),
@@ -48,9 +50,10 @@ pub const CLASSIC: Shape = Shape {
     button_padding: Vec2::new(7.0, 2.0),
     row: 20.0,
     window_margin: 8,
+    window_margin_y: 5,
     menu_margin: 4,
     shadow: (4, 12),
-    sizes: [9.0, 12.5, 18.0, 12.0],
+    sizes: [9.0, 12.5, 15.0, 12.0],
 };
 
 /// The modern shape: rounded, more room, Inter.
@@ -62,9 +65,10 @@ pub const MODERN: Shape = Shape {
     button_padding: Vec2::new(8.0, 3.0),
     row: 22.0,
     window_margin: 12,
+    window_margin_y: 8,
     menu_margin: 6,
     shadow: (8, 24),
-    sizes: [9.5, 12.0, 18.0, 11.5],
+    sizes: [9.5, 12.0, 15.0, 11.5],
 };
 
 /// A theme's colours.
@@ -531,7 +535,7 @@ pub fn apply_with(ctx: &egui::Context, text: f32) {
         s.spacing.item_spacing = sh.item_spacing;
         s.spacing.button_padding = sh.button_padding;
         s.spacing.interact_size.y = sh.row * text.max(1.0);
-        s.spacing.window_margin = Margin::same(sh.window_margin);
+        s.spacing.window_margin = Margin::symmetric(sh.window_margin, sh.window_margin_y);
         s.spacing.menu_margin = Margin::same(sh.menu_margin);
         s.spacing.slider_rail_height = 4.0;
         s.interaction.tooltip_delay = 0.3;

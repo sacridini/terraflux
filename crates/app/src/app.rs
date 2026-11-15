@@ -387,7 +387,7 @@ fn dock_style(ui: &Ui) -> egui_dock::Style {
     let mut st = egui_dock::Style::from_egui(ui.style().as_ref());
     st.tab_bar.bg_fill = theme::bar();
     st.tab_bar.hline_color = theme::bar();
-    st.tab_bar.height = 24.0;
+    st.tab_bar.height = 21.0;
     st.tab.active.bg_fill = ui.visuals().panel_fill;
     st.tab.focused.bg_fill = ui.visuals().panel_fill;
     st.tab.focused.text_color = theme::accent();
@@ -404,7 +404,7 @@ fn dock_style(ui: &Ui) -> egui_dock::Style {
 fn modern_dock(st: &mut egui_dock::Style) {
     let p = theme::current();
     let top = egui::CornerRadius { nw: 7, ne: 7, sw: 0, se: 0 };
-    st.tab_bar.height = 30.0;
+    st.tab_bar.height = 25.0;
     st.tab.spacing = 2.0;
     let t = &mut st.tab;
     for s in [
