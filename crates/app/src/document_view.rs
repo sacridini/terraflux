@@ -651,19 +651,8 @@ fn data_ui(ui: &mut Ui, s: &mut Session, r: &Registry, sec: &Section, num: &str,
     }
 }
 
-/// The report's languages offered, in a menu: a click asks where to write it.
-pub fn export_menu(ui: &mut Ui, s: &mut Session, r: &Registry) {
-    use crate::methods::Lang;
-    for (lang, label) in [(Lang::En, "In English..."), (Lang::Pt, "Em português...")] {
-        if ui.button(label).clicked() {
-            ui.close();
-            export(s, r, lang);
-        }
-    }
-}
-
-/// Write the report of the model open in a language (a dialog asks where: HTML or PDF).
-pub fn export(s: &mut Session, r: &Registry, lang: crate::methods::Lang) {
+/// Write the report of the model open (a dialog asks where: HTML or PDF).
+pub fn export(s: &mut Session, r: &Registry) {
     let name = s.source.name.clone().unwrap_or_else(|| "model".into());
     let Some(path) = rfd::FileDialog::new()
         .set_file_name(format!("{name}.html"))
@@ -673,13 +662,12 @@ pub fn export(s: &mut Session, r: &Registry, lang: crate::methods::Lang) {
     else {
         return;
     };
-    let doc = Document::of_in(&s.source, r, lang);
+    let doc = Document::of(&s.source, r);
     let values = |n: &str, p: &str| s.value_of(n, p);
     let first = |n: &str| crate::document::only_output(&s.source, r, n);
     // (the methods and the papers to cite, how the checks fared)
     let file = s.path.as_ref().and_then(|p| p.file_name()).map(|f| f.to_string_lossy().into_owned());
-    let extras =
-        crate::report::Extras::of_in(&s.source, r, file.as_deref(), crate::checks::of(s), lang).with_advice(s.advice());
+    let extras = crate::report::Extras::of(&s.source, r, file.as_deref(), crate::checks::of(s)).with_advice(s.advice());
     let said = match crate::report::write(&path, &doc, &values, &first, &extras) {
         Ok(()) => format!("wrote {}", path.display()),
         Err(e) => format!("{} not written: {e}", path.display()),
@@ -719,9 +707,9 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> bool {
                     .on_hover_text("what each step is for and why it was chosen: the Node pane writes them");
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.menu_button("Export report", |ui| export_menu(ui, s, r))
-                    .response
-                    .on_hover_text("the document as a web page (HTML) or a PDF, in English or in Portuguese");
+                if ui.button("Export report").on_hover_text("the document as a web page (HTML) or a PDF").clicked() {
+                    export(s, r);
+                }
                 if ui
                     .button("Methods and citations")
                     .on_hover_text("the model's methods as a paper tells them, the papers to cite (BibTeX, RIS)")

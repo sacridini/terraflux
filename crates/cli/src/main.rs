@@ -153,9 +153,6 @@ enum Command {
         /// Run the model first: the maps and tables of the steps in the report.
         #[arg(long)]
         run: bool,
-        /// The language: en (default) or pt.
-        #[arg(short, long, default_value = "en")]
-        language: String,
     },
     /// Run a model and write one of its Plots (`[[plots]]`, kept with the model) as a picture of its map: the layers at
     /// their opacity, the features with their style and labels, as the Viewer draws it (no legend or decorations).
@@ -187,9 +184,6 @@ enum Command {
     /// step by step and the references; or the references as BibTeX or RIS.
     Methods {
         model: PathBuf,
-        /// The language: en (default) or pt.
-        #[arg(short, long, default_value = "en")]
-        language: String,
         /// text (default), bibtex or ris.
         #[arg(short, long, default_value = "text")]
         format: String,
@@ -1206,9 +1200,7 @@ fn main() -> Result<()> {
         command @ Command::Run { .. } => run_command(command, engine)?,
         Command::Reproduce { manifest, out, quiet, thaw } => reproduce(&manifest, out, quiet, thaw, &engine)?,
         Command::Test { models, update, quiet, thaw } => test(&models, update, quiet, thaw, &engine)?,
-        Command::Report { model, out, run, language } => {
-            let lang = terraflux_app::methods::Lang::parse(&language)
-                .ok_or_else(|| anyhow::anyhow!("no language {language}: en or pt"))?;
+        Command::Report { model, out, run } => {
             let source = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
             let dir = folder_of(&model);
             let expanded = Model::load_expanded(&model)?;
@@ -1222,7 +1214,7 @@ fn main() -> Result<()> {
             } else {
                 None
             };
-            let doc = terraflux_app::document::Document::of_in(&source, &engine.registry, lang);
+            let doc = terraflux_app::document::Document::of(&source, &engine.registry);
             let values = |n: &str, p: &str| results.as_ref()?.values.get(n)?.get(p).cloned();
             let first = |n: &str| terraflux_app::document::only_output(&source, &engine.registry, n);
             let out = out.unwrap_or_else(|| model.with_extension("html"));
@@ -1233,7 +1225,7 @@ fn main() -> Result<()> {
             let file = model.file_name().map(|f| f.to_string_lossy().into_owned());
             // the advice on the method, with the inputs when the model ran
             let advice = terraflux_app::advice::advise(&expanded, &engine.registry, &dir, loaded.as_ref());
-            let extras = terraflux_app::report::Extras::of_in(&source, &engine.registry, file.as_deref(), checks, lang)
+            let extras = terraflux_app::report::Extras::of(&source, &engine.registry, file.as_deref(), checks)
                 .with_advice(advice);
             terraflux_app::report::write(&out, &doc, &values, &first, &extras)
                 .with_context(|| format!("writing {}", out.display()))?;
@@ -1243,10 +1235,10 @@ fn main() -> Result<()> {
             let said = plot(&model, &id, &out, scale, format.as_deref(), &set, scenario.as_deref(), quiet, &engine)?;
             eprintln!("{said}");
         }
-        Command::Methods { model, language, format, out } => {
+        Command::Methods { model, format, out } => {
             let source = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
             let file = model.file_name().map(|f| f.to_string_lossy().into_owned());
-            let args = serde_json::json!({ "language": language, "format": format });
+            let args = serde_json::json!({ "format": format });
             let text = terraflux_app::tools::methods(&source, &engine.registry, &args, file.as_deref())
                 .map_err(|e| anyhow::anyhow!(e))?;
             match out {

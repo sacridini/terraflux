@@ -13,7 +13,6 @@ use serde_json::Value as Json;
 use terraflux_graph::{GROUP, Input, Model, Node, OpSignature, Plot, Ref, Source, Type};
 use terraflux_ops::Registry;
 
-use crate::methods::Lang;
 use crate::node_view::{default_of, label_of};
 
 /// A stage of a model, in the order a document tells them.
@@ -508,16 +507,6 @@ pub fn words(v: &Json) -> String {
     }
 }
 
-/// A value in words in a language (yes, no and none translated).
-pub fn words_in(v: &Json, lang: Lang) -> String {
-    match v {
-        Json::Bool(true) => lang.t("yes").into(),
-        Json::Bool(false) => lang.t("no").into(),
-        Json::Null => lang.t("none").into(),
-        v => words(v),
-    }
-}
-
 /// What a setting is, in the operator's words when they are a short phrase ("the range of the autocorrelation, in
 /// cells" for "the range of the autocorrelation, in cells (default 10)"), else its name in words.
 pub fn setting_label(name: &str, doc: &str) -> String {
@@ -534,15 +523,15 @@ pub fn setting_label(name: &str, doc: &str) -> String {
     if phrase { d.to_string() } else { label_of(name) }
 }
 
-fn setting(name: &str, v: &Json, spec: Option<&terraflux_graph::PortSpec>, lang: Lang) -> Setting {
+fn setting(name: &str, v: &Json, spec: Option<&terraflux_graph::PortSpec>) -> Setting {
     let doc = spec.map(|p| p.doc.clone()).unwrap_or_default();
-    let value = words_in(v, lang);
+    let value = words(v);
     let default = default_of(&doc);
     let default = default.strip_prefix("default ").unwrap_or(&default).trim().to_string();
     let differs = !default.is_empty()
         && default != value
-        && !(default == "true" && value == lang.t("yes"))
-        && !(default == "false" && value == lang.t("no"));
+        && !(default == "true" && value == "yes")
+        && !(default == "false" && value == "no");
     let mut choices = spec.map(|p| p.choices.clone()).unwrap_or_default();
     if spec.is_some_and(|p| p.ty == Type::Bool) && choices.is_empty() {
         choices = vec!["true".into(), "false".into()];
@@ -571,7 +560,7 @@ fn shown_output(n: &Node, sig: Option<&OpSignature>) -> Option<(String, Type)> {
 }
 
 /// The step of a node; `value`: where what it gives is kept after a run ([`Step::value`]).
-fn step(n: &Node, path: &[String], stage: Stage, r: &Registry, value: Option<(String, String)>, lang: Lang) -> Step {
+fn step(n: &Node, path: &[String], stage: Stage, r: &Registry, value: Option<(String, String)>) -> Step {
     let sig = r.sig(&n.op).map(|s| s.as_ref());
     let carried: HashSet<&str> =
         n.body.as_ref().map(|b| b.carry.keys().map(String::as_str).collect()).unwrap_or_default();
@@ -596,7 +585,7 @@ fn step(n: &Node, path: &[String], stage: Stage, r: &Registry, value: Option<(St
     let settings = names
         .into_iter()
         .filter(|k| !(expression.is_some() && k.as_str() == "expression") && !(file.is_some() && k.as_str() == "path"))
-        .map(|k| setting(k, &n.params[k], sig.and_then(|s| s.params.iter().find(|p| &p.name == k)), lang))
+        .map(|k| setting(k, &n.params[k], sig.and_then(|s| s.params.iter().find(|p| &p.name == k))))
         .collect();
     let size = if stage == Stage::Data && value.is_some() {
         Size::Data
@@ -622,7 +611,7 @@ fn step(n: &Node, path: &[String], stage: Stage, r: &Registry, value: Option<(St
                         .as_ref()
                         .filter(|_| n.op == GROUP || n.op == terraflux_graph::SWITCH)
                         .map(|(node, prefix)| (node.clone(), format!("{prefix}{}.", m.id)));
-                    step(m, &inner, stage, r, kept, lang)
+                    step(m, &inner, stage, r, kept)
                 })
                 .collect(),
         }
@@ -639,7 +628,7 @@ fn step(n: &Node, path: &[String], stage: Stage, r: &Registry, value: Option<(St
         assumptions: n.assumptions.clone(),
         alternatives: n.alternatives.clone(),
         inputs,
-        sentence: crate::phrases::sentence_in(n, sig, lang),
+        sentence: crate::phrases::sentence(n, sig),
         settings,
         expression,
         file,
@@ -731,12 +720,6 @@ pub fn compared(n: &Node) -> Option<(String, String, String)> {
 impl Document {
     /// The document of a model.
     pub fn of(m: &Model, r: &Registry) -> Document {
-        Document::of_in(m, r, Lang::En)
-    }
-
-    /// The document of a model in a language: its own words (the stages, the kinds of the inputs, the sentences of
-    /// the steps) in it; the operators' descriptions of their settings stay in English.
-    pub fn of_in(m: &Model, r: &Registry, lang: Lang) -> Document {
         let stage = stages(&m.nodes);
         let order = reading_order(&m.nodes);
         let frames: Vec<&terraflux_graph::Note> = m.notes_of(&[]).filter(|n| n.is_frame()).collect();
@@ -754,10 +737,10 @@ impl Document {
                 .collect();
             // (the nodes of a frame of the canvas: a section of their own, under the frame's title)
             let (framed, loose): (Vec<_>, Vec<_>) = loose.into_iter().partition(|(_, n)| frame_of(&n.id).is_some());
-            let top_step = |n: &Node| step(n, &[], st, r, Some((n.id.clone(), String::new())), lang);
+            let top_step = |n: &Node| step(n, &[], st, r, Some((n.id.clone(), String::new())));
             if let Some((first, _)) = loose.first() {
                 let steps = loose.iter().map(|(_, n)| top_step(n)).collect();
-                let title = lang.t(st.title()).to_string();
+                let title = st.title().to_string();
                 parts.push((*first, Section { stage: st, title, group: None, note: None, steps, frame: None }));
             }
             for f in &frames {
@@ -780,7 +763,7 @@ impl Document {
                 let at = vec![g.id.clone()];
                 let steps = reading_order(g.body.as_ref().map_or(&[][..], |b| &b.nodes))
                     .into_iter()
-                    .map(|n| step(n, &at, st, r, Some((g.id.clone(), format!("{}.", n.id))), lang))
+                    .map(|n| step(n, &at, st, r, Some((g.id.clone(), format!("{}.", n.id)))))
                     .collect();
                 let section = Section {
                     stage: st,
@@ -800,7 +783,7 @@ impl Document {
             && let Some(p) =
                 sections.iter_mut().find(|s| s.stage == Stage::Preparation && s.group.is_none() && s.frame.is_none())
         {
-            p.title = lang.t("Analysis").into();
+            p.title = "Analysis".into();
         }
         // the Plots: the figures of the steps they show (the node in a group's body that gives what is shown),
         // numbered in the document's order
@@ -859,7 +842,7 @@ impl Document {
             f.number = number;
         }
         Document {
-            title: m.name.clone().unwrap_or_else(|| lang.t("Untitled").into()),
+            title: m.name.clone().unwrap_or_else(|| "Untitled".into()),
             description: m.description.clone(),
             request: m.request.clone(),
             summary: m.summary.clone(),
@@ -870,15 +853,15 @@ impl Document {
                 .map(|(k, i)| {
                     let (kind, value, note) = match i {
                         Input::Map { path, band, note, .. } => (
-                            lang.t("a map"),
+                            "a map",
                             match band {
-                                Some(b) => lang.f("{}, band {}", &[path, b]),
+                                Some(b) => format!("{}, band {}", path, b),
                                 None => path.clone(),
                             },
                             note,
                         ),
-                        Input::Stack { path, note, .. } => (lang.t("a stack"), path.clone(), note),
-                        Input::Value { value, note } => (lang.t("a value"), words_in(value, lang), note),
+                        Input::Stack { path, note, .. } => ("a stack", path.clone(), note),
+                        Input::Value { value, note } => ("a value", words(value), note),
                     };
                     InputRow { name: k.clone(), kind, value, note: note.clone() }
                 })
@@ -893,19 +876,20 @@ impl Document {
                     } else {
                         match (p.min, p.max) {
                             (Some(a), Some(b)) => Some(format!(
-                                "{}{}",
-                                lang.f("{} to {}", &[&num(a), &num(b)]),
-                                p.step.map(|s| lang.f(", by {}", &[&num(s)])).unwrap_or_default()
+                                "{} to {}{}",
+                                num(a),
+                                num(b),
+                                p.step.map(|s| format!(", by {}", num(s))).unwrap_or_default()
                             )),
-                            (Some(a), None) => Some(lang.f("at least {}", &[&num(a)])),
-                            (None, Some(b)) => Some(lang.f("at most {}", &[&num(b)])),
+                            (Some(a), None) => Some(format!("at least {}", num(a))),
+                            (None, Some(b)) => Some(format!("at most {}", num(b))),
                             _ => None,
                         }
                     };
                     ParamRow {
                         key: p.key.clone(),
                         label: p.label.clone().unwrap_or_else(|| p.key.clone()),
-                        value: m.setting(&p.key).map_or_else(|| lang.t("default").to_string(), |v| words_in(v, lang)),
+                        value: m.setting(&p.key).map_or_else(|| "default".to_string(), words),
                         unit: p.unit.clone(),
                         range,
                         help: p.help.clone(),
@@ -923,7 +907,7 @@ impl Document {
                         .iter()
                         .map(|(k, v)| {
                             let label = m.parameters.iter().find(|p| &p.key == k).and_then(|p| p.label.clone());
-                            (label.unwrap_or_else(|| k.clone()), words_in(v, lang))
+                            (label.unwrap_or_else(|| k.clone()), words(v))
                         })
                         .collect(),
                 })

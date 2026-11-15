@@ -12,7 +12,6 @@ use terraflux_ops::Map;
 use terraflux_raster::tiff::Window;
 
 use crate::map_view::Source;
-use crate::methods::Lang;
 use crate::palette::{Coloring, Ramp, class_colour};
 
 /// The most cells a difference is made of: a map with more is compared every few cells.
@@ -86,18 +85,13 @@ fn read(src: &Source, step: usize) -> Result<(Arc<Vec<f64>>, usize), String> {
 
 /// The difference of `b` from `a` on `a`'s grid; of classes when `classes` gives the names of both maps' classes.
 pub fn make(a: &Source, b: &Source, classes: Option<(&Names, &Names)>) -> Result<Made, String> {
-    make_in(a, b, classes, Lang::En)
-}
-
-/// The difference in a language: its summary and the transitions' names in it.
-pub fn make_in(a: &Source, b: &Source, classes: Option<(&Names, &Names)>, lang: Lang) -> Result<Made, String> {
-    make_focused(a, b, classes, None, lang)
+    make_focused(a, b, classes, None)
 }
 
 /// The difference of two maps of classes with one transition (from, to) singled out: its cells in its colour, the
 /// other changes grey, the cells that kept their class (unless it is theirs) a light grey.
 pub fn focused(a: &Source, b: &Source, classes: (&Names, &Names), focus: (i64, i64)) -> Result<Made, String> {
-    make_focused(a, b, Some(classes), Some(focus), Lang::En)
+    make_focused(a, b, Some(classes), Some(focus))
 }
 
 fn make_focused(
@@ -105,7 +99,6 @@ fn make_focused(
     b: &Source,
     classes: Option<(&Names, &Names)>,
     focus: Option<(i64, i64)>,
-    lang: Lang,
 ) -> Result<Made, String> {
     let (ga, gb) = (a.grid(), b.grid());
     // (a map of another coordinate system is carried to this one's cells; its transformation is made here, in the
@@ -116,7 +109,7 @@ fn make_focused(
         match crate::reproject::Reproj::new(gb, ga) {
             Ok(re) => Some(re),
             Err(_) => {
-                return Err(lang.t(crate::reproject::refusal(gb, ga)).into());
+                return Err(crate::reproject::refusal(gb, ga).into());
             }
         }
     };
@@ -174,13 +167,13 @@ fn make_focused(
         g.transform[5] *= step as f64;
         Arc::new(g)
     };
-    let every = if step > 1 { lang.f(" (every {} cells)", &[&step]) } else { String::new() };
+    let every = if step > 1 { format!(" (every {step} cells)") } else { String::new() };
     let (mut made, matrix) = match classes {
         Some((na, nb)) => {
-            let (parts, matrix) = transitions(&va, (aw, ah, step), &grid, &other, (na, nb), focus, lang);
+            let (parts, matrix) = transitions(&va, (aw, ah, step), &grid, &other, (na, nb), focus);
             (parts, Some(matrix))
         }
-        None => (values(&va, aw, ah, &other, lang), None),
+        None => (values(&va, aw, ah, &other), None),
     };
     made.0.push_str(&every);
     let (summary, data, coloring, counts, names) = made;
@@ -219,7 +212,7 @@ fn carried(
 type Parts = (String, Vec<f64>, Coloring, Vec<(f64, usize)>, Vec<(f64, String)>);
 
 /// The other one minus this one, cell by cell, in a ramp centred on 0 (to the 98th percentile of the sizes).
-fn values(va: &[f64], aw: usize, ah: usize, other: &dyn Fn(usize, usize) -> f64, lang: Lang) -> Parts {
+fn values(va: &[f64], aw: usize, ah: usize, other: &dyn Fn(usize, usize) -> f64) -> Parts {
     let mut data = Vec::with_capacity(aw * ah);
     let (mut n, mut sum, mut up, mut down) = (0usize, 0.0, 0usize, 0usize);
     let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
@@ -251,12 +244,16 @@ fn values(va: &[f64], aw: usize, ah: usize, other: &dyn Fn(usize, usize) -> f64,
     };
     let coloring = Coloring::Continuous { min: -m, max: m, ramp: Ramp::Diverging, log: false };
     let summary = if n == 0 {
-        lang.t("no cell has a value in both maps").to_string()
+        "no cell has a value in both maps".to_string()
     } else {
         let share = |k: usize| format!("{:.1}", 100.0 * k as f64 / n as f64);
-        lang.f(
+        format!(
             "the map compared minus this one: on average {}, from {} to {}; higher in {}% of the cells, lower in {}%",
-            &[&short(sum / n as f64), &short(lo), &short(hi), &share(up), &share(down)],
+            short(sum / n as f64),
+            short(lo),
+            short(hi),
+            share(up),
+            share(down)
         )
     };
     (summary, data, coloring, Vec::new(), Vec::new())
@@ -370,7 +367,6 @@ fn transitions(
     other: &dyn Fn(usize, usize) -> f64,
     (na, nb): (&Names, &Names),
     focus: Option<(i64, i64)>,
-    lang: Lang,
 ) -> (Parts, Matrix) {
     let mut pairs = Vec::with_capacity(aw * ah);
     let mut count: HashMap<(i64, i64), (usize, f64)> = HashMap::new();
@@ -433,20 +429,17 @@ fn transitions(
         let n = count.get(&f).map_or(0, |c| c.0);
         let others = both - kept - if f.0 != f.1 { n } else { 0 };
         let label = if f.0 == f.1 {
-            lang.f("{} (kept)", &[&name(na, f.0)])
+            format!("{} (kept)", name(na, f.0))
         } else {
             format!("{} -> {}", name(na, f.0), name(nb, f.1))
         };
-        let names = vec![
-            (UNCHANGED, lang.t("unchanged").to_string()),
-            (1.0, label.clone()),
-            (2.0, lang.t("other changes").to_string()),
-        ];
+        let names =
+            vec![(UNCHANGED, "unchanged".to_string()), (1.0, label.clone()), (2.0, "other changes".to_string())];
         let colours = vec![(UNCHANGED, Color32::from_gray(225)), (1.0, colour), (2.0, Color32::from_gray(140))];
         let unchanged = kept - if f.0 == f.1 { n } else { 0 };
         let counts = vec![(UNCHANGED, unchanged * cells), (1.0, n * cells), (2.0, others * cells)];
         let share = if both > 0 { format!("{:.1}", 100.0 * n as f64 / both as f64) } else { "0".into() };
-        let summary = lang.f("{}: {} cells ({}%)", &[&label, &(n * cells), &share]);
+        let summary = format!("{label}: {} cells ({share}%)", n * cells);
         return ((summary, data, Coloring::Classes(colours), counts, names), matrix);
     }
     // (a transition's class: its place in that order, the rest together after the named ones)
@@ -460,7 +453,7 @@ fn transitions(
             None => f64::NAN,
         })
         .collect();
-    let mut names = vec![(UNCHANGED, lang.t("unchanged").to_string())];
+    let mut names = vec![(UNCHANGED, "unchanged".to_string())];
     let mut colours = vec![(UNCHANGED, Color32::from_gray(205))];
     let mut counts = vec![(UNCHANGED, kept * cells)];
     for (i, ((p, q), n)) in changes.iter().take(named).enumerate() {
@@ -472,21 +465,22 @@ fn transitions(
     if rest {
         let v = (named + 1) as f64;
         let n: usize = changes[named..].iter().map(|(_, n)| n).sum();
-        names.push((v, lang.f("other changes ({})", &[&(changes.len() - named)])));
+        names.push((v, format!("other changes ({})", changes.len() - named)));
         colours.push((v, Color32::from_gray(90)));
         counts.push((v, n * cells));
     }
     let changed = both - kept;
     let summary = if both == 0 {
-        lang.t("no cell has a class in both maps").to_string()
+        "no cell has a class in both maps".to_string()
     } else {
-        let said = if changes.len() == 1 {
-            "{} of {} cells changed class ({}%), in {} transition"
-        } else {
-            "{} of {} cells changed class ({}%), in {} transitions"
-        };
         let share = format!("{:.1}", 100.0 * changed as f64 / both as f64);
-        lang.f(said, &[&(changed * cells), &(both * cells), &share, &changes.len()])
+        let plural = if changes.len() == 1 { "" } else { "s" };
+        format!(
+            "{} of {} cells changed class ({share}%), in {} transition{plural}",
+            changed * cells,
+            both * cells,
+            changes.len()
+        )
     };
     ((summary, data, Coloring::Classes(colours), counts, names), matrix)
 }

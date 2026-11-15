@@ -422,9 +422,9 @@ whoever reads, checks or reviews it rather than builds it. Its nodes are told in
 *Model*, *Validation*, *Results*), a step each, with its note, a sentence of what it does with its settings and
 where its inputs come from ("MSPA's patterns of forest: connected by 8 neighbours, the edges 1 cell wide."), its
 settings, and its map or table from the last run; the model's Plots are its numbered figures. A step's name selects its
-node, and a setting can be changed there as in the Node pane. **Export report** writes it as a web page or a PDF (in English or Portuguese),
-and **Methods and citations** drafts the methods section of a paper from the model, with the papers to cite, in
-English or Portuguese (also `terraflux methods model.toml --language pt` on the
+node, and a setting can be changed there as in the Node pane. **Export report** writes it as a web page or a PDF,
+and **Methods and citations** drafts the methods section of a paper from the model, with the papers to cite
+(also `terraflux methods model.toml` on the
 [command line](/cli/models/#terraflux-methods), and the `methods` tool of the AI assistants).
 **File > Export to QGIS...** writes the run's maps, in their colours, as a QGIS project
 ([Opening the results in QGIS](../reclassify-calculate-save/#opening-the-results-in-qgis)).

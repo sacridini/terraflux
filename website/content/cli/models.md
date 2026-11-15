@@ -241,16 +241,10 @@ reproduces, and Terraflux itself), the model step by step, and the references in
 add why each step was chosen.
 
 ```bash
-terraflux methods model.toml                       # in English, on screen
-terraflux methods model.toml --language pt         # em português
+terraflux methods model.toml                       # on screen
 terraflux methods model.toml -f bibtex -o refs.bib # the references for LaTeX, Zotero, Mendeley
 terraflux methods model.toml -f ris -o refs.ris    # for EndNote
 ```
-
-`-l`, `--language`
-:   `en` (the default) or `pt`. In Portuguese the paragraph, the methods' names and the headings are written in
-    Portuguese, and each step is told by its node's note (else its settings): the operators' own descriptions are
-    in English.
 
 `-f`, `--format`
 :   `text` (the default: the paragraph, the steps and the references), `bibtex` or `ris` (the references).

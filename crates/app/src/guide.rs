@@ -80,7 +80,7 @@ considered and set aside, and why) when there are.
 - Give the model the user's `request` in the user's words, a `summary` of the conversation and its `author` \
 (new_model, set_model_info); update the summary when the model changes.
 - check_model names the nodes without a note or a why. methods drafts a paper's methods section from this \
-record (the methods, the papers to cite), in English or Portuguese.",
+record (the methods, the papers to cite).",
     },
     Guide {
         name: "results",
@@ -113,7 +113,7 @@ them from there.
 somewhere, or a frame around nodes with a title, which follows them; remove_note); show_model lists them under \
 [[notes]].
 - methods drafts the methods section of a paper from the model (the methods it uses, the papers to cite, the \
-model step by step, the references; or BibTeX, RIS), in English or Portuguese (`language`: pt).
+model step by step, the references; or BibTeX, RIS).
 - Which settings matter to a result: sensitivity runs the analysis (`factors`: the numbers to vary, each \
 {key, from, to}; `output`: what is measured, with a `statistic` for a map). Start with Morris (`method`: morris, \
 r x (k + 1) runs) to screen many factors, then Sobol (S1 and ST) on the few that matter, with `n` a power of 2 and \
@@ -287,174 +287,6 @@ sediment by orders of magnitude on a project whose plants do not grow.",
     },
 ];
 
-/// The guides of the methods in Portuguese (the names of the operators, settings and templates as they are), for an
-/// assistant answering a user who writes in it; the guides of building a model are only in English (read by the
-/// assistant alone).
-pub const GUIDES_PT: &[Guide] = &[
-    Guide {
-        name: "data-preparation",
-        title: "Os dados em forma: uma grade, classes, variáveis explicativas",
-        text: "\
-1. Olhe cada arquivo antes (inspect_file): tamanho, células, sistema de coordenadas, classes ou estatísticas, sem \
-dado.
-2. Uma grade de referência: o mapa de uso (ou de habitat) do início, num sistema de coordenadas projetado (metros: \
-uma zona UTM, ou uma projeção de áreas iguais para áreas). Mapas em longitudes e latitudes passam por \
-raster.reproject; cada outro mapa por raster.match para a referência (as mesmas células). A reamostragem pelo \
-dado: classes pela célula mais próxima ou pela moda, valores bilinear ou pela média (`auto` escolhe).
-3. Classes: números inteiros, poucos; reclassifique com raster.reclassify (regras `1 2 3 -> 1`) ou write_calc; \
-limpe os pixels soltos com raster.sieve ou raster.majority. Diga o que é cada classe na nota do nó.
-4. Variáveis explicativas como uma pilha (stack.of, uma camada cada, com nome): distâncias a estradas, rios, \
-cidades ou a uma classe (vector.distance, distance.proximity), declividade e altitude (raster.terrain, \
-surface.terrain), solos como categorias. Não constantes, com valor onde a terra tem classe, não colineares: o \
-check_model confere.
-5. Vetores: vector.read, vector.reproject para o sistema da referência, vector.rasterize na grade dela.
-Templates: \"Drivers of land change\", \"Cleaning a map of classes: filter, sieve, label and grow\", \"Terrain of a \
-surface\".",
-    },
-    Guide {
-        name: "land-change",
-        title: "Mudança de uso e cobertura da terra: analisar, calibrar, simular, validar",
-        text: "\
-1. Dados: duas datas de uso para calibrar (t0, t1) e, para validar, uma terceira (t2) não usada na calibração; \
-todas numa grade (guide data-preparation); as variáveis explicativas como uma pilha.
-2. Analise a mudança observada: change.crosstab e change.transitions (a matriz de transições), change.intensity \
-(análise de intensidade, Aldwaik & Pontius 2012: quais classes e transições estão ativas), change.components \
-(quantidade, troca e deslocamento, Pontius & Santacruz 2014). Template \"Land change analysis\".
-3. Calibre só no primeiro período (t0 a t1):
-   - a quantidade: markov.fit (`steps`: os passos de tempo do período, as taxas são por passo), ou uma demanda \
-(demand.table, demand.from_maps, plus.demand);
-   - onde: pesos de evidência (woe.fit, depois woe.probability: Dinamica EGO), regressões logísticas (glm.fit, \
-glm.predict: CLUE-S), florestas aleatórias (ml.potential com `later`: o LEAS do PLUS). Variáveis correlacionadas \
-contam em dobro: o check_model avisa das colineares. As distâncias (a estradas, rios, cidades e ao que já mudou) \
-são as variáveis mais fortes da maioria dos modelos.
-4. Simule passo a passo num control.repeat: dinamica.step (Expander e Patcher), lulcc.step (CLUE-S), cars.step \
-(PLUS), clumondo.step, molusce.step. Templates \"Dinamica EGO\", \"CLUE-S\", \"PLUS (LEAS and CARS)\".
-5. Valide: simule de t1 até a data de t2 e compare com t2: validate.three_map (o balanço de concordância e a \
-figure of merit em várias resoluções, Pontius et al. 2011), validate.similarity (a similaridade fuzzy do \
-Dinamica), validate.agreement, validate.kappa. Compare com o modelo nulo (nenhuma mudança: t1 como simulação, \
-Pontius et al. 2004): um modelo que não o supera não aprendeu nada. Nunca valide no mapa da calibração. Template \
-\"Validating a simulation\".
-6. Incerteza: os passos estocásticos (uma semente) dão um futuro possível por rodada; rode várias sementes \
-(control.each sobre uma lista delas) e informe a dispersão; futuros sob outras hipóteses como cenários \
-(set_scenario).
-7. Registre as classes, o período, a hipótese das taxas (estacionárias) e a validação nas notas dos nós; o \
-methods escreve a seção do artigo.",
-    },
-    Guide {
-        name: "connectivity",
-        title: "Conectividade: estrutural, grafos, menores custos, circuitos",
-        text: "\
-1. Dados: o habitat (um mapa de classes, ou 0 sem dado, 1 fundo, 2 habitat), num sistema de coordenadas \
-projetado (distâncias em metros); uma superfície de resistência (ou condutância) onde se estuda o movimento: \
-reclassificando o uso (raster.reclassify, com valores da literatura ou de especialistas, registrados nas refs do \
-nó) ou crescendo com a distância ao habitat (restoration.resistance). A resistência tem de ser maior que 0.
-2. Conectividade estrutural: landscape.mspa (núcleos, pontes, laços, ramos; `edge_width` em células), depois \
-networks.conefor ou networks.gtn_components e networks.gtn_importance (a rede de núcleos e pontes). Template \
-\"Network of a forest (MSPA)\".
-3. Grafos de manchas: conn.graph_from_raster ou conn.graph_from_vector (distâncias euclidianas, de menor custo ou \
-de tempo de percurso), conn.overall (IIC, PC e a conectividade equivalente), conn.node_importance (dIIC, dPC: \
-quais manchas importam), conn.link_importance, conn.protconn (o ProtConn das áreas protegidas). A distância de \
-dispersão vem da espécie estudada (registre-a nas refs). Template \"Habitat network (Conefor)\".
-4. Menores custos e passeios aleatórios: cost.transition de uma condutância (1 / resistência; \
-cost.geo_correction para as distâncias das células), depois cost.acc_cost, cost.shortest_path, cost.passage \
-(passeios aleatórios, caminhos mais curtos aleatorizados); restoration.corridor e restoration.least_cost_path. \
-Templates \"Least costs and random walks\", \"Restoring a corridor\".
-5. Circuitos: circuit.pairwise (resistências efetivas e correntes entre pontos focais), circuit.one_to_all, \
-circuit.omniscape (omnidirecional, janelas móveis). Template \"Circuit connectivity\".
-6. Rios: hydro.dci (o índice de conectividade dendrítica das barragens). Template \"Rivers: dams and their \
-connectivity (DCI)\".",
-    },
-    Guide {
-        name: "landscape-metrics",
-        title: "Padrões da paisagem: métricas, MSPA, fragmentação",
-        text: "\
-1. Dados: um mapa de classes (números inteiros) num sistema de coordenadas projetado: áreas e bordas são medidas \
-nas unidades das células. Um mapa contínuo é classificado antes (raster.reclassify, write_calc).
-2. Métricas como no landscapemetrics e no FRAGSTATS: metrics.patch, metrics.class, metrics.landscape (`metrics` um \
-nome ou uma lista; `type` um grupo delas), metrics.window (janela móvel: um mapa de uma métrica). Escolha poucas \
-métricas que respondam à pergunta (e não redundantes: metrics.correlation), não todas. A conectividade das \
-manchas (`directions`: 8 ou 4) muda as contagens: diga qual.
-3. Muitas paisagens ou datas: metrics.sample (pontos, buffers, polígonos), vector.grid_zones (zonas numa grade), \
-metrics.series (datas); assinaturas e grupos: metrics.signatures, metrics.pca, metrics.cluster.
-4. Morfologia e fragmentação (GuidosToolbox): landscape.mspa (as classes do primeiro plano em `foreground`, a \
-largura da borda em células: a escala do resultado), fragmentation.fad e fragmentation.fad_multiscale (a \
-densidade de área de floresta), fragmentation.fos, landscape.spa, landscape.accounting.
-5. Mudança de padrões: change.simple, change.morphological, change.fad. Paisagens neutras (nlm.*) dão os valores \
-esperados de uma métrica sem estrutura, para comparar.
-Templates: \"Landscape metrics\", \"MSPA of your map\", \"Fragmentation of a forest\", \"Patches and their \
-shapes\", \"Forest gain and loss\".",
-    },
-    Guide {
-        name: "conservation-planning",
-        title: "Planejamento de conservação e restauração",
-        text: "\
-1. Dados: as feições (distribuições de espécies, habitats, serviços ecossistêmicos) como uma pilha, uma camada \
-cada (stack.of), numa grade; um custo por unidade de planejamento (preço da terra, custo de oportunidade; células \
-sem custo não são unidades), ou unidades em polígonos; áreas já protegidas (travadas dentro) ou excluídas \
-(travadas fora).
-2. Metas: quanto de cada feição manter (relativas, absolutas, loglineares), da política ou da literatura \
-(registre-as nas refs).
-3. Resolva: prioritize.optimize (programação linear inteira, ótima dentro do gap: min_set, min_shortfall, \
-max_utility... com penalidades de borda ou de conectividade), prioritize.zonation (uma ordem de todas as células, \
-Zonation 5), prioritize.marxan (simulated annealing, Marxan 4), prioritize.actions e prioritize.actions_raster \
-(ações contra ameaças), restoration.plan (benefícios e custos da restauração).
-4. Avalie: prioritize.evaluate (o custo, quanto de cada feição a solução tem, metas atingidas, \
-insubstituibilidade), prioritize.proxirr; compare soluções sob outros custos ou metas como cenários \
-(set_scenario).
-Templates: \"Conservation planning (linear programming)\", \"Zonation\", \"Marxan and irreplaceability\", \
-\"Irreplaceability of a plan\", \"Restoration plan\", \"Multi-action planning\".",
-    },
-    Guide {
-        name: "species-distribution",
-        title: "Modelos de distribuição de espécies",
-        text: "\
-1. Registros: limpos (sdm.clean_occurrences), um por célula (sdm.one_per_cell), rarefeitos (sdm.thin) contra o \
-viés de amostragem; ou tudo de uma vez com sdm.prepare.
-2. Preditoras: uma pilha (stack.of) numa grade; sem colinearidade (sdm.vif, sdm.select_predictors); a área \
-acessível (sdm.accessible_area); pontos de fundo (sdm.background, uma superfície de viés com sdm.bias_surface).
-3. Dobras da avaliação: espaciais (sdm.spatial_blocks, sdm.buffer_folds, sdm.checkerboard_folds) e não \
-aleatórias (sdm.random_folds) quando os registros se agrupam, o que infla a acurácia (Roberts et al. 2017); \
-sdm.autocorrelation_range dá o tamanho dos blocos.
-4. Ajuste e avalie: sdm.fit (MaxNet, um GLM ou uma floresta aleatória, por dobra: AUC de treino e de teste, TSS, \
-Boyce), sdm.evaluate; um auc_diff (treino menos teste) grande: o modelo se sobreajusta.
-5. Projete: sdm.maxnet_predict na pilha das preditoras; um limiar (sdm.threshold) para um mapa de presença; \
-extrapolação onde o ambiente é novo (sdm.mess, sdm.exdet, sdm.mop); em outro clima, os mesmos nomes das \
-preditoras na pilha futura. Templates \"Species distribution model\", \"A species in a warmer climate\".",
-    },
-    Guide {
-        name: "hydrology",
-        title: "Hidrologia do terreno e SWAT+: escoamento, rios, bacias, um modelo de bacia",
-        text: "\
-1. Dados: um MDE num sistema de coordenadas projetado (metros; um modelo que precisa de latitudes, como \
-swat.watershed, pede o sistema de coordenadas). Preencha antes as depressões (hydro.fill, ou hydro.breach para \
-rompê-las): todo outro passo lê o MDE preenchido.
-2. Escoamento e rios: hydro.flow_direction, hydro.flow_accumulation (as células que drenam para cada célula), \
-hydro.streams (as células que drenam um limiar ou mais: o limiar define a densidade da rede), \
-hydro.stream_links, hydro.watersheds. Os índices do terreno: hydro.hand, hydro.twi, hydro.spi, hydro.sti, \
-hydro.distance_to_channel, hydro.connectivity_index. Postos e barragens na rede: hydro.snap, \
-hydro.upstream_catchment, hydro.upstream. Templates \"Terrain of a surface\", \"Rivers: the land upstream and the \
-gauges' catchments\", \"Rivers: dams and their connectivity (DCI)\".
-3. Quanta água, quando, e quanto solo: o SWAT+ (o port do SWAT+ 62 do landschaft, bit a bit no que cobre). Um \
-projeto já feito (uma pasta TxtInOut ou um zip): swat.load (ou o `path` do swat.run), swat.set para mudar um \
-parâmetro como a calibração dura do SWAT+ (cn2, awc, esco, perco...; pctchg, abschg ou absval; uma configuração \
-pode ler uma entrada do modelo `$x`, como lotes e calibrações a variam), swat.run para as tabelas que o SWAT+ \
-imprime. Um projeto a partir de mapas, como o QSWAT+ e o SWAT+ Editor fazem: swat.watershed (o MDE, os mapas de uso \
-e de solo com suas tabelas de código e nome, a tabela dos solos; `stream_threshold` em km2, `hru_method` e seus \
-limiares), depois swat.from_tables (as estações e uma tabela diária de cada uma de pcp, tmax e tmin: uma data ou \
-ano e dia, uma coluna por estação; swat.wgn calcula as estatísticas do gerador de clima, que pedem valores em \
-`monthly` que as séries diárias não dão), depois swat.run. Template \"SWAT+ from rasters\".
-4. Resultados no mapa: swat.hru_map (uma variável de uma tabela de HRU: sedyld, surq_gen, wateryld, et...), \
-swat.channel_map (uma coluna do canal, a vazão média por padrão) e swat.reach_discharge (a vazão diária de cada \
-canal). Ligue-os às tabelas de um só swat.run (o passo médio anual `aa` para as HRUs, `day` para os canais) para \
-não simular o projeto de novo a cada mapa; eles pedem o projeto do swat.from_tables.
-5. Confie com cuidado: olhe o balanço hídrico primeiro (a evapotranspiração é plausível para o clima e as plantas? \
-veja lai e bioms na tabela das plantas). Um modelo com os valores padrão não está calibrado: compare a vazão \
-diária com a medida (Nash-Sutcliffe, Moriasi et al. 2007) num período não usado para calibrar. Pule o primeiro \
-ano (`nyskip`) para a água do solo e os aquíferos se assentarem. Diga nas notas qual `c_factor` foi usado: ele muda \
-o sedimento em ordens de grandeza num projeto cujas plantas não crescem.",
-    },
-];
-
 /// A guide by its name (or its beginning, when only one guide has it).
 pub fn find(name: &str) -> Option<&'static Guide> {
     let n = name.trim().to_lowercase().replace([' ', '_'], "-");
@@ -488,50 +320,9 @@ pub fn guide(topic: Option<&str>) -> Result<String, String> {
     }
 }
 
-/// A guide in a language (`pt`: the method's in Portuguese, when it has one; else the English one, said so).
-pub fn guide_in(topic: Option<&str>, language: Option<&str>) -> Result<String, String> {
-    let pt = language.is_some_and(|l| l.trim().to_lowercase().starts_with("pt"));
-    let text = guide(topic)?;
-    if !pt {
-        return Ok(text);
-    }
-    let Some(g) = topic.and_then(find) else { return Ok(text) };
-    Ok(match GUIDES_PT.iter().find(|p| p.name == g.name) {
-        Some(p) => format!("{}\n\n{}\n", p.title, p.text),
-        None => format!("(este guia só existe em inglês)\n{text}"),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_methods_in_portuguese() {
-        // every guide of a method has its Portuguese, naming the same operators and templates
-        for g in GUIDES.iter().skip(5) {
-            let p = GUIDES_PT.iter().find(|p| p.name == g.name).unwrap_or_else(|| panic!("{} in Portuguese", g.name));
-            let words = |t: &str| {
-                let mut w: Vec<String> = t
-                    .split(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_'))
-                    .map(|w| w.trim_end_matches('.').to_string())
-                    .filter(|w| {
-                        w.contains('.') && w.split('.').all(|p| !p.is_empty() && !p.chars().all(|c| c.is_ascii_digit()))
-                    })
-                    .collect();
-                w.sort();
-                w.dedup();
-                w
-            };
-            assert_eq!(words(p.text), words(g.text), "the operators of {}", g.name);
-            let quoted = |t: &str| t.split('"').skip(1).step_by(2).map(String::from).collect::<Vec<_>>();
-            assert_eq!(quoted(p.text), quoted(g.text), "the templates of {}", g.name);
-        }
-        assert!(guide_in(Some("land-change"), Some("pt")).unwrap().starts_with("Mudança de uso"));
-        assert!(guide_in(Some("land-change"), None).unwrap().starts_with("Land use"));
-        assert!(guide_in(Some("calc"), Some("pt")).unwrap().starts_with("(este guia só existe em inglês)"));
-        assert!(guide_in(Some("nothing"), Some("pt")).is_err());
-    }
 
     /// The operators a text names (`family.name` of a family the registry has).
     fn named_ops(text: &str, families: &std::collections::BTreeSet<String>) -> Vec<String> {

@@ -67,7 +67,6 @@ pub mod prepare;
 pub mod prepare_view;
 pub mod problems_view;
 pub mod profile;
-pub mod pt;
 pub mod python;
 pub mod qgis;
 pub mod recovery;

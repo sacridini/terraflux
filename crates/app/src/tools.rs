@@ -77,7 +77,7 @@ operators and templates; nodes, calc, containers, record and results tell how a 
 - Start from a template (list_templates with a `query`; new_model with `template`): a small model that runs as it \
 is, its data drawn by neutral landscape models (nlm.*), to be replaced by raster.read nodes of the user's files \
 (absolute paths).
-- Operators: list_operators with a query (English or Portuguese) finds them; describe_operator gives the exact \
+- Operators: list_operators with a query finds them; describe_operator gives the exact \
 ports and settings, advice, and what the operator usually reads and gives to. Never guess a port or a setting.
 - A node's input reads `node.port`, `$name` (a model's input) or `@name` (inside a container); a setting is a \
 value or `\"$name\"`. Every edit is checked: a wrong one is refused with the reason and the file left as it was; \
@@ -116,7 +116,7 @@ with the reason and the model is left as it was; read the reason and correct the
 the problems the model still has (a model being built has some: inputs not connected yet).
 - show_model gives the model as text; check_model checks it and its data; run_model runs it in the application \
 (its maps shown there) and summarises what its outputs gave; inspect_file summarises a raster or shows a table; \
-methods drafts the methods section of a paper from the model, with the papers to cite (`language`: en or pt).
+methods drafts the methods section of a paper from the model, with the papers to cite.
 - Files: a raster.read node reads a raster (setting `path`); give absolute paths.
 ",
     calc!(),
@@ -1221,15 +1221,10 @@ pub fn problems(m: &Model, dir: &Path, r: &Registry) -> String {
 }
 
 /// A model's methods section and the papers to cite (`file` the model's file name): as text (the paragraph, the
-/// steps, the references), BibTeX or RIS (`format`), in English or Portuguese (`language`).
+/// steps, the references), BibTeX or RIS (`format`).
 pub fn methods(m: &Model, r: &Registry, a: &Value, file: Option<&str>) -> Reply {
-    use crate::methods::Lang;
-    let lang = match opt_text(a, "language") {
-        None => Lang::En,
-        Some(t) => Lang::parse(t).ok_or_else(|| format!("the language {t:?}: en or pt"))?,
-    };
     let version = env!("CARGO_PKG_VERSION");
-    let me = crate::methods::of_in(m, r, version, file, lang);
+    let me = crate::methods::of(m, r, version, file);
     match opt_text(a, "format").unwrap_or("text") {
         "text" => Ok(me.text()),
         "bibtex" | "bib" => Ok(me.bibtex(version)),
@@ -1606,21 +1601,20 @@ fn all() -> Vec<Value> {
             "A guide, read before building or reviewing a model: the method of a field step by step with its operators and templates (land-change, connectivity, landscape-metrics, conservation-planning, species-distribution, hydrology, data-preparation), or how a model is built (nodes, calc, containers, record, results). Without a topic: the guides listed.",
             json!({
                 "topic": { "type": "string", "description": "The guide, e.g. land-change." },
-                "language": { "type": "string", "enum": ["en", "pt"], "description": "en (default) or pt: the guides of the methods in Portuguese, for a user who writes in it." },
             }),
             &[],
             Some(&read_only),
         ),
         tool(
             "list_templates",
-            "The templates: small models that run as they are, by group, with what each shows. With a query (English or Portuguese words): those that match it, the best first. A good start: new_model with `template` copies one.",
-            json!({ "query": { "type": "string", "description": "What the model is to do, e.g. \"connectivity of a forest\", \"desmatamento\"." } }),
+            "The templates: small models that run as they are, by group, with what each shows. With a query: those that match it, the best first. A good start: new_model with `template` copies one.",
+            json!({ "query": { "type": "string", "description": "What the model is to do, e.g. \"connectivity of a forest\", \"deforestation\"." } }),
             &[],
             Some(&read_only),
         ),
         tool(
             "list_operators",
-            "The operators. Without a query: their names by family. With a query (English or Portuguese words, found in the name or the documentation): those that have all of them, else those that have the most, each with what it does.",
+            "The operators. Without a query: their names by family. With a query (words found in the name or the documentation): those that have all of them, else those that have the most, each with what it does.",
             json!({ "query": { "type": "string", "description": "Words to look for, e.g. \"weights of evidence\", \"patch area\", \"conectividade\"." } }),
             &[],
             Some(&read_only),
@@ -1911,10 +1905,9 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "methods",
-            "Draft the methods section of a paper from the model: a paragraph naming the methods it uses with the papers to cite (those of the software Terraflux reproduces), the model step by step, and the references (APA); or only the references, as BibTeX or RIS. In English or Portuguese.",
+            "Draft the methods section of a paper from the model: a paragraph naming the methods it uses with the papers to cite (those of the software Terraflux reproduces), the model step by step, and the references (APA); or only the references, as BibTeX or RIS.",
             json!({
                 "model": model,
-                "language": { "type": "string", "enum": ["en", "pt"], "description": "en (default) or pt." },
                 "format": { "type": "string", "enum": ["text", "bibtex", "ris"], "description": "text (default): the paragraph, the steps and the references; bibtex or ris: the references." },
             }),
             &["model"],
@@ -2232,7 +2225,7 @@ pub fn list_templates() -> String {
     s
 }
 
-/// The templates that match a query (in English or Portuguese), the best first; all of them, by group, without
+/// The templates that match a query , the best first; all of them, by group, without
 /// one.
 pub fn find_templates(query: Option<&str>) -> String {
     let words = query.map(crate::search::words).unwrap_or_default();

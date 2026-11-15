@@ -195,7 +195,7 @@ The assistant reads the guide of your field before it builds (the steps of a lan
 of landscape metrics, of conservation planning, of a species distribution model, each with its operators and
 templates); `check_model` and `run_model` advise it on the method as a paper's reviewer would (a simulation
 validated on the map it was calibrated on, metrics of maps in degrees...); and it finds operators and templates by
-Portuguese words too. Prompts start a workflow by name (`build_model`, `adapt_template`, `review_model`,
+what they do. Prompts start a workflow by name (`build_model`, `adapt_template`, `review_model`,
 `explain_model`, `explain_cell`: slash commands in Claude Code), and the guides, templates and operators'
 documentation are resources (`terraflux://guide/land-change`).
 
@@ -236,8 +236,8 @@ The **Document** pane reads the same graph as the methods section of a paper, fo
 than builds it: its data, preparation, model, validation and results, a step per node with its note, why and
 settings in words, map algebra's expressions linked to the nodes they read, loops with their bodies, the plots as
 numbered figures and the maps and tables of the last run. A step's name selects its node; its settings are edited
-in place. File, Export report writes it as one HTML page or a PDF, in English or in Portuguese, as does
-`terraflux report model.toml` (`-l pt`: in Portuguese).
+in place. File, Export report writes it as one HTML page or a PDF, as does
+`terraflux report model.toml`.
 **Group the model by stage** (ctrl+K) puts it in a group per stage, each with a note: a few blocks on the
 canvas, opened one at a time, and a section per stage in the document; zoomed out, a model without groups shows
 its stages framed and named. The **Parameters** pane shows the values a user is to change as a form (sliders,

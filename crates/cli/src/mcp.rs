@@ -304,7 +304,7 @@ impl Server {
         let r = &self.engine.registry;
         match name {
             "list_templates" => Ok(tools::find_templates(opt_text(a, "query"))),
-            "guide" => terraflux_app::guide::guide_in(opt_text(a, "topic"), opt_text(a, "language")),
+            "guide" => terraflux_app::guide::guide(opt_text(a, "topic")),
             "list_operators" => Ok(tools::list_operators(r, opt_text(a, "query"))),
             "describe_operator" => tools::describe_operator(r, text(a, "name")?),
             "new_model" => new_model(r, a),
@@ -920,18 +920,18 @@ mod tests {
     }
 
     #[test]
-    fn found_in_portuguese_and_advised_on_the_method() {
+    fn found_by_its_words_and_advised_on_the_method() {
         let s = Server::new(None);
-        let (t, _) = call(&s, "list_operators", json!({ "query": "densidade de bordas" }));
+        let (t, _) = call(&s, "list_operators", json!({ "query": "edge density" }));
         assert!(t.contains("metrics."), "{t}");
-        let (t, _) = call(&s, "list_operators", json!({ "query": "conectividade circuito" }));
+        let (t, _) = call(&s, "list_operators", json!({ "query": "connectivity circuit" }));
         assert!(t.contains("circuit.omniscape") && !t.contains("No operator"), "{t}");
-        let (t, _) = call(&s, "list_operators", json!({ "query": "circuitos" }));
+        let (t, _) = call(&s, "list_operators", json!({ "query": "circuits" }));
         assert!(t.contains("circuit.pairwise"), "{t}");
         // none has all the words: those with the most
         let (t, _) = call(&s, "list_operators", json!({ "query": "omniscape zzzz" }));
         assert!(t.starts_with("No operator has all of") && t.contains("circuit.omniscape"), "{t}");
-        let (t, _) = call(&s, "list_templates", json!({ "query": "validação de uma simulação" }));
+        let (t, _) = call(&s, "list_templates", json!({ "query": "validating a simulation" }));
         assert!(t.starts_with("Validating a simulation"), "{t}");
         // a land change model copied: what to do next, and advice on its method
         let dir = std::env::temp_dir().join(format!("terraflux-mcp-a-{}", std::process::id()));
@@ -1446,14 +1446,12 @@ mod tests {
         let (t, e) = call(&s, "check_model", json!({ "model": model }));
         assert!(!e && t.contains("can run"), "{t}");
         assert!(!t.contains("advice"), "a template's nodes are not asked for a why: {t}");
-        // its methods, as a paper's: in English, in Portuguese, the references as BibTeX
+        // its methods, as a paper's: the references as BibTeX
         let (t, e) = call(&s, "methods", json!({ "model": model }));
         assert!(!e && t.starts_with("Methods\n\nThe analysis was run in Terraflux") && t.contains("(t.toml)"), "{t}");
-        let (t, e) = call(&s, "methods", json!({ "model": model, "language": "pt" }));
-        assert!(!e && t.starts_with("Métodos\n\nA análise foi feita no Terraflux"), "{t}");
         let (t, e) = call(&s, "methods", json!({ "model": model, "format": "bibtex" }));
         assert!(!e && t.starts_with("@software{terraflux,"), "{t}");
-        assert!(call(&s, "methods", json!({ "model": model, "language": "fr" })).1);
+        assert!(call(&s, "methods", json!({ "model": model, "format": "docx" })).1);
         // its script of landschaft: returned, or written beside the model
         let (t, e) = call(&s, "python_script", json!({ "model": model }));
         assert!(!e && t.contains("nodes translated") && t.contains("import landschaft as ls"), "{t}");

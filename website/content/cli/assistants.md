@@ -20,12 +20,12 @@ problems found in it, and summaries of the results).
 | Tool | What it does |
 |---|---|
 | `guide` | The method of a field step by step, with its operators and templates (land change, connectivity, landscape metrics, conservation planning, species distributions, data preparation), and how a model is built; read by the assistant before it builds or reviews a model |
-| `list_templates`, `new_model` | Lists the templates (small models that run as they are), or those that match what you ask for (in English or Portuguese), and starts a model, empty or from a template; a copied template's reply says which of its nodes draw data, to be replaced by your files |
-| `list_operators`, `describe_operator` | Finds operators by what they do, in English or Portuguese words (*densidade de bordas*, *pesos de evidência*), the nearest ones when none has every word; gives an operator's inputs, outputs and settings, with an example node, advice on its use, the method and papers to cite, and the operators it usually reads and gives to in the templates. The nodes of your own and shared [libraries](/tutorials/building-models/calculator/#libraries-shared-with-your-group) are listed too, named `my:name` |
+| `list_templates`, `new_model` | Lists the templates (small models that run as they are), or those that match what you ask for, and starts a model, empty or from a template; a copied template's reply says which of its nodes draw data, to be replaced by your files |
+| `list_operators`, `describe_operator` | Finds operators by what they do, in the words you ask with (*edge density*, *weights of evidence*), the nearest ones when none has every word; gives an operator's inputs, outputs and settings, with an example node, advice on its use, the method and papers to cite, and the operators it usually reads and gives to in the templates. The nodes of your own and shared [libraries](/tutorials/building-models/calculator/#libraries-shared-with-your-group) are listed too, named `my:name` |
 | `add_node`, `edit_node`, `remove_node` | Adds a node connected and set (an operator, or a node of your libraries by its `my:name`), changes it (its connections, settings, note, name), removes it |
 | `set_input`, `set_output`, `edit_container` | The model's inputs and outputs, and what a loop or group carries, collects or gives |
 | `show_model`, `check_model`, `arrange` | Shows the model as text, checks it and its data, advises on its method (see below), and puts its nodes in tidy columns |
-| `methods` | Drafts the methods section of a paper from the model, with the papers to cite (in English or Portuguese), or its references as BibTeX or RIS |
+| `methods` | Drafts the methods section of a paper from the model, with the papers to cite, or its references as BibTeX or RIS |
 | `python_script` | Gives the model as a Python script of landschaft (each node a call of its function of the same method; calculators run in numpy; nodes with no counterpart left as comments, said which), or writes it (`out`, or `beside`: `<model>.py` beside the model) |
 | `write_calc`, `explain_calc` | Writes a calculator's script ([raster.calc, vector.calc or vector.filter](../../calculators/)), checked and tried on a sample of its inputs before the model changes, and takes a script apart: what each name holds |
 | `run_model`, `inspect_file` | Runs the model, then summarises a result: a raster's classes or statistics, a table's first lines |
@@ -204,7 +204,7 @@ with **Review**, **Accept all** and **Reject all**.
     the server's model the same 10 tasks every model gets, one after another, each in a model of its own (not the
     one open): drawing a neutral landscape and running it, a threshold in [[raster.calc]], a template changed, a
     model fixed, a node explained without changing the model, landscape metrics, a rename that keeps the
-    connections, a loop, landscape metrics asked in Portuguese, and a land change model's method reviewed (it
+    connections, a loop, and a land change model's method reviewed (it
     lacks a validation) without changing it. Each is checked on what the assistant made (the threshold cell by cell, the loop's
     last number, the model left unchanged...), with the seconds it took and the tools it called; a task can take
     minutes, and **Stop** ends the evaluation. The last score of each model is kept and shown with its server

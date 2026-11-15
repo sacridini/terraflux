@@ -27,7 +27,7 @@
    "subcommands": {}
   },
   "report": {
-   "help": "Write a model as a document: its data, preparation, model, validation and results, step by step, with the note, why and settings of each (an HTML page, or a PDF by the extension)\n\nUsage: terraflux report [OPTIONS] <MODEL>\n\nArguments:\n  <MODEL>  \n\nOptions:\n  -o, --out <OUT>            The report's file, .html or .pdf (default: the model's name and .html, next to it)\n      --threads <THREADS>    Threads to use (default and most: a quarter of the cores left free; never every core)\n      --run                  Run the model first: the maps and tables of the steps in the report\n  -l, --language <LANGUAGE>  The language: en (default) or pt [default: en]\n  -h, --help                 Print help\n",
+   "help": "Write a model as a document: its data, preparation, model, validation and results, step by step, with the note, why and settings of each (an HTML page, or a PDF by the extension)\n\nUsage: terraflux report [OPTIONS] <MODEL>\n\nArguments:\n  <MODEL>  \n\nOptions:\n  -o, --out <OUT>          The report's file, .html or .pdf (default: the model's name and .html, next to it)\n      --threads <THREADS>  Threads to use (default and most: a quarter of the cores left free; never every core)\n      --run                Run the model first: the maps and tables of the steps in the report\n  -h, --help               Print help\n",
    "subcommands": {}
   },
   "plot": {
@@ -35,7 +35,7 @@
    "subcommands": {}
   },
   "methods": {
-   "help": "Draft the methods section of a paper from a model: the methods it uses with the papers to cite, the model step by step and the references; or the references as BibTeX or RIS\n\nUsage: terraflux methods [OPTIONS] <MODEL>\n\nArguments:\n  <MODEL>  \n\nOptions:\n  -l, --language <LANGUAGE>  The language: en (default) or pt [default: en]\n      --threads <THREADS>    Threads to use (default and most: a quarter of the cores left free; never every core)\n  -f, --format <FORMAT>      text (default), bibtex or ris [default: text]\n  -o, --out <OUT>            Write it to this file instead of printing it\n  -h, --help                 Print help\n",
+   "help": "Draft the methods section of a paper from a model: the methods it uses with the papers to cite, the model step by step and the references; or the references as BibTeX or RIS\n\nUsage: terraflux methods [OPTIONS] <MODEL>\n\nArguments:\n  <MODEL>  \n\nOptions:\n  -f, --format <FORMAT>    text (default), bibtex or ris [default: text]\n      --threads <THREADS>  Threads to use (default and most: a quarter of the cores left free; never every core)\n  -o, --out <OUT>          Write it to this file instead of printing it\n  -h, --help               Print help\n",
    "subcommands": {}
   },
   "python": {
