@@ -28,6 +28,24 @@
     </ul>
   </details>
   {% endfor %}
+{% elif sidebar.kind == "grouped" %}
+  <p class="sn-title">{{ sidebar.title }}</p>
+  <ul>
+  {% for e in sidebar.entries %}
+    {% if e.page %}
+    <li><a href="{{ e.page.url }}"{% if page and e.page.url == page.url %} aria-current="page"{% endif %}>{{ e.page.meta.short or e.page.title }}</a></li>
+    {% else %}
+    {% set g = e.group %}
+    <li><details class="sn-group sn-sub"{% if page and (page.url == (g.lead.url if g.lead else "") or page.url in g.pages|map(attribute="url")) %} open{% endif %}>
+      <summary><span>{{ g.title }}</span></summary>
+      <ul>
+        {% if g.lead %}<li><a href="{{ g.lead.url }}"{% if page and g.lead.url == page.url %} aria-current="page"{% endif %}>Overview</a></li>{% endif %}
+        {% for p in g.pages %}<li><a href="{{ p.url }}"{% if page and p.url == page.url %} aria-current="page"{% endif %}>{{ p.meta.short or p.title }}</a></li>{% endfor %}
+      </ul>
+    </details></li>
+    {% endif %}
+  {% endfor %}
+  </ul>
 {% elif sidebar.kind == "section" %}
   <p class="sn-title">{{ sidebar.title }}</p>
   <ul>

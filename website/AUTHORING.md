@@ -257,11 +257,73 @@ block gives the top-level help).
 - Admonitions: `!!! tip`, `!!! note`, `!!! warning`, `!!! danger`, `!!! science "Key idea"` (concepts,
   formulas), `!!! paper "In the literature"` (how studies used it), `!!! app "In the application"` (what to
   click). Collapsible: `??? note "Title"`.
+  The types of mkdocs-material are styled too, for the pages moved from the library's docs: `abstract`, `success`,
+  `failure`, `example`, `question` (and `info`, `note`, `tip`, `warning`, `danger`), with `??? type "Title"` for the
+  collapsible ones. `--8<--` snippets are not supported: write the text in the page.
 - Tabs: `=== "Application"` / `=== "Command line"` / `=== "Model file"`, content indented 4 spaces.
 - Steps: an ordered list inside `<div class="steps" markdown>` ... `</div>` (blank lines around the list)
   renders as numbered steps with a line joining them.
 - Keys: `++ctrl+enter++`, `++f5++`. Tables, footnotes, definition lists, `==highlight==`.
 - Code blocks with a language (`toml`, `bash`, `powershell`, `python`, `text`).
+
+## The Python library's pages (`python` and `learn` sections)
+
+The library (`extern/terraflux-py`, a submodule; `git submodule update --init extern/terraflux-py`) has its docs in
+these two sections: `content/python/` (getting started, tutorials, API reference, changelog) and `content/learn/`
+(the course), plus the `*-in-python.md` pages beside the GUI tutorials.
+
+**Sidebar groups.** A section whose pages live in subfolders (`python/getting-started/x.md`, `python/api/x.md`,
+`learn/prioritization/x.md`, `learn/algorithms/x.md`) shows a heading for each subfolder, with a fold that opens
+for the page being read; the section's own pages (`python/index.md`, `python/changelog.md`) stay in the list. A
+section with no subfolder is a flat list, as before. Pages are ordered by their front matter `order:` (then by
+title). A group's heading comes from `groups:` of its section in `site.yaml` (a text, or `{ title, order }`);
+without an entry, from the title of the page at `/<section>/<subfolder>/` (its `index.md`, or `<subfolder>.md`:
+that page is listed first in the group as "Overview"), else from the folder's name. The group's place among the
+section's pages is the entry's `order`, else the lead page's `order`, else last. Previous and next follow the
+sidebar's order.
+
+**API reference, generated.** `python website/tools/refresh_python_api.py` reads the library's sources with
+griffe (nothing is imported or built; `pip install griffelib`) and writes `website/data/python_api.json`, which is
+committed (the website's workflow makes it again from the submodule and warns if it differs). Run it when the
+submodule moves. In a page, a line of its own
+
+````markdown
+::: terraflux.mspa
+````
+
+(the syntax of the old mkdocstrings pages) becomes a heading, the signature, the summary, the parameter, returns
+and raises tables, the examples as highlighted code, notes, a link to the source on GitHub at the version's tag,
+and, for a class, its public methods and properties. An unknown path fails the build. The path is the public one
+(`terraflux.mspa`, `terraflux.Landscape`, `terraflux.circuit.omniscape`...); it is also the anchor, so the object
+is at `/python/api/<page>/#terraflux.mspa`. Options, as the old pages gave them, indented under the line:
+
+````markdown
+::: terraflux.Landscape
+    options:
+      members: [patch_metrics, class_metrics]   # false: none; a list: those, in that order; default: all
+      show_root_heading: false                  # no heading (the default is a heading of level 3)
+      show_root_full_path: true                 # the heading shows terraflux.Landscape, not Landscape
+      heading_level: 2
+      show_source: false                        # no link to the source; show_signature, show_docstring too
+````
+
+Links to an object, from a page or from a docstring: `[`tf.mspa`][terraflux.mspa]` (the form mkdocs'
+autorefs gave; the target is a public path) becomes a link to the page that documents it by a `:::` line, and is
+plain text if no page does (`build.py --check` counts those). `{{pyversion}}` in a page is the library's
+version.
+
+**The changelog.** A line `{{< include extern/terraflux-py/CHANGELOG.md >}}` of its own is replaced, when the site
+is built, by that file (a path from the repository's root; its leading `# Title` line is dropped), so the library's
+repository stays the source of `content/python/changelog.md`. Without the submodule the build warns (and fails when
+the `CI` variable is set).
+
+**Checking the examples.** `python website/tools/check_python_blocks.py [pages]` runs every ```` ```python ````
+block of `content/python/**`, `content/learn/**` and `content/**/*-in-python.md` in page order, the blocks of a page
+sharing a namespace, in a temporary folder, a process per page with a time limit (`--timeout`, 600 s), and reports
+the page and the block that fails. A block that cannot run (a file the reader has, a long job) is preceded by a
+line `<!-- no-run -->`. `--list` shows the pages and their blocks; `--python` names the interpreter with the library
+installed. At most 4 threads in all (`--jobs` pages at once, default 2; the rest of the 4 goes to each page's
+OpenMP, Rayon and dask). It is not in the CI.
 
 ## Figures: made from real runs
 

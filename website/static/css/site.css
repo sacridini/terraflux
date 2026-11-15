@@ -365,9 +365,39 @@ pre.bib { margin: 0; }
 [data-theme="dark"] .admonition.science, [data-theme="dark"] .admonition.concept { background: #221d2c; border-left-color: #a88be0; }
 .admonition.paper { border-left-color: var(--ink-3); }
 .admonition.app { border-left-color: var(--node-hl); }
+/* the types of mkdocs-material, which the library's pages use (colours from the theme's variables: both themes) */
+.admonition.abstract, .admonition.summary, .admonition.tldr { border-left-color: color-mix(in srgb, var(--forest) 50%, var(--water)); background: color-mix(in srgb, color-mix(in srgb, var(--forest) 50%, var(--water)) 9%, var(--surface)); }
+.admonition.success, .admonition.check, .admonition.done { border-left-color: var(--forest); background: color-mix(in srgb, var(--forest) 8%, var(--surface)); }
+.admonition.failure, .admonition.fail, .admonition.missing, .admonition.bug { border-left-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); }
+.admonition.example { border-left-color: color-mix(in srgb, var(--water) 55%, #8a63c7); background: color-mix(in srgb, color-mix(in srgb, var(--water) 55%, #8a63c7) 8%, var(--surface)); }
+.admonition.question, .admonition.help, .admonition.faq { border-left-color: var(--ember-ink); }
+.admonition.quote, .admonition.cite { border-left-color: var(--ink-3); color: var(--ink-2); }
+.admonition.info, .admonition.todo { background: color-mix(in srgb, var(--water) 7%, var(--surface)); }
 details.admonition, .prose details:not(.tfg-code) { padding: 10px 16px; border: 1px solid var(--rule); border-radius: var(--r-m); background: var(--surface); margin: 1.2em 0; }
 .prose details > summary { cursor: pointer; font-weight: 700; }
 .prose details[open] > summary { margin-bottom: 8px; }
+
+/* the Python library's API reference (the `::: terraflux.x` directive of a page) */
+.api-obj { margin: 0 0 2.4em; }
+.api-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 8px; font: 600 13.5px var(--sans); color: var(--ink-3); }
+.api-kind { padding: 1px 8px; border: 1px solid var(--rule); border-radius: 99px; background: var(--surface-2); font-size: 11.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-2); }
+.api-path { font-weight: 400; }
+.api-bases, .api-type { font-family: var(--mono); font-weight: 400; font-size: 12.5px; }
+.api-src { margin-left: auto; font-weight: 600; }
+.api-summary { font-size: 17.5px; }
+.api-summary p { margin: 0.5em 0; }
+.api-sec { margin: 1.4em 0 0.2em; font: 700 13px var(--sans); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-3); }
+.api-obj table { font-size: 15px; }
+.api-obj td:first-child { white-space: nowrap; vertical-align: top; }
+.api-obj td code { overflow-wrap: normal; word-break: normal; }
+.api-obj td p { margin: 0 0 0.5em; }
+.api-obj td p:last-child { margin-bottom: 0; }
+.api-examples .codeblock { margin: 0.6em 0; }
+.api-adm { margin: 1.2em 0; }
+.api-member { margin: 1.8em 0 0; padding-left: 16px; border-left: 2px solid var(--rule); }
+.prose .api-mh { margin: 0 0 0.3em; font: 700 17.5px var(--mono); }
+.prose .api-mh code { font-size: inherit; background: none; padding: 0; }
+.prose .api-mh:hover .headerlink { opacity: 1; }
 
 /* tabs (pymdownx.tabbed, alternate style) */
 .tabbed-set { position: relative; display: flex; flex-wrap: wrap; margin: 1.3em 0 1.6em; border: 1px solid var(--rule); border-radius: var(--r-m); background: var(--surface); }

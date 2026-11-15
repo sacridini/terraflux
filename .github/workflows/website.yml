@@ -8,7 +8,7 @@ name: website
 on:
   push:
     branches: [main]
-    paths: ["website/**", ".github/workflows/website.yml"]
+    paths: ["website/**", ".github/workflows/website.yml", "extern/terraflux-py"]
   workflow_dispatch:
 
 permissions:
@@ -24,7 +24,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # the Python library (extern/terraflux-py, a public repository): its API reference and changelog are built into
+      # the site. .gitmodules gives it by SSH (git@github.com:); the checkout action rewrites that to https for
+      # the submodules it fetches (release.yml relies on the same), so no key or git config is needed here
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -47,6 +52,13 @@ jobs:
             } >> "$GITHUB_ENV"
           fi
       # the operators' and commands' data and the figures are committed: no Rust build is needed here
+      # the Python API reference is made again from the submodule (griffe reads the sources, nothing is built or
+      # imported); data/python_api.json is committed too, so a build without the submodule still works, and a
+      # difference here means the submodule moved without the file being refreshed
+      - name: Python API reference
+        run: |
+          python website/tools/refresh_python_api.py
+          git diff --quiet -- website/data/python_api.json || echo "::warning::website/data/python_api.json was out of date with extern/terraflux-py: run website/tools/refresh_python_api.py and commit it"
       - run: python website/build.py --clean
       - uses: actions/upload-pages-artifact@v3
         with:

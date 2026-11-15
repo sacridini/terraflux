@@ -6,7 +6,9 @@
     python website/build.py --out DIR       # another output folder
     python website/build.py --only PATH     # build only the pages under content/PATH (and the site's chrome)
 
-Needs Python 3.11+ with markdown, pymdown-extensions, jinja2, pyyaml, pygments and pillow.
+Needs Python 3.11+ with markdown, pymdown-extensions, jinja2, pyyaml, pygments and pillow (griffelib only for
+tools/refresh_python_api.py, which makes data/python_api.json). A page's `::: terraflux.x` line (lib/pyapi.py) and
+`{{< include path >}}` line are expanded here; see AUTHORING.md, "The Python library's pages".
 Every link between pages is relative, so the site works under any address (a GitHub Pages project, a domain).
 """
 
@@ -38,6 +40,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
 from lib import offline as OFFLINE  # noqa: E402
+from lib.pyapi import Api, ApiError  # noqa: E402
 from lib.tfgraph import GraphError, Renderer, esc  # noqa: E402
 
 CONTENT = HERE / "content"
@@ -66,6 +69,8 @@ OPS = {o["name"]: o for o in json.loads((DATA / "ops.json").read_text(encoding="
 CLI = json.loads((DATA / "cli.json").read_text(encoding="utf-8"))
 SUBJECTS = json.loads((DATA / "subjects.json").read_text(encoding="utf-8"))
 SITE["version"] = CLI.get("version", "0.0.0")
+# the Python library's API reference (tools/refresh_python_api.py), used by the `::: terraflux.x` directive of a page
+API = Api(DATA / "python_api.json")
 # The downloads are those of the latest release published on GitHub (TERRAFLUX_RELEASE, given by the website's
 # workflow), older than the operators' data while a new release's packages are still being built.
 # TERRAFLUX_RELEASE_FILES (its files' names, one a line) leaves out the packages it does not have (made since).
@@ -115,7 +120,7 @@ class Page:
             self.meta = yaml.safe_load(text[3:end]) or {}
             text = text[end + 4 :]
         # {{version}}: the version of Terraflux the site describes (data/cli.json), kept current at each release
-        self.body = text.replace("{{version}}", SITE["version"])
+        self.body = text.replace("{{version}}", SITE["version"]).replace("{{pyversion}}", API.version)
         parts = self.src[:-3].split("/")
         if parts[-1] == "index":
             parts = parts[:-1]
@@ -525,6 +530,157 @@ def md_config():
     }
 
 
+# ------------------------------------------------------------------------------------------------ Python API reference
+
+DOC_MD = None  # the Markdown of docstrings: one converter, reset between texts
+INCLUDE = re.compile(r"^\{\{<\s*include\s+(\S+)\s*>\}\}[ \t]*$", re.M)
+
+
+def doc_md(text: str, inline=False) -> str:
+    """A docstring's Markdown as HTML (its `[x][terraflux.y]` references linked, RST's `::` dropped)."""
+    global DOC_MD
+    if DOC_MD is None:
+        exts = ["tables", "def_list", "admonition", "sane_lists", "pymdownx.superfences", "pymdownx.highlight",
+                "pymdownx.inlinehilite", "pymdownx.arithmatex", "pymdownx.betterem"]
+        DOC_MD = markdown.Markdown(extensions=exts, extension_configs={
+            "pymdownx.highlight": {"css_class": "highlight", "guess_lang": False, "use_pygments": True},
+            "pymdownx.arithmatex": {"generic": True}})
+    text = re.sub(r"::[ \t]*$", ":", API.autorefs(text), flags=re.M)
+    DOC_MD.reset()
+    out = DOC_MD.convert(text)
+    if inline and out.count("<p>") == 1 and out.startswith("<p>") and out.endswith("</p>"):
+        out = out[3:-4]
+    return out
+
+
+def api_table(head: list[str], rows: list[list[str]]) -> str:
+    th = "".join(f"<th>{h}</th>" for h in head)
+    body = "".join("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>" for r in rows)
+    return f'<table><thead><tr>{th}</tr></thead><tbody>{body}</tbody></table>'
+
+
+def api_code(s: str) -> str:
+    return f"<code>{esc(s)}</code>" if s else ""
+
+
+def api_sections(obj: dict) -> str:
+    """The parsed docstring of an object as HTML: summary, text, tables, examples, notes."""
+    out = []
+    if obj.get("summary"):
+        out.append(f'<div class="api-summary">{doc_md(obj["summary"])}</div>')
+    for sec in obj["doc"]:
+        t = sec["t"]
+        if t == "text":
+            out.append(f'<div class="api-text">{doc_md(sec["x"])}</div>')
+        elif t in ("params", "attrs"):
+            items = sec["i"]
+            has_type = any(i[1] for i in items)
+            has_def = t == "params" and any(i[3] for i in items)
+            head = ["Name"] + (["Type"] if has_type else []) + (["Default"] if has_def else []) + ["Description"]
+            rows = []
+            for i in items:
+                # names written together in the docstring ("a, b" one description) share a row
+                if rows and i[2] and rows[-1][0] == i[2]:
+                    rows[-1][1].append(i)
+                else:
+                    rows.append((i[2], [i]))
+            rows = [[("<br>".join(api_code(x[0]) for x in g))] + (["<br>".join(api_code(x[1]) for x in g)] if has_type else [])
+                    + (["<br>".join(api_code(x[3]) or "&nbsp;" for x in g)] if has_def else [])
+                    + [doc_md(d, inline=True)] for d, g in rows]
+            out.append(f'<p class="api-sec">{esc(sec["h"])}</p>' + api_table(head, rows))
+        elif t == "prose":
+            out.append(f'<p class="api-sec">{esc(sec["h"])}</p><div class="api-text">{doc_md(sec["x"])}</div>')
+        elif t == "returns":
+            items = sec["i"]
+            has_name = any(i[0] for i in items)
+            has_desc = any(i[2] for i in items)
+            head = (["Name"] if has_name else []) + ["Type"] + (["Description"] if has_desc else [])
+            rows = [([api_code(i[0])] if has_name else []) + [api_code(i[1])] + ([doc_md(i[2], inline=True)] if has_desc else [])
+                    for i in items]
+            out.append(f'<p class="api-sec">{esc(sec["h"])}</p>' + api_table(head, rows))
+        elif t == "raises":
+            rows = [[api_code(i[0]), doc_md(i[1], inline=True)] for i in sec["i"]]
+            out.append(f'<p class="api-sec">{esc(sec["h"])}</p>' + api_table(["Type", "Description"], rows))
+        elif t == "ex":
+            parts = []
+            for kind, text in sec["i"]:
+                parts.append(doc_md(text) if kind == "t" else highlight(text, "pycon"))
+            out.append(f'<p class="api-sec">{esc(sec["h"])}</p><div class="api-examples">{"".join(parts)}</div>')
+        elif t == "adm":
+            kind = re.sub(r"[^a-z]+", "-", sec["h"].lower()).strip("-")
+            cls = {"notes": "note", "note": "note", "see-also": "info", "warnings": "warning", "references": "info",
+                   "reference": "info"}.get(kind, "note")
+            out.append(f'<div class="admonition {cls} api-adm"><p class="admonition-title">{esc(sec["h"])}</p>'
+                       f'{doc_md(sec["x"])}</div>')
+    return "".join(out)
+
+
+def api_kind(obj: dict) -> str:
+    return {"classmethod": "class method", "staticmethod": "static method"}.get(obj["kind"], obj["kind"])
+
+
+def api_source(obj: dict) -> str:
+    if not obj.get("src"):
+        return ""
+    url = f'{API.repo}/blob/v{API.version}/{obj["src"]}#L{obj["line"]}'
+    return f'<a class="api-src" href="{esc(url)}" rel="noopener">source</a>'
+
+
+def api_head(obj: dict, public: str, root: bool, show_path: bool, source: bool = True) -> str:
+    bases = ""
+    if obj.get("bases"):
+        bases = f' <span class="api-bases">({", ".join(esc(b) for b in obj["bases"])})</span>' if root else ""
+    typ = f' <span class="api-type">{esc(obj["type"])}</span>' if obj.get("type") else ""
+    path = f' <code class="api-path">{esc(public)}</code>' if show_path else ""
+    return f'<p class="api-meta"><span class="api-kind">{api_kind(obj)}</span>{path}{bases}{typ} {api_source(obj) if source else ""}</p>'
+
+
+def render_api(api: Api, public: str, canon: str, opts: dict, level: int) -> str:
+    """The reference of an object (the directive's expansion): signature, summary, tables, examples, members."""
+    obj = api.objects[canon]
+    show_sig = opts.get("show_signature", True)
+    source = opts.get("show_source", True)
+    parts = [f'<div class="api-obj api-{obj["kind"].replace(" ", "-")}">', api_head(obj, public, True, True, source)]
+    if show_sig and obj.get("sig"):
+        parts.append(highlight(obj["sig"], "python"))
+    elif obj.get("value") and show_sig:
+        parts.append(highlight(f'{obj["name"]} = {obj["value"]}', "python"))
+    if opts.get("show_docstring", True):
+        parts.append(api_sections(obj))
+    for m, tail in api.members_of(canon, opts):
+        mo = api.objects[m]
+        mp = public + tail
+        parts.append(
+            f'<div class="api-member"><h{min(level + 1, 6)} id="{esc(mp)}" class="api-mh"><code>{esc(mo["name"])}</code>'
+            f'<a class="headerlink" href="#{esc(mp)}" title="Link to this section">#</a></h{min(level + 1, 6)}>'
+            f'{api_head(mo, mp, False, False, source)}'
+            + (highlight(mo["sig"], "python") if show_sig and mo.get("sig") else "")
+            + (highlight(f'{mo["name"]} = {mo["value"]}', "python") if show_sig and mo.get("value") else "")
+            + api_sections(mo) + "</div>")
+    parts.append("</div>")
+    return "".join(parts)
+
+
+def expand_includes(text: str, page: Page) -> str:
+    """`{{< include path >}}` on a line of its own: the file (a path from the repository's root, such as
+    extern/terraflux-py/CHANGELOG.md) read at build time; its leading `# Title` line is dropped (the page has its
+    own title)."""
+
+    def rep(m):
+        rel = m.group(1)
+        p = (ROOT / rel).resolve()
+        if ROOT not in p.parents or not p.is_file():
+            msg = f"include: {rel} not found (the submodule extern/terraflux-py: git submodule update --init)"
+            if os.environ.get("CI"):
+                raise ApiError(f"{page.src}: {msg}")
+            warn(msg)
+            return f"*The text of this page is read from `{rel}` when the site is built, and it was not there.*"
+        body = p.read_text(encoding="utf-8")
+        return re.sub(r"\A\s*#[ \t][^\n]*\n", "", body)
+
+    return INCLUDE.sub(rep, text)
+
+
 FIG = re.compile(r'<p>\s*<img alt="([^"]*)" src="([^"]+)"(?: title="([^"]*)")?\s*/?>\s*</p>')
 
 
@@ -574,8 +730,11 @@ def tables(text: str) -> str:
 def render_markdown(page: Page) -> None:
     CURRENT["page"] = page
     md = markdown.Markdown(extensions=MD_EXT, extension_configs=md_config())
-    body = op_links(page.body)
-    out = md.convert(body)
+    body = expand_includes(page.body, page)
+    body = API.expand(body, page.src, render_api)
+    body = API.autorefs(body)
+    body = op_links(body)
+    out = API.fill(md.convert(body))
     out = figures(out)
     out = _wrap_code(out)
     out = tables(out)
@@ -641,14 +800,64 @@ def sidebar(page: Page, pages: list[Page], cats):
         return {"kind": "tutorials", "cats": cats}
     if page.section == "operators":
         return {"kind": "operators"}
+    title = SITE["sections"].get(page.section, {}).get("title", "")
+    entries = section_entries(page.section, pages)
+    if entries is not None:
+        return {"kind": "grouped", "title": title, "entries": entries}
     items = [p for p in pages if p.section == page.section]
     items.sort(key=lambda p: (not p.is_index, p.order, p.title))
-    return {"kind": "section", "title": SITE["sections"].get(page.section, {}).get("title", ""), "pages": items}
+    return {"kind": "section", "title": title, "pages": items}
+
+
+def group_of(p: Page) -> str | None:
+    """The subfolder of a page inside its section (content/<section>/<sub>/x.md), None for a page of the section."""
+    parts = p.src.split("/")
+    return parts[1] if len(parts) > 2 else None
+
+
+def section_entries(section: str, pages: list[Page]):
+    """The sidebar of a section whose pages live in subfolders: its own pages and a group for each subfolder, in
+    one list ordered by `order` (the section's index first). A group's heading is its title from the section's
+    `groups:` mapping in site.yaml (a text, or {title, order}), else the title of its lead page (the page at
+    /<section>/<sub>/, either <sub>/index.md or <sub>.md, listed first as "Overview"), else the folder's name; its
+    place among the pages is the mapping's `order`, else the lead page's, else last. None for a section with no
+    subfolder (then the sidebar is the flat list of its pages)."""
+    items = [p for p in pages if p.section == section]
+    subs: dict[str, list[Page]] = {}
+    for p in items:
+        if group_of(p):
+            subs.setdefault(group_of(p), []).append(p)
+    if not subs:
+        return None
+    cfg = SITE["sections"].get(section, {}).get("groups", {}) or {}
+    leads = {sub: next((p for p in items if p.url == f"/{section}/{sub}/"), None) for sub in subs}
+    entries = []
+    for p in items:
+        if not group_of(p) and p not in leads.values():
+            entries.append({"key": (not p.is_index, p.order, p.title), "page": p})
+    for sub, ps in subs.items():
+        c = cfg.get(sub)
+        lead = leads[sub]
+        title = (c if isinstance(c, str) else (c or {}).get("title")) or (lead and (lead.meta.get("short") or lead.title)) \
+            or sub.replace("-", " ").capitalize()
+        order = (c.get("order") if isinstance(c, dict) else None)
+        order = order if order is not None else (lead.order if lead else 999)
+        rest = sorted([p for p in ps if p is not lead], key=lambda p: (p.order, p.title))
+        entries.append({"key": (True, order, title), "group": {"title": title, "slug": sub, "lead": lead, "pages": rest}})
+    entries.sort(key=lambda e: e["key"])
+    return entries
 
 
 def prev_next(page: Page, pages: list[Page], cats):
     if page.section == "tutorials":
         seq = [p for c in cats for g in c["groups"] for p in g["pages"]]
+    elif (entries := section_entries(page.section, pages)) is not None:
+        seq = []
+        for e in entries:
+            if "page" in e:
+                seq.append(e["page"])
+            else:
+                seq += ([e["group"]["lead"]] if e["group"]["lead"] else []) + e["group"]["pages"]
     else:
         seq = sorted([p for p in pages if p.section == page.section], key=lambda p: (not p.is_index, p.order, p.title))
     if page not in seq:
@@ -813,6 +1022,12 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
 
     pages = collect(only)
     all_pages = pages if not only else collect(None)
+    # where each documented Python object lives, for the links to it from any page
+    API.index.clear()
+    API.documented.clear()
+    API.unresolved.clear()
+    for p in all_pages:
+        API.register(p.body, p.src, p.url)
     for p in pages:
         render_markdown(p)
     cats = tutorial_tree(all_pages)
@@ -861,6 +1076,10 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
         write(url, env.get_template("tutorials.html").render(cats=[c], root=rel_prefix(url), page=here,
                                                              heading=c["title"], lede=c["blurb"],
                                                              sidebar={"kind": "tutorials", "cats": cats}))
+    for url, anchor, canon in API.documented:
+        o = API.objects[canon]
+        plain = re.sub(r"\[`?([^\]`]*)`?\]\[[^\]]*\]", r"\1", o["summary"]).replace("`", "")
+        search.append({"u": url.lstrip("/") + "#" + anchor, "t": anchor, "s": "Python API", "h": "", "x": plain})
     opgroups = operators_pages()
     write("/operators/", env.get_template("operators_index.html").render(groups=opgroups, root=rel_prefix("/operators/"),
                                                                          page=None, total=len(OPS)))
@@ -900,6 +1119,10 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
     (out / "robots.txt").write_text(f"User-agent: *\nAllow: /\nSitemap: {base}/sitemap.xml\n", encoding="utf-8")
     if check:
         check_graphs()
+        if API.unresolved:
+            names = sorted(set(API.unresolved))
+            print(f"--check: {len(API.unresolved)} references to Python objects no page documents "
+                  f"({len(names)} objects; shown as plain code): {', '.join(names[:8])}{' ...' if len(names) > 8 else ''}")
     for w in WARNINGS:
         print("WARNING", w)
     print(f"built {len(pages)} pages, {len(opgroups)} operator pages into {out} in {time.time() - t0:.1f} s ({len(WARNINGS)} warnings)")
@@ -1012,7 +1235,10 @@ def main():
         a.clean = True
     if a.clean and a.out.exists():
         shutil.rmtree(a.out)
-    build(a.out, a.only, a.check, a.offline)
+    try:
+        build(a.out, a.only, a.check, a.offline)
+    except ApiError as e:
+        sys.exit(f"build failed: {e}")
     if a.offline:
         zipped = shutil.make_archive(str(a.out), "zip", root_dir=a.out.parent, base_dir=a.out.name)
         print(f"{zipped}: {pathlib.Path(zipped).stat().st_size / 1e6:.0f} MB")

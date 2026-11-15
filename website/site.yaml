@@ -43,15 +43,33 @@ downloads:
 # The bar at the top of every page.
 nav:
   - { title: Quickstart, url: /quickstart/ }
+  - { title: Learn, url: /learn/ }
   - { title: Tutorials, url: /tutorials/ }
   - { title: Calculators, url: /calculators/ }
   - { title: Parallel computing, url: /parallel/ }
+  - { title: Python, url: /python/ }
   - { title: CLI, url: /cli/ }
   - { title: Operators, url: /operators/ }
 
 # The sections of the documentation: a folder of content/ each, its pages ordered by their `order`.
+# A section whose pages live in subfolders (content/python/api/x.md) shows its sidebar in groups, a heading for each
+# subfolder. `groups:` names them and places them among the section's own pages (the `order` of a page): a text, or
+# { title, order }. Without an entry the heading is the title of the page at /<section>/<subfolder>/ (the folder's
+# index.md, or <subfolder>.md), else the folder's name, and its place that page's `order`, else last.
 sections:
   quickstart: { title: Quickstart, dir: quickstart }
+  python:
+    title: Python library
+    dir: python
+    groups:
+      getting-started: { title: Getting started, order: 10 }
+      api: { title: API reference, order: 90 }
+  learn:
+    title: Learn landscape ecology
+    dir: learn
+    groups:
+      prioritization: { title: Conservation priorities, order: 120 }
+      algorithms: { title: Algorithms, order: 200 }
   calculators: { title: Calculators, dir: calculators }
   parallel: { title: Parallel and distributed computing, dir: parallel }
   cli: { title: CLI reference, dir: cli }
