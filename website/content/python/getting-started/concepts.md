@@ -145,6 +145,6 @@ tf.write_raster(morph, "mspa.tif")              # with the MSPA colour table
 
 ## Large maps and many maps
 
-Everything runs in memory by default and uses all processor cores but one.
+Everything runs in memory by default and uses the processor cores less a quarter (never all of them).
 For maps larger than memory, collections of files and batch processing, see
 [configuration](/python/getting-started/configuration/) and the *big data* tutorial.
