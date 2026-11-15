@@ -1,0 +1,249 @@
+---
+title: Installation
+description: "Install the Python library with pip, in a conda environment, from source or in Docker, check the installation and fix the usual problems."
+order: 20
+---
+
+Terraflux is a Python package with a compiled C++ core, published on
+[PyPI](https://pypi.org/project/terraflux/) as binary wheels:
+
+```bash
+pip install terraflux
+```
+
+Wheels exist for CPython 3.10 to 3.14 on Windows (x86-64), macOS 11+ (Apple
+silicon and Intel) and Linux (x86-64 and ARM64, glibc 2.28+); they include the
+OpenMP runtime, so every tool runs in parallel and no compiler is needed. The
+same command installs everything every tool uses (see
+[What is installed](#what-is-installed)); `pip install -U terraflux` updates it.
+
+!!! app "In the application"
+    This page installs the Python library. The application (a window and a command line, no Python needed) has its
+    own installers: see [Installing Terraflux](/quickstart/install/).
+
+## Install with pip
+
+A virtual environment keeps Terraflux and its dependencies apart from other
+projects (rasterio then comes as a binary wheel that bundles GDAL):
+
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install terraflux
+```
+
+On a cluster, install in a virtual environment on the login node, or use the
+container image with Apptainer (`apptainer pull terraflux.sif
+docker://ghcr.io/sacridini/terraflux-py:latest`); see
+[on a cluster](/parallel/hpc-slurm-in-python/#install).
+
+## Install in a conda environment
+
+[conda](https://docs.conda.io) (or mamba) provides Python and the geospatial
+libraries as tested binaries on every platform. Install those from conda-forge
+first, then Terraflux with pip, so that pip does not replace them:
+
+```bash
+conda create -n terraflux -c conda-forge python=3.12 rasterio rioxarray geopandas
+conda activate terraflux
+pip install terraflux
+```
+
+## Build from source
+
+On other platforms, or to work on Terraflux itself, it is built from source,
+which takes two to five minutes the first time.
+
+### Requirements
+
+| | Minimum | Notes |
+|---|---|---|
+| Python | 3.10 | 3.12 recommended |
+| C++ compiler | C++17 | MSVC 2019+ (Windows), GCC 9+ (Linux), Clang 10+ (macOS) |
+| CMake | 3.20 | installed automatically by the build if missing |
+| OpenMP | optional | without it everything runs on one thread |
+| Memory | 4 GB | larger maps need more, or the out-of-core options |
+
+The Python dependencies (numpy, pandas, scipy, xarray, rasterio, rioxarray,
+pybind11, scikit-build-core) are installed by the build.
+
+### With conda (recommended)
+
+A conda environment with the dependencies and the build tools avoids most
+problems:
+
+=== "Windows"
+
+    1. Install **Miniforge** from <https://conda-forge.org/download/>.
+    2. Install the **Build Tools for Visual Studio** from
+       <https://visualstudio.microsoft.com/visual-cpp-build-tools/> and tick
+       *Desktop development with C++*.
+    3. Open the *Miniforge Prompt* and run:
+
+    ```bat
+    conda create -n terraflux -c conda-forge python=3.12 numpy pandas scipy rasterio rioxarray xarray ^
+          dask geopandas pyarrow openpyxl matplotlib folium plotly xyzservices pillow contextily pywebview h3-py dendropy ^
+          scikit-build-core pybind11 "cmake>=4.2"
+    conda activate terraflux
+    git clone https://github.com/sacridini/terraflux-py.git
+    cd terraflux
+    pip install --no-build-isolation -e .
+    ```
+
+    On Windows the core is always built with Visual Studio's compiler (MSVC),
+    whatever else is on `PATH`: CMake 4.2 or newer finds the installed Visual
+    Studio by itself (a plain `pip install -e .`, without
+    `--no-build-isolation`, fetches it). Another compiler, such as a MinGW gcc,
+    stops the build with a message.
+
+=== "macOS"
+
+    1. Install the command-line tools: `xcode-select --install`.
+    2. Install **Miniforge** from <https://conda-forge.org/download/>.
+    3. In a terminal:
+
+    ```bash
+    conda create -n terraflux -c conda-forge python=3.12 numpy pandas scipy rasterio rioxarray xarray \
+          dask geopandas pyarrow openpyxl matplotlib folium plotly xyzservices pillow contextily pywebview h3-py dendropy \
+          scikit-build-core pybind11 cmake ninja llvm-openmp
+    conda activate terraflux
+    git clone https://github.com/sacridini/terraflux-py.git
+    cd terraflux
+    pip install --no-build-isolation -e .
+    ```
+
+    `llvm-openmp` gives Apple's compiler the OpenMP runtime it lacks; without
+    it Terraflux builds and runs, single-threaded. The build takes the
+    runtime of the conda environment it installs into, else Homebrew's
+    `libomp` (`brew install libomp`), whatever CMake it runs with.
+
+=== "Linux"
+
+    1. Install a compiler: `sudo apt install build-essential` (Debian,
+       Ubuntu) or `sudo dnf install gcc-c++` (Fedora).
+    2. Install **Miniforge** from <https://conda-forge.org/download/>.
+    3. In a terminal:
+
+    ```bash
+    conda create -n terraflux -c conda-forge python=3.12 numpy pandas scipy rasterio rioxarray xarray \
+          dask geopandas pyarrow openpyxl matplotlib folium plotly xyzservices pillow contextily pywebview h3-py dendropy \
+          scikit-build-core pybind11 cmake ninja
+    conda activate terraflux
+    git clone https://github.com/sacridini/terraflux-py.git
+    cd terraflux
+    pip install --no-build-isolation -e .
+    ```
+
+The `-e` (editable) flag makes `git pull` followed by the same `pip install`
+line enough to update; the C++ core is rebuilt only where it changed.
+
+### With pip only
+
+With a system Python and a compiler already installed, pip builds the latest
+code of the repository, or the source distribution of a release:
+
+```bash
+pip install "terraflux @ git+https://github.com/sacridini/terraflux-py.git"
+pip install --no-binary terraflux terraflux
+```
+
+## Run with Docker
+
+The repository has a `Dockerfile` that builds Terraflux and everything it
+uses in a Linux image, so the host needs neither a compiler nor Python, only
+[Docker](https://docs.docker.com/get-docker/):
+
+```bash
+git clone https://github.com/sacridini/terraflux-py.git
+cd terraflux
+docker build -t terraflux .
+```
+
+The container works in `/data`; mount the folder with your maps and scripts
+there:
+
+```bash
+docker run --rm -it -v "$PWD:/data" terraflux                 # Python shell
+docker run --rm -v "$PWD:/data" terraflux python analysis.py  # run a script
+```
+
+In PowerShell write `${PWD}` instead of `$PWD`. Outputs written with relative
+paths land in the mounted folder. Other options:
+
+| Command | Effect |
+|---|---|
+| `docker build --build-arg PYTHON_VERSION=3.11 -t terraflux .` | another Python version |
+| `docker build --target test -t terraflux:test .` then `docker run --rm terraflux:test` | run the test suite in the container |
+| `docker run --cpuset-cpus 0-7 ...` | limit the cores; Terraflux then uses all of them but one |
+
+## What is installed
+
+`pip install` installs everything every tool uses: dask (lazy and parallel
+processing), geopandas and pyarrow (vectors, Parquet), openpyxl (Excel),
+matplotlib, folium, plotly, Pillow and contextily (`tf.plot` and the figures),
+pywebview (`tf.plot` in a window of its own), h3 and dendropy (biodiversity
+analysis). There are no optional features to choose. Two extras are for
+developing Terraflux:
+
+| Extra | Packages | Needed for |
+|---|---|---|
+| `docs` | mkdocs-material, mkdocstrings | building this website |
+| `test` | pytest | running the test suite |
+
+## Check the installation
+
+```python
+import terraflux as tf
+
+print(tf.__version__)        # the installed version
+print(tf.max_threads())      # processors the C++ core can use
+print(tf.default_threads())  # threads used by default: all of them but one
+
+forest = tf.load_raster(tf.example_data("input"))
+print(tf.mspa_stats(tf.mspa(forest)))
+```
+
+If the last line prints a table of MSPA classes, everything works. To run the
+whole test suite (about four minutes):
+
+```bash
+pip install -e ".[test]"
+pytest
+```
+
+## The C++ libraries without Python
+
+Native programs can link Terraflux's C++ core directly (as
+[Terraflux](https://github.com/sacridini/terraflux) does for `tf.simulate`'s
+models). `TERRAFLUX_PYTHON=OFF` builds and installs only the static libraries
+and their headers, without Python, pybind11 or the MILP solver:
+
+```bash
+cmake -S . -B build/native -DTERRAFLUX_PYTHON=OFF -DCMAKE_INSTALL_PREFIX=dist/native
+cmake --build build/native --config Release --target install --parallel
+```
+
+## Troubleshooting
+
+??? question "`pip install` fails with *no C++ compiler found* / *CMAKE_CXX_COMPILER not set*"
+    pip found no wheel for this platform or Python version and builds from
+    source (check that the Python is 64-bit and 3.10 to 3.14). The build
+    needs a C++17 compiler: the *Desktop development with C++* workload of the
+    Visual Studio Build Tools on Windows, `xcode-select --install` on macOS,
+    `build-essential` or `gcc-c++` on Linux.
+
+??? question "`tf.max_threads()` returns 1"
+    The wheels always have OpenMP; a core built from source may not. On
+    macOS install `llvm-openmp` (conda) or `libomp` (Homebrew) and reinstall;
+    with GCC and MSVC OpenMP is always available. For a runtime elsewhere, point the build at it:
+    `pip install -Ccmake.define.OpenMP_ROOT=/path/to/libomp --no-build-isolation -e .`
+    (the folder with `include/omp.h` and `lib/libomp.dylib`).
+
+??? question "`ImportError: DLL load failed` / `rasterio` cannot find GDAL"
+    Mixing conda packages and pip wheels of GDAL-based libraries breaks them.
+    Create a fresh conda environment with the command above and install
+    rasterio, rioxarray and geopandas from conda-forge only.
+
+??? question "The build uses too much memory or is slow"
+    Pass `-Cbuild-dir=build` to `pip install` to keep the build directory:
+    later installs only recompile what changed.

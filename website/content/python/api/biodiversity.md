@@ -1,0 +1,168 @@
+---
+title: Biodiversity analysis
+description: "Species counts per cell, phylogenies and dissimilarity matrices (Biodiverse)."
+order: 160
+---
+
+Species (labels) counted in groups (grid cells, sites or other units): the
+data behind analyses of diversity, endemism and phylogenetic patterns. They
+live in the `tf.bio` module, a port of Biodiverse (Laffan, Lubarsky and
+Rosauer 2010).
+
+Reading data gives the same groups, labels and sample counts as Biodiverse
+with the same settings: coordinates are snapped to the cell grid the same
+way and groups and labels get the same names (coordinates or name parts joined
+with `:`), so results can be compared one to one. The
+[biodiversity tutorial](/tutorials/biodiversity/biodiversity-in-python/) walks through a complete
+study.
+
+<!-- no-run -->
+```python
+import terraflux as tf
+
+bd = tf.bio.BaseData.from_table("sites.csv", group_columns=["x", "y"],
+                                label_columns=["genus", "species"],
+                                cell_sizes=[100000, 100000])
+tree = tf.bio.read_tree("tree.nex")
+bd.to_raster(bd.group_richness)       # species richness map
+
+# a GBIF download, in 50 km cells of an equal-area projection
+bd = tf.bio.BaseData.from_occurrences("0012345-260928.zip", [50_000, 50_000],
+                                      to_crs="EPSG:6933", max_uncertainty=10_000)
+# a stack of species distribution models, presence above 0.5
+bd = tf.bio.BaseData.from_raster("sdm_stack.tif", threshold=0.5)
+```
+
+## Sample counts per group
+
+::: terraflux.bio.BaseData
+
+::: terraflux.bio.snap_coordinates
+
+::: terraflux.bio.example_data
+
+## Occurrence records
+
+GBIF downloads (the "simple CSV" zip) and Darwin Core Archives are read in
+chunks and cleaned (absences, missing coordinates, uncertainty, basis of
+record, GBIF issues, duplicates) before they become sample counts per cell
+with `BaseData.from_occurrences`.
+
+::: terraflux.bio.read_occurrences
+
+## Neighbourhoods
+
+Spatial conditions are written as in Biodiverse, in its Perl syntax:
+`sp_circle (radius => 200000)`, `sp_block (size => 500000)`,
+`$D <= 3 && $nbr_y > $y`, `sp_match_text (text => 'wet', axis => 2)`... They
+select the neighbours of each processing group (up to two sets, the second
+leaving out the first), optionally only for the groups passing a definition
+query. The neighbour lists are the ones Biodiverse uses, including its reuse
+of lists between groups for non-overlapping conditions.
+
+::: terraflux.bio.neighbours
+
+::: terraflux.bio.definition_query
+
+::: terraflux.bio.SpatialCondition
+
+::: terraflux.bio.Neighbourhoods
+
+## Spatial analysis
+
+Indices computed over the neighbourhood of every group, as in Biodiverse's
+spatial analysis: richness, endemism (weighted, corrected, absolute,
+hierarchical), rarity, taxonomic turnover (Sorenson, Jaccard, Bray-Curtis,
+Kulczynski, S2, beta diversity, nestedness, range-weighted turnover),
+Simpson and Shannon diversity, Rao's quadratic entropy, richness estimators
+(Chao1, Chao2, ACE, ICE, Hurlbert's rarefaction) and label and sample count
+summaries. With a tree (`tree=`): phylogenetic diversity (PD, local PD,
+terminal lists), phylogenetic endemism (PE, central, single, lists, PD
+endemism, corrected weighted endemism), clade contributions and losses,
+evolutionary distinctiveness (ES, ED, AED, AED-T, corrected weighted rarity),
+phylogenetic abundance, phylogenetic turnover (Sorenson, Jaccard, S2,
+range-weighted), relative PD and PE (RPD, RPE, against trees with equalised
+branch lengths), RWiBaLD and the PhyloCom indices (MPD, MNTD, NRI, NTI, net
+VPD, with the exact expected values of Tsirogiannis et al. or, where
+Biodiverse samples random sets of tips, its Mersenne Twister draws: pass
+`prng_seed`). With label or group properties: their values, frequencies,
+summary statistics, quantiles and Getis-Ord Gi* (also weighted by local
+ranges); with numeric labels: their statistics, quantiles, harmonic and
+geometric means, dissimilarity between neighbour sets, Gi* and the
+inter-event interval statistics of BiodiverseX (`iei_stats`, `iei_data`: the
+intervals between the numeric labels of each group); with a label
+matrix (`matrix=`): matrix statistics, Rao's quadratic entropy and the
+comparison of two neighbour sets. Values are identical to Biodiverse's.
+`SpatialResult.to_biodiverse_csv` writes the results as Biodiverse's
+"Delimited text" export does, the same text byte for byte.
+
+::: terraflux.bio.spatial_analysis
+
+::: terraflux.bio.list_calculations
+
+::: terraflux.bio.SpatialResult
+
+## Randomisations
+
+The basedata is randomised and the analysis run again with the same
+neighbourhoods; per group and index, the comparisons give p-ranks, z-scores
+and, with PE and RPE, the CANAPE categories. The randomisations follow
+Biodiverse's (its Mersenne Twister, seeded with `seed`), so the same seed
+gives Biodiverse's results.
+
+::: terraflux.bio.randomise
+
+::: terraflux.bio.Randomisation
+
+## Cluster analyses
+
+Groups joined into a dendrogram by the dissimilarity of their labels
+(`cluster`) or grown into regions that maximise an index (`region_grower`),
+as Biodiverse does, including its tie handling (seeded by `prng_seed`),
+spatially constrained clustering and the indices of each node's groups.
+`ClusterResult.cut` splits the dendrogram into a number of clusters.
+
+::: terraflux.bio.cluster
+
+::: terraflux.bio.region_grower
+
+::: terraflux.bio.ClusterResult
+
+## Phylogenies
+
+::: terraflux.bio.Tree
+
+::: terraflux.bio.read_tree
+
+::: terraflux.bio.read_trees
+
+## Dissimilarity matrices
+
+::: terraflux.bio.Matrix
+
+::: terraflux.bio.read_matrix
+
+## Grids and files
+
+Records can be aggregated into hexagons (`BaseData.from_hex`) or H3 cells
+(`BaseData.from_h3`, needs `h3`); cells are drawn as hexagons by
+`BaseData.to_geodataframe`. Basedatas are saved with `BaseData.save` and
+whole studies (basedatas, trees, matrices and results) with `save_session`,
+as zips of Parquet tables. Trees convert to and from Bio.Phylo, DendroPy and
+ete (`Tree.from_biopython`, `Tree.to_dendropy`...).
+
+::: terraflux.bio.hex_centres
+
+::: terraflux.bio.h3_cells
+
+::: terraflux.bio.save_session
+
+::: terraflux.bio.load_session
+
+## Element properties
+
+Label and group properties (Biodiverse's element properties files) are
+assigned with `BaseData.set_label_properties` and
+`BaseData.set_group_properties`.
+
+::: terraflux.bio.read_properties

@@ -31,7 +31,7 @@ To keep one for good, add it to your shell's profile, or on Windows to the user'
 
 | Variable | What it does |
 |---|---|
-| `TERRAFLUX_THREADS` | The threads every command may use, as `--threads` (by default all the cores but one). Terraflux's own tasks, terraflux-py's OpenMP kernels and the workers of a local batch share them. |
+| `TERRAFLUX_THREADS` | The threads every command may use, as `--threads` (by default, and at most, the cores less a quarter: 15 of 20, 6 of 8, 3 of 4). Terraflux's own tasks, the Python library's OpenMP kernels and the workers of a local batch share them. |
 | `TERRAFLUX_GDAL` | The GDAL library to load. By default Terraflux loads the `gdal` folder next to the program (the installers bring it), then an installed GDAL. Without any, GeoTIFF is still read and written by Terraflux itself. |
 | `TERRAFLUX_CACHE` | Where Terraflux's caches are kept: the rasters the preparation operators make without a `path` (`prepare`), the data downloaded (`data`, and the reference data of species distribution models). By default the system's cache folder. |
 | `TERRAFLUX_CACHE_GB` | The size, in gigabytes, each cache (`prepare`, `data`, a worker's data) is held under, the least recently used removed first (10 by default; 0 for no limit). In the application, **Settings > Performance > Cache**. |

@@ -40,7 +40,18 @@ work in notebooks. A model fitted in Python runs in Terraflux unchanged, and the
 
 Terraflux is free software under the **GNU General Public License, version 3 or later** (GPL-3.0-or-later). You
 may use it for any purpose, study and change its source code, and share it, changed or not, under the same
-license.
+license. The full text is the [LICENSE](https://github.com/sacridini/terraflux/blob/main/LICENSE) file of the
+repository.
+
+The [Python library](/python/) is under the same license, GPL-3.0-or-later, and comes without any warranty, as the
+license says; its [LICENSE](https://github.com/sacridini/terraflux-py/blob/main/LICENSE) is in its repository. The
+methods it implements come from published research and open-source tools (GuidosToolbox, landscapemetrics,
+Conefor Sensinode, Makurhini, Circuitscape, Omniscape, and the others named on its pages), whose licenses are
+compatible with the GPL. Its C++ core uses [Eigen](https://eigen.tuxfamily.org) (MPL-2.0) and
+[pybind11](https://github.com/pybind/pybind11) (BSD). It ports code from GuidosToolbox and miallib, (c) European
+Union (Joint Research Centre), authors Pierre Soille, Peter Vogt et al., both GPL-3.0-or-later; the example maps
+in the library come from the [GTB repository](https://github.com/ec-jrc/GTB). GuidosToolbox's `mspa` notes that its
+interface is made available for non-commercial purposes: contact the JRC for commercial use of MSPA.
 
 ## Taking part
 
