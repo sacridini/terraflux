@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.52.0] - 2026-11-15
+
 ### Added
 - **Colour vision in the charts, and a warning for classes that look alike**: View > Colour vision now draws the charts too (the table viewer's charts, the area of the classes along the steps, series, calibration, profiles, weights of evidence, sensitivity charts, the gain and loss bars), not only maps and legends. A legend of classes warns when two colours are closer than 10 (CIEDE2000) to normal vision or to the vision chosen ("forest and pasture look alike for deuteranopia"), with a button for colour-blind safe colours (Okabe and Ito's, also in Colours as "colour-blind safe classes"); worked out only when the colours or the vision change. Tests: `cargo test -p terraflux-app --test vision` (a chart drawn in both visions, pictures in `target/tmp`).
 - **Export to QGIS into one GeoPackage**: a choice in the window, *Layers: one GeoPackage* (the default stays the folder of files): every vector layer a table and every map a raster table (whole numbers as 16-bit tiles, other values as Float32 tiles, the missing cells and the coordinate system kept) of a single `<project>.gpkg`, the `.qgz` (or `.qgs`) pointing into it (`GPKG:./file.gpkg:table`, `./file.gpkg|layername=table`) with the same colours and legends. Off, with the reason, when GDAL has no GeoPackage driver.
