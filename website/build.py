@@ -348,7 +348,7 @@ def chart_html(spec: dict, linked=False) -> str:
     cfg = {
         "type": spec.get("type", "line"),
         "x": spec.get("x", list(rows[0].keys())[0]),
-        "y": ys or [k for k in rows[0].keys() if k != spec.get("x")],
+        "y": ys or [k for k in rows[0].keys() if k not in (spec.get("x"), spec.get("color_by"))],
         "colors": spec.get("colors", {}),
         "labels": spec.get("labels", {}),
         "xlabel": spec.get("xlabel", ""),
@@ -363,10 +363,73 @@ def chart_html(spec: dict, linked=False) -> str:
         "ylog": spec.get("ylog", False),
         "series": spec.get("series"),
     }
+    # benchmark options (horizontal bars, log value axis, reference line, dot plot, colour by a column)
+    kind = cfg["type"]
+    if kind not in ("line", "area", "bar", "scatter", "dot"):
+        warn(f"tfchart: type {kind!r} is not line, area, bar, scatter or dot")
+    for k in ("horizontal", "log", "labels_at_end"):
+        if spec.get(k):
+            cfg[k] = True
+    for k in ("format", "color_by", "min", "max", "digits"):
+        if spec.get(k) is not None:
+            cfg[k] = spec[k]
+    if spec.get("ylog"):
+        cfg["log"] = True
+    rule = spec.get("rule")
+    if rule is not None:
+        if isinstance(rule, dict) and isinstance(rule.get("value"), (int, float)):
+            cfg["rule"] = {"value": rule["value"], "label": str(rule.get("label", ""))}
+        else:
+            warn("tfchart: rule needs a value (rule: { value: 1, label: same speed })")
+    if cfg.get("log"):
+        nums = [r[k] for r in rows for k in cfg["y"] if isinstance(r.get(k), float)]
+        if any(v <= 0 for v in nums):
+            warn("tfchart: log axis with values <= 0")
+    if cfg.get("color_by"):
+        if cfg["color_by"] not in rows[0]:
+            warn(f"tfchart: color_by column {cfg['color_by']!r} not in the data")
+        elif len({r.get(cfg["color_by"]) for r in rows}) > 5:
+            warn("tfchart: color_by has more than 5 groups (the categorical palette has 5 validated slots)")
     title = f'<div class="ch-title">{esc(cfg["title"])}</div>' if cfg["title"] else ""
+    data = "" if linked or spec.get("data_table") is False else chart_data_html(cfg, rows)
     return (
         f'<div class="tf-chart" data-chart=\'{esc(json.dumps(cfg))}\'>{title}<div class="ch-plot" role="img" '
-        f'aria-label="{esc(cfg["title"] or "chart")}"></div><div class="ch-legend"></div></div>'
+        f'aria-label="{esc(cfg["title"] or "chart")}"></div><div class="ch-legend"></div>{data}</div>'
+    )
+
+
+def num_txt(v: float, digits: int | None = None) -> str:
+    """A number as the tables show it: grouped thousands, `digits` decimals if given, else about three digits."""
+    if digits is not None:
+        return f"{v:,.{digits}f}"
+    if v == int(v) and abs(v) < 1e15:
+        return f"{int(v):,}"
+    d = 0 if abs(v) >= 1000 else 1 if abs(v) >= 100 else 2 if abs(v) >= 10 else 3
+    return f"{v:,.{d}f}".rstrip("0").rstrip(".")
+
+
+def chart_data_html(cfg: dict, rows: list[dict]) -> str:
+    """The chart's numbers as a table under a 'Show the data' toggle (a chart is never the only way to read a value)."""
+    labels = cfg["labels"]
+    xk = cfg["x"]
+    cols = [xk] + ([cfg["color_by"]] if cfg.get("color_by") in rows[0] else []) + [k for k in cfg["y"] if k != xk]
+    fmt_s = cfg.get("format") or ("{v}%" if cfg.get("percent") else "{v}")
+    head = "".join(f"<th scope=\"col\">{esc(labels.get(c, cfg['xlabel'] if c == xk and cfg['xlabel'] else c))}</th>" for c in cols)
+    body = []
+    for r in rows:
+        cells = []
+        for c in cols:
+            v = r.get(c, "")
+            if isinstance(v, float) and c == xk:
+                cells.append(f'<td class="num">{esc(f"{v:g}")}</td>')
+            elif isinstance(v, float):
+                cells.append(f'<td class="num">{esc(fmt_s.replace("{v}", num_txt(v, cfg.get("digits"))))}</td>')
+            else:
+                cells.append(f"<td>{esc(v)}</td>")
+        body.append("<tr>" + "".join(cells) + "</tr>")
+    return (
+        '<details class="ch-data"><summary>Show the data</summary><div class="table-wrap"><table>'
+        f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div></details>"
     )
 
 
@@ -400,34 +463,84 @@ def fence_gallery(source, language, class_name, options, md, **kwargs):
 
 def fence_table(source, language, class_name, options, md, **kwargs):
     """A table from a CSV (`data:` a file under static/, or `csv: |` inline): `columns` picks and orders them,
-    `labels` renames them, `digits` rounds numbers, `heat: true` shades numeric cells by value (a matrix)."""
+    `labels` renames them, `digits` rounds numbers (one number, or one per column), `format` gives a column's text
+    (`{v}×`), `align` aligns a column, `badge` turns a column's values into status pills (the text stays), `heat: true`
+    shades numeric cells by value (a matrix) and `sortable: true` sorts by a click on a header."""
     s = spec_of(source, "tftable")
     rows = read_table(s)
     if not rows:
         warn("tftable without rows")
         return ""
     cols = s.get("columns") or list(rows[0].keys())
+    for c in cols:
+        if c not in rows[0]:
+            warn(f"tftable: column {c!r} not in the data")
     labels = s.get("labels", {})
     digits = s.get("digits", 3)
+    dmap = digits if isinstance(digits, dict) else {}
+    dflt = dmap.get("default", 3) if isinstance(digits, dict) else digits
+    fmts = s.get("format") or {}
+    aligns = s.get("align") or {}
+    if isinstance(aligns, str):
+        aligns = {c: aligns for c in cols[1:]}
+    badges = s.get("badge") or {}
+    tones = {"good": "good", "warning": "warning", "bad": "bad", "danger": "bad", "info": "info", "neutral": "info"}
+    glyph = {"good": "✓", "warning": "!", "bad": "✕", "info": ""}
+    sortable = bool(s.get("sortable"))
     nums = [r[c] for r in rows for c in cols[1:] if isinstance(r.get(c), float)]
     lo, hi = (min(nums), max(nums)) if nums else (0, 1)
 
-    def cell(v, first):
+    def cell(v, c, first):
+        al = aligns.get(c)
+        if al is not None and al not in ("left", "center", "right"):
+            warn(f"tftable: align {al!r} is not left, center or right")
+            al = None
+        bmap = badges.get(c)
+        if bmap and str(v) in {str(k) for k in bmap}:
+            tone = next(tones.get(str(t), "info") for k, t in bmap.items() if str(k) == str(v))
+            g = glyph[tone]
+            pill = f'<span class="pill pill-{tone}">' + (f'<span aria-hidden="true">{g}</span> ' if g else "") + f"{esc(v)}</span>"
+            cls = f' class="a-{al}"' if al else ""
+            return f'<td{cls} data-v="{esc(str(v).lower())}">{pill}</td>'
         if isinstance(v, float):
-            txt = f"{int(v):,}" if v == int(v) and abs(v) < 1e15 else f"{v:,.{digits}f}".rstrip("0").rstrip(".")
+            if c in dmap:
+                txt = f"{v:,.{dmap[c]}f}"
+            else:
+                txt = f"{int(v):,}" if v == int(v) and abs(v) < 1e15 else f"{v:,.{dflt}f}".rstrip("0").rstrip(".")
+            if c in fmts:
+                txt = str(fmts[c]).replace("{v}", txt)
             style = ""
             if s.get("heat") and not first and hi > lo:
                 t = (v - lo) / (hi - lo)
                 style = f' style="background: color-mix(in srgb, var(--forest) {round(t * 55)}%, transparent)"'
-            return f'<td class="num"{style}>{esc(txt)}</td>'
-        return f"<td>{esc(v)}</td>"
+            cls = "num" + (f" a-{al}" if al else "")
+            return f'<td class="{cls}" data-v="{v}"{style}>{esc(txt)}</td>'
+        cls = f' class="a-{al}"' if al else ""
+        return f'<td{cls} data-v="{esc(str(v).lower())}">{esc(v)}</td>'
 
-    head = "".join(f"<th>{esc(labels.get(c, c))}</th>" for c in cols)
-    body = "".join("<tr>" + "".join(cell(r.get(c, ""), i == 0) for i, c in enumerate(cols)) + "</tr>" for r in rows)
+    def th(c):
+        al = aligns.get(c)
+        if al is None and any(isinstance(r.get(c), float) for r in rows) and c != cols[0]:
+            al = "right"
+        cls = f' class="a-{al}"' if al in ("left", "center", "right") else ""
+        t = esc(labels.get(c, c))
+        if sortable:
+            return f'<th scope="col"{cls} aria-sort="none"><button type="button" class="th-sort">{t}<span class="sort-ind" aria-hidden="true"></span></button></th>'
+        return f'<th scope="col"{cls}>{t}</th>'
+
+    head = "".join(th(c) for c in cols)
+    body = "".join(
+        f'<tr data-i="{n}">' + "".join(cell(r.get(c, ""), c, i == 0) for i, c in enumerate(cols)) + "</tr>"
+        for n, r in enumerate(rows)
+    )
     cap = s.get("caption", "")
+    cid = "tt-" + hashlib.sha1(source.encode("utf-8")).hexdigest()[:8]
+    label = f' aria-labelledby="{cid}"' if cap else ""
     return (
-        f'<figure class="tf-table"><div class="table-wrap"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody>'
-        f"</table></div>" + (f"<figcaption>{md_inline(cap)}</figcaption>" if cap else "") + "</figure>"
+        f'<figure class="tf-table{" is-sortable" if sortable else ""}"><div class="table-wrap"><table{label}><thead><tr>{head}</tr></thead>'
+        f"<tbody>{body}</tbody></table></div>"
+        + (f'<figcaption id="{cid}">{md_inline(cap)}</figcaption>' if cap else "")
+        + "</figure>"
     )
 
 

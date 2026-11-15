@@ -190,7 +190,7 @@ Hover shows the values, the legend toggles series. Data from a CSV in `website/s
 `csv: |`).
 
 ```yaml
-type: line            # line | area | bar | scatter
+type: line            # line | area | bar | scatter | dot
 data: /data/tutorials/landscape-metrics/window/curve.csv
 x: window
 y: [shdi, ed]
@@ -219,6 +219,87 @@ caption: Cells that went from each class (rows) to each class (columns), 1997 to
 ```
 
 `tfchart` also takes `xlog: true` for a logarithmic x axis (numbers of draws, distances, areas).
+
+Every chart (but the one beside a slider) has a **Show the data** toggle under it: the chart's numbers as a table, in
+the same format. `data_table: false` leaves it out.
+
+#### Benchmark charts: speed-ups, timings
+
+For the benchmarks section (speed-ups from about 1.2x to 1000x, seconds, accuracy). These options come with their own
+palette, five slots in a fixed order and never cycled (light and dark steps, validated: forest, ember, water, red,
+violet; `colors: { key: "#hex" }` still overrides one).
+
+| Option | What it does |
+|---|---|
+| `horizontal: true` | With `type: bar`: the categories (column `x`) down the left, in the CSV order, the values along x. A long label is cut with an ellipsis (the whole text in the tooltip); on a narrow screen it goes above its bar. The height follows the number of rows (`height` is ignored). `xlabel` titles the value axis. |
+| `log: true` | A logarithmic value axis (y for vertical charts, x for horizontal and dot). Ticks at 1, 10, 100, 1000 with faint minor lines at 2 to 9. Bars start at the axis minimum, 1 by default (or the decade below the smallest value if that is under 1), or `min:`; `max:` sets the top. `ylog` is an alias; `xlog` is still the x axis of a line or scatter. |
+| `format: "{v}×"` | How a value reads, on the ticks, tooltips, labels and the data table (`"{v} s"`, `"{v}%"`). Only `format` exists (no `suffix`). `digits: 1` fixes the decimals. |
+| `rule: { value: 1, label: same speed }` | A thin dashed line across the plot at that value, with a small label. |
+| several `y` series | Grouped bars, 2 or 3 per category, a 2 px surface gap between them and a legend (click to hide a series). Put Terraflux first: it takes the forest green. |
+| `labels_at_end: true` | The value at the end of each bar (for `dot`: of the last series, right of the row's rightmost dot), in text ink and in the `format`. |
+| `type: dot` | A dot plot: one 10 px marker per category and series, with a thin segment between the series of a row (reference against Terraflux). Use it with `log: true`. |
+| `color_by: domain` | With one series: colours the bars by a column's values, one palette slot per group in the order they first appear (five at most; more gives a warning), with a legend to hide a group. |
+
+```yaml
+type: bar
+horizontal: true
+log: true
+format: "{v}×"
+rule: { value: 1, label: same speed }
+labels_at_end: true
+color_by: domain
+x: case
+y: [speedup]
+labels: { speedup: Speed-up }
+xlabel: Times faster than the reference
+csv: |
+  case,speedup,domain
+  "MSPA, CORINE 2000²",12,Fragmentation
+  Cost distance,420,Distance
+  Random walk,85,Connectivity
+```
+
+```yaml
+type: dot
+log: true
+format: "{v} s"
+x: case
+y: [terraflux_s, reference_s]
+labels: { terraflux_s: Terraflux, reference_s: Reference tool }
+labels_at_end: true
+csv: |
+  case,terraflux_s,reference_s
+  MSPA,0.9,41
+  Random walk,12,1200
+```
+
+Every row takes the pointer or the keyboard focus (Tab), and shows the tooltip; the other rows dim. The charts redraw
+on a theme switch and on a resize.
+
+`tftable` options for the same section:
+
+| Option | What it does |
+|---|---|
+| `align: { case: left, speedup: right }` | Aligns a column (`left`, `center`, `right`); a single word aligns all columns but the first. Numbers are right-aligned by default. |
+| `digits: { speedup: 1, reference_s: 2 }` | Decimals per column, always shown (`17.0`); `default` sets the others. A single number (as before) keeps whole numbers plain. |
+| `format: { speedup: "{v}×" }` | The text of a numeric column (`{v}` is the number). |
+| `sortable: true` | A click on a header sorts by it (ascending, descending, the CSV order again); the headers are buttons (Tab, Enter or Space) and `aria-sort` follows. |
+| `badge: { result: { identical: good, differs: warning } }` | Turns the listed values of a column into small pills: `good`, `warning`, `bad` or `info`. A pill always carries the text (and a mark: check, !, cross), never the colour alone. |
+| `caption` | The line under the table (Markdown); the table is labelled by it. |
+
+```yaml
+sortable: true
+align: { case: left }
+digits: { speedup: 1, reference_s: 2 }
+format: { speedup: "{v}×" }
+badge:
+  result: { identical: good, "within 1e-9": good, differs: warning }
+caption: Speed and accuracy against the reference.
+csv: |
+  case,speedup,reference_s,result
+  MSPA,12,41,identical
+  Cost distance,420,310.5,within 1e-9
+```
 
 ### Calculator playgrounds: ```tfcalc
 
