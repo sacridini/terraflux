@@ -3771,15 +3771,19 @@ impl TerrafluxApp {
             }
             egui::Grid::new("settings").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
                 ui.label("Theme");
-                egui::ComboBox::from_id_salt("theme").selected_text(st.theme.clone()).width(180.0).show_ui(ui, |ui| {
-                    for t in &theme::THEMES {
-                        ui.horizontal(|ui| {
-                            for c in [t.panel, t.canvas, t.accent] {
-                                let (r, _) = ui.allocate_exact_size(Vec2::new(10.0, 14.0), egui::Sense::hover());
-                                ui.painter().rect_filled(r, 1.0, c);
-                            }
-                            ui.selectable_value(&mut st.theme, t.name.to_string(), t.name);
-                        });
+                let shown = |name: &str| if name == theme::DEFAULT { format!("{name} (default)") } else { name.to_string() };
+                egui::ComboBox::from_id_salt("theme").selected_text(shown(&st.theme)).width(180.0).show_ui(ui, |ui| {
+                    for (modern, title) in [(true, "Modern"), (false, "Classic")] {
+                        ui.label(egui::RichText::new(title).small().color(theme::weak()));
+                        for t in theme::THEMES.iter().filter(|t| t.modern == modern) {
+                            ui.horizontal(|ui| {
+                                for c in [t.panel, t.canvas, t.accent] {
+                                    let (r, _) = ui.allocate_exact_size(Vec2::new(10.0, 14.0), egui::Sense::hover());
+                                    ui.painter().rect_filled(r, 1.0, c);
+                                }
+                                ui.selectable_value(&mut st.theme, t.name.to_string(), shown(t.name));
+                            });
+                        }
                     }
                 });
                 ui.end_row();

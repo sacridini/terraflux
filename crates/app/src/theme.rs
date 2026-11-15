@@ -1,9 +1,10 @@
 //! The look of the application, in two shapes. The classic: flat panels, square corners, compact rows and one
 //! accent for what is selected or active (after Ableton Live's). The modern: rounded corners, more room, softer
-//! shadows and a font of its own (Inter; the website's Source Sans 3 in Paper). Several themes, each a palette (the mid greys of the default, two light ones,
-//! greens, near black, warm golds; the modern Slate, Paper and Canopy) in one of the shapes, chosen in the
-//! settings; the text's size and the interface's zoom with them. Every theme's text, weak text included, reads at
-//! 4.5:1 at least on its panels and canvas (WCAG's AA).
+//! shadows and a font of its own (Inter; the website's Source Sans 3 in Paper). Several themes, each a palette in
+//! one of the shapes, chosen in the settings: the modern Slate (the default), Graphite, Midnight, Canopy and the
+//! light Paper and Ash, then the classic Classic (the mid greys and orange of the first look), two light ones,
+//! greens, near black and warm golds; the text's size and the interface's zoom with them. Every theme's text, weak
+//! text included, reads at 4.5:1 at least on its panels and canvas (WCAG's AA).
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -97,10 +98,130 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color32 {
     Color32::from_rgb(r, g, b)
 }
 
-/// The themes: the classic, then the modern.
-pub const THEMES: [Palette; 9] = [
+/// The themes: the modern (the first, Slate, is the default), then the classic.
+pub const THEMES: [Palette; 12] = [
+    // modern: a cool dark slate, a blue accent (as the editors of code and design of today)
     Palette {
-        name: "Default",
+        name: "Slate",
+        dark: true,
+        modern: true,
+        sans: Sans::Inter,
+        accent: rgb(110, 150, 255),
+        on_accent: rgb(12, 16, 28),
+        bar: rgb(23, 25, 29),
+        canvas: rgb(28, 30, 35),
+        well: rgb(19, 21, 24),
+        panel: rgb(33, 36, 41),
+        window: rgb(40, 43, 50),
+        raised: rgb(50, 54, 62),
+        hover: rgb(62, 67, 77),
+        pressed: rgb(76, 82, 94),
+        line: rgb(47, 51, 58),
+        text: rgb(230, 232, 236),
+        weak: rgb(158, 164, 176),
+    },
+    // modern: the old greys and orange, in the modern shape
+    Palette {
+        name: "Graphite",
+        dark: true,
+        modern: true,
+        sans: Sans::Inter,
+        accent: rgb(255, 150, 40),
+        on_accent: rgb(28, 22, 16),
+        bar: rgb(36, 36, 38),
+        canvas: rgb(44, 44, 46),
+        well: rgb(28, 28, 30),
+        panel: rgb(50, 50, 53),
+        window: rgb(58, 58, 61),
+        raised: rgb(70, 70, 74),
+        hover: rgb(84, 84, 88),
+        pressed: rgb(100, 100, 105),
+        line: rgb(62, 62, 66),
+        text: rgb(232, 232, 234),
+        weak: rgb(170, 170, 175),
+    },
+    // modern: a deep navy, a violet accent
+    Palette {
+        name: "Midnight",
+        dark: true,
+        modern: true,
+        sans: Sans::Inter,
+        accent: rgb(160, 130, 255),
+        on_accent: rgb(18, 12, 36),
+        bar: rgb(14, 16, 26),
+        canvas: rgb(18, 20, 32),
+        well: rgb(10, 12, 20),
+        panel: rgb(22, 25, 39),
+        window: rgb(28, 32, 48),
+        raised: rgb(37, 42, 61),
+        hover: rgb(48, 54, 76),
+        pressed: rgb(62, 69, 94),
+        line: rgb(34, 38, 56),
+        text: rgb(228, 230, 240),
+        weak: rgb(150, 156, 184),
+    },
+    // modern: the deep greens of a forest's canopy, a mint accent
+    Palette {
+        name: "Canopy",
+        dark: true,
+        modern: true,
+        sans: Sans::Inter,
+        accent: rgb(96, 214, 164),
+        on_accent: rgb(10, 30, 22),
+        bar: rgb(16, 25, 23),
+        canvas: rgb(20, 31, 29),
+        well: rgb(12, 19, 18),
+        panel: rgb(25, 38, 35),
+        window: rgb(31, 46, 43),
+        raised: rgb(40, 58, 54),
+        hover: rgb(52, 74, 69),
+        pressed: rgb(66, 92, 86),
+        line: rgb(35, 51, 47),
+        text: rgb(226, 236, 232),
+        weak: rgb(150, 174, 166),
+    },
+    // modern: the website's (its paper, white panels on it, its rules, ink and forest green; Source Sans 3)
+    Palette {
+        name: "Paper",
+        dark: false,
+        modern: true,
+        sans: Sans::SourceSans,
+        accent: rgb(51, 128, 79),
+        on_accent: rgb(255, 255, 255),
+        bar: rgb(244, 246, 243),
+        canvas: rgb(244, 246, 243),
+        well: rgb(240, 243, 239),
+        panel: rgb(255, 255, 255),
+        window: rgb(255, 255, 255),
+        raised: rgb(238, 242, 237),
+        hover: rgb(228, 234, 228),
+        pressed: rgb(217, 224, 217),
+        line: rgb(217, 224, 217),
+        text: rgb(28, 36, 32),
+        weak: rgb(93, 104, 98),
+    },
+    // modern: light greys and orange
+    Palette {
+        name: "Ash",
+        dark: false,
+        modern: true,
+        sans: Sans::Inter,
+        accent: rgb(230, 115, 20),
+        on_accent: rgb(24, 20, 16),
+        bar: rgb(232, 232, 234),
+        canvas: rgb(238, 238, 240),
+        well: rgb(226, 226, 229),
+        panel: rgb(248, 248, 249),
+        window: rgb(255, 255, 255),
+        raised: rgb(234, 234, 237),
+        hover: rgb(222, 222, 226),
+        pressed: rgb(208, 208, 213),
+        line: rgb(214, 214, 219),
+        text: rgb(30, 30, 33),
+        weak: rgb(92, 92, 98),
+    },
+    Palette {
+        name: "Classic",
         dark: true,
         modern: false,
         sans: Sans::Egui,
@@ -217,66 +338,6 @@ pub const THEMES: [Palette; 9] = [
         line: rgb(36, 30, 23),
         text: rgb(240, 228, 206),
         weak: rgb(176, 160, 134),
-    },
-    // modern: a cool dark slate, a blue accent (as the editors of code and design of today)
-    Palette {
-        name: "Slate",
-        dark: true,
-        modern: true,
-        sans: Sans::Inter,
-        accent: rgb(110, 150, 255),
-        on_accent: rgb(12, 16, 28),
-        bar: rgb(23, 25, 29),
-        canvas: rgb(28, 30, 35),
-        well: rgb(19, 21, 24),
-        panel: rgb(33, 36, 41),
-        window: rgb(40, 43, 50),
-        raised: rgb(50, 54, 62),
-        hover: rgb(62, 67, 77),
-        pressed: rgb(76, 82, 94),
-        line: rgb(47, 51, 58),
-        text: rgb(230, 232, 236),
-        weak: rgb(158, 164, 176),
-    },
-    // modern: the website's (its paper, white panels on it, its rules, ink and forest green; Source Sans 3)
-    Palette {
-        name: "Paper",
-        dark: false,
-        modern: true,
-        sans: Sans::SourceSans,
-        accent: rgb(51, 128, 79),
-        on_accent: rgb(255, 255, 255),
-        bar: rgb(244, 246, 243),
-        canvas: rgb(244, 246, 243),
-        well: rgb(240, 243, 239),
-        panel: rgb(255, 255, 255),
-        window: rgb(255, 255, 255),
-        raised: rgb(238, 242, 237),
-        hover: rgb(228, 234, 228),
-        pressed: rgb(217, 224, 217),
-        line: rgb(217, 224, 217),
-        text: rgb(28, 36, 32),
-        weak: rgb(93, 104, 98),
-    },
-    // modern: the deep greens of a forest's canopy, a mint accent
-    Palette {
-        name: "Canopy",
-        dark: true,
-        modern: true,
-        sans: Sans::Inter,
-        accent: rgb(96, 214, 164),
-        on_accent: rgb(10, 30, 22),
-        bar: rgb(16, 25, 23),
-        canvas: rgb(20, 31, 29),
-        well: rgb(12, 19, 18),
-        panel: rgb(25, 38, 35),
-        window: rgb(31, 46, 43),
-        raised: rgb(40, 58, 54),
-        hover: rgb(52, 74, 69),
-        pressed: rgb(66, 92, 86),
-        line: rgb(35, 51, 47),
-        text: rgb(226, 236, 232),
-        weak: rgb(150, 174, 166),
     },
 ];
 
@@ -397,7 +458,7 @@ pub fn visuals() -> Visuals {
     v.code_bg_color = p.canvas;
     v.weak_text_color = Some(p.weak);
     v.override_text_color = None;
-    if !p.dark && p.modern {
+    if !p.dark && p.modern && p.name == "Paper" {
         // the website's: its links in forest ink, its ember, its danger
         v.hyperlink_color = rgb(42, 107, 68);
         v.warn_fg_color = rgb(154, 88, 7);
@@ -451,7 +512,8 @@ pub fn visuals() -> Visuals {
     if p.modern && !p.dark {
         // the website's fields and buttons: white, edged in its darker rule
         v.text_edit_bg_color = Some(p.panel);
-        w.inactive.bg_stroke = Stroke::new(1.0, rgb(197, 206, 198));
+        w.inactive.bg_stroke =
+            Stroke::new(1.0, if p.name == "Paper" { rgb(197, 206, 198) } else { p.line.lerp_to_gamma(p.text, 0.12) });
     }
     v
 }
@@ -708,6 +770,15 @@ mod tests {
         assert_eq!(t.name, "Slate");
         assert!(t.modern && t.dark);
         assert_eq!(crate::settings::Settings::default().theme, DEFAULT);
+    }
+
+    #[test]
+    fn the_modern_come_first_then_the_classic() {
+        let first_classic = THEMES.iter().position(|t| !t.modern).unwrap();
+        assert!(THEMES[..first_classic].iter().all(|t| t.modern));
+        assert!(THEMES[first_classic..].iter().all(|t| !t.modern));
+        assert_eq!(THEMES[0].name, DEFAULT);
+        assert!(THEMES.iter().any(|t| t.name == "Classic") && !THEMES.iter().any(|t| t.name == "Default"));
     }
 
     #[test]

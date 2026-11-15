@@ -19,9 +19,9 @@ pub fn point_settings() {
     ONCE.call_once(|| {
         let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("app-tests");
         std::fs::create_dir_all(&dir).unwrap();
-        // (a run starts from the defaults, not from what the run before left; the theme "Default", whose sizes
+        // (a run starts from the defaults, not from what the run before left; the theme "Classic", whose sizes
         // the canvas's tests measure by)
-        std::fs::write(dir.join("settings.json"), r#"{ "theme": "Default", "minimap": false }"#).unwrap();
+        std::fs::write(dir.join("settings.json"), r#"{ "theme": "Classic", "minimap": false }"#).unwrap();
         unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("settings.json")) };
     });
 }

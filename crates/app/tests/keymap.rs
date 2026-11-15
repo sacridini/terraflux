@@ -29,7 +29,7 @@ fn setup() {
     unsafe { std::env::set_var("TERRAFLUX_SETTINGS", tmp("keymap-settings.json")) };
     ONCE.call_once(|| {
         let _ = std::fs::remove_file(tmp("keymap-settings.json"));
-        terraflux_app::settings::update(|st| st.theme = "Default".into());
+        terraflux_app::settings::update(|st| st.theme = "Classic".into());
     });
     terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
 }

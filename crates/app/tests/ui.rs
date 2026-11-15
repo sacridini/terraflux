@@ -110,7 +110,7 @@ fn setup() {
         let _ = std::fs::remove_file(tmp("settings.json"));
         // (and the Node tab opening by itself, as these tests look for it: the panel beside the box is the canvas's)
         terraflux_app::settings::update(|st| {
-            st.theme = "Default".into();
+            st.theme = "Classic".into();
             st.node_pane_opens = true;
         });
     });
@@ -2867,7 +2867,7 @@ fn settings_themes_and_favourites() {
     }
     // (only what this test changed: the settings are global, other tests share and lend at the same time)
     terraflux_app::settings::update(|s| {
-        s.theme = "Default".into();
+        s.theme = "Classic".into();
         s.favourites.clear();
         s.collection_names.clear();
     });
@@ -5864,14 +5864,14 @@ fn the_files_that_failed_are_listed_in_the_node_pane() {
 #[test]
 #[ignore]
 fn theme_gallery() {
-    for name in ["Default", "Immaterial", "Slate", "Paper", "Canopy"] {
+    for name in ["Classic", "Immaterial", "Slate", "Graphite", "Midnight", "Paper", "Ash", "Canopy"] {
         terraflux_app::settings::update(|s| s.theme = name.into());
         let mut h = harness(new_app(Some(model())));
         loaded(&mut h);
         h.state_mut().focus(Pane::Simulation);
         h.run_steps(3);
         // (the modern themes' button with its sign)
-        let modern = ["Slate", "Paper", "Canopy"].contains(&name);
+        let modern = ["Slate", "Graphite", "Midnight", "Paper", "Ash", "Canopy"].contains(&name);
         h.get_by_label(if modern { "▶  Run" } else { "Run" }).click();
         h.run_steps(1);
         until(&mut h, "the run", |a| !a.session.as_ref().unwrap().running());
@@ -5882,7 +5882,7 @@ fn theme_gallery() {
         h.run_steps(3);
         shot(&mut h, &format!("theme-{name}-graph"));
         // the other panes, the menus and the windows: of the default and two modern themes
-        if !["Default", "Slate", "Paper"].contains(&name) {
+        if !["Classic", "Slate", "Paper"].contains(&name) {
             continue;
         }
         for (pane, what) in [
@@ -5920,7 +5920,7 @@ fn theme_gallery() {
         h.run_steps(3);
         shot(&mut h, &format!("theme-{name}-menu"));
     }
-    terraflux_app::settings::update(|s| s.theme = "Default".into());
+    terraflux_app::settings::update(|s| s.theme = "Classic".into());
 }
 
 /// The methods of a template as a paper's, in their window: MSPA cited with its papers and GuidosToolbox's.

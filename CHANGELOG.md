@@ -6,6 +6,9 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- **Themes.** The theme named *Default* is now *Classic* (it was not the default any more: Slate is); a settings file that still holds "Default" reads as Slate. Three new modern themes: *Graphite* (the old greys and orange, modern), *Ash* (light greys and orange) and *Midnight* (deep navy, violet accent). The Settings list shows the modern themes first, then the classic, under two small headings, and Slate as "Slate (default)".
+
 ## [1.50.0] - 2026-11-15
 
 ### Added

@@ -229,7 +229,7 @@ fn misfits(h: &Harness<TerrafluxApp>, sideways: bool) -> Vec<String> {
 #[test]
 fn the_text_fits_at_every_size() {
     let mut found = Vec::new();
-    for theme in ["Default", "Slate", "Paper"] {
+    for theme in ["Classic", "Slate", "Paper"] {
         for text in [1.0, 1.3, 1.6] {
             terraflux_app::settings::update(|s| {
                 s.theme = theme.into();
@@ -295,7 +295,7 @@ fn the_text_fits_at_every_size() {
         }
     }
     terraflux_app::settings::update(|s| {
-        s.theme = "Default".into();
+        s.theme = "Classic".into();
         s.text = 1.0;
     });
     let _ = std::fs::write(tmp("misfits.txt"), found.join("\n"));

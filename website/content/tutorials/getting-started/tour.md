@@ -526,9 +526,11 @@ brings Terraflux to the front. Both can be turned off in the settings.
 
 **⚙** at the right of the toolbar opens the settings, a small window:
 
-- **Theme**: the colours of the window. The classic themes (*Default*, *Immaterial*, *Field Notes*, *Riparian*,
-  *Angst Robot*, *Twenty Four Carat*) keep the square look; the modern ones (*Slate*, dark; *Paper*, light, in the
-  colours of this website; *Canopy*, dark green) have rounded panes and cards, switches and a font of their own;
+- **Theme**: the colours of the window. The modern themes (*Slate*, dark blue, the default; *Graphite*, dark grey
+  and orange; *Midnight*, deep navy and violet; *Canopy*, dark green; *Paper*, light, in the colours of this
+  website; *Ash*, light grey and orange) have rounded panes and cards, switches and a font of their own; the
+  classic themes (*Classic*, *Immaterial*, *Field Notes*, *Riparian*, *Angst Robot*, *Twenty Four Carat*) keep the
+  square look;
 - **Text size** and **Interface zoom**: for a small laptop screen or a projector;
 - **Start**: *reopen the models open last* (on at first);
 - **Runs**: *keep the computer awake while a model runs*, and *tell when a run of more than 10 s ends* (a

@@ -1786,8 +1786,10 @@ pub fn group_look(
         return GroupLook { border: mixed, head: fill.lerp_to_gamma(accent, 0.22), ink: accent };
     }
     use crate::theme::{contrast, readable};
+    // (the fill mixed toward the accent; an accent too light for the canvas, as a light orange, then darkened)
     let head = (8..=40)
         .map(|k| fill.lerp_to_gamma(accent, k as f32 / 40.0))
+        .chain((1..=20).map(|k| accent.lerp_to_gamma(Color32::BLACK, k as f32 / 40.0)))
         .find(|h| contrast(*h, canvas) >= 3.05 && contrast(strong, *h) >= 4.5)
         .unwrap_or(accent);
     GroupLook {
@@ -5270,7 +5272,7 @@ mod tests {
                 assert!(contrast(ink, p.canvas) >= 4.5, "{}: {name} title", p.name);
             }
         }
-        assert_eq!(light, 3);
+        assert_eq!(light, 4);
     }
 
     /// The dark themes keep what they had: the accent mixed into the border and the header, the accent as it is.

@@ -21,10 +21,18 @@ pub const COLLECTIONS: [(&str, Color32); 7] = [
     ("Grey", Color32::from_rgb(150, 150, 150)),
 ];
 
+/// The theme of a settings file: the one named "Default" before (saved only because it was the default then) is
+/// the default of today, Slate.
+fn theme_of_file<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    let name = String::deserialize(d)?;
+    Ok(if name == "Default" { crate::theme::DEFAULT.into() } else { name })
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    /// The theme's name (see [`crate::theme::THEMES`]).
+    /// The theme's name (see [`crate::theme::THEMES`]); a file of before may hold "Default", read as Slate.
+    #[serde(deserialize_with = "theme_of_file")]
     pub theme: String,
     /// The text's size, times egui's.
     pub text: f32,
@@ -726,6 +734,17 @@ mod tests {
         {
             assert!(!shown.contains(secret), "{secret} in {shown}");
         }
+    }
+
+    /// A theme saved as "Default" (the old default) reads as Slate; the others are kept.
+    #[test]
+    fn a_theme_saved_as_default_reads_as_slate() {
+        let old: Settings = serde_json::from_str(r#"{"theme": "Default"}"#).unwrap();
+        assert_eq!(old.theme, "Slate");
+        let classic: Settings = serde_json::from_str(r#"{"theme": "Classic"}"#).unwrap();
+        assert_eq!(classic.theme, "Classic");
+        let none: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(none.theme, crate::theme::DEFAULT);
     }
 
     /// The secrets go to the store, come from it, and a file of before that had them is moved over.
