@@ -666,23 +666,121 @@ fn file_stem(name: &str) -> String {
 /// The layers written into `dir` and the project there that opens them (`title.qgz`, zipped as QGIS writes its
 /// own, or `title.qgs` when `plain`); the project's file.
 pub fn export(picks: &[Pick], dir: &Path, title: &str, plain: bool) -> Result<PathBuf, String> {
+    export_as(picks, dir, title, plain, false)
+}
+
+/// Why a GeoPackage of rasters and features cannot be written, or none when it can: GDAL missing, or without the
+/// GPKG driver (the option is then off in the window, with this reason).
+pub fn gpkg_unavailable() -> Option<String> {
+    gpkg_reason(terraflux_gdal::gdal().map(|_| ()), terraflux_gdal::has_driver("GPKG"))
+}
+
+fn gpkg_reason(gdal: Result<(), &str>, driver: bool) -> Option<String> {
+    match gdal {
+        Err(e) => Some(format!("needs GDAL: {e}")),
+        Ok(()) if !driver => Some("this GDAL has no GeoPackage (GPKG) driver".into()),
+        Ok(()) => None,
+    }
+}
+
+/// The type a map goes in a GeoPackage as: its raster tiles hold UInt16, Int16 and Float32 (a gridded coverage;
+/// a no-data value kept): whole numbers in the range of the first two, else Float32.
+fn gpkg_type(data: &[f64]) -> &'static str {
+    let finite = || data.iter().filter(|v| v.is_finite());
+    if finite().any(|v| v.fract() != 0.0) {
+        return "f32";
+    }
+    let (lo, hi) = finite().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), &v| (a.min(v), b.max(v)));
+    if lo >= 0.0 && hi <= 65534.0 {
+        "u16"
+    } else if lo >= -32767.0 && hi <= 32766.0 {
+        "i16"
+    } else {
+        "f32"
+    }
+}
+
+/// A map of the band chosen of a value, its cells read.
+fn band_map(v: &Value, band: usize) -> Result<Map, String> {
+    match band_source(v, band) {
+        Some(Source::Map(m)) => Ok(m),
+        Some(Source::Rasters(r, b)) => {
+            let data = r.read(b).map_err(|e| e.to_string())?;
+            Ok(Map::new(std::sync::Arc::new(r.grid_of(b).clone()), data.to_vec()))
+        }
+        _ => Err("not a map".into()),
+    }
+}
+
+/// A map added to the GeoPackage `gpkg` as the raster table `table`: written as a GeoTIFF in a type the tiles
+/// hold (see [`gpkg_type`]), then copied in by GDAL (`-of GPKG`, `RASTER_TABLE`, `APPEND_SUBDATASET` when the file
+/// is there, `TILE_FORMAT=TIFF` for the values in Float32, the tiles' own for whole numbers).
+fn add_raster(m: &Map, gpkg: &Path, table: &str) -> Result<(), String> {
+    let kind = gpkg_type(&m.data);
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = std::env::temp_dir().join(format!("terraflux-gpkg-{}-{n}-{table}.tif", std::process::id()));
+    let v = Value::Map(m.clone());
+    let tif = terraflux_exec::write_value(&v, &tmp, Some(kind)).map_err(|e| e.to_string())?;
+    let mut args: Vec<String> = ["-of", "GPKG", "-co"].iter().map(|s| s.to_string()).collect();
+    args.push(format!("RASTER_TABLE={table}"));
+    if gpkg.exists() {
+        args.extend(["-co".into(), "APPEND_SUBDATASET=YES".into()]);
+    }
+    if kind == "f32" {
+        args.extend(["-co".into(), "TILE_FORMAT=TIFF".into()]);
+    }
+    let r = terraflux_gdal::translate(&tif, gpkg, &args);
+    let _ = std::fs::remove_file(&tif);
+    r
+}
+
+/// As [`export`], the layers written to one GeoPackage (`title.gpkg`: the features as its tables, the maps as its
+/// raster tiles, named by the layers) when `gpkg`, the project (`.qgz`, or `.qgs`) pointing into it; else to
+/// files in the folder.
+pub fn export_as(picks: &[Pick], dir: &Path, title: &str, plain: bool, gpkg: bool) -> Result<PathBuf, String> {
     if picks.is_empty() {
         return Err("no map chosen".into());
     }
+    if gpkg && let Some(why) = gpkg_unavailable() {
+        return Err(why);
+    }
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let pack = dir.join(format!("{}.gpkg", file_stem(title)));
+    let pack_name = pack.file_name().unwrap().to_string_lossy().into_owned();
+    if gpkg && pack.exists() {
+        std::fs::remove_file(&pack).map_err(|e| format!("{}: {e}", pack.display()))?;
+    }
     let mut stems = BTreeSet::new();
     let mut rasters = Vec::new();
     let mut vectors = Vec::new();
     for p in picks {
-        let mut stem = file_stem(&p.name);
+        // (a table's name: no hyphen, none of the GeoPackage's own prefixes; SQLite's names ignore the case)
+        let base = if gpkg {
+            let s = file_stem(&p.name).replace('-', "_");
+            let l = s.to_lowercase();
+            if l.starts_with("gpkg_") || l.starts_with("sqlite_") || l.starts_with("rtree_") {
+                format!("layer_{s}")
+            } else {
+                s
+            }
+        } else {
+            file_stem(&p.name)
+        };
+        let mut stem = base.clone();
         let mut k = 2;
-        while !stems.insert(stem.clone()) {
-            stem = format!("{}_{k}", file_stem(&p.name));
+        while !stems.insert(stem.to_lowercase()) {
+            stem = format!("{base}_{k}");
             k += 1;
         }
         if let Value::Vector(v) = &p.value {
-            let file = terraflux_exec::write_value(&p.value, &dir.join(format!("{stem}.gpkg")), None)
-                .map_err(|e| format!("{}: {e}", p.name))?;
+            let file = if gpkg {
+                terraflux_gdal::append_vector(&pack, &stem, v).map_err(|e| format!("{}: {e}", p.name))?;
+                pack.clone()
+            } else {
+                terraflux_exec::write_value(&p.value, &dir.join(format!("{stem}.gpkg")), None)
+                    .map_err(|e| format!("{}: {e}", p.name))?
+            };
             let geometry = geometry_of(v);
             let o = &p.options;
             let renderer = match &p.style {
@@ -708,6 +806,10 @@ pub fn export(picks: &[Pick], dir: &Path, title: &str, plain: bool) -> Result<Pa
         let band = p.band.min(layers(&p.value).saturating_sub(1));
         // rasters in one file referred to where they are (not copied); other maps written
         let (source, band_no, own) = match &p.value {
+            _ if gpkg => {
+                add_raster(&band_map(&p.value, p.band)?, &pack, &stem).map_err(|e| format!("{}: {e}", p.name))?;
+                (format!("GPKG:./{pack_name}:{stem}"), 1, false)
+            }
             Value::Raster(r) if r.images.len() == 1 => {
                 (r.images[0].path().to_string_lossy().into_owned(), r.layers[band].band + 1, false)
             }
@@ -759,6 +861,8 @@ pub struct Export {
     pub done: Option<Result<PathBuf, String>>,
     /// The project as text (`.qgs`), not zipped as QGIS keeps its own (`.qgz`).
     pub plain: bool,
+    /// The layers in one GeoPackage (the features as tables, the maps as raster tiles), not in files of their own.
+    pub gpkg: bool,
     /// The options of the vector layers (node, port): their labels, marker, rules.
     pub options: BTreeMap<(String, String), VectorOptions>,
 }
@@ -903,7 +1007,7 @@ pub fn window(ctx: &egui::Context, s: &mut Session) {
                 RichText::new(
                     "The maps and vector layers chosen, written to a folder with a QGIS project that opens them in the \
                      colours they have here (the classes with their names). A raster read from a file is referred to \
-                     where it is, not copied.",
+                     where it is, not copied (the layers of one GeoPackage are all copied into it).",
                 )
                 .size(11.5)
                 .color(weak),
@@ -949,6 +1053,25 @@ pub fn window(ctx: &egui::Context, s: &mut Session) {
                 ui.radio_value(&mut s.qgis.plain, false, ".qgz").on_hover_text("zipped, as QGIS keeps its own");
                 ui.radio_value(&mut s.qgis.plain, true, ".qgs").on_hover_text("as text (XML)");
             });
+            let why = gpkg_unavailable();
+            if why.is_some() {
+                s.qgis.gpkg = false;
+            }
+            ui.horizontal(|ui| {
+                ui.label("Layers");
+                ui.radio_value(&mut s.qgis.gpkg, false, "files in the folder")
+                    .on_hover_text("a GeoTIFF for each map, a GeoPackage for each vector layer");
+                let r = ui.add_enabled(why.is_none(), egui::RadioButton::new(s.qgis.gpkg, "one GeoPackage"));
+                let r = match &why {
+                    Some(w) => r.on_disabled_hover_text(w),
+                    None => r.on_hover_text(
+                        "every map and vector layer a table of one .gpkg file, the project pointing into it",
+                    ),
+                };
+                if r.clicked() {
+                    s.qgis.gpkg = true;
+                }
+            });
             let chosen = s.qgis.chosen.as_mut().unwrap();
             let keys: Vec<(String, String)> = chosen.iter().cloned().collect();
             let busy = s.qgis.job.is_some();
@@ -972,9 +1095,9 @@ pub fn window(ctx: &egui::Context, s: &mut Session) {
                     let (tx, rx) = channel();
                     let d = dir.clone();
                     let c = ui.ctx().clone();
-                    let plain = s.qgis.plain;
+                    let (plain, gpkg) = (s.qgis.plain, s.qgis.gpkg);
                     std::thread::spawn(move || {
-                        let _ = tx.send(export(&picks, &d, &title, plain));
+                        let _ = tx.send(export_as(&picks, &d, &title, plain, gpkg));
                         c.request_repaint();
                     });
                     s.qgis.job = Some((dir, rx));
@@ -1204,6 +1327,109 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Why the GeoPackage cannot be asked for, told from what GDAL has (not by uninstalling it).
+    #[test]
+    fn the_geopackage_is_off_without_its_driver() {
+        assert_eq!(gpkg_reason(Ok(()), true), None);
+        assert!(gpkg_reason(Ok(()), false).unwrap().contains("GPKG"));
+        assert!(gpkg_reason(Err("GDAL was not found"), false).unwrap().starts_with("needs GDAL"));
+        assert_eq!(gpkg_type(&[1.0, 2.0, f64::NAN]), "u16");
+        assert_eq!(gpkg_type(&[-3.0, 2.0]), "i16");
+        assert_eq!(gpkg_type(&[0.5, 2.0]), "f32");
+        assert_eq!(gpkg_type(&[0.0, 1e9]), "f32");
+    }
+
+    /// Classes, values and features in one GeoPackage, read back by GDAL (the cells, the no-data, the coordinate
+    /// system), and a `.qgz` whose layers point into it.
+    #[test]
+    fn a_project_in_one_geopackage() {
+        if terraflux_gdal::gdal().is_err() || !terraflux_gdal::has_driver("GPKG") {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("terraflux-qgis-gpkg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut g = terraflux_raster::Grid::new(4, 3);
+        g.transform = [500000.0, 30.0, 0.0, 9000000.0, 0.0, -30.0];
+        let wkt = terraflux_gdal::crs_wkt("EPSG:32651").unwrap();
+        g.geo.wkt = Some(wkt.clone());
+        let g = Arc::new(g);
+        let classes = vec![1.0, 1.0, 2.0, 2.0, 1.0, f64::NAN, 2.0, 2.0, 1.0, 1.0, 1.0, 3.0];
+        let values: Vec<f64> = (0..12).map(|i| if i == 4 { f64::NAN } else { i as f64 * 0.25 - 1.5 }).collect();
+        let pts = terraflux_raster::vector::Vector {
+            geometries: vec![Geometry::Point([500030.0, 8999950.0])],
+            attributes: vec![("name".into(), terraflux_raster::vector::Column::Texts(vec!["plot 1".into()]))],
+            crs: Some(wkt.clone()),
+        };
+        let pick = |name: &str, value: Value| Pick {
+            name: name.into(),
+            value,
+            palette: Palette::Auto,
+            range: None,
+            legend: None,
+            band: 0,
+            style: None,
+            options: VectorOptions::default(),
+        };
+        let picks = vec![
+            pick("Land use", Value::Map(Map::new(g.clone(), classes.clone()))),
+            pick("Suitability-1", Value::Map(Map::new(g.clone(), values.clone()))),
+            pick("plots", Value::Vector(Arc::new(pts))),
+        ];
+        let qgz = export_as(&picks, &dir, "One pack", false, true).unwrap();
+        assert_eq!(qgz, dir.join("One_pack.qgz"));
+        let pack = dir.join("One_pack.gpkg");
+        // one file for the layers: no GeoTIFF, no file of the features beside it
+        let mut names: Vec<String> =
+            std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        assert_eq!(names, ["One_pack.gpkg", "One_pack.qgz"]);
+        let read = |table: &str| {
+            let d = terraflux_gdal::Dataset::open(format!("GPKG:{}:{table}", pack.display())).unwrap();
+            let cells = d.read(0, 0, 0, 4, 3, 4, 3).unwrap();
+            (d.meta.dtype, d.meta.nodata, d.meta.grid.geo.wkt.clone().unwrap(), d.meta.grid.transform, cells)
+        };
+        // the classes: whole numbers kept, the no-data cell the file's no-data value
+        let (dtype, nodata, crs, transform, cells) = read("Land_use");
+        assert_eq!(dtype, terraflux_raster::DataType::U16);
+        assert_eq!(&transform[..2], &[500000.0, 30.0]);
+        assert!(terraflux_gdal::same_crs(&crs, &wkt).unwrap(), "{crs}");
+        let nodata = nodata.expect("a no-data value");
+        for (c, want) in cells.iter().zip(&classes) {
+            assert!(if want.is_nan() { *c == nodata } else { c == want }, "{cells:?} {nodata}");
+        }
+        // the values: Float32 tiles, the cells and the NaN kept
+        let (dtype, nodata, crs, _, cells) = read("Suitability_1");
+        assert_eq!(dtype, terraflux_raster::DataType::F32);
+        assert!(terraflux_gdal::same_crs(&crs, &wkt).unwrap(), "{crs}");
+        for (c, want) in cells.iter().zip(&values) {
+            let missing = want.is_nan() && (c.is_nan() || nodata.is_some_and(|n| *c == n));
+            assert!(missing || c == want, "{cells:?} {nodata:?}");
+        }
+        // the features beside them
+        assert_eq!(terraflux_gdal::vector_layers(&pack).unwrap().iter().filter(|l| *l == "plots").count(), 1);
+        let v = terraflux_gdal::read_vector(&pack, Some("plots")).unwrap();
+        assert_eq!(v.geometries.len(), 1);
+        assert!(terraflux_gdal::same_crs(v.crs.as_deref().unwrap(), &wkt).unwrap());
+        // the project: zipped, its layers pointing into the GeoPackage
+        let bytes = std::fs::read(&qgz).unwrap();
+        assert_eq!(&bytes[..4], b"PK");
+        let (packed, name) = (
+            u32::from_le_bytes(bytes[18..22].try_into().unwrap()) as usize,
+            u16::from_le_bytes(bytes[26..28].try_into().unwrap()) as usize,
+        );
+        assert_eq!(&bytes[30..30 + name], b"One_pack.qgs");
+        let x =
+            String::from_utf8(miniz_oxide::inflate::decompress_to_vec(&bytes[30 + name..30 + name + packed]).unwrap())
+                .unwrap();
+        assert!(x.contains("<datasource>./One_pack.gpkg|layername=plots</datasource>"), "{x}");
+        assert!(x.contains("<datasource>GPKG:./One_pack.gpkg:Land_use</datasource>"), "{x}");
+        assert!(x.contains("<datasource>GPKG:./One_pack.gpkg:Suitability_1</datasource>"), "{x}");
+        // the styles are the same: the classes paletted, the values on a ramp
+        assert!(x.contains("type=\"paletted\"") && x.contains("type=\"singlebandpseudocolor\""));
+        assert!(!x.contains(".tif"), "{x}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn vectors_in_the_viewers_colours() {
         use terraflux_raster::vector::{Column, Vector};
@@ -1386,7 +1612,9 @@ mod tests {
             ),
             pick("uses", Value::Vector(pts), Some(by_use), VectorOptions { label: None, marker: 4, rules: true }),
         ];
-        let qgz = export(&picks, &dir, "PyQGIS check", false).unwrap();
+        // (TERRAFLUX_QGIS_GPKG set: the layers in one GeoPackage)
+        let gpkg = std::env::var_os("TERRAFLUX_QGIS_GPKG").is_some();
+        let qgz = export_as(&picks, &dir, "PyQGIS check", false, gpkg).unwrap();
         println!("{}", qgz.display());
     }
 }

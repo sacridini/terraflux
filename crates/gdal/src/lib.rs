@@ -1228,19 +1228,34 @@ pub fn integer_fields(path: impl AsRef<Path>, layer: Option<&str>) -> Result<Vec
 /// As [`write_vector`], the numeric fields named in `integers` written as integers (where every value of one is a
 /// whole number: else as reals, so that no value is cut).
 pub fn write_vector_as(path: impl AsRef<Path>, layer: &str, v: &Vector, integers: &[String]) -> Result<()> {
+    write_layer(path.as_ref(), layer, v, integers, false)
+}
+
+/// As [`write_vector`], but into a file that exists (a GeoPackage with other layers or rasters in it) as one more
+/// layer, kept beside the others; the file made when there is none. A layer of that name there is an error.
+pub fn append_vector(path: impl AsRef<Path>, layer: &str, v: &Vector) -> Result<()> {
+    write_layer(path.as_ref(), layer, v, &[], true)
+}
+
+fn write_layer(path: &Path, layer: &str, v: &Vector, integers: &[String], append: bool) -> Result<()> {
     let g = gdal().map_err(String::from)?;
-    let path = path.as_ref();
     let a = &g.api;
     let driver = unsafe { (a.GDALGetDriverByName)(cstr(vector_driver(path)?).as_ptr()) };
     if driver.is_null() {
         return Err(format!("{}: GDAL has no driver for it", path.display()));
     }
-    if path.exists() {
+    let append = append && path.exists();
+    if path.exists() && !append {
         std::fs::remove_file(path).map_err(|e| format!("{}: {e}", path.display()))?;
     }
     let name = path.to_string_lossy().into_owned();
     unsafe { (a.CPLErrorReset)() };
-    let ds = unsafe { (a.GDALCreate)(driver, cstr(&name).as_ptr(), 0, 0, 0, 0, std::ptr::null_mut()) };
+    let ds = if append {
+        // GDAL_OF_VECTOR | GDAL_OF_UPDATE
+        g.open_with(&name, 0x04 | 0x01, "GDAL cannot open it to add a layer")?
+    } else {
+        unsafe { (a.GDALCreate)(driver, cstr(&name).as_ptr(), 0, 0, 0, 0, std::ptr::null_mut()) }
+    };
     if ds.is_null() {
         return Err(g.last_error(&format!("{name}: GDAL cannot create it")));
     }

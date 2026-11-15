@@ -374,6 +374,12 @@ change in QGIS rule by rule. **Open in QGIS**
 opens the project. A raster read from a file is referred to where it is, not copied, and each GeoTIFF written has
 its style beside it (a `.qml` of the same name), which QGIS uses when you add the file to another project by hand.
 
+**Layers: one GeoPackage** puts every layer of the export in a single file, `<project>.gpkg`: the vector layers as its
+tables and the maps as its raster tiles (whole numbers as 16-bit tiles, other values as Float32 tiles, the missing
+cells and the coordinate system kept), each named after its layer. The project points into that file and keeps the
+same colours and legends; a raster read from a file is copied in too. It is off when GDAL is missing or has no
+GeoPackage driver (the window says why). The default is still the folder of files.
+
 ## Common pitfalls
 
 - **Ranges that overlap or leave gaps.** `0..10 -> 1` and `10..20 -> 2` both take 10 (the first rule wins);

@@ -492,9 +492,12 @@ ordem de impacto (começando pelo 1 e pelo 3):
    valores numa rampa "singlebandpseudocolor" de 11 paradas (as de log espaçadas pelo log), os vetores por cima num
    símbolo simples (cores de Okabe e Ito), o sistema de coordenadas em WKT (um código EPSG convertido pelo GDAL,
    `terraflux_gdal::crs_wkt`), um `.qml` ao lado de cada mapa gravado. Conferido no QGIS 3.34 (PyQGIS: as camadas
-   válidas, os renderizadores, as classes, o CRS do projeto). Falta: o `.qgz` (zip), as cores e espessuras dos
-   vetores do Viewer ("Vectors over the map"), os mapas por cima com sua opacidade, a legenda contínua com rótulos
-   escolhidos, e um GeoPackage único com os rasters dentro.
+   válidas, os renderizadores, as classes, o CRS do projeto). O `.qgz` (zip) já sai (ou `.qgs`). Também **feito**: "Layers: one GeoPackage" na
+   janela (`export_as`): os vetores como tabelas e os mapas como rasters do GeoPackage (inteiros em tiles de 16 bits,
+   o resto em Float32 com `TILE_FORMAT=TIFF`, `RASTER_TABLE`, `APPEND_SUBDATASET`), o projeto apontando para dentro
+   (`GPKG:./arq.gpkg:tabela`); desligado, com o motivo, sem o driver GPKG. Falta: as cores e espessuras dos
+   vetores do Viewer ("Vectors over the map"), os mapas por cima com sua opacidade, e a legenda contínua com rótulos
+   escolhidos.
 8. **O modelo como script Python do landschaft.** Um script equivalente ao modelo, para o artigo, o orientador ou
    um revisor que pede o código.
    **Feito** (Unreleased): File > "Python script (landschaft)..." (e ctrl+K; `python.rs`): o modelo como um script
