@@ -77,7 +77,7 @@ of large maps (landscape metrics by blocks of rows, MSPA by tiles) are in [the g
 ```bash
 terraflux run model.toml --tiled                            # tiles of 1024 cells, layers in memory
 terraflux run model.toml --tiled --tile 2048 --disk layers  # the steps' layers kept on disk, a file per tile
-terraflux run model.toml --tiled --threads 8                # threads (default: all the cores but one)
+terraflux run model.toml --tiled --threads 8                # threads (default: the cores less a quarter)
 terraflux run model.toml --tiled --disk layers --coordinator http://coordinator-host:7700   # on many machines
 ```
 

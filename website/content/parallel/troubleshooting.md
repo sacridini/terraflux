@@ -118,7 +118,7 @@ The summary of this guide:
 
 | Job | Size | Tool | Command |
 |---|---|---|---|
-| One model, once | fits in memory | your computer, all cores but one | `terraflux run model.toml` |
+| One model, once | fits in memory | your computer, the cores less a quarter | `terraflux run model.toml` |
 | Replicates, scenarios, a calibration | up to a night on one computer | your computer, a batch | `terraflux submit --replicates`, `--scenarios`; `terraflux calibrate` |
 | The same, larger | days on one computer, a few computers at hand | the lab's computers, with a code | `terraflux serve --code`, `terraflux worker --code`, `submit --code` |
 | The same, much larger | thousands of runs, or hours each | a cluster with Slurm | `terraflux cluster add --slurm`, `submit --on` |

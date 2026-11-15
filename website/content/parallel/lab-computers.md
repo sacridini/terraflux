@@ -136,7 +136,7 @@ On a network without broadcasts, give the address: `terraflux worker --coordinat
 `serve --code K7QM-2XPA-9DTE` reuses a code (so that workers started earlier keep working);
 `--no-beacons` keeps the coordinator silent on the network.
 
-Useful options of `worker`: `--threads` (the threads of each task, by default all the cores but one), `--name` (how
+Useful options of `worker`: `--threads` (the threads of each task, by default the cores less a quarter), `--name` (how
 it appears in the lists), `--cache` (where its data is kept), and `--idle 10`: take tasks only after 10 minutes
 without the keyboard or the mouse (Windows and macOS), so that a colleague's computer works only when the colleague
 does not (a task taken runs to its end).

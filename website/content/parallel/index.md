@@ -77,13 +77,13 @@ measured speed-ups below fall short of the curves.
 
 ### What Terraflux does by default
 
-Without anything set, every command of Terraflux uses **all the cores but one** (leaving one for you and the
+Without anything set, every command of Terraflux uses **the cores less a quarter** (15 of 20, 6 of 8, 3 of 4: left for you and the
 system), never every core. The threads it uses are, in order of precedence:
 
 1. `--threads N` on the command line (any command: `run`, `submit`, `serve`...);
 2. else the environment variable `TERRAFLUX_THREADS`;
 3. else the threads chosen in the application's **Settings**;
-4. else all the cores but one.
+4. else the cores less a quarter (the most it ever uses: a count above is lowered).
 
 ```bash
 terraflux run model.toml --threads 4        # this run: 4 threads
@@ -168,7 +168,7 @@ more computers. The measurements above are an example.
 
 | Your job | Where to run it | Page |
 |---|---|---|
-| A model that runs in seconds, once | as it is: all the cores but one | this page |
+| A model that runs in seconds, once | as it is: the cores less a quarter | this page |
 | Tens of replicates, a few scenarios, a small calibration | your computer, a batch | [Many runs on your computer](/parallel/many-runs/) |
 | Hundreds of runs, and a few computers in the lab or at home | the computers of the network, with a code | [The lab's computers](/parallel/lab-computers/) |
 | Thousands of runs, or runs of hours each | a university cluster (Slurm) | [A cluster with Slurm](/parallel/slurm-cluster/) |
