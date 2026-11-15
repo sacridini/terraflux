@@ -174,7 +174,7 @@ paths land in the mounted folder. Other options:
 |---|---|
 | `docker build --build-arg PYTHON_VERSION=3.11 -t terraflux .` | another Python version |
 | `docker build --target test -t terraflux:test .` then `docker run --rm terraflux:test` | run the test suite in the container |
-| `docker run --cpuset-cpus 0-7 ...` | limit the cores; Terraflux then uses all of them but one |
+| `docker run --cpuset-cpus 0-7 ...` | limit the cores; Terraflux then uses the cores less a quarter (6 of 8), never all |
 
 ## What is installed
 
@@ -197,7 +197,7 @@ import terraflux as tf
 
 print(tf.__version__)        # the installed version
 print(tf.max_threads())      # processors the C++ core can use
-print(tf.default_threads())  # threads used by default: all of them but one
+print(tf.default_threads())  # threads used by default: the cores less a quarter
 
 forest = tf.load_raster(tf.example_data("input"))
 print(tf.mspa_stats(tf.mspa(forest)))
