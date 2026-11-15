@@ -359,7 +359,9 @@ Over a map:
 - **Colours** chooses a colour ramp (by default the colours fit the data: classes a colour each, values a ramp);
   *cividis* and *orange to purple, centred on 0* read the same to colour-blind readers, and **View > Colour
   vision** draws every map and legend as a reader with protanopia, deuteranopia or tritanopia sees them, to check
-  a figure before it is published (the bar at the top says so until you set it back);
+  a figure before it is published (the bar at the top says so until you set it back), the charts too. When two
+  classes of a legend look alike (to normal vision or to the vision chosen) a warning under it names them, with a
+  button for colour-blind safe colours (also in Colours);
 - **Compare** puts another map beside this one: another output of the run (a scenario, another date, the
   observed map) or another layer of the same one (step 1 and step 50 of a simulation). As a **Curtain**, the
   other map is right of a line you drag across the map with its handle; **Side by side**, the two maps are in two

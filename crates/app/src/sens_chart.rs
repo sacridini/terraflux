@@ -180,7 +180,7 @@ pub fn show(ui: &mut Ui, ind: &Indices) {
     }
     if let Some(c) = &ind.convergence {
         let unit = if ind.method == Method::Sobol { "base points" } else { "trajectories" };
-        let colours: Vec<Color32> = (0..ind.factors.len()).map(crate::palette::class_colour).collect();
+        let colours: Vec<Color32> = (0..ind.factors.len()).map(|i| crate::palette::seen(crate::palette::class_colour(i))).collect();
         theme::plot(Plot::new(("sensitivity convergence", ind.method.name())))
             .height(130.0)
             .legend(Legend::default())
@@ -245,7 +245,7 @@ fn bars_ui(ui: &mut Ui, b: &Bars) {
                 }
             }
             for (bars, (colour, name)) in series.into_iter().zip(&b.legend) {
-                p.bar_chart(BarChart::new(name.as_str(), bars).color(*colour).horizontal());
+                p.bar_chart(BarChart::new(name.as_str(), bars).color(crate::palette::seen(*colour)).horizontal());
             }
             if let Some(base) = b.base {
                 p.vline(VLine::new(format!("output at the base: {base:.4}"), base).color(ink));
@@ -289,7 +289,7 @@ fn dots_ui(ui: &mut Ui, dots: &[(String, f64, f64)]) {
                 if !mu.is_finite() || !sigma.is_finite() {
                     continue;
                 }
-                let c = crate::palette::class_colour(i);
+                let c = crate::palette::seen(crate::palette::class_colour(i));
                 p.points(Points::new(name.as_str(), vec![[*mu, *sigma]]).color(c).radius(5.0));
                 p.text(
                     Text::new(name.as_str(), PlotPoint::new(*mu, *sigma), format!(" {name}"))

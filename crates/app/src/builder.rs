@@ -555,6 +555,8 @@ pub enum Palette {
     Current,
     /// Chosen by hand: a ramp, on a scale of logarithms or not.
     Chosen(Ramp, bool),
+    /// Chosen by hand: colour-blind safe colours for the classes (Okabe & Ito's), a ramp by the values otherwise.
+    Safe,
 }
 
 /// The ramps a map can be shown in by hand, by name.
@@ -571,15 +573,29 @@ pub const RAMPS: [(&str, Ramp); 8] = [
 
 /// A palette chosen by hand as a Plot keeps it: the ramp's name in the Viewer, ", logarithmic" when it is.
 pub fn palette_name(p: Palette) -> Option<String> {
+    if p == Palette::Safe {
+        return Some(SAFE.into());
+    }
     let Palette::Chosen(r, log) = p else { return None };
     let name = RAMPS.iter().find(|(_, x)| *x == r)?.0;
     Some(if log { format!("{name}, logarithmic") } else { name.to_string() })
+}
+
+/// The name in a Plot of the colour-blind safe classes (Okabe and Ito's).
+const SAFE: &str = "colour-blind safe";
+
+#[test]
+fn the_safe_classes_are_kept_by_name() {
+    assert_eq!(palette_named(&palette_name(Palette::Safe).unwrap()), Some(Palette::Safe));
 }
 
 /// A palette by its name in a Plot: a ramp's name in the Viewer or its first word ("cividis", "blue"), then
 /// ", logarithmic" (or " log") when on a scale of logarithms; none when no ramp is called so.
 pub fn palette_named(text: &str) -> Option<Palette> {
     let t = text.trim().to_lowercase();
+    if t == SAFE || t == "safe" {
+        return Some(Palette::Safe);
+    }
     let (name, log) = match t.strip_suffix("logarithmic").or_else(|| t.strip_suffix("log")) {
         Some(n) => (n.trim_end().trim_end_matches(',').trim_end(), true),
         None => (t.as_str(), false),
@@ -646,6 +662,14 @@ impl Palette {
             Palette::Shade => ramp(Ramp::Grey),
             Palette::Vegetation => ramp(Ramp::Vegetation),
             Palette::Rank => ramp(Ramp::Rank),
+            Palette::Safe => match &auto.coloring {
+                Coloring::Classes(c) => {
+                    let c =
+                        c.iter().enumerate().map(|(i, (v, _))| (*v, crate::palette::safe_class_colour(i))).collect();
+                    Look { coloring: Coloring::Classes(c), ..auto }
+                }
+                _ => auto,
+            },
             Palette::Current => {
                 Look { coloring: Coloring::continuous(values, Ramp::Viridis, true), counts: Vec::new(), product: None }
             }
@@ -6397,7 +6421,7 @@ fn steps_section(
             for v in &classes {
                 let pts: Vec<[f64; 2]> = xs.iter().zip(steps.iter()).map(|(x, st)| [*x, amount(st, *v)]).collect();
                 let name = crate::legend_view::name(l, legend, *v);
-                p.line(Line::new(name, pts).color(crate::palette::seen(l.coloring.colour(*v))).width(1.8));
+                p.line(Line::new(name, pts).color(l.coloring.colour(*v)).width(1.8));
             }
             if let Some(x) = xs.get(shown) {
                 p.vline(VLine::new("shown", *x).color(weak));
@@ -7434,8 +7458,9 @@ fn series_chart(
         .allow_scroll(false)
         .show_background(false)
         .show(ui, |p| {
-            p.line(Line::new("values", pts.clone()).color(theme::accent()).width(1.8));
-            p.points(Points::new("", pts.clone()).color(theme::accent()).radius(2.5));
+            let accent = crate::palette::seen(theme::accent());
+            p.line(Line::new("values", pts.clone()).color(accent).width(1.8));
+            p.points(Points::new("", pts.clone()).color(accent).radius(2.5));
             if let Some(x) = xs.get(shown) {
                 p.vline(VLine::new("shown", *x).color(weak));
             }

@@ -517,9 +517,13 @@ ordem de impacto (começando pelo 1 e pelo 3):
    protanopia, tritanopia); as revistas cobram cada vez mais.
    **Feito** (Unreleased): as rampas cividis e PuOr (laranja a roxo, centrada no 0) nas cores do Viewer; View >
    Colour vision (`palette::Vision`, as matrizes de Machado et al. 2009 em RGB linear) em todo mapa, legenda e
-   imagem, dito na barra do alto até voltar ao normal. As classes já começavam pelas cores de Okabe e Ito. Falta: os
-   gráficos (egui_plot) na visão escolhida; avisar quando duas classes de um mapa ficam parecidas demais para um
-   daltônico.
+   imagem, dito na barra do alto até voltar ao normal. As classes já começavam pelas cores de Okabe e Ito.
+   **Feito também** (Unreleased): os gráficos na visão escolhida (`palette::seen` em cada cor que entra num gráfico:
+   a tabela de gráficos, a área das classes por passo, a série, a calibração, os perfis, os pesos de evidência, a
+   sensibilidade, o orçamento de ganhos e perdas); e o aviso na legenda das classes quando duas cores ficam parecidas
+   (CIEDE2000 abaixo de 10, na visão normal e na escolhida: "floresta e pasto parecem iguais para deuteranopia"), com
+   um botão para as cores seguras de Okabe e Ito (`Palette::Safe`, também no menu Colours). Acima de oito classes
+   nenhuma paleta separa todas para todos os leitores: as extras são as mesmas clareadas.
 10. **Uma célula, todas as camadas.** Clicar numa célula e ver o valor em cada mapa do modelo e, numa pilha
     temporal, o gráfico ao longo do tempo (o Trace já explica uma célula passo a passo; isto é a consulta rápida).
     **Feito** (Unreleased): "This cell in every map" no painel ao lado do mapa (`builder::cell_everywhere`): o valor

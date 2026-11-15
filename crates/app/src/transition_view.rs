@@ -420,7 +420,10 @@ fn budget_bars(ui: &mut Ui, m: &Matrix, unit: Unit, colour: &dyn Fn(i64) -> Colo
     let budgets: Vec<Budget> = m.budgets(area);
     let top = budgets.iter().map(|b| b.gain.max(b.loss)).fold(0.0, f64::max).max(f64::MIN_POSITIVE);
     let f = |v: f64| number(in_unit(v, unit, whole), unit);
-    let (gain_c, loss_c) = (Color32::from_rgb(70, 160, 90), Color32::from_rgb(205, 85, 70));
+    let (gain_c, loss_c) = (
+        crate::palette::seen(Color32::from_rgb(70, 160, 90)),
+        crate::palette::seen(Color32::from_rgb(205, 85, 70)),
+    );
     ui.horizontal(|ui| {
         ui.label(RichText::new("■ loss").color(loss_c));
         ui.label(RichText::new("■ gain").color(gain_c));

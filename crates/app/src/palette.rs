@@ -178,6 +178,16 @@ impl Vision {
         }
     }
 
+    /// The name alone ("deuteranopia"), for a sentence.
+    pub fn short(self) -> &'static str {
+        match self {
+            Vision::Normal => "normal vision",
+            Vision::Protanopia => "protanopia",
+            Vision::Deuteranopia => "deuteranopia",
+            Vision::Tritanopia => "tritanopia",
+        }
+    }
+
     /// Machado, Oliveira & Fernandes (2009)'s matrices at full severity, on linear RGB.
     fn matrix(self) -> Option<[[f32; 3]; 3]> {
         match self {
@@ -231,6 +241,138 @@ pub fn set_vision(v: Vision) {
 /// A colour as the application's vision sees it.
 pub fn seen(c: Color32) -> Color32 {
     vision().see(c)
+}
+
+/// A colour in CIE L*a*b* (D65), from sRGB.
+pub fn lab(c: Color32) -> [f64; 3] {
+    let lin = |u: u8| {
+        let x = f64::from(u) / 255.0;
+        if x <= 0.04045 { x / 12.92 } else { ((x + 0.055) / 1.055).powf(2.4) }
+    };
+    let (r, g, b) = (lin(c.r()), lin(c.g()), lin(c.b()));
+    let x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047;
+    let y = 0.2126729 * r + 0.7151522 * g + 0.0721750 * b;
+    let z = (0.0193339 * r + 0.1191920 * g + 0.9503041 * b) / 1.08883;
+    let f = |t: f64| if t > 216.0 / 24389.0 { t.cbrt() } else { (24389.0 / 27.0 * t + 16.0) / 116.0 };
+    let (fx, fy, fz) = (f(x), f(y), f(z));
+    [116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)]
+}
+
+/// The CIEDE2000 difference of two colours in L*a*b* (Sharma, Wu & Dalal 2005): about 1 is the least a trained eye
+/// tells apart, 2 to 3 what most readers tell side by side.
+pub fn delta_e_lab(p: [f64; 3], q: [f64; 3]) -> f64 {
+    let (l1, a1, b1) = (p[0], p[1], p[2]);
+    let (l2, a2, b2) = (q[0], q[1], q[2]);
+    let c7 = |c: f64| c.powi(7);
+    let cbar = (a1.hypot(b1) + a2.hypot(b2)) / 2.0;
+    let g = 0.5 * (1.0 - (c7(cbar) / (c7(cbar) + 25f64.powi(7))).sqrt());
+    let (ap1, ap2) = ((1.0 + g) * a1, (1.0 + g) * a2);
+    let (cp1, cp2) = (ap1.hypot(b1), ap2.hypot(b2));
+    let hue = |b: f64, a: f64| {
+        if b == 0.0 && a == 0.0 {
+            0.0
+        } else {
+            let h = b.atan2(a).to_degrees();
+            if h < 0.0 { h + 360.0 } else { h }
+        }
+    };
+    let (hp1, hp2) = (hue(b1, ap1), hue(b2, ap2));
+    let dl = l2 - l1;
+    let dc = cp2 - cp1;
+    let dh = if cp1 * cp2 == 0.0 {
+        0.0
+    } else if (hp2 - hp1).abs() <= 180.0 {
+        hp2 - hp1
+    } else if hp2 - hp1 > 180.0 {
+        hp2 - hp1 - 360.0
+    } else {
+        hp2 - hp1 + 360.0
+    };
+    let dhh = 2.0 * (cp1 * cp2).sqrt() * (dh.to_radians() / 2.0).sin();
+    let lbar = (l1 + l2) / 2.0;
+    let cpbar = (cp1 + cp2) / 2.0;
+    let hbar = if cp1 * cp2 == 0.0 {
+        hp1 + hp2
+    } else if (hp1 - hp2).abs() <= 180.0 {
+        (hp1 + hp2) / 2.0
+    } else if hp1 + hp2 < 360.0 {
+        (hp1 + hp2 + 360.0) / 2.0
+    } else {
+        (hp1 + hp2 - 360.0) / 2.0
+    };
+    let t = 1.0 - 0.17 * (hbar - 30.0).to_radians().cos()
+        + 0.24 * (2.0 * hbar).to_radians().cos()
+        + 0.32 * (3.0 * hbar + 6.0).to_radians().cos()
+        - 0.20 * (4.0 * hbar - 63.0).to_radians().cos();
+    let sl = 1.0 + 0.015 * (lbar - 50.0).powi(2) / (20.0 + (lbar - 50.0).powi(2)).sqrt();
+    let sc = 1.0 + 0.045 * cpbar;
+    let sh = 1.0 + 0.015 * cpbar * t;
+    let dtheta = 30.0 * (-((hbar - 275.0) / 25.0).powi(2)).exp();
+    let rc = 2.0 * (c7(cpbar) / (c7(cpbar) + 25f64.powi(7))).sqrt();
+    let rt = -(2.0 * dtheta).to_radians().sin() * rc;
+    ((dl / sl).powi(2) + (dc / sc).powi(2) + (dhh / sh).powi(2) + rt * (dc / sc) * (dhh / sh)).sqrt()
+}
+
+/// The difference of two colours (CIEDE2000).
+pub fn delta_e(a: Color32, b: Color32) -> f64 {
+    delta_e_lab(lab(a), lab(b))
+}
+
+/// Two classes whose colours differ by less than this (CIEDE2000) look alike. A difference of 10 is far above
+/// what is told side by side (2 to 3): it is what a reader still mixes up when the swatches are small and apart,
+/// as in a legend and in a map's patches.
+pub const ALIKE: f64 = 10.0;
+
+/// Two colours that look alike: their indexes, and the vision that sees them so (normal when they do to every
+/// reader).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Alike {
+    pub a: usize,
+    pub b: usize,
+    pub vision: Vision,
+    pub delta: f64,
+}
+
+/// The pairs of colours that look alike to normal vision, and those that only do to `vision` (when it is not
+/// normal).
+pub fn alike_pairs(colours: &[Color32], vision: Vision) -> Vec<Alike> {
+    let normal: Vec<[f64; 3]> = colours.iter().map(|c| lab(*c)).collect();
+    let other: Option<Vec<[f64; 3]>> =
+        (vision != Vision::Normal).then(|| colours.iter().map(|c| lab(vision.see(*c))).collect());
+    let mut out = Vec::new();
+    for a in 0..colours.len() {
+        for b in a + 1..colours.len() {
+            let d = delta_e_lab(normal[a], normal[b]);
+            if d < ALIKE {
+                out.push(Alike { a, b, vision: Vision::Normal, delta: d });
+            } else if let Some(o) = &other {
+                let d = delta_e_lab(o[a], o[b]);
+                if d < ALIKE {
+                    out.push(Alike { a, b, vision, delta: d });
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Colour-blind safe colours for classes: Okabe & Ito's eight, then the same lightened (the more, the later), which
+/// no palette can keep apart for every reader.
+pub fn safe_class_colour(i: usize) -> Color32 {
+    const OI: [[u8; 3]; 8] = [
+        [0, 114, 178],
+        [230, 159, 0],
+        [0, 158, 115],
+        [204, 121, 167],
+        [86, 180, 233],
+        [213, 94, 0],
+        [240, 228, 66],
+        [0, 0, 0],
+    ];
+    let [r, g, b] = OI[i % 8];
+    let k = (i / 8).min(2) as f32 * 0.4;
+    let mix = |u: u8| (f32::from(u) + (255.0 - f32::from(u)) * k).round() as u8;
+    Color32::from_rgb(mix(r), mix(g), mix(b))
 }
 
 /// How a map is coloured.
@@ -537,6 +679,64 @@ mod tests {
         assert_eq!(Ramp::Cividis.colour(1.0), Color32::from_rgb(255, 234, 70));
         assert_eq!(Ramp::PurpleOrange.colour(0.5), Color32::from_rgb(247, 247, 247));
         assert!(Ramp::PurpleOrange.diverging() && !Ramp::Cividis.diverging());
+    }
+
+    #[test]
+    fn ciede2000_matches_the_published_pairs() {
+        // Sharma, Wu & Dalal (2005), pairs 1, 2 and 7 of their test data
+        let d = |a: [f64; 3], b: [f64; 3]| delta_e_lab(a, b);
+        assert!((d([50.0, 2.6772, -79.7751], [50.0, 0.0, -82.7485]) - 2.0425).abs() < 1e-3);
+        assert!((d([50.0, 3.1571, -77.2803], [50.0, 0.0, -82.7485]) - 2.8615).abs() < 1e-3);
+        assert!((d([50.0, 2.5, 0.0], [50.0, 0.0, -2.5]) - 4.3065).abs() < 1e-3);
+        // the same colour: none; black and white: the whole scale
+        assert!(delta_e(Color32::RED, Color32::RED) < 1e-9);
+        assert!((delta_e(Color32::BLACK, Color32::WHITE) - 100.0).abs() < 0.5);
+        let l = lab(Color32::WHITE);
+        assert!((l[0] - 100.0).abs() < 0.01 && l[1].abs() < 0.05 && l[2].abs() < 0.05, "{l:?}");
+    }
+
+    #[test]
+    fn classes_that_look_alike() {
+        let (red, green) = (Color32::from_rgb(213, 40, 40), Color32::from_rgb(60, 160, 40));
+        let (blue, yellow) = (Color32::from_rgb(0, 114, 178), Color32::from_rgb(240, 228, 66));
+        let cols = [red, green, blue, yellow];
+        // told apart by normal vision (no pair), but the green-blind reader mixes red and green
+        assert!(alike_pairs(&cols, Vision::Normal).is_empty());
+        let d = alike_pairs(&cols, Vision::Deuteranopia);
+        assert!(d.iter().any(|p| (p.a, p.b) == (0, 1) && p.vision == Vision::Deuteranopia), "{d:?}");
+        assert!(d.iter().all(|p| (p.a, p.b) != (2, 3)), "blue and yellow stay apart: {d:?}");
+        // two near blues: alike to everyone, reported once (as normal vision's)
+        let near = [Color32::from_rgb(0, 114, 178), Color32::from_rgb(31, 119, 180)];
+        let p = alike_pairs(&near, Vision::Protanopia);
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].vision, Vision::Normal);
+        assert!(p[0].delta < ALIKE);
+        // no pair in a single colour
+        assert!(alike_pairs(&[red], Vision::Deuteranopia).is_empty());
+    }
+
+    #[test]
+    fn the_safe_classes_are_apart_for_the_first_eight() {
+        for v in Vision::ALL {
+            let cols: Vec<Color32> = (0..8).map(safe_class_colour).collect();
+            let alike = alike_pairs(&cols, v);
+            // Okabe & Ito's are the ones made for it; allow the few pairs a vision cannot help (black and blue)
+            assert!(alike.len() <= 3, "{v:?}: {alike:?}");
+        }
+        assert_ne!(safe_class_colour(0), safe_class_colour(8));
+    }
+
+    #[test]
+    fn every_vision_changes_the_colours_of_a_chart() {
+        let c = [Color32::from_rgb(213, 94, 0), Color32::from_rgb(0, 158, 115), Color32::from_rgb(204, 121, 167)];
+        for v in Vision::ALL {
+            let seen: Vec<Color32> = c.iter().map(|x| v.see(*x)).collect();
+            if v == Vision::Normal {
+                assert_eq!(seen, c);
+            } else {
+                assert_ne!(seen, c, "{v:?}");
+            }
+        }
     }
 
     #[test]

@@ -126,7 +126,7 @@ pub fn show(ui: &mut Ui, s: &mut Session, node: &str, model: &WoeModel, salt: &s
             .and_then(|l| serde_json::from_value::<Vec<Option<f64>>>(l.clone()).ok())
             .unwrap_or_default();
         // the weights in bars
-        let accent = theme::accent();
+        let accent = crate::palette::seen(theme::accent());
         let weak = ui.visuals().weak_text_color();
         let names: Vec<String> = rows
             .iter()

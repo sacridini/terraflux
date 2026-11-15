@@ -170,7 +170,7 @@ pub fn clustergram(t: &Table, rows: &[usize]) -> Option<Clustergram> {
 
 /// The colour of the `g`-th group (or the accent for a single series).
 fn colour(g: usize, groups: usize) -> Color32 {
-    if groups <= 1 { crate::theme::accent() } else { class_colour(g) }
+    crate::palette::seen(if groups <= 1 { crate::theme::accent() } else { class_colour(g) })
 }
 
 /// A group's name in a legend.
@@ -477,7 +477,7 @@ fn draw_clustergram(ui: &mut Ui, cg: &Clustergram, n: usize, id: egui::Id) {
             for &(k, m, c) in &cg.dots {
                 p.points(
                     Points::new("", vec![[k, m]])
-                        .color(Color32::from_rgb(214, 39, 40))
+                        .color(crate::palette::seen(Color32::from_rgb(214, 39, 40)))
                         .radius((c as f32 / n).sqrt() * 18.0 + 2.0)
                         .filled(true),
                 );
@@ -492,7 +492,7 @@ fn loadings(ui: &mut Ui, t: &Table, [a, b]: [usize; 2], id: egui::Id) {
         return;
     }
     let axis = |r: usize| format!("PC{} ({:.0}%)", r + 1, t.rows[r][1] * 100.0);
-    let colour = crate::theme::accent();
+    let colour = crate::palette::seen(crate::theme::accent());
     let text = ui.visuals().text_color();
     let side = ui.available_width().clamp(240.0, 520.0);
     crate::theme::plot(Plot::new(id.with("loadings")))
@@ -568,7 +568,11 @@ fn matrix(ui: &mut Ui, t: &Table, id: egui::Id) {
                 Heatmap::new(values, m)
                     .at(PlotPoint::new(-0.5, -0.5))
                     .custom_mapping(Box::new(move |v| {
-                        if v.is_nan() { Color32::GRAY } else { Ramp::Diverging.colour(((v / top + 1.0) / 2.0) as f32) }
+                        if v.is_nan() {
+                            Color32::GRAY
+                        } else {
+                            crate::palette::seen(Ramp::Diverging.colour(((v / top + 1.0) / 2.0) as f32))
+                        }
                     }))
                     .formatter(Box::new(|v| if v.is_nan() { "NA".into() } else { format!("{v:.2}") }))
                     .show_labels(m <= 16),

@@ -4723,7 +4723,7 @@ impl TerrafluxApp {
                         .collect();
                     p.line(
                         Line::new(format!("class {}", terraflux_ops::value::class_label(c)), pts)
-                            .color(colour(c))
+                            .color(crate::palette::seen(colour(c)))
                             .width(2.0),
                     );
                 }

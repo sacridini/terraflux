@@ -1218,6 +1218,141 @@ fn class_lines(ui: &mut Ui, lines: &[(Color32, String, usize)], most: usize) {
     }
 }
 
+/// The most pairs of classes a legend's warning names.
+const ALIKE_NAMED: usize = 3;
+
+/// What the classes that look alike are told as: "forest and pasture look alike" (for a vision, "... for
+/// deuteranopia"), the first few, then how many more.
+pub(super) fn alike_text(pairs: &[crate::palette::Alike], names: &[&str]) -> Vec<String> {
+    let mut out: Vec<String> = pairs
+        .iter()
+        .take(ALIKE_NAMED)
+        .map(|p| {
+            let (a, b) = (names.get(p.a).copied().unwrap_or("?"), names.get(p.b).copied().unwrap_or("?"));
+            match p.vision {
+                crate::palette::Vision::Normal => format!("{a} and {b} look alike"),
+                v => format!("{a} and {b} look alike for {}", v.short()),
+            }
+        })
+        .collect();
+    if pairs.len() > ALIKE_NAMED {
+        out.push(format!("and {} more pairs", pairs.len() - ALIKE_NAMED));
+    }
+    out
+}
+
+/// The classes of a legend whose colours look alike (to normal vision, and to the vision the maps are seen with),
+/// under it, with a way out: colour-blind safe colours. Worked out again only when the colours or the vision change.
+fn alike_note(ui: &mut Ui, s: &mut Session, key: &(String, String), lines: &[(Color32, String, usize)]) {
+    if alike_ui(ui, key, lines, crate::palette::vision()) {
+        s.palettes.insert(key.clone(), Palette::Safe);
+    }
+}
+
+/// The warning of [`alike_note`] for a vision; whether the way out was clicked.
+fn alike_ui(
+    ui: &mut Ui,
+    key: &(String, String),
+    lines: &[(Color32, String, usize)],
+    vision: crate::palette::Vision,
+) -> bool {
+    use std::hash::{Hash, Hasher};
+    if lines.len() < 2 {
+        return false;
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (vision as u8).hash(&mut h);
+    for l in lines {
+        l.0.to_array().hash(&mut h);
+    }
+    let (stamp, id) = (h.finish(), egui::Id::new(("alike", key)));
+    let pairs = match ui.data(|d| d.get_temp::<(u64, Vec<crate::palette::Alike>)>(id)) {
+        Some((k, p)) if k == stamp => p,
+        _ => {
+            let colours: Vec<Color32> = lines.iter().map(|l| l.0).collect();
+            let p = crate::palette::alike_pairs(&colours, vision);
+            ui.data_mut(|d| d.insert_temp(id, (stamp, p.clone())));
+            p
+        }
+    };
+    if pairs.is_empty() {
+        return false;
+    }
+    let names: Vec<&str> = lines.iter().map(|l| l.1.as_str()).collect();
+    ui.add_space(2.0);
+    let warn = ui.visuals().warn_fg_color;
+    for t in alike_text(&pairs, &names) {
+        ui.add(egui::Label::new(RichText::new(format!("⚠ {t}")).size(11.0).color(warn)).wrap());
+    }
+    ui.small_button("Colour-blind safe colours")
+        .on_hover_text("Okabe and Ito's colours for the classes (more than eight: the same lightened)")
+        .clicked()
+}
+
+#[cfg(test)]
+mod alike_tests {
+    use super::*;
+    use crate::palette::{Alike, Vision};
+    use egui_kittest::{Harness, kittest::Queryable};
+
+    fn lines(colours: &[(&str, Color32)]) -> Vec<(Color32, String, usize)> {
+        colours.iter().map(|(n, c)| (*c, n.to_string(), 1)).collect()
+    }
+
+    #[test]
+    fn the_pairs_are_told_by_name() {
+        let p = |a, b, vision| Alike { a, b, vision, delta: 3.0 };
+        let names = ["forest", "pasture", "water", "crops", "urban"];
+        assert_eq!(alike_text(&[p(0, 1, Vision::Normal)], &names), ["forest and pasture look alike"]);
+        assert_eq!(
+            alike_text(&[p(0, 1, Vision::Deuteranopia)], &names),
+            ["forest and pasture look alike for deuteranopia"]
+        );
+        let many: Vec<Alike> = (0..5).map(|i| p(i, (i + 1) % 5, Vision::Normal)).collect();
+        let t = alike_text(&many, &names);
+        assert_eq!((t.len(), t[3].as_str()), (4, "and 2 more pairs"));
+    }
+
+    #[test]
+    fn a_legend_with_two_near_colours_warns() {
+        let key = ("n".to_string(), "p".to_string());
+        let near = lines(&[
+            ("forest", Color32::from_rgb(0, 114, 178)),
+            ("pasture", Color32::from_rgb(31, 119, 180)),
+            ("urban", Color32::from_rgb(240, 228, 66)),
+        ]);
+        let apart = lines(&[("forest", Color32::from_rgb(0, 114, 178)), ("urban", Color32::from_rgb(240, 228, 66))]);
+        let mut h = Harness::new_ui(|ui| {
+            alike_ui(ui, &key, &near, Vision::Normal);
+        });
+        h.run();
+        h.get_by_label_contains("forest and pasture look alike");
+        assert!(h.query_by_label_contains("urban").is_none());
+        let mut h = Harness::new_ui(|ui| {
+            alike_ui(ui, &key, &apart, Vision::Normal);
+        });
+        h.run();
+        assert!(h.query_by_label_contains("look alike").is_none());
+    }
+
+    #[test]
+    fn a_vision_makes_red_and_green_alike() {
+        let key = ("n".to_string(), "q".to_string());
+        let pair = lines(&[("loss", Color32::from_rgb(213, 40, 40)), ("gain", Color32::from_rgb(60, 160, 40))]);
+        let mut normal = Harness::new_ui(|ui| {
+            alike_ui(ui, &key, &pair, Vision::Normal);
+        });
+        normal.run();
+        assert!(normal.query_by_label_contains("look alike").is_none());
+        let mut blind = Harness::new_ui(|ui| {
+            alike_ui(ui, &key, &pair, Vision::Deuteranopia);
+        });
+        blind.run();
+        blind.get_by_label_contains("loss and gain look alike for deuteranopia");
+        blind.get_by_label("Colour-blind safe colours");
+    }
+}
+
 /// A legend under its row, indented to its name.
 fn indented(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     ui.add_space(1.0);
@@ -1261,6 +1396,7 @@ fn shown_legend(ui: &mut Ui, s: &mut Session, (node, port): (&str, &str), shown:
             let lines =
                 crate::map_view::legend_lines(c, &look.counts, &|v| crate::legend_view::name(look, shown.names, v));
             class_lines(ui, &lines, usize::MAX);
+            alike_note(ui, s, &key, &lines);
         }
         Coloring::Continuous { .. } => palette_legend(ui, s, &key, look, shown.names, 0),
         Coloring::Packed | Coloring::Shade { .. } => {}
@@ -2179,6 +2315,15 @@ pub(super) fn palette_menu(ui: &mut Ui, s: &mut Session, key: &(String, String),
         .clicked()
     {
         s.palettes.remove(key);
+        ui.close();
+    }
+    if (matches!(now, Coloring::Classes(_)) || chosen == Some(Palette::Safe))
+        && ui
+            .add(egui::Button::selectable(chosen == Some(Palette::Safe), "colour-blind safe classes"))
+            .on_hover_text("Okabe and Ito's colours for the classes (more than eight: the same lightened)")
+            .clicked()
+    {
+        s.palettes.insert(key.clone(), Palette::Safe);
         ui.close();
     }
     ui.separator();

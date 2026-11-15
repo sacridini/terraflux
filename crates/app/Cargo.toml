@@ -79,5 +79,9 @@ name = "keymap"
 path = "tests/keymap.rs"
 
 [[test]]
+name = "vision"
+path = "tests/vision.rs"
+
+[[test]]
 name = "readme_images"
 path = "tests/readme_images.rs"

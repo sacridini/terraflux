@@ -2433,7 +2433,7 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
                 .legend(Legend::default())
                 .x_axis_label(key.as_str())
                 .y_axis_label(metric.as_str())
-                .show(ui, |p| p.points(Points::new(key.as_str(), pts).color(theme::accent()).radius(3.0)));
+                .show(ui, |p| p.points(Points::new(key.as_str(), pts).color(crate::palette::seen(theme::accent())).radius(3.0)));
         }
         egui::ScrollArea::vertical().id_salt("ranking").max_height(220.0).show(ui, |ui| {
             egui::Grid::new("ranking").striped(true).show(ui, |ui| {

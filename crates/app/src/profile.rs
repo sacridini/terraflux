@@ -200,7 +200,7 @@ pub fn show(
             let pts: Vec<[f64; 2]> =
                 p.dist.iter().zip(&p.values).filter(|(_, v)| v.is_finite()).map(|(d, v)| [*d, *v]).collect();
             let weak = ui.visuals().weak_text_color();
-            let colour: Color32 = crate::theme::accent();
+            let colour: Color32 = crate::palette::seen(crate::theme::accent());
             crate::theme::plot(Plot::new(id))
                 .height(140.0)
                 .allow_scroll(false)
