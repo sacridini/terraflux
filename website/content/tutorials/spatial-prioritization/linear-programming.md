@@ -316,8 +316,8 @@ goes to the closure engine. A minimum set of 49 species with a boundary penalty 
 this way, where HiGHS's MIP alone takes the better part of an hour.
 
 Where **Gurobi** is installed with a licence (academic licences are free), `solver = "gurobi"` solves the model
-with it instead, and `threads` sets how many threads it uses (every core
-but one by default). Terraflux needs nothing of Gurobi to run: it finds Gurobi's library when a node asks for it,
+with it instead, and `threads` sets how many threads it uses (the cores
+less a quarter by default). Terraflux needs nothing of Gurobi to run: it finds Gurobi's library when a node asks for it,
 by `GUROBI_HOME` (which Gurobi's installer sets), the usual folders of an installation, or `TERRAFLUX_GUROBI` (the
 library's file). When it cannot find the library or the licence, the node is solved by HiGHS and its warning says
 why. Both prove the gap asked for; within it, they may stop at different plans.

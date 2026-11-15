@@ -87,8 +87,8 @@ terraflux cluster add --help
 ### Options every command takes
 
 `--threads N`
-:   How many threads Terraflux may use. By default it uses all the cores of the computer but one, so the machine
-    stays usable; it never takes every core unless you ask. The environment variable `TERRAFLUX_THREADS` sets
+:   How many threads Terraflux may use. By default, and at most, it uses the cores less a quarter (15 of 20), so the machine
+    stays usable; it never takes every core, even when asked for more. The environment variable `TERRAFLUX_THREADS` sets
     the same for every command (see [Environment and files](/cli/environment/)).
 
 `-h`, `--help`
