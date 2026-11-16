@@ -3699,3 +3699,19 @@ sensível (até cerca de 10 %, dentro do ruído).
    205, 843 → 758; arrastando 333 µs → 332, 2,70 ms → 2,80, 30,8 ms → 32,1; uma edição (conferida) 1,41 → 1,39 ms, 3,88
    → 3,99, 32,8 → 39 (ruído da máquina; o grafo do teste não tem fios de ajuste); teste
    `a_settings_wire_has_a_tip_points_and_can_be_drawn_from_the_socket`.
+
+## Qualidade de vida: corrigir, compartilhar, figurar, substituir e prever
+
+Pedido de 2026-11-16 (um commit por item, na ordem 1, 5, 3, 2, 4; o tema que segue o sistema ficou de fora, por
+escolha do usuário). Conferido antes que nada disso existe.
+
+1. **Correção com um clique no painel Problems.** Hoje o painel só oferece "Ask the assistant" e "Copy". Os
+   problemas comuns ganham um botão que os resolve, passando pelo desfazer: mapas em CRS ou grades diferentes → um
+   `raster.match` inserido; um mapa sem nodata → o nodata definido; uma entrada vazia → o seletor de arquivos.
+5. **Empacotar o modelo com os dados.** Um arquivo só (o modelo, os dados, os caminhos relativos, o manifesto) para
+   o orientador ou o revisor; "Abrir pacote" desempacota e o modelo roda sem ajuste.
+3. **O grafo do modelo como figura vetorial** (SVG e PDF) para o artigo, no tema claro, com as notas.
+2. **Localizar e substituir no modelo inteiro**, com prévia: um caminho, um nodata, o nome de uma classe em todos
+   os nós de uma vez (hoje só nos nós selecionados do mesmo operador).
+4. **A memória estimada antes de rodar** (o disco já é estimado; a memória de cada nó só é medida depois): "esta
+   execução precisa de ~12 GB e há 8", com a sugestão de rodar por blocos ou por tiles.
