@@ -3735,6 +3735,15 @@ escolha do usuário). Conferido antes que nada disso existe.
 1. **Correção com um clique no painel Problems.** Hoje o painel só oferece "Ask the assistant" e "Copy". Os
    problemas comuns ganham um botão que os resolve, passando pelo desfazer: mapas em CRS ou grades diferentes → um
    `raster.match` inserido; um mapa sem nodata → o nodata definido; uma entrada vazia → o seletor de arquivos.
+   **Feito** (Unreleased). `crates/app/src/fixes.rs`: `fix_for(model, registry, problema) -> Vec<Fix>` e `apply`
+   (numa cópia; recusa o que não se aplica mais ou traz erro novo), `run` na sessão como um passo de desfazer; o painel
+   (`problems_view::fix_ui`) só chama. Mapas de grades diferentes (a falha explicada): um `raster.match` antes de cada
+   entrada que destoa da primeira, `near` se as células são inteiras (`Side::classes`, amostra), `bilinear` se são
+   contínuas, dois botões se não se sabe. Nodata: campo para digitar + Fix, nas entradas `$x` dos achados do lint
+   ("check its no-data value") e no `raster.read` que a falha cita. Entrada vazia: "Use $x" para as entradas do modelo
+   do tipo da porta, e Fix abre o `rfd` e liga um `raster.read`/`vector.read`/`table.read`. Ficou: o valor de nodata
+   que o arquivo declara não é lido (o usuário digita); nada hoje acusa um `raster.read` sem nodata antes de uma falha;
+   o id citado que não existe não tem correção.
 5. **Empacotar o modelo com os dados.** Um arquivo só (o modelo, os dados, os caminhos relativos, o manifesto) para
    o orientador ou o revisor; "Abrir pacote" desempacota e o modelo roda sem ajuste.
 3. **O grafo do modelo como figura vetorial** (SVG e PDF) para o artigo, no tema claro, com as notas.

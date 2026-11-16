@@ -5793,6 +5793,59 @@ params = { expression = "a + b" }
     assert!(h.state().is_open(Pane::Problems));
 }
 
+/// Maps of different grids: the Problems pane's Fix puts a raster.match before the one that does not fit, as one step
+/// of undo, and the checks run again.
+#[test]
+fn a_fix_puts_maps_on_one_grid() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let before = {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source = terraflux_graph::Model::from_toml(
+            r#"
+format = "terraflux/1"
+[[nodes]]
+id = "small"
+op = "nlm.random"
+params = { rows = 10, columns = 10, seed = 1 }
+[[nodes]]
+id = "big"
+op = "nlm.random"
+params = { rows = 20, columns = 10, seed = 2 }
+[[nodes]]
+id = "sum"
+op = "raster.calc"
+inputs = { a = "small.map", b = "big.map" }
+params = { expression = "a + b" }
+"#,
+        )
+        .unwrap();
+        s.edited();
+        s.run_when_ready = true;
+        s.source.clone()
+    };
+    h.run_steps(2);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.error.is_some()
+    });
+    h.run_steps(2);
+    h.get_by_label("the run failed: why?").click();
+    h.run_steps(3);
+    h.get_by_label("Fix").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let m = s.source.node("raster_match").expect("the raster.match added");
+    assert_eq!(m.op, "raster.match");
+    assert_eq!(m.inputs.get("like"), Some(&terraflux_graph::Source::Ref("small.map".into())));
+    assert_eq!(s.source.node("sum").unwrap().inputs.get("b"), Some(&terraflux_graph::Source::Ref("raster_match.raster".into())));
+    assert!(s.model.node("raster_match").is_some(), "the checks ran again on it");
+    // one step of undo
+    let s = h.state_mut().session.as_mut().unwrap();
+    assert!(s.history.undo(&mut s.source));
+    assert_eq!(s.source, before);
+}
+
 /// A node of a problem, clicked in the Problems pane: the canvas's camera glides to it and ends with it at the centre.
 #[test]
 fn a_problems_node_is_glided_to() {

@@ -11,6 +11,7 @@ use terraflux_ops::Registry;
 
 use crate::app::Session;
 use crate::diagnose::{Diagnosis, GridInfo};
+use crate::fixes::{Fix, Problem};
 use crate::theme;
 
 /// What the pane asks of the application.
@@ -99,10 +100,59 @@ fn inputs_ui(ui: &mut Ui, d: &Diagnosis, select: &mut Option<String>) {
     });
 }
 
+/// The button of a correction (its hint says exactly what it changes), or what it asks first: how to resample (a
+/// button each), the no-data value (a field), a file (the dialog). The correction chosen, complete, in `chosen`.
+fn fix_ui(ui: &mut Ui, fix: &Fix, key: impl std::hash::Hash + std::fmt::Debug, chosen: &mut Option<Fix>) {
+    let hint = fix.words();
+    match fix {
+        Fix::Match { resampling: None, .. } => {
+            for (label, how, tip) in [
+                ("Fix as classes", "near", "the values are classes: nearest neighbour keeps them whole"),
+                ("Fix as continuous", "bilinear", "the values are continuous: bilinear"),
+            ] {
+                if ui.small_button(label).on_hover_text(format!("{hint}; {tip}")).clicked() {
+                    *chosen = Some(fix.clone().with_resampling(how));
+                }
+            }
+        }
+        Fix::Nodata { value: None, .. } => {
+            let id = ui.make_persistent_id(("fix nodata", key));
+            let mut text = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_default();
+            ui.add(egui::TextEdit::singleline(&mut text).desired_width(70.0).hint_text("no-data"))
+                .on_hover_text("the value that marks the cells without data in the file (-9999, 255, 0...)");
+            let value = text.trim().parse::<f64>().ok().filter(|v| v.is_finite());
+            ui.data_mut(|d| d.insert_temp(id, text));
+            if ui.add_enabled(value.is_some(), egui::Button::new("Fix").small()).on_hover_text(hint).clicked()
+                && let Some(v) = value
+            {
+                *chosen = Some(fix.clone().with_number(v));
+            }
+        }
+        Fix::Read { file: None, op, .. } => {
+            if ui.small_button("Fix").on_hover_text(hint).clicked()
+                && let Some(f) = crate::fixes::pick_file(op)
+            {
+                *chosen = Some(fix.clone().with_file(&f));
+            }
+        }
+        Fix::Link { to, .. } => {
+            if ui.small_button(format!("Use {to}")).on_hover_text(hint).clicked() {
+                *chosen = Some(fix.clone());
+            }
+        }
+        _ => {
+            if ui.small_button("Fix").on_hover_text(hint).clicked() {
+                *chosen = Some(fix.clone());
+            }
+        }
+    }
+}
+
 /// The Problems pane.
 pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Asked> {
     let mut asked = None;
     let mut select: Option<String> = None;
+    let mut chosen: Option<Fix> = None;
     egui::ScrollArea::vertical().id_salt("problems pane").auto_shrink([false, false]).show(ui, |ui| {
         egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| {
             let (errors, warnings) = counts(s);
@@ -137,6 +187,12 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Asked> {
                                 ui.horizontal_wrapped(|ui| {
                                     ui.label(RichText::new("Likely:").strong());
                                     ui.label(h);
+                                });
+                            }
+                            for (k, f) in crate::fixes::fix_for(&s.model, r, &Problem::Failure(&d)).iter().enumerate() {
+                                ui.horizontal_wrapped(|ui| {
+                                    fix_ui(ui, f, ("failure", k), &mut chosen);
+                                    ui.label(weak(f.words()));
                                 });
                             }
                             ui.add_space(4.0);
@@ -186,6 +242,9 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Asked> {
                             node_link(ui, node, &mut select);
                         }
                         ui.label(&i.message);
+                        for (k, f) in crate::fixes::fix_for(&s.model, r, &Problem::Unfilled(i)).iter().enumerate() {
+                            fix_ui(ui, f, ("issue", &i.at, &i.message, k), &mut chosen);
+                        }
                     });
                 }
                 ui.add_space(6.0);
@@ -200,6 +259,9 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Asked> {
                         ui.label(RichText::new("●").color(colour));
                         ui.label(RichText::new(&f.at).strong());
                         ui.label(&f.message);
+                        for (k, x) in crate::fixes::fix_for(&s.model, r, &Problem::Finding(f)).iter().enumerate() {
+                            fix_ui(ui, x, ("finding", &f.at, k), &mut chosen);
+                        }
                     });
                 }
                 ui.add_space(6.0);
@@ -250,6 +312,9 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Asked> {
             }
         });
     });
+    if let Some(fix) = chosen {
+        crate::fixes::run(s, r, &fix);
+    }
     if let Some(at) = select {
         let mut path: Vec<String> = at.split('/').map(String::from).collect();
         let id = path.pop().unwrap_or_default();

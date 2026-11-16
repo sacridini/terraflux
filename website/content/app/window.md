@@ -43,7 +43,7 @@ to show. Close the pane's tab in front with ++ctrl+w++, or remove its tick in **
 | **Changes** | What changed in the model since an earlier version, node by node ([The Changes pane](#the-changes-pane)). | **View**, or **File > Compare**. |
 | **Parameters** | The model's parameters as a form, and its scenarios saved, applied and compared. | **View**. |
 | **Trace** | Why a cell of a result has its value: the chain of values that made it ([Trace](/app/canvas/#trace-why-a-cell-has-its-value)). | **Trace this cell**. |
-| **Problems** | What is wrong with the model: the failure of the last run explained, the checks of the graph, the problems of the data. | **View**; also when a run is asked with nodes not filled in. |
+| **Problems** | What is wrong with the model: the failure of the last run explained, the checks of the graph, the problems of the data. The common ones have a **Fix** button, one step of undo ([Fix a problem](#fix-a-problem-with-a-click)). | **View**; also when a run is asked with nodes not filled in. |
 | **Calculator** | The script of the map algebra node selected, with its names completed and its outputs previewed ([The raster calculator](/tutorials/building-models/calculator/)). | By itself when a script is opened. |
 | **Runs** | The journal of the model's runs, kept beside its file: when, how long, how they ended, what changed and what was written. | **View**. |
 
@@ -224,6 +224,22 @@ over the canvas, and the **Problems** pane, say so: *2 files of the model are no
   other way round.
 
 On the command line, [`terraflux relink`](/cli/models/#terraflux-relink) does the same.
+
+## Fix a problem with a click
+
+The common problems in the **Problems** pane have a **Fix** button. Hover over it: the hint says exactly what it will
+change. A fix is one step of undo (++ctrl+z++ takes it back), and the checks run again after it. A problem without a
+safe correction has no button.
+
+- **Maps of a node on different grids** (in the last run's failure, under *What it was given*): **Fix** adds a
+  `raster.match` before each input that differs from the first, on the grid of the first. The resampling is `near`
+  when the cells are whole numbers (classes) and `bilinear` when they are continuous; when the cells do not say,
+  two buttons ask: **Fix as classes** and **Fix as continuous**.
+- **A map read without its no-data value**, when the data's check says to look at it: type the value in the field
+  beside the problem, then **Fix** sets it as the `nodata` of the input (or of the `raster.read` node).
+- **A node not filled in** (an input it needs and has not): **Use $name** connects a model's input of the type the
+  port takes; **Fix** opens the file dialog and adds a `raster.read`, `vector.read` or `table.read` (by the type of
+  the port) on the file chosen, connected to the port.
 
 ## Notes and frames
 

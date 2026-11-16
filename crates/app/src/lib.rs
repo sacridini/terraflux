@@ -33,6 +33,7 @@ pub mod editor_view;
 pub mod eta;
 pub mod eval;
 pub mod export_view;
+pub mod fixes;
 pub mod figure;
 pub mod files_view;
 pub mod find;

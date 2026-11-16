@@ -58,6 +58,27 @@ pub struct Side {
     /// What it is ("a map", "a stack of 3 layers", "a table"), or that it gave nothing.
     pub kind: String,
     pub grid: Option<GridInfo>,
+    /// Whether the map holds classes (whole numbers) or a continuous variable, when it is in memory and its cells
+    /// say it (a sample of them); None for anything else.
+    pub classes: Option<bool>,
+}
+
+/// Whether a map's cells are classes (every one of a sample a whole number) or a continuous variable.
+fn classes_of(v: &Value) -> Option<bool> {
+    let data: &[f64] = match v {
+        Value::Map(m) => &m.data[..],
+        Value::Stack(s) => &s.layers.first()?[..],
+        _ => return None,
+    };
+    let step = (data.len() / 20_000).max(1);
+    let mut seen = false;
+    for x in data.iter().step_by(step).filter(|x| !x.is_nan()) {
+        seen = true;
+        if x.fract() != 0.0 {
+            return Some(false);
+        }
+    }
+    seen.then_some(true)
 }
 
 /// A node's failure explained.
@@ -108,6 +129,7 @@ pub fn diagnose(m: &Model, at: &str, message: &str, values: crate::trace::Values
                 node: None,
                 kind: "a value written in the model".into(),
                 grid: None,
+                classes: None,
             },
             Source::Ref(rf) => {
                 let (node, value) = match Ref::parse(rf) {
@@ -139,6 +161,7 @@ pub fn diagnose(m: &Model, at: &str, message: &str, values: crate::trace::Values
                         kind,
                     ),
                     grid: value.as_ref().and_then(crate::trace::grid_of).map(|g: Arc<Grid>| GridInfo::of(&g)),
+                    classes: value.as_ref().and_then(classes_of),
                 }
             }
         };
