@@ -1723,7 +1723,13 @@ Registro de 2026-10-16. O aplicativo avisa quando há uma versão nova e a insta
 2. A troca no macOS e no zip/tar.gz, o repositório apt.
    **Feito** (1.21.0): o `Terraflux.app` (numa pasta que o usuário pode escrever) trocado pelo do zip, a pasta
    do `.tar.gz` pela nova, os pacotes `.deb`, `.rpm` e do Arch pelo gerenciador com o `pkexec`; a atualização que
-   não instalou dita ao abrir de novo, com o log. Falta: o repositório apt, a assinatura.
+   não instalou dita ao abrir de novo, com o log.
+   **Feito** (Unreleased): a assinatura ed25519: o release assina o `SHA256SUMS.txt` (`SHA256SUMS.txt.sig`, a
+   chave privada no secret `UPDATE_SIGNING_KEY`) e o app confere com a chave pública embutida antes de confiar nos
+   checksums; um release sem assinatura, ou com uma inválida, é recusado e nada é instalado. **Feito**
+   (Unreleased): o repositório apt no GitHub Pages (`https://sacridini.github.io/terraflux/apt`, o último `.deb`,
+   `InRelease` e `Release.gpg` assinados com a chave GPG do secret `APT_GPG_KEY`, montado pelo `website.yml`); o app
+   instalado por ele diz para usar `sudo apt update && sudo apt upgrade`. Os secrets cadastrados em 2026-11-16.
    **Feito** (Unreleased): o zip do Windows. O zip traz um arquivo vazio `portable`; a pasta com ele (e que o
    usuário pode escrever) é trocada arquivo por arquivo pelo PowerShell depois que o app fecha (o que o zip não
    tem fica; um arquivo em uso, como o `terraflux.exe` de um servidor `mcp`, é renomeado `.old` e removido na

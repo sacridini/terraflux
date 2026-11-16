@@ -30,7 +30,9 @@ When Terraflux starts, and at most once a day, it asks GitHub for the latest rel
 identifier; as for any web request, GitHub sees your IP address and the program's name and version in the
 `User-Agent` (`Terraflux/{{version}}`). If a newer version exists, the toolbar says so. The new version is downloaded
 only if you ask for it, from the release's page on GitHub, and checked against the release's `SHA256SUMS.txt`
-before it is installed.
+before it is installed. The release's checksums are signed (ed25519, `SHA256SUMS.txt.sig`) and the application checks
+that signature against a public key built into it: a release without a valid signature is refused. The apt
+repository's `Release` file is signed with a GPG key (fingerprint `E549997CCBAB309D887B06FF07FE80E05948E926`).
 
 To turn it off: **Settings, About & updates, Updates**, untick *look for a new version when Terraflux starts*.
 **Check now** in the same place checks once, when you ask. The command line (`terraflux run` and the others) never

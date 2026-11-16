@@ -7,6 +7,13 @@ version.
 
 ## [Unreleased]
 
+### Added
+- **The releases are signed, and Terraflux checks the signature before it installs an update**: the release's `SHA256SUMS.txt` is signed (ed25519, the private key in the repository's `UPDATE_SIGNING_KEY` secret; the release fails without it) and published as `SHA256SUMS.txt.sig`; the application checks it against the public key built into it before it trusts the checksums, and a release with no signature or a wrong one is refused with a message, nothing installed (`update::verify_sums`, tested with good, altered and foreign signatures).
+- **An apt repository on the website**: `https://sacridini.github.io/terraflux/apt` (`stable main`, amd64) holds the latest release's `.deb` with its indexes, signed with a GPG key (`InRelease`, `Release.gpg`; fingerprint `E549997CCBAB309D887B06FF07FE80E05948E926`; the secret `APT_GPG_KEY`), built by `website.yml` (without the secret the site is published without it). The install page tells how to add it, and `sudo apt update && sudo apt upgrade` updates Terraflux.
+
+### Changed
+- **A Terraflux installed from the apt repository says to update with `sudo apt update && sudo apt upgrade`** in the update window (the update by the package manager and `pkexec` still works).
+
 ## [1.53.0] - 2026-11-15
 
 ### Added

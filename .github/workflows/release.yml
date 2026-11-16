@@ -193,6 +193,34 @@ jobs:
       - name: Checksums
         working-directory: dist
         run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      # the checksums signed (ed25519): the application checks SHA256SUMS.txt.sig against the key built into it
+      # (update.rs, UPDATE_KEY) before it trusts the checksums. The private key (the base64 of its 32-byte seed) is
+      # the secret UPDATE_SIGNING_KEY; without it the release fails rather than go out unsigned
+      - name: Sign the checksums
+        working-directory: dist
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          UPDATE_PUBLIC_KEY: DJbUKsItkRL339qMNIq9Gy6DS3gU5jnLAA0SyYOAXN0=
+        run: |
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then
+            echo "::error::set the UPDATE_SIGNING_KEY secret (the base64 of the ed25519 seed) to sign the release"
+            exit 1
+          fi
+          pip install cryptography
+          python - <<'EOF'
+          import base64, os
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+          key = Ed25519PrivateKey.from_private_bytes(base64.b64decode(os.environ["UPDATE_SIGNING_KEY"]))
+          data = open("SHA256SUMS.txt", "rb").read()
+          sig = key.sign(data)
+          # checked with the public key built into the application: a swapped key is caught here
+          try:
+              Ed25519PublicKey.from_public_bytes(base64.b64decode(os.environ["UPDATE_PUBLIC_KEY"])).verify(sig, data)
+          except Exception:
+              raise SystemExit("::error::UPDATE_SIGNING_KEY is not the key built into the application (UPDATE_KEY in update.rs)")
+          open("SHA256SUMS.txt.sig", "w").write(base64.b64encode(sig).decode() + "\n")
+          EOF
+          cat SHA256SUMS.txt.sig
       # the release's notes: the version's section of CHANGELOG.md
       - name: Notes
         run: |

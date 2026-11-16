@@ -30,6 +30,8 @@ miniz_oxide = "0.8"
 # the updates: the installer downloaded checked against the release's checksums
 sha2 = "0.11"
 hex = "0.4"
+# the checksums are signed (ed25519): checked with the key built in (ring is rustls's, already in the lock)
+ring = "0.17.14"
 rstar = "0.12"
 # the animations of a simulation's steps (GIF), their captions drawn in the application's font
 gif = "0.14"

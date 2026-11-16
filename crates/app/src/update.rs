@@ -1,7 +1,8 @@
 //! Terraflux's updates. The latest release is asked of GitHub (when the application starts, at most once a day,
 //! unless turned off in the settings; or from the settings, at once), and a newer one is told in the toolbar.
 //! A Terraflux installed so that it can be replaced ([`Install`]) updates itself: the release's package downloaded,
-//! checked against the release's `SHA256SUMS.txt` (and unpacked beside the one it replaces), installed once the
+//! checked against the release's `SHA256SUMS.txt` (itself checked by its ed25519 signature, `SHA256SUMS.txt.sig`,
+//! against the key built in; a release without a valid signature is refused) (and unpacked beside the one it replaces), installed once the
 //! application has closed, the application opened again with its model. That is Windows' installer (in
 //! `%LOCALAPPDATA%\Programs\Terraflux`, installed without the administrator: only its progress shown), macOS's
 //! application and Linux's folder of the `.tar.gz` in a folder the user may write (replaced by the new ones),
@@ -51,6 +52,45 @@ pub struct Release {
     pub assets: Vec<(String, String)>,
     /// The checksums of its files.
     pub sums: Option<String>,
+    /// The signature of the checksums (`SHA256SUMS.txt.sig`).
+    pub sig: Option<String>,
+}
+
+/// The key the releases' checksums are signed with (ed25519, its 32 bytes in base64); the private one is the
+/// repository's `UPDATE_SIGNING_KEY` secret.
+pub const UPDATE_KEY: &str = "DJbUKsItkRL339qMNIq9Gy6DS3gU5jnLAA0SyYOAXN0=";
+
+/// A base64 text decoded (padding and white space allowed).
+fn unbase64(text: &str) -> Option<Vec<u8>> {
+    let (mut out, mut acc, mut bits) = (Vec::new(), 0u32, 0u32);
+    let body = text.trim().trim_end_matches('=');
+    for c in body.bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        };
+        acc = acc << 6 | v as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
+}
+
+/// Whether the signature (base64) is the public key's (base64) of the checksums' bytes.
+pub fn verify_sums(sums: &[u8], sig_b64: &str, public_b64: &str) -> Result<(), String> {
+    let sig = unbase64(sig_b64).ok_or("the signature of the release's checksums is not base64")?;
+    let public = unbase64(public_b64).ok_or("the public key is not base64")?;
+    ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public)
+        .verify(sums, &sig)
+        .map_err(|_| "the release's checksums are not signed by Terraflux (bad signature)".to_string())
 }
 
 impl Release {
@@ -72,7 +112,8 @@ pub fn release_from_json(v: &serde_json::Value) -> Option<Release> {
         .filter_map(|a| Some((a.get("name")?.as_str()?.into(), a.get("browser_download_url")?.as_str()?.into())))
         .collect();
     let sums = assets.iter().find(|(n, _)| n == "SHA256SUMS.txt").map(|(_, url)| url.clone());
-    Some(Release { version, page, assets, sums })
+    let sig = assets.iter().find(|(n, _)| n == "SHA256SUMS.txt.sig").map(|(_, url)| url.clone());
+    Some(Release { version, page, assets, sums, sig })
 }
 
 /// The checksum of a file in a `SHA256SUMS.txt` (`<sha256>  <name>` a line).
@@ -148,11 +189,34 @@ impl Install {
                  again with this model.",
                 dir.display()
             ),
+            Install::Package(Manager::Deb) if apt_repo() => "Terraflux is installed from its apt repository: \
+                                    `sudo apt update && sudo apt upgrade` updates it. Or Terraflux closes, installs \
+                                    the new package (the system asks for the administrator's password) and opens \
+                                    again with this model."
+                .into(),
             Install::Package(_) => "Terraflux closes, installs the new package (the system asks for the \
                                     administrator's password) and opens again with this model."
                 .into(),
         }
     }
+}
+
+/// The address of Terraflux's apt repository.
+const APT_REPO: &str = "sacridini.github.io/terraflux/apt";
+
+/// Whether the text of apt's source lists has Terraflux's repository (a line not commented out).
+pub fn has_apt_repo(lists: &str) -> bool {
+    lists.lines().any(|l| !l.trim_start().starts_with('#') && l.contains(APT_REPO))
+}
+
+/// Whether this system's apt has Terraflux's repository (`/etc/apt/sources.list.d/*` and `sources.list`).
+fn apt_repo() -> bool {
+    let mut text = std::fs::read_to_string("/etc/apt/sources.list").unwrap_or_default();
+    for e in std::fs::read_dir("/etc/apt/sources.list.d").into_iter().flatten().flatten() {
+        text.push('\n');
+        text.push_str(&std::fs::read_to_string(e.path()).unwrap_or_default());
+    }
+    has_apt_repo(&text)
 }
 
 /// How this Terraflux can be updated (none: a build, a folder the user may not write); found once.
@@ -383,12 +447,31 @@ fn remove_old(dir: &Path) {
 
 /// The package downloaded into the temporary folder and checked against the release's checksums.
 fn fetch(r: &Release, name: &str, url: &str, progress: impl Fn(u64, Option<u64>)) -> Result<PathBuf, String> {
+    fetch_signed(r, name, url, UPDATE_KEY, progress)
+}
+
+/// [`fetch`] with the key the checksums must be signed with.
+fn fetch_signed(
+    r: &Release,
+    name: &str,
+    url: &str,
+    key: &str,
+    progress: impl Fn(u64, Option<u64>),
+) -> Result<PathBuf, String> {
     let sums_url = r.sums.as_ref().ok_or("the release has no checksums (SHA256SUMS.txt) to check its package")?;
+    let sig_url = r.sig.as_ref().ok_or("the release is not signed (no SHA256SUMS.txt.sig): not installed")?;
     let sums = agent()
         .get(sums_url)
         .call()
-        .and_then(|mut res| res.body_mut().read_to_string())
+        .and_then(|mut res| res.body_mut().read_to_vec())
         .map_err(|e| format!("the release's checksums: {e}"))?;
+    let sig = agent()
+        .get(sig_url)
+        .call()
+        .and_then(|mut res| res.body_mut().read_to_string())
+        .map_err(|e| format!("the release's signature: {e}"))?;
+    verify_sums(&sums, &sig, key).map_err(|e| format!("{e}: not installed"))?;
+    let sums = String::from_utf8_lossy(&sums).into_owned();
     let want = sum_of(&sums, name).ok_or_else(|| format!("the release's checksums do not have {name}"))?;
     let dir = downloads();
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -868,12 +951,16 @@ mod tests {
         let sums = |sum: &str| format!("{sum}  {name}\n");
         let right = sums(&hex::encode(Sha256::digest(&body)));
         let wrong = sums(&"0".repeat(64));
+        let (key, public) = test_key(1);
+        let sign = |text: &str| base64(key.sign(text.as_bytes()).as_ref());
+        let served = (body.clone(), right.clone(), wrong.clone());
+        let sigs = (sign(&right), sign(&wrong));
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
-        let served = (body.clone(), right, wrong);
         let server = std::thread::spawn(move || {
-            // two fetches: the checksums, then the package, each
-            for _ in 0..4 {
+            // two fetches of the checksums, their signature and the package (3 each), then one of the checksums and
+            // a signature that is not theirs (2)
+            for _ in 0..8 {
                 let (mut s, _) = listener.accept().unwrap();
                 let mut req = vec![0u8; 4096];
                 let n = s.read(&mut req).unwrap();
@@ -881,6 +968,8 @@ mod tests {
                 let out = match first.split(' ').nth(1).unwrap_or_default() {
                     "/right" => served.1.clone().into_bytes(),
                     "/wrong" => served.2.clone().into_bytes(),
+                    "/right.sig" => sigs.0.clone().into_bytes(),
+                    "/wrong.sig" => sigs.1.clone().into_bytes(),
                     _ => served.0.clone(),
                 };
                 let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", out.len());
@@ -889,19 +978,79 @@ mod tests {
             }
         });
         let url = |p: &str| format!("http://127.0.0.1:{port}/{p}");
-        let release = |sums: &str| Release {
+        let release = |sums: &str, sig: Option<&str>| Release {
             version: (9, 9, 9),
             page: String::new(),
             assets: vec![(name.clone(), url("package"))],
             sums: Some(url(sums)),
+            sig: sig.map(url),
         };
-        let path = fetch(&release("right"), &name, &url("package"), |_, _| {}).unwrap();
+        let go = |r: &Release| fetch_signed(r, &name, &url("package"), &public, |_, _| {});
+        let path = go(&release("right", Some("right.sig"))).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), body);
         let _ = std::fs::remove_file(&path);
-        let refused = fetch(&release("wrong"), &name, &url("package"), |_, _| {});
+        let refused = go(&release("wrong", Some("wrong.sig")));
         assert!(refused.unwrap_err().contains("checksum differs"));
         assert!(!downloads().join(&name).exists());
+        // checksums with a signature that is not theirs: nothing downloaded
+        let forged = go(&release("right", Some("wrong.sig")));
+        assert!(forged.unwrap_err().contains("not signed by Terraflux"));
+        assert!(!downloads().join(&name).exists());
+        // no signature at all
+        assert!(go(&release("right", None)).unwrap_err().contains("not signed"));
         server.join().unwrap();
+    }
+
+    /// A key of a fixed seed and its public half in base64.
+    fn test_key(seed: u8) -> (ring::signature::Ed25519KeyPair, String) {
+        use ring::signature::KeyPair;
+        let key = ring::signature::Ed25519KeyPair::from_seed_unchecked(&[seed; 32]).unwrap();
+        let public = base64(key.public_key().as_ref());
+        (key, public)
+    }
+
+    #[test]
+    fn checksums_are_verified_by_their_signature() {
+        let (key, public) = test_key(7);
+        let sums = b"abcd  terraflux-1.20.0-x64.msi\n";
+        let sig = base64(key.sign(sums).as_ref());
+        assert_eq!(verify_sums(sums, &sig, &public), Ok(()));
+        // a signature with a line break, as `base64` writes it
+        assert_eq!(verify_sums(sums, &format!("{sig}\n"), &public), Ok(()));
+        // the file changed
+        let altered = verify_sums(b"abce  terraflux-1.20.0-x64.msi\n", &sig, &public);
+        assert!(altered.unwrap_err().contains("bad signature"));
+        // another key's signature
+        let (other, _) = test_key(8);
+        let theirs = base64(other.sign(sums).as_ref());
+        assert!(verify_sums(sums, &theirs, &public).is_err());
+        // not base64
+        assert!(verify_sums(sums, "not base64!", &public).unwrap_err().contains("not base64"));
+        assert!(verify_sums(sums, &sig, "%%%").unwrap_err().contains("public key"));
+        // the key built in is a key
+        assert_eq!(unbase64(UPDATE_KEY).map(|k| k.len()), Some(32));
+    }
+
+    #[test]
+    fn a_release_without_a_signature_has_none() {
+        assert!(release().sig.is_none());
+        let v = serde_json::json!({
+            "tag_name": "v1.20.0",
+            "assets": [
+                { "name": "SHA256SUMS.txt.sig", "browser_download_url": "https://x/SHA256SUMS.txt.sig" },
+            ],
+        });
+        assert_eq!(release_from_json(&v).unwrap().sig.as_deref(), Some("https://x/SHA256SUMS.txt.sig"));
+    }
+
+    #[test]
+    fn the_apt_repository_is_found_in_the_source_lists() {
+        let line = "deb [signed-by=/usr/share/keyrings/terraflux-archive-keyring.gpg] \
+                    https://sacridini.github.io/terraflux/apt stable main";
+        assert!(has_apt_repo(&format!("deb http://archive.ubuntu.com/ubuntu noble main\n{line}\n")));
+        assert!(!has_apt_repo(&format!("# {line}\n   #{line}\n")));
+        assert!(!has_apt_repo("deb http://archive.ubuntu.com/ubuntu noble main\n"));
+        assert!(!has_apt_repo(""));
     }
 
     #[test]

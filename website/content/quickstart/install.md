@@ -97,6 +97,20 @@ of 2024 or newer.
     It installs Terraflux in `/opt/terraflux`, the command in `/usr/bin` and an entry in the desktop's menu.
     To remove it: `sudo apt remove terraflux`.
 
+    **Install from the apt repository (updates with `apt upgrade`).** The repository is signed with a GPG key
+    (fingerprint `E549997CCBAB309D887B06FF07FE80E05948E926`); it keeps the latest release's package for x86-64:
+
+    ```bash
+    sudo curl -fsSL https://sacridini.github.io/terraflux/apt/terraflux-archive-keyring.gpg \
+      -o /usr/share/keyrings/terraflux-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/terraflux-archive-keyring.gpg] https://sacridini.github.io/terraflux/apt stable main" \
+      | sudo tee /etc/apt/sources.list.d/terraflux.list
+    sudo apt update && sudo apt install terraflux
+    ```
+
+    From then on `sudo apt update && sudo apt upgrade` brings the new versions. The armored key is
+    `terraflux-archive-keyring.asc`, in the same folder.
+
 === "Fedora / openSUSE (.rpm)"
 
     ```bash
@@ -144,7 +158,10 @@ how it updates itself depends on how it was installed:
 - **The packages (.deb, .rpm, Arch's .pkg.tar.zst)**, in `/opt/terraflux`: the new package is downloaded and
   checked, Terraflux closes, and the system's package manager installs it (`dpkg`, `rpm` or `pacman`), asking for
   the administrator's password through `pkexec`; then Terraflux opens again with the model. This needs `pkexec`
-  (part of polkit, which most desktop installations have) on the PATH.
+  (part of polkit, which most desktop installations have) on the PATH. A `.deb` installed from the apt repository
+  is told to update with `sudo apt update && sudo apt upgrade` too.
+
+Every release's checksums are signed (ed25519) and Terraflux refuses an update whose signature does not check.
 
 Without these (a folder you may not write, no `pkexec`, Terraflux built from source), the window offers **Open
 its page**, to download the new version and install it by hand.

@@ -4657,6 +4657,7 @@ dependencies = [
  "miniz_oxide 0.8.9",
  "openh264",
  "rfd",
+ "ring",
  "rstar",
  "serde",
  "serde_json",
