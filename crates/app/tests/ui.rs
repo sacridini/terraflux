@@ -10766,6 +10766,147 @@ fn a_run_that_may_not_fit_the_disk_asks_first() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The memory estimate worked out again (an edit and a save: the memory the computer had is read when it is).
+fn refresh_memory(h: &mut Harness<TerrafluxApp>) {
+    let s = h.state_mut().session.as_mut().unwrap();
+    s.edited();
+    s.save().unwrap();
+    s.run_memory();
+}
+
+/// A run that may need more memory than the computer has available asks first (the memory made small for the test):
+/// the Problems pane warns with what to do, *Cancel* does not run it, *Run anyway* does; a batch whose runs at the
+/// same time do not fit asks too, and with room nothing is asked.
+#[test]
+fn a_run_that_may_not_fit_the_memory_asks_first() {
+    use terraflux_app::memory::{self, Ram};
+    let dir = tmp("memory-asks");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut w = Wizard::default();
+    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
+    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
+    w.increment = Some(250.0);
+    let file = w.save(&dir.join("ui-memory.toml")).unwrap();
+    let mut h = harness(new_app(Some(file.clone())));
+    loaded(&mut h);
+    let peak = {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.apply(&[("simulation.times".to_string(), serde_json::json!(2))].into()).unwrap();
+        s.edited();
+        s.save().unwrap();
+        // room for the disk: only the memory is asked about
+        s.disk_space = Some(terraflux_app::disk::Space { free: 500 << 30, total: 1000 << 30 });
+        let p = s.run_memory().peak();
+        assert!(p > 0, "the model's maps give an estimate");
+        p
+    };
+    // half of what the run needs is available
+    memory::pretend(Some(Ram { total: peak * 4, available: peak / 2 }));
+    let journal = terraflux_exec::journal::Journal::of(&file).unwrap();
+    // (an edit makes the Problems pane's advice again)
+    h.state_mut().session.as_mut().unwrap().edited();
+    h.state_mut().session.as_mut().unwrap().save().unwrap();
+    // (worked out in the background, with the memory made up)
+    h.state().session.as_ref().unwrap().run_memory();
+    let advice = h.state().session.as_ref().unwrap().advice();
+    let warned = advice.iter().find(|a| a.message.contains("of memory")).expect("the Problems pane warns");
+    assert!(warned.message.contains("will not fit") && warned.message.contains("check run"), "{}", warned.message);
+    h.run_steps(3);
+    h.get_by_label("Run").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.memory_ask.is_some() && !s.running(), "the run waits for the answer");
+    assert!(h.query_by_label_contains("This run needs about").is_some());
+    shot(&mut h, "memory-1");
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.memory_ask.is_none() && !s.running() && journal.entries().is_empty(), "cancelled: nothing ran");
+    // the disk may not fit either: its Run anyway goes on to the memory's question, not to the run
+    let small = terraflux_app::disk::Space { free: 1 << 30, total: 10 << 30 };
+    h.state_mut().session.as_mut().unwrap().disk_space = Some(small);
+    h.get_by_label("Run").click();
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().disk_ask.is_some());
+    h.get_by_label("Run anyway").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.disk_ask.is_none() && s.memory_ask.is_some() && !s.running(), "the memory is asked after the disk");
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    assert!(!h.state().session.as_ref().unwrap().running() && journal.entries().is_empty());
+    h.state_mut().session.as_mut().unwrap().disk_space =
+        Some(terraflux_app::disk::Space { free: 500 << 30, total: 1000 << 30 });
+    // run anyway
+    h.get_by_label("Run").click();
+    h.run_steps(3);
+    h.get_by_label("Run anyway").click();
+    h.run_steps(1);
+    until(&mut h, "the run", |a| !a.session.as_ref().unwrap().running());
+    h.run_steps(3);
+    assert_eq!(journal.entries().len(), 1, "run anyway ran");
+    // the run measured what the nodes held: the estimate says so now
+    let e = h.state().session.as_ref().unwrap().run_memory();
+    // what a frame pays for it once it is worked out: a lock, a key compared (not the estimate again)
+    let s = h.state().session.as_ref().unwrap();
+    let t = std::time::Instant::now();
+    for _ in 0..10_000 {
+        assert!(!s.memory_pending());
+    }
+    let per_frame = t.elapsed() / 10_000;
+    eprintln!("memory_pending per frame: {per_frame:?}");
+    assert!(per_frame < std::time::Duration::from_micros(50), "{per_frame:?}");
+    assert!(e.measured.is_some_and(|m| m > 0) && e.source() == "from the run before", "{e:?}");
+    // a batch of two at the same time, with room for one
+    let peak = e.peak();
+    memory::pretend(Some(Ram { total: peak * 8, available: peak + peak / 2 }));
+    refresh_memory(&mut h);
+    h.state_mut().focus(Pane::Batch);
+    h.state_mut().computers.pool = None;
+    h.state_mut().computers.dir = Some(tmp("memory-asks-pool"));
+    {
+        let b = &mut h.state_mut().batch;
+        b.runs = 2;
+        b.workers = 2;
+        b.out = Some(dir.join("batch"));
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("of memory at once").is_some(), "the cost line tells the memory");
+    assert!(h.query_by_label_contains("1 at once fit").is_some());
+    shot(&mut h, "memory-2-batch");
+    h.get_by_label("Run 2 times").click();
+    h.run_steps(3);
+    assert!(h.state().batch.memory_ask.is_some() && !h.state().batch.running());
+    assert!(h.query_by_label_contains("1 at once fit: set the workers to 1 or fewer").is_some());
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    assert!(h.state().batch.memory_ask.is_none() && !h.state().batch.running());
+    // the disk too: its Run anyway goes on to the memory's question
+    h.state_mut().session.as_mut().unwrap().disk_space = Some(small);
+    h.run_steps(2);
+    h.get_by_label("Run 2 times").click();
+    h.run_steps(3);
+    assert!(h.state().batch.disk_ask.is_some());
+    h.get_by_label("Run anyway").click();
+    h.run_steps(3);
+    assert!(h.state().batch.disk_ask.is_none() && h.state().batch.memory_ask.is_some() && !h.state().batch.running());
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    h.state_mut().session.as_mut().unwrap().disk_space =
+        Some(terraflux_app::disk::Space { free: 500 << 30, total: 1000 << 30 });
+    // with room, nothing is asked
+    memory::pretend(Some(Ram { total: peak * 100, available: peak * 50 }));
+    refresh_memory(&mut h);
+    h.run_steps(2);
+    h.get_by_label("Run 2 times").click();
+    h.run_steps(2);
+    assert!(h.state().batch.memory_ask.is_none(), "with room nothing is asked");
+    until(&mut h, "the replicates", |a| !a.batch.running());
+    memory::pretend(None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A loop's body shown at a step chosen (`loop_step` by the loop's place), a run keeping it: the step chooser and the
 /// value, for a loop in a group and for a loop in a loop (the outer step, then the inner).
 fn show_steps(h: &mut Harness<TerrafluxApp>, top: &str, choose: &[(&str, Option<usize>)]) {

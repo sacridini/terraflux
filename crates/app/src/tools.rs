@@ -1299,6 +1299,8 @@ pub fn check_model(r: &Registry, source: &Model, dir: &Path) -> Reply {
     // the method's (what a reviewer would ask)
     if !plain() {
         lines.extend(crate::advice::advise(&m, r, dir, loaded.as_ref().ok()).iter().map(|a| a.to_string()));
+        // a run that needs more memory than the computer has
+        lines.extend(crate::memory::advice(&m, r, dir).iter().map(|a| a.to_string()));
     }
     let (no_note, no_why) = unrecorded(source);
     for (what, ids) in [("a note (what it is for)", no_note), ("a why (why this operator and these settings)", no_why)]

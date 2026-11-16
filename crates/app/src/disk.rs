@@ -177,7 +177,7 @@ pub fn from_journal(entries: &[Entry], hash: Option<&str>) -> Option<u64> {
 }
 
 /// A number in a setting or a literal input, whichever the node has it in.
-fn number(n: &Node, key: &str) -> Option<u64> {
+pub(crate) fn number(n: &Node, key: &str) -> Option<u64> {
     let v = n.params.get(key).or(match n.inputs.get(key) {
         Some(Source::Literal(v)) => Some(v),
         _ => None,
@@ -186,7 +186,7 @@ fn number(n: &Node, key: &str) -> Option<u64> {
 }
 
 /// Every node, inside the containers too.
-fn nodes(ns: &[Node]) -> Vec<&Node> {
+pub(crate) fn nodes(ns: &[Node]) -> Vec<&Node> {
     let mut out = Vec::new();
     for n in ns {
         out.push(n);

@@ -564,6 +564,16 @@ pub fn start_map(model: &Model, inputs: &BTreeMap<String, Value>) -> Option<Map>
 /// A sensitivity analysis the assistant set up: the factors with their ranges, and the settings.
 pub type AskedSensitivity = (Vec<(String, f64, f64)>, crate::tools::SensitivityAsk);
 
+/// The estimate of the memory a run needs, worked out in a thread of its own (the headers of many files take a
+/// while): on its way, or done with the memory the computer had when it was.
+enum MemoryJob {
+    Running(std::sync::mpsc::Receiver<crate::memory::Estimate>),
+    Done(crate::memory::Estimate, Option<crate::memory::Ram>),
+}
+
+/// What the estimate of the memory was worked out for: the model's revision, the journal's, the data read.
+type MemoryKey = (u64, u64, u64);
+
 /// A model open.
 pub struct Session {
     /// The model as written (what the editor changes and saves).
@@ -681,6 +691,8 @@ pub struct Session {
     pub disk_ask: Option<crate::disk::Ask>,
     /// The disk's space, instead of the real one: for tests, to make a disk too small.
     pub disk_space: Option<crate::disk::Space>,
+    /// A run held back because it may need more memory than the computer has (see [`crate::memory`]).
+    pub memory_ask: Option<crate::memory::Ask>,
     pub started: Option<Instant>,
     pub view: MapView,
     pub thumbs: Thumbs,
@@ -724,6 +736,8 @@ pub struct Session {
     advice_of: Mutex<Option<(u64, u64, Vec<crate::advice::Advice>)>>,
     /// What a whole run is expected to write, for the model's revision and the count of runs in the journal.
     disk_of: Mutex<Option<((u64, u64), u64)>>,
+    /// The memory a whole run is expected to need, for the same.
+    memory_of: Mutex<Option<(MemoryKey, MemoryJob)>>,
     /// The node a run stops at (none: the whole model).
     pub target: Option<String>,
     /// What every top-level node gave in the runs so far (the cache keeps only what may be used again).
@@ -987,6 +1001,7 @@ impl Session {
             clean: None,
             disk_ask: None,
             disk_space: None,
+            memory_ask: None,
             started: None,
             view: MapView::default(),
             thumbs: Thumbs::default(),
@@ -1013,6 +1028,7 @@ impl Session {
             loads: 0,
             advice_of: Mutex::new(None),
             disk_of: Mutex::new(None),
+            memory_of: Mutex::new(None),
             target: None,
             outputs: BTreeMap::new(),
             preview: None,
@@ -1136,6 +1152,18 @@ impl Session {
     /// The advice on the model's method ([`crate::advice`]: what a reviewer would ask), worked out again when the
     /// model or its data changed.
     pub fn advice(&self) -> Vec<crate::advice::Advice> {
+        let mut a = self.advice_method();
+        // the memory a run needs, once worked out (in the background): not part of what is kept above
+        if let Some((e, Some(ram))) = self.memory_poll()
+            && let Some(m) = crate::memory::advice_for(&e, ram)
+        {
+            a.push(m);
+            a.sort_by_key(|x| std::cmp::Reverse(x.level));
+        }
+        a
+    }
+
+    fn advice_method(&self) -> Vec<crate::advice::Advice> {
         let mut held = self.advice_of.lock().unwrap_or_else(|e| e.into_inner());
         if let Some((rev, loads, a)) = held.as_ref()
             && *rev == self.revision
@@ -1186,6 +1214,100 @@ impl Session {
             }
             crate::disk::Plan::Ask(text) => {
                 self.disk_ask = Some(crate::disk::Ask { text });
+                false
+            }
+        }
+    }
+
+    /// The memory a whole run is expected to need (about), from the model with what the nodes' outputs held in the last
+    /// run of the same model in the journal in place of its own estimate of them, and the memory the computer had when
+    /// it was worked out. It is worked out in a thread of its own (the headers of many files take a while), once for
+    /// each state of the model, the journal and the data read; none until it is there ([`Session::memory_wait`]).
+    pub fn memory_poll(&self) -> Option<(crate::memory::Estimate, Option<crate::memory::Ram>)> {
+        // (not while the model is being edited: half a second after the last edit)
+        let quiet = self.edited_at.is_none_or(|t| t.elapsed() > Duration::from_millis(500));
+        self.memory_job(quiet)
+    }
+
+    fn memory_job(&self, start: bool) -> Option<(crate::memory::Estimate, Option<crate::memory::Ram>)> {
+        let key = (self.revision, self.journal_rev, self.loads);
+        let mut held = self.memory_of.lock().unwrap_or_else(|e| e.into_inner());
+        if held.as_ref().is_none_or(|(k, _)| *k != key) {
+            if !start {
+                return None;
+            }
+            let (tx, rx) = std::sync::mpsc::channel();
+            let (model, dir) = (self.model.clone(), self.base());
+            let (path, source) = (self.path.clone(), self.source.clone());
+            std::thread::spawn(move || {
+                let mut e = crate::memory::estimate(&model, &Registry::standard(), &dir);
+                let kept = path.as_deref().and_then(terraflux_exec::journal::Journal::of).and_then(|j| {
+                    crate::memory::from_journal(&j.entries(), terraflux_exec::journal::hash_of(&source).as_deref())
+                });
+                if let Some(k) = kept {
+                    e = e.with_measure(k);
+                }
+                let _ = tx.send(e);
+            });
+            *held = Some((key, MemoryJob::Running(rx)));
+        }
+        let (_, job) = held.as_mut()?;
+        if let MemoryJob::Running(rx) = job {
+            match rx.try_recv() {
+                Ok(e) => *job = MemoryJob::Done(e, crate::memory::ram()),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    *job = MemoryJob::Done(crate::memory::Estimate::default(), None)
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        match job {
+            MemoryJob::Done(e, r) => Some((e.clone(), *r)),
+            MemoryJob::Running(_) => None,
+        }
+    }
+
+    /// Whether the estimate of the memory is still being worked out.
+    pub fn memory_pending(&self) -> bool {
+        self.memory_poll().is_none()
+    }
+
+    /// [`Session::memory_poll`], waited for up to `ms` milliseconds (a run asked for does not go on without it for
+    /// longer than that).
+    pub fn memory_wait(&self, ms: u64) -> Option<(crate::memory::Estimate, Option<crate::memory::Ram>)> {
+        let end = Instant::now() + Duration::from_millis(ms);
+        loop {
+            if let Some(r) = self.memory_job(true) {
+                return Some(r);
+            }
+            if Instant::now() >= end {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// The estimate of the memory, waited for (as long as it takes): for the tests and what must have it.
+    pub fn run_memory(&self) -> crate::memory::Estimate {
+        self.memory_wait(60_000).map(|(e, _)| e).unwrap_or_default()
+    }
+
+    /// Whether a run asked for may start as far as the memory goes: when it may need more than the computer has
+    /// available, the window asks first ([`Session::memory_ask`]); when it leaves little, that is told. The memory of
+    /// the computer is read now, and the estimate waited for two seconds at most (a run goes on without it after).
+    pub fn memory_ok(&mut self) -> bool {
+        let Some((e, _)) = self.memory_wait(2000) else {
+            self.notice = Some(("the memory the run needs is not worked out yet: not checked".into(), Instant::now()));
+            return true;
+        };
+        match crate::memory::plan(&e, crate::memory::ram(), 1) {
+            crate::memory::Plan::Go => true,
+            crate::memory::Plan::Warn(text) => {
+                self.notice = Some((text, Instant::now()));
+                true
+            }
+            crate::memory::Plan::Ask(ask) => {
+                self.memory_ask = Some(ask);
                 false
             }
         }
@@ -1985,6 +2107,10 @@ impl Session {
         entry.values = values_of(&model);
         entry.scenario = scenario;
         entry.warnings = self.warnings.clone();
+        // what the nodes' outputs hold, to tell the memory of the next run of this model ([`crate::memory`])
+        if ended.is_ok() && matches!(entry.kind, Kind::Run) {
+            entry.memory = self.timings.iter().filter(|(at, _)| !at.contains('/')).map(|(_, (_, b))| *b as u64).sum();
+        }
         if let Some(Ok(file)) = &self.recorded
             && let Ok(text) = std::fs::read_to_string(file)
             && let Ok(manifest) = serde_json::from_str::<terraflux_exec::testing::Manifest>(&text)
@@ -2888,11 +3014,11 @@ impl TerrafluxApp {
     /// Run the whole model.
     fn run_all(&mut self, ctx: &egui::Context) {
         let Some(s) = &mut self.session else { return };
-        if s.disk_ask.is_some() {
+        if s.disk_ask.is_some() || s.memory_ask.is_some() {
             return;
         }
         if s.ask_run() {
-            if !s.disk_ok() {
+            if !s.disk_ok() || !s.memory_ok() {
                 return;
             }
             let ctx = ctx.clone();
@@ -5404,12 +5530,21 @@ impl TerrafluxApp {
             crate::versions_view::window(ui.ctx(), s);
             crate::clean_view::window(ui.ctx(), s);
             match crate::disk::window(ui.ctx(), &mut s.disk_ask) {
-                Some(crate::disk::Answer::Anyway) if s.can_run() => {
+                // (the disk answered: the memory is asked next, when it may not fit either)
+                Some(crate::disk::Answer::Anyway) if s.can_run() && s.memory_ok() => {
                     let ctx = ui.ctx().clone();
                     s.start(Box::new(move || ctx.request_repaint()));
                 }
                 Some(crate::disk::Answer::Clean) => s.open_clean(),
                 _ => {}
+            }
+            // (the memory a run needs is worked out in the background after an edit: the frame asks, no more)
+            if s.memory_pending() {
+                ui.ctx().request_repaint_after(Duration::from_millis(150));
+            }
+            if crate::memory::window(ui.ctx(), &mut s.memory_ask) == Some(true) && s.can_run() {
+                let ctx = ui.ctx().clone();
+                s.start(Box::new(move || ctx.request_repaint()));
             }
             crate::qgis::window(ui.ctx(), s);
             crate::graph_figure::window(ui.ctx(), s);

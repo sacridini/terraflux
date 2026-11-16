@@ -555,6 +555,8 @@ pub struct BatchState {
     journal_for: Option<(PathBuf, Model)>,
     /// A batch held back because its files may not fit the disk: the window asks.
     pub disk_ask: Option<crate::disk::Ask>,
+    /// A batch held back because the runs at the same time may need more memory than the computer has.
+    pub memory_ask: Option<crate::memory::Ask>,
     /// How many batches have been written to a journal (the Runs pane reads again when it changes).
     pub journaled: u64,
 }
@@ -595,6 +597,7 @@ impl Default for BatchState {
             compared: None,
             journal_for: None,
             disk_ask: None,
+            memory_ask: None,
             journaled: 0,
         }
     }
@@ -1054,6 +1057,12 @@ fn out_dir(st: &BatchState, s: &Session) -> PathBuf {
     st.out.clone().unwrap_or_else(|| s.base())
 }
 
+/// How many runs of the batch go at the same time on this computer (its workers, no more than the runs); none when it
+/// runs on other computers, whose memory is theirs.
+fn at_once_here(st: &BatchState, runs: usize) -> Option<usize> {
+    st.on.is_none().then(|| st.workers.max(1).min(runs.max(1)))
+}
+
 /// The cost line for the batch chosen, with its warning hint when long.
 fn cost_ui(ui: &mut Ui, st: &BatchState, s: &Session, r: &Registry, knobs: &[Knob], runs: usize) {
     let mut times = s.times_before.clone();
@@ -1093,7 +1102,29 @@ fn cost_ui(ui: &mut Ui, st: &BatchState, s: &Session, r: &Registry, knobs: &[Kno
             over
         })
         .unwrap_or(false);
-    if long || tight {
+    // the runs at the same time, against the memory of this computer (worked out in the background)
+    let mut thin = None;
+    if let Some(n) = at_once_here(st, runs) {
+        match s.memory_poll() {
+            None => {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+                text.push_str(", estimating the memory...");
+            }
+            Some((est, Some(ram))) => {
+                if let Some((note, over)) = crate::memory::cost_note(&est, Some(ram), n) {
+                    text.push_str(&note);
+                    if over {
+                        thin = Some(format!(
+                            "That may not fit the memory: {} at once fit (the workers); Run asks first.",
+                            crate::memory::workers_that_fit(est.peak(), ram.available)
+                        ));
+                    }
+                }
+            }
+            Some(_) => {}
+        }
+    }
+    if long || tight || thin.is_some() {
         let warn = ui.visuals().warn_fg_color;
         ui.label(RichText::new(text).color(warn));
         if long {
@@ -1106,6 +1137,9 @@ fn cost_ui(ui: &mut Ui, st: &BatchState, s: &Session, r: &Registry, knobs: &[Kno
         }
         if tight {
             ui.label(RichText::new("That may not fit the disk: Run asks first.").color(warn));
+        }
+        if let Some(hint) = thin {
+            ui.label(RichText::new(hint).color(warn));
         }
     } else {
         ui.label(RichText::new(text).weak());
@@ -2623,6 +2657,24 @@ fn disk_ok(st: &mut BatchState, s: &mut Session, r: &Registry, runs: usize) -> b
     }
 }
 
+/// Whether a batch may start as far as the memory goes: the runs at the same time on this computer that may need more
+/// than it has ask first ([`BatchState::memory_ask`]), with the workers that would fit; one that leaves little is told.
+fn memory_ok(st: &mut BatchState, s: &mut Session, runs: usize) -> bool {
+    let Some(n) = at_once_here(st, runs) else { return true };
+    let Some((e, _)) = s.memory_wait(2000) else { return true };
+    match crate::memory::plan(&e, crate::memory::ram(), n) {
+        crate::memory::Plan::Go => true,
+        crate::memory::Plan::Warn(text) => {
+            s.notice = Some((text, Instant::now()));
+            true
+        }
+        crate::memory::Plan::Ask(ask) => {
+            st.memory_ask = Some(ask);
+            false
+        }
+    }
+}
+
 /// The batch pane.
 pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, computers: &mut Computers) {
     st.follow(s);
@@ -2662,7 +2714,8 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
                 if let Err(e) = &count {
                     ui.label(RichText::new(e).color(ui.visuals().warn_fg_color));
                 }
-                if resp.clicked() && disk_ok(st, s, r, count.as_ref().map_or(0, |n| *n)) {
+                let runs = count.as_ref().map_or(0, |n| *n);
+                if resp.clicked() && disk_ok(st, s, r, runs) && memory_ok(st, s, runs) {
                     st.error = start(st, s, r, computers, ui.ctx()).err();
                 }
             }
@@ -2673,9 +2726,17 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
             cost_ui(ui, st, s, r, &knobs, *n);
         }
         match crate::disk::window(ui.ctx(), &mut st.disk_ask) {
-            Some(crate::disk::Answer::Anyway) => st.error = start(st, s, r, computers, ui.ctx()).err(),
+            // (the disk answered: the memory is asked next, when it may not fit either)
+            Some(crate::disk::Answer::Anyway) => {
+                if memory_ok(st, s, count.as_ref().map_or(0, |n| *n)) {
+                    st.error = start(st, s, r, computers, ui.ctx()).err();
+                }
+            }
             Some(crate::disk::Answer::Clean) => s.open_clean(),
             _ => {}
+        }
+        if crate::memory::window(ui.ctx(), &mut st.memory_ask) == Some(true) {
+            st.error = start(st, s, r, computers, ui.ctx()).err();
         }
         if let Some(run) = &st.running {
             running_ui(ui, run);

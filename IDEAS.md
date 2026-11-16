@@ -3769,3 +3769,23 @@ escolha do usuário). Conferido antes que nada disso existe.
    Testes: `replace::tests`, `find_and_replace_previews_unchecks_and_applies_in_one_step`.
 4. **A memória estimada antes de rodar** (o disco já é estimado; a memória de cada nó só é medida depois): "esta
    execução precisa de ~12 GB e há 8", com a sugestão de rodar por blocos ou por tiles.
+   **Feito** (Unreleased). Novo `crates/app/src/memory.rs`: `ram()` (total e disponível: `GlobalMemoryStatusEx` no
+   Windows, `/proc/meminfo` no Linux, `sysctl` no macOS, onde o disponível é só o das páginas livres; `pretend` para os
+   testes, por thread) e `estimate(model, registry, dir) -> Estimate`: um mapa na memória são 8 bytes por célula; a
+   grade de cada nó vem do cabeçalho do arquivo (`raster.read`, entradas do modelo), de `rows` x `columns` (`nlm.*`)
+   ou da entrada principal (`like`, `map`, `raster`, `stack`); pilha = camadas, série de laço = um mapa por passo,
+   tabela e vetor = o tamanho do arquivo (vetor x 2). O pico é uma cota superior: `kept` (saídas dos nós de nível
+   superior, que o cache segura todas) + `reads` (mapas das entradas e rasters lidos inteiros; zero se só quem os lê
+   trabalha em blocos: `block_rows`, `landscape.mspa_tiled`, métricas de mapas de mais de 250 milhões de células) +
+   `bodies` (o corpo dos laços: uma iteração x passos, no máximo 1 GiB, o que o cache solta) + `scratch` (a maior
+   saída de novo). A medida de uma execução anterior do mesmo modelo (`Entry::memory` no diário, a soma do que o runner
+   mede) substitui o `kept` e o texto diz "from the run before". Em 15 templates que rodam, o `kept` estimado fica entre
+   0,45x e 1,3x do que o motor segura (a maioria dentro de 5 %); o que ele não vê são vetores e tabelas feitos por
+   operadores. Acima de 80 % do disponível: aviso amarelo no painel Problems e no `check_model` (`advice_for`, com os
+   nós que mais pesam, `block_rows`, `--tiled` para o modelo do motor por tiles, o Check run a 1/4); acima de 100 %, a
+   janela "Not much memory" (*Run anyway*, *Cancel*) antes de rodar. No lote: a estimativa x os workers (só no
+   computador local), na linha de custo e na pergunta, com quantos workers cabem. A estimativa roda numa thread à
+   parte (`Session::memory_poll`, uma por estado do modelo, do diário e dos dados, 500 ms depois da última edição), a UI
+   só consulta (176 ns por quadro); a execução espera até 2 s por ela. Ficou: o `terraflux check` da CLI não mostra
+   disco nem memória (só o `check_model`); o MCP/CLI não gravam `Entry::memory`; a memória de trabalho dentro de um
+   operador não é vista.

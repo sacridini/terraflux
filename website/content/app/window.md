@@ -278,6 +278,29 @@ safe correction has no button.
   port takes; **Fix** opens the file dialog and adds a `raster.read`, `vector.read` or `table.read` (by the type of
   the port) on the file chosen, connected to the port.
 
+## Disk and memory before a run
+
+Before a whole run of a saved model starts, Terraflux tells what it will ask of the computer, and does not leave it
+to fail at the end.
+
+- **The disk.** The outputs the run will write (about: the latest run of the model in the journal, else the cells of
+  its largest map, the layers it writes, halved for the compression) against the free space of the disk the outputs go
+  to. When they may not fit, a window asks first: **Run anyway**, **Clean outputs...** or **Cancel**; when they fit but
+  leave little, a line says so.
+- **The memory.** The memory the run needs (about: in Terraflux's memory a cell is a number of 8 bytes, so a map of
+  50 million cells takes 400 MB; the cells and layers come from the headers of the files, no data is read, and what
+  each node's outputs held in the last run of the same model replaces the estimate of them) against the memory the
+  computer has available. Above four fifths of it, the **Problems** pane warns, in yellow, with what to do about it:
+  the nodes that weigh most, `block_rows` on the nodes that take it (the map is read by blocks of rows, with the same
+  values), the tiled engine for a model it runs (`terraflux run --tiled`), and a **Check run** at 1/4 resolution, which
+  takes a sixteenth of the memory, to try the model first. Above all of it, a window asks before the run starts:
+  **Run anyway** or **Cancel**; nothing is ever refused.
+- **Many runs** estimate the memory of each run times the runs that go at the same time (the workers): the cost line
+  says it, and when the workers do not fit, **Run** asks and tells how many do (fewer workers). Runs on other
+  computers are not counted: their memory is theirs.
+
+The same warning is in the assistant's `check_model` (the MCP).
+
 ## Notes and frames
 
 A **note** is a card of text on the canvas for whoever reads the model; a **frame** is a rectangle with a title

@@ -179,6 +179,10 @@ pub struct Entry {
     pub model: String,
     #[serde(default)]
     pub outputs: Vec<Written>,
+    /// About how much memory the outputs of the top-level nodes held at the end of the run, in bytes (0: not
+    /// measured).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub memory: u64,
     /// The manifest of the run, when it wrote one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manifest: Option<PathBuf>,
@@ -190,6 +194,10 @@ pub struct Entry {
     /// Where it was asked for: `app`, `cli` or `mcp`.
     #[serde(default)]
     pub from: String,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 fn now_ms() -> u64 {

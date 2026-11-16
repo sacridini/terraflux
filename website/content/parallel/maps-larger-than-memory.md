@@ -55,7 +55,9 @@ A quick estimate tells whether a map fits: cells × bytes per cell × layers hel
 40,000 × 50,000 cells (2 billion cells, a large country at 30 m) stored as one byte per cell is 2 GB on disk;
 loaded as a map for an analysis, Terraflux holds each cell as a number of 8 bytes, so 16 GB for one layer, and
 an analysis that makes two or three intermediate layers of the same size needs two or three times that. Compare
-with the memory of the computer, minus what the system and other programs use. If it does not fit with room to
+with the memory of the computer, minus what the system and other programs use (the application does this sum before a
+run, from the headers of the files, and warns when the run needs more than four fifths of the memory available:
+[Disk and memory before a run](/app/window/#disk-and-memory-before-a-run)). If it does not fit with room to
 spare, use the tools of this page, or work at a coarser resolution where the question allows it (a 90 m map has a
 ninth of the cells of a 30 m one).
 
