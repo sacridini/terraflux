@@ -76,6 +76,7 @@ pub mod recovery;
 pub mod region;
 pub mod relink;
 pub mod remote;
+pub mod replace;
 pub mod report;
 pub mod reproject;
 pub mod restore;

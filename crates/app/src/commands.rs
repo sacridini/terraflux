@@ -81,6 +81,8 @@ pub enum Do {
     GoTo(Vec<String>),
     /// Find a node: the search of the canvas (ctrl+F), opened.
     Find,
+    /// Find and replace in the whole model (ctrl+H), opened.
+    Replace,
     /// Go to a place kept in the model, of the Viewer's map or of the canvas, by its name.
     Place {
         map: bool,

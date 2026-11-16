@@ -271,6 +271,7 @@ struct Keys {
     save: bool,
     save_as: bool,
     version: bool,
+    replace: bool,
     open: bool,
     open_model: bool,
     new: bool,
@@ -288,6 +289,7 @@ impl Keys {
         let has = |id: &str| hit.contains(&id);
         Keys {
             version: has("version"),
+            replace: has("find_replace"),
             run: has("run"),
             save_as: has("save_as"),
             save: has("save"),
@@ -817,6 +819,8 @@ pub struct Session {
     pub history_open: bool,
     /// The files the model reads that are not found, and the window that finds them again.
     pub relink: crate::relink::Relink,
+    /// The window of find and replace in the whole model.
+    pub replace: crate::replace::Dialog,
     /// How long each node took in the runs of the sessions before (kept per model, [`crate::eta`]), and when the
     /// top-level node running began.
     pub times_before: BTreeMap<String, f64>,
@@ -1053,6 +1057,7 @@ impl Session {
             ended: None,
             history_open: false,
             relink: Default::default(),
+            replace: Default::default(),
             times_before: BTreeMap::new(),
             node_began: None,
         })
@@ -3256,6 +3261,18 @@ impl TerrafluxApp {
                 .response
                 .on_hover_text("add an operator after the node selected (also at the window's left edge, and \"/\")");
             }
+            if let Some(s) = &mut self.session {
+                ui.menu_button("Edit", |ui| {
+                    if ui
+                        .add(egui::Button::new("Find and replace...").shortcut_text(crate::keymap::text("find_replace")))
+                        .on_hover_text("a path, a no-data value or a name changed in every node at once, with a preview (one step of undo)")
+                        .clicked()
+                    {
+                        ui.close();
+                        s.replace.open = true;
+                    }
+                });
+            }
             ui.menu_button("View", |ui| self.view_menu(ui));
             ui.separator();
             if let Some(s) = &self.session
@@ -3534,6 +3551,7 @@ impl TerrafluxApp {
             action("Process a folder of rasters...", String::new(), Do::ProcessFolder),
             action("Add an operator", "/".into(), Do::Add(String::new())),
             action("Find a node", crate::keymap::text("canvas_find"), Do::Find),
+            action("Find and replace in the model...", crate::keymap::text("find_replace"), Do::Replace),
             action("Arrange the nodes", format!("{c}L"), Do::Arrange),
             action("Group the nodes selected", format!("{c}G"), Do::Group),
             action("Ungroup the group selected", format!("{c}shift+G"), Do::Ungroup),
@@ -3709,6 +3727,7 @@ impl TerrafluxApp {
                         }
                     }
                     Do::GoTo(at) => crate::find::go(s, r, &at),
+                    Do::Replace => s.replace.open = true,
                     Do::Find => {
                         s.editor.text = false;
                         s.editor.find = Some(Default::default());
@@ -4895,6 +4914,11 @@ impl TerrafluxApp {
         if keys.version {
             self.ask_version();
         }
+        if keys.replace
+            && let Some(s) = &mut self.session
+        {
+            s.replace.open = !s.replace.open;
+        }
         if keys.new {
             self.ask_new();
         }
@@ -5394,6 +5418,7 @@ impl TerrafluxApp {
             crate::undo::window(ui.ctx(), s);
             s.follow_files();
             crate::relink::window(ui.ctx(), s);
+            crate::replace::window(ui.ctx(), s, &self.registry);
             // (the figure's and the export's dialogs open in the Viewer's window when it has one)
             if !out {
                 crate::frame::window(ui.ctx(), s);

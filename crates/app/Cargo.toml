@@ -33,6 +33,8 @@ hex = "0.4"
 # the checksums are signed (ed25519): checked with the key built in (ring is rustls's, already in the lock)
 ring = "0.17.14"
 rstar = "0.12"
+# find and replace in the model: its expressions (already in the lock, the operators use it)
+regex = "1"
 # the animations of a simulation's steps (GIF), their captions drawn in the application's font
 gif = "0.14"
 # the videos (H.264), built from its source: nothing for the user to install

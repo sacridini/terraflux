@@ -177,6 +177,27 @@ depth (inside groups, loops and switches). Up to twelve matches are listed; choo
 ++enter++: the canvas goes to the node, opening the containers on the way. The palette (++ctrl+k++) reaches nodes
 too, as *Go to group/inner*.
 
+## Find and replace
+
+++ctrl+h++ (**Edit > Find and replace...**, or the palette) opens a window that looks for a text in the whole model
+and changes it everywhere at once: the values of the settings of every node (inside groups, loops and switches too),
+the files they name, the scripts of the calculators (`raster.calc`, `vector.calc`, `value.calc`...) and the rules of a
+reclassification, the notes (note, why, references, assumptions, alternatives), and the names and files of the model's
+inputs and outputs. Typing in **Find** and **Replace with** lists every occurrence at once, the node and the setting
+first, then the text with what it matches struck out and what it becomes beside it. Each row has a box, all checked:
+uncheck what must stay, and click a row to go to its node on the canvas.
+
+**Match case**, **Whole word** and **Regular expression** (the replacement may use `$1` for a group) narrow the
+search; the boxes of **Look in** (settings, paths, scripts and rules, notes, names) and the **Operator** field
+(`raster.calc`) say where. A number is compared as the text it is written as: `-9999` replaced by `0` in a no-data
+value writes the number `0`, not the text.
+
+**Replace selected** changes everything chosen in one step of undo, and checks the model as any edit is checked:
+when one replacement would make it invalid (a number made a text, a name that is not valid or is taken already) none
+is made, and the window says which one and why. The classic use is a change of folder, `D:/dados/` to
+`E:/projeto/dados/`: afterwards the window names the files that are not found there, and the strip of the canvas
+offers to look for them (see [Files not found](/app/window/#files-not-found)).
+
 Other moves on the canvas: ++home++ fits the whole graph, ++f++ the nodes selected (or the whole graph if none),
 the arrows go to the node beside the one selected, and ++enter++ shows its output in the Viewer. The wheel zooms,
 and a right or middle drag moves the view. A **minimap** in the corner of a large model (**a minimap of a large

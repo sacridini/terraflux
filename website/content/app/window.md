@@ -113,6 +113,11 @@ The library as a menu, to add an operator after the node selected: **Open a rast
 (by colour, empty until you put an operator in a collection), then one submenu per subject (data preparation,
 habitat patterns, landscape metrics...). The same library is in the **Operators** drawer and behind ++slash++.
 
+### Edit
+
+**Find and replace...** (++ctrl+h++, with a model open) opens the window that changes a path, a no-data value, a name or
+a word in every node at once, with a preview and one step of undo ([Find and replace](/app/canvas/#find-and-replace)).
+
 ### View
 
 | Item | Does |

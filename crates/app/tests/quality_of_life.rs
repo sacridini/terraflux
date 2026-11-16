@@ -675,3 +675,66 @@ fn the_steps_of_an_agent_are_named_by_its_tools() {
     assert_eq!(at, names.len());
     assert!(terraflux_app::agent_edits::take(&path).is_empty(), "taken");
 }
+
+/// Find and replace in the whole model (ctrl+H): what is typed gives the preview, an occurrence unchecked is left
+/// as it is, and Replace selected changes the others in one step of undo.
+#[test]
+fn find_and_replace_previews_unchecks_and_applies_in_one_step() {
+    use terraflux_graph::Node;
+    let mut h = harness(new_app(None));
+    h.run_steps(3);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        for id in ["north", "south"] {
+            s.source.nodes.push(Node::new(id, "raster.read").param("path", format!("D:/dados/{id}.tif")));
+        }
+        s.edited();
+    }
+    h.run_steps(2);
+    let path = |h: &Harness<TerrafluxApp>, k: usize| {
+        h.state().session.as_ref().unwrap().source.nodes[k].params["path"].as_str().unwrap().to_string()
+    };
+    assert!(h.query_by_label("Find and replace").is_none());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().replace.open);
+    assert!(h.query_by_label("Find and replace").is_some());
+    // typed in the field of what is looked for (it has the focus), Tab to the replacement
+    h.event(egui::Event::Text("D:/dados/".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Tab);
+    h.run_steps(1);
+    h.event(egui::Event::Text("E:/projeto/".into()));
+    h.run_steps(3);
+    // the preview: a row for each, the first one's file named by its node
+    assert_eq!(h.query_all_by_label_contains("· path").count(), 2);
+    assert!(h.query_by_label_contains("2 occurrences, 2 chosen").is_some());
+    assert!(h.query_by_label_contains("Replace selected (2)").is_some());
+    // the second one unchecked (the last box of the window is its row's)
+    {
+        use egui_kittest::kittest::NodeT;
+        let boxes: Vec<_> = h.get_all_by_role(egui::accesskit::Role::CheckBox).collect();
+        let labels: Vec<_> = boxes.iter().map(|b| b.accesskit_node().label()).collect();
+        // (the boxes of the filters have a name, those of the rows have none)
+        let row = boxes.iter().rev().find(|b| b.accesskit_node().label().is_none_or(|l| l.is_empty()));
+        row.unwrap_or_else(|| panic!("no box without a name in {labels:?}")).click();
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("2 occurrences, 1 chosen").is_some());
+    if let Ok(img) = h.render() {
+        img.save(tmp("ui-find-replace.png")).unwrap();
+    }
+    h.get_by_label_contains("Replace selected (1)").click();
+    h.run_steps(3);
+    assert_eq!(path(&h, 0), "E:/projeto/north.tif");
+    assert_eq!(path(&h, 1), "D:/dados/south.tif", "the one unchecked stays");
+    assert!(h.query_by_label_contains("1 replaced").is_some());
+    // one step of undo
+    terraflux_app::builder::undo_redo(h.state_mut().session.as_mut().unwrap(), false);
+    h.run_steps(3);
+    assert_eq!(path(&h, 0), "D:/dados/north.tif");
+    // ctrl+H again closes it
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
+    h.run_steps(3);
+    assert!(!h.state().session.as_ref().unwrap().replace.open);
+}

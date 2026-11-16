@@ -3759,6 +3759,13 @@ escolha do usuário). Conferido antes que nada disso existe.
    `figure::Drawing` dos mapas (SVG, PDF e PNG saem do mesmo layout), com as caixas, portas, fios, grupos abertos,
    notas, molduras e linhas de ajustes do canvas, sempre no tema claro (texto a 4.5:1, linhas a 3:1, testado).
 2. **Localizar e substituir no modelo inteiro**, com prévia: um caminho, um nodata, o nome de uma classe em todos
-   os nós de uma vez (hoje só nos nós selecionados do mesmo operador).
+   os nós de uma vez (hoje só nos nós selecionados do mesmo operador). **Feito** (Unreleased): ctrl+H, o menu Edit e
+   a paleta abrem a janela "Find and replace" (`crates/app/src/replace.rs`: `find` e `replace` puros, a janela só os
+   chama; ação `find_replace` no keymap); procura nas configurações de todos os nós em qualquer profundidade, nos
+   caminhos, nos scripts e nas regras de reclassificação, nas notas e nos nomes/arquivos das entradas e saídas, com
+   maiúsculas, palavra inteira e expressão regular (`$1`), filtros por onde e por operador; a prévia lista cada
+   ocorrência com caixa de seleção e vai ao nó ao clicar; "Replace selected" é um passo de desfazer, tudo ou nada,
+   conferido como uma edição, números escritos de volta como números, e depois avisa os arquivos que não existem.
+   Testes: `replace::tests`, `find_and_replace_previews_unchecks_and_applies_in_one_step`.
 4. **A memória estimada antes de rodar** (o disco já é estimado; a memória de cada nó só é medida depois): "esta
    execução precisa de ~12 GB e há 8", com a sugestão de rodar por blocos ou por tiles.

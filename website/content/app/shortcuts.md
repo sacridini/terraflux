@@ -22,6 +22,7 @@ in the application: press ++f1++ ([The F1 sheet](#the-f1-sheet)).
 | ++ctrl+s++ | Save the model |
 | ++ctrl+shift+s++ | Save the model as... |
 | ++ctrl+alt+s++ | Save a version of the model... |
+| ++ctrl+h++ | Find and replace in the whole model (a path, a value, a name), with a preview |
 | ++ctrl+n++ | New model |
 | ++ctrl+shift+o++ | Open a model... |
 | ++ctrl+o++ | Open a raster or vectors... |
