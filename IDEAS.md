@@ -2026,8 +2026,8 @@ escolha, abstração) sem código.
    - **Feito** (1.14.0): o bypass (`bypass = true` no nó: cada saída a primeira entrada do mesmo tipo; B no canvas,
      a caixa apagada), o tempo e a memória de cada nó (`Results.timings`, o corpo de um laço somado nos passos;
      "last run" no painel do nó, `terraflux run --profile`) e o `check.assert` (a expressão do `raster.calc` em
-     toda célula com valor, ou do `value.calc`; `warn` só avisa). Falta: congelar o resultado de um nó entre
-     sessões (o cache em disco) e o laço passo a passo.
+     toda célula com valor, ou do `value.calc`; `warn` só avisa). Congelar o resultado de um nó entre
+     sessões (o cache em disco) e o laço passo a passo: **feitos** depois (o `frozen = true`, o `runner::Gate`; ver "A interface: o que falta nas partes já feitas").
 8. **Testes de modelos** (`terraflux test`): asserções e saídas esperadas guardadas com o modelo, um template ou um
    modelo publicado conferido a cada versão nova do Terraflux.
    - **Feito** (1.15.0): `[[tests]]` no formato (`from`, `expected`, `tolerance`) e `terraflux test` (modelos ou
@@ -2041,7 +2041,7 @@ escolha, abstração) sem código.
   - **Feito** (1.15.0): o `manifest.json` de todo `terraflux run` (a versão, a plataforma, o modelo e os arquivos de
     entrada com o SHA-256, os valores, o cenário e os `--set`, as sementes, as saídas com o SHA-256) e o
     `terraflux reproduce manifest.json` (roda de novo e diz se cada saída é a mesma, byte a byte; os vetores pelas
-    feições, porque o GeoPackage grava a hora). Falta: o manifesto das execuções do aplicativo.
+    feições, porque o GeoPackage grava a hora). O manifesto das execuções do aplicativo: **feito** depois (uma execução inteira do modelo salvo grava `output/manifest.json`, como o `terraflux run`, e entra no diário).
 - **Execução incremental entre sessões pela linha de comando**, como o `targets` do R: só o que mudou rodado de
   novo, com o cache persistente.
 - **Integração com o ecossistema:** um provedor de Processing para o QGIS (os modelos do Terraflux como algoritmos do
