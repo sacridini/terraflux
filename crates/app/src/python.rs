@@ -26,6 +26,15 @@
 //! on a table or on the cells of maps (the library has no function for them; Terraflux's trees are scikit-learn's, to
 //! the bit), MaxNet fitted alone the library's estimator, the randomisations and the properties of a basedata and the
 //! metrics of sample plots the library's `randomise`, `read_properties` and `sample_metrics` (python/models.rs).
+//! The operators the library has no function for are helpers too (python_tools.py, written into the script only when
+//! used), as Terraflux runs them: the statistics of maps and stacks (`raster.stats`, `stack.reduce`, the correlation
+//! and the standardization), their moving windows and patches (`raster.focal`, majority, sieve, label, expand,
+//! shrink), the classes by breaks (`raster.classify`, Jenks's apart), gdaldem's terrain (`raster.terrain`: slope,
+//! aspect, hillshade, TRI, TPI, roughness, as GDAL 3.12 computes them, its own options apart), a map's legend, the
+//! layers of a stack, the checks (a Python `AssertionError`, or a warning with `warn`, the same condition and message),
+//! `value.calc` (the calculator's expression over numbers and a table's row), numpy's generator (`rng.numpy`), the
+//! agents (a table of attributes) and `batch.run` (the library's `tf.batch`). A submodel is read beside the model and
+//! becomes a group.
 //! A node with no counterpart known stays as a comment with its settings, the script saying which; so does a setting
 //! with none that would change the result.
 
@@ -364,6 +373,7 @@ mod movement;
 mod prioritize;
 mod sdm;
 mod terrain;
+mod tools;
 
 /// Every operator called with its arguments mapped: this file's and each family's.
 fn mapped() -> impl Iterator<Item = &'static Py> {
@@ -394,6 +404,7 @@ fn family_special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, Strin
         prioritize::special,
         sdm::special,
         terrain::special,
+        tools::special,
     ] {
         if let Some(code) = f(n, var, sc)? {
             return Ok(Some(code));
@@ -450,6 +461,10 @@ pub const FLOW_HELPER: &str = include_str!("python_flow.py");
 /// The helpers of SWAT+ (the weather's tables and the results as Terraflux gives them, swat.set) and the parameters
 /// swat.set changes, as the port calibrates them (name: object, lowest and highest value of cal_parms.cal).
 const SWAT_HELPER: &str = include_str!("python_swat.py");
+
+/// The helpers of the operators with no function in the library (statistics, windows and patches of maps, the stack's
+/// layers, the checks, value.calc, batch.run's table, the agents): python_tools.py.
+pub const TOOLS_HELPER: &str = include_str!("python_tools.py");
 
 fn swat_helper() -> String {
     let parms: Vec<String> = terraflux_ops::swat::PARAMETERS
@@ -736,6 +751,8 @@ enum Need {
     Both,
     /// SWAT+'s tables of the weather and of the results, and swat.set's change (python_swat.py's).
     Swat,
+    /// The helpers of python_tools.py (they run the calculator's too).
+    Tools,
 }
 
 /// The script being written: what was translated, the helpers it needs, the Python names taken.
@@ -745,6 +762,7 @@ struct Writer<'r> {
     calc: bool,
     flow: bool,
     swat: bool,
+    tools: bool,
     names: HashSet<String>,
 }
 
@@ -792,6 +810,7 @@ impl Writer<'_> {
                 self.calc |= matches!(need, Need::Calc | Need::Both);
                 self.flow |= matches!(need, Need::Flow | Need::Both);
                 self.swat |= need == Need::Swat;
+                self.tools |= need == Need::Tools;
                 self.out.translated += 1;
                 block.push_str(&code);
                 sc.made.insert(n.id.clone(), Made { outs });
@@ -1038,7 +1057,30 @@ pub fn write_to(m: &Model, r: &Registry, model: &Path, py: &Path) -> Result<Scri
 
 /// The model as a Python script of terraflux.
 pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
-    let mut w = Writer { r, out: Script::default(), calc: false, flow: false, swat: false, names: HashSet::new() };
+    // the submodels as groups (their files read beside the model; unread, they stay comments saying so)
+    let expanded;
+    let m = match model_path.and_then(Path::parent) {
+        Some(dir) if terraflux_graph::submodel::has_submodels(m) => {
+            let mut copy = m.clone();
+            match terraflux_graph::submodel::expand(&mut copy, dir) {
+                Ok(()) => {
+                    expanded = copy;
+                    &expanded
+                }
+                Err(_) => m,
+            }
+        }
+        _ => m,
+    };
+    let mut w = Writer {
+        r,
+        out: Script::default(),
+        calc: false,
+        flow: false,
+        swat: false,
+        tools: false,
+        names: HashSet::new(),
+    };
     for taken in ["np", "tf", "Path", "MODEL_DIR", "OUT"] {
         w.names.insert(taken.into());
     }
@@ -1146,6 +1188,8 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
         None => "MODEL_DIR = Path(__file__).parent  # the model's paths are relative to its folder\n".into(),
     });
     head.push_str("OUT = MODEL_DIR / \"output\"\n\n");
+    // (the tools run the calculator's expressions: its helper first)
+    w.calc |= w.tools;
     if w.calc {
         head.push_str("\n# --- Terraflux's calculator (raster.calc, and the expressions over rows) in numpy ---\n\n");
         head.push_str(CALC_HELPER.trim_end());
@@ -1156,12 +1200,17 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
         head.push_str(FLOW_HELPER.trim_end());
         head.push_str("\n\n");
     }
+    if w.tools {
+        head.push_str("\n# --- Terraflux's statistics, windows, checks and agents (numpy, pandas) ---\n\n");
+        head.push_str(TOOLS_HELPER.trim_end());
+        head.push_str("\n\n");
+    }
     if w.swat {
         head.push_str("\n# --- Terraflux's SWAT+: the tables of the weather and of the results, swat.set ---\n\n");
         head.push_str(&swat_helper());
         head.push_str("\n\n");
     }
-    if w.calc || w.flow || w.swat {
+    if w.calc || w.flow || w.swat || w.tools {
         head.push_str("# --- the model ---\n\n");
     }
     out.text = format!("{head}\n{}", body.trim_end()) + "\n";
@@ -2902,7 +2951,7 @@ mod tests {
     }
 
     /// The parameters of a library call (a class: its own sig, else its `__init__`'s), or why it has none.
-    fn api_params(api: &Value, call: &str) -> Result<(Vec<String>, bool), String> {
+    pub(super) fn api_params(api: &Value, call: &str) -> Result<(Vec<String>, bool), String> {
         let full = call.replacen("tf.", "terraflux.", 1);
         let o = api_object(api, &full).ok_or("not in the library")?;
         let sig = match o["sig"].as_str() {
@@ -3743,8 +3792,11 @@ from = "pick.map"
         assert!(t.contains("growth_city = land\n"), "{t}");
         assert!(t.contains("growth_maps = []\nfor step in range(1, int(5) + 1):\n"), "{t}");
         assert!(t.contains("    grow = _calc(") && t.contains("c=growth_city, s=step,"), "{t}");
-        // its end, of a node left as a comment: None, said (the loop kept)
-        assert!(t.contains("    # (full.value: not translated: None here)\n    if None:  # the loop's end"), "{t}");
+        // its end, of a value.calc (a helper): the value it gives
+        assert!(
+            t.contains("    full = _value_calc(expression=\"1 > 2\")\n\n    if full[\"value\"]:  # the loop's end"),
+            "{t}"
+        );
         assert!(t.contains("    growth_maps.append(grow[\"map\"])\n    growth_city = grow[\"map\"]\n"), "{t}");
         // over a collection: its elements, gathered
         assert!(t.contains("per_elements = _elements(growth_maps)\n"), "{t}");
@@ -3759,9 +3811,8 @@ from = "pick.map"
         assert!(t.contains("    otherwise_m = pick_map\n    pick = otherwise_m\n"), "{t}");
         assert!(t.contains("tf.save(pick, OUT / \"picked\")"), "{t}");
         assert!(t.contains("def _elements(v):") && t.contains("def _gather(values, names, column):"));
-        // value.calc has no counterpart: left, by its place in the loop; the containers translated
-        assert!(s.left.iter().any(|(id, _, _)| id == "growth/full"), "{:?}", s.left);
-        assert_eq!(s.left.len(), 1, "{:?}", s.left);
+        // every node translated, the containers too
+        assert!(s.left.is_empty(), "{:?}", s.left);
         parses(t);
     }
 

@@ -1,7 +1,8 @@
 //! The Python counterparts of the operators of terrain, water and ecosystem services (surface, hydro, services, carbon).
 //!
-//! Left without a counterpart: `raster.terrain` (gdaldem's hillshade, TRI, TPI and roughness are not the library's
-//! `tf.surface.terrain`, which does slope and aspect only, with other flat-cell and longitude / latitude rules).
+//! `raster.terrain` is a helper of python_tools.py (python/tools.rs): gdaldem's hillshade, TRI, TPI and roughness are
+//! not the library's `tf.surface.terrain`, which does slope and aspect only, with other flat-cell and longitude /
+//! latitude rules.
 
 #![allow(unused_imports)]
 

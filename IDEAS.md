@@ -513,6 +513,17 @@ ordem de impacto (começando pelo 1 e pelo 3):
    que o Terraflux grava). Falta: os contêineres (loops, each, switch), os modelos de mudança (Dinamica, CLUE-S,
    PLUS), SDM, priorização, métricas de paisagem, conectividade e o resto dos ~430 operadores, que ficam como
    comentários com suas configurações.
+   **Feito** depois (1.53.0): cerca de 85 % dos operadores, por família (`crates/app/src/python/`). **Feito**
+   (Unreleased, 2026-11-16): o `ml.*` como o scikit-learn, o `sdm.maxnet`, as randomizações e propriedades do
+   Biodiverse, o `metrics.sample` (`python/models.rs`); as ferramentas gerais de raster (estatísticas, focal,
+   majority, sieve, label, expand, shrink, classify, terrain do gdaldem, legend), as pilhas, os checks, o
+   `value.calc`, o `rng.numpy`, os agentes, o `batch.run` e o `control.submodel` como funções auxiliares escritas no
+   script (`python_tools.py`, `python/tools.rs`), conferidas contra os operadores (64 casos de mapas e 39 de checks,
+   valores e agentes, nenhuma diferença; o terreno contra o gdaldem 3.12); o `data.stac` como `tf.download.stac`.
+   Ficam como comentário, com o motivo: o que é do GDAL (`raster.fill`, `raster.mosaic`, `raster.contour`,
+   `distance.proximity`), o Jenks do `raster.classify`, o `rng.r`, o `crafty.allocate`, `vector.density`,
+   `vector.exact_sum`, `woe.weights`, `change.suggest`, `metrics.correlation`, os passos que a biblioteca só roda
+   como modelo inteiro (MOLUSCE, CLUMondo, FUTURES, PLUS, Dinamica, lulcc, CARS), o `plugin.wasm` e o `view.plot`.
 9. **Paletas para daltônicos.** viridis e cividis à mão, e uma prévia do mapa como um daltônico o vê (deuteranopia,
    protanopia, tritanopia); as revistas cobram cada vez mais.
    **Feito** (Unreleased): as rampas cividis e PuOr (laranja a roxo, centrada no 0) nas cores do Viewer; View >

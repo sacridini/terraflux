@@ -1,11 +1,11 @@
 //! The Python counterparts of the operators of the rest (bio, accuracy, redd, stats, uncertainty, sensitivity, fragmentation, landscape, nlm, metrics, forest_code, data, batch, raster).
 //!
-//! Left as a comment, on purpose: `batch.run` (its operator names and parameters are Terraflux's, the library's tools
-//! are other functions), `bio.randomise` and `bio.properties` (the library works on a spatial result and mutates the
-//! basedata), `metrics.sample` and `metrics.correlation` (the library takes and gives the long table of the metrics,
-//! Terraflux's is wide), `raster.stats`, `raster.classify`, `raster.convert` without a path, and the operators the
-//! library leaves to the Python ecosystem (focal, majority, sieve, label, fill, mosaic, contour, expand, shrink,
-//! standardize, correlation, legend).
+//! `data.stac` is the library's `tf.download.stac` (the query's JSON text a dict, the Planetary Computer's signing
+//! `planetary_computer.sign`). The randomisations, properties and sample metrics are in python/models.rs, the general
+//! raster tools, stacks, checks, agents and `batch.run` in python/tools.rs. Left as a comment, on purpose:
+//! `metrics.correlation` (the library takes and gives the long table of the metrics, Terraflux's is wide),
+//! `raster.convert` without a path, and what is GDAL's own (`raster.fill`, `raster.mosaic`, `raster.contour`,
+//! `distance.proximity`).
 
 #![allow(unused_imports)]
 
@@ -731,6 +731,59 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             known.extend(["source", "like", "extent", "cellsize", "resampling"]);
             let all: Vec<String> = first.into_iter().chain(args).collect();
             let code = format!("{}{var} = {call}({})\n", rest(n, &known), all.join(", "));
+            (code, one(var, "raster"), Need::Nothing)
+        }
+        "data.stac" => {
+            let mut code = String::new();
+            let mut args = vec![setting(n, "url", sc)?.ok_or("its url is not given")?];
+            args.push(setting(n, "collection", sc)?.ok_or("its collection is not given")?);
+            if let Some(l) = v("like")? {
+                args.push(l);
+            }
+            args.push(format!("assets={}", setting(n, "assets", sc)?.ok_or("its assets are not given")?));
+            args.extend(given(
+                n,
+                &[
+                    ("datetime", "datetime"),
+                    ("limit", "limit"),
+                    ("composite", "composite"),
+                    ("extent", "extent"),
+                    ("cellsize", "cellsize"),
+                    ("classes", "classes"),
+                    ("resampling", "resampling"),
+                ],
+                sc,
+            )?);
+            // the query is JSON text here, a dict in the library
+            if let Some(q) = setting(n, "query", sc)? {
+                code.push_str("import json\n");
+                args.push(format!("query=json.loads({q})"));
+            }
+            match n.params.get("sign") {
+                None | Some(Value::Null) => {}
+                Some(Value::String(s)) if s == "none" => {}
+                Some(Value::String(s)) if s == "planetary_computer" => {
+                    code.push_str("import planetary_computer  # pip install planetary-computer: it signs the files\n");
+                    args.push("sign=planetary_computer.sign".into());
+                }
+                Some(s) => return Err(format!("its sign {s}: not in the script yet")),
+            }
+            let known = [
+                "url",
+                "collection",
+                "like",
+                "assets",
+                "datetime",
+                "limit",
+                "composite",
+                "extent",
+                "cellsize",
+                "classes",
+                "resampling",
+                "query",
+                "sign",
+            ];
+            code = format!("{}{code}{var} = tf.download.stac({})\n", rest(n, &known), args.join(", "));
             (code, one(var, "raster"), Need::Nothing)
         }
         // -- fragmentation, landscape ---------------------------------------------------------------------------------
@@ -1734,6 +1787,12 @@ inputs = { like = "like.map" }
 params = { source = "worldclim", layers = [1, 12] }
 
 [[nodes]]
+id = "s2"
+op = "data.stac"
+inputs = { like = "like.map" }
+params = { url = "https://planetarycomputer.microsoft.com/api/stac/v1", collection = "sentinel-2-l2a", assets = ["B04", "B08"], datetime = "2024-07-01/2024-07-31", query = '{"eo:cloud_cover": {"lt": 20}}', sign = "planetary_computer" }
+
+[[nodes]]
 id = "design"
 op = "sensitivity.design"
 params = { method = "morris", factors = [["a", 0, 1], ["b", 0, 1]], n = 2 }
@@ -1791,6 +1850,13 @@ params = { grid_area = 100 }
         assert!(t.contains("iv = tf.uncertainty.interval(dl.value, sd=dl.sd)"), "{t}");
         assert!(t.contains("bin = tf.nlm.binarize(like, [0.2, 0.5])"), "{t}");
         assert!(t.contains("dd = tf.download.worldclim(like=like, layers=[1, 12])"), "{t}");
+        assert!(t.contains("import planetary_computer  # pip install planetary-computer"), "{t}");
+        assert!(
+            t.contains("s2 = tf.download.stac(\"https://planetarycomputer.microsoft.com/api/stac/v1\", \"sentinel-2-l2a\", like, assets=[\"B04\", \"B08\"], datetime=\"2024-07-01/2024-07-31\", query=json.loads("),
+            "{t}"
+        );
+        assert!(t.contains("sign=planetary_computer.sign)
+"), "{t}");
         assert!(t.contains("an = tf.sensitivity.analyze(design, design, column=\"a\", method=\"morris\")"), "{t}");
         assert!(t.contains("tf.redd.benchmark("), "{t}");
         assert!(t.contains("tf.redd.fit(") && t.contains("tf.redd.allocate(") && t.contains("tf.redd.assess("), "{t}");
