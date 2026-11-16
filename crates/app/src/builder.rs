@@ -3383,6 +3383,20 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 crate::my_nodes::begin(s, r, &id);
                 Ok(false)
             }
+            Action::Figure(group) => {
+                let mut path = s.editor.path.clone();
+                match group {
+                    Some(id) => {
+                        path.push(id);
+                        crate::graph_figure::open(s, path, None);
+                    }
+                    None => {
+                        let only = chosen_ids(s).into_iter().filter(|k| !crate::editor::is_source(k)).collect();
+                        crate::graph_figure::open(s, path, Some(only));
+                    }
+                }
+                Ok(false)
+            }
             Action::Place(ask) => {
                 crate::places::canvas_ask(s, ask);
                 Ok(false)

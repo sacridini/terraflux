@@ -1847,6 +1847,23 @@ impl Drawing {
         self.shapes.push(Shape::Path { rings: vec![ring], closed: true, fill: Some(fill), stroke: None });
     }
 
+    /// The figure as a PNG at `dpi`, the resolution recorded in the file.
+    pub fn png(&self, dpi: u32) -> Result<Vec<u8>, String> {
+        let bytes = self.pixels(dpi)?.encode_png().map_err(|e| e.to_string())?;
+        Ok(with_dpi(&bytes, dpi))
+    }
+
+    /// Rings (closed: filled by the even-odd rule) or lines, filled and stroked as given.
+    pub(crate) fn path(
+        &mut self,
+        rings: Vec<Vec<(f32, f32)>>,
+        closed: bool,
+        fill: Option<Color32>,
+        stroke: Option<(Color32, f32)>,
+    ) {
+        self.shapes.push(Shape::Path { rings, closed, fill, stroke });
+    }
+
     /// A line of text at a point on its baseline: from there, or centred on it; `up` reads it upwards.
     pub(crate) fn label(&mut self, (x, y): (f32, f32), size: f32, text: &str, middle: bool, colour: Color32, up: bool) {
         let anchor = if middle { Anchor::Middle } else { Anchor::Start };

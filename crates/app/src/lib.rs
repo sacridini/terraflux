@@ -35,6 +35,7 @@ pub mod eval;
 pub mod export_view;
 pub mod fixes;
 pub mod figure;
+pub mod graph_figure;
 pub mod files_view;
 pub mod find;
 pub mod frame;

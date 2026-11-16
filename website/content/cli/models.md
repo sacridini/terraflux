@@ -273,6 +273,37 @@ terraflux python *.toml --beside --strict      # model.py beside each model; fai
 `--strict`
 :   Fail when any model has nodes left as comments.
 
+## terraflux figure
+
+Draws a model's graph as a figure for a paper: the boxes, ports, wires, groups, notes and frames of the canvas, in the
+light theme on white, with ink that reads on paper. The format follows the extension: `.svg` (the text stays text, to
+edit in Inkscape), `.pdf` (vectors and text) or `.png` (300 dpi).
+
+```bash
+terraflux figure model.toml -o graph.svg --width 85mm        # one column of an article
+terraflux figure model.toml -o graph.pdf --width 180mm       # the page's width (the default)
+terraflux figure model.toml -o graph.png --width natural     # the figure's own size
+terraflux figure model.toml -o part.svg --nodes slope,calc   # only these nodes
+terraflux figure model.toml -o inner.svg --group stage1      # the inside of a group
+```
+
+`-o`, `--out`
+:   The file: `.svg`, `.pdf` or `.png`.
+
+`--width`
+:   `85mm`, `180mm` (the default), another width (`12cm`, `4in`, `240pt`) or `natural`. A graph of many nodes in a
+    narrow column has small text: the command warns when the smallest text is under 5 pt.
+
+`--nodes`
+:   Only these nodes (ids, comma separated); what they read from the others is drawn as an input.
+
+`--group`
+:   The inside of a group (`outer/inner` for a group in a group) instead of the top level.
+
+`--no-notes`, `--no-settings`, `--no-groups`
+:   Leave out the notes and frames, the settings shown on the boxes, or what is inside the groups (framed under the
+    graph otherwise).
+
 ## terraflux plot
 
 Runs a model and writes one of its Plots (the views kept with the model, see

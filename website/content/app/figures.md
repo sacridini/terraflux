@@ -207,6 +207,23 @@ is enlarged (its longest side is at least 480 pixels) and a large one is read ev
 on a side). The animation is made in the background, and you can go on working. The window tells when it is saved. Frames
 are drawn in the colour vision chosen (see [Colour vision and accessibility](/app/colour-vision/)).
 
+## The model's graph as a figure
+
+**File > Export the model as a figure...** (also in the command palette) draws the graph as the canvas shows it, for
+a paper: the boxes with the node's id and operator, the ports, the wires in the colour of what flows through them, the
+groups (their inside framed under the graph, with a title), the notes and frames, and the settings shown on the boxes.
+It is always in the light theme, on white, with text that reads at 4.5:1 and lines at 3:1, whatever theme the
+application is in.
+
+Choose the format (SVG, with the text as text to edit in Inkscape; PDF; or PNG at 300 dpi), the width (85 mm, one
+column of an article; 180 mm, a page; or the natural size) and what to include: the notes and frames, the settings, the
+inside of the groups. Only what exists is drawn, with a small margin. A graph of many nodes in a narrow column has small
+text, and the window says so when the smallest text is under 5 pt: use a wider figure, or draw less.
+
+To draw only a part, select some nodes and right-click them: **Export as a figure...** draws those nodes, with what
+they read from the others as inputs. Right-click a group: **Export as a figure...** draws its inside. The same from the
+command line: [`terraflux figure`](/cli/models/#terraflux-figure).
+
 ## Going further
 
 - [Colour vision and accessibility](/app/colour-vision/): check that a figure reads for every reader.

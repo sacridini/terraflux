@@ -598,6 +598,8 @@ pub struct Session {
     pub methods_open: bool,
     /// The window of the export of the run's maps to a QGIS project.
     pub qgis: crate::qgis::Export,
+    /// The window of the export of the model's graph as a figure.
+    pub graph_figure: crate::graph_figure::Window,
     /// The data catalog's window (the datasets data.download fetches).
     pub catalog: crate::catalog::Catalog,
     /// The window of the model as a Python script of terraflux.
@@ -940,6 +942,7 @@ impl Session {
             trace_asked: None,
             methods_open: false,
             qgis: Default::default(),
+            graph_figure: Default::default(),
             catalog: Default::default(),
             python: None,
             figure: None,
@@ -3053,6 +3056,16 @@ impl TerrafluxApp {
                 ui.close();
                 s.qgis.open = true;
             }
+            if ui
+                .button("Export the model as a figure...")
+                .on_hover_text(
+                    "the graph as the canvas draws it, as SVG, PDF or PNG, sized to a column of a paper",
+                )
+                .clicked()
+            {
+                ui.close();
+                crate::graph_figure::open(s, Vec::new(), None);
+            }
         }
     }
 
@@ -3505,6 +3518,7 @@ impl TerrafluxApp {
             action("Close the model in front (its tab)", crate::keymap::text("close_tab"), Do::CloseTab),
             action("Methods and citations: the model as a paper's methods", String::new(), Do::Methods),
             action("Export to QGIS: the run's maps as a QGIS project", String::new(), Do::Qgis),
+            action("Export the model as a figure: the graph as SVG, PDF or PNG", String::new(), Do::GraphFigure),
             action("Data catalog: climate, terrain, soil, land cover, rivers to download", String::new(), Do::Catalog),
             action("The model as a Python script (terraflux)", String::new(), Do::Python),
             action("Reset the layout", String::new(), Do::ResetLayout),
@@ -3590,6 +3604,11 @@ impl TerrafluxApp {
             Do::Qgis => {
                 if let Some(s) = &mut self.session {
                     s.qgis.open = true;
+                }
+            }
+            Do::GraphFigure => {
+                if let Some(s) = &mut self.session {
+                    crate::graph_figure::open(s, Vec::new(), None);
                 }
             }
             Do::Catalog => {
@@ -5328,6 +5347,7 @@ impl TerrafluxApp {
                 _ => {}
             }
             crate::qgis::window(ui.ctx(), s);
+            crate::graph_figure::window(ui.ctx(), s);
             crate::catalog::window(ui.ctx(), s, &self.registry);
             crate::python::window(ui.ctx(), s);
             crate::undo::window(ui.ctx(), s);

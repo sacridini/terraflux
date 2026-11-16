@@ -3746,7 +3746,11 @@ escolha do usuário). Conferido antes que nada disso existe.
    o id citado que não existe não tem correção.
 5. **Empacotar o modelo com os dados.** Um arquivo só (o modelo, os dados, os caminhos relativos, o manifesto) para
    o orientador ou o revisor; "Abrir pacote" desempacota e o modelo roda sem ajuste.
-3. **O grafo do modelo como figura vetorial** (SVG e PDF) para o artigo, no tema claro, com as notas.
+3. **O grafo do modelo como figura vetorial** (SVG e PDF) para o artigo, no tema claro, com as notas. **Feito**
+   (Unreleased): File > "Export the model as a figure..." (paleta, e "Export as a figure..." no menu de uma seleção ou
+   de um grupo) e `terraflux figure modelo -o grafo.svg --width 85mm`; `graph_figure.rs` monta o desenho no
+   `figure::Drawing` dos mapas (SVG, PDF e PNG saem do mesmo layout), com as caixas, portas, fios, grupos abertos,
+   notas, molduras e linhas de ajustes do canvas, sempre no tema claro (texto a 4.5:1, linhas a 3:1, testado).
 2. **Localizar e substituir no modelo inteiro**, com prévia: um caminho, um nodata, o nome de uma classe em todos
    os nós de uma vez (hoje só nos nós selecionados do mesmo operador).
 4. **A memória estimada antes de rodar** (o disco já é estimado; a memória de cada nó só é medida depois): "esta

@@ -6699,6 +6699,36 @@ fn the_model_as_a_python_script() {
     shot(&mut h, "14i-python");
 }
 
+/// File > Export the model as a figure...: the window of the graph's figure (format, width, what to include).
+#[test]
+fn the_model_graph_as_a_figure() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.auto = false;
+        terraflux_app::builder::add(s, &r, "nlm.random_cluster", &[("p", "0.55".into())]).unwrap();
+        terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "2 -> 2\n* -> 1".into())]).unwrap();
+    }
+    h.run_steps(2);
+    assert!(!h.state().session.as_ref().unwrap().graph_figure.open);
+    h.get_by_label("File").click();
+    h.run_steps(3);
+    h.get_by_label("Export the model as a figure...").click();
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().graph_figure.open);
+    assert!(h.query_by_label("Save the figure...").is_some());
+    assert!(h.query_by_label("Include the notes and frames").is_some());
+    assert!(h.query_by_label("Include the settings shown on the boxes").is_some());
+    // what it would draw
+    let s = h.state().session.as_ref().unwrap();
+    let f = terraflux_app::graph_figure::build(&s.source, &terraflux_app::graph_figure::Options::default()).unwrap();
+    assert_eq!(f.nodes, 2);
+    assert!(f.svg().contains(">raster.reclassify</text>"));
+    shot(&mut h, "14j-graph-figure");
+}
+
 /// The catalog's preview: ESA WorldCover over a box (its first layer, coarse, fetched in a thread) and GBIF's
 /// count of a species' records. Needs the internet: `cargo test -p terraflux-app --test ui a_preview -- --ignored`.
 #[test]

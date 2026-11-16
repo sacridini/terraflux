@@ -206,6 +206,32 @@ enum Command {
         #[arg(long)]
         strict: bool,
     },
+    /// Draw a model's graph as a figure for a paper, as the canvas draws it in the light theme: SVG (text as text),
+    /// PDF or PNG by the extension of the file.
+    Figure {
+        model: PathBuf,
+        /// The figure's file: .svg, .pdf or .png.
+        #[arg(short, long)]
+        out: PathBuf,
+        /// Its width: `85mm` (a column), `180mm` (a page), another width (`12cm`, `4in`, `240pt`) or `natural`.
+        #[arg(long, default_value = "180mm")]
+        width: String,
+        /// Draw only these nodes (ids, comma separated) of the scope.
+        #[arg(long, value_delimiter = ',')]
+        nodes: Vec<String>,
+        /// Draw the inside of this group (its ids from the top, `outer/inner`) instead of the top level.
+        #[arg(long)]
+        group: Option<String>,
+        /// Leave out the notes and frames.
+        #[arg(long)]
+        no_notes: bool,
+        /// Leave out the settings shown on the boxes.
+        #[arg(long)]
+        no_settings: bool,
+        /// Leave out what is inside the groups (framed under the graph otherwise).
+        #[arg(long)]
+        no_groups: bool,
+    },
     /// List the operators (`--json`: their full signatures).
     Ops {
         #[arg(long)]
@@ -1247,6 +1273,22 @@ fn main() -> Result<()> {
                     eprintln!("wrote {}", p.display());
                 }
                 None => print!("{text}"),
+            }
+        }
+        Command::Figure { model, out, width, nodes, group, no_notes, no_settings, no_groups } => {
+            let source = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
+            let o = terraflux_app::graph_figure::Options {
+                width: terraflux_app::graph_figure::Width::parse(&width).map_err(|e| anyhow::anyhow!(e))?,
+                notes: !no_notes,
+                settings: !no_settings,
+                groups: !no_groups,
+                path: group.map(|g| g.split('/').map(String::from).collect()).unwrap_or_default(),
+                only: (!nodes.is_empty()).then_some(nodes),
+            };
+            let f = terraflux_app::graph_figure::save(&source, &o, &out).map_err(|e| anyhow::anyhow!(e))?;
+            eprintln!("wrote {} ({} nodes, {:.0} mm wide)", out.display(), f.nodes, f.width_mm);
+            if let Some(w) = f.warning() {
+                eprintln!("warning: {w}");
             }
         }
         Command::Python { model, out, beside, strict } => {

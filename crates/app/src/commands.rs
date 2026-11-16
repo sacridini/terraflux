@@ -60,6 +60,8 @@ pub enum Do {
     Methods,
     /// The window of the export to QGIS.
     Qgis,
+    /// The window of the export of the graph as a figure.
+    GraphFigure,
     /// The data catalog's window.
     Catalog,
     /// The model as a Python script.

@@ -54,17 +54,17 @@ use crate::editor;
 /// The narrowest a box is: wider when its texts need it (a long name, an input's and an output's names side by
 /// side on a row), or when it was made wider by dragging its right edge.
 pub const WIDTH: f32 = 190.0;
-const HEAD: f32 = 38.0;
-const ROW: f32 = 18.0;
-const PORT: f32 = 5.0;
+pub(crate) const HEAD: f32 = 38.0;
+pub(crate) const ROW: f32 = 18.0;
+pub(crate) const PORT: f32 = 5.0;
 /// The row at the bottom of a box that names the file it reads or writes.
-const FOOT: f32 = 20.0;
+pub(crate) const FOOT: f32 = 20.0;
 /// How long the halo of a node the assistant reads or changes lasts.
 const PULSE: std::time::Duration = std::time::Duration::from_millis(2500);
 /// The side of a cell of the grid that finds the boxes under a point, graph units.
 const CELL: f32 = 256.0;
 /// The space between a box's edge and a port's name, and between the names of an input and an output on a row.
-const PAD: f32 = 9.0;
+pub(crate) const PAD: f32 = 9.0;
 const GAP: f32 = 16.0;
 /// What the place of a new input says.
 const NEW_INPUT: &str = "+ new input";
@@ -761,6 +761,8 @@ pub enum Action {
     ExposeOutput(String),
     /// A group or a calculator saved as a node of the user's library (its dialog).
     SaveMine(String),
+    /// The graph exported as a figure: the nodes selected, or the inside of the group (its id) when given.
+    Figure(Option<String>),
     /// A note put at a place (graph units), its text asked for at once ([`crate::notes`]).
     AddNote([f32; 2]),
     /// A frame around the nodes selected, its title asked for at once.
@@ -1568,7 +1570,7 @@ struct BoxAt {
 
 /// The name of a file short enough for a box's row: its name without its folder, cut in the middle (the end kept,
 /// with the extension) when longer than `max` characters.
-fn file_label(path: &str, max: usize) -> String {
+pub(crate) fn file_label(path: &str, max: usize) -> String {
     let name = path.rsplit(['/', '\\']).find(|p| !p.is_empty()).unwrap_or(path);
     let chars: Vec<char> = name.chars().collect();
     if chars.len() <= max {
@@ -3245,6 +3247,120 @@ fn stages_and_notes(
     }
 }
 
+/// A box as the graph figure draws it ([`crate::graph_figure`]): its geometry and texts in graph units, the
+/// canvas's own, without a window or a font.
+pub(crate) struct FigBox {
+    pub key: String,
+    pub label: String,
+    pub rect: Rect,
+    pub source: bool,
+    pub group: bool,
+    pub container: bool,
+    pub inside: usize,
+    pub bypass: bool,
+    pub frozen: bool,
+    /// The type its header is tinted by (a box of data).
+    pub tint: Option<Type>,
+    /// Each input: its name, type, whether it is needed, whether it is connected, its port.
+    pub inputs: Vec<(String, Type, bool, bool, Pos2)>,
+    /// Each output: its name, type, its port.
+    pub outputs: Vec<(String, Type, Pos2)>,
+    /// The rows of settings and their sockets, the row that unfolds the others, and the line over them.
+    pub settings: Vec<(SettingRow, Pos2)>,
+    pub more: Option<(String, Pos2)>,
+    pub settings_line: Option<f32>,
+    /// The file it reads or writes, named at its foot.
+    pub file: Option<String>,
+}
+
+/// A wire as the graph figure draws it: its sampled curve, the colour of what flows (the light theme's), whether
+/// it feeds a setting.
+pub(crate) struct FigWire {
+    pub points: Vec<Pos2>,
+    pub colour: Color32,
+    pub setting: bool,
+}
+
+/// The scope `path` of a model laid out as the canvas does (the same boxes, rows and wires around the boxes),
+/// for a figure: only the nodes `only` when given (what they read from the others, and the model's inputs not
+/// used, left out). The model's inputs used come first. None when the scope does not exist.
+pub(crate) fn figure_scene(
+    model: &Model,
+    path: &[String],
+    only: Option<&[String]>,
+    settings: bool,
+) -> Option<(Vec<FigBox>, Vec<FigWire>)> {
+    let all = model.scope(path)?;
+    let nodes: Vec<Node> =
+        all.iter().filter(|n| only.is_none_or(|o| o.contains(&n.id))).cloned().collect();
+    let v = egui::Visuals::light();
+    let none = HashSet::new();
+    let bad = HashMap::new();
+    let mut measure = |s: &str, f: &FontId| estimate(s, f);
+    let scene = Scene::build(
+        model,
+        &nodes,
+        standard(),
+        path,
+        &BTreeStatus::new(),
+        &v,
+        true,
+        &none,
+        settings.then_some((&none, &bad)),
+        true,
+        &mut measure,
+    );
+    let mut used = vec![false; scene.boxes.len()];
+    for e in &scene.edges {
+        used[e.from.0] = true;
+        used[e.to.0] = true;
+    }
+    for w in &scene.setting_wires {
+        used[w.from.0] = true;
+        used[w.to.0] = true;
+    }
+    let boxes = scene
+        .boxes
+        .iter()
+        .enumerate()
+        .filter(|(i, b)| !b.source || used[*i])
+        .map(|(_, b)| FigBox {
+            key: b.key.clone(),
+            label: b.label.clone(),
+            rect: b.rect,
+            source: b.source,
+            group: b.op == terraflux_graph::GROUP,
+            container: b.container,
+            inside: b.inside,
+            bypass: b.bypass,
+            frozen: b.frozen,
+            tint: b.tint(),
+            inputs: b
+                .inputs
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| !p.name.is_empty())
+                .map(|(i, p)| (p.name.clone(), p.ty, p.required, p.connected, b.input_at(i)))
+                .collect(),
+            outputs: b.outputs.iter().enumerate().map(|(i, (n, t))| (n.clone(), *t, b.output_at(i))).collect(),
+            settings: b.settings.rows.iter().enumerate().map(|(k, r)| (r.clone(), b.setting_at(k))).collect(),
+            more: b.more_settings().map(|r| (b.settings.label.clone(), Pos2::new(r.left(), r.center().y))),
+            settings_line: b.settings_line(),
+            file: b.file.clone(),
+        })
+        .collect();
+    let colour = |c: [u8; 4]| Color32::from_rgba_premultiplied(c[0], c[1], c[2], c[3]);
+    let mut wires: Vec<FigWire> = (0..scene.edges.len())
+        .map(|e| FigWire { points: scene.path(e), colour: colour(scene.edges[e].colour), setting: false })
+        .collect();
+    wires.extend((0..scene.setting_wires.len()).map(|w| FigWire {
+        points: wire_path(&scene.setting_route(w)),
+        colour: colour(scene.setting_wires[w].colour),
+        setting: true,
+    }));
+    Some((boxes, wires))
+}
+
 /// What the entries of the selection's menu do.
 const RENAME_MANY_HELP: &str = "all their ids from a pattern: {n} the number on the canvas, {id}, {op}, {file}";
 const DELETE_MANY_HELP: &str = "the nodes selected taken away, with the connections into and out of them";
@@ -3266,6 +3382,7 @@ const RUN_MANY_HELP: &str = "the model run up to the nodes selected: what they n
      those that no other selected needs, one after the other)";
 const FREEZE_MANY_HELP: &str = "their results kept on disk next to the model and used instead of running them; \
      thaw: they run again";
+const FIGURE_HELP: &str = "the graph of these nodes (or of the inside of the group) as SVG, PDF or PNG for a paper";
 const BYPASS_MANY_HELP: &str = "the nodes turned off, their inputs passed on; on again when all were off";
 
 fn align_help(how: Align) -> &'static str {
@@ -3319,6 +3436,7 @@ fn selection_menu(
     entry(ui, "Disconnect all their inputs", DISCONNECT_MANY_HELP, none, Action::DisconnectChosen);
     entry(ui, &format!("Group    {c}G"), GROUP_HELP, None, Action::Group);
     entry(ui, "Frame them", crate::notes::FRAME_HELP, None, Action::FrameChosen);
+    entry(ui, "Export as a figure...", FIGURE_HELP, None, Action::Figure(None));
     ui.menu_button("Align", |ui| {
         let few = (n < 3).then_some("needs three nodes or more selected");
         for (text, how, off) in [
@@ -4252,6 +4370,7 @@ pub fn show(
             }
             if op == terraflux_graph::GROUP {
                 item(ui, "Open the group", OPEN_GROUP_HELP, Action::Enter(key.clone()));
+                item(ui, "Export as a figure...", FIGURE_HELP, Action::Figure(Some(key.clone())));
                 item(ui, &format!("Ungroup    {c}shift+G"), UNGROUP_HELP, Action::Ungroup(key.clone()));
                 item(ui, "Give it the outputs of its last nodes", EXPOSE_LAST_HELP, Action::ExposeLast(key.clone()));
             }
