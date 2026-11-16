@@ -1,8 +1,8 @@
 //! The Python counterparts of the operators of species distribution models (sdm).
 //!
-//! Not translated: `sdm.maxnet` (the library's `MaxNet` is an estimator, not the `SDMResult` that `tf.sdm.predict`
-//! takes, which is what `sdm.maxnet_predict` calls), and `ml.fit`, `ml.predict`, `ml.importance` and
-//! `ml.partial_dependence` (scikit-learn's own calls on a table: no library function does the method).
+//! `sdm.maxnet` is the library's `MaxNet` estimator fitted to the table; its predictions (`sdm.maxnet_predict` of
+//! such a model) are the estimator's `predict_output` on the cells, as `tf.sdm.predict` takes the `SDMResult` of
+//! `sdm.fit`, not an estimator. `ml.fit`, `ml.predict`, `ml.importance` and `ml.partial_dependence` are in models.rs.
 
 #![allow(unused_imports)]
 
@@ -243,6 +243,7 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
         "sdm.threshold" => threshold(n, var, sc).map(Some),
         "sdm.omission_rate" => omission(n, var, sc).map(Some),
         "ml.potential" => potential(n, var, sc).map(Some),
+        "sdm.maxnet" => maxnet(n, var, sc).map(Some),
         _ => Ok(None),
     }
 }
@@ -447,6 +448,107 @@ fn omission(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
     Ok((code, HashMap::from([("rate".to_string(), var.to_string())]), Need::Nothing))
 }
 
+/// The columns of records that are not predictors (as Terraflux leaves them out of `sdm.maxnet`'s table).
+const NOT_PREDICTORS: &str = "{\"x\", \"y\", \"lon\", \"lat\", \"longitude\", \"latitude\", \"presence\", \"fold\", \"weight\", \"cell\", \"y_coord\"}";
+
+/// A MaxNet model: the library's estimator fitted to the predictors and the presences (1) and background (0), from a
+/// table with a presence column (the records of `tf.sdm.dataset`: their `X` and `y`) or from two tables.
+fn maxnet(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
+    refuse_others(
+        n,
+        &[
+            "data",
+            "presences",
+            "background",
+            "presence",
+            "categorical",
+            "classes",
+            "regmult",
+            "add_samples_to_background",
+            "type",
+            "clamp",
+        ],
+    )?;
+    let c = format!("_{var}");
+    let mut code = String::new();
+    match (value_of(n, "data", sc)?, value_of(n, "presences", sc)?, value_of(n, "background", sc)?) {
+        (Some(d), _, _) => {
+            let presence = setting(n, "presence", sc)?.unwrap_or_else(|| "\"presence\"".into());
+            // (the records of tf.sdm.dataset carry their predictors apart; a table's coordinates and folds are not predictors)
+            code.push_str(&format!(
+                "if hasattr({d}, \"X\"):
+    {c}_X, {c}_y = {d}.X, {d}.y
+else:
+    {c}_X = {d}.drop(columns=[k for k in {d}.columns if k == {presence} or str(k).lower() in {NOT_PREDICTORS}])
+    {c}_y = {d}[{presence}]
+"
+            ));
+        }
+        (None, Some(p), Some(b)) => {
+            code.push_str(
+                "import pandas as pd
+",
+            );
+            code.push_str(&format!(
+                "{c}_X = pd.concat([{p}, {b}], ignore_index=True)
+{c}_y = np.r_[np.ones(len({p})), np.zeros(len({b}))]
+"
+            ));
+        }
+        _ => return Err("connect a table with a presence column, or tables of presences and background".into()),
+    }
+    let args = given(
+        n,
+        &[
+            ("classes", "classes"),
+            ("regmult", "regmult"),
+            ("add_samples_to_background", "add_samples_to_background"),
+            ("type", "type"),
+            ("clamp", "clamp"),
+            ("categorical", "categorical"),
+        ],
+        sc,
+    )?;
+    code.push_str(&format!(
+        "{var} = tf.sdm.MaxNet({}).fit({c}_X, {c}_y)
+",
+        args.join(", ")
+    ));
+    let outs = HashMap::from([
+        ("model".to_string(), var.to_string()),
+        ("coefficients".to_string(), format!("{var}.betas_")),
+        ("@kind".to_string(), "sdm.maxnet".to_string()),
+    ]);
+    Ok((code, outs, Need::Nothing))
+}
+
+/// The predictions of a MaxNet model (of `sdm.maxnet`): its `predict_output` on the cells of a stack of the predictors
+/// (by name), or on the rows of a table.
+pub(super) fn maxnet_predict(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
+    refuse_others(n, &["model", "env", "type", "clamp"])?;
+    let model = need(n, "model", sc)?;
+    let env = need(n, "env", sc)?;
+    let opts = given(n, &[("type", "type"), ("clamp", "clamp")], sc)?;
+    let call = |x: &str| {
+        let a: String = opts.iter().map(|o| format!(", {o}")).collect();
+        format!("{model}.predict_output({x}{a})")
+    };
+    let c = format!("_{var}");
+    let code = format!(
+        "import pandas as pd
+if hasattr({env}, \"columns\"):
+    {var} = pd.DataFrame({{\"prediction\": {}}})
+else:
+    {c}_X = pd.DataFrame({{k: {env}.sel(band=k).values.ravel() for k in {model}.feature_names_in_}})
+    {c}_tpl = {env}.isel(band=0, drop=True)
+    {var} = {c}_tpl.copy(data={}.reshape({c}_tpl.shape))
+",
+        call(&env),
+        call(&format!("{c}_X"))
+    );
+    Ok((code, HashMap::from([("prediction".to_string(), var.to_string())]), Need::Nothing))
+}
+
 /// The potential of each class: the library's `Estimator` with scikit-learn's forest or boosting, fitted to the maps
 /// and its probabilities on the drivers.
 fn potential(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
@@ -533,6 +635,7 @@ fn potential(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
         ("potential".to_string(), format!("{var}_potential")),
         ("importance".to_string(), importance),
         ("model".to_string(), var.to_string()),
+        ("@kind".to_string(), "ml.potential".to_string()),
     ]);
     Ok((code, outs, Need::Nothing))
 }
@@ -719,6 +822,73 @@ params = { classes = [1], sample = 1000, n_estimators = 20 }
         );
         assert!(t.contains("fit(a, cover)"), "{t}");
         assert!(!t.contains("# (importance"), "{t}");
+        parses(t);
+    }
+
+    #[test]
+    fn a_maxnet_model_and_its_predictions() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "a"
+op = "nlm.random"
+
+[[nodes]]
+id = "b"
+op = "nlm.random"
+
+[[nodes]]
+id = "env"
+op = "stack.of"
+inputs = { temp = "a.map", rain = "b.map" }
+
+[[nodes]]
+id = "pres"
+op = "table.of"
+params = { columns = ["temp", "rain"], rows = [[1, 2], [2, 3]] }
+
+[[nodes]]
+id = "bg"
+op = "table.of"
+params = { columns = ["temp", "rain"], rows = [[3, 1], [4, 5], [0, 0]] }
+
+[[nodes]]
+id = "mx"
+op = "sdm.maxnet"
+inputs = { presences = "pres.table", background = "bg.table" }
+params = { classes = "lq", regmult = 2.0, type = "logistic" }
+
+[[nodes]]
+id = "suit"
+op = "sdm.maxnet_predict"
+inputs = { model = "mx.model", env = "env.stack" }
+params = { clamp = false }
+"#,
+        )
+        .unwrap();
+        let s = script(&m, &r, None);
+        let t = &s.text;
+        assert!(
+            s.left.is_empty(),
+            "{:?}
+{t}",
+            s.left
+        );
+        assert!(t.contains("_mx_X = pd.concat([pres, bg], ignore_index=True)"), "{t}");
+        assert!(
+            t.contains("mx = tf.sdm.MaxNet(classes=\"lq\", regmult=2.0, type=\"logistic\").fit(_mx_X, _mx_y)"),
+            "{t}"
+        );
+        // (the estimator's own predictions, not tf.sdm.predict's)
+        assert!(!t.contains("tf.sdm.predict"), "{t}");
+        assert!(t.contains("{\"prediction\": mx.predict_output(env, clamp=False)}"), "{t}");
+        assert!(
+            t.contains("suit = _suit_tpl.copy(data=mx.predict_output(_suit_X, clamp=False).reshape(_suit_tpl.shape))"),
+            "{t}"
+        );
         parses(t);
     }
 

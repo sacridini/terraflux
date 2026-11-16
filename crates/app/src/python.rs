@@ -22,6 +22,10 @@
 //! distance, grid_zones) helpers written into the script that do what Terraflux does, features given also as the
 //! table of their attributes. The expressions of the filters and calculators are kept as they are, run in numpy
 //! over the columns by the calculator's helper.
+//! The random forests and boostings of `ml` (fit, predict, importance, partial dependence) are scikit-learn's own calls
+//! on a table or on the cells of maps (the library has no function for them; Terraflux's trees are scikit-learn's, to
+//! the bit), MaxNet fitted alone the library's estimator, the randomisations and the properties of a basedata and the
+//! metrics of sample plots the library's `randomise`, `read_properties` and `sample_metrics` (python/models.rs).
 //! A node with no counterpart known stays as a comment with its settings, the script saying which; so does a setting
 //! with none that would change the result.
 
@@ -355,6 +359,7 @@ mod change;
 mod conn;
 mod cost;
 mod general;
+mod models;
 mod movement;
 mod prioritize;
 mod sdm;
@@ -384,6 +389,7 @@ fn family_special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, Strin
         conn::special,
         cost::special,
         general::special,
+        models::special,
         movement::special,
         prioritize::special,
         sdm::special,
@@ -1670,6 +1676,9 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 ("predictions".to_string(), format!("{var}.predictions")),
             ]);
             (code, outs, Need::Nothing)
+        }
+        "sdm.maxnet_predict" if models::kind_of(n, "model", sc).as_deref() == Some("sdm.maxnet") => {
+            sdm::maxnet_predict(n, var, sc)?
         }
         "sdm.maxnet_predict" => {
             let model = need("model", "its model")?;
