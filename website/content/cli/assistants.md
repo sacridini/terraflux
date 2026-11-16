@@ -20,7 +20,7 @@ problems found in it, and summaries of the results).
 | Tool | What it does |
 |---|---|
 | `guide` | The method of a field step by step, with its operators and templates (land change, connectivity, landscape metrics, conservation planning, species distributions, data preparation), and how a model is built; read by the assistant before it builds or reviews a model |
-| `list_templates`, `new_model` | Lists the templates (small models that run as they are), or those that match what you ask for, and starts a model, empty or from a template; a copied template's reply says which of its nodes draw data, to be replaced by your files |
+| `list_templates`, `new_model` | Lists the templates (small models that run as they are), or those that match what you ask for, and starts a model, empty or from a template; a copied template's reply says which of its nodes draw data, to be replaced by your files; a client that can ask you (MCP's elicitation) shows a form for the paths of your files and the nodes become [[raster.read]] of the ones that exist |
 | `list_operators`, `describe_operator` | Finds operators by what they do, in the words you ask with (*edge density*, *weights of evidence*), the nearest ones when none has every word; gives an operator's inputs, outputs and settings, with an example node, advice on its use, the method and papers to cite, and the operators it usually reads and gives to in the templates. The nodes of your own and shared [libraries](/tutorials/building-models/calculator/#libraries-shared-with-your-group) are listed too, named `my:name` |
 | `add_node`, `edit_node`, `remove_node` | Adds a node connected and set (an operator, or a node of your libraries by its `my:name`), changes it (its connections, settings, note, name), removes it |
 | `set_input`, `set_output`, `edit_container` | The model's inputs and outputs, and what a loop or group carries, collects or gives |
@@ -58,6 +58,12 @@ that good practice where it is needed, rather than all at once:
   observed map, or compared with the map it was calibrated on; a stochastic simulation run once; distances, areas
   or landscape metrics on maps in degrees; metrics of a continuous map; a species distribution model evaluated
   only on random folds. `inspect_file` says when a raster is in degrees or has no coordinate system.
+- **Questions to you.** A client that can ask its user (it declares `elicitation`) shows a form
+  when the answer is yours and not the assistant's: the name of each class of a map of classes given to `set_input`
+  without a note (kept as the input's note), and, after `new_model` with a template, the files of yours for the
+  data the template draws (the nodes become [[raster.read]] of the files that exist; the others, and everything when
+  you decline, stay as the template drew them). A client without it is not asked: the assistant asks you in the
+  conversation.
 - **Prompts.** Workflows you start by name, with their arguments: `build_model` (a goal, your data, the file),
   `adapt_template` (a template with your files in place of its drawn data), `review_model` (the method reviewed as
   a paper's reviewer would, without changing the model), `explain_model` and `explain_cell`. In Claude Code they
@@ -201,15 +207,18 @@ with **Review**, **Accept all** and **Reject all**.
 !!! note "Evaluate this model"
     Language models differ a lot in how well they use Terraflux's tools, and a small model on your own computer may
     not manage what a large one does. Under **Evaluation**, in the server's settings, **Evaluate this model** asks
-    the server's model the same 10 tasks every model gets, one after another, each in a model of its own (not the
+    the server's model the same 9 tasks every model gets, one after another, each in a model of its own (not the
     one open): drawing a neutral landscape and running it, a threshold in [[raster.calc]], a template changed, a
     model fixed, a node explained without changing the model, landscape metrics, a rename that keeps the
     connections, a loop, and a land change model's method reviewed (it
     lacks a validation) without changing it. Each is checked on what the assistant made (the threshold cell by cell, the loop's
     last number, the model left unchanged...), with the seconds it took and the tools it called; a task can take
-    minutes, and **Stop** ends the evaluation. The last score of each model is kept and shown with its server
-    (*2 of 10 tasks*, the date, and why each failed task failed), so the models you try are compared on the same
-    tasks.
+    minutes, and **Stop** ends the evaluation. Every score is kept (the model, the date, the version of
+    Terraflux, each task's result, seconds and tools) and the last of each model is shown with its server
+    (*2 of 9 tasks*, the date, and why each failed task failed), so the models you try are compared on the same
+    tasks. To see what Terraflux's own help (the advice of `check_model` and of the operators, the guides in the
+    instructions) is worth to a model, the test `eval::tests::hu_berlin_does_the_tasks` of the source runs the tasks
+    twice, with and without it, and prints the two side by side.
 
 ## Check what the assistant built
 

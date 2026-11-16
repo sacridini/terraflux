@@ -2359,9 +2359,11 @@ Os níveis, do mais ao menos efetivo:
 3. **O `describe_operator` com conselhos, método e vizinhos.** **Feito** (Unreleased): `crates/app/src/op_notes.rs`.
    Os vizinhos aprendidos dos templates (os operadores cujas saídas ele lê e os que leem as dele, sem `view.plot`
    nem `nlm.*`, e os templates que o usam; calculado uma vez, `OnceLock`), o método e as citações
-   (`methods::method_of`, `Reference::cite`) e dicas escritas à mão para 19 operadores (`TIPS`: calibrações,
-   simulações e validações de LUCC, MSPA, métricas, dobras de SDM, priorização, circuitos, custos). Teste: toda
-   dica é de um operador do registro.
+   (`methods::method_of`, `Reference::cite`) e dicas escritas à mão (`TIPS`, `crates/ops/src/tips.rs`): 88 operadores
+   (Unreleased): LUCC (calibrações, simulações, validações), MSPA e SPA, métricas, SDM, priorização, circuitos,
+   custos, conectividade em grafo, hidrologia, serviços (InVEST), agentes, REDD+, preparo de dados (`raster.*`,
+   `vector.*`), análise de mudança (`change.*`), acurácia (`accuracy.*`) e sensibilidade (`sensitivity.*`). Teste:
+   toda dica é de um operador do registro.
 4. **Busca por objetivo, em português.** **Feito** (Unreleased): `crates/app/src/search.rs`: as palavras sem
    acento e sem as palavras pequenas (pt e en), cada uma achada por ela mesma, pelo singular (`-s`, `-es`,
    `-ões`/`-ães` → `-ão`) ou pelos sinônimos (`SYNONYMS`, ~110 termos do campo: *desmatamento* → deforest,
@@ -2376,32 +2378,57 @@ Os níveis, do mais ao menos efetivo:
 6. **Resources do MCP.** **Feito** (Unreleased): `resources/list` (os guias e os arquivos dos templates,
    `terraflux://template/<slug>`), `resources/templates/list` (`terraflux://operator/{name}`, o
    `describe_operator`) e `resources/read` (-32002 quando não existe). No Claude Code, anexados com `@`.
-7. **Avaliar o efeito.** **Feito** (Unreleased): duas tarefas a mais no `eval.rs` (10 agora): métricas pedidas em
-   português (*densidade de bordas*) e o método de um modelo Dinamica revisado sem mudá-lo (a resposta tem de dizer
-   que falta a validação). Falta **rodar** a avaliação antes e depois com o Qwen da HU (VPN) e um modelo grande,
-   e guardar a comparação: é o que diz se os guias e os conselhos ajudam ou só alongam as respostas.
+7. **Avaliar o efeito.** **Feito** (Unreleased): o `eval.rs` tem 9 tarefas (as duas últimas: métricas pedidas em
+   português, *densidade de bordas*, e o método de um modelo Dinamica revisado sem mudá-lo, em que a resposta tem de
+   dizer que falta a validação). O modo `plain` (`eval::Mode`, `tools::set_plain`) roda as mesmas tarefas SEM a
+   ajuda nova (sem os conselhos de método do `check_model`/`run_model`, sem as dicas e o método do
+   `describe_operator`, com as instruções reduzidas a um parágrafo: `tools::PLAIN_INSTRUCTIONS`); `keep` guarda o
+   histórico (modelo, modo, versão, data, por tarefa passou/falhou, segundos, ferramentas) e `eval::compare` dá a
+   tabela de dois registros. O servidor da HU é pedido no máximo 12 vezes por minuto (um pedido a cada 5 s) e nada
+   em paralelo. O teste `#[ignore] eval::tests::hu_berlin_does_the_tasks` roda os dois modos com o Qwen da HU
+   (pasta temporária própria) e imprime a comparação. **Resultado de 2026-11-16** (Qwen `llm3` da HU, Terraflux
+   1.53.0, uma rodada de cada, 14 min no total):
+
+   | tarefa | sem a ajuda (plain) | com a ajuda (full) |
+   |---|---|---|
+   | uma paisagem neutra | passou, 36 s, 7 ferramentas | passou, 56 s, 10 |
+   | um limiar | falhou, 30 s, 5 | falhou, 54 s, 10 |
+   | um template mudado | passou, 31 s, 5 | passou, 29 s, 5 |
+   | um modelo consertado | falhou, 19 s, 3 | passou, 20 s, 3 |
+   | uma explicação | passou, 5 s, 0 | passou, 5 s, 0 |
+   | métricas de paisagem | passou, 53 s, 9 | passou, 51 s, 10 |
+   | um renome | passou, 7 s, 1 | passou, 8 s, 1 |
+   | um laço | falhou, 201 s, 40 | falhou, 200 s, 40 |
+   | um método revisado | passou, 5 s, 0 | passou, 6 s, 0 |
+   | **total** | **6 de 9, 386 s, 70 ferramentas** | **7 de 9, 431 s, 79 ferramentas** |
+
+   Leitura: uma rodada de um modelo pequeno não prova nada; a diferença (1 tarefa) é dentro do ruído, e as falhas
+   comuns (o limiar: nenhum `raster.calc` deu o mapa do campo; o laço: estourou as 40 rodadas de ferramentas) não
+   dependem da ajuda. Para valer, repetir 3 a 5 vezes e com um modelo grande (sem chave aqui):
+   `TERRAFLUX_EVAL_PRESET=5 TERRAFLUX_LLM_KEY=<chave> cargo test -p terraflux-app --lib eval::tests::hu_berlin_does_the_tasks -- --ignored --nocapture --test-threads=1`
+   (preset 4 = OpenAI, com `TERRAFLUX_EVAL_MODEL=<modelo>`; 5 = Claude; a chave também pode estar no keyring do app,
+   em Assistente > servidor) e `TERRAFLUX_EVAL_ONLY=plain` ou `full` para um modo por vez. A comparação sai no
+   fim, e o histórico fica em `%TEMP%/terraflux-eval-hu/assistant-evaluations.json`.
 
 Falta:
 
-- **Elicitation** (MCP 2025-06-18): o servidor perguntar ao usuário no meio de uma ferramenta ("qual classe é a
-  floresta?", "qual o período da calibração?"). Exige que o servidor mande um pedido ao cliente e espere a resposta
-  pela mesma entrada padrão: hoje `serve()` lê uma mensagem por linha e responde; teria de guardar os pedidos em
-  aberto (um `HashMap<id, Sender<Value>>`, como os `runs` do `run_model`) e entregar a resposta do cliente à thread
-  que espera. Só quando o cliente declarar `elicitation` no `initialize`; sem ele, a ferramenta segue pedindo à LLM
-  que pergunte. Candidatos: `new_model` com template (as classes do mapa do usuário), `set_input` de um mapa de
-  classes sem legenda.
-- **Mais regras de método** (`advice.rs`), cada uma com teste e sem warning nos templates: o `markov.fit` com
-  `steps` incoerente com o intervalo das datas (precisa das datas: um parâmetro ou o nome dos arquivos); drivers de
-  `woe.fit` sem nenhuma distância (o caso mais comum dos modelos de desmatamento); resistência com zeros ou
-  negativos lida por `circuit.*` ou `cost.transition` (dos dados carregados); `metrics.*` com mapas de classes
-  demais (provável mapa contínuo em inteiros); priorização sem `prioritize.evaluate`; SDM sem limpeza nem
-  thinning dos registros (`sdm.thin`, `sdm.one_per_cell`, ou `sdm.prepare`).
+- **Elicitation** (MCP 2025-06-18): **Feito** (as classes de um mapa sem legenda no `set_input`, `Server::name_classes`
+  em `crates/cli/src/mcp.rs`; os arquivos do usuário depois do `new_model` com template, `Server::ask_files`,
+  Unreleased). O servidor manda `elicitation/create` ao cliente pela mesma saída, guarda os pedidos em aberto
+  (`Client::waiting`) e entrega a resposta à thread que espera; só quando o cliente declara `elicitation` no
+  `initialize`. Falta: "qual o período da calibração?" (as datas dos mapas de uma série, para as regras de
+  método) e testar com clientes reais (Claude Code, Claude Desktop, Cursor) a forma do formulário.
+- **Mais regras de método** (`advice.rs`): **Feito** em grande parte: `markov.fit` com `steps` incoerente com o
+  intervalo das datas, drivers de `woe.fit` sem nenhuma distância, resistência com zeros ou negativos em `circuit.*`
+  e `cost.transition`, `metrics.*` com classes demais, priorização sem `prioritize.evaluate`, SDM sem limpeza nem
+  thinning dos registros: todas já estão em `advice.rs`, cada uma com teste e sem warning nos templates.
 - **Os conselhos no app**: hoje chegam ao assistente; mostrá-los também no painel Problems (com o nível "advice",
   abaixo dos warnings de dados) e no relatório, na seção de checagens.
-- **Mais dicas por operador**: os 19 de hoje cobrem o caminho do LUCC e alguns de padrões; faltam os de
-  conectividade em grafo (`conn.*`: a distância de dispersão), hidrologia, serviços (InVEST), agentes, REDD+.
-  Melhor ainda se as dicas morarem no próprio operador (um campo `advice` em `OpSignature`), como a documentação, e
-  não numa tabela à parte em `op_notes.rs`.
+- **Mais dicas por operador**: **Feito** em grande parte: as famílias `conn.*`, `hydro.*`, `services.*`,
+  `agents.*` e REDD+ já têm dica, e 39 operadores a mais ganharam (Unreleased; 88 no total). O campo `advice` em
+  `OpSignature` já existe (um operador pode dar a sua; `tips.rs` completa o registro). Falta: `sdm.*` além de
+  `maxnet`/`background`/`threshold`/`evaluate`/`mess`, `vector.*` e `raster.*` menos usados, `distance.*`,
+  `fragmentation.*`.
 - **`guide` para os modelos pequenos**: o modo de poucas ferramentas (`tools::FEW`) não tem o `guide`; ver na
   avaliação se acrescentá-lo ajuda o Qwen ou só aumenta o pedido.
 - **Saída estruturada** (`outputSchema` e `structuredContent`, MCP 2025-06-18) no `check_model` (erros, warnings e

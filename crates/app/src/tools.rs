@@ -94,6 +94,22 @@ Python script of terraflux (the Python library, `pip install terraflux-py`), exp
 - open_in_app opens the model in Terraflux's application, which follows the file (the user can undo each edit).
 ";
 
+/// Whether the assistant works without the help the MCP and the application add to the tools (the method's
+/// advice of check_model and run_model, the operators' advice in describe_operator, the long instructions): set by
+/// the evaluation's `plain` mode ([`crate::eval::Mode`]) to measure what that help is worth.
+static PLAIN: AtomicBool = AtomicBool::new(false);
+
+pub fn plain() -> bool {
+    PLAIN.load(Ordering::Relaxed)
+}
+
+pub fn set_plain(on: bool) {
+    PLAIN.store(on, Ordering::Relaxed);
+}
+
+/// What the assistant in the application is told in the `plain` mode: what it is and what it may do, no more.
+pub const PLAIN_INSTRUCTIONS: &str = "You are the assistant inside Terraflux, an application that builds and runs models of land use and land cover change, landscape ecology, connectivity and conservation planning. A model is a graph of operators. Your tools read and change the model open in the application. Answer in the user's language and briefly; say what you changed.";
+
 /// What the assistant in the application is told (the model open there, and the node selected, follow it).
 pub const APP_INSTRUCTIONS: &str = concat!(
     "You are the assistant inside Terraflux, an application that builds and runs models of land use and land \
@@ -1281,7 +1297,9 @@ pub fn check_model(r: &Registry, source: &Model, dir: &Path) -> Reply {
         }
     }
     // the method's (what a reviewer would ask)
-    lines.extend(crate::advice::advise(&m, r, dir, loaded.as_ref().ok()).iter().map(|a| a.to_string()));
+    if !plain() {
+        lines.extend(crate::advice::advise(&m, r, dir, loaded.as_ref().ok()).iter().map(|a| a.to_string()));
+    }
     let (no_note, no_why) = unrecorded(source);
     for (what, ids) in [("a note (what it is for)", no_note), ("a why (why this operator and these settings)", no_why)]
     {
@@ -2427,7 +2445,9 @@ pub fn describe_operator(r: &Registry, name: &str) -> Reply {
         let body: Vec<&str> = toml.lines().filter(|l| !l.starts_with("format =") && !l.starts_with("name =")).collect();
         s.push_str(&format!("\nA node of it in the template {template:?}:\n{}\n", body.join("\n").trim()));
     }
-    s.push_str(&crate::op_notes::notes(name, &sig.advice));
+    if !plain() {
+        s.push_str(&crate::op_notes::notes(name, &sig.advice));
+    }
     Ok(s)
 }
 

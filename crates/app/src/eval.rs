@@ -1,8 +1,11 @@
 //! The assistant evaluated on a fixed set of tasks: each asked of a server's model in a model of its own (a blank
 //! one, or the one the task starts from), the assistant left to answer as in the application (its tools, the runs
 //! it asks for), then what it made checked: the nodes, their settings, what the run gave, the answer. The same tasks
-//! for every model, so models are compared on them; the last score of each kept with the settings and shown with
-//! its server in the Assistant's settings.
+//! for every model, so models are compared on them; every score kept (the model, the mode, the version of
+//! Terraflux, the date, each task) in the settings' folder, the last of each model shown with its server in the
+//! Assistant's settings, and two compared as a table ([`compare`]). The `plain` mode does the same tasks without
+//! the help of the MCP and the application (the method's advice, the operators' advice, the long instructions),
+//! to measure what that help is worth.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -375,33 +378,69 @@ pub enum Event {
     Done,
 }
 
-/// Do every task with a server's model, one after another, telling how each goes.
-pub fn run(p: Provider, tx: Sender<Event>, stop: Arc<AtomicBool>, ctx: egui::Context) {
+/// With the help of Terraflux's tools and instructions, or without it.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    /// As the assistant works.
+    #[default]
+    Full,
+    /// Without the method's advice (check_model, run_model), the operators' advice (describe_operator) and the
+    /// long instructions ([`crate::tools::set_plain`]).
+    Plain,
+}
+
+impl Mode {
+    pub fn name(self) -> &'static str {
+        match self {
+            Mode::Full => "full",
+            Mode::Plain => "plain",
+        }
+    }
+}
+
+/// Do every task with a server's model in a mode, one after another, telling how each goes: the outcomes (fewer
+/// when stopped). The mode is global while it runs (one evaluation at a time).
+pub fn evaluate(p: &Provider, mode: Mode, stop: &AtomicBool, tell: &mut dyn FnMut(Event)) -> Vec<Outcome> {
     let r = Registry::standard();
+    crate::tools::set_plain(mode == Mode::Plain);
     let mut done = Vec::new();
     for (k, t) in TASKS.iter().enumerate() {
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        let _ = tx.send(Event::Began(k));
-        ctx.request_repaint();
-        let o = one(&p, &r, t, &stop);
+        tell(Event::Began(k));
+        let o = one(p, &r, t, stop);
         done.push(o.clone());
-        let _ = tx.send(Event::Ended(k, o));
-        ctx.request_repaint();
+        tell(Event::Ended(k, o));
     }
+    crate::tools::set_plain(false);
+    done
+}
+
+/// Do every task with a server's model, one after another, telling how each goes.
+pub fn run(p: Provider, tx: Sender<Event>, stop: Arc<AtomicBool>, ctx: egui::Context) {
+    let done = evaluate(&p, Mode::Full, &stop, &mut |e| {
+        let _ = tx.send(e);
+        ctx.request_repaint();
+    });
     if done.len() == TASKS.len() && !stop.load(Ordering::Relaxed) {
-        keep(&p, &done);
+        keep(&p, Mode::Full, &done);
     }
     let _ = tx.send(Event::Done);
     ctx.request_repaint();
 }
 
-/// The last evaluation of a model.
+/// An evaluation of a model: when, in which mode and version of Terraflux, how each task went.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Score {
     /// When (YYYY-MM-DD).
     pub date: String,
+    #[serde(default)]
+    pub mode: Mode,
+    /// The version of Terraflux (empty: kept before the versions were).
+    #[serde(default)]
+    pub version: String,
     pub outcomes: Vec<Outcome>,
 }
 
@@ -420,18 +459,65 @@ fn file() -> std::path::PathBuf {
     crate::settings::data_dir().join("assistant-evaluations.json")
 }
 
-/// The last evaluation of each model.
-pub fn kept() -> BTreeMap<String, Score> {
-    std::fs::read_to_string(file()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+/// Every evaluation kept, by model, the oldest first (the file of the versions that kept only the last of each is
+/// read as one each).
+pub fn history() -> BTreeMap<String, Vec<Score>> {
+    let Ok(text) = std::fs::read_to_string(file()) else { return BTreeMap::new() };
+    if let Ok(all) = serde_json::from_str::<BTreeMap<String, Vec<Score>>>(&text) {
+        return all;
+    }
+    serde_json::from_str::<BTreeMap<String, Score>>(&text)
+        .map(|old| old.into_iter().map(|(k, s)| (k, vec![s])).collect())
+        .unwrap_or_default()
 }
 
-/// Keep an evaluation as its model's last.
-pub fn keep(p: &Provider, outcomes: &[Outcome]) {
-    let mut all = kept();
-    let date = chrono_date();
-    all.insert(key_of(p), Score { date, outcomes: outcomes.to_vec() });
+/// The last evaluation of each model in the assistant's own mode (full).
+pub fn kept() -> BTreeMap<String, Score> {
+    history()
+        .into_iter()
+        .filter_map(|(k, v)| v.into_iter().rev().find(|s| s.mode == Mode::Full).map(|s| (k, s)))
+        .collect()
+}
+
+/// Keep an evaluation, after those of its model.
+pub fn keep(p: &Provider, mode: Mode, outcomes: &[Outcome]) {
+    let mut all = history();
+    let version = env!("CARGO_PKG_VERSION").to_string();
+    all.entry(key_of(p)).or_default().push(Score { date: chrono_date(), mode, version, outcomes: outcomes.to_vec() });
     let _ = std::fs::create_dir_all(crate::settings::data_dir());
     let _ = std::fs::write(file(), serde_json::to_string_pretty(&all).unwrap_or_default());
+}
+
+/// Two evaluations side by side as a text table: a row a task (passed or failed, seconds, tools of each), then
+/// the totals.
+pub fn compare(a: &Score, b: &Score) -> String {
+    let label =
+        |s: &Score| format!("{} {} {}", s.mode.name(), if s.version.is_empty() { "-" } else { &s.version }, s.date);
+    let cell = |o: Option<&Outcome>| match o {
+        Some(o) => {
+            format!("{} {:>4.0} s {:>3} tools", if o.passed() { "passed" } else { "FAILED" }, o.seconds, o.tools)
+        }
+        None => "-".to_string(),
+    };
+    let mut tasks: Vec<&str> = Vec::new();
+    for o in a.outcomes.iter().chain(&b.outcomes) {
+        if !tasks.contains(&o.task.as_str()) {
+            tasks.push(&o.task);
+        }
+    }
+    let width = tasks.iter().map(|t| t.chars().count()).max().unwrap_or(4).max(4);
+    let mut out = format!("{:<width$}  {:<30}  {}\n", "task", label(a), label(b));
+    for t in &tasks {
+        let (oa, ob) = (a.outcomes.iter().find(|o| o.task == *t), b.outcomes.iter().find(|o| o.task == *t));
+        out.push_str(&format!("{t:<width$}  {:<30}  {}\n", cell(oa), cell(ob)));
+    }
+    let total = |s: &Score| {
+        let seconds: f64 = s.outcomes.iter().map(|o| o.seconds).sum();
+        let tools: usize = s.outcomes.iter().map(|o| o.tools).sum();
+        format!("{} of {}, {seconds:.0} s, {tools} tools", s.passed(), s.outcomes.len())
+    };
+    out.push_str(&format!("{:<width$}  {:<30}  {}\n", "total", total(a), total(b)));
+    out
 }
 
 /// Today, as YYYY-MM-DD (UTC).
@@ -529,7 +615,12 @@ mod tests {
             tools: 2,
             said: Vec::new(),
         };
-        let s = Score { date: chrono_date(), outcomes: vec![o(None), o(Some("no loop")), o(None)] };
+        let s = Score {
+            date: chrono_date(),
+            mode: Mode::Full,
+            version: "1.0.0".into(),
+            outcomes: vec![o(None), o(Some("no loop")), o(None)],
+        };
         assert_eq!(s.passed(), 2);
         assert_eq!(s.date.len(), 10);
         assert!(s.date.starts_with("20"), "{}", s.date);
@@ -537,21 +628,79 @@ mod tests {
         assert!(key_of(&p).contains(" on http"), "{}", key_of(&p));
     }
 
-    /// The tasks with the HU Berlin's model (on its network: run by hand).
+    #[test]
+    fn two_evaluations_are_compared() {
+        let o = |task: &str, failed: bool, seconds: f64, tools: usize| Outcome {
+            task: task.into(),
+            failed: failed.then(|| "no".to_string()),
+            seconds,
+            tools,
+            said: Vec::new(),
+        };
+        let a = Score {
+            date: "2026-11-16".into(),
+            mode: Mode::Plain,
+            version: "1.0.0".into(),
+            outcomes: vec![o("a loop", true, 40.0, 3), o("a rename", false, 12.0, 2)],
+        };
+        let b = Score {
+            date: "2026-11-16".into(),
+            mode: Mode::Full,
+            version: "1.0.0".into(),
+            outcomes: vec![o("a loop", false, 30.0, 4), o("a rename", false, 10.0, 2)],
+        };
+        let t = compare(&a, &b);
+        assert!(t.contains("plain 1.0.0 2026-11-16") && t.contains("full 1.0.0 2026-11-16"), "{t}");
+        assert!(t.lines().any(|l| l.starts_with("a loop") && l.contains("FAILED") && l.contains("passed")), "{t}");
+        let last = t.lines().last().unwrap();
+        assert!(last.contains("1 of 2") && last.contains("2 of 2"), "{t}");
+        // the file of the versions that kept only the last of each reads as one score
+        let old = r#"{"m on http://x": {"date": "2026-01-01", "outcomes": []}}"#;
+        let read: BTreeMap<String, Score> = serde_json::from_str(old).unwrap();
+        assert_eq!(read["m on http://x"].mode, Mode::Full);
+    }
+
+    /// The tasks with the HU Berlin's model (on its network: run by hand), in both modes, one after the other (the
+    /// server asks for few requests, none at the same time: llm paces them to one every 5 s), kept in a folder of
+    /// the test's (not the user's settings) and compared. `TERRAFLUX_EVAL_ONLY` (full or plain) runs one mode, to
+    /// split it in two runs: the comparison is of the last of each in the folder.
     #[test]
     #[ignore]
     fn hu_berlin_does_the_tasks() {
-        let r = Registry::standard();
-        let p = crate::llm::presets().into_iter().next().unwrap();
+        let dir = std::env::temp_dir().join("terraflux-eval-hu");
+        std::fs::create_dir_all(&dir).unwrap();
+        // (before the settings are read: the evaluations are kept beside this file)
+        unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("settings.json")) };
+        // (the first preset, the HU Berlin's; `TERRAFLUX_EVAL_PRESET` (its place in the presets: 4 OpenAI, 5 Claude)
+        // and `TERRAFLUX_EVAL_MODEL` choose another, its key in `TERRAFLUX_LLM_KEY`)
+        let at: usize = std::env::var("TERRAFLUX_EVAL_PRESET").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
+        let mut p = crate::llm::presets().remove(at);
+        if let Some(m) = std::env::var("TERRAFLUX_EVAL_MODEL").ok().filter(|m| !m.trim().is_empty()) {
+            p.model = m;
+        }
         let stop = AtomicBool::new(false);
-        for t in TASKS {
-            let o = one(&p, &r, t, &stop);
-            println!("{}: {:?} ({:.0} s, {} tools)", o.task, o.failed, o.seconds, o.tools);
-            if !o.passed() {
-                for line in &o.said {
-                    println!("    {}", line.chars().take(1500).collect::<String>());
-                }
+        let only = std::env::var("TERRAFLUX_EVAL_ONLY").ok();
+        for mode in [Mode::Plain, Mode::Full] {
+            if only.as_deref().is_some_and(|o| o != mode.name()) {
+                continue;
             }
+            println!("== {} ==", mode.name());
+            let done = evaluate(&p, mode, &stop, &mut |e| {
+                if let Event::Ended(_, o) = e {
+                    println!("{}: {:?} ({:.0} s, {} tools)", o.task, o.failed, o.seconds, o.tools);
+                    if !o.passed() {
+                        for line in &o.said {
+                            println!("    {}", line.chars().take(1500).collect::<String>());
+                        }
+                    }
+                }
+            });
+            keep(&p, mode, &done);
+        }
+        let all = history().remove(&key_of(&p)).unwrap_or_default();
+        let last = |m: Mode| all.iter().rev().find(|s| s.mode == m);
+        if let (Some(plain), Some(full)) = (last(Mode::Plain), last(Mode::Full)) {
+            println!("{}", compare(plain, full));
         }
     }
 }

@@ -211,7 +211,11 @@ impl Chat {
         self.items.push(Item::User(text.clone()));
         let question = json!({ "role": "user", "content": text });
         self.history.push(question);
-        let system = format!("{}{}", tools::APP_INSTRUCTIONS, context(s));
+        let system = format!(
+            "{}{}",
+            if tools::plain() { tools::PLAIN_INSTRUCTIONS } else { tools::APP_INSTRUCTIONS },
+            context(s)
+        );
         let mut offered = tools::catalogue(true);
         if p.few_tools {
             offered.retain(|t| tools::FEW.iter().any(|f| t["name"] == *f));

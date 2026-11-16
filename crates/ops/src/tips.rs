@@ -288,6 +288,255 @@ pub const TIPS: &[(&str, &str)] = &[
         "The stocks of each class in Mg of carbon per hectare (cite them); CO2 is carbon times 44/12. A loss is an \
          emission at once here: decay of the dead wood and the soil over the years is not modelled.",
     ),
+    // data preparation
+    (
+        "raster.reclassify",
+        "The first rule that takes a value gives it, so the specific rules go before the general ones; a range \
+         `0..10` has both ends in. Values no rule takes stay as they are: end with `* -> nan` to drop the rest.",
+    ),
+    (
+        "raster.resample",
+        "Another resolution in the raster's own coordinate system: it neither reprojects (raster.reproject) nor \
+         lines the map up with another (raster.match). Classes by the nearest cell (the most common when the cells \
+         grow), values by bilinear (the mean when the cells grow): `resampling` auto (the default) chooses by the data.",
+    ),
+    (
+        "raster.zonal",
+        "The zones are a map of ids (municipalities or watersheds rasterized, classes): cells without a zone or \
+         without a value are left out of the statistics. Besides the row of each zone it gives a map of every cell \
+         with its zone's statistic; for polygons as they are use vector.zonal.",
+    ),
+    (
+        "vector.zonal",
+        "Each polygon takes the cells GDAL burns for it: a cell under two overlapping polygons counts for both, a \
+         cell without a value is left out. `all_touched` takes every cell a polygon touches, not only those \
+         whose centre it holds.",
+    ),
+    (
+        "vector.buffer",
+        "`distance` is in the features' units: on a layer in degrees it is degrees, so reproject to a projected \
+         coordinate system (vector.reproject) before buffering in metres. A negative distance shrinks polygons; \
+         `dissolve` merges the buffers into one feature.",
+    ),
+    (
+        "vector.rasterize",
+        "A cell is burnt where a feature's centre falls (`all_touched`: every cell it touches), so thin polygons \
+         may lose cells on a coarse grid. Later features go over the earlier ones, or add up to count \
+         overlaps; the features are reprojected to the map's coordinate system first.",
+    ),
+    (
+        "vector.overlay",
+        "The intersection keeps the attributes of both layers; the union keeps, for the parts of one layer the \
+         other does not cover, only that layer's own; the difference is the first layer less the second. The \
+         second layer is reprojected to the first's coordinate system.",
+    ),
+    (
+        "vector.spatial_join",
+        "Each feature takes the attributes of the first feature of the other layer it meets: a point on borders \
+         or overlaps gets one of them only. To count what falls in each polygon (the points in each) use \
+         `summary`, which gives the count and the sum and mean of `fields`.",
+    ),
+    // land change analysis
+    (
+        "change.suggest",
+        "The transitions worth modelling from a series of maps: those that make at least `least` % of all the \
+         change (default 1); the others are too small to fit a model. Read its table (of_change, of_class) before \
+         choosing what a change model fits.",
+    ),
+    (
+        "change.crosstab",
+        "The rows are the classes of the first map, the columns those of the second: the diagonal is what did not \
+         change. Classes found in neither map are left out. The cells count: multiply by the cell area for \
+         hectares, in a projected coordinate system.",
+    ),
+    (
+        "change.transitions",
+        "The area (km2) of a transition is the cells times a cell's area: give `cell_area` (m2) when the grid is \
+         not in metres. The years of the maps are `times`, by default the layers' names when numbers, else 0, 1, \
+         2: name the layers by year or set `times`.",
+    ),
+    (
+        "change.components",
+        "Report the difference split into quantity, exchange and shift, not only the overall: a model can get \
+         the quantity of each class right and still place it wrong, which shows in exchange and shift. A class's \
+         gain is its omission, its loss its commission.",
+    ),
+    (
+        "change.intensity",
+        "Rates are in % a year: set `times` (the years of the maps) or name the layers by year, else the periods \
+         are 0, 1, 2. `gain` and `loss` choose the class whose gains and whose losses the transition level \
+         examines: choose classes that are active at the category level or large in change.suggest. The \
+         stationarity needs several periods.",
+    ),
+    // validation of simulations
+    (
+        "validate.kappa",
+        "Compares the simulated map with the reference of the same date, cell by cell, without the start map: a \
+         high agreement may be mostly persistence. For a simulation of change also give validate.agreement or \
+         validate.three_map, which start from the map of the beginning; the reference not used to calibrate.",
+    ),
+    (
+        "validate.agreement",
+        "Needs the map both start from (`start`), the observed one and the simulated one: the figure of merit is \
+         hits over hits, misses, false alarms and wrong hits, so a model that changes nothing scores 0 on the \
+         change that happened. The observed map must not be one the model was calibrated on.",
+    ),
+    (
+        "validate.error_budget",
+        "The simulated map must not have a class the reference lacks. `iterations` resolutions are compared, each \
+         merging `scale` x `scale` cells (the edges left over are dropped): the table gives the agreement of \
+         each resolution under no, medium and perfect information of quantity and location.",
+    ),
+    (
+        "markov.matrix",
+        "A chain given by hand: the probabilities of the whole period over `steps` steps (a row per class at the \
+         start); those per step are its principal root unless `multi` gives them. Say where the numbers come from \
+         (markov.fit estimates them from two maps) and calibrate on a period, validate on another.",
+    ),
+    // species distribution
+    (
+        "sdm.maxnet",
+        "The background is the area the species could reach (sdm.accessible_area), drawn with the bias of the \
+         records (sdm.bias_surface, sdm.background): the scores depend on it. `classes` (l q p h t) and `regmult` \
+         set the complexity: fewer feature classes and a larger regmult overfit less. Name the categorical \
+         predictors in `categorical`; `type` (cloglog by default) is what the predictions mean.",
+    ),
+    (
+        "sdm.background",
+        "The points are drawn where every predictor has a value, within `area` (sdm.accessible_area) or a band of \
+         `distance` from the records; `bias` (sdm.bias_surface) draws them with the sampling effort of the \
+         records, the target-group background. The records' cells are left out by default. Record how it was \
+         drawn and the `seed`: the evaluation scores depend on the background.",
+    ),
+    (
+        "sdm.threshold",
+        "Different methods give very different suitable areas: `method` max_spec_sens by default, or max_kappa, \
+         no_omission, equal_prevalence, equal_sens_spec, mtp, p10, a sensitivity. Record the choice and why. Keep \
+         the continuous suitability where the analysis takes it (prioritization), and threshold only for a map of \
+         presence and absence.",
+    ),
+    (
+        "sdm.evaluate",
+        "The background is not a set of absences: a background point predicted suitable may be a place the \
+         species lives. AUC grows with the extent of the background, so compare it only between models with the \
+         same one. Give the predictions of a model at records it did not see.",
+    ),
+    (
+        "sdm.mess",
+        "Negative where the model extrapolates (an environment outside the reference's range): check it before \
+         projecting a model to another region or period and say where it is negative; `full` gives the MESS of \
+         each predictor to see which one leaves the range.",
+    ),
+    // conservation planning
+    (
+        "prioritize.zonation",
+        "The rank is an order (0 removed first, 1 kept last), not a selection: choose how much is kept (the \
+         curves tell how much of each feature remains). The rule (CAZ1, CAZ2, CAZMAX, ABF...), the `weights`, \
+         the cost and the hierarchic mask are the choices: record them.",
+    ),
+    (
+        "prioritize.marxan",
+        "`num_reps` independent runs from the `seed`: the best run (`best`) and how often each unit was \
+         selected (`frequency`) are outputs.`blm` (the weight of the boundary) and the features' `spf` (the penalty of a shortfall) \
+         are choices to calibrate and record; the cost of a unit is a choice too.",
+    ),
+    (
+        "prioritize.evaluate",
+        "Give the problem as to prioritize.optimize (the same features, cost and targets) so that the coverage \
+         is of the same targets; the solution as a map or as optimize's selection. Compare solutions from \
+         several methods or targets with it.",
+    ),
+    // landscape metrics and patterns
+    (
+        "metrics.window",
+        "`window` is the side in cells, odd (default 5), `shape` square or circle: the window sets the scale of \
+         every map, record it. Cells outside the map are NA.A map per metric, in a stack: ask \
+         for the few metrics needed.",
+    ),
+    (
+        "metrics.series",
+        "A layer per date, the dates in `dates` (else the layers' keys, or 1, 2...). At class level every class \
+         appears at every date, with 0 for the area, edge and count metrics of an absent class, not no value. \
+         Zones, buffers around points or a grid give a row per zone and date.",
+    ),
+    (
+        "landscape.parcellation",
+        "The classes are whole values 1-255; 0 and cells without a value are missing (recode with \
+         raster.reclassify first). It gives the patches' number, the average patch size, the area-weighted one \
+         (the effective mesh size), the division and the parcellation index, per class and for the whole map.",
+    ),
+    (
+        "landscape.spa",
+        "A coarser, faster MSPA of the 8-connected foreground, edges of one cell: for the finer classes use \
+         landscape.mspa. SPA2, SPA3, SPA5 and SPA6 give different classes: say which was used. The foreground is \
+         the classes given, else the map coded 0 missing, 1 background, 2 foreground.",
+    ),
+    // cost distances and circuits
+    (
+        "cost.geo_correction",
+        "Correct a transition for the distances between cell centres: type c (the default) for least-cost \
+         distances (cost.acc_cost, shortest paths), type r for random walks (cost.passage). Longitude/latitude \
+         grids use great-circle distances.",
+    ),
+    (
+        "cost.acc_cost",
+        "Of a transition of conductances (cost.transition, corrected with cost.geo_correction), from the nearest \
+         origin: infinity where no origin can be reached. Its units are those of the cost the transition holds, \
+         not metres.",
+    ),
+    (
+        "cost.passage",
+        "Without `theta` it is the current of a unit current from the origins to the goals (a symmetric \
+         transition); with theta (0 to 20) randomised shortest paths that prefer cheap routes more as theta \
+         grows. Record theta: it is the choice of how directed the movement is.",
+    ),
+    // hydrology
+    (
+        "hydro.snap",
+        "A point moves to the nearest stream cell within `distance`; with `accumulation` and `min_accumulation` to \
+         the nearest one that has at least that accumulation (on the river, not on a tributary beside it). A \
+         point farther than the distance stays where it was, snapped 0: look at that column.",
+    ),
+    (
+        "hydro.upstream",
+        "Statistics of the maps over all the cells that drain through a link or point (D8 directions): cells \
+         without a value in a map are left out of its statistics, so the share of a class is of the cells with a \
+         value.",
+    ),
+    // accuracy of a map and the area of its classes
+    (
+        "accuracy.sample_size",
+        "The size follows the standard error wanted of the overall accuracy and the user's accuracy expected of \
+         each class (`standard_error`, default 0.01; lower expected accuracies for classes hard to map, such as \
+         change: 0.6 to 0.7). The `minimum` allocation keeps a sample (default 50) in every stratum when some \
+         are rare.",
+    ),
+    (
+        "accuracy.sample",
+        "The points are drawn by stratum; the `reference` column is empty: fill it with the class seen in \
+         imagery or in the field before accuracy.assess. The same seed gives \
+         the same sample.",
+    ),
+    (
+        "accuracy.assess",
+        "The strata are the map's classes (Olofsson et al.) or strata of their own (Stehman 2014: give the strata). \
+         The area of each class is estimated from the sample, with its confidence interval, not counted on the \
+         map: report these areas, not the map's.",
+    ),
+    // sensitivity analysis
+    (
+        "sensitivity.design",
+        "Morris (`n` trajectories of factors + 1 runs) screens many factors cheaply: use it first; Sobol (`n` base \
+         points, a power of 2, of 2 x factors + 2 runs, or factors + 2 without `second_order`) gives variance \
+         shares. Run the model at every row, then give the outputs to sensitivity.analyze with the same method \
+         and levels.",
+    ),
+    (
+        "sensitivity.analyze",
+        "The `method`, `levels` and `second_order` of the design; `column` is the result analysed (default the \
+         last). Morris's mu* is the importance and sigma the interactions and non-linearity; Sobol's S1 is the \
+         share of the factor alone and ST with its interactions. Read the indices with their bootstrap intervals.",
+    ),
 ];
 
 #[cfg(test)]

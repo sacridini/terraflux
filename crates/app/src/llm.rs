@@ -88,8 +88,10 @@ pub fn presets() -> Vec<Provider> {
 }
 
 /// The provider's key in the system's store of credentials (by its address: the key follows the server).
+/// (None in the store: the environment's `TERRAFLUX_LLM_KEY`, for the runs of the evaluation without the store.)
 pub fn key(p: &Provider) -> Option<String> {
-    keyring::Entry::new("Terraflux", &p.base_url).ok()?.get_password().ok().filter(|k| !k.is_empty())
+    let stored = keyring::Entry::new("Terraflux", &p.base_url).ok().and_then(|e| e.get_password().ok());
+    stored.filter(|k| !k.is_empty()).or_else(|| std::env::var("TERRAFLUX_LLM_KEY").ok().filter(|k| !k.is_empty()))
 }
 
 /// Keep the provider's key in the system's store of credentials (empty: forgotten).
@@ -344,9 +346,10 @@ impl Gather {
     }
 }
 
-/// The requests a minute a server asks for, at most, when it says so (the HU Berlin's KI-Service: 10 to 15).
+/// The requests a minute a server asks for, at most, when it says so (the HU Berlin's KI-Service: 10 to 15, so
+/// one every 5 s).
 fn per_minute(base_url: &str) -> Option<u32> {
-    base_url.contains("hu-berlin.de").then_some(15)
+    base_url.contains("hu-berlin.de").then_some(12)
 }
 
 /// Wait, when a server asks for few requests a minute, until the next may be sent (the last one's time kept by

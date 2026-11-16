@@ -511,6 +511,10 @@ fn has_distance(nodes: &[&Node], r: Option<&str>, inputs: Option<&BTreeMap<Strin
 
 /// The advice told after a run: the warnings and a few pieces of advice, a line each (none: empty).
 pub fn after_run(m: &Model, r: &Registry, dir: &Path, inputs: Option<&BTreeMap<String, Value>>) -> String {
+    // (the evaluation's plain mode: no help of the method)
+    if crate::tools::plain() {
+        return String::new();
+    }
     let all = advise(m, r, dir, inputs);
     if all.is_empty() {
         return String::new();

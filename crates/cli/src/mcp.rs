@@ -72,7 +72,10 @@ pub fn serve() -> anyhow::Result<()> {
                     && !m["id"].is_null()
                     && (m["params"]["name"] == "run_model"
                         || m["params"]["name"] == "sensitivity"
-                        || (m["params"]["name"] == "set_input" && server.elicits.load(Ordering::Relaxed))) =>
+                        || ((m["params"]["name"] == "set_input"
+                            || (m["params"]["name"] == "new_model"
+                                && !m["params"]["arguments"]["template"].is_null()))
+                            && server.elicits.load(Ordering::Relaxed))) =>
             {
                 let (server, out, runs) = (server.clone(), out.clone(), runs.clone());
                 let key = m["id"].to_string();
@@ -215,6 +218,113 @@ impl Server {
         format!("; the user named its classes, kept as its note: {}", named.join("; "))
     }
 
+    /// The files of the user for the data a template draws with neutral landscapes (nlm.*), asked of the user
+    /// (when the client can ask): each such node becomes a raster.read of the file given (one that exists), and
+    /// what was done is told (empty: nothing asked or answered).
+    fn ask_files(&self, m: &mut Model, model: &Path) -> String {
+        let Some(client) = self.client.as_ref().filter(|_| self.elicits.load(Ordering::Relaxed)) else {
+            return String::new();
+        };
+        let drawn: Vec<(String, Option<String>)> =
+            m.nodes.iter().filter(|n| n.op.starts_with("nlm.")).map(|n| (n.id.clone(), n.note.clone())).collect();
+        if drawn.is_empty() {
+            return String::new();
+        }
+        let properties: serde_json::Map<String, Value> = drawn
+            .iter()
+            .map(|(id, note)| {
+                let about = note.as_deref().map(|n| format!(" ({n})")).unwrap_or_default();
+                (
+                    id.clone(),
+                    json!({ "type": "string", "title": id, "description": format!("the file (or folder) of your data for {id}{about}; empty to keep the neutral landscape") }),
+                )
+            })
+            .collect();
+        let name = model.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        let message = format!(
+            "{name} draws its data with neutral landscapes ({}). Where are your own files for them? Absolute paths; leave empty what you do not have.",
+            drawn.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join(", ")
+        );
+        let asked = json!({ "message": message, "requestedSchema": { "type": "object", "properties": properties } });
+        let Some(answer) = client.ask("elicitation/create", asked) else { return String::new() };
+        if answer["action"] != "accept" {
+            return format!(
+                "\n(the user was asked for its files and {}: the template keeps its drawn data; ask in the conversation if it matters)",
+                if answer["action"] == "decline" { "declined" } else { "did not answer" }
+            );
+        }
+        let (mut put, mut missing) = (Vec::new(), Vec::new());
+        for (id, _) in &drawn {
+            let given = answer["content"][id.as_str()].as_str().map(str::trim).unwrap_or_default();
+            if given.is_empty() {
+                continue;
+            }
+            let path = absolute(given);
+            // (a pattern such as forest/*.tif: its folder must exist)
+            let found = if given.contains('*') { path.parent().is_some_and(Path::exists) } else { path.exists() };
+            if !found {
+                missing.push(format!("{id}: {given}"));
+                continue;
+            }
+            if let Some(n) = m.nodes.iter_mut().find(|n| n.id == *id) {
+                n.op = "raster.read".into();
+                n.inputs.clear();
+                n.params.clear();
+                n.params.insert("path".into(), json!(path.to_string_lossy()));
+                n.note = Some("The user's file, in place of the neutral landscape the template drew.".into());
+                put.push(format!("{id} = {given}"));
+            }
+        }
+        // (what read an nlm node's `map` reads the raster.read's `raster`)
+        m.upgrade();
+        let mut s = String::new();
+        if !put.is_empty() {
+            s.push_str(&format!(
+                "\nthe user gave its files, now raster.read nodes in place of the drawn data: {}",
+                put.join("; ")
+            ));
+        }
+        if !missing.is_empty() {
+            s.push_str(&format!(
+                "\nfiles that do not exist, their nodes left as the template drew them: {}",
+                missing.join("; ")
+            ));
+        }
+        s
+    }
+
+    fn new_model(&self, a: &Value) -> Reply {
+        let r = &self.engine.registry;
+        let path = model_path(a)?;
+        if path.exists() && !a.get("overwrite").and_then(Value::as_bool).unwrap_or(false) {
+            return Err(format!("{} exists: edit it, or give overwrite: true to replace it", path.display()));
+        }
+        let mut m = match opt_text(a, "template") {
+            Some(name) => tools::template_model(r, name)?,
+            None => Model::new(&path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()),
+        };
+        tools::model_info(&mut m, a);
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        save(&path, &mut m)?;
+        // (a template's data drawn by neutral landscapes: the user's files asked for, when the client can ask)
+        let asked = self.ask_files(&mut m, &path);
+        if !asked.is_empty() {
+            save(&path, &mut m)?;
+        }
+        let nodes: Vec<String> = m.nodes.iter().map(|n| format!("{} ({})", n.id, n.op)).collect();
+        let mut s = format!("wrote {}", path.display());
+        if !nodes.is_empty() {
+            s.push_str(&format!("; its nodes: {}", nodes.join(", ")));
+        }
+        if opt_text(a, "template").is_some() {
+            s.push_str(&tools::template_next(&m));
+        }
+        s.push_str(&asked);
+        Ok(format!("{s}\n{}", tools::problems(&m, &folder(&path), r)))
+    }
+
     /// The answer to a request; none to a notification (or to an answer of the client's).
     fn message(&self, m: Value) -> Option<Value> {
         self.answer(&m, &mut Watcher::default())
@@ -307,7 +417,7 @@ impl Server {
             "guide" => terraflux_app::guide::guide(opt_text(a, "topic")),
             "list_operators" => Ok(tools::list_operators(r, opt_text(a, "query"))),
             "describe_operator" => tools::describe_operator(r, text(a, "name")?),
-            "new_model" => new_model(r, a),
+            "new_model" => self.new_model(a),
             "show_model" => {
                 let path = model_path(a)?;
                 tools::show_model(&load(&path)?, &folder(&path), r)
@@ -571,31 +681,6 @@ fn change(a: &Value, r: &Registry, tool: &str, change: impl FnOnce(&mut Model, &
     terraflux_app::agent_edits::tell(&path, tool);
     save(&path, &mut m)?;
     Ok(format!("{done}\n{}", tools::problems(&m, &dir, r)))
-}
-
-fn new_model(r: &Registry, a: &Value) -> Reply {
-    let path = model_path(a)?;
-    if path.exists() && !a.get("overwrite").and_then(Value::as_bool).unwrap_or(false) {
-        return Err(format!("{} exists: edit it, or give overwrite: true to replace it", path.display()));
-    }
-    let mut m = match opt_text(a, "template") {
-        Some(name) => tools::template_model(r, name)?,
-        None => Model::new(&path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()),
-    };
-    tools::model_info(&mut m, a);
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    }
-    save(&path, &mut m)?;
-    let nodes: Vec<String> = m.nodes.iter().map(|n| format!("{} ({})", n.id, n.op)).collect();
-    let mut s = format!("wrote {}", path.display());
-    if !nodes.is_empty() {
-        s.push_str(&format!("; its nodes: {}", nodes.join(", ")));
-    }
-    if opt_text(a, "template").is_some() {
-        s.push_str(&tools::template_next(&m));
-    }
-    Ok(format!("{s}\n{}", tools::problems(&m, &folder(&path), r)))
 }
 
 /// A template's name as the last part of its resource's address: small letters, digits and dashes.
@@ -1075,6 +1160,72 @@ mod tests {
         noted["note"] = json!("the land use of 2010");
         call(&s, "set_input", noted);
         assert_eq!(asked.lock().unwrap().len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A server whose client asks its user: the questions kept, every one answered with `answer`.
+    fn asking(answer: Value) -> (Arc<Server>, Arc<Mutex<Vec<Value>>>) {
+        let asked: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let server: Arc<Mutex<Option<Arc<Server>>>> = Arc::default();
+        let (kept, to) = (asked.clone(), server.clone());
+        let client = Client::new(Box::new(move |q| {
+            kept.lock().unwrap().push(q.clone());
+            let a = json!({ "jsonrpc": "2.0", "id": q["id"], "result": answer.clone() });
+            let s = to.lock().unwrap().clone().unwrap();
+            std::thread::spawn(move || s.client.as_ref().unwrap().answered(&a));
+        }));
+        let s = Arc::new(Server::new(Some(client)));
+        *server.lock().unwrap() = Some(s.clone());
+        s.message(json!({ "jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18", "capabilities": { "elicitation": {} } } }));
+        (s, asked)
+    }
+
+    #[test]
+    fn the_user_gives_the_files_of_a_template() {
+        use terraflux_raster::{DataType, Grid, Raster};
+        let dir = std::env::temp_dir().join(format!("terraflux-mcp-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let land = dir.join("land.tif");
+        Raster::single(Grid::new(3, 2), vec![1.0, 1.0, 2.0, 3.0, 2.0, 1.0], DataType::U8, None).write(&land).unwrap();
+        let probe = Server::new(None);
+        let tm = tools::template_model(&probe.engine.registry, "CLUE-S").unwrap();
+        let drawn: Vec<String> = tm.nodes.iter().filter(|n| n.op.starts_with("nlm.")).map(|n| n.id.clone()).collect();
+        assert!(drawn.len() >= 2, "{drawn:?}");
+        let ask = |model: &str| json!({ "model": model, "template": "CLUE-S" });
+        // a user who gives a file for one, one that does not exist for another
+        let (s, asked) = asking(json!({ "action": "accept", "content": {
+            drawn[0].clone(): land.to_string_lossy(), drawn[1].clone(): "/nowhere/none.tif" } }));
+        let model = dir.join("a.toml").to_string_lossy().into_owned();
+        let (t, e) = call(&s, "new_model", ask(&model));
+        assert!(!e, "{t}");
+        assert!(
+            t.contains(&format!("{} = ", drawn[0])) && t.contains("do not exist") && t.contains("/nowhere/none.tif"),
+            "{t}"
+        );
+        let q = asked.lock().unwrap()[0].clone();
+        assert_eq!(q["method"], "elicitation/create");
+        assert_eq!(q["params"]["requestedSchema"]["properties"][drawn[0].as_str()]["type"], "string");
+        let m = Model::load(&model).unwrap();
+        let node = |id: &str| m.nodes.iter().find(|n| n.id == id).unwrap();
+        assert_eq!(node(&drawn[0]).op, "raster.read");
+        assert!(node(&drawn[0]).params["path"].as_str().unwrap().ends_with("land.tif"));
+        assert!(node(&drawn[1]).op.starts_with("nlm."), "what does not exist stays");
+        // a user who declines: the template as it is
+        let (s, asked) = asking(json!({ "action": "decline" }));
+        let model = dir.join("b.toml").to_string_lossy().into_owned();
+        let (t, e) = call(&s, "new_model", ask(&model));
+        assert!(!e && t.contains("declined"), "{t}");
+        assert_eq!(asked.lock().unwrap().len(), 1);
+        let m = Model::load(&model).unwrap();
+        assert!(m.nodes.iter().all(|n| n.op != "raster.read"));
+        // a client that cannot ask: nothing asked, the template as it is
+        let s = Server::new(None);
+        let model = dir.join("c.toml").to_string_lossy().into_owned();
+        let (t, e) = call(&s, "new_model", ask(&model));
+        assert!(!e && !t.contains("the user was asked") && !t.contains("the user gave"), "{t}");
+        assert!(Model::load(&model).unwrap().nodes.iter().all(|n| n.op != "raster.read"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
