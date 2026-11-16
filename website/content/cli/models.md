@@ -106,6 +106,37 @@ still not found:
 The application does the same when it opens such a model: a strip over the canvas offers the files found beside
 the model, and *Locate them...* looks in any folder.
 
+## terraflux pack
+
+Packs a model with its data in one file, to send to a supervisor or a reviewer: the model with its file paths
+rewritten to be relative (into `data/`), the files its nodes read (a shapefile with its sibling files, the rasters of
+a folder or a pattern, tables, plugins, submodels with their own data), and `manifest.json` with the version of
+Terraflux, the date, and each file's SHA-256, size and original path. The package is a zip file with the extension
+`.tfpack`. It is written beside the model, named like it, unless `-o` says where. `--outputs` adds the outputs of the
+model's last run (its journal; else the `output` folder beside the model) in `outputs/`.
+
+Before writing, it prints how many files and bytes the package will hold (with a warning above 2 GB). A file the
+model names that is not there is listed (and recorded in the manifest), the package is written all the same, and the
+command exits with 1.
+
+```text
+> terraflux pack land.toml --outputs
+5 files, 191 B
+wrote land.tfpack (1.3 KB)
+```
+
+## terraflux unpack
+
+Unpacks a package into a folder (by default beside it, named like it; `-o` chooses) and checks every file against its
+manifest. A file changed after the package was made, damaged, missing, or not in the manifest is told, and the command
+exits with 1 (the files are written all the same: look at what differs). The unpacked model runs as it is:
+`terraflux run land/land.toml`. In the application, **File > Open package...** does the same and opens the model.
+
+```text
+> terraflux unpack land.tfpack
+unpacked 5 files into land; the model: land\land.toml
+```
+
 ## terraflux test
 
 Runs models and checks what they give against files of what they should give. A model's tests are `[[tests]]` in

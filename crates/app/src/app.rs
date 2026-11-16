@@ -2167,6 +2167,8 @@ pub struct TerrafluxApp {
     pub restore: Option<crate::restore::Store>,
     remembered: Instant,
     pub wizard: Option<Wizard>,
+    /// The window of *Pack for sharing...* or *Open package...*.
+    pub pack: Option<crate::pack_view::State>,
     /// The panes of the main window, and the windows of their own.
     pub dock: Option<DockState<Pane>>,
     pub windows: Vec<Detached>,
@@ -2393,6 +2395,7 @@ impl TerrafluxApp {
             template_name: String::new(),
             session: Some(Session::blank()),
             wizard: None,
+            pack: None,
             dock: Some(default_layout()),
             windows: Vec::new(),
             window_count: 0,
@@ -2926,6 +2929,15 @@ impl TerrafluxApp {
         }
     }
 
+    /// The window of *Pack for sharing...*: the model as saved is what is packed.
+    fn ask_pack(&mut self) {
+        let Some(s) = &mut self.session else { return };
+        match &s.path {
+            Some(p) if !s.dirty => self.pack = Some(crate::pack_view::State::pack(p)),
+            _ => s.notice = Some(("save the model first: the file is what is packed".into(), Instant::now())),
+        }
+    }
+
     /// Stop the run.
     fn stop_run(&mut self) {
         if let Some(s) = &mut self.session
@@ -2961,6 +2973,18 @@ impl TerrafluxApp {
                 }
             });
         });
+        if ui
+            .button("Open package...")
+            .on_hover_text("a model sent with its data (.tfpack): unpacked, its files checked, the model opened")
+            .clicked()
+        {
+            ui.close();
+            let ext = [terraflux_exec::pack::EXTENSION];
+            if let Some(p) = rfd::FileDialog::new().add_filter("Terraflux package", &ext).pick_file() {
+                self.wizard = None;
+                self.pack = Some(crate::pack_view::State::open_package(&p, false));
+            }
+        }
         ui.separator();
         let (can, editing) =
             self.session.as_ref().map_or((false, false), |s| (s.dirty || s.path.is_none(), self.wizard.is_none()));
@@ -3002,6 +3026,14 @@ impl TerrafluxApp {
             }
         }
         ui.separator();
+        if ui
+            .add_enabled(self.session.is_some() && self.wizard.is_none(), egui::Button::new("Pack for sharing..."))
+            .on_hover_text("the model and the files it reads in one file (.tfpack) to send: it opens and runs as it is")
+            .clicked()
+        {
+            ui.close();
+            self.ask_pack();
+        }
         if let Some(s) = &mut self.session
             && ui
                 .add(egui::Button::new("Open a raster or vectors...").shortcut_text(crate::keymap::text("open_data")))
@@ -4976,6 +5008,11 @@ impl TerrafluxApp {
         if dropped.is_empty() {
             return;
         }
+        // a package: unpacked at once, its model opened
+        if let Some(p) = dropped.iter().find(|p| terraflux_exec::pack::is_package(p)) {
+            self.pack = Some(crate::pack_view::State::open_package(p, true));
+            return;
+        }
         let Some(s) = &mut self.session else { return };
         // a file on a node that reads that kind: the node's file changed, nothing added
         if let (Some(id), [file]) = (&target, dropped.as_slice()) {
@@ -5330,6 +5367,10 @@ impl TerrafluxApp {
         self.confirm_window(ui.ctx());
         self.settings_window(ui.ctx());
         self.update_window(ui.ctx());
+        if let Some(model) = crate::pack_view::window(ui.ctx(), &mut self.pack) {
+            self.wizard = None;
+            self.ask_open(&model);
+        }
         self.install_update(ui.ctx());
         let mut shortcuts = self.shortcuts_open;
         crate::commands::shortcuts_window(ui.ctx(), &mut shortcuts);

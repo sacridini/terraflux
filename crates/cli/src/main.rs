@@ -111,6 +111,30 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Pack a model with its data into one file (`.tfpack`, a zip file) to send to a supervisor or a reviewer: the
+    /// model with its paths relative, the files its nodes read (a shapefile with its sibling files, the rasters of
+    /// a folder or a pattern, submodels with their data, plugins), and `manifest.json` (SHA-256 of each file, where
+    /// it came from, the version of Terraflux). Files the model names that are not there are listed, not skipped
+    /// in silence (exit status 1, the package written all the same).
+    Pack {
+        /// The model (.toml or .json).
+        model: PathBuf,
+        /// The package to write (default: the model's name with `.tfpack`, beside it).
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+        /// Add the outputs of the model's last run (from its journal; else the `output` folder beside the model).
+        #[arg(long)]
+        outputs: bool,
+    },
+    /// Unpack a package made by `terraflux pack` into a folder and check every file against its manifest (a file
+    /// changed since, or missing, is told; exit status 1). The unpacked model runs as it is.
+    Unpack {
+        /// The package (.tfpack).
+        package: PathBuf,
+        /// The folder to unpack into (default: beside the package, named like it).
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
     /// Run again what a run's manifest (manifest.json, written with its outputs) records: the same model, scenario,
     /// values and files (told when one changed), and tell whether every output is the same, byte for byte (vectors:
     /// the same features).
@@ -1343,6 +1367,33 @@ fn main() -> Result<()> {
             if let Some(pid) = terraflux_app::notify::front_of(&uri) {
                 // (that Terraflux closed since: nothing to do)
                 let _ = terraflux_app::handoff::front(pid);
+            }
+        }
+        Command::Pack { model, out, outputs } => {
+            use terraflux_exec::pack;
+            let extra = if outputs { pack::last_outputs(&model) } else { Vec::new() };
+            let plan = pack::plan(&model, &extra)?;
+            eprintln!("{}", pack::words(&plan));
+            let out = out.unwrap_or_else(|| pack::default_package(&model));
+            let (_, size) = plan.write(&out)?;
+            println!("wrote {} ({})", out.display(), pack::size_text(size));
+            if !plan.missing.is_empty() {
+                std::process::exit(1);
+            }
+        }
+        Command::Unpack { package, out } => {
+            use terraflux_exec::pack;
+            let out = out.unwrap_or_else(|| pack::default_folder(&package));
+            let done = pack::unpack(&package, &out)?;
+            println!("unpacked {} files into {}; the model: {}", done.files, out.display(), done.model.display());
+            for m in &done.manifest.missing {
+                eprintln!("not in the package when it was made: {m}");
+            }
+            for p in &done.problems {
+                eprintln!("{p}");
+            }
+            if !done.problems.is_empty() {
+                bail!("{} problem(s): the package is not as it was made", done.problems.len());
             }
         }
         Command::Relink { model, folders, dry_run } => {

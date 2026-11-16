@@ -76,9 +76,11 @@ model is open. Items that need a model are greyed out without one.
 | **New model** (++ctrl+n++) | A new empty model. With a model already open, it opens in a tab of its own. |
 | **Open...** (++ctrl+shift+o++) | Opens a model file (`.toml` or `.json`). |
 | **Open recent** | The last ten models opened or saved, the last first; files that are gone are left out. |
+| **Open package...** | Opens a model sent as one file (`.tfpack`): unpacks it into a folder you choose (by default beside the package, named like it), checks every file against the manifest and opens the model ([Packing a model with its data](#packing-a-model-with-its-data)). Dropping a `.tfpack` on the window does the same. |
 | **Save** (++ctrl+s++) | Saves the model. Greyed out when there is nothing to save. |
 | **Save as...** (++ctrl+shift+s++) | Saves it under another name. |
 | **Save a version...** (++ctrl+alt+s++) | Keeps the model as it is now under a name, to review against or go back to (the **Runs** pane lists versions). |
+| **Pack for sharing...** | The model and the files it reads in one `.tfpack` file, to send to a supervisor or a reviewer ([Packing a model with its data](#packing-a-model-with-its-data)). |
 | **Clean outputs...** | Deletes the files and folders that the runs of the model wrote. |
 | **Open a raster or vectors...** (++ctrl+o++) | Opens a map or a vector file and adds a node that reads it. |
 | **Data catalog...** | The public datasets Terraflux downloads onto the model's grid ([The data catalog](/app/canvas/#the-data-catalog)). |
@@ -90,8 +92,8 @@ model is open. Items that need a model are greyed out without one.
 | **Export to QGIS...** | The run's maps and vectors as a QGIS project ([Export to QGIS](/app/qgis/)). |
 
 **Open a raster or vectors...**, **Data catalog...**, **Compare**, **Export report**, **Methods and citations...**,
-**Python script...** and **Export to QGIS...** appear only when a model is open. **Save a version...** and
-**Clean outputs...** are greyed out without one.
+**Python script...** and **Export to QGIS...** appear only when a model is open. **Save a version...**,
+**Pack for sharing...** and **Clean outputs...** are greyed out without one.
 
 ### Templates
 
@@ -208,6 +210,36 @@ go one step at a time.
 - **Recovery.** If Terraflux ends without saving (a crash, the power gone), the next time it opens a strip at the
   top says *Terraflux closed with edits not saved in...* with **Recover** (opens the model with those edits),
   **Discard** (throws them away) and **Later** (asks again next time).
+
+## Packing a model with its data
+
+A model sent alone does not run on another computer: the files it reads are not there. **File > Pack for sharing...**
+makes one file, `.tfpack`, to send to a supervisor or a reviewer; whoever receives it opens it and the model runs
+without any change.
+
+The window says what goes in before anything is written: how many files and how many bytes (it warns above 2 GB,
+when the file may be too large to send), and the files the model names that are not there, one by one: the package
+is made without them, and the manifest lists them. **Include the last outputs** adds the files the model's last run
+wrote (from its journal, else the `output` folder beside the model) in `outputs/`. The model must be saved: the
+file is what is packed.
+
+Inside (a `.tfpack` is a zip file: rename it `.zip` to open it with any program, on Windows, macOS or Linux):
+
+- the model, with **every file path made relative** and pointing into `data/`;
+- the files its nodes read: a shapefile with its `.shx`, `.dbf`, `.prj` and `.cpg`, the rasters of a folder or of a
+  pattern such as `runs/*/landuse.tif`, tables, plugins (`.wasm`), and the submodels of `control.submodel` nodes with
+  their own data, as deep as they go (`data/submodels/`, their paths relative to where they are in the package).
+  Two files of the same name from different folders do not collide: the second goes in `data/2/`. Files written by
+  the model (`raster.write`) are not packed; one written at an absolute path is written to `output/` of the folder
+  the package is opened in;
+- `manifest.json`: the version of Terraflux, the date, the model, and each file with its SHA-256, its size and the
+  path it came from.
+
+**File > Open package...** (or dropping a `.tfpack` on the window) unpacks it into the folder you choose, by
+default beside the package and named like it, checks every file against the manifest and opens the model. A file
+that does not check (changed after the package was made, damaged, or missing) is listed and the model is not
+opened. On the command line, [`terraflux pack`](/cli/models/#terraflux-pack) and
+[`terraflux unpack`](/cli/models/#terraflux-unpack) do the same.
 
 ## Files not found
 

@@ -14,7 +14,9 @@ pub mod frozen;
 mod io;
 pub mod journal;
 pub mod lint;
+pub mod pack;
 pub mod testing;
+mod zipfile;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};

@@ -60,6 +60,7 @@ pub mod node_view;
 pub mod notes;
 pub mod notify;
 pub mod op_notes;
+pub mod pack_view;
 pub mod palette;
 pub mod params_view;
 pub mod phrases;

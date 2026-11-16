@@ -3746,6 +3746,13 @@ escolha do usuário). Conferido antes que nada disso existe.
    o id citado que não existe não tem correção.
 5. **Empacotar o modelo com os dados.** Um arquivo só (o modelo, os dados, os caminhos relativos, o manifesto) para
    o orientador ou o revisor; "Abrir pacote" desempacota e o modelo roda sem ajuste.
+   **Feito** (Unreleased): `.tfpack` (um zip, escrito por `terraflux_exec::pack` e `zipfile`, deflate e ZIP64, sobre o
+   `flate2` que já estava no build), com o modelo (todos os caminhos relativos em `data/`), os arquivos lidos (irmãos
+   do shapefile, pastas e padrões, submodelos com os dados deles, plugins), as saídas da última execução se pedido e
+   o `manifest.json` (versão, data, SHA-256, tamanho e caminho original). Nomes iguais não colidem (`data/2/`); o que
+   falta é listado; o total aparece antes de gravar e passa de 2 GB com aviso. *File > Pack for sharing...*, *File >
+   Open package...* (e soltar o arquivo na janela) e `terraflux pack`/`unpack`; o desempacotado dá as mesmas saídas.
+   Fica para depois: a ferramenta `pack_model` do MCP.
 3. **O grafo do modelo como figura vetorial** (SVG e PDF) para o artigo, no tema claro, com as notas. **Feito**
    (Unreleased): File > "Export the model as a figure..." (paleta, e "Export as a figure..." no menu de uma seleção ou
    de um grupo) e `terraflux figure modelo -o grafo.svg --width 85mm`; `graph_figure.rs` monta o desenho no

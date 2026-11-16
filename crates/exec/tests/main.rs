@@ -10,6 +10,7 @@ mod debug;
 mod each;
 mod folders;
 mod futures_calib;
+mod pack;
 mod parity;
 mod per_layer;
 mod plugin;

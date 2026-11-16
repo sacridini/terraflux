@@ -4757,6 +4757,7 @@ dependencies = [
 name = "terraflux-exec"
 version = "1.53.0"
 dependencies = [
+ "flate2",
  "rayon",
  "serde",
  "serde_json",
