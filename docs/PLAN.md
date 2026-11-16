@@ -856,6 +856,10 @@ Fases:
    `docs/` removidos.
 6. **Depois:** comentários internos aos poucos, memórias, `IDEAS.md`; fim do pacote de compatibilidade na próxima
    versão maior.
+   **Feito** (2026-11-16, d821580): os comentários, docstrings, nomes e mensagens dos testes e os scripts de
+   `tools/` dizem terraflux-py ou "the library"; ficam no nome antigo só a compatibilidade (`landschaft_product`,
+   `LANDSCHAFT_DIR`, `LANDSCHAFT_EIGEN_DIR`), os nomes dos arquivos de referência e a chave `"landschaft"` dos JSON
+   gerados. Falta só o fim do pacote de compatibilidade, na próxima versão maior.
 
 ## Verificação
 
