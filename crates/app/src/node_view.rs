@@ -85,6 +85,49 @@ pub fn first_sentence(doc: &str) -> (String, bool) {
     (chars[..end].iter().collect(), end < chars.len())
 }
 
+/// What a submodel node's file says about itself: its words, what it takes (the ones the node gives marked) and
+/// gives. Read again when the file changes.
+fn submodel_about(ui: &mut Ui, s: &Session, n: &Node) {
+    let Some(p) = n.params.get("path").and_then(|p| p.as_str()) else { return };
+    let file = if std::path::Path::new(p).is_absolute() { p.into() } else { s.base().join(p) };
+    let stamp = std::fs::metadata(&file).and_then(|m| m.modified()).ok();
+    let key = ui.make_persistent_id(("submodel about", &file));
+    type Read = (Option<std::time::SystemTime>, Result<terraflux_graph::submodel::About, String>);
+    let cached: Option<Read> = ui.data(|d| d.get_temp(key));
+    let (_, about) = match cached {
+        Some(c) if c.0 == stamp => c,
+        _ => {
+            let c: Read = (stamp, terraflux_graph::submodel::about(&file).map_err(|e| e.to_string()));
+            ui.data_mut(|d| d.insert_temp(key, c.clone()));
+            c
+        }
+    };
+    let weak = ui.visuals().weak_text_color();
+    match about {
+        Err(e) => {
+            ui.colored_label(ui.visuals().error_fg_color, format!("the submodel does not read: {e}"));
+        }
+        Ok(a) => {
+            if let Some(d) = &a.description {
+                ui.label(d);
+            }
+            for i in &a.inputs {
+                let mut line = format!("{}: {}", i.name, i.ty.name());
+                if let Some(v) = &i.value {
+                    line.push_str(&format!(" = {v}"));
+                }
+                if n.inputs.contains_key(&i.name) {
+                    line.push_str(" (given)");
+                }
+                ui.label(RichText::new(line).size(11.5).color(weak)).on_hover_text(i.note.clone().unwrap_or_default());
+            }
+            for (k, from) in &a.outputs {
+                ui.label(RichText::new(format!("gives {k} (from {from})")).size(11.5).color(weak));
+            }
+        }
+    }
+}
+
 /// The issues of a node of a scope (those of its ports and, for a container, of its body).
 fn issues_of<'a>(s: &'a Session, path: &[String], id: &str) -> Vec<&'a Issue> {
     let at = if path.is_empty() { id.to_string() } else { format!("{}/{id}", path.join("/")) };
@@ -387,6 +430,10 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     // a node of the user's library: what it is, against the library; a group or a calculator: to save as one
     if let Some(c) = crate::my_nodes::pane(ui, s, r, &path, &n) {
         change = Some(c);
+    }
+    // a submodel: what its file says it is, takes and gives
+    if n.op == terraflux_graph::SUBMODEL {
+        submodel_about(ui, s, &n);
     }
     // what is wrong with it, first
     for i in issues_of(s, &path, &id) {

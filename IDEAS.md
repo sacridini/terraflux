@@ -2003,6 +2003,15 @@ escolha, abstração) sem código.
 5. **Submodelos como operadores de verdade:** com o item 1, um submodelo na biblioteca com descrição, portas
    tipadas, configurações e versão; bibliotecas de submodelos (do usuário, do grupo, compartilhadas). A comunidade
    estende a ferramenta sem escrever Rust.
+   - **Feito** (Unreleased): um submodelo (o arquivo de um modelo) se descreve pelo que o arquivo já tem: o painel do
+     nó `control.submodel` mostra o `summary` (ou `description`) do modelo, cada entrada com o tipo e o valor (e
+     "given" quando o nó a dá) e cada saída com o nó que a dá (`submodel::about`); as configurações escritas
+     `"$x"` ou `{ from = "$x" }` dentro do submodelo leem as entradas dele (dadas pelo nó ou o valor do próprio
+     submodelo; entram no modelo expandido, que é o que o cache, o `check` e os lotes distribuídos veem), testado em
+     `submodel.rs`. Bibliotecas de submodelos (do usuário, do grupo, compartilhadas): o nó do usuário (fase 4) é o
+     submodelo da biblioteca, com descrição, portas tipadas, valores próprios, versão e as bibliotecas do item 10.
+     Falta: um arquivo de modelo não tem versão própria (o campo seria novo no formato), e as saídas de um
+     submodelo no painel não mostram o tipo (o `check` o infere ao expandir).
 6. **Plugins além da célula:** uma segunda interface do `plugin.wasm` que receba o mapa inteiro ou uma janela de
    vizinhança, dê várias saídas e trabalhe com tabelas. Opcional: um nó `script.python`/`script.r` para quem os tem
    instalados, marcado como não portátil para os lotes distribuídos (vai contra o "sem Python", mas é a saída de
@@ -2162,9 +2171,10 @@ enviado a alguém roda sem a biblioteca.
   que foi inferido para mudar (os tipos pelo que o nó recebe e pelo que deu na última execução, as bandas pelo
   `algebra_tools::layers_read` dos scripts, os valores literais como valor próprio), a seção My nodes no painel
   Operators (a busca também), os comandos na paleta, e o painel de um nó do usuário (a versão, o que cada entrada
-  pede e o que falta, "Update to", "changed here since", "Make it a plain group"). Falta: bibliotecas do grupo e
-  compartilhadas (o `meu/` do nome), as configurações de um nó do usuário como configurações (hoje são entradas
-  com valor próprio), a busca rápida (`/`) com os nós do usuário, o MCP e o assistente (fase 5).
+  pede e o que falta, "Update to", "changed here since", "Make it a plain group"). As bibliotecas do grupo e
+  compartilhadas (o prefixo `my/`, `lab/` do nome), as configurações de um nó do usuário como configurações, a busca
+  rápida (`/`) com os nós do usuário, o MCP e o assistente foram feitos depois (item 10 de "A interface: o que falta
+  nas partes já feitas", **Feito** (Unreleased)).
 
 **Fase 5: a IA.** O Assistant escreve o script de uma calculadora a partir de um pedido: o parser confere, os nomes
 e as bandas contra as entradas reais, uma prévia, e a mudança passa pelo painel Changes. Também explica um script e

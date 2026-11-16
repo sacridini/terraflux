@@ -259,4 +259,25 @@ fn a_calculator_saved_as_my_node_and_used_again() {
         st.node_remotes.clear();
     });
     terraflux_app::my_nodes::changed();
+    // a submodel node: its pane tells what its file says (its words, what it takes and gives)
+    std::fs::write(
+        dir.join("scale.toml"),
+        "format = \"terraflux/1\"\nsummary = \"scales a map by a factor\"\n[inputs.factor]\nkind = \"value\"\nvalue = 2.5\n\
+         [inputs.m]\nkind = \"map\"\npath = \"m.tif\"\n[[nodes]]\nid = \"t\"\nop = \"raster.calc\"\n\
+         inputs = { m = \"$m\" }\nparams = { expression = \"m * k\" }\n[outputs.y]\nfrom = \"t.map\"\n",
+    )
+    .unwrap();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source
+            .nodes
+            .push(Node::new("sub", terraflux_graph::SUBMODEL).param("path", "scale.toml").literal("factor", 3));
+        s.selected = Some("sub".into());
+    }
+    h.state_mut().focus(Pane::Node);
+    h.run_steps(3);
+    assert!(h.query_by_label("scales a map by a factor").is_some());
+    assert!(h.query_by_label("factor: number = 2.5 (given)").is_some());
+    assert!(h.query_by_label("m: raster").is_some());
+    assert!(h.query_by_label("gives y (from t.map)").is_some());
 }

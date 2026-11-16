@@ -285,13 +285,17 @@ When a submodel node is expanded, each of the submodel's inputs is filled in thi
 Giving the node an input the submodel does not have is an error (*the submodel "core1997" has no input "..."*).
 Submodels may use submodels, up to 16 deep, but never themselves.
 
-!!! warning "Settings are not inputs"
-    A submodel's **settings** (MSPA's `edge_width` above) are fixed in its file: a node that uses the submodel
-    cannot give them, because settings cannot be connected to inputs. Writing a setting as a reference to an input
-    (`edge_width = "$width"`) does not work either: `terraflux check` stops on it with *settings take values, not
-    references*. To make a setting change from use to use, either write variants of the submodel, or, when the
-    operator takes the value as an *input port* (a number in a [[raster.calc]] expression, the `seed` of a
-    simulation), declare it as a value input of the submodel and give it from the node.
+!!! tip "A submodel's settings can be its inputs"
+    A setting inside a submodel can read one of the submodel's inputs: write it as a reference
+    (`edge_width = "$width"`, or `edge_width = { from = "$width" }`) and declare `width` as a value input of the
+    submodel (`kind = "value"`, with the value it has when nobody gives one). The node that uses the submodel then
+    gives `width` like any other input (`width = 3`, or `width = "$edge"` to read an input of the outer model), and
+    a node that does not keeps the submodel's own value. The submodel's own file is checked as it is, and a setting
+    that reads an input the file does not declare is reported by `terraflux check`.
+
+    The Node pane of a submodel node shows what its file says about itself: the model's `summary` (or
+    `description`) as its words, each input with its type and its value (marked *given* when the node gives it) and
+    each output with the node that gives it.
 
     For a one-off run, the command line can still change a setting inside a submodel: its nodes are named after
     the node that uses it, `core1997/mspa` for the MSPA of `core1997`, so
