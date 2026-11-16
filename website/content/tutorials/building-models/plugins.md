@@ -50,9 +50,9 @@ the maps connected to it:
 - **Speed**: a compiled function is fast. [[raster.calc]] is fast too; use a plugin for what an expression cannot
   say, not for what it says well.
 
-What a plugin is **not** for: anything that needs the neighbours of a cell (a plugin sees one cell at a time; use
-the `nb*` functions of [[raster.calc]] or the operators of the library), anything that reads or writes files, and
-whole-map statistics. For those, chain a plugin with other nodes.
+What a plugin is **not** for: anything that reads or writes files. A plugin of the default interface sees one cell
+at a time; for the neighbours of a cell, or whole maps and tables, use the other two interfaces ([Beyond the
+cell](#beyond-the-cell-windows-and-whole-maps)).
 
 ## What you need
 
@@ -216,6 +216,126 @@ The plugin's own numbers (here \(K = 300\), the felling threshold of 150 t/ha an
 the module. To vary them without editing the module, make them parameters of the function and inputs of the node,
 as `years` and `cycle` are: then they appear in the Node pane, can be connected to other nodes, and can be changed
 for a batch of scenarios (`"growth.cycle" = 30`, see [Randomness and reproducibility](../randomness/#scenarios-settings-that-change)).
+
+## Beyond the cell: windows and whole maps
+
+The setting `interface` chooses how the module is called: `cell` (the default, everything above, and the only one
+that existing models use), `window` and `map`. The last two let the host **write into the module's memory**, so
+the module must export two more things: its `memory`, and a function `alloc(bytes: i32) -> i32` that returns the
+address of a block of that many bytes (a bump allocator that grows the memory is enough; the host never frees).
+Numbers in that memory are little-endian `f64` and `i32`, as WebAssembly stores them. The sandbox is the same: no
+imports, no files, a budget of instructions.
+
+### The window interface: the neighbours of each cell
+
+With `interface = "window"` and `radius = r` (1 to 255), the host writes, for **each cell**, the window of
+\(side \times side\) cells around it (\(side = 2r + 1\)) of every input into the module's memory, and calls
+
+```text
+window(ptr: i32, side: i32, n_inputs: i32, row: i32, col: i32) -> f64
+```
+
+- `ptr` points at `n_inputs` blocks, one after the other, in the order of `args`; each block holds the
+  `side * side` values of that input, **row by row**, the centre cell at index `(side*side)/2`;
+- cells **outside the map** and cells without a value are NaN; a number input fills its block with the number;
+- `row` and `col` are the cell's own position (the first cell is 0, 0);
+- the result is the cell's value. Calls are split among the computer's cores in pieces of cells, each piece with
+  its own instance of the module (and its own call of `alloc`), as for `cell`.
+
+The budget is `fuel` instructions per cell of the window (a million by default, times `side * side`).
+`window_mean.wat` (in `website/figures/building-models/plugins/`) is the mean of the window without its missing
+cells:
+
+```wat
+(func (export "window") (param $ptr i32) (param $side i32) (param $n i32) (param $row i32) (param $col i32)
+      (result f64)
+  (local $i i32) (local $count i32) (local $sum f64) (local $x f64)
+  (block $done
+    (loop $next
+      (br_if $done (i32.ge_u (local.get $i) (i32.mul (local.get $side) (local.get $side))))
+      (local.set $x (f64.load (i32.add (local.get $ptr) (i32.shl (local.get $i) (i32.const 3)))))
+      (if (f64.eq (local.get $x) (local.get $x))   ;; false for NaN
+        (then (local.set $sum (f64.add (local.get $sum) (local.get $x)))
+              (local.set $count (i32.add (local.get $count) (i32.const 1)))))
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $next)))
+  (f64.div (local.get $sum) (f64.convert_i32_s (local.get $count))))
+```
+
+Use it with `params = { path = "window_mean.wat", interface = "window", radius = 1, args = ["land"] }`; the
+module, with its `memory` and `alloc`, is in the file.
+
+### The map interface: whole maps, several outputs, tables
+
+With `interface = "map"` the function is called **once**, with every input as an array in the module's memory:
+
+```text
+map(rows: i32, cols: i32, n_in: i32, inputs: i32, n_out: i32, outputs: i32) -> i32
+```
+
+- `inputs` points at `n_in` pointers (`i32`), one per input in the order of `args`; each points at
+  `rows * cols` `f64`, row by row, NaN for the cells without a value; a number input is an array filled with it;
+- `outputs` points at `n_out` pointers of the same kind, to arrays that the host has filled with NaN: the module
+  writes its results there. `n_out` and the names come from the setting `outputs = ["sum", "diff"]`, one map
+  output port of the node for each (`map` when it is not given), which the nodes after it read as `p.sum` and
+  `p.diff`; the check of the model knows them, and a node that reads another name is refused before the run;
+- the result is `0` when all went well; **any other number is an error**, and the run stops saying the number
+  (the module can choose its own codes);
+- the module runs in **one instance**, not in parallel: it decides what to do with its own threads, or none. The
+  budget is `fuel` instructions per cell of the map (a million by default; `fuel` up to 100 million), for the
+  whole call.
+
+`sum_diff.wat` gives two outputs from two inputs:
+
+```wat
+(func (export "map") (param $rows i32) (param $cols i32) (param $n_in i32) (param $inputs i32)
+      (param $n_out i32) (param $outputs i32) (result i32)
+  (local $i i32) (local $n i32) (local $a i32) (local $b i32) (local $sum i32) (local $diff i32)
+  (local.set $a (i32.load (local.get $inputs)))                    ;; the first input's array
+  (local.set $b (i32.load offset=4 (local.get $inputs)))           ;; the second's
+  (local.set $sum (i32.load (local.get $outputs)))                 ;; the first output's array
+  (local.set $diff (i32.load offset=4 (local.get $outputs)))
+  (local.set $n (i32.mul (local.get $rows) (local.get $cols)))
+  ;; ... a loop over the n cells: sum[i] = a[i] + b[i]; diff[i] = a[i] - b[i]
+  (i32.const 0))
+```
+
+A WebAssembly memory has **32 bits**: a module cannot hold more than about 4 GB. When the inputs and outputs
+together pass 3.5 GB, Terraflux refuses the run, says so, and suggests the `cell` or `window` interface, which
+need memory for one cell or one window only.
+
+#### Tables
+
+The `map` interface also takes **tables** (inputs that are tables) and gives tables. Then the function takes four
+more `i32` arguments, ten in all:
+
+```text
+map(rows, cols, n_in, inputs, n_out, outputs, n_in_cols, in_cols, n_out_cols, out_cols) -> i32
+```
+
+`in_cols` and `out_cols` point at arrays of **column descriptors** of five `i32` each:
+`(table, data, n_rows, name_ptr, name_len)`.
+
+- **Input tables**, in the order of `args` among the tables only (`table` is the index among them: 0 for the
+  first): one descriptor per column, in the table's order. `data` points at `n_rows` `f64` (NaN for no value; a
+  column of text holds the codes of its names), `name_ptr` and `name_len` are the column's name in UTF-8.
+  Maps and numbers go in `inputs` as before, tables only in `in_cols`.
+- **Output tables** are declared by `table_outputs = { dbl = ["x2"], summary = ["class", "area"] }`: each name is
+  a table output port of the node, with those columns. The tables are numbered in the **alphabetical order of
+  their names** (`table` is the index), with one descriptor per column, in the order of the list, `data` and
+  `n_rows` set to 0 and the name given. The size of a table is the module's to say: it allocates each column
+  (`alloc`, `n_rows * 8` bytes), writes the values, and **fills `data` and `n_rows` in the descriptor**. All the
+  columns of a table must have the same `n_rows`.
+
+A module whose function takes the six arguments, given tables, is refused before it runs, with the number of
+arguments it must take. A node with `table_outputs` and no `outputs` gives only the tables.
+
+### What the check tells
+
+The check of the model tells a wrong configuration **before it runs**: an `interface` that is not `cell`, `window`
+or `map`, a `radius` that is not a whole number from 1 to 255 (or missing for `window`), an `outputs` or
+`table_outputs` with a repeated or invalid name, them with an interface other than `map`, a `fuel` that is not a
+whole number from 1 to 100 million.
 
 ## Errors and the sandbox
 

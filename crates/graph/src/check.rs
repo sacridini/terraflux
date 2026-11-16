@@ -471,6 +471,11 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
+            if n.op == crate::PLUGIN {
+                for (k, why) in crate::plugin_problems(&n.params) {
+                    self.error(&format!("{at}.{k}"), why);
+                }
+            }
             match (&n.body, sig.container) {
                 (Some(_), false) => self.error(&at, format!("{} is not a container: it takes no body", n.op)),
                 (None, true) => self.error(&at, format!("{} needs a body of nodes", n.op)),
@@ -706,6 +711,16 @@ mod tests {
                     .output(PortSpec::new("map", Type::Map, ""))
                     .outputs_from("expression"),
                 crate::GROUP => OpSignature::new(crate::GROUP, "", Access::None).extra(Type::Any).container(),
+                crate::PLUGIN => OpSignature::new(crate::PLUGIN, "", Access::Local)
+                    .extra(Type::Any)
+                    .param(PortSpec::new("path", Type::Text, ""))
+                    .param(PortSpec::optional("interface", Type::Text, ""))
+                    .param(PortSpec::optional("radius", Type::Integer, ""))
+                    .param(PortSpec::optional("outputs", Type::Any, ""))
+                    .param(PortSpec::optional("table_outputs", Type::Any, ""))
+                    .output(PortSpec::new("map", Type::Map, ""))
+                    .outputs_listed("outputs", Type::Map)
+                    .outputs_listed("table_outputs", Type::Table),
                 _ => return None,
             })
         }
@@ -967,6 +982,31 @@ from = "calc.map"
         m.nodes.push(crate::Node::new("c", "classes").input("map", "$t0"));
         m.nodes[0].params.insert("k".into(), serde_json::json!({ "from": "c.share" }));
         assert_eq!(crate::dependencies(&m.nodes[0], &m.nodes), ["c"]);
+    }
+
+    #[test]
+    fn a_plugin_is_checked_for_its_interface_and_its_listed_outputs() {
+        let with = |params: &str, read: &str| {
+            let params = if params.is_empty() { String::new() } else { format!(", {params}") };
+            let text = format!(
+                "[inputs.t0]\nkind = \"map\"\npath = \"lu.tif\"\n\n[[nodes]]\nid = \"p\"\nop = \"plugin.wasm\"\n\
+                 inputs = {{ a = \"$t0\" }}\nparams = {{ path = \"p.wat\"{params} }}\n\n\
+                 [[nodes]]\nid = \"f\"\nop = \"fit\"\ninputs = {{ map = \"{read}\" }}\n"
+            );
+            errors(&model(&text))
+        };
+        let map = r#"interface = "map", outputs = ["s", "d"], table_outputs = { t = ["x"] }"#;
+        assert!(with(map, "p.s").is_empty(), "{:?}", with(map, "p.s"));
+        assert!(with("", "p.map").is_empty());
+        // the outputs it lists replace `map`; a table is not a map
+        assert!(with(map, "p.map").iter().any(|x| x.contains("no output \"map\"")));
+        assert!(with(map, "p.t").iter().any(|x| x.contains("gives a Table")));
+        let e = with(r#"interface = "tiles""#, "p.map");
+        assert!(e.iter().any(|x| x.contains("p.interface") && x.contains("cell, window or map")), "{e:?}");
+        let e = with(r#"interface = "window", radius = 0"#, "p.map");
+        assert!(e.iter().any(|x| x.contains("p.radius")), "{e:?}");
+        let e = with(r#"interface = "map", outputs = ["s", "s"]"#, "p.s");
+        assert!(e.iter().any(|x| x.contains("two outputs are named")), "{e:?}");
     }
 
     #[test]

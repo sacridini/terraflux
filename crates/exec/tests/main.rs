@@ -12,6 +12,7 @@ mod folders;
 mod futures_calib;
 mod parity;
 mod per_layer;
+mod plugin;
 mod ports;
 mod product;
 mod settings;

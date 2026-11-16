@@ -1996,6 +1996,9 @@ escolha, abstração) sem código.
    vizinhança, dê várias saídas e trabalhe com tabelas. Opcional: um nó `script.python`/`script.r` para quem os tem
    instalados, marcado como não portátil para os lotes distribuídos (vai contra o "sem Python", mas é a saída de
    emergência que todo usuário avançado procura).
+   - **Feito** (Unreleased): as duas interfaces do `plugin.wasm` (`interface = "window"` e `"map"`, a `cell` segue a
+     padrão), as várias saídas (`outputs`, `table_outputs`, portas listadas pela assinatura) e as tabelas (colunas
+     de entrada e de saída); a ABI está no tutorial dos plugins. **Não feito:** o nó `script.python`/`script.r`.
 7. **Depuração do grafo:** desativar ou contornar um nó (bypass) sem apagá-lo; congelar o resultado de um nó caro
    entre sessões; tempo e memória por nó (o perfil da execução); um laço passo a passo, como um breakpoint (o Trace
    já mostra os valores, falta controlar a execução); um nó `check.assert` que falha quando uma condição não vale (a

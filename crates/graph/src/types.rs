@@ -189,6 +189,10 @@ pub struct OpSignature {
     /// algebra's script).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outputs_from: Option<String>,
+    /// Settings that list the node's outputs, with the type of what each names: a list of names, or an object whose
+    /// keys are the names (the plugins' `outputs` and `table_outputs`). Used in place of `outputs` when they name any.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outputs_listed: Vec<(String, Type)>,
     /// A modeller's advice on its use: what to watch, where a choice is easy to get wrong (empty: none).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub advice: String,
@@ -207,6 +211,7 @@ impl OpSignature {
             extra: None,
             together: false,
             outputs_from: None,
+            outputs_listed: Vec::new(),
             advice: String::new(),
         }
     }
@@ -255,14 +260,33 @@ impl OpSignature {
         self
     }
 
-    /// The outputs of a node of this operator: those its script declares, or the operator's.
+    /// The node's outputs are the names listed by the setting `param` (a list, or an object's keys), of type `ty`.
+    pub fn outputs_listed(mut self, param: &str, ty: Type) -> Self {
+        self.outputs_listed.push((param.to_string(), ty));
+        self
+    }
+
+    /// The outputs of a node of this operator: those its script declares or its settings list, or the operator's.
     pub fn outputs_of(&self, n: &crate::Node) -> Vec<PortSpec> {
         let declared = match &self.outputs_from {
             Some(p) => n.params.get(p).and_then(|v| v.as_str()).map(declared_outputs).unwrap_or_default(),
             None => Vec::new(),
         };
         if declared.is_empty() {
-            return self.outputs.clone();
+            let mut listed: Vec<PortSpec> = Vec::new();
+            for (p, ty) in &self.outputs_listed {
+                let names: Vec<&str> = match n.params.get(p) {
+                    Some(serde_json::Value::Array(a)) => a.iter().filter_map(|v| v.as_str()).collect(),
+                    Some(serde_json::Value::Object(o)) => o.keys().map(String::as_str).collect(),
+                    _ => Vec::new(),
+                };
+                for name in names {
+                    if !listed.iter().any(|l| l.name == name) {
+                        listed.push(PortSpec::new(name, *ty, &format!("an output the node lists in {p}")));
+                    }
+                }
+            }
+            return if listed.is_empty() { self.outputs.clone() } else { listed };
         }
         declared.iter().map(|o| PortSpec::new(o, Type::Any, "an output of the script (out)")).collect()
     }
