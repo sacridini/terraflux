@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Vector features for Terraflux's tests of the vector operators and of planning units of polygons: the polygons of
-landschaft's optimize cases (tests/optimize_cases.py: the planning units prioritizr's references were made with, the
+the library's optimize cases (tests/optimize_cases.py: the planning units prioritizr's references were made with, the
 shapes of exactextractr's) as GeoPackages in tests/data/reference/vectors, and a layer of polygons, lines and points;
-landschaft's rasterize and zonal_stats of them on the cases' grid into vectors_reference.npz and .json:
+the library's rasterize and zonal_stats of them on the cases' grid into vectors_reference.npz and .json:
 
     python tools/make_vector_inputs.py
 """

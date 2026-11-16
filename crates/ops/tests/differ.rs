@@ -1,4 +1,4 @@
-//! diffeR's comparisons at coarser resolutions against landschaft's (tests/data/reference/differ.npz and .json,
+//! diffeR's comparisons at coarser resolutions against the library's (tests/data/reference/differ.npz and .json,
 //! tools/make_differ_reference.py): memberships, the composite cross-tabulation, differenceMR (factors, percent,
 //! a population), MAD (strata, resolutions) and sample2pop, to the bit.
 
@@ -35,7 +35,7 @@ fn table(cols: &[&str], data: &[f64]) -> Value {
 }
 
 #[test]
-fn differ_is_landschafts() {
+fn differ_matches_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("differ.npz")).unwrap();
     let meta: serde_json::Value =

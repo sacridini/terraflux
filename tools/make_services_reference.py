@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's InVEST models give, for Terraflux's tests: every case of landschaft's InVEST references
+"""What the library's InVEST models give, for Terraflux's tests: every case of the library's InVEST references
 (extern/terraflux-py/tests/data/reference/invest: carbon, habitat quality, annual water yield, sediment delivery
-ratio), run as landschaft's tests run them; the inputs as landschaft reads them (missing cells NaN) and the
+ratio), run as the library's tests run them; the inputs as terraflux-py reads them (missing cells NaN) and the
 outputs written to tests/data/reference/services.npz (and the cases' settings to services.json):
 
     python tools/make_services_reference.py
 
-Run with the landschaft the submodule points at installed.
+Run with the library the submodule points at installed.
 """
 
 from __future__ import annotations

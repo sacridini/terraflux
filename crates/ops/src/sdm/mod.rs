@@ -1,4 +1,4 @@
-//! Species distribution modelling from landschaft's sdm module: how far new conditions lie from a model's
+//! Species distribution modelling from the library's sdm module: how far new conditions lie from a model's
 //! (MESS, MOP, ExDet) and how well a model separates presences from the background (AUC, thresholds, Boyce,
 //! omission rates).
 
@@ -1364,7 +1364,7 @@ impl Operator for Fit {
             }
             k => return Err(bad(args, format!("model: maxnet, glm or random_forest, not {k:?}"))),
         };
-        // the records' weights (landschaft's dataset's): a weight column, or balanced
+        // the records' weights (the library's dataset's): a weight column, or balanced
         let given = record_columns(args, "records")?;
         let weights: Option<Vec<f64>> = match given.names.iter().position(|n| n == "weight") {
             Some(k) => Some(given.columns[k].clone()),

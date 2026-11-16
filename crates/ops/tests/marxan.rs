@@ -1,6 +1,6 @@
-//! prioritize.marxan against Marxan 4.0.6: the runs landschaft keeps (extern/terraflux-py/tests/data/reference/
+//! prioritize.marxan against Marxan 4.0.6: the runs terraflux-py keeps (extern/terraflux-py/tests/data/reference/
 //! optimize/marxan.npz) of the tables of its cases (tests/data/reference/marxan_inputs.json,
-//! tools/make_marxan_inputs.py), compared as landschaft's test_prioritize_marxan.py does: the reserves of every
+//! tools/make_marxan_inputs.py), compared as the library's test_prioritize_marxan.py does: the reserves of every
 //! run exactly; the summary exactly for the corrected executable, to its 6 printed digits for the released one.
 
 use std::path::Path;

@@ -1,4 +1,4 @@
-//! Occurrence records from GBIF's occurrence search API (landschaft's download_gbif): the species matched to
+//! Occurrence records from GBIF's occurrence search API (the library's download_gbif): the species matched to
 //! GBIF's backbone (a synonym gives the accepted name's records), the pages of 300 records asked a few at a time
 //! (up to the API's 100 000), the Darwin Core terms kept, by GDAL's HTTP.
 
@@ -85,7 +85,7 @@ pub struct Query {
     pub workers: usize,
 }
 
-/// Python's repr of a float (the WKT of the box as landschaft writes it).
+/// Python's repr of a float (the WKT of the box as terraflux-py writes it).
 fn py_float(v: f64) -> String {
     let s = format!("{v:?}");
     if s.contains('e') {

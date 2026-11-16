@@ -4648,7 +4648,7 @@ mod tests {
             }
             _ => panic!("no map {port}"),
         };
-        // (the means and the sum of the script of this template in landschaft 1.58.1, run in Python: the same project)
+        // (the means and the sum of the script of this template in terraflux-py 1.58.1, run in Python: the same project)
         let close = |a: f64, b: f64, what: &str| assert!((a - b).abs() <= 1e-6 * b.abs(), "{what}: {a} against {b}");
         close(mean("sediment.map"), 123.2539025273669, "sediment");
         let runoff = mean("runoff.map");

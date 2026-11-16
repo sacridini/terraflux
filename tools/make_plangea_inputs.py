@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The maps plangea's reference outputs were made from, for Terraflux's tests of the restoration operators.
 
-landschaft keeps plangea's outputs (extern/terraflux-py/tests/data/reference/plangea) of maps its tests draw with
+terraflux-py keeps plangea's outputs (extern/terraflux-py/tests/data/reference/plangea) of maps its tests draw with
 numpy (tests/plangea_cases.py); this writes those maps into tests/data/reference/plangea_inputs.npz, and the
 names and tables into plangea_inputs.json:
 
@@ -25,7 +25,7 @@ REF = ROOT / "extern" / "terraflux-py" / "tests" / "data" / "reference" / "plang
 
 
 def footprint(spec):
-    """As landschaft's test_plangea_reference._footprint."""
+    """As the library's test_plangea_reference._footprint."""
     h = pc.footprint(spec["shape"], spec["seed"], spec.get("low", 0.0), nan=not spec.get("gradient"))
     if spec.get("gradient"):
         h[3, 4] = np.nan

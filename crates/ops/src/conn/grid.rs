@@ -1,5 +1,5 @@
 //! Connectivity on a grid of cells over a region (Makurhini's make_grid, MK_Connect_grid and MK_dECA_grid, as
-//! landschaft ports them): hexagons (sf's st_make_grid) or squares over a region, ProtConn or PC per cell, and
+//! terraflux-py ports them): hexagons (sf's st_make_grid) or squares over a region, ProtConn or PC per cell, and
 //! the change of ECA per cell between times.
 
 use terraflux_gdal::Geos;
@@ -13,7 +13,7 @@ use super::vector::{centroids, gdal_areas};
 
 const QUAD_SEGS: i32 = 30;
 
-/// R's seq(start, stop, by) as landschaft's _r_seq.
+/// R's seq(start, stop, by) as the library's _r_seq.
 fn r_seq(start: f64, stop: f64, by: f64) -> Vec<f64> {
     let n = ((stop - start) / by + 1e-10) as i64;
     (0..=n).map(|k| (start + k as f64 * by).min(stop)).collect()
@@ -185,7 +185,7 @@ pub fn grid_vector(cells: Vec<Geometry>, crs: Option<String>) -> Vector {
     }
 }
 
-/// The PC of a cell's dissolved protected areas (landschaft's _pc_cell): Protected_surface, LA, ECA,
+/// The PC of a cell's dissolved protected areas (the library's _pc_cell): Protected_surface, LA, ECA,
 /// ECA_Normalized, PC.
 fn pc_cell(
     nodes: &[Geometry],
@@ -237,7 +237,7 @@ pub struct GridSettings<'a> {
     pub pij_min: Option<f64>,
 }
 
-/// Makurhini's MK_Connect_grid (landschaft's connectivity_grid): per cell of the grid, ProtConn's indicators
+/// Makurhini's MK_Connect_grid (the library's connectivity_grid): per cell of the grid, ProtConn's indicators
 /// (but ProtUnconn_Design and ProtConn_Bound) or the PC of its protected areas.
 pub fn connectivity_grid(
     protected: &[Geometry],
@@ -310,7 +310,7 @@ pub fn connectivity_grid(
     Ok(out)
 }
 
-/// A habitat graph of features as landschaft's from_vector by default (areas, centroid distances).
+/// A habitat graph of features as the library's from_vector by default (areas, centroid distances).
 fn graph_of(geoms: &[Geometry], f: f64) -> Result<HabitatGraph, String> {
     let areas = gdal_areas(geoms)?;
     let attr: Vec<f64> = areas.iter().map(|a| a * f).collect();
@@ -333,7 +333,7 @@ pub struct ChangeSettings<'a> {
     pub area_unit: &'a str,
 }
 
-/// Makurhini's MK_dECA_grid (landschaft's eca_change_grid): per cell and pair of consecutive times, the ECA of
+/// Makurhini's MK_dECA_grid (the library's eca_change_grid): per cell and pair of consecutive times, the ECA of
 /// each and their change (the habitat clipped to the cell, its graph per time).
 pub fn eca_change_grid(times: &[&Vector], grid: &Vector, s: &ChangeSettings) -> Result<Vector, String> {
     if times.len() < 2 {

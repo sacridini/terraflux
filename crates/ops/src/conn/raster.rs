@@ -1,4 +1,4 @@
-//! Habitat-graph nodes and distances from a raster of patches (landschaft's node_table and distance_table, as
+//! Habitat-graph nodes and distances from a raster of patches (the library's node_table and distance_table, as
 //! Makurhini's nodesfile and distancefile): the patches' areas (or an attribute), the distances between their
 //! centroids or edges, least-cost distances over a resistance (gdistance's) and commute times, with the
 //! Euclidean distance for the pairs a resistance does not join.
@@ -22,7 +22,7 @@ pub const AREA_UNITS: [(&str, f64); 8] = [
 ];
 pub const DISTANCE_UNITS: [(&str, f64); 6] =
     [("m", 1.0), ("km", 0.001), ("inch", 39.3701), ("foot", 3.28084), ("yard", 1.09361), ("mile", 0.000621371)];
-/// The memory the threads of the least-cost search may take (landschaft's).
+/// The memory the threads of the least-cost search may take (the library's).
 const COST_MEMORY: f64 = 8e9;
 
 pub fn factor(table: &[(&str, f64)], unit: &str, what: &str) -> Result<f64, String> {
@@ -182,7 +182,7 @@ pub fn distance_table(p: &Patches, o: &DistanceOptions) -> Result<PairTable, Str
     Ok(out)
 }
 
-/// The cell of each point (-1 outside), as landschaft's cells_of.
+/// The cell of each point (-1 outside), as the library's cells_of.
 fn cells_of(x: &[f64], y: &[f64], ny: usize, nx: usize, e: [f64; 4]) -> Vec<i64> {
     let [xmin, xmax, ymin, ymax] = e;
     let yres_inv = ny as f64 / (ymax - ymin);

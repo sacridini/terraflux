@@ -1,7 +1,7 @@
 //! Vector features: read and written by OGR (GDAL), burnt into maps, their zones' statistics and the exact sums of
-//! maps over polygons, and distances to them. Polygons are burnt as GDAL's rasterizer does through landschaft's
-//! C++ port of it (`lsio::polygon_runs`, the same cells), lines by GDAL, points by their cell, as landschaft's
-//! rasterize; the exact sums are exactextract's (landschaft's port of it, exactextractr's bits).
+//! maps over polygons, and distances to them. Polygons are burnt as GDAL's rasterizer does through the library's
+//! C++ port of it (`lsio::polygon_runs`, the same cells), lines by GDAL, points by their cell, as the library's
+//! rasterize; the exact sums are exactextract's (the library's port of it, exactextractr's bits).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -129,7 +129,7 @@ pub fn on_grid(v: &Arc<Vector>, grid: &Grid) -> Result<Arc<Vector>> {
     Ok(Arc::new(terraflux_gdal::reproject_vector(v, &to).map_err(Error::msg)?))
 }
 
-/// The polygons of the geometries as GDAL's rasterizer and landschaft's kernels take them: the points (x, y
+/// The polygons of the geometries as GDAL's rasterizer and the library's kernels take them: the points (x, y
 /// pairs), the rings' offsets, and per geometry its rings (every ring of every polygon), each ring clockwise.
 pub fn polygon_arrays(geoms: &[&Geometry]) -> (Vec<f64>, Vec<i64>, Vec<i64>) {
     let (mut xy, mut ring_off, mut geom_rings) = (Vec::new(), vec![0i64], vec![0i64]);
@@ -541,7 +541,7 @@ impl Operator for Rasterize {
     }
 }
 
-/// landschaft's statistics of zones by name, and their codes in lsio::zonal_stats.
+/// The library's statistics of zones by name, and their codes in lsio::zonal_stats.
 pub(crate) fn stat_code(s: &str) -> Option<(i32, f64)> {
     Some(match s {
         "count" => (0, 0.0),
@@ -624,7 +624,7 @@ fn stats_of(args: &Args) -> Result<Vec<String>> {
     Ok(stats)
 }
 
-/// landschaft's zonal_stats of layers in polygons: a row per feature (1..), a column per statistic (of every
+/// The library's zonal_stats of layers in polygons: a row per feature (1..), a column per statistic (of every
 /// layer: <layer>_<statistic> when there are several). Whole, or by strips of `budget` cells of a layer.
 fn zonal_table(
     geoms: &[&Geometry],
@@ -1168,7 +1168,7 @@ fn round8(x: f64) -> f64 {
     (x * 1e8).round_ties_even() / 1e8
 }
 
-/// prioritizr's boundary_matrix of polygons (landschaft's): the length of the boundary every two units share
+/// prioritizr's boundary_matrix of polygons (the library's): the length of the boundary every two units share
 /// (their boundaries' common paths) and every unit's perimeter on the diagonal, rounded to 8 decimals; both
 /// triangles, the zeros left out.
 pub fn boundary_matrix(geoms: &[Geometry]) -> crate::milp::Matrix {
@@ -1239,7 +1239,7 @@ fn inside(g: &Geometry, p: [f64; 2]) -> bool {
     })
 }
 
-/// prioritizr's adjacency_matrix of polygons (landschaft's): 1 for every two units that intersect (touching at a
+/// prioritizr's adjacency_matrix of polygons (the library's): 1 for every two units that intersect (touching at a
 /// corner included); both triangles.
 pub fn adjacency_matrix(geoms: &[Geometry]) -> crate::milp::Matrix {
     let n = geoms.len();

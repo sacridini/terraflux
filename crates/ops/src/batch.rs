@@ -1,4 +1,4 @@
-//! Batch processing (landschaft's batch module, GuidosToolbox's File -> Batch Process): an operator run on many
+//! Batch processing (the library's batch module, GuidosToolbox's File -> Batch Process): an operator run on many
 //! rasters in parallel, one raster per worker, its outputs written next to each other with the input's name.
 
 use std::path::{Path, PathBuf};
@@ -19,7 +19,7 @@ pub fn register(r: &mut Registry) {
 const RASTER_SUFFIXES: [&str; 2] = ["tif", "tiff"];
 
 /// The files of a directory (its GeoTIFFs, sorted), a glob pattern or a path, or a list of them, without
-/// duplicates (landschaft's expand_sources).
+/// duplicates (the library's expand_sources).
 pub fn expand_sources(items: &[String], recursive: bool) -> Result<Vec<PathBuf>> {
     let mut paths: Vec<PathBuf> = Vec::new();
     for item in items {

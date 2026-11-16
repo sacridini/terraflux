@@ -1,5 +1,5 @@
-//! FUTURES' patch growing (r.futures.simulation; landschaft's `PatchGrowing`), with its flood submodel
-//! (landschaft's `Flooding`): `futures.simulation`, every step in one run of landschaft's C++.
+//! FUTURES' patch growing (r.futures.simulation; the library's `PatchGrowing`), with its flood submodel
+//! (the library's `Flooding`): `futures.simulation`, every step in one run of the library's C++.
 //!
 //! The pieces are the model's (the potential's coefficients per subregion, the demand per subregion, the patch
 //! libraries, the starting development pressure, zoning, floods); this module prepares them as
@@ -173,7 +173,7 @@ fn clip_index(k: i32) -> usize {
     k.max(0) as usize
 }
 
-/// The flood submodel's inputs (landschaft's `Flooding._inputs`); the cells it leaves out added to `null`.
+/// The flood submodel's inputs (the library's `Flooding._inputs`); the cells it leaves out added to `null`.
 #[allow(clippy::too_many_arguments)]
 fn climate_inputs(
     c: &ClimateSpec,
@@ -339,7 +339,7 @@ pub struct Run {
     pub info: Vec<Table>,
 }
 
-/// FUTURES as landschaft's `PatchGrowing.simulate`.
+/// FUTURES as the library's `PatchGrowing.simulate`.
 pub fn simulate(ctx: &mut Ctx, s: &Settings, args: &Args) -> Result<Run> {
     let land = args.map("landscape")?;
     let n = land.data.len();

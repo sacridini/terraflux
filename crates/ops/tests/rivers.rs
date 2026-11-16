@@ -1,5 +1,5 @@
 //! Rivers as a network (hydro.snap, hydro.upstream, hydro.upstream_catchment) against the kernels of hydro that
-//! are landschaft's to the bit: the land upstream of a cell is what the D8 accumulation sums there, and a point's
+//! are the library's to the bit: the land upstream of a cell is what the D8 accumulation sums there, and a point's
 //! catchment is hydro.watersheds of that point alone. On the DEMs of tests/data/reference/hydro.npz.
 
 use std::path::Path;

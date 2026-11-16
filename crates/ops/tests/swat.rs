@@ -1,4 +1,4 @@
-//! SWAT+ against landschaft's (tests/data/reference/swat.npz, tools/make_swat_reference.py): the Hubbard Brook W2
+//! SWAT+ against the library's (tests/data/reference/swat.npz, tools/make_swat_reference.py): the Hubbard Brook W2
 //! example run at every step, the tables SWAT+ prints and the daily weather, to the bit.
 
 use std::path::Path;
@@ -48,7 +48,7 @@ fn tables_equal(a: &Outputs, b: &Outputs, ports: &[&str]) -> usize {
 }
 
 #[test]
-fn swat_is_landschafts() {
+fn swat_matches_the_library() {
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/swat.npz")).unwrap();
     let meta: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/swat.json")).unwrap()).unwrap();
@@ -99,7 +99,7 @@ fn a_run_takes_a_project_or_a_path_not_neither_nor_both() {
 }
 
 #[test]
-fn set_is_landschafts_calibration() {
+fn set_matches_the_library_calibration() {
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/swat_set.npz")).unwrap();
     let meta: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/swat_set.json")).unwrap())
@@ -200,7 +200,7 @@ fn reference() -> (BTreeMap<String, Array>, serde_json::Value) {
     (z, meta)
 }
 
-/// A grid from landschaft's extent (xmin, xmax, ymin, ymax) and shape, in a projected CRS.
+/// A grid from the library's extent (xmin, xmax, ymin, ymax) and shape, in a projected CRS.
 fn grid_of(epsg: u64, shape: &serde_json::Value, extent: &serde_json::Value) -> Arc<Grid> {
     let sh: Vec<usize> = shape.as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as usize).collect();
     let e: Vec<f64> = extent.as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
@@ -270,7 +270,7 @@ fn land(z: &BTreeMap<String, Array>, meta: &serde_json::Value, name: &str) -> La
     Land { inputs, grid, regrid, meta: m.clone() }
 }
 
-/// The inputs of a case and its settings, as the reference script gives them to landschaft.
+/// The inputs of a case and its settings, as the reference script gives them to terraflux-py.
 fn case_inputs(land: &Land, case: &serde_json::Value) -> (Vec<(&'static str, Value)>, serde_json::Value) {
     let mut inputs = land.inputs.clone();
     let put = |inputs: &mut Vec<(&'static str, Value)>, k: &'static str, v: Value| {
@@ -314,10 +314,10 @@ fn watershed(inputs: &[(&'static str, Value)], params: serde_json::Value) -> Res
     op("swat.watershed", &refs, params)
 }
 
-/// The columns whose degrees come out of a coordinate transformation (PROJ 9.5 for landschaft, 9.7 here).
+/// The columns whose degrees come out of a coordinate transformation (PROJ 9.5 for terraflux-py, 9.7 here).
 const DEGREES: [&str; 4] = ["lat", "lon", "midlat", "midlon"];
 
-/// Compare a table with landschaft's: every number bit for bit (the degrees within `tol`), text as it is. Returns
+/// Compare a table with the library's: every number bit for bit (the degrees within `tol`), text as it is. Returns
 /// the largest difference of the degrees.
 fn same_table(case: &str, name: &str, t: &Table, z: &Array, spec: &serde_json::Value, tol: f64) -> f64 {
     let columns: Vec<&str> = spec["columns"].as_array().unwrap().iter().map(|c| c.as_str().unwrap()).collect();
@@ -347,7 +347,7 @@ fn same_table(case: &str, name: &str, t: &Table, z: &Array, spec: &serde_json::V
 }
 
 #[test]
-fn watershed_is_landschafts() {
+fn watershed_matches_the_library() {
     let (z, meta) = reference();
     let lands: BTreeMap<String, Land> = ["syn", "ex"].iter().map(|n| (n.to_string(), land(&z, &meta, n))).collect();
     let mut worst = 0.0f64;
@@ -403,7 +403,7 @@ fn close(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1.0)
 }
 
-/// landschaft's test_watershed_tables_add_up, on its synthetic valley.
+/// The library's test_watershed_tables_add_up, on its synthetic valley.
 #[test]
 fn watershed_tables_add_up() {
     let (l, case) = syn_case("syn_filter_options");
@@ -439,7 +439,7 @@ fn watershed_tables_add_up() {
     assert!(seen.is_subset(&ids));
 }
 
-/// landschaft's test_hru_methods.
+/// The library's test_hru_methods.
 #[test]
 fn watershed_hru_methods_nest() {
     let (l, base) = syn_case("syn_dominant_hru");
@@ -491,7 +491,7 @@ fn watershed_is_written_and_read_back_as_it_was() {
 }
 
 #[test]
-fn watershed_refuses_what_landschaft_refuses() {
+fn watershed_refuses_what_the_library_refuses() {
     let (l, case) = syn_case("syn_dominant_hru");
     let (mut inputs, params) = case_inputs(&l, &case);
     let err = |inputs: &[(&'static str, Value)], params: serde_json::Value| {
@@ -563,7 +563,7 @@ fn strings(v: &serde_json::Value) -> Vec<String> {
     v.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect()
 }
 
-/// The watershed of a case as landschaft made it (its tables; the grids are one cell).
+/// The watershed of a case as terraflux-py made it (its tables; the grids are one cell).
 fn ref_watershed(z: &BTreeMap<String, Array>, meta: &serde_json::Value, key: &str) -> Arc<Watershed> {
     let mut tables = Vec::new();
     for (t, spec) in meta["watersheds"][key].as_object().unwrap() {
@@ -624,7 +624,7 @@ fn project_params(rec: &serde_json::Value) -> serde_json::Value {
     if let Some(m) = rec.get("monthly").filter(|m| !m.is_null()) {
         p.insert("monthly".into(), m.clone());
     }
-    // the references were written by the library as landschaft, whose default project name it was (now terraflux)
+    // the references were written by the library as terraflux-py, whose default project name it was (now terraflux)
     p.entry("name").or_insert_with(|| "landschaft".into());
     serde_json::Value::Object(p)
 }
@@ -649,7 +649,7 @@ fn stored(z: &BTreeMap<String, Array>, case: &str, name: &str) -> Vec<u8> {
     z[&format!("{case}/file/{name}")].data.iter().map(|b| *b as u8).collect()
 }
 
-/// Every file of the project against landschaft's, byte for byte but for the first line (the date it was written);
+/// Every file of the project against the library's, byte for byte but for the first line (the date it was written);
 /// the files the editor writes the same for every project by their hash. Returns the files compared.
 fn same_files(case: &str, p: &Project, z: &BTreeMap<String, Array>, rec: &serde_json::Value) -> usize {
     let mut names: Vec<&str> = p.files.iter().map(|(n, _)| n.as_str()).collect();
@@ -678,7 +678,7 @@ fn same_files(case: &str, p: &Project, z: &BTreeMap<String, Array>, rec: &serde_
 }
 
 #[test]
-fn from_tables_writes_landschafts_files() {
+fn from_tables_writes_the_librarys_files() {
     let (z, meta) = project_reference();
     let mut files = 0;
     for rec in meta["cases"].as_array().unwrap() {
@@ -756,7 +756,7 @@ fn wgn_of(inputs: &[(&str, &Value)], params: serde_json::Value) -> Result<Table,
     }
 }
 
-/// The statistics against landschaft's, number for number: how many differ at all, and by how much.
+/// The statistics against the library's, number for number: how many differ at all, and by how much.
 fn wgn_diff(t: &Table, want: &Array, what: &str) -> (usize, f64) {
     assert_eq!(t.columns.len(), 17, "{what}");
     assert_eq!(t.rows.len() * 17, want.data.len(), "{what}: rows");
@@ -767,7 +767,7 @@ fn wgn_diff(t: &Table, want: &Array, what: &str) -> (usize, f64) {
 }
 
 #[test]
-fn wgn_is_landschafts_to_the_bit() {
+fn wgn_matches_the_library_to_the_bit() {
     let (z, meta) = project_reference();
     let mut checked = 0;
     for c in meta["wgn_cases"].as_array().unwrap() {
@@ -796,7 +796,7 @@ fn wgn_is_landschafts_to_the_bit() {
     assert!(checked >= 72, "{checked} station months");
 }
 
-/// landschaft's test_weather_generator_statistics.
+/// The library's test_weather_generator_statistics.
 #[test]
 fn wgn_statistics_are_what_they_say() {
     let new = || Table::new(vec!["date".into(), "a".into()]);
@@ -842,7 +842,7 @@ fn wgn_statistics_are_what_they_say() {
 }
 
 #[test]
-fn from_tables_refuses_what_landschaft_refuses() {
+fn from_tables_refuses_what_the_library_refuses() {
     let (z, meta) = project_reference();
     let rec = meta["cases"].as_array().unwrap().iter().find(|c| c["name"] == "syn").unwrap();
     let w = ref_watershed(&z, &meta, "syn");
@@ -882,9 +882,9 @@ fn from_tables_refuses_what_landschaft_refuses() {
     assert!(e.contains("wetland"), "{e}");
 }
 
-/// The chain of operators (swat.watershed, swat.from_tables, swat.run) against landschaft's from_rasters and run.
+/// The chain of operators (swat.watershed, swat.from_tables, swat.run) against the library's from_rasters and run.
 #[test]
-fn the_chain_from_rasters_runs_as_landschafts() {
+fn the_chain_from_rasters_runs_as_the_librarys() {
     let (z, meta) = project_reference();
     let (zw, wmeta) = reference();
     let lands: BTreeMap<String, Land> = ["syn", "ex"].iter().map(|n| (n.to_string(), land(&zw, &wmeta, n))).collect();
@@ -910,7 +910,7 @@ fn the_chain_from_rasters_runs_as_landschafts() {
             .filter(|(f, b)| rec["static"].get(f).is_none() && body(b) != stored(&z, n, f).as_slice())
             .map(|(f, _)| f.as_str())
             .collect::<Vec<_>>();
-        eprintln!("chain {n}: the files that are not byte for byte landschaft's: {differ:?}");
+        eprintln!("chain {n}: the files that are not byte for byte the library's: {differ:?}");
         let run = op("swat.run", &[("project", &project)], serde_json::json!({ "step": "year", "nyskip": 0 })).unwrap();
         for t in ["hru_wb", "hru_ls", "basin_wb", "channel_sd", "aquifer"] {
             let Value::Table(got) = &run[t] else { panic!("{n}/{t}") };
@@ -923,7 +923,7 @@ fn the_chain_from_rasters_runs_as_landschafts() {
                 for i in 0..got.rows.len() {
                     let (a, b) = (got.rows[i][j], want.data[i * width + j]);
                     bits += usize::from(!same(a, b));
-                    // landschaft's SWAT tolerance
+                    // The library's SWAT tolerance
                     assert!(
                         (a.is_nan() && b.is_nan()) || (a - b).abs() <= 1e-4 * (b.abs() + scale),
                         "{n}/{t}[{i}][{j}]: {a} against {b}"
@@ -1074,9 +1074,9 @@ fn maps_bits(case: &str, out: &Outputs, want: &Array) -> usize {
     }
 }
 
-/// Every case against landschaft's, the project run by the operator itself (no table connected), to the bit.
+/// Every case against the library's, the project run by the operator itself (no table connected), to the bit.
 #[test]
-fn swat_maps_are_landschafts() {
+fn swat_maps_match_the_library() {
     let (z, meta) = maps_reference();
     let mut compared = 0;
     for rec in meta["cases"].as_array().unwrap() {
@@ -1137,7 +1137,7 @@ fn swat_maps_read_the_run_as_they_run_it() {
         let connected = call(op_name, &inputs, &params).unwrap_or_else(|e| panic!("{n}: {e}"));
         assert_eq!(maps_bits(n, &connected, &z[n]), 0, "{n}: connected");
         assert_eq!(maps_bits(n, &own, &z[n]), 0, "{n}: by itself");
-        eprintln!("maps {n}: the table {port} connected and the project run by the node give landschaft's");
+        eprintln!("maps {n}: the table {port} connected and the project run by the node give the library's");
     }
     // a table of another print does not stand in for the one the variable is in: the node runs the project
     let (op_name, mut inputs, params) = maps_call(&rec("syn_hru_sedyld"));

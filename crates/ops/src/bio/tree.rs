@@ -1,4 +1,4 @@
-//! Phylogenetic trees (Newick, Nexus) read as Biodiverse reads them (landschaft's bio/_tree.py), and as the
+//! Phylogenetic trees (Newick, Nexus) read as Biodiverse reads them (the library's bio/_tree.py), and as the
 //! index engine takes them (bio/_phylo.py: nodes in name order, Biodiverse's trimming to the labels).
 //!
 //! Unnamed nodes get `0___`, `1___`... in the order their definition closes, duplicated names `__dup1`...,

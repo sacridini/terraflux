@@ -1,4 +1,4 @@
-//! Partitions for cross-validation against landschaft's (tests/data/reference/sdm_folds.npz and .json,
+//! Partitions for cross-validation against the library's (tests/data/reference/sdm_folds.npz and .json,
 //! tools/make_sdm_folds_reference.py): random, jackknife, quadrant, checkerboard, spatial blocks (hexagons and
 //! squares, random, systematic and checkerboard selection), clusters of the coordinates and of the predictors,
 //! and buffered folds, to the bit.
@@ -25,7 +25,7 @@ fn check(what: &str, got: &[f64], want: &[f64]) {
 }
 
 #[test]
-fn folds_are_landschafts() {
+fn folds_match_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("sdm_folds.npz")).unwrap();
     let meta: serde_json::Value =

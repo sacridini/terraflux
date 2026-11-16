@@ -1,4 +1,4 @@
-//! The matrices and rasters around prioritizr's problems (landschaft's prioritize/_milp_matrices.py,
+//! The matrices and rasters around prioritizr's problems (the library's prioritize/_milp_matrices.py,
 //! _milp_integrate.py, _zones.py): the boundary, adjacency, connectivity and proximity matrices of planning units
 //! (prioritizr's), connectivity from distances between units as a dispersal probability, a point per unit, a
 //! problem's rasters on coarser blocks and a coarse selection back on the fine grid, a raster of zone numbers as a

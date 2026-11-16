@@ -6558,7 +6558,7 @@ fn a_dataset_from_the_catalog() {
     assert!(matches!(&s.catalog.said, Some(Ok(m)) if m.starts_with("added: data_download")), "{:?}", s.catalog.said);
 }
 
-/// File > Python script (landschaft)...: the model as a script, a call of landschaft a node, in its window.
+/// File > Python script (terraflux-py)...: the model as a script, a call of terraflux-py a node, in its window.
 #[test]
 fn the_model_as_a_python_script() {
     let mut h = harness(new_app(None));

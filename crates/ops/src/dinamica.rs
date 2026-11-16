@@ -1,4 +1,4 @@
-//! Dinamica EGO's Expander and Patcher (landschaft's `ExpanderPatcher`): `patches.observe`, `dinamica.step`.
+//! Dinamica EGO's Expander and Patcher (the library's `ExpanderPatcher`): `patches.observe`, `dinamica.step`.
 
 use std::sync::Arc;
 
@@ -10,7 +10,7 @@ use crate::{
     Args, Ctx, Error, Key, Map, Markov, Operator, Outputs, PatchParams, Registry, Result, Stack, Table, Value, outputs,
 };
 
-/// The patches of each transition observed between two maps (landschaft's `presets.observed_patches`).
+/// The patches of each transition observed between two maps (the library's `presets.observed_patches`).
 pub fn observe(t0: &Map, t1: &Map, transitions: &[(f64, f64)]) -> Result<Vec<terraflux_ls_sys::ObservedPatches>> {
     let (ny, nx) = t0.shape();
     transitions
@@ -19,7 +19,7 @@ pub fn observe(t0: &Map, t1: &Map, transitions: &[(f64, f64)]) -> Result<Vec<ter
         .collect()
 }
 
-/// The Expander and Patcher settings of Dinamica's classic model (landschaft's `presets.dinamica`): the
+/// The Expander and Patcher settings of Dinamica's classic model (the library's `presets.dinamica`): the
 /// Expander's share and the patch sizes of each transition measured on the observed change (or the share
 /// given), the isometry given.
 pub fn patch_params(
@@ -55,7 +55,7 @@ pub enum Rates<'a> {
     Regional(&'a Regional),
 }
 
-/// One step of the Expander and Patcher (landschaft's `ExpanderPatcher.simulate`): each transition with a rate
+/// One step of the Expander and Patcher (the library's `ExpanderPatcher.simulate`): each transition with a rate
 /// changes `round(rate x cells of its origin class)` cells, a share by the Expander. With regions, each region
 /// in the order of its id with its own rates, its cells only and a seed of its own (Dinamica's
 /// regionalization), the map carried from one region to the next.

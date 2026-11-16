@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The models landschaft compiles for corridor constraints (add_corridor_constraints), for Terraflux's bit-for-bit
-compile test (crates/ops/tests/optimize.rs `corridors_compile_is_landschafts`): the matrix, the objective, the bounds,
+"""The models terraflux-py compiles for corridor constraints (add_corridor_constraints), for Terraflux's bit-for-bit
+compile test (crates/ops/tests/optimize.rs `corridors_compile_matches_the_library`): the matrix, the objective, the bounds,
 the right-hand sides, senses, types and ids, and the corridor networks (source, terminals, edges) of a few problems
-on the rasters and the table of landschaft's optimize cases. Written to tests/data/reference/optimize_corridors.npz
-(the numbers) and optimize_corridors.json (the text and the networks). Run with the landschaft the submodule points at
+on the rasters and the table of the library's optimize cases. Written to tests/data/reference/optimize_corridors.npz
+(the numbers) and optimize_corridors.json (the text and the networks). Run with the library the submodule points at
 installed:
 
     python tools/make_corridor_reference.py

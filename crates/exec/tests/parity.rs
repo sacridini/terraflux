@@ -1,5 +1,5 @@
-//! Terraflux against landschaft: the same models give the same bits (maps of every step and the fitted
-//! pieces). The references are written by `tools/make_reference.py` with landschaft's `ls.simulate`, whose
+//! Terraflux against terraflux-py: the same models give the same bits (maps of every step and the fitted
+//! pieces). The references are written by `tools/make_reference.py` with the library's `tf.simulate`, whose
 //! allocations reproduce lulcc bit for bit.
 
 use std::collections::BTreeMap;
@@ -136,7 +136,7 @@ fn lulcc(
     let Some(Value::Demand(d)) = r.get("demand.demand") else { panic!() };
     same_bits(&format!("{case}: demand"), &d.table.concat(), &reference(case, "demand").data);
     let Some(Value::Glm(g)) = r.get("regression.model") else { panic!() };
-    // landschaft's coefficients: rows 1, 2, 3; columns the intercept, elevation, slope, dist_built_1985
+    // The library's coefficients: rows 1, 2, 3; columns the intercept, elevation, slope, dist_built_1985
     let cols = ["elevation", "slope", "dist_built_1985"];
     let mut coef = Vec::new();
     for f in &g.fits {

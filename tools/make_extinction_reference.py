@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""landschaft's minimum extinction risk objective (add_min_extinction_risk_objective, its extension of prioritizr)
+"""The library's minimum extinction risk objective (add_min_extinction_risk_objective, its extension of prioritizr)
 and its evaluation, for Terraflux's tests of prioritize.optimize and prioritize.evaluate: the models compiled (on
-the rasters of landschaft's optimize cases, tests/data/reference/optimize_inputs.npz and optimize_zones.npz), their
+the rasters of the library's optimize cases, tests/data/reference/optimize_inputs.npz and optimize_zones.npz), their
 optima, and the extinction risk of the solutions; written to tests/data/reference/optimize_extinction.json:
 
     python tools/make_extinction_reference.py

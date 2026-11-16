@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's accessible area gives, for Terraflux's tests, written to tests/data/reference/sdm_area.gpkg (a
-layer per case with landschaft's polygon, and the inputs) and sdm_area.json:
+"""What the library's accessible area gives, for Terraflux's tests, written to tests/data/reference/sdm_area.gpkg (a
+layer per case with the library's polygon, and the inputs) and sdm_area.json:
 
     python tools/make_sdm_area_reference.py
 

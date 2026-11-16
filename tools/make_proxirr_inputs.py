@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The inputs of R proxirr's reference outputs, for Terraflux's tests of prioritize.proxirr.
 
-landschaft keeps proxirr 0.5's outputs (extern/terraflux-py/tests/data/reference/optimize/proxirr.npz) of inputs
+terraflux-py keeps proxirr 0.5's outputs (extern/terraflux-py/tests/data/reference/optimize/proxirr.npz) of inputs
 its tests build with numpy (tests/optimize_cases.py); this writes them (the kernel's entries, and Marxan's tables
 as Terraflux's tables) into tests/data/reference/proxirr_inputs.json:
 

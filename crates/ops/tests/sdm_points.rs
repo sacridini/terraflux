@@ -1,4 +1,4 @@
-//! Thinning, a record per cell and background points against landschaft's (tests/data/reference/sdm_points.npz,
+//! Thinning, a record per cell and background points against the library's (tests/data/reference/sdm_points.npz,
 //! .json and .gpkg, tools/make_sdm_points_reference.py): spThin's thinning, one record per cell with and without
 //! the missing cells, and background points on a lon/lat grid (by the cells' widths, a band of distances, an
 //! envelope, a bias, an area) and a projected one, to the bit.
@@ -31,7 +31,7 @@ fn rows(v: &Value) -> Vec<f64> {
 }
 
 #[test]
-fn points_are_landschafts() {
+fn points_match_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("sdm_points.npz")).unwrap();
     let meta: serde_json::Value =

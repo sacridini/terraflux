@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's preparation of a species distribution model gives, for Terraflux's tests, written to
-tests/data/reference/sdm_prepare.npz and .json (the records are sdm_area_bradypus.csv, the predictors landschaft's
+"""What the library's preparation of a species distribution model gives, for Terraflux's tests, written to
+tests/data/reference/sdm_prepare.npz and .json (the records are sdm_area_bradypus.csv, the predictors the library's
 bioclim):
 
     python tools/make_sdm_prepare_reference.py
 
-Bradypus' records over the bioclimatic layers: the steps of landschaft's own test (one per cell, thinning, the
+Bradypus' records over the bioclimatic layers: the steps of the library's own test (one per cell, thinning, the
 area of a buffer, the predictors, background points, spatial blocks), the defaults without cleaning, cleaning
-without the sea, an area given as polygons (landschaft's own buffer), the other kinds of folds, blocks of the
+without the sea, an area given as polygons (the library's own buffer), the other kinds of folds, blocks of the
 autocorrelation range. Per case the records (x, y, presence, the predictors, the fold), the predictors kept and
 the report.
 """

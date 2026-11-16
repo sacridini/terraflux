@@ -1,8 +1,8 @@
-//! landschaft's engines for the models with pair terms, in front of HiGHS as landschaft's `_highs_or_cut`
+//! The library's engines for the models with pair terms, in front of HiGHS as the library's `_highs_or_cut`
 //! (prioritize/_milp_solve.py) puts them: a minimum set with boundary penalties or symmetric connectivity rewards
 //! on the cut engine (a Lagrangian bound by minimum cuts, repaired selections), a budgeted minimisation with pair
 //! penalties on the closure engine, then HiGHS's MIP from their solution when the gap is not reached and the
-//! model is small enough; so a model solves here as fast as in landschaft, to the same plan.
+//! model is small enough; so a model solves here as fast as in terraflux-py, to the same plan.
 
 use terraflux_ls_sys::ffi;
 
@@ -11,7 +11,7 @@ use super::{Model, current_watch};
 /// Models up to this many columns go on to HiGHS's MIP when the cut engine stops short of the gap.
 const CUT_HIGHS_COLUMNS: usize = 50_000;
 
-/// The pair columns of a model in landschaft's form: every column past the units a pair `b = x_i x_j`,
+/// The pair columns of a model in the library's form: every column past the units a pair `b = x_i x_j`,
 /// linearised by prioritizr's rows `b <= x_i`, `b <= x_j` (and `b >= x_i + x_j - 1`); the rows on the units alone
 /// apart. `pi`, `pj`: the pairs' units (the smaller first), `q`: their objective.
 struct Pairs {
@@ -22,7 +22,7 @@ struct Pairs {
     side: Vec<usize>,
 }
 
-/// `m`'s pair columns and side rows (landschaft's marxan_model and closure_model, their common part), or None.
+/// `m`'s pair columns and side rows (the library's marxan_model and closure_model, their common part), or None.
 fn pairs(m: &Model, n: usize) -> Option<Pairs> {
     if m.maximize || !m.vtype[..n].iter().all(|&t| t == 'B') {
         return None;
@@ -96,7 +96,7 @@ pub(super) fn by_unit(m: &Model, n: usize, rows: &[usize]) -> (Vec<i64>, Vec<i32
 
 /// A minimum set in Marxan's form (BLM 1) for the cut engine: the units' costs (with half of every pair's
 /// objective), their status (2 locked in, 3 locked out), the targets by unit and the boundaries `-q / 2`; None
-/// when the cut engine does not take the model (landschaft's cut_applies).
+/// when the cut engine does not take the model (the library's cut_applies).
 struct Marxan {
     cost: Vec<f64>,
     status: Vec<i32>,
@@ -151,7 +151,7 @@ fn cut_applies(m: &Model, n: usize) -> Option<Marxan> {
     Some(Marxan { cost, status, offset, spindex, amount, target, pairs: p, bound })
 }
 
-/// Every unit's neighbours and boundaries, both directions, a pair given twice summed (landschaft's _neighbours).
+/// Every unit's neighbours and boundaries, both directions, a pair given twice summed (the library's _neighbours).
 fn neighbours(n: usize, p: &Pairs, bound: &[f64]) -> (Vec<i64>, Vec<i32>, Vec<f64>) {
     let mut per: Vec<Vec<(i32, f64)>> = vec![Vec::new(); n];
     for k in 0..p.pi.len() {
@@ -246,7 +246,7 @@ fn solve_cut(
     Ok(result(m, n, &mm.pairs, out, gap))
 }
 
-/// A budgeted minimisation with pair penalties for the closure engine (landschaft's closure_model): binary
+/// A budgeted minimisation with pair penalties for the closure engine (the library's closure_model): binary
 /// units, pair terms that are penalties (q <= 0: w = -q / 2 both ways, -w on both units' costs), rows on the
 /// units alone with amounts >= 0, >= (targets) or <= (budgets).
 fn solve_closure(
@@ -320,7 +320,7 @@ fn solve_closure(
     Some(out.map_err(|e| e.what().to_string()).map(|o| result(m, n, &p, o, gap)))
 }
 
-/// A minimum set with zones and pair terms for the zones cut engine (landschaft's zone_cut_model): unit-zone columns
+/// A minimum set with zones and pair terms for the zones cut engine (the library's zone_cut_model): unit-zone columns
 /// with their costs, every pair column `q x_a x_b` with q < 0 as `w [x_a != x_b]` (w = -q / 2, q / 2 on both
 /// columns), the targets by column.
 struct ZoneCut {
@@ -440,14 +440,14 @@ fn zone_cut_model(m: &Model, n: usize, nz: usize) -> Option<ZoneCut> {
     })
 }
 
-/// Whether the zones cut engine takes `m` (landschaft's `zone_cut_model(m, ...) is not None` in solve_model).
+/// Whether the zones cut engine takes `m` (the library's `zone_cut_model(m, ...) is not None` in solve_model).
 pub(super) fn zone_cut_applies(m: &Model) -> bool {
     let units = m.col_ids.iter().filter(|c| *c == "pu").count();
     m.zone_units > 0 && m.obj.len() > units && zone_cut_model(m, m.zone_units, units / m.zone_units).is_some()
 }
 
 /// A minimum set with zones and pair terms on the zones cut engine, then HiGHS's MIP from its solution when the gap
-/// is not reached and the model is small enough (landschaft's solve_zone_cut; `highs`: without the units, as there);
+/// is not reached and the model is small enough (the library's solve_zone_cut; `highs`: without the units, as there);
 /// None when the engine does not take the model.
 pub(super) fn zone_cut(
     m: &Model,
@@ -547,7 +547,7 @@ pub(super) fn zone_cut(
 }
 
 /// A model with pair terms on the cut or closure engine, then HiGHS's MIP from their solution when the gap is
-/// not reached and the model is small enough (landschaft's _highs_or_cut); None when neither engine takes it (the
+/// not reached and the model is small enough (the library's _highs_or_cut); None when neither engine takes it (the
 /// model goes to HiGHS behind the covering and wide engines).
 pub(super) fn highs_or_cut(
     m: &Model,

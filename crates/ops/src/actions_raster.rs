@@ -1,7 +1,7 @@
 //! Multi-action problems from rasters (the Python library's actions_raster_data): the
 //! planning units are the cells with a monitoring cost, a layer per feature (its amount in every cell) and per
 //! threat (its intensity, > 0 where it occurs), the actions' costs numbers or maps; prioriactions's tables built
-//! from them as landschaft builds them, solved as prioritize.actions solves them, the solution as maps.
+//! from them as terraflux-py builds them, solved as prioritize.actions solves them, the solution as maps.
 
 use std::sync::Arc;
 
@@ -69,7 +69,7 @@ pub struct RasterSettings<'a> {
     pub boundary: bool,
 }
 
-/// A multi-action problem from rasters, as landschaft's actions_raster_data: the units are the cells with a
+/// A multi-action problem from rasters, as the library's actions_raster_data: the units are the cells with a
 /// monitoring cost (ids 1, 2... in the cells' order); the features' and threats' layers (no value 0) their
 /// amounts; the action against a threat costs its number or its map's value in the cell; the units locked in or
 /// out where those maps are not 0; relative targets shares of what the feature has where a threat harms it

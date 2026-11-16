@@ -1,6 +1,6 @@
 //! Rivers as a network, as hydrographr does on the Hydrography90m: points moved onto the streams, the land upstream
 //! of each link or point summarised (the mean of a map, the share of each class: the forest upstream) and the
-//! catchment of each point as a polygon. Over the D8 directions of `hydro` (landschaft's), the rest in Rust.
+//! catchment of each point as a polygon. Over the D8 directions of `hydro` (the library's), the rest in Rust.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;

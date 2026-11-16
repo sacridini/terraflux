@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's modelling workflow gives with MaxNet, for Terraflux's tests, written to
+"""What the library's modelling workflow gives with MaxNet, for Terraflux's tests, written to
 tests/data/reference/sdm_workflow.npz and .json:
 
     python tools/make_sdm_workflow_reference.py

@@ -1,4 +1,4 @@
-//! Fitted pieces given in the model file: models fitted elsewhere (landschaft's Python API writes them so)
+//! Fitted pieces given in the model file: models fitted elsewhere (the library's Python API writes them so)
 //! run as they are, without fitting again. `woe.weights`, `glm.coefficients`, `markov.matrix`,
 //! `patches.settings`.
 

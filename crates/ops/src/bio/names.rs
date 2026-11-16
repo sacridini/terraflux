@@ -1,4 +1,4 @@
-//! Element names as Biodiverse builds them (landschaft's bio/_names.py): axis values joined with `:` by
+//! Element names as Biodiverse builds them (the library's bio/_names.py): axis values joined with `:` by
 //! Text::CSV_XS (quote `'`), numbers as Perl stringifies a double (`%.15g`). Sorting the names gives the order
 //! groups and labels are numbered in.
 
@@ -151,7 +151,7 @@ pub fn numify(s: &str) -> f64 {
     }
 }
 
-/// The key of a natural sort (landschaft's _natural_key): runs of digits as numbers, before text.
+/// The key of a natural sort (the library's _natural_key): runs of digits as numbers, before text.
 pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     fn parts(s: &str) -> Vec<(u8, u128, String)> {
         let mut out = Vec::new();

@@ -5,10 +5,10 @@
 //! `run`, from the values of its inputs to the values of its outputs. The
 //! [`Registry`] holds them by name.
 //!
-//! Data comes in and goes out through operators too (`raster.read`, `raster.write`), and landschaft's
+//! Data comes in and goes out through operators too (`raster.read`, `raster.write`), and the library's
 //! landscape analyses (GuidosToolbox's `landscape.mspa`, `fragmentation.fad` and the others) run on the same maps.
 //!
-//! The land change operators reproduce landschaft's `ls.simulate` step by
+//! The land change operators reproduce the library's `tf.simulate` step by
 //! step, calling the same C++ kernels (through `terraflux-ls-sys`), so that
 //! a model gives the same maps here as in Python with the same seed.
 

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's thinning, one record per cell and background points give, for Terraflux's tests, written
+"""What the library's thinning, one record per cell and background points give, for Terraflux's tests, written
 to tests/data/reference/sdm_points.npz and .json:
 
     python tools/make_sdm_points_reference.py

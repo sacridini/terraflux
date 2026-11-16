@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's ProtConn gives, for Terraflux's tests, written to tests/data/reference/protconn.gpkg (the
+"""What the library's ProtConn gives, for Terraflux's tests, written to tests/data/reference/protconn.gpkg (the
 protected areas, a region and two regions), protconn.npz and protconn.json:
 
     python tools/make_protconn_reference.py

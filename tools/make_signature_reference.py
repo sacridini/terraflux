@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's SpatialSignatureAnalysis gives, for Terraflux's tests: the signature table of square zones of
-landschaft's augusta.tif, its principal components, non-negative factors, k-means and hierarchical clusters and
+"""What the library's SpatialSignatureAnalysis gives, for Terraflux's tests: the signature table of square zones of
+the library's augusta.tif, its principal components, non-negative factors, k-means and hierarchical clusters and
 clustergrams, and numpy's generator (PCG64) that the k-means draws from, written to
 tests/data/reference/lsm_signatures.json:
 
     python tools/make_signature_reference.py
 
-Run with the landschaft the submodule points at installed. NaN written null.
+Run with the library the submodule points at installed. NaN written null.
 """
 
 from __future__ import annotations

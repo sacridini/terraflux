@@ -1,4 +1,4 @@
-//! The operators on small cases worked by hand (the examples of landschaft's documentation).
+//! The operators on small cases worked by hand (the examples of the library's documentation).
 
 use std::sync::Arc;
 
@@ -154,7 +154,7 @@ fn agreement_and_figure_of_merit() {
 
 #[test]
 fn similarity_of_differences() {
-    // landschaft's example: one cell changed, simulated one cell away
+    // The library's example: one cell changed, simulated one cell away
     let t0 = map(6, 6, &[1.0; 36]);
     let mut o = vec![1.0; 36];
     o[2 * 6 + 2] = 2.0;
@@ -166,7 +166,7 @@ fn similarity_of_differences() {
     assert!((t.rows[1][3] - 0.5f64.sqrt()).abs() < 1e-6, "{}", t.rows[1][3]);
 }
 
-/// MSPA gives the bits of GuidosToolbox's `mspa` executable (the outputs landschaft keeps of it, on GTB's
+/// MSPA gives the bits of GuidosToolbox's `mspa` executable (the outputs terraflux-py keeps of it, on GTB's
 /// example map), for every connectivity, edge width and internal setting kept.
 #[test]
 fn mspa_is_guidos_toolbox() {
@@ -198,13 +198,13 @@ fn mspa_is_guidos_toolbox() {
     let lu = map(3, 3, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 5.0]);
     let out =
         run("landscape.mspa", vec![("map", Value::Map(lu.clone()))], serde_json::json!({"foreground": 1})).unwrap();
-    // landschaft's `ls.mspa` of the same map coded 0/1/2: class 5, background, a border-opening
+    // The library's `ls.mspa` of the same map coded 0/1/2: class 5, background, a border-opening
     let Value::Map(m) = &out["map"] else { panic!() };
     assert_eq!(*m.data, [3.0, 17.0, 3.0, 17.0, 3.0, 3.0, 3.0, 3.0, 220.0]);
     assert!(run("landscape.mspa", vec![("map", Value::Map(lu))], serde_json::json!({})).is_err(), "not GTB's codes");
 }
 
-/// The cases of GuidosToolbox's outputs that landschaft keeps (digests of GTB's maps and its reports, of the
+/// The cases of GuidosToolbox's outputs that terraflux-py keeps (digests of GTB's maps and its reports, of the
 /// maps in `tests/data/reference/gtb_inputs.npz`), by tool.
 fn gtb_cases(tool: &str) -> (Vec<serde_json::Value>, std::collections::BTreeMap<String, terraflux_raster::npy::Array>) {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -294,7 +294,7 @@ fn accounting_is_guidos_toolbox() {
     let (cases, inputs) = gtb_cases("accounting");
     let mut checked = 0;
     for case in &cases {
-        // the classes scaled to a map's objects are landschaft's own (GTB's dialog), not an operator's setting
+        // the classes scaled to a map's objects are the library's own (GTB's dialog), not an operator's setting
         if case.get("scaled_classes").is_some() {
             continue;
         }
@@ -438,9 +438,9 @@ fn fos_is_guidos_toolbox() {
     );
 }
 
-/// What landschaft gives for the GTB tools it keeps no digests of GTB's outputs for
+/// What terraflux-py gives for the GTB tools it keeps no digests of GTB's outputs for
 /// (`tools/make_gtb_reference.py`), by tool.
-fn landschaft_cases(tool: &str) -> Vec<serde_json::Value> {
+fn library_cases(tool: &str) -> Vec<serde_json::Value> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let text = std::fs::read_to_string(root.join("tests/data/reference/gtb_landschaft.json")).unwrap();
     let all: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -484,17 +484,17 @@ fn f(v: &serde_json::Value) -> f64 {
     v.as_f64().unwrap()
 }
 
-/// Contagion, clustering and the spatial entropy (of the map and in a window) give landschaft's maps.
+/// Contagion, clustering and the spatial entropy (of the map and in a window) give the library's maps.
 #[test]
-fn contagion_and_entropy_are_landschafts() {
+fn contagion_and_entropy_match_the_library() {
     for (op, tool) in [("fragmentation.contagion", "contagion"), ("fragmentation.clustering", "clustering")] {
-        for case in landschaft_cases(tool) {
+        for case in library_cases(tool) {
             let out =
                 run(op, vec![("map", input_map("gtb_input"))], serde_json::json!({"window": case["window"]})).unwrap();
             assert_eq!(digest(&the_map(&out, "map").data, false), case["sha256"], "{op} {}", case["window"]);
         }
     }
-    let case = &landschaft_cases("entropy")[0];
+    let case = &library_cases("entropy")[0];
     let out = run("fragmentation.entropy", vec![("map", input_map("gtb_input"))], serde_json::json!({})).unwrap();
     let Value::Number(index) = out["index"] else { panic!() };
     assert!(close(index, f(&case["index"]), 1e-12), "{index}");
@@ -508,7 +508,7 @@ fn contagion_and_entropy_are_landschafts() {
         .map(|(k, n)| (k as f64, f(n)))
         .collect();
     assert_eq!(pairs.rows.iter().map(|r| (r[0], r[1])).collect::<Vec<_>>(), want);
-    for case in landschaft_cases("entropy_map") {
+    for case in library_cases("entropy_map") {
         let out = run(
             "fragmentation.entropy_map",
             vec![("map", input_map("blobs_101"))],
@@ -519,8 +519,8 @@ fn contagion_and_entropy_are_landschafts() {
     }
 }
 
-/// The landscape mosaic of 103 classes is GuidosToolbox's (the digests landschaft keeps of GTB's), that of 19
-/// landschaft's; GraySpatCon's ten metrics are landschaft's.
+/// The landscape mosaic of 103 classes is GuidosToolbox's (the digests terraflux-py keeps of GTB's), that of 19
+/// the library's; GraySpatCon's ten metrics are the library's.
 #[test]
 fn landscape_mosaic_and_gray_spatcon_are_guidos_toolbox() {
     let (cases, inputs) = gtb_cases("lm_heatmap");
@@ -536,7 +536,7 @@ fn landscape_mosaic_and_gray_spatcon_are_guidos_toolbox() {
         assert!((stats.column("percent").unwrap().iter().sum::<f64>() - 100.0).abs() < 1e-9);
     }
     assert_eq!(cases.len(), 6);
-    for case in landschaft_cases("landscape_mosaic_19") {
+    for case in library_cases("landscape_mosaic_19") {
         let name = case["input"].as_str().unwrap();
         let out = run(
             "fragmentation.landscape_mosaic",
@@ -553,7 +553,7 @@ fn landscape_mosaic_and_gray_spatcon_are_guidos_toolbox() {
             assert_eq!(*x, want[*c as usize], "class {c}");
         }
     };
-    for case in landschaft_cases("mosaic_heatmap") {
+    for case in library_cases("mosaic_heatmap") {
         let name = case["input"].as_str().unwrap();
         let out = run(
             "fragmentation.landscape_mosaic",
@@ -569,7 +569,7 @@ fn landscape_mosaic_and_gray_spatcon_are_guidos_toolbox() {
         assert_eq!((tri.grid.width, tri.grid.height), (21, 12));
         assert_eq!(tri.data[11 * 21], want[190]);
     }
-    let case = &landschaft_cases("mosaic_change")[0];
+    let case = &library_cases("mosaic_change")[0];
     let out = run(
         "change.mosaic",
         vec![("before", input_map("random_a")), ("after", input_map("smooth_a"))],
@@ -590,7 +590,7 @@ fn landscape_mosaic_and_gray_spatcon_are_guidos_toolbox() {
     assert_eq!(the_map(&a, "map").data, the_map(&b, "map").data);
 
     let mut checked = 0;
-    for case in landschaft_cases("gray_convolution") {
+    for case in library_cases("gray_convolution") {
         let params = serde_json::json!({
             "metric": case["metric"], "window": case["window"], "mask_missing": case["mask_missing"]
         });
@@ -604,10 +604,10 @@ fn landscape_mosaic_and_gray_spatcon_are_guidos_toolbox() {
     assert_eq!(checked, 20);
 }
 
-/// Parcellation, contortion and the Euclidean distance give landschaft's maps and numbers.
+/// Parcellation, contortion and the Euclidean distance give the library's maps and numbers.
 #[test]
-fn parcels_contortion_and_distance_are_landschafts() {
-    for case in landschaft_cases("parcellation") {
+fn parcels_contortion_and_distance_match_the_library() {
+    for case in library_cases("parcellation") {
         let name = case["input"].as_str().unwrap();
         let out = run(
             "landscape.parcellation",
@@ -632,7 +632,7 @@ fn parcels_contortion_and_distance_are_landschafts() {
         let counts: Vec<f64> = case["counts"].as_array().unwrap().iter().map(f).collect();
         assert_eq!(table(&out, "stats").column("parcels").unwrap(), counts, "{what}");
     }
-    for case in landschaft_cases("contortion") {
+    for case in library_cases("contortion") {
         let out = run(
             "landscape.contortion",
             vec![("map", input_map("gtb_input"))],
@@ -647,7 +647,7 @@ fn parcels_contortion_and_distance_are_landschafts() {
             case["min_area"]
         );
     }
-    let case = &landschaft_cases("euclidean_distance")[0];
+    let case = &library_cases("euclidean_distance")[0];
     let out = run("distance.euclidean", vec![("map", input_map("gtb_input"))], serde_json::json!({})).unwrap();
     assert_eq!(digest_f32(&the_map(&out, "map").data), case["sha256"]);
     assert_eq!(digest(&the_map(&out, "display").data, false), case["display_sha256"]);
@@ -657,24 +657,24 @@ fn parcels_contortion_and_distance_are_landschafts() {
     assert_close(&s.rows[1][1..], &want[3..]);
 }
 
-/// The simple, morphological and FOS changes give landschaft's maps and reports.
+/// The simple, morphological and FOS changes give the library's maps and reports.
 #[test]
-fn changes_are_landschafts() {
+fn changes_match_the_library() {
     let two = || vec![("before", input_map("gtb_input")), ("after", input_map("gtb_input_changed"))];
-    let case = &landschaft_cases("simple_change")[0];
+    let case = &library_cases("simple_change")[0];
     let out = run("change.simple", two(), serde_json::json!({})).unwrap();
     assert_eq!(digest(&the_map(&out, "map").data, false), case["sha256"]);
     let counts: Vec<f64> = case["counts"].as_array().unwrap().iter().map(f).collect();
     assert_eq!(table(&out, "stats").rows[0], counts);
 
-    let case = &landschaft_cases("morphological_change")[0];
+    let case = &library_cases("morphological_change")[0];
     let out = run("change.morphological", two(), serde_json::json!({})).unwrap();
     assert_eq!(digest(&the_map(&out, "map").data, false), case["sha256"]);
     let mut want: Vec<f64> = case["counts"].as_array().unwrap().iter().map(f).collect();
     want.push(f(&case["elasticity"]));
     assert_close(&table(&out, "stats").rows[0], &want);
 
-    let case = &landschaft_cases("fos_change")[0];
+    let case = &library_cases("fos_change")[0];
     let fos = |name: &str| {
         let out = run("fragmentation.fos", vec![("map", input_map(name))], serde_json::json!({"window": 27})).unwrap();
         out["map"].clone()
@@ -694,7 +694,7 @@ fn changes_are_landschafts() {
     let classes = table(&out, "classes");
     assert_eq!(classes.rows.iter().map(|r| r[1..].to_vec()).collect::<Vec<_>>(), matrix);
     // FAD at several scales: every scale's class matrix and counts, the averages, GTB's report
-    let case = &landschaft_cases("fad_change")[0];
+    let case = &library_cases("fad_change")[0];
     let out = run("change.fad", two(), serde_json::json!({"windows": case["windows"]})).unwrap();
     let (m, s) = (table(&out, "matrix"), table(&out, "stats"));
     for (k, sc) in case["scales"].as_array().unwrap().iter().enumerate() {
@@ -937,12 +937,12 @@ fn rasters_are_resampled_converted_joined_and_measured() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// GTB's Influence Zones and Proximity as landschaft's: the classes, objects, zones, the proximity's distance and
+/// GTB's Influence Zones and Proximity as the library's: the classes, objects, zones, the proximity's distance and
 /// connected area gain, the objects' areas and GTB's proximity CSV.
 #[test]
-fn influence_and_proximity_are_landschafts() {
+fn influence_and_proximity_match_the_library() {
     let areas = |t: &terraflux_ops::Table| -> Vec<f64> { t.column("area").unwrap() };
-    for case in landschaft_cases("influence_zones") {
+    for case in library_cases("influence_zones") {
         let params = serde_json::json!({"min_area": case["min_area"], "core_buffer": case["core_buffer"],
                                         "buffer": case["buffer"]});
         let out = run("distance.influence_zones", vec![("map", input_map("blobs_a"))], params).unwrap();
@@ -952,7 +952,7 @@ fn influence_and_proximity_are_landschafts() {
         let want: Vec<f64> = case["areas"].as_array().unwrap().iter().map(f).collect();
         assert_eq!(areas(&table(&out, "objects")), want);
     }
-    for case in landschaft_cases("proximity") {
+    for case in library_cases("proximity") {
         let params = serde_json::json!({"min_area": case["min_area"], "core_buffer": case["core_buffer"],
                                         "prox_max": case["prox_max"]});
         let out = run("distance.objects_proximity", vec![("map", input_map("blobs_a"))], params).unwrap();
@@ -967,12 +967,12 @@ fn influence_and_proximity_are_landschafts() {
     }
 }
 
-/// GuidosToolbox's Restoration Planner as landschaft's, on blobs_a and between its two largest objects
+/// GuidosToolbox's Restoration Planner as the library's, on blobs_a and between its two largest objects
 /// (tests/data/reference/gtb_planner.npz): the resistance from the distance, the restoration status, the cost
 /// distance, the least-cost path and the corridor's gain, the isochrone maps from A and between A and B.
 #[test]
-fn restoration_planner_is_landschafts() {
-    let case = &landschaft_cases("planner")[0];
+fn restoration_planner_matches_the_library() {
+    let case = &library_cases("planner")[0];
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let marks = terraflux_raster::npy::read_npz(root.join("tests/data/reference/gtb_planner.npz")).unwrap();
     let blobs = input_map("blobs_a");
@@ -1019,12 +1019,12 @@ fn restoration_planner_is_landschafts() {
     }
 }
 
-/// GuidosToolbox's network analysis (GTN) of the MSPA of gtb_input as landschaft's: the components, their stats,
+/// GuidosToolbox's network analysis (GTN) of the MSPA of gtb_input as the library's: the components, their stats,
 /// ECA and coherence and GTB's log; the importance of every link and stepping-stone node (dPC), its maps and report;
 /// Conefor's inputs.
 #[test]
-fn gtn_is_landschafts() {
-    let case = &landschaft_cases("gtn")[0];
+fn gtn_matches_the_library() {
+    let case = &library_cases("gtn")[0];
     let ms = run("landscape.mspa", vec![("map", input_map("gtb_input"))], serde_json::json!({})).unwrap();
     assert_eq!(digest(&the_map(&ms, "map").data, false), case["mspa"]);
     let mspa = ms["map"].clone();
@@ -1060,8 +1060,8 @@ fn gtn_is_landschafts() {
 }
 
 #[test]
-fn reports_are_landschafts() {
-    for case in landschaft_cases("reports") {
+fn reports_match_the_library() {
+    for case in library_cases("reports") {
         let mut params = case["params"].clone();
         let tool = match case["tool"].as_str().unwrap() {
             "fos" => {

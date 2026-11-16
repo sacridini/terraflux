@@ -1,4 +1,4 @@
-//! Propagation of uncertainty (landschaft's uncertainty module, the tools plangea uses in its restoration
+//! Propagation of uncertainty (the library's uncertainty module, the tools plangea uses in its restoration
 //! plans): the standard deviation of a total of uncertain values and of a product of two, the delta method and
 //! Monte Carlo over an expression of maps and uncertain parameters, and the normal confidence interval. The
 //! sums, draws and quantiles are numpy's, to the bit.

@@ -1,4 +1,4 @@
-//! The geographic reference data of the cleaning of occurrence records (landschaft's reference_data):
+//! The geographic reference data of the cleaning of occurrence records (the library's reference_data):
 //! CoordinateCleaner's tables (the centroids and capitals of countries and provinces, biodiversity institutions,
 //! artificial hotspots; GPL-3, carried inside Terraflux, tools/make_sdm_refdata.py) and the Natural Earth layers
 //! CoordinateCleaner uses (land, urban areas, countries; public domain), downloaded on first use and kept in the

@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's mspa_tiled (GuidosToolbox's MSPA Tiling) gives, for Terraflux's tests: digests of the MSPA
-maps of landschaft's input.tif by several tilings and settings, and of a map made of it whose tiles take GTB's
+"""What the library's mspa_tiled (GuidosToolbox's MSPA Tiling) gives, for Terraflux's tests: digests of the MSPA
+maps of the library's input.tif by several tilings and settings, and of a map made of it whose tiles take GTB's
 shortcuts (all missing, all foreground, background and missing, foreground and missing), written to
 tests/data/reference/mspa_tiled.json:
 
     python tools/make_mspa_tiled_reference.py
 
-Run with the landschaft the submodule points at installed.
+Run with the library the submodule points at installed.
 """
 
 from __future__ import annotations

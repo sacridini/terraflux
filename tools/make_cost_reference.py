@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's grid distances (gdistance's) give, for Terraflux's tests, written to
+"""What the library's grid distances (gdistance's) give, for Terraflux's tests, written to
 tests/data/reference/cost.npz and cost.json:
 
     python tools/make_cost_reference.py
@@ -14,7 +14,7 @@ distances, normalize, sumReciprocal, sums of transitions, R's maths on the conne
 Last the barriers, areas and Mahalanobis transitions and pathInc (cost_inc.npz) on maungawhau's classes and
 layers, written here (cost_classes.tif, cost_layers.tif).
 
-Run with the landschaft the submodule points at installed.
+Run with the library the submodule points at installed.
 """
 
 from __future__ import annotations

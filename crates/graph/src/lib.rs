@@ -12,7 +12,7 @@
 //! into series.
 //!
 //! The same graph is written by every front-end (the wizards and the node
-//! editor of the application, landschaft's Python API, a text editor) and
+//! editor of the application, the library's Python API, a text editor) and
 //! run by every engine (one machine or many). It is saved as TOML or JSON
 //! ([`Model::load`], [`Model::save`]); [`check`] validates it against the
 //! operators' signatures before anything runs.

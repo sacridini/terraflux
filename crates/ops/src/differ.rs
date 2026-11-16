@@ -1,4 +1,4 @@
-//! diffeR's comparisons at coarser resolutions (landschaft's simulate/_difference.py, diffeR 0.0-8): the shares
+//! diffeR's comparisons at coarser resolutions (the library's simulate/_difference.py, diffeR 0.0-8): the shares
 //! of the classes in blocks of cells (memberships), the composite cross-tabulation of two maps at a coarser
 //! resolution (Pontius & Cheuk 2006), the quantity, exchange and shift differences at resolutions growing by a
 //! factor (differenceMR), the mean absolute deviation of two continuous maps by component and resolution (MAD), and

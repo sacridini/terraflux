@@ -1,6 +1,6 @@
-//! The vector operators and planning units of polygons: the polygons of landschaft's optimize cases
+//! The vector operators and planning units of polygons: the polygons of the library's optimize cases
 //! (tests/data/reference/vectors, tools/make_vector_inputs.py) read by OGR; burnt and their zones' statistics as
-//! landschaft's rasterize and zonal_stats; exactextractr's sums, prioritizr's boundary and adjacency matrices and its
+//! the library's rasterize and zonal_stats; exactextractr's sums, prioritizr's boundary and adjacency matrices and its
 //! models of polygon planning units (extern/terraflux-py/tests/data/reference/optimize). Skipped without GDAL.
 
 use std::collections::BTreeMap;
@@ -238,10 +238,10 @@ fn the_vectors_of_a_folder_are_one_layer() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Polygons (the centre rule and all touched), lines and points burnt as landschaft's rasterize: an attribute or a
+/// Polygons (the centre rule and all touched), lines and points burnt as the library's rasterize: an attribute or a
 /// value, the later over the earlier or added up, a fill.
 #[test]
-fn rasterize_is_landschafts() {
+fn rasterize_matches_the_library() {
     if !gdal() {
         return;
     }
@@ -264,9 +264,9 @@ fn rasterize_is_landschafts() {
     }
 }
 
-/// Statistics of the features in polygons as landschaft's zonal_stats (the centre rule and all touched).
+/// Statistics of the features in polygons as the library's zonal_stats (the centre rule and all touched).
 #[test]
-fn zonal_is_landschafts() {
+fn zonal_matches_the_library() {
     if !gdal() {
         return;
     }
@@ -445,7 +445,7 @@ fn polygon_units_are_prioritizrs() {
     assert!((ours - want).abs() <= 1e-9 * want.abs().max(1.0), "contiguity: {ours} != {want}");
 }
 
-/// Planning units of polygons with management zones (landschaft's polygon_zone_units): prioritizr's compile() of
+/// Planning units of polygons with management zones (the library's polygon_zone_units): prioritizr's compile() of
 /// its case bit for bit (a cost column per zone, two units out of `use`; every zone's own features summed over the
 /// polygons exactly), and its optimum.
 #[test]

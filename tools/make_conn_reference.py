@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's habitat graphs give, for Terraflux's tests, written to tests/data/reference/conn.npz and
+"""What the library's habitat graphs give, for Terraflux's tests, written to tests/data/reference/conn.npz and
 conn.json:
 
     python tools/make_conn_reference.py
@@ -123,7 +123,7 @@ def main() -> None:
                       "params": {"metric": metric, "distance": [300.0, 500.0], "landscape_area": 2e3},
                       "readings": [{"comparison": c, "change": h} for c, h in zip(t["comparison"], t["change"])]})
 
-    # Conefor's files: landschaft's, read back
+    # Conefor's files: the library's, read back
     g = make("near", convention="conefor", landscape_area=1e6)
     g.to_conefor(REF / "conn_nodes.txt", REF / "conn_connections.txt")
 

@@ -1,5 +1,5 @@
-//! H3 planning units against landschaft's h3_units (tests/data/reference/h3_units.json, tools/make_h3_reference.py):
-//! the same hexagons over the cost map of landschaft's optimize cases, their costs to the bit; and a problem of them
+//! H3 planning units against the library's h3_units (tests/data/reference/h3_units.json, tools/make_h3_reference.py):
+//! the same hexagons over the cost map of the library's optimize cases, their costs to the bit; and a problem of them
 //! solved. Skipped without GDAL (the coordinates go to longitude and latitude and back by PROJ).
 
 use std::path::Path;
@@ -23,7 +23,7 @@ fn run(op: &str, ins: Vec<(&str, Value)>, params: serde_json::Value) -> Outputs 
 }
 
 #[test]
-fn h3_units_are_landschafts() {
+fn h3_units_match_the_library() {
     if let Err(e) = terraflux_gdal::gdal() {
         eprintln!("skipped: {e}");
         return;

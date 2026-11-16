@@ -1,6 +1,6 @@
-//! Crop pollination by wild bees (InVEST's pollination model, natcap.invest 3.20) as landschaft 1.54 computes it
+//! Crop pollination by wild bees (InVEST's pollination model, natcap.invest 3.20) as terraflux-py 1.54 computes it
 //! (`ls.services.pollination`): the nesting and floral resources of the land uses (and of the farms), each
-//! species' supply and abundance by season through the convolutions of its flight distance (landschaft's C++),
+//! species' supply and abundance by season through the convolutions of its flight distance (the library's C++),
 //! and on the farms the pollinator abundance and the yields.
 
 use std::sync::Arc;

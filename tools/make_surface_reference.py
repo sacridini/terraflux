@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's surface metrics give, for Terraflux's tests: every metric of its example surfaces
+"""What the library's surface metrics give, for Terraflux's tests: every metric of its example surfaces
 (normforest, orelevation, orforest: geographic grids), and the moving window of some on the top-left 40 x 40
 cells of each, square and circular, written to tests/data/reference/surface.json and surface_window.npz:
 
     python tools/make_surface_reference.py
 
-Run with the landschaft the submodule points at installed. NaN written null.
+Run with the library the submodule points at installed. NaN written null.
 """
 
 from __future__ import annotations

@@ -1,9 +1,9 @@
-//! A watershed divided as QSWAT+ divides it (landschaft's `ls.hydro.swat.watershed`, bit for bit): the DEM filled and
+//! A watershed divided as QSWAT+ divides it (the library's `tf.hydro.swat.watershed`, bit for bit): the DEM filled and
 //! drained along D8 directions, streams by a drainage area, one subbasin, channel and landscape unit per stream link,
 //! HRUs (land use x soil x slope band in each landscape unit, then QSWAT+'s selection) and the routing, as the
 //! `gis_*` tables the SWAT+ Editor imports, with the soils used. The terrain analysis is the kernels of
-//! `hydro.*` (landschaft's C++); the tables and the HRU selection are QSWAT+'s methods (C. George, GPL-2.0-or-later;
-//! `hrus.py`, `QSWATTopology.py`, `dataInC.pyx`) as landschaft ports them.
+//! `hydro.*` (the library's C++); the tables and the HRU selection are QSWAT+'s methods (C. George, GPL-2.0-or-later;
+//! `hrus.py`, `QSWATTopology.py`, `dataInC.pyx`) as terraflux-py ports them.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -29,7 +29,7 @@ const DEPTH_EXPONENT: f64 = 0.4;
 /// The HRU selection methods.
 pub const METHODS: [&str; 4] = ["dominant_hru", "dominant", "filter", "area"];
 
-/// The names of the tables a watershed holds, in landschaft's order.
+/// The names of the tables a watershed holds, in the library's order.
 pub const TABLES: [&str; 10] = [
     "gis_subbasins",
     "gis_channels",
@@ -48,7 +48,7 @@ const USERSOIL_LAYER: [&str; 12] =
 const LAYER_COLUMNS: [&str; 14] =
     ["dp", "bd", "awc", "soil_k", "carbon", "clay", "silt", "sand", "rock", "alb", "usle_k", "ec", "caco3", "ph"];
 
-/// A watershed divided as QSWAT+ divides it (landschaft's SwatWatershed): QSWAT+'s project tables (`TABLES`; text
+/// A watershed divided as QSWAT+ divides it (the library's SwatWatershed): QSWAT+'s project tables (`TABLES`; text
 /// columns as the labels of numbers), and the grids on the DEM's cells the maps of the model are made from.
 #[derive(Debug, Clone)]
 pub struct Watershed {
@@ -140,7 +140,7 @@ impl<'de> Deserialize<'de> for Watershed {
     }
 }
 
-/// The settings of the division (landschaft's keyword arguments).
+/// The settings of the division (the library's keyword arguments).
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub stream_threshold: Option<f64>,
@@ -861,7 +861,7 @@ fn np_max(a: f64, b: f64) -> f64 {
     }
 }
 
-/// Divide a watershed as QSWAT+ does (landschaft's `watershed`).
+/// Divide a watershed as QSWAT+ does (the library's `watershed`).
 #[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
 pub fn delineate(
     dem: &Map,

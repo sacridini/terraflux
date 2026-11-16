@@ -1,4 +1,4 @@
-//! Habitat graphs of vector features against landschaft's (tests/data/reference/conn_vector.gpkg, .npz and
+//! Habitat graphs of vector features against the library's (tests/data/reference/conn_vector.gpkg, .npz and
 //! .json, tools/make_conn_vector_reference.py): the polygons' areas and weighted attributes, the distances
 //! between centroids (C-shaped polygons and multipolygons included), edges and least-cost distances, a graph of
 //! the features and a node importance joined back onto them. GEOS through GDAL.
@@ -25,7 +25,7 @@ fn check(what: &str, got: &[f64], want: &[f64]) {
 }
 
 #[test]
-fn vector_graphs_are_landschafts() {
+fn vector_graphs_match_the_library() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let dir = root.join("tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("conn_vector.npz")).unwrap();

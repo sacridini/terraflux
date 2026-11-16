@@ -1,5 +1,5 @@
-//! Habitat-graph nodes and distances from vector features (landschaft's node_table and distance_table on a
-//! GeoDataFrame): the polygons' areas as GDAL computes them, their centroids as landschaft takes them (the
+//! Habitat-graph nodes and distances from vector features (the library's node_table and distance_table on a
+//! GeoDataFrame): the polygons' areas as GDAL computes them, their centroids as terraflux-py takes them (the
 //! largest part's, or GEOS's point on the surface when it falls outside), and the distances between centroids,
 //! between edges (GEOS's) or least-cost and commute times over a resistance. GEOS through GDAL.
 
@@ -50,7 +50,7 @@ fn part_area(p: &[Vec<[f64; 2]>]) -> f64 {
     p.iter().enumerate().map(|(k, r)| if k == 0 { ring(r) } else { -ring(r) }).sum()
 }
 
-/// landschaft's vector_centroids: the centroid of each geometry (of its largest part when it has several),
+/// The library's vector_centroids: the centroid of each geometry (of its largest part when it has several),
 /// GEOS's point on the surface when that falls outside it.
 pub fn centroids(geoms: &[Geometry]) -> Result<(Vec<f64>, Vec<f64>), String> {
     let largest: Vec<Geometry> = geoms
@@ -221,7 +221,7 @@ pub struct Focal<'a> {
     pub threshold: Option<f64>,
 }
 
-/// Makurhini's MK_Focal_nodes (landschaft's focal_nodes): for every node and distance, the graph of the nodes
+/// Makurhini's MK_Focal_nodes (the library's focal_nodes): for every node and distance, the graph of the nodes
 /// within its search buffer (their points on the surface, the landscape their bounding box) and the node's
 /// importance in it: EC, the index, dI and its fractions, and IComp (the index times dI).
 pub fn focal_nodes(v: &Vector, ids: &[f64], attribute: &[f64], o: &Focal) -> Result<crate::Table, String> {

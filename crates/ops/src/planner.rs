@@ -1,8 +1,8 @@
-//! GuidosToolbox's Restoration Planner from landschaft's port of it: the restoration status of the habitat
+//! GuidosToolbox's Restoration Planner from the library's port of it: the restoration status of the habitat
 //! (`restoration.status`: ECA, coherence, restoration potential), cost distances and least-cost paths across a
 //! resistance (`restoration.cost_distance`, `restoration.least_cost_path`), the gain of restoring a corridor
 //! (`restoration.corridor`), a resistance from the distance to the habitat (`restoration.resistance`) and the
-//! isochrone maps from one object or between two (`restoration.isochrone`, GTB's ggeo). The kernels are landschaft's
+//! isochrone maps from one object or between two (`restoration.isochrone`, GTB's ggeo). The kernels are the library's
 //! C++; what its Python does around them (the isochrones' rounding and scaling, IDL's) is here.
 
 use std::sync::Arc;

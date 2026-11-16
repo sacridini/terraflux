@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's preparation of FUTURES' inputs gives, for Terraflux's tests, written to
+"""What the library's preparation of FUTURES' inputs gives, for Terraflux's tests, written to
 tests/data/reference/futures_tools.npz and .json:
 
     python tools/make_futures_tools_reference.py

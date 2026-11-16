@@ -154,7 +154,7 @@ Priority: optional
 Homepage: https://github.com/sacridini/terraflux
 Description: land change models, landscape analysis and spatial prioritization
  Terraflux runs land change models (Dinamica EGO's, CLUE-S, FUTURES...) as graphs of operators, with
- landschaft's tools: landscape metrics, GuidosToolbox, circuits, connectivity, species distribution
+ the library's tools: landscape metrics, GuidosToolbox, circuits, connectivity, species distribution
  models and spatial prioritization. It brings its own GDAL.
 """
 

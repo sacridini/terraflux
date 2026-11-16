@@ -1,4 +1,4 @@
-//! prioritize.zonation against Zonation 5 v2.4: the rank maps of the z5 binary that landschaft keeps
+//! prioritize.zonation against Zonation 5 v2.4: the rank maps of the z5 binary that terraflux-py keeps
 //! (extern/terraflux-py/tests/data/reference/prioritize), bit for bit, on the rasters of its cases
 //! (tests/data/reference/zonation_inputs.npz, tools/make_zonation_inputs.py); with the transforms (conditions,
 //! retention, pre-processing maps, the features as ranked) and the connectivity transforms, their maps too.
@@ -387,10 +387,10 @@ fn postprocessing_is_zonations() {
     assert_eq!(names.len(), 4);
 }
 
-/// Zonation's impact assessment, from its projects (read by landschaft): impact sources with footprints and rings,
+/// Zonation's impact assessment, from its projects (read by terraflux-py): impact sources with footprints and rings,
 /// value bins and subareas; direct habitat loss (sum, product) and cumulative pressures (variant1, variant2 with
 /// multiply and max); with weights and ABF. The ranking after the losses and the impact maps as the z5 binary's,
-/// bit for bit; the impacts accumulated per area, group, source, zone, feature and bin as landschaft's.
+/// bit for bit; the impacts accumulated per area, group, source, zone, feature and bin as the library's.
 #[test]
 fn impacts_are_zonations() {
     let c = cases();
@@ -437,7 +437,7 @@ fn impacts_are_zonations() {
             let ours: BTreeMap<Vec<i64>, &Vec<f64>> = got.rows.iter().map(|r| (index(r), r)).collect();
             for w in rows {
                 let w = w.as_array().unwrap();
-                // landschaft's feature is its 0-based number, the phase a name
+                // The library's feature is its 0-based number, the phase a name
                 let mut key: Vec<i64> = Vec::new();
                 for (j, v) in w[..ids].iter().enumerate() {
                     let col = want["columns"][j].as_str().unwrap();
@@ -488,7 +488,7 @@ fn tiff_tag(path: &Path, tag: u16) -> Option<u64> {
 }
 
 /// The output files of z5 (`output`): feature_curves, summary_curves, feature_density_curves and group_curves
-/// line by line as Zonation's own tables of its LOAD run (stripped of the spaces at the ends, as landschaft's test
+/// line by line as Zonation's own tables of its LOAD run (stripped of the spaces at the ends, as the library's test
 /// does), features_info's numbers and counts, and the sums with Zonation's 6 digits; rankmap.tif read back is the
 /// rank bit for bit with -inf as NoData. Every case of the groups that has the tables.
 #[test]

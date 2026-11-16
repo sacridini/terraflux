@@ -1,4 +1,4 @@
-//! A fitted species distribution model (MaxNet, a GLM or a random forest) and what fits one, as landschaft's fit
+//! A fitted species distribution model (MaxNet, a GLM or a random forest) and what fits one, as the library's fit
 //! takes any estimator: its suitability (the presence's probability, or MaxNet's output) for rows of predictors.
 
 use serde::{Deserialize, Serialize};
@@ -54,7 +54,7 @@ pub enum Learner<'a> {
 }
 
 impl Learner<'_> {
-    /// The model fitted to the records, with their weights (MaxNet takes none, as landschaft's). `stop` is asked
+    /// The model fitted to the records, with their weights (MaxNet takes none, as the library's). `stop` is asked
     /// during the GLM's and the forest's fits (false: the run was stopped; MaxNet's is one call).
     pub fn fit(
         &self,

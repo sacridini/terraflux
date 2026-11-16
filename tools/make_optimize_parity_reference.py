@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's HiGHS gives prioritize.optimize's problems, for Terraflux's speed and result parity test: every
+"""What the library's HiGHS gives prioritize.optimize's problems, for Terraflux's speed and result parity test: every
 objective on every kind of planning unit (raster cells, tables, polygons, H3 hexagons; management zones on raster
-and table units), solved by landschaft (HiGHS, its default routing: n_threads=4) on the data Terraflux's tests use
-(tests/data/reference/optimize_inputs.npz and landschaft's optimize cases), written to
+and table units), solved by terraflux-py (HiGHS, its default routing: n_threads=4) on the data Terraflux's tests use
+(tests/data/reference/optimize_inputs.npz and the library's optimize cases), written to
 tests/data/reference/optimize_parity.json: per case the settings (as the node's), the model's size and sums, the
 solver's status, objective, bound and gap, the units selected, whether that optimum is unique, and the seconds (median
 of three solves). A second, larger set of rasters (40 x 50 cells; tests/data/reference/optimize_parity_inputs.npz and
@@ -10,9 +10,9 @@ vectors/parity_polygons.gpkg) makes the times mean something. Run, one job at a 
 
     python tools/make_optimize_parity_reference.py
 
-Run with the landschaft the submodule points at installed (and h3). Terraflux's test is
+Run with the library the submodule points at installed (and h3). Terraflux's test is
 crates/ops/tests/parity.rs (`cargo test -p terraflux-ops --release --test ops -- --ignored parity::`).
-The cases named `*_anneal_*` are solved on landschaft's `anneal` solver (Marxan's simulated annealing, seeded: the
+The cases named `*_anneal_*` are solved on the library's `anneal` solver (Marxan's simulated annealing, seeded: the
 same selection and objective for the same seed), the `*_corridors_*` ones have corridor constraints (their
 terminals' cells in the case's `corridors`).
 """
@@ -163,7 +163,7 @@ def cases() -> list[dict]:
     add("small", "table", "min_set_locked", {"relative_targets": 0.3}, locks=True)
     add("small", "raster", "min_set_contiguity", {"relative_targets": 0.2, "contiguity": True})
     add("small", "rij", "min_set", {"absolute_targets": oc.ABSOLUTE})
-    # the anneal solver (a seed: the same selection as landschaft's) on minimum sets with and without penalties
+    # the anneal solver (a seed: the same selection as the library's) on minimum sets with and without penalties
     an = {"solver": "anneal", "seed": 7, "num_reps": 6}
     add("small", "raster", "anneal_min_set", {"relative_targets": 0.3, **an})
     add("small", "raster", "anneal_boundary", {"relative_targets": 0.3, "boundary_penalty": 0.5, **an})
@@ -198,7 +198,7 @@ def cases() -> list[dict]:
     return out
 
 
-# ----------------------------------------------------------------------------- the problems in landschaft
+# ----------------------------------------------------------------------------- the problems in terraflux-py
 
 ZONE_MATRIX = [0.2, 0.1, 0.15, 0.3, 0.1, 0.1, 0.1, 0.05, 0.2, 0.1, 0.05, 0, 0.1, 0.05, 0.05]
 ZONES = oc.ZONES
@@ -307,7 +307,7 @@ ANNEAL_KEYS = ("num_reps", "num_iters", "start_temp", "cool_fac", "num_temp", "s
 
 def solved(p, gap: float, limit: float, params: dict | None = None):
     t0 = time.perf_counter()
-    if params is not None and params.get("solver") == "anneal":  # landschaft's anneal solver, seeded
+    if params is not None and params.get("solver") == "anneal":  # the library's anneal solver, seeded
         kw = {k: params[k] for k in ANNEAL_KEYS if k in params}
         s = p.add_anneal_solver(n_threads=THREADS, **kw).solve()
     else:

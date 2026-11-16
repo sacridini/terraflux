@@ -1,6 +1,6 @@
-//! The random forests and the potential of each class against scikit-learn's and landschaft's
+//! The random forests and the potential of each class against scikit-learn's and the library's
 //! (tests/data/reference/ml.npz and .json, tools/make_ml_reference.py): a classifier's probabilities of three
-//! classes and a regressor's values with their importances, and landschaft's Estimator's maps of PLUS's land
+//! classes and a regressor's values with their importances, and the library's Estimator's maps of PLUS's land
 //! expansion analysis and of the presence of each class with the drivers' importances; to the bit.
 
 use std::collections::BTreeMap;
@@ -83,7 +83,7 @@ fn forests_are_scikit_learns() {
 }
 
 #[test]
-fn the_potential_is_landschafts() {
+fn the_potential_matches_the_library() {
     let (z, meta) = reference();
     let t0 = &z["pie/t0"];
     let (ny, nx) = (t0.shape[0], t0.shape[1]);
@@ -120,7 +120,7 @@ fn the_potential_is_landschafts() {
         for (k, c) in classes.iter().enumerate() {
             check(&format!("{name} {c}"), &p.layers[k], &z[format!("pie/{name}/{c}").as_str()].data);
         }
-        // landschaft's importance: a row per driver (sorted), a column per class (scikit-learn's boosting has none)
+        // The library's importance: a row per driver (sorted), a column per class (scikit-learn's boosting has none)
         let imp = table(&out["importance"]);
         let mut sorted = names.clone();
         sorted.sort();

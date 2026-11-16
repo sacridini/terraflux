@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""landschaft's multi-action problems from rasters (tf.prioritize.actions_raster_data), for Terraflux's tests of
+"""The library's multi-action problems from rasters (tf.prioritize.actions_raster_data), for Terraflux's tests of
 prioritize.actions_raster.
 
-The rasters of landschaft's tests (tests/test_prioritize_actions.py's _rasters: a 9 x 8 grid with cells without a
+The rasters of the library's tests (tests/test_prioritize_actions.py's _rasters: a 9 x 8 grid with cells without a
 cost, three features, two threats and a raster of action costs) go into tests/data/reference/actions_raster.npz;
-per case its settings, the tables landschaft builds (pu, features, dist_features, threats, dist_threats, boundary)
-and the optimum of its problem (HiGHS through landschaft's closure engine, gap 0) into actions_raster.json. The
-example case is landschaft's own example (prioritize/data: cost.tif, features.tif, threats.tif), its tables and
+per case its settings, the tables terraflux-py builds (pu, features, dist_features, threats, dist_threats, boundary)
+and the optimum of its problem (HiGHS through the library's closure engine, gap 0) into actions_raster.json. The
+example case is the library's own example (prioritize/data: cost.tif, features.tif, threats.tif), its tables and
 its optimum at gap 0.01:
 
     python tools/make_actions_raster_reference.py
@@ -89,7 +89,7 @@ def main() -> None:
                      {"model": "maximizeBenefits", "budget": 40.0, "blm": 0.05, "curve": 2}),
     }
     # a feature without amounts (sp2's layer all 0): dropped, the relative targets the other features' shares
-    # (landschaft 1.58.1's test_raster_relative_targets_without_a_feature; the targets were once one per layer)
+    # (terraflux-py 1.58.1's test_raster_relative_targets_without_a_feature; the targets were once one per layer)
     no_amounts = feats.copy()
     no_amounts[1] = 0.0
     cases["no_amounts"] = ({"action_cost": 1.0, "target_recovery": 0.5, "target_conservation": 0.25,
@@ -111,7 +111,7 @@ def main() -> None:
                                                                    "dist_threats", "boundary")},
                      "objective": float(s.objective), "units": s.units.tolist(), "actions": s.actions.tolist()}
         print(name, s.status, s.objective)
-    # landschaft's example
+    # The library's example
     data = ROOT / "extern" / "terraflux-py" / "src" / "terraflux" / "prioritize" / "data"
     cost_e = tf.load_raster(data / "cost.tif")
     feats_e = tf.load_raster(data / "features.tif")

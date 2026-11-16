@@ -1,4 +1,4 @@
-//! Zonation 5's transforms of the features before the ranking and its analyses after it, as landschaft does them
+//! Zonation 5's transforms of the features before the ranking and its analyses after it, as terraflux-py does them
 //! around its C++ (prioritize/_connectivity.py, _zonation.py): conditions, retention, the connectivity transforms
 //! (a dispersal kernel, interactions between features, connectivity matrices; FFT convolution in blocks as
 //! Zonation's convolver), the pre-processing maps and the features as ranked.
@@ -259,7 +259,7 @@ fn quantized(data: &PrioData, k: usize) -> Result<Vec<f64>, String> {
 }
 
 /// Zonation's connectivity transforms of the quantized layers, in its order: single feature, interaction 1,
-/// matrix, interaction 2 (landschaft's _connectivity.apply). `kept`: the input features ranked; `resource`: a
+/// matrix, interaction 2 (the library's _connectivity.apply). `kept`: the input features ranked; `resource`: a
 /// resource map by name.
 pub fn connect(
     data: &mut cxx::UniquePtr<PrioData>,

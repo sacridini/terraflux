@@ -1,4 +1,4 @@
-//! Dynamic variables (landschaft's `distance_to`, `share_of`): drivers computed again from the simulated map
+//! Dynamic variables (the library's `distance_to`, `share_of`): drivers computed again from the simulated map
 //! at every step, and the stacks they go into (`stack.set`, `stack.classes`) or are taken from (`stack.layer`).
 
 use std::sync::Arc;
@@ -35,7 +35,7 @@ pub fn distance_to(land: &Map, classes: &[f64], res: f64) -> Result<Map> {
     Ok(Map::new(land.grid.clone(), out))
 }
 
-/// A transition of conductances on the map's grid (landschaft's `ls.cost.Transition`): the value of the
+/// A transition of conductances on the map's grid (the library's `tf.cost.Transition`): the value of the
 /// connection from each cell in each direction of gdistance's layout.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -52,7 +52,7 @@ pub struct CostLayout {
 }
 
 /// The accumulated cost from the nearest cell of some classes over a transition of conductances (gdistance's
-/// accCost; landschaft's `distance_to(..., cost=...)`): inf where no such cell can be reached, or everywhere
+/// accCost; the library's `distance_to(..., cost=...)`): inf where no such cell can be reached, or everywhere
 /// when the map has none; NaN where the map has no value.
 pub fn cost_to(land: &Map, classes: &[f64], values: &[f64], layout: &CostLayout) -> Result<Map> {
     let (ny, nx) = land.shape();

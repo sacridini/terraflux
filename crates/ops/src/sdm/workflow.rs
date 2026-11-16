@@ -1,4 +1,4 @@
-//! The modelling workflow of landschaft's sdm (MaxNet, a GLM or a random forest): the records' predictor values
+//! The modelling workflow of the library's sdm (MaxNet, a GLM or a random forest): the records' predictor values
 //! (dataset), the model fitted with cross-validation over folds (fit: AUC, TSS, Boyce and omission per fold, their means and
 //! standard deviations, the threshold of maximum sensitivity plus specificity, the out-of-fold predictions), response curves and
 //! permutation importance (numpy's generator).
@@ -23,7 +23,7 @@ pub fn values_at(grid: &Grid, layers: &[&[f64]], x: &[f64], y: &[f64]) -> Result
     Ok((0..nb).map(|b| (0..x.len()).map(|i| out[i * nb + b]).collect()).collect())
 }
 
-/// One fold's metrics (landschaft's _fold_metrics): auc_train, auc_test, auc_diff, tss, boyce, or_mtp, or_10p,
+/// One fold's metrics (the library's _fold_metrics): auc_train, auc_test, auc_diff, tss, boyce, or_mtp, or_10p,
 /// n_test.
 pub const METRICS: [&str; 8] = ["auc_train", "auc_test", "auc_diff", "tss", "boyce", "or_mtp", "or_10p", "n_test"];
 
@@ -96,7 +96,7 @@ pub struct Fitted {
     pub predictions: Option<Vec<f64>>,
 }
 
-/// landschaft's fit: the model on every record, and with folds (0: training only) one per fold; the records'
+/// The library's fit: the model on every record, and with folds (0: training only) one per fold; the records'
 /// weights given to the models that take them. `tell` is told the fit it is at (`Some((k, of))`), or only asked
 /// (`None`, within a fit): false when the run was stopped (the fit then fails, stopped).
 pub fn fit(

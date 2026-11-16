@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""GuidosToolbox's colour tables and class names, from landschaft, as Rust (crates/ops/src/gtb_palettes.rs):
+"""GuidosToolbox's colour tables and class names, from terraflux-py, as Rust (crates/ops/src/gtb_palettes.rs):
 
     python tools/make_gtb_palettes.py
 
-The tables are those landschaft writes into its GeoTIFFs and plots (src/terraflux/_palettes.py), GTB's own.
+The tables are those terraflux-py writes into its GeoTIFFs and plots (src/terraflux/_palettes.py), GTB's own.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ def main() -> None:
     out = [
         "// SPDX-License-Identifier: GPL-3.0-or-later",
         "//",
-        "// GuidosToolbox's colour tables and class names, written by tools/make_gtb_palettes.py from landschaft:",
+        "// GuidosToolbox's colour tables and class names, written by tools/make_gtb_palettes.py from terraflux-py:",
         "// do not edit.",
         "",
     ]

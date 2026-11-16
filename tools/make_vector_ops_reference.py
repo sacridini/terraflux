@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's extract and geopandas' buffer, clip and dissolve give, for Terraflux's tests of vector.extract,
-vector.buffer, vector.clip and vector.dissolve: on the grid and features of landschaft's optimize cases
+"""What the library's extract and geopandas' buffer, clip and dissolve give, for Terraflux's tests of vector.extract,
+vector.buffer, vector.clip and vector.dissolve: on the grid and features of the library's optimize cases
 (tests/optimize_cases.py) and its planning-unit polygons, at points drawn over the grid (some outside it), written to
 tests/data/reference/vector_ops.json:
 
     python tools/make_vector_ops_reference.py
 
-Run with the landschaft the submodule points at installed.
+Run with the library the submodule points at installed.
 """
 
 from __future__ import annotations

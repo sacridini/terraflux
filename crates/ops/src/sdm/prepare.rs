@@ -1,4 +1,4 @@
-//! The whole preparation of a species distribution model in one node (landschaft's prepare): the records
+//! The whole preparation of a species distribution model in one node (the library's prepare): the records
 //! cleaned, one per cell, thinned; the accessible area; the predictors without collinearity in it; background
 //! points in it; the predictors' values at the records; the folds. Every step is the node of its own
 //! (`sdm.clean_occurrences`, `sdm.one_per_cell`, `sdm.thin`, `sdm.accessible_area`, `sdm.select_predictors`,

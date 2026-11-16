@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's h3_units gives, for Terraflux's tests: the H3 hexagons over the cost raster of landschaft's
+"""What the library's h3_units gives, for Terraflux's tests: the H3 hexagons over the cost raster of the library's
 optimize cases (tests/optimize_cases.py, EPSG:32723) at resolutions 9 and 10, their indexes and costs, written to
 tests/data/reference/h3_units.json:
 
     python tools/make_h3_reference.py
 
-Run with the landschaft the submodule points at installed (and h3).
+Run with the library the submodule points at installed (and h3).
 """
 
 from __future__ import annotations

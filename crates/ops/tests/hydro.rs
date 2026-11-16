@@ -1,5 +1,5 @@
-//! Terrain hydrology against landschaft's (tests/data/reference/hydro.npz, tools/make_hydro_reference.py): every
-//! function of ls.hydro with some options on the DEMs of its WhiteboxTools references and on a longitude / latitude
+//! Terrain hydrology against the library's (tests/data/reference/hydro.npz, tools/make_hydro_reference.py): every
+//! function of tf.hydro with some options on the DEMs of its WhiteboxTools references and on a longitude / latitude
 //! corner of orelevation, to the bit.
 
 use std::path::Path;
@@ -63,7 +63,7 @@ fn dem_of(name: &str, extent: &[f64], z: &[f64], shape: (usize, usize)) -> Map {
 }
 
 #[test]
-fn hydrology_is_landschafts() {
+fn hydrology_matches_the_library() {
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/hydro.npz")).unwrap();
     let meta: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/hydro.json")).unwrap())

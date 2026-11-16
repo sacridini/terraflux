@@ -1,8 +1,8 @@
-//! Cleaning occurrence records (landschaft's clean_occurrences): the tests of CoordinateCleaner (Zizka et al.
+//! Cleaning occurrence records (the library's clean_occurrences): the tests of CoordinateCleaner (Zizka et al.
 //! 2019) — invalid coordinates, equal longitude and latitude, 0/0, capitals, country and province centroids,
 //! the sea, towns, outside the country the record claims, geographic outliers of its species, GBIF's
-//! headquarters, biodiversity institutions, duplicates and artificial hotspots — as landschaft runs them: the
-//! circles of CoordinateCleaner to the bit (landschaft's C++), GEOS's point-in-polygon rule (the boundary
+//! headquarters, biodiversity institutions, duplicates and artificial hotspots — as terraflux-py runs them: the
+//! circles of CoordinateCleaner to the bit (the library's C++), GEOS's point-in-polygon rule (the boundary
 //! counts), R's statistics of the outliers.
 
 use std::collections::{HashMap, HashSet};
@@ -219,7 +219,7 @@ fn shapes_lonlat(v: &Vector) -> Result<Vec<Shape>, String> {
     Ok(v.geometries.iter().filter_map(Shape::of).collect())
 }
 
-/// The circles of radius `d` around the points (landschaft's C++): one shape per point (None where it has no
+/// The circles of radius `d` around the points (the library's C++): one shape per point (None where it has no
 /// ring of four vertices).
 fn circles(lon: &[f64], lat: &[f64], d: f64, kind: &str) -> Result<Vec<Option<Shape>>, String> {
     let c = ffi::sdm_circles(lon, lat, d, kind).map_err(|e| e.to_string())?;
@@ -743,7 +743,7 @@ fn species_of(occ: &Occurrences, species: Option<&str>) -> Result<Species, Strin
 /// The tests' settings by name (absent: the test's default).
 pub type Settings<'a> = HashMap<&'a str, Json>;
 
-/// CoordinateCleaner's tests of the records (landschaft's clean_occurrences with action "flag").
+/// CoordinateCleaner's tests of the records (the library's clean_occurrences with action "flag").
 pub fn clean(
     occ: &Occurrences,
     species: Option<&str>,

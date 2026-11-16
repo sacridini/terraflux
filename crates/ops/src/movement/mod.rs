@@ -1,4 +1,4 @@
-//! Movement ecology (`move.*`), landschaft's `ls.move`: the tracks of tagged animals as points, one feature per
+//! Movement ecology (`move.*`), the library's `tf.move`: the tracks of tagged animals as points, one feature per
 //! location, ordered by track and time, with a column of the time and one of the track. The first part is R's
 //! move2 0.5.0 (Kranstauber et al. 2024), the same numbers: Movebank's files, the distance, duration, speed,
 //! direction and turn of every step (on the sphere of S2 and the ellipsoid of GeographicLib in longitude /
@@ -6,7 +6,7 @@
 //! tracks as lines and segments, a local projection, Brownian tracks. The second is amt 0.3.1's (Signer et al.
 //! 2019) steps of step selection functions: tracks resampled in bursts, the steps with their lengths and turn
 //! angles, summaries of tracks, day and night, distributions of steps, random steps and the covariates at their
-//! ends. The kernels are landschaft's C++ (`terraflux-ls-sys`), the work around them its Python's.
+//! ends. The kernels are the library's C++ (`terraflux-ls-sys`), the work around them its Python's.
 //!
 //! The time is a column of datetimes written as text (ISO 8601, UTC: Movebank's `timestamp`, GDAL's datetime
 //! fields) or of numbers (seconds, or any unit); the track a column of names or numbers. Both are found by their

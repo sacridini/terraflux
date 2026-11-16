@@ -1,4 +1,4 @@
-//! MESS, MOP and ExDet against landschaft's (tests/data/reference/sdm_extrapolation.npz and .json,
+//! MESS, MOP and ExDet against the library's (tests/data/reference/sdm_extrapolation.npz and .json,
 //! tools/make_sdm_extrapolation_reference.py): on a stack of three predictors and on a table. MESS and the
 //! Euclidean MOP to the bit; the Mahalanobis MOP and ExDet (numpy's covariance, LAPACK's inverse) to rounding.
 
@@ -25,7 +25,7 @@ fn table(rows: &[f64]) -> Value {
 }
 
 #[test]
-fn extrapolation_is_landschafts() {
+fn extrapolation_matches_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("sdm_extrapolation.npz")).unwrap();
     let cases: serde_json::Value =

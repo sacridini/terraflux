@@ -1,9 +1,9 @@
-//! landschaft's HabitatGraph: a graph of habitat nodes with an attribute (an area, a quality) and the distances,
+//! The library's HabitatGraph: a graph of habitat nodes with an attribute (an area, a quality) and the distances,
 //! probabilities or links between pairs of them; Conefor Sensinode's indices (NC, NL, H, CCP, LCP, IIC, F, AWF,
 //! PC, the betweenness BC, BC(IIC) and BC(PC)) overall and per node (dI and its intra, flux and connector
 //! fractions), with Makurhini's conventions or Conefor's, the importance of links, of changes to them and of
 //! nodes to restore, and the centralities of Makurhini's MK_RMCentrality. The paths and their repairs are
-//! landschaft's C++; what landschaft computes with numpy is computed here in the same order.
+//! the library's C++; what terraflux-py computes with numpy is computed here in the same order.
 
 use std::collections::HashMap;
 
@@ -106,7 +106,7 @@ pub enum Connections {
 }
 
 /// A scenario: the link distance (None for a graph of probabilities without one), the threshold given to
-/// landschaft's C++ (NaN without), the probability at that distance, the smallest probability kept and
+/// the library's C++ (NaN without), the probability at that distance, the smallest probability kept and
 /// Conefor's expansion limit.
 struct Scenario {
     distance: Option<f64>,
@@ -1416,7 +1416,7 @@ pub fn comparison(deca: f64, da: f64) -> (&'static str, &'static str) {
     }
 }
 
-/// The change of the equivalent connected area from graph to graph (Makurhini's MK_dECA, landschaft's
+/// The change of the equivalent connected area from graph to graph (Makurhini's MK_dECA, the library's
 /// eca_change): per distance and graph, the habitat area, ECA and their changes (%, the first against the
 /// landscape's area), ECA / dA and how they compare.
 pub fn eca_change(

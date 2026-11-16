@@ -417,7 +417,7 @@ impl Operator for Interpolate {
     }
 }
 
-/// R's mean of the plain loop landschaft takes for a projected centroid.
+/// R's mean of the plain loop terraflux-py takes for a projected centroid.
 fn plain_mean(v: &[f64]) -> f64 {
     let mut s = 0.0;
     for &a in v {
@@ -426,7 +426,7 @@ fn plain_mean(v: &[f64]) -> f64 {
     s / v.len() as f64
 }
 
-/// The PROJ string of move2's mt_aeqd_crs centred on the tracks (landschaft's aeqd_crs).
+/// The PROJ string of move2's mt_aeqd_crs centred on the tracks (the library's aeqd_crs).
 pub(crate) fn aeqd(v: &Vector, center: &serde_json::Value, units: &str) -> std::result::Result<String, String> {
     if units != "m" && units != "km" {
         return Err("units: m or km".into());

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft 1.50's new surfaces and Dinamica functors give, for Terraflux's tests, written to
+"""What terraflux-py 1.50's new surfaces and Dinamica functors give, for Terraflux's tests, written to
 tests/data/reference/landforms.npz (and the cases to landforms.json):
 
-- the geomorphons of every case of landschaft's r.geomorphon references (extern/terraflux-py/tests/data/reference/
+- the geomorphons of every case of the library's r.geomorphon references (extern/terraflux-py/tests/data/reference/
   surface/geomorphons.*), with their measures;
 - the hilltops of a cone, of the srtm DEM of those references (with a plain) and of a corner of orelevation
   (longitude / latitude);
@@ -12,7 +12,7 @@ tests/data/reference/landforms.npz (and the cases to landforms.json):
 
     python tools/make_landforms_reference.py
 
-Run with the landschaft the submodule points at installed.
+Run with the library the submodule points at installed.
 """
 
 from __future__ import annotations

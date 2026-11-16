@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's choice of predictors and range of autocorrelation give, for Terraflux's tests, written to
+"""What the library's choice of predictors and range of autocorrelation give, for Terraflux's tests, written to
 tests/data/reference/sdm_predictors.npz, .json and .gpkg:
 
     python tools/make_sdm_predictors_reference.py

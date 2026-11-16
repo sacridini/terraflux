@@ -1,4 +1,4 @@
-//! prioritize.proxirr against R's proxirr 0.5, to the bit: the outputs landschaft keeps
+//! prioritize.proxirr against R's proxirr 0.5, to the bit: the outputs terraflux-py keeps
 //! (extern/terraflux-py/tests/data/reference/optimize/proxirr.npz) of its inputs
 //! (tests/data/reference/proxirr_inputs.json, tools/make_proxirr_inputs.py), as its test_prioritize_proxirr.py.
 
@@ -70,7 +70,7 @@ fn column(out: &terraflux_ops::Outputs, port: &str, col: &str) -> Vec<f64> {
 }
 
 /// From Marxan's tables: proxirr's alphas, betas and gammas, with ids out of order, a feature missing from spec
-/// and a unit without features (landschaft's corrected figures where proxirr as released gives NaN).
+/// and a unit without features (the library's corrected figures where proxirr as released gives NaN).
 #[test]
 fn marxan_tables_are_proxirrs() {
     let (inputs, reference) = data();

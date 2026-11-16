@@ -1,4 +1,4 @@
-//! landschaft 1.50's surfaces and Dinamica functors against landschaft (tests/data/reference/landforms.npz,
+//! terraflux-py 1.50's surfaces and Dinamica functors against terraflux-py (tests/data/reference/landforms.npz,
 //! tools/make_landforms_reference.py): the geomorphons of its r.geomorphon cases, hilltops, the gravitational
 //! potential, the Patcher of a continuous state and the road functors, to the bit (the FFT's potential within
 //! 1e-12 of the largest).
@@ -69,7 +69,7 @@ impl Data {
 }
 
 #[test]
-fn geomorphons_are_landschafts() {
+fn geomorphons_match_the_library() {
     let d = Data::load();
     for (name, c) in d.meta["geomorphons"].as_object().unwrap() {
         let dem = d.map(&format!("geo/{name}/dem"), &c["transform"]);
@@ -95,7 +95,7 @@ fn geomorphons_are_landschafts() {
 }
 
 #[test]
-fn hilltops_are_landschafts() {
+fn hilltops_match_the_library() {
     let d = Data::load();
     for h in d.meta["hilltop"].as_array().unwrap() {
         let name = h["name"].as_str().unwrap();
@@ -128,7 +128,7 @@ fn hilltops_are_landschafts() {
 }
 
 #[test]
-fn gravity_is_landschafts() {
+fn gravity_matches_the_library() {
     let d = Data::load();
     let t = &d.meta["gravity_transform"];
     for g in d.meta["gravity"].as_array().unwrap() {
@@ -149,7 +149,7 @@ fn gravity_is_landschafts() {
 }
 
 #[test]
-fn the_continuous_patcher_is_landschafts() {
+fn the_continuous_patcher_matches_the_library() {
     let d = Data::load();
     let t = &d.meta["stock_transform"];
     let (stock, prob) = (d.map("stock/biomass", t), d.map("stock/probability", t));
@@ -192,7 +192,7 @@ fn the_continuous_patcher_is_landschafts() {
 }
 
 #[test]
-fn the_road_functors_are_landschafts() {
+fn the_road_functors_match_the_library() {
     let d = Data::load();
     let t = &d.meta["roads_transform"];
     let m = |k: &str| Value::Map(d.map(&format!("roads/{k}"), t));

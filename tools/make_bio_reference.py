@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's Biodiverse port gives, for Terraflux's tests, written to tests/data/reference/bio.json and
+"""What the library's Biodiverse port gives, for Terraflux's tests, written to tests/data/reference/bio.json and
 bio_spatial.npz:
 
     python tools/make_bio_reference.py
@@ -8,7 +8,7 @@ Basedata of Biodiverse's example sites (cells of 100 km, coordinates as written,
 of every calculation without trees, matrices or properties under many spatial conditions (one or two
 neighbour sets, definition queries): the scalar indices and the list indices as the engine returns them.
 
-Run with the landschaft the submodule points at installed.
+Run with the library the submodule points at installed.
 """
 
 from __future__ import annotations

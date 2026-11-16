@@ -1,5 +1,5 @@
-//! Agglomerative clustering of groups and the region grower (landschaft's bio/_cluster.py, Biodiverse::Cluster
-//! and RegionGrower): the matrix and the joins in landschaft's C++, the tree finished here as Biodiverse's
+//! Agglomerative clustering of groups and the region grower (the library's bio/_cluster.py, Biodiverse::Cluster
+//! and RegionGrower): the matrix and the joins in the library's C++, the tree finished here as Biodiverse's
 //! TreeNode does it (lengths from the join values, zero-length branches raised, several roots joined, children
 //! ladderised, terminals numbered).
 

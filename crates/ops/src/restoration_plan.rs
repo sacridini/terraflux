@@ -1,4 +1,4 @@
-//! Restoration planning (the restoration problem of plangea, Strassburg et al. 2020; as landschaft solves it): how
+//! Restoration planning (the restoration problem of plangea, Strassburg et al. 2020; as terraflux-py solves it): how
 //! much of every converted cell to restore, for the most benefit within area targets and a budget.
 //!
 //! The decision is the share x_i of each cell restored, between 0 and the share that can be (its anthropic land,
@@ -1010,7 +1010,7 @@ impl Plan {
         self.upper.iter().map(|u| u * k).collect()
     }
 
-    /// The most weighted benefit by simplicial decomposition (landschaft's _solve_sd): the plan a mix of vertices
+    /// The most weighted benefit by simplicial decomposition (the library's _solve_sd): the plan a mix of vertices
     /// of the set of plans, each a linear program with the benefits' gradient at the current plan; the mix by a
     /// small concave master problem (projected gradient ascent on the simplex: its accuracy only steers the
     /// search); the bound the Frank-Wolfe one, valid because the benefit is concave. A species that reaches its
@@ -1284,7 +1284,7 @@ impl Plan {
         Ok((best_x, bound, status, it))
     }
 
-    /// The exact intactness (landschaft's _solve_mm). T(x), the sum over the windows' pairs of c_jk
+    /// The exact intactness (the library's _solve_mm). T(x), the sum over the windows' pairs of c_jk
     /// exp(gamma z (t_j + t_k)), t the footprint's reduction, is convex in t, and t_i(x) = min(a_i x, h0_i) concave
     /// in x. At a plan x0 the tangent of the exponentials gives a concave minorant that touches T at x0; each step
     /// maximises the other benefits plus it exactly (simplicial decomposition), so the benefit never falls; the
@@ -1362,7 +1362,7 @@ impl Plan {
         Ok((best_x, bound.max(best), status, it))
     }
 
-    /// The cheapest plan whose weighted benefit reaches `target` (landschaft's _solve_min_cost), its cost the
+    /// The cheapest plan whose weighted benefit reaches `target` (the library's _solve_min_cost), its cost the
     /// problem's (add_budget's, or `cost` per unit share): the most benefit for a budget, F(B), is concave and
     /// increasing in the budget, so a search on the budget, each step the most benefit for it, finds the least
     /// budget that reaches the benefit; a budget whose bound falls short proves the cost above it (the bound
@@ -1469,7 +1469,7 @@ impl Plan {
     }
 }
 
-/// plangea's choice of weights (post_choose_weights, landschaft's mean_sd): every criterion (a column of the rows)
+/// plangea's choice of weights (post_choose_weights, the library's mean_sd): every criterion (a column of the rows)
 /// rescaled to 0-1 over the alternatives (a constant one to 1), those smaller-is-better (`minus`) inverted, and
 /// every alternative scored by the mean of its criteria divided by their standard deviation (good on all of them
 /// at once). Returns the mean, the deviation, the score (larger is better) and the rank (1 the best, ties

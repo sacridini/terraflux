@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft gives for the GuidosToolbox tools whose GTB outputs it keeps no digests of, for Terraflux's
+"""What terraflux-py gives for the GuidosToolbox tools whose GTB outputs it keeps no digests of, for Terraflux's
 tests: digests of the maps and the numbers of the reports, on the maps of tests/data/reference/gtb_inputs.npz
 (tools/make_gtb_inputs.py), written to tests/data/reference/gtb_landschaft.json:
 
     python tools/make_gtb_reference.py
 
-Run with the landschaft the submodule points at installed. Float maps are digested as float32, the cells
-landschaft gives no value written NaN.
+Run with the library the submodule points at installed. Float maps are digested as float32, the cells
+terraflux-py gives no value written NaN.
 """
 
 from __future__ import annotations

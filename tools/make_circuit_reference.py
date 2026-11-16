@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's circuits give, for Terraflux's tests: Omniscape on the cases of landschaft's references
+"""What the library's circuits give, for Terraflux's tests: Omniscape on the cases of the library's references
 (tests/data/reference/circuit/omniscape.npz, with Omniscape.jl's options), one more with conditions, a
 reclassification and single precision, and the advanced mode on its cases (advanced_inputs.npz), written to
 tests/data/reference/circuit_landschaft.npz (and the extra case's options to circuit_landschaft.json):
 
     python tools/make_circuit_reference.py
 
-Run with the landschaft the submodule points at installed. landschaft's baseline build (not its AVX2 one, which
+Run with the library the submodule points at installed. the library's baseline build (not its AVX2 one, which
 Terraflux does not build) is what Terraflux's equals bit for bit.
 """
 
@@ -78,7 +78,7 @@ if __name__ == "__main__":
 
 def circuitscape_cases() -> None:
     """Circuitscape's pairwise and one-to-all (all-to-one) modes on rasters made here (lognormal resistances,
-    focal points with a region of two cells, short-circuit polygons, a mask), with landschaft one thread (batches
+    focal points with a region of two cells, short-circuit polygons, a mask), with terraflux-py one thread (batches
     of 4 problems), written to tests/data/reference/circuitscape_landschaft.npz."""
     rng = np.random.default_rng(11)
     out: dict[str, np.ndarray] = {}
@@ -118,7 +118,7 @@ def circuitscape_cases() -> None:
         out[f"{name}/pairwise/max"] = p.max_current
         strengths = np.array([[k + 1, 1.0 + 0.5 * k] for k in range(6)])
         for mode, all_to_one in (("one_to_all", False), ("all_to_one", True)):
-            # (strengths go by position: not with focal regions, where landschaft, as Circuitscape, fails)
+            # (strengths go by position: not with focal regions, where terraflux-py, as Circuitscape, fails)
             for st in (None,) if regions else (None, strengths):
                 key = f"{name}/{mode}" + ("_strengths" if st is not None else "")
                 o = tf.circuit.circuitscape_one_to_all(r, pts, all_to_one=all_to_one, strengths=st, cum_map=True,
@@ -142,7 +142,7 @@ PAIRS = {
 
 def pairs_and_networks() -> None:
     """Included pairs on rasters (pairwise, one-to-all and all-to-one, with and without focal regions) and
-    Circuitscape's network test cases (landschaft's tests/data/reference/circuit/circuitscape/input/network*),
+    Circuitscape's network test cases (the library's tests/data/reference/circuit/circuitscape/input/network*),
     written to tests/data/reference/circuit_networks.npz and .json (and the pairs files)."""
     from terraflux.circuit.ini import parse_ini
 
@@ -205,8 +205,8 @@ def pairs_and_networks() -> None:
 
 
 def ini_cases() -> None:
-    """Circuitscape's raster test INI files (run from its folder, landschaft one thread) and the Omniscape INI
-    files of landschaft's references, without writing outputs: tests/data/reference/circuit_ini.npz and .json."""
+    """Circuitscape's raster test INI files (run from its folder, terraflux-py one thread) and the Omniscape INI
+    files of the library's references, without writing outputs: tests/data/reference/circuit_ini.npz and .json."""
     import warnings
 
     cs = LS / "circuitscape"
@@ -259,7 +259,7 @@ INI_OUTPUTS = ["input/raster/pairwise/1/sgVerify1.ini", "input/raster/advanced/1
 
 
 def ini_outputs() -> None:
-    """The files landschaft writes for three Circuitscape INI files (their copies in
+    """The files terraflux-py writes for three Circuitscape INI files (their copies in
     tests/data/reference/circuit_ini_out, inputs from Circuitscape's folder, outputs next to them)."""
     import shutil
 

@@ -1,4 +1,4 @@
-//! Zonation 5's output files of a ranking, as landschaft writes them (`ZonationResult.write`): `rankmap.tif`,
+//! Zonation 5's output files of a ranking, as terraflux-py writes them (`ZonationResult.write`): `rankmap.tif`,
 //! `feature_curves.csv`, `summary_curves.csv`, `feature_density_curves.csv`, `group_curves.csv` (with output groups)
 //! and `features_info.csv`, digit for digit like Zonation's own. The means are Zonation's float32 sums (Eigen's
 //! reduction order, through `prio_eigen_sum_f32`) so the tables match its files.
@@ -408,7 +408,7 @@ pub fn write_rankmap(path: &Path, grid: &Grid, rank: &[f64]) -> Result<()> {
     write_tif(path, grid, &data, DataType::F32, Some(f64::NEG_INFINITY))
 }
 
-/// A GeoTIFF as landschaft's write_raster writes it: LZW with the predictor of the type (3 for floats, 2 for
+/// A GeoTIFF as the library's write_raster writes it: LZW with the predictor of the type (3 for floats, 2 for
 /// integers), tiled by 512 when the grid has that many cells, BigTIFF when needed.
 pub fn write_tif(path: &Path, grid: &Grid, data: &[f64], dtype: DataType, nodata: Option<f64>) -> Result<()> {
     let err = |e: String| Error::msg(format!("{}: {e}", path.display()));

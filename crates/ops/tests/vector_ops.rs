@@ -1,6 +1,6 @@
-//! vector.extract against landschaft's extract (to the bit: nearest, bilinear, statistics in buffers), and
+//! vector.extract against the library's extract (to the bit: nearest, bilinear, statistics in buffers), and
 //! vector.buffer, vector.clip and vector.dissolve against geopandas (the same features kept, their areas: GEOS
-//! through GDAL, shapely's GEOS), on the grid and polygons of landschaft's optimize cases
+//! through GDAL, shapely's GEOS), on the grid and polygons of the library's optimize cases
 //! (tests/data/reference/vector_ops.json, tools/make_vector_ops_reference.py). Skipped without GDAL.
 
 use std::path::Path;
@@ -53,7 +53,7 @@ fn close(a: f64, b: f64) -> bool {
 }
 
 #[test]
-fn vector_operations_are_landschafts_and_geopandas() {
+fn vector_operations_match_the_library_and_geopandas() {
     if let Err(e) = terraflux_gdal::gdal() {
         eprintln!("skipped: {e}");
         return;

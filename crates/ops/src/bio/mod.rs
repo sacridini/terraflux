@@ -1,6 +1,6 @@
-//! Biodiversity analyses (landschaft's bio module, a port of Biodiverse): basedata of groups x labels sample
+//! Biodiversity analyses (the library's bio module, a port of Biodiverse): basedata of groups x labels sample
 //! counts from occurrence tables or points, Biodiverse's spatial conditions (its Perl, parsed and compiled here)
-//! and its indices over the neighbourhood of every group, computed by landschaft's C++.
+//! and its indices over the neighbourhood of every group, computed by the library's C++.
 
 pub mod basedata;
 pub mod cluster;

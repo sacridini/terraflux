@@ -1,6 +1,6 @@
-//! MaxNet (landschaft's port of the maxnet package, Phillips et al. 2017): Maxent as an infinitely weighted
+//! MaxNet (the library's port of the maxnet package, Phillips et al. 2017): Maxent as an infinitely weighted
 //! logistic regression, glmnet's lasso path over linear, quadratic, product, hinge, threshold and categorical
-//! features. landschaft's C++ for the fit and the predictions; their names as R writes them.
+//! features. the library's C++ for the fit and the predictions; their names as R writes them.
 
 use serde::{Deserialize, Serialize};
 use terraflux_ls_sys::ffi;
@@ -77,7 +77,7 @@ fn tables(frame: &Frame, cont: &[usize], cat: &[usize], levels: &[Vec<f64>]) -> 
     (c, k)
 }
 
-/// The name of a level as landschaft writes it (R's as.character).
+/// The name of a level as terraflux-py writes it (R's as.character).
 fn label(v: f64) -> String {
     ffi::sdm_r_as_character(v)
 }

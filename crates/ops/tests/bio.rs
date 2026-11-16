@@ -1,4 +1,4 @@
-//! Biodiverse's analyses against landschaft's (tests/data/reference/bio.json and bio_spatial.npz,
+//! Biodiverse's analyses against the library's (tests/data/reference/bio.json and bio_spatial.npz,
 //! tools/make_bio_reference.py): the basedata of its example sites read five ways, and the spatial analyses of
 //! every calculation without trees, matrices or properties under twenty spatial conditions, scalar and list
 //! indices, to the bit.
@@ -50,7 +50,7 @@ fn import(o: &serde_json::Value) -> TableImport {
 }
 
 #[test]
-fn basedata_and_spatial_analyses_are_landschafts() {
+fn basedata_and_spatial_analyses_match_the_library() {
     let reference: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/bio.json")).unwrap()).unwrap();
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/bio_spatial.npz")).unwrap();
@@ -133,7 +133,7 @@ fn the_operators_read_and_analyse() {
 /// The feature import (bio.points): the example sites as points, cells of 150 km from an origin, counts from an
 /// attribute.
 #[test]
-fn points_are_read_like_landschaft() {
+fn points_are_read_like_the_library() {
     use std::sync::Arc;
     use terraflux_raster::vector::{Column, Geometry, Vector};
     let reference: serde_json::Value =
@@ -179,11 +179,11 @@ fn same_tree(what: &str, t: &terraflux_ops::bio::tree::Tree, want: &serde_json::
     assert_eq!(t.children, children, "{what}: children");
 }
 
-/// Trees read as Biodiverse reads them (landschaft's test trees and some Newick), and the phylogenetic indices
+/// Trees read as Biodiverse reads them (the library's test trees and some Newick), and the phylogenetic indices
 /// over them (trimmed trees, polytomies, names that do not match, PhyloCom's random tips), to the bit
 /// (tests/data/reference/bio_trees.json and bio_phylo.npz).
 #[test]
-fn trees_and_phylogenetic_indices_are_landschafts() {
+fn trees_and_phylogenetic_indices_match_the_library() {
     use terraflux_ops::bio::tree::read_trees;
     let reference: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/bio_trees.json")).unwrap())
@@ -271,11 +271,11 @@ fn the_tree_operator_feeds_the_analysis() {
     assert!(lists["PD_INCLUDED_NODE_LIST"]["1950000:1350000"].as_object().is_some_and(|m| !m.is_empty()));
 }
 
-/// Randomisations of an analysis with a tree against landschaft's (tests/data/reference/bio_rand.json and
+/// Randomisations of an analysis with a tree against the library's (tests/data/reference/bio_rand.json and
 /// bio_rand.npz): every function, with their options, subsets, definition queries, labels kept in place and
 /// shuffled trees; the counters, p-ranks, z-scores and CANAPE, scalar and list indices, to the bit.
 #[test]
-fn randomisations_are_landschafts() {
+fn randomisations_match_the_library() {
     use terraflux_ops::bio::rand::{Options, Randomisation};
     use terraflux_ops::bio::spatial::prepare;
     use terraflux_ops::bio::tree::read_trees;
@@ -377,12 +377,12 @@ fn the_randomise_operator_gives_tables_and_maps() {
     assert!(s.keys.iter().any(|k| k.to_string() == "CANAPE_CODE"));
 }
 
-/// Clusterings and region growers against landschaft's (tests/data/reference/bio_cluster.json and .npz): every
+/// Clusterings and region growers against the library's (tests/data/reference/bio_cluster.json and .npz): every
 /// linkage, direct and pairwise indices, phylogenetic ones, link_recalculate, several conditions, a definition
 /// query, the calculations of each node, tie breakers, singletons; the dendrogram, its node values and its cuts,
 /// to the bit.
 #[test]
-fn clusters_are_landschafts() {
+fn clusters_match_the_library() {
     use terraflux_ops::bio::cluster::{ClusterOptions, cluster};
     use terraflux_ops::bio::tree::read_trees;
     let reference: serde_json::Value =
@@ -476,10 +476,10 @@ fn the_cluster_operators_cut_maps() {
 }
 
 /// Label and group properties (RANGE and ABUNDANCE too), label matrices (full and sparse) and the indices using
-/// them, and randomisations moving group properties by set and by item, against landschaft's
+/// them, and randomisations moving group properties by set and by item, against the library's
 /// (tests/data/reference/bio_props.json and .npz), to the bit.
 #[test]
-fn properties_and_matrices_are_landschafts() {
+fn properties_and_matrices_match_the_library() {
     use std::collections::HashMap;
     use terraflux_ops::bio::properties::{MatrixImport, read_matrix, read_properties};
     use terraflux_ops::bio::rand::{Options, Randomisation};

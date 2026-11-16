@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's tf.move gives, for Terraflux's tests, written to tests/data/reference/move.npz and .json:
+"""What the library's tf.move gives, for Terraflux's tests, written to tests/data/reference/move.npz and .json:
 
     python tools/make_move_reference.py
 
-The track sets of landschaft's own tests (tests/move_cases.py of its checkout: longitude / latitude from
+The track sets of the library's own tests (tests/move_cases.py of its checkout: longitude / latitude from
 millimetre to continental steps, the antimeridian, near a pole; UTM; no CRS; duplicated times; gaps with empty
 locations) and move2's fishers (tests/data/move/fishers.csv.gz, copied here): move2's steps, filters,
 interpolation, projection and Brownian tracks, amt's steps, bursts, summaries, fits, random numbers and steps, time
@@ -95,7 +95,7 @@ def main() -> None:
                                 ("month", "month", "first", {}), ("random", "day", "random", {"seed": 3})]:
         put(f"per_interval/{key}", M.per_interval(fishers, unit, crit, **kw))
     put("visible", M.movebank_visible(fishers))
-    meta["fishers"] = {"n": len(fishers), "track": fishers.attrs["landschaft.move"]["track"]}
+    meta["fishers"] = {"n": len(fishers), "track": fishers.attrs["terraflux.move"]["track"]}
     # interpolation
     gap, gap_plain = tr["gap"], tr["gap_plain"]
 

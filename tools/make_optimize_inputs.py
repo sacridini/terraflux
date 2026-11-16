@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The rasters prioritizr's reference models were compiled from, for Terraflux's tests of prioritize.optimize.
 
-landschaft keeps prioritizr 8.0.6's compiled models and optima (extern/terraflux-py/tests/data/reference/
+terraflux-py keeps prioritizr 8.0.6's compiled models and optima (extern/terraflux-py/tests/data/reference/
 optimize) of rasters its tests draw with numpy (tests/optimize_cases.py); this writes them (cost, features,
 locked units, penalty data, solutions; NaN where no value) into tests/data/reference/optimize_inputs.npz, and
 its tables (planning units, features, amounts, boundary, connectivity and adjacency matrices, a solution,

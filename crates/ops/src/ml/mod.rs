@@ -1,6 +1,6 @@
 //! Machine learning on tables and maps: scikit-learn's random forests and histogram gradient boosting ported to the
 //! bit (`forest`, `boosting`), fitted to the records of a table or the cells of maps (`ml.fit`), predicted on others
-//! (`ml.predict`), and the potential of each class from a model per class as landschaft's Estimator gives it
+//! (`ml.predict`), and the potential of each class from a model per class as the library's Estimator gives it
 //! (`ml.potential`): where each class is, or where it appeared between two maps (PLUS's land expansion analysis,
 //! LEAS), for the allocations.
 
@@ -201,12 +201,12 @@ fn settings_of(args: &Args, regression: bool) -> Result<forest::Settings> {
 
 // -- the records ----------------------------------------------------------------------------------------------------
 
-/// How many of `n` records a sample keeps: a number (1 or more) or a share (below 1), as landschaft's Estimator.
+/// How many of `n` records a sample keeps: a number (1 or more) or a share (below 1), as the library's Estimator.
 fn sample_size(sample: f64, n: usize) -> usize {
     if sample >= 1.0 { sample as usize } else { (sample * n as f64).round_ties_even() as usize }
 }
 
-/// landschaft's Estimator._draw: the records `idx` (of labels `y`, 0/1) kept by a sample (stratified: from each label
+/// The library's Estimator._draw: the records `idx` (of labels `y`, 0/1) kept by a sample (stratified: from each label
 /// apart, in their proportions, one at least), then as many absences as presences (`balance`); numpy's
 /// `default_rng.choice` without replacement, sorted.
 fn draw(
@@ -258,7 +258,7 @@ fn draw(
 /// Maps by name: the names and the layers.
 type Named = (Vec<String>, Vec<Arc<Vec<f64>>>);
 
-/// The layers of a stack keyed by name, by name (increasing, as landschaft sorts the drivers).
+/// The layers of a stack keyed by name, by name (increasing, as terraflux-py sorts the drivers).
 fn named_layers(stack: &Stack) -> Result<Named> {
     let mut named: Vec<(String, Arc<Vec<f64>>)> = stack
         .keys

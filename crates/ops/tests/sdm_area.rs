@@ -1,4 +1,4 @@
-//! The accessible area against landschaft's (tests/data/reference/sdm_area.gpkg and .json, the records
+//! The accessible area against the library's (tests/data/reference/sdm_area.gpkg and .json, the records
 //! sdm_area_<case>.csv, tools/make_sdm_area_reference.py): buffers, the convex hull, the regions that hold the
 //! records (widened or not), a buffer cut to the land and one across the antimeridian. GEOS through GDAL is not
 //! shapely's GEOS: the same polygons (their areas, planar and geodesic, their boxes, and next to nothing in one
@@ -51,7 +51,7 @@ fn close(a: f64, b: f64, tol: f64) -> bool {
 }
 
 #[test]
-fn areas_are_landschafts() {
+fn areas_match_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let meta: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("sdm_area.json")).unwrap()).unwrap();

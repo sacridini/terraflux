@@ -1,4 +1,4 @@
-//! FUTURES' inputs against landschaft's (tests/data/reference/futures_tools.npz and .json,
+//! FUTURES' inputs against the library's (tests/data/reference/futures_tools.npz and .json,
 //! tools/make_futures_tools_reference.py): the development pressure (gravity, occurrence, kernel; padded or not)
 //! and the patch library (whole, with a threshold, in subregions, per subregion), to the bit (the kernel, whose
 //! numpy has an exponential of its own, to the last bit of a float).
@@ -18,7 +18,7 @@ fn run(op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value) -> Outpu
 }
 
 #[test]
-fn futures_inputs_are_landschafts() {
+fn futures_inputs_match_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("futures_tools.npz")).unwrap();
     let meta: serde_json::Value =

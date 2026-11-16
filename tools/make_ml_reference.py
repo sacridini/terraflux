@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What scikit-learn's random forests and histogram gradient boosting and landschaft's Estimator give, for
+"""What scikit-learn's random forests and histogram gradient boosting and the library's Estimator give, for
 Terraflux's tests, written to tests/data/reference/ml.npz and ml.json:
 
     python tools/make_ml_reference.py
@@ -14,7 +14,7 @@ Terraflux's tests, written to tests/data/reference/ml.npz and ml.json:
 - On the test records: permutation_importance of the default classifier and regressor and of the multiclass
   boosting; partial_dependence (brute) of the regressor along a predictor and along one of few values, of the
   binary boosting and of the classifier of three classes.
-- landschaft's Estimator on the Plum Island maps (pie_landuse, pie_drivers): PLUS's land expansion analysis
+- the library's Estimator on the Plum Island maps (pie_landuse, pie_drivers): PLUS's land expansion analysis
   (target "expansion", 1985 to 2010, a sample of 4000 cells and a stratified one) and the presence of each class
   (a balanced sample), with RandomForestClassifier(n_estimators=10, random_state=0): the probability maps and
   the drivers' importances; and the expansion by HistGradientBoostingClassifier(max_iter=20).

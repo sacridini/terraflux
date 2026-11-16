@@ -1,4 +1,4 @@
-//! The analysis of land change against landschaft's (tests/data/reference/change.json,
+//! The analysis of land change against the library's (tests/data/reference/change.json,
 //! tools/make_change_reference.py): the transitions, areas and matrix, the intensity analysis in km2 and in cells
 //! with its stationarity, the components of the difference and the change count of pie_landuse (three dates) and
 //! sibuyan_landuse (two), to the bit.
@@ -77,7 +77,7 @@ fn check(got: &Table, want: &[Vec<f64>], order: &[usize], what: &str) {
 }
 
 #[test]
-fn change_analysis_is_landschafts() {
+fn change_analysis_matches_the_library() {
     let reference = reference();
     for case in reference["cases"].as_array().unwrap() {
         let file = case["file"].as_str().unwrap();

@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's SWAT+ gives, for Terraflux's tests: the Hubbard Brook W2 example of SWAT+ (landschaft's
+"""What the library's SWAT+ gives, for Terraflux's tests: the Hubbard Brook W2 example of SWAT+ (the library's
 hydro/swat/data/hubbard_brook.zip) run at every step with every table printed, and at a step with some tables,
 a spin-up and the plants' C factor; written to tests/data/reference/swat.npz (the cases to swat.json):
 
     python tools/make_swat_reference.py
 
-Run with the landschaft the submodule points at installed.
+Run with the library the submodule points at installed.
 """
 
 from __future__ import annotations

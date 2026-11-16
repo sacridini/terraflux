@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// The shim between Terraflux (Rust, cxx) and landschaft's C++ kernels: Rust
-// slices and vectors in, landschaft's types and calls, Rust vectors out.
+// The shim between Terraflux (Rust, cxx) and the library's C++ kernels: Rust
+// slices and vectors in, the library's types and calls, Rust vectors out.
 // Exceptions of the kernels reach Rust as errors (cxx's Result).
 
 #include "terraflux-ls-sys/shim/shim.h"
@@ -132,7 +132,7 @@ namespace {
 // hybrid processors (Intel's performance and efficient cores) the two kinds have other L1 and L2 caches, so the blocks,
 // the order of the sums and the last bits of the results (the circuits' resistances, say) depended on the core the
 // process started its products on. Fixed before any product: those of the performance cores of the i5-13600K that
-// landschaft's references were made on (48 KB, 2 MB, 24 MB), the same results on every core and every machine.
+// the library's references were made on (48 KB, 2 MB, 24 MB), the same results on every core and every machine.
 [[maybe_unused]] const bool eigen_caches_fixed = [] {
     Eigen::setCpuCacheSizes(48 * 1024, 2 * 1024 * 1024, 24 * 1024 * 1024);
     return true;
@@ -1878,7 +1878,7 @@ SolveOut opt_solve_watched(const MilpModel& model, const SolveSettings& settings
 
 SolveOut opt_solve_corridors(const MilpModel& model, const SolveSettings& settings, rust::Slice<const CorridorNet> nets,
                              SolveWatch& watch) {
-    // landschaft's solve_connected without patches: root cuts by rounds, then the MIP with them and the same cuts at
+    // The library's solve_connected without patches: root cuts by rounds, then the MIP with them and the same cuts at
     // its nodes (the user's separator: presolve off)
     opt::Model m;
     m.start.assign(model.start.begin(), model.start.end());
@@ -1998,7 +1998,7 @@ EngineOut opt_solve_cut(rust::Slice<const double> cost, rust::Slice<const std::i
                         rust::Slice<const std::int64_t> nb_start, rust::Slice<const std::int32_t> nb,
                         rust::Slice<const double> nb_cost, double gap, double time_limit,
                         rust::Slice<const std::int32_t> initial, std::int32_t threads, SolveWatch& watch) {
-    // as landschaft's opt_solve_cut (python.cpp): no fixed boundaries, 1000 evaluations at most
+    // as the library's opt_solve_cut (python.cpp): no fixed boundaries, 1000 evaluations at most
     opt::marxan::Data d;
     d.npu = static_cast<int>(cost.size());
     d.nsp = static_cast<int>(target.size());
@@ -2044,7 +2044,7 @@ EngineOut opt_solve_closure(rust::Slice<const double> cost, rust::Slice<const st
                             rust::Slice<const std::int32_t> col_row, rust::Slice<const double> col_val, double gap,
                             double time_limit, std::int32_t threads, rust::Slice<const std::uint8_t> initial,
                             SolveWatch& watch) {
-    // as landschaft's opt_solve_closure (python.cpp), without requirements
+    // as the library's opt_solve_closure (python.cpp), without requirements
     opt::closure::Problem q;
     q.n = static_cast<int>(cost.size());
     q.cost = vec_of<double>(cost);
@@ -2083,7 +2083,7 @@ EngineOut opt_solve_zone_cut(std::int64_t n, std::int64_t nz, rust::Slice<const 
                              rust::Slice<const std::int32_t> pi, rust::Slice<const std::int32_t> pj,
                              rust::Slice<const double> pw, double gap, double time_limit,
                              rust::Slice<const double> start, SolveWatch& watch) {
-    // as landschaft's opt_zone_cut (python.cpp)
+    // as the library's opt_zone_cut (python.cpp)
     opt::zcut::Input in;
     in.n = n;
     in.nz = nz;
@@ -3482,7 +3482,7 @@ MultiOut circuit_multi_advanced(rust::Slice<const double> gmap, rust::Slice<cons
     threads = omp_get_max_threads();
 #endif
     circuit::RasterGraph g = circuit::raster_graph(gmap.data(), pm, nx, ny, avg_resistances, four_neighbors);
-    // per node sums in column-major cell order (as landschaft's binding)
+    // per node sums in column-major cell order (as the library's binding)
     auto sums = [&](rust::Slice<const std::int64_t> cells, rust::Slice<const double> vals, std::int64_t a,
                     std::int64_t b) {
         std::vector<std::size_t> order;
@@ -3553,7 +3553,7 @@ rust::Vec<double> surf_metrics(rust::Slice<const double> z, std::int32_t nx, std
     };
     for (std::int32_t id : ids) check(id >= 0 && id <= surf::kWSfd, "an unknown surface metric");
     std::vector<double> v(static_cast<std::size_t>(surf::kWSfd) + 1, std::nan(""));
-    // as landschaft's groups: each computation once
+    // as the library's groups: each computation once
     if (wants(surf::kWSa, surf::kWSmean)) {
         const surf::Amplitude a = surf::amplitude(z.data(), n);
         const double av[] = {a.sa, a.sq, a.ssk, a.sku, a.sv, a.sph, a.smean};
@@ -3948,7 +3948,7 @@ rust::Vec<double> cost_path_overlap(rust::Slice<const double> fa, std::int64_t n
 
 rust::Vec<double> cost_r_cov(rust::Slice<const double> x, std::int64_t n, std::int64_t k) {
     // R's cov(x) (cov.c, cov_na_1, no missing values): column means in two passes, sums of products of
-    // deviations, all in LDOUBLE (landschaft's cost_r_cov)
+    // deviations, all in LDOUBLE (the library's cost_r_cov)
     check(static_cast<std::int64_t>(x.size()) == n * k, "x must be n x k");
     using E = lsm::Extended;
     const double* px = x.data();
@@ -4409,7 +4409,7 @@ rust::Vec<double> io_extract(rust::Slice<const double> values, std::int32_t band
                                          static_cast<i64>(x.size()), bilinear, row0, ny_total));
 }
 
-// -- terrain hydrology (landschaft's hydro) ------------------------------------------------------------------
+// -- terrain hydrology (the library's hydro) ------------------------------------------------------------------
 
 namespace {
 
@@ -4572,7 +4572,7 @@ rust::Vec<double> hydro_flow_distance(rust::Slice<const std::int8_t> dir, rust::
                                                 sized(targets, ny, nx, "the targets differ in size"), ny, nx, dx, dy));
 }
 
-// -- ecosystem services (landschaft's serv: InVEST's models) ----------------------------------------------------
+// -- ecosystem services (the library's serv: InVEST's models) ----------------------------------------------------
 
 ServClasses serv_classify(rust::Slice<const std::int64_t> lulc, rust::Slice<const std::uint8_t> valid,
                           rust::Slice<const std::int64_t> codes, std::int32_t threads) {
@@ -5044,7 +5044,7 @@ rust::Vec<double> surf_gravity_fft(rust::Slice<const double> mass, rust::Slice<c
     return out;
 }
 
-// -- SWAT+ (landschaft's ls.hydro.swat) -------------------------------------------------------------------------
+// -- SWAT+ (the library's tf.hydro.swat) -------------------------------------------------------------------------
 
 namespace {
 
@@ -5097,7 +5097,7 @@ SwatOut swat_run(const rust::Vec<rust::String>& names, rust::Slice<const std::ui
     return out;
 }
 
-// movement ecology (landschaft's ls.move): move2's and amt's steps of tracks, as its Python bindings call them
+// movement ecology (the library's tf.move): move2's and amt's steps of tracks, as its Python bindings call them
 
 namespace {
 

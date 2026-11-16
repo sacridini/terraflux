@@ -1,4 +1,4 @@
-//! Surface metrics of continuous rasters (ISO 25178, as the R package geodiv computes them) through landschaft's
+//! Surface metrics of continuous rasters (ISO 25178, as the R package geodiv computes them) through the library's
 //! C++, geodiv's bits: amplitude (sa, sq, ssk, sku, sv, sph, smean), hybrid (sdq, sdq6, sdr), local features (sds,
 //! ssc, s10z), the bearing area curve (sbi, sci, svi, sk, spk, svk) and spatial (sal, str, std, stdi, srw, srwi,
 //! shw, sfd): of the whole surface (`surface.metrics`) or in a moving window around every cell
@@ -23,7 +23,7 @@ pub fn register(r: &mut Registry) {
     }
 }
 
-/// The surface metrics, in the order of landschaft's (and of its C++'s ids), with their groups and meanings.
+/// The surface metrics, in the order of the library's (and of its C++'s ids), with their groups and meanings.
 pub const METRICS: [(&str, &str, &str); 27] = [
     ("sa", "amplitude", "average roughness"),
     ("sq", "amplitude", "root mean square roughness"),
@@ -77,7 +77,7 @@ fn chosen(args: &Args) -> Result<Vec<i32>> {
 }
 
 /// A grid's extent as geodiv takes it (xmin, xmax, ymin, ymax) and whether its coordinates are longitudes and
-/// latitudes (landschaft's _crs_lonlat).
+/// latitudes (the library's _crs_lonlat).
 pub fn extent_of(g: &Grid) -> ([f64; 4], bool) {
     let t = g.transform;
     let (x0, x1) = (t[0], t[0] + g.width as f64 * t[1]);
@@ -180,7 +180,7 @@ const TERRAIN: [&str; 15] = [
     "aacf",
 ];
 
-/// landschaft's _size: a window of odd cells, a number or [rows, columns].
+/// The library's _size: a window of odd cells, a number or [rows, columns].
 fn size_of(args: &Args, name: &str, default: i32) -> Result<(i32, i32)> {
     let v = args.params.get(name).cloned().unwrap_or(serde_json::json!(default));
     let pair: Vec<f64> = match &v {
@@ -199,7 +199,7 @@ fn rect((r, c): (i32, i32)) -> (i32, i32, Vec<u8>) {
     (r, c, vec![1; (r * c) as usize])
 }
 
-/// landschaft's _circle: the cells within a distance `d` (map units) of the centre.
+/// The library's _circle: the cells within a distance `d` (map units) of the centre.
 fn circle(res: (f64, f64), d: f64) -> (i32, i32, Vec<u8>) {
     let (xr, yr) = res;
     let (nx, ny) = (1 + 2 * (d / xr).floor() as i32, 1 + 2 * (d / yr).floor() as i32);
@@ -245,7 +245,7 @@ impl Surf<'_> {
         ))
     }
 
-    /// landschaft's _window: a circle of a radius in map units (two cells at least), or a rectangle of cells.
+    /// The library's _window: a circle of a radius in map units (two cells at least), or a rectangle of cells.
     fn window(&self, scale: f64, win: &str) -> Result<(i32, i32, Vec<u8>)> {
         match win {
             "circle" => {
@@ -271,7 +271,7 @@ const MIN: i32 = 2;
 const MAX: i32 = 3;
 const CURVATURES: [&str; 5] = ["planform", "profile", "total", "mcnab", "bolstad"];
 
-/// geodiv's (and landschaft's) least points of a polynomial of an order.
+/// geodiv's (and the library's) least points of a polynomial of an order.
 fn check_points(z: &[f64], order: i32) -> Result<()> {
     let npar = ((order + 1) * (order + 2) / 2) as usize;
     let n = z.iter().filter(|v| !v.is_nan()).count();
@@ -623,7 +623,7 @@ impl Operator for Terrain {
     }
 }
 
-/// spatialEco's hli (landschaft's), from the aspect and the slope.
+/// spatialEco's hli (the library's), from the aspect and the slope.
 fn hli(args: &Args) -> Result<Outputs> {
     let (a, sl) = (args.map("aspect")?, args.map("slope")?);
     if a.data.len() != sl.data.len() {

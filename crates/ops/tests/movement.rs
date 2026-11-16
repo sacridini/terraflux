@@ -1,5 +1,5 @@
-//! Movement ecology (`move.*`) against landschaft's ls.move (tests/data/reference/move.npz and .json,
-//! tools/make_move_reference.py): the track sets of landschaft's tests and move2's fishers, every number to the bit.
+//! Movement ecology (`move.*`) against the library's tf.move (tests/data/reference/move.npz and .json,
+//! tools/make_move_reference.py): the track sets of the library's tests and move2's fishers, every number to the bit.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -280,7 +280,7 @@ fn interpolation_is_move2s() {
 }
 
 #[test]
-fn aeqd_and_brownian_are_landschafts() {
+fn aeqd_and_brownian_match_the_library() {
     if gdal() {
         let (_, meta) = reference();
         let f = fishers();

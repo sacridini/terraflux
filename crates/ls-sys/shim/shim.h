@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// The shim between Terraflux (Rust, cxx) and landschaft's C++ kernels.
+// The shim between Terraflux (Rust, cxx) and the library's C++ kernels.
 #pragma once
 
 #include <cstdint>
@@ -353,7 +353,7 @@ PrioFlexOut prio_flexibility(const prio::Data& data, const PrioSettings& setting
                              rust::Slice<const std::uint32_t> order, rust::Slice<const float> curve_rank,
                              rust::Slice<const float> curve_levels, std::int64_t curve_interval, double max_error,
                              bool up, bool down);
-// landschaft's zones of polygons (lsio::): their cells as runs, burnt, their statistics; exactextract's sums
+// The library's zones of polygons (lsio::): their cells as runs, burnt, their statistics; exactextract's sums
 RunsOut io_polygon_runs(rust::Slice<const double> xy, rust::Slice<const std::int64_t> ring_offsets,
                         rust::Slice<const std::int64_t> geom_rings, rust::Slice<const double> gt, std::int32_t nx,
                         std::int32_t ny, bool all_touched);
@@ -529,13 +529,13 @@ ObservedPatches observed_patches(rust::Slice<const double> a, rust::Slice<const 
 
 // simulate bridge (landschaft-bb)
 
-// gdistance's accCost (landschaft's ls.cost.acc_cost): the accumulated cost from the nearest source cell over a
-// transition of conductances (values: directions x cells, as ls.cost.Transition.values); inf where unreachable.
+// gdistance's accCost (the library's tf.cost.acc_cost): the accumulated cost from the nearest source cell over a
+// transition of conductances (values: directions x cells, as tf.cost.Transition.values); inf where unreachable.
 rust::Vec<double> cost_accumulated(rust::Slice<const double> values, std::int64_t ny, std::int64_t nx, double xmin,
                                    double xmax, double ymin, double ymax, bool wrap, std::int32_t directions,
                                    bool symmetric, rust::Slice<const std::int64_t> sources);
 
-// MOLUSCE's simulator (landschaft's sim/molusce.hpp) and numpy's legacy generator
+// MOLUSCE's simulator (the library's sim/molusce.hpp) and numpy's legacy generator
 std::unique_ptr<sim::NumpyRandomState> numpy_rng_new(std::uint32_t seed);
 rust::Vec<double> numpy_rng_random_sample(sim::NumpyRandomState& rng, std::size_t n);
 rust::Vec<double> molusce_categories(rust::Slice<const double> values, rust::Slice<const double> bounds);
@@ -549,7 +549,7 @@ MolusceStepOut molusce_ca_step(rust::Slice<const double> state, rust::Slice<cons
                                rust::Slice<const double> confidence, rust::Slice<const MolusceChange> counts,
                                sim::NumpyRandomState& rng);
 
-// CLUMondo (landschaft's sim/clumondo.hpp)
+// CLUMondo (the library's sim/clumondo.hpp)
 ClumondoYearOut clumondo_year(const ClumondoSettingsIn& s, rust::Slice<const std::int32_t> oldco,
                               rust::Slice<const std::int32_t> region, rust::Slice<const std::int32_t> age,
                               rust::Slice<const float> suit, rust::Slice<const float> allow_maps,
@@ -563,7 +563,7 @@ rust::Vec<float> clumondo_add_preference(rust::Slice<const float> row, rust::Sli
                                          rust::Slice<const float> values, float weight);
 rust::Vec<std::int32_t> clumondo_random_age(std::int64_t ncell, std::int32_t max_age, std::uint32_t seed);
 
-// FUTURES (landschaft's sim/futures.hpp): every step in one run
+// FUTURES (the library's sim/futures.hpp): every step in one run
 FuturesOut futures_run(const FuturesIn& in, const FuturesClimateIn& climate, rust::Slice<const std::int32_t> developed,
                        rust::Slice<const std::int32_t> region, rust::Slice<const std::int32_t> pot_region,
                        rust::Slice<const float> devpressure, rust::Slice<const float> aggregated,
@@ -571,7 +571,7 @@ FuturesOut futures_run(const FuturesIn& in, const FuturesClimateIn& climate, rus
 
 }  // namespace tfx
 
-// out-of-core landscapes (tiles): landschaft's lsm::TiledLandscape, a raster labelled block by block of rows
+// out-of-core landscapes (tiles): the library's lsm::TiledLandscape, a raster labelled block by block of rows
 #include "lsm/landscape.hpp"
 
 namespace tfx {
@@ -597,7 +597,7 @@ LsmTable lsm_tiled_table(lsm::TiledLandscape& t, rust::Slice<const std::int32_t>
 rust::Vec<std::int32_t> lsm_tiled_labels(const lsm::TiledLandscape& t, rust::Slice<const std::int32_t> values,
                                          rust::Slice<const std::uint8_t> na, std::int64_t y0, std::int64_t rows);
 
-// Omniscape's moving-window circuits and Circuitscape's advanced mode on a raster (landschaft's circuit module)
+// Omniscape's moving-window circuits and Circuitscape's advanced mode on a raster (the library's circuit module)
 OmniscapeOut circuit_omniscape(rust::Slice<const double> resistance, rust::Slice<const double> source, std::int64_t nx,
                                std::int64_t ny, std::int32_t radius, std::int32_t buffer, std::int32_t block_size,
                                bool four_neighbors, bool resistance_is_conductance, bool correct_artifacts,
@@ -618,7 +618,7 @@ MultiOut circuit_multi_advanced(rust::Slice<const double> gmap, rust::Slice<cons
                                 rust::Slice<const double> gnd_vals, rust::Slice<const std::int64_t> gnd_offsets,
                                 rust::Slice<const std::int64_t> checks, std::int32_t policy);
 
-// surface metrics (landschaft's surface module)
+// surface metrics (the library's surface module)
 rust::Vec<double> surf_metrics(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
                                rust::Slice<const double> extent, bool lonlat, rust::Slice<const std::int32_t> ids);
 rust::Vec<double> surf_window(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
@@ -652,7 +652,7 @@ BearingOut surf_bearing(rust::Slice<const double> z, rust::Slice<const double> p
 AacfOut surf_aacf(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny, rust::Slice<const double> extent,
                   bool lonlat);
 
-// grid distances (landschaft's cost module, gdistance's)
+// grid distances (the library's cost module, gdistance's)
 rust::Vec<std::int32_t> cost_offsets(std::int32_t directions, bool symmetric);
 rust::Vec<double> cost_builtin(rust::Slice<const double> x, rust::Slice<const double> grid, std::int32_t directions,
                                bool symmetric, rust::Str function);
@@ -687,7 +687,7 @@ rust::Vec<double> cost_path_overlap(rust::Slice<const double> fa, std::int64_t n
                                     rust::Slice<const std::int32_t> functions, bool upper);
 rust::Vec<double> cost_r_cov(rust::Slice<const double> x, std::int64_t n, std::int64_t k);
 double cost_r_mean(rust::Slice<const double> x);
-// Biodiverse (landschaft's bio module)
+// Biodiverse (the library's bio module)
 BioCsr bio_find_neighbours(const BioGroups& groups, const BioProgram& program, rust::Slice<const std::int32_t> procs,
                            bool parallel);
 rust::Vec<std::uint8_t> bio_definition_query(const BioGroups& groups, const BioProgram& program, bool parallel);
@@ -742,12 +742,12 @@ BioClusterOut bio_cluster(const rust::Vec<rust::String>& names, std::int32_t n_s
 PathsOut cost_paths(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
                     bool symmetric, std::int64_t origin, rust::Slice<const std::int64_t> goals);
 
-// the values of maps at points (landschaft's extract, lsio::extract): bands x ny x nx, NaN no data
+// the values of maps at points (the library's extract, lsio::extract): bands x ny x nx, NaN no data
 rust::Vec<double> io_extract(rust::Slice<const double> values, std::int32_t bands, std::int32_t ny, std::int32_t nx,
                              rust::Slice<const double> gt, rust::Slice<const double> x, rust::Slice<const double> y,
                              bool bilinear, std::int32_t row0, std::int32_t ny_total);
 
-// terrain hydrology (landschaft's hydro); an empty optional raster is none
+// terrain hydrology (the library's hydro); an empty optional raster is none
 rust::Vec<double> hydro_fill(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, bool epsilon);
 rust::Vec<double> hydro_breach(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, double dx, double dy,
                                std::int32_t max_length, double max_cost, bool min_dist, double small_num,
@@ -791,7 +791,7 @@ rust::Vec<std::int32_t> hydro_watersheds(rust::Slice<const std::int8_t> dir, rus
 rust::Vec<double> hydro_flow_distance(rust::Slice<const std::int8_t> dir, rust::Slice<const std::uint8_t> targets,
                                       std::int32_t ny, std::int32_t nx, double dx, double dy);
 
-// ecosystem services (landschaft's serv: InVEST's models)
+// ecosystem services (the library's serv: InVEST's models)
 ServClasses serv_classify(rust::Slice<const std::int64_t> lulc, rust::Slice<const std::uint8_t> valid,
                           rust::Slice<const std::int64_t> codes, std::int32_t threads);
 rust::Vec<float> serv_carbon_pools(rust::Slice<const std::int32_t> cls, rust::Slice<const float> pools,
@@ -881,11 +881,11 @@ rust::Vec<std::uint8_t> sim_pathways(rust::Slice<const std::uint8_t> network, ru
                                      rust::Slice<const double> cost, rust::Slice<const std::uint8_t> dir,
                                      std::int64_t ny, std::int64_t nx, bool lottery, std::uint64_t seed);
 
-// SWAT+ (landschaft's ls.hydro.swat): a project's files (names, their bytes one after the other, offsets)
+// SWAT+ (the library's tf.hydro.swat): a project's files (names, their bytes one after the other, offsets)
 SwatOut swat_run(const rust::Vec<rust::String>& names, rust::Slice<const std::uint8_t> data,
                  rust::Slice<const std::int64_t> offsets, bool c_factor_plant);
 
-// movement ecology (landschaft's ls.move): move2's and amt's steps of tracks
+// movement ecology (the library's tf.move): move2's and amt's steps of tracks
 struct MovePoints;
 struct MoveAmtSteps;
 struct MoveGammaFit;

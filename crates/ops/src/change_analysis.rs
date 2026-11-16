@@ -1,10 +1,10 @@
-//! The analysis of land change along a series of maps of classes, landschaft's `changes` (OpenLand's
+//! The analysis of land change along a series of maps of classes, the library's `changes` (OpenLand's
 //! `contingencyTable`, `intensityAnalysis` and `acc_changes`, diffeR's `crosstabm` and `diffTablej`): the
 //! transitions between consecutive dates, the intensity analysis of Aldwaik & Pontius (2012) at the interval,
 //! category and transition levels with their stationarity, the components of the difference (quantity, exchange
 //! and shift; Pontius & Santacruz 2014), the number of changes of every cell, and the transitions worth modelling
-//! (the largest, those that make most of the change). The same numbers as landschaft's (R's sums in 80 bits, as
-//! landschaft's C++ makes them); text columns as numbers (a period by its first and last years; active or
+//! (the largest, those that make most of the change). The same numbers as the library's (R's sums in 80 bits, as
+//! the library's C++ makes them); text columns as numbers (a period by its first and last years; active or
 //! targeted 1, dormant or avoided 0; a test passed 1).
 
 use std::collections::BTreeMap;
@@ -99,7 +99,7 @@ impl Series {
         Ok(ffi::crosstab(&self.maps[i], &self.maps[j], &self.classes, &self.classes)?)
     }
 
-    /// A period's name, as landschaft's: "t0-t1".
+    /// A period's name, as the library's: "t0-t1".
     fn period(&self, i: usize, j: usize) -> String {
         format!("{}-{}", time_text(self.times[i]), time_text(self.times[j]))
     }
@@ -389,7 +389,7 @@ pub fn intensity(series: &Series, gain: f64, loss: f64, area: bool) -> Result<In
     })
 }
 
-/// A square matrix of counts without its classes found in neither map (landschaft's crosstab): the classes kept
+/// A square matrix of counts without its classes found in neither map (the library's crosstab): the classes kept
 /// and the matrix (row-major).
 pub fn dropped(counts: &[i64], classes: &[f64]) -> (Vec<f64>, Vec<f64>) {
     let n = classes.len();

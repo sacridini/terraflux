@@ -1,4 +1,4 @@
-//! Element (label and group) properties, as Biodiverse::ElementProperties (landschaft's bio/_properties.py), and
+//! Element (label and group) properties, as Biodiverse::ElementProperties (the library's bio/_properties.py), and
 //! label matrices (bio/_matrix.py).
 
 use std::collections::HashMap;
@@ -138,7 +138,7 @@ pub struct LabelMatrix {
     pub self_similarity: Option<f64>,
 }
 
-/// How a matrix file is read (landschaft's read_matrix).
+/// How a matrix file is read (the library's read_matrix).
 #[derive(Debug, Clone)]
 pub struct MatrixImport {
     pub element_columns: Vec<usize>,

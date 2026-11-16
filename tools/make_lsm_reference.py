@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's lsm gives for the analyses landscapemetrics has no reference of, for Terraflux's tests: the
+"""What the library's lsm gives for the analyses landscapemetrics has no reference of, for Terraflux's tests: the
 square zones of grid_zones and the series of SpatioTemporalAnalysis (whole maps and a grid of zones), on
-landschaft's augusta.tif and a changed copy of it, written to tests/data/reference/lsm_series.json:
+the library's augusta.tif and a changed copy of it, written to tests/data/reference/lsm_series.json:
 
     python tools/make_lsm_reference.py
 
-Run with the landschaft the submodule points at installed. NaN written null.
+Run with the library the submodule points at installed. NaN written null.
 """
 
 from __future__ import annotations

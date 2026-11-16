@@ -1,5 +1,5 @@
-//! prioritize.optimize's minimum extinction risk (landschaft's add_min_extinction_risk_objective, its extension of
-//! prioritizr) and prioritize.evaluate's extinction risk against landschaft (tests/data/reference/
+//! prioritize.optimize's minimum extinction risk (the library's add_min_extinction_risk_objective, its extension of
+//! prioritizr) and prioritize.evaluate's extinction risk against terraflux-py (tests/data/reference/
 //! optimize_extinction.json, tools/make_extinction_reference.py): the models bit for bit, the optima, the risks;
 //! and the objective against its definition by enumeration.
 
@@ -34,7 +34,7 @@ fn stack(g: &Arc<terraflux_raster::Grid>, a: &Array, keys: Vec<String>) -> Value
     })
 }
 
-/// The landschaft cases' problems: rasters of one cost and five features, or of three zones with their own.
+/// The library cases' problems: rasters of one cost and five features, or of three zones with their own.
 fn inputs(zoned: bool) -> BTreeMap<String, Value> {
     let mut out = BTreeMap::new();
     if zoned {
@@ -87,7 +87,7 @@ fn cases() -> Vec<(&'static str, serde_json::Value, bool)> {
 
 /// The models bit for bit, the optima (HiGHS at gap 0 on both sides), the risks of the solutions.
 #[test]
-fn extinction_risk_is_landschafts() {
+fn extinction_risk_matches_the_library() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference/optimize_extinction.json");
     let all: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     for (name, params, zoned) in cases() {
@@ -145,7 +145,7 @@ fn extinction_risk_is_landschafts() {
 /// 1 - r^z through the curve's points, plus the tie-break 0.01 x cost / total cost; the evaluation the exact risk.
 #[test]
 fn extinction_risk_is_its_definition() {
-    // landschaft's _sar_table: 11 units, 3 features
+    // The library's _sar_table: 11 units, 3 features
     let cost = [3.0, 1.0, 5.0, 2.0, 4.0, 1.0, 2.0, 5.0, 3.0, 2.0, 4.0];
     let amounts = [
         [2.0, 0.0, 1.0, 4.0, 0.0, 3.0, 0.0, 2.0, 1.0, 0.0, 3.0],

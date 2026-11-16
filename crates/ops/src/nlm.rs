@@ -1,7 +1,7 @@
-//! Neutral landscape models from landschaft's port of NLMR: maps of known structure, drawn with R's generator
+//! Neutral landscape models from the library's port of NLMR: maps of known structure, drawn with R's generator
 //! (or NLMR's C++ models' std::mt19937), to try a model on before real data (the templates of the application
 //! start from them) or to compare a landscape with what chance would give; and NLMR's utilities to classify,
-//! binarize, merge and rescale them. Landschaft's maps, to the bit.
+//! binarize, merge and rescale them. The library's maps, to the bit.
 
 use std::sync::Arc;
 
@@ -83,7 +83,7 @@ fn seed(args: &Args) -> Result<i32> {
     i32::try_from(seed).map_err(|_| Error::msg(format!("the seed {seed} does not fit 32 bits")))
 }
 
-/// A grid of rows x columns of cells of side `res`, its origin at the bottom left (landschaft's).
+/// A grid of rows x columns of cells of side `res`, its origin at the bottom left (the library's).
 fn plain(rows: usize, columns: usize, res: f64) -> Grid {
     let mut g = Grid::new(columns, rows);
     g.transform = [0.0, res, 0.0, rows as f64 * res, 0.0, -res];
@@ -113,7 +113,7 @@ fn grid(args: &Args) -> Result<(Arc<Grid>, i32)> {
 }
 
 /// The grid of values that do not have the size asked for: `like`'s cells from its top-left corner, else
-/// landschaft's grid of their size.
+/// the library's grid of their size.
 fn resized(args: &Args, g: &Grid, rows: usize, columns: usize) -> Arc<Grid> {
     let mut out = g.clone();
     out.width = columns;
@@ -129,7 +129,7 @@ fn dims(g: &Grid) -> (i64, i64) {
     (g.height as i64, g.width as i64)
 }
 
-/// A landschaft error, on the node.
+/// A terraflux-py error, on the node.
 fn ls<T, E: std::fmt::Display>(args: &Args, r: std::result::Result<T, E>) -> Result<T> {
     r.map_err(|e| bad(args, e))
 }
@@ -455,7 +455,7 @@ impl Operator for Curds {
     }
 }
 
-/// The seed of NLMR's C++ models (std::mt19937): landschaft's, modulo 2^32.
+/// The seed of NLMR's C++ models (std::mt19937): the library's, modulo 2^32.
 fn cxx_seed(seed: i32) -> u32 {
     seed as u32
 }
@@ -812,7 +812,7 @@ impl Operator for Tess {
 }
 
 /// NLMR gives the k-th value to the k-th Voronoi cell in the order GEOS lists them (sf::st_voronoi of the germs'
-/// union): the values reassigned so (landschaft's _values_by_cell_order); without GEOS each germ keeps its own,
+/// union): the values reassigned so (the library's _values_by_cell_order); without GEOS each germ keeps its own,
 /// with a warning.
 fn by_cell_order(
     ctx: &mut Ctx,

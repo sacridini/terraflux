@@ -1,6 +1,6 @@
-//! Seasonal water yield (InVEST's seasonal_water_yield model, natcap.invest 3.20) as landschaft 1.54 computes it
+//! Seasonal water yield (InVEST's seasonal_water_yield model, natcap.invest 3.20) as terraflux-py 1.54 computes it
 //! (`ls.services.seasonal_water_yield`): the monthly quickflow of the curve numbers, the local recharge routed
-//! down the slope and the baseflow it gives (landschaft's C++), every raster in InVEST's float32 / float64 type
+//! down the slope and the baseflow it gives (the library's C++), every raster in InVEST's float32 / float64 type
 //! and with its expression.
 
 use std::sync::Arc;

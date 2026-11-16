@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's cleaning of occurrence records gives, for Terraflux's tests, written to
+"""What the library's cleaning of occurrence records gives, for Terraflux's tests, written to
 tests/data/reference/sdm_clean.npz and .json, the records as sdm_clean_<case>.csv and the polygons of Natural Earth
 the records fall in as sdm_clean.gpkg:
 
     python tools/make_sdm_clean_reference.py
 
-The records of landschaft's tests of CoordinateCleaner (records near each kind of reference and controls; the
+The records of the library's tests of CoordinateCleaner (records near each kind of reference and controls; the
 vertices of the circles, the antimeridian and the south pole), acaule's records (invalid ones too) and a species of
 more than 10 000 records (cc_outl's raster variant): every test with its defaults and with other options. Natural
 Earth's land, urban areas and countries are given as the polygons whose boxes hold a record (the same results as
@@ -87,7 +87,7 @@ def main() -> None:
     dateline = pd.DataFrame({"lon": [179.995], "lat": [-16.5]})
     dateline.to_csv(REF / "sdm_clean_dateline.csv", index=False)
 
-    # case: (records, settings of Terraflux's node, landschaft's arguments)
+    # case: (records, settings of Terraflux's node, the library's arguments)
     full = dict(urban=True, countries="iso3", duplicates=True, aohi=True)
     cases: dict[str, tuple[str, dict, dict]] = {
         "synthetic": ("synthetic", full, full),

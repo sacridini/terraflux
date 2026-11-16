@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The reference outputs Terraflux is compared with: landschaft's tf.simulate on the same models.
+"""The reference outputs Terraflux is compared with: the library's tf.simulate on the same models.
 
-Run with the landschaft the submodule points at installed:
+Run with the library the submodule points at installed:
 
     python tools/make_reference.py
 
@@ -38,7 +38,7 @@ def copy_inputs():
     INPUTS.mkdir(parents=True, exist_ok=True)
     for name in ("pie_landuse", "pie_drivers", "sibuyan_landuse", "sibuyan_drivers"):
         shutil.copyfile(S.example_data(name), INPUTS / f"{name}.tif")
-    # lulcc's reference case: a history (0-12 steps, seed 5) and a restricted block, as landschaft's tests
+    # lulcc's reference case: a history (0-12 steps, seed 5) and a restricted block, as the library's tests
     lu = tf.load_raster(INPUTS / "pie_landuse.tif")[0]
     nan = np.isnan(lu.values)
     hist = np.random.default_rng(5).integers(0, 13, lu.shape).astype(np.float64)
@@ -109,7 +109,7 @@ def lulcc(case, allocation, seed, *, elasticity=None, rules=False, nb=False):
 
 
 def bridge():
-    """Models saved by landschaft (Model.save) that Terraflux must run as tf.simulate does."""
+    """Models saved by terraflux-py (Model.save) that Terraflux must run as tf.simulate does."""
     lu = tf.load_raster(INPUTS / "sibuyan_landuse.tif")
     dr = tf.load_raster(INPUTS / "sibuyan_drivers.tif")
     names = [str(v) for v in dr.band.values]
@@ -213,7 +213,7 @@ def bridge():
 
 
 def main():
-    if sys.argv[1:] == ["bridge"]:  # only the models saved by landschaft
+    if sys.argv[1:] == ["bridge"]:  # only the models saved by terraflux-py
         bridge()
         return
     copy_inputs()
@@ -225,7 +225,7 @@ def main():
     lulcc("ordered_pie_det", S.Ordered([2, 1, 3], stochastic=False), 3)
     lulcc("ordered_pie_rules", S.Ordered([2, 1, 3], stochastic=True), 5, rules=True, nb=True)
     bridge()
-    print(f"landschaft {tf.__version__}: references written to {REF}")
+    print(f"terraflux-py {tf.__version__}: references written to {REF}")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-//! The integration tests of the runs in one program (each file a module): every test program links landschaft's
+//! The integration tests of the runs in one program (each file a module): every test program links the library's
 //! C++ whole, so one program instead of one per file keeps `target` and the links small.
 
 mod abm;

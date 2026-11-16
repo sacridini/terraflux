@@ -23,7 +23,7 @@ use crate::palette::{Coloring, Ramp};
 use crate::reproject::Link;
 use crate::theme;
 
-/// The subjects of the library: landschaft's (the sections of its reference, in its order), then the
+/// The subjects of the library: the library's (the sections of its reference, in its order), then the
 /// model's own (map algebra, the flow of a model); with the operators' prefixes in each and, within a subject,
 /// the groups of its operators.
 /// The subjects of the library and the operators of each: by the prefix of their names, or by name (before the
@@ -534,7 +534,7 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
     }
 }
 
-/// What the values shown are, as far as their colours go (as landschaft's plot tells): from the operator that
+/// What the values shown are, as far as their colours go (as the library's plot tells): from the operator that
 /// made them (through the plots that show them) and the names of the nodes, files and bands they come from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Palette {
@@ -551,7 +551,7 @@ pub enum Palette {
     Vegetation,
     /// A priority rank (Zonation's): dark to red.
     Rank,
-    /// Circuit currents (Circuitscape's maps, flow potential): a ramp on a scale of logarithms, as landschaft's.
+    /// Circuit currents (Circuitscape's maps, flow potential): a ramp on a scale of logarithms, as the library's.
     Current,
     /// Chosen by hand: a ramp, on a scale of logarithms or not.
     Chosen(Ramp, bool),
@@ -2612,7 +2612,7 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
             for (subject, _) in SUBJECTS.iter().chain([("Other", &[][..])].iter()) {
                 let in_it: Vec<&Entry> = lib.entries.iter().filter(|e| e.subject == *subject).collect();
                 if in_it.is_empty() {
-                    // a subject of landschaft not here yet: its name, to see where things will be
+                    // a subject of terraflux-py not here yet: its name, to see where things will be
                     if *subject != "Other" {
                         ui.add_enabled(
                             false,

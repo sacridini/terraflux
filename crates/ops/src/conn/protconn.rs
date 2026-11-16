@@ -1,7 +1,7 @@
-//! Saura's ProtConn (Makurhini's MK_ProtConn, landschaft's protconn): how much of a region is protected and
+//! Saura's ProtConn (Makurhini's MK_ProtConn, the library's protconn): how much of a region is protected and
 //! connected. The protected areas are clipped to the region and dissolved into nodes (with the transboundary
 //! ones around it, and the region's parts with `bound`); the indicators come from PC's numerator over the most
-//! probable paths between them. GEOS through GDAL for the geometry; landschaft's C++ for the paths.
+//! probable paths between them. GEOS through GDAL for the geometry; the library's C++ for the paths.
 
 use terraflux_gdal::Geos;
 use terraflux_ls_sys::ffi;
@@ -11,7 +11,7 @@ use super::graph::{Connections, HabitatGraph, Kind};
 use super::raster::{AREA_UNITS, DistanceOptions, factor};
 use super::vector::gdal_areas;
 
-/// The segments of a quarter circle of landschaft's buffers.
+/// The segments of a quarter circle of the library's buffers.
 const QUAD_SEGS: i32 = 30;
 
 pub const INDICATORS: [&str; 20] = [
@@ -103,7 +103,7 @@ fn dissolve(geoms: &[Geometry]) -> Result<Vec<Geometry>, String> {
     Ok(explode(&b[0]))
 }
 
-/// landschaft's protconn_nodes.
+/// The library's protconn_nodes.
 pub fn protconn_nodes(
     protected: &[Geometry],
     region: &[Geometry],
@@ -228,7 +228,7 @@ fn pstar(
     Ok((m, d.iter().map(|x| (-x).exp()).collect()))
 }
 
-/// landschaft's protconn_indicators: the row of INDICATORS.
+/// The library's protconn_indicators: the row of INDICATORS.
 #[allow(clippy::too_many_arguments)]
 pub fn indicators(
     types: &[NodeType],
@@ -427,7 +427,7 @@ pub type DeltaRow = (Geometry, f64, f64, f64, f64, f64);
 /// Each clipped protected area's importance per distance.
 pub type Delta = Vec<DeltaRow>;
 
-/// landschaft's protconn: the indicators per distance, and with `delta` every protected area's importance.
+/// The library's protconn: the indicators per distance, and with `delta` every protected area's importance.
 pub fn protconn(
     protected: &[Geometry],
     region: &[Geometry],
@@ -587,7 +587,7 @@ fn rasterize(
     Ok(out)
 }
 
-/// landschaft's protconn_raster: ProtConn of the patches of a raster of protected areas (their centroids and
+/// The library's protconn_raster: ProtConn of the patches of a raster of protected areas (their centroids and
 /// cells), the region rasterized on its grid. A row per distance: the distance and INDICATORS.
 pub fn protconn_raster(protected: &crate::Map, region: RasterRegion, s: &RasterSettings) -> Result<Rows, String> {
     if s.transboundary_type != "nodes" && s.transboundary_type != "region" {

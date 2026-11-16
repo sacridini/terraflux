@@ -1,4 +1,4 @@
-//! The evaluation of species distribution models against landschaft's (tests/data/reference/sdm_evaluate.npz
+//! The evaluation of species distribution models against the library's (tests/data/reference/sdm_evaluate.npz
 //! and .json, tools/make_sdm_evaluate_reference.py): the statistics, confusion tables and thresholds of
 //! evaluate, Boyce's index, every threshold method and the omission rates, to the bit (the p-value of the
 //! correlation, Student's t, to rounding).
@@ -41,7 +41,7 @@ fn check(what: &str, got: &[f64], want: &[f64], loose: &[usize]) {
 }
 
 #[test]
-fn evaluation_is_landschafts() {
+fn evaluation_matches_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("sdm_evaluate.npz")).unwrap();
     let meta: serde_json::Value =

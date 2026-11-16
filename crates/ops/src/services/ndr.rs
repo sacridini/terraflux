@@ -1,6 +1,6 @@
-//! Nutrient delivery ratio (InVEST's ndr model, natcap.invest 3.20) as landschaft 1.54 computes it
+//! Nutrient delivery ratio (InVEST's ndr model, natcap.invest 3.20) as terraflux-py 1.54 computes it
 //! (`ls.services.ndr`): the nitrogen and phosphorus loads of the land uses, their effective retention down to the
-//! streams (landschaft's C++) and the delivery ratio of the index of connectivity, every raster in InVEST's
+//! streams (the library's C++) and the delivery ratio of the index of connectivity, every raster in InVEST's
 //! float32 / float64 type and with its expression.
 
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};

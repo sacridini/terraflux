@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's habitat graphs of vector features give, for Terraflux's tests, written to
+"""What the library's habitat graphs of vector features give, for Terraflux's tests, written to
 tests/data/reference/conn_vector.gpkg (the features), conn_vector.npz and conn_vector.json:
 
     python tools/make_conn_vector_reference.py

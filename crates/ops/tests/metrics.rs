@@ -1,4 +1,4 @@
-//! Landscape metrics against the R package landscapemetrics: every value of calculate_lsm that landschaft keeps
+//! Landscape metrics against the R package landscapemetrics: every value of calculate_lsm that terraflux-py keeps
 //! (extern/terraflux-py/tests/data/reference/lsm, made by its tools/make_reference_lsm.py) for its test rasters
 //! and option sets, and window_lsm's maps (reference/lsm_window).
 
@@ -11,15 +11,15 @@ use terraflux_ops::lsm_catalog::METRICS;
 use terraflux_ops::metrics::{LEVELS, Row, default_options, measure};
 use terraflux_ops::{Args, Ctx, Map, Registry, Value};
 
-/// Tolerances of landschaft's own comparison (tests/test_lsm_reference.py).
+/// Tolerances of the library's own comparison (tests/test_lsm_reference.py).
 const RTOL: f64 = 1e-10;
 const ATOL: f64 = 1e-14;
 
 /// calculate_lsm builds te, ed, iji and contag from the neighbourhood of the complexity metrics; landscapemetrics'
-/// own functions (and landschaft) use 4 neighbours: with 8 they are compared with the 4-neighbour reference.
+/// own functions (and terraflux-py) use 4 neighbours: with 8 they are compared with the 4-neighbour reference.
 const NEIGHBOURHOOD_QUIRK: [&str; 4] = ["te", "ed", "iji", "contag"];
 
-fn landschaft() -> PathBuf {
+fn library() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/tests/data")
 }
 
@@ -46,7 +46,7 @@ fn read_reference(path: &Path) -> BTreeMap<Key, f64> {
         .collect()
 }
 
-/// Only the metrics landschaft has (those of the catalogue that are landscapemetrics').
+/// Only the metrics terraflux-py has (those of the catalogue that are landscapemetrics').
 fn implemented(rows: BTreeMap<Key, f64>) -> BTreeMap<Key, f64> {
     rows.into_iter()
         .filter(|((l, _, _, m), _)| METRICS.iter().any(|x| !x.extra && x.level == *l && x.metric == *m))
@@ -73,12 +73,12 @@ fn options(o: &serde_json::Value) -> terraflux_ls_sys::ffi::LsmOptions {
     opt
 }
 
-/// Metrics R does not give to the bit (landschaft's test_lsm_reference.py): circle (landscapemetrics shuffles
+/// Metrics R does not give to the bit (the library's test_lsm_reference.py): circle (landscapemetrics shuffles
 /// Welzl's points at random), gyrate (R's sums of coordinates in extended precision) and enn (R's search may
 /// settle on an equally near pair).
 const NOT_BITWISE: [&str; 3] = ["circle", "gyrate", "enn"];
 
-/// Units in the last place landschaft allows (sums of many logarithms and roots that cancel).
+/// Units in the last place terraflux-py allows (sums of many logarithms and roots that cancel).
 const ULPS: u64 = 128;
 
 fn same_bits(a: f64, b: f64) -> bool {
@@ -98,11 +98,11 @@ fn close(a: f64, b: f64) -> bool {
     (a.is_nan() && b.is_nan()) || a == b || (a - b).abs() <= ATOL + RTOL * b.abs()
 }
 
-/// Every landscapemetrics metric landschaft has, at every level, on the 14 rasters and 5 option sets kept: the
+/// Every landscapemetrics metric terraflux-py has, at every level, on the 14 rasters and 5 option sets kept: the
 /// same rows (levels, classes, patches) and values.
 #[test]
 fn metrics_are_landscapemetrics() {
-    let dir = landschaft().join("reference/lsm");
+    let dir = library().join("reference/lsm");
     let manifest: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("manifest.json")).unwrap()).unwrap();
     let specs: Vec<(&'static str, &str)> = METRICS
@@ -113,7 +113,7 @@ fn metrics_are_landscapemetrics() {
     let mut files = 0;
     let mut values = 0;
     for (fname, info) in manifest["files"].as_object().unwrap() {
-        let map = read_map(&landschaft().join("lsm").join(info["input"].as_str().unwrap()));
+        let map = read_map(&library().join("lsm").join(info["input"].as_str().unwrap()));
         let opt = options(&info["options"]);
         let ours: Vec<Row> = measure(&map, &opt, &specs, false).unwrap().rows;
         let mut ours: BTreeMap<Key, f64> =
@@ -162,7 +162,7 @@ fn run(op: &str, map: Map, params: serde_json::Value) -> terraflux_ops::Outputs 
 /// window_lsm's maps of every landscape-level metric, in square and circular windows.
 #[test]
 fn windows_are_landscapemetrics() {
-    let dir = landschaft().join("reference/lsm_window");
+    let dir = library().join("reference/lsm_window");
     let manifest: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("manifest.json")).unwrap()).unwrap();
     for (fname, info) in manifest["files"].as_object().unwrap() {

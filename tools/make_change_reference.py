@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's analysis of land change gives, for Terraflux's tests: the transitions between consecutive
+"""What the library's analysis of land change gives, for Terraflux's tests: the transitions between consecutive
 maps, the intensity analysis (OpenLand's, Aldwaik & Pontius 2012) in km2 and in cells, the components of the
 difference (diffeR's), the matrices and the change count of Terraflux's pie_landuse (three dates) and
 sibuyan_landuse (two), written to tests/data/reference/change.json:
 
     python tools/make_change_reference.py
 
-Run with the landschaft the submodule points at installed. NaN written null.
+Run with the library the submodule points at installed. NaN written null.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-//! The area accessible to a species (landschaft's accessible_area, the "M" of the BAM diagram): the land within
+//! The area accessible to a species (the library's accessible_area, the "M" of the BAM diagram): the land within
 //! a distance of its records (geodesic circles on WGS84, merged), their convex hull or the regions that hold them
 //! (widened by a distance), cut at the antimeridian and folded back into [-180, 180], within a mask. The circles
 //! are GeographicLib's (its C library, as PROJ's geodesics); the unions and intersections GEOS's through GDAL.

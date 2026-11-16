@@ -1,7 +1,7 @@
-//! The comparisons of simulated land change with the observed (landschaft's simulate/_validation.py and
+//! The comparisons of simulated land change with the observed (the library's simulate/_validation.py and
 //! _validate.py): the three-map comparison of Pontius et al. (2011) at several resolutions with its budget of
 //! agreement and figure of merit (lulcc's ThreeMapComparison, AgreementBudget and FigureOfMerit, its table by
-//! landschaft's C++), MOLUSCE's kappas and dependence coefficients and its error budget (Pontius 2002), and FUTURES'
+//! the library's C++), MOLUSCE's kappas and dependence coefficients and its error budget (Pontius 2002), and FUTURES'
 //! validation (r.futures.validation: disagreement, kappa, kappa simulation, change metrics), whole or by tiles or
 //! regions (r.futures.gridvalidation). R's sums where lulcc sums, numpy's where MOLUSCE and FUTURES do.
 

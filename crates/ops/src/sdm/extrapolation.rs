@@ -1,7 +1,7 @@
-//! How far new conditions lie from those a model was fitted on (landschaft's mess, mop and exdet): Elith's
+//! How far new conditions lie from those a model was fitted on (the library's mess, mop and exdet): Elith's
 //! MESS, the mop package's MOP (the range of each variable and the mean distance to the nearest reference
 //! points) and Mesgaran's ExDet (univariate extrapolation NT1 and multivariate novelty NT2, with the most
-//! influential covariates). MESS and the Euclidean MOP are landschaft's to the bit; what goes through numpy's
+//! influential covariates). MESS and the Euclidean MOP are the library's to the bit; what goes through numpy's
 //! covariance and LAPACK's inverse (the Mahalanobis distances) to rounding.
 
 use terraflux_ls_sys::ffi;
@@ -48,7 +48,7 @@ impl Frame {
     }
 }
 
-/// landschaft's _messi: the MESS of a variable at p against the reference values v.
+/// The library's _messi: the MESS of a variable at p against the reference values v.
 fn messi(p: &[f64], v: &[f64]) -> Vec<f64> {
     let mut v: Vec<f64> = v.iter().copied().filter(|x| !x.is_nan()).collect();
     v.sort_by(|a, b| a.partial_cmp(b).unwrap());

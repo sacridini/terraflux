@@ -1,4 +1,4 @@
-//! Partitions of records for cross-validation (landschaft's folds, after blockCV and ENMeval): random folds of
+//! Partitions of records for cross-validation (the library's folds, after blockCV and ENMeval): random folds of
 //! the presences, jackknife, the four quadrants, a checkerboard of aggregated cells, spatial blocks (squares or
 //! hexagons, assigned at random to balance the folds, systematically or as a checkerboard) and clusters of the
 //! coordinates or of the predictors (R's kmeans). R's generator and arithmetic throughout.
@@ -125,7 +125,7 @@ impl Ext {
     }
 }
 
-/// R's fmod (landschaft's _r_fmod): its long double steps with 64-bit mantissas.
+/// R's fmod (the library's _r_fmod): its long double steps with 64-bit mantissas.
 fn r_fmod(x1: f64, x2: f64) -> f64 {
     if x2.abs() * EPS > 1.0 && x1.is_finite() && x1.abs() <= x2.abs() {
         if x1.abs() == x2.abs() {

@@ -1,4 +1,4 @@
-//! Randomisations of a spatial analysis (landschaft's bio/_randomise.py, Biodiverse::Randomise): each iteration
+//! Randomisations of a spatial analysis (the library's bio/_randomise.py, Biodiverse::Randomise): each iteration
 //! randomises the basedata, runs the analysis again with the same neighbourhoods and counts, per group and
 //! index, how often the observed value exceeds (C), ties (T) and is compared with (Q) the randomised one, with
 //! the sums for z-scores; from them the p-ranks, z-scores and CANAPE categories, as Biodiverse gives them.
@@ -184,7 +184,7 @@ struct Constant {
     state: State,
 }
 
-/// The allocation state of rand_structured (landschaft's _spatial_alloc).
+/// The allocation state of rand_structured (the library's _spatial_alloc).
 fn spatial_alloc(bd: &BaseData, o: &Options, order: &str, backtracking: &str) -> Result<UniquePtr<ffi::BioAlloc>> {
     let conds = o.spatial_conditions_for_label_allocation.as_deref();
     if !has_text(conds) {

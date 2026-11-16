@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's neutral landscape models give, for Terraflux's tests, written to
+"""What the library's neutral landscape models give, for Terraflux's tests, written to
 tests/data/reference/nlm.npz and nlm.json:
 
     python tools/make_nlm_reference.py
 
-Every model of landschaft.nlm on small grids (with and without NLMR's quirks where they differ; the Voronoi
+Every model of terraflux-py.nlm on small grids (with and without NLMR's quirks where they differ; the Voronoi
 mosaics without them, each germ with its own value) and the utilities (classify, binarize, merge, rescale). The
 json holds each case's model, settings and Terraflux's operator and parameters; the npz its values.
 """

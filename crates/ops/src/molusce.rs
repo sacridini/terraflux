@@ -1,4 +1,4 @@
-//! MOLUSCE's simulator (the QGIS plugin; landschaft's `MolusceCA`): `rng.numpy`, `molusce.total`, `molusce.step`.
+//! MOLUSCE's simulator (the QGIS plugin; the library's `MolusceCA`): `rng.numpy`, `molusce.total`, `molusce.step`.
 //!
 //! At each iteration every cell is predicted the transition of largest weight (MOLUSCE's weights of evidence) or
 //! the class of largest potential, with a confidence; the cells of each observed transition with the highest
@@ -25,7 +25,7 @@ pub struct WeightEntry {
     pub weights: Vec<f64>,
 }
 
-/// MOLUSCE's weights of evidence as fitted by landschaft's `MolusceWoE`.
+/// MOLUSCE's weights of evidence as fitted by the library's `MolusceWoE`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Weights {
@@ -40,7 +40,7 @@ pub struct Weights {
     pub weights: Vec<WeightEntry>,
 }
 
-/// The total weight of each transition (landschaft's `MolusceWoE.total`): per transition, the sum over the
+/// The total weight of each transition (the library's `MolusceWoE.total`): per transition, the sum over the
 /// drivers of the weight of each cell's category; NaN where a driver has no value.
 pub fn total(w: &Weights, drivers: &Stack) -> Result<Stack> {
     let n = drivers.layers.first().map_or(0, |l| l.len());
@@ -98,7 +98,7 @@ pub enum Forecast<'a> {
     Potential(&'a Stack),
 }
 
-/// One iteration of MOLUSCE's Simulator (landschaft's `MolusceCA`).
+/// One iteration of MOLUSCE's Simulator (the library's `MolusceCA`).
 pub fn step(
     land: &Map,
     forecast: Forecast<'_>,

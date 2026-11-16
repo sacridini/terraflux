@@ -1,6 +1,6 @@
 //! prioritize.optimize with management zones against prioritizr 8.0.6: the models its compile() gives
 //! (extern/terraflux-py/tests/data/reference/optimize/zones) bit for bit, and their optima (Gurobi's at gap 0); on the
-//! zone problems of landschaft's cases (tests/data/reference/optimize_zones.npz and optimize_zone_tables.json,
+//! zone problems of the library's cases (tests/data/reference/optimize_zones.npz and optimize_zone_tables.json,
 //! tools/make_optimize_inputs.py): three zones (protect, use, restore) on a 12 x 15 grid, every zone's own features.
 
 use std::collections::BTreeMap;
@@ -59,7 +59,7 @@ const ZONES: [&str; 3] = ["protect", "use", "restore"];
 const FEATURES: [&str; 5] = ["f1", "f2", "f3", "f4", "f5"];
 const TREE_SHUFFLED: &str = "(((f3:1.5,f1:0.5):1,f5:2):0.75,(f2:1.25,f4:3):0.5);";
 
-/// The landschaft cases' inputs: the zones' costs and features as stacks on the 12 x 15 grid of 100 m cells.
+/// The library cases' inputs: the zones' costs and features as stacks on the 12 x 15 grid of 100 m cells.
 struct Inputs {
     zones: BTreeMap<String, Array>,
     base: BTreeMap<String, Array>,
@@ -111,7 +111,7 @@ impl Inputs {
         ins
     }
 
-    /// landschaft's sum_targets: an absolute target per feature, a share of its total (terra's global sum of the
+    /// The library's sum_targets: an absolute target per feature, a share of its total (terra's global sum of the
     /// base feature), met by the sum over the zones.
     fn sum_targets(&self, share: f64, zones: &[&str]) -> serde_json::Value {
         let f = &self.base["features"];
@@ -365,7 +365,7 @@ const QUICK: [&str; 10] = [
     "zones_max_phylo_end",
 ];
 
-/// The zone problems' optima are prioritizr's (Gurobi's at gap 0), on landschaft's zones engines; the solution's
+/// The zone problems' optima are prioritizr's (Gurobi's at gap 0), on the library's zones engines; the solution's
 /// maps (the zone of every unit, a layer per zone).
 #[test]
 fn zone_optima_are_prioritizrs() {
@@ -496,7 +496,7 @@ fn zone_spatial_compile_is_prioritizrs() {
 }
 
 /// The spatial zone problems' optima are prioritizr's (Gurobi's at gap 0; cargo test -- --ignored). The boundary
-/// penalties with zones take minutes on HiGHS's MIP: 15 seconds there (as landschaft's test), the bound no worse
+/// penalties with zones take minutes on HiGHS's MIP: 15 seconds there (as the library's test), the bound no worse
 /// than prioritizr's optimum and the solution no better.
 #[test]
 #[ignore]
@@ -535,8 +535,8 @@ fn spatial_model(name: &str) -> (terraflux_ops::milp::Model, usize) {
     (m, p.units.n())
 }
 
-/// A minimum set with zones and boundary penalties goes to landschaft's zones cut engine, as landschaft's solve_model
-/// sends it, to its plan. landschaft's numbers (1.58.1, the same problem: tests/optimize_cases.py's _zone_general()
+/// A minimum set with zones and boundary penalties goes to the library's zones cut engine, as the library's solve_model
+/// sends it, to its plan. the library's numbers (1.58.1, the same problem: tests/optimize_cases.py's _zone_general()
 /// with add_min_set_objective(), add_manual_targets(30 % of the features' totals over every zone),
 /// add_boundary_penalties(0.5), add_binary_decisions(), add_highs_solver(gap=0.3, time_limit=30), run from the tests
 /// directory with python and p.solve()): status optimal, objective 4767.188257775759, bound 3338.1873863389787, 58
@@ -601,7 +601,7 @@ fn zone_contiguity_has_a_patch_per_cluster() {
     assert_eq!(m.row_ids.iter().filter(|r| *r == "cluster").count(), units);
 }
 
-/// Contiguity with zones on HiGHS (a time limit, as landschaft's test): prioritizr's formulation is a restriction,
+/// Contiguity with zones on HiGHS (a time limit, as the library's test): prioritizr's formulation is a restriction,
 /// ours exact, so the bound is no worse than prioritizr's optimum (cargo test -- --ignored).
 #[test]
 #[ignore]
@@ -710,7 +710,7 @@ fn zone_evaluation_is_prioritizrs() {
 }
 
 /// With the gap at 0.15 the engine stalls (13 evaluations, gap 0.237) and HiGHS's MIP goes on from its solution, as in
-/// landschaft: the same numbers when the problem is the same to the last bit (landschaft's targets must be given as
+/// terraflux-py: the same numbers when the problem is the same to the last bit (the library's targets must be given as
 /// ours: 0.3 * the totals differs in the last digit and HiGHS follows another path), at 1 and at 4 threads: the call
 /// above with add_manual_targets(the five values of the model's spp_target rows) and
 /// add_highs_solver(gap=0.15, time_limit=30, n_threads=1 or 4): optimal, objective 4380.239726299852, bound
@@ -728,7 +728,7 @@ fn zone_boundary_penalties_go_on_to_highs_from_the_engine() {
     assert!((s.x[..units].iter().sum::<f64>() - 53.0).abs() < 1e-6);
 }
 
-/// The anneal solver and corridors are not for zones (landschaft's messages).
+/// The anneal solver and corridors are not for zones (the library's messages).
 #[test]
 fn anneal_and_corridors_refuse_zones() {
     let i = Inputs::new();

@@ -1,4 +1,4 @@
-//! batch.run: an operator on many rasters, its outputs written with landschaft's (and GuidosToolbox's) naming,
+//! batch.run: an operator on many rasters, its outputs written with the library's (and GuidosToolbox's) naming,
 //! the same as running the operator on each.
 
 use std::path::{Path, PathBuf};

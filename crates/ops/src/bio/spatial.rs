@@ -1,5 +1,5 @@
-//! Biodiverse's spatial analysis (landschaft's bio/_spatial.py): its indices over the neighbourhoods of groups,
-//! computed by landschaft's C++ index engine.
+//! Biodiverse's spatial analysis (the library's bio/_spatial.py): its indices over the neighbourhoods of groups,
+//! computed by the library's C++ index engine.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -13,7 +13,7 @@ use super::properties::{LabelMatrix, any_set, numbers, tables};
 use super::tree::{Tree, tree_view};
 use crate::{Error, Result};
 
-/// Biodiverse's pre_calc dependencies of every calculation (dumped from Biodiverse by landschaft).
+/// Biodiverse's pre_calc dependencies of every calculation (dumped from Biodiverse by terraflux-py).
 /// (Python's JSON: its infinities and NaN read as the texts "inf", "-inf" and "nan".)
 pub static DEPS: LazyLock<serde_json::Value> = LazyLock::new(|| {
     let text = include_str!("biodiverse_dependencies.json")
@@ -213,7 +213,7 @@ pub fn calc_name(c: &str) -> String {
     if c.starts_with("calc_") { c.to_string() } else { format!("calc_{c}") }
 }
 
-/// A list index of the processing groups: its kind (landschaft's KeyKind) and per group its (key, value) entries.
+/// A list index of the processing groups: its kind (the library's KeyKind) and per group its (key, value) entries.
 #[derive(Debug, Clone)]
 pub struct ListIndex {
     pub name: String,
@@ -297,7 +297,7 @@ pub struct Run {
     pub parallel: bool,
 }
 
-/// Biodiverse's spatial analysis: indices over the neighbourhood of every group (landschaft's
+/// Biodiverse's spatial analysis: indices over the neighbourhood of every group (the library's
 /// spatial_analysis, without matrices and properties). `seed`: Biodiverse's prng_seed, of the random tips of the
 /// expected NTI on trees that are not ultrametric and of the net VPD.
 #[allow(clippy::too_many_arguments)]
@@ -433,7 +433,7 @@ pub fn prepare(
 }
 
 /// The calculations of an analysis on a basedata with the same groups (its neighbourhoods), with its tree or
-/// another (landschaft's _evaluate).
+/// another (the library's _evaluate).
 pub fn evaluate(bd: &BaseData, run: &Run, tree: Option<&Tree>) -> Result<SpatialResult> {
     evaluate_with(bd, run, tree, false, None)
 }
@@ -441,7 +441,7 @@ pub fn evaluate(bd: &BaseData, run: &Run, tree: Option<&Tree>) -> Result<Spatial
 /// Per-row labels of neighbour set 1 (indptr, labels, group counts, samples) used instead of the groups'.
 pub type RowLabels = (Vec<i64>, Vec<i32>, Vec<f64>, Vec<f64>);
 
-/// Calculations on given neighbour sets (rows of group indices), one row per set (landschaft's _run_sets):
+/// Calculations on given neighbour sets (rows of group indices), one row per set (the library's _run_sets):
 /// `pairwise` the cluster matrices' mode, `row_labels` the hierarchical mode of cluster nodes.
 #[allow(clippy::too_many_arguments)]
 pub fn run_sets(

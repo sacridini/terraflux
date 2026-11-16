@@ -1,4 +1,4 @@
-//! Zonation 5's impact assessment files (impacts/<scenario>/...), as landschaft writes them (`_impacts.write_source`
+//! Zonation 5's impact assessment files (impacts/<scenario>/...), as terraflux-py writes them (`_impacts.write_source`
 //! and `write_cumulative`): per measure, area and impact group the features' distribution and loss in the zones of
 //! the sources (with value bins), and the direct and cumulative impacts per feature.
 

@@ -1,5 +1,5 @@
-//! InVEST's models against landschaft's (tests/data/reference/services.npz, tools/make_services_reference.py, on
-//! the cases of landschaft's InVEST references): carbon, habitat quality, annual water yield and the sediment
+//! InVEST's models against the library's (tests/data/reference/services.npz, tools/make_services_reference.py, on
+//! the cases of the library's InVEST references): carbon, habitat quality, annual water yield and the sediment
 //! delivery ratio, their maps to the bit and their tables.
 
 use std::path::Path;
@@ -107,7 +107,7 @@ fn same_table(got: &Table, want: &serde_json::Value, rtol: f64, what: &str) {
 }
 
 #[test]
-fn invest_models_are_landschafts() {
+fn invest_models_match_the_library() {
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/services.npz")).unwrap();
     let meta: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/services.json")).unwrap())

@@ -1,4 +1,4 @@
-//! Biodiverse's other imports against landschaft's (tests/data/reference/bio_imports.json and its inputs,
+//! Biodiverse's other imports against the library's (tests/data/reference/bio_imports.json and its inputs,
 //! tools/make_bio_imports_reference.py): rasters (labels as bands, a threshold, larger cells, an origin, one label,
 //! values as labels), vector features over a fishnet (the cells touched, areas, lengths, counts, binarised),
 //! hexagons and H3 cells, and occurrence records of GBIF downloads and a Darwin Core Archive, cleaned and in
@@ -27,7 +27,7 @@ fn strings(v: &Json) -> Vec<String> {
     v.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect()
 }
 
-/// The basedata of a node against landschaft's: groups, labels and coordinates the same; counts to `tol`.
+/// The basedata of a node against the library's: groups, labels and coordinates the same; counts to `tol`.
 fn check(case: &str, out: &Outputs, want: &Json, tol: f64) {
     let Value::BaseData(bd) = &out["basedata"] else { panic!() };
     assert_eq!(bd.groups, strings(&want["groups"]), "{case}: groups");
@@ -64,7 +64,7 @@ fn check(case: &str, out: &Outputs, want: &Json, tol: f64) {
 }
 
 #[test]
-fn rasters_are_landschafts() {
+fn rasters_match_the_library() {
     let meta: Json = serde_json::from_str(&std::fs::read_to_string(dir().join("bio_imports.json")).unwrap()).unwrap();
     for (case, c) in meta["raster"].as_object().unwrap() {
         let path = dir().join(c["file"].as_str().unwrap());
@@ -84,7 +84,7 @@ fn rasters_are_landschafts() {
 }
 
 #[test]
-fn features_are_landschafts() {
+fn features_match_the_library() {
     let meta: Json = serde_json::from_str(&std::fs::read_to_string(dir().join("bio_imports.json")).unwrap()).unwrap();
     let all = terraflux_gdal::read_vector(dir().join("bio_imports.gpkg"), Some("features")).unwrap();
     let part = |r: std::ops::Range<usize>| {
@@ -127,7 +127,7 @@ fn features_are_landschafts() {
 }
 
 #[test]
-fn hexagons_and_h3_are_landschafts() {
+fn hexagons_and_h3_match_the_library() {
     let meta: Json = serde_json::from_str(&std::fs::read_to_string(dir().join("bio_imports.json")).unwrap()).unwrap();
     let csv = |name: &str| Value::Vector(Arc::new(terraflux_gdal::read_vector(dir().join(name), None).unwrap()));
     for (case, c) in meta["grids"].as_object().unwrap() {
@@ -152,7 +152,7 @@ fn hexagons_and_h3_are_landschafts() {
 }
 
 #[test]
-fn occurrences_are_landschafts() {
+fn occurrences_match_the_library() {
     let meta: Json = serde_json::from_str(&std::fs::read_to_string(dir().join("bio_imports.json")).unwrap()).unwrap();
     for (case, c) in meta["occurrences"].as_object().unwrap() {
         let mut p = c["settings"].clone();

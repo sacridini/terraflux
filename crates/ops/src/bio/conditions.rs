@@ -1,6 +1,6 @@
-//! Biodiverse's spatial conditions (landschaft's bio/_conditions.py): which groups are neighbours of which. The
+//! Biodiverse's spatial conditions (the library's bio/_conditions.py): which groups are neighbours of which. The
 //! Perl is parsed, what depends on one group only (text and regex matches, polygons, richness) is evaluated
-//! once per group here, and the rest runs in landschaft's C++ for every candidate pair with Biodiverse's
+//! once per group here, and the rest runs in the library's C++ for every candidate pair with Biodiverse's
 //! arithmetic.
 
 use std::collections::{BTreeSet, HashMap};
@@ -1483,7 +1483,7 @@ pub struct Neighbourhoods {
     pub stored: Vec<Csr>,
 }
 
-/// The neighbour sets of every group as Biodiverse's spatial analysis finds them (landschaft's neighbours).
+/// The neighbour sets of every group as Biodiverse's spatial analysis finds them (the library's neighbours).
 pub fn neighbours(
     bd: &BaseData,
     conditions: &[Condition],

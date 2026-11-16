@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""landschaft's restoration plans with intactness, the minimum cost and sets of weights, for Terraflux's tests of
-restoration.plan: the bd_absent problem of landschaft's tests (tests/plangea_cases.py, the extinction risk of the
-species of its area of habitat) with a human footprint, carbon and a cost drawn here, solved by landschaft's
+"""The library's restoration plans with intactness, the minimum cost and sets of weights, for Terraflux's tests of
+restoration.plan: the bd_absent problem of the library's tests (tests/plangea_cases.py, the extinction risk of the
+species of its area of habitat) with a human footprint, carbon and a cost drawn here, solved by the library's
 RestorationProblem; written to tests/data/reference/plangea_plan.json:
 
     python tools/make_plangea_plan_reference.py

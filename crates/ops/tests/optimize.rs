@@ -1,6 +1,6 @@
 //! prioritize.optimize against prioritizr 8.0.6: the models its compile() gives (extern/terraflux-py/tests/data/
 //! reference/optimize, core and objectives) for raster planning units, bit for bit, and their optima (Gurobi at
-//! gap 0) reached by HiGHS; on the rasters of landschaft's cases (tests/data/reference/optimize_inputs.npz,
+//! gap 0) reached by HiGHS; on the rasters of the library's cases (tests/data/reference/optimize_inputs.npz,
 //! tools/make_optimize_inputs.py).
 
 use std::collections::BTreeMap;
@@ -42,7 +42,7 @@ fn inputs() -> BTreeMap<String, Array> {
 const NONE: &[&str] = &[];
 const BOTH: &[&str] = &["locked_in", "locked_out"];
 
-/// The cases of raster units (prioritizr's R calls in landschaft's optimize_cases.py) as the node's settings.
+/// The cases of raster units (prioritizr's R calls in the library's optimize_cases.py) as the node's settings.
 /// A case: its reference group and name, the node's settings, the locked or data rasters it takes, manual targets.
 type Case = (&'static str, &'static str, serde_json::Value, &'static [&'static str], Option<Table>);
 
@@ -467,7 +467,7 @@ fn evaluation_is_prioritizrs() {
 }
 
 /// prioritizr's replacement importance (a solve without each unit selected) and rank importance (4 budgets) of a
-/// min set problem's optimal solution: its numbers (rtol 1e-9, as landschaft's test) and ranks.
+/// min set problem's optimal solution: its numbers (rtol 1e-9, as the library's test) and ranks.
 #[test]
 fn importance_is_prioritizrs() {
     let inputs = inputs();
@@ -898,7 +898,7 @@ fn table_evaluation_is_prioritizrs() {
     }
 }
 
-/// Contiguity: landschaft's exact formulation with the arcs from a lower unit to a higher one fixed at 0 is
+/// Contiguity: the library's exact formulation with the arcs from a lower unit to a higher one fixed at 0 is
 /// prioritizr's, the same optimum (Gurobi's at gap 0) on HiGHS's MIP alone (about 2 minutes: cargo test --
 /// --ignored).
 #[test]
@@ -1163,7 +1163,7 @@ fn bounds_cases() -> Vec<(&'static str, BTreeMap<String, Value>, serde_json::Val
 }
 
 /// prioritizr's manual bounded and locked constraints (after the locked units, the later winning; units without a
-/// cost skipped): its compile() bit for bit on the 7 cases landschaft keeps.
+/// cost skipped): its compile() bit for bit on the 7 cases terraflux-py keeps.
 #[test]
 fn bounds_compile_is_prioritizrs() {
     let r = reference("bounds");
@@ -1248,7 +1248,7 @@ fn calibrate_on_gurobi_is_highs() {
 }
 
 /// The Pareto front of cost and shortfall: prioritizr's min shortfall optima at its budgets; TOPSIS and the knee
-/// of a curve as landschaft's (R's topsis package).
+/// of a curve as the library's (R's topsis package).
 #[test]
 fn calibrate_pareto_is_prioritizrs() {
     let r = reference("calibrate");
@@ -1295,7 +1295,7 @@ fn calibrate_blended_and_hierarchical_are_prioritizrs() {
 
 /// A synthetic table problem for the subset search: `n` units, `k` features of small whole amounts (an integer
 /// generator: the same numbers on every machine), the targets and the budget whole numbers (a share of the totals,
-/// rounded down) so that landschaft's and our models are the same to the last bit.
+/// rounded down) so that the library's and our models are the same to the last bit.
 fn subset_problem(
     n: usize,
     k: usize,
@@ -1362,24 +1362,24 @@ fn met_and_units(m: &terraflux_ops::milp::Model, n: usize, x: &[f64]) -> (usize,
 }
 
 /// The subset problems of the tests below: 60 units, 20 features (weights 1 to 4), every target 30 % of the feature's
-/// total and the budget 10 % of the total cost (whole numbers: the model is the same to the last bit in landschaft),
+/// total and the budget 10 % of the total cost (whole numbers: the model is the same to the last bit in terraflux-py),
 /// the objective, and for the phylogenetic ones a ladder tree.
 fn subset_case(objective: &str) -> (terraflux_ops::milp::Model, usize) {
     let tree = objective.starts_with("max_phylo").then(|| ladder_tree(20));
     subset_problem(60, 20, 0.3, 0.1, objective, tree, true)
 }
 
-/// landschaft's subset search (prioritize/_milp_subset.py of 1.58.1) from a selection of the units, until no move
+/// The library's subset search (prioritize/_milp_subset.py of 1.58.1) from a selection of the units, until no move
 /// helps (no time limit: the search ends because no move helps, so the result does not depend on the machine's
-/// speed): the same objective, targets met and units chosen. landschaft's numbers: the models of `subset_case` as
+/// speed): the same objective, targets met and units chosen. the library's numbers: the models of `subset_case` as
 /// Terraflux compiles them (every array written with {:e} and read back: A, obj, lb, ub, rhs, sense, vtype, ids,
-/// the same to the last bit) in landschaft's OptimizationProblem(modelsense="max"), sm = subset_model(m, n);
+/// the same to the last bit) in the library's OptimizationProblem(modelsense="max"), sm = subset_model(m, n);
 /// z = _complete(m, sm, xu) from the units' values (none chosen, or units 1, 9 and 17) then
 /// improve_subset(m, sm, z, math.inf, 4) with OMP_NUM_THREADS=4: max_features 37.99900535833892 (14 targets, 15
 /// units; 1.7 s there), max_phylo_div 66.74976054922973 (14, 15; 1.3 s), max_phylo_end 1603.4763773041454 (14, 13;
 /// 1.6 s). Searching again from what it found, no move helps: None.
 #[test]
-fn subset_search_is_landschafts() {
+fn subset_search_matches_the_library() {
     let cases = [
         ("max_features", 37.99900535833892, (14, 15)),
         ("max_phylo_div", 66.74976054922973, (14, 15)),
@@ -1433,8 +1433,8 @@ fn subset_search_takes_only_its_models() {
     assert!(terraflux_ops::milp::improve_subset(&m, 0, &[]).is_err());
 }
 
-/// A model the wide engine proves optimal (the gap reached) is returned as it is, as landschaft's
-/// _wide_then_subset does: landschaft's solve_model on the same model (subset_case("max_features"), gap 0.01,
+/// A model the wide engine proves optimal (the gap reached) is returned as it is, as the library's
+/// _wide_then_subset does: the library's solve_model on the same model (subset_case("max_features"), gap 0.01,
 /// time limit 60, n_threads 4): optimal, objective 37.99904219691896, bound 38.0, 14 targets, 15 units.
 #[test]
 fn subset_models_the_wide_engine_proves_come_back_as_they_are() {
@@ -1449,11 +1449,11 @@ fn subset_models_the_wide_engine_proves_come_back_as_they_are() {
 
 /// The wide engine for 40 % of the time limit, then the search for the rest: on the phylogenetic diversity model with
 /// a time limit of 2 s the wide engine stops at 65.9997689216343 (its bound 68.4 there, 69.0 here: the bound depends
-/// on the speed) and the search reaches 66.74976054922973 (14 targets, 15 units), landschaft's solve_model on the
+/// on the speed) and the search reaches 66.74976054922973 (14 targets, 15 units), the library's solve_model on the
 /// same model (gap 0.01, time limit 2, n_threads 4): time_limit, objective 66.74976054922973, 15 units, 2.0 s. (On a
 /// faster machine the wide engine alone gets there: the same objective.) Where the run ends depends on the speed (a
 /// slow machine, the CI, may stop the search sooner): checked only that it ends no worse than the wide engine, the
-/// search itself compared with landschaft's in subset_search_is_landschafts. Stopped, the search ends with the run.
+/// search itself compared with the library's in subset_search_matches_the_library. Stopped, the search ends with the run.
 #[test]
 fn the_search_goes_on_from_the_wide_engine_and_stops_with_the_run() {
     let (m, n) = subset_case("max_phylo_div");
@@ -1481,7 +1481,7 @@ fn the_search_goes_on_from_the_wide_engine_and_stops_with_the_run() {
 
 // ----------------------------------------------------------------------------- the anneal solver
 
-/// What `prioritize.optimize` says to a problem (the cases' raster units, landschaft's small ones).
+/// What `prioritize.optimize` says to a problem (the cases' raster units, the library's small ones).
 fn run_optimize(ins: BTreeMap<String, Value>, params: serde_json::Value) -> Result<terraflux_ops::Outputs, String> {
     let params = params.as_object().unwrap().clone();
     let args = Args { node: "n", inputs: ins, params: &params };
@@ -1499,14 +1499,14 @@ fn compiled(ins: BTreeMap<String, Value>, params: serde_json::Value) -> (terrafl
     (m, p.units.n())
 }
 
-/// The anneal solver is landschaft's: with a seed the same run (landschaft 1.58.1, tests/optimize_cases.py's small
+/// The anneal solver is the library's: with a seed the same run (terraflux-py 1.58.1, tests/optimize_cases.py's small
 /// raster with add_min_set_objective(), add_relative_targets(0.3), add_binary_decisions(),
 /// add_anneal_solver(seed=7, num_reps=6, n_threads=4): heuristic, objective 2461.1205471884523, bound
 /// 2450.9759445122713, gap 0.0041219446515003135, 50 units of 166), the same on any number of threads; the same
 /// numbers as tests/data/reference/optimize_parity.json's small_raster_anneal_min_set (tools/
-/// make_optimize_parity_reference.py), whose selection parity::optimize_is_landschafts compares too.
+/// make_optimize_parity_reference.py), whose selection parity::optimize_matches_the_library compares too.
 #[test]
-fn anneal_is_landschafts() {
+fn anneal_matches_the_library() {
     use serde_json::json;
     let inputs = inputs();
     let params = json!({"relative_targets": 0.3, "solver": "anneal", "seed": 7, "num_reps": 6});
@@ -1518,7 +1518,7 @@ fn anneal_is_landschafts() {
     assert!((got("gap") - gap).abs() <= 1e-6, "gap {}", got("gap"));
     assert_eq!((got("optimal"), got("selected")), (0.0, 50.0));
     assert_eq!(sel.rows.len(), 166);
-    // the bound: the linear relaxation without the boundaries' cut terms (as landschaft's)
+    // the bound: the linear relaxation without the boundaries' cut terms (as the library's)
     let (m, n) = compiled(args_of(&inputs, NONE, None), params);
     let a = terraflux_ops::milp::Anneal { num_reps: 6, seed: 7, ..Default::default() };
     let s = terraflux_ops::milp::solve_anneal(&m, n, &a, f64::INFINITY).unwrap();
@@ -1532,11 +1532,11 @@ fn anneal_is_landschafts() {
     assert!(terraflux_ops::milp::solve_anneal(&m, n, &c, f64::INFINITY).unwrap().has_solution);
 }
 
-/// The anneal solver takes landschaft's models and says what it does not (their messages): maximisations, shares of
-/// units, rows that are not targets; targets that no selection meets; settings landschaft refuses; zones and
+/// The anneal solver takes the library's models and says what it does not (their messages): maximisations, shares of
+/// units, rows that are not targets; targets that no selection meets; settings terraflux-py refuses; zones and
 /// portfolios.
 #[test]
-fn anneal_refuses_what_landschaft_refuses() {
+fn anneal_refuses_what_the_library_refuses() {
     use serde_json::json;
     use terraflux_ops::milp;
     let inputs = inputs();
@@ -1612,11 +1612,11 @@ fn corridor_inputs(mut ins: BTreeMap<String, Value>, nets: &[Vec<usize>], resist
     ins
 }
 
-/// The models landschaft compiles for corridor constraints (tests/data/reference/optimize_corridors.*,
+/// The models terraflux-py compiles for corridor constraints (tests/data/reference/optimize_corridors.*,
 /// tools/make_corridor_reference.py), bit for bit: the flow model on the edges between units, the terminals' bounds,
 /// the resistance in the objective (its sign with the objective's), and the networks the solvers cut on.
 #[test]
-fn corridors_compile_is_landschafts() {
+fn corridors_compile_matches_the_library() {
     use serde_json::json;
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let arrays = terraflux_raster::npy::read_npz(dir.join("optimize_corridors.npz")).unwrap();
@@ -1708,7 +1708,7 @@ fn corridors_compile_is_landschafts() {
     }
 }
 
-/// A corridor joins its terminals: they are selected, and the selection holds a path between them (landschaft's
+/// A corridor joins its terminals: they are selected, and the selection holds a path between them (the library's
 /// solve: the root's node cuts, then the MIP with them at its nodes too; 1741.791497 for the three terminals of
 /// tools/make_optimize_parity_reference.py's small_raster_corridors_min_set within a gap of 0.05); a network needs
 /// two terminals, and zones have none.

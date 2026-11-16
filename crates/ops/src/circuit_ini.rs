@@ -1,4 +1,4 @@
-//! Circuitscape's and Omniscape's INI files (landschaft's circuitscape_ini, network_ini and omniscape_ini): a run
+//! Circuitscape's and Omniscape's INI files (the library's circuitscape_ini, network_ini and omniscape_ini): a run
 //! configured as Circuitscape.jl and Omniscape.jl read their files, the inputs read as they read them (ESRI ASCII
 //! grids in double, GeoTIFFs, text lists), the outputs written as they name them.
 
@@ -501,7 +501,7 @@ pub struct CsResult {
     pub meta: Option<RasterMeta>,
 }
 
-/// Run a Circuitscape INI file on rasters (landschaft's circuitscape_ini): `write` writes the outputs as
+/// Run a Circuitscape INI file on rasters (the library's circuitscape_ini): `write` writes the outputs as
 /// Circuitscape; `batch` the one-to-all problems solved together.
 pub fn circuitscape_ini(ctx: &mut Ctx, path: &Path, write: bool, batch: usize) -> Result<CsResult> {
     let base = path.canonicalize().ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_default();

@@ -1,6 +1,6 @@
-//! Habitat connectivity from landschaft's conn module: habitat graphs (Conefor Sensinode's and Makurhini's
+//! Habitat connectivity from the library's conn module: habitat graphs (Conefor Sensinode's and Makurhini's
 //! indices overall, per node, per link, for links that change and for nodes to restore; the centralities), and
-//! their nodes and distances from rasters of patches. The graph's paths are landschaft's C++; the rest follows
+//! their nodes and distances from rasters of patches. The graph's paths are the library's C++; the rest follows
 //! its numpy in the same order (its BLAS dot products and SIMD exponentials to rounding).
 
 pub mod graph;

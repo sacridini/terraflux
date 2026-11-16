@@ -1,4 +1,4 @@
-//! Landscape metrics from landschaft's C++, the same values as the R package landscapemetrics (and FRAGSTATS'
+//! Landscape metrics from the library's C++, the same values as the R package landscapemetrics (and FRAGSTATS'
 //! extras): per patch (`metrics.patch`), per class (`metrics.class`), of the whole map (`metrics.landscape`) and
 //! of the landscape in a moving window around each cell (`metrics.window`).
 //!
@@ -251,7 +251,7 @@ pub(crate) fn block_rows_param(sig: OpSignature) -> OpSignature {
 
 /// The rows of a block of an out-of-core landscape: a multiple of 64 (the strips the C++ labels the map in, so
 /// that the sums are made in the same order as in memory), by default one strip of 64 rows but at least 32,768
-/// cells (landschaft's "auto").
+/// cells (the library's "auto").
 pub fn block_rows(rows: Option<usize>, width: usize) -> usize {
     let rows = rows.unwrap_or((1 << 15) / width.max(1));
     rows.div_ceil(64).max(1) * 64
@@ -264,7 +264,7 @@ pub const TILED_CELLS: usize = 250_000_000;
 /// above and below.
 type BlockFn<'a> = dyn FnMut(&[i32], &[u8], usize, usize, usize, usize) -> Result<()> + 'a;
 
-/// Metrics an out-of-core landscape cannot give (they need the whole raster, as in landschaft).
+/// Metrics an out-of-core landscape cannot give (they need the whole raster, as in terraflux-py).
 const RASTER_ONLY: [&str; 4] = ["prox", "simi", "econ", "connect"];
 
 /// Whether a metric can be measured block by block (prox, simi, econ, connect and FRAGSTATS' dcore cannot).
@@ -281,7 +281,7 @@ pub enum Labels<'a> {
     File(&'a std::path::Path),
 }
 
-/// The metrics `specs` of a map read block by block of rows (landschaft's out-of-core landscape, `block_rows`):
+/// The metrics `specs` of a map read block by block of rows (the library's out-of-core landscape, `block_rows`):
 /// the same values as [`measure`], with only a few blocks in memory at a time. The file (or map) is read twice,
 /// three times for core areas, gyrate, circle and enn (four for gyrate with cell_center), once more for the
 /// patches (`labels`: in memory, or to a file block by block). `tell` is told each block read (which of how many;

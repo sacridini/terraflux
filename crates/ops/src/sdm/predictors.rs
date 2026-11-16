@@ -1,7 +1,7 @@
-//! The choice of predictors (landschaft's vif and select_predictors, after usdm's vif, vifstep and vifcor) and
-//! the range of their spatial autocorrelation (landschaft's autocorrelation_range, after blockCV's
+//! The choice of predictors (the library's vif and select_predictors, after usdm's vif, vifstep and vifcor) and
+//! the range of their spatial autocorrelation (the library's autocorrelation_range, after blockCV's
 //! cv_spatial_autocor: gstat's variograms fitted to a sample of every layer). usdm's sampling of the cells with
-//! R's generator, R's lm, cor and the variograms of landschaft's C++.
+//! R's generator, R's lm, cor and the variograms of the library's C++.
 
 use terraflux_ls_sys::ffi;
 use terraflux_raster::Grid;
@@ -91,7 +91,7 @@ fn sample_cells(
     Ok(found)
 }
 
-/// The predictors of a stack clipped to an area (landschaft's clip with all_touched: the grid cut to the area's
+/// The predictors of a stack clipped to an area (the library's clip with all_touched: the grid cut to the area's
 /// bounds, the cells the area does not touch missing).
 pub fn clip(grid: &Grid, layers: &[Vec<f64>], area: &Vector) -> Result<(Grid, Vec<Vec<f64>>), String> {
     let (ny, nx) = (grid.height, grid.width);
@@ -305,7 +305,7 @@ pub fn select(
 
 const BOUNDS: [f64; 12] = [2.0, 4.0, 6.0, 9.0, 12.0, 15.0, 25.0, 35.0, 50.0, 65.0, 80.0, 100.0];
 
-/// Vincenty-like great-circle distance (km) of landschaft's _gcdist (sp's spDists).
+/// Vincenty-like great-circle distance (km) of the library's _gcdist (sp's spDists).
 fn gcdist(lon1: f64, lat1: f64, lon2: f64, lat2: f64) -> f64 {
     if lon1 == lon2 && lat1 == lat2 {
         return 0.0;

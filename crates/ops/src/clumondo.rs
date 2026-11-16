@@ -1,8 +1,8 @@
-//! CLUMondo's demand-driven allocation of land systems (Van Asselen & Verburg 2013; landschaft's `CLUMondo`):
+//! CLUMondo's demand-driven allocation of land systems (Van Asselen & Verburg 2013; the library's `CLUMondo`):
 //! `clumondo.ages`, `clumondo.step`.
 //!
 //! Each year the suitability of every land system (CLUMondo's logistic regressions, or given maps), its
-//! neighbourhood functions and location preferences, then landschaft's C++ port of CLUMondo's year (the
+//! neighbourhood functions and location preferences, then the library's C++ port of CLUMondo's year (the
 //! iteration on the demand for goods and services, conversion resistances, the conversion matrix and its codes,
 //! the 2017 executable's extensions, the land system roles' caps and pair resistances).
 
@@ -67,7 +67,7 @@ pub struct Preference {
     pub layers: Vec<(Option<usize>, usize)>,
 }
 
-/// The settings of a CLUMondo model, as landschaft's `CLUMondo` compiles them.
+/// The settings of a CLUMondo model, as the library's `CLUMondo` compiles them.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
@@ -174,7 +174,7 @@ impl Settings {
     }
 }
 
-/// The logistic suitability of each system (CLUMondo's calc_reg, landschaft's `_base_suitability` with a
+/// The logistic suitability of each system (CLUMondo's calc_reg, the library's `_base_suitability` with a
 /// `LogisticRegression`): aliased drivers left out, in floats.
 fn logit(model: &GlmModel, drivers: &Stack, systems: &[f64], region: &[i32]) -> Result<Vec<f32>> {
     let n = region.len();
@@ -258,7 +258,7 @@ pub struct YearOut {
     pub info: Table,
 }
 
-/// One year of CLUMondo (landschaft's `CLUMondo.simulate`).
+/// One year of CLUMondo (the library's `CLUMondo.simulate`).
 pub fn year(ctx: &mut Ctx, s: &Settings, y: Year<'_>) -> Result<YearOut> {
     let land = y.landscape;
     let (ny, nx) = land.shape();
@@ -315,7 +315,7 @@ pub fn year(ctx: &mut Ctx, s: &Settings, y: Year<'_>) -> Result<YearOut> {
     }
     for p in &s.preferences {
         let stack = y.preferences.ok_or_else(|| Error::msg("location preferences need their maps"))?;
-        // the layer given for the last step at or before this one, else the first (landschaft's _at_step)
+        // the layer given for the last step at or before this one, else the first (the library's _at_step)
         let fixed = p.layers.iter().find(|(st, _)| st.is_none());
         let layer = match fixed {
             Some(&(_, k)) => k,

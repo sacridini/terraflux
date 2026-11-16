@@ -1,4 +1,4 @@
-//! Habitat graphs of raster patches against landschaft's (tests/data/reference/conn_raster.npz and .json,
+//! Habitat graphs of raster patches against the library's (tests/data/reference/conn_raster.npz and .json,
 //! tools/make_conn_raster_reference.py): the nodes, the distances between centroids and edges, least-cost and
 //! commute-time distances over a resistance with a barrier, a graph of the patches and a node importance mapped
 //! back onto them, to the bit.
@@ -25,7 +25,7 @@ fn check(what: &str, got: &[f64], want: &[f64]) {
 }
 
 #[test]
-fn raster_graphs_are_landschafts() {
+fn raster_graphs_match_the_library() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let z = terraflux_raster::npy::read_npz(root.join("tests/data/reference/conn_raster.npz")).unwrap();
     let cases: serde_json::Value =

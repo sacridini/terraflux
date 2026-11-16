@@ -1,4 +1,4 @@
-//! PLUS's CARS, the CA of multi-type random patch seeds (Liang et al. 2021), as landschaft's `CARS`:
+//! PLUS's CARS, the CA of multi-type random patch seeds (Liang et al. 2021), as the library's `CARS`:
 //! `plus.demand`, `cars.step`.
 
 use std::collections::BTreeMap;
@@ -40,7 +40,7 @@ fn class_index(land: &Map, classes: &[f64]) -> Result<Vec<i32>> {
     Ok(idx)
 }
 
-/// The cells of each class at each step for CARS (landschaft's `CARS._demand`): a Markov chain projected
+/// The cells of each class at each step for CARS (the library's `CARS._demand`): a Markov chain projected
 /// from the cells of the starting map (rounded to whole cells adding up to the map's), or an area demand
 /// (whole cells that add up to the map's at every step).
 pub fn demand(start: &Map, markov: Option<&Markov>, area: Option<&Demand>, steps: Option<usize>) -> Result<Demand> {
@@ -92,7 +92,7 @@ pub fn demand(start: &Map, markov: Option<&Markov>, area: Option<&Demand>, steps
 }
 
 /// The demand of the cells of one region (`inside`; all with a class when `None`) over `classes` (the classes
-/// of every region): landschaft's `CARS._demand` with the region's counts. A Markov chain is projected over
+/// of every region): the library's `CARS._demand` with the region's counts. A Markov chain is projected over
 /// its own classes and rounded over `classes`.
 pub fn demand_in(
     start: &Map,
@@ -164,7 +164,7 @@ pub fn demand_in(
     }
 }
 
-/// CARS's demand of each region (landschaft's `CARS.simulate` with a `Regional`): the classes of all the
+/// CARS's demand of each region (the library's `CARS.simulate` with a `Regional`): the classes of all the
 /// regions, each region's table from its own cells.
 pub fn regional_demand(start: &Map, regional: &Regional, steps: Option<usize>) -> Result<Regional> {
     let classes = regional.classes();

@@ -2,7 +2,7 @@
 //! simulates it: every step, each patch's connectivity to the occupied patches (a kernel of the distance times the
 //! sources' areas), the colonisation of an empty patch and the extinction of an occupied one (smaller patches go
 //! extinct sooner; with the rescue effect, less so when colonisation is likely), drawn with R's runif after
-//! set.seed (landschaft's port of R's generator), so a seed gives MetaLandSim's run.
+//! set.seed (the library's port of R's generator), so a seed gives MetaLandSim's run.
 
 use std::sync::Arc;
 

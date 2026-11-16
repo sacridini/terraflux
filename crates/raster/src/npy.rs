@@ -1,5 +1,5 @@
 //! NumPy's `.npy` files of float64 or integer arrays (C order): the reference
-//! outputs of landschaft that Terraflux is compared with.
+//! outputs of terraflux-py that Terraflux is compared with.
 
 use std::io::{Read, Write};
 use std::path::Path;

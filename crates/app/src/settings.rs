@@ -85,7 +85,7 @@ pub struct Settings {
     /// taskbar) when it took this many seconds or more and Terraflux is not in front (on unless turned off).
     pub notify_runs: bool,
     pub notify_after: f64,
-    /// The model's script of landschaft written beside it (`<model>.py`) each time the model is saved or a run
+    /// The model's script of terraflux-py written beside it (`<model>.py`) each time the model is saved or a run
     /// asked for starts (off unless turned on).
     pub python_beside: bool,
     /// The assistant's servers of chat models (their keys in the system's store of credentials), and the one

@@ -1,4 +1,4 @@
-//! H3 hexagons as planning units (landschaft's h3_units, `prioritize.h3_units`): the hexagons of an H3 resolution
+//! H3 hexagons as planning units (the library's h3_units, `prioritize.h3_units`): the hexagons of an H3 resolution
 //! that cover a cost map (h3o, a port of Uber's H3), with their cost, for prioritize.optimize as polygons
 //! (cost_column "cost").
 

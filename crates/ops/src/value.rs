@@ -81,7 +81,7 @@ impl Stack {
     }
 }
 
-/// A class as landschaft names it: an integer when it is one.
+/// A class as terraflux-py names it: an integer when it is one.
 pub fn class_label(v: f64) -> String {
     if v.fract() == 0.0 && v.abs() < 1e15 { format!("{}", v as i64) } else { format!("{v}") }
 }
@@ -278,7 +278,7 @@ impl RegionDemand {
     }
 }
 
-/// A demand per region (landschaft's `Regional`): the cells of the regions keep their own demand; cells of no
+/// A demand per region (the library's `Regional`): the cells of the regions keep their own demand; cells of no
 /// region keep their class.
 #[derive(Debug, Clone)]
 pub struct Regional {

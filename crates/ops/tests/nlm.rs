@@ -1,4 +1,4 @@
-//! The neutral landscape models against landschaft's (tests/data/reference/nlm.npz and .json,
+//! The neutral landscape models against the library's (tests/data/reference/nlm.npz and .json,
 //! tools/make_nlm_reference.py): every model (R's generator and NLMR's C++ ones, with and without NLMR's quirks;
 //! the Voronoi mosaics with each germ's own value) and the utilities (classify, binarize, merge, rescale), to the
 //! bit.
@@ -36,7 +36,7 @@ fn values(v: &Value) -> Vec<f64> {
 }
 
 #[test]
-fn models_and_utilities_are_landschafts() {
+fn models_and_utilities_match_the_library() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let z = terraflux_raster::npy::read_npz(root.join("tests/data/reference/nlm.npz")).unwrap();
     let cases: serde_json::Value =
@@ -73,7 +73,7 @@ fn models_and_utilities_are_landschafts() {
         let got = values(&out[port]);
         let mut want = z[name].data.clone();
         if c["op"] == "nlm.classify" || c["op"] == "nlm.binarize" {
-            // landschaft's 0 (no class) is a missing cell here
+            // The library's 0 (no class) is a missing cell here
             want.iter_mut().filter(|v| **v == 0.0).for_each(|v| *v = f64::NAN);
         }
         check(name, &got, &want);

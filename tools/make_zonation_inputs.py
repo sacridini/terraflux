@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The rasters Zonation 5's reference outputs were made from, for Terraflux's tests of prioritize.zonation.
 
-landschaft keeps the z5 binary's outputs (extern/terraflux-py/tests/data/reference/prioritize) of rasters its tests
+terraflux-py keeps the z5 binary's outputs (extern/terraflux-py/tests/data/reference/prioritize) of rasters its tests
 draw with numpy (tests/prioritize_cases.py) and write as one-strip GeoTIFFs; this writes those rasters, with the
 values the files hold (their type's rounding, NaN for NoData), into tests/data/reference/zonation_inputs.npz,
 the cases (their group, layers, tf.prioritize.zonation's arguments as prioritize.zonation's settings and the
 post-processing calls) and the files' NoData values into zonation_inputs.json, Zonation's post-processing files
-(lzma-compressed by landschaft) as words into zonation_post.json, and the impacts landschaft accumulates for the
+(lzma-compressed by terraflux-py) as words into zonation_post.json, and the impacts terraflux-py accumulates for the
 impact cases (Zonation projects, read by its read_project) into zonation_impacts.json:
 
     python tools/make_zonation_inputs.py
@@ -106,7 +106,7 @@ def settings(v):
 
 
 def impact_case(case) -> tuple[list, dict, dict, set]:
-    """An impact case's layers and settings (its project read), and landschaft's impacts of it."""
+    """An impact case's layers and settings (its project read), and the library's impacts of it."""
     with tempfile.TemporaryDirectory() as tmp, warnings.catch_warnings():
         warnings.simplefilter("ignore")
         tmp = Path(tmp)
@@ -152,7 +152,7 @@ def main() -> None:
                                           else float(pc.RASTERS[r].nodata)) for r in used}}
     (out / "zonation_inputs.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")
     # Zonation's post-processing files (of its LOAD run of the ranking: the curves of the ranking returned), kept
-    # lzma-compressed by landschaft: their lines split into words
+    # lzma-compressed by terraflux-py: their lines split into words
     post = {}
     with np.load(REF / "post.npz") as z:
         for name, c in cases.items():

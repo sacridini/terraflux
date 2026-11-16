@@ -1,7 +1,7 @@
 //! prioritize.actions against prioriactions 0.5.0: the model its problem() gives (extern/terraflux-py/tests/data/
 //! reference/optimize/actions) bit for bit, its optima (Gurobi's at gap 0), and the figures of prioriactions's own
 //! solutions (getCost, getSolutionBenefit, getPotentialBenefit, getConnectivityPenalty, getActions); on the tables of
-//! landschaft's cases (tests/data/reference/optimize_actions_tables.json, tools/make_optimize_inputs.py).
+//! the library's cases (tests/data/reference/optimize_actions_tables.json, tools/make_optimize_inputs.py).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -270,7 +270,7 @@ fn figures_are_prioriactions() {
     }
 }
 
-/// Units' ids unsorted, with gaps and as integers: the same problem as ids 1..n in order (landschaft 1.58.1's
+/// Units' ids unsorted, with gaps and as integers: the same problem as ids 1..n in order (terraflux-py 1.58.1's
 /// test_table_ids_in_any_order).
 #[test]
 fn table_ids_in_any_order() {

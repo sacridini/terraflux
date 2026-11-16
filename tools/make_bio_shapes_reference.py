@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's spatial conditions on shapefiles give, for Terraflux's tests, written to
+"""What the library's spatial conditions on shapefiles give, for Terraflux's tests, written to
 tests/data/reference/bio_shapes.json with the polygons in bio_shapes.gpkg and bio_shapes.shp:
 
     python tools/make_bio_shapes_reference.py

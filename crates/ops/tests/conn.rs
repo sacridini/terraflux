@@ -1,7 +1,7 @@
-//! Habitat graphs against landschaft's (tests/data/reference/conn.npz and .json, tools/make_conn_reference.py):
+//! Habitat graphs against the library's (tests/data/reference/conn.npz and .json, tools/make_conn_reference.py):
 //! graphs of distances (a matrix and a pair table), probabilities and links, with Makurhini's conventions and
 //! Conefor's; the indices overall, the nodes' importances with the betweenness, the links' importance and
-//! changes, nodes to restore, components and centralities. To the bit, but for what landschaft computes with
+//! changes, nodes to restore, components and centralities. To the bit, but for what terraflux-py computes with
 //! numpy's BLAS dot products, its SIMD exponentials or LAPACK's eigenvectors: those to rounding.
 
 use std::path::{Path, PathBuf};
@@ -30,7 +30,7 @@ fn numbers(v: &serde_json::Value) -> Vec<f64> {
     v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect()
 }
 
-/// The columns computed through numpy's BLAS, SIMD exponentials or LAPACK in landschaft.
+/// The columns computed through numpy's BLAS, SIMD exponentials or LAPACK in terraflux-py.
 const ROUNDING: [&str; 15] = [
     "IICintra(%)",
     "IICstep(%)",
@@ -50,7 +50,7 @@ const ROUNDING: [&str; 15] = [
 ];
 
 #[test]
-fn habitat_graphs_are_landschafts() {
+fn habitat_graphs_match_the_library() {
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/conn.npz")).unwrap();
     let meta: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/conn.json")).unwrap()).unwrap();
@@ -156,7 +156,7 @@ fn habitat_graphs_are_landschafts() {
     }
     eprintln!("to rounding: {rounded:?}");
 
-    // Conefor's files: read landschaft's, written back the same
+    // Conefor's files: read the library's, written back the same
     let dir = root().join("tests/data/reference");
     let read = run(
         "conn.read_conefor",

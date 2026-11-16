@@ -1,5 +1,5 @@
 //! Weights of evidence of land use transitions (Bonham-Carter 1994), as Dinamica EGO calibrates them and
-//! landschaft's `WeightsOfEvidence` reproduces: `woe.fit`, `woe.probability`.
+//! the library's `WeightsOfEvidence` reproduces: `woe.fit`, `woe.probability`.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -134,7 +134,7 @@ impl WoeModel {
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     /// Per variable: "categorical", an increment, a list of limits, or { increment, min_delta, max_delta,
-    /// tolerance, breaks, categorical }; and per transition ("from->to", as landschaft's (from, to) keys) the
+    /// tolerance, breaks, categorical }; and per transition ("from->to", as the library's (from, to) keys) the
     /// same of its variables, over those of every transition.
     #[serde(default)]
     pub ranges: BTreeMap<String, serde_json::Value>,
@@ -191,7 +191,7 @@ fn increment_of(v: &serde_json::Value) -> Result<Option<f64>> {
     }
 }
 
-/// landschaft's `_spec`: a variable's settings from its entry in `ranges`.
+/// The library's `_spec`: a variable's settings from its entry in `ranges`.
 fn spec(name: &str, value: Option<&serde_json::Value>, s: &Settings) -> Result<VarSpec> {
     let default = VarSpec {
         categorical: false,
@@ -300,7 +300,7 @@ impl Extent {
     }
 }
 
-/// landschaft's `_layout`: the buckets of a variable for one initial class, from its extent over the class's
+/// The library's `_layout`: the buckets of a variable for one initial class, from its extent over the class's
 /// cells.
 pub fn layout_from(v: &VarSpec, e: &Extent) -> Result<Layout> {
     if v.categorical {

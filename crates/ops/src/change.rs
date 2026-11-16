@@ -1,4 +1,4 @@
-//! Change between two maps from landschaft's port of GuidosToolbox: the simple change of the foreground
+//! Change between two maps from the library's port of GuidosToolbox: the simple change of the foreground
 //! (`change.simple`), its morphological change, which tells the change of the core from the spurious one at the
 //! edges (`change.morphological`), the change of the fragmentation measured by FOS (`change.fos`) and by FAD at
 //! several scales (`change.fad`).
@@ -196,7 +196,7 @@ impl Operator for Fos {
 pub const FAD_CHANGE_CLASSES: [&str; 7] =
     ["Background", "Rare", "Patchy", "Transitional", "Dominant", "Interior", "Intact"];
 
-/// The change of FAD at one scale (landschaft's FADChangeScale).
+/// The change of FAD at one scale (the library's FADChangeScale).
 struct FadScale {
     matrix: Vec<i64>,
     percent: Vec<f64>,

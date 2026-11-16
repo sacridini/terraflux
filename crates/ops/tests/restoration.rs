@@ -1,6 +1,6 @@
-//! Restoration planning's inputs against plangea's R: the outputs landschaft keeps
+//! Restoration planning's inputs against plangea's R: the outputs terraflux-py keeps
 //! (extern/terraflux-py/tests/data/reference/plangea) of the maps its tests draw (tests/data/reference/
-//! plangea_inputs.npz, tools/make_plangea_inputs.py), compared as landschaft's test_plangea_reference.py does.
+//! plangea_inputs.npz, tools/make_plangea_inputs.py), compared as the library's test_plangea_reference.py does.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -284,7 +284,7 @@ fn plan_inputs(d: &Data) -> (Vec<(&'static str, Value)>, terraflux_ops::restorat
 /// plangea's restoration problem: its units and bounds, its biodiversity layer (the finite-difference slopes of
 /// the species' risk times the habitat a unit of a cell restored gives; to the last bits but one), and its
 /// procedure (scen: the target in steps, the layer refreshed between them, each step's linear program; HiGHS
-/// here, Gurobi there: their optimum is unique), as landschaft's test_prioritize_restoration.
+/// here, Gurobi there: their optimum is unique), as the library's test_prioritize_restoration.
 #[test]
 fn plan_steps_is_plangeas() {
     let d = data();
@@ -701,7 +701,7 @@ fn projected_change_is_plangeas() {
     }
 }
 
-/// landschaft's plans with intactness, the minimum cost and sets of weights on the bd_absent problem
+/// The library's plans with intactness, the minimum cost and sets of weights on the bd_absent problem
 /// (tests/data/reference/plangea_plan.json, tools/make_plangea_plan_reference.py).
 fn plan_reference() -> serde_json::Value {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -726,10 +726,10 @@ fn near(what: &str, a: f64, b: f64, rtol: f64) {
     assert!((a - b).abs() <= rtol * b.abs().max(1e-300), "{what}: {a} != {b}");
 }
 
-/// The intactness benefit linearised at the plan of nothing is landschaft's (the derivative of the total
-/// intactness, to the bit); plangea's steps recompute it between the parts; the exact plan reaches landschaft's.
+/// The intactness benefit linearised at the plan of nothing is the library's (the derivative of the total
+/// intactness, to the bit); plangea's steps recompute it between the parts; the exact plan reaches the library's.
 #[test]
-fn intactness_benefit_is_landschafts() {
+fn intactness_benefit_matches_the_library() {
     let d = data();
     let r = plan_reference();
     let (mut inputs, mut p) = plan_inputs(&d);
@@ -763,10 +763,10 @@ fn intactness_benefit_is_landschafts() {
     assert_eq!(b.rows.len(), 2, "the risk and intactness");
 }
 
-/// The exact intactness (successive concave minorants, the secants' bound): the plan at least landschaft's local
-/// optimum and the linearised plan's true value, its bound at least the plan's and as tight as landschaft's.
+/// The exact intactness (successive concave minorants, the secants' bound): the plan at least the library's local
+/// optimum and the linearised plan's true value, its bound at least the plan's and as tight as the library's.
 #[test]
-fn exact_intactness_is_landschafts() {
+fn exact_intactness_matches_the_library() {
     let d = data();
     let r = plan_reference();
     let (mut inputs, p) = plan_inputs(&d);
@@ -801,9 +801,9 @@ fn exact_intactness_is_landschafts() {
     assert!(area <= a["target"].as_f64().unwrap() * (1.0 + 1e-9), "{area} for {} units", p.n());
 }
 
-/// The cheapest plan for a benefit: the inverse of the most benefit for a budget, landschaft's cost.
+/// The cheapest plan for a benefit: the inverse of the most benefit for a budget, the library's cost.
 #[test]
-fn min_cost_is_landschafts() {
+fn min_cost_matches_the_library() {
     let d = data();
     let r = plan_reference();
     let (mut inputs, _) = plan_inputs(&d);
@@ -822,9 +822,9 @@ fn min_cost_is_landschafts() {
 }
 
 /// plangea's post_choose_weights: a plan per set of weights, the values rescaled over the sets (the cost inverted),
-/// ranked by their mean over their deviation; landschaft's table, and the plan of the best set.
+/// ranked by their mean over their deviation; the library's table, and the plan of the best set.
 #[test]
-fn compare_weights_is_landschafts() {
+fn compare_weights_matches_the_library() {
     let d = data();
     let r = plan_reference();
     let (mut inputs, _) = plan_inputs(&d);
@@ -855,7 +855,7 @@ fn compare_weights_is_landschafts() {
 
 /// The linear intactness benefit of converting (the footprint rises by increase x) and of conserving (the baseline
 /// loses the natural land by increase x threat; conserving spares it) is the derivative of the total intactness,
-/// as landschaft's test_intactness_of_conversion_and_conservation.
+/// as the library's test_intactness_of_conversion_and_conservation.
 #[test]
 fn intactness_of_conversion_and_conservation() {
     let (ny, nx) = (7, 8);

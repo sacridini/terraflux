@@ -1,5 +1,5 @@
-//! Landscape metrics by blocks of rows (landschaft's out-of-core landscape, `block_rows`): the same tables as the
-//! map in memory, to the bit, as landschaft's tests/test_lsm_tiled.py asks of its own; of maps in memory and of
+//! Landscape metrics by blocks of rows (the library's out-of-core landscape, `block_rows`): the same tables as the
+//! map in memory, to the bit, as the library's tests/test_lsm_tiled.py asks of its own; of maps in memory and of
 //! rasters on disk.
 
 use std::path::Path;
@@ -23,7 +23,7 @@ fn table(out: &Outputs) -> Table {
     t.clone()
 }
 
-fn landschaft(name: &str) -> Map {
+fn library(name: &str) -> Map {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/tests/data/lsm").join(name);
     let r = Raster::read(&path).unwrap();
     Map::new(Arc::new(r.grid.clone()), r.bands[0].masked(r.nodata))
@@ -44,7 +44,7 @@ fn draw(seed: u64, i: usize, j: usize) -> f64 {
     ((z ^ (z >> 31)) >> 11) as f64 / (1u64 << 53) as f64
 }
 
-/// Stripes and a comb: patches through every block, joined across the seams (landschaft's test).
+/// Stripes and a comb: patches through every block, joined across the seams (the library's test).
 fn comb() -> Map {
     synthetic(400, 150, (1.0, 1.0), |i, j| {
         if draw(1, i, j) < 0.02 {
@@ -115,9 +115,9 @@ fn same_as_memory(map: &Map, rows: u64, options: serde_json::Value, what: &str) 
 }
 
 #[test]
-fn landschaft_maps_by_blocks() {
+fn library_maps_by_blocks() {
     for name in ["augusta.tif", "podlasie.tif", "sparse.tif", "sparse_na.tif", "synthetic_na.tif"] {
-        same_as_memory(&landschaft(name), 64, serde_json::json!({}), name);
+        same_as_memory(&library(name), 64, serde_json::json!({}), name);
     }
 }
 

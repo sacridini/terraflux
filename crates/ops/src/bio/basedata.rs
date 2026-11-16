@@ -1,4 +1,4 @@
-//! Biodiverse's BaseData (landschaft's bio/_basedata.py): the groups x labels sample counts with the groups'
+//! Biodiverse's BaseData (the library's bio/_basedata.py): the groups x labels sample counts with the groups'
 //! coordinates. Coordinates are snapped to the cells as Biodiverse's imports do, and groups and labels are
 //! numbered in the sorted order of their names (so sums over them follow the reference runs).
 
@@ -165,7 +165,7 @@ impl BaseData {
         })
     }
 
-    /// From the group axis values, labels (None: a group-only record) and counts of records (landschaft's
+    /// From the group axis values, labels (None: a group-only record) and counts of records (the library's
     /// _from_records): numbers snapped when the cell size is > 0, kept when 0; text axes when < 0. Counts are
     /// summed per group and label in record order.
     #[allow(clippy::too_many_arguments)]
@@ -350,7 +350,7 @@ fn perl_true(v: Option<&str>) -> bool {
     v.is_some_and(|s| !s.is_empty() && s != "0")
 }
 
-/// The quote of a text: the more frequent of " and ' with an even count (landschaft's _guess_quote).
+/// The quote of a text: the more frequent of " and ' with an even count (the library's _guess_quote).
 fn guess_quote(text: &str) -> char {
     let mut best: Option<(usize, char)> = None;
     for q in ['"', '\''] {
@@ -423,7 +423,7 @@ pub fn read_csv(text: &str, sep: char, quote: char) -> Vec<Vec<Option<String>>> 
 }
 
 /// The separator of the first lines: the one giving the most (and as many on every line) fields
-/// (landschaft's _guess_separator).
+/// (the library's _guess_separator).
 fn guess_separator(lines: &[&str], quote: char) -> char {
     let (mut best, mut best_n) = (',', 1);
     for sep in [',', '\t', ';', ' '] {
@@ -447,7 +447,7 @@ fn guess_separator(lines: &[&str], quote: char) -> char {
     best
 }
 
-/// The rows of a delimited text (landschaft's _read_rows): the quote and separator guessed from the first lines
+/// The rows of a delimited text (the library's _read_rows): the quote and separator guessed from the first lines
 /// when not given; empty unquoted fields None.
 pub fn read_rows(text: &str, sep: Option<char>, quote: Option<char>) -> Vec<Vec<Option<String>>> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
@@ -459,7 +459,7 @@ pub fn read_rows(text: &str, sep: Option<char>, quote: Option<char>) -> Vec<Vec<
     read_csv(text, sep, quote)
 }
 
-/// How Biodiverse's text import reads a table (landschaft's BaseData.from_table).
+/// How Biodiverse's text import reads a table (the library's BaseData.from_table).
 #[derive(Debug, Clone, Default)]
 pub struct TableImport {
     pub group_columns: Vec<String>,
@@ -586,7 +586,7 @@ impl BaseData {
         )
     }
 
-    /// Point records read like Biodiverse's feature import (landschaft's BaseData.from_points): each point in
+    /// Point records read like Biodiverse's feature import (the library's BaseData.from_points): each point in
     /// the cell holding it (a plain floor), its label the label columns joined with `:`, its count 1 or a count
     /// column's.
     pub fn from_points(

@@ -1,5 +1,5 @@
-//! Zonation 5's projects (landschaft's read_project and run_project): a settings file (`.z5`), its feature list
-//! and link files read as landschaft reads them, with the switches of the z5 command line, and run by
+//! Zonation 5's projects (the library's read_project and run_project): a settings file (`.z5`), its feature list
+//! and link files read as terraflux-py reads them, with the switches of the z5 command line, and run by
 //! prioritize.zonation; the calls of its post-processing file run on the ranking one after another.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -1025,7 +1025,7 @@ struct PostCall<'a> {
     compare: Option<&'a Path>,
 }
 
-/// The files of a post-processing call (landschaft's run_calls): the tables of the statistics of areas (the
+/// The files of a post-processing call (the library's run_calls): the tables of the statistics of areas (the
 /// coverage matrix, the areas' statistics and the highest occurrences of every set of features), the comparison,
 /// the histograms and the maps (the masks, the flexibility maps).
 fn write_post(

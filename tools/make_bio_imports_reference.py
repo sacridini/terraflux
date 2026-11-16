@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's Biodiverse imports give, for Terraflux's tests, written to tests/data/reference/bio_imports.json
+"""What the library's Biodiverse imports give, for Terraflux's tests, written to tests/data/reference/bio_imports.json
 with their inputs (bio_imports.tif, bio_imports_classes.tif, bio_imports.gpkg, bio_imports_*.zip / .txt / .csv):
 
     python tools/make_bio_imports_reference.py

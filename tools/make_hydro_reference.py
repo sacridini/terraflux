@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's terrain hydrology gives, for Terraflux's tests: on the DEMs of landschaft's WhiteboxTools
+"""What the library's terrain hydrology gives, for Terraflux's tests: on the DEMs of the library's WhiteboxTools
 references (extern/terraflux-py/tests/data/reference/hydro/whitebox.npz: oregon, holes, walk, terraces, grids
 without a coordinate system from 0, 0) and on a corner of orelevation (longitude / latitude), every function of
 tf.hydro with some options, written to tests/data/reference/hydro.npz (and the cases to hydro.json):
 
     python tools/make_hydro_reference.py
 
-Run with the landschaft the submodule points at installed.
+Run with the library the submodule points at installed.
 """
 
 from __future__ import annotations

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's diffeR port gives at coarser resolutions, for Terraflux's tests, written to
+"""What the library's diffeR port gives at coarser resolutions, for Terraflux's tests, written to
 tests/data/reference/differ.npz and .json:
 
     python tools/make_differ_reference.py

@@ -1,4 +1,4 @@
-//! Distances over a grid, landschaft's port of the R package gdistance through its C++: transitions between
+//! Distances over a grid, the library's port of the R package gdistance through its C++: transitions between
 //! neighbouring cells (4, 8 or 16 directions, a function of the two cells' values), corrected for the cells'
 //! distances (geoCorrection), and over them the accumulated cost from origins (accCost), the least costs between
 //! points (costDistance) and the least-cost paths (shortestPath); random walks over them (commuteDistance,
@@ -7,7 +7,7 @@
 //! overlap of routes from a common origin (pathInc).
 //!
 //! A transition is a stack of a layer per direction (the value of the connection from each cell in that
-//! direction, 0 none; a symmetric one keeps the directions after (0, 0) only, as landschaft's `Transition`) whose
+//! direction, 0 none; a symmetric one keeps the directions after (0, 0) only, as the library's `Transition`) whose
 //! grid carries its layout in the metadata item `terraflux_transition`. A set of transitions of one layout (the
 //! barriers or areas of a map) is one stack of all their layers, the layout's `count` saying how many.
 
@@ -44,7 +44,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(PathInc));
 }
 
-/// A transition's layout and grid (landschaft's GridInfo): what its stack's grid carries.
+/// A transition's layout and grid (the library's GridInfo): what its stack's grid carries.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Layout {
     pub directions: i32,
@@ -186,7 +186,7 @@ impl Transition {
         Ok(ffi::cost_margin_sums(&self.values, &self.core(), l.directions, l.symmetric, margin, count)?)
     }
 
-    /// The values in another layout (more directions; asymmetric from symmetric), as landschaft's _relayout.
+    /// The values in another layout (more directions; asymmetric from symmetric), as the library's _relayout.
     pub fn relayout(&self, directions: i32, symmetric: bool) -> Result<Vec<f64>> {
         let l = &self.layout;
         if directions == l.directions && symmetric == l.symmetric {
@@ -268,7 +268,7 @@ pub fn offsets(directions: i32, symmetric: bool) -> Result<Vec<(i32, i32)>> {
     Ok(v.chunks(2).map(|p| (p[0], p[1])).collect())
 }
 
-/// A map's grid as a transition's (landschaft's make_grid): its extent, whether its CRS is longitude/latitude
+/// A map's grid as a transition's (the library's make_grid): its extent, whether its CRS is longitude/latitude
 /// and whether it wraps around the globe.
 pub fn grid_layout(g: &Grid) -> Result<([f64; 4], bool, bool)> {
     let t = g.transform;
@@ -293,7 +293,7 @@ pub fn grid_layout(g: &Grid) -> Result<([f64; 4], bool, bool)> {
     Ok(([xmin, xmax, ymin, ymax], lonlat, wrap))
 }
 
-/// The cells of points (x, y) on a transition's grid (landschaft's cells_of_xy): -1 outside.
+/// The cells of points (x, y) on a transition's grid (the library's cells_of_xy): -1 outside.
 pub fn cells_of_xy(xy: &[[f64; 2]], t: &Transition) -> Vec<i64> {
     let (ny, nx) = (t.grid.height as f64, t.grid.width as f64);
     let [xmin, xmax, ymin, ymax] = t.layout.extent;
@@ -337,7 +337,7 @@ fn cells_of(args: &Args, port: &str, t: &Transition) -> Result<Vec<i64>> {
     }
 }
 
-/// landschaft's _clean: NaN connections left out (and said).
+/// The library's _clean: NaN connections left out (and said).
 fn clean(values: &mut [f64]) {
     for v in values.iter_mut() {
         if v.is_nan() {
@@ -432,7 +432,7 @@ impl Operator for TransitionOp {
         let mut t = Transition { values: Vec::new(), layout, grid: m.grid.clone() };
         t.values = ffi::cost_builtin(&m.data, &t.core(), directions, symmetric, &function)?;
         if args.param("reciprocal", false)? {
-            // on the connections only, as landschaft's number / transition
+            // on the connections only, as the library's number / transition
             for v in t.values.iter_mut().filter(|v| **v != 0.0) {
                 *v = 1.0 / *v;
             }
@@ -1226,7 +1226,7 @@ fn adjacent_order(directions: i32) -> &'static [(i64, i64)] {
 }
 
 /// LAPACK 3.12's dgetrf2 (the recursive LU with partial pivoting) over R's reference BLAS, on the block
-/// a[r0.., c0..] of an n-column row-major matrix; ipiv 1-based, relative to the block (landschaft's _rlinalg).
+/// a[r0.., c0..] of an n-column row-major matrix; ipiv 1-based, relative to the block (the library's _rlinalg).
 #[allow(clippy::too_many_arguments)]
 fn dgetrf2(
     a: &mut [f64],

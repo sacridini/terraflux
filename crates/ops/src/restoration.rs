@@ -1,4 +1,4 @@
-//! The inputs of restoration planning after plangea, from landschaft's C++ (the same bits as plangea's R):
+//! The inputs of restoration planning after plangea, from the library's C++ (the same bits as plangea's R):
 //! ecological intactness (Beyer et al. 2020) from the human footprint and its gradient as cells are restored
 //! (`restoration.intactness`, `restoration.intactness_gradient`), the original vegetation of converted land
 //! (`restoration.original_vegetation`) and the area of habitat of species (Brooks et al. 2019;

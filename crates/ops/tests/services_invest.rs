@@ -1,6 +1,6 @@
-//! InVEST's nutrient delivery ratio, crop pollination and seasonal water yield against landschaft's
+//! InVEST's nutrient delivery ratio, crop pollination and seasonal water yield against the library's
 //! (tests/data/reference/services_invest.npz, tools/make_services_invest_reference.py, on the cases of
-//! landschaft's InVEST references): their maps to the bit and their tables.
+//! the library's InVEST references): their maps to the bit and their tables.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -154,7 +154,7 @@ fn same_table(got: &Table, want: &serde_json::Value, skip: usize, rtol: f64, wha
 }
 
 #[test]
-fn invest_models_are_landschafts() {
+fn invest_models_match_the_library() {
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/services_invest.npz")).unwrap();
     let meta: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(root().join("tests/data/reference/services_invest.json")).unwrap(),

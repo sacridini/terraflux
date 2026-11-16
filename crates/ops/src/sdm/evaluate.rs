@@ -1,4 +1,4 @@
-//! The evaluation of species distribution models (landschaft's evaluate, boyce, threshold and omission_rate,
+//! The evaluation of species distribution models (the library's evaluate, boyce, threshold and omission_rate,
 //! after dismo's evaluate, ecospat's Boyce index and ENMeval's omission rates): AUC, the point-biserial
 //! correlation, the confusion table at every threshold (kappa, TSS...), the thresholds that optimize them, the
 //! continuous Boyce index and the omission rates at the minimum training presence and its 10th percentile. R's
@@ -10,7 +10,7 @@ use crate::change::numpy_sum;
 
 use std::f64::consts::LOG10_2;
 
-/// R's round(x, digits) (R 4's algorithm, landschaft's _r_round).
+/// R's round(x, digits) (R 4's algorithm, the library's _r_round).
 pub fn r_round(x: f64, digits: i32) -> f64 {
     if x.is_nan() || !x.is_finite() || x == 0.0 {
         return x;
@@ -50,7 +50,7 @@ fn frexp(x: f64) -> (f64, i32) {
     (m, exp - 1022)
 }
 
-/// A positive integer ratio num / den rounded to 64 bits of mantissa, then to a double (landschaft's
+/// A positive integer ratio num / den rounded to 64 bits of mantissa, then to a double (the library's
 /// float(_round_bits(Fraction(num, den)))).
 fn round64_ratio(num: u128, den: u128) -> f64 {
     if num == 0 {
@@ -109,7 +109,7 @@ fn round64_sum(a: f64, b: f64) -> f64 {
     if neg { -v } else { v }
 }
 
-/// numpy's arange-based seq of landschaft's _folds._r_seq.
+/// numpy's arange-based seq of the library's _folds._r_seq.
 pub fn r_seq(start: f64, end: f64, by: f64) -> Vec<f64> {
     let delta = end - start;
     if delta == 0.0 && end == 0.0 {

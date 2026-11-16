@@ -1,4 +1,4 @@
-//! MaxNet against landschaft's (tests/data/reference/sdm_maxnet.npz and .json,
+//! MaxNet against the library's (tests/data/reference/sdm_maxnet.npz and .json,
 //! tools/make_sdm_maxnet_reference.py): its coefficients (names and values), alpha and entropy with the default
 //! classes, linear and quadratic, products, hinges and thresholds, a categorical predictor and the presences
 //! kept out of the background; its predictions on a stack and a table (every output, clamped and not), to the
@@ -34,7 +34,7 @@ fn check(what: &str, got: &[f64], want: &[f64]) {
 }
 
 #[test]
-fn maxnet_is_landschafts() {
+fn maxnet_matches_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("sdm_maxnet.npz")).unwrap();
     let cases: serde_json::Value =

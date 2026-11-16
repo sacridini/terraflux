@@ -1,4 +1,4 @@
-//! The Perl of Biodiverse's spatial conditions (landschaft's bio/_perlexpr.py): numbers, strings, regexes,
+//! The Perl of Biodiverse's spatial conditions (the library's bio/_perlexpr.py): numbers, strings, regexes,
 //! array references, the condition variables, the operators with Perl's precedence, `my` variables, some maths
 //! and calls to the `sp_*` functions with named arguments, read into a small syntax tree.
 

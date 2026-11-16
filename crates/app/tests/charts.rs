@@ -8,7 +8,7 @@ use terraflux_app::charts::{Chart, Kind};
 use terraflux_app::table_view::{TableState, show};
 use terraflux_ops::{Args, Ctx, Outputs, Registry, Table, Value};
 
-/// landschaft's signature table of augusta.tif (tests/data/reference/lsm_signatures.json), its zones as keys.
+/// The library's signature table of augusta.tif (tests/data/reference/lsm_signatures.json), its zones as keys.
 fn signatures() -> Table {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference/lsm_signatures.json");
     let r: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();

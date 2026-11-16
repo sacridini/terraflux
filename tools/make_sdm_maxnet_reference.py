@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's MaxNet gives, for Terraflux's tests, written to tests/data/reference/sdm_maxnet.npz and
+"""What the library's MaxNet gives, for Terraflux's tests, written to tests/data/reference/sdm_maxnet.npz and
 .json:
 
     python tools/make_sdm_maxnet_reference.py

@@ -1,8 +1,8 @@
-//! Circuitscape's and Omniscape's INI files against landschaft's (tests/data/reference/circuit_ini.npz and
+//! Circuitscape's and Omniscape's INI files against the library's (tests/data/reference/circuit_ini.npz and
 //! .json, tools/make_circuit_reference.py): Circuitscape's raster test cases run from its folder (advanced,
 //! pairwise, one-to-all and all-to-one, with their polygons, masks, reclassifications, included pairs and
 //! variable strengths; ASCII grids, gzipped ones, GeoTIFFs and text lists) and the Omniscape INI files of
-//! landschaft's references, to the bit. (Its own test binary: it changes the working directory.)
+//! the library's references, to the bit. (Its own test binary: it changes the working directory.)
 
 use std::path::{Path, PathBuf};
 
@@ -39,7 +39,7 @@ fn values(v: &Value) -> Vec<f64> {
 }
 
 #[test]
-fn ini_files_are_landschafts() {
+fn ini_files_match_the_library() {
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/circuit_ini.npz")).unwrap();
     let meta: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/circuit_ini.json")).unwrap())
@@ -110,10 +110,10 @@ fn ini_files_are_landschafts() {
 }
 
 /// The files written for three of Circuitscape's INI files (pairwise with every map, advanced, one-to-all) are
-/// landschaft's, byte for byte (tests/data/reference/circuit_ini_out): the ASCII grids, the resistances and the
+/// the library's, byte for byte (tests/data/reference/circuit_ini_out): the ASCII grids, the resistances and the
 /// configuration.
 #[test]
-fn written_outputs_are_landschafts() {
+fn written_outputs_match_the_library() {
     let cs = root().join("extern/terraflux-py/tests/data/reference/circuit/circuitscape");
     let want = root().join("tests/data/reference/circuit_ini_out");
     let tmp = root().join("target/tmp/circuit_ini_out");

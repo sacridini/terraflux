@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The catalogue of landscape metrics, from landschaft, as Rust (crates/ops/src/lsm_catalog.rs):
+"""The catalogue of landscape metrics, from terraflux-py, as Rust (crates/ops/src/lsm_catalog.rs):
 
     python tools/make_lsm_catalog.py
 
-landschaft's metrics are those of the R package landscapemetrics (lsm_abbreviations_names), and as extras the
+the library's metrics are those of the R package landscapemetrics (lsm_abbreviations_names), and as extras the
 FRAGSTATS metrics landscapemetrics lacks (contrast, proximity, similarity, connectance and more statistics).
 """
 
@@ -28,7 +28,7 @@ def main() -> None:
     out = [
         "// SPDX-License-Identifier: GPL-3.0-or-later",
         "//",
-        "// The catalogue of landscape metrics, written by tools/make_lsm_catalog.py from landschaft: do not edit.",
+        "// The catalogue of landscape metrics, written by tools/make_lsm_catalog.py from terraflux-py: do not edit.",
         "",
         "/// A landscape metric: its abbreviation, its name, its type, its level (patch, class or landscape) and",
         "/// whether it is one of FRAGSTATS' that landscapemetrics lacks.",

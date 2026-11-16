@@ -1,13 +1,13 @@
-//! Landschaft's C++ kernels of land change simulation, for Terraflux.
+//! The library's C++ kernels of land change simulation, for Terraflux.
 //!
-//! [`ffi`] is the cxx bridge to the shim (`shim/shim.cc`) over landschaft's
+//! [`ffi`] is the cxx bridge to the shim (`shim/shim.cc`) over the library's
 //! `simcore`, `lsmcore`, `nlmcore` and `gtbcore` libraries; the functions of this crate
 //! wrap it with Rust types. Maps are row-major `f64` cells with NaN for
 //! missing ones; matrices of cells x classes are row-major (cell `i`, class
 //! `j` at `i * ncode + j`).
 //!
-//! The kernels are the same code that landschaft's Python package runs, so
-//! a model run here gives the same bits as `ls.simulate` with the same seed.
+//! The kernels are the same code that the library's Python package runs, so
+//! a model run here gives the same bits as `tf.simulate` with the same seed.
 
 #[allow(clippy::too_many_arguments)] // the kernels take their settings one by one
 #[cxx::bridge(namespace = "tfx")]
@@ -94,7 +94,7 @@ pub mod ffi {
     /// GuidosToolbox's FAD at one window: the density (0-100 on the foreground, GTB's codes 101 background, 102
     /// missing, 105 and 106 special backgrounds elsewhere), the same density everywhere, the classes 1 (rare) to
     /// 6 (intact), the foreground's cells and those of each class, the density summed over the foreground.
-    /// One scenario of a habitat graph (landschaft's conn_analyse): the link analysis (Conefor's NC, NL, H,
+    /// One scenario of a habitat graph (the library's conn_analyse): the link analysis (Conefor's NC, NL, H,
     /// IIC...) and/or the probabilistic one (F, AWF, PC); per node with `importance`, per edge with `edges`, the
     /// betweenness with `betweenness` (empty what was not asked for).
     struct ConnAnalysis {
@@ -177,7 +177,7 @@ pub mod ffi {
         reached: Vec<i32>,
     }
 
-    /// A fitted maxnet (landschaft's port of the maxnet package): every column of the model matrix (its kind 0
+    /// A fitted maxnet (the library's port of the maxnet package): every column of the model matrix (its kind 0
     /// linear, 1 quadratic, 2 hinge, 3 threshold, 4 categorical, 5 product; variables, knots and the knots' names
     /// as R writes them), the regularisation, glmnet's path, the nonzero coefficients, alpha and entropy.
     struct MaxnetFit {
@@ -365,7 +365,7 @@ pub mod ffi {
         sigma: Vec<f64>,
     }
 
-    /// The options of the landscape metrics, as landschaft's (and landscapemetrics'): NaN for a distance or a
+    /// The options of the landscape metrics, as the library's (and landscapemetrics'): NaN for a distance or a
     /// number not given; contrast and similarity weights as (class a, class b, weight) one after the other.
     #[derive(Debug, Clone, PartialEq)]
     struct LsmOptions {
@@ -605,7 +605,7 @@ pub mod ffi {
         strings: Vec<String>,
     }
 
-    /// A call of a compiled spatial condition (landschaft's bio::Call).
+    /// A call of a compiled spatial condition (the library's bio::Call).
     #[derive(Clone)]
     struct BioCall {
         kind: i32,
@@ -619,7 +619,7 @@ pub mod ffi {
         axis: i32,
     }
 
-    /// A spatial condition compiled for the C++ evaluator (landschaft's bio::Program): nodes (op, a, b, c, v),
+    /// A spatial condition compiled for the C++ evaluator (the library's bio::Program): nodes (op, a, b, c, v),
     /// masks and rotations of n_groups values each, one after the other, and sets (CSR over the groups) with
     /// their offsets.
     struct BioProgram {
@@ -665,7 +665,7 @@ pub mod ffi {
         uses_tree: bool,
     }
 
-    /// A basedata as the index engine reads it (landschaft's bio::BaseDataView, without properties, matrix and
+    /// A basedata as the index engine reads it (the library's bio::BaseDataView, without properties, matrix and
     /// tree yet).
     struct BioView {
         n_groups: i64,
@@ -732,7 +732,7 @@ pub mod ffi {
         min_value: f64,
     }
 
-    /// A tree as the index engine takes it (landschaft's bio::TreeView): nodes in name order, Biodiverse's
+    /// A tree as the index engine takes it (the library's bio::TreeView): nodes in name order, Biodiverse's
     /// trimming to the labels, the totals and PhyloCom's steps.
     struct BioTree {
         n: i32,
@@ -848,7 +848,7 @@ pub mod ffi {
         itimptype: i32,
         connectivity_in: bool,
         seed: u32,
-        /// landschaft's anneal solver (off: Marxan's runs): seconds for the runs (negative: none), penalties
+        /// The library's anneal solver (off: Marxan's runs): seconds for the runs (negative: none), penalties
         /// from a greedy cover, every run repaired, the schedule spread over the time limit, and a scale of every
         /// feature's penalty factor per run (empty: none).
         time_limit: f64,
@@ -1065,7 +1065,7 @@ pub mod ffi {
         changed: Vec<MolusceChange>,
     }
 
-    /// CLUMondo's settings of a run (landschaft's `ClumondoSettings`; empty vectors for the extensions not used).
+    /// CLUMondo's settings of a run (the library's `ClumondoSettings`; empty vectors for the extensions not used).
     #[derive(Debug, Clone, PartialEq, Default)]
     struct ClumondoSettingsIn {
         nsys: i32,
@@ -1104,7 +1104,7 @@ pub mod ffi {
         dem_elas: Vec<f32>,
     }
 
-    /// FUTURES' settings (landschaft's `FuturesSettings`); the patch libraries flat, `patch_offsets` where each
+    /// FUTURES' settings (the library's `FuturesSettings`); the patch libraries flat, `patch_offsets` where each
     /// starts (and the end).
     #[derive(Debug, Clone, PartialEq, Default)]
     struct FuturesIn {
@@ -1136,7 +1136,7 @@ pub mod ffi {
         seed: i64,
     }
 
-    /// FUTURES' flood submodel (landschaft's `FuturesClimate`), maps flat (`present` false: none).
+    /// FUTURES' flood submodel (the library's `FuturesClimate`), maps flat (`present` false: none).
     #[derive(Debug, Clone, PartialEq, Default)]
     struct FuturesClimateIn {
         present: bool,
@@ -1180,7 +1180,7 @@ pub mod ffi {
         demand: Vec<f32>,
     }
 
-    /// A neighbourhood function of CLUMondo (landschaft's `ClumondoNeighbourhood`).
+    /// A neighbourhood function of CLUMondo (the library's `ClumondoNeighbourhood`).
     #[derive(Debug, Clone, PartialEq)]
     struct ClumondoNbIn {
         system: i32,
@@ -1323,7 +1323,7 @@ pub mod ffi {
     unsafe extern "C++" {
         include!("terraflux-ls-sys/shim/shim.h");
 
-        /// R's random number generator (Mersenne-Twister, set.seed), as lulcc and landschaft draw from it.
+        /// R's random number generator (Mersenne-Twister, set.seed), as lulcc and terraflux-py draw from it.
         #[namespace = "nlm"]
         type RRng;
 
@@ -1444,7 +1444,7 @@ pub mod ffi {
         ) -> Result<Vec<f64>>;
         fn nlm_fbm(seed: i32, ny: i64, nx: i64, fract_dim: f64) -> Result<Vec<f64>>;
         /// A scenario of a habitat graph of pairs pi < pj with values (kind 0 distance, 1 probability, 2 link):
-        /// landschaft's conn_analyse.
+        /// The library's conn_analyse.
         #[allow(clippy::too_many_arguments)]
         fn conn_analyse(
             pi: &[i32],
@@ -1948,7 +1948,7 @@ pub mod ffi {
         /// value[z] burnt into the cells of zone z of out (ny x nx), zone after zone (the later win), or added.
         fn io_burn_runs(out: &mut [f64], ny: i32, nx: i32, runs: &RunsOut, value: &[f64], add: bool) -> Result<()>;
         /// Statistics of every zone and band of values (bands, ny, nx; NaN no data): (zones, bands, stats); the
-        /// statistics landschaft's (0 count, 1 nodata, 2 sum, 3 mean, 4 min, 5 max, 6 range, 7 std, 8 var, 9
+        /// statistics the library's (0 count, 1 nodata, 2 sum, 3 mean, 4 min, 5 max, 6 range, 7 std, 8 var, 9
         /// median, 10 majority, 11 minority, 12 unique, 13 percentile).
         fn io_zonal_stats(
             values: &[f64],
@@ -1983,7 +1983,7 @@ pub mod ffi {
         fn proxirr_beta_gamma(start: &[i64], alphas: &[f64]) -> Result<ProxirrOut>;
         fn opt_features(values: &[f64], layers: i64, unit: &[i64]) -> Result<FeaturesOut>;
         fn opt_solve(model: &MilpModel, settings: &SolveSettings, method: &str, n_units: i64) -> Result<SolveOut>;
-        /// landschaft's cut engine (opt/cut.cpp) on a minimum set in Marxan's form (BLM 1): a Lagrangian bound
+        /// The library's cut engine (opt/cut.cpp) on a minimum set in Marxan's form (BLM 1): a Lagrangian bound
         /// by minimum cuts, repaired selections (`initial`: a selection to start from, or empty); the watch asked
         /// how to go on.
         #[allow(clippy::too_many_arguments)]
@@ -2003,7 +2003,7 @@ pub mod ffi {
             threads: i32,
             watch: &mut SolveWatch,
         ) -> Result<EngineOut>;
-        /// landschaft's closure engine (opt/closure.cpp): penalties w z_i (1 - z_j), side rows on the units
+        /// The library's closure engine (opt/closure.cpp): penalties w z_i (1 - z_j), side rows on the units
         /// (`geq`: >=, else <=) by column; the watch asked how to go on.
         #[allow(clippy::too_many_arguments)]
         fn opt_solve_closure(
@@ -2023,7 +2023,7 @@ pub mod ffi {
             initial: &[u8],
             watch: &mut SolveWatch,
         ) -> Result<EngineOut>;
-        /// landschaft's zones cut engine (opt/zones_cut.cpp): a minimum set with zones and pair terms w [x_a != x_b]
+        /// The library's zones cut engine (opt/zones_cut.cpp): a minimum set with zones and pair terms w [x_a != x_b]
         /// over the unit-zone columns (z * n + i), the targets by column; `start`: a solution of the columns, or
         /// empty; the watch asked how to go on.
         #[allow(clippy::too_many_arguments)]
@@ -2055,7 +2055,7 @@ pub mod ffi {
             n_units: i64,
             watch: &mut SolveWatch,
         ) -> Result<SolveOut>;
-        /// landschaft's solve_connected for corridors (prioritize/_milp_connect.py without patches): the root's node
+        /// The library's solve_connected for corridors (prioritize/_milp_connect.py without patches): the root's node
         /// cuts by rounds on the linear relaxation (40 % of the time limit), then HiGHS's MIP on the model with them,
         /// the same cuts separated at its nodes too (presolve off), from `settings.start`; the watch as
         /// opt_solve_watched.
@@ -2115,13 +2115,13 @@ pub mod ffi {
         ) -> Result<f64>;
         /// prioriactions's model (problem()'s matrices) bit for bit.
         fn actions_compile(input: &ActionsInput, settings: &ActionsSettings) -> Result<ActionsModel>;
-        /// The model a general solver gets, as landschaft's: equivalent (curve 1: the benefit columns substituted,
+        /// The model a general solver gets, as the library's: equivalent (curve 1: the benefit columns substituted,
         /// activation per action; empty, no rows or columns, when it does not apply), else prioriactions's with the
         /// activation rows per action and the response curves as pieces.
         fn actions_model(input: &ActionsInput, settings: &ActionsSettings, equivalent: bool) -> Result<ActionsModel>;
         /// Every pair's benefit for a solution (units, then actions).
         fn actions_local_benefit(input: &ActionsInput, x: &[f64]) -> Result<Vec<f64>>;
-        /// A multi-action problem solved (landschaft's closure engine, then HiGHS): x the units, the actions, the
+        /// A multi-action problem solved (the library's closure engine, then HiGHS): x the units, the actions, the
         /// pairs' benefits; start: units then actions (empty: none).
         fn actions_solve(
             input: &ActionsInput,
@@ -2355,7 +2355,7 @@ pub mod ffi {
 
         // out-of-core landscapes (tiles)
 
-        /// landschaft's out-of-core landscape: a raster labelled block by block of rows (a multiple of 64), the
+        /// The library's out-of-core landscape: a raster labelled block by block of rows (a multiple of 64), the
         /// pieces of the patches joined across the seams; the same metrics as the map in memory.
         #[namespace = "lsm"]
         #[cxx_name = "TiledLandscape"]
@@ -2420,9 +2420,9 @@ pub mod ffi {
         fn lsm_tiled_labels(t: &LsmTiled, values: &[i32], na: &[u8], y0: i64, rows: i64) -> Result<Vec<i32>>;
         /// The values of every band (bands x ny x nx, NaN no data) at points: (points x bands); NaN outside the
         /// grid or on no data; bilinear from the four cell centres around, the weights over those with data
-        /// (landschaft's extract). The values are the rows [row0, row0 + ny) of a grid of ny_total rows (gt the
+        /// (the library's extract). The values are the rows [row0, row0 + ny) of a grid of ny_total rows (gt the
         /// grid's): the points in those rows (with one row around for bilinear) get the whole grid's values.
-        /// Omniscape 0.7's moving-window circuits (landschaft's circuit::omniscape): resistance (NaN no data, > 0)
+        /// Omniscape 0.7's moving-window circuits (the library's circuit::omniscape): resistance (NaN no data, > 0)
         /// and source strengths (ny x nx); the conditions' present and future values (empty: none), and per
         /// condition [equal (1) or within (0), lower, upper].
         #[allow(clippy::too_many_arguments)]
@@ -2445,7 +2445,7 @@ pub mod ffi {
             comparisons: &[f64],
             memory_limit: f64,
         ) -> Result<OmniscapeOut>;
-        /// Circuitscape's advanced mode on a raster (landschaft's circuit::advanced): conductance, source (amps)
+        /// Circuitscape's advanced mode on a raster (the library's circuit::advanced): conductance, source (amps)
         /// and ground (conductance to ground, +Inf direct), ny x nx.
         fn circuit_advanced(
             conductance: &[f64],
@@ -2455,7 +2455,7 @@ pub mod ffi {
             ny: i64,
             four_neighbors: bool,
         ) -> Result<CircuitOut>;
-        /// Circuitscape's pairwise mode on a raster (landschaft's circuitscape_pairwise): the conductances, the
+        /// Circuitscape's pairwise mode on a raster (the library's circuitscape_pairwise): the conductances, the
         /// short-circuit regions (empty: none), the focal points' cells, their ids when they make regions (empty:
         /// none), the pairs excluded (n x n), and [cum, max, focal_zero, null_currents, null_voltages,
         /// log_transform].
@@ -2472,7 +2472,7 @@ pub mod ffi {
             four_neighbors: bool,
             flags: &[u8],
         ) -> Result<PairwiseOut>;
-        /// Circuitscape's advanced mode on a raster (landschaft's circuitscape_advanced): sources and grounds by
+        /// Circuitscape's advanced mode on a raster (the library's circuitscape_advanced): sources and grounds by
         /// cell (grounds as conductances, +Inf direct), summed per node; policy 0 keepall, 1 rmvsrc, 2 rmvgnd, 3
         /// rmvall.
         #[allow(clippy::too_many_arguments)]
@@ -2515,7 +2515,7 @@ pub mod ffi {
             cur_maps: bool,
             cum: bool,
         ) -> Result<NetworkOut>;
-        /// Advanced-mode solves of many problems on one raster graph (landschaft's circuitscape_multi_advanced):
+        /// Advanced-mode solves of many problems on one raster graph (the library's circuitscape_multi_advanced):
         /// per problem its source and ground cells and values (offsets into the lists) and the cell whose
         /// component alone is solved (-1: every component); policy 0 keepall, 1 rmvsrc, 2 rmvgnd, 3 rmvall.
         #[allow(clippy::too_many_arguments)]
@@ -2535,10 +2535,10 @@ pub mod ffi {
             checks: &[i64],
             policy: i32,
         ) -> Result<MultiOut>;
-        /// Surface metrics of a raster (landschaft's surface module, geodiv's numbers): the metrics `ids` (in the
+        /// Surface metrics of a raster (the library's surface module, geodiv's numbers): the metrics `ids` (in the
         /// order of surf::WindowMetric: sa, sq, ssk, sku, sv, sph, smean, sdq, sdq6, sdr, sds, ssc, s10z, sbi, sci,
         /// svi, sk, spk, svk, sal, str, std, stdi, srw, srwi, shw, sfd) of the values (ny x nx, NaN NA) on an
-        /// extent [xmin, xmax, ymin, ymax], as landschaft's surface.metrics computes them.
+        /// extent [xmin, xmax, ymin, ymax], as the library's surface.metrics computes them.
         fn surf_metrics(z: &[f64], nx: i32, ny: i32, extent: &[f64], lonlat: bool, ids: &[i32]) -> Result<Vec<f64>>;
         /// The metrics `ids` in a size x size window around every cell (a map each, concatenated).
         #[allow(clippy::too_many_arguments)]
@@ -3206,7 +3206,7 @@ pub mod ffi {
             seed: u64,
         ) -> Result<Vec<u8>>;
 
-        // movement ecology (landschaft's ls.move): move2's and amt's steps of tracks
+        // movement ecology (the library's tf.move): move2's and amt's steps of tracks
         /// move2's mt_distance: to the next location of the same track (s2's sphere in lon / lat; NaN last).
         fn move_distances(x: &[f64], y: &[f64], track: &[i64], lonlat: bool, threads: i32) -> Result<Vec<f64>>;
         /// move2's mt_azimuth (radians): lwgeom's geodesic azimuth on the spheroid (a, 1 / f), atan2(dx, dy) else.

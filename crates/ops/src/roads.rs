@@ -1,8 +1,8 @@
-//! Dinamica EGO's functors of landschaft 1.50 (its `ls.simulate`): the Patcher of a continuous state
+//! Dinamica EGO's functors of terraflux-py 1.50 (its `tf.simulate`): the Patcher of a continuous state
 //! (PatcherContinuousState: new patches that take a stock up to a quota) and the endogenous road constructor of
 //! the Amazon models (Soares-Filho et al. 2004): the cost map (CalcCostMap), destinations drawn in quadrants
 //! (CalcDestinationMap), pathways down the costs (CalcPathwayMap) and a step of road building, through
-//! landschaft's C++, the same bits.
+//! the library's C++, the same bits.
 
 use std::sync::Arc;
 
@@ -24,7 +24,7 @@ fn fail<'a>(args: &'a Args<'_>) -> impl Fn(Error) -> Error + 'a {
     move |e| Error::msg(format!("node {:?}: {e}", args.node))
 }
 
-/// The seed of a step of a simulation (landschaft's: seed + step x 0x9E3779B9), the seed itself without a step.
+/// The seed of a step of a simulation (the library's: seed + step x 0x9E3779B9), the seed itself without a step.
 fn step_seed(args: &Args, mask: u64) -> Result<u64> {
     let seed = if args.get("seed").is_some() { args.integer("seed")? } else { 1 };
     let step = if args.get("step").is_some() { args.integer("step")? } else { 0 };
@@ -188,7 +188,7 @@ fn friction(f: &Map, relative: bool) -> Result<Vec<f64>> {
     Ok(f.data.iter().map(|v| v * rx).collect())
 }
 
-/// landschaft's friction_cost: the cost from the nearest source and the predecessors' directions (255 where no
+/// The library's friction_cost: the cost from the nearest source and the predecessors' directions (255 where no
 /// source is reached).
 fn cost_map(
     sources: &[u8],
@@ -235,7 +235,7 @@ impl Operator for CostMap {
     }
 }
 
-/// landschaft's destinations: the attraction of the cells drawn, no value elsewhere.
+/// The library's destinations: the attraction of the cells drawn, no value elsewhere.
 fn destinations(
     att: &Map,
     values: &[f64],
@@ -299,7 +299,7 @@ impl Operator for Destinations {
     }
 }
 
-/// landschaft's pathways: the network with the new paths (or the paths alone), no value elsewhere.
+/// The library's pathways: the network with the new paths (or the paths alone), no value elsewhere.
 #[allow(clippy::too_many_arguments)]
 fn pathways(
     network: &Map,

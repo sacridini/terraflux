@@ -1,4 +1,4 @@
-//! MSPA by tiles against landschaft's mspa_tiled (GuidosToolbox's MSPA Tiling; tests/data/reference/mspa_tiled.json,
+//! MSPA by tiles against the library's mspa_tiled (GuidosToolbox's MSPA Tiling; tests/data/reference/mspa_tiled.json,
 //! tools/make_mspa_tiled_reference.py): the same maps, in memory and from rasters on disk to a GeoTIFF.
 
 use std::path::{Path, PathBuf};
@@ -74,7 +74,7 @@ fn layout_is_gtbs() {
 }
 
 #[test]
-fn tiles_in_memory_are_landschafts() {
+fn tiles_in_memory_match_the_library() {
     let a = input();
     let s = shortcuts(&a);
     for case in reference()["cases"].as_array().unwrap() {
@@ -87,7 +87,7 @@ fn tiles_in_memory_are_landschafts() {
 
 /// Rasters on disk: read by windows, written by tiles to a GeoTIFF (GTB's name by default), the same maps.
 #[test]
-fn tiles_on_disk_are_landschafts() {
+fn tiles_on_disk_match_the_library() {
     let dir = std::env::temp_dir().join(format!("terraflux-mspa-tiled-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let a = input();

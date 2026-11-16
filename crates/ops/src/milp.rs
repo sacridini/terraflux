@@ -1,6 +1,6 @@
-//! The MILP prioritization of prioritizr 8.0.6 (Hanson et al.), as landschaft compiles it: the planning units and
+//! The MILP prioritization of prioritizr 8.0.6 (Hanson et al.), as terraflux-py compiles it: the planning units and
 //! the features' amounts in them, a problem (objective, targets, weights, decisions, locked units) and its model,
-//! the model prioritizr's `compile()` gives bit for bit, solved by HiGHS (through landschaft's C++).
+//! the model prioritizr's `compile()` gives bit for bit, solved by HiGHS (through the library's C++).
 //!
 //! Layout (one zone): the columns are the planning units, then the columns the objective adds; the rows are the
 //! targets (the amounts of their feature in the units), then the rows the objective adds.
@@ -103,7 +103,7 @@ fn seq_sum(v: &[f64]) -> f64 {
 
 impl Units {
     /// Raster units: the cells with a finite cost, the features' amounts there (no value 0) and their totals
-    /// over the whole raster (terra's), through landschaft's FeatureMatrix.
+    /// over the whole raster (terra's), through the library's FeatureMatrix.
     pub fn raster(
         cost: &[f64],
         features: &[&[f64]],
@@ -267,7 +267,7 @@ pub enum Objective {
     MaxPhyloDiv(f64, String),
     /// add_max_phylo_end_objective(budget, tree)
     MaxPhyloEnd(f64, String),
-    /// landschaft's add_min_extinction_risk_objective(budget, z, segments): the least sum of the features'
+    /// The library's add_min_extinction_risk_objective(budget, z, segments): the least sum of the features'
     /// species-area risk, 1 - (held / total)^z, piecewise linear through segments + 1 points (z one or per feature)
     MinExtinctionRisk(f64, Vec<f64>, usize),
 }
@@ -480,7 +480,7 @@ pub fn resolve_targets(spec: &TargetSpec, totals: &[f64]) -> Result<Targets, Str
     })
 }
 
-/// The solver of the integer programs: HiGHS, behind landschaft's engines, or Gurobi when it is installed.
+/// The solver of the integer programs: HiGHS, behind the library's engines, or Gurobi when it is installed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Solver {
     #[default]
@@ -1273,7 +1273,7 @@ pub fn row_bounds(m: &Model) -> (Vec<f64>, Vec<f64>) {
     (lo, hi)
 }
 
-/// landschaft's choice of HiGHS's engine: covering (a minimisation with only >= rows and finite bounds), wide
+/// The library's choice of HiGHS's engine: covering (a minimisation with only >= rows and finite bounds), wide
 /// (the units with finite bounds and few other columns) or HiGHS itself.
 pub fn method(m: &Model, n_units: usize) -> &'static str {
     let finite = |v: &[f64]| v.iter().all(|x| x.is_finite());
@@ -1286,7 +1286,7 @@ pub fn method(m: &Model, n_units: usize) -> &'static str {
     }
 }
 
-/// Whether a model with zones goes to landschaft's zones cut engine (a minimum set with boundary penalties or
+/// Whether a model with zones goes to the library's zones cut engine (a minimum set with boundary penalties or
 /// connectivity rewards, in its form) in front of HiGHS.
 pub fn zone_cut_applies(m: &Model) -> bool {
     engines::zone_cut_applies(m)
@@ -1294,7 +1294,7 @@ pub fn zone_cut_applies(m: &Model) -> bool {
 
 pub use anneal::Anneal;
 
-/// A model solved on landschaft's anneal solver (Marxan's simulated annealing, every run repaired): a minimum set
+/// A model solved on the library's anneal solver (Marxan's simulated annealing, every run repaired): a minimum set
 /// with binary decisions, targets, locked units and penalties on units and pairs; an error for any other model.
 pub fn solve_anneal(m: &Model, n_units: usize, o: &Anneal, time_limit: f64) -> Result<ffi::SolveOut, String> {
     anneal::solve(m, n_units, o, time_limit, &[])
@@ -1305,7 +1305,7 @@ pub fn solve(m: &Model, n_units: usize, gap: f64, time_limit: f64) -> Result<ffi
     solve_from(m, n_units, gap, time_limit, &[])
 }
 
-/// A model solved from a solution (empty: none): HiGHS behind landschaft's engines, or with contiguity a first
+/// A model solved from a solution (empty: none): HiGHS behind the library's engines, or with contiguity a first
 /// patch, cuts, then the MIP (`solve_connected`).
 pub fn solve_from(
     m: &Model,
@@ -1321,7 +1321,7 @@ pub fn solve_from(
         return solve_corridors(m, n_units, gap, time_limit, start);
     }
     // budgeted objectives that reward the targets met (maximum features, phylogenetic diversity and endemism): the
-    // wide engine, then landschaft's subset search, as landschaft's _wide_then_subset
+    // wide engine, then the library's subset search, as the library's _wide_then_subset
     if m.engine.solver == Solver::Highs
         && m.zone_units == 0
         && let Some(r) = subset::wide_then_subset(m, n_units, gap, time_limit, start, &|cm, nu, g, tl, s| {
@@ -1333,7 +1333,7 @@ pub fn solve_from(
             r => r,
         };
     }
-    // models with pair terms on landschaft's cut and closure engines first, as landschaft solves them
+    // models with pair terms on the library's cut and closure engines first, as terraflux-py solves them
     if m.engine.solver == Solver::Highs
         && m.zone_units == 0
         && let Some(r) =
@@ -1345,7 +1345,7 @@ pub fn solve_from(
         };
     }
     // minimum sets with zones and pair terms on the zones cut engine, then HiGHS's MIP from its solution (behind the
-    // covering engine or alone: landschaft's solve_zone_cut calls _highs without the units)
+    // covering engine or alone: the library's solve_zone_cut calls _highs without the units)
     if m.engine.solver == Solver::Highs
         && m.zone_units > 0
         && let Some(r) =
@@ -1359,7 +1359,7 @@ pub fn solve_from(
     highs(m, n_units, gap, time_limit, false, start)
 }
 
-/// landschaft's subset search (improve_subset) from a selection of the units, until no move helps: the best solution
+/// The library's subset search (improve_subset) from a selection of the units, until no move helps: the best solution
 /// found (every column) and its objective, None if none is better than the selection's own. For the budgeted
 /// objectives that reward the targets met (maximum features, phylogenetic diversity and endemism); an error for
 /// other models.
@@ -1367,7 +1367,7 @@ pub fn improve_subset(m: &Model, n_units: usize, units: &[f64]) -> Result<Option
     subset::improve_from(m, n_units, units, &|cm, nu, g, tl, s| highs(cm, nu, g, tl, false, s))
 }
 
-/// HiGHS behind landschaft's covering and wide engines, or Gurobi when the model asks for it (the relaxation: the
+/// HiGHS behind the library's covering and wide engines, or Gurobi when the model asks for it (the relaxation: the
 /// LP).
 fn highs(
     m: &Model,
@@ -1380,7 +1380,7 @@ fn highs(
     highs_with(m, n_units, gap, time_limit, relaxation, start, true)
 }
 
-/// `highs`; `zones` false: a model with zones goes by landschaft's `_method(m, None)` (covering or HiGHS), not the
+/// `highs`; `zones` false: a model with zones goes by the library's `_method(m, None)` (covering or HiGHS), not the
 /// zones engines' choice.
 fn highs_with(
     m: &Model,
@@ -1417,7 +1417,7 @@ fn milp_model(m: &Model) -> ffi::MilpModel {
     }
 }
 
-/// HiGHS behind landschaft's engines, this thread's watch told how it goes.
+/// HiGHS behind the library's engines, this thread's watch told how it goes.
 fn highs_only(
     m: &Model,
     n_units: usize,
@@ -1537,7 +1537,7 @@ pub(crate) fn current_watch() -> Option<Box<EngineWatch>> {
     Some(Box::new(move |best, bound, gap, seconds| unsafe { (*p)(&SolveProgress { best, bound, gap, seconds }) }))
 }
 
-/// landschaft's choice of engine with zones: zones (a minimum set: target rows and one row per unit over the units'
+/// The library's choice of engine with zones: zones (a minimum set: target rows and one row per unit over the units'
 /// columns), zones_wide (few columns and rows besides the units') or HiGHS.
 fn zone_method(m: &Model) -> &'static str {
     let units = m.col_ids.iter().filter(|c| *c == "pu").count();
@@ -1731,7 +1731,7 @@ fn directed_cuts(m: &Model, z: &[f64]) -> Vec<Cut> {
     out
 }
 
-/// Contiguity on HiGHS (landschaft's solve_connected), in three steps:
+/// Contiguity on HiGHS (the library's solve_connected), in three steps:
 ///
 /// 1. a first patch: the model with every arc running from a higher node to a lower one only (prioritizr's
 ///    formulation, a restriction), solved to the gap asked (at least 1 %) within 30 % of the time (two minutes
@@ -1855,7 +1855,7 @@ fn solve_connected(
     Ok(out)
 }
 
-/// Corridors on HiGHS (landschaft's solve_connected without patches, in the C++ shim): the root's node cuts by rounds
+/// Corridors on HiGHS (the library's solve_connected without patches, in the C++ shim): the root's node cuts by rounds
 /// on the linear relaxation, then HiGHS's MIP on the exact flow model with them, the same cuts separated at its nodes
 /// too, from the start, to the gap asked: "optimal" within it, else "time_limit". Gurobi solves the model as it is.
 fn solve_corridors(
@@ -1896,7 +1896,7 @@ pub enum Portfolio {
     /// The k best distinct solutions, one solve after another, each forbidding the earlier ones with a no-good
     /// cut on the units (the selected less the others <= selected - 1). prioritizr 8.0.6's cut has the
     /// coefficients 2 s, not 2 s - 1: it forbids keeping half of the earlier solution, not the solution; the
-    /// correct cut here, as landschaft's.
+    /// correct cut here, as the library's.
     Cuts(usize),
     /// As cuts, every solve to optimality (Gurobi's solution pool's k best).
     Top(usize),
@@ -2069,7 +2069,7 @@ pub enum Spatial {
     LinearConstraint { threshold: f64, sense: String, data: Vec<f64> },
     /// add_neighbors_constraints(k, clamp, data): the raster's 4-adjacency, or a matrix of every unit
     Neighbors { k: f64, clamp: bool, data: Option<Matrix> },
-    /// add_contiguity_constraints(data): the selected units form one patch (landschaft's exact formulation, not
+    /// add_contiguity_constraints(data): the selected units form one patch (the library's exact formulation, not
     /// prioritizr's restriction); the raster's 4-adjacency or a matrix of every unit
     Contiguity { data: Option<Matrix> },
     /// add_feature_contiguity_constraints(data): every feature's units (where it counts) form one patch
@@ -2249,7 +2249,7 @@ impl Units {
         let (ny, nx) = (self.ny, self.nx);
         let n = ny * nx;
         let t = self.transform;
-        // as landschaft's _res, operation for operation
+        // as the library's _res, operation for operation
         let xres = (t[0] + nx as f64 * t[1] - t[0]) / nx as f64;
         let yres = (t[3] - (t[3] + ny as f64 * t[5])) / ny as f64;
         let [(u, d), (l, r)] = pairs_4(&self.cells, ny, nx);
@@ -2484,7 +2484,7 @@ fn apply_corridors(
         pi.extend(col);
     }
     let res: Option<Vec<f64>> = resistance.map(|r| {
-        // (landschaft's unit_values: NaN as 0)
+        // (the library's unit_values: NaN as 0)
         let at = |i: usize| if r[u.cells[i]].is_nan() { 0.0 } else { r[u.cells[i]] };
         pi.iter().zip(&pj).map(|(&i, &j)| (at(i) + at(j)) / 2.0).collect()
     });
@@ -2957,7 +2957,7 @@ pub fn solve_bounded(
 /// selected and it may not be (prioritizr's replacement cost), rescaled to [0.01, 1] with `rescale`. The solves
 /// run in parallel, a HiGHS thread each, so many at a time: `tell` is told how many were solved of how many before
 /// each lot (false: stopped). `engine` solves them: the base solve with its threads, the parallel ones with one
-/// thread each (as landschaft's `{**opts, "n_threads": 1}`).
+/// thread each (as the library's `{**opts, "n_threads": 1}`).
 pub fn replacement_importance(
     p: &Problem,
     s: &[f64],

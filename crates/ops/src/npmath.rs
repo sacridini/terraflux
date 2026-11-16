@@ -1,6 +1,6 @@
 //! numpy's float32 exp, sin and cos, lane by lane: numpy computes them with its own SIMD approximations (the
 //! AVX2 + FMA3 kernels of numpy 2.x, `loops_exponent_log.dispatch.c.src` and `loops_trigonometric.dispatch.cpp`),
-//! not the C library's, so the InVEST models that landschaft runs through numpy get these bits. Other float32
+//! not the C library's, so the InVEST models that terraflux-py runs through numpy get these bits. Other float32
 //! functions numpy takes from the C library (atanf, powf, log10f): Rust's are the same calls.
 
 /// numpy's float32 exp (Cody-Waite reduction, a 5/2 rational minimax approximation; at most 2.52 ULP).

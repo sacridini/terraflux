@@ -240,7 +240,7 @@ pub fn add(ns: i64, u: Unit) -> i64 {
     }
 }
 
-/// The step of a regular sequence of times (`interpolate`'s times given as a unit), as landschaft's _step reads
+/// The step of a regular sequence of times (`interpolate`'s times given as a unit), as the library's _step reads
 /// it: `1 hour`, `15 mins`, `day`, `2 weeks`, `month`, `year`.
 pub fn step(text: &str) -> Result<Unit, String> {
     let parts: Vec<&str> = text.split_whitespace().collect();

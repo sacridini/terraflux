@@ -115,7 +115,7 @@ foreach ($profile in $profiles) {
             }
         }
 
-        # Build scripts and their out folders (landschaft's CMake build is one of these).
+        # Build scripts and their out folders (the library's CMake build is one of these).
         $b = Join-Path $dir 'build'
         if (Test-Path $b) {
             foreach ($bd in Get-ChildItem $b -Directory -Force) {

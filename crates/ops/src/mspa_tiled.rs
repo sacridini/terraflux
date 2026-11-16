@@ -1,4 +1,4 @@
-//! MSPA of maps larger than memory by overlapping tiles: GuidosToolbox's MSPA Tiling, as landschaft's
+//! MSPA of maps larger than memory by overlapping tiles: GuidosToolbox's MSPA Tiling, as the library's
 //! mspa_tiled (`landscape.mspa_tiled`), the same maps. The map is cut into tiles of `tile_size` cells that overlap
 //! by `overlap`, MSPA runs on every tile (with GTB's shortcuts for tiles without background or foreground), and of
 //! each overlap the half nearest to each tile is kept. Rasters on disk are read by windows and written by TIFF
@@ -23,7 +23,7 @@ pub fn register(r: &mut Registry) {
 /// A tile along an axis: (read start, read stop, keep start, keep stop).
 pub type Span = (usize, usize, usize, usize);
 
-/// GTB's tiles along an axis of `size` cells (landschaft's tile_layout): tiles starting every
+/// GTB's tiles along an axis of `size` cells (the library's tile_layout): tiles starting every
 /// `tile_size - overlap` cells, the last ending at the border, the first `overlap / 2` cells of each overlap kept
 /// from the earlier tile.
 pub fn tile_layout(size: usize, tile_size: usize, overlap: usize) -> Result<Vec<Span>> {

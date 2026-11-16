@@ -1,4 +1,4 @@
-//! ProtConn against landschaft's (tests/data/reference/protconn.gpkg, .npz and .json,
+//! ProtConn against the library's (tests/data/reference/protconn.gpkg, .npz and .json,
 //! tools/make_protconn_reference.py): two distances, transboundary nodes around the nodes and around the
 //! region, the region's parts, the probability exp(-1), least-cost distances, a single protected area, every
 //! protected area's importance and ProtConn per region. To the bit, but for what goes through numpy's
@@ -34,7 +34,7 @@ fn close(what: &str, got: &[f64], want: &[f64]) -> usize {
 }
 
 #[test]
-fn protconn_is_landschafts() {
+fn protconn_matches_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("protconn.npz")).unwrap();
     let cases: serde_json::Value =

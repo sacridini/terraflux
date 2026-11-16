@@ -1,11 +1,11 @@
-//! From QSWAT+'s tables to a SWAT+ project, as the SWAT+ Editor 4.0.2 writes it (landschaft's
+//! From QSWAT+'s tables to a SWAT+ project, as the SWAT+ Editor 4.0.2 writes it (the library's
 //! `hydro/swat/_editor.py`, byte for byte but for the date of each file's first line): a port of the editor's GIS
 //! import (`actions/import_gis.py`), of its observed weather import (`actions/import_weather.py`: stations at the
 //! coordinates of the weather files, each object matched to the nearest one) and of its file writers
 //! (`fileio/*.py`), for the projects QSWAT+ makes without landscapes, lakes, reservoirs or point sources. The SWAT+
 //! Editor (github.com/swat-model/swatplus-editor) and its datasets database are public domain; the files the
 //! editor writes the same for every project (parameter databases, decision tables, defaults) come from them
-//! (landschaft's `data/swatplus_editor.zip`).
+//! (the library's `data/swatplus_editor.zip`).
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -26,7 +26,7 @@ pub fn register(r: &mut Registry) {
 
 const EDITOR_VERSION: &str = "4.0.2";
 
-/// The editor's data as landschaft ships it (`tools/swat/make_editor_data.py`): the files it writes the same for
+/// The editor's data as terraflux-py ships it (`tools/swat/make_editor_data.py`): the files it writes the same for
 /// every project (`static/`) and its datasets database (`datasets.json`).
 const EDITOR_ZIP: &[u8] =
     include_bytes!("../../../extern/terraflux-py/src/terraflux/hydro/swat/data/swatplus_editor.zip");
@@ -1330,7 +1330,7 @@ struct Sta {
     wgn: String,
 }
 
-/// A SWAT+ project from the watershed's tables and the weather, as the SWAT+ Editor makes it (landschaft's
+/// A SWAT+ project from the watershed's tables and the weather, as the SWAT+ Editor makes it (the library's
 /// `from_tables`): `start` and `end` (days) default to the days all the weather files cover, `codes` change columns
 /// of codes.bsn.
 pub fn from_tables(

@@ -1,5 +1,5 @@
-//! Circuits against landschaft's (tests/data/reference/circuit_landschaft.npz and .json,
-//! tools/make_circuit_reference.py): Omniscape on the cases of landschaft's references (themselves checked
+//! Circuits against the library's (tests/data/reference/circuit_landschaft.npz and .json,
+//! tools/make_circuit_reference.py): Omniscape on the cases of the library's references (themselves checked
 //! against Omniscape.jl), one with conditions, a reclassification and single precision, and the advanced mode on
 //! its cases (checked against Circuitscape.jl): the same maps, to the bit.
 
@@ -49,7 +49,7 @@ const OUTPUTS: [(&str, &str); 3] =
     [("cum_currmap", "current"), ("flow_potential", "flow_potential"), ("normalized_cum_currmap", "normalized")];
 
 #[test]
-fn omniscape_is_landschafts() {
+fn omniscape_matches_the_library() {
     let (z, json) = reference();
     for (name, case) in json["omniscape"].as_object().unwrap() {
         let mut inputs = vec![("resistance", map(&z[&format!("omniscape/{name}/resistance")]))];
@@ -78,7 +78,7 @@ fn omniscape_is_landschafts() {
 }
 
 #[test]
-fn the_advanced_mode_is_landschafts() {
+fn the_advanced_mode_matches_the_library() {
     let (z, _) = reference();
     let names: std::collections::BTreeSet<String> = z
         .keys()
@@ -100,7 +100,7 @@ fn the_advanced_mode_is_landschafts() {
     }
 }
 
-/// landschaft's example: one amp injected at the left of a 3 x 5 grid, grounded at the right.
+/// The library's example: one amp injected at the left of a 3 x 5 grid, grounded at the right.
 #[test]
 fn one_amp_across_a_small_grid() {
     let a = |v: Vec<f64>| Array { shape: vec![3, 5], data: v };
@@ -121,11 +121,11 @@ fn one_amp_across_a_small_grid() {
     assert_eq!(r(c.data[9]), 1.0);
 }
 
-/// Circuitscape's pairwise and one-to-all (all-to-one) modes against landschaft's, on rasters made by
+/// Circuitscape's pairwise and one-to-all (all-to-one) modes against the library's, on rasters made by
 /// tools/make_circuit_reference.py (focal regions, short-circuit polygons, a mask, strengths): the resistances and
-/// the cumulative and largest currents, to the bit (batches of 4 problems, as landschaft on one thread).
+/// the cumulative and largest currents, to the bit (batches of 4 problems, as terraflux-py on one thread).
 #[test]
-fn circuitscape_modes_are_landschafts() {
+fn circuitscape_modes_match_the_library() {
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/circuitscape_landschaft.npz")).unwrap();
     let table = |v: &Value| -> Vec<f64> {
         let Value::Table(t) = v else { panic!() };
@@ -180,10 +180,10 @@ fn circuitscape_modes_are_landschafts() {
 
 /// Included and excluded pairs (Circuitscape's list and matrix files) on rasters, pairwise, one-to-all and
 /// all-to-one, with and without focal regions, and Circuitscape's network test cases (advanced and pairwise,
-/// included pairs, the pairs' maps), against landschaft's (tests/data/reference/circuit_networks.npz and .json),
+/// included pairs, the pairs' maps), against the library's (tests/data/reference/circuit_networks.npz and .json),
 /// to the bit.
 #[test]
-fn included_pairs_and_networks_are_landschafts() {
+fn included_pairs_and_networks_match_the_library() {
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/circuitscape_landschaft.npz")).unwrap();
     let w = terraflux_raster::npy::read_npz(root().join("tests/data/reference/circuit_networks.npz")).unwrap();
     let meta: serde_json::Value = serde_json::from_str(

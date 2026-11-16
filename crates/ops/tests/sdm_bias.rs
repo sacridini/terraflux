@@ -1,4 +1,4 @@
-//! The sampling-bias surface against landschaft's (tests/data/reference/sdm_bias.npz and .json,
+//! The sampling-bias surface against the library's (tests/data/reference/sdm_bias.npz and .json,
 //! tools/make_sdm_bias_reference.py): MASS::kde2d's density with R's bw.nrd, isotropic and limited bandwidths, a
 //! pair with weights and a rescaling, every cell. The bandwidths to the bit; the density up to rounding (numpy sums
 //! the kernels with BLAS's matrix product).
@@ -41,7 +41,7 @@ fn inputs() -> (Value, Value, serde_json::Value, BTreeMap<String, Array>) {
 }
 
 #[test]
-fn bias_surface_is_landschafts() {
+fn bias_surface_matches_the_library() {
     let (points, env, meta, z) = inputs();
     for (case, params) in meta["cases"].as_object().unwrap() {
         let out = run("sdm.bias_surface", vec![("occurrences", points.clone()), ("env", env.clone())], params.clone())

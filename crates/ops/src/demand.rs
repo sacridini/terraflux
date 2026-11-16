@@ -37,7 +37,7 @@ pub fn series_times(stack: &Stack, times: Option<Vec<f64>>) -> Result<Vec<f64>> 
 }
 
 /// The areas of observed maps interpolated and extrapolated linearly (lulcc's `approxExtrapDemand`,
-/// landschaft's `AreaDemand.from_maps`): each class's cells at `out_times` (default every whole time from
+/// the library's `AreaDemand.from_maps`): each class's cells at `out_times` (default every whole time from
 /// the first map to the last), negative values set to 0, each time rounded to whole cells adding up to the
 /// cells of the first map.
 pub fn from_maps(maps: &[Map], times: &[f64], out_times: Option<Vec<f64>>) -> Result<Demand> {

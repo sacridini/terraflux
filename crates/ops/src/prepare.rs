@@ -1,4 +1,4 @@
-//! Preparing data, as landschaft's "Data & configuration": rasters reprojected, resampled, put on the grid of
+//! Preparing data, as the library's "Data & configuration": rasters reprojected, resampled, put on the grid of
 //! another, clipped, converted, joined into a mosaic, measured as a surface (slope, aspect...), their gaps
 //! filled, their distances to some values measured (GDAL, see `terraflux_gdal`), reclassified (by Terraflux).
 //!

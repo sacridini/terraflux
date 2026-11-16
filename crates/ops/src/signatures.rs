@@ -1,10 +1,10 @@
-//! The analysis of spatial signatures (pylandstats' SpatialSignatureAnalysis in landschaft's lsm/analysis.py):
+//! The analysis of spatial signatures (pylandstats' SpatialSignatureAnalysis in the library's lsm/analysis.py):
 //! landscapes or zones described by their metrics (a table of metrics.signatures, or any table of metrics), their
 //! principal components (`metrics.pca`), non-negative factors (`metrics.nmf`), clusters (`metrics.cluster`:
-//! k-means with numpy's generator, so the same starts as landschaft; scipy's linkages and cuts) and clustergrams
+//! k-means with numpy's generator, so the same starts as terraflux-py; scipy's linkages and cuts) and clustergrams
 //! (`metrics.clustergram`).
 //!
-//! Rows with NA values are left out and constant metrics dropped, as landschaft. The clusters are landschaft's (the
+//! Rows with NA values are left out and constant metrics dropped, as terraflux-py. The clusters are the library's (the
 //! same labels, numbered 0.. in order of first appearance); the components, factors and means its numbers up to
 //! the rounding of LAPACK's SVD and BLAS' products, which numpy uses and this module does not.
 
@@ -322,7 +322,7 @@ pub fn svd(a: &Matrix) -> (Matrix, Vec<f64>, Matrix) {
     (u, s, vt)
 }
 
-/// The sign that makes a vector's largest absolute value (the first of them) positive, as landschaft (and
+/// The sign that makes a vector's largest absolute value (the first of them) positive, as terraflux-py (and
 /// scikit-learn) give components.
 fn sign_of(v: &[f64]) -> f64 {
     let mut best = 0;
@@ -471,7 +471,7 @@ fn residual(x: &Matrix, w: &Matrix, h: &Matrix) -> f64 {
     s.sqrt()
 }
 
-/// W, H ≥ 0 minimising ‖x − W H‖ (landschaft's _nmf, scikit-learn's NMF(init="nndsvda", solver="cd")): the NNDSVDa
+/// W, H ≥ 0 minimising ‖x − W H‖ (the library's _nmf, scikit-learn's NMF(init="nndsvda", solver="cd")): the NNDSVDa
 /// start, HALS sweeps until the loss improves by less than `tol` (relative). W, H, the error and the sweeps.
 fn nmf(x: &Matrix, k: usize, max_iter: usize, tol: f64) -> (Matrix, Matrix, f64, usize) {
     let (n, m) = (x.len(), x[0].len());
@@ -583,7 +583,7 @@ fn mean_of(rows: &[&Vec<f64>]) -> Vec<f64> {
     s.iter().map(|v| v / n).collect()
 }
 
-/// landschaft's k-means: k-means++ starts from numpy's generator, Lloyd's iterations (at most 300), the best of
+/// The library's k-means: k-means++ starts from numpy's generator, Lloyd's iterations (at most 300), the best of
 /// `n_init` starts by inertia. `by_columns`: how numpy holds `x` (the order of the inertia's sum).
 fn kmeans(x: &Matrix, k: usize, n_init: usize, seed: u64, by_columns: bool) -> Vec<usize> {
     let n = x.len();

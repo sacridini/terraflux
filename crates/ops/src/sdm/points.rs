@@ -1,4 +1,4 @@
-//! Occurrence records and background points (landschaft's thin, one_per_cell and background): spThin's
+//! Occurrence records and background points (the library's thin, one_per_cell and background): spThin's
 //! thinning, a record per cell of a raster, and background points drawn as dismo's randomPoints (R's sampling,
 //! weighted by the cells' widths on lon/lat grids or by a bias), within an area, a band of distances from the
 //! records or outside their environmental envelope.
@@ -215,7 +215,7 @@ pub fn grid_of(g: &Grid) -> (f64, f64, f64, f64, f64, f64, usize, usize) {
     (xmin, xmax, ymin, ymax, (xmax - xmin) / nx as f64, (ymax - ymin) / ny as f64, ny, nx)
 }
 
-/// The cell of each point (-1 outside), landschaft's grid_cells.
+/// The cell of each point (-1 outside), the library's grid_cells.
 pub fn grid_cells(xs: &[f64], ys: &[f64], g: &Grid) -> Vec<i64> {
     let (xmin, xmax, ymin, ymax, xres, yres, ny, nx) = grid_of(g);
     xs.iter()
@@ -346,7 +346,7 @@ fn could_be_lonlat(g: &Grid) -> bool {
     xmin > -365.0 && xmax < 365.0 && ymin > -90.1 && ymax < 90.1
 }
 
-/// Background points drawn from the cells of the predictors with values in every layer (landschaft's
+/// Background points drawn from the cells of the predictors with values in every layer (the library's
 /// background, dismo's randomPoints): the drawn cells and warnings.
 pub fn background(grid: &Grid, layers: &[&[f64]], s: &Background) -> Result<(Vec<i64>, Vec<String>), String> {
     let mut warnings = Vec::new();

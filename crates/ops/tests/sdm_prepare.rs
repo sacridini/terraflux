@@ -1,6 +1,6 @@
-//! The preparation of a species distribution model against landschaft's (tests/data/reference/sdm_prepare.npz and
+//! The preparation of a species distribution model against the library's (tests/data/reference/sdm_prepare.npz and
 //! .json, tools/make_sdm_prepare_reference.py): bradypus' records over the bioclimatic layers, with the steps of
-//! landschaft's own test, the defaults, cleaning, an area given, every kind of folds and blocks of the
+//! the library's own test, the defaults, cleaning, an area given, every kind of folds and blocks of the
 //! autocorrelation range; the records (coordinates, presence, predictors, fold) to the bit, the predictors kept
 //! and the report.
 
@@ -19,7 +19,7 @@ fn run(op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value) -> Outpu
 }
 
 #[test]
-fn preparation_is_landschafts() {
+fn preparation_matches_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("sdm_prepare.npz")).unwrap();
     let meta: serde_json::Value =

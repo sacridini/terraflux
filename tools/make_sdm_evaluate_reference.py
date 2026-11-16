@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's evaluation of species distribution models gives, for Terraflux's tests, written to
+"""What the library's evaluation of species distribution models gives, for Terraflux's tests, written to
 tests/data/reference/sdm_evaluate.npz and .json:
 
     python tools/make_sdm_evaluate_reference.py

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's MESS, MOP and ExDet give, for Terraflux's tests, written to
+"""What the library's MESS, MOP and ExDet give, for Terraflux's tests, written to
 tests/data/reference/sdm_extrapolation.npz and .json:
 
     python tools/make_sdm_extrapolation_reference.py

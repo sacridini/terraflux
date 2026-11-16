@@ -1,5 +1,5 @@
-//! SWAT+ (landschaft's `ls.hydro.swat`): the watershed model of USDA-ARS and Texas A&M, SWAT+ 62.0.1 ported to C++
-//! by landschaft and run through it, the results of SWAT+ itself bit for bit for the part the port covers (weather,
+//! SWAT+ (the library's `tf.hydro.swat`): the watershed model of USDA-ARS and Texas A&M, SWAT+ 62.0.1 ported to C++
+//! by terraflux-py and run through it, the results of SWAT+ itself bit for bit for the part the port covers (weather,
 //! HRUs, routing units, aquifers, SWAT-DEG channels): a TxtInOut project run, and the tables SWAT+ prints.
 
 use std::io::Read;
@@ -146,7 +146,7 @@ pub const WEATHER_COLUMNS: [&str; 16] = [
     "precip_half_hr",
 ];
 
-/// A SWAT+ project: the files of a TxtInOut folder by name (LF line ends, a final newline), as landschaft's
+/// A SWAT+ project: the files of a TxtInOut folder by name (LF line ends, a final newline), as the library's
 /// SwatProject holds them.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Project {
@@ -174,7 +174,7 @@ mod watershed_of {
     }
 }
 
-/// What SWAT+ writes (outputs of earlier runs found in a TxtInOut folder): landschaft's _OUTPUT.
+/// What SWAT+ writes (outputs of earlier runs found in a TxtInOut folder): the library's _OUTPUT.
 fn is_output(name: &str) -> bool {
     let l = name.to_lowercase();
     [".txt", ".out", ".fin", ".csv", ".bin", ".log"].iter().any(|e| l.ends_with(e))
@@ -225,7 +225,7 @@ pub(crate) fn normalize(b: &[u8]) -> Vec<u8> {
 }
 
 impl Project {
-    /// A TxtInOut folder, or a zip file of one (landschaft's load_txtinout).
+    /// A TxtInOut folder, or a zip file of one (the library's load_txtinout).
     pub fn load(path: &std::path::Path) -> Result<Project> {
         let mut files = Vec::new();
         let zip = path.is_file() && path.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip"));
@@ -301,7 +301,7 @@ impl Project {
         default.to_string()
     }
 
-    /// Choose what SWAT+ prints (landschaft's SwatProject.set_print): the years skipped and, for each table,
+    /// Choose what SWAT+ prints (the library's SwatProject.set_print): the years skipped and, for each table,
     /// the steps printed.
     pub fn set_print(&mut self, tables: &[(&str, Vec<&str>)], nyskip: Option<i64>) -> Result<()> {
         let name = self.cio("simulation", "print.prt");
@@ -463,7 +463,7 @@ impl Project {
         Ok(())
     }
 
-    /// landschaft's own check: a peak rate factor written for an earlier SWAT+ (the 5th value of parameters.bsn).
+    /// The library's own check: a peak rate factor written for an earlier SWAT+ (the 5th value of parameters.bsn).
     fn check(&self) -> Option<String> {
         let name = self.cio("basin", "parameters.bsn");
         let text = self.text(&name).ok()?;

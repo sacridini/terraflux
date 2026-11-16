@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's matrices and rasters around prioritizr's problems give, for Terraflux's tests, written to
+"""What the library's matrices and rasters around prioritizr's problems give, for Terraflux's tests, written to
 tests/data/reference/prioritize_tools.npz and .json with the polygons in prioritize_tools.gpkg:
 
     python tools/make_prioritize_tools_reference.py

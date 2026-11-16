@@ -1,4 +1,4 @@
-//! The matrices and rasters around prioritizr's problems against landschaft's
+//! The matrices and rasters around prioritizr's problems against the library's
 //! (tests/data/reference/prioritize_tools.npz, the polygons in prioritize_tools.gpkg,
 //! tools/make_prioritize_tools_reference.py): boundary, adjacency, connectivity and proximity matrices of cells and
 //! polygons, the decay of distances, unit points, coarsen and refine, a binary stack and the protected cells; to
@@ -37,7 +37,7 @@ fn flat(v: &Value) -> Vec<f64> {
 }
 
 #[test]
-fn tools_are_landschafts() {
+fn tools_match_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("prioritize_tools.npz")).unwrap();
     let t = &z["in/transform"].data;

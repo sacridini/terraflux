@@ -1,4 +1,4 @@
-//! landschaft's anneal solver (prioritize/_milp_anneal.py): Marxan's simulated annealing on a compiled minimum-set
+//! The library's anneal solver (prioritize/_milp_anneal.py): Marxan's simulated annealing on a compiled minimum-set
 //! model. The model is read as Marxan's problem, exactly: the units' objective coefficients, every pair column
 //! `b = x_i x_j` with objective `q` a boundary of `-q / 2` between the two units and `q / 2` on each unit's cost
 //! (`q x_i x_j = q / 2 (x_i + x_j) - q / 2 (x_i + x_j - 2 x_i x_j)`), rows `A x >= rhs` on the units Marxan's
@@ -11,7 +11,7 @@ use terraflux_ls_sys::ffi;
 
 use super::{Csr, Model, engines, highs};
 
-/// The anneal solver's settings (landschaft's add_anneal_solver).
+/// The anneal solver's settings (the library's add_anneal_solver).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Anneal {
     pub num_reps: i64,
@@ -42,7 +42,7 @@ impl Default for Anneal {
 }
 
 impl Anneal {
-    /// The settings' errors, as landschaft's add_anneal_solver.
+    /// The settings' errors, as the library's add_anneal_solver.
     pub fn check(&self) -> Result<(), String> {
         if self.num_reps < 1 {
             return Err("num_reps must be at least 1".into());
@@ -58,7 +58,7 @@ const SUPPORTED: &str = "the anneal solver solves minimum-set problems with bina
                          '>=' rows on the planning units with amounts >= 0), locked units, and penalties on units \
                          and on pairs of units (boundary, connectivity, linear)";
 
-/// The compiled model as Marxan's problem (landschaft's marxan_model).
+/// The compiled model as Marxan's problem (the library's marxan_model).
 struct Marxan {
     cost: Vec<f64>,
     status: Vec<i32>,
@@ -264,7 +264,7 @@ fn failed(status: &str, bound: f64, nan_bound: bool) -> ffi::SolveOut {
     }
 }
 
-/// A compiled minimum-set model on Marxan's annealing (landschaft's solve_anneal). `time_limit`: seconds for the
+/// A compiled minimum-set model on Marxan's annealing (the library's solve_anneal). `time_limit`: seconds for the
 /// runs (infinite: none); `start`: a solution to start from (empty: none).
 pub fn solve(m: &Model, n: usize, o: &Anneal, time_limit: f64, start: &[f64]) -> Result<ffi::SolveOut, String> {
     let t0 = Instant::now();

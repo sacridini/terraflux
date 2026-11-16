@@ -1,4 +1,4 @@
-//! Fragmentation from landschaft's port of GuidosToolbox: the foreground's density in a moving window (FAD,
+//! Fragmentation from the library's port of GuidosToolbox: the foreground's density in a moving window (FAD,
 //! `fragmentation.fad`, and at several windows, `fragmentation.fad_multiscale`) and the fragmentation at a fixed
 //! observation scale (`fragmentation.fos`), the same bits as GTB's; contagion and clustering in a moving window,
 //! the spatial entropy, the landscape mosaic and GraySpatCon's metrics of a % cover.
@@ -27,7 +27,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(GrayConvolution));
 }
 
-/// The columns of the shares of FAD's classes, most connected first, as landschaft's tables.
+/// The columns of the shares of FAD's classes, most connected first, as the library's tables.
 const SHARES: [&str; 6] = ["intact", "interior", "dominant", "transitional", "patchy", "rare"];
 
 /// GTB's observation scales of FAD-MS.
@@ -662,7 +662,7 @@ impl Operator for LandscapeMosaic {
     }
 }
 
-/// GTB's heatmap of a landscape mosaic of 103 classes (landschaft's landscape_mosaic_heatmap): the share (%, in
+/// GTB's heatmap of a landscape mosaic of 103 classes (the library's landscape_mosaic_heatmap): the share (%, in
 /// single precision as GTB) of every class among the cells with data.
 pub fn heatmap(lm103: &[u8]) -> Result<[f32; 256]> {
     let mut hist = [0u64; 256];

@@ -1,4 +1,4 @@
-//! Spatial prioritization from landschaft's C++: Zonation 5's ranking of the cells (`prioritize.zonation`), the
+//! Spatial prioritization from the library's C++: Zonation 5's ranking of the cells (`prioritize.zonation`), the
 //! same rank map as the z5 binary; Marxan 4's reserves (`prioritize.marxan`), the same runs as the Marxan
 //! program; ProxIRR's irreplaceability (`prioritize.proxirr`), the bits of R's proxirr.
 
@@ -1050,7 +1050,7 @@ fn column(t: &Table, name: &str) -> Option<Vec<f64>> {
 }
 
 /// Marxan's problem from its tables: pu (id, cost, status), spec (id, target, prop, spf, targetocc), puvspr
-/// (species, pu, amount) and bound (id1, id2, boundary), as landschaft's ls.prioritize.marxan reads them.
+/// (species, pu, amount) and bound (id1, id2, boundary), as the library's ls.prioritize.marxan reads them.
 pub fn marxan_data(
     pu: &Table,
     spec: &Table,
@@ -1459,7 +1459,7 @@ impl Operator for Marxan {
     }
 }
 
-/// ProxIRR from Marxan's tables (landschaft's eval_proxirr_marxan): per puvspr row its feature's global amount
+/// ProxIRR from Marxan's tables (the library's eval_proxirr_marxan): per puvspr row its feature's global amount
 /// (R's sum of its rows) and target (spec's prop times it, or its target), its alpha; per unit of pu its beta and
 /// gamma from its rows' alphas in their order.
 pub struct ProxirrTables {
@@ -2094,7 +2094,7 @@ fn matrix_of(args: &Args, port: &str, n: usize) -> Result<Option<milp::Matrix>> 
     Ok(Some(milp::Matrix { n, i: index(&i)?, j: index(&j)?, x }))
 }
 
-/// Planning units of polygons (prioritizr's sf units, landschaft's): the cost of a column (no value: not a unit),
+/// Planning units of polygons (prioritizr's sf units, the library's): the cost of a column (no value: not a unit),
 /// the features' amounts exactextract's coverage-weighted sums over every polygon (in the features' coordinate
 /// system; below 1e-10 nothing, prioritizr's fast_extract), the totals over every polygon in their order.
 fn polygon_units(args: &Args, v: &Arc<terraflux_raster::vector::Vector>) -> Result<milp::Units> {
@@ -2144,7 +2144,7 @@ fn polygon_amounts(
 /// and their names.
 type ZoneLayers = (Arc<terraflux_raster::Grid>, Vec<Vec<Arc<Vec<f64>>>>, Option<Vec<Arc<Vec<f64>>>>, Vec<String>);
 
-/// Planning units of polygons with zones (landschaft's polygon_zone_units): a cost column per zone; every zone's
+/// Planning units of polygons with zones (the library's polygon_zone_units): a cost column per zone; every zone's
 /// own features (`zone_features`, zone after zone) or the base `features` times every zone's `contribution` (a
 /// number or one per feature, the rasters multiplied before they are summed), summed over every polygon exactly.
 fn polygon_zone_units(
@@ -2910,7 +2910,7 @@ impl Operator for Optimize {
         let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let p = problem_of(args)?;
         let (mut model, t) = milp::compile(&p).map_err(err)?;
-        // landschaft's anneal solver (Marxan's simulated annealing): minimum sets without zones or portfolios
+        // The library's anneal solver (Marxan's simulated annealing): minimum sets without zones or portfolios
         let anneal = anneal_of(args)?;
         let portfolio = portfolio_of(args)?;
         if anneal.is_some() {
@@ -3310,7 +3310,7 @@ fn solution_of(args: &Args, u: &milp::Units) -> Result<Vec<f64>> {
     Ok(u.cells.iter().map(|&c| finite(sol.data[c])).collect())
 }
 
-/// landschaft's anneal solver's settings when the node asks for it (`solver` anneal): `num_reps`, `num_iters`,
+/// The library's anneal solver's settings when the node asks for it (`solver` anneal): `num_reps`, `num_iters`,
 /// `start_temp`, `cool_fac`, `num_temp`, `spf`, `itimp_type` and `seed` (default 1), as add_anneal_solver.
 fn anneal_of(args: &Args) -> Result<Option<milp::Anneal>> {
     if args.param("solver", "highs".to_string())? != "anneal" {

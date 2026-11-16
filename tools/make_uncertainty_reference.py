@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's uncertainty module gives, for Terraflux's tests, written to
+"""What the library's uncertainty module gives, for Terraflux's tests, written to
 tests/data/reference/uncertainty.npz:
 
     python tools/make_uncertainty_reference.py

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! SWAT+ results on the map (landschaft's `hru_map`, `channel_map` and `reach_discharge`, in its
+//! SWAT+ results on the map (the library's `hru_map`, `channel_map` and `reach_discharge`, in its
 //! `hydro/swat/_landscape.py`): an HRU's or a channel's value painted on the cells of the watershed the project
 //! came from (swat.from_tables), and the daily discharge of the channels. The tables they read are those of a
-//! swat.run of the same project, connected; without them the project is run here, as landschaft does with no
+//! swat.run of the same project, connected; without them the project is run here, as terraflux-py does with no
 //! result.
 
 use std::borrow::Cow;
@@ -21,7 +21,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(ReachDischarge));
 }
 
-/// The HRU tables a map can show, in landschaft's order (HRU_COLUMNS).
+/// The HRU tables a map can show, in the library's order (HRU_COLUMNS).
 const HRU_TABLES: [&str; 4] = ["hru_wb", "hru_nb", "hru_ls", "hru_pw"];
 const HOW: [&str; 4] = ["annual", "mean", "max", "sum"];
 
@@ -168,7 +168,7 @@ fn how_of(args: &Args, default: &str) -> Result<String> {
     }
 }
 
-/// A column by object, as landschaft's `_by_object`: the value of the average annual table, or the mean, the
+/// A column by object, as the library's `_by_object`: the value of the average annual table, or the mean, the
 /// largest or the sum of the daily ones (pandas' groupby on float32: the sum and the mean with Kahan's
 /// compensation).
 fn by_object(t: &Table, column: &str, how: &str) -> Result<Vec<(i64, f64)>> {
@@ -222,7 +222,7 @@ fn by_object(t: &Table, column: &str, how: &str) -> Result<Vec<(i64, f64)>> {
         .collect())
 }
 
-/// The values of a table of two columns, the number of the object and the value (landschaft's pandas Series).
+/// The values of a table of two columns, the number of the object and the value (the library's pandas Series).
 fn series_of(t: &Table) -> Result<Vec<(i64, f64)>> {
     if t.columns.len() < 2 {
         return Err(Error::msg("the table of values needs two columns: the number of the object and its value"));

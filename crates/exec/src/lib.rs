@@ -1,8 +1,8 @@
 //! Running a Terraflux model on one machine: its inputs read ([`load_inputs`]), its graph run node by node in
 //! the order of their dependencies ([`Engine::run`]), its outputs written ([`write_outputs`]).
 //!
-//! This is the exact engine: whole maps in memory, the kernels in the order landschaft runs them, so a model
-//! gives the same maps as `ls.simulate` with the same seed.
+//! This is the exact engine: whole maps in memory, the kernels in the order terraflux-py runs them, so a model
+//! gives the same maps as `tf.simulate` with the same seed.
 //!
 //! With a [`Cache`] ([`Engine::run_with`]) the outputs of the top-level nodes, and of the nodes of their groups,
 //! are kept between runs, and a node runs again only when it, a node it depends on, an input or a file it reads

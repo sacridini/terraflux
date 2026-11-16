@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""CoordinateCleaner's reference tables (landschaft's reference_data, read from CoordinateCleaner 3.0.1 on CRAN,
+"""CoordinateCleaner's reference tables (the library's reference_data, read from CoordinateCleaner 3.0.1 on CRAN,
 GPL-3) as the gzipped CSV files Terraflux carries inside its executable, crates/ops/data/sdm/*.csv.gz:
 
     python tools/make_sdm_refdata.py

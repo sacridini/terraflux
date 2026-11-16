@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! The tables SWAT+ prints, as landschaft lists them (its `hydro/swat/_tables.py`, generated from the SWAT+
+//! The tables SWAT+ prints, as terraflux-py lists them (its `hydro/swat/_tables.py`, generated from the SWAT+
 //! 62.0.1 output headers): the tag of the records of the daily table (+ 1, 2, 3 for the monthly, yearly and
 //! average annual ones), the object of a row, the columns and their units.
 

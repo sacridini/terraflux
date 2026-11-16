@@ -1,4 +1,4 @@
-//! prioritize.zonation_project against Zonation 5 v2.4: the projects of landschaft's 65 cases (settings.z5, the
+//! prioritize.zonation_project against Zonation 5 v2.4: the projects of the library's 65 cases (settings.z5, the
 //! feature list, link files, rasters; tests/data/reference/zonation_projects, tools/make_zonation_projects.py) read
 //! and run, their rank maps as the z5 binary's (extern/terraflux-py/tests/data/reference/prioritize) bit for bit;
 //! a post-processing file's calls one after another.
@@ -234,7 +234,7 @@ fn projects_write_post_and_impacts_as_zonation() {
 }
 
 /// The output files of every project that Zonation's LOAD tables exist for (`output`): the curves line by line as
-/// Zonation's (the header of feature_curves.csv names the features of a feature list with names, and landschaft's
+/// Zonation's (the header of feature_curves.csv names the features of a feature list with names, and the library's
 /// reference runs have none: its names are left out), rankmap.tif as the rank.
 #[test]
 fn projects_write_zonations_files() {

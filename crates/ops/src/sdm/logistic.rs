@@ -1,5 +1,5 @@
 //! A GLM of presence and background: scikit-learn's StandardScaler and LogisticRegression (an L2 penalty of
-//! 1 / (2 C) on the coefficients, not on the intercept), as landschaft's examples fit it. The optimum is found by
+//! 1 / (2 C) on the coefficients, not on the intercept), as the library's examples fit it. The optimum is found by
 //! Newton's method with the exact Hessian and a line search, to a tolerance far below lbfgs's: the coefficients
 //! scikit-learn converges to, within its own tolerance.
 

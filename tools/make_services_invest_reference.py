@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's nutrient delivery ratio, crop pollination and seasonal water yield models give, for
-Terraflux's tests: every case of landschaft's InVEST references of these models
+"""What the library's nutrient delivery ratio, crop pollination and seasonal water yield models give, for
+Terraflux's tests: every case of the library's InVEST references of these models
 (extern/terraflux-py/tests/data/reference/invest: ndr_*, pollination_*, swy_*, those compared bit for bit there),
-run as landschaft's tests run them; the inputs as landschaft reads them (missing cells NaN) and the outputs
+run as the library's tests run them; the inputs as terraflux-py reads them (missing cells NaN) and the outputs
 written to tests/data/reference/services_invest.npz (and the cases' settings to services_invest.json):
 
     python tools/make_services_invest_reference.py
 
-Run with the landschaft the submodule points at installed (1.54 or later).
+Run with the library the submodule points at installed (1.54 or later).
 """
 
 from __future__ import annotations

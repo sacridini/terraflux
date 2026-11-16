@@ -46,7 +46,7 @@ pub fn sequential(t: f32) -> Color32 {
     along(&STOPS, t)
 }
 
-/// A ramp of colours for continuous values, chosen by what the values are (as landschaft's plot does).
+/// A ramp of colours for continuous values, chosen by what the values are (as the library's plot does).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Ramp {
     /// Viridis: most values.
@@ -60,7 +60,7 @@ pub enum Ramp {
     Grey,
     /// Red to yellow to green: NDVI, EVI.
     Vegetation,
-    /// Dark to red: Zonation's priority ranks (the top fraction red), as landschaft's.
+    /// Dark to red: Zonation's priority ranks (the top fraction red), as the library's.
     Rank,
     /// Cividis: blue to yellow, the same to readers with any colour vision (Nuñez et al. 2018).
     Cividis,
@@ -437,7 +437,7 @@ impl Coloring {
             classes.sort_by(|a, b| a.partial_cmp(b).unwrap());
             return Coloring::Classes(classes.into_iter().enumerate().map(|(i, c)| (c, class_colour(i))).collect());
         }
-        // a ramp over the 2nd to the 98th percentiles (as landschaft's plot), centred on 0 when the values are on
+        // a ramp over the 2nd to the 98th percentiles (as the library's plot), centred on 0 when the values are on
         // both sides of it, much of each
         let (p2, p98) = percentiles_2_98(values).unwrap_or((lo, hi));
         if lo < 0.0 && hi > 0.0 && p2 < 0.0 && p98 > 0.0 && (-p2).min(p98) / (-p2).max(p98) > 0.2 {

@@ -1,4 +1,4 @@
-//! The comparisons of simulated and observed maps against landschaft's (tests/data/reference/map_validation.npz
+//! The comparisons of simulated and observed maps against the library's (tests/data/reference/map_validation.npz
 //! and .json, tools/make_map_validation_reference.py): lulcc's three-map comparison (tables, budget, figures of
 //! merit) at several resolutions, MOLUSCE's kappas and error budget, FUTURES' validation whole, by tiles and by
 //! regions; to the bit (MOLUSCE's correlation and joint information uncertainty, which numpy computes with BLAS
@@ -31,7 +31,7 @@ fn table(v: &Value, skip: usize) -> Vec<f64> {
 }
 
 #[test]
-fn validations_are_landschafts() {
+fn validations_match_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("map_validation.npz")).unwrap();
     let meta: serde_json::Value =

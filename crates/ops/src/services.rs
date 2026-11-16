@@ -1,4 +1,4 @@
-//! Ecosystem services: InVEST's models (natcap.invest 3.20) as landschaft reimplements them (`ls.services`), through
+//! Ecosystem services: InVEST's models (natcap.invest 3.20) as terraflux-py reimplements them (`ls.services`), through
 //! its C++ and with its arithmetic: carbon storage and sequestration, habitat quality (degradation, quality,
 //! rarity), annual water yield (with consumption and hydropower), and the sediment delivery ratio with its index of
 //! connectivity. The maps are InVEST's float32 (or float64) bits; numpy's float32 exp, sin and cos, which numpy
@@ -36,7 +36,7 @@ fn threads() -> i32 {
     crate::threads::current() as i32
 }
 
-/// A land use map: its integer codes, which cells have one, its grid (landschaft's LandUse).
+/// A land use map: its integer codes, which cells have one, its grid (the library's LandUse).
 struct LandUse<'a> {
     map: &'a Map,
     codes: Vec<i64>,
@@ -106,7 +106,7 @@ impl<'a> LandUse<'a> {
     }
 }
 
-/// A table by land use code (landschaft's lookup_table): the codes sorted and the columns (names not
+/// A table by land use code (the library's lookup_table): the codes sorted and the columns (names not
 /// case-sensitive), a vector per column.
 fn lookup(t: &Table, columns: &[&str], what: &str, index: &str) -> Result<(Vec<i64>, Vec<Vec<f64>>)> {
     let lower: Vec<String> = t.columns.iter().map(|c| c.trim().to_lowercase()).collect();
@@ -169,7 +169,7 @@ fn polygons(v: &Arc<Vector>, grid: &Grid) -> Result<Arc<Vector>> {
     Ok(v)
 }
 
-/// Statistics (landschaft's codes: 0 count, 2 sum) of maps in every polygon (the cells whose centre is inside):
+/// Statistics (the library's codes: 0 count, 2 sum) of maps in every polygon (the cells whose centre is inside):
 /// (polygons, maps, stats).
 fn zonal(v: &Vector, grid: &Grid, maps: &[&[f64]], stats: &[i32]) -> Result<Vec<f64>> {
     let geoms: Vec<&Geometry> = v.geometries.iter().collect();
@@ -1222,7 +1222,7 @@ fn sdr(args: &Args) -> Result<Outputs> {
     Ok(out)
 }
 
-/// The index of connectivity (`hydro.connectivity_index`): landschaft's ls.hydro.connectivity_index.
+/// The index of connectivity (`hydro.connectivity_index`): the library's tf.hydro.connectivity_index.
 pub fn connectivity_index(args: &Args) -> Result<Outputs> {
     let m = args.map("dem")?;
     let weight = args.map("weight")?;

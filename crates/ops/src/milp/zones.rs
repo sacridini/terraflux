@@ -1,4 +1,4 @@
-//! Management zones (prioritizr 8.0.6's zones, as landschaft compiles them): planning units that go to at most one
+//! Management zones (prioritizr 8.0.6's zones, as terraflux-py compiles them): planning units that go to at most one
 //! of several zones. Every zone has its own cost and its own amount of every feature (prioritizr's `zones()`, or
 //! the base features times every zone's contribution). The planning units are the cells (rows) with a cost in any
 //! zone; no cost in a zone keeps the unit out of it. The model has a column per unit and zone, zone after zone
@@ -72,7 +72,7 @@ impl Units {
 
     /// Raster units with zones: a cost raster per zone, and the features of every zone (zone after zone: layer
     /// z * features + f), or the base features and every zone's contribution (a factor per feature, or a raster).
-    /// The cells with a cost in any zone; the totals over the whole raster (terra's), through landschaft's
+    /// The cells with a cost in any zone; the totals over the whole raster (terra's), through the library's
     /// FeatureMatrix (a product formed in double, as terra multiplies two rasters).
     pub fn raster_zones(
         costs: &[&[f64]],
@@ -221,7 +221,7 @@ impl Units {
         Ok(u.with_zones(zones, blocks, zone_totals, base_totals))
     }
 
-    /// Polygon units with zones (landschaft's polygon_zone_units, prioritizr's sf units with zones()): a cost
+    /// Polygon units with zones (the library's polygon_zone_units, prioritizr's sf units with zones()): a cost
     /// column per zone; every zone's amounts in every polygon (zone x feature x polygon: exactextract's sums, below
     /// 1e-10 nothing), and the base features' with contributions. The polygons with a cost in any zone; the totals
     /// Matrix's rowSums over every polygon (added in order).
@@ -555,7 +555,7 @@ pub enum ZoneSpatial {
     /// in the zones z2 with zones[z1][z2] = 1
     Neighbors { k: Vec<f64>, clamp: bool, data: Option<Matrix>, zones: Option<Vec<Vec<f64>>> },
     /// add_contiguity_constraints(zones, data): the units of every cluster of connected zones form one patch
-    /// (landschaft's exact formulation)
+    /// (the library's exact formulation)
     Contiguity { data: Option<Matrix>, zones: Option<Vec<Vec<f64>>> },
 }
 

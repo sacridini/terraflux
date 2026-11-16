@@ -1,4 +1,4 @@
-//! The propagation of uncertainty against landschaft's (tests/data/reference/uncertainty.npz,
+//! The propagation of uncertainty against the library's (tests/data/reference/uncertainty.npz,
 //! tools/make_uncertainty_reference.py): totals and products of uncertain maps, confidence intervals, the delta
 //! method and Monte Carlo (numpy's normal draws, sums and quantiles), to the bit.
 
@@ -38,7 +38,7 @@ fn values(v: &Value) -> Vec<f64> {
 }
 
 #[test]
-fn uncertainty_is_landschafts() {
+fn uncertainty_matches_the_library() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let z = terraflux_raster::npy::read_npz(root.join("tests/data/reference/uncertainty.npz")).unwrap();
     let grid = Arc::new(Grid::new(31, 23));

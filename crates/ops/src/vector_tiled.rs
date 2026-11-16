@@ -1,12 +1,12 @@
 //! Vectors over rasters larger than memory: the statistics of zones, the values at points and the features burnt,
 //! by strips of rows read from the rasters on disk, with the same values as the rasters in memory.
 //!
-//! The zones' statistics are landschaft's `lsio::zonal_stats` on strips (zones whose rows fit a strip, their runs
+//! The zones' statistics are the library's `lsio::zonal_stats` on strips (zones whose rows fit a strip, their runs
 //! moved to it): each zone's statistics depend only on its runs and its cells (it is summed in blocks of runs of
 //! its own), so a strip gives the bits of the whole map. A zone too large for any strip is read run after run, its
 //! statistics summed as the C++ sums them (the same blocks, merged in the same order) and its order statistics
 //! from its values (or their counts, for whole numbers). The values at points are `lsio::extract` on the strips
-//! that hold them (with a row around for bilinear), as landschaft's extract of a dask raster. Features are burnt
+//! that hold them (with a row around for bilinear), as the library's extract of a dask raster. Features are burnt
 //! strip by strip into a GeoTIFF: polygons by their runs, lines by GDAL, points by their cell.
 
 use std::collections::BTreeMap;
@@ -106,7 +106,7 @@ fn extent(runs: &ffi::RunsOut, z: usize) -> Option<Extent> {
     Some(e)
 }
 
-/// landschaft's statistics of every zone (polygons burnt into runs on the layers' grid) and layer, as
+/// The library's statistics of every zone (polygons burnt into runs on the layers' grid) and layer, as
 /// `ffi::io_zonal_stats` gives them for the whole map: (zones, layers, stats). Strips of at most `budget` cells
 /// of a layer are read.
 pub fn zonal_stats(
@@ -167,7 +167,7 @@ pub fn zonal_stats(
     Ok(out)
 }
 
-/// The statistics of zones within a window, by landschaft's C++ on the window's cells (their runs moved to it).
+/// The statistics of zones within a window, by the library's C++ on the window's cells (their runs moved to it).
 fn window_stats(
     layers: &Layers,
     runs: &ffi::RunsOut,

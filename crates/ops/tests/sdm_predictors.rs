@@ -1,4 +1,4 @@
-//! The choice of predictors and the range of autocorrelation against landschaft's
+//! The choice of predictors and the range of autocorrelation against the library's
 //! (tests/data/reference/sdm_predictors.npz, .json and .gpkg, tools/make_sdm_predictors_reference.py): VIFs on a
 //! sampled projected grid, a lon/lat grid, a small grid and a table; selections by VIF, by correlation (with a
 //! predictor kept), Spearman's and within an area; the variograms' ranges, to the bit.
@@ -27,7 +27,7 @@ fn check(what: &str, got: &[f64], want: &[f64]) {
 const NAMES: [&str; 5] = ["p1", "p2", "p3", "p4", "p5"];
 
 #[test]
-fn predictors_are_landschafts() {
+fn predictors_match_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("sdm_predictors.npz")).unwrap();
     let meta: serde_json::Value =

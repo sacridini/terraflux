@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's bias_surface gives, for Terraflux's tests, written to tests/data/reference/sdm_bias.npz and
+"""What the library's bias_surface gives, for Terraflux's tests, written to tests/data/reference/sdm_bias.npz and
 .json:
 
     python tools/make_sdm_bias_reference.py

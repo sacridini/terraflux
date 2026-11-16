@@ -1,5 +1,5 @@
-//! The preparation of FUTURES' inputs (landschaft's simulate/_futures.py): the development pressure of the cells
-//! (r.futures.devpressure, its r.mfilter by landschaft's C++) and the library of the patches developed between two
+//! The preparation of FUTURES' inputs (the library's simulate/_futures.py): the development pressure of the cells
+//! (r.futures.devpressure, its r.mfilter by the library's C++) and the library of the patches developed between two
 //! maps (r.futures.calib's patch library), which futures.simulation takes.
 
 use std::sync::Arc;
@@ -49,7 +49,7 @@ fn weights(size: usize, method: &str, gamma: f64, scaling: f64) -> Vec<f64> {
         .collect()
 }
 
-/// The development pressure of every cell (landschaft's development_pressure).
+/// The development pressure of every cell (the library's development_pressure).
 #[allow(clippy::too_many_arguments)]
 pub fn development_pressure(
     v: &[f64],
@@ -215,7 +215,7 @@ fn new_development(m0: &Map, m1: &Map, sub: Option<&Map>) -> Vec<bool> {
         .collect()
 }
 
-/// The patch library of two maps (landschaft's patch_library): { ids, lists } as futures.simulation's
+/// The patch library of two maps (the library's patch_library): { ids, lists } as futures.simulation's
 /// patch_sizes, and as a table (subregion, size).
 pub fn patch_library(
     m0: &Map,
@@ -280,7 +280,7 @@ pub fn patch_library(
     }
 }
 
-/// The area and perimeter of every 4-connected patch of a mask (landschaft's _patch_geometry: r.clump and
+/// The area and perimeter of every 4-connected patch of a mask (the library's _patch_geometry: r.clump and
 /// r.object.geometry -m), in the order of their labels: a cell's edge on another patch or outside adds its length
 /// (ew above and below, ns left and right).
 fn patch_geometry(mask: &[bool], ny: usize, nx: usize, ew: f64, ns: f64) -> Vec<[f64; 2]> {
@@ -343,7 +343,7 @@ fn histogram(values: &[f64], bins: usize, (lo, hi): (f64, f64)) -> std::result::
     Ok((0..bins).map(|i| n[i] as f64 / (edges[i + 1] - edges[i]) / total as f64 * 100.0).collect())
 }
 
-/// The histograms' chi-square distance (landschaft's _compare_histograms): half the sum, over the bins not empty
+/// The histograms' chi-square distance (the library's _compare_histograms): half the sum, over the bins not empty
 /// in both, of (a - b)^2 / (a + b), numpy's.
 fn compare_histograms(a: &[f64], b: &[f64]) -> f64 {
     let v: Vec<f64> =
@@ -462,7 +462,7 @@ impl Operator for Calibrate {
                         let mut ins = inputs.clone();
                         ins.insert("seed".into(), Value::Integer(s * 10000 + i));
                         let sim_args = Args { node, inputs: ins, params: &p };
-                        // the runs' warnings left out, as landschaft's
+                        // the runs' warnings left out, as the library's
                         let run = crate::futures::simulate(&mut Ctx::default(), &settings, &sim_args)?;
                         let last = run.development.last().ok_or_else(|| err("the demand has no steps".into()))?;
                         let developed: Vec<bool> = last.data.iter().map(|&v| !v.is_nan() && v > 0.0).collect();

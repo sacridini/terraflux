@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's comparisons of simulated and observed maps give, for Terraflux's tests, written to
+"""What the library's comparisons of simulated and observed maps give, for Terraflux's tests, written to
 tests/data/reference/map_validation.npz and .json:
 
     python tools/make_map_validation_reference.py

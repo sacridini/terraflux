@@ -20,7 +20,7 @@ pub fn crosstab(a: &Map, b: &Map, classes: &[f64]) -> Result<Vec<f64>> {
     Ok(ffi::crosstab(&a.data, &b.data, classes, classes)?.into_iter().map(|v| v as f64).collect())
 }
 
-/// The chain of the change from `t0` to `t1` over `steps` time steps (landschaft's `Markov.from_maps`).
+/// The chain of the change from `t0` to `t1` over `steps` time steps (the library's `Markov.from_maps`).
 pub fn fit(t0: &Map, t1: &Map, steps: usize) -> Result<Markov> {
     if t0.data.len() != t1.data.len() {
         return Err(Error::msg("the two maps differ in size"));

@@ -1,6 +1,6 @@
 //! Landscape metrics of sample plots (landscapemetrics' sample_lsm and scale_sample), square zones tiling a map
-//! (landschaft's grid_zones), series of maps (pylandstats' SpatioTemporalAnalysis) and the correlation of
-//! metrics (landscapemetrics' calculate_correlation, R's cor), by landschaft's C++.
+//! (the library's grid_zones), series of maps (pylandstats' SpatioTemporalAnalysis) and the correlation of
+//! metrics (landscapemetrics' calculate_correlation, R's cor), by the library's C++.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -465,7 +465,7 @@ impl Operator for Sample {
 }
 
 /// Squares of a side tiling a grid from its top-left corner (partial squares at the right and bottom), row by
-/// row, as landschaft's grid_zones.
+/// row, as the library's grid_zones.
 fn grid_zones(grid: &Grid, size: f64) -> Vec<Plot> {
     let t = grid.transform;
     let (xmin, ymax) = (t[0], t[3]);
@@ -846,7 +846,7 @@ impl Operator for Signatures {
         }
         let mut table = Table::new(columns);
         for (i, (values, by_class)) in rows {
-            // a zone without classes has no class metrics in landschaft's table
+            // a zone without classes has no class metrics in the library's table
             if land.is_empty() && by_class.is_empty() {
                 continue;
             }

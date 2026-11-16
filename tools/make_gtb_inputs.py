@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The maps GuidosToolbox's reference outputs were made from, for Terraflux's tests of the GTB operators.
 
-landschaft keeps GTB's outputs as digests (extern/terraflux-py/tests/data/reference/idl_reference.json) of maps
+terraflux-py keeps GTB's outputs as digests (extern/terraflux-py/tests/data/reference/idl_reference.json) of maps
 its tools draw with numpy; this writes those maps, with the names the digests use, into
 tests/data/reference/gtb_inputs.npz so that Rust can run the same cases:
 
     python tools/make_gtb_inputs.py
 
-Needs numpy, scipy and rasterio (landschaft's test scenes).
+Needs numpy, scipy and rasterio (the library's test scenes).
 """
 
 from __future__ import annotations

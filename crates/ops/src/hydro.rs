@@ -1,9 +1,9 @@
-//! Terrain hydrology through landschaft's C++ (its `ls.hydro`): depression filling (Priority-Flood) and breaching
+//! Terrain hydrology through the library's C++ (its `tf.hydro`): depression filling (Priority-Flood) and breaching
 //! (least cost), flow directions (D8, D-infinity, pygeoprocessing's multiple flow directions), flow accumulation
 //! (D8, D-infinity, FD8, Quinn's, MFD), streams, the distance to them, HAND, stream links with their table,
 //! watersheds and the wetness, stream power and sediment transport indices. WhiteboxTools' algorithms cell for cell
 //! where it has them, pygeoprocessing's (the InVEST models' routing) for the multiple flow directions; the same bits
-//! as landschaft's.
+//! as the library's.
 
 use std::sync::Arc;
 
@@ -38,11 +38,11 @@ const OPS: [&str; 13] = [
 /// The block pygeoprocessing iterates a DEM by (the order its routing visits the cells).
 pub const MFD_BLOCK: i32 = 256;
 
-/// ESRI's D8 codes by landschaft's neighbour index (0 NE, 1 E ... 7 N).
+/// ESRI's D8 codes by the library's neighbour index (0 NE, 1 E ... 7 N).
 const ESRI: [f64; 8] = [128.0, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0];
 
 /// A DEM as the kernels take it: its values, size and cell sizes (metres at the centre latitude for longitude /
-/// latitude, as landschaft's _cells).
+/// latitude, as the library's _cells).
 pub struct Dem<'a> {
     pub z: &'a [f64],
     pub ny: i32,
@@ -138,7 +138,7 @@ fn same<'a>(dem: &Map, m: &'a Map, what: &str) -> Result<&'a [f64]> {
     Ok(&m.data)
 }
 
-/// Weights with no value counted as 0, as landschaft's flow_accumulation.
+/// Weights with no value counted as 0, as the library's flow_accumulation.
 fn weights_of(args: &Args, dem: &Map) -> Result<Vec<f64>> {
     match args.opt_map("weights")? {
         None => Ok(Vec::new()),
@@ -552,7 +552,7 @@ fn streams(args: &Args) -> Result<Outputs> {
     Ok(outputs([("map", Value::Map(Map::new(acc.grid.clone(), out)))]))
 }
 
-/// tan(slope) by Horn (1981); a missing or outside neighbour takes the cell's own value (landschaft's _tan_slope).
+/// tan(slope) by Horn (1981); a missing or outside neighbour takes the cell's own value (the library's _tan_slope).
 fn tan_slope(d: &Dem) -> Vec<f64> {
     let (ny, nx) = (d.ny as isize, d.nx as isize);
     let at = |r: isize, c: isize, centre: f64| -> f64 {
@@ -577,7 +577,7 @@ fn tan_slope(d: &Dem) -> Vec<f64> {
     out
 }
 
-/// The wetness, stream power or sediment transport index (landschaft's twi, spi, sti).
+/// The wetness, stream power or sediment transport index (the library's twi, spi, sti).
 fn index(op: &str, args: &Args, m: &Map, d: &Dem, flats: bool) -> Result<Vec<f64>> {
     let method: String = args.param("method", "fd8".to_string())?;
     let a = match args.opt_map("sca")? {
@@ -624,7 +624,7 @@ fn index(op: &str, args: &Args, m: &Map, d: &Dem, flats: bool) -> Result<Vec<f64
 const DROW: [i64; 8] = [-1, 0, 1, 1, 1, 0, -1, -1];
 const DCOL: [i64; 8] = [1, 1, 1, 0, -1, -1, -1, 0];
 
-/// The cell each cell drains to (-1: none, off the map or missing), as landschaft's _down.
+/// The cell each cell drains to (-1: none, off the map or missing), as the library's _down.
 pub(crate) fn down(d: &[i8], ny: i64, nx: i64) -> Vec<i64> {
     let mut out = vec![-1; d.len()];
     for (i, &k) in d.iter().enumerate() {
@@ -639,7 +639,7 @@ pub(crate) fn down(d: &[i8], ny: i64, nx: i64) -> Vec<i64> {
     out
 }
 
-/// The stream cell each outlet point stands for (landschaft's snap_outlets): the nearest stream cell within the
+/// The stream cell each outlet point stands for (the library's snap_outlets): the nearest stream cell within the
 /// distance, of equally near ones the one with the largest accumulation (when given), then the first in raster order.
 pub(crate) fn snap(
     points: &[[f64; 2]],
@@ -718,7 +718,7 @@ fn stream_links(args: &Args, m: &Map, d: &Dem, flats: bool) -> Result<Outputs> {
     Ok(outputs([("map", Value::Map(Map::new(m.grid.clone(), map))), ("table", Value::Table(table))]))
 }
 
-/// landschaft's _link_table: by link, its downstream link, outlet, first and last cell, cells, length, elevations
+/// The library's _link_table: by link, its downstream link, outlet, first and last cell, cells, length, elevations
 /// and Strahler order.
 pub(crate) fn link_table(d: &Dem, dir: &[i8], links: &ffi::HydroLinks, breaks: &[u8]) -> Table {
     let (ny, nx) = (i64::from(d.ny), i64::from(d.nx));

@@ -1,6 +1,6 @@
 //! Landscape metrics of sample plots against landscapemetrics' sample_lsm and scale_sample (the plots and results
-//! landschaft keeps in extern/terraflux-py/tests/data/reference/lsm_sample), the correlation of metrics against its
-//! calculate_correlation (reference/lsm_utils), and the series and grid zones against landschaft
+//! terraflux-py keeps in extern/terraflux-py/tests/data/reference/lsm_sample), the correlation of metrics against its
+//! calculate_correlation (reference/lsm_utils), and the series and grid zones against terraflux-py
 //! (tests/data/reference/lsm_series.json, tools/make_lsm_reference.py).
 
 use std::collections::BTreeMap;
@@ -13,13 +13,13 @@ use terraflux_ops::value::{Key, Stack};
 use terraflux_ops::{Args, Ctx, Map, Outputs, Registry, Table, Value};
 use terraflux_raster::vector::{Column, Geometry, Vector, Xy};
 
-/// Tolerances and bits of landschaft's own comparison (tests/test_lsm_reference.py).
+/// Tolerances and bits of the library's own comparison (tests/test_lsm_reference.py).
 const RTOL: f64 = 1e-10;
 const ATOL: f64 = 1e-14;
 const ULPS: u64 = 128;
 const NOT_BITWISE: [&str; 3] = ["circle", "gyrate", "enn"];
 
-fn landschaft() -> PathBuf {
+fn library() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/tests/data")
 }
 
@@ -141,16 +141,16 @@ fn of_nan(v: f64) -> Option<i64> {
     if v.is_nan() { None } else { Some(v as i64) }
 }
 
-/// Every landscapemetrics metric landschaft has, at every level, on the plots landschaft keeps: the same rows,
+/// Every landscapemetrics metric terraflux-py has, at every level, on the plots terraflux-py keeps: the same rows,
 /// values (to the bit, but for the metrics R gives at random) and shares of the plots inside the map.
 #[test]
 fn samples_are_landscapemetrics() {
-    let dir = landschaft().join("reference/lsm_sample");
+    let dir = library().join("reference/lsm_sample");
     let manifest: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("manifest.json")).unwrap()).unwrap();
     let mut cases = 0;
     for (fname, info) in manifest["files"].as_object().unwrap() {
-        let map = read_map(&landschaft().join("lsm").join(info["input"].as_str().unwrap()));
+        let map = read_map(&library().join("lsm").join(info["input"].as_str().unwrap()));
         let mut params = serde_json::Map::new();
         let mut vector = false;
         for (k, v) in info["options"].as_object().unwrap() {
@@ -167,7 +167,7 @@ fn samples_are_landscapemetrics() {
             }
         }
         // the map's coordinate system as GDAL reads it (a projection of its own: no EPSG code)
-        let path = landschaft().join("lsm").join(info["input"].as_str().unwrap());
+        let path = library().join("lsm").join(info["input"].as_str().unwrap());
         let crs = if vector { terraflux_gdal::Dataset::open(&path).unwrap().meta.grid.geo.wkt.clone() } else { None };
         assert!(!vector || crs.is_some(), "{fname}: the map's coordinate system");
         let v = plots(&dir.join(info["plots"].as_str().unwrap()), crs);
@@ -175,7 +175,7 @@ fn samples_are_landscapemetrics() {
             params.insert("id_column".into(), "plot_id".into());
         }
         let several = params.get("size").is_some_and(|s| s.is_array());
-        // R's rows: only the metrics landschaft has
+        // R's rows: only the metrics terraflux-py has
         let text = gunzip(&dir.join(fname));
         let mut lines = text.lines();
         let header = fields(lines.next().unwrap());
@@ -269,13 +269,13 @@ fn samples_are_landscapemetrics() {
 /// calculate_correlation's lower triangles (column by column, as R) of patch, class and landscape metrics.
 #[test]
 fn correlations_are_landscapemetrics() {
-    let dir = landschaft().join("reference/lsm_utils");
+    let dir = library().join("reference/lsm_utils");
     // (its neighbourhood has NaN, which JSON has not)
     let text = std::fs::read_to_string(dir.join("manifest.json")).unwrap().replace("NaN", "null");
     let manifest: serde_json::Value = serde_json::from_str(&text).unwrap();
     let mut compared = 0;
     for (case, info) in manifest["files"].as_object().unwrap() {
-        let map = read_map(&landschaft().join("lsm").join(info["input"].as_str().unwrap()));
+        let map = read_map(&library().join("lsm").join(info["input"].as_str().unwrap()));
         let mut tables = Vec::new();
         for (op, metrics) in [
             ("metrics.patch", vec!["area", "perim", "shape", "frac", "contig", "enn"]),
@@ -294,7 +294,7 @@ fn correlations_are_landscapemetrics() {
                 .into_iter()
                 .chain(manifest["stack"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()));
             for name in names {
-                let m = read_map(&landschaft().join("lsm").join(name));
+                let m = read_map(&library().join("lsm").join(name));
                 let p = serde_json::json!({"metrics": ["ta", "np", "shdi", "contag", "ed", "area_mn"]});
                 let t = table(&run("metrics.landscape", vec![("map", Value::Map(m))], p), "table");
                 columns = t.columns;
@@ -349,8 +349,8 @@ fn num(v: &serde_json::Value) -> f64 {
 
 /// grid_zones' squares, every coordinate.
 #[test]
-fn grid_zones_are_landschafts() {
-    let map = read_map(&landschaft().join("lsm/augusta.tif"));
+fn grid_zones_match_the_library() {
+    let map = read_map(&library().join("lsm/augusta.tif"));
     for case in series_reference()["grid_zones"].as_array().unwrap() {
         let out =
             run("vector.grid_zones", vec![("map", Value::Map(map.clone()))], serde_json::json!({"size": case["size"]}));
@@ -367,10 +367,10 @@ fn grid_zones_are_landschafts() {
 
 /// SpatioTemporalAnalysis' tables of landscape and class metrics, of the maps and of a grid of zones.
 #[test]
-fn series_are_landschafts() {
+fn series_match_the_library() {
     let reference = series_reference();
     let s = &reference["series"];
-    let a = read_map(&landschaft().join("lsm/augusta.tif"));
+    let a = read_map(&library().join("lsm/augusta.tif"));
     // the change of tools/make_lsm_reference.py
     let nx = a.grid.width;
     let b: Vec<f64> = a

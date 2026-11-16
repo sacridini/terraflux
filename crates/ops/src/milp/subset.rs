@@ -1,4 +1,4 @@
-//! landschaft's subset search (prioritize/_milp_subset.py and `_wide_then_subset` of _milp_solve.py) for the
+//! The library's subset search (prioritize/_milp_subset.py and `_wide_then_subset` of _milp_solve.py) for the
 //! budgeted objectives that reward meeting targets (maximum features, maximum phylogenetic diversity and
 //! endemism): the wide engine first (its bound, a first solution) for a share of the time limit, then a local
 //! search over the set of targets met. A set of targets is priced by a minimum set over their rows on the covering
@@ -333,7 +333,7 @@ fn improve(
 }
 
 /// Budgeted objectives that reward the targets met: the wide engine (its bound, a first solution), then a local
-/// search over the set of targets met for the rest of the time (landschaft's `_wide_then_subset`). None when the
+/// search over the set of targets met for the rest of the time (the library's `_wide_then_subset`). None when the
 /// model is not of that form (a maximisation of target rewards under one budget).
 pub(super) fn wide_then_subset(
     m: &Model,
@@ -370,7 +370,7 @@ pub(super) fn wide_then_subset(
     Some(Ok(r))
 }
 
-/// landschaft's `improve_subset` from a selection of the units (`units`: their values), until no move helps: the
+/// The library's `improve_subset` from a selection of the units (`units`: their values), until no move helps: the
 /// best solution found and its objective, None if none is better than the selection's own; an error when the model
 /// is not of the subset search's form.
 pub(super) fn improve_from(m: &Model, n: usize, units: &[f64], run: &Run) -> Result<Option<(Vec<f64>, f64)>, String> {

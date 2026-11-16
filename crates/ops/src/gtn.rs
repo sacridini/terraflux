@@ -1,4 +1,4 @@
-//! GuidosToolbox's network analysis of an MSPA map (GTN), as landschaft's gtn module: the components of the
+//! GuidosToolbox's network analysis of an MSPA map (GTN), as the library's gtn module: the components of the
 //! network of cores (nodes) and bridges (links), its equivalent connected area and coherence
 //! (`networks.gtn_components`); the importance of every link and stepping-stone node, the loss of connectivity
 //! (dPC) without it (`networks.gtn_importance`); the network as Conefor Sensinode's inputs (`networks.conefor`).
@@ -108,7 +108,7 @@ impl Network {
         (c, b)
     }
 
-    /// The nodes every link touches (8 neighbours), as landschaft's extract_node_link_contacts.
+    /// The nodes every link touches (8 neighbours), as the library's extract_node_link_contacts.
     fn contacts(&self) -> BTreeMap<usize, BTreeSet<usize>> {
         let (ny, nx) = self.shape;
         let mut out: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();

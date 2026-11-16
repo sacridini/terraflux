@@ -1,4 +1,4 @@
-//! Biodiverse's spatial conditions on shapefiles against landschaft's (tests/data/reference/bio_shapes.json, the
+//! Biodiverse's spatial conditions on shapefiles against the library's (tests/data/reference/bio_shapes.json, the
 //! polygons in bio_shapes.gpkg and .shp, tools/make_bio_shapes_reference.py): sp_point_in_poly_shape (every
 //! feature, an attribute's text or number, a position, negated, the processing group's coordinates, other axes)
 //! as definition queries and neighbourhoods, and sp_points_in_same_poly_shape alone and with a circle.
@@ -25,7 +25,7 @@ fn ints(v: &Json) -> Vec<i64> {
 }
 
 #[test]
-fn shape_conditions_are_landschafts() {
+fn shape_conditions_match_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let text = std::fs::read_to_string(dir.join("bio_shapes.json")).unwrap();
     let base = dir.canonicalize().unwrap().to_string_lossy().replace('\\', "/");

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""landschaft's fit with scikit-learn's models (a GLM: StandardScaler and LogisticRegression; random forests:
+"""The library's fit with scikit-learn's models (a GLM: StandardScaler and LogisticRegression; random forests:
 RandomForestClassifier), for Terraflux's tests of sdm.fit's glm and random_forest, written to
 tests/data/reference/sdm_models.npz and .json:
 

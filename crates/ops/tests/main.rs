@@ -1,5 +1,5 @@
 //! The integration tests of the operators in one program (each file a module): every test program links
-//! landschaft's C++ whole, so one program instead of one per file keeps `target` and the links small.
+//! the library's C++ whole, so one program instead of one per file keeps `target` and the links small.
 //! `circuit_ini` is a program of its own: it changes the process's folder (Circuitscape's INI files name theirs
 //! relative to it).
 

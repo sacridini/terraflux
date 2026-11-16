@@ -1,4 +1,4 @@
-//! Weather for a SWAT+ project from tables (landschaft's `hydro/swat/_weather.py`, bit for bit): observed daily
+//! Weather for a SWAT+ project from tables (the library's `hydro/swat/_weather.py`, bit for bit): observed daily
 //! series as the SWAT+ Editor's weather import writes them (`*.pcp`, `*.tmp`, `*.slr`, `*.hmd`, `*.wnd` and their
 //! `*.cli` lists, -99 for missing days), and the weather generator statistics (`weather-wgn.cli`, SWAT's WXGEN
 //! parameters) computed from the series (`swat.wgn`) or given. The sums, means and standard deviations are numpy's
@@ -148,7 +148,7 @@ pub fn py_list(v: &[String]) -> String {
     format!("[{}]", v.iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(", "))
 }
 
-/// A table of daily series (landschaft's `_frame`): the dates in a column `date` (2001-01-31 as text, or 20010131)
+/// A table of daily series (the library's `_frame`): the dates in a column `date` (2001-01-31 as text, or 20010131)
 /// or in `year` and `day` (of the year), a column per station, NaN for a missing day. The dates are sorted.
 pub fn frame_of(t: &Table, what: &str, stations: Option<&Stations>) -> Result<Frame> {
     let date = col_of(t, "date");
@@ -344,7 +344,7 @@ fn dew_series(hmd: &Frame, st: &str, tmax: &Frame, tmin: &Frame) -> Result<Vec<(
     Ok(out)
 }
 
-/// SWAT's weather generator statistics (WXGEN) of each station from daily series (landschaft's
+/// SWAT's weather generator statistics (WXGEN) of each station from daily series (the library's
 /// `wgn_from_series`): by calendar month over all years, the means and standard deviations of the maximum and
 /// minimum temperature, the mean monthly precipitation, the standard deviation and skew of the daily
 /// precipitation, the probabilities of a wet day after a dry and a wet day, the mean number of wet days and the
@@ -502,7 +502,7 @@ pub fn wgn_rows_of(t: &Table) -> Result<Vec<WgnRow>> {
 
 // ------------------------------------------------------------------------------------------------ the climate
 
-/// The weather of a SWAT+ project (landschaft's `SwatClimate`).
+/// The weather of a SWAT+ project (the library's `SwatClimate`).
 #[derive(Debug, Clone)]
 pub struct Climate {
     pub stations: Stations,
@@ -533,7 +533,7 @@ pub struct WgnStation {
     pub months: Vec<(i64, [f64; 14])>,
 }
 
-/// The weather of a project from tables (landschaft's `climate`).
+/// The weather of a project from tables (the library's `climate`).
 pub fn climate(
     stations: &Table,
     series: &[(&'static str, Option<&Table>)],

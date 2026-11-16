@@ -1,11 +1,11 @@
-//! Multi-action planning (prioriactions 0.5.0, Salgado-Rojas et al. 2020), through landschaft's C++: which
+//! Multi-action planning (prioriactions 0.5.0, Salgado-Rojas et al. 2020), through the library's C++: which
 //! planning units to monitor and which actions against which threats to take in them so that the features recover
 //! (or are kept) to their targets at the least cost (minimizeCosts), or recover the most within a budget
 //! (maximizeBenefits). The inputs are checked and completed as prioriactions's inputData(), the model is
 //! problem()'s bit for bit, the solution's figures solve()'s, getCost()'s, getSolutionBenefit()'s,
 //! getPotentialBenefit()'s, getConnectivityPenalty()'s and getActions()'s.
 //!
-//! As landschaft, only the correct forms of prioriactions's slips: with no status in dist_threats the actions are
+//! As terraflux-py, only the correct forms of prioriactions's slips: with no status in dist_threats the actions are
 //! free (prioriactions resets the units' status there); the maximum conservation benefit is the feature's amount
 //! (not the units); the lock-in budget check indexes the units by position.
 
@@ -394,7 +394,7 @@ pub fn compile(d: &ActionsData, s: &ffi::ActionsSettings) -> std::result::Result
     ffi::actions_compile(&d.input, s).map_err(|e| e.what().to_string())
 }
 
-/// The problem on Gurobi, as landschaft's ActionsProblem.solve: curve 1 on the equivalent model (the benefit columns
+/// The problem on Gurobi, as the library's ActionsProblem.solve: curve 1 on the equivalent model (the benefit columns
 /// substituted; the pairs' benefits then from the rounded units and actions), else prioriactions's model with the
 /// activation rows per action and the response curves as pieces.
 fn gurobi_solve(

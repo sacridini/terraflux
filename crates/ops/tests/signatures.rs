@@ -1,4 +1,4 @@
-//! Spatial signatures against landschaft's SpatialSignatureAnalysis (tests/data/reference/lsm_signatures.json,
+//! Spatial signatures against the library's SpatialSignatureAnalysis (tests/data/reference/lsm_signatures.json,
 //! tools/make_signature_reference.py): the table of square zones of augusta.tif to the bit, numpy's generator to
 //! the bit, the clusters label by label, the components, factors and means to LAPACK's rounding.
 
@@ -34,7 +34,7 @@ fn table(out: &Outputs, port: &str) -> Table {
     t.clone()
 }
 
-/// landschaft's signature table, its zones as keys.
+/// The library's signature table, its zones as keys.
 fn signatures() -> Table {
     let r = reference();
     let mut columns = vec!["zone".to_string()];
@@ -88,7 +88,7 @@ fn numpy_generator_is_numpys() {
 
 /// The signatures of square zones of augusta.tif: landscape metrics and pland per class, to the bit.
 #[test]
-fn signature_table_is_landschafts() {
+fn signature_table_matches_the_library() {
     let r = reference();
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/tests/data/lsm/augusta.tif");
     let raster = terraflux_raster::Raster::read(&path).unwrap();
@@ -107,7 +107,7 @@ fn signature_table_is_landschafts() {
 }
 
 #[test]
-fn pca_is_landschafts() {
+fn pca_matches_the_library() {
     let r = reference();
     let out = run("metrics.pca", vec![("table", Value::Table(signatures()))], serde_json::json!({}));
     let scores = table(&out, "scores");
@@ -121,7 +121,7 @@ fn pca_is_landschafts() {
     let explained: Vec<Vec<f64>> = loadings.rows.iter().map(|row| vec![row[1]]).collect();
     let want: Vec<Vec<f64>> = r["pca"]["explained"].as_array().unwrap().iter().map(|v| vec![num(v)]).collect();
     assert_close(&explained, &want, 1e-12, 1e-15, "explained");
-    // a metric per row in landschaft, a component per row here
+    // a metric per row in terraflux-py, a component per row here
     let ours: Vec<Vec<f64>> = values(&loadings, 2);
     let theirs = matrix(&r["pca"]["loadings"]);
     let theirs: Vec<Vec<f64>> = (0..ours.len()).map(|c| theirs.iter().map(|row| row[c]).collect()).collect();
@@ -129,7 +129,7 @@ fn pca_is_landschafts() {
 }
 
 #[test]
-fn nmf_is_landschafts() {
+fn nmf_matches_the_library() {
     for case in reference()["nmf"].as_array().unwrap() {
         let k = case["k"].as_u64().unwrap();
         let out = run("metrics.nmf", vec![("table", Value::Table(signatures()))], serde_json::json!({"factors": k}));
@@ -145,7 +145,7 @@ fn nmf_is_landschafts() {
 }
 
 #[test]
-fn clusters_are_landschafts() {
+fn clusters_match_the_library() {
     for case in reference()["cluster"].as_array().unwrap() {
         let mut p = serde_json::json!({"k": case["k"], "method": case["method"]});
         for (from, to) in [("seed", "seed"), ("n_init", "n_init"), ("n_components", "components")] {
@@ -162,7 +162,7 @@ fn clusters_are_landschafts() {
 }
 
 #[test]
-fn clustergrams_are_landschafts() {
+fn clustergrams_match_the_library() {
     for case in reference()["clustergram"].as_array().unwrap() {
         let p = serde_json::json!({
             "method": case["method"], "pca_weighted": case["pca_weighted"], "k_min": 1, "k_max": 6,

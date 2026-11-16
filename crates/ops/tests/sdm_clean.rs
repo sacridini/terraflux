@@ -1,4 +1,4 @@
-//! The cleaning of occurrence records against landschaft's (tests/data/reference/sdm_clean.npz, .json, .gpkg and
+//! The cleaning of occurrence records against the library's (tests/data/reference/sdm_clean.npz, .json, .gpkg and
 //! the records sdm_clean_<case>.csv, tools/make_sdm_clean_reference.py): CoordinateCleaner's tests with their
 //! defaults and other options on records near each kind of reference, on the vertices of the circles, at the
 //! antimeridian and the south pole, on acaule's records and on a species of more than 10 000 records, every flag
@@ -19,7 +19,7 @@ fn run(op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value) -> Outpu
 }
 
 #[test]
-fn flags_are_landschafts() {
+fn flags_match_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("sdm_clean.npz")).unwrap();
     let meta: serde_json::Value =

@@ -1,4 +1,4 @@
-//! The modelling workflow against landschaft's (tests/data/reference/sdm_workflow.npz and .json,
+//! The modelling workflow against the library's (tests/data/reference/sdm_workflow.npz and .json,
 //! tools/make_sdm_workflow_reference.py): the dataset, random folds and spatial blocks on it, MaxNet fitted with
 //! cross-validation over them (every fold's metrics, their means and standard deviations, the threshold, the
 //! out-of-fold predictions and the coefficients), the response curves and the permutation importance, to the bit.
@@ -36,7 +36,7 @@ fn flat(v: &Value) -> Vec<f64> {
 }
 
 #[test]
-fn workflow_is_landschafts() {
+fn workflow_matches_the_library() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
     let z = terraflux_raster::npy::read_npz(dir.join("sdm_workflow.npz")).unwrap();
     let meta: serde_json::Value =
@@ -96,7 +96,7 @@ fn workflow_is_landschafts() {
             serde_json::json!({"n": 25, "fixed": fixed}),
         );
         let Value::Table(t) = &c["curves"] else { panic!() };
-        // landschaft's rows per predictor: value, suitability
+        // The library's rows per predictor: value, suitability
         let got: Vec<f64> =
             (0..t.columns.len() / 2).flat_map(|p| t.rows.iter().flat_map(move |r| [r[2 * p], r[2 * p + 1]])).collect();
         check(&format!("curves {fixed}"), &got, &z[&format!("curves_{fixed}")].data);

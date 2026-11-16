@@ -1,4 +1,4 @@
-//! Sampling-bias surfaces (landschaft's bias_surface): the records of a whole taxonomic group as a Gaussian
+//! Sampling-bias surfaces (the library's bias_surface): the records of a whole taxonomic group as a Gaussian
 //! kernel density on the grid of the predictors, MASS::kde2d's product of two normal kernels at the cells'
 //! centres, with R's bw.nrd in each direction by default. The bias of `sdm.background` (Maxent's bias file).
 
@@ -10,7 +10,7 @@ use crate::change::numpy_sum;
 
 /// dnorm(u) underflows to 0 beyond |u| ~ 38.6: the cells beyond 40 bandwidths of a point add nothing.
 const REACH: f64 = 40.0;
-/// The points summed at once, sorted by y (landschaft's blocks).
+/// The points summed at once, sorted by y (the library's blocks).
 const CHUNK: usize = 512;
 
 /// How the kernel's standard deviations are chosen.

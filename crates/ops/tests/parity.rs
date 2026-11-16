@@ -1,10 +1,10 @@
-//! prioritize.optimize against landschaft on the same data, with the same solver (HiGHS, its default routing, 4
+//! prioritize.optimize against terraflux-py on the same data, with the same solver (HiGHS, its default routing, 4
 //! threads): every objective on every kind of planning unit (raster cells, tables, Marxan's rij, polygons, H3
-//! hexagons; management zones on rasters and tables), on landschaft's optimize cases and on a larger set of rasters
+//! hexagons; management zones on rasters and tables), on the library's optimize cases and on a larger set of rasters
 //! (tests/data/reference/optimize_parity.json, tools/make_optimize_parity_reference.py). Each case: the compiled model
-//! is landschaft's (size and sums), the status and objective are its (within the gap asked), the units selected are
+//! is the library's (size and sums), the status and objective are its (within the gap asked), the units selected are
 //! its where the optimum is unique, and the time is at most 1.5 times its plus a quarter of a second. The
-//! `*_anneal_*` cases are landschaft's anneal solver with a seed: the same units and objective; the `*_corridors_*`
+//! `*_anneal_*` cases are the library's anneal solver with a seed: the same units and objective; the `*_corridors_*`
 //! ones have corridor constraints.
 //!
 //! Release builds, one test at a time, four threads (the times mean nothing otherwise):
@@ -130,7 +130,7 @@ impl Set {
     }
 }
 
-/// The tables of landschaft's cases (null: no value).
+/// The tables of the library's cases (null: no value).
 fn tables(file: &str) -> BTreeMap<String, Table> {
     #[derive(serde::Deserialize)]
     struct Raw {
@@ -238,7 +238,7 @@ fn problem_of(
         }
         h3 if h3.starts_with("h3_") => {
             gdal()?;
-            // landschaft's hexagons as they are (the cases lie at x = 0 of UTM zone 23S, latitude -85, where the
+            // The library's hexagons as they are (the cases lie at x = 0 of UTM zone 23S, latitude -85, where the
             // transverse Mercator of PROJ 9.5.1 and 9.7.1 differ by 1e-8 m: the amounts of the cells a hexagon
             // only touches move, and the models with them); prioritize.h3_units is h3.rs's test
             let name = format!("parity_h3_{}_{}", case["data"].as_str().unwrap(), &h3[3..]);
@@ -358,7 +358,7 @@ fn solve(p: &Problem, runs: usize) -> Result<Run, String> {
 
 #[test]
 #[ignore = "minutes; release build, one test at a time: see the module's doc"]
-fn optimize_is_landschafts() {
+fn optimize_matches_the_library() {
     let reference: Json = serde_json::from_str(
         &std::fs::read_to_string(root().join("tests/data/reference/optimize_parity.json")).unwrap(),
     )
@@ -368,7 +368,7 @@ fn optimize_is_landschafts() {
         .unwrap_or_default();
     let (small, medium) = (Set::new("small"), Set::new("medium"));
     let zone_tables = tables("optimize_zone_tables.json");
-    println!("landschaft {}, {} threads", reference["landschaft"], reference["threads"]);
+    println!("terraflux-py {}, {} threads", reference["landschaft"], reference["threads"]);
     println!(
         "{:<40} {:>8} {:>8} {:>14} {:>14} {:>8} {:>8}  units",
         "case", "us", "them", "objective us", "objective them", "s us", "s them"
@@ -412,7 +412,7 @@ fn optimize_is_landschafts() {
         if want_optimal != r.optimal {
             bad.push(format!("status: optimal {} here, {} there", r.optimal, case["status"]));
         }
-        // the units: the same where the optimum is unique (proved by landschaft's cut), else told
+        // the units: the same where the optimum is unique (proved by the library's cut), else told
         let theirs: Vec<usize> =
             case["selected"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as usize).collect();
         assert_eq!(r.n, case["n"].as_u64().unwrap() as usize, "{name}: the units");
@@ -422,10 +422,10 @@ fn optimize_is_landschafts() {
         if unique && gap_asked == 0.0 && r.optimal && differ > 0 {
             bad.push(format!("units: {differ} differ, the optimum being unique"));
         }
-        // the anneal solver, seeded, is landschaft's run: the same units and objective
+        // the anneal solver, seeded, is the library's run: the same units and objective
         if case["params"]["solver"] == "anneal" {
             if differ > 0 {
-                bad.push(format!("units: {differ} differ from landschaft's anneal run"));
+                bad.push(format!("units: {differ} differ from the library's anneal run"));
             }
             if (r.objective - want).abs() > 1e-9 * want.abs().max(1.0) {
                 bad.push(format!("objective {} != {want} (anneal)", r.objective));
@@ -456,6 +456,6 @@ fn optimize_is_landschafts() {
         );
         failures.extend(bad.into_iter().map(|b| format!("{name}: {b}")));
     }
-    println!("{ran} cases, {slower} slower than landschaft, {:.2} s here and {:.2} s there", total.0, total.1);
+    println!("{ran} cases, {slower} slower than terraflux-py, {:.2} s here and {:.2} s there", total.0, total.1);
     assert!(failures.is_empty(), "{} divergences:\n{}", failures.len(), failures.join("\n"));
 }

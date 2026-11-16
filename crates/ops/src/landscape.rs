@@ -1,4 +1,4 @@
-//! Landscape patterns from landschaft's port of GuidosToolbox: the Morphological Spatial Pattern Analysis
+//! Landscape patterns from the library's port of GuidosToolbox: the Morphological Spatial Pattern Analysis
 //! (`landscape.mspa`, Soille & Vogt 2009), the same bits as GTB's `mspa` executable; the simplified pattern
 //! analysis (`landscape.spa`) and the objects by size (`landscape.accounting`), as GTB's; the parcels of every
 //! class (`landscape.parcellation`), the contortion of the patches (`landscape.contortion`) and the Euclidean

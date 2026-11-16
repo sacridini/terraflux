@@ -1,4 +1,4 @@
-//! Landforms and potentials of a surface through landschaft's C++ (its `ls.surface`): geomorphons (GRASS's
+//! Landforms and potentials of a surface through the library's C++ (its `ls.surface`): geomorphons (GRASS's
 //! r.geomorphon bit for bit), the hilltops of Brazil's Forest Code (APP de topo de morro, Lei 12.651/2012) and the
 //! gravitational interaction potential (Dinamica EGO's CalcInteractionPotentialMap).
 
@@ -308,7 +308,7 @@ fn hilltop(args: &Args) -> Result<Outputs> {
     ]))
 }
 
-// method "auto": direct sums with up to this many sources (or source-cell pairs), the FFT beyond (landschaft's)
+// method "auto": direct sums with up to this many sources (or source-cell pairs), the FFT beyond (the library's)
 const DIRECT_SOURCES: usize = 2000;
 const DIRECT_PAIRS: f64 = 1e8;
 

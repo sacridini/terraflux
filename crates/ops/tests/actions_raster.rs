@@ -1,4 +1,4 @@
-//! prioritize.actions_raster against landschaft's actions_raster_data: the tables it builds from the rasters of
+//! prioritize.actions_raster against the library's actions_raster_data: the tables it builds from the rasters of
 //! its tests (tests/data/reference/actions_raster.npz; numbers and maps as actions' costs, absolute and relative
 //! targets, locked units, a sensitivity, the boundary) and of its example (prioritize/data), the same; the optima
 //! of their problems the same (tools/make_actions_raster_reference.py); the solution as maps.
@@ -19,7 +19,7 @@ fn reference() -> serde_json::Value {
     serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap()
 }
 
-/// The grid of landschaft's test rasters: 100 m cells, top-left at (0, rows * 100).
+/// The grid of the library's test rasters: 100 m cells, top-left at (0, rows * 100).
 fn grid(ny: usize, nx: usize) -> Arc<Grid> {
     let mut g = Grid::new(nx, ny);
     g.transform = [0.0, 100.0, 0.0, ny as f64 * 100.0, 0.0, -100.0];
@@ -57,7 +57,7 @@ fn small() -> Inputs {
     }
 }
 
-/// landschaft's example: the cost, the eight features and two threats of its prioritize data.
+/// The library's example: the cost, the eight features and two threats of its prioritize data.
 fn example() -> Inputs {
     let data = root().join("extern/terraflux-py/src/terraflux/prioritize/data");
     let read = |f: &str| terraflux_raster::Raster::read(data.join(f)).unwrap();
@@ -90,7 +90,7 @@ impl Masked for terraflux_raster::Raster {
     }
 }
 
-/// landschaft's sensitivity of the locked case, by positions.
+/// The library's sensitivity of the locked case, by positions.
 fn sensitivity() -> Table {
     let mut t = Table::new(["feature", "threat", "delta1", "delta2"].map(String::from).to_vec());
     t.rows =
@@ -129,13 +129,13 @@ fn run(ins: &Inputs, case: &serde_json::Value) -> (terraflux_ops::Outputs, Vec<S
     (out, ctx.warnings)
 }
 
-/// A table's rows, their first columns (landschaft's tables carry its internal ids after them).
+/// A table's rows, their first columns (the library's tables carry its internal ids after them).
 fn rows(t: &serde_json::Value, columns: usize) -> Vec<Vec<f64>> {
     let all: Vec<Vec<f64>> = serde_json::from_value(t["rows"].clone()).unwrap();
     all.into_iter().map(|r| r[..columns].to_vec()).collect()
 }
 
-/// The tables the same (prioriactions's inputData() rounds the costs and intensities landschaft's tables show: the
+/// The tables the same (prioriactions's inputData() rounds the costs and intensities the library's tables show: the
 /// costs of a float32 raster to 3 decimals).
 fn close(a: &[Vec<f64>], b: &[Vec<f64>], what: &str) {
     assert_eq!(a.len(), b.len(), "{what}: rows");
@@ -144,16 +144,16 @@ fn close(a: &[Vec<f64>], b: &[Vec<f64>], what: &str) {
     }
 }
 
-/// The tables built from the rasters (the units, the actions and their costs) and the optimum, as landschaft's;
+/// The tables built from the rasters (the units, the actions and their costs) and the optimum, as the library's;
 /// the maps of the solution its monitored units and actions.
 #[test]
-fn rasters_are_landschafts() {
+fn rasters_match_the_library() {
     let refs = reference();
     let small = small();
     for (name, case) in refs.as_object().unwrap() {
         let ins = if name == "example" { example() } else { small.clone() };
         let (out, warnings) = run(&ins, case);
-        // a feature without amounts: dropped, with prioriactions's warning (landschaft 1.58.1)
+        // a feature without amounts: dropped, with prioriactions's warning (terraflux-py 1.58.1)
         let dropped = warnings.iter().any(|w| w.contains("features are not represented"));
         assert_eq!(dropped, case["settings"].get("empty_layer").is_some(), "{name}: {warnings:?}");
         let Value::Table(pu) = &out["pu"] else { panic!() };
@@ -179,7 +179,7 @@ fn rasters_are_landschafts() {
     }
 }
 
-/// The targets and the boundary built, as landschaft's (through the model they give: the same optimum is checked
+/// The targets and the boundary built, as the library's (through the model they give: the same optimum is checked
 /// above; here the features' targets and the boundary rows).
 #[test]
 fn targets_and_boundary() {
@@ -207,7 +207,7 @@ fn targets_and_boundary() {
     .unwrap();
     assert_eq!(t.features.rows, rows(&refs["relative"]["tables"]["features"], 3));
     assert_eq!(t.dist_features.rows, rows(&refs["relative"]["tables"]["dist_features"], 3));
-    // a feature without amounts: the others' relative targets as with it (landschaft 1.58.1; they were once one per
+    // a feature without amounts: the others' relative targets as with it (terraflux-py 1.58.1; they were once one per
     // layer, and failed)
     let mut empty = ins.features.clone();
     empty.layers[1] = Arc::new(vec![0.0; empty.layers[1].len()]);

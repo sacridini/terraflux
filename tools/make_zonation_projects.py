@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The Zonation 5 projects of landschaft's reference cases, for Terraflux's tests of prioritize.zonation_project.
+"""The Zonation 5 projects of the library's reference cases, for Terraflux's tests of prioritize.zonation_project.
 
-landschaft runs the z5 binary on a project per case (tests/prioritize_cases.py, written by
+terraflux-py runs the z5 binary on a project per case (tests/prioritize_cases.py, written by
 tools/make_reference_prioritize.py's write_project: settings.z5, the feature list, the link files and the rasters)
 and keeps its outputs (extern/terraflux-py/tests/data/reference/prioritize). This writes the rasters of the cases
 once into tests/data/reference/zonation_projects/ (the same files, one-strip GeoTIFFs) and the cases into

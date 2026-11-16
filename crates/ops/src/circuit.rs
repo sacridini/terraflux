@@ -1,7 +1,7 @@
-//! Connectivity by circuits, through landschaft's C++ of Circuitscape 6.1 and Omniscape 0.7: Omniscape's
+//! Connectivity by circuits, through the library's C++ of Circuitscape 6.1 and Omniscape 0.7: Omniscape's
 //! omnidirectional connectivity (moving-window circuits: the cumulative current, the flow potential and the
 //! current normalised by it) and Circuitscape's advanced mode on a raster (currents and voltages from sources
-//! and grounds). landschaft's Python around the kernels (the sources from the resistance, the threshold and
+//! and grounds). the library's Python around the kernels (the sources from the resistance, the threshold and
 //! cutoff, the reclassification, the conditions, single precision, the no-data mask) is here, step for step.
 
 use std::sync::Arc;
@@ -92,7 +92,7 @@ pub struct OmniscapeMaps {
     pub n_targets: i64,
 }
 
-/// The settings of Omniscape (landschaft's omniscape's arguments).
+/// The settings of Omniscape (the library's omniscape's arguments).
 #[derive(Debug, Clone)]
 pub struct OmniscapeSettings {
     pub radius: f64,
@@ -146,7 +146,7 @@ pub struct Conditions<'a> {
     pub condition2_future: Option<&'a [f64]>,
 }
 
-/// landschaft's omniscape: the resistance (ny x nx, NaN no data) and the sources (none: from the resistance).
+/// The library's omniscape: the resistance (ny x nx, NaN no data) and the sources (none: from the resistance).
 pub fn omniscape(
     resistance: &[f64],
     source: Option<&[f64]>,
@@ -416,7 +416,7 @@ impl Operator for Omniscape {
     }
 }
 
-/// landschaft's circuit.advanced: the conductance (NaN: no node), the sources (amps) and the grounds
+/// The library's circuit.advanced: the conductance (NaN: no node), the sources (amps) and the grounds
 /// (conductance to ground, +inf direct); NaN in the sources and grounds is nothing.
 pub fn advanced(
     conductance: &[f64],
@@ -864,7 +864,7 @@ pub struct OneToAllResult {
     pub maps: Vec<PointMaps>,
 }
 
-/// Circuitscape's one-to-all (all-to-one) driver (landschaft's _one_to_all, run_onetoall).
+/// Circuitscape's one-to-all (all-to-one) driver (the library's _one_to_all, run_onetoall).
 pub fn one_to_all(ctx: &mut Ctx, c: &mut Circuit, o: &OneToAllOptions) -> Result<OneToAllResult> {
     let (nx, ny) = (c.nx, c.ny);
     let one_to_all = o.one_to_all;

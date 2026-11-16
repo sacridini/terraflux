@@ -1,9 +1,9 @@
 //! Settlement probabilities between habitat nodes from a spatial absorbing Markov chain (the samc package's
-//! model, as Makurhini's MK_dPCIIC with samc and landschaft's settlement_probabilities): a random walk over a
+//! model, as Makurhini's MK_dPCIIC with samc and the library's settlement_probabilities): a random walk over a
 //! resistance that is absorbed at each cell with a probability (none inside the nodes, else from the dispersal
 //! distance); the probability that a walker leaving one node settles in another, summed or averaged over the
-//! cells of their boundary vertices. The chain's steps are landschaft's C++; its inverse is Eigen's sparse LU
-//! (scipy's SuperLU in landschaft: the same to rounding).
+//! cells of their boundary vertices. The chain's steps are the library's C++; its inverse is Eigen's sparse LU
+//! (scipy's SuperLU in terraflux-py: the same to rounding).
 
 use terraflux_ls_sys::ffi;
 use terraflux_raster::vector::Geometry;
@@ -92,7 +92,7 @@ pub struct Samc<'a> {
     pub settle: &'a str,
 }
 
-/// landschaft's settlement_probabilities: the n x n matrix (row-major) of the probabilities of settling,
+/// The library's settlement_probabilities: the n x n matrix (row-major) of the probabilities of settling,
 /// 1 on the diagonal.
 pub fn settlement_probabilities(nodes: &[Geometry], resistance: &Map, s: &Samc) -> Result<Vec<f64>, String> {
     if s.settle != "sum" && s.settle != "mean" {

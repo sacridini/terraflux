@@ -1,6 +1,6 @@
 //! Tables drawn as charts in the viewer, several metrics at once: bars, lines or points of some columns (a panel
-//! each) against a column, the rows split by another (a class, a zone, a cluster: a colour each), as landschaft's
-//! plot_metric and plot_cluster_metrics; the clustergram of metrics.clustergram's means (landschaft's
+//! each) against a column, the rows split by another (a class, a zone, a cluster: a colour each), as the library's
+//! plot_metric and plot_cluster_metrics; the clustergram of metrics.clustergram's means (the library's
 //! plot_clustergram); box plots of the columns by group (plot_cluster_metrics); the loadings of principal
 //! components as arrows in the circle of correlations (metrics.pca's loadings); and a correlation matrix
 //! (metrics.correlation) as a heatmap, as show_correlation.
@@ -127,7 +127,7 @@ pub fn groups(t: &Table, rows: &[usize], by: Option<usize>) -> Vec<(Option<f64>,
 }
 
 /// A clustergram: per k a dot at each cluster's mean sized by its rows, and between k and k + 1 a line between
-/// the means of the clusters that share rows, as wide as the rows they share (landschaft's plot_clustergram).
+/// the means of the clusters that share rows, as wide as the rows they share (the library's plot_clustergram).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Clustergram {
     /// (k, mean, rows)

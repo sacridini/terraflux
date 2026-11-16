@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's habitat graphs of raster patches give, for Terraflux's tests, written to
+"""What the library's habitat graphs of raster patches give, for Terraflux's tests, written to
 tests/data/reference/conn_raster.npz and conn_raster.json:
 
     python tools/make_conn_raster_reference.py

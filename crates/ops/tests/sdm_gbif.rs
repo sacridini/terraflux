@@ -1,4 +1,4 @@
-//! The download of GBIF's records with the API replaced by a fake one (no network), as landschaft's tests: the
+//! The download of GBIF's records with the API replaced by a fake one (no network), as the library's tests: the
 //! pages and the query (the accepted name of a synonym, the country, the years), the issues, the limit and the
 //! uncertainty, an unknown species.
 

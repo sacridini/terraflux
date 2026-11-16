@@ -1,4 +1,4 @@
-//! How a simulated map matches the observed one (landschaft's `agreement` and `similarity_of_differences`):
+//! How a simulated map matches the observed one (the library's `agreement` and `similarity_of_differences`):
 //! `validate.agreement`, `validate.similarity`.
 
 use std::sync::Arc;

@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""landschaft's calibration of FUTURES' patches (tf.simulate.calibrate_patches, r.futures.calib), for Terraflux's
+"""The library's calibration of FUTURES' patches (tf.simulate.calibrate_patches, r.futures.calib), for Terraflux's
 tests of futures.calibrate.
 
-The case is landschaft's own (tests/simulate_cases.py's futures_calib_py: its world, a PatchGrowing model with one
+The case is the library's own (tests/simulate_cases.py's futures_calib_py: its world, a PatchGrowing model with one
 subregion, the observed development at the start and three steps later, every combination of two compactness
-means, two ranges and two discount factors, two runs each). The model is saved by landschaft (Model.save) into
+means, two ranges and two discount factors, two runs each). The model is saved by terraflux-py (Model.save) into
 tests/data/reference/futures_calib/model.json, its simulation node made a futures.calibrate node of the same
-inputs (calibrate.json, with end.tif, the observed end); landschaft's table and patch library go into
+inputs (calibrate.json, with end.tif, the observed end); the library's table and patch library go into
 calib.json:
 
     python tools/make_futures_calib_reference.py

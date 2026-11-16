@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// GuidosToolbox's colour tables and class names, written by tools/make_gtb_palettes.py from landschaft:
+// GuidosToolbox's colour tables and class names, written by tools/make_gtb_palettes.py from terraflux-py:
 // do not edit.
 
 /// GTB's colours of GTB's MSPA table with transitions (mspacolorston): MSPA, SPA, Accounting, by value.

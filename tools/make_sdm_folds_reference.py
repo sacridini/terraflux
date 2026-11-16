@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's partitions for cross-validation give, for Terraflux's tests, written to
+"""What the library's partitions for cross-validation give, for Terraflux's tests, written to
 tests/data/reference/sdm_folds.npz and .json:
 
     python tools/make_sdm_folds_reference.py

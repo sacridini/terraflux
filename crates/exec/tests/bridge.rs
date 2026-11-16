@@ -1,4 +1,4 @@
-//! Models written by landschaft's `Model.save` run here as `ls.simulate` runs them: the same maps, bit for
+//! Models written by the library's `Model.save` run here as `tf.simulate` runs them: the same maps, bit for
 //! bit. The fixtures are written by `tools/make_reference.py`.
 
 use std::collections::BTreeMap;
@@ -27,66 +27,66 @@ fn case(name: &str) {
 }
 
 #[test]
-fn dinamica_saved_by_landschaft() {
+fn dinamica_saved_by_the_library() {
     case("dinamica");
 }
 
 #[test]
-fn clue_with_a_dynamic_variable_saved_by_landschaft() {
+fn clue_with_a_dynamic_variable_saved_by_the_library() {
     case("clue_dynamic");
 }
 
 #[test]
-fn cars_saved_by_landschaft() {
+fn cars_saved_by_the_library() {
     case("cars");
 }
 
 #[test]
-fn estimator_saved_by_landschaft_as_its_predictions() {
+fn estimator_saved_by_the_library_as_its_predictions() {
     case("estimator");
 }
 
 #[test]
-fn regional_clue_saved_by_landschaft() {
+fn regional_clue_saved_by_the_library() {
     case("clue_regional");
 }
 
 #[test]
-fn regional_cars_saved_by_landschaft() {
+fn regional_cars_saved_by_the_library() {
     case("cars_regional");
 }
 
 #[test]
-fn regional_dinamica_saved_by_landschaft() {
+fn regional_dinamica_saved_by_the_library() {
     case("dinamica_regional");
 }
 
 #[test]
-fn cost_distance_saved_by_landschaft() {
+fn cost_distance_saved_by_the_library() {
     case("clue_cost");
 }
 
 #[test]
-fn molusce_saved_by_landschaft() {
+fn molusce_saved_by_the_library() {
     case("molusce");
 }
 
 #[test]
-fn molusce_with_a_moving_driver_saved_by_landschaft() {
+fn molusce_with_a_moving_driver_saved_by_the_library() {
     case("molusce_dynamic");
 }
 
 #[test]
-fn molusce_with_a_regression_saved_by_landschaft() {
+fn molusce_with_a_regression_saved_by_the_library() {
     case("molusce_glm");
 }
 
 #[test]
-fn clumondo_saved_by_landschaft() {
+fn clumondo_saved_by_the_library() {
     case("clumondo");
 }
 
 #[test]
-fn futures_saved_by_landschaft() {
+fn futures_saved_by_the_library() {
     case("futures");
 }

@@ -1,4 +1,4 @@
-//! Biodiverse's other imports (landschaft's BaseData.from_raster, from_vector, from_hex, from_h3 and
+//! Biodiverse's other imports (the library's BaseData.from_raster, from_vector, from_hex, from_h3 and
 //! from_occurrences): rasters with a label per band (or values as labels), vector features laid over a fishnet
 //! of cells (the cells they touch, or the area or length of their parts; GEOS through GDAL), records in hexagons
 //! or H3 cells, and the occurrence records of a GBIF download or a Darwin Core Archive, cleaned.
@@ -33,7 +33,7 @@ pub struct GridImport {
     pub given_label: Option<String>,
 }
 
-/// A basedata of the layers of a grid (landschaft's from_raster): every cell with a value snapped to the group
+/// A basedata of the layers of a grid (the library's from_raster): every cell with a value snapped to the group
 /// cell holding its centre.
 pub fn from_grid(grid: &Grid, layers: &[(String, &[f64])], o: &GridImport, crs: Option<String>) -> Result<BaseData> {
     let t = grid.transform;
@@ -208,7 +208,7 @@ fn rectangle(x0: f64, y0: f64, x1: f64, y1: f64) -> Geometry {
     Geometry::Polygon(vec![vec![[x1, y0], [x1, y1], [x0, y1], [x0, y0], [x1, y0]]])
 }
 
-/// A basedata of vector features (landschaft's from_vector): points in the cell holding them; lines and polygons
+/// A basedata of vector features (the library's from_vector): points in the cell holding them; lines and polygons
 /// over a fishnet spanning the layer, every cell they touch counting 1 (or the area or length of their part in
 /// it).
 pub fn from_features(v: &Vector, o: &FeatureImport) -> Result<BaseData> {
@@ -367,7 +367,7 @@ fn round10(x: f64) -> f64 {
     (x * 1e10).round_ties_even() / 1e10
 }
 
-/// The centres of the hexagons (circumradius `size`) holding the points (landschaft's hex_centres).
+/// The centres of the hexagons (circumradius `size`) holding the points (the library's hex_centres).
 pub fn hex_centres(x: &[f64], y: &[f64], size: f64, flat: bool, origin: [f64; 2]) -> (Vec<f64>, Vec<f64>) {
     x.iter()
         .zip(y)
@@ -399,7 +399,7 @@ pub fn hex_centres(x: &[f64], y: &[f64], size: f64, flat: bool, origin: [f64; 2]
         .unzip()
 }
 
-/// A basedata of records grouped at given coordinates (landschaft's _grouped: from_dataframe with cells of 0).
+/// A basedata of records grouped at given coordinates (the library's _grouped: from_dataframe with cells of 0).
 fn grouped(gx: Vec<f64>, gy: Vec<f64>, labels: Vec<String>, counts: Option<Vec<f64>>) -> Result<BaseData> {
     let counts = counts.unwrap_or_else(|| vec![1.0; labels.len()]);
     let keep: Vec<usize> = (0..labels.len()).filter(|&i| counts[i] != 0.0).collect();
@@ -427,7 +427,7 @@ pub struct Records {
     pub counts: Option<Vec<f64>>,
 }
 
-/// A basedata of records in hexagons (landschaft's from_hex): the groups the hexagons' centres.
+/// A basedata of records in hexagons (the library's from_hex): the groups the hexagons' centres.
 pub fn from_hex(r: Records, size: f64, flat: bool, origin: [f64; 2], crs: Option<String>) -> Result<BaseData> {
     if size.is_nan() || size <= 0.0 {
         return Err(err("the hexagons' size must be positive"));
@@ -439,7 +439,7 @@ pub fn from_hex(r: Records, size: f64, flat: bool, origin: [f64; 2], crs: Option
     Ok(bd)
 }
 
-/// A basedata of lon/lat records in H3 cells (landschaft's from_h3, h3o for the h3 package): the groups the
+/// A basedata of lon/lat records in H3 cells (the library's from_h3, h3o for the h3 package): the groups the
 /// cells' centres, the cells' ids in the grid.
 pub fn from_h3(r: Records, resolution: u8) -> Result<BaseData> {
     let res = h3o::Resolution::try_from(resolution).map_err(|_| err("the H3 resolution is 0 to 15"))?;
@@ -474,7 +474,7 @@ pub fn from_h3(r: Records, resolution: u8) -> Result<BaseData> {
 
 // ------------------------------------------------------------------------------ GBIF and Darwin Core
 
-/// The cleaning of occurrence records (landschaft's read_occurrences).
+/// The cleaning of occurrence records (the library's read_occurrences).
 pub struct OccurrenceFilter<'a> {
     pub label: &'a [String],
     pub count: Option<&'a str>,
@@ -830,7 +830,7 @@ fn fields(lines: &mut Lines, first: String, sep: char, quote: Option<char>) -> V
 }
 
 /// The occurrence records of a GBIF download (the zip or its table), a Darwin Core Archive (a zip or a folder
-/// with meta.xml: the core table) or a delimited file, cleaned (landschaft's read_occurrences), read a line at a
+/// with meta.xml: the core table) or a delimited file, cleaned (the library's read_occurrences), read a line at a
 /// time.
 pub fn read_occurrences(path: &str, f: &OccurrenceFilter) -> Result<(Occurrences, usize)> {
     let src = Source::new(path)?;
@@ -875,7 +875,7 @@ pub fn read_occurrences(path: &str, f: &OccurrenceFilter) -> Result<(Occurrences
     Ok((out, bad))
 }
 
-/// A basedata of cleaned records in cells (landschaft's from_occurrences): longitude and latitude, reprojected
+/// A basedata of cleaned records in cells (the library's from_occurrences): longitude and latitude, reprojected
 /// to `to_crs` if given, snapped as the text import does.
 pub fn from_occurrences(
     mut occ: Occurrences,

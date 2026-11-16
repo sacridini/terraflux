@@ -1,4 +1,4 @@
-//! Surface metrics against landschaft's (tests/data/reference/surface.json and surface_window.npz,
+//! Surface metrics against the library's (tests/data/reference/surface.json and surface_window.npz,
 //! tools/make_surface_reference.py): every metric of its example surfaces (geographic grids) and the moving
 //! window of some, square and circular, to the bit.
 
@@ -38,7 +38,7 @@ fn same(a: f64, b: f64) -> bool {
 }
 
 #[test]
-fn surface_metrics_are_landschafts() {
+fn surface_metrics_match_the_library() {
     let text = std::fs::read_to_string(root().join("tests/data/reference/surface.json")).unwrap();
     let reference: serde_json::Value = serde_json::from_str(&text).unwrap();
     let windows = terraflux_raster::npy::read_npz(root().join("tests/data/reference/surface_window.npz")).unwrap();
@@ -68,12 +68,12 @@ fn surface_metrics_are_landschafts() {
     }
 }
 
-/// The terrain of a surface against landschaft's (tests/data/reference/surface_terrain.npz): every function with
+/// The terrain of a surface against the library's (tests/data/reference/surface_terrain.npz): every function with
 /// some options on orelevation, the HLI of its slope and aspect, the planes and residuals, the peaks and
-/// valleys, the bearing area curve and normforest's autocorrelation, to the bit (the sines and cosines landschaft
+/// valleys, the bearing area curve and normforest's autocorrelation, to the bit (the sines and cosines terraflux-py
 /// takes from numpy for VRM, the spherical standard deviation, TRASP and HLI too).
 #[test]
-fn the_terrain_is_landschafts() {
+fn the_terrain_matches_the_library() {
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/surface_terrain.npz")).unwrap();
     let cases: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(root().join("tests/data/reference/surface_terrain.json")).unwrap(),

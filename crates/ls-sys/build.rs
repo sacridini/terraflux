@@ -64,7 +64,7 @@ fn main() {
     if target.contains("msvc") {
         // with MSVC the cmake crate sets CMAKE_<LANG>_FLAGS_RELEASE to cc's flags without their /O: Visual Studio's
         // projects then compiled every C++ source (HiGHS too) unoptimised (/Od) and with the asserts on, about three
-        // times as slow as landschaft's wheels. CMake's own Release flags for MSVC, as landschaft's wheels are built
+        // times as slow as the library's wheels. CMake's own Release flags for MSVC, as the library's wheels are built
         for lang in ["C", "CXX"] {
             cfg.define(format!("CMAKE_{lang}_FLAGS_RELEASE"), "/MD /O2 /Ob2 /DNDEBUG");
         }
@@ -113,7 +113,7 @@ fn main() {
         println!("cargo:rustc-link-lib=dylib=gomp");
     }
 
-    // Eigen's headers, as landschaft's build fetched them (the sparse solves of the shim)
+    // Eigen's headers, as the library's build fetched them (the sparse solves of the shim)
     let eigen = env_either("TERRAFLUX_EIGEN_DIR", "LANDSCHAFT_EIGEN_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| dst.join("build").join("_deps").join("eigen-src"));
@@ -134,7 +134,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/lib.rs");
 }
 
-/// The variable `new`, else the old name `old` (the library was called landschaft).
+/// The variable `new`, else the old name `old` (the library was called terraflux-py).
 fn env_either(new: &str, old: &str) -> Option<std::ffi::OsString> {
     std::env::var_os(new).or_else(|| std::env::var_os(old))
 }

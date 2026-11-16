@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's SWAT+ gives with parameters changed, for Terraflux's tests (swat.set): the Hubbard Brook W2
-example (landschaft's hydro/swat/data/hubbard_brook.zip) with rows added to its calibration.cal by
+"""What the library's SWAT+ gives with parameters changed, for Terraflux's tests (swat.set): the Hubbard Brook W2
+example (the library's hydro/swat/data/hubbard_brook.zip) with rows added to its calibration.cal by
 SwatProject.set_text, the tables SWAT+ prints by year; written to tests/data/reference/swat_set.npz (the cases to
 swat_set.json):
 
     python tools/make_swat_set_reference.py
 
-Run with the landschaft the submodule points at installed.
+Run with the library the submodule points at installed.
 """
 
 from __future__ import annotations

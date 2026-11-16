@@ -1,4 +1,4 @@
-//! One step of a CLUE-S or ordered allocation with lulcc's decision rules (landschaft's `Model.run`):
+//! One step of a CLUE-S or ordered allocation with lulcc's decision rules (the library's `Model.run`):
 //! `lulcc.history`, `lulcc.step`.
 
 use std::collections::BTreeMap;
@@ -196,7 +196,7 @@ fn merge_info(infos: &[Vec<(String, f64)>]) -> Vec<(String, f64)> {
         .collect()
 }
 
-/// One step of landschaft's `Model.run` (lulcc's allocate); with regions, region by region in the order of
+/// One step of the library's `Model.run` (lulcc's allocate); with regions, region by region in the order of
 /// their ids with the one generator (cells of no region keep their class).
 #[allow(clippy::too_many_arguments)]
 pub fn step(

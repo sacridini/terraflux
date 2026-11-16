@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's SWAT+ project building gives, for Terraflux's tests (swat.from_tables, swat.wgn): the weather
+"""What the library's SWAT+ project building gives, for Terraflux's tests (swat.from_tables, swat.wgn): the weather
 (stations and daily series, with gaps and different periods), the weather generator statistics
-(``wgn_from_series``), and the project ``from_tables`` writes (every file of it) in the cases of landschaft's tests
+(``wgn_from_series``), and the project ``from_tables`` writes (every file of it) in the cases of the library's tests
 (its synthetic valley, with its crop rotations and with the editor's other options) and in the example landscape;
 the run of two of the projects as ``from_rasters`` builds them (the printed tables of a year). Written to
 tests/data/reference/swat_project.npz (the inputs and the numbers) and swat_project.json (the cases, the text):
 
     python tools/make_swat_project_reference.py
 
-The files the editor writes the same for every project are not stored: their hashes are (the data of landschaft's
+The files the editor writes the same for every project are not stored: their hashes are (the data of the library's
 ``swatplus_editor.zip``); the first line of each file, which carries the date it was written, is left out. Run with
-the landschaft the submodule points at installed.
+the library the submodule points at installed.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def full_weather():
 
 
 def small_wgn():
-    """landschaft's test of the statistics (a periodic series), with the three forms of monthly values."""
+    """the library's test of the statistics (a periodic series), with the three forms of monthly values."""
     days = pd.date_range("2000-01-01", "2003-12-31")
     pcp = pd.DataFrame({"a": np.where(days.day % 3 == 0, 6.0, 0.0), "b": np.where(days.day % 5 == 0, 3.5, 0.0)},
                        index=days)
@@ -121,7 +121,7 @@ def main() -> None:
     out: dict[str, np.ndarray] = {}
     meta: dict = {"landschaft": tf.__version__, "cases": [], "wgn_cases": []}
 
-    # the watersheds of the cases: landschaft's synthetic valley (two land use lookups) and the example landscape
+    # the watersheds of the cases: the library's synthetic valley (two land use lookups) and the example landscape
     dem, lu, so = syn.rasters()
     ex = tf.hydro.swat.example_landscape()
     sets = {

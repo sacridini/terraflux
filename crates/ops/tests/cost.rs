@@ -1,4 +1,4 @@
-//! Grid distances against landschaft's (gdistance's; tests/data/reference/cost.npz and cost.json,
+//! Grid distances against the library's (gdistance's; tests/data/reference/cost.npz and cost.json,
 //! tools/make_cost_reference.py): the transitions of every built-in function in 4, 8 and 16 directions,
 //! symmetric and not, their geoCorrection, the accumulated cost, the least costs and the least-cost paths on a
 //! projected grid, a longitude/latitude one and a global one that wraps around, to the bit.
@@ -182,7 +182,7 @@ fn distances(
 }
 
 #[test]
-fn transitions_and_distances_are_landschafts() {
+fn transitions_and_distances_match_the_library() {
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/cost.npz")).unwrap();
     let cases: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/cost.json")).unwrap()).unwrap();
@@ -260,11 +260,11 @@ fn transition_of(op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value
     layers(&run(op, inputs, params)["transition"])
 }
 
-/// Random walks and the matrix's algebra against landschaft's (tests/data/reference/cost_walk.npz): commute
+/// Random walks and the matrix's algebra against the library's (tests/data/reference/cost_walk.npz): commute
 /// distances (one part, and europe's islands), passages with and without theta, randomised-shortest-path
 /// distances, normalize, sumReciprocal, sums of transitions, R's maths and the summaries of cells, to the bit.
 #[test]
-fn random_walks_are_landschafts() {
+fn random_walks_match_the_library() {
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/cost_walk.npz")).unwrap();
     let cases: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/cost.json")).unwrap()).unwrap();
@@ -318,7 +318,7 @@ fn random_walks_are_landschafts() {
                 if method == 1 {
                     check(&key, &table(&d["table"]), &z[&key]);
                 } else {
-                    // method 2 goes through Eigen's SparseLU, whose last bits change from run to run in landschaft
+                    // method 2 goes through Eigen's SparseLU, whose last bits change from run to run in terraflux-py
                     // itself (its vectorised kernels follow the memory's alignment); P^theta's rows can exceed 1, and
                     // the asymmetric system amplifies them to about 1e-11
                     let got = table(&d["table"]);
@@ -387,11 +387,11 @@ fn inc_table(v: &Value) -> Vec<f64> {
     t.rows.iter().flat_map(|r| r[2..].to_vec()).collect()
 }
 
-/// The barrier, area and Mahalanobis transitions and pathInc against landschaft's
+/// The barrier, area and Mahalanobis transitions and pathInc against the library's
 /// (tests/data/reference/cost_inc.npz, on maungawhau's classes and layers: cost_classes.tif, cost_layers.tif),
 /// to the bit.
 #[test]
-fn barriers_areas_mahal_and_path_inc_are_landschafts() {
+fn barriers_areas_mahal_and_path_inc_match_the_library() {
     let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/cost_inc.npz")).unwrap();
     let cases: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/cost.json")).unwrap()).unwrap();

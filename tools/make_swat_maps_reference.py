@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's SWAT+ results on the map give, for Terraflux's tests (swat.hru_map, swat.channel_map,
-swat.reach_discharge): the projects ``from_rasters`` builds in the cases of swat_project's reference (landschaft's
+"""What the library's SWAT+ results on the map give, for Terraflux's tests (swat.hru_map, swat.channel_map,
+swat.reach_discharge): the projects ``from_rasters`` builds in the cases of swat_project's reference (the library's
 synthetic valley with its land use and with crop rotations (the whole weather, not swat_project's year), and the example landscape), and for each case a call of
 ``hru_map``, ``channel_map`` or ``reach_discharge`` with no run given (the project runs as its print.prt says).
 Written to tests/data/reference/swat_maps.npz (the maps and the tables) and swat_maps.json (the cases):
@@ -8,7 +8,7 @@ Written to tests/data/reference/swat_maps.npz (the maps and the tables) and swat
     python tools/make_swat_maps_reference.py
 
 Terraflux builds the same projects from the inputs of swat_project.npz (tools/make_swat_project_reference.py).
-Run with the landschaft the submodule points at installed.
+Run with the library the submodule points at installed.
 """
 
 from __future__ import annotations

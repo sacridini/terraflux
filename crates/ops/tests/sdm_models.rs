@@ -1,4 +1,4 @@
-//! sdm.fit's GLM and random forests against landschaft's fit with scikit-learn's (tests/data/reference/
+//! sdm.fit's GLM and random forests against the library's fit with scikit-learn's (tests/data/reference/
 //! sdm_models.npz and .json, tools/make_sdm_models_reference.py): the forests' suitability at every record, their
 //! folds' metrics, means and standard deviations and threshold to the bit (the same trees); the GLMs' to the
 //! optimum's precision.

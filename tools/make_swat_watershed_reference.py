@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What landschaft's QSWAT+ watershed delineation gives, for Terraflux's tests (swat.watershed): landschaft's
+"""What the library's QSWAT+ watershed delineation gives, for Terraflux's tests (swat.watershed): the library's
 synthetic valley of its tests (tests/swat_landscape.py) and the example landscape (``example_landscape()``) divided
 by ``tf.hydro.swat.watershed`` in the cases its tests use (each HRU method, thresholds, outlets and snap, slope bands,
 areas in ha and in percent, exempt land uses, a usersoil table, land use on another grid); the inputs, every table
@@ -8,7 +8,7 @@ areas in ha and in percent, exempt land uses, a usersoil table, land use on anot
 
     python tools/make_swat_watershed_reference.py
 
-Run with the landschaft the submodule points at installed.
+Run with the library the submodule points at installed.
 """
 
 from __future__ import annotations
