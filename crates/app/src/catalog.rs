@@ -2,7 +2,9 @@
 //! resolution, years and coverage, its licence, the paper to cite, its home page), and the choices of the one
 //! chosen (its variables, layers, years, scenario...). "Add to the model" adds a `data.download` node so set,
 //! on the grid of a map of the model (its `like`) or over a box of longitudes and latitudes, with the dataset's
-//! reference in the node's references (the Methods and citations window cites it).
+//! reference in the node's references (the Methods and citations window cites it). The "STAC catalogue" card
+//! is the one of `data.stac`: the scenes of a collection of a public STAC catalogue (Earth Search, the
+//! Planetary Computer), by presets.
 
 use egui::{Color32, RichText, Sense, Ui, Vec2};
 use serde_json::{Value, json};
@@ -20,11 +22,12 @@ pub enum Theme {
     LandCover,
     Water,
     Species,
+    Imagery,
 }
 
 impl Theme {
-    pub const ALL: [Theme; 6] =
-        [Theme::Climate, Theme::Terrain, Theme::Soil, Theme::LandCover, Theme::Water, Theme::Species];
+    pub const ALL: [Theme; 7] =
+        [Theme::Climate, Theme::Terrain, Theme::Soil, Theme::LandCover, Theme::Water, Theme::Species, Theme::Imagery];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -34,6 +37,7 @@ impl Theme {
             Theme::LandCover => "land cover",
             Theme::Water => "rivers",
             Theme::Species => "species",
+            Theme::Imagery => "imagery",
         }
     }
 }
@@ -67,7 +71,7 @@ const CHELSA_REF: &str = "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kr
 const TEMPERATURE: &[[u8; 3]] = &[[49, 54, 149], [116, 173, 209], [255, 255, 191], [244, 109, 67], [165, 0, 38]];
 const VIRIDIS: &[[u8; 3]] = &[[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]];
 
-pub const DATASETS: [Dataset; 12] = [
+pub const DATASETS: [Dataset; 13] = [
     Dataset {
         source: "worldclim",
         name: "WorldClim 2.1",
@@ -262,6 +266,26 @@ pub const DATASETS: [Dataset; 12] = [
         classes: false,
     },
     Dataset {
+        source: STAC,
+        name: "STAC catalogue",
+        theme: Theme::Imagery,
+        what: "The scenes of a collection of a public STAC catalogue (Earth Search on AWS, Microsoft's Planetary \
+               Computer): Sentinel-2 and Landsat images, the Copernicus DEM, a land cover map of the world. Choose \
+               the collection, its assets (bands), the dates and the cloud cover: the catalogue is searched over \
+               the grid, each scene's assets are read (only the part the grid covers), warped onto it and the \
+               scenes combined cell by cell (the median, the first with a value...). Added as a data.stac node.",
+        resolution: "10 m to 30 m (by the collection)",
+        period: "by the collection (Sentinel-2 since 2015, Landsat since 1982)",
+        coverage: "the world",
+        licence: "each collection's own: Sentinel-2, Landsat and the Copernicus DEM are free and open (to be named \
+                  as the source); check the collection's licence in its catalogue",
+        reference: "STAC: SpatioTemporal Asset Catalogs. https://stacspec.org (the collection's own reference goes \
+                    with the node)",
+        home: "https://stacspec.org",
+        colours: &[[10, 40, 90], [40, 110, 60], [170, 160, 90], [225, 225, 225]],
+        classes: false,
+    },
+    Dataset {
         source: GBIF,
         name: "GBIF occurrences",
         theme: Theme::Species,
@@ -283,6 +307,126 @@ pub const DATASETS: [Dataset; 12] = [
 
 /// The occurrences of GBIF: not a source of data.download, but of sdm.download_gbif.
 pub const GBIF: &str = "gbif";
+
+/// The STAC catalogues: not a source of data.download, but the operator data.stac.
+pub const STAC: &str = "stac";
+
+/// A collection of a public STAC catalogue the card offers: the catalogue, the collection, the assets and dates
+/// to begin with, and how its files are signed.
+pub struct Preset {
+    pub key: &'static str,
+    pub name: &'static str,
+    pub url: &'static str,
+    pub collection: &'static str,
+    /// The assets by default, by commas.
+    pub assets: &'static str,
+    /// `none` or `planetary_computer` (data.stac's `sign`).
+    pub sign: &'static str,
+    /// The assets are classes.
+    pub classes: bool,
+    /// The items have a cloud cover (`eo:cloud_cover`) to ask for.
+    pub cloud: bool,
+    pub dates: &'static str,
+    pub composite: &'static str,
+    pub reference: &'static str,
+}
+
+const EARTH_SEARCH: &str = "https://earth-search.aws.element84.com/v1";
+const PLANETARY_COMPUTER: &str = "https://planetarycomputer.microsoft.com/api/stac/v1";
+const SENTINEL2_REF: &str = "European Space Agency. (2021). Copernicus Sentinel-2 (processed by ESA): MSI Level-2A \
+     BOA Reflectance Product, Collection 1. https://doi.org/10.5270/S2_-znk9xsj";
+const LANDSAT_REF: &str = "U.S. Geological Survey. (2020). Landsat 8-9 OLI/TIRS Collection 2 Level-2 science \
+     products. https://doi.org/10.5066/P9OGBGM6";
+const COPDEM_REF: &str = "European Space Agency. Copernicus Global Digital Elevation Model (GLO-30). \
+     https://doi.org/10.5270/ESA-c5d3d65";
+
+pub const PRESETS: [Preset; 6] = [
+    Preset {
+        key: "es-sentinel-2-l2a",
+        name: "Earth Search: Sentinel-2 L2A (10 m)",
+        url: EARTH_SEARCH,
+        collection: "sentinel-2-l2a",
+        assets: "red, green, blue, nir",
+        sign: "none",
+        classes: false,
+        cloud: true,
+        dates: "2024-06-01/2024-08-31",
+        composite: "median",
+        reference: SENTINEL2_REF,
+    },
+    Preset {
+        key: "es-landsat-c2-l2",
+        name: "Earth Search: Landsat Collection 2 L2 (30 m)",
+        url: EARTH_SEARCH,
+        collection: "landsat-c2-l2",
+        assets: "red, green, blue, nir08",
+        sign: "none",
+        classes: false,
+        cloud: true,
+        dates: "2024-06-01/2024-08-31",
+        composite: "median",
+        reference: LANDSAT_REF,
+    },
+    Preset {
+        key: "es-cop-dem-glo-30",
+        name: "Earth Search: Copernicus DEM GLO-30 (30 m)",
+        url: EARTH_SEARCH,
+        collection: "cop-dem-glo-30",
+        assets: "data",
+        sign: "none",
+        classes: false,
+        cloud: false,
+        dates: "",
+        composite: "first",
+        reference: COPDEM_REF,
+    },
+    Preset {
+        key: "pc-sentinel-2-l2a",
+        name: "Planetary Computer: Sentinel-2 L2A (10 m)",
+        url: PLANETARY_COMPUTER,
+        collection: "sentinel-2-l2a",
+        assets: "B04, B03, B02, B08",
+        sign: "planetary_computer",
+        classes: false,
+        cloud: true,
+        dates: "2024-06-01/2024-08-31",
+        composite: "median",
+        reference: SENTINEL2_REF,
+    },
+    Preset {
+        key: "pc-landsat-c2-l2",
+        name: "Planetary Computer: Landsat Collection 2 L2 (30 m)",
+        url: PLANETARY_COMPUTER,
+        collection: "landsat-c2-l2",
+        assets: "red, green, blue, nir08",
+        sign: "planetary_computer",
+        classes: false,
+        cloud: true,
+        dates: "2024-06-01/2024-08-31",
+        composite: "median",
+        reference: LANDSAT_REF,
+    },
+    Preset {
+        key: "pc-io-lulc-annual-v02",
+        name: "Planetary Computer: 10 m land use and cover by year (Impact Observatory)",
+        url: PLANETARY_COMPUTER,
+        collection: "io-lulc-annual-v02",
+        assets: "data",
+        sign: "planetary_computer",
+        classes: true,
+        cloud: false,
+        dates: "2023-01-01/2023-12-31",
+        composite: "first",
+        reference: "Karra, K., Kontgis, C., Statman-Weil, Z., Mazzariello, J. C., Mathis, M., & Brumby, S. P. \
+                    (2021). Global land use / land cover with Sentinel 2 and deep learning. IGARSS 2021, 4704–4707. \
+                    https://doi.org/10.1109/IGARSS47720.2021.9553499",
+    },
+];
+
+/// A preset by its key (the first when unknown).
+pub fn preset_of(key: &str) -> &'static Preset {
+    PRESETS.iter().find(|p| p.key == key).unwrap_or(&PRESETS[0])
+}
 
 /// Global Forest Change's variables.
 /// MODIS' variables: the name `data.download` takes, and in words.
@@ -422,6 +566,9 @@ const MODIS_REFS: [(&str, &str); 4] = [
 
 /// The reference to cite for a dataset as chosen (a MODIS variable's own product).
 pub fn reference_of(d: &Dataset, c: &Choices) -> &'static str {
+    if d.source == STAC {
+        return preset_of(&c.stac).reference;
+    }
     if d.source == "modis" {
         let key = if c.modis.starts_with("lst") { "lst" } else { c.modis.as_str() };
         if let Some((_, r)) = MODIS_REFS.iter().find(|(k, _)| *k == key) {
@@ -507,6 +654,26 @@ pub struct Choices {
     pub area: Option<String>,
     /// Without a map, the grid spans the area (its bounds), not the box.
     pub on_area: bool,
+    /// STAC: the preset (its key), the one whose assets and dates are in the boxes below, the assets by commas,
+    /// the dates, the most cloud cover (%) and how the scenes are combined.
+    pub stac: String,
+    pub stac_applied: String,
+    pub stac_assets: String,
+    pub stac_dates: String,
+    pub stac_cloud: f64,
+    pub stac_composite: String,
+}
+
+impl Choices {
+    /// A STAC preset chosen, its assets, dates and composite in the boxes.
+    pub fn use_preset(&mut self, key: &str) {
+        let p = preset_of(key);
+        self.stac = p.key.into();
+        self.stac_applied = p.key.into();
+        self.stac_assets = p.assets.into();
+        self.stac_dates = p.dates.into();
+        self.stac_composite = p.composite.into();
+    }
 }
 
 impl Default for Choices {
@@ -516,7 +683,7 @@ impl Default for Choices {
         bio[11] = true;
         let mut depths = [false; 6];
         depths[0] = true;
-        Choices {
+        let mut c = Choices {
             variable: "bio".into(),
             future_variable: "bioc".into(),
             bio,
@@ -547,7 +714,15 @@ impl Default for Choices {
             gbif_years: String::new(),
             area: None,
             on_area: false,
-        }
+            stac: String::new(),
+            stac_applied: String::new(),
+            stac_assets: String::new(),
+            stac_dates: String::new(),
+            stac_cloud: 20.0,
+            stac_composite: String::new(),
+        };
+        c.use_preset(PRESETS[0].key);
+        c
     }
 }
 
@@ -566,7 +741,8 @@ pub fn params(d: &Dataset, c: &Choices) -> Result<Vec<(&'static str, Value)>, St
     if d.source == GBIF {
         return gbif_params(c);
     }
-    let mut p: Vec<(&'static str, Value)> = vec![("source", json!(d.source))];
+    let mut p: Vec<(&'static str, Value)> =
+        if d.source == STAC { stac_params(c)? } else { vec![("source", json!(d.source))] };
     let layers = |p: &mut Vec<(&'static str, Value)>, on: &[bool]| -> Result<(), String> {
         if let Some(l) = ticked(on)? {
             p.push(("layers", json!(l)));
@@ -642,9 +818,10 @@ pub fn params(d: &Dataset, c: &Choices) -> Result<Vec<(&'static str, Value)>, St
                 },
             ));
         }
+        STAC => {}
         s => return Err(format!("{s}: not in the catalog")),
     }
-    if c.like.is_none() && c.area.is_some() && c.on_area {
+    if c.like.is_none() && c.area.is_some() && c.on_area && d.source != STAC {
         if c.cellsize.is_nan() || c.cellsize <= 0.0 {
             return Err("cells above 0".into());
         }
@@ -658,6 +835,48 @@ pub fn params(d: &Dataset, c: &Choices) -> Result<Vec<(&'static str, Value)>, St
         p.push(("cellsize", json!(c.cellsize)));
     }
     Ok(p)
+}
+
+/// The settings of a `data.stac` node (the grid's apart): the preset's catalogue and collection, the assets, the
+/// dates, the cloud cover asked for as a query, how the scenes are combined.
+fn stac_params(c: &Choices) -> Result<Vec<(&'static str, Value)>, String> {
+    let p = preset_of(&c.stac);
+    let assets: Vec<&str> = c.stac_assets.split([',', ';', ' ']).map(str::trim).filter(|a| !a.is_empty()).collect();
+    if assets.is_empty() {
+        return Err("the assets: their names (red, nir...), several by commas".into());
+    }
+    let mut out = vec![
+        ("url", json!(p.url)),
+        ("collection", json!(p.collection)),
+        ("assets", if assets.len() == 1 { json!(assets[0]) } else { json!(assets) }),
+    ];
+    let dates = c.stac_dates.trim();
+    if !dates.is_empty() {
+        let parts: Vec<&str> = dates.split('/').map(str::trim).collect();
+        let one =
+            |d: &&str| *d == ".." || terraflux_ops::data::parse_date(d).is_ok() || (d.len() >= 19 && d.contains('T'));
+        if parts.len() > 2 || !parts.iter().all(one) {
+            return Err("the dates: a day (2024-06-01) or an interval (2024-06-01/2024-08-31)".into());
+        }
+        out.push(("datetime", json!(dates)));
+    }
+    if p.cloud && c.stac_cloud < 100.0 {
+        let q = json!({"eo:cloud_cover": {"lt": c.stac_cloud.round() as i64}});
+        out.push(("query", json!(q.to_string())));
+    }
+    if !terraflux_ops::stac::COMPOSITES.contains(&c.stac_composite.as_str()) {
+        return Err("how the scenes are combined: median, mean, min, max or first".into());
+    }
+    if c.stac_composite != "median" {
+        out.push(("composite", json!(c.stac_composite)));
+    }
+    if p.sign != "none" {
+        out.push(("sign", json!(p.sign)));
+    }
+    if p.classes {
+        out.push(("classes", json!(true)));
+    }
+    Ok(out)
 }
 
 /// The settings of an `sdm.download_gbif` node: the species, the countries and the years.
@@ -731,6 +950,16 @@ pub fn summary(d: &Dataset, c: &Choices) -> String {
             let name = MODIS_VARIABLES.iter().find(|(k, _)| *k == c.modis).map_or(c.modis.as_str(), |(_, n)| *n);
             format!("{name} of {}", c.dates.trim())
         }
+        STAC => {
+            let dates = c.stac_dates.trim();
+            format!(
+                "{}: {}{}{}",
+                preset_of(&c.stac).name,
+                c.stac_assets.trim(),
+                if dates.is_empty() { "" } else { ", " },
+                dates
+            )
+        }
         GBIF => {
             let mut w = c.species.trim().to_string();
             if !c.country.trim().is_empty() {
@@ -743,6 +972,9 @@ pub fn summary(d: &Dataset, c: &Choices) -> String {
         }
         _ => String::new(),
     };
+    if d.source == STAC {
+        return what;
+    }
     // (a name that tells its parts after a colon: the part before)
     format!("{}: {what}", d.name.split_once(": ").map_or(d.name, |(short, _)| short))
 }
@@ -816,6 +1048,11 @@ pub fn status(s: &Session, d: &Dataset, c: &Choices) -> Result<String, String> {
     let p = params(d, c)?;
     if d.source == GBIF {
         return Ok("asked of GBIF when the model runs (not kept in the cache)".into());
+    }
+    if d.source == STAC {
+        return Ok("the catalogue is searched when the model runs; the scenes are warped onto the grid once and \
+                   kept in the cache"
+            .into());
     }
     let params: serde_json::Map<String, Value> = p.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
     let args = terraflux_ops::Args { node: "catalog", inputs: inputs_of(s, d, c)?, params: &params };
@@ -997,12 +1234,16 @@ pub fn add(s: &mut Session, r: &Registry, d: &Dataset, c: &Choices) -> Result<St
     let nodes = s.source.scope(&path).cloned().unwrap_or_default();
     let from = c.like.as_ref().and_then(|l| l.rsplit_once('.')).map(|(n, _)| n.to_string());
     let pos = crate::builder::beside(&nodes, from.as_deref());
-    let op = if d.source == GBIF { "sdm.download_gbif" } else { "data.download" };
+    let op = match d.source {
+        GBIF => "sdm.download_gbif",
+        STAC => "data.stac",
+        _ => "data.download",
+    };
     let id = crate::builder::add_at(s, r, op, &[], Some(pos))?;
     if let Some(l) = c.like.as_ref().filter(|_| d.source != GBIF) {
         crate::editor::connect(&mut s.source, r, &path, l, &id, "like").map_err(|e| e.to_string())?;
     }
-    if let Some(a) = &c.area {
+    if let Some(a) = c.area.as_ref().filter(|_| d.source != STAC) {
         crate::editor::connect(&mut s.source, r, &path, a, &id, "area").map_err(|e| e.to_string())?;
     }
     if let Some(n) = s.source.scope_mut(&path).and_then(|v| v.iter_mut().find(|n| n.id == id)) {
@@ -1183,6 +1424,60 @@ fn form(ui: &mut Ui, d: &Dataset, c: &mut Choices) {
                 );
             });
         }
+        STAC => {
+            // (a preset chosen: its assets, dates and composite in the boxes)
+            if c.stac_applied != c.stac {
+                let key = c.stac.clone();
+                c.use_preset(&key);
+            }
+            let options: Vec<(&str, &str)> = PRESETS.iter().map(|p| (p.key, p.name)).collect();
+            row(ui, "Collection", &mut |ui| combo(ui, "catalog stac", &mut c.stac, &options));
+            if c.stac_applied != c.stac {
+                let key = c.stac.clone();
+                c.use_preset(&key);
+            }
+            let p = preset_of(&c.stac);
+            row(ui, "Assets", &mut |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut c.stac_assets)
+                        .hint_text("red, green, blue, nir")
+                        .desired_width(220.0),
+                )
+                .on_hover_text("the assets' names in the collection (its bands), one layer each");
+            });
+            row(ui, "Dates", &mut |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut c.stac_dates)
+                        .hint_text("2024-06-01/2024-08-31 (all: empty)")
+                        .desired_width(220.0),
+                );
+            });
+            if p.cloud {
+                row(ui, "Cloud cover", &mut |ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut c.stac_cloud)
+                            .range(0.0..=100.0)
+                            .speed(1.0)
+                            .prefix("below ")
+                            .suffix(" %"),
+                    )
+                    .on_hover_text("only the scenes with less cloud (100: all)");
+                });
+            }
+            row(ui, "Combine", &mut |ui| {
+                combo(ui, "catalog composite", &mut c.stac_composite, &plain(&terraflux_ops::stac::COMPOSITES))
+            });
+            ui.label(
+                RichText::new(format!(
+                    "{} · {}, {}",
+                    p.url,
+                    p.collection,
+                    if p.sign == "none" { "open" } else { "signed" }
+                ))
+                .weak()
+                .size(11.0),
+            );
+        }
         GBIF => {
             row(ui, "Species", &mut |ui| {
                 ui.add(egui::TextEdit::singleline(&mut c.species).hint_text("Puma concolor").desired_width(220.0));
@@ -1218,23 +1513,28 @@ fn form(ui: &mut Ui, d: &Dataset, c: &mut Choices) {
 }
 
 /// Where the data goes: the grid of a map of the model, or a box of longitudes and latitudes.
-fn grid_form(ui: &mut Ui, c: &mut Choices, maps: &[String], areas: &[String], points: bool) {
+fn grid_form(ui: &mut Ui, c: &mut Choices, maps: &[String], areas: &[String], points: bool, cut: bool) {
     const BOX: &str = "a box of longitudes and latitudes";
     const BOUNDS: &str = "the area's bounds";
     let weak = ui.visuals().weak_text_color();
-    ui.label(RichText::new(if points { "IN THE AREA" } else { "CUT TO THE AREA" }).size(10.5).strong().color(weak));
-    let shown = c.area.clone().unwrap_or_else(|| "none: all the grid".into());
-    egui::ComboBox::from_id_salt("catalog area").selected_text(shown).width(250.0).show_ui(ui, |ui| {
-        ui.selectable_value(&mut c.area, None, "none: all the grid");
-        for a in areas {
-            ui.selectable_value(&mut c.area, Some(a.clone()), a);
+    if cut {
+        ui.label(RichText::new(if points { "IN THE AREA" } else { "CUT TO THE AREA" }).size(10.5).strong().color(weak));
+        let shown = c.area.clone().unwrap_or_else(|| "none: all the grid".into());
+        egui::ComboBox::from_id_salt("catalog area").selected_text(shown).width(250.0).show_ui(ui, |ui| {
+            ui.selectable_value(&mut c.area, None, "none: all the grid");
+            for a in areas {
+                ui.selectable_value(&mut c.area, Some(a.clone()), a);
+            }
+        });
+        if areas.is_empty() {
+            ui.label(RichText::new("an area drawn on a map (Draw on the map) or read: its polygons").weak().size(11.0));
+        } else if c.area.is_some() {
+            let said = if points { "the records within its bounds" } else { "no data outside its polygons" };
+            ui.label(RichText::new(said).weak().size(11.0));
         }
-    });
-    if areas.is_empty() {
-        ui.label(RichText::new("an area drawn on a map (Draw on the map) or read: its polygons").weak().size(11.0));
-    } else if c.area.is_some() {
-        let said = if points { "the records within its bounds" } else { "no data outside its polygons" };
-        ui.label(RichText::new(said).weak().size(11.0));
+    } else {
+        // (data.stac takes no area)
+        c.area = None;
     }
     if points {
         return;
@@ -1301,12 +1601,14 @@ fn grid_form(ui: &mut Ui, c: &mut Choices, maps: &[String], areas: &[String], po
     });
 }
 
-const CELLS: [(f64, &str); 5] = [
+const CELLS: [(f64, &str); 7] = [
     (1.0 / 6.0, "10 arc-min (~18 km)"),
     (1.0 / 12.0, "5 arc-min (~9 km)"),
     (1.0 / 24.0, "2.5 arc-min (~4.5 km)"),
     (1.0 / 120.0, "30 arc-sec (~1 km)"),
     (1.0 / 1200.0, "3 arc-sec (~90 m)"),
+    (1.0 / 3600.0, "1 arc-sec (~30 m)"),
+    (1.0 / 12000.0, "0.3 arc-sec (~10 m)"),
 ];
 
 fn cells_combo(ui: &mut Ui, cellsize: &mut f64) {
@@ -1470,23 +1772,31 @@ pub fn window(ctx: &egui::Context, s: &mut Session, r: &Registry) {
                 if std::mem::take(&mut cat.to_grid) {
                     ui.scroll_to_cursor(Some(egui::Align::TOP));
                 }
-                grid_form(ui, &mut cat.choices, &maps, &areas, d.source == GBIF);
+                grid_form(ui, &mut cat.choices, &maps, &areas, d.source == GBIF, d.source != STAC);
                 ui.add_space(8.0);
                 let ready = params(d, &cat.choices);
                 ui.horizontal(|ui| {
                     if ui
                         .add_enabled(ready.is_ok(), egui::Button::new(RichText::new("Add to the model").strong()))
-                        .on_hover_text(
-                            "a data.download node so set: it fetches the data when it runs (kept in the cache)",
-                        )
+                        .on_hover_text(if d.source == STAC {
+                            "a data.stac node so set: it searches the catalogue and reads the scenes when it runs \
+                             (kept in the cache)"
+                        } else {
+                            "a data.download node so set: it fetches the data when it runs (kept in the cache)"
+                        })
                         .clicked()
                     {
                         add_it = true;
                     }
                     if ui
-                        .add_enabled(ready.is_ok() && cat.preview.job.is_none(), egui::Button::new("Preview"))
+                        .add_enabled(
+                            ready.is_ok() && cat.preview.job.is_none() && d.source != STAC,
+                            egui::Button::new("Preview"),
+                        )
                         .on_hover_text(if d.source == GBIF {
                             "how many records GBIF has for these choices"
+                        } else if d.source == STAC {
+                            "no preview of scenes: add the node and run it"
                         } else {
                             "the first layer, coarse (200 cells a side), over the grid"
                         })
@@ -1596,14 +1906,24 @@ mod tests {
         let r = Registry::standard();
         let sig = r.sig("data.download").unwrap();
         let source = sig.params.iter().find(|p| p.name == "source").unwrap();
-        for d in DATASETS.iter().filter(|d| d.source != GBIF) {
+        for d in DATASETS.iter().filter(|d| d.source != GBIF && d.source != STAC) {
             assert!(source.choices.iter().any(|c| c == d.source), "{}", d.source);
             assert!(d.reference.contains("https://doi.org/10."), "{}", d.name);
             assert!(d.home.starts_with("https://") && d.colours.len() >= 2);
         }
-        // every source of the download in the catalog, and GBIF's occurrences
-        assert_eq!(source.choices.len(), DATASETS.len() - 1);
+        // every source of the download in the catalog, GBIF's occurrences and the STAC catalogues
+        assert_eq!(source.choices.len(), DATASETS.len() - 2);
         assert!(r.sig("sdm.download_gbif").is_some());
+        let stac = r.sig("data.stac").unwrap();
+        for k in ["url", "collection", "assets", "datetime", "query", "composite", "classes", "sign"] {
+            assert!(stac.params.iter().any(|p| p.name == k), "{k}");
+        }
+        for p in &PRESETS {
+            assert!(p.url.starts_with("https://") && p.reference.contains("https://doi.org/10."), "{}", p.key);
+            assert!(terraflux_ops::stac::SIGNS.contains(&p.sign));
+            assert!(terraflux_ops::stac::COMPOSITES.contains(&p.composite));
+            assert!((p.sign == "planetary_computer") == p.url.contains("planetarycomputer"), "{}", p.key);
+        }
     }
 
     #[test]
@@ -1650,6 +1970,46 @@ mod tests {
     }
 
     #[test]
+    fn a_stac_collection_as_settings() {
+        let at = |s: &str| DATASETS.iter().find(|d| d.source == s).unwrap();
+        let d = at(STAC);
+        let mut c = Choices { like: Some("x.map".into()), ..Default::default() };
+        assert_eq!(
+            params(d, &c).unwrap(),
+            vec![
+                ("url", json!("https://earth-search.aws.element84.com/v1")),
+                ("collection", json!("sentinel-2-l2a")),
+                ("assets", json!(["red", "green", "blue", "nir"])),
+                ("datetime", json!("2024-06-01/2024-08-31")),
+                ("query", json!("{\"eo:cloud_cover\":{\"lt\":20}}")),
+            ]
+        );
+        assert_eq!(summary(d, &c), "Earth Search: Sentinel-2 L2A (10 m): red, green, blue, nir, 2024-06-01/2024-08-31");
+        // the Planetary Computer's: signed; classes, the first scene with a value, no cloud cover
+        c.use_preset("pc-io-lulc-annual-v02");
+        let p = params(d, &c).unwrap();
+        assert!(p.contains(&("sign", json!("planetary_computer"))) && p.contains(&("classes", json!(true))));
+        assert!(p.contains(&("composite", json!("first"))) && p.contains(&("assets", json!("data"))));
+        assert!(!p.iter().any(|(k, _)| *k == "query") && reference_of(d, &c).contains("IGARSS"));
+        // a wrong date, no asset
+        let c = Choices { stac_dates: "June".into(), ..Default::default() };
+        assert!(params(d, &c).is_err());
+        let c = Choices { stac_assets: " ".into(), ..Default::default() };
+        assert!(params(d, &c).is_err());
+        // on a box (an area has no part in it), the settings of the grid and no source
+        let c = Choices {
+            stac_dates: "2024-06-01/..".into(),
+            area: Some("a.vector".into()),
+            on_area: true,
+            ..Default::default()
+        };
+        let p = params(d, &c).unwrap();
+        assert!(p.iter().any(|(k, _)| *k == "extent") || p.iter().any(|(k, _)| *k == "cellsize"));
+        assert!(!p.iter().any(|(k, _)| *k == "source"));
+        assert_eq!(matching("stac", None).into_iter().map(|k| DATASETS[k].source).collect::<Vec<_>>(), [STAC]);
+    }
+
+    #[test]
     fn years_and_searches() {
         assert_eq!(parse_years("2024, 1985-1987;1986", 1985..=2024).unwrap(), vec![1985, 1986, 1987, 2024]);
         assert!(parse_years("2001-2000", 1985..=2024).is_err());
@@ -1662,6 +2022,7 @@ mod tests {
         assert_eq!(names("precipitation", None), ["worldclim", "worldclim_future", "chelsa"]);
         assert_eq!(names("tree", Some(Theme::LandCover)), ["esa_worldcover", "global_forest_change"]);
         assert_eq!(names("", Some(Theme::Species)), [GBIF]);
+        assert_eq!(names("", Some(Theme::Imagery)), [STAC]);
     }
 
     #[test]

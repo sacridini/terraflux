@@ -344,6 +344,31 @@ the button, what is in the cache already for those choices (nothing to download,
 fetches the first layer over the grid, coarse (200 cells a side), and shows it before anything is added, or, for
 GBIF, how many records it has.
 
+The **STAC catalogue** card (theme *imagery*) adds a [[data.stac]] node, not a [[data.download]]: the scenes of a
+collection of a public STAC catalogue, with presets for Earth Search (Sentinel-2 L2A, Landsat Collection 2, the
+Copernicus DEM) and for Microsoft's Planetary Computer (Sentinel-2, Landsat, a 10 m land cover by year; its files
+are signed with a token the node asks, with no key). Choose the collection, the assets (`red, green, blue, nir`),
+the dates (`2024-06-01/2024-08-31`), the most cloud cover and how the scenes are combined (the median of the cells
+with values, the first scene with a value...). Cells of 10 m are in the cell sizes of the box. There is no preview
+of scenes: add the node and run it. In a model file it reads:
+
+```toml
+[[nodes]]
+id = "s2"
+op = "data.stac"
+[nodes.params]
+url = "https://earth-search.aws.element84.com/v1"
+collection = "sentinel-2-l2a"
+assets = ["red", "nir"]
+datetime = "2024-06-01/2024-08-31"
+query = '{"eo:cloud_cover": {"lt": 20}}'
+composite = "median"
+extent = [2.10, 41.38, 2.12, 41.40]
+cellsize = 0.0001
+```
+
+The result is the same as the Python library's `tf.download.stac` for the same request.
+
 ## The viewer
 
 Whatever the node selected gives is shown in the **Viewer**: a map with its legend, the layers of a stack one at a

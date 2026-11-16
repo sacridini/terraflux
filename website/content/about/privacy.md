@@ -80,8 +80,11 @@ below do the same. What a server sees is the files asked for (so, the area and t
 | MODIS (vegetation indices, land surface temperature, burned area) | `planetarycomputer.microsoft.com` (and the storage it points to) |
 | Natural Earth reference data (`sdm.reference_data`) | `naciscdn.org` |
 | GBIF occurrence records (`sdm.download_gbif`) | `api.gbif.org` |
+| STAC catalogues (`data.stac`) | the catalogue you give (the catalog's presets: `earth-search.aws.element84.com`, `planetarycomputer.microsoft.com`) and the storage its scenes are on |
 
-GBIF is asked for the species name you give and the filters you set. Movebank is not contacted: the movement
+GBIF is asked for the species name you give and the filters you set. A STAC catalogue is asked for the box of your
+grid, the dates and the query you set; with `sign = planetary_computer`, the Planetary Computer also gives, without a
+key, a token for each storage container the scenes are in. Movebank is not contacted: the movement
 operators read the files you export from it.
 
 ### Your own data on the web and in the cloud

@@ -4820,6 +4820,7 @@ dependencies = [
  "terraflux-ls-sys",
  "terraflux-raster",
  "thiserror 2.0.21",
+ "ureq",
  "wasmi",
  "wat",
 ]

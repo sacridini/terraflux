@@ -82,6 +82,10 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
         "data.download",
         &["like", "source", "variable", "layers", "years", "property", "depth", "url", "extent", "cellsize"],
     ),
+    (
+        "data.stac",
+        &["like", "url", "collection", "assets", "datetime", "query", "composite", "sign", "extent", "cellsize"],
+    ),
     // machine learning
     ("ml.fit", &["table", "predictors", "target", "column", "task", "method", "sample", "n_estimators", "max_iter"]),
     ("ml.potential", &["landscape", "later", "drivers", "target", "classes", "method", "sample", "n_estimators"]),

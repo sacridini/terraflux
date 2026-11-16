@@ -6558,6 +6558,59 @@ fn a_dataset_from_the_catalog() {
     assert!(matches!(&s.catalog.said, Some(Ok(m)) if m.starts_with("added: data_download")), "{:?}", s.catalog.said);
 }
 
+/// The STAC card of the catalog: a preset of the Planetary Computer, its assets changed, added to the model as a
+/// data.stac node on the grid of the model's map (signed, the cloud cover a query), without a preview.
+#[test]
+fn a_stac_collection_from_the_catalog() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        // (no run: the node would go to the catalogue)
+        s.auto = false;
+        let path = data("pie_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
+        s.catalog.open = true;
+    }
+    h.run_steps(3);
+    // (the card is far down the list)
+    h.get_by_label("STAC catalogue").scroll_to_me();
+    h.run_steps(3);
+    h.get_by_label("STAC catalogue").click();
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        assert_eq!(terraflux_app::catalog::DATASETS[s.catalog.chosen].source, "stac");
+        s.catalog.choices.stac = "pc-sentinel-2-l2a".into();
+        s.catalog.choices.stac_cloud = 10.0;
+    }
+    h.run_steps(3);
+    // (the preset's assets and dates in the boxes; a preview of scenes is not offered)
+    assert_eq!(h.state().session.as_ref().unwrap().catalog.choices.stac_assets, "B04, B03, B02, B08");
+    h.get_by_label("Add to the model").scroll_to_me();
+    h.run_steps(2);
+    shot(&mut h, "14h4-catalog-stac");
+    h.get_by_label("Add to the model").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let n = s.source.nodes.iter().find(|n| n.op == "data.stac").expect("the data.stac node");
+    let p = |k: &str| n.params.get(k).cloned();
+    assert_eq!(p("url"), Some(serde_json::json!("https://planetarycomputer.microsoft.com/api/stac/v1")));
+    assert_eq!(p("collection"), Some(serde_json::json!("sentinel-2-l2a")));
+    assert_eq!(p("assets"), Some(serde_json::json!(["B04", "B03", "B02", "B08"])));
+    assert_eq!(p("sign"), Some(serde_json::json!("planetary_computer")));
+    assert_eq!(p("query"), Some(serde_json::json!("{\"eo:cloud_cover\":{\"lt\":10}}")));
+    assert!(p("extent").is_none(), "on the map's grid, not a box");
+    assert!(
+        matches!(n.inputs.get("like"), Some(terraflux_graph::Source::Ref(r)) if r == "pie_landuse.raster"),
+        "{:?}",
+        n.inputs
+    );
+    assert!(n.refs[0].contains("10.5270/S2_-znk9xsj"), "{:?}", n.refs);
+    assert!(matches!(&s.catalog.said, Some(Ok(m)) if m.starts_with("added: data_stac")), "{:?}", s.catalog.said);
+}
+
 /// File > Python script (terraflux-py)...: the model as a script, a call of terraflux-py a node, in its window.
 #[test]
 fn the_model_as_a_python_script() {

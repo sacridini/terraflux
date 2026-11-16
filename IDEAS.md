@@ -1825,7 +1825,13 @@ destravam outros são o 1 e o 3.
    princípio da preparação guiada para quem tem pouca experiência; o painel Prepare poderia oferecê-los.
    - **Feito** (0.92.0): `data.download` com o WorldClim (atual e CMIP6), o CHELSA (atual e CMIP6), o Copernicus
      DEM, o SoilGrids, o MapBiomas (coleções 9, 10 e 11) e qualquer URL, só a janela da grade lida dos servidores.
-     Falta: os catálogos STAC (o Planetary Computer pede assinar os endereços) e oferecê-los no painel Prepare.
+     Falta oferecê-los no painel Prepare (que não tem hoje um lugar para fontes de dados: o catálogo de dados do
+     aplicativo os oferece).
+   - **Feito** (Unreleased): os catálogos STAC, o operador `data.stac` (a busca `POST /search` com as páginas, os
+     assets lidos por GDAL só na janela da grade e combinados por mediana, média, mínimo, máximo ou o primeiro com
+     valor; o Planetary Computer assinado por token SAS), igual ao `download.stac` da biblioteca (testado célula a
+     célula contra ela), e o cartão "STAC catalogue" do catálogo de dados com presets do Earth Search e do Planetary
+     Computer (Sentinel-2, Landsat, Copernicus DEM, cobertura do solo de 10 m).
 5. **O Código Florestal completo.** Há o topo de morro (`surface.hilltop`); faltam as APPs dos rios pela largura (os
    rios do `hydro.streams`), as nascentes, as declividades acima de 45°, as bordas de tabuleiro, e o déficit e o
    excedente de Reserva Legal por imóvel do CAR (o SICAR como entrada), como nos trabalhos do Soares-Filho.
@@ -2018,8 +2024,8 @@ escolha, abstração) sem código.
 - **Integração com o ecossistema:** um provedor de Processing para o QGIS (os modelos do Terraflux como algoritmos do
   QGIS; provavelmente o maior multiplicador de adoção) e uma API Python para montar e rodar grafos, além do caminho
   do landschaft.
-- **Dados em nuvem:** STAC e o Planetary Computer (já na lista do `data.download`, item 4 de "O que ainda falta entre
-  os operadores").
+- **Dados em nuvem:** STAC e o Planetary Computer. **Feito** (Unreleased): `data.stac` e o cartão "STAC catalogue" do
+  catálogo de dados (item 4 de "O que ainda falta entre os operadores").
 - **A interface em português e espanhol:** com o Código Florestal e o MapBiomas entre os operadores, o público
   latino-americano é óbvio, e o aplicativo não tem i18n.
 - **Datas como tipo:** séries com datas reais, não só passos numerados (clima, MapBiomas, séries de mudança).

@@ -93,6 +93,7 @@ pub mod services;
 pub mod signatures;
 mod sobol_directions;
 pub mod special;
+pub mod stac;
 pub mod stats;
 pub mod surface;
 pub mod swat;
@@ -427,6 +428,7 @@ impl Registry {
         clumondo::register(&mut r);
         crafty::register(&mut r);
         data::register(&mut r);
+        stac::register(&mut r);
         env90m::register(&mut r);
         markov::register(&mut r);
         metrics::register(&mut r);

@@ -369,6 +369,47 @@ pub fn parse_date(t: &str) -> std::result::Result<i64, String> {
     }
 }
 
+/// A JSON document fetched by GDAL's HTTP (curl).
+pub(crate) fn get_json(url: &str) -> std::result::Result<serde_json::Value, String> {
+    let (status, body) =
+        terraflux_gdal::fetch(url, &["TIMEOUT=60", "MAX_RETRY=3", "RETRY_DELAY=2", "USERAGENT=Terraflux"])?;
+    if status != 200 && status != 0 {
+        return Err(format!("{url}: HTTP {status}"));
+    }
+    serde_json::from_slice(&body).map_err(|e| format!("{url}: {e}"))
+}
+
+/// The Planetary Computer's SAS token of a storage account and container (`account/container`), anonymous.
+pub(crate) fn sas_token(key: &str) -> std::result::Result<String, String> {
+    Ok(get_json(&format!("{PLANETARY}/sas/v1/token/{key}"))?["token"]
+        .as_str()
+        .ok_or("the Planetary Computer gave no token")?
+        .to_string())
+}
+
+/// A file of the Planetary Computer's storage (https://ACCOUNT.blob.core.windows.net/CONTAINER/...) with the token
+/// of its account and container (one asked once for each, kept in `tokens`) after a `?`.
+pub(crate) fn sas_sign(
+    href: &str,
+    tokens: &mut Vec<(String, String)>,
+    token_of: &dyn Fn(&str) -> std::result::Result<String, String>,
+) -> std::result::Result<String, String> {
+    let rest = href.strip_prefix("https://").ok_or_else(|| format!("{href}: not on https"))?;
+    let (host, path) = rest.split_once('/').ok_or_else(|| format!("{href}: no container"))?;
+    let account = host.split('.').next().unwrap_or(host);
+    let container = path.split('/').next().unwrap_or("");
+    let key = format!("{account}/{container}");
+    let token = match tokens.iter().find(|(k, _)| *k == key) {
+        Some((_, t)) => t.clone(),
+        None => {
+            let t = token_of(&key)?;
+            tokens.push((key, t.clone()));
+            t
+        }
+    };
+    Ok(format!("{href}?{token}"))
+}
+
 /// The files of the MODIS product of an asset at a date over a grid: its latest file (a 16-day or 8-day
 /// composite, a month, a year) begun on the date or before (its tiles together), signed.
 fn modis_sources(asset: &str, date: &str, g: &Grid) -> std::result::Result<Vec<String>, String> {
@@ -376,14 +417,7 @@ fn modis_sources(asset: &str, date: &str, g: &Grid) -> std::result::Result<Vec<S
     let day = parse_date(date)?;
     let (y0, m0, d0) = date_of(day - product.days);
     let (lon, lat) = lonlat_box(g).map_err(|e| e.to_string())?;
-    let get = |url: &str| -> std::result::Result<serde_json::Value, String> {
-        let (status, body) =
-            terraflux_gdal::fetch(url, &["TIMEOUT=60", "MAX_RETRY=3", "RETRY_DELAY=2", "USERAGENT=Terraflux"])?;
-        if status != 200 && status != 0 {
-            return Err(format!("{url}: HTTP {status}"));
-        }
-        serde_json::from_slice(&body).map_err(|e| format!("{url}: {e}"))
-    };
+    let get = get_json;
     let collection = product.collection;
     let url = format!(
         "{PLANETARY}/stac/v1/search?collections={collection}&bbox={},{},{},{}&datetime={y0:04}-{m0:02}-{d0:02}T00:00:00Z/\
@@ -400,29 +434,13 @@ fn modis_sources(asset: &str, date: &str, g: &Grid) -> std::result::Result<Vec<S
     let Some(last) = last else {
         return Err(format!("modis: no {} over the grid in the {} days up to {date}", product.prefix, product.days));
     };
-    // signed by a token of their storage account and container (https://ACCOUNT.blob.core.windows.net/CONTAINER/)
+    // signed by a token of their storage account and container
     let hrefs: Vec<&str> =
         items.iter().filter(|f| start(f) == last).filter_map(|f| f["assets"][asset]["href"].as_str()).collect();
     let mut tokens: Vec<(String, String)> = Vec::new();
     let mut out = Vec::new();
     for h in hrefs {
-        let rest = h.strip_prefix("https://").ok_or_else(|| format!("modis: {h}: not on https"))?;
-        let (host, path) = rest.split_once('/').ok_or_else(|| format!("modis: {h}: no container"))?;
-        let account = host.split('.').next().unwrap_or(host);
-        let container = path.split('/').next().unwrap_or("");
-        let key = format!("{account}/{container}");
-        let token = match tokens.iter().find(|(k, _)| *k == key) {
-            Some((_, t)) => t.clone(),
-            None => {
-                let t = get(&format!("{PLANETARY}/sas/v1/token/{key}"))?["token"]
-                    .as_str()
-                    .ok_or("modis: the Planetary Computer gave no token")?
-                    .to_string();
-                tokens.push((key, t.clone()));
-                t
-            }
-        };
-        out.push(curl(&format!("{h}?{token}")));
+        out.push(curl(&sas_sign(h, &mut tokens, &sas_token).map_err(|e| format!("modis: {e}"))?));
     }
     Ok(out)
 }
@@ -446,7 +464,7 @@ fn sources_of(l: &Layer, g: &Grid) -> std::result::Result<Vec<String>, String> {
 }
 
 /// The grid to fill: a map's (any raster input), or an extent of longitudes and latitudes at a cell size.
-fn grid_of(args: &Args) -> Result<Grid> {
+pub(crate) fn grid_of(args: &Args) -> Result<Grid> {
     let fail = |m: &str| Error::msg(format!("node {:?}: {m}", args.node));
     match args.get("like") {
         Some(Value::Map(m)) => Ok((*m.grid).clone()),

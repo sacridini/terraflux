@@ -27,6 +27,15 @@ pub const TIPS: &[(&str, &str)] = &[
          areas are compared. Classes are taken by the nearest cell (or the mode when the cells grow).",
     ),
     (
+        "data.stac",
+        "Keep the grid small and the cells as coarse as the question allows: every scene of the search is read and \
+         warped (a Sentinel-2 summer over a few tens of kilometres at 10 m is many scenes). Ask for few scenes with \
+         `datetime`, `limit` and `query` (`{\"eo:cloud_cover\": {\"lt\": 20}}`); the median of the scenes drops \
+         clouds and shadows that move, the `first` composite takes a scene as it is (classes, a DEM's tiles: set \
+         `classes` for the most common cell). The Planetary Computer's files need `sign = planetary_computer`. The \
+         values are the files' integers: scale and offset (reflectance / 10000) are the catalogue's, not applied.",
+    ),
+    (
         "markov.fit",
         "Calibrate it on the earlier period (t0, t1) and keep a later map to validate the simulation. `steps` is \
          the number of time steps in the period: the rates are per step (10 years simulated a year at a time: 10).",

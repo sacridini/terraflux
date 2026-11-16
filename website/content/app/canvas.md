@@ -215,7 +215,8 @@ lists the subjects and their prefixes, and the [operator reference](/operators/)
 
 **File > Data catalog...** (or *Data catalog* in ++ctrl+k++) lists public datasets that Terraflux downloads onto your
 model's grid: the climate (WorldClim, CHELSA), the Copernicus DEM, SoilGrids, MapBiomas Brazil, Hydrography90m, ESA
-WorldCover, Hansen's Global Forest Change, MODIS and GBIF occurrences. A card says what a dataset holds, its
+WorldCover, Hansen's Global Forest Change, MODIS, GBIF occurrences and the scenes of STAC catalogues (Earth Search,
+the Planetary Computer: Sentinel-2, Landsat, as a [[data.stac]] node). A card says what a dataset holds, its
 resolution, years, coverage, **licence** and the paper to cite. Choose what to fetch and the grid, then **Add to the
 model** adds a [[data.download]] node set that way. **Preview** shows the first layer, coarse, before anything is
 added. The [tour](/tutorials/getting-started/tour/#the-data-catalog) describes each choice.

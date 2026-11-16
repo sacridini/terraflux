@@ -31,6 +31,8 @@ flate2.workspace = true
 robust = "1.2"
 rstar = "0.12"
 sha2 = "0.11"
+# the STAC catalogues' searches (data.stac)
+ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }
 
 [dev-dependencies]
 hex = "0.4"
