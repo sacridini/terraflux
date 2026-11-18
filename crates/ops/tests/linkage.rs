@@ -1,13 +1,14 @@
 //! Linkage Pathways against an independent reference (tests/data/reference/linkage.json,
 //! tools/make_linkage_reference.py): scikit-image's MCP_Geometric for the cost-weighted distances, numpy for
 //! the allocation, the adjacency, the least-cost distances, the filters and the corridors, on a 40 x 50 grid of
-//! cells of 30 x 20 units.
+//! cells of 30 x 20 units. The pinch points against the library's Circuitscape on the corridors of that
+//! reference (the key `pinch`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use terraflux_ops::linkage::{Lattice, cwd};
-use terraflux_ops::{Args, Ctx, Map, Outputs, Registry, Value};
+use terraflux_ops::{Args, Ctx, Map, Outputs, Registry, Table, Value};
 use terraflux_raster::Grid;
 use terraflux_raster::vector::Geometry;
 
@@ -41,15 +42,23 @@ fn maps(r: &serde_json::Value) -> (Map, Map) {
     (Map::new(g.clone(), cores), Map::new(g, nums(&r["resistance"])))
 }
 
-fn run(cores: &Map, res: &Map, params: serde_json::Value) -> Result<Outputs, String> {
+fn exec(op: &str, cores: &Map, res: &Map, links: Option<&Table>, params: serde_json::Value) -> Result<Outputs, String> {
     let r = Registry::standard();
     let params = params.as_object().cloned().unwrap_or_default();
-    let inputs = [("cores", Value::Map(cores.clone())), ("resistance", Value::Map(res.clone()))]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .collect();
+    let mut inputs: std::collections::BTreeMap<String, Value> =
+        [("cores", Value::Map(cores.clone())), ("resistance", Value::Map(res.clone()))]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+    if let Some(t) = links {
+        inputs.insert("links".into(), Value::Table(t.clone()));
+    }
     let args = Args { node: "n", inputs, params: &params };
-    r.get("linkage.pathways").unwrap().run(&mut Ctx::default(), &args).map_err(|e| e.to_string())
+    r.get(op).unwrap().run(&mut Ctx::default(), &args).map_err(|e| e.to_string())
+}
+
+fn run(cores: &Map, res: &Map, params: serde_json::Value) -> Result<Outputs, String> {
+    exec("linkage.pathways", cores, res, None, params)
 }
 
 fn close(a: f64, b: f64, what: &str) {
@@ -167,4 +176,113 @@ fn a_different_grid_is_refused() {
     assert!(e.contains("not on one grid"), "{e}");
     let e = run(&cores, &res, serde_json::json!({"adjacency": "near"})).unwrap_err();
     assert!(e.contains("adjacency"), "{e}");
+}
+
+/// The links of linkage.pathways' table that `cfg` gives, and the pinch points of them.
+fn pinch_of(cores: &Map, res: &Map, cfg: &serde_json::Value, params: serde_json::Value) -> Result<Outputs, String> {
+    let Value::Table(links) = &run(cores, res, cfg.clone()).unwrap()["links"] else { panic!("no table") };
+    exec("linkage.pinchpoints", cores, res, Some(links), params)
+}
+
+fn table(v: &Value) -> &Table {
+    let Value::Table(t) = v else { panic!("not a table") };
+    t
+}
+
+#[test]
+fn pinch_points_are_the_librarys_circuits() {
+    let r = reference();
+    let (cores, res) = maps(&r);
+    for (name, case) in r["pinch"].as_object().unwrap() {
+        let params = serde_json::json!({"width": case["width"], "mode": case["mode"], "square": case["square"]});
+        let out = pinch_of(&cores, &res, &case["links"], params).unwrap();
+        let got = data(&out["current"]);
+        for (c, (a, b)) in got.iter().zip(nums(&case["current"])).enumerate() {
+            // the all-to-one problems are solved in batches: the last bits depend on them
+            if a.is_nan() != b.is_nan() || (!a.is_nan() && (a - b).abs() > 1e-8 * b.abs().max(1.0)) {
+                panic!("{name}: current cell {c}: {a} against {b}");
+            }
+        }
+        let t = table(&out["links"]);
+        let want = case["rows"].as_array().unwrap();
+        assert_eq!(t.rows.len(), want.len(), "{name}: links");
+        let col = |c: &str| t.column(c).unwrap();
+        for (i, w) in want.iter().enumerate() {
+            let what = format!("{name}: link {i}");
+            close(col("from")[i], num(&w["from"]), &format!("{what} from"));
+            close(col("to")[i], num(&w["to"]), &format!("{what} to"));
+            close(col("lcd")[i], num(&w["lcd"]), &format!("{what} lcd"));
+            if case["mode"] == "pairwise" {
+                close(col("resistance")[i], num(&w["resistance"]), &format!("{what} resistance"));
+                close(col("cwd_to_resistance")[i], num(&w["ratio"]), &format!("{what} ratio"));
+                close(col("nodes")[i], num(&w["nodes"]), &format!("{what} nodes"));
+            } else {
+                assert!(col("resistance")[i].is_nan(), "{what}: no resistance in all-to-one");
+            }
+        }
+    }
+}
+
+/// The current is only inside the corridors (a link's cells of a normalized distance within the width) and not
+/// in the cores of all-to-one; a wider band gives current where the narrower one has none.
+#[test]
+fn the_current_is_inside_the_corridors() {
+    let r = reference();
+    let (cores, res) = maps(&r);
+    let surf = |id: f64| nums(&r["surfaces"][format!("{}", id as i64)]);
+    let cfg = serde_json::json!({});
+    let Value::Table(links) = &run(&cores, &res, cfg.clone()).unwrap()["links"] else { panic!() };
+    let (from, to, lcd) = (links.column("from").unwrap(), links.column("to").unwrap(), links.column("lcd").unwrap());
+    for mode in ["pairwise", "all_to_one"] {
+        let at = |width: f64| {
+            data(&pinch_of(&cores, &res, &cfg, serde_json::json!({"width": width, "mode": mode})).unwrap()["current"])
+        };
+        let (narrow, wide) = (at(150.0), at(350.0));
+        for (cur, width) in [(&narrow, 150.0), (&wide, 350.0)] {
+            for (c, v) in cur.iter().enumerate() {
+                if v.is_nan() {
+                    continue;
+                }
+                // (a third core in a link's corridor is a cell like the others in its circuit)
+                if mode == "all_to_one" {
+                    assert!(cores.data[c].is_nan(), "{mode}: current in a core, cell {c}");
+                }
+                let inside = (0..from.len()).any(|k| surf(from[k])[c] + surf(to[k])[c] - lcd[k] <= width + 1e-9);
+                assert!(inside, "{mode}: current outside the corridors, cell {c}");
+            }
+        }
+        let count = |v: &[f64]| v.iter().filter(|x| !x.is_nan()).count();
+        assert!(count(&narrow) > 0 && count(&narrow) < count(&wide), "{mode}: the width grows the band");
+    }
+}
+
+#[test]
+fn pinch_points_refuse_what_does_not_fit() {
+    let r = reference();
+    let (cores, res) = maps(&r);
+    let mut out = run(&cores, &res, serde_json::json!({})).unwrap();
+    let Value::Table(links) = out.remove("links").unwrap() else { panic!() };
+    let go = |t: &Table, p: serde_json::Value| exec("linkage.pinchpoints", &cores, &res, Some(t), p);
+    // no kept link
+    let mut none = links.clone();
+    let k = none.columns.iter().position(|c| c == "kept").unwrap();
+    none.rows.iter_mut().for_each(|r| r[k] = 0.0);
+    let e = go(&none, serde_json::json!({"width": 300.0})).unwrap_err();
+    assert!(e.contains("no kept link"), "{e}");
+    // a link table of another resistance
+    let mut other = links.clone();
+    let l = other.columns.iter().position(|c| c == "lcd").unwrap();
+    other.rows[0][l] *= 1.5;
+    let e = go(&other, serde_json::json!({"width": 300.0})).unwrap_err();
+    assert!(e.contains("not linkage.pathways"), "{e}");
+    // the width, the mode and the grid
+    let e = go(&links, serde_json::json!({})).unwrap_err();
+    assert!(e.contains("width"), "{e}");
+    let e = go(&links, serde_json::json!({"width": 300.0, "mode": "all"})).unwrap_err();
+    assert!(e.contains("mode"), "{e}");
+    let mut g = (*res.grid).clone();
+    g.transform[1] += 1.0;
+    let moved = Map::new(Arc::new(g), res.data.to_vec());
+    let e = exec("linkage.pinchpoints", &cores, &moved, Some(&links), serde_json::json!({"width": 300.0})).unwrap_err();
+    assert!(e.contains("not on one grid"), "{e}");
 }

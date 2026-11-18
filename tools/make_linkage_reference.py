@@ -10,12 +10,23 @@ adjacency, the least-cost distances, the normalized corridors and their mosaic, 
 lengths are written here in numpy. The grid is 40 x 50 cells of 30 x 20 map units (not square, so the sampling
 counts), four cores, a low-resistance diagonal that runs through the middle core (a link that crosses a core) and
 a barrier of cells without a value.
+
+The pinch points (`linkage.pinchpoints`) are the same landscape's: the band of each kept link (the two cores' CWDs
+added, less the LCD, within `width`) is made in numpy from the MCP_Geometric distances, and the circuit is the
+library's Circuitscape (terraflux-py's `circuitscape_pairwise` between the two cores' cells in the band, and
+`circuitscape_one_to_all` in all-to-one, as Linkage Mapper's s8_pinchpoints.py calls it), so it needs the library
+importable. Its compiled module is looked for as `terraflux._core`; where the package is not installed with it,
+TERRAFLUX_CORE names the file of the module (a `_core*.pyd` or `.so`) and the package is taken from
+extern/terraflux-py/src.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+import sys
+import types
 from pathlib import Path
 
 os.environ.setdefault("OMP_NUM_THREADS", "4")
@@ -27,6 +38,8 @@ from skimage.graph import MCP_Geometric  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
+
+SRC = ROOT / "extern" / "terraflux-py" / "src" / "terraflux"
 
 NY, NX = 40, 50
 DX, DY = 30.0, 20.0
@@ -147,6 +160,65 @@ def link_table(res, cores, cfg):
     return rows, mosaic, surf, stack
 
 
+def circuit_module():
+    """terraflux.circuit: the installed library's, else the submodule's source with the module named by TERRAFLUX_CORE."""
+    try:
+        from terraflux import circuit
+
+        return circuit
+    except ImportError:
+        pass
+    for k in [k for k in sys.modules if k == "terraflux" or k.startswith("terraflux.")]:
+        del sys.modules[k]
+    pkg = types.ModuleType("terraflux")
+    pkg.__path__ = [str(SRC)]
+    sys.modules["terraflux"] = pkg
+    core = os.environ.get("TERRAFLUX_CORE")
+    if core:
+        spec = importlib.util.spec_from_file_location("terraflux._core", core)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["terraflux._core"] = mod
+        spec.loader.exec_module(mod)
+    from terraflux import circuit
+
+    return circuit
+
+
+def pinch(circuit, res, cores, cfg, width, mode, square):
+    """Linkage Mapper's pinch points of the kept links of `cfg`: the current map and a row per link."""
+    rows, _, surf, _ = link_table(res, cores, cfg)
+    kept = [r for r in rows if r["kept"]]
+    cost = np.where(np.isfinite(res) & (res > 0), res, np.nan)
+    r_circuit = cost * cost if square else cost
+    out_rows = []
+    if mode == "pairwise":
+        current = np.full((NY, NX), np.nan)
+        for r in kept:
+            a, b = r["frm"], r["to"]
+            band = (surf[a] + surf[b] - r["lcd"]) <= width
+            hab = np.where(band, r_circuit, np.nan)
+            pts = np.where(band & (cores == a), 1, np.where(band & (cores == b), 2, 0))
+            res_ = circuit.circuitscape_pairwise(hab, pts, cum_map=True, set_focal_node_currents_to_zero=True)
+            cur = np.where(np.isfinite(hab) & (pts == 0), res_.cum_current, np.nan)
+            current = np.where(np.isnan(current) | (cur > current), np.where(np.isnan(cur), current, cur), current)
+            eff = float(res_.resistances[1, 2]) * DY
+            out_rows.append(
+                {"from": a, "to": b, "lcd": r["lcd"], "resistance": eff,
+                 "ratio": None if square else r["lcd"] / eff, "nodes": int(np.isfinite(hab).sum())}
+            )
+    else:
+        band = np.zeros((NY, NX), dtype=bool)
+        for r in kept:
+            band |= (surf[r["frm"]] + surf[r["to"]] - r["lcd"]) <= width
+        band |= (cores > 0) & np.isfinite(cost)
+        hab = np.where(band, r_circuit, np.nan)
+        pts = np.where((cores > 0) & np.isfinite(cost), cores, 0).astype(int)
+        res_ = circuit.circuitscape_one_to_all(hab, pts, all_to_one=True, cum_map=True, set_focal_node_currents_to_zero=True)
+        current = np.where(band & (pts == 0), res_.cum_current, np.nan)
+        out_rows = [{"from": r["frm"], "to": r["to"], "lcd": r["lcd"]} for r in kept]
+    return current, out_rows
+
+
 def clean(x):
     a = np.asarray(x, dtype=float)
     return [None if not np.isfinite(v) else float(v) for v in a.ravel()]
@@ -193,6 +265,24 @@ def main():
     _, _, surf, stack = link_table(res, cores, {})
     out["surfaces"] = {str(i): clean(surf[i]) for i in ids}
     out["cwd"] = clean(stack.min(axis=0))
+    circuit = circuit_module()
+    pinch_cases = {
+        "pairwise": ({}, 350.0, "pairwise", False),
+        "pairwise_all": ({"adjacency": "all", "drop_crossing": False}, 300.0, "pairwise", False),
+        "square": ({}, 350.0, "pairwise", True),
+        "all_to_one": ({}, 350.0, "all_to_one", False),
+    }
+    out["pinch"] = {}
+    for name, (cfg, width, mode, square) in pinch_cases.items():
+        current, prows = pinch(circuit, res, cores, cfg, width, mode, square)
+        out["pinch"][name] = {
+            "links": cfg,
+            "width": width,
+            "mode": mode,
+            "square": square,
+            "current": clean(current),
+            "rows": prows,
+        }
     path = REF / "linkage.json"
     path.write_text(json.dumps(out) + "\n", encoding="utf-8")
     print(path, {k: [(l["from"], l["to"], l["kept"], l["reason"]) for l in v["links"]] for k, v in out["cases"].items()})

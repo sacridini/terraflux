@@ -130,6 +130,13 @@ pub const TIPS: &[(&str, &str)] = &[
          not drawn.",
     ),
     (
+        "linkage.pinchpoints",
+        "`links` is linkage.pathways' table, on the same cores and resistance; `width` is the corridor's cutoff in \
+         cost units (a wider band lets the current spread, a narrow one forces it through the pinch points). The \
+         current is relative: read where it concentrates, not its amps. A low cwd_to_resistance marks a link whose \
+         corridor is a bottleneck. Circuitscape solves every cell of the band: keep it to a few million cells.",
+    ),
+    (
         "cost.transition",
         "Of a conductance (1 / resistance), usually corrected for the cells' distances (cost.geo_correction) before \
          cost.acc_cost or cost.passage.",

@@ -3867,6 +3867,10 @@ duas células, vezes o tamanho da célula) e o Circuitscape do terraflux-py. Mó
 - **2b. `linkage.pinchpoints`.** Para cada ligação, o Circuitscape entre os dois núcleos só dentro do corredor cortado
   (ou all-to-one no mosaico todo); saídas `current` (o máximo ou a soma das ligações) e `links` (a resistência
   efetiva de cada uma).
+  **Feito** (Unreleased). `linkage.pinchpoints` em `crates/ops/src/linkage.rs`, como o `s8_pinchpoints.py`: o
+  corredor é CWD_A + CWD_B − LCD ≤ `width`; as ligações vão em paralelo pelo Circuitscape da biblioteca; `current` é o
+  máximo das ligações (núcleos sem valor), o `all_to_one` usa todos os núcleos do mapa; `square` e a razão
+  `cwd_to_resistance` como no LM; referência em `make_linkage_reference.py` (chave `pinch`). Faltou o `all_pairs` do LM.
 - **2c. `linkage.barriers`.** Janelas circulares de raio `min`..`max` (passo `step`) restauradas: para cada célula e
   raio, a melhora = LCD − (mínimo de CWD_A no círculo + mínimo de CWD_B no círculo + o custo do círculo restaurado,
   `restored` por unidade), por unidade de distância restaurada (÷ 2R, como o Barrier Mapper); saídas `improvement`

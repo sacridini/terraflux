@@ -12,13 +12,16 @@ use std::sync::Arc;
 
 use rayon::prelude::*;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
+use terraflux_ls_sys::ffi;
 use terraflux_raster::Grid;
 use terraflux_raster::vector::{Column, Geometry, Vector};
 
+use crate::circuit::{Circuit, FocalPoints, OneToAllOptions, one_to_all};
 use crate::{Args, Ctx, Error, Map, Operator, Outputs, Registry, Result, Table, Value, outputs};
 
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(Pathways));
+    r.add(Arc::new(Pinchpoints));
 }
 
 /// The most memory the cost-weighted distances of all the cores in links may take together (bytes).
@@ -233,6 +236,25 @@ fn path_length(path: &[usize], lat: &Lattice) -> f64 {
         .sum()
 }
 
+/// The cores of a map of ids over a resistance: their sorted ids, and every cell's core (index + 1, 0 none; a
+/// core cell of an impassable resistance is none).
+fn core_ids(cores: &[f64], res: &[f64]) -> Result<(Vec<i64>, Vec<u32>)> {
+    let is_core = |c: usize| cores[c].is_finite() && cores[c] != 0.0 && passable(res[c]);
+    let mut found: BTreeSet<i64> = BTreeSet::new();
+    for (c, &v) in cores.iter().enumerate() {
+        if is_core(c) {
+            if v.fract() != 0.0 {
+                return Err(Error::msg(format!("cores holds whole ids, not {v}")));
+            }
+            found.insert(v as i64);
+        }
+    }
+    let names: Vec<i64> = found.into_iter().collect();
+    let index: BTreeMap<i64, u32> = names.iter().enumerate().map(|(k, &i)| (i, k as u32 + 1)).collect();
+    let ids = (0..cores.len()).map(|c| if is_core(c) { index[&(cores[c] as i64)] } else { 0 }).collect();
+    Ok((names, ids))
+}
+
 /// A link between two cores (by index into the sorted ids).
 struct Link {
     a: usize,
@@ -375,27 +397,11 @@ impl Operator for Pathways {
         let res: &[f64] = &resm.data;
 
         // the cores: sorted ids, and every cell's core (index + 1, 0 none)
-        let mut found: BTreeSet<i64> = BTreeSet::new();
-        for (c, &v) in cores.data.iter().enumerate() {
-            if v.is_finite() && v != 0.0 && passable(res[c]) {
-                if v.fract() != 0.0 {
-                    return Err(fail(format!("cores holds whole ids, not {v}")));
-                }
-                found.insert(v as i64);
-            }
-        }
-        let names: Vec<i64> = found.into_iter().collect();
+        let (names, ids) = core_ids(&cores.data, res).map_err(|e| fail(e.to_string()))?;
         if names.len() < 2 {
             return Err(fail(format!("two cores are needed to link, found {}", names.len())));
         }
         let m = names.len();
-        let index: BTreeMap<i64, u32> = names.iter().enumerate().map(|(k, &i)| (i, k as u32 + 1)).collect();
-        let ids: Vec<u32> = cores
-            .data
-            .iter()
-            .enumerate()
-            .map(|(c, &v)| if v.is_finite() && v != 0.0 && passable(res[c]) { index[&(v as i64)] } else { 0 })
-            .collect();
         let sources: Vec<(usize, u32)> =
             ids.iter().enumerate().filter(|&(_, &l)| l > 0).map(|(c, &l)| (c, l)).collect();
         crate::threads::ensure();
@@ -600,5 +606,295 @@ impl Operator for Pathways {
             ("paths", Value::Vector(Arc::new(paths))),
             ("cwd", Value::Map(Map::new(g.clone(), nearest_cwd))),
         ]))
+    }
+}
+
+/// Circuitscape's no-data value: a cell below it has no current.
+const NODATA: f64 = -9999.0;
+
+struct Pinchpoints;
+
+impl Operator for Pinchpoints {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "linkage.pinchpoints",
+            "The pinch points of the links between cores, as Linkage Mapper's Pinchpoint Mapper (McRae 2012) with \
+             Circuitscape (McRae et al. 2008): in `pairwise` mode, for each kept link of `links` (the output of \
+             linkage.pathways) the circuit between its two cores, inside the link's corridor only (the cells whose \
+             normalized least-cost distance, the two cores' distances added less the link's LCD, is within \
+             `width`; the resistance outside it a barrier; the cores' cells in the corridor the focal regions, 1 \
+             A across), and the `current` the largest of the links' (the core cells have no value, as Linkage \
+             Mapper's); in `all_to_one` mode one circuit over the union of the corridors, every core grounded in \
+             turn with the others injecting, and the cumulative current. The effective resistance of a link is \
+             Circuitscape's times the cell's height, in the units of the cost-weighted distance, with `lcd` over \
+             it as `cwd_to_resistance` (low: the link is a pinch point or a bottleneck; not given with `square`). \
+             The resistance is the cost surface of linkage.pathways (a cell without a value or of 0 or less is a \
+             barrier). The links' circuits run in parallel; the cost-weighted distances of the cores in links are \
+             kept in memory together.",
+            Access::Global,
+        )
+        .input(PortSpec::new("cores", Type::Map, "the core areas: whole ids, 0 or no value elsewhere"))
+        .input(PortSpec::new("resistance", Type::Map, "the resistance, above 0 (0 or no value: impassable)"))
+        .input(PortSpec::new(
+            "links",
+            Type::Table,
+            "the links to map: from, to, lcd and kept (the rows kept; all if no `kept` column), as linkage.pathways' \
+             `links`",
+        ))
+        .param(PortSpec::new(
+            "width",
+            Type::Number,
+            "the corridors' cutoff: the cells of a normalized least-cost distance up to it are in the circuit, in cost \
+             units",
+        ))
+        .param(
+            PortSpec::optional(
+                "mode",
+                Type::Text,
+                "pairwise (a circuit per link, between its two cores, the default) or all_to_one (one circuit over \
+                 the corridors of all the links, every core a focal region)",
+            )
+            .choices(["pairwise", "all_to_one"]),
+        )
+        .param(PortSpec::optional(
+            "square",
+            Type::Bool,
+            "square the resistances for the circuit, as Linkage Mapper's option, to weight the pinch points more \
+             (false)",
+        ))
+        .output(PortSpec::new(
+            "current",
+            Type::Map,
+            "the current: the largest of the links' (pairwise) or the cumulative one (all_to_one); no value outside the \
+             corridors and in the cores",
+        ))
+        .output(PortSpec::new(
+            "links",
+            Type::Table,
+            "a row per link mapped: from, to, lcd, resistance (the effective resistance, in cost units; pairwise), \
+             cwd_to_resistance (lcd / resistance, not with `square`) and nodes (the cells of its circuit)",
+        ))
+    }
+
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
+        let cores = args.map("cores")?;
+        let resm = args.map("resistance")?;
+        let (g, rg) = (&cores.grid, &resm.grid);
+        if g.width != rg.width || g.height != rg.height || g.transform != rg.transform {
+            return Err(fail(format!(
+                "cores ({}x{} cells) and resistance ({}x{}) are not on one grid: raster.match puts them on one",
+                g.width, g.height, rg.width, rg.height
+            )));
+        }
+        let lt = match args.get("links").ok_or_else(|| args.missing("links"))? {
+            Value::Table(t) => t,
+            v => return Err(args.wrong("links", "table", v)),
+        };
+        let width: f64 = args.opt_param("width")?.ok_or_else(|| fail("width is required".into()))?;
+        if !width.is_finite() || width < 0.0 {
+            return Err(fail(format!("width is a distance of 0 or more, not {width}")));
+        }
+        let mode: String = args.param("mode", "pairwise".to_string())?;
+        if !["pairwise", "all_to_one"].contains(&mode.as_str()) {
+            return Err(fail(format!("mode is pairwise or all_to_one, not {mode:?}")));
+        }
+        let square: bool = args.param("square", false)?;
+        let lat = Lattice::of(g);
+        let n = lat.cells();
+        if n >= u32::MAX as usize {
+            return Err(fail("the grid has too many cells".into()));
+        }
+        let res: &[f64] = &resm.data;
+        let threads = crate::threads::ensure();
+
+        // the cores, and the links to map: (core, core, lcd of the table)
+        let (names, ids) = core_ids(&cores.data, res).map_err(|e| fail(e.to_string()))?;
+        let index: BTreeMap<i64, usize> = names.iter().enumerate().map(|(k, &i)| (i, k)).collect();
+        let col = |c: &str| lt.column(c).ok_or_else(|| fail(format!("links has no column {c:?}")));
+        let (from, to, lcd) = (col("from")?, col("to")?, col("lcd")?);
+        let kept = lt.column("kept");
+        let mut links: Vec<(usize, usize, f64)> = Vec::new();
+        for i in 0..lt.rows.len() {
+            if kept.as_ref().is_some_and(|k| k[i] != 1.0) {
+                continue;
+            }
+            let find = |v: f64| {
+                index.get(&(v as i64)).copied().ok_or_else(|| fail(format!("the core {v} of links is not in cores")))
+            };
+            links.push((find(from[i])?, find(to[i])?, lcd[i]));
+        }
+        if links.is_empty() {
+            return Err(fail("links has no kept link to map".into()));
+        }
+
+        // the cost-weighted distance from the cores in the links
+        let mut cells: Vec<Vec<usize>> = vec![Vec::new(); names.len()];
+        for (c, &l) in ids.iter().enumerate() {
+            if l > 0 {
+                cells[l as usize - 1].push(c);
+            }
+        }
+        let mut needed: Vec<usize> = links.iter().flat_map(|l| [l.0, l.1]).collect();
+        needed.sort_unstable();
+        needed.dedup();
+        if needed.len() as f64 * n as f64 * 8.0 > MEMORY {
+            return Err(fail(format!(
+                "{} cores in links over {n} cells need more than {} GB for their distances: map fewer links or a \
+                 smaller grid",
+                needed.len(),
+                MEMORY / 1e9
+            )));
+        }
+        let surfaces: BTreeMap<usize, Vec<f64>> = needed
+            .par_iter()
+            .map(|&a| (a, cwd(res, &lat, &cells[a].iter().map(|&c| (c, a as u32 + 1)).collect::<Vec<_>>()).0))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .collect();
+
+        // each link's LCD, to be the table's
+        let lcds: Vec<f64> = links
+            .par_iter()
+            .map(|&(a, b, tl)| {
+                let (da, db) = (&surfaces[&a], &surfaces[&b]);
+                let l = (0..n).map(|c| da[c] + db[c]).fold(f64::INFINITY, f64::min);
+                if !l.is_finite() {
+                    return Err(fail(format!("the cores {} and {} are not connected", names[a], names[b])));
+                }
+                if (l - tl).abs() > 1e-6 * l.max(1.0) {
+                    return Err(fail(format!(
+                        "the lcd of the link {} to {} in links is {tl}, this resistance gives {l}: links is not \
+                         linkage.pathways' on these cores and this resistance",
+                        names[a], names[b]
+                    )));
+                }
+                Ok(l)
+            })
+            .collect::<Result<_>>()?;
+
+        // the conductance of the circuit where a cell is in it: 1 / resistance (squared or not)
+        let conductance = |inside: &dyn Fn(usize) -> bool| -> Vec<f64> {
+            (0..n).map(|c| if inside(c) { 1.0 / if square { res[c] * res[c] } else { res[c] } } else { 0.0 }).collect()
+        };
+        let mut rows: Vec<(usize, f64, f64)> = Vec::new();
+        let current: Vec<f64> = if mode == "pairwise" {
+            let (cur, found) = (0..links.len())
+                .into_par_iter()
+                .try_fold(
+                    || (vec![f64::NAN; n], Vec::<(usize, f64, f64)>::new()),
+                    |(mut acc, mut found), k| -> Result<_> {
+                        let (a, b, _) = links[k];
+                        let (da, db) = (&surfaces[&a], &surfaces[&b]);
+                        let inside = |c: usize| da[c] + db[c] - lcds[k] <= width;
+                        let gm = conductance(&inside);
+                        // the focal regions: the cores' cells in the corridor, 1 and 2
+                        let mut pm = vec![0.0; n];
+                        for (id, core) in [(1.0, a), (2.0, b)] {
+                            for &c in cells[core].iter().filter(|&&c| inside(c)) {
+                                pm[c] = id;
+                            }
+                        }
+                        let pts = FocalPoints::of(&pm, lat.w, lat.h);
+                        let at: Vec<i64> =
+                            pts.rows.iter().zip(&pts.cols).map(|(r, c)| (r * lat.w + c) as i64).collect();
+                        let regions = pts.has_regions();
+                        let out = ffi::circuit_pairwise(
+                            &gm,
+                            &[],
+                            lat.w as i64,
+                            lat.h as i64,
+                            &at,
+                            if regions { &pts.ids } else { &[] },
+                            &[0u8; 4],
+                            false,
+                            false,
+                            &[1, 0, 1, 0, 0, 0, 0, 0],
+                        )?;
+                        let r = out.resistances[1];
+                        if r < 0.0 {
+                            return Err(fail(format!(
+                                "the cores {} and {} are not connected inside their corridor",
+                                names[a], names[b]
+                            )));
+                        }
+                        for (c, a) in acc.iter_mut().enumerate() {
+                            let v = out.cum[c];
+                            if pm[c] > 0.0 || gm[c] == 0.0 || v <= NODATA || v.is_nan() {
+                                continue;
+                            }
+                            if a.is_nan() || v > *a {
+                                *a = v;
+                            }
+                        }
+                        found.push((k, r * lat.dy, gm.iter().filter(|x| **x > 0.0).count() as f64));
+                        Ok((acc, found))
+                    },
+                )
+                .try_reduce(
+                    || (vec![f64::NAN; n], Vec::new()),
+                    |(mut a, mut fa), (b, fb)| {
+                        for (x, y) in a.iter_mut().zip(&b) {
+                            if !y.is_nan() && (x.is_nan() || y > x) {
+                                *x = *y;
+                            }
+                        }
+                        fa.extend(fb);
+                        Ok((a, fa))
+                    },
+                )?;
+            rows = found;
+            rows.sort_by_key(|r| r.0);
+            cur
+        } else {
+            // the union of the corridors, and every core's cells (all the cores of the map)
+            let mut inside = vec![false; n];
+            inside.par_chunks_mut(4096).enumerate().for_each(|(b, out)| {
+                for (j, o) in out.iter_mut().enumerate() {
+                    let c = b * 4096 + j;
+                    *o = ids[c] > 0
+                        || links
+                            .iter()
+                            .enumerate()
+                            .any(|(k, l)| surfaces[&l.0][c] + surfaces[&l.1][c] - lcds[k] <= width);
+                }
+            });
+            let gm = conductance(&|c| inside[c]);
+            let pm: Vec<f64> = ids.iter().map(|&l| l as f64).collect();
+            let mut circuit =
+                Circuit { g: gm, poly: Vec::new(), points: FocalPoints::of(&pm, lat.w, lat.h), nx: lat.w, ny: lat.h };
+            if circuit.points.unique().len() < 2 {
+                return Err(fail("two cores are needed for a circuit".into()));
+            }
+            let o = OneToAllOptions {
+                one_to_all: false,
+                strengths: None,
+                pairs: None,
+                cum: true,
+                max: false,
+                focal_zero: true,
+                volt_maps: false,
+                cur_maps: false,
+                avg_resistances: false,
+                four_neighbors: false,
+                batch: 4 * threads,
+            };
+            let r = one_to_all(ctx, &mut circuit, &o)?;
+            r.cum
+                .iter()
+                .enumerate()
+                .map(|(c, &v)| if !inside[c] || ids[c] > 0 || v <= NODATA || v.is_nan() { f64::NAN } else { v })
+                .collect()
+        };
+
+        // the outputs
+        let mut t =
+            Table::new(["from", "to", "lcd", "resistance", "cwd_to_resistance", "nodes"].map(String::from).to_vec());
+        for (k, &(a, b, tl)) in links.iter().enumerate() {
+            let (r, nodes) = rows.get(k).map_or((f64::NAN, f64::NAN), |r| (r.1, r.2));
+            let ratio = if square { f64::NAN } else { tl / r };
+            t.rows.push(vec![names[a] as f64, names[b] as f64, tl, r, ratio, nodes]);
+        }
+        Ok(outputs([("current", Value::Map(Map::new(g.clone(), current))), ("links", Value::Table(t))]))
     }
 }
