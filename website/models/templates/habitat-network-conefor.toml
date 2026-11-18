@@ -7,6 +7,7 @@ id = "landscape"
 op = "nlm.random_cluster"
 params = { rows = 150, columns = 150, resolution = 100, p = 0.4, weights = [0.75, 0.25], seed = 23 }
 note = "Two classes drawn by chance on cells of 100 m: 1 the matrix, 2 the forest (in its place, a raster.read of a map of yours)."
+data = { what = "a map of the habitat (forest) and the matrix around it", kind = "classes", classes = { 1 = "matrix", 2 = "forest" } }
 
 [[nodes]]
 id = "graph"

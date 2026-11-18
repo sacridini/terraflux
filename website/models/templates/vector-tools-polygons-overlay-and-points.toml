@@ -7,6 +7,7 @@ id = "cover"
 op = "nlm.random_cluster"
 params = { rows = 100, columns = 100, p = 0.5, weights = [0.5, 0.3, 0.2], seed = 12 }
 note = "A land cover: 1 forest, 2 farming, 3 water (in its place, a raster.read of yours)."
+data = { what = "a land cover map to turn into polygons", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "clean"

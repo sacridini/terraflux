@@ -7,12 +7,14 @@ id = "relief"
 op = "nlm.gaussian_field"
 params = { rows = 150, columns = 150, range = 30, nugget = 0, seed = 41 }
 note = "A relief from 0 to 1 (in its place, a raster.read of an elevation model)."
+data = { what = "a relief or elevation model: the lowest land is water, the highest mountains", kind = "values", expect = "0 to 1 here" }
 
 [[nodes]]
 id = "attraction"
 op = "nlm.gaussian_field"
 params = { rows = 150, columns = 150, range = 20, seed = 42 }
 note = "How attractive each place is (the jobs, the roads...): 0 to 1."
+data = { what = "how attractive each place is to the city (jobs, roads...)", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "centre"
@@ -33,6 +35,7 @@ op = "raster.calc"
 inputs = { d = "centre.map", suit = "suitability.map" }
 params = { expression = "None if isnull(suit) else d == 0" }
 note = "The city at the start: the old town (1), the rest 0."
+data = { what = "the city at the start: 1 on the built-up cells", kind = "mask" }
 
 [[nodes]]
 id = "growth"

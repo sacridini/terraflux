@@ -24,6 +24,7 @@ op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise1.map" }
 params = { expression = "0.3 + 0.4 * b + 0.00 * (c - 0.5) + 0.08 * (e - 0.5)" }
 note = "The NDVI of a year: a level that stays, a change that grows year by year, noise (in their place, a series of NDVI maps: raster.read)."
+data = { what = "the NDVI of year 1 of the series", kind = "values", expect = "-1 to 1" }
 
 [[nodes]]
 id = "noise2"
@@ -35,6 +36,7 @@ id = "ndvi2"
 op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise2.map" }
 params = { expression = "0.3 + 0.4 * b + 0.06 * (c - 0.5) + 0.08 * (e - 0.5)" }
+data = { what = "the NDVI of year 2 of the series", kind = "values", expect = "-1 to 1" }
 
 [[nodes]]
 id = "noise3"
@@ -46,6 +48,7 @@ id = "ndvi3"
 op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise3.map" }
 params = { expression = "0.3 + 0.4 * b + 0.12 * (c - 0.5) + 0.08 * (e - 0.5)" }
+data = { what = "the NDVI of year 3 of the series", kind = "values", expect = "-1 to 1" }
 
 [[nodes]]
 id = "noise4"
@@ -57,6 +60,7 @@ id = "ndvi4"
 op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise4.map" }
 params = { expression = "0.3 + 0.4 * b + 0.18 * (c - 0.5) + 0.08 * (e - 0.5)" }
+data = { what = "the NDVI of year 4 of the series", kind = "values", expect = "-1 to 1" }
 
 [[nodes]]
 id = "noise5"
@@ -68,6 +72,7 @@ id = "ndvi5"
 op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise5.map" }
 params = { expression = "0.3 + 0.4 * b + 0.24 * (c - 0.5) + 0.08 * (e - 0.5)" }
+data = { what = "the NDVI of year 5 of the series", kind = "values", expect = "-1 to 1" }
 
 [[nodes]]
 id = "series"

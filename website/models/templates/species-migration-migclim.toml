@@ -19,18 +19,21 @@ op = "raster.calc"
 inputs = { g = "gradient.map", n = "noise.map" }
 params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.25) * 3500 + (n - 0.5) * 500)))" }
 note = "The suitability of a period, 0 to 1000: its optimum moving up the gradient (in their place, a species distribution model's predictions for each period, times 1000)."
+data = { what = "the habitat suitability of the first period (a species distribution model's prediction)", kind = "values", expect = "0 to 1000" }
 
 [[nodes]]
 id = "period2"
 op = "raster.calc"
 inputs = { g = "gradient.map", n = "noise.map" }
 params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.45) * 3500 + (n - 0.5) * 500)))" }
+data = { what = "the habitat suitability of the second period", kind = "values", expect = "0 to 1000" }
 
 [[nodes]]
 id = "period3"
 op = "raster.calc"
 inputs = { g = "gradient.map", n = "noise.map" }
 params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.65) * 3500 + (n - 0.5) * 500)))" }
+data = { what = "the habitat suitability of the third period", kind = "values", expect = "0 to 1000" }
 
 [[nodes]]
 id = "suitability"
@@ -43,6 +46,7 @@ op = "raster.calc"
 inputs = { s = "period1.map", g = "gradient.map" }
 params = { expression = "1 if s > 600 and g < 0.3 else 0" }
 note = "Where the species is now: suitable cells at the lower end of the gradient."
+data = { what = "where the species is now: 1 on the occupied cells", kind = "mask" }
 
 [[nodes]]
 id = "river"
@@ -50,6 +54,7 @@ op = "raster.calc"
 inputs = { g = "gradient.map" }
 params = { expression = "1 if abs(g - 0.4) < 0.006 else 0" }
 note = "A river across the gradient, a barrier."
+data = { what = "a barrier to dispersal: 1 on it", kind = "mask" }
 
 [[nodes]]
 id = "migrate"

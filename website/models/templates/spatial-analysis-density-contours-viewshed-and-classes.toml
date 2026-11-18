@@ -13,6 +13,7 @@ op = "raster.calc"
 inputs = { s = "surface.map" }
 params = { expression = "200 + 800 * s" }
 note = "A terrain of 200 to 1000 m drawn by chance (in its place, a raster.read of a DEM)."
+data = { what = "an elevation model (DEM)", kind = "values", expect = "metres" }
 
 [[nodes]]
 id = "region"

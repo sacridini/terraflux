@@ -5250,6 +5250,40 @@ fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
     out
 }
 
+/// A node that stands for a data of the user's says so in its pane, with its classes; a node that does not offers to
+/// be marked; the mark is taken off from the pane.
+#[test]
+fn a_node_standing_for_the_users_data_says_so() {
+    let mut h = harness(new_app(Some(model())));
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Model);
+    h.state_mut().session.as_mut().unwrap().selected = Some("patches".into());
+    h.run_steps(2);
+    assert!(h.query_by_label("Stands for your data:").is_none());
+    h.get_by_label("Mark as data of yours...").click();
+    h.run_steps(3);
+    let data = h.state().session.as_ref().unwrap().source.node("patches").unwrap().data.clone();
+    assert_eq!(data.map(|d| d.what), Some("a map of yours".to_string()));
+    assert!(h.query_by_label("Stands for your data:").is_some());
+    assert!(h.query_by_label("Mark as data of yours...").is_none());
+    // what it is and its classes, as the pane tells them
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let d = terraflux_graph::Data::new("a land use map, the first date", terraflux_graph::DataKind::Classes)
+            .classes(&[(1, "forest"), (2, "agriculture")]);
+        s.source.node_mut("patches").unwrap().data = Some(d);
+        s.edited();
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("a land use map, the first date").is_some());
+    assert!(h.query_by_label_contains("1 forest \u{b7} 2 agriculture").is_some());
+    // the mark taken off
+    h.get_by_label("Not data of yours").click();
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().source.node("patches").unwrap().data.is_none());
+    assert!(h.query_by_label("Mark as data of yours...").is_some());
+}
+
 #[test]
 fn the_model_suggests_the_factors_it_assumes() {
     use terraflux_app::batch_view::Kind;

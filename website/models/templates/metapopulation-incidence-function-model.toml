@@ -13,6 +13,7 @@ op = "raster.calc"
 inputs = { f = "area_field.map" }
 params = { expression = "0.2 + 3 * f" }
 note = "The area of a patch found at a place, in hectares (in its place, a table of the patches: x, y, area, occupied)."
+data = { what = "the area of the patch found at each place", kind = "values", expect = "hectares" }
 
 [[nodes]]
 id = "draw"
@@ -24,6 +25,7 @@ id = "start"
 op = "raster.calc"
 inputs = { r = "draw.map" }
 params = { expression = "1 if r < 0.4 else 0" }
+data = { what = "whether the patch holds the species at the start: 1 occupied", kind = "mask" }
 
 [[nodes]]
 id = "attributes"

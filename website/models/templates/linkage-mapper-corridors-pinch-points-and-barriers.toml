@@ -7,6 +7,7 @@ id = "quality"
 op = "nlm.gaussian_field"
 params = { rows = 80, columns = 80, range = 12, seed = 31 }
 note = "A habitat's quality from 0 to 1 drawn by chance (in its place, a raster.read of a suitability map)."
+data = { what = "a habitat's quality, or a suitability map", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "habitat"
@@ -28,6 +29,7 @@ op = "raster.label"
 inputs = { map = "large.map" }
 params = { neighbours = 8, classes = [1] }
 note = "Every core numbered (1, 2, ...), no value elsewhere: Linkage Mapper's core areas (in their place, a raster of the reserves with their ids)."
+data = { what = "the core areas: a raster of the reserves, an id each (1, 2, ...) and no value elsewhere", kind = "values", expect = "a whole id per core" }
 
 [[nodes]]
 id = "resistance"
@@ -35,6 +37,7 @@ op = "raster.calc"
 inputs = { q = "quality.map" }
 params = { expression = "1 + 99 * (1 - q) ** 3" }
 note = "The resistance to movement: 1 in the best habitat, up to 100 where there is none (in its place, a raster.read of a resistance from the literature)."
+data = { what = "a resistance: the cost of crossing a cell", kind = "values", expect = "1 or more" }
 
 [[nodes]]
 id = "pathways"

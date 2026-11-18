@@ -640,6 +640,7 @@ pub fn calc_to_group(m: &mut Model, r: &Registry, path: &[String], id: &str) -> 
     g.refs = calc.refs.clone();
     g.assumptions = calc.assumptions.clone();
     g.alternatives = calc.alternatives.clone();
+    g.data = calc.data.clone();
     guarded(m, r, &[prefix(path) + id], |c| {
         let n = node_mut(c, path, id)?;
         *n = g;
@@ -1362,6 +1363,12 @@ pub fn set_list(m: &mut Model, path: &[String], node: &str, list: &str, text: &s
         "alternatives" => n.alternatives = items,
         other => return Err(format!("a node has no list {other:?}")),
     }
+    Ok(())
+}
+
+/// Set the data a node stands for (none: it stands for no data of the user's).
+pub fn set_data(m: &mut Model, path: &[String], node: &str, data: Option<terraflux_graph::Data>) -> Result<()> {
+    node_mut(m, path, node)?.data = data;
     Ok(())
 }
 

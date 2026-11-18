@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 
 use egui::{RichText, Ui};
-use terraflux_graph::{Input, Issue, Node, Severity, Source};
+use terraflux_graph::{Data, DataKind, Input, Issue, Node, Severity, Source};
 use terraflux_ops::Registry;
 
 use crate::app::Session;
@@ -898,6 +898,9 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 }
             });
         record.header_response.on_hover_text("References, assumptions, alternatives");
+        if let Some(d) = data_block(ui, s, &n, &path) {
+            change = Some(d);
+        }
     });
     let delete = if modern {
         ui.add_space(6.0);
@@ -1058,6 +1061,86 @@ fn ref_chip(ui: &mut Ui, text: &str, colour: egui::Color32) -> egui::Response {
 /// A field's text as typed so far (`init` until it is typed in).
 fn field(s: &mut Session, key: &str, init: String) -> String {
     s.fields.entry(key.to_string()).or_insert(init).clone()
+}
+
+/// What a node stands for when it takes the place of a data of the user's: a line saying it, with the classes it
+/// expects, and under a header what is edited (what it is, its kind, the classes a line each `1 = forest`). A node
+/// that is none offers to be marked as one. The change made, if any.
+fn data_block(ui: &mut Ui, s: &mut Session, n: &Node, path: &[String]) -> Option<Result<(), String>> {
+    let mut out = None;
+    let Some(d) = &n.data else {
+        let mark = ui.small_button("Mark as data of yours...").on_hover_text(
+            "this node stands for a map or a stack of yours (the model draws it, your file takes its place): say what it is, so that Use my data and the assistants know what to put here",
+        );
+        if mark.clicked() {
+            let first = Data::new("a map of yours", DataKind::Values);
+            out = Some(crate::editor::set_data(&mut s.source, path, &n.id, Some(first)));
+        }
+        return out;
+    };
+    ui.add_space(4.0);
+    let weak = ui.visuals().weak_text_color();
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new("Stands for your data:").strong());
+        ui.label(&d.what);
+        if ui.small_button("Not data of yours").on_hover_text("take the mark off this node").clicked() {
+            out = Some(crate::editor::set_data(&mut s.source, path, &n.id, None));
+        }
+    });
+    let mut line = d.kind.name().to_string();
+    if !d.classes.is_empty() {
+        line = format!("{line} \u{b7} {}", d.classes_line());
+    }
+    if let Some(e) = &d.expect {
+        line = format!("{line} \u{b7} {e}");
+    }
+    ui.label(RichText::new(line).small().color(weak));
+    let mut new = d.clone();
+    let mut set = None;
+    egui::CollapsingHeader::new(RichText::new("Your data").strong()).id_salt(("node data", &n.id)).show(ui, |ui| {
+        if let Some(t) =
+            text_field(ui, s, "data what", "What it is", "a land use map, the first date", d.what.clone(), 1)
+        {
+            new.what = t.trim().to_string();
+            set = Some(Ok(()));
+        }
+        ui.label(RichText::new("Kind").strong());
+        let mut kind = d.kind;
+        egui::ComboBox::from_id_salt(("data kind", &n.id)).selected_text(kind.name()).show_ui(ui, |ui| {
+            for k in DataKind::ALL {
+                ui.selectable_value(&mut kind, k, k.name());
+            }
+        });
+        if kind != d.kind {
+            new.kind = kind;
+            if !matches!(kind, DataKind::Classes | DataKind::Mask) {
+                new.classes.clear();
+            }
+            set = Some(Ok(()));
+        }
+        if matches!(d.kind, DataKind::Classes | DataKind::Mask) {
+            let lines = d.classes_lines();
+            if let Some(t) =
+                text_field(ui, s, "data classes", "Classes", "the codes it expects, a line each: 1 = forest", lines, 3)
+            {
+                set = Some(Data::parse_classes(&t).map(|c| new.classes = c));
+            }
+        }
+        if d.kind == DataKind::Values {
+            let hint = "what the values should be: 1 or more, metres";
+            if let Some(t) = text_field(ui, s, "data expect", "Expected", hint, d.expect.clone().unwrap_or_default(), 1)
+            {
+                new.expect = Some(t.trim().to_string()).filter(|t| !t.is_empty());
+                set = Some(Ok(()));
+            }
+        }
+    });
+    match set {
+        Some(Ok(())) => out = Some(crate::editor::set_data(&mut s.source, path, &n.id, Some(new))),
+        Some(Err(e)) => out = Some(Err(e)),
+        None => {}
+    }
+    out
 }
 
 /// A text of a few lines under its label, kept as it is typed: the text when it is left changed.

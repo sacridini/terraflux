@@ -7,6 +7,7 @@ id = "land"
 op = "nlm.random_cluster"
 params = { rows = 200, columns = 200, p = 0.5, weights = [0.7, 0.3], seed = 31, resolution = 30 }
 note = "The jurisdiction at the start of the historical reference period: 1 forest, 2 other land, cells of 30 m (in its place, a raster.read of a forest map in an equal-area projection)."
+data = { what = "a forest map at the start of the historical reference period, in an equal-area projection", kind = "classes", classes = { 1 = "forest", 2 = "other land" } }
 
 [[nodes]]
 id = "forest"
@@ -32,6 +33,7 @@ op = "raster.calc"
 inputs = { f = "forest.map", d = "edge.distance", e = "noise.map" }
 params = { expression = "1 if f == 1 and e < 0.3 * exp(0 - d / 90) else 0" }
 note = "The deforestation of the period, near the edge (in its place, the period's deforestation map: 1 deforested)."
+data = { what = "the period's deforestation: 1 where the forest was cleared", kind = "mask" }
 
 [[nodes]]
 id = "nrt"

@@ -1598,6 +1598,16 @@ fn all() -> Vec<Value> {
         "refs": list("Papers, methods, documentation the choice rests on (empty: none)."),
         "assumptions": list("What the choice assumes (empty: none)."),
         "alternatives": list("What was considered and set aside, and why (empty: none)."),
+        "data": {
+            "type": "object",
+            "description": "That the node stands for a data of the user's (a drawn map the user's file takes the place of): `what` (\"a land use map, the first date\"), `kind` (classes, values, mask, stack), `classes` (code -> name, for classes and mask) and `expect` (for values: \"1 or more\", a unit). Empty object or null: not data of the user's.",
+            "properties": {
+                "what": { "type": "string" },
+                "kind": { "type": "string", "enum": ["classes", "values", "mask", "stack"] },
+                "classes": { "type": "object", "description": "Code -> name, e.g. {\"1\": \"forest\"}." },
+                "expect": { "type": "string" },
+            },
+        },
     });
     let about = json!({
         "request": { "type": "string", "description": "The user's request, in the user's words." },
@@ -1721,6 +1731,7 @@ fn all() -> Vec<Value> {
                 "refs": record["refs"],
                 "assumptions": record["assumptions"],
                 "alternatives": record["alternatives"],
+                "data": record["data"],
                 "scope": scope,
             }),
             &["model", "op"],
@@ -1728,7 +1739,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "edit_node",
-            "Change a node: connect or disconnect its inputs, change its settings, its note or its record (why, refs, assumptions, alternatives), rename it (the references to it follow).",
+            "Change a node: connect or disconnect its inputs, change its settings, its note or its record (why, refs, assumptions, alternatives, data: that it stands for a data of the user's), rename it (the references to it follow).",
             json!({
                 "model": model,
                 "node": { "type": "string" },
@@ -1739,6 +1750,7 @@ fn all() -> Vec<Value> {
                 "refs": record["refs"],
                 "assumptions": record["assumptions"],
                 "alternatives": record["alternatives"],
+                "data": record["data"],
                 "rename": { "type": "string" },
                 "scope": scope,
             }),
@@ -1759,6 +1771,7 @@ fn all() -> Vec<Value> {
                 "refs": record["refs"],
                 "assumptions": record["assumptions"],
                 "alternatives": record["alternatives"],
+                "data": record["data"],
                 "scope": scope,
             }),
             &["model", "node", "script"],
@@ -2681,7 +2694,46 @@ fn set_record(m: &mut Model, path: &[String], id: &str, a: &Value) -> std::resul
             *list = texts(v, key)?;
         }
     }
+    if let Some(v) = a.get("data") {
+        n.data = data_given(v)?;
+    }
     Ok(())
+}
+
+/// The data a node stands for, given: an object with `what`, `kind` (classes, values, mask, stack), `classes` (an
+/// object of code -> name, or a text of `1 = forest` lines) and `expect`; null, an empty object or an empty text:
+/// none.
+fn data_given(v: &Value) -> std::result::Result<Option<terraflux_graph::Data>, String> {
+    use terraflux_graph::{Data, DataKind};
+    let o = match v {
+        Value::Null => return Ok(None),
+        Value::String(s) if s.trim().is_empty() => return Ok(None),
+        Value::Object(o) if o.is_empty() => return Ok(None),
+        Value::Object(o) => o,
+        other => return Err(format!("`data` is an object (what, kind, classes, expect), not {other}")),
+    };
+    let what = o.get("what").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty());
+    let what = what.ok_or("`data` needs `what`: the data in a phrase (\"a land use map, the first date\")")?;
+    let kind = o.get("kind").and_then(Value::as_str).unwrap_or("");
+    let kind = DataKind::parse(kind).ok_or("`data.kind` is classes, values, mask or stack")?;
+    let mut d = Data::new(what, kind);
+    match o.get("classes") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(t)) => d.classes = Data::parse_classes(t)?,
+        Some(Value::Object(c)) => {
+            for (k, name) in c {
+                let code: i64 = k.trim().parse().map_err(|_| format!("`data.classes`: {k:?} is not a whole number"))?;
+                let name = name.as_str().map(str::trim).filter(|t| !t.is_empty());
+                d.classes.insert(code, name.ok_or(format!("`data.classes`: class {k} needs a name"))?.to_string());
+            }
+        }
+        Some(other) => return Err(format!("`data.classes` is an object of code -> name, not {other}")),
+    }
+    d.expect = o.get("expect").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(String::from);
+    if let Some(why) = d.problems().into_iter().next() {
+        return Err(why);
+    }
+    Ok(Some(d))
 }
 
 /// What the model says of itself, given (`name`, `description`, `request`, `summary`, `author`; empty: none):

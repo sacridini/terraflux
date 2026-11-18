@@ -1,7 +1,7 @@
 //! Models to start from: small graphs that run as they are (their data drawn by neutral landscape models) or
 //! once a file is chosen, to see how a flow is built and to check that it works.
 
-use terraflux_graph::{Model, Node, Source};
+use terraflux_graph::{Data, DataKind, Model, Node, Source};
 use terraflux_ops::presets;
 
 /// A model to start from: its name, its group in the menu, what it shows, and the model (written, or built from a
@@ -34,6 +34,9 @@ const SURFACES: &str = "Surfaces and uncertainty";
 /// The templates' groups, in the menu's order.
 pub const GROUPS: [&str; 7] = [PATTERNS, METRICS, CONNECTIVITY, CONSERVATION, SPECIES, LAND_CHANGE, SURFACES];
 
+/// The classes of the land use drawn for the land change templates.
+const LAND_CLASSES: [(i64, &str); 3] = [(1, "forest"), (2, "farming"), (3, "water")];
+
 /// Two dates of land use drawn for the land change templates: classes 1 (forest), 2 (farming) and 3 (water) by a
 /// random cluster, and ten years later farming grown into the forest beside it where a suitability is high; the
 /// suitability and a roughness, the drivers of the change. Nodes `land_2000`, `land_2010`, `drivers`.
@@ -45,7 +48,8 @@ fn land_change_data(m: &mut Model) {
             .param("p", 0.5)
             .param("weights", serde_json::json!([0.55, 0.35, 0.10]))
             .param("seed", 11)
-            .note("Land use drawn by chance: 1 forest, 2 farming, 3 water. In its place, a raster.read of a map of yours."),
+            .note("Land use drawn by chance: 1 forest, 2 farming, 3 water. In its place, a raster.read of a map of yours.")
+            .data(Data::new("a land use map, the first date", DataKind::Classes).classes(&LAND_CLASSES)),
     );
     m.nodes.push(
         Node::new("aptitude", "nlm.gaussian_field")
@@ -68,13 +72,18 @@ fn land_change_data(m: &mut Model) {
             .input("t0", "land_2000.map")
             .input("suit", "aptitude.map")
             .param("expression", "2 if t0 == 1 and nbsum(t0 == 2, 1) >= 2 and suit > 0.45 else t0")
-            .note("Ten years later: farming grown into the forest beside it, where it is suited."),
+            .note("Ten years later: farming grown into the forest beside it, where it is suited.")
+            .data(Data::new("a land use map, the second date", DataKind::Classes).classes(&LAND_CLASSES)),
     );
     m.nodes.push(
         Node::new("drivers", "stack.of")
             .input("aptitude", "aptitude.map")
             .input("roughness", "roughness.map")
-            .note("The drivers of the change, a layer each."),
+            .note("The drivers of the change, a layer each.")
+            .data(Data::new(
+                "the drivers of the change, a layer each (here a suitability for farming and a roughness)",
+                DataKind::Stack,
+            )),
     );
 }
 
@@ -252,6 +261,7 @@ op = "raster.calc"
 inputs = { f = "relief.map" }
 params = { expression = "700 + 300 * f" }
 note = "The elevation, 700 to 1,000 m. In its place, a DEM in a projected CRS: raster.read, or data.download's Copernicus DEM reprojected."
+data = { what = "an elevation model (DEM) in a projected coordinate system", kind = "values", expect = "metres" }
 
 [[nodes]]
 id = "cover"
@@ -259,6 +269,7 @@ op = "nlm.random_cluster"
 inputs = { like = "relief.map" }
 params = { p = 0.5, weights = [0.6, 0.4], seed = 92 }
 note = "The land use: 1 forest, 2 pasture (in its place, a land use map; the codes name the plants in the lookup below)."
+data = { what = "a land use map: its codes name the plants of the land use lookup", kind = "classes", classes = { 1 = "forest (FRSD)", 2 = "pasture (PAST)" } }
 
 [[nodes]]
 id = "soils"
@@ -266,6 +277,7 @@ op = "raster.calc"
 inputs = { f = "relief.map" }
 params = { expression = "10 if f > 0.4 else 20" }
 note = "The soils: 10 on the uplands (above 820 m), 20 in the lower valley (in its place, a soil map: a raster.read of the soil units)."
+data = { what = "a soil map: a code per soil unit, named in the soil lookup", kind = "classes", classes = { 10 = "upland loam", 20 = "valley clay loam" } }
 
 [[nodes]]
 id = "landuse_lookup"
@@ -478,6 +490,7 @@ id = "landscape"
 op = "nlm.random_cluster"
 params = { rows = 300, columns = 300, p = 0.55, weights = [0.3, 0.15, 0.55], seed = 7 }
 note = "A map of three classes drawn by chance (1 farming, 2 water, 3 forest): in its place, a raster.read of a map of yours."
+data = { what = "a land cover map with a forest class (the reclassification makes the forest MSPA's foreground)", kind = "classes", classes = { 1 = "farming", 2 = "water", 3 = "forest" } }
 
 [[nodes]]
 id = "forest"
@@ -556,6 +569,7 @@ id = "surface"
 op = "nlm.gaussian_field"
 params = { rows = 300, columns = 300, range = 15, seed = 3 }
 note = "A smooth surface from 0 to 1 drawn by chance: a suitability, say."
+data = { what = "a continuous surface, such as a suitability: the forest is where it is above the threshold", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "forest"
@@ -601,6 +615,7 @@ id = "landscape"
 op = "nlm.random_cluster"
 params = { rows = 300, columns = 300, p = 0.55, weights = [0.3, 0.15, 0.55], seed = 7 }
 note = "A map of three classes drawn by chance (1 farming, 2 water, 3 forest): in its place, a raster.read of a map of yours."
+data = { what = "a land cover map with a forest class: the fragmentation is of the forest (3)", kind = "classes", classes = { 1 = "farming", 2 = "water", 3 = "forest" } }
 
 [[nodes]]
 id = "fad"
@@ -644,6 +659,7 @@ id = "landscape"
 op = "nlm.random_cluster"
 params = { rows = 300, columns = 300, p = 0.5, weights = [0.5, 0.5], seed = 5 }
 note = "Two classes drawn by chance: 1 the background, 2 the forest (GuidosToolbox's coding already)."
+data = { what = "a map of the forest and the background", kind = "classes", classes = { 1 = "background", 2 = "forest" } }
 
 [[nodes]]
 id = "spa"
@@ -688,6 +704,7 @@ id = "cover"
 op = "nlm.random_cluster"
 params = { rows = 300, columns = 300, p = 0.5, weights = [0.35, 0.5, 0.15], seed = 9 }
 note = "A land cover drawn by chance: 1 agriculture, 2 natural, 3 developed (the mosaic's coding already). With a map of yours, give the classes of each in the mosaic's settings."
+data = { what = "a land cover map of agriculture, natural land and developed land", kind = "classes", classes = { 1 = "agriculture", 2 = "natural", 3 = "developed" } }
 
 [[nodes]]
 id = "mosaic"
@@ -739,6 +756,7 @@ id = "cover"
 op = "nlm.random_cluster"
 params = { rows = 200, columns = 200, p = 0.5, weights = [0.4, 0.35, 0.25], seed = 12 }
 note = "A land cover of three classes drawn by chance: in its place, a raster.read of a map of yours (its cells' size gives the areas: hectares for metres)."
+data = { what = "a land cover map of any classes (the metrics are per class); its cells' size gives the areas", kind = "classes", classes = { 1 = "class 1", 2 = "class 2", 3 = "class 3" } }
 
 [[nodes]]
 id = "classes"
@@ -791,12 +809,14 @@ id = "cover"
 op = "nlm.random_cluster"
 params = { rows = 120, columns = 120, p = 0.5, weights = [0.45, 0.35, 0.2], seed = 12 }
 note = "A land cover of three classes drawn by chance: 1 forest, 2 farming, 3 water. In its place, a raster.read of a map of yours."
+data = { what = "a land use map, the first date", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "later"
 op = "raster.calc"
 inputs = { cover = "cover.map" }
 note = "Ten years later: farming grown into the forest beside it."
+data = { what = "a land use map, the second date", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 [nodes.params]
 expression = """
 # the forest (1) with three cells of farming (2) or more around it becomes farming
@@ -915,6 +935,7 @@ op = "raster.calc"
 inputs = { s = "surface.map" }
 params = { expression = "200 + 800 * s" }
 note = "An elevation of 200 to 1000 m drawn by chance (in its place, a raster.read of a DEM)."
+data = { what = "an elevation model (DEM)", kind = "values", expect = "metres" }
 
 [[nodes]]
 id = "noise"
@@ -927,6 +948,7 @@ op = "raster.calc"
 inputs = { elevation = "elevation.map", noise = "noise.map" }
 params = { expression = "600 + 0.8 * elevation + 400 * noise" }
 note = "A year's rainfall (mm), wetter up the hills."
+data = { what = "a year's rainfall", kind = "values", expect = "mm" }
 
 [[nodes]]
 id = "summary"
@@ -973,6 +995,7 @@ id = "zones"
 op = "nlm.random_cluster"
 params = { rows = 120, columns = 120, p = 0.55, weights = [0.3, 0.3, 0.4], seed = 21 }
 note = "Three zones (in their place, municipalities or watersheds rasterized by vector.rasterize)."
+data = { what = "the zones to summarise by (municipalities, watersheds), a code each", kind = "classes", classes = { 1 = "zone 1", 2 = "zone 2", 3 = "zone 3" } }
 
 [[nodes]]
 id = "by_zone"
@@ -986,6 +1009,7 @@ id = "cover"
 op = "nlm.random_cluster"
 params = { rows = 120, columns = 120, p = 0.5, weights = [0.5, 0.3, 0.2], seed = 12 }
 note = "A land cover: 1 forest, 2 farming, 3 water."
+data = { what = "a land cover map", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "hectares"
@@ -1042,6 +1066,7 @@ description = "A classification full of specks (a satellite image's, say) cleane
 id = "field"
 op = "nlm.gaussian_field"
 params = { rows = 150, columns = 150, range = 12, seed = 5 }
+data = { what = "a continuous surface to smooth", kind = "values" }
 
 [[nodes]]
 id = "noise"
@@ -1054,6 +1079,7 @@ op = "raster.calc"
 inputs = { field = "field.map", noise = "noise.map" }
 params = { expression = "1 if field + 0.35 * noise < 0.55 else 2 if field + 0.35 * noise < 0.8 else 3" }
 note = "A land cover classified pixel by pixel, with the specks of a classification (1 forest, 2 farming, 3 town)."
+data = { what = "a land cover map classified pixel by pixel: the one to clean", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "town" } }
 
 [[nodes]]
 id = "smooth"
@@ -1128,6 +1154,7 @@ id = "cover"
 op = "nlm.random_cluster"
 params = { rows = 100, columns = 100, p = 0.5, weights = [0.5, 0.3, 0.2], seed = 12 }
 note = "A land cover: 1 forest, 2 farming, 3 water (in its place, a raster.read of yours)."
+data = { what = "a land cover map to turn into polygons", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "clean"
@@ -1227,6 +1254,7 @@ op = "raster.calc"
 inputs = { s = "surface.map" }
 params = { expression = "200 + 800 * s" }
 note = "A terrain of 200 to 1000 m drawn by chance (in its place, a raster.read of a DEM)."
+data = { what = "an elevation model (DEM)", kind = "values", expect = "metres" }
 
 [[nodes]]
 id = "region"
@@ -1315,6 +1343,7 @@ op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "f * f * 30" }
 note = "A human footprint of 0 to 30 (in its place, a raster.read of the Human Footprint Index)."
+data = { what = "a human footprint (the Human Footprint Index)", kind = "values", expect = "0 to 30" }
 
 [[nodes]]
 id = "intactness"
@@ -1366,21 +1395,25 @@ id = "bird"
 op = "nlm.gaussian_field"
 params = { rows = 100, columns = 120, range = 15, seed = 1 }
 note = "A species' suitability drawn by chance (in its place, a raster.read of a distribution map)."
+data = { what = "a species' distribution map (the bird's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "frog"
 op = "nlm.gaussian_field"
 params = { rows = 100, columns = 120, range = 6, seed = 2 }
+data = { what = "a species' distribution map (the frog's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "orchid"
 op = "nlm.gaussian_field"
 params = { rows = 100, columns = 120, range = 25, seed = 3 }
+data = { what = "a species' distribution map (the orchid's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "wetland"
 op = "nlm.fbm"
 params = { rows = 100, columns = 120, dimension = 1.4, seed = 4 }
+data = { what = "a feature's map (the wetland's): its amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "features"
@@ -1393,6 +1426,7 @@ id = "cost"
 op = "nlm.gaussian_field"
 params = { rows = 100, columns = 120, range = 30, seed = 9 }
 note = "What each cell costs (land prices, say): Zonation keeps the cheap cells where they serve as well."
+data = { what = "what each cell costs (land prices, say)", kind = "values", expect = "above 0" }
 
 [[nodes]]
 id = "zonation"
@@ -1424,21 +1458,25 @@ id = "bird"
 op = "nlm.gaussian_field"
 params = { rows = 40, columns = 50, range = 8, seed = 1 }
 note = "Species' amounts drawn by chance (in their place, raster.read of distribution maps)."
+data = { what = "a species' distribution map (the bird's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "frog"
 op = "nlm.gaussian_field"
 params = { rows = 40, columns = 50, range = 4, seed = 2 }
+data = { what = "a species' distribution map (the frog's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "orchid"
 op = "nlm.gaussian_field"
 params = { rows = 40, columns = 50, range = 12, seed = 3 }
+data = { what = "a species' distribution map (the orchid's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "wetland"
 op = "nlm.fbm"
 params = { rows = 40, columns = 50, dimension = 1.4, seed = 4 }
+data = { what = "a feature's map (the wetland's): its amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "features"
@@ -1450,6 +1488,7 @@ id = "cost"
 op = "nlm.gaussian_field"
 params = { rows = 40, columns = 50, range = 15, seed = 9 }
 note = "What each cell costs."
+data = { what = "what each cell costs (land prices, say)", kind = "values", expect = "above 0" }
 
 [[nodes]]
 id = "marxan"
@@ -1500,21 +1539,25 @@ id = "bird"
 op = "nlm.gaussian_field"
 params = { rows = 30, columns = 40, range = 8, seed = 1 }
 note = "Species' amounts drawn by chance (in their place, raster.read of distribution maps)."
+data = { what = "a species' distribution map (the bird's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "frog"
 op = "nlm.gaussian_field"
 params = { rows = 30, columns = 40, range = 4, seed = 2 }
+data = { what = "a species' distribution map (the frog's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "orchid"
 op = "nlm.gaussian_field"
 params = { rows = 30, columns = 40, range = 12, seed = 3 }
+data = { what = "a species' distribution map (the orchid's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "wetland"
 op = "nlm.fbm"
 params = { rows = 30, columns = 40, dimension = 1.4, seed = 4 }
+data = { what = "a feature's map (the wetland's): its amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "features"
@@ -1526,6 +1569,7 @@ id = "cost"
 op = "nlm.gaussian_field"
 params = { rows = 30, columns = 40, range = 15, seed = 9 }
 note = "What each cell costs (no value: not a planning unit)."
+data = { what = "what each cell costs (land prices, say)", kind = "values", expect = "above 0; no value: not a planning unit" }
 
 [[nodes]]
 id = "plan"
@@ -1564,6 +1608,7 @@ op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "f * 0.9" }
 note = "The share of forest in each cell (in its place, a raster.read of land cover shares)."
+data = { what = "the share of forest in each cell (land cover shares)", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "crops"
@@ -1571,6 +1616,7 @@ op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "1 - f * 0.9" }
 note = "The rest is cropland: the land restoration can return to forest."
+data = { what = "the share of cropland in each cell: the land restoration can return to forest", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "land_cover"
@@ -1605,18 +1651,21 @@ op = "raster.calc"
 inputs = { t = "toucan.map" }
 params = { expression = "t > 0.4" }
 note = "A species' range: the cells above 0 (in its place, raster.read of range maps)."
+data = { what = "a species' range (the toucan's): 1 where it lives", kind = "mask" }
 
 [[nodes]]
 id = "ranges2"
 op = "raster.calc"
 inputs = { j = "jaguar.map" }
 params = { expression = "j > 0.5" }
+data = { what = "a species' range (the jaguar's): 1 where it lives", kind = "mask" }
 
 [[nodes]]
 id = "ranges3"
 op = "raster.calc"
 inputs = { f = "frog.map" }
 params = { expression = "f > 0.3" }
+data = { what = "a species' range (the frog's): 1 where it lives", kind = "mask" }
 
 [[nodes]]
 id = "species"
@@ -1661,16 +1710,19 @@ id = "temperature"
 op = "nlm.gaussian_field"
 params = { rows = 60, columns = 80, range = 14, seed = 21 }
 note = "A predictor drawn by chance (in its place, raster.read of a climate layer)."
+data = { what = "a climate predictor: the temperature", kind = "values" }
 
 [[nodes]]
 id = "rainfall"
 op = "nlm.gaussian_field"
 params = { rows = 60, columns = 80, range = 22, seed = 22 }
+data = { what = "a climate predictor: the rainfall", kind = "values" }
 
 [[nodes]]
 id = "relief"
 op = "nlm.gaussian_field"
 params = { rows = 60, columns = 80, range = 6, seed = 23 }
+data = { what = "a terrain predictor: the relief", kind = "values" }
 
 [[nodes]]
 id = "predictors"
@@ -1779,6 +1831,7 @@ id = "landscape"
 op = "nlm.random_cluster"
 params = { rows = 300, columns = 300, p = 0.6, weights = [0.4, 0.6], seed = 11 }
 note = "Two classes drawn by chance: 1 the background, 2 the forest (MSPA's coding already)."
+data = { what = "a map of the forest and the background", kind = "classes", classes = { 1 = "background", 2 = "forest" } }
 
 [[nodes]]
 id = "edge_1"
@@ -1891,6 +1944,7 @@ id = "before"
 op = "nlm.random_cluster"
 params = { rows = 250, columns = 250, p = 0.55, weights = [0.4, 0.6], seed = 27 }
 note = "The forest at the first date, drawn by chance: 1 the background, 2 the forest (in its place, a raster.read of a map of yours)."
+data = { what = "a map of the forest, the first date", kind = "classes", classes = { 1 = "background", 2 = "forest" } }
 
 [[nodes]]
 id = "pressure"
@@ -1904,6 +1958,7 @@ op = "raster.calc"
 inputs = { f = "before.map", p = "pressure.map" }
 params = { expression = "1 if f == 2 and p > 0.6 and nbsum(f == 1, 1) >= 1 else 2 if f == 1 and p < 0.2 and nbsum(f == 2, 1) >= 5 else f" }
 note = "The second date: the forest cleared from its edges where the pressure is high, regrown in the gaps where it is low."
+data = { what = "a map of the forest, the second date", kind = "classes", classes = { 1 = "background", 2 = "forest" } }
 
 [[nodes]]
 id = "simple"
@@ -1953,6 +2008,7 @@ id = "cover"
 op = "nlm.random_cluster"
 params = { rows = 200, columns = 200, resolution = 30, p = 0.5, weights = [0.5, 0.3, 0.2], seed = 71 }
 note = "A land cover of three classes drawn by chance on cells of 30 m: 1 forest, 2 grassland, 3 farming (in its place, a raster.read of a map of yours)."
+data = { what = "a land cover map", kind = "classes", classes = { 1 = "forest", 2 = "grassland", 3 = "farming" } }
 
 [[nodes]]
 id = "patches"
@@ -2022,6 +2078,7 @@ op = "nlm.classify"
 inputs = { map = "surface.map" }
 params = { weights = [0.3, 0.3, 0.2, 0.2] }
 note = "Four classes of 30, 30, 20 and 20 % of the cells, which change along the gradient (in its place, a raster.read of a land cover of yours)."
+data = { what = "a land cover map of any classes (four here): the kinds of landscape are found from its patterns", kind = "classes", classes = { 1 = "class 1", 2 = "class 2", 3 = "class 3", 4 = "class 4" } }
 
 [[nodes]]
 id = "signatures"
@@ -2067,6 +2124,7 @@ id = "landscape"
 op = "nlm.random_cluster"
 params = { rows = 250, columns = 250, resolution = 30, p = 0.55, weights = [0.45, 0.55], seed = 19 }
 note = "Two classes drawn by chance on cells of 30 m: 1 the background, 2 the forest (MSPA's coding already)."
+data = { what = "a map of the forest and the background", kind = "classes", classes = { 1 = "background", 2 = "forest" } }
 
 [[nodes]]
 id = "mspa"
@@ -2123,6 +2181,7 @@ id = "landscape"
 op = "nlm.random_cluster"
 params = { rows = 150, columns = 150, resolution = 100, p = 0.4, weights = [0.75, 0.25], seed = 23 }
 note = "Two classes drawn by chance on cells of 100 m: 1 the matrix, 2 the forest (in its place, a raster.read of a map of yours)."
+data = { what = "a map of the habitat (forest) and the matrix around it", kind = "classes", classes = { 1 = "matrix", 2 = "forest" } }
 
 [[nodes]]
 id = "graph"
@@ -2188,6 +2247,7 @@ id = "quality"
 op = "nlm.gaussian_field"
 params = { rows = 100, columns = 100, range = 20, seed = 31 }
 note = "A habitat's quality from 0 to 1 drawn by chance (in its place, a raster.read of a suitability map)."
+data = { what = "a habitat's quality, or a suitability map", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "resistance"
@@ -2195,6 +2255,7 @@ op = "raster.calc"
 inputs = { q = "quality.map" }
 params = { expression = "1 + 99 * (1 - q) ** 3" }
 note = "The resistance to movement: 1 in the best habitat, up to 100 where there is none."
+data = { what = "a resistance: the cost of crossing a cell", kind = "values", expect = "1 or more" }
 
 [[nodes]]
 id = "cores"
@@ -2265,6 +2326,7 @@ id = "roughness"
 op = "nlm.fbm"
 params = { rows = 100, columns = 100, dimension = 1.5, seed = 91 }
 note = "How hard each cell is to cross, 0 to 1 (in its place, a raster.read of a resistance)."
+data = { what = "a resistance: how hard each cell is to cross", kind = "values", expect = "above 0" }
 
 [[nodes]]
 id = "conductance"
@@ -2298,6 +2360,7 @@ op = "raster.calc"
 inputs = { d = "near_a.map" }
 params = { expression = "d == 0" }
 note = "Where the walkers start: a strip in the west (in its place, a raster of a reserve, or vector.read of points)."
+data = { what = "where the walkers start: 1 on the origin", kind = "mask" }
 
 [[nodes]]
 id = "near_b"
@@ -2310,6 +2373,7 @@ op = "raster.calc"
 inputs = { d = "near_b.map" }
 params = { expression = "d == 0" }
 note = "Where they go: a strip in the east."
+data = { what = "where the walkers go: 1 on the goal", kind = "mask" }
 
 [[nodes]]
 id = "cost"
@@ -2365,6 +2429,7 @@ id = "landscape"
 op = "nlm.random_cluster"
 params = { rows = 150, columns = 150, p = 0.4, weights = [0.8, 0.2], seed = 17 }
 note = "Two classes drawn by chance: 1 the background, 2 the habitat (GuidosToolbox's coding already)."
+data = { what = "a map of the habitat and the background", kind = "classes", classes = { 1 = "background", 2 = "habitat" } }
 
 [[nodes]]
 id = "near_a"
@@ -2384,6 +2449,7 @@ op = "raster.calc"
 inputs = { d = "near_a.map" }
 params = { expression = "d == 0" }
 note = "Area A (in its place, a raster of a reserve)."
+data = { what = "area A, a reserve: 1 inside it", kind = "mask" }
 
 [[nodes]]
 id = "b"
@@ -2391,6 +2457,7 @@ op = "raster.calc"
 inputs = { d = "near_b.map" }
 params = { expression = "d == 0" }
 note = "Area B."
+data = { what = "area B, a reserve: 1 inside it", kind = "mask" }
 
 [[nodes]]
 id = "habitat"
@@ -2453,6 +2520,7 @@ id = "quality"
 op = "nlm.gaussian_field"
 params = { rows = 80, columns = 80, range = 12, seed = 31 }
 note = "A habitat's quality from 0 to 1 drawn by chance (in its place, a raster.read of a suitability map)."
+data = { what = "a habitat's quality, or a suitability map", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "habitat"
@@ -2474,6 +2542,7 @@ op = "raster.label"
 inputs = { map = "large.map" }
 params = { neighbours = 8, classes = [1] }
 note = "Every core numbered (1, 2, ...), no value elsewhere: Linkage Mapper's core areas (in their place, a raster of the reserves with their ids)."
+data = { what = "the core areas: a raster of the reserves, an id each (1, 2, ...) and no value elsewhere", kind = "values", expect = "a whole id per core" }
 
 [[nodes]]
 id = "resistance"
@@ -2481,6 +2550,7 @@ op = "raster.calc"
 inputs = { q = "quality.map" }
 params = { expression = "1 + 99 * (1 - q) ** 3" }
 note = "The resistance to movement: 1 in the best habitat, up to 100 where there is none (in its place, a raster.read of a resistance from the literature)."
+data = { what = "a resistance: the cost of crossing a cell", kind = "values", expect = "1 or more" }
 
 [[nodes]]
 id = "pathways"
@@ -2544,21 +2614,25 @@ id = "bird"
 op = "nlm.gaussian_field"
 params = { rows = 30, columns = 40, range = 8, seed = 1 }
 note = "Species' amounts drawn by chance (in their place, raster.read of distribution maps)."
+data = { what = "a species' distribution map (the bird's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "frog"
 op = "nlm.gaussian_field"
 params = { rows = 30, columns = 40, range = 4, seed = 2 }
+data = { what = "a species' distribution map (the frog's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "orchid"
 op = "nlm.gaussian_field"
 params = { rows = 30, columns = 40, range = 12, seed = 3 }
+data = { what = "a species' distribution map (the orchid's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "wetland"
 op = "nlm.fbm"
 params = { rows = 30, columns = 40, dimension = 1.4, seed = 4 }
+data = { what = "a feature's map (the wetland's): its amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "features"
@@ -2570,6 +2644,7 @@ id = "cost"
 op = "nlm.gaussian_field"
 params = { rows = 30, columns = 40, range = 15, seed = 9 }
 note = "What each cell costs."
+data = { what = "what each cell costs (land prices, say)", kind = "values", expect = "above 0" }
 
 [[nodes]]
 id = "plan"
@@ -2633,6 +2708,7 @@ op = "raster.calc"
 inputs = { f = "field_t.map" }
 params = { expression = "14 + f * 12" }
 note = "The mean temperature, from 14 to 26 °C (in its place, raster.read of a climate layer)."
+data = { what = "the mean temperature today", kind = "values", expect = "degrees C" }
 
 [[nodes]]
 id = "field_r"
@@ -2645,6 +2721,7 @@ op = "raster.calc"
 inputs = { f = "field_r.map" }
 params = { expression = "800 + f * 1600" }
 note = "The rainfall, from 800 to 2400 mm."
+data = { what = "the rainfall today", kind = "values", expect = "mm" }
 
 [[nodes]]
 id = "predictors"
@@ -2702,6 +2779,7 @@ op = "raster.calc"
 inputs = { t = "temperature.map" }
 params = { expression = "t + 2" }
 note = "The temperature in a climate 2 °C warmer (in its place, raster.read of a scenario's layer)."
+data = { what = "the temperature in the future climate (a scenario's layer)", kind = "values", expect = "degrees C" }
 
 [[nodes]]
 id = "future"
@@ -2770,6 +2848,7 @@ id = "land_2000"
 op = "nlm.random_cluster"
 params = { rows = 160, columns = 160, p = 0.5, weights = [0.55, 0.35, 0.10], seed = 11 }
 note = "Land use drawn by chance: 1 forest, 2 farming, 3 water. In its place, a raster.read of a map of yours."
+data = { what = "a land use map, the first date", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "aptitude"
@@ -2789,6 +2868,7 @@ op = "raster.calc"
 inputs = { t0 = "land_2000.map", suit = "aptitude.map" }
 params = { expression = "2 if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and suit > 0.6 else t0" }
 note = "Ten years later: farming grown into the forest beside it, where it is suited."
+data = { what = "a land use map, the second date", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "to_farming"
@@ -2802,6 +2882,7 @@ id = "drivers"
 op = "stack.of"
 inputs = { aptitude = "aptitude.map", roughness = "roughness.map", to_farming = "to_farming.distance" }
 note = "The drivers, a layer each."
+data = { what = "the drivers of the change, a layer each (here a suitability, a roughness and the distance to farming)", kind = "stack" }
 
 [[nodes]]
 id = "markov"
@@ -2863,12 +2944,14 @@ id = "relief"
 op = "nlm.gaussian_field"
 params = { rows = 150, columns = 150, range = 30, nugget = 0, seed = 41 }
 note = "A relief from 0 to 1 (in its place, a raster.read of an elevation model)."
+data = { what = "a relief or elevation model: the lowest land is water, the highest mountains", kind = "values", expect = "0 to 1 here" }
 
 [[nodes]]
 id = "attraction"
 op = "nlm.gaussian_field"
 params = { rows = 150, columns = 150, range = 20, seed = 42 }
 note = "How attractive each place is (the jobs, the roads...): 0 to 1."
+data = { what = "how attractive each place is to the city (jobs, roads...)", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "centre"
@@ -2889,6 +2972,7 @@ op = "raster.calc"
 inputs = { d = "centre.map", suit = "suitability.map" }
 params = { expression = "None if isnull(suit) else d == 0" }
 note = "The city at the start: the old town (1), the rest 0."
+data = { what = "the city at the start: 1 on the built-up cells", kind = "mask" }
 
 [[nodes]]
 id = "growth"
@@ -2949,12 +3033,14 @@ op = "raster.calc"
 inputs = { m = "mosaic.map" }
 params = { expression = "1 + floor(m * 100000)" }
 note = "Each Voronoi cell a parcel with an id (in its place, a raster.read of a cadastre's parcel ids)."
+data = { what = "a map of parcel ids (a cadastre's): an id per parcel", kind = "values", expect = "a whole id per parcel" }
 
 [[nodes]]
 id = "fertility"
 op = "nlm.gaussian_field"
 params = { rows = 120, columns = 120, range = 25, seed = 52 }
 note = "The soil's fertility, 0 to 1."
+data = { what = "the soil's fertility", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "farms"
@@ -3041,12 +3127,14 @@ id = "fertility"
 op = "nlm.gaussian_field"
 params = { rows = 100, columns = 100, range = 15, seed = 101 }
 note = "A capital, 0 to 1: the soil's fertility (in its place, raster.read of a capital's map)."
+data = { what = "a capital: the soil's fertility", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "wood"
 op = "nlm.gaussian_field"
 params = { rows = 100, columns = 100, range = 25, seed = 102 }
 note = "Another: the forest's growing stock."
+data = { what = "a capital: the forest's growing stock", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "capitals"
@@ -3059,6 +3147,7 @@ id = "start"
 op = "nlm.random_cluster"
 params = { rows = 100, columns = 100, p = 0.5, weights = [0.5, 0.5], seed = 103 }
 note = "Who manages each cell at the start: 1 farmers, 2 foresters, drawn by chance."
+data = { what = "who manages each cell at the start", kind = "classes", classes = { 1 = "farmers", 2 = "foresters" } }
 
 [[nodes]]
 id = "demand"
@@ -3109,6 +3198,7 @@ id = "land_2000"
 op = "nlm.random_cluster"
 params = { rows = 160, columns = 160, resolution = 100, p = 0.5, weights = [0.55, 0.35, 0.10], seed = 11 }
 note = "Land use drawn by chance on cells of 100 m: 1 forest, 2 farming, 3 water. In its place, a raster.read of a map of yours."
+data = { what = "a land use map, the first date", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "aptitude"
@@ -3122,6 +3212,7 @@ op = "raster.calc"
 inputs = { t0 = "land_2000.map", suit = "aptitude.map" }
 params = { expression = "2 if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and suit > 0.65 else t0" }
 note = "Ten years later: farming grown into the forest beside it, where it is suited."
+data = { what = "a land use map, the second date", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "land_2020"
@@ -3129,6 +3220,7 @@ op = "raster.calc"
 inputs = { t1 = "land_2010.map", suit = "aptitude.map" }
 params = { expression = "2 if t1 == 1 and nbsum(t1 == 2, 1) >= 3 and suit > 0.5 else 1 if t1 == 2 and suit < 0.2 else t1" }
 note = "Ten more: farming grows faster, and the least suited farms go back to forest."
+data = { what = "a land use map, the third date", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "series"
@@ -3185,6 +3277,7 @@ id = "start"
 op = "nlm.random_cluster"
 params = { rows = 160, columns = 160, p = 0.5, weights = [0.55, 0.35, 0.10], seed = 11 }
 note = "The map both start from: 1 forest, 2 farming, 3 water (in its place, a raster.read of the map of the first date)."
+data = { what = "the land use map both start from, the first date", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "aptitude"
@@ -3197,6 +3290,7 @@ op = "raster.calc"
 inputs = { t0 = "start.map", suit = "aptitude.map" }
 params = { expression = "2 if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and suit > 0.6 else t0" }
 note = "What happened: farming grew into the forest beside it, where it was suited (in its place, the map of the second date)."
+data = { what = "the land use map observed at the second date", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "simulated"
@@ -3204,6 +3298,7 @@ op = "raster.calc"
 inputs = { t0 = "start.map", suit = "aptitude.map" }
 params = { expression = "2 if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and nbmean(suit, 4) > 0.6 else t0" }
 note = "What a model said: much the same, but from a blurred suitability (its mean over 9 x 9 cells) (in its place, a model's simulated map)."
+data = { what = "a model's simulated land use map for the second date", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "agreement"
@@ -3273,6 +3368,7 @@ op = "raster.calc"
 inputs = { t = "truth.map", e = "noise.map" }
 params = { expression = "(1 if t == 3 else t + 1) if e > 0.9 else t" }
 note = "The map to assess: the truth with a tenth of its cells in another class (in its place, a raster.read of your map)."
+data = { what = "the classified map to assess", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "size"
@@ -3325,6 +3421,7 @@ id = "land"
 op = "nlm.random_cluster"
 params = { rows = 200, columns = 200, p = 0.5, weights = [0.7, 0.3], seed = 31, resolution = 30 }
 note = "The jurisdiction at the start of the historical reference period: 1 forest, 2 other land, cells of 30 m (in its place, a raster.read of a forest map in an equal-area projection)."
+data = { what = "a forest map at the start of the historical reference period, in an equal-area projection", kind = "classes", classes = { 1 = "forest", 2 = "other land" } }
 
 [[nodes]]
 id = "forest"
@@ -3350,6 +3447,7 @@ op = "raster.calc"
 inputs = { f = "forest.map", d = "edge.distance", e = "noise.map" }
 params = { expression = "1 if f == 1 and e < 0.3 * exp(0 - d / 90) else 0" }
 note = "The deforestation of the period, near the edge (in its place, the period's deforestation map: 1 deforested)."
+data = { what = "the period's deforestation: 1 where the forest was cleared", kind = "mask" }
 
 [[nodes]]
 id = "nrt"
@@ -3404,6 +3502,7 @@ op = "raster.calc"
 inputs = { f = "relief.map" }
 params = { expression = "400 + 1600 * f" }
 note = "The elevation, 400 to 2,000 m (in its place, a DEM: raster.read, or data.download's Copernicus DEM)."
+data = { what = "an elevation model (DEM)", kind = "values", expect = "metres" }
 
 [[nodes]]
 id = "filled"
@@ -3433,6 +3532,7 @@ id = "cover"
 op = "nlm.random_cluster"
 params = { rows = 150, columns = 150, p = 0.5, weights = [0.55, 0.45], seed = 52, resolution = 30 }
 note = "The land cover: 1 native vegetation, 2 farmland (in its place, a land cover map such as MapBiomas')."
+data = { what = "a land cover map", kind = "classes", classes = { 1 = "native vegetation", 2 = "farmland" } }
 
 [[nodes]]
 id = "vegetation"
@@ -3446,6 +3546,7 @@ op = "raster.calc"
 inputs = { c = "cover.map" }
 params = { expression = "c == 2" }
 note = "The farmland, taken as consolidated by 22 July 2008 (in its place, the land use of 2008)."
+data = { what = "the farmland consolidated by 22 July 2008 (the land use of 2008): 1 on it", kind = "mask" }
 
 [[nodes]]
 id = "strips"
@@ -3458,6 +3559,7 @@ op = "raster.calc"
 inputs = { g = "strips.map" }
 params = { expression = "min(floor(g * 6) + 1, 6)" }
 note = "Six rural properties of 337.5 ha (in their place, the CAR's properties: vector.rasterize of SICAR's polygons)."
+data = { what = "the rural properties (the CAR's): an id per property", kind = "values", expect = "a whole id per property" }
 
 [[nodes]]
 id = "app"
@@ -3507,6 +3609,7 @@ op = "raster.calc"
 inputs = { f = "relief.map" }
 params = { expression = "300 + 900 * f" }
 note = "The elevation, 300 to 1,200 m (in its place, a DEM: raster.read, or data.download's Copernicus DEM)."
+data = { what = "an elevation model (DEM)", kind = "values", expect = "metres" }
 
 [[nodes]]
 id = "filled"
@@ -3536,6 +3639,7 @@ id = "cover"
 op = "nlm.random_cluster"
 params = { rows = 150, columns = 150, p = 0.5, weights = [0.5, 0.3, 0.2], seed = 62, resolution = 30 }
 note = "The land cover: 1 forest, 2 pasture, 3 cropland (in its place, a land cover map such as MapBiomas')."
+data = { what = "a land cover map", kind = "classes", classes = { 1 = "forest", 2 = "pasture", 3 = "cropland" } }
 
 [[nodes]]
 id = "slope"
@@ -3616,6 +3720,7 @@ op = "raster.calc"
 inputs = { f = "relief.map" }
 params = { expression = "200 + 800 * f" }
 note = "The elevation, 200 to 1,000 m (in its place, a DEM: raster.read, or data.download's Copernicus DEM)."
+data = { what = "an elevation model (DEM)", kind = "values", expect = "metres" }
 
 [[nodes]]
 id = "filled"
@@ -3723,16 +3828,19 @@ note = "The smallest patch of forest kept, in cells: a setting of the body reads
 id = "cover_2000"
 op = "nlm.random_cluster"
 params = { rows = 80, columns = 80, p = 0.55, weights = [0.65, 0.35], seed = 81, resolution = 30 }
+data = { what = "the land cover of 2000", kind = "classes", classes = { 1 = "forest", 2 = "farmland" } }
 
 [[nodes]]
 id = "cover_2010"
 op = "nlm.random_cluster"
 params = { rows = 80, columns = 80, p = 0.55, weights = [0.55, 0.45], seed = 82, resolution = 30 }
+data = { what = "the land cover of 2010", kind = "classes", classes = { 1 = "forest", 2 = "farmland" } }
 
 [[nodes]]
 id = "cover_2020"
 op = "nlm.random_cluster"
 params = { rows = 80, columns = 80, p = 0.55, weights = [0.45, 0.55], seed = 83, resolution = 30 }
+data = { what = "the land cover of 2020", kind = "classes", classes = { 1 = "forest", 2 = "farmland" } }
 
 [[nodes]]
 id = "years"
@@ -3824,11 +3932,13 @@ id = "land"
 op = "nlm.random_cluster"
 params = { rows = 100, columns = 100, p = 0.5, weights = [0.6, 0.4], seed = 91, resolution = 30 }
 note = "The land: 1 forest, 2 farmland (in its place, a land cover map)."
+data = { what = "a land cover map", kind = "classes", classes = { 1 = "forest", 2 = "farmland" } }
 
 [[nodes]]
 id = "relief"
 op = "nlm.fbm"
 params = { rows = 100, columns = 100, dimension = 1.4, seed = 92, resolution = 30 }
+data = { what = "the relief, the slope's stand-in", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "farmland"
@@ -3914,6 +4024,7 @@ op = "raster.calc"
 inputs = { r = "relief.map" }
 params = { expression = "200 + r * 800" }
 note = "Metres: from 200 to 1000."
+data = { what = "an elevation model (DEM)", kind = "values", expect = "metres" }
 
 [[nodes]]
 id = "slope"
@@ -3997,6 +4108,7 @@ id = "canopy"
 op = "nlm.gaussian_field"
 params = { rows = 100, columns = 100, range = 15, seed = 61 }
 note = "The canopy's cover, 0 to 1 (in its place, a raster.read of a tree cover map)."
+data = { what = "the tree canopy cover", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "carbon"
@@ -4207,6 +4319,7 @@ op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise1.map" }
 params = { expression = "0.3 + 0.4 * b + 0.00 * (c - 0.5) + 0.08 * (e - 0.5)" }
 note = "The NDVI of a year: a level that stays, a change that grows year by year, noise (in their place, a series of NDVI maps: raster.read)."
+data = { what = "the NDVI of year 1 of the series", kind = "values", expect = "-1 to 1" }
 
 [[nodes]]
 id = "noise2"
@@ -4218,6 +4331,7 @@ id = "ndvi2"
 op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise2.map" }
 params = { expression = "0.3 + 0.4 * b + 0.06 * (c - 0.5) + 0.08 * (e - 0.5)" }
+data = { what = "the NDVI of year 2 of the series", kind = "values", expect = "-1 to 1" }
 
 [[nodes]]
 id = "noise3"
@@ -4229,6 +4343,7 @@ id = "ndvi3"
 op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise3.map" }
 params = { expression = "0.3 + 0.4 * b + 0.12 * (c - 0.5) + 0.08 * (e - 0.5)" }
+data = { what = "the NDVI of year 3 of the series", kind = "values", expect = "-1 to 1" }
 
 [[nodes]]
 id = "noise4"
@@ -4240,6 +4355,7 @@ id = "ndvi4"
 op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise4.map" }
 params = { expression = "0.3 + 0.4 * b + 0.18 * (c - 0.5) + 0.08 * (e - 0.5)" }
+data = { what = "the NDVI of year 4 of the series", kind = "values", expect = "-1 to 1" }
 
 [[nodes]]
 id = "noise5"
@@ -4251,6 +4367,7 @@ id = "ndvi5"
 op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise5.map" }
 params = { expression = "0.3 + 0.4 * b + 0.24 * (c - 0.5) + 0.08 * (e - 0.5)" }
+data = { what = "the NDVI of year 5 of the series", kind = "values", expect = "-1 to 1" }
 
 [[nodes]]
 id = "series"
@@ -4324,6 +4441,7 @@ op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "20 + 30 * f" }
 note = "The true surface, a soil's carbon in g/kg say (in its place, the area to interpolate: any map of it)."
+data = { what = "the surface to interpolate (a soil's carbon): the values the sample points read", kind = "values", expect = "g/kg here" }
 
 [[nodes]]
 id = "area"
@@ -4423,18 +4541,21 @@ op = "raster.calc"
 inputs = { g = "gradient.map", n = "noise.map" }
 params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.25) * 3500 + (n - 0.5) * 500)))" }
 note = "The suitability of a period, 0 to 1000: its optimum moving up the gradient (in their place, a species distribution model's predictions for each period, times 1000)."
+data = { what = "the habitat suitability of the first period (a species distribution model's prediction)", kind = "values", expect = "0 to 1000" }
 
 [[nodes]]
 id = "period2"
 op = "raster.calc"
 inputs = { g = "gradient.map", n = "noise.map" }
 params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.45) * 3500 + (n - 0.5) * 500)))" }
+data = { what = "the habitat suitability of the second period", kind = "values", expect = "0 to 1000" }
 
 [[nodes]]
 id = "period3"
 op = "raster.calc"
 inputs = { g = "gradient.map", n = "noise.map" }
 params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.65) * 3500 + (n - 0.5) * 500)))" }
+data = { what = "the habitat suitability of the third period", kind = "values", expect = "0 to 1000" }
 
 [[nodes]]
 id = "suitability"
@@ -4447,6 +4568,7 @@ op = "raster.calc"
 inputs = { s = "period1.map", g = "gradient.map" }
 params = { expression = "1 if s > 600 and g < 0.3 else 0" }
 note = "Where the species is now: suitable cells at the lower end of the gradient."
+data = { what = "where the species is now: 1 on the occupied cells", kind = "mask" }
 
 [[nodes]]
 id = "river"
@@ -4454,6 +4576,7 @@ op = "raster.calc"
 inputs = { g = "gradient.map" }
 params = { expression = "1 if abs(g - 0.4) < 0.006 else 0" }
 note = "A river across the gradient, a barrier."
+data = { what = "a barrier to dispersal: 1 on it", kind = "mask" }
 
 [[nodes]]
 id = "migrate"
@@ -4497,6 +4620,7 @@ op = "raster.calc"
 inputs = { f = "area_field.map" }
 params = { expression = "0.2 + 3 * f" }
 note = "The area of a patch found at a place, in hectares (in its place, a table of the patches: x, y, area, occupied)."
+data = { what = "the area of the patch found at each place", kind = "values", expect = "hectares" }
 
 [[nodes]]
 id = "draw"
@@ -4508,6 +4632,7 @@ id = "start"
 op = "raster.calc"
 inputs = { r = "draw.map" }
 params = { expression = "1 if r < 0.4 else 0" }
+data = { what = "whether the patch holds the species at the start: 1 occupied", kind = "mask" }
 
 [[nodes]]
 id = "attributes"
@@ -4647,6 +4772,53 @@ mod tests {
                 assert_eq!(t.model().name.as_deref(), Some(t.name));
             }
         }
+    }
+
+    /// The templates whose point is the landscapes drawn themselves: nothing in them stands for data of the user's.
+    const DRAWN_ON_PURPOSE: [&str; 2] = ["Neutral landscapes", "More neutral landscapes"];
+
+    /// A template that draws data with a neutral landscape marks the nodes that stand for the user's data (`data`),
+    /// each saying what it is; one of classes names its classes; `check` has nothing to say of them.
+    #[test]
+    fn the_nodes_standing_for_the_users_data_are_marked() {
+        fn walk<'a>(nodes: &'a [Node], out: &mut Vec<&'a Node>) {
+            for n in nodes {
+                out.push(n);
+                if let Some(b) = &n.body {
+                    walk(&b.nodes, out);
+                }
+            }
+        }
+        let r = terraflux_ops::Registry::standard();
+        let (mut offenders, mut wrong, mut marked) = (Vec::new(), Vec::new(), 0);
+        for t in &TEMPLATES {
+            let m = t.model();
+            let mut all = Vec::new();
+            walk(&m.nodes, &mut all);
+            let data: Vec<(&str, &terraflux_graph::Data)> =
+                all.iter().filter_map(|n| n.data.as_ref().map(|d| (n.id.as_str(), d))).collect();
+            if all.iter().any(|n| n.op.starts_with("nlm.")) && data.is_empty() && !DRAWN_ON_PURPOSE.contains(&t.name) {
+                offenders.push(t.name);
+            }
+            for (id, d) in &data {
+                marked += 1;
+                for why in d.problems() {
+                    wrong.push(format!("{} / {id}: {why}", t.name));
+                }
+                if d.kind == terraflux_graph::DataKind::Classes && d.classes.is_empty() {
+                    wrong.push(format!("{} / {id}: data of classes names none", t.name));
+                }
+            }
+            let said: Vec<String> = terraflux_graph::check(&m, &r)
+                .into_iter()
+                .filter(|i| i.message.contains("`data`"))
+                .map(|i| format!("{}: {i}", t.name))
+                .collect();
+            wrong.extend(said);
+        }
+        assert!(offenders.is_empty(), "templates with a neutral landscape and no node marked as data: {offenders:?}");
+        assert!(wrong.is_empty(), "{wrong:#?}");
+        assert!(marked > 100, "{marked} nodes marked");
     }
 
     #[test]

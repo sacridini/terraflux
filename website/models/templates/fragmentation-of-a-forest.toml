@@ -7,6 +7,7 @@ id = "landscape"
 op = "nlm.random_cluster"
 params = { rows = 300, columns = 300, p = 0.55, weights = [0.3, 0.15, 0.55], seed = 7 }
 note = "A map of three classes drawn by chance (1 farming, 2 water, 3 forest): in its place, a raster.read of a map of yours."
+data = { what = "a land cover map with a forest class: the fragmentation is of the forest (3)", kind = "classes", classes = { 1 = "farming", 2 = "water", 3 = "forest" } }
 
 [[nodes]]
 id = "fad"

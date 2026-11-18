@@ -11,16 +11,19 @@ note = "The smallest patch of forest kept, in cells: a setting of the body reads
 id = "cover_2000"
 op = "nlm.random_cluster"
 params = { rows = 80, columns = 80, p = 0.55, weights = [0.65, 0.35], seed = 81, resolution = 30 }
+data = { what = "the land cover of 2000", kind = "classes", classes = { 1 = "forest", 2 = "farmland" } }
 
 [[nodes]]
 id = "cover_2010"
 op = "nlm.random_cluster"
 params = { rows = 80, columns = 80, p = 0.55, weights = [0.55, 0.45], seed = 82, resolution = 30 }
+data = { what = "the land cover of 2010", kind = "classes", classes = { 1 = "forest", 2 = "farmland" } }
 
 [[nodes]]
 id = "cover_2020"
 op = "nlm.random_cluster"
 params = { rows = 80, columns = 80, p = 0.55, weights = [0.45, 0.55], seed = 83, resolution = 30 }
+data = { what = "the land cover of 2020", kind = "classes", classes = { 1 = "forest", 2 = "farmland" } }
 
 [[nodes]]
 id = "years"

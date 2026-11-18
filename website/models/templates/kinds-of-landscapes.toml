@@ -26,6 +26,7 @@ op = "nlm.classify"
 inputs = { map = "surface.map" }
 params = { weights = [0.3, 0.3, 0.2, 0.2] }
 note = "Four classes of 30, 30, 20 and 20 % of the cells, which change along the gradient (in its place, a raster.read of a land cover of yours)."
+data = { what = "a land cover map of any classes (four here): the kinds of landscape are found from its patterns", kind = "classes", classes = { 1 = "class 1", 2 = "class 2", 3 = "class 3", 4 = "class 4" } }
 
 [[nodes]]
 id = "signatures"

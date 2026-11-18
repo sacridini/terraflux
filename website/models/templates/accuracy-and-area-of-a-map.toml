@@ -19,6 +19,7 @@ op = "raster.calc"
 inputs = { t = "truth.map", e = "noise.map" }
 params = { expression = "(1 if t == 3 else t + 1) if e > 0.9 else t" }
 note = "The map to assess: the truth with a tenth of its cells in another class (in its place, a raster.read of your map)."
+data = { what = "the classified map to assess", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "size"

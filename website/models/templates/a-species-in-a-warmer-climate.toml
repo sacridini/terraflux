@@ -13,6 +13,7 @@ op = "raster.calc"
 inputs = { f = "field_t.map" }
 params = { expression = "14 + f * 12" }
 note = "The mean temperature, from 14 to 26 °C (in its place, raster.read of a climate layer)."
+data = { what = "the mean temperature today", kind = "values", expect = "degrees C" }
 
 [[nodes]]
 id = "field_r"
@@ -25,6 +26,7 @@ op = "raster.calc"
 inputs = { f = "field_r.map" }
 params = { expression = "800 + f * 1600" }
 note = "The rainfall, from 800 to 2400 mm."
+data = { what = "the rainfall today", kind = "values", expect = "mm" }
 
 [[nodes]]
 id = "predictors"
@@ -82,6 +84,7 @@ op = "raster.calc"
 inputs = { t = "temperature.map" }
 params = { expression = "t + 2" }
 note = "The temperature in a climate 2 °C warmer (in its place, raster.read of a scenario's layer)."
+data = { what = "the temperature in the future climate (a scenario's layer)", kind = "values", expect = "degrees C" }
 
 [[nodes]]
 id = "future"

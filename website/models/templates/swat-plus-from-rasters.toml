@@ -30,6 +30,7 @@ op = "raster.calc"
 inputs = { f = "relief.map" }
 params = { expression = "700 + 300 * f" }
 note = "The elevation, 700 to 1,000 m. In its place, a DEM in a projected CRS: raster.read, or data.download's Copernicus DEM reprojected."
+data = { what = "an elevation model (DEM) in a projected coordinate system", kind = "values", expect = "metres" }
 
 [[nodes]]
 id = "cover"
@@ -37,6 +38,7 @@ op = "nlm.random_cluster"
 inputs = { like = "relief.map" }
 params = { p = 0.5, weights = [0.6, 0.4], seed = 92 }
 note = "The land use: 1 forest, 2 pasture (in its place, a land use map; the codes name the plants in the lookup below)."
+data = { what = "a land use map: its codes name the plants of the land use lookup", kind = "classes", classes = { 1 = "forest (FRSD)", 2 = "pasture (PAST)" } }
 
 [[nodes]]
 id = "soils"
@@ -44,6 +46,7 @@ op = "raster.calc"
 inputs = { f = "relief.map" }
 params = { expression = "10 if f > 0.4 else 20" }
 note = "The soils: 10 on the uplands (above 820 m), 20 in the lower valley (in its place, a soil map: a raster.read of the soil units)."
+data = { what = "a soil map: a code per soil unit, named in the soil lookup", kind = "classes", classes = { 10 = "upland loam", 20 = "valley clay loam" } }
 
 [[nodes]]
 id = "landuse_lookup"

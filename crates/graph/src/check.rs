@@ -447,6 +447,18 @@ impl<'a> Checker<'a> {
             } else if n.uses.is_some() {
                 self.error(&at, format!("{} is not a group: it cannot be a node of the library", n.op));
             }
+            if let Some(d) = &n.data {
+                for why in d.problems() {
+                    self.warn(&at, why);
+                }
+                let gives = sig
+                    .outputs_of(n)
+                    .iter()
+                    .any(|p| matches!(p.ty, Type::Map | Type::Stack | Type::Raster | Type::Any));
+                if !sig.container && !gives {
+                    self.warn(&at, format!("{} gives no map or stack, and `data` says it stands for one", n.op));
+                }
+            }
             let known: BTreeSet<&str> = sig.params.iter().map(|p| p.name.as_str()).collect();
             for (k, v) in &n.params {
                 if !known.contains(k.as_str()) {
@@ -1015,6 +1027,28 @@ from = "calc.map"
         let all = check(&m, &Ops);
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn data_is_checked_with_warnings() {
+        use crate::{Data, DataKind};
+        let mut m = model(GOOD);
+        m.nodes.push(Node::new("lay", "layers"));
+        let last = m.nodes.len() - 1;
+        let mut set = |i: usize, d: Option<Data>| {
+            m.nodes[i].data = d;
+            check(&m, &Ops).into_iter().map(|i| i.to_string()).collect::<Vec<_>>()
+        };
+        let good = Data::new("a land use map", DataKind::Classes).classes(&[(1, "forest")]);
+        assert!(set(last, Some(good)).is_empty());
+        let e = set(last, Some(Data::new(" ", DataKind::Classes)));
+        assert!(e.len() == 1 && e[0].starts_with("warning") && e[0].contains("what"), "{e:?}");
+        let e = set(last, Some(Data::new("a cost", DataKind::Values).classes(&[(1, "forest")])));
+        assert!(e.len() == 1 && e[0].contains("only classes and mask"), "{e:?}");
+        // an operator that gives no map or stack (`fit` gives a model)
+        assert!(set(last, None).is_empty());
+        let e = set(0, Some(Data::new("a map", DataKind::Values)));
+        assert!(e.len() == 1 && e[0].contains("gives no map or stack"), "{e:?}");
     }
 
     #[test]

@@ -7,12 +7,14 @@ id = "cover"
 op = "nlm.random_cluster"
 params = { rows = 120, columns = 120, p = 0.5, weights = [0.45, 0.35, 0.2], seed = 12 }
 note = "A land cover of three classes drawn by chance: 1 forest, 2 farming, 3 water. In its place, a raster.read of a map of yours."
+data = { what = "a land use map, the first date", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "later"
 op = "raster.calc"
 inputs = { cover = "cover.map" }
 note = "Ten years later: farming grown into the forest beside it."
+data = { what = "a land use map, the second date", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 [nodes.params]
 expression = """
 # the forest (1) with three cells of farming (2) or more around it becomes farming

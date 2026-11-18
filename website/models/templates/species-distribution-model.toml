@@ -7,16 +7,19 @@ id = "temperature"
 op = "nlm.gaussian_field"
 params = { rows = 60, columns = 80, range = 14, seed = 21 }
 note = "A predictor drawn by chance (in its place, raster.read of a climate layer)."
+data = { what = "a climate predictor: the temperature", kind = "values" }
 
 [[nodes]]
 id = "rainfall"
 op = "nlm.gaussian_field"
 params = { rows = 60, columns = 80, range = 22, seed = 22 }
+data = { what = "a climate predictor: the rainfall", kind = "values" }
 
 [[nodes]]
 id = "relief"
 op = "nlm.gaussian_field"
 params = { rows = 60, columns = 80, range = 6, seed = 23 }
+data = { what = "a terrain predictor: the relief", kind = "values" }
 
 [[nodes]]
 id = "predictors"

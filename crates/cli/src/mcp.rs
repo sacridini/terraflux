@@ -225,8 +225,12 @@ impl Server {
         let Some(client) = self.client.as_ref().filter(|_| self.elicits.load(Ordering::Relaxed)) else {
             return String::new();
         };
-        let drawn: Vec<(String, Option<String>)> =
-            m.nodes.iter().filter(|n| n.op.starts_with("nlm.")).map(|n| (n.id.clone(), n.note.clone())).collect();
+        let drawn: Vec<(String, Option<String>)> = m
+            .nodes
+            .iter()
+            .filter(|n| n.op.starts_with("nlm."))
+            .map(|n| (n.id.clone(), n.data.as_ref().map(|d| d.summary()).or_else(|| n.note.clone())))
+            .collect();
         if drawn.is_empty() {
             return String::new();
         }
@@ -810,7 +814,11 @@ Ask me what the data cannot tell (what the classes are, the period, the targets)
                     "Copy the Terraflux template {template:?} to {model} (new_model with `template`) and put my data in \
 place of its drawn data (the nlm.* nodes): {data}
 
-Look at each file first (inspect_file: its grid, coordinate system, classes) and at the guide of the template's \
+Read the copy first (show_model) and read each node's `data` before anything else: it says what the node stands \
+for (what it is, its kind, and for classes the codes the method expects, with their names): match each of my \
+files to one of them, and where the classes of my file are not those expected, reclassify it to them (say so in \
+the node's why) instead of changing the method. Then look at each file (inspect_file: its grid, coordinate \
+system, classes) and at the guide of the template's \
 field (guide); put the files on one grid (guide data-preparation) with raster.read nodes, keep the template's \
 method, change its settings only where my data need it (say why in the node's why), then check_model (follow its \
 advice), run_model and tell me what the outputs show."
@@ -1669,6 +1677,21 @@ mod tests {
         let (_, e) = call(&s, "edit_node", json!({ "model": model, "node": "land", "refs": [1, 2] }));
         assert!(e);
         assert_eq!(Model::load(&model).unwrap(), m);
+        // the data it stands for: set, shown by show_model, refused when it says nothing, cleared
+        let data = json!({ "what": "a map of forest", "kind": "classes", "classes": { "1": "forest", "2": "other" } });
+        let (t, e) = call(&s, "edit_node", json!({ "model": model, "node": "land", "data": data }));
+        assert!(!e, "{t}");
+        let d = Model::load(&model).unwrap().node("land").unwrap().data.clone().unwrap();
+        assert_eq!((d.kind, d.classes.len()), (terraflux_graph::DataKind::Classes, 2));
+        let (t, _) = call(&s, "show_model", json!({ "model": model }));
+        assert!(t.contains("a map of forest") && t.contains("forest"), "{t}");
+        for bad in [json!({ "kind": "mask" }), json!({ "what": "x", "kind": "maps" }), json!("some text")] {
+            let (_, e) = call(&s, "edit_node", json!({ "model": model, "node": "land", "data": bad }));
+            assert!(e);
+        }
+        let (t, e) = call(&s, "edit_node", json!({ "model": model, "node": "land", "data": null }));
+        assert!(!e, "{t}");
+        assert!(Model::load(&model).unwrap().node("land").unwrap().data.is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

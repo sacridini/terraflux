@@ -803,6 +803,9 @@ impl Writer<'_> {
         if let Some(why) = n.why.as_deref().filter(|t| !t.trim().is_empty()) {
             block.push_str(&format!("# why: {}\n", one_line(why)));
         }
+        if let Some(d) = &n.data {
+            block.push_str(&format!("# stands for your data: {}\n", one_line(&d.summary())));
+        }
         let var = self.fresh(&variable(&n.id));
         let made = if n.body.is_some() { self.container(n, &var, sc, prefix) } else { node(n, self.r, &var, sc) };
         match made {

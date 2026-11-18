@@ -7,6 +7,7 @@ id = "roughness"
 op = "nlm.fbm"
 params = { rows = 100, columns = 100, dimension = 1.5, seed = 91 }
 note = "How hard each cell is to cross, 0 to 1 (in its place, a raster.read of a resistance)."
+data = { what = "a resistance: how hard each cell is to cross", kind = "values", expect = "above 0" }
 
 [[nodes]]
 id = "conductance"
@@ -40,6 +41,7 @@ op = "raster.calc"
 inputs = { d = "near_a.map" }
 params = { expression = "d == 0" }
 note = "Where the walkers start: a strip in the west (in its place, a raster of a reserve, or vector.read of points)."
+data = { what = "where the walkers start: 1 on the origin", kind = "mask" }
 
 [[nodes]]
 id = "near_b"
@@ -52,6 +54,7 @@ op = "raster.calc"
 inputs = { d = "near_b.map" }
 params = { expression = "d == 0" }
 note = "Where they go: a strip in the east."
+data = { what = "where the walkers go: 1 on the goal", kind = "mask" }
 
 [[nodes]]
 id = "cost"

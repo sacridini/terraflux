@@ -13,6 +13,7 @@ op = "raster.calc"
 inputs = { f = "relief.map" }
 params = { expression = "400 + 1600 * f" }
 note = "The elevation, 400 to 2,000 m (in its place, a DEM: raster.read, or data.download's Copernicus DEM)."
+data = { what = "an elevation model (DEM)", kind = "values", expect = "metres" }
 
 [[nodes]]
 id = "filled"
@@ -42,6 +43,7 @@ id = "cover"
 op = "nlm.random_cluster"
 params = { rows = 150, columns = 150, p = 0.5, weights = [0.55, 0.45], seed = 52, resolution = 30 }
 note = "The land cover: 1 native vegetation, 2 farmland (in its place, a land cover map such as MapBiomas')."
+data = { what = "a land cover map", kind = "classes", classes = { 1 = "native vegetation", 2 = "farmland" } }
 
 [[nodes]]
 id = "vegetation"
@@ -55,6 +57,7 @@ op = "raster.calc"
 inputs = { c = "cover.map" }
 params = { expression = "c == 2" }
 note = "The farmland, taken as consolidated by 22 July 2008 (in its place, the land use of 2008)."
+data = { what = "the farmland consolidated by 22 July 2008 (the land use of 2008): 1 on it", kind = "mask" }
 
 [[nodes]]
 id = "strips"
@@ -67,6 +70,7 @@ op = "raster.calc"
 inputs = { g = "strips.map" }
 params = { expression = "min(floor(g * 6) + 1, 6)" }
 note = "Six rural properties of 337.5 ha (in their place, the CAR's properties: vector.rasterize of SICAR's polygons)."
+data = { what = "the rural properties (the CAR's): an id per property", kind = "values", expect = "a whole id per property" }
 
 [[nodes]]
 id = "app"

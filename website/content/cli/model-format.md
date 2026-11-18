@@ -121,6 +121,7 @@ Each `[[nodes]]` table is one operator.
 | `params` | table | no | The operator's settings, by name. |
 | `body` | table | containers | The nodes of a container, with what it carries and gives. |
 | `note`, `why`, `refs`, `assumptions`, `alternatives` | text, and lists of texts | no | The record of the choice (see below). |
+| `data` | table | no | That the node stands for a data of yours: what it is, its kind and its classes (see below). |
 | `bypass` | boolean | no | Turn the node off without removing it: it does not run, and each of its outputs is the first of its inputs of the same type (a filter left out passes its map on). Default `false`. |
 | `frozen` | boolean | no | Keep the node's outputs on disk, in `<model>.frozen/<id>/` next to the model, and use them instead of running the node. Top-level nodes only. Default `false`. |
 | `pos`, `width`, `wires`, `shown`, `hidden` | | no | Layout (see below). |
@@ -311,6 +312,32 @@ the node again.
 | `refs` | The references the choice rests on (papers, methods, the operator's documentation), a list of texts. |
 | `assumptions` | What the node assumes to be true, a list of texts. |
 | `alternatives` | The alternatives considered and set aside, and why, a list of texts. |
+
+A node that takes the place of **a data of yours** (the templates draw their maps with neutral landscapes, and
+your own file goes where the drawn one is) says so with `data`, which belongs to the record too:
+
+```toml
+[[nodes]]
+id = "land_2000"
+op = "nlm.random_cluster"
+data = { what = "a land use map, the first date", kind = "classes", classes = { 1 = "forest", 2 = "agriculture", 3 = "water" } }
+
+[[nodes]]
+id = "friction"
+op = "nlm.gaussian_field"
+data = { what = "a resistance: the cost of crossing a cell", kind = "values", expect = "1 or more" }
+```
+
+| Key | Meaning |
+|---|---|
+| `what` | The data in a phrase, such as "a land use map, the first date". Required. |
+| `kind` | `classes` (a map of whole class codes), `values` (a map of numbers), `mask` (a map of 1 and 0) or `stack` (a layer per variable, such as the drivers). Required. |
+| `classes` | The classes the method expects, the code as the key and its name as the value. Only for `classes` and `mask`; left out when not given. In TOML the code is a bare key (`1 = "forest"`), in JSON text (`"1": "forest"`); both read back as whole numbers. |
+| `expect` | For values: what they are expected to be, a range or a unit (`"1 or more"`, `"metres"`). |
+
+The check warns of a `data` with no `what`, of classes on values or a stack, and of one on a node that gives no map
+or stack. The Node pane shows it as *Stands for your data*, and an assistant reads it (`show_model`) to know which
+of your files goes there and what its classes must be.
 
 The model has its own at the top: `request`, `summary` and `author`. The Document pane and the reports tell the
 record beside the graph; see [The model's document](/tutorials/building-models/the-model-document/).

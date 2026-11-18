@@ -542,6 +542,10 @@ pub struct Node {
     pub assumptions: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub alternatives: Vec<String>,
+    /// This node stands for a data of the user's (the template draws it, a `raster.read` of the user's file
+    /// takes its place). Part of the record: none of it changes what the node gives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Data>,
     /// The nodes of a container.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<Body>,
@@ -590,6 +594,7 @@ impl Node {
             refs: Vec::new(),
             assumptions: Vec::new(),
             alternatives: Vec::new(),
+            data: None,
             body: None,
             pos: None,
             wires: BTreeMap::new(),
@@ -629,8 +634,8 @@ impl Node {
         self
     }
 
-    /// The node without its record (the note, why, references, assumptions, alternatives): what counts for its
-    /// outputs.
+    /// The node without its record (the note, why, references, assumptions, alternatives, data): what counts for
+    /// its outputs.
     pub fn unrecorded(&self) -> Node {
         let mut n = self.clone();
         n.note = None;
@@ -638,13 +643,162 @@ impl Node {
         n.refs.clear();
         n.assumptions.clear();
         n.alternatives.clear();
+        n.data = None;
         n
+    }
+
+    /// The node standing for a data of the user's.
+    pub fn data(mut self, data: Data) -> Self {
+        self.data = Some(data);
+        self
     }
 
     pub fn body(mut self, body: Body) -> Self {
         self.body = Some(body);
         self
     }
+}
+
+/// What a data of the user's is, for the node that stands for it:
+/// `data = { what = "a land use map, the first date", kind = "classes", classes = { 1 = "forest", 2 = "agriculture" } }`.
+/// The classes are written with the code as the key (a bare `1 = "forest"` in TOML, `"1": "forest"` in JSON: both
+/// formats name keys with text, so the code is parsed back to a whole number when read).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Data {
+    /// The data in a phrase ("a map of forest (1) and the rest (0)").
+    pub what: String,
+    pub kind: DataKind,
+    /// The classes the method expects, by code, with their names (empty: not given).
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        serialize_with = "classes_out",
+        deserialize_with = "classes_in"
+    )]
+    pub classes: BTreeMap<i64, String>,
+    /// For values: what they are expected to be ("1 or more", "metres").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect: Option<String>,
+}
+
+/// The kinds of data a node can stand for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DataKind {
+    /// A map of whole class codes (a land use map).
+    Classes,
+    /// A map of values (a cost, an elevation, a probability).
+    Values,
+    /// A map of yes and no (1 and 0).
+    Mask,
+    /// A stack of layers (the drivers).
+    Stack,
+}
+
+impl DataKind {
+    pub const ALL: [DataKind; 4] = [DataKind::Classes, DataKind::Values, DataKind::Mask, DataKind::Stack];
+
+    /// The kind as it is written in the model file.
+    pub fn name(self) -> &'static str {
+        match self {
+            DataKind::Classes => "classes",
+            DataKind::Values => "values",
+            DataKind::Mask => "mask",
+            DataKind::Stack => "stack",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<DataKind> {
+        Self::ALL.into_iter().find(|k| k.name() == s.trim().to_lowercase())
+    }
+}
+
+impl Data {
+    pub fn new(what: &str, kind: DataKind) -> Data {
+        Data { what: what.to_string(), kind, classes: BTreeMap::new(), expect: None }
+    }
+
+    /// The data with the classes it expects, by code.
+    pub fn classes(mut self, classes: &[(i64, &str)]) -> Data {
+        self.classes = classes.iter().map(|(k, v)| (*k, v.to_string())).collect();
+        self
+    }
+
+    /// The data with what its values are expected to be.
+    pub fn expect(mut self, expect: &str) -> Data {
+        self.expect = Some(expect.to_string());
+        self
+    }
+
+    /// The data in a line: `a land use map (classes, 1 forest · 2 agriculture)`.
+    pub fn summary(&self) -> String {
+        let mut parts = vec![self.kind.name().to_string()];
+        if !self.classes.is_empty() {
+            parts.push(self.classes_line());
+        }
+        parts.extend(self.expect.clone());
+        format!("{} ({})", self.what, parts.join(", "))
+    }
+
+    /// The classes in a line: `1 forest · 2 agriculture`.
+    pub fn classes_line(&self) -> String {
+        self.classes.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(" \u{b7} ")
+    }
+
+    /// The classes a line each, `1 = forest` (what the Node pane edits).
+    pub fn classes_lines(&self) -> String {
+        self.classes.iter().map(|(k, v)| format!("{k} = {v}")).collect::<Vec<_>>().join("\n")
+    }
+
+    /// The classes of lines `1 = forest` (or `1 forest`, or `1: forest`); a line that is no code and name is an
+    /// error naming it.
+    pub fn parse_classes(text: &str) -> std::result::Result<BTreeMap<i64, String>, String> {
+        let mut out = BTreeMap::new();
+        for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            let (code, name) = line
+                .split_once(['=', ':'])
+                .or_else(|| line.split_once(char::is_whitespace))
+                .ok_or_else(|| format!("{line:?}: write a code and a name, `1 = forest`"))?;
+            let code: i64 = code.trim().parse().map_err(|_| format!("{line:?}: the code is a whole number"))?;
+            let name = name.trim();
+            if name.is_empty() {
+                return Err(format!("{line:?}: the class has no name"));
+            }
+            out.insert(code, name.to_string());
+        }
+        Ok(out)
+    }
+
+    /// What is wrong with it, in words (the model check's warnings).
+    pub fn problems(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.what.trim().is_empty() {
+            out.push("`data` says nothing of what it is (`what` is empty)".to_string());
+        }
+        if !self.classes.is_empty() && !matches!(self.kind, DataKind::Classes | DataKind::Mask) {
+            out.push(format!("`data` of kind {:?} has classes: only classes and mask have them", self.kind.name()));
+        }
+        if self.classes.values().any(|v| v.trim().is_empty()) {
+            out.push("a class of `data` has no name".to_string());
+        }
+        out
+    }
+}
+
+fn classes_out<S: serde::Serializer>(c: &BTreeMap<i64, String>, s: S) -> std::result::Result<S::Ok, S::Error> {
+    s.collect_map(c.iter().map(|(k, v)| (k.to_string(), v)))
+}
+
+fn classes_in<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<BTreeMap<i64, String>, D::Error> {
+    let text: BTreeMap<String, String> = BTreeMap::deserialize(d)?;
+    text.into_iter()
+        .map(|(k, v)| {
+            k.trim()
+                .parse::<i64>()
+                .map(|k| (k, v))
+                .map_err(|_| serde::de::Error::custom(format!("the class code {k:?} is not a whole number")))
+        })
+        .collect()
 }
 
 /// The nodes of a container and the values it carries along its loop.
@@ -1324,6 +1478,10 @@ params = { expression = "out x = a ** 2" }
         a.refs = vec!["Soares-Filho et al. (2002)".into()];
         a.assumptions = vec!["the drivers do not change".into()];
         a.alternatives = vec!["CLUE-S: no demand by class".into()];
+        a.data = Some(
+            Data::new("a land use map, the first date", DataKind::Classes)
+                .classes(&[(1, "forest"), (2, "agriculture")]),
+        );
         m.nodes.push(a);
         m.request = Some("a model of the deforestation".into());
         m.author = Some("an agent".into());
@@ -1404,6 +1562,52 @@ op = "stack.layer"
         assert_eq!(Model::from_toml(&t).unwrap(), m, "{t}");
         let j = m.to_json().unwrap();
         assert_eq!(Model::from_json(&j).unwrap(), m);
+    }
+
+    #[test]
+    fn data_is_written_and_read_by_hand_in_toml_and_json() {
+        // by hand: an inline table, the class codes as bare keys
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+[[nodes]]
+id = "lu"
+op = "x.op"
+data = { what = "a land use map", kind = "classes", classes = { 1 = "forest", 20 = "water" } }
+[[nodes]]
+id = "cost"
+op = "x.op"
+data = { what = "a resistance", kind = "values", expect = "1 or more" }
+[[nodes]]
+id = "plain"
+op = "x.op"
+"#,
+        )
+        .unwrap();
+        let d = m.nodes[0].data.as_ref().unwrap();
+        assert_eq!(d.kind, DataKind::Classes);
+        assert_eq!(d.classes, BTreeMap::from([(1, "forest".to_string()), (20, "water".to_string())]));
+        assert_eq!(d.classes_line(), "1 forest \u{b7} 20 water");
+        assert_eq!(m.nodes[1].data.as_ref().unwrap().expect.as_deref(), Some("1 or more"));
+        assert!(m.nodes[2].data.is_none());
+        let t = m.to_toml().unwrap();
+        assert_eq!(Model::from_toml(&t).unwrap(), m, "{t}");
+        assert_eq!(t.matches("[nodes.data]").count(), 2, "only the nodes that have it: {t}");
+        let j = m.to_json().unwrap();
+        assert!(j.contains("\"1\": \"forest\"") && j.contains("\"kind\": \"classes\""), "{j}");
+        assert_eq!(Model::from_json(&j).unwrap(), m);
+        // a code that is no whole number is refused
+        let bad = t.replace("1 = \"forest\"", "one = \"forest\"");
+        assert!(Model::from_toml(&bad).is_err());
+        // the lines the Node pane edits
+        let lines = d.classes_lines();
+        assert_eq!(lines, "1 = forest\n20 = water");
+        assert_eq!(Data::parse_classes(&lines).unwrap(), d.classes);
+        assert_eq!(Data::parse_classes("3 water\n4: urban area\n").unwrap().len(), 2);
+        assert!(Data::parse_classes("forest").is_err() && Data::parse_classes("x = forest").is_err());
+        assert!(Data::parse_classes("2 =").is_err());
+        // not part of what the node gives
+        assert!(m.nodes[0].unrecorded().data.is_none());
     }
 
     #[test]

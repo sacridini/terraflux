@@ -14,12 +14,14 @@ op = "raster.calc"
 inputs = { m = "mosaic.map" }
 params = { expression = "1 + floor(m * 100000)" }
 note = "Each Voronoi cell a parcel with an id (in its place, a raster.read of a cadastre's parcel ids)."
+data = { what = "a map of parcel ids (a cadastre's): an id per parcel", kind = "values", expect = "a whole id per parcel" }
 
 [[nodes]]
 id = "fertility"
 op = "nlm.gaussian_field"
 params = { rows = 120, columns = 120, range = 25, seed = 52 }
 note = "The soil's fertility, 0 to 1."
+data = { what = "the soil's fertility", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "farms"

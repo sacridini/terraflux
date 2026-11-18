@@ -7,6 +7,7 @@ id = "landscape"
 op = "nlm.random_cluster"
 params = { rows = 150, columns = 150, p = 0.4, weights = [0.8, 0.2], seed = 17 }
 note = "Two classes drawn by chance: 1 the background, 2 the habitat (GuidosToolbox's coding already)."
+data = { what = "a map of the habitat and the background", kind = "classes", classes = { 1 = "background", 2 = "habitat" } }
 
 [[nodes]]
 id = "near_a"
@@ -26,6 +27,7 @@ op = "raster.calc"
 inputs = { d = "near_a.map" }
 params = { expression = "d == 0" }
 note = "Area A (in its place, a raster of a reserve)."
+data = { what = "area A, a reserve: 1 inside it", kind = "mask" }
 
 [[nodes]]
 id = "b"
@@ -33,6 +35,7 @@ op = "raster.calc"
 inputs = { d = "near_b.map" }
 params = { expression = "d == 0" }
 note = "Area B."
+data = { what = "area B, a reserve: 1 inside it", kind = "mask" }
 
 [[nodes]]
 id = "habitat"

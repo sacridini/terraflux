@@ -13,6 +13,7 @@ op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "20 + 30 * f" }
 note = "The true surface, a soil's carbon in g/kg say (in its place, the area to interpolate: any map of it)."
+data = { what = "the surface to interpolate (a soil's carbon): the values the sample points read", kind = "values", expect = "g/kg here" }
 
 [[nodes]]
 id = "area"

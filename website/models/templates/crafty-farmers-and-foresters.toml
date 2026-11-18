@@ -7,12 +7,14 @@ id = "fertility"
 op = "nlm.gaussian_field"
 params = { rows = 100, columns = 100, range = 15, seed = 101 }
 note = "A capital, 0 to 1: the soil's fertility (in its place, raster.read of a capital's map)."
+data = { what = "a capital: the soil's fertility", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "wood"
 op = "nlm.gaussian_field"
 params = { rows = 100, columns = 100, range = 25, seed = 102 }
 note = "Another: the forest's growing stock."
+data = { what = "a capital: the forest's growing stock", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "capitals"
@@ -25,6 +27,7 @@ id = "start"
 op = "nlm.random_cluster"
 params = { rows = 100, columns = 100, p = 0.5, weights = [0.5, 0.5], seed = 103 }
 note = "Who manages each cell at the start: 1 farmers, 2 foresters, drawn by chance."
+data = { what = "who manages each cell at the start", kind = "classes", classes = { 1 = "farmers", 2 = "foresters" } }
 
 [[nodes]]
 id = "demand"

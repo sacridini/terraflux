@@ -7,6 +7,7 @@ id = "quality"
 op = "nlm.gaussian_field"
 params = { rows = 100, columns = 100, range = 20, seed = 31 }
 note = "A habitat's quality from 0 to 1 drawn by chance (in its place, a raster.read of a suitability map)."
+data = { what = "a habitat's quality, or a suitability map", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "resistance"
@@ -14,6 +15,7 @@ op = "raster.calc"
 inputs = { q = "quality.map" }
 params = { expression = "1 + 99 * (1 - q) ** 3" }
 note = "The resistance to movement: 1 in the best habitat, up to 100 where there is none."
+data = { what = "a resistance: the cost of crossing a cell", kind = "values", expect = "1 or more" }
 
 [[nodes]]
 id = "cores"

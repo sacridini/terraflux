@@ -77,6 +77,12 @@ business as usual, a protection policy...). run_model takes `scenario`.",
 (why this operator and these settings), and `refs` (the papers, methods, documentation the choice rests on), \
 `assumptions` (what it takes for granted: the classes' meaning, a stationary rate) and `alternatives` (what was \
 considered and set aside, and why) when there are.
+- A node that stands for a data of the user's (a map the template draws, to be replaced by the user's file) has \
+`data`: `what` (\"a land use map, the first date\"), `kind` (classes, values, mask, stack), `classes` (code -> name, \
+the classes the method expects) and `expect` (for values: \"1 or more\", a unit). Read it in show_model before \
+replacing the node: it says which of the user's files goes there and what its classes must be (reclassify the file \
+to them); set it with edit_node (`data`; null clears it) on the nodes that take the place of the user's data in a \
+model you build from a template.
 - Give the model the user's `request` in the user's words, a `summary` of the conversation and its `author` \
 (new_model, set_model_info); update the summary when the model changes.
 - check_model names the nodes without a note or a why. methods drafts a paper's methods section from this \

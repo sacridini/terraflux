@@ -10,7 +10,7 @@ use std::path::Path;
 
 use egui::{Color32, Margin, RichText, Ui};
 use serde_json::Value;
-use terraflux_graph::{Body, Model, Node, Source};
+use terraflux_graph::{Body, Data, Model, Node, Source};
 use terraflux_ops::Registry;
 
 use crate::app::Session;
@@ -137,6 +137,10 @@ fn node_details(b: &Node, a: &Node, at: &str, out: &mut Vec<String>) {
     list_change("refs", &b.refs, &a.refs, &mut own);
     list_change("assumptions", &b.assumptions, &a.assumptions, &mut own);
     list_change("alternatives", &b.alternatives, &a.alternatives, &mut own);
+    if a.data != b.data {
+        let (was, now) = (b.data.as_ref().map(Data::summary), a.data.as_ref().map(Data::summary));
+        text_change("data", was.as_deref(), now.as_deref(), &mut own);
+    }
     out.extend(own.into_iter().map(p));
     let empty = Body::default();
     let (bb, ab) = (b.body.as_ref().unwrap_or(&empty), a.body.as_ref().unwrap_or(&empty));
@@ -881,6 +885,7 @@ pub fn tables_side_by_side(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use terraflux_graph::DataKind;
 
     fn model() -> Model {
         let mut m = Model::new("m");
@@ -895,6 +900,7 @@ mod tests {
         let mut after = before.clone();
         after.nodes[1].params.insert("expression".into(), "x > 0.7".into());
         after.nodes[1].why = Some("a stricter threshold".into());
+        after.nodes[0].data = Some(Data::new("a map of forest", DataKind::Mask).classes(&[(1, "forest")]));
         after.nodes[0].pos = Some([10.0, 20.0]);
         after.nodes.push(Node::new("low", "raster.calc").input("x", "land.map").param("expression", "x < 0.2"));
         after.request = Some("the high and the low cells".into());
@@ -904,11 +910,14 @@ mod tests {
             kinds,
             [
                 (Kind::Changed, &Target::About),
+                (Kind::Changed, &Target::Node("land".into())),
                 (Kind::Changed, &Target::Node("high".into())),
                 (Kind::Added, &Target::Node("low".into())),
             ],
             "a node only moved is not a change"
         );
+        assert_eq!(all[1].details, ["data: a map of forest (mask, 1 forest)"]);
+        let all: Vec<Change> = all.into_iter().filter(|c| c.target != Target::Node("land".into())).collect();
         let high = &all[1].details;
         assert!(high.contains(&"setting expression: \"x > 0.5\" → \"x > 0.7\"".to_string()), "{high:?}");
         assert!(high.iter().any(|d| d.starts_with("why: a stricter")), "{high:?}");

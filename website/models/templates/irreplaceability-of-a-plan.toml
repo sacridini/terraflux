@@ -7,21 +7,25 @@ id = "bird"
 op = "nlm.gaussian_field"
 params = { rows = 30, columns = 40, range = 8, seed = 1 }
 note = "Species' amounts drawn by chance (in their place, raster.read of distribution maps)."
+data = { what = "a species' distribution map (the bird's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "frog"
 op = "nlm.gaussian_field"
 params = { rows = 30, columns = 40, range = 4, seed = 2 }
+data = { what = "a species' distribution map (the frog's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "orchid"
 op = "nlm.gaussian_field"
 params = { rows = 30, columns = 40, range = 12, seed = 3 }
+data = { what = "a species' distribution map (the orchid's): its suitability or amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "wetland"
 op = "nlm.fbm"
 params = { rows = 30, columns = 40, dimension = 1.4, seed = 4 }
+data = { what = "a feature's map (the wetland's): its amount in each cell", kind = "values", expect = "0 or more" }
 
 [[nodes]]
 id = "features"
@@ -33,6 +37,7 @@ id = "cost"
 op = "nlm.gaussian_field"
 params = { rows = 30, columns = 40, range = 15, seed = 9 }
 note = "What each cell costs."
+data = { what = "what each cell costs (land prices, say)", kind = "values", expect = "above 0" }
 
 [[nodes]]
 id = "plan"

@@ -3935,6 +3935,10 @@ nó com nota.
   que estão no lugar de um mapa, o `raster.calc` da segunda data dos de mudança de uso, os `stack.of` de fatores), e
   um teste exige que todo template com `nlm.*` tenha ao menos um. Os `nlm.*` sem o campo também são oferecidos, com a
   nota do nó como descrição.
+  **Feito** (Unreleased). `Data`/`DataKind` em `crates/graph` (`classes` com o código como chave: chave nua no TOML, texto no JSON, de volta a inteiro),
+  o check avisa, Node pane (*Stands for your data*, *Your data*, *Mark as data of yours...*), painel Changes, script Python, `edit_node`/`add_node`/`write_calc`
+  e `show_model`/`adapt_template` do MCP, guia `record`; 116 nós de 49 templates TOML mais os três de mudança de uso em Rust (`LAND_CLASSES`), e o teste
+  exige `data` de todo template com `nlm.*` (exceto os dois de paisagens neutras). Os `nlm.*` internos (ruído, base de outro mapa) ficaram sem marca.
 - **B. O motor da troca** (`crates/app/src/my_data.rs`, puro): `sources(model)` (os nós com `data`, os `nlm.*`, os
   `raster.read` sem arquivo, as entradas `$x` do modelo sem valor); `plan(model, escolhas) -> Model` numa cópia: um
   `raster.read` (com a banda) no lugar de cada fonte; para classes, o `raster.reclassify` da tabela (classes não

@@ -13,6 +13,7 @@ op = "raster.calc"
 inputs = { f = "relief.map" }
 params = { expression = "200 + 800 * f" }
 note = "The elevation, 200 to 1,000 m (in its place, a DEM: raster.read, or data.download's Copernicus DEM)."
+data = { what = "an elevation model (DEM)", kind = "values", expect = "metres" }
 
 [[nodes]]
 id = "filled"

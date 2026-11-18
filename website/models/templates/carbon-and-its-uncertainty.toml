@@ -7,6 +7,7 @@ id = "canopy"
 op = "nlm.gaussian_field"
 params = { rows = 100, columns = 100, range = 15, seed = 61 }
 note = "The canopy's cover, 0 to 1 (in its place, a raster.read of a tree cover map)."
+data = { what = "the tree canopy cover", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "carbon"

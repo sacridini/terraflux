@@ -14,6 +14,7 @@ op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "f * f * 30" }
 note = "A human footprint of 0 to 30 (in its place, a raster.read of the Human Footprint Index)."
+data = { what = "a human footprint (the Human Footprint Index)", kind = "values", expect = "0 to 30" }
 
 [[nodes]]
 id = "intactness"

@@ -7,6 +7,7 @@ id = "before"
 op = "nlm.random_cluster"
 params = { rows = 250, columns = 250, p = 0.55, weights = [0.4, 0.6], seed = 27 }
 note = "The forest at the first date, drawn by chance: 1 the background, 2 the forest (in its place, a raster.read of a map of yours)."
+data = { what = "a map of the forest, the first date", kind = "classes", classes = { 1 = "background", 2 = "forest" } }
 
 [[nodes]]
 id = "pressure"
@@ -20,6 +21,7 @@ op = "raster.calc"
 inputs = { f = "before.map", p = "pressure.map" }
 params = { expression = "1 if f == 2 and p > 0.6 and nbsum(f == 1, 1) >= 1 else 2 if f == 1 and p < 0.2 and nbsum(f == 2, 1) >= 5 else f" }
 note = "The second date: the forest cleared from its edges where the pressure is high, regrown in the gaps where it is low."
+data = { what = "a map of the forest, the second date", kind = "classes", classes = { 1 = "background", 2 = "forest" } }
 
 [[nodes]]
 id = "simple"

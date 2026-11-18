@@ -13,6 +13,7 @@ op = "raster.calc"
 inputs = { s = "surface.map" }
 params = { expression = "200 + 800 * s" }
 note = "An elevation of 200 to 1000 m drawn by chance (in its place, a raster.read of a DEM)."
+data = { what = "an elevation model (DEM)", kind = "values", expect = "metres" }
 
 [[nodes]]
 id = "noise"
@@ -25,6 +26,7 @@ op = "raster.calc"
 inputs = { elevation = "elevation.map", noise = "noise.map" }
 params = { expression = "600 + 0.8 * elevation + 400 * noise" }
 note = "A year's rainfall (mm), wetter up the hills."
+data = { what = "a year's rainfall", kind = "values", expect = "mm" }
 
 [[nodes]]
 id = "summary"
@@ -71,6 +73,7 @@ id = "zones"
 op = "nlm.random_cluster"
 params = { rows = 120, columns = 120, p = 0.55, weights = [0.3, 0.3, 0.4], seed = 21 }
 note = "Three zones (in their place, municipalities or watersheds rasterized by vector.rasterize)."
+data = { what = "the zones to summarise by (municipalities, watersheds), a code each", kind = "classes", classes = { 1 = "zone 1", 2 = "zone 2", 3 = "zone 3" } }
 
 [[nodes]]
 id = "by_zone"
@@ -84,6 +87,7 @@ id = "cover"
 op = "nlm.random_cluster"
 params = { rows = 120, columns = 120, p = 0.5, weights = [0.5, 0.3, 0.2], seed = 12 }
 note = "A land cover: 1 forest, 2 farming, 3 water."
+data = { what = "a land cover map", kind = "classes", classes = { 1 = "forest", 2 = "farming", 3 = "water" } }
 
 [[nodes]]
 id = "hectares"

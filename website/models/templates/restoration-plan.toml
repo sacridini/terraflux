@@ -14,6 +14,7 @@ op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "f * 0.9" }
 note = "The share of forest in each cell (in its place, a raster.read of land cover shares)."
+data = { what = "the share of forest in each cell (land cover shares)", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "crops"
@@ -21,6 +22,7 @@ op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "1 - f * 0.9" }
 note = "The rest is cropland: the land restoration can return to forest."
+data = { what = "the share of cropland in each cell: the land restoration can return to forest", kind = "values", expect = "0 to 1" }
 
 [[nodes]]
 id = "land_cover"
@@ -55,18 +57,21 @@ op = "raster.calc"
 inputs = { t = "toucan.map" }
 params = { expression = "t > 0.4" }
 note = "A species' range: the cells above 0 (in its place, raster.read of range maps)."
+data = { what = "a species' range (the toucan's): 1 where it lives", kind = "mask" }
 
 [[nodes]]
 id = "ranges2"
 op = "raster.calc"
 inputs = { j = "jaguar.map" }
 params = { expression = "j > 0.5" }
+data = { what = "a species' range (the jaguar's): 1 where it lives", kind = "mask" }
 
 [[nodes]]
 id = "ranges3"
 op = "raster.calc"
 inputs = { f = "frog.map" }
 params = { expression = "f > 0.3" }
+data = { what = "a species' range (the frog's): 1 where it lives", kind = "mask" }
 
 [[nodes]]
 id = "species"

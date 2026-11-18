@@ -7,6 +7,7 @@ id = "cover"
 op = "nlm.random_cluster"
 params = { rows = 200, columns = 200, resolution = 30, p = 0.5, weights = [0.5, 0.3, 0.2], seed = 71 }
 note = "A land cover of three classes drawn by chance on cells of 30 m: 1 forest, 2 grassland, 3 farming (in its place, a raster.read of a map of yours)."
+data = { what = "a land cover map", kind = "classes", classes = { 1 = "forest", 2 = "grassland", 3 = "farming" } }
 
 [[nodes]]
 id = "patches"

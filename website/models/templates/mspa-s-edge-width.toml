@@ -7,6 +7,7 @@ id = "landscape"
 op = "nlm.random_cluster"
 params = { rows = 300, columns = 300, p = 0.6, weights = [0.4, 0.6], seed = 11 }
 note = "Two classes drawn by chance: 1 the background, 2 the forest (MSPA's coding already)."
+data = { what = "a map of the forest and the background", kind = "classes", classes = { 1 = "background", 2 = "forest" } }
 
 [[nodes]]
 id = "edge_1"
