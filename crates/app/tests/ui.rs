@@ -11279,6 +11279,189 @@ fn the_start_page_leads_into_a_first_model() {
     terraflux_app::start_page::set_closed(&h.ctx, false);
 }
 
+/// A template opened, run once.
+fn template_run(h: &mut Harness<TerrafluxApp>, name: &str, port: (&str, &str)) {
+    let ctx = h.ctx.clone();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == name).unwrap();
+    h.state_mut().start_template(&ctx, t);
+    until(h, "the template's run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && !s.loading() && s.value_of(port.0, port.1).is_some()
+    });
+    h.run_steps(3);
+}
+
+/// The banner over the canvas of a model that draws its data, its *Hide*, and *Use my data...* of it, of the File
+/// menu and of the palette; the window of a model with nothing drawn offers the templates.
+#[test]
+fn use_my_data_is_offered_by_a_banner_the_file_menu_the_palette_and_the_start_page() {
+    held(true);
+    terraflux_app::settings::update(|s| {
+        s.start_page = true;
+        s.recent_models.clear();
+    });
+    let mut h = harness(new_app(None));
+    h.run_steps(3);
+    // the start page's row opens the window, which offers the templates (the model is empty)
+    h.get_by_label("Use my data in a template").click();
+    h.run_steps(3);
+    assert!(h.state().my_data.is_some());
+    assert!(h.query_by_label("Open a template first").is_some());
+    terraflux_app::start_page::set_closed(&h.ctx, true);
+    h.run_steps(3);
+    // a template of the window: it opens, and the window goes on to the data of the template
+    h.get_by_label("MSPA of a forest").click();
+    until(&mut h, "the template", |a| a.session.as_ref().is_some_and(|s| !s.source.nodes.is_empty()));
+    h.run_steps(4);
+    assert!(h.state().my_data.is_some(), "the window stays");
+    assert!(h.query_by_label("Choose a file...").is_some(), "the row of the drawn data");
+    assert!(h.query_by_label("Open a template first").is_none());
+    shot(&mut h, "35-use-my-data");
+    terraflux_app::start_page::set_closed(&h.ctx, false);
+    h.state_mut().my_data = None;
+    h.run_steps(3);
+    // the banner of a model that draws data; Hide takes it away for this model
+    assert!(h.query_by_label("This model runs on drawn data.").is_some(), "the banner");
+    h.get_by_label("Hide").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("This model runs on drawn data.").is_none(), "hidden");
+    assert!(h.state().session.as_ref().unwrap().my_data.hidden);
+    h.state_mut().session.as_mut().unwrap().my_data.hidden = false;
+    h.run_steps(3);
+    h.get_by_label("Use my data...").click();
+    h.run_steps(3);
+    assert!(h.state().my_data.is_some(), "the banner's button opens the window");
+    h.state_mut().my_data = None;
+    // the File menu (the banner hidden: its button has the same words)
+    h.state_mut().session.as_mut().unwrap().my_data.hidden = true;
+    h.run_steps(2);
+    h.get_by_label("File").click();
+    h.run_steps(2);
+    h.get_by_label("Use my data...").click();
+    h.run_steps(3);
+    assert!(h.state().my_data.is_some(), "the File menu");
+    h.state_mut().my_data = None;
+    h.run_steps(2);
+    // the palette
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::K);
+    h.run_steps(2);
+    h.event(egui::Event::Text("use my data".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert!(h.state().my_data.is_some(), "the palette");
+    // a model that draws nothing: the window offers the templates
+    h.state_mut().my_data = None;
+    let s = h.state_mut().session.as_mut().unwrap();
+    s.source.nodes.retain(|n| n.op == "landscape.mspa");
+    s.source.inputs.clear();
+    s.edited();
+    h.state_mut().my_data = Some(terraflux_app::my_data_view::State::new());
+    h.run_steps(3);
+    assert!(h.query_by_label("Open a template first").is_some());
+    assert!(h.query_by_label("This model runs on drawn data.").is_none());
+}
+
+/// A template's data replaced by a file of the user's: the file chosen (checked in a thread), the classes of the
+/// file against the template's, the review, and *Apply* as one step of undo seen in the Changes pane, the model
+/// running on the user's grid.
+#[test]
+fn use_my_data_puts_a_file_in_place_of_the_drawn_data_in_one_step() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    template_run(&mut h, "MSPA of a forest", ("mspa", "map"));
+    let before = h.state().session.as_ref().unwrap().source.clone();
+    h.state_mut().my_data = Some(terraflux_app::my_data_view::State::new());
+    h.run_steps(3);
+    let reg = terraflux_ops::Registry::standard();
+    {
+        let app = h.state_mut();
+        let (w, s) = (app.my_data.as_mut().unwrap(), app.session.as_mut().unwrap());
+        w.choose(s, &reg, "landscape", &data("sibuyan_landuse.tif")).unwrap();
+        assert!(w.choose(s, &reg, "nothing", &data("sibuyan_landuse.tif")).is_err());
+        w.set_band("landscape", Some("1997".into()));
+    }
+    // its classes read in a thread, the first table suggested (no names in the file: the same codes)
+    until(&mut h, "the classes", |a| a.my_data.as_ref().unwrap().classes("landscape").is_some());
+    {
+        let w = h.state_mut().my_data.as_mut().unwrap();
+        assert_eq!(w.classes("landscape").unwrap().len(), 5);
+        let cross = w.crosswalk("landscape").unwrap();
+        assert_eq!((cross[&1], cross[&2], cross[&3], cross[&4]), (Some(1), Some(2), Some(3), None));
+        // the mapping of the forest: 1 2 -> farming and water to one class, 3 4 -> forest
+        for (user, to) in [(1, Some(1)), (2, Some(1)), (3, Some(3)), (4, Some(3)), (5, None)] {
+            w.set_class("landscape", user, to);
+        }
+    }
+    h.run_steps(2);
+    until(&mut h, "the check", |a| a.my_data.as_ref().unwrap().current());
+    let w = h.state().my_data.as_ref().unwrap();
+    assert!(w.can_apply(), "{:?}", w.findings().iter().map(|f| f.to_string()).collect::<Vec<_>>());
+    let rules = w.plan().unwrap().model.node("landscape_classes").unwrap().params["rules"].clone();
+    assert_eq!(rules, "1 2 -> 1\n3 4 -> 3\n5 -> nan\n* -> nan");
+    // the pages: Your data, Classes (the user's classes, the cells that go to no data), Review
+    assert!(h.query_by_label("kept drawn").is_none());
+    h.get_by_label("Next").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Your class").is_some(), "the table of classes");
+    assert!(h.query_by_label_contains("cells go to no data").is_some());
+    shot(&mut h, "36-use-my-data-classes");
+    h.get_by_label("Next").click();
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("data replaced").is_some(), "the summary");
+    assert!(h.query_by_label_contains("raster.reclassify").is_some(), "the notes");
+    shot(&mut h, "37-use-my-data-review");
+    // apply: one step, the drawn node gone, the table in
+    h.get_by_label("Apply").click();
+    h.run_steps(3);
+    assert!(h.state().my_data.is_none(), "the window closes");
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.source.inputs.contains_key("landscape"));
+    assert!(s.source.node("landscape").is_none());
+    assert_eq!(s.source.node("landscape_classes").unwrap().op, "raster.reclassify");
+    assert!(s.source.nodes.iter().all(|n| !n.op.starts_with("nlm.")));
+    let review = s.review.as_ref().expect("the Changes pane has a review");
+    assert!(review.by.contains("Use my data"));
+    assert_eq!(review.base, before);
+    let _ = s;
+    // (the Changes pane taken to the front by the app: the `show` of the review is used)
+    assert_eq!(h.state_mut().focused(), Some(Pane::Review), "the Changes pane shows it");
+    // it runs, on the user's grid
+    until(&mut h, "the run on the user's data", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.run_when_ready
+            && !s.running()
+            && !s.loading()
+            && matches!(s.value_of("mspa", "map"), Some(terraflux_ops::Value::Map(m)) if m.grid.width == 128)
+    });
+    // one undo: the template as it was
+    let s = h.state_mut().session.as_mut().unwrap();
+    assert!(s.history.undo(&mut s.source));
+    assert_eq!(s.source, before, "one step of undo restores the template");
+}
+
+/// A file that is not there is refused with the reason, and a data given back to the drawing has no file.
+#[test]
+fn use_my_data_refuses_a_file_that_is_not_one_and_keeps_the_drawn_data() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    template_run(&mut h, "MSPA of a forest", ("mspa", "map"));
+    h.state_mut().my_data = Some(terraflux_app::my_data_view::State::new());
+    h.run_steps(3);
+    let reg = terraflux_ops::Registry::standard();
+    let app = h.state_mut();
+    let (w, s) = (app.my_data.as_mut().unwrap(), app.session.as_mut().unwrap());
+    // a file that is not there: the reason, nothing chosen
+    assert!(w.choose(s, &reg, "landscape", &tmp("ui-use-my-data-none.tif")).is_err());
+    assert!(!w.picked("landscape"));
+    w.choose(s, &reg, "landscape", &data("sibuyan_landuse.tif")).unwrap();
+    assert!(w.picked("landscape"));
+    w.keep_drawn("landscape");
+    assert!(!w.picked("landscape"));
+    h.run_steps(3);
+    assert!(h.query_by_label("kept drawn").is_some());
+}
+
 /// The links of egui's widgets (`hyperlink_to`) are opened as the application's pages: eframe has no `links`
 /// feature, so the application takes them from the frame's output.
 #[test]

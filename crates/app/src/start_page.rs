@@ -154,6 +154,16 @@ pub fn show(ui: &mut Ui, canvas: Rect) -> Option<Act> {
                         {
                             act = Some(Act::Do(Do::Wizard));
                         }
+                        if ui
+                            .button("Use my data in a template")
+                            .on_hover_text(
+                                "choose a template, then your files in place of the data it draws: the grids put \
+                                 right, your classes into the model's",
+                            )
+                            .clicked()
+                        {
+                            act = Some(Act::Do(Do::MyData));
+                        }
                         if ui.button("Open a model...").on_hover_text("a model file (.toml or .json)").clicked() {
                             act = Some(Act::Do(Do::Open));
                         }

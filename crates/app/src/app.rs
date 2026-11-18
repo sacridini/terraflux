@@ -837,6 +837,8 @@ pub struct Session {
     pub relink: crate::relink::Relink,
     /// The window of find and replace in the whole model.
     pub replace: crate::replace::Dialog,
+    /// What the model draws that the user's files can replace, kept for a revision ([`crate::my_data_view`]).
+    pub my_data: crate::my_data_view::Cache,
     /// How long each node took in the runs of the sessions before (kept per model, [`crate::eta`]), and when the
     /// top-level node running began.
     pub times_before: BTreeMap<String, f64>,
@@ -1076,6 +1078,7 @@ impl Session {
             history_open: false,
             relink: Default::default(),
             replace: Default::default(),
+            my_data: Default::default(),
             times_before: BTreeMap::new(),
             node_began: None,
         })
@@ -2347,6 +2350,8 @@ pub struct TerrafluxApp {
     pub about_open: bool,
     /// The window of *Help > Tutorials with a model...*.
     pub tutorial_models: Option<crate::tutorial_models::State>,
+    /// The window of *File > Use my data...*.
+    pub my_data: Option<crate::my_data_view::State>,
     /// The settings' section shown.
     pub settings_section: SettingsSection,
     /// The Keyboard section's state ([`crate::keymap::Panel`]).
@@ -2559,6 +2564,7 @@ impl TerrafluxApp {
             settings_open: false,
             about_open: false,
             tutorial_models: None,
+            my_data: None,
             settings_section: SettingsSection::default(),
             keyboard: Default::default(),
             updater: crate::update::Updater::default(),
@@ -3172,6 +3178,17 @@ impl TerrafluxApp {
         {
             ui.close();
             self.ask_pack();
+        }
+        if ui
+            .add_enabled(self.wizard.is_none(), egui::Button::new("Use my data..."))
+            .on_hover_text(
+                "your files in place of the data a template draws: the grids put right, your classes into the \
+                 model's",
+            )
+            .clicked()
+        {
+            ui.close();
+            self.my_data.get_or_insert_with(crate::my_data_view::State::new);
         }
         if let Some(s) = &mut self.session
             && ui
@@ -3798,6 +3815,7 @@ impl TerrafluxApp {
             action("Redo", format!("{c}shift+Z"), Do::Redo),
             action("The model as text, or as a diagram", String::new(), Do::Text),
             action("Wizard: a land change model from your maps", String::new(), Do::Wizard),
+            action("Use my data: your files in place of a model's drawn data", String::new(), Do::MyData),
             action("Settings", String::new(), Do::Settings),
             action("Keyboard shortcuts", crate::keymap::text("shortcuts"), Do::Shortcuts),
             action("Help: Quickstart", String::new(), Do::Docs(crate::docs::PAGES[0].1)),
@@ -3927,6 +3945,9 @@ impl TerrafluxApp {
                 }
             }
             Do::Wizard => self.wizard = Some(Wizard::default()),
+            Do::MyData => {
+                self.my_data.get_or_insert_with(crate::my_data_view::State::new);
+            }
             Do::Pane(p) => self.focus(p),
             Do::ResetLayout => {
                 self.windows.clear();
@@ -5678,6 +5699,15 @@ impl TerrafluxApp {
             }
             None => {}
         }
+        if let Some(crate::my_data_view::Act::Template(k)) = crate::my_data_view::window(
+            ui.ctx(),
+            &mut self.my_data,
+            self.front,
+            self.session.as_mut(),
+            &self.registry,
+        ) {
+            self.command(ui.ctx(), crate::commands::Do::Template(k));
+        }
         if let Some(s) = &mut self.session {
             crate::methods::window(ui.ctx(), s, &self.registry);
             crate::versions_view::window(ui.ctx(), s);
@@ -5756,6 +5786,10 @@ impl TerrafluxApp {
                     && let Some(canvas) = s.editor.canvas()
                 {
                     start = crate::start_page::show(ui, canvas);
+                } else if let Some(canvas) = s.editor.canvas()
+                    && crate::my_data_view::banner(ui, s, r, canvas)
+                {
+                    start = Some(crate::start_page::Act::Do(crate::commands::Do::MyData));
                 }
             }
             Pane::Document => {

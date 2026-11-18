@@ -3957,6 +3957,9 @@ nó com nota.
   do template, com nome, contra as classes do arquivo, com nome da legenda e contagem); a grade de referência;
   revisão e *Apply*: um passo de desfazer, visto no painel Changes (`review::begin` antes de trocar o modelo), e uma
   execução.
+  **Feito** (Unreleased). `my_data_view.rs`: a janela de três páginas (*Your data*, *Classes*, *Review*), a conferência de cada escolha numa
+  thread (resultado de uma escolha antiga descartado pela chave), *Apply* = `review::begin` + um passo de desfazer + `read_data` + `run_when_ready`;
+  aberta pelo File, a paleta, a tela inicial e a faixa do canvas (as fontes guardadas por revisão em `Session::my_data`, a faixa escondida por modelo).
 - **D. Os modelos de mudança de uso.** Os templates Dinamica EGO, CLUE-S e PLUS com `data` nas suas fontes (duas
   datas de um arquivo de bandas ou de dois, a pilha de fatores, as datas), as mesmas conferências do Wizard (as
   classes de t0 e t1, a grade dos fatores) e, por último, os parâmetros do modelo (passos, incremento, elasticidade,

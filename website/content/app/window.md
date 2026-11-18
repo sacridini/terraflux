@@ -187,11 +187,33 @@ If another program changes the model's file while you have edits not saved, a li
 ### The start page
 
 A model with no node shows, over the empty canvas, a **start page**: **Start from your data** (open a raster or vectors,
-the Wizard, open a model, or drop files on the window), **Recent models**, **Learn** (the Quickstart, the tutorials and
+the Wizard, use your data in a template, open a model, or drop files on the window), **Recent models**, **Learn** (the Quickstart, the tutorials and
 this guide on the website) and **Start from a task**, the templates by group, each with its tutorial. Click a template
 and the model opens and runs, its data drawn by neutral landscape models. The page goes with the first node and comes
 back when the model is empty again; the canvas under it works as always (drop files, ++slash++, the operators'
 library). Turn it off with **Show this page when the model is empty** at its foot, or in **Settings > Model**.
+
+### Use my data
+
+Every template draws its data by neutral landscape models. **File > Use my data...** (also in the command palette, as
+**Use my data in a template** on the start page, and as the strip *This model runs on drawn data* over the canvas of a
+model that draws some, with **Hide** for that model) puts your files in their place. With a model that draws nothing,
+the window first offers the templates: start one, then choose your files. It has three pages.
+
+- **Your data**: a row for each thing the model draws (what it is, its node and kind). **Choose a file...**, the band of
+  a file with several, and **Keep drawn** for what you leave as it is. With more than one file, the **grid of reference**
+  is the one the others are put on (a `raster.match` is added only where a file's grid or CRS differs). Each choice is
+  checked as soon as it is made, and what is wrong with the data is told under its row.
+- **Classes**: for each map of classes or mask, a table of your classes (the code, the name from the file's legend and
+  the number of cells) against the classes the model reads, prefilled by name and else by code. A class sent to *no
+  data* has none, and a line says how many cells that is. Data of any classes (Landscape metrics) keeps yours as they
+  are.
+- **Review**: what will be done, what was refused and the findings of the check; an error stops **Apply**.
+
+**Apply** changes the model in one step named *Use my data*: your file as an input of the model, a reclassification of
+your classes into the model's, the drawn node gone, what read it reading the end of the new nodes, each with a note. It
+shows in the **Changes** pane, ++ctrl+z++ puts the template back, and the model runs once its data is read (untick
+**Run it now** to skip that).
 
 ## Several models at once
 

@@ -122,7 +122,8 @@ and Files drawers; here the Viewer's tab was dragged below the Model, to see bot
 A **template** is a small, complete model, made to show how a kind of analysis is built. It opens in the Model
 pane, arranges itself, and **runs at once**, so you see its result before you have touched anything. Every node of
 a template has a note that says what it does and what to put in its place for your own study (*in its place, a
-raster.read of a map of yours*).
+raster.read of a map of yours*). **File > Use my data...** does that for you: it puts your files in place of the
+data a template draws ([The application](/app/window/#use-my-data)).
 
 Open the **Templates** menu. Its templates are in seven groups:
 
@@ -626,8 +627,8 @@ On macOS, ++cmd++ takes the place of ++ctrl++.
   drawn in orange on the canvas until they are; **Run** stays greyed out while a model has errors, which the Model
   pane's **Text** view lists.
 - **A template's result looks random.** It is: the templates draw their maps by chance (with a fixed *seed*, so
-  the same map each time). Replace the first node by a [[raster.read]] of your own map to use real data; the
-  [Quickstart](/quickstart/) does it.
+  the same map each time). Replace the first node by a [[raster.read]] of your own map to use real data (the
+  [Quickstart](/quickstart/) does it), or let **File > Use my data...** do it for every map of the template.
 - **A pane disappeared.** Turn it back on in **View**, or **View > Reset the layout**.
 
 ## Going further

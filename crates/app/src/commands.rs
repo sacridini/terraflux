@@ -76,6 +76,8 @@ pub enum Do {
     /// The model as a Python script.
     Python,
     Wizard,
+    /// The window of *Use my data*: the user's files in place of a model's drawn data.
+    MyData,
     Pane(Pane),
     ResetLayout,
     /// A template, by its index in [`crate::templates::TEMPLATES`].

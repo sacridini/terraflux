@@ -1090,6 +1090,8 @@ fn data_block(ui: &mut Ui, s: &mut Session, n: &Node, path: &[String]) -> Option
     let mut line = d.kind.name().to_string();
     if !d.classes.is_empty() {
         line = format!("{line} \u{b7} {}", d.classes_line());
+    } else if d.kind == DataKind::Classes {
+        line = format!("{line} \u{b7} any classes");
     }
     if let Some(e) = &d.expect {
         line = format!("{line} \u{b7} {e}");
