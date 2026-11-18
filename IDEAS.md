@@ -3839,6 +3839,10 @@ página. Com 19 painéis e mais de 340 operadores, quem chega cai num canvas vaz
   `/data/tutorials/`, baixado) e *Read* (a página). No site, os tutoriais com modelo ganham a linha "In Terraflux:
   Templates > ‹nome›" junto ao bloco do modelo. Sem protocolo `terraflux://` (registro no sistema em três plataformas:
   fica de fora).
+  **Feito** (Unreleased). `crates/app/src/tutorial_models.rs` (a janela, o `plan` dos arquivos a baixar e o `download` com a
+  busca injetável, sem rede nos testes), a pasta `tutorial models` dos dados do app; `tutorials.json` com `files` (todos os
+  arquivos da pasta publicada); o site diz *In Terraflux: Templates > grupo > nome* (o grupo lido de `templates.rs` por
+  `build.py`) ou *Help > Tutorials with a model > título*. Teste `ui the_tutorial_models_*`.
 
 ### 2. O Linkage Mapper aberto: corredores, pinch points e barreiras
 

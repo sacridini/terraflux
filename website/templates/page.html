@@ -21,11 +21,12 @@
       {% if series %}<p class="series-tag">{{ series.title }}, part {{ series.index + 1 }} of {{ series.pages|length }}</p>{% endif %}
       <h1>{{ page.title }}</h1>
       {% if page.meta.description %}<p class="lede">{{ page.meta.description|md }}</p>{% endif %}
-      {% if page.meta.level or page.meta.time or page.meta.ops %}
+      {% if page.meta.level or page.meta.time or page.meta.ops or in_app %}
       <dl class="doc-facts">
         {% if page.meta.level %}<div><dt>Level</dt><dd>{{ level_badge(page.meta.level) }}</dd></div>{% endif %}
         {% if page.meta.time %}<div><dt>Time</dt><dd>{{ page.meta.time }}</dd></div>{% endif %}
         {% if page.meta.template %}<div><dt>Template</dt><dd>{{ page.meta.template }}</dd></div>{% endif %}
+        {% if in_app %}<div class="wide"><dt>In Terraflux</dt><dd>{{ in_app|safe }}</dd></div>{% endif %}
         {% if page.meta.ops %}<div class="wide"><dt>Operators</dt><dd>{% for o in page.meta.ops %}<a class="op-chip" href="{{ op_url(o) }}">{{ o }}</a>{% endfor %}</dd></div>{% endif %}
       </dl>
       {% endif %}

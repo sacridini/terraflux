@@ -11230,6 +11230,66 @@ fn the_start_page_leads_into_a_first_model() {
     terraflux_app::settings::update(|s| s.start_page = true);
 }
 
+/// Help > Tutorials with a model...: the window lists the tutorials with a model by category, the filter narrows
+/// them, *Read* leads to the tutorial's page and *Open the model* opens the template; the start page and the palette
+/// lead to it too.
+#[test]
+fn the_tutorial_models_window_lists_filters_reads_and_opens() {
+    use terraflux_app::{docs, tutorials};
+    held(true);
+    terraflux_app::settings::update(|s| {
+        s.start_page = true;
+        s.recent_models.clear();
+    });
+    docs::record();
+    let mut h = harness(new_app(None));
+    h.run_steps(3);
+    // the start page's Learn row
+    h.get_by_label("Tutorials with a model").click();
+    h.run_steps(3);
+    assert!(h.state().tutorial_models.is_some(), "the link opens the window");
+    assert!(h.query_by_label("all tutorials").is_some(), "the window is drawn");
+    h.state_mut().tutorial_models = None;
+    h.run_steps(2);
+    // the Help menu
+    h.get_by_label("Help").click();
+    h.run_steps(2);
+    h.get_by_label("Tutorials with a model...").click();
+    h.run_steps(3);
+    assert!(h.state().tutorial_models.is_some());
+    // the first category is open, with the tutorials that have a model only
+    let first = &tutorials::index()[0];
+    assert!(h.query_by_label(&first.title).is_some(), "the first category's header");
+    assert!(h.query_by_label("all tutorials").is_some());
+    shot(&mut h, "34-tutorial-models");
+    // the filter (it has the focus): one tutorial of one category
+    h.event(egui::Event::Text("tour".into()));
+    h.run_steps(3);
+    assert!(h.query_by_label("A tour of Terraflux").is_some(), "the tutorial that matches");
+    assert_eq!(h.query_all_by_label("Read").count(), 1, "only that one is listed");
+    h.get_by_label("Read").click();
+    h.run_steps(2);
+    let tour = tutorials::index().iter().flat_map(|c| &c.tutorials).find(|t| t.title == "A tour of Terraflux").unwrap();
+    assert_eq!(docs::opened(), vec![tutorials::url(tour)]);
+    // its model is the template's: opened as a new model, and the window closes
+    h.get_by_label("Open the model").click();
+    h.run_steps(4);
+    assert!(!h.state().session.as_ref().unwrap().source.nodes.is_empty(), "the template's nodes");
+    assert!(h.state().tutorial_models.is_none(), "the window closes with the model opened");
+    // the palette opens it again; a filter with no match says so
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::K);
+    h.run_steps(2);
+    h.event(egui::Event::Text("help: tutorials with".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert!(h.state().tutorial_models.is_some(), "the palette's entry");
+    h.event(egui::Event::Text("zzzz".into()));
+    h.run_steps(3);
+    assert!(h.query_by_label("No tutorial matches.").is_some());
+    assert_eq!(h.query_all_by_label("Read").count(), 0);
+}
+
 /// The start page's recent models, and the page gone when the first node is added.
 #[test]
 fn the_start_page_lists_recent_models_and_goes_with_a_node() {

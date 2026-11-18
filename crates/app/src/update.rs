@@ -370,7 +370,7 @@ impl Updater {
     }
 }
 
-fn agent() -> ureq::Agent {
+pub(crate) fn agent() -> ureq::Agent {
     use ureq::tls::{RootCerts, TlsConfig};
     ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(15)))

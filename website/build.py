@@ -69,6 +69,34 @@ OPS = {o["name"]: o for o in json.loads((DATA / "ops.json").read_text(encoding="
 CLI = json.loads((DATA / "cli.json").read_text(encoding="utf-8"))
 SUBJECTS = json.loads((DATA / "subjects.json").read_text(encoding="utf-8"))
 SITE["version"] = CLI.get("version", "0.0.0")
+
+
+def template_groups() -> dict[str, str]:
+    """The group in the application's Templates menu of each template, by name (read from crates/app/src/templates.rs,
+    where the menu is made)."""
+    src = (ROOT / "crates/app/src/templates.rs").read_text(encoding="utf-8")
+    consts = dict(re.findall(r'^const (\w+): &str = "([^"]+)";', src, re.M))
+    return {n: consts[g] for n, g in re.findall(r'name: "([^"]+)",\s*group: (\w+),', src) if g in consts}
+
+
+TEMPLATE_GROUPS = template_groups()
+
+
+def in_application(p) -> str | None:
+    """How a tutorial's model opens in the application (the Templates menu, the Help > Tutorials with a model window),
+    or None when it has no model: the page's template, and the model files published under static/data/tutorials."""
+    parts = p.src[:-3].split("/")
+    published = []
+    if len(parts) == 3 and parts[0] == "tutorials":
+        published = sorted((STATIC / "data/tutorials" / parts[1] / parts[2]).glob("*.toml"))
+    template = p.meta.get("template")
+    if template:
+        group = TEMPLATE_GROUPS.get(template)
+        menu = f"Templates &gt; {html.escape(group)} &gt; {html.escape(template)}" if group else "the Templates menu"
+        return f"{menu}, or Help &gt; Tutorials with a model"
+    if published:
+        return f"Help &gt; Tutorials with a model &gt; {html.escape(p.title)}"
+    return None
 # the Python library's API reference (tools/refresh_python_api.py), used by the `::: terraflux.x` directive of a page
 API = Api(DATA / "python_api.json")
 # The downloads are those of the latest release published on GitHub (TERRAFLUX_RELEASE, given by the website's
@@ -1374,7 +1402,8 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
         prev, nxt = prev_next(p, all_pages, cats)
         tpl = p.meta.get("layout", "page.html")  # `template` names the application's template a page starts from
         ctx = dict(page=p, sidebar=sidebar(p, all_pages, cats), prev=prev, next=nxt, cats=cats,
-                   series=series_info(p, cats), downloads=dl, root=rel_prefix(p.url), page_url=p.url)
+                   series=series_info(p, cats), downloads=dl, root=rel_prefix(p.url), page_url=p.url,
+                   in_app=in_application(p))
         if p.category:
             ctx["category"] = next((c for c in cats if c["slug"] == p.category), None)
         write(p.url, env.get_template(tpl).render(**ctx))

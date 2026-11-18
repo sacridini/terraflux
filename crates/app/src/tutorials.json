@@ -8,43 +8,58 @@
      "slug": "tour",
      "title": "A tour of Terraflux",
      "template": "MSPA of a forest",
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "first-raster",
      "title": "Your first raster",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "vector-data",
      "title": "Vector data",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "coordinate-systems",
      "title": "Coordinate systems and reprojection",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/getting-started/coordinate-systems/cell_area.csv"
+     ]
     },
     {
      "slug": "one-grid",
      "title": "One grid for all your maps",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/getting-started/one-grid/rare_classes.csv",
+      "/data/tutorials/getting-started/one-grid/shares_mode.csv",
+      "/data/tutorials/getting-started/one-grid/shares_relative.csv"
+     ]
     },
     {
      "slug": "reclassify-calculate-save",
      "title": "Reclassify, calculate and save",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "first-model",
      "title": "Your first model",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/getting-started/first-model/edge.csv"
+     ]
     }
    ]
   },
@@ -56,61 +71,87 @@
      "slug": "map-algebra",
      "title": "Map algebra from scratch",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/building-models/map-algebra/suitable_area.csv"
+     ]
     },
     {
      "slug": "calculator",
      "title": "The raster calculator: scripts, a console and nodes of your own",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "stacks-and-layers",
      "title": "Stacks and layers",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/building-models/stacks-and-layers/shares.csv"
+     ]
     },
     {
      "slug": "loops",
      "title": "Loops: write your own cellular automaton",
      "template": "A city that grows (a loop)",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/building-models/loops/city.csv",
+      "/data/tutorials/building-models/loops/rates.csv"
+     ]
     },
     {
      "slug": "groups-and-submodels",
      "title": "Groups and submodels",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "randomness",
      "title": "Randomness and reproducibility",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/building-models/randomness/histogram.csv",
+      "/data/tutorials/building-models/randomness/replicates.csv",
+      "/data/tutorials/building-models/randomness/running.csv"
+     ]
     },
     {
      "slug": "checks-and-tests",
      "title": "Checks, tests and reproducible runs",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "plugins",
      "title": "Plugins in WebAssembly",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/building-models/plugins/biomass.csv"
+     ]
     },
     {
      "slug": "plots-and-tables",
      "title": "Plots and figures",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/building-models/plots-and-tables/classes.csv",
+      "/data/tutorials/building-models/plots-and-tables/importance.csv"
+     ]
     },
     {
      "slug": "the-model-document",
      "title": "The model's document: a model read as its methods",
      "template": "MSPA of a forest",
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -122,31 +163,51 @@
      "slug": "morphology",
      "title": "The idea of morphological pattern analysis",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/habitat-patterns/morphology/toy-edge-width.csv"
+     ]
     },
     {
      "slug": "mspa",
      "title": "MSPA step by step on a real forest map",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/habitat-patterns/mspa/classes.csv",
+      "/data/tutorials/habitat-patterns/mspa/clc.tif",
+      "/data/tutorials/habitat-patterns/mspa/edge-width.csv",
+      "/data/tutorials/habitat-patterns/mspa/input.tif"
+     ]
     },
     {
      "slug": "spa-and-objects",
      "title": "Simplified patterns, objects and distances",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/habitat-patterns/spa-and-objects/accounting.csv",
+      "/data/tutorials/habitat-patterns/spa-and-objects/distance-deeper.csv"
+     ]
     },
     {
      "slug": "networks-and-change",
      "title": "From patterns to networks and change",
      "template": "Forest gain and loss",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/habitat-patterns/networks-and-change/mspa-ab.csv",
+      "/data/tutorials/habitat-patterns/networks-and-change/mspa-transitions.csv",
+      "/data/tutorials/habitat-patterns/networks-and-change/top-links.csv",
+      "/data/tutorials/habitat-patterns/networks-and-change/top-nodes.csv"
+     ]
     },
     {
      "slug": "patterns-in-python",
      "title": "Habitat patterns in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -158,25 +219,38 @@
      "slug": "fragmentation-and-habitat-loss",
      "title": "Fragmentation and habitat loss",
      "template": "Fragmentation of a forest",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/fragmentation/fragmentation-and-habitat-loss/ms-shares.csv"
+     ]
     },
     {
      "slug": "fixed-observation-scale",
      "title": "Connectivity, contagion and mosaics at a fixed scale",
      "template": "Fragmentation of a forest",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/fragmentation/fixed-observation-scale/fac-windows.csv",
+      "/data/tutorials/fragmentation/fixed-observation-scale/fos-report.txt",
+      "/data/tutorials/fragmentation/fixed-observation-scale/mosaic-shares.csv"
+     ]
     },
     {
      "slug": "change-and-reports",
      "title": "Change of fragmentation and GuidosToolbox's reports",
      "template": "Forest gain and loss",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/fragmentation/change-and-reports/fad-change-report.txt",
+      "/data/tutorials/fragmentation/change-and-reports/fad-change.csv"
+     ]
     },
     {
      "slug": "fragmentation-in-python",
      "title": "Fragmentation in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -188,49 +262,85 @@
      "slug": "what-are-landscape-metrics",
      "title": "What landscape metrics are",
      "template": "Landscape metrics",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/landscape-metrics/what-are-landscape-metrics/augusta.tif",
+      "/data/tutorials/landscape-metrics/what-are-landscape-metrics/grain.csv"
+     ]
     },
     {
      "slug": "patch-and-class-metrics",
      "title": "Patch and class metrics",
      "template": "Patches and their shapes",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/landscape-metrics/patch-and-class-metrics/aggregation.csv",
+      "/data/tutorials/landscape-metrics/patch-and-class-metrics/ai_pland.csv",
+      "/data/tutorials/landscape-metrics/patch-and-class-metrics/area_shape.csv",
+      "/data/tutorials/landscape-metrics/patch-and-class-metrics/augusta_classes.csv",
+      "/data/tutorials/landscape-metrics/patch-and-class-metrics/core_depth.csv",
+      "/data/tutorials/landscape-metrics/patch-and-class-metrics/evergreen_patches.csv"
+     ]
     },
     {
      "slug": "landscape-level-and-diversity",
      "title": "The landscape level, diversity and contagion",
      "template": "Landscape metrics",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/landscape-metrics/landscape-level-and-diversity/augusta_landscape.csv",
+      "/data/tutorials/landscape-metrics/landscape-level-and-diversity/dominance.csv",
+      "/data/tutorials/landscape-metrics/landscape-level-and-diversity/four_landscapes.csv"
+     ]
     },
     {
      "slug": "moving-windows",
      "title": "Metrics in a moving window",
      "template": "Landscape metrics",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/landscape-metrics/moving-windows/window_size.csv"
+     ]
     },
     {
      "slug": "sampling-and-change",
      "title": "Sampling, time series and redundancy",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/landscape-metrics/sampling-and-change/forest_by_radius.csv",
+      "/data/tutorials/landscape-metrics/sampling-and-change/forest_dates.tif",
+      "/data/tutorials/landscape-metrics/sampling-and-change/forest_series.csv",
+      "/data/tutorials/landscape-metrics/sampling-and-change/shdi_by_radius.csv",
+      "/data/tutorials/landscape-metrics/sampling-and-change/sites.geojson"
+     ]
     },
     {
      "slug": "landscape-signatures",
      "title": "Signatures and kinds of landscapes",
      "template": "Kinds of landscapes",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/landscape-metrics/landscape-signatures/group_means_k4.csv",
+      "/data/tutorials/landscape-metrics/landscape-signatures/loadings.csv",
+      "/data/tutorials/landscape-metrics/landscape-signatures/nmf_components.csv"
+     ]
     },
     {
      "slug": "large-maps",
      "title": "Landscape metrics of large maps",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/landscape-metrics/large-maps/times.csv"
+     ]
     },
     {
      "slug": "landscape-metrics-in-python",
      "title": "Landscape metrics in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -242,43 +352,70 @@
      "slug": "connectivity-as-a-graph",
      "title": "Connectivity as a graph",
      "template": "Habitat network (Conefor)",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/habitat-networks/connectivity-as-a-graph/clc.tif",
+      "/data/tutorials/habitat-networks/connectivity-as-a-graph/clc_100m.tif",
+      "/data/tutorials/habitat-networks/connectivity-as-a-graph/graph-numbers.csv",
+      "/data/tutorials/habitat-networks/connectivity-as-a-graph/kernels.csv"
+     ]
     },
     {
      "slug": "connectivity-indices",
      "title": "IIC, PC and the equivalent connected area",
      "template": "Habitat network (Conefor)",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/habitat-networks/connectivity-indices/eca-frames.csv",
+      "/data/tutorials/habitat-networks/connectivity-indices/fractions.csv",
+      "/data/tutorials/habitat-networks/connectivity-indices/overall.csv",
+      "/data/tutorials/habitat-networks/connectivity-indices/toy-importance.csv"
+     ]
     },
     {
      "slug": "importance-of-each-patch",
      "title": "The importance of each patch",
      "template": "Habitat network (Conefor)",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/habitat-networks/importance-of-each-patch/top-patches.csv"
+     ]
     },
     {
      "slug": "least-cost-links",
      "title": "Least-cost links between patches",
      "template": "Habitat network (Conefor)",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/habitat-networks/least-cost-links/dpc-both.csv"
+     ]
     },
     {
      "slug": "mspa-network",
      "title": "The network of a forest's structure (MSPA)",
      "template": "Network of a forest (MSPA)",
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "protconn",
      "title": "Protected-area connectivity (ProtConn)",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/habitat-networks/protconn/fractions.csv",
+      "/data/tutorials/habitat-networks/protconn/protconn-added.csv",
+      "/data/tutorials/habitat-networks/protconn/protconn.csv",
+      "/data/tutorials/habitat-networks/protconn/region.geojson",
+      "/data/tutorials/habitat-networks/protconn/reserves.gpkg"
+     ]
     },
     {
      "slug": "habitat-networks-in-python",
      "title": "Habitat networks in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -290,31 +427,46 @@
      "slug": "circuit-theory",
      "title": "Movement as electric current",
      "template": "Circuit connectivity",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/circuit-connectivity/circuit-theory/focal.tif",
+      "/data/tutorials/circuit-connectivity/circuit-theory/wall.tif",
+      "/data/tutorials/circuit-connectivity/circuit-theory/wall_0.tif"
+     ]
     },
     {
      "slug": "resistance-surfaces",
      "title": "Resistance surfaces",
      "template": "Circuit connectivity",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/circuit-connectivity/resistance-surfaces/keeley.csv"
+     ]
     },
     {
      "slug": "circuitscape",
      "title": "Circuitscape: currents between forests",
      "template": "Circuit connectivity",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/circuit-connectivity/circuitscape/resistance-vs-distance.csv"
+     ]
     },
     {
      "slug": "omniscape",
      "title": "Omniscape: connectivity everywhere",
      "template": "Circuit connectivity",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/circuit-connectivity/omniscape/shares.csv"
+     ]
     },
     {
      "slug": "circuit-connectivity-in-python",
      "title": "Circuit connectivity in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -326,31 +478,56 @@
      "slug": "terrain",
      "title": "Terrain from an elevation model",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/surface-metrics/terrain/positions.csv",
+      "/data/tutorials/surface-metrics/terrain/tpi-scale.csv",
+      "/data/tutorials/surface-metrics/terrain/tri-vrm-slope.csv"
+     ]
     },
     {
      "slug": "surface-texture",
      "title": "Surface metrics: texture without patches",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/surface-metrics/surface-texture/bearing.csv",
+      "/data/tutorials/surface-metrics/surface-texture/grain.csv",
+      "/data/tutorials/surface-metrics/surface-texture/thresholds.csv",
+      "/data/tutorials/surface-metrics/surface-texture/window.csv"
+     ]
     },
     {
      "slug": "geomorphons",
      "title": "Landforms with geomorphons",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/surface-metrics/geomorphons/patterns.csv",
+      "/data/tutorials/surface-metrics/geomorphons/search.csv",
+      "/data/tutorials/surface-metrics/geomorphons/share.csv"
+     ]
     },
     {
      "slug": "hilltops",
      "title": "Hilltops protected by Brazil's Forest Code",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/surface-metrics/hilltops/hills.tif",
+      "/data/tutorials/surface-metrics/hilltops/min-slope.csv",
+      "/data/tutorials/surface-metrics/hilltops/oregon-hills.csv",
+      "/data/tutorials/surface-metrics/hilltops/plain.tif",
+      "/data/tutorials/surface-metrics/hilltops/resolution.csv",
+      "/data/tutorials/surface-metrics/hilltops/synthetic-hills.csv"
+     ]
     },
     {
      "slug": "surface-texture-in-python",
      "title": "Surface texture in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -362,43 +539,69 @@
      "slug": "depressions-and-flow",
      "title": "Depressions, flow directions and flow accumulation",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/terrain-hydrology/depressions-and-flow/exceedance.csv"
+     ]
     },
     {
      "slug": "streams-watersheds-and-hand",
      "title": "Streams, watersheds and HAND",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/terrain-hydrology/streams-watersheds-and-hand/density.csv",
+      "/data/tutorials/terrain-hydrology/streams-watersheds-and-hand/hand-elevation.csv",
+      "/data/tutorials/terrain-hydrology/streams-watersheds-and-hand/links-head.csv",
+      "/data/tutorials/terrain-hydrology/streams-watersheds-and-hand/orders.csv"
+     ]
     },
     {
      "slug": "wetness-and-connectivity",
      "title": "Wetness, stream power and sediment connectivity",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/terrain-hydrology/wetness-and-connectivity/twi-by-hand.csv",
+      "/data/tutorials/terrain-hydrology/wetness-and-connectivity/twi-hand.csv"
+     ]
     },
     {
      "slug": "swat-plus",
      "title": "Watershed simulation with SWAT+",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/terrain-hydrology/swat-plus/basin-month.csv",
+      "/data/tutorials/terrain-hydrology/swat-plus/basin-year.csv",
+      "/data/tutorials/terrain-hydrology/swat-plus/hru-aa.csv",
+      "/data/tutorials/terrain-hydrology/swat-plus/spin-up.csv"
+     ]
     },
     {
      "slug": "swat-plus-from-rasters",
      "title": "A SWAT+ project from rasters, and its results on the map",
      "template": "SWAT+ from rasters",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/terrain-hydrology/swat-plus-from-rasters/methods.csv",
+      "/data/tutorials/terrain-hydrology/swat-plus-from-rasters/parameters.csv",
+      "/data/tutorials/terrain-hydrology/swat-plus-from-rasters/threshold.csv"
+     ]
     },
     {
      "slug": "terrain-hydrology-in-python",
      "title": "Terrain hydrology in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "watershed-model-in-python",
      "title": "Watershed simulation in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -410,19 +613,28 @@
      "slug": "cost-distance",
      "title": "Cost distance, least-cost paths and corridors",
      "template": "Least costs and random walks",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/grid-distances/cost-distance/forests.geojson",
+      "/data/tutorials/grid-distances/cost-distance/least-costs.csv"
+     ]
     },
     {
      "slug": "random-walks",
      "title": "Random walks and randomised shortest paths",
      "template": "Least costs and random walks",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/grid-distances/random-walks/pairs.csv",
+      "/data/tutorials/grid-distances/random-walks/rsp-distance.csv"
+     ]
     },
     {
      "slug": "grid-routes-in-python",
      "title": "Routes on grids in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -434,49 +646,82 @@
      "slug": "distance-to-habitat",
      "title": "Distance to habitat",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/distance-restoration/distance-to-habitat/reach.csv",
+      "/data/tutorials/distance-restoration/distance-to-habitat/thresholds.csv"
+     ]
     },
     {
      "slug": "costs-and-corridors",
      "title": "Costs, paths and corridors",
      "template": "Restoring a corridor",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/distance-restoration/costs-and-corridors/corridors.csv",
+      "/data/tutorials/distance-restoration/costs-and-corridors/status.csv"
+     ]
     },
     {
      "slug": "ecological-intactness",
      "title": "Ecological intactness",
      "template": "Ecological intactness",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/distance-restoration/ecological-intactness/radius.csv"
+     ]
     },
     {
      "slug": "original-vegetation-and-habitat",
      "title": "Original vegetation and area of habitat",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/distance-restoration/original-vegetation-and-habitat/aoh.csv",
+      "/data/tutorials/distance-restoration/original-vegetation-and-habitat/ecoregions.csv",
+      "/data/tutorials/distance-restoration/original-vegetation-and-habitat/restore_to.csv"
+     ]
     },
     {
      "slug": "restoration-plan",
      "title": "A restoration plan",
      "template": "Restoration plan",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/distance-restoration/restoration-plan/frames.csv",
+      "/data/tutorials/distance-restoration/restoration-plan/species_100.csv",
+      "/data/tutorials/distance-restoration/restoration-plan/target.csv",
+      "/data/tutorials/distance-restoration/restoration-plan/tradeoff.csv",
+      "/data/tutorials/distance-restoration/restoration-plan/z.csv"
+     ]
     },
     {
      "slug": "several-benefits",
      "title": "Several benefits and trade-offs",
      "template": "Restoration plan",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/distance-restoration/several-benefits/budget.csv",
+      "/data/tutorials/distance-restoration/several-benefits/cross.csv",
+      "/data/tutorials/distance-restoration/several-benefits/ecosystems.csv",
+      "/data/tutorials/distance-restoration/several-benefits/regions.csv",
+      "/data/tutorials/distance-restoration/several-benefits/sets.csv",
+      "/data/tutorials/distance-restoration/several-benefits/weights.csv"
+     ]
     },
     {
      "slug": "distance-restoration-in-python",
      "title": "Distance & restoration in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "restoration-plans-in-python",
      "title": "Restoration priorities in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -488,31 +733,53 @@
      "slug": "transitions",
      "title": "What changed: transition matrices, gains and losses",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/change-detection/transitions/components.csv",
+      "/data/tutorials/change-detection/transitions/gains_losses.csv",
+      "/data/tutorials/change-detection/transitions/resolutions.csv"
+     ]
     },
     {
      "slug": "intensity-analysis",
      "title": "Intensity analysis: how fast, and which classes",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/change-detection/intensity-analysis/pie_category.csv",
+      "/data/tutorials/change-detection/intensity-analysis/pie_interval.csv",
+      "/data/tutorials/change-detection/intensity-analysis/pie_transition_gain.csv",
+      "/data/tutorials/change-detection/intensity-analysis/sib_category.csv"
+     ]
     },
     {
      "slug": "comparing-maps",
      "title": "Comparing maps: quantity, allocation and resolution",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/change-detection/comparing-maps/blocks.csv",
+      "/data/tutorials/change-detection/comparing-maps/disagreement.csv",
+      "/data/tutorials/change-detection/comparing-maps/disagreement_classes.csv",
+      "/data/tutorials/change-detection/comparing-maps/mad.csv",
+      "/data/tutorials/change-detection/comparing-maps/resolutions.csv"
+     ]
     },
     {
      "slug": "forest-gain-and-loss",
      "title": "Forest gain and loss: GuidosToolbox's change of a forest",
      "template": "Forest gain and loss",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/change-detection/forest-gain-and-loss/fad_change.csv"
+     ]
     },
     {
      "slug": "change-detection-in-python",
      "title": "Change detection in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -524,19 +791,48 @@
      "slug": "neutral-landscape-models",
      "title": "Neutral landscape models",
      "template": "Neutral landscapes",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/neutral-landscapes/neutral-landscape-models/fbm_0_2.txt",
+      "/data/tutorials/neutral-landscapes/neutral-landscape-models/fbm_0_6.txt",
+      "/data/tutorials/neutral-landscapes/neutral-landscape-models/fbm_1_0.txt",
+      "/data/tutorials/neutral-landscapes/neutral-landscape-models/fbm_1_4.txt",
+      "/data/tutorials/neutral-landscapes/neutral-landscape-models/fbm_1_8.txt",
+      "/data/tutorials/neutral-landscapes/neutral-landscape-models/percolation.csv",
+      "/data/tutorials/neutral-landscapes/neutral-landscape-models/percolation_frames.csv",
+      "/data/tutorials/neutral-landscapes/neutral-landscape-models/rc_0_05.txt",
+      "/data/tutorials/neutral-landscapes/neutral-landscape-models/rc_0_15.txt",
+      "/data/tutorials/neutral-landscapes/neutral-landscape-models/rc_0_25.txt",
+      "/data/tutorials/neutral-landscapes/neutral-landscape-models/rc_0_35.txt",
+      "/data/tutorials/neutral-landscapes/neutral-landscape-models/rc_0_45.txt",
+      "/data/tutorials/neutral-landscapes/neutral-landscape-models/rc_0_55.txt",
+      "/data/tutorials/neutral-landscapes/neutral-landscape-models/rc_0_65.txt"
+     ]
     },
     {
      "slug": "neutral-landscapes-in-a-study",
      "title": "Neutral landscapes in a study",
      "template": "More neutral landscapes",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/factorial_ai.csv",
+      "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/factorial_area_mn.csv",
+      "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/factorial_cohesion.csv",
+      "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/factorial_ed.csv",
+      "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/factorial_enn_mn.csv",
+      "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/factorial_lpi.csv",
+      "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/factorial_np.csv",
+      "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/factorial_pland.csv",
+      "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/null_test.csv",
+      "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/replicates_np.csv"
+     ]
     },
     {
      "slug": "neutral-landscapes-in-python",
      "title": "Neutral landscapes in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -548,25 +844,37 @@
      "slug": "richness-and-endemism",
      "title": "Richness and endemism with Biodiverse",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/biodiversity/richness-and-endemism/range-sizes.csv",
+      "/data/tutorials/biodiversity/richness-and-endemism/scatter-200.csv",
+      "/data/tutorials/biodiversity/richness-and-endemism/sites.csv",
+      "/data/tutorials/biodiversity/richness-and-endemism/tree.nex"
+     ]
     },
     {
      "slug": "phylogenetic-endemism",
      "title": "Phylogenetic diversity, endemism and CANAPE",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/biodiversity/phylogenetic-endemism/canape.csv",
+      "/data/tutorials/biodiversity/phylogenetic-endemism/pd-vs-richness.csv"
+     ]
     },
     {
      "slug": "regions",
      "title": "Regions from species composition",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "biodiversity-in-python",
      "title": "Biodiversity analysis in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -578,61 +886,106 @@
      "slug": "systematic-conservation-planning",
      "title": "Systematic conservation planning: the ideas",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/spatial-prioritization/systematic-conservation-planning/hotspots.csv",
+      "/data/tutorials/spatial-prioritization/systematic-conservation-planning/serra-verde.zip",
+      "/data/tutorials/spatial-prioritization/systematic-conservation-planning/targets.csv"
+     ]
     },
     {
      "slug": "zonation",
      "title": "Ranking a landscape with Zonation",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/spatial-prioritization/zonation/cost-curves.csv",
+      "/data/tutorials/spatial-prioritization/zonation/curves.csv",
+      "/data/tutorials/spatial-prioritization/zonation/gap-analysis.csv",
+      "/data/tutorials/spatial-prioritization/zonation/rules-top17.csv",
+      "/data/tutorials/spatial-prioritization/zonation/serra-verde-z5.zip",
+      "/data/tutorials/spatial-prioritization/zonation/top-fractions.csv"
+     ]
     },
     {
      "slug": "marxan",
      "title": "Reserves with Marxan, and irreplaceability",
      "template": "Marxan and irreplaceability",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/spatial-prioritization/marxan/blm.csv",
+      "/data/tutorials/spatial-prioritization/marxan/iterations.csv",
+      "/data/tutorials/spatial-prioritization/marxan/spf.csv",
+      "/data/tutorials/spatial-prioritization/marxan/tradeoff.csv",
+      "/data/tutorials/spatial-prioritization/marxan/vs-optimum.csv"
+     ]
     },
     {
      "slug": "linear-programming",
      "title": "Optimal plans with linear programming",
      "template": "Conservation planning (linear programming)",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/spatial-prioritization/linear-programming/budget.csv",
+      "/data/tutorials/spatial-prioritization/linear-programming/gaps.csv",
+      "/data/tutorials/spatial-prioritization/linear-programming/objectives-by-feature.csv",
+      "/data/tutorials/spatial-prioritization/linear-programming/objectives.csv",
+      "/data/tutorials/spatial-prioritization/linear-programming/portfolio.csv"
+     ]
     },
     {
      "slug": "spatial-design",
      "title": "Compact and connected plans, and zones",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/spatial-prioritization/spatial-design/boundary-tradeoff.csv",
+      "/data/tutorials/spatial-prioritization/spatial-design/boundary.csv"
+     ]
     },
     {
      "slug": "evaluating-plans",
      "title": "Evaluating, comparing and reporting plans",
      "template": "Irreplaceability of a plan",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/spatial-prioritization/evaluating-plans/blended.csv",
+      "/data/tutorials/spatial-prioritization/evaluating-plans/gap-analysis.csv",
+      "/data/tutorials/spatial-prioritization/evaluating-plans/hierarchical.csv",
+      "/data/tutorials/spatial-prioritization/evaluating-plans/importance-correlations.csv",
+      "/data/tutorials/spatial-prioritization/evaluating-plans/pareto.csv",
+      "/data/tutorials/spatial-prioritization/evaluating-plans/zonation-vs-plan.csv"
+     ]
     },
     {
      "slug": "multi-action-planning",
      "title": "Multi-action planning",
      "template": "Multi-action planning",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/spatial-prioritization/multi-action-planning/budgets.csv"
+     ]
     },
     {
      "slug": "prioritization-in-python",
      "title": "Conservation priorities in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "conservation-plans-in-python",
      "title": "Optimized conservation plans in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "from-prioritizr-in-python",
      "title": "From prioritizr and prioriactions to Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -644,49 +997,84 @@
      "slug": "ideas",
      "title": "Species distribution models: the ideas",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/species-distributions/ideas/bioclim.tif",
+      "/data/tutorials/species-distributions/ideas/bradypus.csv",
+      "/data/tutorials/species-distributions/ideas/virtual.csv"
+     ]
     },
     {
      "slug": "occurrence-data",
      "title": "Occurrence data: download, clean and thin",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/species-distributions/occurrence-data/acaule.csv",
+      "/data/tutorials/species-distributions/occurrence-data/acaule_counts.csv",
+      "/data/tutorials/species-distributions/occurrence-data/gbif_decades.csv",
+      "/data/tutorials/species-distributions/occurrence-data/target_group.csv",
+      "/data/tutorials/species-distributions/occurrence-data/thinning.csv"
+     ]
     },
     {
      "slug": "predictors-and-background",
      "title": "Predictors and the accessible area",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/species-distributions/predictors-and-background/areas.csv"
+     ]
     },
     {
      "slug": "fitting-models",
      "title": "Fitting models: MaxNet, GLM and random forests",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/species-distributions/fitting-models/folds.csv",
+      "/data/tutorials/species-distributions/fitting-models/importance.csv",
+      "/data/tutorials/species-distributions/fitting-models/models.csv",
+      "/data/tutorials/species-distributions/fitting-models/regmult.csv"
+     ]
     },
     {
      "slug": "evaluation-and-thresholds",
      "title": "Evaluation and thresholds",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/species-distributions/evaluation-and-thresholds/boyce.csv",
+      "/data/tutorials/species-distributions/evaluation-and-thresholds/by-threshold.csv",
+      "/data/tutorials/species-distributions/evaluation-and-thresholds/oof_excerpt.csv",
+      "/data/tutorials/species-distributions/evaluation-and-thresholds/roc.csv",
+      "/data/tutorials/species-distributions/evaluation-and-thresholds/thresholds.csv"
+     ]
     },
     {
      "slug": "projection-and-extrapolation",
      "title": "Projection and extrapolation",
      "template": "A species in a warmer climate",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/species-distributions/projection-and-extrapolation/summary.csv"
+     ]
     },
     {
      "slug": "prepare-in-one-node",
      "title": "The whole preparation in one node",
      "template": "Species distribution model",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/species-distributions/prepare-in-one-node/recipes.csv"
+     ]
     },
     {
      "slug": "species-distributions-in-python",
      "title": "Species distributions in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -698,37 +1086,60 @@
      "slug": "ideas",
      "title": "Animal movement: the ideas",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/animal-movement/ideas/animals.csv",
+      "/data/tutorials/animal-movement/ideas/fishers.csv.gz"
+     ]
     },
     {
      "slug": "cleaning-and-measures",
      "title": "Clean tracks and measure them",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/animal-movement/cleaning-and-measures/animals.csv",
+      "/data/tutorials/animal-movement/cleaning-and-measures/thin.csv"
+     ]
     },
     {
      "slug": "projections-and-interpolation",
      "title": "Projections, interpolation and simulated tracks",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "steps-and-summaries",
      "title": "Regular steps and track summaries",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/animal-movement/steps-and-summaries/rates.csv",
+      "/data/tutorials/animal-movement/steps-and-summaries/summary-all.csv",
+      "/data/tutorials/animal-movement/steps-and-summaries/summary.csv",
+      "/data/tutorials/animal-movement/steps-and-summaries/time-of-day.csv"
+     ]
     },
     {
      "slug": "step-selection",
      "title": "The data of step selection functions",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/animal-movement/step-selection/clogit-tod.csv",
+      "/data/tutorials/animal-movement/step-selection/clogit.csv",
+      "/data/tutorials/animal-movement/step-selection/controls.csv",
+      "/data/tutorials/animal-movement/step-selection/distributions.csv",
+      "/data/tutorials/animal-movement/step-selection/used-available.csv"
+     ]
     },
     {
      "slug": "animal-movement-in-python",
      "title": "Animal movement in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -740,49 +1151,114 @@
      "slug": "ideas",
      "title": "Ecosystem service models: the ideas",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/ecosystem-services/ideas/against-invest.csv",
+      "/data/tutorials/ecosystem-services/ideas/four-services.csv",
+      "/data/tutorials/ecosystem-services/ideas/ribeirao-claro.zip"
+     ]
     },
     {
      "slug": "carbon",
      "title": "Carbon storage and sequestration",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/ecosystem-services/carbon/by-class.csv",
+      "/data/tutorials/ecosystem-services/carbon/discount.csv",
+      "/data/tutorials/ecosystem-services/carbon/pools.csv",
+      "/data/tutorials/ecosystem-services/carbon/totals.csv",
+      "/data/tutorials/ecosystem-services/carbon/transitions.csv"
+     ]
     },
     {
      "slug": "habitat-quality",
      "title": "Habitat quality and rarity",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/ecosystem-services/habitat-quality/access.csv",
+      "/data/tutorials/ecosystem-services/habitat-quality/rarity.csv",
+      "/data/tutorials/ecosystem-services/habitat-quality/scenarios.csv"
+     ]
     },
     {
      "slug": "water-yield",
      "title": "Annual water yield",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/ecosystem-services/water-yield/by-class.csv",
+      "/data/tutorials/ecosystem-services/water-yield/scenario.csv",
+      "/data/tutorials/ecosystem-services/water-yield/seasonality.csv",
+      "/data/tutorials/ecosystem-services/water-yield/subwatersheds.csv",
+      "/data/tutorials/ecosystem-services/water-yield/watersheds.csv"
+     ]
     },
     {
      "slug": "sediment",
      "title": "Sediment delivery ratio",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/ecosystem-services/sediment/by-class.csv",
+      "/data/tutorials/ecosystem-services/sediment/k.csv",
+      "/data/tutorials/ecosystem-services/sediment/routing.csv",
+      "/data/tutorials/ecosystem-services/sediment/scenario.csv",
+      "/data/tutorials/ecosystem-services/sediment/watersheds.csv"
+     ]
     },
     {
      "slug": "nutrients",
      "title": "Nutrient delivery ratio",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/ecosystem-services/nutrients/by-class.csv",
+      "/data/tutorials/ecosystem-services/nutrients/critical-length.csv",
+      "/data/tutorials/ecosystem-services/nutrients/k.csv",
+      "/data/tutorials/ecosystem-services/nutrients/ribeirao-claro-ndr.zip",
+      "/data/tutorials/ecosystem-services/nutrients/routing.csv",
+      "/data/tutorials/ecosystem-services/nutrients/scenario.csv",
+      "/data/tutorials/ecosystem-services/nutrients/subsurface.csv",
+      "/data/tutorials/ecosystem-services/nutrients/threshold.csv",
+      "/data/tutorials/ecosystem-services/nutrients/watersheds.csv"
+     ]
     },
     {
      "slug": "seasonal-water-yield",
      "title": "Seasonal water yield",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/ecosystem-services/seasonal-water-yield/alpha.csv",
+      "/data/tutorials/ecosystem-services/seasonal-water-yield/beta.csv",
+      "/data/tutorials/ecosystem-services/seasonal-water-yield/by-class.csv",
+      "/data/tutorials/ecosystem-services/seasonal-water-yield/climate.csv",
+      "/data/tutorials/ecosystem-services/seasonal-water-yield/gamma.csv",
+      "/data/tutorials/ecosystem-services/seasonal-water-yield/months.csv",
+      "/data/tutorials/ecosystem-services/seasonal-water-yield/pasture-by-soil.csv",
+      "/data/tutorials/ecosystem-services/seasonal-water-yield/scenario.csv",
+      "/data/tutorials/ecosystem-services/seasonal-water-yield/seasonal-inputs.zip",
+      "/data/tutorials/ecosystem-services/seasonal-water-yield/threshold.csv",
+      "/data/tutorials/ecosystem-services/seasonal-water-yield/transitions.csv",
+      "/data/tutorials/ecosystem-services/seasonal-water-yield/watersheds.csv"
+     ]
     },
     {
      "slug": "pollination",
      "title": "Crop pollination by wild bees",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/ecosystem-services/pollination/alpha.csv",
+      "/data/tutorials/ecosystem-services/pollination/distance.csv",
+      "/data/tutorials/ecosystem-services/pollination/farms-2040.csv",
+      "/data/tutorials/ecosystem-services/pollination/farms.csv",
+      "/data/tutorials/ecosystem-services/pollination/half-sat.csv",
+      "/data/tutorials/ecosystem-services/pollination/pollination-inputs.zip",
+      "/data/tutorials/ecosystem-services/pollination/scenarios.csv"
+     ]
     }
    ]
   },
@@ -794,31 +1270,54 @@
      "slug": "what-land-change-models-are",
      "title": "What land change models are",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/what-land-change-models-are/gains_losses.csv",
+      "/data/tutorials/land-change/what-land-change-models-are/sibuyan_drivers.tif",
+      "/data/tutorials/land-change/what-land-change-models-are/sibuyan_landuse.tif"
+     ]
     },
     {
      "slug": "a-cellular-automaton-by-hand",
      "title": "A cellular automaton by hand",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/a-cellular-automaton-by-hand/city.csv"
+     ]
     },
     {
      "slug": "transition-rates-markov-chains",
      "title": "Transition rates with Markov chains",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/transition-rates-markov-chains/long_run.csv",
+      "/data/tutorials/land-change/transition-rates-markov-chains/projection.csv",
+      "/data/tutorials/land-change/transition-rates-markov-chains/scenario.csv"
+     ]
     },
     {
      "slug": "weights-of-evidence",
      "title": "Weights of evidence: where change happens",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/weights-of-evidence/roads_1_3.csv"
+     ]
     },
     {
      "slug": "expander-and-patcher",
      "title": "Expander and Patcher: where the change goes, and in what shape",
      "template": "Dinamica EGO",
      "models": [
+      "/data/tutorials/land-change/expander-and-patcher/toy.toml"
+     ],
+     "files": [
+      "/data/tutorials/land-change/expander-and-patcher/expansion_np.csv",
+      "/data/tutorials/land-change/expander-and-patcher/isometry_np.csv",
+      "/data/tutorials/land-change/expander-and-patcher/size_np.csv",
+      "/data/tutorials/land-change/expander-and-patcher/steps.csv",
       "/data/tutorials/land-change/expander-and-patcher/toy.toml"
      ]
     },
@@ -829,25 +1328,42 @@
      "models": [
       "/data/tutorials/land-change/dinamica-on-sibuyan/dinamica.toml",
       "/data/tutorials/land-change/dinamica-on-sibuyan/projection.toml"
+     ],
+     "files": [
+      "/data/tutorials/land-change/dinamica-on-sibuyan/areas.csv",
+      "/data/tutorials/land-change/dinamica-on-sibuyan/dinamica.toml",
+      "/data/tutorials/land-change/dinamica-on-sibuyan/projection.toml",
+      "/data/tutorials/land-change/dinamica-on-sibuyan/requested.csv"
      ]
     },
     {
      "slug": "taking-a-stock",
      "title": "Taking a stock: logging and harvest with the Patcher of a continuous state",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/taking-a-stock/cycle.csv",
+      "/data/tutorials/land-change/taking-a-stock/quotas.csv",
+      "/data/tutorials/land-change/taking-a-stock/years.csv"
+     ]
     },
     {
      "slug": "roads-that-grow",
      "title": "Roads that grow: Dinamica EGO's endogenous road constructor",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/roads-that-grow/years.csv"
+     ]
     },
     {
      "slug": "gravity-potentials",
      "title": "Gravity potentials as drivers: the pull of towns and markets",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/gravity-potentials/transect.csv"
+     ]
     },
     {
      "slug": "validating-a-simulation",
@@ -855,13 +1371,24 @@
      "template": "Validating a simulation",
      "models": [
       "/data/tutorials/land-change/validating-a-simulation/pie_validation.toml"
+     ],
+     "files": [
+      "/data/tutorials/land-change/validating-a-simulation/fom_blocks.csv",
+      "/data/tutorials/land-change/validating-a-simulation/pie_periods.csv",
+      "/data/tutorials/land-change/validating-a-simulation/pie_validation.toml",
+      "/data/tutorials/land-change/validating-a-simulation/similarity.csv"
      ]
     },
     {
      "slug": "calibration-and-many-runs",
      "title": "Calibration and many runs: replicates, scenarios and settings chosen against the data",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/calibration-and-many-runs/calibration.csv",
+      "/data/tutorials/land-change/calibration-and-many-runs/frequency.csv",
+      "/data/tutorials/land-change/calibration-and-many-runs/replicates.csv"
+     ]
     },
     {
      "slug": "maps-larger-than-memory",
@@ -869,25 +1396,43 @@
      "template": null,
      "models": [
       "/data/tutorials/land-change/maps-larger-than-memory/model.toml"
+     ],
+     "files": [
+      "/data/tutorials/land-change/maps-larger-than-memory/comparison.csv",
+      "/data/tutorials/land-change/maps-larger-than-memory/model.toml",
+      "/data/tutorials/land-change/maps-larger-than-memory/tiled_log.txt"
      ]
     },
     {
      "slug": "clue-s-ideas",
      "title": "Demand-driven allocation: the ideas of CLUE-S",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/clue-s-ideas/iterations.csv",
+      "/data/tutorials/land-change/clue-s-ideas/pie_drivers.tif",
+      "/data/tutorials/land-change/clue-s-ideas/pie_landuse.tif"
+     ]
     },
     {
      "slug": "logistic-suitability",
      "title": "Suitability from logistic regressions",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/logistic-suitability/roc.csv"
+     ]
     },
     {
      "slug": "land-demand",
      "title": "The demand: how much of each class",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/land-demand/protection_table.txt",
+      "/data/tutorials/land-change/land-demand/trend.csv",
+      "/data/tutorials/land-change/land-demand/trend_vs_markov.csv"
+     ]
     },
     {
      "slug": "clue-s-model",
@@ -896,6 +1441,13 @@
      "models": [
       "/data/tutorials/land-change/clue-s-model/clue.toml",
       "/data/tutorials/land-change/clue-s-model/clue_new.toml"
+     ],
+     "files": [
+      "/data/tutorials/land-change/clue-s-model/clue.toml",
+      "/data/tutorials/land-change/clue-s-model/clue_new.toml",
+      "/data/tutorials/land-change/clue-s-model/elasticity.csv",
+      "/data/tutorials/land-change/clue-s-model/fom.csv",
+      "/data/tutorials/land-change/clue-s-model/years.csv"
      ]
     },
     {
@@ -905,6 +1457,15 @@
      "models": [
       "/data/tutorials/land-change/clue-s-rules/clue_restricted.toml",
       "/data/tutorials/land-change/clue-s-rules/clue_rules.toml"
+     ],
+     "files": [
+      "/data/tutorials/land-change/clue-s-rules/clue_restricted.toml",
+      "/data/tutorials/land-change/clue-s-rules/clue_rules.toml",
+      "/data/tutorials/land-change/clue-s-rules/forest_to_built.csv",
+      "/data/tutorials/land-change/clue-s-rules/neighbourhood.csv",
+      "/data/tutorials/land-change/clue-s-rules/pie_history.tif",
+      "/data/tutorials/land-change/clue-s-rules/pie_restrictions.tif",
+      "/data/tutorials/land-change/clue-s-rules/runs.csv"
      ]
     },
     {
@@ -913,19 +1474,40 @@
      "template": "CLUE-S",
      "models": [
       "/data/tutorials/land-change/ordered-allocation/ordered.toml"
+     ],
+     "files": [
+      "/data/tutorials/land-change/ordered-allocation/compare.csv",
+      "/data/tutorials/land-change/ordered-allocation/fom.csv",
+      "/data/tutorials/land-change/ordered-allocation/ordered.toml",
+      "/data/tutorials/land-change/ordered-allocation/orders.csv",
+      "/data/tutorials/land-change/ordered-allocation/yearly.csv"
      ]
     },
     {
      "slug": "clumondo",
      "title": "CLUMondo: land systems and the services they supply",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/clumondo/cells.csv",
+      "/data/tutorials/land-change/clumondo/resistance.csv",
+      "/data/tutorials/land-change/clumondo/services.csv",
+      "/data/tutorials/land-change/clumondo/steps.csv"
+     ]
     },
     {
      "slug": "plus-cars",
      "title": "PLUS: land expansion and random patch seeds",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/plus-cars/areas.csv",
+      "/data/tutorials/land-change/plus-cars/fom.csv",
+      "/data/tutorials/land-change/plus-cars/importance.csv",
+      "/data/tutorials/land-change/plus-cars/seeds.csv",
+      "/data/tutorials/land-change/plus-cars/steps.csv",
+      "/data/tutorials/land-change/plus-cars/window.csv"
+     ]
     },
     {
      "slug": "futures",
@@ -933,6 +1515,15 @@
      "template": null,
      "models": [
       "/data/tutorials/land-change/futures/simulation.toml"
+     ],
+     "files": [
+      "/data/tutorials/land-change/futures/calibration.csv",
+      "/data/tutorials/land-change/futures/incentive.csv",
+      "/data/tutorials/land-change/futures/patch_sizes.csv",
+      "/data/tutorials/land-change/futures/potential.csv",
+      "/data/tutorials/land-change/futures/simulation.toml",
+      "/data/tutorials/land-change/futures/validation.csv",
+      "/data/tutorials/land-change/futures/yearly.csv"
      ]
     },
     {
@@ -941,6 +1532,17 @@
      "template": null,
      "models": [
       "/data/tutorials/land-change/molusce/model.toml"
+     ],
+     "files": [
+      "/data/tutorials/land-change/molusce/cross.csv",
+      "/data/tutorials/land-change/molusce/fom.csv",
+      "/data/tutorials/land-change/molusce/model.toml",
+      "/data/tutorials/land-change/molusce/weights_dist_roads.csv",
+      "/data/tutorials/land-change/molusce/weights_dist_roads_chart.csv",
+      "/data/tutorials/land-change/molusce/weights_elevation.csv",
+      "/data/tutorials/land-change/molusce/weights_elevation_chart.csv",
+      "/data/tutorials/land-change/molusce/weights_slope.csv",
+      "/data/tutorials/land-change/molusce/weights_slope_chart.csv"
      ]
     },
     {
@@ -950,31 +1552,55 @@
      "models": [
       "/data/tutorials/land-change/regional-demand/cars.toml",
       "/data/tutorials/land-change/regional-demand/model.toml"
+     ],
+     "files": [
+      "/data/tutorials/land-change/regional-demand/cars.toml",
+      "/data/tutorials/land-change/regional-demand/cars_forest.csv",
+      "/data/tutorials/land-change/regional-demand/forest_change.csv",
+      "/data/tutorials/land-change/regional-demand/model.toml"
      ]
     },
     {
      "slug": "choosing-a-model",
      "title": "Choosing a land change model",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     },
     {
      "slug": "dynamic-drivers",
      "title": "Dynamic drivers: variables that move with the simulated map",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/dynamic-drivers/by_distance.csv",
+      "/data/tutorials/land-change/dynamic-drivers/fom.csv",
+      "/data/tutorials/land-change/dynamic-drivers/steps.csv"
+     ]
     },
     {
      "slug": "agents",
      "title": "Agents: decision makers inside the loop",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/agents/cost_curves.csv",
+      "/data/tutorials/land-change/agents/costs.csv",
+      "/data/tutorials/land-change/agents/farmers.csv",
+      "/data/tutorials/land-change/agents/years.csv"
+     ]
     },
     {
      "slug": "crafty",
      "title": "CRAFTY: competition for land between agent functional types",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/land-change/crafty/giving_in.csv",
+      "/data/tutorials/land-change/crafty/search.csv",
+      "/data/tutorials/land-change/crafty/stats.json",
+      "/data/tutorials/land-change/crafty/supply.csv"
+     ]
     },
     {
      "slug": "coupled-agents",
@@ -983,13 +1609,23 @@
      "models": [
       "/data/tutorials/land-change/coupled-agents/councils.toml",
       "/data/tutorials/land-change/coupled-agents/coupled.toml"
+     ],
+     "files": [
+      "/data/tutorials/land-change/coupled-agents/councils.csv",
+      "/data/tutorials/land-change/coupled-agents/councils.toml",
+      "/data/tutorials/land-change/coupled-agents/coupled.toml",
+      "/data/tutorials/land-change/coupled-agents/growth.csv",
+      "/data/tutorials/land-change/coupled-agents/growth_food.csv",
+      "/data/tutorials/land-change/coupled-agents/parcel1.csv",
+      "/data/tutorials/land-change/coupled-agents/supply.csv"
      ]
     },
     {
      "slug": "land-change-simulation-in-python",
      "title": "Land change simulation in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   },
@@ -1001,7 +1637,12 @@
      "slug": "monte-carlo",
      "title": "Monte Carlo error propagation",
      "template": "Carbon and its uncertainty",
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/uncertainty/monte-carlo/delta.csv",
+      "/data/tutorials/uncertainty/monte-carlo/draws.csv",
+      "/data/tutorials/uncertainty/monte-carlo/spread.csv"
+     ]
     }
    ]
   },
@@ -1013,19 +1654,28 @@
      "slug": "larger-than-memory",
      "title": "Rasters larger than memory",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/large-data/larger-than-memory/engine_areas.csv",
+      "/data/tutorials/large-data/larger-than-memory/memory.csv",
+      "/data/tutorials/large-data/larger-than-memory/seams.csv"
+     ]
     },
     {
      "slug": "batch-processing",
      "title": "Batch processing",
      "template": null,
-     "models": []
+     "models": [],
+     "files": [
+      "/data/tutorials/large-data/batch-processing/tiles.csv"
+     ]
     },
     {
      "slug": "large-data-in-python",
      "title": "Large data & batch in Python",
      "template": null,
-     "models": []
+     "models": [],
+     "files": []
     }
    ]
   }

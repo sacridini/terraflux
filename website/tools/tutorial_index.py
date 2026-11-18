@@ -3,8 +3,8 @@
 - the categories of website/site.yaml (`tutorial_categories`), in the site's order;
 - in each, the pages of website/content/tutorials/<category>/ in the site's order (`order`, then the title; the
   category's index apart): the slug, the title, the `template:` of the front matter (the name of a template of the
-  application, or null) and the models published under website/static/data/tutorials/<category>/<page>/*.toml, as
-  paths of the site.
+  application, or null), the models published under website/static/data/tutorials/<category>/<page>/*.toml and all
+  the files of that folder (the data the models read), both as paths of the site.
 
     python website/tools/tutorial_index.py
 
@@ -43,13 +43,16 @@ def index() -> dict:
         pages.sort(key=lambda p: (p[0], p[1]))
         tutorials = []
         for _, title, slug, template in pages:
-            found = sorted((models / c["slug"] / slug).glob("*.toml"))
+            folder = models / c["slug"] / slug
+            found = sorted(folder.glob("*.toml"))
+            files = sorted(f for f in folder.glob("*") if f.is_file())
             tutorials.append(
                 {
                     "slug": slug,
                     "title": title,
                     "template": template,
                     "models": [f"/data/tutorials/{c['slug']}/{slug}/{m.name}" for m in found],
+                    "files": [f"/data/tutorials/{c['slug']}/{slug}/{f.name}" for f in files],
                 }
             )
         categories.append({"slug": c["slug"], "title": c["title"], "tutorials": tutorials})

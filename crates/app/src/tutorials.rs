@@ -20,6 +20,8 @@ pub struct Tutorial {
     pub template: Option<String>,
     /// The models published with it, as paths of the site (`/data/tutorials/{category}/{slug}/model.toml`).
     pub models: Vec<String>,
+    /// All the files of its published folder (the models and the data they read), as paths of the site.
+    pub files: Vec<String>,
     /// Its category's slug (filled when the index is read).
     #[serde(skip)]
     pub category: String,
@@ -128,16 +130,18 @@ mod tests {
                 .into_iter()
                 .map(|(_, title, page, template)| {
                     let dir = site.join("static/data/tutorials").join(&slug).join(&page);
-                    let mut models: Vec<String> = std::fs::read_dir(dir)
+                    let mut names: Vec<String> = std::fs::read_dir(dir)
                         .into_iter()
                         .flatten()
-                        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-                        .filter(|n| n.ends_with(".toml"))
+                        .map(|e| e.unwrap())
+                        .filter(|e| e.path().is_file())
+                        .map(|e| e.file_name().to_string_lossy().into_owned())
                         .collect();
-                    models.sort();
-                    let models: Vec<String> =
-                        models.into_iter().map(|m| format!("/data/tutorials/{slug}/{page}/{m}")).collect();
-                    json!({ "slug": page, "title": title, "template": template, "models": models })
+                    names.sort();
+                    let site = |n: &String| format!("/data/tutorials/{slug}/{page}/{n}");
+                    let models: Vec<String> = names.iter().filter(|n| n.ends_with(".toml")).map(site).collect();
+                    let files: Vec<String> = names.iter().map(site).collect();
+                    json!({ "slug": page, "title": title, "template": template, "models": models, "files": files })
                 })
                 .collect();
             categories.push(json!({ "slug": slug, "title": title, "tutorials": tutorials }));

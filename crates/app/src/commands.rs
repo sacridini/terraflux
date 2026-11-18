@@ -63,6 +63,8 @@ pub enum Do {
     /// Help > Report a problem, and About Terraflux.
     Report,
     About,
+    /// Help > Tutorials with a model...: the window of the tutorials' models.
+    TutorialModels,
     /// The window of the model's methods and citations.
     Methods,
     /// The window of the export to QGIS.

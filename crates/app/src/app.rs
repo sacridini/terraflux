@@ -2345,6 +2345,8 @@ pub struct TerrafluxApp {
     pub settings_open: bool,
     /// The About window (Help > About Terraflux) is open.
     pub about_open: bool,
+    /// The window of *Help > Tutorials with a model...*.
+    pub tutorial_models: Option<crate::tutorial_models::State>,
     /// The settings' section shown.
     pub settings_section: SettingsSection,
     /// The Keyboard section's state ([`crate::keymap::Panel`]).
@@ -2556,6 +2558,7 @@ impl TerrafluxApp {
             styled: None,
             settings_open: false,
             about_open: false,
+            tutorial_models: None,
             settings_section: SettingsSection::default(),
             keyboard: Default::default(),
             updater: crate::update::Updater::default(),
@@ -3382,6 +3385,16 @@ impl TerrafluxApp {
                 ui.close();
             }
         }
+        if ui
+            .button("Tutorials with a model...")
+            .on_hover_text(
+                "the tutorials that come with a model: a template, or files from the website, opened here",
+            )
+            .clicked()
+        {
+            self.tutorial_models.get_or_insert_with(crate::tutorial_models::State::new);
+            ui.close();
+        }
         ui.separator();
         if ui.add(egui::Button::new("Keyboard shortcuts").shortcut_text(crate::keymap::text("shortcuts"))).clicked() {
             self.shortcuts_open = true;
@@ -3780,6 +3793,7 @@ impl TerrafluxApp {
             action("Keyboard shortcuts", crate::keymap::text("shortcuts"), Do::Shortcuts),
             action("Help: Quickstart", String::new(), Do::Docs(crate::docs::PAGES[0].1)),
             action("Help: Tutorials", String::new(), Do::Docs(crate::docs::PAGES[1].1)),
+            action("Help: Tutorials with a model", String::new(), Do::TutorialModels),
             action("Help: The application", String::new(), Do::Docs(crate::docs::PAGES[2].1)),
             action("Help: Operator reference", String::new(), Do::Docs(crate::docs::PAGES[3].1)),
             action("Help: Report a problem", String::new(), Do::Report),
@@ -3864,6 +3878,9 @@ impl TerrafluxApp {
             Do::OpDocs(op) => crate::docs::open(&crate::docs::page(&crate::docs::op_url(&op))),
             Do::Report => self.report_problem(),
             Do::About => self.about_open = true,
+            Do::TutorialModels => {
+                self.tutorial_models.get_or_insert_with(crate::tutorial_models::State::new);
+            }
             Do::NextTab => self.next_tab(1),
             Do::CloseTab => {
                 if self.session.is_some() {
@@ -5638,6 +5655,14 @@ impl TerrafluxApp {
         crate::commands::shortcuts_window(ui.ctx(), &mut shortcuts);
         self.shortcuts_open = shortcuts;
         crate::docs::about_window(ui.ctx(), &mut self.about_open);
+        match crate::tutorial_models::window(ui.ctx(), &mut self.tutorial_models) {
+            Some(crate::tutorial_models::Act::Start(model)) => self.ask_start(ui.ctx(), *model),
+            Some(crate::tutorial_models::Act::Open(path)) => {
+                self.wizard = None;
+                self.ask_open(&path);
+            }
+            None => {}
+        }
         if let Some(s) = &mut self.session {
             crate::methods::window(ui.ctx(), s, &self.registry);
             crate::versions_view::window(ui.ctx(), s);

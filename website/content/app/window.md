@@ -136,6 +136,7 @@ a word in every node at once, with a preview and one step of undo ([Find and rep
 | Item | Does |
 |---|---|
 | **Quickstart**, **Tutorials**, **The application**, **Operator reference** | Open that page of this website in the browser. |
+| **Tutorials with a model...** | A window with the tutorials of this website by category that come with a model, each with **Read** (its page) and **Open the model**: a template opens as from the Templates menu, and a model published with the tutorial is downloaded with the files it reads into the application's data folder (`tutorial models`) and opened like File > Open. A filter box narrows them by title, category or template; **all tutorials** also lists those without a model. A failed download is told in its row. |
 | **Keyboard shortcuts** (++f1++) | The sheet of shortcuts ([Keyboard and mouse](/app/shortcuts/#the-f1-sheet)). |
 | **Page of the selected operator** (++shift+f1++) | Opens the operator reference's page of the node selected (off with no node selected). |
 | **Report a problem...** | Opens a new issue on GitHub in the browser with the Terraflux version, the system and the last failure (the run's, else the first error of the model) already written, and the headings *What I did*, *What I expected* and *What happened* to fill in. You read it and send it: Terraflux sends nothing by itself. |

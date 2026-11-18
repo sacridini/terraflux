@@ -151,6 +151,13 @@ pub fn show(ui: &mut Ui, canvas: Rect) -> Option<Act> {
                                 crate::docs::open(&crate::docs::page(path));
                             }
                         }
+                        if ui
+                            .link("Tutorials with a model")
+                            .on_hover_text("the tutorials that come with a model, to open here")
+                            .clicked()
+                        {
+                            act = Some(Act::Do(Do::TutorialModels));
+                        }
                     });
                     heading(ui, "Start from a task");
                     let cols = columns(ui.available_width());

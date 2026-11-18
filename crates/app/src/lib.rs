@@ -97,6 +97,7 @@ pub mod start_page;
 pub mod table_view;
 pub mod tabs;
 pub mod templates;
+pub mod tutorial_models;
 pub mod tutorials;
 pub mod theme;
 pub mod tools;
