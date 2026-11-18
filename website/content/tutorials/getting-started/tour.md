@@ -70,8 +70,8 @@ and Files drawers; here the Viewer's tab was dragged below the Model, to see bot
 
 1. **The toolbar.** The **File** menu (*New model*, *Open...*, *Open recent*, *Save*, *Save as...*, *Open a raster
    or vectors...*, *Compare* and *Export report*), *Templates* (models to start from), *Operators* (the library
-   as a menu) and *View* (panes on and off); at the right, *Wizard...* (a land change model built step by step from
-   your maps), *Many runs...*, *Computers...*, *Assistant...* and **⚙**, the settings.
+   as a menu) and *View* (panes on and off); at the right, *Use my data...* (a land change model from your maps: the
+   model first, then your files), *Many runs...*, *Computers...*, *Assistant...* and **⚙**, the settings.
 2. **Run and Stop**, then the model's name and how long the last run took (*done in 0.04 s*). **Run** (++f5++) runs
    the whole model. Beside them, **Step** pauses a run after each step of a loop, until *Next* or *Continue* (see
    [Loops](../../building-models/loops/#step-5-run-it-step-by-step)).

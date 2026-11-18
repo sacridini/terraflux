@@ -44,10 +44,10 @@ memory.
   them. Parity tests against [terraflux-py](https://github.com/sacridini/terraflux-py) run in the
   test suite.
 - **No code needed, nothing hidden.** More than 340 operators in a searchable library, 45 ready-to-run templates and
-  a wizard that checks and fixes the data. Every automatic choice is a visible node, with a note on why it is
-  there.
+  Use my data, which puts your files in place of a template's drawn data, checks them and puts their grids and
+  classes right. Every automatic choice is a visible node, with a note on why it is there.
 - **One model, many front-ends.** A model is a typed graph saved as readable text (TOML or JSON). The builder,
-  the wizard, the command line and Python all read and write the same file.
+  Use my data, the command line and Python all read and write the same file.
 - **Any scale.** An exact engine on one machine, and a tiled engine that gives the same maps whatever the number
   of tiles, threads or machines.
 

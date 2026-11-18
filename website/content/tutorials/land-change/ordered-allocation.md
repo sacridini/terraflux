@@ -91,7 +91,7 @@ the drivers and the formulas of the regressions, and a seed. Plus an **order**: 
     Open the template **CLUE-S** (**Templates → Land change**), double-click the `simulation` loop and select
     `allocate`: in the Node pane, replace its `allocation` by `{ method = "ordered", order = [2, 1, 3] }` (the
     template's classes are those of its maps) and remove the `elasticity`, which the ordered allocation does not
-    use. **Wizard...** writes the whole model: choose *Ordered allocation* in *The model*. Its order is by default
+    use. The toolbar's **Use my data...** puts your data in the whole model: choose *Ordered allocation* in *Which model*. Its order is by default
     the classes' own (1, 2, 3); on Plum Island that order falls short of the demand (below), so set it.
 
 ## Build the model

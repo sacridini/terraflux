@@ -28,7 +28,6 @@ use crate::map_view::{Hover, MapView, Thumbs, class_counts, legend};
 use crate::palette::Coloring;
 use crate::runner::{Gate, Message, Record, Run};
 use crate::theme;
-use crate::wizard::{Outcome, Wizard};
 
 /// A pane of the application: a tab of the dock, moved, split, closed (the Panels menu brings it back) or taken
 /// to a window of its own (another screen).
@@ -2302,7 +2301,6 @@ pub struct TerrafluxApp {
     /// when they were last.
     pub restore: Option<crate::restore::Store>,
     remembered: Instant,
-    pub wizard: Option<Wizard>,
     /// The window of *Pack for sharing...* or *Open package...*.
     pub pack: Option<crate::pack_view::State>,
     /// The panes of the main window, and the windows of their own.
@@ -2536,7 +2534,6 @@ impl TerrafluxApp {
         let mut app = TerrafluxApp {
             template_name: String::new(),
             session: Some(Session::blank()),
-            wizard: None,
             pack: None,
             dock: Some(default_layout()),
             windows: Vec::new(),
@@ -2671,7 +2668,6 @@ impl TerrafluxApp {
         // (laid out as it comes: not a step to undo, nor an edit to ask about)
         s.history = crate::undo::History::new(&s.source);
         ctx.request_repaint();
-        self.wizard = None;
         self.put_in_front(s);
         self.message = None;
         self.focus(Pane::Model);
@@ -2704,7 +2700,6 @@ impl TerrafluxApp {
 
     /// A new model in the builder.
     fn new_model(&mut self) {
-        self.wizard = None;
         self.put_in_front(Session::blank());
         self.panes_due_again();
         self.focus(Pane::Model);
@@ -2712,7 +2707,7 @@ impl TerrafluxApp {
 
     /// Process a folder...: in the model open (a new one if none), the folder's rasters through an operator.
     fn process_folder(&mut self) {
-        if self.session.is_none() || self.wizard.is_some() {
+        if self.session.is_none() {
             self.new_model();
         }
         self.focus(Pane::Model);
@@ -2722,7 +2717,7 @@ impl TerrafluxApp {
     }
 
     /// The models handed by `terraflux mcp` (open_in_app): opened here in a tab (its tab when open already) and the
-    /// window brought to the front, unless a wizard is open (the answer says why, and it opens a window of its own).
+    /// window brought to the front.
     fn take_handoffs(&mut self, ctx: &egui::Context) {
         let Some(h) = &self.handoff else { return };
         let asked: Vec<_> = h.requests.try_iter().collect();
@@ -2743,7 +2738,6 @@ impl TerrafluxApp {
         let answer = match &r.path {
             // (a click on a notification: only to the front)
             None => Ok(()),
-            Some(_) if self.wizard.is_some() => Err("Terraflux has a wizard open".to_string()),
             Some(p) => {
                 self.message = None;
                 self.open(p);
@@ -2758,7 +2752,6 @@ impl TerrafluxApp {
     /// Open a model chosen in a dialog.
     fn open_dialog(&mut self) {
         if let Some(p) = rfd::FileDialog::new().add_filter("Terraflux model", &["toml", "json"]).pick_file() {
-            self.wizard = None;
             self.ask_open(&p);
         }
     }
@@ -2863,7 +2856,6 @@ impl TerrafluxApp {
         let dir = k.dir.clone();
         match crate::recovery::read(&dir, &f.key).and_then(|m| Session::recovered(m, f.note.path.clone())) {
             Ok(s) => {
-                self.wizard = None;
                 self.put_in_front(s);
                 self.message = None;
                 self.focus(Pane::Model);
@@ -3067,9 +3059,7 @@ impl TerrafluxApp {
 
     /// Open the window that asks for a version's label.
     fn ask_version(&mut self) {
-        if self.wizard.is_none()
-            && let Some(s) = &mut self.session
-        {
+        if let Some(s) = &mut self.session {
             s.version_dialog = Some(Default::default());
         }
     }
@@ -3112,7 +3102,6 @@ impl TerrafluxApp {
                     let name = p.file_name().map_or(p.display().to_string(), |n| n.to_string_lossy().into_owned());
                     if ui.button(name).on_hover_text(p.display().to_string()).clicked() {
                         ui.close();
-                        self.wizard = None;
                         self.ask_open(&p);
                     }
                 }
@@ -3126,13 +3115,12 @@ impl TerrafluxApp {
             ui.close();
             let ext = [terraflux_exec::pack::EXTENSION];
             if let Some(p) = rfd::FileDialog::new().add_filter("Terraflux package", &ext).pick_file() {
-                self.wizard = None;
                 self.pack = Some(crate::pack_view::State::open_package(&p, false));
             }
         }
         ui.separator();
-        let (can, editing) =
-            self.session.as_ref().map_or((false, false), |s| (s.dirty || s.path.is_none(), self.wizard.is_none()));
+        let editing = self.session.is_some();
+        let can = self.session.as_ref().is_some_and(|s| s.dirty || s.path.is_none());
         if ui
             .add_enabled(can && editing, egui::Button::new("Save").shortcut_text(crate::keymap::text("save")))
             .clicked()
@@ -3172,7 +3160,7 @@ impl TerrafluxApp {
         }
         ui.separator();
         if ui
-            .add_enabled(self.session.is_some() && self.wizard.is_none(), egui::Button::new("Pack for sharing..."))
+            .add_enabled(self.session.is_some(), egui::Button::new("Pack for sharing..."))
             .on_hover_text("the model and the files it reads in one file (.tfpack) to send: it opens and runs as it is")
             .clicked()
         {
@@ -3180,7 +3168,7 @@ impl TerrafluxApp {
             self.ask_pack();
         }
         if ui
-            .add_enabled(self.wizard.is_none(), egui::Button::new("Use my data..."))
+            .button("Use my data...")
             .on_hover_text(
                 "your files in place of the data a template draws: the grids put right, your classes into the \
                  model's",
@@ -3529,9 +3517,7 @@ impl TerrafluxApp {
             ui.menu_button("View", |ui| self.view_menu(ui));
             ui.menu_button("Help", |ui| self.help_menu(ui));
             ui.separator();
-            if let Some(s) = &self.session
-                && self.wizard.is_none()
-            {
+            if let Some(s) = &self.session {
                 let label = if theme::modern() { "▶  Run" } else { "Run" };
                 run = ui
                     .add_enabled(s.can_ask_run(), accent_button(label, s.can_run()))
@@ -3593,7 +3579,7 @@ impl TerrafluxApp {
             let tool = |t: &str| if theme::modern() { t.to_string() } else { format!("{t}...") };
             let (menu_id, wide_id) = (ui.id().with("tools in a menu"), ui.id().with("tools' width"));
             let in_menu = ui.data(|d| d.get_temp::<bool>(menu_id)).unwrap_or(false);
-            let (mut asked, mut wizard, mut settings) = (None, false, false);
+            let (mut asked, mut land_change, mut settings) = (None, false, false);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
                     .add(egui::Button::new(RichText::new("⚙").size(15.0)).frame(false))
@@ -3603,7 +3589,7 @@ impl TerrafluxApp {
                     settings = true;
                 }
                 ui.separator();
-                let tools = |ui: &mut Ui, asked: &mut Option<Pane>, wizard: &mut bool| {
+                let tools = |ui: &mut Ui, asked: &mut Option<Pane>, land_change: &mut bool| {
                     if ui
                         .button(tool("Assistant"))
                         .on_hover_text("a chat with a model (of a university, this computer or a provider) that explains, changes and runs the model")
@@ -3625,20 +3611,24 @@ impl TerrafluxApp {
                     {
                         *asked = Some(Pane::Batch);
                     }
-                    if ui.button(tool("Wizard")).on_hover_text("a land change model from your maps, step by step").clicked() {
-                        *wizard = true;
+                    if ui
+                        .button(tool("Use my data"))
+                        .on_hover_text("a land change model from your maps: choose the model, then your data")
+                        .clicked()
+                    {
+                        *land_change = true;
                     }
                 };
                 if in_menu {
                     ui.menu_button("Tools", |ui| {
                         // (in the menu's order, top to bottom: as at the bar's left to right)
-                        ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| tools(ui, &mut asked, &mut wizard));
-                        if asked.is_some() || wizard {
+                        ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| tools(ui, &mut asked, &mut land_change));
+                        if asked.is_some() || land_change {
                             ui.close();
                         }
                     });
                 } else {
-                    tools(ui, &mut asked, &mut wizard);
+                    tools(ui, &mut asked, &mut land_change);
                 }
                 // the room left: the tools in a menu below a fifth of the bar, back on it when they fit again
                 let width = ui.min_rect().width();
@@ -3655,9 +3645,7 @@ impl TerrafluxApp {
                     ui.data_mut(|d| d.insert_temp(menu_id, !in_menu));
                     ui.ctx().request_discard("the bar's tools in a menu, or out of it");
                 }
-                if let Some(s) = &self.session
-                    && self.wizard.is_none()
-                {
+                if let Some(s) = &self.session {
                     let tabs = self.tab_count();
                     let colour = self.tab_colour(self.front);
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -3762,8 +3750,8 @@ impl TerrafluxApp {
             if let Some(p) = asked {
                 self.focus(p);
             }
-            if wizard {
-                self.wizard = Some(Wizard::default());
+            if land_change {
+                self.my_data = Some(crate::my_data_view::State::land_change());
             }
         });
         if run {
@@ -3814,7 +3802,7 @@ impl TerrafluxApp {
             action("Undo", format!("{c}Z"), Do::Undo),
             action("Redo", format!("{c}shift+Z"), Do::Redo),
             action("The model as text, or as a diagram", String::new(), Do::Text),
-            action("Wizard: a land change model from your maps", String::new(), Do::Wizard),
+            action("Use my data: a land change model from your maps", String::new(), Do::LandChange),
             action("Use my data: your files in place of a model's drawn data", String::new(), Do::MyData),
             action("Settings", String::new(), Do::Settings),
             action("Keyboard shortcuts", crate::keymap::text("shortcuts"), Do::Shortcuts),
@@ -3885,7 +3873,6 @@ impl TerrafluxApp {
             Do::Open => self.open_dialog(),
             Do::ProcessFolder => self.process_folder(),
             Do::OpenRecent(p) => {
-                self.wizard = None;
                 self.ask_open(&p);
             }
             Do::Save => self.save(false),
@@ -3944,7 +3931,7 @@ impl TerrafluxApp {
                     crate::python::open(s, &self.registry);
                 }
             }
-            Do::Wizard => self.wizard = Some(Wizard::default()),
+            Do::LandChange => self.my_data = Some(crate::my_data_view::State::land_change()),
             Do::MyData => {
                 self.my_data.get_or_insert_with(crate::my_data_view::State::new);
             }
@@ -5605,26 +5592,24 @@ impl TerrafluxApp {
         self.hover = None;
         // (a shortcut being recorded in the settings takes its key before anything else reads it)
         self.keyboard.capture(ui.ctx());
-        if self.wizard.is_none() {
-            self.tab_keys(ui);
-            self.keys(ui);
-            let canvas = self.focused() == Some(Pane::Model);
-            let mut show = false;
-            if let Some(s) = &mut self.session {
-                show = crate::builder::keys(ui, s, &self.registry, canvas);
-                // the operators by name, from the keyboard ("/"), over the panes (its keys taken before theirs)
-                crate::builder::quick_add(ui.ctx(), s, &self.registry, &self.library);
-                crate::find::show(ui.ctx(), s, &self.registry);
-            }
-            if show {
-                self.focus(Pane::Viewer);
-            }
+        self.tab_keys(ui);
+        self.keys(ui);
+        let canvas = self.focused() == Some(Pane::Model);
+        let mut show = false;
+        if let Some(s) = &mut self.session {
+            show = crate::builder::keys(ui, s, &self.registry, canvas);
+            // the operators by name, from the keyboard ("/"), over the panes (its keys taken before theirs)
+            crate::builder::quick_add(ui.ctx(), s, &self.registry, &self.library);
+            crate::find::show(ui.ctx(), s, &self.registry);
+        }
+        if show {
+            self.focus(Pane::Viewer);
         }
         let bar = egui::Frame::new().fill(theme::bar()).inner_margin(Margin::symmetric(8, 5));
         let top = if theme::modern() { bar.inner_margin(Margin::symmetric(10, 7)) } else { bar };
         egui::Panel::top("toolbar").frame(top).show(ui, |ui| self.toolbar(ui));
         // two models or more open: their tabs
-        if self.wizard.is_none() && self.tab_count() >= 2 {
+        if self.tab_count() >= 2 {
             egui::Panel::top("model tabs")
                 .frame(egui::Frame::new().fill(theme::bar()).inner_margin(Margin::symmetric(8, 2)))
                 .show(ui, |ui| self.tabs_strip(ui));
@@ -5637,35 +5622,6 @@ impl TerrafluxApp {
             self.focus(Pane::Problems);
         }
         self.window_title(ui.ctx());
-        if let Some(w) = &mut self.wizard {
-            let mut close = false;
-            let mut created = None;
-            egui::CentralPanel::default().show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    // a column of reading width in the middle
-                    let width = ui.available_width().min(820.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
-                        ui.vertical(|ui| {
-                            ui.set_width(width);
-                            match w.show(ui) {
-                                Some(Outcome::Cancel) => close = true,
-                                Some(Outcome::Created(p)) => created = Some(p),
-                                Some(Outcome::Open) | None => {}
-                            }
-                        });
-                    });
-                });
-            });
-            if close {
-                self.wizard = None;
-            }
-            if let Some(p) = created {
-                self.wizard = None;
-                self.ask_open(&p);
-            }
-            return;
-        }
         if let Some(m) = self.message.clone() {
             egui::Panel::top("message")
                 .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::symmetric(8, 4)))
@@ -5683,7 +5639,6 @@ impl TerrafluxApp {
         self.settings_window(ui.ctx());
         self.update_window(ui.ctx());
         if let Some(model) = crate::pack_view::window(ui.ctx(), &mut self.pack) {
-            self.wizard = None;
             self.ask_open(&model);
         }
         self.install_update(ui.ctx());
@@ -5694,7 +5649,6 @@ impl TerrafluxApp {
         match crate::tutorial_models::window(ui.ctx(), &mut self.tutorial_models) {
             Some(crate::tutorial_models::Act::Start(model)) => self.ask_start(ui.ctx(), *model),
             Some(crate::tutorial_models::Act::Open(path)) => {
-                self.wizard = None;
                 self.ask_open(&path);
             }
             None => {}

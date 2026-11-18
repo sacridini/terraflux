@@ -523,7 +523,7 @@ fn tour_images() {
     let before = |r: egui::Rect| egui::pos2(r.left() - 16.0, r.center().y);
     let mspa = h.state().session.as_ref().unwrap().editor.drawn_rect_of("mspa").expect("the box of mspa");
     let places = [
-        ("1", before(rect(&h, "Wizard"))),
+        ("1", before(rect(&h, "Use my data"))),
         ("2", beside(rect(&h, "done in"))),
         // (the box of mspa, selected: its settings are its rows, its gear opens the panel beside it)
         ("3", mspa.left_top() + egui::vec2(-8.0, 8.0)),

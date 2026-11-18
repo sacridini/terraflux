@@ -3976,3 +3976,8 @@ nó com nota.
   "qual modelo de mudança de uso" (os textos de `Kind::about`); `wizard.rs` sai; testes, site (páginas do aplicativo,
   tutoriais que citam o Wizard), README ("a wizard that checks and fixes the data") e CHANGELOG atualizados. O
   `terraflux new dinamica` da CLI não usa o Wizard e continua.
+  **Feito** (Unreleased). Antes, o CLUE-S com N datas: `Choice::dates` (todas as bandas de um arquivo, 3 ou mais, são as datas; a demanda lê a pilha do arquivo,
+  `observed` vira `Input::Stack`, o nó que empilhava as duas datas fica como `ends` para o "começa da 1ª ou da última"; sem tabela de classes, pois `raster.reclassify`
+  só lê mapa), oferta "All N bands as the dates" e caixa na janela; paridade célula a célula com o Wizard nas 3 datas de Plum Island (14 passos de 215.698 células, CLUE-S e
+  ordered). Depois `wizard.rs` saiu: o botão da barra ("Use my data"), a tela inicial e a paleta abrem a janela na página *Which model* (`Kind`: Dinamica, CLUE-S, Ordered =
+  template do CLUE-S com `method` ordered, PLUS), os testes de paridade montam a referência com os `presets`, os do ui são de Use my data, site/README/CHANGELOG sem o Wizard.

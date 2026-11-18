@@ -4,14 +4,15 @@
 //! (`op`) on its inputs, which come from the model's [`Input`]s (`$name`),
 //! from the outputs of other nodes (`node.port`), from values carried along
 //! a loop (`@name`), or are literal numbers; `params` hold the operator's
-//! settings and `note` says why they were chosen (the wizards write it, so
-//! that every automatic decision can be read and changed).
+//! settings and `note` says why they were chosen (Use my data, the templates
+//! and the other front-ends write it, so that every automatic decision can be
+//! read and changed).
 //!
 //! Containers hold a [`Body`] of nodes: `control.repeat` runs it once per
 //! step, carrying values from one step to the next and collecting others
 //! into series.
 //!
-//! The same graph is written by every front-end (the wizards and the node
+//! The same graph is written by every front-end (Use my data and the node
 //! editor of the application, the library's Python API, a text editor) and
 //! run by every engine (one machine or many). It is saved as TOML or JSON
 //! ([`Model::load`], [`Model::save`]); [`check`] validates it against the
@@ -542,7 +543,7 @@ pub struct Node {
     pub inputs: BTreeMap<String, Source>,
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub params: serde_json::Map<String, serde_json::Value>,
-    /// Why the node is there or why its settings (written by the wizards).
+    /// Why the node is there or why its settings (written by Use my data, the templates and the assistants).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
     /// The record of the choice, beside the note: why this operator and these settings, the references it rests

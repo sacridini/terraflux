@@ -1,5 +1,5 @@
-//! Terraflux's application: models built node by node (or created with a wizard), run as they are built with
-//! what each node gives shown at once, the maps drawn as they come, the area of each class along the steps and
+//! Terraflux's application: models built node by node (or started from a template, or from Use my data), run as
+//! they are built with what each node gives shown at once, the maps drawn as they come, the area of each class along the steps and
 //! the validation against an observed map.
 
 pub mod advice;
@@ -114,7 +114,6 @@ pub mod vector_view;
 pub mod versions_view;
 pub mod view_vector;
 pub mod watch;
-pub mod wizard;
 pub mod woe_view;
 pub mod written;
 

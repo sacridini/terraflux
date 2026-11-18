@@ -16,7 +16,7 @@ const RECENT: usize = 6;
 
 /// What the page asks of the application.
 pub enum Act {
-    /// A command of the palette (open data, the Wizard, a template, a recent model...).
+    /// A command of the palette (open data, Use my data, a template, a recent model...).
     Do(Do),
     /// One of the user's own templates (a model file), started as a new model.
     User(PathBuf),
@@ -148,11 +148,14 @@ pub fn show(ui: &mut Ui, canvas: Rect) -> Option<Act> {
                             act = Some(Act::Do(Do::OpenData));
                         }
                         if ui
-                            .button("Wizard: a land change model from your maps")
-                            .on_hover_text("asks for the maps of two dates and the drivers, and makes the model")
+                            .button("Use my data: a land change model from your maps")
+                            .on_hover_text(
+                                "choose the model (Dinamica EGO's, CLUE-S, ordered allocation, PLUS), then the maps of \
+                                 your dates and the drivers",
+                            )
                             .clicked()
                         {
-                            act = Some(Act::Do(Do::Wizard));
+                            act = Some(Act::Do(Do::LandChange));
                         }
                         if ui
                             .button("Use my data in a template")

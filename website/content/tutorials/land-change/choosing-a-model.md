@@ -86,7 +86,7 @@ And by the data you have:
 Each tutorial lists its data. In every case: the maps on one grid (extent, cell size, coordinate system), whole
 class codes with a no-data value, drivers as a stack of named bands, and the time step in mind before fitting
 anything. The commands `terraflux new dinamica`, `terraflux new clue` and `terraflux new ordered` write the classic
-models from your files; the application's Wizard does the same in three steps, and its templates (Dinamica EGO,
+models from your files; the application's **Use my data** does the same from its first page (which model), and its templates (Dinamica EGO,
 CLUE-S, a cellular automaton, farmers as agents, CRAFTY) run on maps drawn by chance.
 
 ## Read the results

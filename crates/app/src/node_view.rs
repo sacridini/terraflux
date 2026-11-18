@@ -869,7 +869,7 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         // what does not fit on the next row (a narrow pane, a large text)
         ui.horizontal_wrapped(row);
     });
-    // the record of the choice, written by whoever built the model (a person, the wizard, an agent): edited in
+    // the record of the choice, written by whoever built the model (a person, Use my data, an agent): edited in
     // place
     crate::theme::card(ui, "", |ui| {
         let note = n.note.clone().unwrap_or_default();

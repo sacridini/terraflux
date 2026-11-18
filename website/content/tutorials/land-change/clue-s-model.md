@@ -105,9 +105,10 @@ The run takes about 15 seconds on Plum Island (113,563 cells, 14 years; the slow
 hundred times) and writes `clue/maps.tif` (a band per year, 1986 to 1999) and `clue/steps.csv`.
 
 !!! app "In the application"
-    **Wizard...** writes the same model: choose *CLUE-S* in *The model*, the observed maps and the drivers in *The
-    data* (the dates come from the band names), and the elasticity in *The settings*. The formulas are written with
-    every driver for every class; edit them in the `regression` node's settings.
+    The toolbar's **Use my data...** makes the same model: choose *CLUE-S* in *Which model*, then the observed maps (two
+    files, or one file with a band for each date: with three bands or more, **All N bands as the dates**) and the
+    drivers in *Your data* (the dates come from the band names), and the elasticity in *Parameters*. The formulas are
+    written with every driver for every class; edit them in the `regression` node's settings.
 
 ### Step 1: suitability, demand, generator and history
 

@@ -159,9 +159,9 @@ Then the model's name (with a dot when it has edits not saved, and a colour bar 
 the progress, and, once it has run, *done in 0.04 s* and a **manifest** link that opens the folder of the run's
 outputs and manifest.
 
-At the right: **Wizard** (a land change model built step by step from your maps), **Many runs**, **Computers**,
-**Assistant**, and **⚙**, the [settings](/app/settings/). The classic themes write *Wizard...*, *Many runs...* and
-so on. When the window is too narrow, these four go into one menu, **Tools**.
+At the right: **Use my data** (a land change model from your maps: the window of [Use my data](#use-my-data) at its first
+page, which model), **Many runs**, **Computers**, **Assistant**, and **⚙**, the [settings](/app/settings/). The classic
+themes write *Use my data...*, *Many runs...* and so on. When the window is too narrow, these four go into one menu, **Tools**.
 
 When a colour vision is set, a button *seen with deuteranopia · back to normal* (or another) shows next to the
 version; a click sets it back.
@@ -187,7 +187,7 @@ If another program changes the model's file while you have edits not saved, a li
 ### The start page
 
 A model with no node shows, over the empty canvas, a **start page**: **Start from your data** (open a raster or vectors,
-the Wizard, use your data in a template, open a model, or drop files on the window), **Recent models**, **Learn** (the Quickstart, the tutorials and
+Use my data for a land change model, use your data in a template, open a model, or drop files on the window), **Recent models**, **Learn** (the Quickstart, the tutorials and
 this guide on the website) and **Start from a task**, the templates by group, each with its tutorial. Click a template
 and the model opens and runs, its data drawn by neutral landscape models. The page goes with the first node and comes
 back when the model is empty again; the canvas under it works as always (drop files, ++slash++, the operators'
@@ -201,6 +201,11 @@ model that draws some, with **Hide** for that model) puts your files in their pl
 the window first offers the templates: start one, then choose your files. It has four pages (the third only for a
 model that has parameters or is one of the three land change templates).
 
+The toolbar's **Use my data**, the start page's **Use my data: a land change model from your maps** and the same entry of
+the command palette open the window at a first page, **Which model**: *Dinamica EGO's classic model*, *CLUE-S*,
+*Ordered allocation* (CLUE-S with its allocation set to ordered) and *PLUS*. The one you click opens its template and the
+window goes on to **Your data**.
+
 - **Your data**: a row for each thing the model draws (what it is, its node and kind). **Choose a file...**, the band of
   a file with several, and **Keep drawn** for what you leave as it is. With more than one file, the **grid of reference**
   is the one the others are put on (a `raster.match` is added only where a file's grid or CRS differs). Each choice is
@@ -210,23 +215,25 @@ model that has parameters or is one of the three land change templates).
   data* has none, and a line says how many cells that is. Data of any classes (Landscape metrics) keeps yours as they
   are.
 - **Parameters**: the model's exposed parameters (the form of the **Parameters** pane) and, for the land change
-  templates, what the Wizard asked: for Dinamica EGO's classic model the steps between the two dates, the steps to
+  templates, its own settings: for Dinamica EGO's classic model the steps between the two dates, the steps to
   simulate, the buffer increment of the weights (automatic, or a value), the share of the changes that expand patches
   (as observed, or a value), the isometry of the patches and the seed; for CLUE-S the allocation (**clue** or
   **ordered**, with the order the classes are served in), the elasticity, the date of each map, the dates simulated
   and the seed; for PLUS the steps and the seed. For Dinamica and CLUE-S, *the simulation starts from* the second
-  date (the future, what the templates do) or the first (the observed period again, as the Wizard's models do, to
+  date (the future, what the templates do) or the first (the observed period again, to
   compare it with what happened). Where your files have dates (the names of their bands, as numbers) the steps and
-  the dates start from them, as the Wizard's did; a value you set stays. What you set is part of the plan: the data
+  the dates start from them; a value you set stays. What you set is part of the plan: the data
   is checked again after each change.
 - **Review**: what will be done, what was refused and the findings of the check (the settings made are told too); an
   error stops **Apply**.
 
 On a land change template (Dinamica EGO, CLUE-S, PLUS) the two dates are two data. Choose the file of the first; the
 second then offers **The same file, band ...** (the next band), so that a file with one band per date is chosen once;
-two files work as well. The drivers are one file with a band per variable. A file on another grid than the land use
+two files work as well. CLUE-S also takes a file with three bands or more: the second date is then offered
+**All N bands as the dates** (a box on the page takes it back), the demand reads every band as a date and the dates
+come from the bands' names (no table of classes then: your classes are read as they are). The drivers are one file with a band per variable. A file on another grid than the land use
 map's is put on its grid by a `raster.match`, its method chosen by the data (the mean of the cells where they are
-coarser). The checks are the Wizard's (the grids, whole class codes, some change between the two dates, the drivers'
+coarser). The checks are those of every model (the grids, whole class codes, some change between the two dates, the drivers'
 values), whatever the inputs are called: they follow the ports the data feeds, through the new nodes.
 
 **Apply** changes the model in one step named *Use my data*: your file as an input of the model, a reclassification of

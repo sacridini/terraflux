@@ -12,9 +12,9 @@ prioritization, restoration planning, species distributions, biodiversity analys
 
 ## What it is for
 
-- **One model, many front-ends.** An analysis is a graph of operators saved as a small text file. The guided
-  wizard, the node editor, the command line, Python and the file itself all read and write the same graph.
-- **Easy without hiding anything.** Every automatic choice of the wizard becomes an explicit node with a note
+- **One model, many front-ends.** An analysis is a graph of operators saved as a small text file. Use my
+  data, the node editor, the command line, Python and the file itself all read and write the same graph.
+- **Easy without hiding anything.** Every automatic choice of Use my data becomes an explicit node with a note
   saying why, so a beginner can accept sensible defaults and an expert can change any of them.
 - **The same numbers as the reference tools.** Methods are re-implemented from their publications and source
   code, and the test suite checks each against its reference implementation (GuidosToolbox, landscapemetrics,

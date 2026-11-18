@@ -9,11 +9,7 @@ fn a_model_is_packed_from_the_file_menu_and_the_package_opened() {
     let dir = tmp("pack-ui");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let mut w = Wizard::default();
-    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
-    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
-    w.increment = Some(250.0);
-    let file = w.save(&dir.join("ui-pack.toml")).unwrap();
+    let file = sibuyan_model(&dir.join("ui-pack.toml"));
     let mut h = harness(new_app(Some(file.clone())));
     loaded(&mut h);
     h.run_steps(2);

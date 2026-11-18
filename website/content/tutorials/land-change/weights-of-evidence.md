@@ -371,7 +371,7 @@ pairs is defensible here, but their weights should be read together: part of the
 of the roads near it. The measures depend on the classes the drivers are cut into; cut them as their weights' ranges
 are, or in a few classes of similar size.
 
-A coarser check runs whenever the data is read: `terraflux check` and the application's Wizard warn about
+A coarser check runs whenever the data is read: `terraflux check` and the application's Use my data warn about
 drivers that are constant or **collinear** (a Pearson correlation above 0.9 between two layers). On Sibuyan they
 find none.
 

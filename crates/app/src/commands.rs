@@ -75,7 +75,9 @@ pub enum Do {
     Catalog,
     /// The model as a Python script.
     Python,
-    Wizard,
+    /// The window of *Use my data* opened at its first page, which land change model (Dinamica EGO's, CLUE-S,
+    /// ordered allocation or PLUS): where the Wizard was.
+    LandChange,
     /// The window of *Use my data*: the user's files in place of a model's drawn data.
     MyData,
     Pane(Pane),

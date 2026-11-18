@@ -1,8 +1,10 @@
 //! "Use my data", the window: the user's files in place of the data a model draws ([`crate::my_data`] makes the
-//! change). Four pages: *Your data* (a file for each thing the model draws, its band, the grid of reference, each
+//! change). Opened from the land change entry points (the toolbar's button, the start page, the palette) it has a first
+//! page, *Which model* (Dinamica EGO's classic model, CLUE-S, ordered allocation or PLUS: the template of it is opened
+//! and the window goes on to its data). Then *Your data* (a file for each thing the model draws, its band, the grid of reference, each
 //! choice checked as soon as it is made, in a thread; on a land change model the second date can be another band of
 //! the first date's file), *Classes* (the user's classes of a map against the model's, one table each), *Parameters*
-//! (the model's exposed parameters and, for a land change model, the settings the Wizard asked: steps, increment,
+//! (the model's exposed parameters and, for a land change model, the settings of the model: steps, increment,
 //! elasticity, order of the classes, seed; the dates of the bands give their first values) and *Review* (what will be
 //! done, what was refused, the findings; errors stop it). *Apply* is one step of undo, seen in the Changes pane, and
 //! the model runs once its data is read (unless unticked).
@@ -94,6 +96,62 @@ pub fn banner(ui: &mut Ui, s: &mut Session, r: &Registry, canvas: Rect) -> bool 
     asked
 }
 
+/// The land change models the first page offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Dinamica,
+    Clue,
+    /// CLUE-S's template with its method chosen as ordered.
+    Ordered,
+    Plus,
+}
+
+impl Kind {
+    pub const ALL: [Kind; 4] = [Kind::Dinamica, Kind::Clue, Kind::Ordered, Kind::Plus];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Kind::Dinamica => "Dinamica EGO's classic model",
+            Kind::Clue => "CLUE-S",
+            Kind::Ordered => "Ordered allocation",
+            Kind::Plus => "PLUS",
+        }
+    }
+
+    pub fn about(self) -> &'static str {
+        match self {
+            Kind::Dinamica => {
+                "Fitted on two maps: how much changes comes from the transition rates between them (a Markov chain), \
+                 where from weights of evidence of the drivers, and the shape of the new patches from the patches \
+                 observed (Expander and Patcher). A good start when you have two dates of land use."
+            }
+            Kind::Clue => {
+                "lulcc's CLUE-S: the suitability of each class from logistic regressions on the drivers, the cells \
+                 of each class at each step interpolated from observed maps, and an allocation where classes compete \
+                 for cells until the demand is met. Two dates, or a file with a band for each of three or more."
+            }
+            Kind::Ordered => {
+                "lulcc's ordered allocation: the same suitability and demand as CLUE-S, the classes served one after \
+                 the other in a given order, each taking the cells it suits best."
+            }
+            Kind::Plus => {
+                "PLUS (Liang et al. 2021): where each class grew between two dates is learned by a random forest on \
+                 the drivers (the land expansion analysis), and CARS allocates the demand that the Markov chain of the \
+                 period projects."
+            }
+        }
+    }
+
+    /// The template it starts from (its name in [`crate::templates::TEMPLATES`]).
+    pub fn template(self) -> &'static str {
+        match self {
+            Kind::Dinamica => "Dinamica EGO",
+            Kind::Clue | Kind::Ordered => "CLUE-S",
+            Kind::Plus => "PLUS (LEAS and CARS)",
+        }
+    }
+}
+
 /// What the window asks of the application.
 pub enum Act {
     /// A template (by its index in [`crate::templates::TEMPLATES`]) started as a model.
@@ -102,6 +160,8 @@ pub enum Act {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
+    /// Which land change model (only when opened from a land change entry point).
+    Model,
     Data,
     Classes,
     Parameters,
@@ -109,10 +169,11 @@ pub enum Page {
 }
 
 impl Page {
-    const ALL: [Page; 4] = [Page::Data, Page::Classes, Page::Parameters, Page::Review];
+    const ALL: [Page; 5] = [Page::Model, Page::Data, Page::Classes, Page::Parameters, Page::Review];
 
     fn title(self) -> &'static str {
         match self {
+            Page::Model => "Which model",
             Page::Data => "Your data",
             Page::Classes => "Classes",
             Page::Parameters => "Parameters",
@@ -165,6 +226,15 @@ pub struct State {
     pub run_now: bool,
     /// The source whose grid the others are put on (none: the first map chosen).
     pub reference: Option<String>,
+    /// Opened from a land change entry point: the page *Which model* comes first.
+    pub land: bool,
+    /// The method of CLUE-S's allocation to set once its template is the model open (ordered allocation).
+    start_ordered: Option<bool>,
+    /// Every band of the file both dates share is a date (CLUE-S's model with three dates or more).
+    all_dates: bool,
+    /// The sources of the two dates of the model open, and whether it is CLUE-S's.
+    dates: Vec<String>,
+    lulcc: bool,
     picks: BTreeMap<String, Pick>,
     /// What the user set on the *Parameters* page, by setting id (none: automatic); and what the dates of the files
     /// give the settings that the user did not set (see [`my_data::derive`]).
@@ -274,6 +344,14 @@ fn classes_after(p: &Pick) -> Vec<i64> {
     }
 }
 
+/// The classes of the file's band of a pick, as the file has them.
+fn found_classes(p: &Pick) -> Vec<i64> {
+    match &p.classes {
+        Cls::Ready(f) => f.iter().map(|c| c.0).collect(),
+        _ => Vec::new(),
+    }
+}
+
 impl State {
     pub fn new() -> Self {
         let (tx, rx) = channel();
@@ -281,6 +359,11 @@ impl State {
             page: Page::Data,
             run_now: true,
             reference: None,
+            land: false,
+            start_ordered: None,
+            all_dates: false,
+            dates: Vec::new(),
+            lulcc: false,
             picks: BTreeMap::new(),
             settings: BTreeMap::new(),
             derived: BTreeMap::new(),
@@ -295,6 +378,25 @@ impl State {
             error: None,
             asked: None,
         }
+    }
+
+    /// The window as the land change entry points open it: its first page asks which model.
+    pub fn land_change() -> Self {
+        State { land: true, page: Page::Model, ..State::new() }
+    }
+
+    /// A land change model chosen on the first page: the index of its template (to be opened), the window going on to
+    /// the data. Ordered allocation is CLUE-S's template with its method set once it is open.
+    pub fn choose_model(&mut self, kind: Kind) -> Option<usize> {
+        let k = crate::templates::TEMPLATES.iter().position(|t| t.name == kind.template())?;
+        self.start_ordered = Some(kind == Kind::Ordered);
+        self.picks.clear();
+        self.settings.clear();
+        self.problems.clear();
+        self.reference = None;
+        self.all_dates = false;
+        self.page = Page::Data;
+        Some(k)
     }
 
     /// Choose a file for a source of the model open (what the file picker does): its bands read, its classes read in
@@ -316,6 +418,9 @@ impl State {
                     like: None,
                 };
                 self.picks.insert(node.to_string(), pick);
+                if self.dates.iter().any(|d| d == node) {
+                    self.all_dates = false;
+                }
                 self.load_classes(node);
                 Ok(())
             }
@@ -328,6 +433,9 @@ impl State {
 
     /// Keep the drawn data of a source: no file for it.
     pub fn keep_drawn(&mut self, node: &str) {
+        if self.dates.iter().any(|d| d == node) {
+            self.all_dates = false;
+        }
         self.picks.remove(node);
         self.problems.remove(node);
     }
@@ -352,8 +460,53 @@ impl State {
         };
         self.problems.remove(node);
         self.picks.insert(node.to_string(), pick);
+        self.all_dates = false;
         self.load_classes(node);
         Ok(())
+    }
+
+    /// The file both dates of CLUE-S's model have chosen, with its bands, when it has three or more: every band can be
+    /// a date.
+    pub fn dates_file(&self) -> Option<(PathBuf, Vec<String>)> {
+        if !self.lulcc {
+            return None;
+        }
+        let (a, b) = (self.picks.get(self.dates.first()?)?, self.picks.get(self.dates.get(1)?)?);
+        (a.file == b.file && a.bands.len() >= 3).then(|| (a.file.clone(), a.bands.clone()))
+    }
+
+    /// Whether every band of the file is a date now.
+    pub fn all_dates_now(&self) -> bool {
+        self.all_dates && self.dates_file().is_some()
+    }
+
+    /// Every band of a file as the dates: the file chosen for the other date taken for this one too, the first date in
+    /// its first band and the last in its last, and every band a date.
+    pub fn all_dates_from(&mut self, sources: &[Source], node: &str, from: &str) -> Result<(), String> {
+        let at = self.dates.iter().position(|d| d == node).ok_or_else(|| format!("{node}: not a date"))?;
+        let bands = self.picks.get(from).map(|p| p.bands.clone()).ok_or_else(|| format!("{from}: no file chosen"))?;
+        if !self.lulcc || bands.len() < 3 {
+            return Err("every band as a date needs CLUE-S's model and a file of three bands or more".into());
+        }
+        let (first, last) = (bands[0].clone(), bands[bands.len() - 1].clone());
+        let (mine, theirs) = if at == 0 { (first, last) } else { (last, first) };
+        self.same_file(sources, node, from, &mine)?;
+        if self.picks.get(from).and_then(band_name).as_deref() != Some(theirs.as_str()) {
+            self.set_band(from, Some(theirs));
+        }
+        self.all_dates = true;
+        Ok(())
+    }
+
+    /// The offer of every band as the dates for a date with no file: the source of the other date with a file of three
+    /// bands or more (CLUE-S's model).
+    fn all_dates_offer(&self, node: &str) -> Option<(String, usize)> {
+        if !self.lulcc || !self.dates.iter().any(|d| d == node) {
+            return None;
+        }
+        let from = self.dates.iter().find(|d| *d != node)?;
+        let p = self.picks.get(from).filter(|p| p.bands.len() >= 3)?;
+        Some((from.clone(), p.bands.len()))
     }
 
     /// The offer of the same file for a date: the source whose file has more bands, and the band of the other date
@@ -515,14 +668,18 @@ impl State {
 
     /// The choices that go to the plan: the files chosen, and for the maps of classes, their table.
     fn choices(&self) -> BTreeMap<String, Choice> {
+        let all = self.all_dates_now();
         self.picks
             .iter()
             .filter(|(_, p)| !matches!(p.classes, Cls::Failed(_)))
             .map(|(k, p)| {
+                // (every band a date: the classes are read as they are, no table, and the first date says so)
+                let dated = all && self.dates.contains(k);
                 let c = Choice {
                     file: p.file.clone(),
                     band: p.band.clone(),
-                    crosswalk: p.crosswalk.clone(),
+                    crosswalk: if dated { BTreeMap::new() } else { p.crosswalk.clone() },
+                    dates: dated && self.dates.first() == Some(k),
                     ..Default::default()
                 };
                 (k.clone(), c)
@@ -538,18 +695,24 @@ impl State {
         format!("{rev}|{:?}|{:?}|{:?}", self.reference_now(), self.choices(), self.effective())
     }
 
-    /// What the dates of the two files give the settings (the Wizard's defaults), when both are chosen.
+    /// What the dates of the two files give the settings (the steps between them, the dates of CLUE-S's), when both are
+    /// chosen; with every band of one file a date, all of them.
     fn derive(&mut self, s: &Session) {
-        let dates = date_sources(&s.my_data.sources, &s.source);
-        let picks: Vec<&Pick> = dates.iter().filter_map(|d| self.picks.get(d)).collect();
+        self.dates = date_sources(&s.my_data.sources, &s.source);
+        self.lulcc = my_data::land(&s.source) == Some(my_data::Land::Lulcc);
+        let picks: Vec<&Pick> = self.dates.iter().filter_map(|d| self.picks.get(d)).collect();
         self.derived = if picks.len() == 2 {
-            let mut t: Vec<Option<f64>> =
-                picks.iter().map(|p| band_name(p).and_then(|b| b.trim().parse().ok())).collect();
-            // (bands that are no dates: 0 and 1, as the Wizard does)
+            let every = self.all_dates_now();
+            // (every band a date: the dates are all the bands' names, the classes the file's own)
+            let names: Vec<String> =
+                if every { picks[0].bands.clone() } else { picks.iter().filter_map(|p| band_name(p)).collect() };
+            let mut t: Vec<Option<f64>> = names.iter().map(|b| b.trim().parse().ok()).collect();
+            // (bands that are no dates: 0, 1, 2...)
             if t.iter().any(Option::is_none) {
-                t = vec![Some(0.0), Some(1.0)];
+                t = (0..names.len()).map(|i| Some(i as f64)).collect();
             }
-            my_data::derive(&s.source, &t, &classes_after(picks[0]), &self.settings)
+            let classes = if every { found_classes(picks[0]) } else { classes_after(picks[0]) };
+            my_data::derive(&s.source, &t, &classes, &self.settings)
         } else {
             BTreeMap::new()
         };
@@ -571,6 +734,15 @@ impl State {
                 self.picks.retain(|k, _| nodes.contains(&k.as_str()));
             }
             self.seen = Some(now);
+        }
+        // (ordered allocation: CLUE-S's template once it is the model open)
+        if let Some(o) = self.start_ordered
+            && my_data::land(&s.source) == Some(my_data::Land::Lulcc)
+        {
+            self.start_ordered = None;
+            if o {
+                self.settings.insert("method".into(), Some(Json::from("ordered")));
+            }
         }
         self.poll();
         self.derive(s);
@@ -617,7 +789,7 @@ impl State {
     /// The pages the *Back* and *Next* buttons go through, in order: the classes when a file has a table of them, the
     /// parameters when the model has some.
     fn pages(&self, has_settings: bool) -> Vec<Page> {
-        let mut p = vec![Page::Data];
+        let mut p = if self.land { vec![Page::Model, Page::Data] } else { vec![Page::Data] };
         if self.needs_classes() {
             p.push(Page::Classes);
         }
@@ -652,6 +824,20 @@ impl State {
         Ok(())
     }
 
+    /// The pages to go to, the one at hand lit.
+    fn strip(&mut self, ui: &mut Ui, has_settings: bool) {
+        ui.horizontal(|ui| {
+            for p in Page::ALL
+                .into_iter()
+                .filter(|p| (*p != Page::Parameters || has_settings) && (*p != Page::Model || self.land))
+            {
+                if ui.selectable_label(self.page == p, p.title()).clicked() {
+                    self.page = p;
+                }
+            }
+        });
+    }
+
     /// The page of *Your data*: a row for each thing the model draws.
     fn data_page(&mut self, ui: &mut Ui, sources: &[Source], dates: &[String]) {
         ui.label(
@@ -669,6 +855,7 @@ impl State {
         let reference = self.reference_now().or(first);
         let many = self.picks.len() > 1;
         let (mut choose, mut keep, mut band, mut refer, mut same) = (None, None, None, None, None);
+        let mut all: Option<(String, String)> = None;
         for src in sources {
             ui.separator();
             ui.horizontal_wrapped(|ui| {
@@ -700,6 +887,18 @@ impl State {
                             .clicked()
                     {
                         same = Some((src.node.clone(), from, b));
+                    }
+                    // CLUE-S's model: every band of that file as the dates
+                    if let Some((from, n)) = self.all_dates_offer(&src.node)
+                        && ui
+                            .button(format!("All {n} bands as the dates"))
+                            .on_hover_text(
+                                "the file chosen for the other date, every band one date: the first band is the first \
+                                 date, the last band the last",
+                            )
+                            .clicked()
+                    {
+                        all = Some((src.node.clone(), from));
                     }
                     return;
                 };
@@ -746,6 +945,12 @@ impl State {
             }
         }
         ui.separator();
+        if let Some((_, bands)) = self.dates_file() {
+            ui.checkbox(&mut self.all_dates, format!("All {} bands are the dates ({})", bands.len(), bands.join(", ")))
+                .on_hover_text(
+                    "every band of the file one date for the demand; your classes are read as they are, with no table",
+                );
+        }
         if let Some(c) = &self.done
             && self.current
         {
@@ -771,6 +976,11 @@ impl State {
         }
         if let Some((n, from, b)) = same
             && let Err(e) = self.same_file(sources, &n, &from, &b)
+        {
+            self.error = Some(e);
+        }
+        if let Some((n, from)) = all
+            && let Err(e) = self.all_dates_from(sources, &n, &from)
         {
             self.error = Some(e);
         }
@@ -813,6 +1023,12 @@ impl State {
             ui.separator();
             ui.label(RichText::new(&src.what).strong());
             let Some(p) = self.picks.get(&src.node) else { continue };
+            if self.all_dates_now() && self.dates.contains(&src.node) {
+                ui.label(
+                    RichText::new("every band is a date: your classes are read as they are, with no table").weak(),
+                );
+                continue;
+            }
             let Some(template) = p.template.clone() else {
                 ui.label(RichText::new("any classes: your classes are kept as they are").weak());
                 continue;
@@ -877,7 +1093,7 @@ impl State {
     }
 
     /// The page of *Parameters*: the settings of the model (the planned one is made with these values): the
-    /// model's exposed parameters and, for a land change model, those the Wizard asked.
+    /// model's exposed parameters and, for a land change model, its own (steps, increment, order of the classes...).
     fn parameters_page(&mut self, ui: &mut Ui, s: &mut Session) {
         let all = self.settings_of(&s.source);
         if all.is_empty() {
@@ -995,6 +1211,27 @@ fn finding_line(ui: &mut Ui, f: &Finding) {
     }
 }
 
+/// The first page of the land change entry points: which model; the one clicked, if any.
+fn model_page(ui: &mut Ui) -> Option<Kind> {
+    let mut chosen = None;
+    ui.label(RichText::new("Which land change model").strong().size(15.0));
+    ui.label(
+        RichText::new(
+            "Choose the model: its template opens, and the next page asks for your maps and drivers in place of the \
+             data it draws.",
+        )
+        .weak(),
+    );
+    for k in Kind::ALL {
+        ui.add_space(6.0);
+        if ui.button(RichText::new(k.title()).strong()).clicked() {
+            chosen = Some(k);
+        }
+        ui.indent(k.title(), |ui| ui.label(k.about()));
+    }
+    chosen
+}
+
 /// The page when the model draws nothing to replace: the templates, to start one (its drawn data is then replaced).
 fn templates_page(ui: &mut Ui, act: &mut Option<Act>, empty: bool) {
     ui.label(RichText::new("Open a template first").strong().size(15.0));
@@ -1044,13 +1281,32 @@ pub fn window(
         .pivot(egui::Align2::CENTER_CENTER)
         .default_pos(screen.center())
         .show(ctx, |ui| {
+            if st.land && st.page == Page::Model {
+                let has_settings = session.as_deref().is_some_and(|s| !my_data::settings(&s.source).is_empty());
+                st.strip(ui, has_settings);
+                ui.separator();
+                if let Some(k) = model_page(ui)
+                    && let Some(t) = st.choose_model(k)
+                {
+                    act = Some(Act::Template(t));
+                }
+                return;
+            }
             let Some(s) = session else {
+                if st.land {
+                    st.strip(ui, false);
+                    ui.separator();
+                }
                 templates_page(ui, &mut act, true);
                 return;
             };
             let sources = sources_of(s, r).to_vec();
             let dates = date_sources(&sources, &s.source);
             if sources.is_empty() {
+                if st.land {
+                    st.strip(ui, false);
+                    ui.separator();
+                }
                 templates_page(ui, &mut act, s.source.nodes.is_empty());
                 return;
             }
@@ -1062,16 +1318,10 @@ pub fn window(
             }
             st.pump(s, tab);
             let has_settings = !my_data::settings(&s.source).is_empty();
-            ui.horizontal(|ui| {
-                for p in Page::ALL.into_iter().filter(|p| *p != Page::Parameters || has_settings) {
-                    if ui.selectable_label(st.page == p, p.title()).clicked() {
-                        st.page = p;
-                    }
-                }
-            });
+            st.strip(ui, has_settings);
             let height = (ui.available_height() - 46.0).max(80.0);
             egui::ScrollArea::vertical().max_height(height).auto_shrink([false, false]).show(ui, |ui| match st.page {
-                Page::Data => st.data_page(ui, &sources, &dates),
+                Page::Model | Page::Data => st.data_page(ui, &sources, &dates),
                 Page::Classes => st.classes_page(ui, &sources),
                 Page::Parameters => st.parameters_page(ui, s),
                 Page::Review => st.review_page(ui, &s.source),

@@ -47,6 +47,6 @@ in the tour tells more.
 - A label in **bold** is a button, menu item or title as the window shows it: **View > Changes** is the menu
   **View**, then its item **Changes**.
 - Keys are written for Windows and Linux: ++ctrl++ is the ++cmd++ key on macOS.
-- The window's look changes with its theme. A button written **Wizard** in the default themes is written
-  *Wizard...* in the classic ones; this section uses the first form.
+- The window's look changes with its theme. A button written **Use my data** in the default themes is written
+  *Use my data...* in the classic ones; this section uses the first form.
 - A value the window starts with is called its *default*.

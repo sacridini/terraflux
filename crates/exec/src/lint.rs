@@ -417,7 +417,7 @@ mod tests {
         assert!(lint(&model(), &inputs).is_empty());
     }
 
-    /// The model of the Wizard's names, and the same one with other names and a chain between the inputs and what
+    /// The model of the presets' names (`t0`, `t1`...), and the same one with other names and a chain between the inputs and what
     /// reads them (a grid put right, classes translated, the maps stacked), as "Use my data" writes it.
     fn chained() -> Model {
         let mut m = Model::new("t");
@@ -449,13 +449,13 @@ mod tests {
             (text(lint(&model(), &named)), text(lint(&chained(), &other)))
         };
         // no change: the same finding, whatever the names
-        let (wizard, mine) = both(vec![1.0, 2.0], vec![1.0, 2.0]);
-        assert!(wizard.iter().any(|f| f.1.contains("no cell changed")), "{wizard:?}");
-        assert_eq!(wizard, mine);
+        let (plain, mine) = both(vec![1.0, 2.0], vec![1.0, 2.0]);
+        assert!(plain.iter().any(|f| f.1.contains("no cell changed")), "{plain:?}");
+        assert_eq!(plain, mine);
         // cells with a class in one of the maps only
-        let (wizard, mine) = both(vec![1.0, f64::NAN], vec![2.0, 2.0]);
-        assert!(wizard.iter().any(|f| f.1.contains("only one of the two maps")), "{wizard:?}");
-        assert_eq!(wizard, mine);
+        let (plain, mine) = both(vec![1.0, f64::NAN], vec![2.0, 2.0]);
+        assert!(plain.iter().any(|f| f.1.contains("only one of the two maps")), "{plain:?}");
+        assert_eq!(plain, mine);
         let f = lint(
             &chained(),
             &BTreeMap::from([

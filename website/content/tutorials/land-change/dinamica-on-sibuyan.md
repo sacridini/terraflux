@@ -118,13 +118,14 @@ file in which every choice is a node with a note; the run takes a third of a sec
 `sibuyan/weights.csv` (the weights report of part 1).
 
 !!! app "In the application"
-    The toolbar's **Wizard...** writes the same model in three steps. *The model*: choose Dinamica EGO's classic
-    model. *The data*: the land use map (the two dates are chosen from its bands) and the drivers; the data is
-    checked as soon as it is chosen (grids, classes, missing values, constant or collinear drivers), and a driver
-    on another grid can be resampled onto the land use map's grid with a click. *The settings*: the time steps
-    between the two maps, the steps to simulate, the weights' buffer increment (automatic or a number), the
-    Expander's share (as observed, or a number) and the isometry. **Create the model...** saves it and opens it in
-    the builder, where every node can be clicked and changed.
+    The toolbar's **Use my data...** makes the same model in a few steps. *Which model*: choose Dinamica EGO's classic
+    model (its template opens). *Your data*: the land use map (the two dates are chosen from its bands, the second
+    offered **The same file, band ...**) and the drivers; the data is checked as soon as it is chosen (grids, classes,
+    missing values, constant or collinear drivers), and a driver on another grid is put on the land use map's grid by
+    a `raster.match`. *Parameters*: the time steps between the two maps, the steps to simulate, the weights' buffer
+    increment (automatic or a number), the Expander's share (as observed, or a number) and the isometry.
+    **Apply** puts your data in place of the template's drawn data, in one step of undo, and the builder shows the
+    model, where every node can be clicked and changed.
 
 ### The inputs
 
@@ -500,7 +501,7 @@ set by hand, a road as a changed driver).
 - **Drivers in another order or other names.** The weights are tied to the drivers' names. A drivers file for
   2025 must have bands of the same names, or the weights no longer find their driver.
 - **Maps not on the same grid.** The two dates and the drivers must share the grid (extent, cell size, rows and
-  columns). `terraflux check` and the Wizard warn; `terraflux resample drivers.tif --like landuse.tif` puts a
+  columns). `terraflux check` and Use my data warn; `terraflux resample drivers.tif --like landuse.tif` puts a
   raster on another's grid.
 - **The loop reading the start map.** Inside the body, read `@landscape` (see the warning above).
 - **One run reported as the result.** Report replicates, and what is common to them.

@@ -1,8 +1,8 @@
 //! The application end to end, rendered off screen: a model opened (its data read in a thread), run with its
-//! maps arriving step by step, its inputs' maps gone through, its tabs drawn; and the wizard, its data checked as
-//! soon as it is chosen. The frames are written to `target/tmp/ui-*.png` to be looked at.
+//! maps arriving step by step, its inputs' maps gone through, its tabs drawn; and Use my data, its data checked
+//! as soon as it is chosen. The frames are written to `target/tmp/ui-*.png` to be looked at.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use egui_kittest::Harness;
@@ -10,7 +10,7 @@ use egui_kittest::kittest::Queryable;
 use terraflux_app::TerrafluxApp;
 use terraflux_app::app::Pane;
 use terraflux_app::editor_view::NodeStatus;
-use terraflux_app::wizard::{Picked, Step, Wizard};
+use terraflux_ops::presets;
 
 mod pack_ui;
 mod quality_of_life;
@@ -26,19 +26,43 @@ fn tmp(name: &str) -> PathBuf {
     d.join(name)
 }
 
-/// A Dinamica model of Sibuyan written by the wizard.
+/// A Dinamica model of Sibuyan (the one the Wizard wrote, its buffer increment 250), saved at `path`.
+fn sibuyan_model(path: &Path) -> PathBuf {
+    use terraflux_graph::Input;
+    let dir = path.parent().unwrap();
+    let rel = |name: &str| terraflux_graph::relative_path(&data(name), dir);
+    let mut m = terraflux_graph::Model::new("Dinamica EGO's classic model");
+    let map = |band: &str| Input::Map {
+        path: rel("sibuyan_landuse.tif"),
+        band: Some(band.into()),
+        nodata: None,
+        note: Some(format!("land use in {band}")),
+        data: None,
+    };
+    m.inputs.insert(
+        "drivers".into(),
+        Input::Stack {
+            path: rel("sibuyan_drivers.tif"),
+            bands: None,
+            nodata: None,
+            note: Some("the explanatory variables".into()),
+            data: None,
+        },
+    );
+    m.inputs.insert("seed".into(), Input::Value { value: 1.into(), note: Some("the seed of the simulation".into()) });
+    m.inputs.insert("t0".into(), map("1997"));
+    m.inputs.insert("t1".into(), map("2011"));
+    let steps = presets::Dinamica { steps: 14, simulate: 14, increment: Some(250.0), ..Default::default() };
+    presets::dinamica(&mut m, &steps);
+    m.save(path).unwrap();
+    path.to_path_buf()
+}
+
+/// A Dinamica model of Sibuyan.
 fn model() -> PathBuf {
     // (written once: open sessions of the other tests watch the file, and a write under them is a change)
     static MODEL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    MODEL
-        .get_or_init(|| {
-            let mut w = Wizard::default();
-            w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
-            w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
-            w.increment = Some(250.0);
-            w.save(&tmp("ui-model.toml")).unwrap()
-        })
-        .clone()
+    MODEL.get_or_init(|| sibuyan_model(&tmp("ui-model.toml"))).clone()
 }
 
 /// A Plot of the model opened in the Viewer (in front); what it shows first.
@@ -101,7 +125,7 @@ fn held(alone: bool) {
 }
 
 /// The tests' own settings, not the user's; no computer shared or lent unless a test does it (on this computer
-/// only). The tests look for the classic theme's labels and places ("Run", "Wizard...", the panes edge to edge):
+/// only). The tests look for the classic theme's labels and places ("Run", "Use my data...", the panes edge to edge):
 /// their settings start in it (a new installation opens in Slate since 1.31.0).
 fn setup() {
     held(false);
@@ -304,52 +328,202 @@ fn a_model_runs_and_every_tab_draws() {
     shot(&mut h, "6-validation");
 }
 
+/// A map put on a grid that is not the land use map's (twice as fine) is put right by a raster.match, and the check
+/// then passes (what the Wizard's *Resample* button did, after the check that stopped it).
 #[test]
-fn the_wizard_checks_the_data() {
+fn use_my_data_puts_a_misaligned_file_on_the_grid_of_the_reference() {
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let dir = tmp("use-my-data-grid");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // the drivers of Sibuyan on a grid twice as fine: not the land use map's
+    let src = terraflux_raster::Raster::read(data("sibuyan_drivers.tif")).unwrap();
+    let mut fine = src.grid.clone();
+    fine.width *= 2;
+    fine.height *= 2;
+    fine.transform[1] /= 2.0;
+    fine.transform[5] /= 2.0;
+    let (moved, _) =
+        terraflux_raster::resample::resample(&src, &fine, terraflux_raster::resample::Method::Nearest).unwrap();
+    let drivers = dir.join("drivers_fine.tif");
+    moved.write(&drivers).unwrap();
     let mut h = harness(new_app(None));
     h.run_steps(2);
-    // (on a narrow bar the tools are in the menu Tools)
-    if h.query_by_label("Wizard...").is_none() {
+    template_run(&mut h, "Dinamica EGO", ("markov", "markov"));
+    h.state_mut().my_data = Some(terraflux_app::my_data_view::State::new());
+    h.run_steps(3);
+    let reg = terraflux_ops::Registry::standard();
+    {
+        let app = h.state_mut();
+        let (w, s) = (app.my_data.as_mut().unwrap(), app.session.as_mut().unwrap());
+        for (node, band) in [("land_2000", "1997"), ("land_2010", "2011")] {
+            w.choose(s, &reg, node, &data("sibuyan_landuse.tif")).unwrap();
+            w.set_band(node, Some(band.into()));
+        }
+        w.choose(s, &reg, "drivers", &drivers).unwrap();
+    }
+    h.run_steps(2);
+    until(&mut h, "the check", |a| a.my_data.as_ref().unwrap().current());
+    h.run_steps(2);
+    shot(&mut h, "7-use-my-data-grid");
+    let w = h.state().my_data.as_ref().unwrap();
+    let plan = w.plan().unwrap();
+    let m = plan.model.node("drivers_match").expect("a raster.match for the drivers");
+    assert_eq!(m.op, "raster.match");
+    assert!(w.can_apply(), "{:?}", w.findings().iter().map(|f| f.to_string()).collect::<Vec<_>>());
+    assert!(w.findings().iter().all(|f| f.level != terraflux_exec::lint::Level::Error));
+    // the review says what was done
+    for _ in 0..3 {
+        h.get_by_label("Next").click();
+        h.run_steps(3);
+    }
+    assert!(h.query_all_by_label_contains("raster.match").next().is_some(), "the notes of the review");
+    shot(&mut h, "8-use-my-data-review");
+}
+
+/// A file with fractional values is no map of classes: the reason is shown under its row, it is left out of the plan,
+/// and with nothing else chosen there is nothing to apply.
+#[test]
+fn use_my_data_refuses_a_file_with_fractional_values_for_classes() {
+    let dir = tmp("use-my-data-fractional");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("fractional.tif");
+    let values = (0..64).map(|i| i as f64 / 3.0).collect();
+    terraflux_raster::Raster::single(terraflux_raster::Grid::new(8, 8), values, terraflux_raster::DataType::F32, None)
+        .write(&file)
+        .unwrap();
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    template_run(&mut h, "MSPA of a forest", ("mspa", "map"));
+    h.state_mut().my_data = Some(terraflux_app::my_data_view::State::new());
+    h.run_steps(3);
+    let reg = terraflux_ops::Registry::standard();
+    {
+        let app = h.state_mut();
+        let (w, s) = (app.my_data.as_mut().unwrap(), app.session.as_mut().unwrap());
+        w.choose(s, &reg, "landscape", &file).unwrap();
+    }
+    for _ in 0..200 {
+        h.run_steps(1);
+        if h.query_all_by_label_contains("fractional").next().is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(h.query_all_by_label_contains("fractional").next().is_some(), "the reason is shown");
+    shot(&mut h, "8b-use-my-data-fractional");
+    let w = h.state().my_data.as_ref().unwrap();
+    assert!(w.plan().is_none() && !w.can_apply(), "nothing to apply");
+}
+
+/// The land change entry points (the toolbar's *Use my data*, the start page, the palette) open the window at its
+/// first page: which model. Ordered allocation is CLUE-S's template with the method ordered, and the window goes on to
+/// the data.
+#[test]
+fn the_land_change_entry_points_ask_which_model_first() {
+    held(true);
+    terraflux_app::settings::update(|s| {
+        s.start_page = true;
+        s.recent_models.clear();
+    });
+    let mut h = harness(new_app(None));
+    h.run_steps(3);
+    // the start page's button
+    h.get_by_label("Use my data: a land change model from your maps").click();
+    h.run_steps(3);
+    assert!(h.state().my_data.as_ref().is_some_and(|w| w.land));
+    for title in ["Dinamica EGO's classic model", "CLUE-S", "Ordered allocation", "PLUS"] {
+        assert!(h.query_all_by_label(title).next().is_some(), "{title}");
+    }
+    assert!(h.query_by_label_contains("weights of evidence").is_some(), "the texts of each model");
+    shot(&mut h, "7-use-my-data-which-model");
+    terraflux_app::start_page::set_closed(&h.ctx, true);
+    h.run_steps(2);
+    h.get_by_label("Ordered allocation").click();
+    until(&mut h, "the template", |a| a.session.as_ref().is_some_and(|s| s.source.node("demand").is_some()));
+    h.run_steps(4);
+    assert!(h.query_all_by_label("Choose a file...").next().is_some(), "the window goes on to the data");
+    {
+        let app = h.state();
+        let (w, s) = (app.my_data.as_ref().unwrap(), app.session.as_ref().unwrap());
+        let now = |id: &str| w.settings_of(&s.source).into_iter().find(|(st, _)| st.id == id).unwrap().1;
+        assert_eq!(now("method"), Some("ordered".into()), "ordered allocation: CLUE-S's method chosen");
+    }
+    shot(&mut h, "7b-use-my-data-ordered");
+    // the toolbar's button (a tool of the bar, or of its menu Tools when the bar is narrow)
+    h.state_mut().my_data = None;
+    // (the strip over the canvas has a button of the same words: hidden)
+    h.state_mut().session.as_mut().unwrap().my_data.hidden = true;
+    h.run_steps(2);
+    if h.query_by_label("Use my data...").is_none() {
         h.get_by_label("Tools").click();
         h.run_steps(2);
     }
-    h.get_by_label("Wizard...").click();
+    h.get_by_label("Use my data...").click();
+    h.run_steps(3);
+    assert!(h.state().my_data.as_ref().is_some_and(|w| w.land), "the toolbar");
+    // the palette
+    h.state_mut().my_data = None;
     h.run_steps(2);
-    assert!(h.state().wizard.is_some());
-    assert!(h.query_by_label_contains("Dinamica EGO's classic model").is_some());
-    shot(&mut h, "7-wizard");
-    h.get_by_label("Next").click();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::K);
+    h.run_steps(2);
+    h.event(egui::Event::Text("land change model from your maps".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert!(h.state().my_data.as_ref().is_some_and(|w| w.land), "the palette");
+}
+
+/// CLUE-S with a file of three bands: the second date is offered every band as the dates; the demand reads the
+/// stack of the file, the dates come from the bands' names, and *Apply* is one step.
+#[test]
+fn use_my_data_takes_every_band_of_a_file_as_the_dates_of_clue_s() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    template_run(&mut h, "CLUE-S", ("demand", "demand"));
+    h.state_mut().my_data = Some(terraflux_app::my_data_view::State::new());
+    h.run_steps(3);
+    let reg = terraflux_ops::Registry::standard();
+    assert!(h.query_by_label_contains("bands as the dates").is_none(), "no file chosen yet");
+    {
+        let app = h.state_mut();
+        let (w, s) = (app.my_data.as_mut().unwrap(), app.session.as_mut().unwrap());
+        w.choose(s, &reg, "land_2000", &data("pie_landuse.tif")).unwrap();
+    }
+    h.run_steps(3);
+    h.get_by_label("All 3 bands as the dates").click();
     h.run_steps(2);
     {
-        let w = h.state_mut().wizard.as_mut().unwrap();
-        assert_eq!(w.step, Step::Data);
-        w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
-        // a misaligned driver: Plum Island's
-        w.drivers = Some(Picked::header(&data("pie_drivers.tif")).unwrap());
+        let app = h.state_mut();
+        let (w, s) = (app.my_data.as_mut().unwrap(), app.session.as_mut().unwrap());
+        assert!(w.all_dates_now());
+        w.choose(s, &reg, "drivers", &data("pie_drivers.tif")).unwrap();
+        w.run_now = false;
     }
-    // checked at once, in a thread, on the same page
-    h.run_steps(1);
-    until(&mut h, "the check", |a| a.wizard.as_ref().unwrap().is_checked());
+    h.run_steps(2);
+    until(&mut h, "the check", |a| a.my_data.as_ref().unwrap().current());
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("All 3 bands are the dates").is_some(), "the box to take it back");
+    shot(&mut h, "9-use-my-data-three-dates");
+    let w = h.state().my_data.as_ref().unwrap();
+    assert!(w.can_apply(), "{:?}", w.findings().iter().map(|f| f.to_string()).collect::<Vec<_>>());
+    let plan = w.plan().unwrap();
+    assert!(matches!(plan.model.inputs.get("observed"), Some(terraflux_graph::Input::Stack { bands: None, .. })));
+    assert_eq!(plan.model.setting("demand.times"), Some(&serde_json::json!([1985, 1991, 1999])));
+    assert!(plan.model.node("ends").is_some() && plan.model.node("observed").is_none());
+    for _ in 0..3 {
+        h.get_by_label("Next").click();
+        h.run_steps(2);
+    }
+    h.get_by_label("Apply").click();
     h.run_steps(3);
-    let w = h.state().wizard.as_ref().unwrap();
-    assert!(w.blocked(), "a driver on another grid must stop the wizard");
-    assert!(h.query_by_label_contains("resample it to the reference grid").is_some());
-    h.get_by_label("Next").click();
-    h.run_steps(2);
-    assert_eq!(h.state().wizard.as_ref().unwrap().step, Step::Data, "no next step with a driver on another grid");
-    shot(&mut h, "8-wizard-check");
-    // the right drivers: nothing to stop at, the settings next
-    h.state_mut().wizard.as_mut().unwrap().drivers = Some(Picked::header(&data("sibuyan_drivers.tif")).unwrap());
-    h.run_steps(1);
-    until(&mut h, "the check", |a| a.wizard.as_ref().unwrap().is_checked());
-    h.run_steps(2);
-    assert!(!h.state().wizard.as_ref().unwrap().blocked());
-    assert!(h.query_by_label_contains("nothing looks wrong").is_some());
-    shot(&mut h, "8b-wizard-data");
-    h.get_by_label("Next").click();
-    h.run_steps(2);
-    assert_eq!(h.state().wizard.as_ref().unwrap().step, Step::Settings);
-    shot(&mut h, "8c-wizard-settings");
+    assert!(h.state().my_data.is_none(), "the window closes");
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.source.inputs.contains_key("observed") && s.source.nodes.iter().all(|n| !n.op.starts_with("nlm.")));
+    assert!(s.review.as_ref().unwrap().by.contains("Use my data"));
 }
 
 #[test]
@@ -10220,11 +10394,7 @@ fn the_runs_are_kept_and_listed() {
     let dir = tmp("runs-journal");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let mut w = Wizard::default();
-    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
-    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
-    w.increment = Some(250.0);
-    let file = w.save(&dir.join("ui-runs.toml")).unwrap();
+    let file = sibuyan_model(&dir.join("ui-runs.toml"));
     let mut h = harness(new_app(Some(file.clone())));
     loaded(&mut h);
     let journal = terraflux_exec::journal::Journal::of(&file).unwrap();
@@ -10298,11 +10468,7 @@ fn a_check_run_gives_the_model_at_a_coarser_resolution_apart_from_the_real_outpu
     let dir = tmp("check-run");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let mut w = Wizard::default();
-    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
-    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
-    w.increment = Some(250.0);
-    let file = w.save(&dir.join("ui-check.toml")).unwrap();
+    let file = sibuyan_model(&dir.join("ui-check.toml"));
     let mut h = harness(new_app(Some(file.clone())));
     loaded(&mut h);
     {
@@ -10407,11 +10573,7 @@ fn the_runs_are_shown_restored_and_compared() {
     let dir = tmp("runs-actions");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let mut w = Wizard::default();
-    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
-    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
-    w.increment = Some(250.0);
-    let file = w.save(&dir.join("ui-runs-actions.toml")).unwrap();
+    let file = sibuyan_model(&dir.join("ui-runs-actions.toml"));
     let mut h = harness(new_app(Some(file.clone())));
     loaded(&mut h);
     let journal = Journal::of(&file).unwrap();
@@ -10625,11 +10787,7 @@ fn the_versions_are_saved_listed_reviewed_restored_and_deleted() {
     let dir = tmp("versions");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let mut w = Wizard::default();
-    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
-    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
-    w.increment = Some(250.0);
-    let file = w.save(&dir.join("ui-versions.toml")).unwrap();
+    let file = sibuyan_model(&dir.join("ui-versions.toml"));
     let mut h = harness(new_app(Some(file.clone())));
     loaded(&mut h);
     let journal = Journal::of(&file).unwrap();
@@ -10758,11 +10916,7 @@ fn the_outputs_of_the_runs_are_cleaned_after_asking() {
     let dir = tmp("clean-outputs");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("output")).unwrap();
-    let mut w = Wizard::default();
-    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
-    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
-    w.increment = Some(250.0);
-    let file = w.save(&dir.join("ui-clean.toml")).unwrap();
+    let file = sibuyan_model(&dir.join("ui-clean.toml"));
     let journal = Journal::of(&file).unwrap();
     // a run from long ago, whose output is still there
     let old = dir.join("output").join("old.tif");
@@ -10855,11 +11009,7 @@ fn a_run_that_may_not_fit_the_disk_asks_first() {
     let dir = tmp("disk-asks");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let mut w = Wizard::default();
-    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
-    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
-    w.increment = Some(250.0);
-    let file = w.save(&dir.join("ui-disk.toml")).unwrap();
+    let file = sibuyan_model(&dir.join("ui-disk.toml"));
     let mut h = harness(new_app(Some(file.clone())));
     loaded(&mut h);
     {
@@ -10949,11 +11099,7 @@ fn a_run_that_may_not_fit_the_memory_asks_first() {
     let dir = tmp("memory-asks");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let mut w = Wizard::default();
-    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
-    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
-    w.increment = Some(250.0);
-    let file = w.save(&dir.join("ui-memory.toml")).unwrap();
+    let file = sibuyan_model(&dir.join("ui-memory.toml"));
     let mut h = harness(new_app(Some(file.clone())));
     loaded(&mut h);
     let peak = {
@@ -11232,7 +11378,7 @@ fn the_start_page_leads_into_a_first_model() {
         assert_eq!(there, part != "Recent models", "{part}");
     }
     assert!(h.query_by_label("Open a model...").is_some());
-    assert!(h.query_by_label("Wizard: a land change model from your maps").is_some());
+    assert!(h.query_by_label("Use my data: a land change model from your maps").is_some());
     shot(&mut h, "33-start-page");
     // the learn links
     h.get_by_label("Quickstart").click();
@@ -11477,7 +11623,7 @@ fn use_my_data_on_dinamica_takes_two_dates_of_one_file_drivers_and_the_parameter
     }
     h.run_steps(2);
     until(&mut h, "the check", |a| a.my_data.as_ref().unwrap().current());
-    // the dates of the bands give the steps (the Wizard's defaults); the drivers are a stack of every band
+    // the dates of the bands give the steps (the steps between them); the drivers are a stack of every band
     {
         let app = h.state();
         let (w, s) = (app.my_data.as_ref().unwrap(), app.session.as_ref().unwrap());

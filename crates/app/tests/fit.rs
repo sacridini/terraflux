@@ -2,14 +2,14 @@
 //! windows drawn off screen and their widgets looked for in the tree of accessibility (a process of its own: the
 //! theme and the size of the text are the application's, for every test running beside it).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use terraflux_app::TerrafluxApp;
 use terraflux_app::app::Pane;
-use terraflux_app::wizard::{Picked, Wizard};
+use terraflux_ops::presets;
 
 fn data(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs").join(name)
@@ -21,13 +21,41 @@ fn tmp(name: &str) -> PathBuf {
     d.join(name)
 }
 
-/// A Dinamica model of Sibuyan written by the wizard.
+/// A Dinamica model of Sibuyan (the one the Wizard wrote, its buffer increment 250), saved at `path`.
+fn sibuyan_model(path: &Path) -> PathBuf {
+    use terraflux_graph::Input;
+    let dir = path.parent().unwrap();
+    let rel = |name: &str| terraflux_graph::relative_path(&data(name), dir);
+    let mut m = terraflux_graph::Model::new("Dinamica EGO's classic model");
+    let map = |band: &str| Input::Map {
+        path: rel("sibuyan_landuse.tif"),
+        band: Some(band.into()),
+        nodata: None,
+        note: Some(format!("land use in {band}")),
+        data: None,
+    };
+    m.inputs.insert(
+        "drivers".into(),
+        Input::Stack {
+            path: rel("sibuyan_drivers.tif"),
+            bands: None,
+            nodata: None,
+            note: Some("the explanatory variables".into()),
+            data: None,
+        },
+    );
+    m.inputs.insert("seed".into(), Input::Value { value: 1.into(), note: Some("the seed of the simulation".into()) });
+    m.inputs.insert("t0".into(), map("1997"));
+    m.inputs.insert("t1".into(), map("2011"));
+    let steps = presets::Dinamica { steps: 14, simulate: 14, increment: Some(250.0), ..Default::default() };
+    presets::dinamica(&mut m, &steps);
+    m.save(path).unwrap();
+    path.to_path_buf()
+}
+
+/// A Dinamica model of Sibuyan.
 fn model() -> PathBuf {
-    let mut w = Wizard::default();
-    w.landuse_picked(Picked::read(&data("sibuyan_landuse.tif")).unwrap());
-    w.drivers = Some(Picked::read(&data("sibuyan_drivers.tif")).unwrap());
-    w.increment = Some(250.0);
-    w.save(&tmp("fit-model.toml")).unwrap()
+    sibuyan_model(&tmp("fit-model.toml"))
 }
 
 fn shot(h: &mut Harness<TerrafluxApp>, name: &str) {
