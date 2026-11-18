@@ -56,6 +56,7 @@ pub mod interpolation;
 pub mod landforms;
 pub mod landscape;
 pub mod legend;
+pub mod linkage;
 pub mod lsm_catalog;
 pub mod lulcc;
 pub mod map_validation;
@@ -468,6 +469,7 @@ impl Registry {
         restoration_plan::register(&mut r);
         vector::register(&mut r);
         planner::register(&mut r);
+        linkage::register(&mut r);
         sampling::register(&mut r);
         signatures::register(&mut r);
         gtn::register(&mut r);

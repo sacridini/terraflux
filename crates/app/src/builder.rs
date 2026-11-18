@@ -71,7 +71,7 @@ pub(crate) const SUBJECTS: [(&str, &[&str]); 32] = [
     ("Habitat patterns", &["landscape", "patterns"]),
     ("Fragmentation", &["fragmentation"]),
     ("Landscape metrics", &["metrics"]),
-    ("Habitat networks", &["networks", "conn"]),
+    ("Habitat networks", &["networks", "conn", "linkage"]),
     ("Circuit connectivity", &["circuit"]),
     ("Surface metrics", &["surface"]),
     ("Terrain hydrology", &["hydro", "swat"]),

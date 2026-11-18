@@ -122,6 +122,14 @@ pub const TIPS: &[(&str, &str)] = &[
          patches or sites to connect. The effective resistance depends on the cell size: compare runs on one grid.",
     ),
     (
+        "linkage.pathways",
+        "The cores are the habitat patches to connect, whole ids on the resistance's grid; the resistance is a cost \
+         per cell (1 or more, from the literature or from movement data: record where it comes from), no value or \
+         0 a barrier. The links by `adjacency` cost (the default) are those Linkage Mapper draws; `width` is in \
+         cost units, not map units. A link past `max_cwd`, or through a third core, is listed with its reason, \
+         not drawn.",
+    ),
+    (
         "cost.transition",
         "Of a conductance (1 / resistance), usually corrected for the cells' distances (cost.geo_correction) before \
          cost.acc_cost or cost.passage.",

@@ -29,6 +29,7 @@ mod hydro;
 mod interpolation;
 mod landforms;
 mod legend;
+mod linkage;
 mod map_validation;
 mod marxan;
 mod metapopulation;

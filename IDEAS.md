@@ -3860,6 +3860,10 @@ duas células, vezes o tamanho da célula) e o Circuitscape do terraflux-py. Mó
   Saídas: `corridors` (o mosaico, o mínimo das distâncias normalizadas CWD_A + CWD_B − LCD, cortado em `width`),
   `links` (tabela: from, to, euclidiana, LCD, comprimento do caminho, razão CWD/comprimento, mantido ou o porquê),
   `paths` (linhas), `cwd` (a distância de custo ao núcleo mais próximo). Dicas e conselhos (`tips.rs`, check).
+  **Feito** (Unreleased). `linkage.pathways` em `crates/ops/src/linkage.rs`; `cores` só como mapa (polígonos: antes
+  `vector.rasterize`); nodata ou resistência ≤ 0 é intransponível; `nearest` mantém a ligação se está entre as k
+  menores de qualquer um dos dois núcleos; razão extra `unreachable`; a tabela só tem os pares candidatos. `linkage::cwd` e `edt` são
+  públicas para 2b e 2c. Referência: `tools/make_linkage_reference.py` (MCP_Geometric), teste `linkage::`.
 - **2b. `linkage.pinchpoints`.** Para cada ligação, o Circuitscape entre os dois núcleos só dentro do corredor cortado
   (ou all-to-one no mosaico todo); saídas `current` (o máximo ou a soma das ligações) e `links` (a resistência
   efetiva de cada uma).
