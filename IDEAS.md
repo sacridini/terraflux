@@ -3909,3 +3909,52 @@ ideia vai ao IDEAS.md dele, para manter a paridade.
   `data-preparation` do MCP dizem como.
   **Feito** (Unreleased). `catalog.rs` (campo `mask` do preset, `stac_mask`/`stac_snow`/`stac_buffer`, crescer 1 célula por
   padrão), o exportador Python comenta a máscara (a biblioteca ainda não mascara), tour, canvas e guia `data-preparation`.
+
+## "Use my data": qualquer template com os dados da pessoa, e o fim do Wizard
+
+Pedido de 2026-11-18. Um commit por etapa, passando à seguinte sem perguntar; sem release nem push sem pedido.
+
+Os 56 templates rodam com dados sintéticos (`nlm.*`); trocar pelos da pessoa é feito à mão, nó a nó (o template
+"MSPA of your map" diz "choose its file in the node read, and in the reclassification the classes of its forest"), ou
+pelo assistente (o prompt `adapt_template` do MCP). É onde o iniciante para: grades e CRS diferentes, sem dado, e
+"qual classe do meu mapa é a floresta?". O Wizard (`wizard.rs`) confere os dados assim que escolhidos, mas só para
+três modelos de mudança de uso, e escreve um modelo do zero. A ideia: levar essa conferência a todos os templates, e
+depois aposentar o Wizard, que vira um caso do mesmo fluxo.
+
+**A peça central: a tabela de classes.** Em vez de achar cada ajuste que depende das classes de um mapa (o
+`foreground` do MSPA, as regras de uma reclassificação, as classes de uma legenda), um mapa de classes da pessoa
+entra seguido de um `raster.reclassify` que traduz as classes dela para os códigos que o template espera ("as
+suas classes 3 e 4 → floresta (1)"). Tudo o que vem depois continua como estava, e a tradução fica visível como um
+nó com nota.
+
+- **A. O que faz as vezes de dado.** Campo opcional `data` num nó (formato do modelo, `crates/graph`): este nó está no
+  lugar de um dado da pessoa: `what` (a frase: "a land use map, the first date"), `kind` (`classes`, `values`,
+  `mask`, `stack`), as classes esperadas com seus nomes (`classes = { 1 = "forest", ... }`) e, para valores, a faixa
+  ou unidade esperada ("1 or more"). Lido e escrito em TOML e JSON, conferido pelo check, mostrado no Node pane, visto
+  pelo MCP (`show_model`, o prompt `adapt_template`). Os templates ganham o campo nos seus nós de dados (os `nlm.*`
+  que estão no lugar de um mapa, o `raster.calc` da segunda data dos de mudança de uso, os `stack.of` de fatores), e
+  um teste exige que todo template com `nlm.*` tenha ao menos um. Os `nlm.*` sem o campo também são oferecidos, com a
+  nota do nó como descrição.
+- **B. O motor da troca** (`crates/app/src/my_data.rs`, puro): `sources(model)` (os nós com `data`, os `nlm.*`, os
+  `raster.read` sem arquivo, as entradas `$x` do modelo sem valor); `plan(model, escolhas) -> Model` numa cópia: um
+  `raster.read` (com a banda) no lugar de cada fonte; para classes, o `raster.reclassify` da tabela (classes não
+  ligadas: sem dado, ou "outra" se o template tem uma); um `raster.match` para a grade de referência onde a grade
+  difere (`near` para classes, `bilinear` para valores, como `fixes.rs` e `prepare.rs`); os `nlm.*` que ficarem
+  postos na grade de referência (ou a troca recusada, dizendo qual falta); pilhas de um arquivo de bandas ou de
+  vários; nota e `why` em cada nó novo. A conferência é a do Wizard (`load_inputs` + `lint`, numa thread) sobre o
+  modelo planejado. Testes com os arquivos de teste (Sibuyan, Plum Island) em vários templates.
+- **C. A janela.** *File > Use my data...*, a tela inicial e uma faixa no canvas quando o modelo aberto tem dados
+  sintéticos ("This model runs on drawn data: Use my data..."). Passos: cada fonte (o que é, escolher o arquivo e a
+  banda, a conferência ao lado, os achados com as correções); a tabela de classes de cada mapa de classes (as classes
+  do template, com nome, contra as classes do arquivo, com nome da legenda e contagem); a grade de referência;
+  revisão e *Apply*: um passo de desfazer, visto no painel Changes (`review::begin` antes de trocar o modelo), e uma
+  execução.
+- **D. Os modelos de mudança de uso.** Os templates Dinamica EGO, CLUE-S e PLUS com `data` nas suas fontes (duas
+  datas de um arquivo de bandas ou de dois, a pilha de fatores, as datas), as mesmas conferências do Wizard (as
+  classes de t0 e t1, a grade dos fatores) e, por último, os parâmetros do modelo (passos, incremento, elasticidade,
+  ordem das classes...) num passo final com o formulário do painel Parameters. Paridade com o Wizard: o modelo que um
+  e outro dão com os mesmos dados roda e dá as mesmas saídas.
+- **E. O fim do Wizard.** O botão Wizard, a tela inicial e a paleta abrem o *Use my data* com uma primeira página
+  "qual modelo de mudança de uso" (os textos de `Kind::about`); `wizard.rs` sai; testes, site (páginas do aplicativo,
+  tutoriais que citam o Wizard), README ("a wizard that checks and fixes the data") e CHANGELOG atualizados. O
+  `terraflux new dinamica` da CLI não usa o Wizard e continua.
