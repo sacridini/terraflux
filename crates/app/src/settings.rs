@@ -70,6 +70,8 @@ pub struct Settings {
     /// The Node pane's tab opened by itself beside the model with its first node (off unless turned on: a node's
     /// settings open in a panel beside its box on the canvas; the tab stays in the panes' menu).
     pub node_pane_opens: bool,
+    /// The start page on the Model pane's canvas while the model is empty (on unless turned off).
+    pub start_page: bool,
     /// The models opened or saved last, the last first.
     pub recent_models: Vec<PathBuf>,
     /// The computer kept from sleeping while a model runs, a batch goes on or it works for another's (on unless
@@ -430,6 +432,7 @@ impl Default for Settings {
             wires_around: true,
             node_settings: true,
             node_pane_opens: false,
+            start_page: true,
             recent_models: Vec::new(),
             keep_awake: true,
             keep_outputs_mb: 50,

@@ -308,6 +308,11 @@ fn a_model_runs_and_every_tab_draws() {
 fn the_wizard_checks_the_data() {
     let mut h = harness(new_app(None));
     h.run_steps(2);
+    // (on a narrow bar the tools are in the menu Tools)
+    if h.query_by_label("Wizard...").is_none() {
+        h.get_by_label("Tools").click();
+        h.run_steps(2);
+    }
     h.get_by_label("Wizard...").click();
     h.run_steps(2);
     assert!(h.state().wizard.is_some());
@@ -5620,6 +5625,13 @@ fn the_help_menu_leads_to_the_docs_and_about() {
     use terraflux_app::docs;
     docs::record();
     let mut h = harness(new_app(None));
+    h.run_steps(2);
+    // (a model with a node: the start page of an empty one has Quickstart as a link too)
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.nodes = vec![terraflux_graph::Node::new("mspa", "landscape.mspa").param("foreground", 1)];
+        s.edited();
+    }
     h.run_steps(2);
     h.get_by_label("Help").click();
     h.run_steps(2);
@@ -11165,4 +11177,90 @@ fn the_map_stays_in_place_after_an_edit_and_its_run() {
         assert_eq!(map(&mut h).rect().expect("drawn").top(), top, "the map's top moved");
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+/// The start page on the canvas of an empty model: its parts, a template that starts the model (the page gone with
+/// its first node), the template's tutorial, a recent model, and the setting that turns it off.
+#[test]
+fn the_start_page_leads_into_a_first_model() {
+    use terraflux_app::{docs, templates, tutorials};
+    held(true);
+    terraflux_app::settings::update(|s| {
+        s.start_page = true;
+        s.recent_models.clear();
+    });
+    docs::record();
+    let mut h = harness(new_app(None));
+    h.run_steps(3);
+    for part in ["Start a model", "Start from your data", "Start from a task", "Recent models", "Learn"] {
+        let there = h.query_by_label(part).is_some();
+        assert_eq!(there, part != "Recent models", "{part}");
+    }
+    assert!(h.query_by_label("Open a model...").is_some());
+    assert!(h.query_by_label("Wizard: a land change model from your maps").is_some());
+    shot(&mut h, "33-start-page");
+    // the learn links
+    h.get_by_label("Quickstart").click();
+    h.run_steps(2);
+    assert_eq!(docs::opened(), vec![docs::page("quickstart/")]);
+    // the first tutorial link of the page: that of the first template that has one
+    let first = templates::GROUPS
+        .iter()
+        .find_map(|g| {
+            templates::TEMPLATES.iter().find(|t| t.group == *g && tutorials::for_template(t.name).is_some())
+        })
+        .expect("a template with a tutorial");
+    h.query_all_by_label("tutorial").next().expect("a tutorial link").click();
+    h.run_steps(2);
+    assert_eq!(docs::opened(), vec![tutorials::url(tutorials::for_template(first.name).unwrap())]);
+    // a template: the model opens, the page is gone
+    let name = templates::TEMPLATES[0].name;
+    h.get_by_label(name).click();
+    h.run_steps(4);
+    assert!(!h.state().session.as_ref().unwrap().source.nodes.is_empty(), "the template's nodes");
+    assert!(h.query_by_label("Start from a task").is_none(), "the page goes with the first node");
+    // the model emptied again: the page is back
+    h.state_mut().session.as_mut().unwrap().source.nodes.clear();
+    h.run_steps(3);
+    assert!(h.query_by_label("Start from a task").is_some(), "back with the empty model");
+    // the setting off: the bare canvas
+    terraflux_app::settings::update(|s| s.start_page = false);
+    h.run_steps(3);
+    assert!(h.query_by_label("Start from a task").is_none(), "off");
+    terraflux_app::settings::update(|s| s.start_page = true);
+}
+
+/// The start page's recent models, and the page gone when the first node is added.
+#[test]
+fn the_start_page_lists_recent_models_and_goes_with_a_node() {
+    held(true);
+    let path = tmp("ui-start-recent.toml");
+    let mut m = terraflux_graph::Model::new("recent");
+    let mut n = terraflux_graph::Node::new("mspa", "landscape.mspa").param("foreground", 1);
+    n.pos = Some([300.0, 0.0]);
+    m.nodes.push(n);
+    m.save(&path).unwrap();
+    terraflux_app::settings::update(|s| {
+        s.start_page = true;
+        s.recent_models = vec![path.clone(), tmp("ui-start-gone.toml")];
+    });
+    let mut h = harness(new_app(None));
+    h.run_steps(3);
+    assert!(h.query_by_label("Recent models").is_some());
+    h.get_by_label("ui-start-recent.toml").click();
+    loaded(&mut h);
+    h.run_steps(3);
+    assert_eq!(h.state().session.as_ref().unwrap().source.nodes.len(), 1, "the model opened");
+    assert!(h.query_by_label("Start from a task").is_none());
+    terraflux_app::settings::update(|s| s.recent_models.clear());
+    // a node added (as the library does): the page goes
+    let mut h = harness(new_app(None));
+    h.run_steps(3);
+    assert!(h.query_by_label("Start from a task").is_some());
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::add(s, &terraflux_ops::Registry::standard(), "nlm.random", &[]).unwrap();
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label("Start from a task").is_none(), "the page goes with the first node");
 }

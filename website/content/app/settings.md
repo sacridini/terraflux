@@ -42,6 +42,7 @@ Under **Model**:
 | **a minimap of a large model on the canvas** | on | A small map in the canvas's corner when the model does not fit the view: click or drag on it to move the view. |
 | **wires go around the boxes** | on | A wire that would cross another node's box is bent above or below it. A wire with reroute points of your own is left as you drew it. |
 | **a node's main settings on its box** | on | A node's box lists the settings it needs, the ones given and its essential ones, in rows under its ports; the others are counted in a row that unfolds them. Off: the boxes show ports only. |
+| **a start page on the canvas of an empty model** | on | The ways into a first model (your data, a template, a model of before) and into the documentation, over the canvas while the model has no node. Off: the bare canvas. |
 | **open the Node pane by itself** | off | The **Node** tab opens beside the model with its first node. Off: a node's settings open in a panel beside its box, from its **⚙** or a click on a setting the box does not edit; the tab stays in **View**. |
 
 Under **When Terraflux starts**:

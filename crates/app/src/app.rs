@@ -4263,6 +4263,10 @@ impl TerrafluxApp {
                         "the settings a node needs, those given and its essential ones in rows under its ports, \
                          the others counted in a row that unfolds them (off: the boxes show ports only)",
                     );
+                    ui.add(theme::toggle(&mut st.start_page, "a start page on the canvas of an empty model")).on_hover_text(
+                        "the ways into a first model (your data, a template, a model of before) and into the \
+                         documentation, over the canvas while the model has no node (off: the bare canvas)",
+                    );
                     ui.add(theme::toggle(&mut st.node_pane_opens, "open the Node pane by itself")).on_hover_text(
                         "the Node tab beside the model with its first node (off: a node's settings open in a \
                          panel beside its box, from its gear or a click on a setting the box does not edit; the \
@@ -5703,8 +5707,17 @@ impl TerrafluxApp {
     fn pane(&mut self, ui: &mut Ui, pane: Pane) {
         let Some(s) = &mut self.session else { return };
         let (r, lib) = (&self.registry, &self.library);
+        let mut start = None;
         match pane {
-            Pane::Model => crate::builder::model_pane(ui, s, r),
+            Pane::Model => {
+                crate::builder::model_pane(ui, s, r);
+                // (over the empty canvas, drawn only then; what it asks is done once the model is let go of)
+                if crate::start_page::wanted(s)
+                    && let Some(canvas) = s.editor.canvas()
+                {
+                    start = crate::start_page::show(ui, canvas);
+                }
+            }
             Pane::Document => {
                 if crate::document_view::pane(ui, s, r) {
                     self.focus(Pane::Parameters);
@@ -5796,6 +5809,14 @@ impl TerrafluxApp {
                 }
                 None => {}
             },
+        }
+        match start {
+            Some(crate::start_page::Act::Do(d)) => self.command(&ui.ctx().clone(), d),
+            Some(crate::start_page::Act::User(path)) => match Model::load(&path) {
+                Ok(m) => self.ask_start(ui.ctx(), m),
+                Err(e) => self.message = Some(format!("{}: {e}", path.display())),
+            },
+            None => {}
         }
     }
 

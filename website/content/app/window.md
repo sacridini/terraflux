@@ -183,6 +183,15 @@ Above the canvas, the bar says where you are in the model and holds the editing 
 If another program changes the model's file while you have edits not saved, a line says so, with **Read it** and
 **Keep mine**.
 
+### The start page
+
+A model with no node shows, over the empty canvas, a **start page**: **Start from your data** (open a raster or vectors,
+the Wizard, open a model, or drop files on the window), **Recent models**, **Learn** (the Quickstart, the tutorials and
+this guide on the website) and **Start from a task**, the templates by group, each with its tutorial. Click a template
+and the model opens and runs, its data drawn by neutral landscape models. The page goes with the first node and comes
+back when the model is empty again; the canvas under it works as always (drop files, ++slash++, the operators'
+library). Turn it off with **Show this page when the model is empty** at its foot, or in **Settings > Model**.
+
 ## Several models at once
 
 **New model** or **Open...** with a model already open puts the new one in a tab. A strip appears under the

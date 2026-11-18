@@ -3831,6 +3831,9 @@ página. Com 19 painéis e mais de 340 operadores, quem chega cai num canvas vaz
   templates, cada template com a sua frase e o seu tutorial), *Recent models* e *Learn* (Quickstart, Tutorials, a
   página do aplicativo). Some com o primeiro nó; volta com o modelo vazio de novo. Desenhada só quando visível (sem
   custo para o canvas com nós) e no tema escolhido; uma opção em Settings a desliga.
+  **Feito** (Unreleased). `crates/app/src/start_page.rs` (`wanted`, `show`, devolve a `Act` que o `App::pane` executa pelo
+  `command`, como os menus), a opção `start_page` (Settings > Model). Fora da ordem acima: *Recent models* e *Learn*
+  vêm antes de *Start from a task* (o grid dos templates é longo e rola). Testes `ui the_start_page_*`.
 - **1d. Os modelos dos tutoriais no aplicativo.** *Help > Tutorials with a model...*: uma janela com os tutoriais por
   categoria (as 21 de `site.yaml`), cada um com *Open the model* (o template, ou o `.toml` publicado em
   `/data/tutorials/`, baixado) e *Read* (a página). No site, os tutoriais com modelo ganham a linha "In Terraflux:
