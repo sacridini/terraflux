@@ -69,8 +69,11 @@ def main() -> None:
     subjects = []
     for m in re.finditer(r'\(\s*"([^"]+)",\s*&\[(.*?)\],?\s*\)', block, re.S):
         subjects.append({"title": m.group(1), "prefixes": re.findall(r'"([^"]+)"', m.group(2))})
-    i = src.index("= [", src.index("const IO"))  # (past the `[&str; 6]` of the type)
+    # (past the `[&str; 6]` of the type; rustfmt may put the list on the next line)
+    i = re.compile(r"=\s*\[").search(src, src.index("const IO")).start()
     io = re.findall(r'"([^"]+)"', src[i: src.index("];", i)])
+    if not io or not all("." in op for op in io):
+        raise SystemExit(f"refresh_data: the IO list of builder.rs was not read: {io}")
     (DATA / "subjects.json").write_text(json.dumps({"subjects": subjects, "io": io}, indent=1), encoding="utf-8")
     (DATA / "cli.json").write_text(json.dumps(cli, indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"{len(ops)} operators, {len(cli['commands'])} commands, version {cli['version']}")

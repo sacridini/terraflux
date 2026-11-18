@@ -6997,7 +6997,7 @@
  },
  {
   "name": "data.stac",
-  "doc": "The scenes of a STAC catalogue over a grid, the data of Earth Search, the Planetary Computer and the like (Sentinel-2, Landsat, elevation, land cover...): the catalogue's search gives the items of a collection over the grid's box (and the dates, and a query on their properties: eo:cloud_cover below 20); every asset asked for of every item is read from the server (only the part the grid covers), warped onto the grid, and the items combined cell by cell (the median of the cells with values, the mean, the minimum, the maximum, or the first item with a value). A layer per asset, kept in the cache (Terraflux's, TERRAFLUX_CACHE), made once. The values are the files' (Sentinel-2's reflectances as integers: scale and offset are the catalogue's raster:bands). The Planetary Computer's files need a token: sign = planetary_computer asks it, without a key.",
+  "doc": "The scenes of a STAC catalogue over a grid, the data of Earth Search, the Planetary Computer and the like (Sentinel-2, Landsat, elevation, land cover...): the catalogue's search gives the items of a collection over the grid's box (and the dates, and a query on their properties: eo:cloud_cover below 20); every asset asked for of every item is read from the server (only the part the grid covers), warped onto the grid, and the items combined cell by cell (the median of the cells with values, the mean, the minimum, the maximum, or the first item with a value). A layer per asset, kept in the cache (Terraflux's, TERRAFLUX_CACHE), made once. The values are the files' (Sentinel-2's reflectances as integers: scale and offset are the catalogue's raster:bands). The Planetary Computer's files need a token: sign = planetary_computer asks it, without a key. mask = auto drops the clouds, shadows and cirrus pixel by pixel (the scene classification of Sentinel-2, QA_PIXEL of Landsat, Fmask of HLS) before the items are combined.",
   "inputs": [
    {
     "name": "like",
@@ -7087,6 +7087,31 @@
     ]
    },
    {
+    "name": "mask",
+    "type": "text",
+    "required": false,
+    "doc": "none (default), auto (by the collection: Sentinel-2 scl, Landsat qa_pixel, HLS fmask), scl, qa_pixel or fmask: the mask asset of each item (read nearest, never a layer) marks cells that become no data before the items are combined; an item without it is left out",
+    "choices": [
+     "none",
+     "auto",
+     "scl",
+     "qa_pixel",
+     "fmask"
+    ]
+   },
+   {
+    "name": "mask_classes",
+    "type": "any",
+    "required": false,
+    "doc": "what the mask marks: a list of cloud, shadow, cirrus, snow (default cloud, shadow, cirrus); no data and fill are always marked"
+   },
+   {
+    "name": "mask_buffer",
+    "type": "integer",
+    "required": false,
+    "doc": "cells to grow the mask by in every direction, on the grid (default 0)"
+   },
+   {
     "name": "extent",
     "type": "any",
     "required": false,
@@ -7101,7 +7126,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Keep the grid small and the cells as coarse as the question allows: every scene of the search is read and warped (a Sentinel-2 summer over a few tens of kilometres at 10 m is many scenes). Ask for few scenes with `datetime`, `limit` and `query` (`{\"eo:cloud_cover\": {\"lt\": 20}}`); the median of the scenes drops clouds and shadows that move, the `first` composite takes a scene as it is (classes, a DEM's tiles: set `classes` for the most common cell). The Planetary Computer's files need `sign = planetary_computer`. The values are the files' integers: scale and offset (reflectance / 10000) are the catalogue's, not applied."
+  "advice": "Keep the grid small and the cells as coarse as the question allows: every scene of the search is read and warped (a Sentinel-2 summer over a few tens of kilometres at 10 m is many scenes). Ask for few scenes with `datetime`, `limit` and `query` (`{\"eo:cloud_cover\": {\"lt\": 20}}`); the median of the scenes drops clouds and shadows that move, the `first` composite takes a scene as it is (classes, a DEM's tiles: set `classes` for the most common cell). The Planetary Computer's files need `sign = planetary_computer`. The values are the files' integers: scale and offset (reflectance / 10000) are the catalogue's, not applied. A median of scenes left as they are keeps the clouds where they persist (the tropics): `mask = auto` drops them pixel by pixel before the scenes are combined (Sentinel-2's SCL, Landsat's QA_PIXEL, HLS's Fmask; `mask_classes`, `mask_buffer` to grow it), and `first` then takes the first clear value."
  },
  {
   "name": "demand.from_maps",
@@ -10822,6 +10847,256 @@
   "access": "global",
   "container": false,
   "advice": "A coarser, faster MSPA of the 8-connected foreground, edges of one cell: for the finer classes use landscape.mspa. SPA2, SPA3, SPA5 and SPA6 give different classes: say which was used. The foreground is the classes given, else the map coded 0 missing, 1 background, 2 foreground."
+ },
+ {
+  "name": "linkage.barriers",
+  "doc": "The barriers in the links between cores, as Linkage Mapper's Barrier Mapper (McRae et al. 2012): for each kept link of `links` (the output of linkage.pathways) and each radius R from `min_radius` to `max_radius` by `step` (map units), the improvement of restoring a circle of radius R around a cell: the link's LCD less the least cost-weighted distance of each core over the ring of cells around the cell (those whose centre is at a distance above R - 1 and up to R map units: Linkage Mapper's annulus), less the cost of crossing the restored circle (its diameter 2R times `restored`), per unit of restored distance (over 2R); `percent` is that improvement as a percentage of the LCD. A cell whose ring touches a core has no value. The links are mosaicked by their greatest (`combine` max) or their sum (sum: a negative or missing value counts 0), the negative cells left without a value: the barrier `improvement` (the centres of the circles), over the radii the greatest, with the `radius` that gave it (the least on a tie). `circles` grows each centre out to its circle (the greatest value of a centre within R). `cwd_threshold` keeps each core's distance only below it. The trim of the circles by the resistance (Linkage Mapper's optional one) is not made. The cost-weighted distances of the cores in links are kept in memory together.",
+  "inputs": [
+   {
+    "name": "cores",
+    "type": "map",
+    "required": true,
+    "doc": "the core areas: whole ids, 0 or no value elsewhere"
+   },
+   {
+    "name": "resistance",
+    "type": "map",
+    "required": true,
+    "doc": "the resistance, above 0 (0 or no value: impassable)"
+   },
+   {
+    "name": "links",
+    "type": "table",
+    "required": true,
+    "doc": "the links to map: from, to, lcd and kept (the rows kept; all if no `kept` column), as linkage.pathways' `links`"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "improvement",
+    "type": "map",
+    "required": true,
+    "doc": "the barrier score at the centre of the circle: the greatest over radii; no value where it is negative or the ring touches a core"
+   },
+   {
+    "name": "circles",
+    "type": "map",
+    "required": true,
+    "doc": "the improvement grown out to the circles: the greatest value of a centre within the radius of the cell"
+   },
+   {
+    "name": "percent",
+    "type": "map",
+    "required": true,
+    "doc": "the improvement as a percentage of the link's LCD, the same way"
+   },
+   {
+    "name": "radius",
+    "type": "map",
+    "required": true,
+    "doc": "the radius that gave the improvement, in map units"
+   }
+  ],
+  "params": [
+   {
+    "name": "min_radius",
+    "type": "number",
+    "required": true,
+    "doc": "the least radius of the restored circles, in map units (at least the cell's size)"
+   },
+   {
+    "name": "max_radius",
+    "type": "number",
+    "required": false,
+    "doc": "the greatest radius, in map units (min_radius)"
+   },
+   {
+    "name": "step",
+    "type": "number",
+    "required": false,
+    "doc": "the step between radii, in map units (required, above 0, when max_radius is above min_radius)"
+   },
+   {
+    "name": "restored",
+    "type": "number",
+    "required": false,
+    "doc": "the cost of a restored cell per map unit (1, as Linkage Mapper's)"
+   },
+   {
+    "name": "combine",
+    "type": "text",
+    "required": false,
+    "doc": "how the links' scores are mosaicked: max (the default) or sum (a negative or missing score counts 0)",
+    "choices": [
+     "max",
+     "sum"
+    ]
+   },
+   {
+    "name": "cwd_threshold",
+    "type": "number",
+    "required": false,
+    "doc": "keep each core's cost-weighted distance only below it, in cost units (all of it by default)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "`links` is linkage.pathways' table, on the same cores and resistance. The radii are in map units (metres in a projected system; the ring is 1 map unit thick, as Linkage Mapper's, so a radius that is a multiple of the cell size catches the cells at that distance). A high improvement marks where restoring a circle of that radius shortens a link most per unit restored; `restored` 1 means a restored cell costs 1 per map unit, as in Linkage Mapper. Read `circles` for the map, `improvement` for the centres, and compare radii with `radius`."
+ },
+ {
+  "name": "linkage.pathways",
+  "doc": "The least-cost links between core areas and the corridors around them, as Linkage Mapper's Linkage Pathways (McRae and Kavanagh 2011): from every core the cost-weighted distance over a resistance (8 neighbours, a step the two cells' mean resistance times its length, sqrt(2) diagonally; a cell without a value or of a resistance of 0 or less is impassable); the cores to link, by `adjacency`: those whose allocation zones touch; their least-cost distance (LCD, the least of the two cores' distances added) and path, a link dropped past `max_euclidean` or `max_cwd`, when its path crosses a third core (`drop_crossing`) or when it is not among a core's `nearest`; and the corridors, the normalized least-cost corridor of each link (the two distances added, less the LCD) merged by their least, cut at `width`. The cores are a map of whole ids on the resistance's grid (0 or no value: not a core); a core cell of an impassable resistance is no core cell. The cost-weighted distances of the cores in links are kept in memory together. The `euclidean` distance of `links` is between the centres of the nearest cells of the two cores, not between polygon edges as Linkage Mapper's.",
+  "inputs": [
+   {
+    "name": "cores",
+    "type": "map",
+    "required": true,
+    "doc": "the core areas: whole ids, 0 or no value elsewhere"
+   },
+   {
+    "name": "resistance",
+    "type": "map",
+    "required": true,
+    "doc": "the resistance, above 0 (0 or no value: impassable)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "corridors",
+    "type": "map",
+    "required": true,
+    "doc": "the least of the kept links' normalized corridors (no value beyond `width`, or without a link)"
+   },
+   {
+    "name": "links",
+    "type": "table",
+    "required": true,
+    "doc": "a row per pair of cores: from, to, euclidean, lcd, path_length, cwd_to_path (lcd / path_length), kept and the reason it is not ('' kept; max_euclidean, unreachable, max_cwd, crosses core <id>, not nearest)"
+   },
+   {
+    "name": "paths",
+    "type": "vector",
+    "required": true,
+    "doc": "the kept links' least-cost paths, through the cells' centres"
+   },
+   {
+    "name": "cwd",
+    "type": "map",
+    "required": true,
+    "doc": "the cost-weighted distance to the nearest core"
+   }
+  ],
+  "params": [
+   {
+    "name": "adjacency",
+    "type": "text",
+    "required": false,
+    "doc": "the cores to link: cost (their cost allocation zones touch, the default), euclidean (their Euclidean allocation zones touch) or all (every pair)",
+    "choices": [
+     "cost",
+     "euclidean",
+     "all"
+    ]
+   },
+   {
+    "name": "max_cwd",
+    "type": "number",
+    "required": false,
+    "doc": "drop the links of a least-cost distance above it"
+   },
+   {
+    "name": "max_euclidean",
+    "type": "number",
+    "required": false,
+    "doc": "drop the links of cores further apart than this, in map units (between the nearest cells' centres)"
+   },
+   {
+    "name": "drop_crossing",
+    "type": "bool",
+    "required": false,
+    "doc": "drop a link whose least-cost path crosses a third core (true)"
+   },
+   {
+    "name": "nearest",
+    "type": "number",
+    "required": false,
+    "doc": "keep a link only if it is among the k of least LCD of one of its cores (all kept links by default)"
+   },
+   {
+    "name": "width",
+    "type": "number",
+    "required": false,
+    "doc": "the corridors' cutoff: no cell of a normalized least-cost distance above it, in cost units (none: the whole mosaic)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "The cores are the habitat patches to connect, whole ids on the resistance's grid; the resistance is a cost per cell (1 or more, from the literature or from movement data: record where it comes from), no value or 0 a barrier. The links by `adjacency` cost (the default) are those Linkage Mapper draws; `width` is in cost units, not map units. A link past `max_cwd`, or through a third core, is listed with its reason, not drawn."
+ },
+ {
+  "name": "linkage.pinchpoints",
+  "doc": "The pinch points of the links between cores, as Linkage Mapper's Pinchpoint Mapper (McRae 2012) with Circuitscape (McRae et al. 2008): in `pairwise` mode, for each kept link of `links` (the output of linkage.pathways) the circuit between its two cores, inside the link's corridor only (the cells whose normalized least-cost distance, the two cores' distances added less the link's LCD, is within `width`; the resistance outside it a barrier; the cores' cells in the corridor the focal regions, 1 A across), and the `current` the largest of the links' (the core cells have no value, as Linkage Mapper's); in `all_to_one` mode one circuit over the union of the corridors, every core grounded in turn with the others injecting, and the cumulative current. The effective resistance of a link is Circuitscape's times the cell's height, in the units of the cost-weighted distance, with `lcd` over it as `cwd_to_resistance` (low: the link is a pinch point or a bottleneck; not given with `square`). The resistance is the cost surface of linkage.pathways (a cell without a value or of 0 or less is a barrier). The links' circuits run in parallel; the cost-weighted distances of the cores in links are kept in memory together.",
+  "inputs": [
+   {
+    "name": "cores",
+    "type": "map",
+    "required": true,
+    "doc": "the core areas: whole ids, 0 or no value elsewhere"
+   },
+   {
+    "name": "resistance",
+    "type": "map",
+    "required": true,
+    "doc": "the resistance, above 0 (0 or no value: impassable)"
+   },
+   {
+    "name": "links",
+    "type": "table",
+    "required": true,
+    "doc": "the links to map: from, to, lcd and kept (the rows kept; all if no `kept` column), as linkage.pathways' `links`"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "current",
+    "type": "map",
+    "required": true,
+    "doc": "the current: the largest of the links' (pairwise) or the cumulative one (all_to_one); no value outside the corridors and in the cores"
+   },
+   {
+    "name": "links",
+    "type": "table",
+    "required": true,
+    "doc": "a row per link mapped: from, to, lcd, resistance (the effective resistance, in cost units; pairwise), cwd_to_resistance (lcd / resistance, not with `square`) and nodes (the cells of its circuit)"
+   }
+  ],
+  "params": [
+   {
+    "name": "width",
+    "type": "number",
+    "required": true,
+    "doc": "the corridors' cutoff: the cells of a normalized least-cost distance up to it are in the circuit, in cost units"
+   },
+   {
+    "name": "mode",
+    "type": "text",
+    "required": false,
+    "doc": "pairwise (a circuit per link, between its two cores, the default) or all_to_one (one circuit over the corridors of all the links, every core a focal region)",
+    "choices": [
+     "pairwise",
+     "all_to_one"
+    ]
+   },
+   {
+    "name": "square",
+    "type": "bool",
+    "required": false,
+    "doc": "square the resistances for the circuit, as Linkage Mapper's option, to weight the pinch points more (false)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "`links` is linkage.pathways' table, on the same cores and resistance; `width` is the corridor's cutoff in cost units (a wider band lets the current spread, a narrow one forces it through the pinch points). The current is relative: read where it concentrates, not its amps. A low cwd_to_resistance marks a link whose corridor is a bottleneck. Circuitscape solves every cell of the band: keep it to a few million cells."
  },
  {
   "name": "lulcc.history",
