@@ -3395,6 +3395,15 @@ impl TerrafluxApp {
             self.tutorial_models.get_or_insert_with(crate::tutorial_models::State::new);
             ui.close();
         }
+        if ui
+            .button("Start page")
+            .on_hover_text("the page of ways into a first model, on the canvas of an empty model")
+            .clicked()
+        {
+            crate::start_page::set_closed(ui.ctx(), false);
+            crate::settings::update(|s| s.start_page = true);
+            ui.close();
+        }
         ui.separator();
         if ui.add(egui::Button::new("Keyboard shortcuts").shortcut_text(crate::keymap::text("shortcuts"))).clicked() {
             self.shortcuts_open = true;
@@ -5407,6 +5416,12 @@ impl TerrafluxApp {
 
     /// One frame of the application.
     pub fn frame(&mut self, ui: &mut Ui) {
+        self.draw(ui);
+        open_links(ui.ctx());
+    }
+
+    /// The frame's panes, menus and windows.
+    fn draw(&mut self, ui: &mut Ui) {
         if let Some(k) = &mut self.maximize {
             *k += 1;
             if *k >= 3 {
@@ -6260,6 +6275,25 @@ impl eframe::App for TerrafluxApp {
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         self.frame(ui);
+    }
+}
+
+/// The links egui's widgets asked to open this frame (`hyperlink_to`), opened as the application opens its pages:
+/// eframe is built without its `links` feature, so nothing else would open them.
+pub fn open_links(ctx: &egui::Context) {
+    let urls = ctx.output_mut(|o| {
+        let mut urls = Vec::new();
+        o.commands.retain(|c| match c {
+            egui::OutputCommand::OpenUrl(u) => {
+                urls.push(u.url.clone());
+                false
+            }
+            _ => true,
+        });
+        urls
+    });
+    for url in urls {
+        crate::docs::open(&url);
     }
 }
 

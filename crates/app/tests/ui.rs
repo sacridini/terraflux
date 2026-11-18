@@ -11262,6 +11262,36 @@ fn the_start_page_leads_into_a_first_model() {
     h.run_steps(3);
     assert!(h.query_by_label("Start from a task").is_none(), "off");
     terraflux_app::settings::update(|s| s.start_page = true);
+    h.run_steps(3);
+    // closed for this run by its button, and by Esc; Help > Start page shows it again, the setting unchanged
+    h.get_by_label("Close").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Start from a task").is_none(), "closed");
+    assert!(terraflux_app::settings::get().start_page, "closing it is not the setting");
+    h.get_by_label("Help").click();
+    h.run_steps(2);
+    h.get_by_label("Start page").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Start from a task").is_some(), "shown again");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(h.query_by_label("Start from a task").is_none(), "Esc");
+    terraflux_app::start_page::set_closed(&h.ctx, false);
+}
+
+/// The links of egui's widgets (`hyperlink_to`) are opened as the application's pages: eframe has no `links`
+/// feature, so the application takes them from the frame's output.
+#[test]
+fn the_links_of_widgets_open_in_the_browser() {
+    terraflux_app::docs::record();
+    let mut h = Harness::builder().with_size((300.0, 100.0)).build_ui(|ui| {
+        ui.hyperlink_to("a page", "https://example.org/a");
+        terraflux_app::app::open_links(ui.ctx());
+    });
+    h.run_steps(2);
+    h.get_by_label("a page").click();
+    h.run_steps(2);
+    assert_eq!(terraflux_app::docs::opened(), vec!["https://example.org/a".to_string()]);
 }
 
 /// Help > Tutorials with a model...: the window lists the tutorials with a model by category, the filter narrows

@@ -735,16 +735,39 @@ fn base64(bytes: &[u8]) -> String {
     s
 }
 
-/// Open a page in the system's browser.
+/// Open a page in the system's browser, in a thread (the shell can take a moment). On Windows the shell's own
+/// `ShellExecuteW` opens it (`explorer.exe <url>` opens nothing on some systems, and `cmd /c start` breaks on the
+/// `&` of an address), and `rundll32`'s URL handler if that fails.
 pub fn open_page(url: &str) {
-    let r = if cfg!(windows) {
-        Command::new("explorer.exe").arg(url).spawn()
-    } else if cfg!(target_os = "macos") {
-        Command::new("open").arg(url).spawn()
-    } else {
-        Command::new("xdg-open").arg(url).spawn()
-    };
-    let _ = r;
+    let url = url.to_string();
+    std::thread::spawn(move || {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::UI::Shell::ShellExecuteW;
+            use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+            let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+            let (verb, file) = (wide("open"), wide(&url));
+            // SAFETY: both strings end in a NUL and outlive the call; the other pointers may be null
+            let r = unsafe {
+                ShellExecuteW(
+                    std::ptr::null_mut(),
+                    verb.as_ptr(),
+                    file.as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    SW_SHOWNORMAL,
+                )
+            };
+            // (a value above 32 is success)
+            if r as isize <= 32 {
+                let _ = Command::new("rundll32").arg("url.dll,FileProtocolHandler").arg(&url).spawn();
+            }
+        }
+        #[cfg(target_os = "macos")]
+        let _ = Command::new("open").arg(&url).spawn();
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let _ = Command::new("xdg-open").arg(&url).spawn();
+    });
 }
 
 #[cfg(test)]

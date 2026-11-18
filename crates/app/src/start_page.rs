@@ -32,6 +32,21 @@ struct Cache {
     mine: Vec<(String, PathBuf)>,
 }
 
+/// Where the page closed for this run is noted (in egui's memory, never saved: the next start shows it again).
+fn closed_id() -> egui::Id {
+    egui::Id::new("start page closed")
+}
+
+/// Whether the page was closed in this run (its *Close* button, Esc).
+pub fn closed(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(closed_id())).unwrap_or(false)
+}
+
+/// The page closed until the application starts again, or shown again (Help > Start page).
+pub fn set_closed(ctx: &egui::Context, closed: bool) {
+    ctx.data_mut(|d| d.insert_temp(closed_id(), closed));
+}
+
 /// Whether the page shows for a model: no node, no input, at the top of the model, and the text view not on.
 pub fn wanted(s: &crate::app::Session) -> bool {
     s.source.nodes.is_empty() && s.source.inputs.is_empty() && s.editor.path.is_empty() && !s.editor.text
@@ -59,7 +74,12 @@ fn heading(ui: &mut Ui, text: &str) {
 pub fn show(ui: &mut Ui, canvas: Rect) -> Option<Act> {
     let st = crate::settings::get();
     let (mut on, now) = (st.start_page, ui.input(|i| i.time));
-    if !on {
+    if !on || closed(ui.ctx()) {
+        return None;
+    }
+    // (Esc closes it, unless a text field has the keys)
+    if !ui.ctx().egui_wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        set_closed(ui.ctx(), true);
         return None;
     }
     let id = egui::Id::new("start page cache");
@@ -97,7 +117,20 @@ pub fn show(ui: &mut Ui, canvas: Rect) -> Option<Act> {
                 .max_height((ui.available_height() - 40.0).max(60.0))
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    ui.label(RichText::new("Start a model").heading());
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Start a model").heading());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .button("Close")
+                                .on_hover_text(
+                                    "the bare canvas until Terraflux starts again (Esc); Help > Start page shows it",
+                                )
+                                .clicked()
+                            {
+                                set_closed(ui.ctx(), true);
+                            }
+                        });
+                    });
                     ui.label(
                         RichText::new(
                             "Start from your data or from a task; every template runs as it opens, its data drawn \
