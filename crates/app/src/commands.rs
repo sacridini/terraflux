@@ -56,6 +56,11 @@ pub enum Do {
     Text,
     Settings,
     Shortcuts,
+    /// A page of the website (its path from the root), opened in the browser.
+    Docs(&'static str),
+    /// Help > Report a problem, and About Terraflux.
+    Report,
+    About,
     /// The window of the model's methods and citations.
     Methods,
     /// The window of the export to QGIS.

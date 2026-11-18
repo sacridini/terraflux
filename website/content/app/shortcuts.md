@@ -209,7 +209,7 @@ under `shortcuts`; **Back to the defaults** keeps them.
 
 ## The F1 sheet
 
-++f1++, or **View > Keyboard shortcuts**, opens the window *Keyboard shortcuts*: the tables of this page, by where
+++f1++, or **Help > Keyboard shortcuts**, opens the window *Keyboard shortcuts*: the tables of this page, by where
 they work, with the shortcuts as you set them. For the canvas and the maps it starts with the mouse gestures
 (*click*, *drag*, *right or middle drag*, *wheel*, *double click*). The line at the bottom of the window also
 reminds you of the keys of the pane under the pointer: on the canvas, for example, *click: select*, *drag: a box of

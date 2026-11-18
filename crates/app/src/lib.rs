@@ -25,6 +25,7 @@ pub mod computers;
 pub mod diagnose;
 pub mod difference;
 pub mod disk;
+pub mod docs;
 pub mod document;
 pub mod document_view;
 pub mod draw;

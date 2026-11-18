@@ -3813,7 +3813,10 @@ página. Com 19 painéis e mais de 340 operadores, quem chega cai num canvas vaz
   View: Quickstart, Tutorials, The application, Operator reference, Keyboard shortcuts (F1, que sai do View), *Report a
   problem...* (abre um issue novo do GitHub com versão, sistema e a última falha preenchidos, para a pessoa ler e
   enviar; nada sai sozinho) e *About Terraflux* (versão, licença, como citar pelo `CITATION.cff`, links). Também na
-  paleta de comandos.
+  paleta de comandos. **Feito** (Unreleased). `crates/app/src/docs.rs` (`op_url`, `page`, `tutorial_url`, `issue_url`,
+  `open`, a janela About), o menu Help e as entradas da paleta; `build.py` com o nome exato vencendo o prefixo; os
+  assuntos de `builder.rs` conferidos contra `website/data/subjects.json` por um teste, e `clumondo`, `molusce`,
+  `futures`, `check` e `value` ganharam assunto (estavam em "Other", sem página no site).
 - **1b. Cada operador leva à sua página.** No Node pane, ao lado de "more...", *Documentation* abre a página do
   operador; o menu de contexto de um operador na biblioteca e o de um nó no canvas ganham *Open its documentation*;
   shift+F1 (ação do keymap) abre a do nó selecionado. Os templates que têm tutorial (front matter `template:` em 45

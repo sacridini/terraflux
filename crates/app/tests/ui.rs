@@ -5613,6 +5613,62 @@ fn the_commands_find_nodes_and_operators() {
     shot(&mut h, "31-shortcuts");
 }
 
+/// The Help menu: the website's pages (opened in the browser: noted here), the shortcuts, a report of a problem
+/// filled in, About with the version and how to cite.
+#[test]
+fn the_help_menu_leads_to_the_docs_and_about() {
+    use terraflux_app::docs;
+    docs::record();
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    h.get_by_label("Help").click();
+    h.run_steps(2);
+    for item in
+        ["Quickstart", "Tutorials", "The application", "Operator reference", "Report a problem...", "About Terraflux"]
+    {
+        assert!(h.query_by_label(item).is_some(), "Help has {item}");
+    }
+    assert!(h.query_by_label_contains("Keyboard shortcuts").is_some(), "the shortcuts moved to Help");
+    h.get_by_label("Operator reference").click();
+    h.run_steps(2);
+    assert_eq!(docs::opened(), vec![docs::page("operators/")]);
+    // the failure of the last run goes into the report; nothing is sent, the browser gets the form
+    h.state_mut().session.as_mut().unwrap().error = Some("the node 'x' failed: no data".into());
+    h.get_by_label("Help").click();
+    h.run_steps(2);
+    h.get_by_label("Report a problem...").click();
+    h.run_steps(2);
+    let opened = docs::opened();
+    assert_eq!(opened.len(), 1, "{opened:?}");
+    assert!(opened[0].starts_with("https://github.com/sacridini/terraflux/issues/new?title="), "{}", opened[0]);
+    assert!(
+        opened[0].contains(&docs::encode(env!("CARGO_PKG_VERSION"))) && opened[0].contains("no%20data"),
+        "{}",
+        opened[0]
+    );
+    // About: the name, the version, the licence, how to cite and the links
+    h.get_by_label("Help").click();
+    h.run_steps(2);
+    h.get_by_label("About Terraflux").click();
+    h.run_steps(3);
+    assert!(h.state().about_open);
+    assert!(h.query_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION"))).is_some());
+    assert!(h.query_by_label("GPL-3.0-or-later").is_some());
+    assert!(h.query_by_label_contains("[Computer software]").is_some(), "how to cite");
+    h.get_by_label("Releases").click();
+    h.run_steps(2);
+    assert_eq!(docs::opened(), vec!["https://github.com/sacridini/terraflux/releases".to_string()]);
+    shot(&mut h, "32-about");
+    // the palette has them too
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::K);
+    h.run_steps(2);
+    h.event(egui::Event::Text("help: quick".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    assert_eq!(docs::opened(), vec![docs::page("quickstart/")]);
+}
+
 /// An operator of many settings: its essential ones shown, the others folded as advanced (the count of those the
 /// model gives in the fold's title, open then); a setting given marked, and back to its default by its menu.
 #[test]

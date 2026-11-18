@@ -85,6 +85,10 @@ RELEASE_FILES = set(os.environ.get("TERRAFLUX_RELEASE_FILES", "").split())
 def subject_of(op: str) -> str:
     if op in SUBJECTS["io"]:
         return "IO"
+    # an entry equal to the full name wins over a prefix (raster.stats is Raster analysis, not Data preparation)
+    for s in SUBJECTS["subjects"]:
+        if op in s["prefixes"]:
+            return s["title"]
     prefix = op.split(".")[0]
     for s in SUBJECTS["subjects"]:
         if prefix in s["prefixes"]:

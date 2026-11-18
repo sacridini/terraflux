@@ -113,7 +113,7 @@ Many actions of Terraflux are reachable by name or by key, without the mouse:
 
 - **Ctrl+K** (or Ctrl+Shift+P) opens **Commands**: type part of the name of anything (a pane, a template, an
   action such as *History*, a node) and press **Enter**. On macOS, **Cmd** takes the place of **Ctrl**.
-- **F1** opens the sheet of **Keyboard shortcuts** (also in **View**).
+- **F1** opens the sheet of **Keyboard shortcuts** (also in **Help**).
 - **/** opens the search of operators and adds one to the model; **Tab** moves between the Model pane and the place you were; the **arrow keys** over the canvas go
   to the next node, and **Enter** shows its output. **F5** runs the model; **Ctrl+Enter** runs to the node selected.
 - In **Settings**, section **Keyboard**, you can bind your own keys to the actions.

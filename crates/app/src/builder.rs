@@ -28,7 +28,7 @@ use crate::theme;
 /// the groups of its operators.
 /// The subjects of the library and the operators of each: by the prefix of their names, or by name (before the
 /// prefixes).
-const SUBJECTS: [(&str, &[&str]); 32] = [
+pub(crate) const SUBJECTS: [(&str, &[&str]); 32] = [
     ("IO", &[]),
     ("Data preparation", &["raster", "vector", "data"]),
     (
@@ -94,18 +94,19 @@ const SUBJECTS: [(&str, &[&str]); 32] = [
         "Land change simulation",
         &[
             "markov", "woe", "patches", "dinamica", "glm", "lulcc", "demand", "plus", "cars", "dynamic", "agents",
-            "crafty", "validate",
+            "crafty", "validate", "clumondo", "molusce", "futures",
         ],
     ),
     ("Uncertainty", &["uncertainty", "sensitivity"]),
     ("Map algebra", &["map", "stack"]),
     ("Tables", &["table"]),
     ("Plot", &["view"]),
-    ("Model flow", &["control", "rng", "plugin"]),
+    ("Model flow", &["control", "rng", "plugin", "check", "value"]),
 ];
 
 /// The operators that read and write files: the subject IO.
-const IO: [&str; 6] = ["raster.read", "raster.write", "vector.read", "vector.write", "table.read", "table.write"];
+pub(crate) const IO: [&str; 6] =
+    ["raster.read", "raster.write", "vector.read", "vector.write", "table.read", "table.write"];
 
 /// The subjects open when the library is first shown (the others closed until opened).
 const OPEN: [&str; 2] = ["IO", "Plot"];

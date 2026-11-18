@@ -201,7 +201,10 @@
     "dynamic",
     "agents",
     "crafty",
-    "validate"
+    "validate",
+    "clumondo",
+    "molusce",
+    "futures"
    ]
   },
   {
@@ -235,9 +238,18 @@
    "prefixes": [
     "control",
     "rng",
-    "plugin"
+    "plugin",
+    "check",
+    "value"
    ]
   }
  ],
- "io": []
+ "io": [
+  "raster.read",
+  "raster.write",
+  "vector.read",
+  "vector.write",
+  "table.read",
+  "table.write"
+ ]
 }

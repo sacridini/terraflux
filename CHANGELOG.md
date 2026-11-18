@@ -7,6 +7,9 @@ version.
 
 ## [Unreleased]
 
+### Added
+- **A Help menu, and the application's way to its documentation**: **Help** after View in the menu bar opens the website's Quickstart, Tutorials, The application and Operator reference in the browser; **Keyboard shortcuts** (F1) moved there from View; **Report a problem...** opens a new GitHub issue in the browser with the Terraflux version, the system and the last failure (the last run's, else the first error of the model) filled in and the headings *What I did*, *What I expected* and *What happened* to write (the address is cut so that it stays within what GitHub takes; the person reads it and sends it, Terraflux sends nothing); **About Terraflux** is a window with the version, the licence, how to cite (built from `CITATION.cff` when Terraflux is built, with a **Copy** button) and the links to the website, the source code, the releases and the changelog. All of them are also in the command palette. The new module `docs` has `op_url(id)` (`/operators/{subject}/#op-{id}`, by the same rule as the site's `website/build.py`, from the subjects of the operator library, which the site reads from `website/data/subjects.json`: a test fails when the two differ), `page`, `tutorial_url`, `issue_url` and `open`. On the website, `subject_of` now gives the operator named in full over a prefix, so `raster.stats` and the other full names of Raster analysis are no longer listed in Data preparation; the file operators (`raster.read`...) are the page IO (`refresh_data.py` read an empty list of them), and `clumondo.*`, `molusce.*` and `futures.*` (in Land change simulation) and `check.*` and `value.calc` (in Model flow) have a subject, as they were in no page of the reference. Tests: `cargo test -p terraflux-app --lib docs`, `--test ui the_help_menu`.
+
 ## [1.54.0] - 2026-11-16
 
 ### Added

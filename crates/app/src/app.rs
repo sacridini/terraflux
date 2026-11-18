@@ -2341,6 +2341,8 @@ pub struct TerrafluxApp {
     styled: Option<(String, u32, u32)>,
     /// The settings' window is open.
     pub settings_open: bool,
+    /// The About window (Help > About Terraflux) is open.
+    pub about_open: bool,
     /// The settings' section shown.
     pub settings_section: SettingsSection,
     /// The Keyboard section's state ([`crate::keymap::Panel`]).
@@ -2551,6 +2553,7 @@ impl TerrafluxApp {
             screen: None,
             styled: None,
             settings_open: false,
+            about_open: false,
             settings_section: SettingsSection::default(),
             keyboard: Default::default(),
             updater: crate::update::Updater::default(),
@@ -3344,10 +3347,58 @@ impl TerrafluxApp {
             self.commands = Some(Default::default());
             ui.close();
         }
+    }
+
+    /// The pages of the website, the keyboard's shortcuts, a report of a problem and About.
+    fn help_menu(&mut self, ui: &mut Ui) {
+        for (name, path, hover) in crate::docs::PAGES {
+            if ui.button(name).on_hover_text(format!("{hover} (on the website)")).clicked() {
+                crate::docs::open(&crate::docs::page(path));
+                ui.close();
+            }
+        }
+        ui.separator();
         if ui.add(egui::Button::new("Keyboard shortcuts").shortcut_text(crate::keymap::text("shortcuts"))).clicked() {
             self.shortcuts_open = true;
             ui.close();
         }
+        ui.separator();
+        if ui
+            .button("Report a problem...")
+            .on_hover_text(
+                "opens a new issue on GitHub with the version, the system and the last failure filled in: you read \
+                 it and send it; nothing is sent by Terraflux",
+            )
+            .clicked()
+        {
+            self.report_problem();
+            ui.close();
+        }
+        if ui.button("About Terraflux").clicked() {
+            self.about_open = true;
+            ui.close();
+        }
+    }
+
+    /// The last failure: the last run's, else the first error among the model's problems.
+    fn last_failure(&self) -> Option<String> {
+        let s = self.session.as_ref()?;
+        s.error.clone().or_else(|| {
+            s.issues
+                .iter()
+                .find(|i| i.severity == terraflux_graph::Severity::Error)
+                .map(|i| i.to_string())
+        })
+    }
+
+    /// Help > Report a problem: the form of a new issue in the browser, filled in.
+    fn report_problem(&self) {
+        let failure = self.last_failure();
+        crate::docs::open(&crate::docs::issue_url(
+            env!("CARGO_PKG_VERSION"),
+            &crate::docs::system(),
+            failure.as_deref(),
+        ));
     }
 
     /// The bar at the top: the menus at the left; running the model, its name and how the run goes in the middle;
@@ -3400,6 +3451,7 @@ impl TerrafluxApp {
                 });
             }
             ui.menu_button("View", |ui| self.view_menu(ui));
+            ui.menu_button("Help", |ui| self.help_menu(ui));
             ui.separator();
             if let Some(s) = &self.session
                 && self.wizard.is_none()
@@ -3689,6 +3741,12 @@ impl TerrafluxApp {
             action("Wizard: a land change model from your maps", String::new(), Do::Wizard),
             action("Settings", String::new(), Do::Settings),
             action("Keyboard shortcuts", crate::keymap::text("shortcuts"), Do::Shortcuts),
+            action("Help: Quickstart", String::new(), Do::Docs(crate::docs::PAGES[0].1)),
+            action("Help: Tutorials", String::new(), Do::Docs(crate::docs::PAGES[1].1)),
+            action("Help: The application", String::new(), Do::Docs(crate::docs::PAGES[2].1)),
+            action("Help: Operator reference", String::new(), Do::Docs(crate::docs::PAGES[3].1)),
+            action("Help: Report a problem", String::new(), Do::Report),
+            action("About Terraflux", String::new(), Do::About),
             action("History of the edits", String::new(), Do::History),
             action("Next model open (its tab)", crate::keymap::text("next_tab"), Do::NextTab),
             action("Close the model in front (its tab)", crate::keymap::text("close_tab"), Do::CloseTab),
@@ -3761,6 +3819,9 @@ impl TerrafluxApp {
             Do::Stop => self.stop_run(),
             Do::Settings => self.settings_open = true,
             Do::Shortcuts => self.shortcuts_open = true,
+            Do::Docs(path) => crate::docs::open(&crate::docs::page(path)),
+            Do::Report => self.report_problem(),
+            Do::About => self.about_open = true,
             Do::NextTab => self.next_tab(1),
             Do::CloseTab => {
                 if self.session.is_some() {
@@ -5525,6 +5586,7 @@ impl TerrafluxApp {
         let mut shortcuts = self.shortcuts_open;
         crate::commands::shortcuts_window(ui.ctx(), &mut shortcuts);
         self.shortcuts_open = shortcuts;
+        crate::docs::about_window(ui.ctx(), &mut self.about_open);
         if let Some(s) = &mut self.session {
             crate::methods::window(ui.ctx(), s, &self.registry);
             crate::versions_view::window(ui.ctx(), s);

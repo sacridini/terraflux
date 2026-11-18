@@ -66,8 +66,8 @@ Calculator) come again when there is something to show. It is the answer when a 
 
 ## The menu bar
 
-At the left of the toolbar: the logo and the version number, then four menus. **Operators** appears only when a
-model is open. Items that need a model are greyed out without one.
+At the left of the toolbar: the logo and the version number, then the menus: **File**, **Templates**, **Operators**, **Edit**, **View** and **Help**. **Operators** and **Edit** appear
+only when a model is open. Items that need a model are greyed out without one.
 
 ### File
 
@@ -128,7 +128,17 @@ a word in every node at once, with a preview and one step of undo ([Find and rep
 | **Reset the layout** | See [Reset the layout](#reset-the-layout). |
 | **Colour vision** | Draws every map, legend and chart as a reader with **normal colour vision**, **protanopia (red-blind)**, **deuteranopia (green-blind)** or **tritanopia (blue-blind)** sees them ([Colour vision and accessibility](/app/colour-vision/)). |
 | **Commands...** (++ctrl+k++ or ++ctrl+shift+p++) | The palette: anything the application does, by its name: a command, a pane, a template, a node, an operator, a place. |
+
+### Help
+
+| Item | Does |
+|---|---|
+| **Quickstart**, **Tutorials**, **The application**, **Operator reference** | Open that page of this website in the browser. |
 | **Keyboard shortcuts** (++f1++) | The sheet of shortcuts ([Keyboard and mouse](/app/shortcuts/#the-f1-sheet)). |
+| **Report a problem...** | Opens a new issue on GitHub in the browser with the Terraflux version, the system and the last failure (the run's, else the first error of the model) already written, and the headings *What I did*, *What I expected* and *What happened* to fill in. You read it and send it: Terraflux sends nothing by itself. |
+| **About Terraflux** | A small window with the name, the version, the licence (GPL-3.0-or-later), how to cite Terraflux (with a **Copy** button) and the links to the website, the source code, the releases and the changelog. |
+
+Each of these is also in the command palette (**Help: Quickstart**, **Help: Report a problem**, **About Terraflux**...).
 
 ### The rest of the toolbar
 
