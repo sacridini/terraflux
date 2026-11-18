@@ -3789,3 +3789,90 @@ escolha do usuário). Conferido antes que nada disso existe.
    só consulta (176 ns por quadro); a execução espera até 2 s por ela. Ficou: o `terraflux check` da CLI não mostra
    disco nem memória (só o `check_model`); o MCP/CLI não gravam `Entry::memory`; a memória de trabalho dentro de um
    operador não é vista.
+
+## A documentação dentro do aplicativo, o Linkage Mapper aberto e a máscara de nuvens
+
+Pedido de 2026-11-18, depois de uma análise do que ainda falta (a ferramenta foi julgada completa; ficaram três
+lacunas de peso). Um commit por etapa, passando à seguinte sem perguntar; as ideias 1 e 2 andam ao mesmo tempo
+(arquivos disjuntos: `crates/app` + `website` contra um módulo novo de `crates/ops`), a 2 num worktree com o seu
+próprio target, as compilações em fila por um trinco (no máximo 4 núcleos ao todo). A 3 vem depois da 1, na árvore
+principal. Sem release nem push sem pedido.
+
+### 1. O aplicativo ligado à sua documentação
+
+O site tem 99 tutoriais e a referência de cada operador, e o aplicativo não aponta para nenhum deles: o único link é
+o dos releases (`app.rs`, About & updates). Não há menu Help, tela inicial nem caminho de um operador para a sua
+página. Com 19 painéis e mais de 340 operadores, quem chega cai num canvas vazio.
+
+- **1a. Menu Help e o módulo `docs`.** `crates/app/src/docs.rs`: a base do site (`https://sacridini.github.io/terraflux/`),
+  `op_url(id)` com a mesma regra de `website/build.py` (`/operators/{assunto}/#op-{id com . e _ trocados por -}`, o
+  assunto pelos assuntos de `builder.rs`, que o site lê por `subjects.json`), `tutorial_url`, `page(caminho)`; abre por
+  `update::open_page`. Corrigir antes o `subject_of` de `build.py`: o nome exato do operador vence o prefixo (hoje
+  `raster.*` cai todo em Data preparation e as entradas de nome completo de Raster analysis nunca casam), e um teste do
+  app confere que `op_url` dá a página e a âncora que o site gera para todos os operadores. Menu **Help** depois de
+  View: Quickstart, Tutorials, The application, Operator reference, Keyboard shortcuts (F1, que sai do View), *Report a
+  problem...* (abre um issue novo do GitHub com versão, sistema e a última falha preenchidos, para a pessoa ler e
+  enviar; nada sai sozinho) e *About Terraflux* (versão, licença, como citar pelo `CITATION.cff`, links). Também na
+  paleta de comandos.
+- **1b. Cada operador leva à sua página.** No Node pane, ao lado de "more...", *Documentation* abre a página do
+  operador; o menu de contexto de um operador na biblioteca e o de um nó no canvas ganham *Open its documentation*;
+  shift+F1 (ação do keymap) abre a do nó selecionado. Os templates que têm tutorial (front matter `template:` em 45
+  páginas) ganham *Read the tutorial* no menu Templates e na tela inicial: a tabela template → tutorial é gerada de
+  `website/content` por `website/tools/tutorial_index.py` num arquivo do app (`include_str!`), e um teste falha quando
+  ela fica velha.
+- **1c. A tela inicial.** Com o modelo em branco (nenhum nó, sem arquivo), o canvas mostra, em vez do vazio: *Start
+  from your data* (abrir um raster ou vetores, o Wizard, soltar arquivos), *Start from a task* (os grupos dos
+  templates, cada template com a sua frase e o seu tutorial), *Recent models* e *Learn* (Quickstart, Tutorials, a
+  página do aplicativo). Some com o primeiro nó; volta com o modelo vazio de novo. Desenhada só quando visível (sem
+  custo para o canvas com nós) e no tema escolhido; uma opção em Settings a desliga.
+- **1d. Os modelos dos tutoriais no aplicativo.** *Help > Tutorials with a model...*: uma janela com os tutoriais por
+  categoria (as 21 de `site.yaml`), cada um com *Open the model* (o template, ou o `.toml` publicado em
+  `/data/tutorials/`, baixado) e *Read* (a página). No site, os tutoriais com modelo ganham a linha "In Terraflux:
+  Templates > ‹nome›" junto ao bloco do modelo. Sem protocolo `terraflux://` (registro no sistema em três plataformas:
+  fica de fora).
+
+### 2. O Linkage Mapper aberto: corredores, pinch points e barreiras
+
+O fluxo de corredores mais usado em planejamento (Linkage Pathways, Pinchpoint Mapper e Barrier Mapper, McRae e
+Kavanagh 2011; McRae et al. 2012) depende do ArcGIS. O Terraflux tem as peças (custo, caminhos, Circuitscape), mas
+nenhum operador com o fluxo. O terraflux-py também não tem: a referência é o algoritmo publicado e o código do
+Linkage Mapper (Python sobre arcpy, que não roda aqui); os testes de paridade usam uma referência em Python escrita
+com `skimage.graph.MCP_Geometric` (a mesma convenção do ArcGIS: passo de √2 na diagonal, média das resistências das
+duas células, vezes o tamanho da célula) e o Circuitscape do terraflux-py. Módulo novo `crates/ops/src/linkage.rs`
+(família `linkage.*`), distância de custo em Rust (Dijkstra em f64; a do gtb aceita só resistência u8).
+
+- **2a. `linkage.pathways`.** Entradas: `cores` (mapa de ids, ou polígonos), `resistance`. Ajustes: adjacência
+  (`cost`, pela alocação da distância de custo, ou `euclidean`), `max_cwd`, `max_euclidean`, `drop_crossing` (o par
+  cujo caminho cruza outro núcleo sai), `width` (corte da distância normalizada), `nearest` (só os k vizinhos).
+  Saídas: `corridors` (o mosaico, o mínimo das distâncias normalizadas CWD_A + CWD_B − LCD, cortado em `width`),
+  `links` (tabela: from, to, euclidiana, LCD, comprimento do caminho, razão CWD/comprimento, mantido ou o porquê),
+  `paths` (linhas), `cwd` (a distância de custo ao núcleo mais próximo). Dicas e conselhos (`tips.rs`, check).
+- **2b. `linkage.pinchpoints`.** Para cada ligação, o Circuitscape entre os dois núcleos só dentro do corredor cortado
+  (ou all-to-one no mosaico todo); saídas `current` (o máximo ou a soma das ligações) e `links` (a resistência
+  efetiva de cada uma).
+- **2c. `linkage.barriers`.** Janelas circulares de raio `min`..`max` (passo `step`) restauradas: para cada célula e
+  raio, a melhora = LCD − (mínimo de CWD_A no círculo + mínimo de CWD_B no círculo + o custo do círculo restaurado,
+  `restored` por unidade), por unidade de distância restaurada (÷ 2R, como o Barrier Mapper); saídas `improvement`
+  (o máximo sobre raios e ligações), `radius` (o raio que o deu), `percent` (÷ LCD).
+- **2d. Template, tutorial, guia.** O template "Linkage Mapper: corridors, pinch points and barriers" (dados nlm.*),
+  uma página de tutorial em `habitat-networks` ou `circuit-connectivity`, o guia `connectivity` do MCP e o README
+  (tabela de campos: Linkage Mapper entre os métodos de).
+
+### 3. A máscara de nuvens por pixel no `data.stac`
+
+O `data.stac` filtra as cenas por `eo:cloud_cover` e compõe pela mediana, mas não mascara pixel a pixel: o SCL entra
+só como mais uma camada (e em bilinear, se `classes` é falso). Na Amazônia e na Mata Atlântica, com nuvem
+persistente, a mediana sem máscara contamina o mosaico. O terraflux-py (`download.stac`) também não mascara: a
+ideia vai ao IDEAS.md dele, para manter a paridade.
+
+- **3a. O operador.** Ajuste `mask`: `none` (padrão, o de hoje), `auto` (pela coleção), `scl` (Sentinel-2 L2A: o
+  asset `scl`/`SCL`), `qa_pixel` (Landsat Coleção 2 Nível 2: os bits de QA_PIXEL), `fmask` (HLS). `mask_classes`:
+  `cloud`, `shadow`, `cirrus`, `snow` (padrão: os três primeiros), e `mask_buffer` (células de dilatação). Para cada
+  item, o asset de máscara do mesmo item é lido em `near` na grade, assinado como os outros, nunca vira camada; as
+  células marcadas viram NaN antes do `combine`, que já as ignora. A máscara e as suas classes entram na chave do
+  cache. Códigos conferidos na documentação dos produtos (SCL 3 sombra, 8 e 9 nuvem, 10 cirro, 11 neve; QA_PIXEL bits
+  1 nuvem dilatada, 2 cirro, 3 nuvem, 4 sombra, 5 neve; Fmask bits 1 nuvem, 2 adjacente, 3 sombra, 4 neve) e no teste
+  ao vivo (`#[ignore]`) de Earth Search e Planetary Computer. Testes com o `Fake` de páginas e GeoTIFFs locais.
+- **3b. App e documentação.** Os presets de Sentinel-2 e Landsat do Data catalog ganham *Mask clouds per pixel*
+  (marcado por padrão) e escrevem `mask = "auto"`; o tour (`getting-started/tour.md`), a referência e o guia
+  `data-preparation` do MCP dizem como.
