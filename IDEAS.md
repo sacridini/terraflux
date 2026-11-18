@@ -3981,3 +3981,334 @@ nó com nota.
   só lê mapa), oferta "All N bands as the dates" e caixa na janela; paridade célula a célula com o Wizard nas 3 datas de Plum Island (14 passos de 215.698 células, CLUE-S e
   ordered). Depois `wizard.rs` saiu: o botão da barra ("Use my data"), a tela inicial e a paleta abrem a janela na página *Which model* (`Kind`: Dinamica, CLUE-S, Ordered =
   template do CLUE-S com `method` ordered, PLUS), os testes de paridade montam a referência com os `presets`, os do ui são de Use my data, site/README/CHANGELOG sem o Wizard.
+
+## Objetos: análise de imagem baseada em objetos (OBIA), no lugar do eCognition
+
+Pedido de 2026-11-19: ter no Terraflux o que o Trimble eCognition faz (segmentar uma imagem em objetos, descrever cada
+objeto, classificar por regras ou por amostras, em níveis), como operadores, e um Viewer que faça o mesmo ou mais; e
+que seja **mais fácil** de montar e configurar que o eCognition, também para quem tem pouca experiência e está
+começando. Por ora só o plano; quando for implementado, um commit por etapa, na ordem.
+Acréscimo do mesmo dia: três ideias do InterIMAGE (PUC-Rio e INPE, sobre o GeoAIDA de Hannover; Costa et al. 2010)
+que o eCognition não tem, nas etapas F (a árvore de classes), G (hipóteses por classe e a arbitragem) e H (várias
+datas com a matriz de transição).
+
+**Por que cabe no Terraflux.** O rule set do eCognition é uma árvore de processos: segmentar, calcular atributos,
+classificar, fundir, de novo, em níveis. É um grafo de operadores, e quase tudo em volta já existe: o grafo com cache
+e execução incremental (`crates/exec`), o motor por tiles (`crates/engine`) e o cluster (`crates/dist`), o Viewer em
+GPU com composições RGB (`rgb.rs`), inspeção de célula e desenho (`draw.rs`: pontos, linhas, polígonos, vértices,
+atributos), a tabela de atributos, os gráficos (`egui_plot`) e o histograma, o `trace_cell`, florestas aleatórias e
+gradient boosting que já aprendem de tabelas (`ml.fit`/`ml.predict`/`ml.importance`), a acurácia de mapas, a
+rotulagem e a vetorização (`raster.label`, `raster.sieve`, `vector.polygonize`, `vector.rasterize`, `raster.zonal`),
+o analisador das calculadoras (`algebra.rs`, `vector_algebra.rs`), o `data.stac` com máscara de nuvens, o *Use my data*
+(`my_data.rs`), o MCP e o assistente. Falta: um tipo de valor para objetos, os segmentadores, os atributos por objeto,
+as regras fuzzy, os níveis, e o Viewer de objetos (contornos, inspeção do objeto, amostras por clique).
+Duas vantagens que o eCognition não tem, de graça: mudar uma regra não refaz a segmentação (o cache), e o rule set é
+um arquivo legível e versionado, com `note` e `why` em cada nó, rodável pela CLI, pelo cluster e pelo MCP.
+
+**As patentes (conferido em 2026-11-19 no Google Patents; não é parecer jurídico).** Todas em nome da Definiens AG
+(a parte de geociências, o eCognition, foi para a Trimble em 2010; o registro não mostra cessão). Expiradas: a da
+segmentação em várias resoluções com hierarquia de objetos semânticos (US7437004, Baatz, Schäpe e Schmidt, prioridade
+1999-12-14, expirou em 2021-05-30; a família europeia EP1238364 também), a dos "darwinian objects" (US6738513,
+expirou em 2018-10-26), a da rede semântica de cognição (US7146380, expirou em 2025-01-04) e, pela data ajustada, a da
+"cognition integrator and language" (US7873223, 2026-10-03; o Google ainda diz "Active", conferir). **Ativas:**
+US7801361 (até 2029-01-20: filtrar os pixels ligados aos objetos de uma classe para uma nova camada de imagem, formar
+dela uma segunda rede de objetos, medir e mostrar) e US8319793 (até 2031-09-28: "imprimir" os objetos de uma rede em
+outra, formando uma terceira, e medir). As reivindicações são gerais, não só de imagens médicas. Consequências para o
+plano: a segmentação multirresolução (Baatz & Schäpe 2000) e os níveis feitos por fusão de baixo para cima estão
+livres; as duas operações das patentes ativas (re-segmentar uma camada filtrada por objetos dentro do mesmo fluxo de
+objetos; cruzar duas segmentações num terceiro nível) ficam para depois de 2029/2031, ou só com uma análise de
+liberdade de operação. A arbitragem de hipóteses de classes diferentes (etapa G) fica perto da US8319793: é
+feita célula a célula sobre mapas de pertinência, e o GeoAIDA (Bückner et al. 2001) e o InterIMAGE (Oliveira et al.
+2008, Costa et al. 2010) a publicaram antes do depósito (2009-04-17), mas é a etapa que pede a análise jurídica antes
+de um lançamento. Patente é territorial: não conferi a família no INPI nem as patentes próprias da Trimble (a
+busca por titular do Google Patents não abre sem navegador).
+
+**Princípios.**
+1. **Toda ação do Viewer vira nó**, como o *Filter the selection*: segmentar com a escala escolhida no controle
+   deslizante, rotular amostras por clique, transformar um limiar visto no mapa numa regra. O resultado é sempre um
+   modelo que roda de novo sozinho, com um passo de desfazer, visto no painel Changes.
+2. **Um caminho curto e o grafo inteiro.** O iniciante abre uma imagem, escolhe as classes, clica em alguns objetos
+   de cada uma e tem um mapa: um template (ou o Viewer) monta os nós por trás. O especialista abre esses mesmos nós e
+   troca o segmentador, os atributos, as regras e os níveis. Não há um "modo fácil" à parte: é o mesmo modelo.
+3. **Padrões que funcionam sem ajuste.** A escala estimada da imagem (ESP), os pesos das bandas iguais, um conjunto
+   básico de atributos, floresta aleatória como classificador padrão, e o check avisando o que costuma dar errado.
+4. **Explicar cada objeto.** Sob o cursor e no Trace: os atributos do objeto, o grau de pertinência a cada classe, a
+   regra ou o voto das árvores que decidiu, e os vizinhos e o objeto-pai. É onde se passa do eCognition.
+5. **Sem dependência nova de build pesada.** Rust; o ONNX Runtime (para o SAM, na última etapa) carregado em tempo de
+   execução como o GDAL (`libloading`), e o resto funcionando sem ele.
+
+**O tipo novo.** `Type::Objects` / `Value::Objects` (`crates/graph`, `crates/ops/src/value.rs`): a grade, os rótulos
+`Arc<Vec<u32>>` (não f64: 4 bytes por célula), o número de objetos, a caixa e a contagem de células de cada um, o grafo
+de adjacência (vizinho e comprimento da borda comum), o nível de cima (`Option<Arc<Objects>>`, cada objeto com o seu
+pai, um nível sempre contido no de cima), a tabela de atributos (`Table`, uma linha por objeto) e as classes com os
+graus de pertinência. Mostrado no Viewer, lido pelo `trace_cell`, gravado no cache (bincode + lz4, como o motor por
+tiles), visto pelo MCP (`show_model`, `inspect_file`).
+
+**As etapas.**
+
+- **A. A base.** O tipo `Objects`; `segment.from_map` (um mapa de classes ou de rótulos qualquer vira objetos: a
+  porta de entrada de qualquer segmentador externo, inclusive SAM rodado fora), `segment.from_vector` (polígonos viram
+  objetos, a tabela vira atributos), `segment.chessboard` e `segment.quadtree` (os mais simples do eCognition);
+  `objects.to_map` (a classe, um atributo ou o id como mapa), `objects.to_vector` (polígonos com os atributos e a
+  classe, suavização opcional, gravados pelo `vector.write`). O Viewer mostra uma camada de objetos como contornos sobre
+  a imagem (cor e espessura na linha da camada). E `nlm.image`: uma imagem multiespectral sintética a partir de um mapa
+  de classes (`nlm.*`) e de assinaturas espectrais (água, floresta, campo, cultivo, cidade; ruído, textura e borda
+  borrada), com a verdade conhecida: o dado dos templates e dos testes de acurácia. Testes: cada objeto conexo, os
+  rótulos contíguos, ida e volta mapa → objetos → mapa e vetor → objetos → vetor.
+- **B. Os segmentadores.** `segment.multiresolution` (Baatz & Schäpe 2000: escala, peso de cor e forma, compacidade e
+  suavidade, peso das bandas; a partir dos pixels ou de um nível existente, para fazer um nível de cima; determinístico
+  com a mesma semente; em paralelo pela abordagem de Happ et al. 2010, PUC-Rio, por blocos com a fusão entre blocos
+  feita à parte). `segment.slic` e `segment.snic` (superpixels, Achanta et al. 2012 e 2017), `segment.felzenszwalb`
+  (2004), `segment.watershed` (gradiente, marcadores opcionais), `segment.meanshift` (depois, o LSMS do OTB como
+  referência). `segment.scale` (o ESP de Drăguţ et al. 2010/2014: a variância local por escala e o seu ganho, as
+  escalas sugeridas, uma tabela e um gráfico): é o que dá a escala padrão do `segment.multiresolution` quando ela não é
+  dada. Testes: invariantes (a heterogeneidade de cada fusão abaixo do limiar, a imagem homogênea vira poucos objetos,
+  escala maior dá menos objetos, determinismo entre 1 e 8 threads), e a qualidade na `nlm.image` (a sobre e a
+  subsegmentação contra a verdade). Benchmarks com no máximo 8 threads.
+- **C. Os atributos.** `objects.features`: lê os objetos e uma ou mais imagens ou mapas (qualquer raster como camada:
+  MDE, nDSM, um mapa de classes anterior, a imagem de outra data) e dá os objetos com a tabela, e a tabela à parte.
+  Grupos: **espectrais** (média, desvio, mínimo, máximo, mediana por banda, brilho, diferença máxima, razão; os índices
+  ditos pelos nomes das bandas, NDVI e NDWI); **forma** (área, perímetro, compacidade, índice de forma, comprimento e
+  largura pelo retângulo mínimo, assimetria, direção principal, ajuste à elipse e ao retângulo, índice de borda);
+  **textura** (GLCM de Haralick por objeto: homogeneidade, contraste, entropia, correlação, segundo momento angular);
+  **contexto** (diferença média aos vizinhos, borda relativa a vizinhos de uma classe, distância a uma classe, o
+  atributo do pai, a contagem e a área relativa dos filhos de uma classe). Um conjunto `basic` (o padrão: médias,
+  desvio, NDVI quando há vermelho e infravermelho, área, compacidade, homogeneidade) e `all`. Uma passada pelos pixels,
+  em paralelo por faixas de linhas. Testes: cada atributo contra a conta à mão num objeto pequeno; as médias contra
+  `raster.zonal` com os rótulos.
+- **D. Classificar.** Três caminhos, que se combinam:
+  - **Por amostras com ML.** `objects.samples`: as amostras de pontos ou polígonos (`vector.read`, um desenho do
+    `draw.rs`, ou os cliques do Viewer, etapa I) viram a tabela de treino (o objeto sob cada amostra, a classe, os
+    atributos), com aviso de objeto com duas classes. Depois `ml.fit` e `ml.predict` como já são, sobre a tabela; e
+    `objects.classify` lendo o `MlModel` dá as classes e as probabilidades de cada uma (a pertinência).
+  - **Por regras fuzzy.** `objects.calc`, a calculadora dos objetos (o analisador de `vector_algebra.rs` com funções
+    de objetos): `nb.mean(x)`, `nb.count(cls == "water")`, `border_to("water")`, `distance_to("road")`,
+    `parent.x`, `children.count(cls == "tree")`, `children.area(cls == "tree")`; e as funções de pertinência
+    `above(x, a, b)`, `below(x, a, b)`, `between(x, a, b, c, d)`, `about(x, m, w)`, com `and` = mínimo, `or` = máximo,
+    `not` = 1 - x quando os termos são graus. Escrita com o `write_calc` do MCP. `objects.rules`: uma regra por classe,
+    uma hierarquia de classes com herança (a filha herda a regra da mãe, e soma a sua), o limiar mínimo de pertinência
+    (abaixo dele, "sem classe") e a classe dada pela maior pertinência, como o eCognition.
+  - **Por vizinho mais próximo.** `objects.nearest` (o "Standard Nearest Neighbor" do eCognition: a pertinência pela
+    distância no espaço dos atributos às amostras de cada classe), para quem conhece esse fluxo.
+  - **A acurácia por objetos.** `objects.accuracy`: amostras de validação (separadas das de treino, ou um sorteio
+    estratificado de objetos para rotular), a matriz de confusão, a acurácia global e por classe e as áreas ajustadas,
+    pelos operadores de acurácia que já existem sobre o mapa das classes.
+  Testes: na `nlm.image`, acurácia acima de um limite com poucas amostras por classe; as regras fuzzy contra a conta à
+  mão; a hierarquia de classes.
+- **E. Os níveis e as operações sobre objetos.** Um nível de cima feito do de baixo (`segment.multiresolution` com
+  `from`, ou `objects.merge` por classe: os vizinhos da mesma classe viram um objeto), `objects.merge` por uma condição
+  (`objects.calc` sobre o par de vizinhos), `objects.grow` (crescer objetos de uma classe para os vizinhos que atendem a
+  uma condição, até não mudar mais), `objects.remove_small` (o `raster.sieve` dos objetos: o pequeno vai para o vizinho
+  mais parecido ou de maior borda), `objects.reclassify` (renomear e juntar classes). Os laços "até não mudar mais" pelo
+  `control.repeat`, com a parada quando o número de objetos não muda. Os níveis só por fusão: nada de imprimir os objetos de
+  uma segmentação noutra para formar um terceiro nível nem de re-segmentar uma camada filtrada pelos objetos (as
+  patentes ativas); segmentações diferentes só se encontram pela arbitragem célula a célula da etapa G.
+- **F. A árvore de classes (do InterIMAGE).** O que existe na cena, dito primeiro: Cena → Urbano (Prédios, Ruas),
+  Vegetação (Árvores, Grama), Água. Cada nó da árvore é uma classe (nome, cor, a classe-mãe) e pode ter o seu ramo do
+  modelo, não só as folhas: o ramo de um filho roda só dentro da região achada para o pai (a máscara do pai, como o
+  "ShapeFile Intersection" do InterIMAGE), e "ache a cidade, depois os prédios dentro dela" é o próprio grafo. No
+  modelo: a árvore é a hierarquia de classes do `objects.rules` (etapa D), e cada ramo um `control.group` com
+  `@region` (a região do pai) e a classe que procura. Uma vista *Classes* no canvas mostra o modelo pela árvore (um
+  cartão por classe com o seu método, a regra, as amostras e a área achada), ao lado da vista do grafo; *Add a
+  class...* cria o nó da árvore e o seu grupo, com receitas prontas por classe ("water by NDWI", "vegetation by NDVI",
+  "buildings by height", "by samples"). Para quem está começando é o ponto de partida mais natural ("o que há na minha
+  imagem?") em vez de "qual a escala?". Testes: o filho não acha nada fora do pai; a árvore lida e escrita com o
+  modelo; uma receita aplicada a um nó roda.
+- **G. Hipóteses por classe e a arbitragem (do InterIMAGE).** Cada classe achada pelo seu próprio método (um limiar de
+  NDWI para a água, a segmentação multirresolução com regras de forma para os telhados, o nDSM para as árvores, o SAM),
+  sem que um método tenha de servir para todas. Cada ramo da etapa F dá um mapa de pertinência da sua classe (0 fora
+  das suas hipóteses; dentro, o grau da sua regra fuzzy ou a probabilidade do `ml.predict`). As hipóteses de classes
+  irmãs se sobrepõem, porque os ramos não se veem. `objects.resolve` lê os mapas de pertinência das classes irmãs (uma
+  pilha, uma camada por classe) e decide célula a célula pela maior pertinência: o limiar mínimo ("sem classe" abaixo
+  dele), o empate pela ordem das classes, e a junção depois, `connected` (um objeto por área conexa, o padrão),
+  `global` (um objeto por classe, mesmo não contíguo) ou `none`. Uma hipótese em parte sobreposta não some inteira:
+  perde só a parte em que outra ganhou, como no InterIMAGE. Saídas: os objetos com a classe e a pertinência vencedora,
+  o mapa da segunda maior pertinência (a dúvida, que alimenta o "onde rotular a seguir" da etapa I) e a tabela dos
+  conflitos (quanta área de cada classe perdeu para cada outra). Sobe a árvore: a região de Vegetação é a união das
+  vencedoras de Árvores e Grama. No Viewer, as hipóteses de cada classe como camadas e o conflito da área sob o cursor
+  ("Trees 0.82 venceu Grass 0.64"). A etapa fica separável das outras, para não entrar num lançamento antes da análise
+  da patente (a nota acima). Testes: a sobreposição parcial, os três modos de junção, a arbitragem contra a conta à
+  mão num mapa pequeno.
+- **H. Várias datas com a matriz de transição (do InterIMAGE).** As datas como ramos da árvore (os "nós temporais" do
+  InterIMAGE), com duas estratégias. **Sequencial:** as classes validadas da data 1 dão as hipóteses iniciais da data 2
+  (os objetos da 1 como partida da segmentação da 2, e a sua classe como atributo). **Síncrona:** as datas classificadas
+  em paralelo, e depois `objects.temporal` ajusta as pertinências de cada data pela possibilidade de cada transição
+  entre classes, uma matriz fuzzy (Feitosa et al. 2009, cadeias de Markov fuzzy: a composição máx-mín das pertinências
+  da data 1 com a matriz limita as da data 2), antes da arbitragem da etapa G. Transições impossíveis (cidade →
+  floresta primária em um ano) perdem força; na tese de Costa, a acurácia média por classe foi de cerca de 55% (uma
+  data por vez) para entre 65% e 94%. A matriz: escrita à mão numa tabela (uma linha por classe de origem, de 0 a 1),
+  tirada do `change.transitions` de mapas anteriores (as taxas viram possibilidades), ou estimada das amostras das
+  duas datas. É a ponte com o resto do Terraflux: o mapa de mudança por objetos entra direto nos modelos de mudança de
+  uso como as datas observadas. Testes: uma transição de possibilidade 0 nunca acontece; com a matriz toda 1, igual a
+  classificar cada data sozinha; o ganho de acurácia numa `nlm.image` de duas datas com ruído.
+- **I. O Viewer dos objetos.** Onde o eCognition prende quem o usa, e onde dá para ir além.
+  1. **A camada de objetos:** contornos de um nível sobre a imagem, preenchimento pela classe (a legenda das classes,
+     a transparência), a troca de nível, o objeto sob o cursor destacado. Um clique seleciona o objeto (e os seus
+     vizinhos, pai e filhos com teclas).
+  2. **O inspetor do objeto:** os atributos, a pertinência a cada classe em barras, a regra ou as árvores que
+     decidiram, o pai e os filhos; o mesmo pelo `trace_cell` do MCP.
+  3. **A segmentação ao vivo:** o controle deslizante da escala (e de forma e compacidade) re-segmenta só a janela
+     visível (como o `calc_view::window_in`), numa thread, em menos de um segundo numa janela de tela; *Apply* grava o
+     nó `segment.multiresolution` com os valores. A curva do ESP ao lado, com as escalas sugeridas marcadas.
+  4. **Amostras por clique:** a paleta das classes (nome e cor; acrescentar uma classe ali mesmo); um clique dá a
+     classe ao objeto, arrastar pinta vários, o botão direito tira. Grava um nó `objects.samples` com a tabela das
+     amostras no próprio modelo (como os atributos do desenho), ou num GeoPackage ao lado quando são muitas. As
+     amostras sobrevivem a uma nova segmentação: guardadas como pontos no centro de cada objeto clicado.
+  5. **O espaço dos atributos:** o diagrama de dispersão de dois atributos com as amostras coloridas pela classe, o
+     histograma de um atributo por classe, a separabilidade (Jeffries-Matusita) de cada par de classes por atributo, e a
+     sugestão dos atributos que mais separam (como o "Feature Space Optimization", mas mostrado). Um ponto no gráfico
+     acende o objeto no mapa, e vice-versa.
+  6. **Do limiar à regra:** escolher um atributo, arrastar a faixa no histograma e ver os objetos acesos no mapa; *Make a
+     rule* cria (ou acrescenta à) regra da classe no `objects.rules`, com as bordas como pertinência fuzzy.
+  7. **Onde rotular a seguir** (aprendizado ativo): depois de classificar, os objetos de maior incerteza (a menor
+     diferença entre as duas maiores probabilidades) numa lista, um a um no mapa, para clicar a classe; e os erros da
+     validação (a amostra e a classe dada) numa lista que leva a cada um.
+  8. Comparar: a cortina, o lado a lado e a diferença que o Viewer já tem, entre níveis, entre classificações e entre
+     duas datas.
+- **J. Para quem está começando.** O que faz do Terraflux mais fácil que o eCognition:
+  1. **Templates** (com a `nlm.image`, rodam como estão; com `data` em cada fonte para o *Use my data*): "Classify an
+     image by clicking samples" (o principal: segmentar, amostras, floresta aleatória, acurácia, polígonos), "Classify an
+     image by rules" (água por NDWI, vegetação por NDVI, o resto por contexto), "Land cover change by objects" (duas
+     datas, os atributos das duas, a mudança por objeto), "Segment an image into polygons" (só segmentar e exportar),
+     "Each class its own way" (a árvore de classes da etapa F, uma receita por classe e a arbitragem da etapa G), e
+     "Trees and buildings from a height model" (nDSM + imagem, regras de altura e forma).
+  2. **O *Use my data* para imagens:** `DataKind::Image`, com os papéis das bandas (azul, verde, vermelho,
+     infravermelho, SWIR) tirados dos nomes (Sentinel-2, Landsat 8/9, como os atalhos do `rgb.rs`) ou escolhidos numa
+     página *Bands*; a escala da reflectância (0–1 ou 0–10 000) detectada e normalizada; e as classes da pessoa, com
+     nome e cor, numa página *Classes*. E sem imagem própria: "desenhe a área e baixe" uma cena Sentinel-2 sem nuvens
+     pelo `data.stac`.
+  3. **Padrões e avisos** (`tips.rs`, `advice.rs`, o check): a escala do ESP quando não dada; aviso de menos de 10
+     amostras numa classe, de classe sem amostra, de classes muito desbalanceadas, de objetos muito menores ou maiores
+     que as amostras desenhadas, de imagem sem CRS, de bandas em escalas diferentes, de dois atributos quase iguais; e o
+     que fazer em cada caso.
+  4. **O guia `objects`** do MCP (o método passo a passo, os operadores, os templates) e o prompt "classify this image
+     into water, forest and city": o assistente monta o modelo, abre no Viewer e pede as amostras.
+  5. **Tutoriais** no site e no Menu Ajuda: "o primeiro mapa por objetos em 10 minutos", e um para quem vem do
+     eCognition (o que é cada coisa aqui: process tree → grafo, level → `Objects` com pai, class hierarchy →
+     `objects.rules`, feature view → espaço dos atributos, customized feature → `objects.calc`), e o mesmo para quem vem do InterIMAGE (rede semântica → árvore de
+     classes, operador top-down → o ramo de uma classe, regra bottom-up → `objects.resolve`, nó temporal →
+     `objects.temporal`).
+- **K. Imagens grandes.** Segmentar por tiles do `crates/engine` com a costura dos objetos na borda (o método de Happ et
+  al. ou o do LSMS do OTB: segmentar cada tile com margem e decidir os objetos que cruzam a borda numa segunda passada),
+  os atributos por faixas sem a imagem inteira em memória, os rótulos em disco quando passam do limite, e o cluster
+  (`crates/dist`) por tiles. Meta: uma cena Sentinel-2 inteira (10 980 × 10 980, 10 bandas) em um computador comum, e
+  uma ortofoto de 50 cm de um município.
+- **L. Aprendizado profundo (opcional).** `segment.sam` (Segment Anything por ONNX, o ONNX Runtime carregado em tempo de
+  execução; os pesos baixados uma vez para o cache; sem ele, o operador diz como instalar) e `objects.embed` (a média
+  por objeto das incorporações de um modelo de base, como Clay ou Prithvi, como atributos para o `ml.fit`). O resto do
+  módulo nunca depende disso.
+
+**Decisões pendentes.**
+- O script Python (`python_script`): o terraflux-py não tem objetos; implementar lá (C++) ou o script avisar que esses
+  nós não têm equivalente.
+- Os nomes: `segment.*` e `objects.*` (como acima) ou uma família só, `obia.*`. A favor dos dois: o iniciante lê
+  "segment" e "objects" sem saber a sigla.
+- Guardar as amostras no modelo ou sempre num arquivo ao lado (o modelo leve contra um arquivo só).
+- Ler LiDAR direto (LAS/LAZ para nDSM) ou só por rasters já feitos fora.
+- A árvore de classes como estrutura própria do formato do modelo ou só como uma vista sobre grupos comuns com
+  `@region` (o proposto: nada muda no formato).
+- A matriz de transição fuzzy estimada: das amostras das duas datas (simples) ou pelo algoritmo genético de Feitosa
+  et al. (o do artigo).
+
+## PCA, k-means e SOM para mapas, pilhas e tabelas
+
+Pedido de 2026-11-19: operadores de componentes principais (PCA), k-means e mapas auto-organizáveis (SOM), com o
+código copiado ou baseado no do Janus e do Zeit onde fizer sentido. Por ora só o plano; quando for implementado, um
+commit por etapa, na ordem.
+
+**O que já existe.** No Terraflux, `crates/ops/src/signatures.rs` já tem PCA (`svd` da matriz dos z-scores, sinal de
+`sign_of`), k-means (k-means++ pelo `NumpyRng`, Lloyd até 300 iterações, o melhor de `n_init`), NMF e as ligações do
+scipy, iguais ao landschaft até 1e-11. Mas só para as tabelas de `metrics.signatures` (`metrics.pca`,
+`metrics.cluster`, `metrics.clustergram`): o SVD da matriz inteira (`Vec<Vec<f64>>`) serve para centenas de linhas,
+não para os milhões de células de uma imagem. Os gráficos do círculo de correlações e do clustergram (`charts.rs`) já
+leem essas tabelas. O k-means dos folds espaciais (`sdm/folds.rs`) é o do R pela ponte C++, e fica como está.
+Fora daqui:
+- **Janus** (`crates/janus-zeit/src/cluster.rs`): k-means com o k-means++ guloso do scikit-learn (2 + ln k
+  candidatos), somas por blocos fixos com rayon (o mesmo resultado com qualquer número de threads), parada em 300
+  iterações ou tol × variância, e Ward; só depende do rayon. PCA por covariância e Jacobi cíclico em
+  `crates/janus-app/src/atlas_math.rs` (boa para poucas bandas).
+- **Zeit** (`rust/zeit-core/src/som.rs`): o SOM portado operação a operação do MiniSom 2.3 (os mesmos bits): grade
+  retangular, vizinhanças gaussiana, bubble e triangle, as funções de decaimento, `train_online`, `train_batch` em
+  paralelo e `predict_bmus`. Depende do módulo `parallel` do zeit-core, que é trocado pelo rayon. Não tem grade
+  hexagonal nem U-matrix. O PCA do Zeit (`improphe.rs`) usa faer e está preso ao IMPROPHE: não é copiado.
+Os três projetos são GPL-3.0, do mesmo autor; o Terraflux é GPL-3.0-or-later: nada impede a cópia.
+
+**Princípios.**
+- **A família `ml.*`**, ao lado de `ml.fit`: `ml.pca`, `ml.kmeans`, `ml.som`. Como o `ml.fit`, cada um lê uma
+  tabela (as linhas, as colunas escolhidas) **ou** uma pilha (uma camada por variável, com `cells` como máscara), e dá
+  as saídas diretas (o mapa ou a coluna) e um `MlModel` para aplicar a outros dados.
+- **Ajustar numa amostra, aplicar em tudo.** O ajuste é `Access::Global` sobre uma amostra das células (o `sample`
+  do `ml.fit`, sorteada pelo `NumpyRng`; o padrão sendo todas até um limite e uma amostra acima dele, dito na nota); a
+  aplicação, pelo `ml.predict`, é `Access::Local`, por blocos, e roda nos mapas maiores que a memória
+  (`crates/engine`) e no cluster. O modelo guarda a média e o desvio do ajuste: aplicado à imagem de outra data, usa
+  os do ajuste, não os da nova.
+- **O mesmo resultado com 1 ou 8 threads** (somas por blocos fixos, como o Janus), e a mesma semente dá os mesmos
+  mapas. Uma célula com NaN em qualquer variável fica fora do ajuste e sai NaN.
+- **Padrões para quem está começando:** padronizar quando as variáveis estão em unidades diferentes (o padrão, e um
+  aviso do check quando desligado nesse caso), o número de componentes pela variância explicada (95%), o k escolhido
+  pela silhueta quando não dado, e o tamanho da grade do SOM pela regra de Vesanto (5 √n nós), cada escolha automática
+  dita na nota do nó.
+- **Um módulo só**: `crates/ops/src/multivar/` (`linalg.rs`, `pca.rs`, `kmeans.rs`, `som.rs`). O `signatures.rs`
+  passa a chamá-lo, e o `metrics.pca` e o `metrics.cluster` dão exatamente as mesmas tabelas de hoje (os testes de
+  paridade com o landschaft continuam passando sem mudança).
+
+**As etapas.**
+
+- **A. O módulo comum.** `multivar/linalg.rs`: o `svd` que hoje está no `signatures.rs` (para tabelas), a covariância
+  e a correlação por blocos em uma passada (a soma de Kahan ou por pares, em paralelo por faixas de linhas) e o Jacobi
+  cíclico do Janus para a matriz d × d (d = bandas, poucas dezenas). `multivar/kmeans.rs`: o k-means do Janus (blocos
+  fixos, rayon) com duas partidas: a de hoje (k-means++ do `NumpyRng`, a ordem das somas do numpy, para o
+  `metrics.cluster`) e a do scikit-learn guloso (para os mapas). Testes: os do Janus (`tests/kmeans.rs`,
+  `cluster.rs:398-440`) trazidos para cá; os de `metrics.*` intactos; 1 e 8 threads dão os mesmos rótulos.
+- **B. `ml.pca`.** Entradas `table` ou `predictors` (pilha) + `cells`; ajustes `components` (um número, ou a parte
+  da variância, 0.95 por padrão), `standardise` (correlação, o padrão, ou covariância), `sample`, `seed`. Saídas:
+  `scores` (pilha `pc1`, `pc2`..., ou as colunas na tabela), `loadings` (a tabela no formato do `metrics.pca`: uma
+  linha por componente, `component` e `explained` e uma coluna por variável, para que o círculo de correlações apareça
+  sozinho), `explained` (a tabela da variância para o gráfico de cotovelo) e `model` (`Model::Pca { mean, scale,
+  components, explained }` no enum de `ml/mod.rs`, gravado em JSON como os outros). O sinal de cada componente pelo
+  `sign_of` (o do `metrics.pca`). Depois: a MNF (Green et al. 1988; a covariância do ruído pela diferença entre
+  vizinhos) e o PCA das duas datas para mudança, como opções. Testes: contra o `sklearn.decomposition.PCA` (até o
+  sinal) num script de referência como o `tools/make_signature_reference.py`; os scores aplicados a outra imagem
+  com a média do ajuste; o gráfico de cotovelo em `charts.rs`.
+- **C. `ml.kmeans`.** Entradas como acima; ajustes `k` (um número, uma lista, ou `auto`: a melhor silhueta numa
+  amostra entre 2 e 10), `n_init`, `max_iter`, `tol`, `standardise`, `sample`, `seed`. Saídas: `clusters` (o mapa,
+  ou a coluna `cluster` na tabela), `centres` (a tabela: um centro por linha, nas unidades originais, com o tamanho e
+  a inércia de cada grupo), `choice` (com uma lista de k: inércia, silhueta e Calinski-Harabasz por k, para o
+  gráfico) e `model` (`Model::KMeans { centres, mean, scale }`). Os rótulos em ordem estável (pelo primeiro
+  componente dos centros), para que as cores não mudem de uma execução para outra. Depois, como opções: mini-batch
+  (Sculley 2010) para amostras enormes, e o ISODATA (dividir e juntar grupos) dos programas de sensoriamento
+  remoto. Testes: a inércia contra o `sklearn.cluster.KMeans` com os mesmos centros iniciais; a `nlm.image` (do plano
+  dos objetos) separada nas suas classes; a ordem dos rótulos estável.
+- **D. `ml.som`.** O `som.rs` do Zeit trazido para `multivar/som.rs`, o `parallel::Shared` trocado pelo rayon e o
+  `n_jobs` pelas threads do Terraflux, os testes do Zeit junto (inclusive os que conferem os bits contra o MiniSom).
+  Ajustes: `rows` e `columns` (o padrão por Vesanto: 5 √n nós, a razão dos lados pelos dois primeiros autovalores do
+  PCA), `topology` (retangular; hexagonal é o acréscimo novo), `neighbourhood` (gaussian, bubble, triangle),
+  `learning_rate`, `sigma`, `decay`, `training` (batch, o padrão, ou online), `iterations`, `standardise`, `sample`,
+  `seed`, e `clusters` (k > 0: os nós do SOM agrupados em k grupos pelo k-means ou pelo Ward da etapa A, a
+  abordagem em dois níveis de Vesanto & Alhoniemi 2000, como o Janus faz). Saídas: `nodes` (o mapa do nó de cada
+  célula), `groups` (o mapa dos grupos, quando `clusters`), `codebook` (a tabela: uma linha por nó com linha, coluna,
+  os pesos nas unidades originais, o número de células e o grupo), `quality` (erro de quantização e topográfico) e
+  `model` (`Model::Som { rows, columns, topology, weights, mean, scale, groups }`). A U-matrix calculada do codebook.
+  Testes: os do Zeit; hexagonal contra o MiniSom com `topology='hexagonal'`; o mapa dos grupos reproduzível.
+- **E. Os gráficos e o Viewer.** Em `charts.rs`: o cotovelo do PCA, a escolha do k (inércia e silhueta por k) e o
+  **SOM**: a grade dos nós com a U-matrix, os planos de componentes (uma grade por variável), o mapa de contagens e os
+  grupos; um clique num nó (ou num grupo) acende as suas células no mapa do Viewer, e uma célula no mapa mostra o seu
+  nó. No Viewer, os scores do PCA como composição RGB (`rgb.rs`: pc1, pc2, pc3) com um clique.
+- **F. Para quem está começando.** Templates (com a `nlm.image` ou pilhas `nlm.*`, rodando como estão, com `data`
+  para o *Use my data*): "Principal components of an image", "Unsupervised classification of an image (k-means)",
+  "Types of landscape by a self-organizing map" (uma pilha de variáveis ambientais, os grupos como mapa) e "Change
+  between two dates by principal components". O guia do MCP (no `data-preparation` ou num tópico próprio,
+  `multivariate`), as dicas de `tips.rs` (padronizar, poucos dados para a grade, k grande para a amostra, componentes
+  que somam pouca variância), as frases de `phrases.rs`, as citações do `methods.rs` (Pearson 1901, Hotelling 1933,
+  Lloyd 1982, Arthur & Vassilvitskii 2007, Kohonen 1982 e 2001, Vesanto & Alhoniemi 2000), e o `python_script`:
+  `sklearn.decomposition.PCA`, `sklearn.cluster.KMeans` e `minisom.MiniSom` (este dando os mesmos bits pelo port do
+  Zeit).
+- **G. Com os objetos.** A tabela de atributos dos objetos (plano dos objetos, etapa C) é uma tabela: `ml.kmeans` e
+  `ml.som` sobre ela são a classificação não supervisionada de objetos, e `ml.pca` reduz os atributos antes do
+  `ml.fit`. Um exemplo no template dos objetos e um teste.
+
+**Decisões pendentes.**
+- Manter `metrics.pca` e `metrics.cluster` como estão (finos sobre o módulo comum, o que proponho) ou torná-los nomes
+  antigos de `ml.pca` e `ml.kmeans` sobre a tabela de assinaturas.
+- O limite de células acima do qual o ajuste passa a usar uma amostra (proposta: 1 milhão), e se isso é aviso ou só
+  nota.
