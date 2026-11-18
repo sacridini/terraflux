@@ -3875,6 +3875,10 @@ duas células, vezes o tamanho da célula) e o Circuitscape do terraflux-py. Mó
   raio, a melhora = LCD − (mínimo de CWD_A no círculo + mínimo de CWD_B no círculo + o custo do círculo restaurado,
   `restored` por unidade), por unidade de distância restaurada (÷ 2R, como o Barrier Mapper); saídas `improvement`
   (o máximo sobre raios e ligações), `radius` (o raio que o deu), `percent` (÷ LCD).
+  **Feito** (Unreleased). `linkage.barriers` em `crates/ops/src/linkage.rs`, como o `s6_barriers.py`: o mínimo é no anel
+  (distância do centro acima de R − 1 e até R, em unidades do mapa), não no disco; `percent` é 100 × melhora / LCD;
+  `restored` vale 1 por padrão (o LM fixa 1); `circles` (o máximo em disco de raio R) e `combine`, `cwd_threshold`
+  como no LM; faltou o corte opcional pela resistência. Referência em `make_linkage_reference.py` (chave `barriers`).
 - **2d. Template, tutorial, guia.** O template "Linkage Mapper: corridors, pinch points and barriers" (dados nlm.*),
   uma página de tutorial em `habitat-networks` ou `circuit-connectivity`, o guia `connectivity` do MCP e o README
   (tabela de campos: Linkage Mapper entre os métodos de).

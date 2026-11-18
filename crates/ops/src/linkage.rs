@@ -22,6 +22,7 @@ use crate::{Args, Ctx, Error, Map, Operator, Outputs, Registry, Result, Table, V
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(Pathways));
     r.add(Arc::new(Pinchpoints));
+    r.add(Arc::new(Barriers));
 }
 
 /// The most memory the cost-weighted distances of all the cores in links may take together (bytes).
@@ -609,6 +610,54 @@ impl Operator for Pathways {
     }
 }
 
+/// The kept links of a `links` table (linkage.pathways'): (core, core, lcd of the table), the cores by index into
+/// the sorted ids. All the rows if there is no `kept` column.
+fn read_links(lt: &Table, index: &BTreeMap<i64, usize>) -> std::result::Result<Vec<(usize, usize, f64)>, String> {
+    let col = |c: &str| lt.column(c).ok_or_else(|| format!("links has no column {c:?}"));
+    let (from, to, lcd) = (col("from")?, col("to")?, col("lcd")?);
+    let kept = lt.column("kept");
+    let mut links: Vec<(usize, usize, f64)> = Vec::new();
+    for i in 0..lt.rows.len() {
+        if kept.as_ref().is_some_and(|k| k[i] != 1.0) {
+            continue;
+        }
+        let find =
+            |v: f64| index.get(&(v as i64)).copied().ok_or_else(|| format!("the core {v} of links is not in cores"));
+        links.push((find(from[i])?, find(to[i])?, lcd[i]));
+    }
+    if links.is_empty() {
+        return Err("links has no kept link to map".into());
+    }
+    Ok(links)
+}
+
+/// Each link's LCD from the cores' distances, checked against the table's.
+fn check_lcds(
+    links: &[(usize, usize, f64)],
+    surfaces: &BTreeMap<usize, Vec<f64>>,
+    names: &[i64],
+    n: usize,
+) -> std::result::Result<Vec<f64>, String> {
+    links
+        .par_iter()
+        .map(|&(a, b, tl)| {
+            let (da, db) = (&surfaces[&a], &surfaces[&b]);
+            let l = (0..n).map(|c| da[c] + db[c]).fold(f64::INFINITY, f64::min);
+            if !l.is_finite() {
+                return Err(format!("the cores {} and {} are not connected", names[a], names[b]));
+            }
+            if (l - tl).abs() > 1e-6 * l.max(1.0) {
+                return Err(format!(
+                    "the lcd of the link {} to {} in links is {tl}, this resistance gives {l}: links is not \
+                     linkage.pathways' on these cores and this resistance",
+                    names[a], names[b]
+                ));
+            }
+            Ok(l)
+        })
+        .collect()
+}
+
 /// Circuitscape's no-data value: a cell below it has no current.
 const NODATA: f64 = -9999.0;
 
@@ -711,22 +760,7 @@ impl Operator for Pinchpoints {
         // the cores, and the links to map: (core, core, lcd of the table)
         let (names, ids) = core_ids(&cores.data, res).map_err(|e| fail(e.to_string()))?;
         let index: BTreeMap<i64, usize> = names.iter().enumerate().map(|(k, &i)| (i, k)).collect();
-        let col = |c: &str| lt.column(c).ok_or_else(|| fail(format!("links has no column {c:?}")));
-        let (from, to, lcd) = (col("from")?, col("to")?, col("lcd")?);
-        let kept = lt.column("kept");
-        let mut links: Vec<(usize, usize, f64)> = Vec::new();
-        for i in 0..lt.rows.len() {
-            if kept.as_ref().is_some_and(|k| k[i] != 1.0) {
-                continue;
-            }
-            let find = |v: f64| {
-                index.get(&(v as i64)).copied().ok_or_else(|| fail(format!("the core {v} of links is not in cores")))
-            };
-            links.push((find(from[i])?, find(to[i])?, lcd[i]));
-        }
-        if links.is_empty() {
-            return Err(fail("links has no kept link to map".into()));
-        }
+        let links = read_links(lt, &index).map_err(fail)?;
 
         // the cost-weighted distance from the cores in the links
         let mut cells: Vec<Vec<usize>> = vec![Vec::new(); names.len()];
@@ -754,24 +788,7 @@ impl Operator for Pinchpoints {
             .collect();
 
         // each link's LCD, to be the table's
-        let lcds: Vec<f64> = links
-            .par_iter()
-            .map(|&(a, b, tl)| {
-                let (da, db) = (&surfaces[&a], &surfaces[&b]);
-                let l = (0..n).map(|c| da[c] + db[c]).fold(f64::INFINITY, f64::min);
-                if !l.is_finite() {
-                    return Err(fail(format!("the cores {} and {} are not connected", names[a], names[b])));
-                }
-                if (l - tl).abs() > 1e-6 * l.max(1.0) {
-                    return Err(fail(format!(
-                        "the lcd of the link {} to {} in links is {tl}, this resistance gives {l}: links is not \
-                         linkage.pathways' on these cores and this resistance",
-                        names[a], names[b]
-                    )));
-                }
-                Ok(l)
-            })
-            .collect::<Result<_>>()?;
+        let lcds = check_lcds(&links, &surfaces, &names, n).map_err(fail)?;
 
         // the conductance of the circuit where a cell is in it: 1 / resistance (squared or not)
         let conductance = |inside: &dyn Fn(usize) -> bool| -> Vec<f64> {
@@ -896,5 +913,283 @@ impl Operator for Pinchpoints {
             t.rows.push(vec![names[a] as f64, names[b] as f64, tl, r, ratio, nodes]);
         }
         Ok(outputs([("current", Value::Map(Map::new(g.clone(), current))), ("links", Value::Table(t))]))
+    }
+}
+
+/// The offsets (row, column) of the cells whose centre is at a distance (map units) above `inner` and up to
+/// `outer` from a cell's: an annulus, or a circle (no `inner`: the centre too).
+fn footprint(lat: &Lattice, outer: f64, inner: Option<f64>) -> Vec<(i64, i64)> {
+    let (kr, kc) = ((outer / lat.dy).floor() as i64, (outer / lat.dx).floor() as i64);
+    let mut v = Vec::new();
+    for dr in -kr..=kr {
+        for dc in -kc..=kc {
+            let (x, y) = (dc as f64 * lat.dx, dr as f64 * lat.dy);
+            let d = (x * x + y * y).sqrt();
+            if d <= outer && inner.is_none_or(|i| d > i) {
+                v.push((dr, dc));
+            }
+        }
+    }
+    v
+}
+
+/// The least (or greatest) finite value of a surface over the footprint around each cell, NaN where there is
+/// none (ArcGIS's focal statistic over data cells, the grid's edge ignored).
+fn focal(data: &[f64], lat: &Lattice, offs: &[(i64, i64)], least: bool) -> Vec<f64> {
+    let mut out = vec![f64::NAN; lat.cells()];
+    out.par_chunks_mut(lat.w).enumerate().for_each(|(r, row)| {
+        for (k, o) in row.iter_mut().enumerate() {
+            let mut best = f64::NAN;
+            for &(dr, dc) in offs {
+                let (rr, kk) = (r as i64 + dr, k as i64 + dc);
+                if rr < 0 || kk < 0 || rr >= lat.h as i64 || kk >= lat.w as i64 {
+                    continue;
+                }
+                let v = data[rr as usize * lat.w + kk as usize];
+                if v.is_finite() && (best.is_nan() || if least { v < best } else { v > best }) {
+                    best = v;
+                }
+            }
+            *o = best;
+        }
+    });
+    out
+}
+
+/// `acc` takes `v` if it is greater (NaN: nothing yet).
+fn raise(acc: &mut f64, v: f64) {
+    if !v.is_nan() && (acc.is_nan() || v > *acc) {
+        *acc = v;
+    }
+}
+
+struct Barriers;
+
+impl Operator for Barriers {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "linkage.barriers",
+            "The barriers in the links between cores, as Linkage Mapper's Barrier Mapper (McRae et al. 2012): for \
+             each kept link of `links` (the output of linkage.pathways) and each radius R from `min_radius` to \
+             `max_radius` by `step` (map units), the improvement of restoring a circle of radius R around a cell: \
+             the link's LCD less the least cost-weighted distance of each core over the ring of cells around the \
+             cell (those whose centre is at a distance above R - 1 and up to R map units: Linkage Mapper's \
+             annulus), less the cost of crossing the restored circle (its diameter 2R times `restored`), per unit \
+             of restored distance (over 2R); `percent` is that improvement as a percentage of the LCD. A cell whose \
+             ring touches a core has no value. The links are mosaicked by their greatest (`combine` max) or their \
+             sum (sum: a negative or missing value counts 0), the negative cells left without a value: the barrier \
+             `improvement` (the centres of the circles), over the radii the greatest, with the `radius` that gave \
+             it (the least on a tie). `circles` grows each centre out to its circle (the greatest value of a \
+             centre within R). `cwd_threshold` keeps each core's distance only below it. The trim of the \
+             circles by the resistance (Linkage Mapper's optional one) is not made. The cost-weighted distances of \
+             the cores in links are kept in memory together.",
+            Access::Global,
+        )
+        .input(PortSpec::new("cores", Type::Map, "the core areas: whole ids, 0 or no value elsewhere"))
+        .input(PortSpec::new("resistance", Type::Map, "the resistance, above 0 (0 or no value: impassable)"))
+        .input(PortSpec::new(
+            "links",
+            Type::Table,
+            "the links to map: from, to, lcd and kept (the rows kept; all if no `kept` column), as linkage.pathways' \
+             `links`",
+        ))
+        .param(PortSpec::new(
+            "min_radius",
+            Type::Number,
+            "the least radius of the restored circles, in map units (at least the cell's size)",
+        ))
+        .param(PortSpec::optional("max_radius", Type::Number, "the greatest radius, in map units (min_radius)"))
+        .param(PortSpec::optional(
+            "step",
+            Type::Number,
+            "the step between radii, in map units (required, above 0, when max_radius is above min_radius)",
+        ))
+        .param(PortSpec::optional(
+            "restored",
+            Type::Number,
+            "the cost of a restored cell per map unit (1, as Linkage Mapper's)",
+        ))
+        .param(
+            PortSpec::optional(
+                "combine",
+                Type::Text,
+                "how the links' scores are mosaicked: max (the default) or sum (a negative or missing score counts 0)",
+            )
+            .choices(["max", "sum"]),
+        )
+        .param(PortSpec::optional(
+            "cwd_threshold",
+            Type::Number,
+            "keep each core's cost-weighted distance only below it, in cost units (all of it by default)",
+        ))
+        .output(PortSpec::new(
+            "improvement",
+            Type::Map,
+            "the barrier score at the centre of the circle: the greatest over radii; no value where it is negative \
+             or the ring touches a core",
+        ))
+        .output(PortSpec::new(
+            "circles",
+            Type::Map,
+            "the improvement grown out to the circles: the greatest value of a centre within the radius of the cell",
+        ))
+        .output(PortSpec::new("percent", Type::Map, "the improvement as a percentage of the link's LCD, the same way"))
+        .output(PortSpec::new("radius", Type::Map, "the radius that gave the improvement, in map units"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
+        let cores = args.map("cores")?;
+        let resm = args.map("resistance")?;
+        let (g, rg) = (&cores.grid, &resm.grid);
+        if g.width != rg.width || g.height != rg.height || g.transform != rg.transform {
+            return Err(fail(format!(
+                "cores ({}x{} cells) and resistance ({}x{}) are not on one grid: raster.match puts them on one",
+                g.width, g.height, rg.width, rg.height
+            )));
+        }
+        let lt = match args.get("links").ok_or_else(|| args.missing("links"))? {
+            Value::Table(t) => t,
+            v => return Err(args.wrong("links", "table", v)),
+        };
+        let lat = Lattice::of(g);
+        let n = lat.cells();
+        if n >= u32::MAX as usize {
+            return Err(fail("the grid has too many cells".into()));
+        }
+        let cell = lat.dx.max(lat.dy);
+        let min_r: f64 = args.opt_param("min_radius")?.ok_or_else(|| fail("min_radius is required".into()))?;
+        if !min_r.is_finite() || min_r < cell {
+            return Err(fail(format!("min_radius is at least the cell's size ({cell}) in map units, not {min_r}")));
+        }
+        let max_r: f64 = args.param("max_radius", min_r)?;
+        if !max_r.is_finite() || max_r < min_r {
+            return Err(fail(format!("max_radius is at least min_radius ({min_r}), not {max_r}")));
+        }
+        let step: Option<f64> = args.opt_param("step")?;
+        let count = if max_r == min_r {
+            1
+        } else {
+            let s = step.ok_or_else(|| fail("step is required when max_radius is above min_radius".into()))?;
+            if !s.is_finite() || s <= 0.0 {
+                return Err(fail(format!("step is above 0, not {s}")));
+            }
+            let k = ((max_r - min_r) / s + 1e-9).floor();
+            if k > 1000.0 {
+                return Err(fail(format!("{} radii: raise step", k + 1.0)));
+            }
+            k as usize + 1
+        };
+        let step = step.unwrap_or(0.0);
+        let restored: f64 = args.param("restored", 1.0)?;
+        if !restored.is_finite() || restored < 0.0 {
+            return Err(fail(format!("restored is a cost of 0 or more, not {restored}")));
+        }
+        let combine: String = args.param("combine", "max".to_string())?;
+        if !["max", "sum"].contains(&combine.as_str()) {
+            return Err(fail(format!("combine is max or sum, not {combine:?}")));
+        }
+        let sum = combine == "sum";
+        let thresh: Option<f64> = args.opt_param("cwd_threshold")?;
+        let res: &[f64] = &resm.data;
+        crate::threads::ensure();
+
+        // the cores, and the links to map
+        let (names, ids) = core_ids(&cores.data, res).map_err(|e| fail(e.to_string()))?;
+        let index: BTreeMap<i64, usize> = names.iter().enumerate().map(|(k, &i)| (i, k)).collect();
+        let links = read_links(lt, &index).map_err(fail)?;
+
+        // the cost-weighted distance from the cores in the links (a radius' focal surfaces are as many again)
+        let mut cells: Vec<Vec<usize>> = vec![Vec::new(); names.len()];
+        for (c, &l) in ids.iter().enumerate() {
+            if l > 0 {
+                cells[l as usize - 1].push(c);
+            }
+        }
+        let mut needed: Vec<usize> = links.iter().flat_map(|l| [l.0, l.1]).collect();
+        needed.sort_unstable();
+        needed.dedup();
+        if needed.len() as f64 * n as f64 * 16.0 > MEMORY {
+            return Err(fail(format!(
+                "{} cores in links over {n} cells need more than {} GB for their distances: map fewer links or a \
+                 smaller grid",
+                needed.len(),
+                MEMORY / 1e9
+            )));
+        }
+        let mut surfaces: BTreeMap<usize, Vec<f64>> = needed
+            .par_iter()
+            .map(|&a| (a, cwd(res, &lat, &cells[a].iter().map(|&c| (c, a as u32 + 1)).collect::<Vec<_>>()).0))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .collect();
+        let lcds = check_lcds(&links, &surfaces, &names, n).map_err(fail)?;
+        // no data (NaN) where a distance is out of reach or past the threshold
+        for s in surfaces.values_mut() {
+            for v in s.iter_mut() {
+                if !v.is_finite() || thresh.is_some_and(|t| *v >= t) {
+                    *v = f64::NAN;
+                }
+            }
+        }
+
+        let nan = || vec![f64::NAN; n];
+        let (mut imp, mut circles, mut pct, mut radius) = (nan(), nan(), nan(), nan());
+        for k in 0..count {
+            let r = min_r + k as f64 * step;
+            let dia = 2.0 * r;
+            let ring = footprint(&lat, r, Some(r - 1.0));
+            let disk = footprint(&lat, r, None);
+            let near: BTreeMap<usize, Vec<f64>> = needed
+                .par_iter()
+                .map(|&a| (a, focal(&surfaces[&a], &lat, &ring, true)))
+                .collect::<Vec<_>>()
+                .into_iter()
+                .collect();
+            // the links' mosaics of the scores and of the percents
+            let mut ms = vec![if sum { 0.0 } else { f64::NAN }; n];
+            let mut mp = ms.clone();
+            ms.par_iter_mut().zip(mp.par_iter_mut()).enumerate().for_each(|(c, (s, p))| {
+                for (&(a, b, _), &lcd) in links.iter().zip(&lcds) {
+                    let (fa, fb) = (near[&a][c], near[&b][c]);
+                    // a ring that touches a core (0), or has no distance, gives no value
+                    let (v, q) = if fa > 0.0 && fb > 0.0 {
+                        let v = (lcd - fa - fb - dia * restored) / dia;
+                        (v, if lcd > 0.0 { 100.0 * v / lcd } else { f64::NAN })
+                    } else {
+                        (f64::NAN, f64::NAN)
+                    };
+                    if sum {
+                        *s += if v.is_nan() || v < 0.0 { 0.0 } else { v };
+                        *p += if q.is_nan() || q < 0.0 { 0.0 } else { q };
+                    } else {
+                        raise(s, v);
+                        raise(p, q);
+                    }
+                }
+                // the centres: no negative
+                if *s < 0.0 {
+                    *s = f64::NAN;
+                }
+                if *p < 0.0 {
+                    *p = f64::NAN;
+                }
+            });
+            let grown = focal(&ms, &lat, &disk, false);
+            for c in 0..n {
+                if !ms[c].is_nan() && (imp[c].is_nan() || ms[c] > imp[c]) {
+                    radius[c] = r;
+                }
+                raise(&mut imp[c], ms[c]);
+                raise(&mut pct[c], mp[c]);
+                raise(&mut circles[c], grown[c]);
+            }
+        }
+        Ok(outputs([
+            ("improvement", Value::Map(Map::new(g.clone(), imp))),
+            ("circles", Value::Map(Map::new(g.clone(), circles))),
+            ("percent", Value::Map(Map::new(g.clone(), pct))),
+            ("radius", Value::Map(Map::new(g.clone(), radius))),
+        ]))
     }
 }

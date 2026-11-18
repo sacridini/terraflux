@@ -137,6 +137,14 @@ pub const TIPS: &[(&str, &str)] = &[
          corridor is a bottleneck. Circuitscape solves every cell of the band: keep it to a few million cells.",
     ),
     (
+        "linkage.barriers",
+        "`links` is linkage.pathways' table, on the same cores and resistance. The radii are in map units (metres in \
+         a projected system; the ring is 1 map unit thick, as Linkage Mapper's, so a radius that is a multiple of the \
+         cell size catches the cells at that distance). A high improvement marks where restoring a circle of that \
+         radius shortens a link most per unit restored; `restored` 1 means a restored cell costs 1 per map unit, as in \
+         Linkage Mapper. Read `circles` for the map, `improvement` for the centres, and compare radii with `radius`.",
+    ),
+    (
         "cost.transition",
         "Of a conductance (1 / resistance), usually corrected for the cells' distances (cost.geo_correction) before \
          cost.acc_cost or cost.passage.",

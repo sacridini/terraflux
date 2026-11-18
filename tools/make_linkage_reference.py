@@ -18,6 +18,13 @@ library's Circuitscape (terraflux-py's `circuitscape_pairwise` between the two c
 importable. Its compiled module is looked for as `terraflux._core`; where the package is not installed with it,
 TERRAFLUX_CORE names the file of the module (a `_core*.pyd` or `.so`) and the package is taken from
 extern/terraflux-py/src.
+
+The barriers (`linkage.barriers`) are Linkage Mapper's Barrier Mapper on the kept links of `adjacency = all`, from
+the same MCP_Geometric distances, in numpy and scipy.ndimage: the minimum of each core's distance over the annulus
+(the cells whose centre is at a distance above R - 1 and up to R map units from the cell's centre; ArcGIS's
+rule is assumed, its source is not available), the score (LCD - fA - fB - 2R restored) / 2R where neither minimum
+is 0, the links' mosaic (max, or sum with negatives and no data 0), the negatives dropped, the circles (the maximum
+over the disk of centre distance up to R) and the maximum over the radii, in the key `barriers`.
 """
 
 from __future__ import annotations
@@ -219,6 +226,92 @@ def pinch(circuit, res, cores, cfg, width, mode, square):
     return current, out_rows
 
 
+def footprint(radius, inner=None):
+    """The offsets' mask of the cells whose centre is at a distance above `inner` (none: the centre too) and up to
+    `radius` map units from a cell's centre: the annulus (inner = R - 1) and the circle of Linkage Mapper's
+    FocalStatistics (an assumption on ArcGIS: a cell is in when its centre is)."""
+    kr, kc = int(np.floor(radius / DY)), int(np.floor(radius / DX))
+    dr, dc = np.mgrid[-kr : kr + 1, -kc : kc + 1]
+    d = np.sqrt((dc * DX) ** 2 + (dr * DY) ** 2)
+    return (d <= radius) if inner is None else ((d <= radius) & (d > inner))
+
+
+def focal(a, mask, least):
+    """The least (or greatest) value of the data (finite) cells of `a` under `mask` around each cell; NaN if none."""
+    from scipy import ndimage
+
+    fill = np.inf if least else -np.inf
+    x = np.where(np.isfinite(a), a, fill)
+    f = ndimage.minimum_filter if least else ndimage.maximum_filter
+    out = f(x, footprint=mask, mode="constant", cval=fill)
+    return np.where(np.isfinite(out), out, np.nan)
+
+
+def barriers(res, cores, cfg, min_radius, max_radius=None, step=None, restored=1.0, combine="max", cwd_threshold=None):
+    """Linkage Mapper's Barrier Mapper on the kept links of `cfg`: improvement (centres), circles, percent, radius."""
+    rows, _, surf, _ = link_table(res, cores, cfg)
+    kept = [r for r in rows if r["kept"]]
+    if cwd_threshold is not None:
+        surf = {i: np.where(s < cwd_threshold, s, np.nan) for i, s in surf.items()}
+    max_radius = min_radius if max_radius is None else max_radius
+    count = 1 if max_radius == min_radius else int(np.floor((max_radius - min_radius) / step + 1e-9)) + 1
+    nan = np.full((NY, NX), np.nan)
+    imp, circles, pct, radius = nan.copy(), nan.copy(), nan.copy(), nan.copy()
+
+    def better(best, v):
+        return np.where(np.isnan(v), False, np.isnan(best) | (v > best))
+
+    for k in range(count):
+        r = min_radius + k * (step or 0.0)
+        dia = 2 * r
+        ring, disk = footprint(r, r - 1), footprint(r)
+        near = {i: focal(s, ring, True) for i, s in surf.items()}
+        ms = np.zeros((NY, NX)) if combine == "sum" else nan.copy()
+        mp = ms.copy()
+        for l in kept:
+            fa, fb = near[l["frm"]], near[l["to"]]
+            ok = (fa > 0) & (fb > 0)
+            v = np.where(ok, (l["lcd"] - fa - fb - dia * restored) / dia, np.nan)
+            q = 100 * v / l["lcd"]
+            if combine == "sum":
+                ms = ms + np.where(np.isnan(v) | (v < 0), 0.0, v)
+                mp = mp + np.where(np.isnan(q) | (q < 0), 0.0, q)
+            else:
+                ms = np.where(better(ms, v), v, ms)
+                mp = np.where(better(mp, q), q, mp)
+        ms = np.where(ms < 0, np.nan, ms)
+        mp = np.where(mp < 0, np.nan, mp)
+        grown = focal(ms, disk, False)
+        radius = np.where(better(imp, ms), r, radius)
+        imp = np.where(better(imp, ms), ms, imp)
+        pct = np.where(better(pct, mp), mp, pct)
+        circles = np.where(better(circles, grown), grown, circles)
+    return imp, circles, pct, radius
+
+
+def barrier_reference(res, cores):
+    all_links = {"adjacency": "all", "drop_crossing": False}
+    barrier_cases = {
+        "one_radius": {"min_radius": 60.0},
+        "three_radii": {"min_radius": 60.0, "max_radius": 100.0, "step": 20.0},
+        "sum": {"min_radius": 60.0, "max_radius": 100.0, "step": 20.0, "combine": "sum"},
+        "threshold": {"min_radius": 60.0, "max_radius": 100.0, "step": 20.0, "cwd_threshold": 150.0},
+        "restored": {"min_radius": 60.0, "max_radius": 100.0, "step": 20.0, "restored": 0.5},
+    }
+    out = {}
+    for name, params in barrier_cases.items():
+        imp, circles, pct, radius = barriers(res, cores, all_links, **params)
+        out[name] = {
+            "links": all_links,
+            "params": params,
+            "improvement": clean(imp),
+            "circles": clean(circles),
+            "percent": clean(pct),
+            "radius": clean(radius),
+        }
+    return out
+
+
 def clean(x):
     a = np.asarray(x, dtype=float)
     return [None if not np.isfinite(v) else float(v) for v in a.ravel()]
@@ -283,6 +376,7 @@ def main():
             "current": clean(current),
             "rows": prows,
         }
+    out["barriers"] = barrier_reference(res, cores)
     path = REF / "linkage.json"
     path.write_text(json.dumps(out) + "\n", encoding="utf-8")
     print(path, {k: [(l["from"], l["to"], l["kept"], l["reason"]) for l in v["links"]] for k, v in out["cases"].items()})

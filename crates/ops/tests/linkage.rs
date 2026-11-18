@@ -286,3 +286,54 @@ fn pinch_points_refuse_what_does_not_fit() {
     let e = exec("linkage.pinchpoints", &cores, &moved, Some(&links), serde_json::json!({"width": 300.0})).unwrap_err();
     assert!(e.contains("not on one grid"), "{e}");
 }
+
+/// The barriers of the links `cfg` gives.
+fn barriers_of(cores: &Map, res: &Map, cfg: &serde_json::Value, params: serde_json::Value) -> Result<Outputs, String> {
+    let Value::Table(links) = &run(cores, res, cfg.clone()).unwrap()["links"] else { panic!("no table") };
+    exec("linkage.barriers", cores, res, Some(links), params)
+}
+
+#[test]
+fn barriers_are_the_references() {
+    let r = reference();
+    let (cores, res) = maps(&r);
+    for (name, case) in r["barriers"].as_object().unwrap() {
+        let out = barriers_of(&cores, &res, &case["links"], case["params"].clone()).unwrap();
+        for key in ["improvement", "circles", "percent", "radius"] {
+            let want = nums(&case[key]);
+            assert!(want.iter().any(|v| !v.is_nan()), "{name}: {key} has values");
+            for (c, (a, b)) in data(&out[key]).iter().zip(&want).enumerate() {
+                close(*a, *b, &format!("{name}: {key} cell {c}"));
+            }
+        }
+    }
+}
+
+#[test]
+fn barriers_refuse_what_does_not_fit() {
+    let r = reference();
+    let (cores, res) = maps(&r);
+    let cfg = serde_json::json!({"adjacency": "all", "drop_crossing": false});
+    let go = |p: serde_json::Value| barriers_of(&cores, &res, &cfg, p);
+    // a radius below the cell's size (30 x 20), or none
+    let e = go(serde_json::json!({"min_radius": 25.0})).unwrap_err();
+    assert!(e.contains("min_radius"), "{e}");
+    let e = go(serde_json::json!({})).unwrap_err();
+    assert!(e.contains("min_radius"), "{e}");
+    // a range with no step, or a step of 0
+    let e = go(serde_json::json!({"min_radius": 60.0, "max_radius": 100.0})).unwrap_err();
+    assert!(e.contains("step"), "{e}");
+    let e = go(serde_json::json!({"min_radius": 60.0, "max_radius": 100.0, "step": 0.0})).unwrap_err();
+    assert!(e.contains("step"), "{e}");
+    let e = go(serde_json::json!({"min_radius": 60.0, "max_radius": 50.0})).unwrap_err();
+    assert!(e.contains("max_radius"), "{e}");
+    let e = go(serde_json::json!({"min_radius": 60.0, "combine": "min"})).unwrap_err();
+    assert!(e.contains("combine"), "{e}");
+    // no kept link
+    let Value::Table(links) = &run(&cores, &res, cfg.clone()).unwrap()["links"] else { panic!() };
+    let mut none = links.clone();
+    let k = none.columns.iter().position(|c| c == "kept").unwrap();
+    none.rows.iter_mut().for_each(|r| r[k] = 0.0);
+    let e = exec("linkage.barriers", &cores, &res, Some(&none), serde_json::json!({"min_radius": 60.0})).unwrap_err();
+    assert!(e.contains("no kept link"), "{e}");
+}
