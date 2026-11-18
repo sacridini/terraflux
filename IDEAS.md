@@ -3823,6 +3823,9 @@ página. Com 19 painéis e mais de 340 operadores, quem chega cai num canvas vaz
   páginas) ganham *Read the tutorial* no menu Templates e na tela inicial: a tabela template → tutorial é gerada de
   `website/content` por `website/tools/tutorial_index.py` num arquivo do app (`include_str!`), e um teste falha quando
   ela fica velha.
+  **Feito** (Unreleased), o Node pane, a biblioteca (menu e gaveta), o canvas, shift+F1 (`op_docs`, também no Help e
+  na paleta) e o link *tutorial* do menu Templates; `tutorials.rs` + `tutorials.json` + `tutorial_index.py`, com
+  os modelos publicados de cada tutorial já no índice (para a 1d). Fica para a 1c a tela inicial.
 - **1c. A tela inicial.** Com o modelo em branco (nenhum nó, sem arquivo), o canvas mostra, em vez do vazio: *Start
   from your data* (abrir um raster ou vetores, o Wizard, soltar arquivos), *Start from a task* (os grupos dos
   templates, cada template com a sua frase e o seu tutorial), *Recent models* e *Learn* (Quickstart, Tutorials, a

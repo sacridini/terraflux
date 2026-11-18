@@ -31,7 +31,7 @@ to show. Close the pane's tab in front with ++ctrl+w++, or remove its tick in **
 | **Document** | The same model read as the methods section of a paper: stages, steps, settings in words, the maps and tables of the last run. | By itself with the first node. |
 | **Operators** | The library of operators, by subject, with a search box and your favourites at the top. | In a drawer at the left edge; a click on its tab opens it as a pane. |
 | **Files** | The computer's folders, to open a file or drag it onto the canvas or the Viewer. | In a drawer, like **Operators**. |
-| **Node** | The node selected: its name, what its operator does, its **Inputs**, its **Settings** and its record (**Note**, **Why**, references). With no node selected, the model's own record. | Only if **open the Node pane by itself** is on in the settings. Otherwise a node's settings open in a panel beside its box. |
+| **Node** | The node selected: its name, what its operator does (with a **Documentation** link to the operator's page on this website), its **Inputs**, its **Settings** and its record (**Note**, **Why**, references). With no node selected, the model's own record. | Only if **open the Node pane by itself** is on in the settings. Otherwise a node's settings open in a panel beside its box. |
 | **Prepare** | The data of the node selected compared with the model's reference grid, and the steps that put it on that grid ([One grid for all your maps](/tutorials/getting-started/one-grid/)). | In a drawer, once the model has data. |
 | **Viewer** | What the node selected gives: a map, a table, a number ([The viewer](/app/viewer/)). | By itself with the first data. |
 | **Simulation** | The maps of a run step by step, and the maps of an input's stack. | **View**. |
@@ -100,7 +100,8 @@ only when a model is open. Items that need a model are greyed out without one.
 **Templates** opens with the line *Models to start from, run at once* and seven groups: **Patterns
 (GuidosToolbox)**, **Landscape metrics**, **Connectivity**, **Conservation and restoration**, **Species**,
 **Land change** and **Surfaces and uncertainty**. A click on a template opens it in the Model pane and runs it.
-Hover over a name to read what the template does; the [tour](/tutorials/getting-started/tour/#templates-models-to-start-from)
+Hover over a name to read what the template does. A template that has a tutorial on this website shows a small
+**tutorial** link at the right of its row, which opens the page in the browser. The [tour](/tutorials/getting-started/tour/#templates-models-to-start-from)
 lists them all.
 
 Under the groups, **Yours** lists the templates you saved. A small **x** beside one removes it. With a model open,
@@ -111,7 +112,8 @@ box is empty). Your templates are `.toml` files in a `templates` folder beside t
 
 The library as a menu, to add an operator after the node selected: **Open a raster or vectors...**, **Favourites**
 (by colour, empty until you put an operator in a collection), then one submenu per subject (data preparation,
-habitat patterns, landscape metrics...). The same library is in the **Operators** drawer and behind ++slash++.
+habitat patterns, landscape metrics...). The same library is in the **Operators** drawer and behind ++slash++. A right click on an operator, in the menu or in
+the drawer, offers **Open its documentation**: its page in the operator reference.
 
 ### Edit
 
@@ -135,6 +137,7 @@ a word in every node at once, with a preview and one step of undo ([Find and rep
 |---|---|
 | **Quickstart**, **Tutorials**, **The application**, **Operator reference** | Open that page of this website in the browser. |
 | **Keyboard shortcuts** (++f1++) | The sheet of shortcuts ([Keyboard and mouse](/app/shortcuts/#the-f1-sheet)). |
+| **Page of the selected operator** (++shift+f1++) | Opens the operator reference's page of the node selected (off with no node selected). |
 | **Report a problem...** | Opens a new issue on GitHub in the browser with the Terraflux version, the system and the last failure (the run's, else the first error of the model) already written, and the headings *What I did*, *What I expected* and *What happened* to fill in. You read it and send it: Terraflux sends nothing by itself. |
 | **About Terraflux** | A small window with the name, the version, the licence (GPL-3.0-or-later), how to cite Terraflux (with a **Copy** button) and the links to the website, the source code, the releases and the changelog. |
 

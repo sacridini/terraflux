@@ -5669,6 +5669,69 @@ fn the_help_menu_leads_to_the_docs_and_about() {
     assert_eq!(docs::opened(), vec![docs::page("quickstart/")]);
 }
 
+/// Every operator leads to its page: the Node pane's Documentation, shift+F1 and the Help menu for the node selected,
+/// and the Templates menu to the tutorial of a template (opened in the browser: noted here).
+#[test]
+fn an_operator_and_a_template_lead_to_their_pages() {
+    use terraflux_app::{docs, templates, tutorials};
+    docs::record();
+    let path = tmp("ui-op-docs.toml");
+    let mut m = terraflux_graph::Model::new("docs");
+    let mut n = terraflux_graph::Node::new("mspa", "landscape.mspa").param("foreground", 1);
+    n.pos = Some([300.0, 0.0]);
+    m.nodes.push(n);
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Model);
+    let page = docs::page("/operators/habitat-patterns/#op-landscape-mspa");
+    // nothing selected: nothing to open, the Help menu item is off
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::F1);
+    h.run_steps(2);
+    assert!(docs::opened().is_empty());
+    h.get_by_label("Help").click();
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("Page of the selected operator").is_some());
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    h.state_mut().session.as_mut().unwrap().selected = Some("mspa".into());
+    h.run_steps(3);
+    // the link in the Node pane
+    h.get_by_label("Documentation").click();
+    h.run_steps(2);
+    assert_eq!(docs::opened(), vec![page.clone()]);
+    // the key (and not the shortcuts' sheet, which is F1's)
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::F1);
+    h.run_steps(2);
+    assert_eq!(docs::opened(), vec![page.clone()]);
+    assert!(!h.state().shortcuts_open);
+    // the Help menu
+    h.get_by_label("Help").click();
+    h.run_steps(2);
+    h.get_by_label_contains("Page of the selected operator").click();
+    h.run_steps(2);
+    assert_eq!(docs::opened(), vec![page]);
+    // the Templates menu: the link at the right of a template that has a tutorial
+    let (group, with) = templates::GROUPS
+        .iter()
+        .find_map(|g| {
+            let t = templates::TEMPLATES.iter().find(|t| t.group == *g && tutorials::for_template(t.name).is_some())?;
+            Some((*g, t))
+        })
+        .expect("a template with a tutorial");
+    h.get_by_label("Templates").click();
+    h.run_steps(3);
+    h.get_by_label_contains(group).click();
+    h.run_steps(3);
+    // (the first of the links is the first template's with a tutorial in the group)
+    let first = templates::TEMPLATES.iter().find(|t| t.group == group && tutorials::for_template(t.name).is_some());
+    assert_eq!(first.map(|t| t.name), Some(with.name));
+    h.query_all_by_label("tutorial").next().expect("a tutorial link").click();
+    h.run_steps(2);
+    let url = tutorials::url(tutorials::for_template(with.name).unwrap());
+    assert_eq!(docs::opened(), vec![url]);
+}
+
 /// An operator of many settings: its essential ones shown, the others folded as advanced (the count of those the
 /// model gives in the fold's title, open then); a setting given marked, and back to its default by its menu.
 #[test]

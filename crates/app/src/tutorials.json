@@ -1,0 +1,1033 @@
+{
+ "categories": [
+  {
+   "slug": "getting-started",
+   "title": "Getting started",
+   "tutorials": [
+    {
+     "slug": "tour",
+     "title": "A tour of Terraflux",
+     "template": "MSPA of a forest",
+     "models": []
+    },
+    {
+     "slug": "first-raster",
+     "title": "Your first raster",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "vector-data",
+     "title": "Vector data",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "coordinate-systems",
+     "title": "Coordinate systems and reprojection",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "one-grid",
+     "title": "One grid for all your maps",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "reclassify-calculate-save",
+     "title": "Reclassify, calculate and save",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "first-model",
+     "title": "Your first model",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "building-models",
+   "title": "Building models",
+   "tutorials": [
+    {
+     "slug": "map-algebra",
+     "title": "Map algebra from scratch",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "calculator",
+     "title": "The raster calculator: scripts, a console and nodes of your own",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "stacks-and-layers",
+     "title": "Stacks and layers",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "loops",
+     "title": "Loops: write your own cellular automaton",
+     "template": "A city that grows (a loop)",
+     "models": []
+    },
+    {
+     "slug": "groups-and-submodels",
+     "title": "Groups and submodels",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "randomness",
+     "title": "Randomness and reproducibility",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "checks-and-tests",
+     "title": "Checks, tests and reproducible runs",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "plugins",
+     "title": "Plugins in WebAssembly",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "plots-and-tables",
+     "title": "Plots and figures",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "the-model-document",
+     "title": "The model's document: a model read as its methods",
+     "template": "MSPA of a forest",
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "habitat-patterns",
+   "title": "Habitat patterns",
+   "tutorials": [
+    {
+     "slug": "morphology",
+     "title": "The idea of morphological pattern analysis",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "mspa",
+     "title": "MSPA step by step on a real forest map",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "spa-and-objects",
+     "title": "Simplified patterns, objects and distances",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "networks-and-change",
+     "title": "From patterns to networks and change",
+     "template": "Forest gain and loss",
+     "models": []
+    },
+    {
+     "slug": "patterns-in-python",
+     "title": "Habitat patterns in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "fragmentation",
+   "title": "Fragmentation",
+   "tutorials": [
+    {
+     "slug": "fragmentation-and-habitat-loss",
+     "title": "Fragmentation and habitat loss",
+     "template": "Fragmentation of a forest",
+     "models": []
+    },
+    {
+     "slug": "fixed-observation-scale",
+     "title": "Connectivity, contagion and mosaics at a fixed scale",
+     "template": "Fragmentation of a forest",
+     "models": []
+    },
+    {
+     "slug": "change-and-reports",
+     "title": "Change of fragmentation and GuidosToolbox's reports",
+     "template": "Forest gain and loss",
+     "models": []
+    },
+    {
+     "slug": "fragmentation-in-python",
+     "title": "Fragmentation in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "landscape-metrics",
+   "title": "Landscape metrics",
+   "tutorials": [
+    {
+     "slug": "what-are-landscape-metrics",
+     "title": "What landscape metrics are",
+     "template": "Landscape metrics",
+     "models": []
+    },
+    {
+     "slug": "patch-and-class-metrics",
+     "title": "Patch and class metrics",
+     "template": "Patches and their shapes",
+     "models": []
+    },
+    {
+     "slug": "landscape-level-and-diversity",
+     "title": "The landscape level, diversity and contagion",
+     "template": "Landscape metrics",
+     "models": []
+    },
+    {
+     "slug": "moving-windows",
+     "title": "Metrics in a moving window",
+     "template": "Landscape metrics",
+     "models": []
+    },
+    {
+     "slug": "sampling-and-change",
+     "title": "Sampling, time series and redundancy",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "landscape-signatures",
+     "title": "Signatures and kinds of landscapes",
+     "template": "Kinds of landscapes",
+     "models": []
+    },
+    {
+     "slug": "large-maps",
+     "title": "Landscape metrics of large maps",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "landscape-metrics-in-python",
+     "title": "Landscape metrics in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "habitat-networks",
+   "title": "Habitat networks",
+   "tutorials": [
+    {
+     "slug": "connectivity-as-a-graph",
+     "title": "Connectivity as a graph",
+     "template": "Habitat network (Conefor)",
+     "models": []
+    },
+    {
+     "slug": "connectivity-indices",
+     "title": "IIC, PC and the equivalent connected area",
+     "template": "Habitat network (Conefor)",
+     "models": []
+    },
+    {
+     "slug": "importance-of-each-patch",
+     "title": "The importance of each patch",
+     "template": "Habitat network (Conefor)",
+     "models": []
+    },
+    {
+     "slug": "least-cost-links",
+     "title": "Least-cost links between patches",
+     "template": "Habitat network (Conefor)",
+     "models": []
+    },
+    {
+     "slug": "mspa-network",
+     "title": "The network of a forest's structure (MSPA)",
+     "template": "Network of a forest (MSPA)",
+     "models": []
+    },
+    {
+     "slug": "protconn",
+     "title": "Protected-area connectivity (ProtConn)",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "habitat-networks-in-python",
+     "title": "Habitat networks in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "circuit-connectivity",
+   "title": "Circuit connectivity",
+   "tutorials": [
+    {
+     "slug": "circuit-theory",
+     "title": "Movement as electric current",
+     "template": "Circuit connectivity",
+     "models": []
+    },
+    {
+     "slug": "resistance-surfaces",
+     "title": "Resistance surfaces",
+     "template": "Circuit connectivity",
+     "models": []
+    },
+    {
+     "slug": "circuitscape",
+     "title": "Circuitscape: currents between forests",
+     "template": "Circuit connectivity",
+     "models": []
+    },
+    {
+     "slug": "omniscape",
+     "title": "Omniscape: connectivity everywhere",
+     "template": "Circuit connectivity",
+     "models": []
+    },
+    {
+     "slug": "circuit-connectivity-in-python",
+     "title": "Circuit connectivity in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "surface-metrics",
+   "title": "Surface metrics",
+   "tutorials": [
+    {
+     "slug": "terrain",
+     "title": "Terrain from an elevation model",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "surface-texture",
+     "title": "Surface metrics: texture without patches",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "geomorphons",
+     "title": "Landforms with geomorphons",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "hilltops",
+     "title": "Hilltops protected by Brazil's Forest Code",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "surface-texture-in-python",
+     "title": "Surface texture in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "terrain-hydrology",
+   "title": "Terrain hydrology",
+   "tutorials": [
+    {
+     "slug": "depressions-and-flow",
+     "title": "Depressions, flow directions and flow accumulation",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "streams-watersheds-and-hand",
+     "title": "Streams, watersheds and HAND",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "wetness-and-connectivity",
+     "title": "Wetness, stream power and sediment connectivity",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "swat-plus",
+     "title": "Watershed simulation with SWAT+",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "swat-plus-from-rasters",
+     "title": "A SWAT+ project from rasters, and its results on the map",
+     "template": "SWAT+ from rasters",
+     "models": []
+    },
+    {
+     "slug": "terrain-hydrology-in-python",
+     "title": "Terrain hydrology in Python",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "watershed-model-in-python",
+     "title": "Watershed simulation in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "grid-distances",
+   "title": "Grid distances",
+   "tutorials": [
+    {
+     "slug": "cost-distance",
+     "title": "Cost distance, least-cost paths and corridors",
+     "template": "Least costs and random walks",
+     "models": []
+    },
+    {
+     "slug": "random-walks",
+     "title": "Random walks and randomised shortest paths",
+     "template": "Least costs and random walks",
+     "models": []
+    },
+    {
+     "slug": "grid-routes-in-python",
+     "title": "Routes on grids in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "distance-restoration",
+   "title": "Distance and restoration",
+   "tutorials": [
+    {
+     "slug": "distance-to-habitat",
+     "title": "Distance to habitat",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "costs-and-corridors",
+     "title": "Costs, paths and corridors",
+     "template": "Restoring a corridor",
+     "models": []
+    },
+    {
+     "slug": "ecological-intactness",
+     "title": "Ecological intactness",
+     "template": "Ecological intactness",
+     "models": []
+    },
+    {
+     "slug": "original-vegetation-and-habitat",
+     "title": "Original vegetation and area of habitat",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "restoration-plan",
+     "title": "A restoration plan",
+     "template": "Restoration plan",
+     "models": []
+    },
+    {
+     "slug": "several-benefits",
+     "title": "Several benefits and trade-offs",
+     "template": "Restoration plan",
+     "models": []
+    },
+    {
+     "slug": "distance-restoration-in-python",
+     "title": "Distance & restoration in Python",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "restoration-plans-in-python",
+     "title": "Restoration priorities in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "change-detection",
+   "title": "Change detection",
+   "tutorials": [
+    {
+     "slug": "transitions",
+     "title": "What changed: transition matrices, gains and losses",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "intensity-analysis",
+     "title": "Intensity analysis: how fast, and which classes",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "comparing-maps",
+     "title": "Comparing maps: quantity, allocation and resolution",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "forest-gain-and-loss",
+     "title": "Forest gain and loss: GuidosToolbox's change of a forest",
+     "template": "Forest gain and loss",
+     "models": []
+    },
+    {
+     "slug": "change-detection-in-python",
+     "title": "Change detection in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "neutral-landscapes",
+   "title": "Neutral landscape models",
+   "tutorials": [
+    {
+     "slug": "neutral-landscape-models",
+     "title": "Neutral landscape models",
+     "template": "Neutral landscapes",
+     "models": []
+    },
+    {
+     "slug": "neutral-landscapes-in-a-study",
+     "title": "Neutral landscapes in a study",
+     "template": "More neutral landscapes",
+     "models": []
+    },
+    {
+     "slug": "neutral-landscapes-in-python",
+     "title": "Neutral landscapes in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "biodiversity",
+   "title": "Biodiversity analysis",
+   "tutorials": [
+    {
+     "slug": "richness-and-endemism",
+     "title": "Richness and endemism with Biodiverse",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "phylogenetic-endemism",
+     "title": "Phylogenetic diversity, endemism and CANAPE",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "regions",
+     "title": "Regions from species composition",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "biodiversity-in-python",
+     "title": "Biodiversity analysis in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "spatial-prioritization",
+   "title": "Spatial prioritization",
+   "tutorials": [
+    {
+     "slug": "systematic-conservation-planning",
+     "title": "Systematic conservation planning: the ideas",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "zonation",
+     "title": "Ranking a landscape with Zonation",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "marxan",
+     "title": "Reserves with Marxan, and irreplaceability",
+     "template": "Marxan and irreplaceability",
+     "models": []
+    },
+    {
+     "slug": "linear-programming",
+     "title": "Optimal plans with linear programming",
+     "template": "Conservation planning (linear programming)",
+     "models": []
+    },
+    {
+     "slug": "spatial-design",
+     "title": "Compact and connected plans, and zones",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "evaluating-plans",
+     "title": "Evaluating, comparing and reporting plans",
+     "template": "Irreplaceability of a plan",
+     "models": []
+    },
+    {
+     "slug": "multi-action-planning",
+     "title": "Multi-action planning",
+     "template": "Multi-action planning",
+     "models": []
+    },
+    {
+     "slug": "prioritization-in-python",
+     "title": "Conservation priorities in Python",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "conservation-plans-in-python",
+     "title": "Optimized conservation plans in Python",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "from-prioritizr-in-python",
+     "title": "From prioritizr and prioriactions to Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "species-distributions",
+   "title": "Species distributions",
+   "tutorials": [
+    {
+     "slug": "ideas",
+     "title": "Species distribution models: the ideas",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "occurrence-data",
+     "title": "Occurrence data: download, clean and thin",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "predictors-and-background",
+     "title": "Predictors and the accessible area",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "fitting-models",
+     "title": "Fitting models: MaxNet, GLM and random forests",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "evaluation-and-thresholds",
+     "title": "Evaluation and thresholds",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "projection-and-extrapolation",
+     "title": "Projection and extrapolation",
+     "template": "A species in a warmer climate",
+     "models": []
+    },
+    {
+     "slug": "prepare-in-one-node",
+     "title": "The whole preparation in one node",
+     "template": "Species distribution model",
+     "models": []
+    },
+    {
+     "slug": "species-distributions-in-python",
+     "title": "Species distributions in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "animal-movement",
+   "title": "Animal movement",
+   "tutorials": [
+    {
+     "slug": "ideas",
+     "title": "Animal movement: the ideas",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "cleaning-and-measures",
+     "title": "Clean tracks and measure them",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "projections-and-interpolation",
+     "title": "Projections, interpolation and simulated tracks",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "steps-and-summaries",
+     "title": "Regular steps and track summaries",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "step-selection",
+     "title": "The data of step selection functions",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "animal-movement-in-python",
+     "title": "Animal movement in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "ecosystem-services",
+   "title": "Ecosystem services",
+   "tutorials": [
+    {
+     "slug": "ideas",
+     "title": "Ecosystem service models: the ideas",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "carbon",
+     "title": "Carbon storage and sequestration",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "habitat-quality",
+     "title": "Habitat quality and rarity",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "water-yield",
+     "title": "Annual water yield",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "sediment",
+     "title": "Sediment delivery ratio",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "nutrients",
+     "title": "Nutrient delivery ratio",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "seasonal-water-yield",
+     "title": "Seasonal water yield",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "pollination",
+     "title": "Crop pollination by wild bees",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "land-change",
+   "title": "Land change simulation",
+   "tutorials": [
+    {
+     "slug": "what-land-change-models-are",
+     "title": "What land change models are",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "a-cellular-automaton-by-hand",
+     "title": "A cellular automaton by hand",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "transition-rates-markov-chains",
+     "title": "Transition rates with Markov chains",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "weights-of-evidence",
+     "title": "Weights of evidence: where change happens",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "expander-and-patcher",
+     "title": "Expander and Patcher: where the change goes, and in what shape",
+     "template": "Dinamica EGO",
+     "models": [
+      "/data/tutorials/land-change/expander-and-patcher/toy.toml"
+     ]
+    },
+    {
+     "slug": "dinamica-on-sibuyan",
+     "title": "Dinamica EGO on Sibuyan: the whole model",
+     "template": "Dinamica EGO",
+     "models": [
+      "/data/tutorials/land-change/dinamica-on-sibuyan/dinamica.toml",
+      "/data/tutorials/land-change/dinamica-on-sibuyan/projection.toml"
+     ]
+    },
+    {
+     "slug": "taking-a-stock",
+     "title": "Taking a stock: logging and harvest with the Patcher of a continuous state",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "roads-that-grow",
+     "title": "Roads that grow: Dinamica EGO's endogenous road constructor",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "gravity-potentials",
+     "title": "Gravity potentials as drivers: the pull of towns and markets",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "validating-a-simulation",
+     "title": "Validating a simulation: is the model any good?",
+     "template": "Validating a simulation",
+     "models": [
+      "/data/tutorials/land-change/validating-a-simulation/pie_validation.toml"
+     ]
+    },
+    {
+     "slug": "calibration-and-many-runs",
+     "title": "Calibration and many runs: replicates, scenarios and settings chosen against the data",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "maps-larger-than-memory",
+     "title": "Maps larger than memory: Dinamica EGO's model on tiles",
+     "template": null,
+     "models": [
+      "/data/tutorials/land-change/maps-larger-than-memory/model.toml"
+     ]
+    },
+    {
+     "slug": "clue-s-ideas",
+     "title": "Demand-driven allocation: the ideas of CLUE-S",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "logistic-suitability",
+     "title": "Suitability from logistic regressions",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "land-demand",
+     "title": "The demand: how much of each class",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "clue-s-model",
+     "title": "A complete CLUE-S model of Plum Island",
+     "template": "CLUE-S",
+     "models": [
+      "/data/tutorials/land-change/clue-s-model/clue.toml",
+      "/data/tutorials/land-change/clue-s-model/clue_new.toml"
+     ]
+    },
+    {
+     "slug": "clue-s-rules",
+     "title": "Rules: elasticities, conversions, neighbourhoods and restrictions",
+     "template": "CLUE-S",
+     "models": [
+      "/data/tutorials/land-change/clue-s-rules/clue_restricted.toml",
+      "/data/tutorials/land-change/clue-s-rules/clue_rules.toml"
+     ]
+    },
+    {
+     "slug": "ordered-allocation",
+     "title": "The ordered allocation",
+     "template": "CLUE-S",
+     "models": [
+      "/data/tutorials/land-change/ordered-allocation/ordered.toml"
+     ]
+    },
+    {
+     "slug": "clumondo",
+     "title": "CLUMondo: land systems and the services they supply",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "plus-cars",
+     "title": "PLUS: land expansion and random patch seeds",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "futures",
+     "title": "FUTURES: urban growth as patches",
+     "template": null,
+     "models": [
+      "/data/tutorials/land-change/futures/simulation.toml"
+     ]
+    },
+    {
+     "slug": "molusce",
+     "title": "MOLUSCE: transition potentials and a Monte Carlo cellular automaton",
+     "template": null,
+     "models": [
+      "/data/tutorials/land-change/molusce/model.toml"
+     ]
+    },
+    {
+     "slug": "regional-demand",
+     "title": "A demand per region: municipalities, basins and their own trends",
+     "template": null,
+     "models": [
+      "/data/tutorials/land-change/regional-demand/cars.toml",
+      "/data/tutorials/land-change/regional-demand/model.toml"
+     ]
+    },
+    {
+     "slug": "choosing-a-model",
+     "title": "Choosing a land change model",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "dynamic-drivers",
+     "title": "Dynamic drivers: variables that move with the simulated map",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "agents",
+     "title": "Agents: decision makers inside the loop",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "crafty",
+     "title": "CRAFTY: competition for land between agent functional types",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "coupled-agents",
+     "title": "A coupled model: macro agents, parcel managers and CRAFTY",
+     "template": null,
+     "models": [
+      "/data/tutorials/land-change/coupled-agents/councils.toml",
+      "/data/tutorials/land-change/coupled-agents/coupled.toml"
+     ]
+    },
+    {
+     "slug": "land-change-simulation-in-python",
+     "title": "Land change simulation in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "uncertainty",
+   "title": "Uncertainty",
+   "tutorials": [
+    {
+     "slug": "monte-carlo",
+     "title": "Monte Carlo error propagation",
+     "template": "Carbon and its uncertainty",
+     "models": []
+    }
+   ]
+  },
+  {
+   "slug": "large-data",
+   "title": "Large data and batches",
+   "tutorials": [
+    {
+     "slug": "larger-than-memory",
+     "title": "Rasters larger than memory",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "batch-processing",
+     "title": "Batch processing",
+     "template": null,
+     "models": []
+    },
+    {
+     "slug": "large-data-in-python",
+     "title": "Large data & batch in Python",
+     "template": null,
+     "models": []
+    }
+   ]
+  }
+ ]
+}

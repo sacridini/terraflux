@@ -2069,6 +2069,17 @@ pub fn op_name(ui: &Ui, name: &str, selected: bool) -> egui::text::LayoutJob {
     job
 }
 
+/// "Open its documentation" in the right-click menu of an operator of the library: its page, in the browser. Whether
+/// it was clicked.
+fn docs_item(ui: &mut Ui, op: &str) -> bool {
+    let help = "this operator's page in the operator reference, in the browser";
+    let clicked = ui.button("Open its documentation").on_hover_text(help).clicked();
+    if clicked {
+        crate::docs::open(&crate::docs::page(&crate::docs::op_url(op)));
+    }
+    clicked
+}
+
 /// The operators as a classic menu (as Photoshop's): the favourites by colour, then a submenu per subject, its
 /// groups a level below; an operator chosen is added after the node selected. Whether one was.
 pub fn operators_menu(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) -> bool {
@@ -2082,6 +2093,11 @@ pub fn operators_menu(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library)
             let sq = egui::Rect::from_center_size(egui::pos2(x - 3.5, resp.rect.center().y), Vec2::splat(7.0));
             ui.painter().rect_filled(sq, 1.0, crate::settings::COLLECTIONS[*c as usize].1);
         }
+        resp.context_menu(|ui| {
+            if docs_item(ui, &e.name) {
+                ui.close();
+            }
+        });
         if resp.on_hover_text(&e.doc).clicked() {
             *chosen = Some(e.name.clone());
             ui.close();
@@ -2583,6 +2599,10 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
                 ui.painter().rect_filled(sq, 1.0, crate::settings::COLLECTIONS[*c as usize].1);
             }
             resp.context_menu(|ui| {
+                if docs_item(ui, &e.name) {
+                    ui.close();
+                }
+                ui.separator();
                 ui.label(RichText::new("Favourites").weak().size(11.0));
                 for (k, (_, colour)) in crate::settings::COLLECTIONS.iter().enumerate() {
                     let mut on = colls.contains(&(k as u8));

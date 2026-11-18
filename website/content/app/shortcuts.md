@@ -28,6 +28,7 @@ in the application: press ++f1++ ([The F1 sheet](#the-f1-sheet)).
 | ++ctrl+o++ | Open a raster or vectors... |
 | ++ctrl+k++, ++ctrl+shift+p++ | The commands: anything, by its name |
 | ++f1++ | Keyboard shortcuts |
+| ++shift+f1++ | The page of the selected node's operator, on the website |
 | ++tab++ | To the model and to the last map seen (not while typing: ++tab++ goes to the next field then) |
 | ++ctrl+w++ | Close the pane in front |
 | ++ctrl+tab++ | Next model open (its tab) |

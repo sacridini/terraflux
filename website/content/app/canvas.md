@@ -73,6 +73,7 @@ A right click on a node opens its menu. The items, in order:
 | **Save as my node...** | Saves a group or a calculator as a node of your library, to use in any model as one operator. |
 | **Duplicate** (++ctrl+d++) | A copy. |
 | **Run on a folder...** | Runs the node on every raster of a folder. |
+| **Open its documentation** | Opens the operator's page in the operator reference, in the browser. |
 | **Change file...** | For a node that reads a file: another file, keeping its wires and settings. |
 | **Make it an input of the model** | For a `raster.read` node at the top level: the file becomes an input (`$name`) that the command line, **Many runs** and the scenarios can change. |
 | **Take it out of the frame** | If the node is in a frame. |

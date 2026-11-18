@@ -4380,6 +4380,14 @@ pub fn show(
             }
             item(ui, &format!("Duplicate    {c}D"), DUPLICATE_MANY_HELP, Action::DuplicateNodes(vec![key.clone()]));
             item(ui, "Run on a folder...", crate::node_view::FOLDER_HELP, Action::RunOnFolder(key.clone()));
+            // (a node of the user's has no page of its own)
+            if this.is_some_and(|n| n.uses.is_none()) && r.sig(&op).is_some() {
+                let help = "this operator's page in the operator reference, in the browser";
+                if ui.button("Open its documentation").on_hover_text(help).clicked() {
+                    crate::docs::open(&crate::docs::page(&crate::docs::op_url(&op)));
+                    ui.close();
+                }
+            }
             if crate::builder::reads_file(&op) {
                 item(ui, "Change file...", CHANGE_FILE_HELP, Action::ChangeFile(key.clone()));
             }

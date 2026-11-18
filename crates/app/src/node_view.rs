@@ -365,6 +365,14 @@ fn many_setting(
     out
 }
 
+/// The operator of the node selected whose page the website has (not a node of the user's, a submodel or a model's
+/// input): what Documentation, shift+F1 and the Help menu open.
+pub fn doc_op(s: &Session, r: &Registry) -> Option<String> {
+    let id = s.selected.as_ref().filter(|id| !crate::editor::is_source(id))?;
+    let n = s.source.scope(&s.editor.path)?.iter().find(|n| &n.id == id)?;
+    (n.uses.is_none() && r.sig(&n.op).is_some()).then(|| n.op.clone())
+}
+
 pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     let path = s.editor.path.clone();
     let nodes = chosen_nodes(s);
@@ -471,18 +479,32 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         let mut open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
         ui.add_space(2.0);
         ui.label(if open { sig.doc.as_str() } else { short.as_str() });
-        if more
-            && ui
-                .add(egui::Label::new(
-                    RichText::new(if open { "less" } else { "more..." }).small().color(ui.visuals().hyperlink_color),
-                ))
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            if more
+                && ui
+                    .add(egui::Label::new(
+                        RichText::new(if open { "less" } else { "more..." })
+                            .small()
+                            .color(ui.visuals().hyperlink_color),
+                    ))
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .interact(egui::Sense::click())
+                    .clicked()
+            {
+                open = !open;
+                ui.data_mut(|d| d.insert_temp(open_id, open));
+            }
+            if ui
+                .add(egui::Label::new(RichText::new("Documentation").small().color(ui.visuals().hyperlink_color)))
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text("this operator's page in the operator reference, in the browser")
                 .interact(egui::Sense::click())
                 .clicked()
-        {
-            open = !open;
-            ui.data_mut(|d| d.insert_temp(open_id, open));
-        }
+            {
+                crate::docs::open(&crate::docs::page(&crate::docs::op_url(&n.op)));
+            }
+        });
     }
     // those it needs, those given and the essential ones, then the optional others folded away
     let essentials = terraflux_ops::essentials::essentials(&n.op);

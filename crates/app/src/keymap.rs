@@ -277,6 +277,7 @@ pub static ACTIONS: &[Action] = &[
     global("open_data", "Open a raster or vectors...", &[cmd(Key::O)]),
     global("commands", "The commands: anything, by its name", &[cmd(Key::K), cmd_shift(Key::P)]),
     global("shortcuts", "Keyboard shortcuts", &[key(Key::F1)]),
+    global("op_docs", "The page of the selected node's operator, on the website", &[shift(Key::F1)]),
     Action {
         id: "to_model",
         name: "To the model and to the last map seen",
@@ -471,6 +472,7 @@ pub const APP: &[&str] = &[
     "open_data",
     "commands",
     "shortcuts",
+    "op_docs",
     "to_model",
     "close_pane",
 ];
@@ -991,6 +993,7 @@ mod tests {
             ("open_data", &["Ctrl+O"], "ctrl+O"),
             ("commands", &["Ctrl+K", "Ctrl+Shift+P"], "ctrl+K"),
             ("shortcuts", &["F1"], "F1"),
+            ("op_docs", &["Shift+F1"], "shift+F1"),
             ("to_model", &["Tab"], "Tab"),
             ("close_pane", &["Ctrl+W"], "ctrl+W"),
             ("next_tab", &["Ctrl+Tab"], "ctrl+Tab"),

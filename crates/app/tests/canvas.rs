@@ -1674,6 +1674,7 @@ fn the_selections_menu_acts_on_all_the_nodes_selected() {
     menu_of(&mut h, &["a", "b", "c"], "z");
     assert!(h.query_by_label_contains("Run to them").is_none());
     assert!(h.query_by_label_contains("Run on a folder").is_some(), "one node's menu");
+    assert!(h.query_by_label("Open its documentation").is_some(), "its page, in one node's menu");
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     // duplicate: three copies, linked among themselves, selected, one step of undo

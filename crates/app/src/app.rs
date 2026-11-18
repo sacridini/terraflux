@@ -277,6 +277,7 @@ struct Keys {
     new: bool,
     commands: bool,
     shortcuts: bool,
+    op_docs: bool,
     tab: bool,
     close: bool,
 }
@@ -298,6 +299,7 @@ impl Keys {
             new: has("new"),
             commands: has("commands"),
             shortcuts: has("shortcuts"),
+            op_docs: has("op_docs"),
             tab: has("to_model"),
             close: has("close_pane"),
         }
@@ -3241,7 +3243,30 @@ impl TerrafluxApp {
         for g in crate::templates::GROUPS {
             ui.menu_button(g, |ui| {
                 for t in crate::templates::TEMPLATES.iter().filter(|t| t.group == g) {
-                    if ui.button(t.name).on_hover_text(t.about).clicked() {
+                    // (one with a tutorial: a link to it at the right of its row)
+                    let tutorial = crate::tutorials::for_template(t.name);
+                    let start = ui
+                        .horizontal(|ui| {
+                            let start = ui.button(t.name).on_hover_text(t.about).clicked();
+                            // (left to right: a right-to-left layout takes all the width and a menu grows with it)
+                            if let Some(tut) = tutorial {
+                                let link = egui::Label::new(
+                                    RichText::new("tutorial").small().color(ui.visuals().hyperlink_color),
+                                );
+                                let resp = ui
+                                    .add(link)
+                                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                    .on_hover_text("read the tutorial of this template")
+                                    .interact(egui::Sense::click());
+                                if resp.clicked() {
+                                    crate::docs::open(&crate::tutorials::url(tut));
+                                    ui.close();
+                                }
+                            }
+                            start
+                        })
+                        .inner;
+                    if start {
                         self.ask_start(ui.ctx(), t.model());
                         ui.close();
                     }
@@ -3360,6 +3385,18 @@ impl TerrafluxApp {
         ui.separator();
         if ui.add(egui::Button::new("Keyboard shortcuts").shortcut_text(crate::keymap::text("shortcuts"))).clicked() {
             self.shortcuts_open = true;
+            ui.close();
+        }
+        let op = self.session.as_ref().and_then(|s| crate::node_view::doc_op(s, &self.registry));
+        let page = egui::Button::new("Page of the selected operator").shortcut_text(crate::keymap::text("op_docs"));
+        if ui
+            .add_enabled(op.is_some(), page)
+            .on_hover_text("the selected node's operator in the operator reference, on the website")
+            .on_disabled_hover_text("select a node of the model first")
+            .clicked()
+            && let Some(op) = op
+        {
+            crate::docs::open(&crate::docs::page(&crate::docs::op_url(&op)));
             ui.close();
         }
         ui.separator();
@@ -3768,6 +3805,10 @@ impl TerrafluxApp {
             all.push(Command::new(t.name, "template", t.group, Do::Template(k)));
         }
         if let Some(s) = &self.session {
+            if let Some(op) = crate::node_view::doc_op(s, &self.registry) {
+                let key = crate::keymap::text("op_docs");
+                all.push(Command::new("Help: Page of the selected operator", "action", key, Do::OpDocs(op)));
+            }
             // (every node at every depth, `group/inner` for those inside)
             for (at, n) in crate::find::walk(&s.source) {
                 all.push(Command::new(format!("Go to {}", at.join("/")), "node", n.op.clone(), Do::GoTo(at)));
@@ -3820,6 +3861,7 @@ impl TerrafluxApp {
             Do::Settings => self.settings_open = true,
             Do::Shortcuts => self.shortcuts_open = true,
             Do::Docs(path) => crate::docs::open(&crate::docs::page(path)),
+            Do::OpDocs(op) => crate::docs::open(&crate::docs::page(&crate::docs::op_url(&op))),
             Do::Report => self.report_problem(),
             Do::About => self.about_open = true,
             Do::NextTab => self.next_tab(1),
@@ -5117,6 +5159,11 @@ impl TerrafluxApp {
         }
         if keys.shortcuts {
             self.shortcuts_open = !self.shortcuts_open;
+        }
+        if keys.op_docs
+            && let Some(op) = self.session.as_ref().and_then(|s| crate::node_view::doc_op(s, &self.registry))
+        {
+            crate::docs::open(&crate::docs::page(&crate::docs::op_url(&op)));
         }
         if let Some(s) = &mut self.session
             && keys.open

@@ -96,6 +96,7 @@ pub mod stale;
 pub mod table_view;
 pub mod tabs;
 pub mod templates;
+pub mod tutorials;
 pub mod theme;
 pub mod tools;
 pub mod trace;

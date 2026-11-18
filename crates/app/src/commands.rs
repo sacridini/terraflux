@@ -58,6 +58,8 @@ pub enum Do {
     Shortcuts,
     /// A page of the website (its path from the root), opened in the browser.
     Docs(&'static str),
+    /// The page of an operator in the operator reference, opened in the browser.
+    OpDocs(String),
     /// Help > Report a problem, and About Terraflux.
     Report,
     About,
