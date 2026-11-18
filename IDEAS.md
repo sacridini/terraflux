@@ -3901,6 +3901,9 @@ ideia vai ao IDEAS.md dele, para manter a paridade.
   cache. Códigos conferidos na documentação dos produtos (SCL 3 sombra, 8 e 9 nuvem, 10 cirro, 11 neve; QA_PIXEL bits
   1 nuvem dilatada, 2 cirro, 3 nuvem, 4 sombra, 5 neve; Fmask bits 1 nuvem, 2 adjacente, 3 sombra, 4 neve) e no teste
   ao vivo (`#[ignore]`) de Earth Search e Planetary Computer. Testes com o `Fake` de páginas e GeoTIFFs locais.
+  **Feito** (Unreleased). `crates/ops/src/stac.rs`: `compose` (a leitura, separada da busca), `mask_cells`, `dilate`, os códigos
+  conferidos (QA_PIXEL no STAC do Planetary Computer, Fmask no guia do HLS v2.0 do LP DAAC; SCL e o preenchimento 255 do Fmask
+  da memória do produto, ESA e USGS fora do ar) e dois testes ao vivo, ambos passando; os locais usam GeoTIFFs em disco.
 - **3b. App e documentação.** Os presets de Sentinel-2 e Landsat do Data catalog ganham *Mask clouds per pixel*
   (marcado por padrão) e escrevem `mask = "auto"`; o tour (`getting-started/tour.md`), a referência e o guia
   `data-preparation` do MCP dizem como.

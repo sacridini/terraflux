@@ -33,7 +33,10 @@ pub const TIPS: &[(&str, &str)] = &[
          `datetime`, `limit` and `query` (`{\"eo:cloud_cover\": {\"lt\": 20}}`); the median of the scenes drops \
          clouds and shadows that move, the `first` composite takes a scene as it is (classes, a DEM's tiles: set \
          `classes` for the most common cell). The Planetary Computer's files need `sign = planetary_computer`. The \
-         values are the files' integers: scale and offset (reflectance / 10000) are the catalogue's, not applied.",
+         values are the files' integers: scale and offset (reflectance / 10000) are the catalogue's, not applied. A \
+         median of scenes left as they are keeps the clouds where they persist (the tropics): `mask = auto` drops \
+         them pixel by pixel before the scenes are combined (Sentinel-2's SCL, Landsat's QA_PIXEL, HLS's Fmask; \
+         `mask_classes`, `mask_buffer` to grow it), and `first` then takes the first clear value.",
     ),
     (
         "markov.fit",
