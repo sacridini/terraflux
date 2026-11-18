@@ -73,7 +73,7 @@ id = "zones"
 op = "nlm.random_cluster"
 params = { rows = 120, columns = 120, p = 0.55, weights = [0.3, 0.3, 0.4], seed = 21 }
 note = "Three zones (in their place, municipalities or watersheds rasterized by vector.rasterize)."
-data = { what = "the zones to summarise by (municipalities, watersheds), a code each", kind = "classes", classes = { 1 = "zone 1", 2 = "zone 2", 3 = "zone 3" } }
+data = { what = "the zones to summarise by (municipalities, watersheds), a code each", kind = "classes" }
 
 [[nodes]]
 id = "by_zone"

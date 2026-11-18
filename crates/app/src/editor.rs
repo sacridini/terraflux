@@ -689,7 +689,7 @@ pub fn resize_node(m: &mut Model, path: &[String], id: &str, width: Option<f32>)
 
 /// The references of a scope's nodes and of what reads their results (the enclosing body's maps, the model's
 /// outputs at the top level), to be changed together.
-fn for_each_ref(m: &mut Model, path: &[String], f: &mut dyn FnMut(&mut String)) {
+pub(crate) fn for_each_ref(m: &mut Model, path: &[String], f: &mut dyn FnMut(&mut String)) {
     fn in_node(n: &mut Node, f: &mut dyn FnMut(&mut String)) {
         for s in n.inputs.values_mut() {
             if let Source::Ref(r) = s {

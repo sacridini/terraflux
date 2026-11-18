@@ -756,7 +756,7 @@ id = "cover"
 op = "nlm.random_cluster"
 params = { rows = 200, columns = 200, p = 0.5, weights = [0.4, 0.35, 0.25], seed = 12 }
 note = "A land cover of three classes drawn by chance: in its place, a raster.read of a map of yours (its cells' size gives the areas: hectares for metres)."
-data = { what = "a land cover map of any classes (the metrics are per class); its cells' size gives the areas", kind = "classes", classes = { 1 = "class 1", 2 = "class 2", 3 = "class 3" } }
+data = { what = "a land cover map of any classes (the metrics are per class); its cells' size gives the areas", kind = "classes" }
 
 [[nodes]]
 id = "classes"
@@ -995,7 +995,7 @@ id = "zones"
 op = "nlm.random_cluster"
 params = { rows = 120, columns = 120, p = 0.55, weights = [0.3, 0.3, 0.4], seed = 21 }
 note = "Three zones (in their place, municipalities or watersheds rasterized by vector.rasterize)."
-data = { what = "the zones to summarise by (municipalities, watersheds), a code each", kind = "classes", classes = { 1 = "zone 1", 2 = "zone 2", 3 = "zone 3" } }
+data = { what = "the zones to summarise by (municipalities, watersheds), a code each", kind = "classes" }
 
 [[nodes]]
 id = "by_zone"
@@ -2078,7 +2078,7 @@ op = "nlm.classify"
 inputs = { map = "surface.map" }
 params = { weights = [0.3, 0.3, 0.2, 0.2] }
 note = "Four classes of 30, 30, 20 and 20 % of the cells, which change along the gradient (in its place, a raster.read of a land cover of yours)."
-data = { what = "a land cover map of any classes (four here): the kinds of landscape are found from its patterns", kind = "classes", classes = { 1 = "class 1", 2 = "class 2", 3 = "class 3", 4 = "class 4" } }
+data = { what = "a land cover map of any classes (four here): the kinds of landscape are found from its patterns", kind = "classes" }
 
 [[nodes]]
 id = "signatures"
@@ -4805,9 +4805,7 @@ mod tests {
                 for why in d.problems() {
                     wrong.push(format!("{} / {id}: {why}", t.name));
                 }
-                if d.kind == terraflux_graph::DataKind::Classes && d.classes.is_empty() {
-                    wrong.push(format!("{} / {id}: data of classes names none", t.name));
-                }
+                // (classes may be empty: "any classes", the user's are kept)
             }
             let said: Vec<String> = terraflux_graph::check(&m, &r)
                 .into_iter()

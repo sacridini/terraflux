@@ -3947,6 +3947,10 @@ nó com nota.
   postos na grade de referência (ou a troca recusada, dizendo qual falta); pilhas de um arquivo de bandas ou de
   vários; nota e `why` em cada nó novo. A conferência é a do Wizard (`load_inputs` + `lint`, numa thread) sobre o
   modelo planejado. Testes com os arquivos de teste (Sibuyan, Plum Island) em vários templates.
+  **Feito** (Unreleased). `my_data.rs`: `sources`, `plan`, `check`, `classes_of`, `suggest`. O `raster.match` só entra onde o cabeçalho
+  do arquivo mostra grade ou CRS diferentes da referência (`near` classes e máscaras, `bilinear` valores, `auto` o resto); o `data` vai
+  no ÚLTIMO nó da cadeia (uma segunda troca o acha de novo; sem nó na cadeia, só a nota da entrada); o que só os nós trocados liam sai;
+  `nlm.curds` (sem `like`) fica na sua grade e é dito nas notas. Os templates de classes quaisquer (métricas, tipos de paisagem, zonas) não nomeiam classes.
 - **C. A janela.** *File > Use my data...*, a tela inicial e uma faixa no canvas quando o modelo aberto tem dados
   sintéticos ("This model runs on drawn data: Use my data..."). Passos: cada fonte (o que é, escolher o arquivo e a
   banda, a conferência ao lado, os achados com as correções); a tabela de classes de cada mapa de classes (as classes
