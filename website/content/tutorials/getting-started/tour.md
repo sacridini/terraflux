@@ -349,7 +349,11 @@ collection of a public STAC catalogue, with presets for Earth Search (Sentinel-2
 Copernicus DEM) and for Microsoft's Planetary Computer (Sentinel-2, Landsat, a 10 m land cover by year; its files
 are signed with a token the node asks, with no key). Choose the collection, the assets (`red, green, blue, nir`),
 the dates (`2024-06-01/2024-08-31`), the most cloud cover and how the scenes are combined (the median of the cells
-with values, the first scene with a value...). Cells of 10 m are in the cell sizes of the box. There is no preview
+with values, the first scene with a value...). For Sentinel-2 and Landsat, **Mask clouds per pixel** (on) takes
+each scene's clouds, their shadows and cirrus out before the scenes are combined, from the scene's own classification
+(SCL, QA_PIXEL), and writes `mask = "auto"`; *and snow* marks the snow too and *grow by* widens the mask by some cells
+(1 by default, as the edges of clouds are not marked well). Without it, a median keeps the clouds where they persist,
+as in the humid tropics, whatever the cloud cover asked for. Cells of 10 m are in the cell sizes of the box. There is no preview
 of scenes: add the node and run it. In a model file it reads:
 
 ```toml
@@ -362,12 +366,15 @@ collection = "sentinel-2-l2a"
 assets = ["red", "nir"]
 datetime = "2024-06-01/2024-08-31"
 query = '{"eo:cloud_cover": {"lt": 20}}'
+mask = "auto"
+mask_buffer = 1
 composite = "median"
 extent = [2.10, 41.38, 2.12, 41.40]
 cellsize = 0.0001
 ```
 
-The result is the same as the Python library's `tf.download.stac` for the same request.
+The result is the same as the Python library's `tf.download.stac` for the same request, except for the mask, which
+the library does not apply yet (the exported script says so in a comment).
 
 ## The viewer
 

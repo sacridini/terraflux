@@ -3907,3 +3907,5 @@ ideia vai ao IDEAS.md dele, para manter a paridade.
 - **3b. App e documentação.** Os presets de Sentinel-2 e Landsat do Data catalog ganham *Mask clouds per pixel*
   (marcado por padrão) e escrevem `mask = "auto"`; o tour (`getting-started/tour.md`), a referência e o guia
   `data-preparation` do MCP dizem como.
+  **Feito** (Unreleased). `catalog.rs` (campo `mask` do preset, `stac_mask`/`stac_snow`/`stac_buffer`, crescer 1 célula por
+  padrão), o exportador Python comenta a máscara (a biblioteca ainda não mascara), tour, canvas e guia `data-preparation`.

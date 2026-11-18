@@ -782,7 +782,20 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
                 "resampling",
                 "query",
                 "sign",
+                "mask",
+                "mask_classes",
+                "mask_buffer",
             ];
+            // (the library does not mask clouds per pixel yet: the script composites the scenes as they are)
+            match n.params.get("mask") {
+                None | Some(Value::Null) => {}
+                Some(Value::String(s)) if s == "none" => {}
+                Some(_) => code.insert_str(
+                    0,
+                    "# (not passed: the mask of clouds per pixel; the library does not mask yet, so the composite \
+                     keeps them)\n",
+                ),
+            }
             code = format!("{}{code}{var} = tf.download.stac({})\n", rest(n, &known), args.join(", "));
             (code, one(var, "raster"), Need::Nothing)
         }
@@ -1790,7 +1803,7 @@ params = { source = "worldclim", layers = [1, 12] }
 id = "s2"
 op = "data.stac"
 inputs = { like = "like.map" }
-params = { url = "https://planetarycomputer.microsoft.com/api/stac/v1", collection = "sentinel-2-l2a", assets = ["B04", "B08"], datetime = "2024-07-01/2024-07-31", query = '{"eo:cloud_cover": {"lt": 20}}', sign = "planetary_computer" }
+params = { url = "https://planetarycomputer.microsoft.com/api/stac/v1", collection = "sentinel-2-l2a", assets = ["B04", "B08"], datetime = "2024-07-01/2024-07-31", query = '{"eo:cloud_cover": {"lt": 20}}', sign = "planetary_computer", mask = "auto", mask_buffer = 1 }
 
 [[nodes]]
 id = "design"
@@ -1851,6 +1864,7 @@ params = { grid_area = 100 }
         assert!(t.contains("bin = tf.nlm.binarize(like, [0.2, 0.5])"), "{t}");
         assert!(t.contains("dd = tf.download.worldclim(like=like, layers=[1, 12])"), "{t}");
         assert!(t.contains("import planetary_computer  # pip install planetary-computer"), "{t}");
+        assert!(t.contains("# (not passed: the mask of clouds per pixel;") && !t.contains("mask_buffer"), "{t}");
         assert!(
             t.contains("s2 = tf.download.stac(\"https://planetarycomputer.microsoft.com/api/stac/v1\", \"sentinel-2-l2a\", like, assets=[\"B04\", \"B08\"], datetime=\"2024-07-01/2024-07-31\", query=json.loads("),
             "{t}"

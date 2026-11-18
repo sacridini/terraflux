@@ -140,6 +140,9 @@ clean speckles with raster.sieve or raster.majority. Say what each class is in t
 or a class (vector.distance, distance.proximity), slope and elevation (raster.terrain, surface.terrain), soils as \
 categories. Not constant, with values wherever the land has a class, not collinear: check_model checks them.
 5. Vectors: vector.read, vector.reproject to the reference's system, vector.rasterize onto its grid.
+6. Sentinel-2 or Landsat scenes (data.stac): set `mask = \"auto\"` (and `mask_buffer = 1`) to take each scene's \
+clouds, shadows and cirrus out per pixel before the composite; a median without it keeps the clouds where they \
+persist (the humid tropics), whatever the cloud cover asked for.
 Templates: \"Drivers of land change\", \"Cleaning a map of classes: filter, sieve, label and grow\", \"Terrain of a \
 surface\".",
     },

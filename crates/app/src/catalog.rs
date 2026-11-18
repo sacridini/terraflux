@@ -326,6 +326,8 @@ pub struct Preset {
     pub classes: bool,
     /// The items have a cloud cover (`eo:cloud_cover`) to ask for.
     pub cloud: bool,
+    /// The per-pixel mask of the scenes (`auto`), or none (data.stac's `mask`).
+    pub mask: &'static str,
     pub dates: &'static str,
     pub composite: &'static str,
     pub reference: &'static str,
@@ -350,6 +352,7 @@ pub const PRESETS: [Preset; 6] = [
         sign: "none",
         classes: false,
         cloud: true,
+        mask: "auto",
         dates: "2024-06-01/2024-08-31",
         composite: "median",
         reference: SENTINEL2_REF,
@@ -363,6 +366,7 @@ pub const PRESETS: [Preset; 6] = [
         sign: "none",
         classes: false,
         cloud: true,
+        mask: "auto",
         dates: "2024-06-01/2024-08-31",
         composite: "median",
         reference: LANDSAT_REF,
@@ -376,6 +380,7 @@ pub const PRESETS: [Preset; 6] = [
         sign: "none",
         classes: false,
         cloud: false,
+        mask: "",
         dates: "",
         composite: "first",
         reference: COPDEM_REF,
@@ -389,6 +394,7 @@ pub const PRESETS: [Preset; 6] = [
         sign: "planetary_computer",
         classes: false,
         cloud: true,
+        mask: "auto",
         dates: "2024-06-01/2024-08-31",
         composite: "median",
         reference: SENTINEL2_REF,
@@ -402,6 +408,7 @@ pub const PRESETS: [Preset; 6] = [
         sign: "planetary_computer",
         classes: false,
         cloud: true,
+        mask: "auto",
         dates: "2024-06-01/2024-08-31",
         composite: "median",
         reference: LANDSAT_REF,
@@ -415,6 +422,7 @@ pub const PRESETS: [Preset; 6] = [
         sign: "planetary_computer",
         classes: true,
         cloud: false,
+        mask: "",
         dates: "2023-01-01/2023-12-31",
         composite: "first",
         reference: "Karra, K., Kontgis, C., Statman-Weil, Z., Mazzariello, J. C., Mathis, M., & Brumby, S. P. \
@@ -661,6 +669,10 @@ pub struct Choices {
     pub stac_assets: String,
     pub stac_dates: String,
     pub stac_cloud: f64,
+    /// The clouds taken out per pixel, snow too, and the cells the mask is grown by.
+    pub stac_mask: bool,
+    pub stac_snow: bool,
+    pub stac_buffer: i64,
     pub stac_composite: String,
 }
 
@@ -719,6 +731,9 @@ impl Default for Choices {
             stac_assets: String::new(),
             stac_dates: String::new(),
             stac_cloud: 20.0,
+            stac_mask: true,
+            stac_snow: false,
+            stac_buffer: 1,
             stac_composite: String::new(),
         };
         c.use_preset(PRESETS[0].key);
@@ -863,6 +878,15 @@ fn stac_params(c: &Choices) -> Result<Vec<(&'static str, Value)>, String> {
     if p.cloud && c.stac_cloud < 100.0 {
         let q = json!({"eo:cloud_cover": {"lt": c.stac_cloud.round() as i64}});
         out.push(("query", json!(q.to_string())));
+    }
+    if !p.mask.is_empty() && c.stac_mask {
+        out.push(("mask", json!(p.mask)));
+        if c.stac_snow {
+            out.push(("mask_classes", json!(["cloud", "shadow", "cirrus", "snow"])));
+        }
+        if c.stac_buffer > 0 {
+            out.push(("mask_buffer", json!(c.stac_buffer)));
+        }
     }
     if !terraflux_ops::stac::COMPOSITES.contains(&c.stac_composite.as_str()) {
         return Err("how the scenes are combined: median, mean, min, max or first".into());
@@ -1464,6 +1488,24 @@ fn form(ui: &mut Ui, d: &Dataset, c: &mut Choices) {
                     .on_hover_text("only the scenes with less cloud (100: all)");
                 });
             }
+            if !p.mask.is_empty() {
+                row(ui, "Mask clouds per pixel", &mut |ui| {
+                    ui.checkbox(&mut c.stac_mask, "on").on_hover_text(
+                        "each scene's clouds, their shadows and cirrus taken out before the composite, from its \
+                         SCL / QA_PIXEL (a median alone keeps the clouds where they persist)",
+                    );
+                    ui.add_enabled_ui(c.stac_mask, |ui| {
+                        ui.checkbox(&mut c.stac_snow, "and snow");
+                        ui.add(
+                            egui::DragValue::new(&mut c.stac_buffer).range(0..=10).prefix("grow by ").suffix(" cells"),
+                        )
+                        .on_hover_text(
+                            "cells the mask is grown by: the edges of clouds and shadows are not marked well, \
+                             so 1 cell is the usual advice (0: none)",
+                        );
+                    });
+                });
+            }
             row(ui, "Combine", &mut |ui| {
                 combo(ui, "catalog composite", &mut c.stac_composite, &plain(&terraflux_ops::stac::COMPOSITES))
             });
@@ -1915,7 +1957,19 @@ mod tests {
         assert_eq!(source.choices.len(), DATASETS.len() - 2);
         assert!(r.sig("sdm.download_gbif").is_some());
         let stac = r.sig("data.stac").unwrap();
-        for k in ["url", "collection", "assets", "datetime", "query", "composite", "classes", "sign"] {
+        for k in [
+            "url",
+            "collection",
+            "assets",
+            "datetime",
+            "query",
+            "composite",
+            "classes",
+            "sign",
+            "mask",
+            "mask_classes",
+            "mask_buffer",
+        ] {
             assert!(stac.params.iter().any(|p| p.name == k), "{k}");
         }
         for p in &PRESETS {
@@ -1982,8 +2036,26 @@ mod tests {
                 ("assets", json!(["red", "green", "blue", "nir"])),
                 ("datetime", json!("2024-06-01/2024-08-31")),
                 ("query", json!("{\"eo:cloud_cover\":{\"lt\":20}}")),
+                ("mask", json!("auto")),
+                ("mask_buffer", json!(1)),
             ]
         );
+        // the mask: off, with snow and no growth, on Landsat; the DEM does not offer it
+        c.stac_mask = false;
+        assert!(!params(d, &c).unwrap().iter().any(|(k, _)| k.starts_with("mask")));
+        c.stac_mask = true;
+        c.stac_snow = true;
+        c.stac_buffer = 0;
+        let p = params(d, &c).unwrap();
+        assert!(p.contains(&("mask_classes", json!(["cloud", "shadow", "cirrus", "snow"]))));
+        assert!(p.contains(&("mask", json!("auto"))) && !p.iter().any(|(k, _)| *k == "mask_buffer"));
+        c.use_preset("pc-landsat-c2-l2");
+        assert!(params(d, &c).unwrap().contains(&("mask", json!("auto"))));
+        c.use_preset("es-cop-dem-glo-30");
+        assert!(!params(d, &c).unwrap().iter().any(|(k, _)| k.starts_with("mask")));
+        c.use_preset("es-sentinel-2-l2a");
+        c.stac_snow = false;
+        c.stac_buffer = 1;
         assert_eq!(summary(d, &c), "Earth Search: Sentinel-2 L2A (10 m): red, green, blue, nir, 2024-06-01/2024-08-31");
         // the Planetary Computer's: signed; classes, the first scene with a value, no cloud cover
         c.use_preset("pc-io-lulc-annual-v02");
