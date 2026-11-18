@@ -265,11 +265,11 @@ pub fn remove_input(m: &mut Model, name: &str) -> Result<()> {
 /// forms and scenarios change), stays an input. The node's id: the input's name when no node has it.
 pub fn input_to_node(m: &mut Model, r: &Registry, name: &str) -> Result<String> {
     let input = m.inputs.get(name).cloned().ok_or_else(|| format!("the model has no input ${name}"))?;
-    let (path, band, nodata, note) = match input {
-        terraflux_graph::Input::Map { path, band, nodata, note } => {
-            (path, Some(band.unwrap_or_else(|| "0".into())), nodata, note)
+    let (path, band, nodata, note, data) = match input {
+        terraflux_graph::Input::Map { path, band, nodata, note, data } => {
+            (path, Some(band.unwrap_or_else(|| "0".into())), nodata, note, data)
         }
-        terraflux_graph::Input::Stack { path, bands: None, nodata, note } => (path, None, nodata, note),
+        terraflux_graph::Input::Stack { path, bands: None, nodata, note, data } => (path, None, nodata, note, data),
         terraflux_graph::Input::Stack { .. } => {
             return Err(format!("${name} is some bands of its file: it stays an input"));
         }
@@ -296,6 +296,7 @@ pub fn input_to_node(m: &mut Model, r: &Registry, name: &str) -> Result<String> 
             n = n.param("nodata", v);
         }
         n.note = note.clone().or_else(|| Some(format!("the file of the model's input ${name}")));
+        n.data = data.clone();
         n.pos = Some(pos);
         let to = format!("{id}.raster");
         for_each_ref(c, &[], &mut |r| {
@@ -337,9 +338,9 @@ pub fn node_to_input(m: &mut Model, r: &Registry, id: &str, name: &str, bands: O
     };
     let nodata = n.params.get("nodata").and_then(|v| v.as_f64());
     let input = if band.is_some() || bands.is_none_or(|b| b <= 1) {
-        terraflux_graph::Input::Map { path, band, nodata, note: n.note.clone() }
+        terraflux_graph::Input::Map { path, band, nodata, note: n.note.clone(), data: n.data.clone() }
     } else {
-        terraflux_graph::Input::Stack { path, bands: None, nodata, note: n.note.clone() }
+        terraflux_graph::Input::Stack { path, bands: None, nodata, note: n.note.clone(), data: n.data.clone() }
     };
     let (from, to) = (format!("{id}.raster"), format!("${name}"));
     guarded(m, r, &[], |c| {
@@ -1916,8 +1917,10 @@ mod tests {
 
     fn model() -> Model {
         let mut m = Model::new("t");
-        m.inputs.insert("t0".into(), Input::Map { path: "a.tif".into(), band: None, nodata: None, note: None });
-        m.inputs.insert("t1".into(), Input::Map { path: "b.tif".into(), band: None, nodata: None, note: None });
+        m.inputs
+            .insert("t0".into(), Input::Map { path: "a.tif".into(), band: None, nodata: None, note: None, data: None });
+        m.inputs
+            .insert("t1".into(), Input::Map { path: "b.tif".into(), band: None, nodata: None, note: None, data: None });
         m
     }
 

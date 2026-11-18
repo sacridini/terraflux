@@ -291,6 +291,7 @@ impl Wizard {
                     Some(n) => format!("the explanatory variables, {n}"),
                     None => "the explanatory variables".into(),
                 }),
+                data: None,
             },
         );
         m.inputs.insert(
@@ -307,6 +308,7 @@ impl Wizard {
                     band: Some(lu.bands[i].clone()),
                     nodata: None,
                     note: Some(format!("land use in {}", lu.bands[i])),
+                    data: None,
                 };
                 m.inputs.insert("t0".into(), band(self.t0));
                 m.inputs.insert("t1".into(), band(self.t1));
@@ -334,6 +336,7 @@ impl Wizard {
                         bands: None,
                         nodata: None,
                         note: Some("the observed maps, one per date".into()),
+                        data: None,
                     },
                 );
                 m.inputs.insert(
@@ -343,6 +346,7 @@ impl Wizard {
                         band: Some(lu.bands[0].clone()),
                         nodata: None,
                         note: Some("the map the simulation starts from".into()),
+                        data: None,
                     },
                 );
                 let allocation = if self.kind == Kind::Clue {

@@ -133,7 +133,7 @@ fn set(s: &mut Session, values: &BTreeMap<String, Json>) -> Result<(), String> {
 }
 
 /// A parameter's control; the value it was changed to.
-fn control(ui: &mut Ui, s: &mut Session, p: &Parameter, now: Option<&Json>, hint: &str) -> Option<Json> {
+pub(crate) fn control(ui: &mut Ui, s: &mut Session, p: &Parameter, now: Option<&Json>, hint: &str) -> Option<Json> {
     let key = format!("parameter.{}", p.key);
     if !p.choices.is_empty() {
         let shown = now.map(words).unwrap_or_else(|| hint.to_string());

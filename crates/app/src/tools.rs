@@ -2501,12 +2501,13 @@ fn set_input(m: &mut Model, a: &Value, dir: &Path) -> Reply {
         Ok(terraflux_graph::relative_path(&p, dir))
     };
     let input = match text(a, "kind")? {
-        "map" => Input::Map { path: file()?, band: a.get("band").map(as_text), nodata, note },
+        "map" => Input::Map { path: file()?, band: a.get("band").map(as_text), nodata, note, data: None },
         "stack" => Input::Stack {
             path: file()?,
             bands: a.get("bands").and_then(Value::as_array).map(|b| b.iter().map(as_text).collect()),
             nodata,
             note,
+            data: None,
         },
         "value" => Input::Value { value: a.get("value").cloned().ok_or("give `value`")?, note },
         k => return Err(format!("{k:?}: the kind is map, stack or value")),

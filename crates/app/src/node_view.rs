@@ -1009,6 +1009,21 @@ fn source_panel(ui: &mut Ui, s: &mut Session, r: &Registry, key: &str) {
         s.source.inputs.insert(name.clone(), i);
         change = Some(Ok(()));
     }
+    // what the file stands for, when Use my data read it in place of the data a template draws
+    if let Some(d) = input.data() {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("Stands for your data:").strong());
+            ui.label(d.summary());
+            if ui.small_button("Not data of yours").on_hover_text("take the mark off this input").clicked() {
+                let mut i = input.clone();
+                if let Input::Map { data, .. } | Input::Stack { data, .. } = &mut i {
+                    *data = None;
+                }
+                s.source.inputs.insert(name.clone(), i);
+                change = Some(Ok(()));
+            }
+        });
+    }
     ui.separator();
     ui.horizontal(|ui| {
         if !matches!(input, Input::Value { .. })

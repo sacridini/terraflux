@@ -41,10 +41,18 @@ fn inputs() -> BTreeMap<String, Value> {
 
 fn model(subsidy: &str) -> Model {
     let mut m = Model::new("agents and land");
-    m.inputs.insert("land".into(), Input::Map { path: "land.tif".into(), band: None, nodata: None, note: None });
-    m.inputs.insert("parcels".into(), Input::Map { path: "parcels.tif".into(), band: None, nodata: None, note: None });
-    m.inputs
-        .insert("capitals".into(), Input::Stack { path: "capitals.tif".into(), bands: None, nodata: None, note: None });
+    m.inputs.insert(
+        "land".into(),
+        Input::Map { path: "land.tif".into(), band: None, nodata: None, note: None, data: None },
+    );
+    m.inputs.insert(
+        "parcels".into(),
+        Input::Map { path: "parcels.tif".into(), band: None, nodata: None, note: None, data: None },
+    );
+    m.inputs.insert(
+        "capitals".into(),
+        Input::Stack { path: "capitals.tif".into(), bands: None, nodata: None, note: None, data: None },
+    );
     m.inputs.insert("seed".into(), Input::Value { value: 3.into(), note: None });
     m.nodes.push(Node::new("people", "agents.table").param(
         "agents",

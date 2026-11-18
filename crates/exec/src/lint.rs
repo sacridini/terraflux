@@ -55,6 +55,9 @@ impl std::fmt::Display for Finding {
 /// Ports that take land use maps (categorical), and those that take drivers.
 const CATEGORICAL: [&str; 7] = ["t0", "t1", "landscape", "start", "maps", "observed", "simulated"];
 const DRIVERS: [&str; 1] = ["drivers"];
+/// What hands a map or a stack on with its classes read as they were: a grid put right, classes translated or
+/// named, the maps of dates stacked. An input read by one of these feeds the ports its result feeds.
+const PASS: [&str; 4] = ["raster.match", "raster.reclassify", "raster.legend", "stack.of"];
 
 fn walk<'a>(nodes: &'a [Node], out: &mut Vec<&'a Node>) {
     for n in nodes {
@@ -65,21 +68,63 @@ fn walk<'a>(nodes: &'a [Node], out: &mut Vec<&'a Node>) {
     }
 }
 
-/// The ports each input feeds, by input name.
+/// The ports node `id` feeds: those that read it, and (through the nodes of [`PASS`] that read it) theirs.
+fn fed(all: &[&Node], id: &str, seen: &mut BTreeSet<String>, out: &mut BTreeSet<String>) {
+    if !seen.insert(id.to_string()) {
+        return;
+    }
+    let prefix = format!("{id}.");
+    for n in all {
+        for (port, src) in &n.inputs {
+            if let Source::Ref(r) = src
+                && r.starts_with(&prefix)
+            {
+                out.insert(port.clone());
+                if PASS.contains(&n.op.as_str()) {
+                    fed(all, &n.id, seen, out);
+                }
+            }
+        }
+    }
+}
+
+/// The ports each input feeds, by input name: where a node reads it, and where the nodes of [`PASS`] that read it
+/// give what they make of it (an input read by a `raster.reclassify` feeds what the reclassified map feeds).
 fn uses(model: &Model) -> BTreeMap<String, BTreeSet<String>> {
     let mut all = Vec::new();
     walk(&model.nodes, &mut all);
     let mut out: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for n in all {
+    for n in &all {
         for (port, src) in &n.inputs {
             if let Source::Ref(r) = src
                 && let Some(name) = r.strip_prefix('$')
             {
-                out.entry(name.to_string()).or_default().insert(port.clone());
+                let ports = out.entry(name.to_string()).or_default();
+                ports.insert(port.clone());
+                if PASS.contains(&n.op.as_str()) {
+                    fed(&all, &n.id, &mut BTreeSet::new(), ports);
+                }
             }
         }
     }
     out
+}
+
+/// The input that plays a part in the model (`t0`, `t1`, `start`): the one of that name, else the first, by name,
+/// that feeds a port of that name; only among the inputs `fit` takes. The parts are tried in order.
+fn role<'a>(
+    used: &BTreeMap<String, BTreeSet<String>>,
+    inputs: &'a BTreeMap<String, Value>,
+    parts: &[&str],
+    fit: impl Fn(&Value) -> bool,
+) -> Option<&'a String> {
+    parts.iter().find_map(|part| {
+        inputs
+            .iter()
+            .filter(|(_, v)| fit(v))
+            .find(|(k, _)| k.as_str() == *part || used.get(*k).is_some_and(|p| p.contains(*part)))
+            .map(|(k, _)| k)
+    })
 }
 
 fn grids(v: &Value) -> Option<&Grid> {
@@ -126,10 +171,8 @@ pub fn lint(model: &Model, inputs: &BTreeMap<String, Value>) -> Vec<Finding> {
     };
     let used = uses(model);
     // the reference grid: the start's, else the first map's
-    let reference = ["start", "t0"]
-        .iter()
-        .find(|n| inputs.get(**n).and_then(grids).is_some())
-        .map(|n| n.to_string())
+    let reference = role(&used, inputs, &["start", "t0"], |v| grids(v).is_some())
+        .cloned()
         .or_else(|| inputs.iter().find(|(_, v)| grids(v).is_some()).map(|(k, _)| k.clone()));
     if let Some(r) = &reference {
         let g0 = grids(&inputs[r]).unwrap();
@@ -215,16 +258,19 @@ pub fn lint(model: &Model, inputs: &BTreeMap<String, Value>) -> Vec<Finding> {
         }
     }
     // two dates: some change between them, and the same cells with a class
-    if let (Some(a), Some(b)) = (inputs.get("t0"), inputs.get("t1"))
-        && let (Value::Map(a), Value::Map(b)) = (a, b)
+    let is_map = |v: &Value| matches!(v, Value::Map(_));
+    let (first, second) = (role(&used, inputs, &["t0"], is_map), role(&used, inputs, &["t1"], is_map));
+    if let (Some(a_name), Some(b_name)) = (first, second)
+        && a_name != b_name
+        && let (Value::Map(a), Value::Map(b)) = (&inputs[a_name], &inputs[b_name])
         && a.data.len() == b.data.len()
     {
         let changed = a.data.iter().zip(b.data.iter()).filter(|(x, y)| !x.is_nan() && !y.is_nan() && x != y).count();
         if changed == 0 {
             push(
                 Level::Error,
-                "$t1",
-                "no cell changed class since $t0: there is no change to calibrate on".into(),
+                &format!("${b_name}"),
+                format!("no cell changed class since ${a_name}: there is no change to calibrate on"),
                 Some("check the dates of the two maps"),
             );
         }
@@ -232,14 +278,16 @@ pub fn lint(model: &Model, inputs: &BTreeMap<String, Value>) -> Vec<Finding> {
         if only > 0 {
             push(
                 Level::Warning,
-                "$t1",
+                &format!("${b_name}"),
                 format!("{only} cells have a class in only one of the two maps: they are left out"),
                 Some("give the maps the same extent and no-data cells"),
             );
         }
     }
     // drivers
-    let start = categorical.iter().find(|(n, _)| n.as_str() == "start" || n.as_str() == "t0").map(|(_, m)| *m);
+    let start = role(&used, inputs, &["start", "t0", "landscape"], is_map)
+        .and_then(|n| categorical.iter().find(|(k, _)| *k == n))
+        .map(|(_, m)| *m);
     for (name, v) in inputs {
         let ports = used.get(name).cloned().unwrap_or_default();
         if !ports.iter().any(|p| DRIVERS.contains(&p.as_str())) {
@@ -367,6 +415,68 @@ mod tests {
             }),
         );
         assert!(lint(&model(), &inputs).is_empty());
+    }
+
+    /// The model of the Wizard's names, and the same one with other names and a chain between the inputs and what
+    /// reads them (a grid put right, classes translated, the maps stacked), as "Use my data" writes it.
+    fn chained() -> Model {
+        let mut m = Model::new("t");
+        m.nodes.push(Node::new("a_match", "raster.match").input("raster", "$before").input("like", "$before"));
+        m.nodes.push(Node::new("a_classes", "raster.reclassify").input("map", "a_match.raster"));
+        m.nodes.push(Node::new("b_classes", "raster.reclassify").input("map", "$after"));
+        m.nodes.push(Node::new("a", "markov.fit").input("t0", "a_classes.map").input("t1", "b_classes.map"));
+        m.nodes.push(Node::new("obs", "stack.of").input("x", "a_classes.map").input("y", "b_classes.map"));
+        m.nodes.push(Node::new("d", "demand.from_maps").input("maps", "obs.stack"));
+        m.nodes.push(Node::new("w", "woe.fit").input("drivers", "$layers"));
+        m
+    }
+
+    #[test]
+    fn the_roles_follow_the_ports_an_input_feeds_not_its_name() {
+        let used = uses(&chained());
+        let ports = |n: &str| used[n].iter().map(String::as_str).collect::<Vec<_>>();
+        assert_eq!(ports("before"), ["like", "map", "maps", "raster", "t0", "x"]);
+        assert_eq!(ports("after"), ["map", "maps", "t1", "y"]);
+        assert_eq!(ports("layers"), ["drivers"]);
+        let g = Arc::new(Grid::new(2, 1));
+        let both = |a: Vec<f64>, b: Vec<f64>| {
+            let named =
+                BTreeMap::from([("t0".to_string(), map(&g, a.clone())), ("t1".to_string(), map(&g, b.clone()))]);
+            let other = BTreeMap::from([("before".to_string(), map(&g, a)), ("after".to_string(), map(&g, b))]);
+            let text = |f: Vec<Finding>| {
+                f.into_iter().map(|f| (f.level, f.message.replace("$before", "$t0"))).collect::<Vec<_>>()
+            };
+            (text(lint(&model(), &named)), text(lint(&chained(), &other)))
+        };
+        // no change: the same finding, whatever the names
+        let (wizard, mine) = both(vec![1.0, 2.0], vec![1.0, 2.0]);
+        assert!(wizard.iter().any(|f| f.1.contains("no cell changed")), "{wizard:?}");
+        assert_eq!(wizard, mine);
+        // cells with a class in one of the maps only
+        let (wizard, mine) = both(vec![1.0, f64::NAN], vec![2.0, 2.0]);
+        assert!(wizard.iter().any(|f| f.1.contains("only one of the two maps")), "{wizard:?}");
+        assert_eq!(wizard, mine);
+        let f = lint(
+            &chained(),
+            &BTreeMap::from([
+                ("before".to_string(), map(&g, vec![1.0, 1.0])),
+                ("after".to_string(), map(&g, vec![1.0, 1.0])),
+            ]),
+        );
+        assert!(
+            f.iter().any(|f| f.at == "$after"
+                && f.message == "no cell changed class since $before: there is no change to calibrate on"),
+            "{f:?}"
+        );
+        // fractional values are found in a map that only reaches the model through the chain
+        let f = lint(
+            &chained(),
+            &BTreeMap::from([
+                ("before".to_string(), map(&g, vec![1.5, 1.0])),
+                ("after".to_string(), map(&g, vec![1.0, 2.0])),
+            ]),
+        );
+        assert!(f.iter().any(|f| f.at == "$before" && f.message.contains("fractional")), "{f:?}");
     }
 
     #[test]

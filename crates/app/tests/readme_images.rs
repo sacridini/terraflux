@@ -323,11 +323,11 @@ out mean_hsi = hsi.mean()";
     let mut m = terraflux_graph::Model::new("Sibuyan's forest");
     m.inputs.insert(
         "lu".into(),
-        terraflux_graph::Input::Stack { path: "landuse.tif".into(), bands: None, nodata: None, note: None },
+        terraflux_graph::Input::Stack { path: "landuse.tif".into(), bands: None, nodata: None, note: None, data: None },
     );
     m.inputs.insert(
         "d".into(),
-        terraflux_graph::Input::Stack { path: "drivers.tif".into(), bands: None, nodata: None, note: None },
+        terraflux_graph::Input::Stack { path: "drivers.tif".into(), bands: None, nodata: None, note: None, data: None },
     );
     m.nodes.push(
         terraflux_graph::Node::new("calc", "raster.calc")

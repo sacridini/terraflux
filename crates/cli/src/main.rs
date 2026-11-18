@@ -1003,6 +1003,7 @@ fn map_input(spec: &str, model_dir: &Path, note: &str) -> Result<Input> {
         band: band.map(String::from),
         nodata: None,
         note: Some(note.to_string()),
+        data: None,
     })
 }
 
@@ -1012,6 +1013,7 @@ fn stack_input(spec: &str, model_dir: &Path, note: &str) -> Result<Input> {
         bands: None,
         nodata: None,
         note: Some(note.to_string()),
+        data: None,
     })
 }
 

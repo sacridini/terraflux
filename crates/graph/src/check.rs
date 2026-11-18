@@ -623,6 +623,13 @@ pub fn check(model: &Model, catalog: &dyn Catalog) -> Vec<Issue> {
             c.error("", format!("{name:?} is not a valid input name"));
         }
     }
+    for (name, input) in &model.inputs {
+        if let Some(d) = input.data() {
+            for why in d.problems() {
+                c.warn(&format!("${name}"), why);
+            }
+        }
+    }
     let mut scopes = vec![Scope::new(&model.nodes, None)];
     c.check_scope(&mut scopes, "");
     for (name, out) in &model.outputs {
@@ -1049,6 +1056,18 @@ from = "calc.map"
         assert!(set(last, None).is_empty());
         let e = set(0, Some(Data::new("a map", DataKind::Values)));
         assert!(e.len() == 1 && e[0].contains("gives no map or stack"), "{e:?}");
+    }
+
+    #[test]
+    fn the_data_of_an_input_is_checked_as_a_nodes() {
+        use crate::{Data, DataKind};
+        let mut m = model(GOOD);
+        let input = |d: Data| Input::Map { path: "a.tif".into(), band: None, nodata: None, note: None, data: Some(d) };
+        m.inputs.insert("t0".into(), input(Data::new("a land use map", DataKind::Classes)));
+        assert!(check(&m, &Ops).is_empty(), "{:?}", check(&m, &Ops));
+        m.inputs.insert("t0".into(), input(Data::new(" ", DataKind::Classes)));
+        let all = check(&m, &Ops);
+        assert!(all.len() == 1 && all[0].to_string().contains("$t0"), "{all:?}");
     }
 
     #[test]

@@ -1,8 +1,11 @@
 //! "Use my data", the window: the user's files in place of the data a model draws ([`crate::my_data`] makes the
-//! change). Three pages: *Your data* (a file for each thing the model draws, its band, the grid of reference, each
-//! choice checked as soon as it is made, in a thread), *Classes* (the user's classes of a map against the model's,
-//! one table each) and *Review* (what will be done, what was refused, the findings; errors stop it). *Apply* is one
-//! step of undo, seen in the Changes pane, and the model runs once its data is read (unless unticked).
+//! change). Four pages: *Your data* (a file for each thing the model draws, its band, the grid of reference, each
+//! choice checked as soon as it is made, in a thread; on a land change model the second date can be another band of
+//! the first date's file), *Classes* (the user's classes of a map against the model's, one table each), *Parameters*
+//! (the model's exposed parameters and, for a land change model, the settings the Wizard asked: steps, increment,
+//! elasticity, order of the classes, seed; the dates of the bands give their first values) and *Review* (what will be
+//! done, what was refused, the findings; errors stop it). *Apply* is one step of undo, seen in the Changes pane, and
+//! the model runs once its data is read (unless unticked).
 //!
 //! A strip on the Model pane's canvas offers the window when the model draws data ([`banner`]); what a model draws
 //! is worked out once for each revision of it ([`sources_of`]), never on every frame.
@@ -12,8 +15,9 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use egui::{Align, Layout, Margin, Rect, RichText, Ui, UiBuilder, Vec2, pos2};
+use serde_json::Value as Json;
 use terraflux_exec::lint::{Finding, Level};
-use terraflux_graph::{DataKind, Model, Type};
+use terraflux_graph::{DataKind, Model, Parameter, Type};
 use terraflux_ops::Registry;
 
 use crate::app::Session;
@@ -30,9 +34,11 @@ pub struct Cache {
 }
 
 /// Whether what a model offers to replace is drawn data (a neutral landscape model, a read with no file, an input
-/// with no path), not only data a node marked says it stands for.
+/// with no path), not only data a node marked says it stands for or an input that already holds the user's file.
 pub fn drawn(sources: &[Source]) -> bool {
-    sources.iter().any(|s| s.op == my_data::INPUT || s.op == "raster.read" || s.op.starts_with("nlm."))
+    sources
+        .iter()
+        .any(|s| (s.op == my_data::INPUT && s.file.is_none()) || s.op == "raster.read" || s.op.starts_with("nlm."))
 }
 
 /// The data the model open draws that a file can replace, worked out again only after an edit.
@@ -98,16 +104,18 @@ pub enum Act {
 pub enum Page {
     Data,
     Classes,
+    Parameters,
     Review,
 }
 
 impl Page {
-    const ALL: [Page; 3] = [Page::Data, Page::Classes, Page::Review];
+    const ALL: [Page; 4] = [Page::Data, Page::Classes, Page::Parameters, Page::Review];
 
     fn title(self) -> &'static str {
         match self {
             Page::Data => "Your data",
             Page::Classes => "Classes",
+            Page::Parameters => "Parameters",
             Page::Review => "Review",
         }
     }
@@ -134,6 +142,9 @@ struct Pick {
     template: Option<BTreeMap<i64, String>>,
     classes: Cls,
     crosswalk: BTreeMap<i64, Option<i64>>,
+    /// The source whose file this one was offered as ("the same file, another band"): its table of classes is the
+    /// first one of this.
+    like: Option<String>,
 }
 
 /// What a thread did.
@@ -155,6 +166,10 @@ pub struct State {
     /// The source whose grid the others are put on (none: the first map chosen).
     pub reference: Option<String>,
     picks: BTreeMap<String, Pick>,
+    /// What the user set on the *Parameters* page, by setting id (none: automatic); and what the dates of the files
+    /// give the settings that the user did not set (see [`my_data::derive`]).
+    settings: BTreeMap<String, Option<Json>>,
+    derived: BTreeMap<String, Option<Json>>,
     /// Why a file could not be chosen, by source.
     problems: BTreeMap<String, String>,
     /// The model the choices are of: its tab and revision.
@@ -221,6 +236,44 @@ fn plural(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
 
+/// What the settings made are, a line each, for the review: the label and the value.
+fn setting_notes(model: &Model, made: &BTreeMap<String, Option<Json>>) -> Vec<String> {
+    my_data::settings(model)
+        .into_iter()
+        .filter(|s| made.contains_key(&s.id))
+        .map(|s| {
+            let value = s.now.map_or_else(|| "automatic".to_string(), |v| crate::document::words(&v));
+            format!("{}: {value}", s.param.label.unwrap_or(s.id))
+        })
+        .collect()
+}
+
+/// The sources of the two dates of a land change model: its maps of classes, in the model's order (none for any
+/// other model).
+fn date_sources(sources: &[Source], model: &Model) -> Vec<String> {
+    if my_data::land(model).is_none() {
+        return Vec::new();
+    }
+    sources.iter().filter(|x| is_classes(x) && x.needs == Type::Map).take(2).map(|x| x.node.clone()).collect()
+}
+
+/// The band a pick reads (by name; the first when none is chosen).
+fn band_name(p: &Pick) -> Option<String> {
+    p.band.clone().or_else(|| p.bands.first().cloned())
+}
+
+/// The classes the model reads in a pick, once its table is made: those the table maps to, else the file's own.
+fn classes_after(p: &Pick) -> Vec<i64> {
+    if p.crosswalk.is_empty() {
+        match &p.classes {
+            Cls::Ready(f) => f.iter().map(|c| c.0).collect(),
+            _ => Vec::new(),
+        }
+    } else {
+        p.crosswalk.values().flatten().copied().collect::<BTreeSet<i64>>().into_iter().collect()
+    }
+}
+
 impl State {
     pub fn new() -> Self {
         let (tx, rx) = channel();
@@ -229,6 +282,8 @@ impl State {
             run_now: true,
             reference: None,
             picks: BTreeMap::new(),
+            settings: BTreeMap::new(),
+            derived: BTreeMap::new(),
             problems: BTreeMap::new(),
             seen: None,
             tx,
@@ -258,6 +313,7 @@ impl State {
                     template,
                     classes: Cls::None,
                     crosswalk: BTreeMap::new(),
+                    like: None,
                 };
                 self.picks.insert(node.to_string(), pick);
                 self.load_classes(node);
@@ -274,6 +330,73 @@ impl State {
     pub fn keep_drawn(&mut self, node: &str) {
         self.picks.remove(node);
         self.problems.remove(node);
+    }
+
+    /// The file of a source chosen for another as well, in another band (two dates of one file of bands): its table
+    /// of classes starts as the other's.
+    pub fn same_file(&mut self, sources: &[Source], node: &str, from: &str, band: &str) -> Result<(), String> {
+        let src =
+            sources.iter().find(|x| x.node == node).ok_or_else(|| format!("{node}: the model draws no such data"))?;
+        let other = self.picks.get(from).ok_or_else(|| format!("{from}: no file chosen"))?;
+        if !other.bands.iter().any(|b| b == band) {
+            return Err(format!("{} has no band {band:?}", other.file.display()));
+        }
+        let pick = Pick {
+            file: other.file.clone(),
+            bands: other.bands.clone(),
+            band: Some(band.to_string()),
+            template: template_of(src),
+            classes: Cls::None,
+            crosswalk: BTreeMap::new(),
+            like: Some(from.to_string()),
+        };
+        self.problems.remove(node);
+        self.picks.insert(node.to_string(), pick);
+        self.load_classes(node);
+        Ok(())
+    }
+
+    /// The offer of the same file for a date: the source whose file has more bands, and the band of the other date
+    /// (the next for the later date, the previous for the earlier).
+    fn same_file_offer(&self, dates: &[String], node: &str) -> Option<(String, String)> {
+        let at = dates.iter().position(|d| d == node)?;
+        dates.iter().enumerate().filter(|(_, d)| *d != node).find_map(|(k, d)| {
+            let p = self.picks.get(d).filter(|p| p.bands.len() > 1)?;
+            let i = band_name(p).and_then(|b| p.bands.iter().position(|x| *x == b)).unwrap_or(0);
+            let j = if at > k { i + 1 } else { i.checked_sub(1)? };
+            Some((d.clone(), p.bands.get(j)?.clone()))
+        })
+    }
+
+    /// Set a setting of the *Parameters* page (none: automatic): the model is planned again.
+    pub fn set_setting(&mut self, id: &str, value: Option<Json>) {
+        self.settings.insert(id.to_string(), value);
+    }
+
+    /// What a setting is now: what the user set, else what the dates of the files gave, else what the model has.
+    pub fn setting_now(&self, base: &my_data::Setting) -> Option<Json> {
+        match self.settings.get(&base.id).or_else(|| self.derived.get(&base.id)) {
+            Some(v) => v.clone(),
+            None => base.now.clone(),
+        }
+    }
+
+    /// The settings of the model open and their values, as the *Parameters* page shows them.
+    pub fn settings_of(&self, model: &Model) -> Vec<(my_data::Setting, Option<Json>)> {
+        my_data::settings(model)
+            .into_iter()
+            .map(|s| {
+                let v = self.setting_now(&s);
+                (s, v)
+            })
+            .collect()
+    }
+
+    /// The settings the plan is made with: what the dates gave, over it what the user set.
+    fn effective(&self) -> BTreeMap<String, Option<Json>> {
+        let mut all = self.derived.clone();
+        all.extend(self.settings.clone());
+        all
     }
 
     /// The band of a source's file (a name; none: the first), its classes read again.
@@ -355,6 +478,12 @@ impl State {
         while let Ok(d) = self.rx.try_recv() {
             match d {
                 Done::Classes { node, key, result } => {
+                    let inherited = self
+                        .picks
+                        .get(&node)
+                        .and_then(|p| p.like.as_ref())
+                        .and_then(|l| self.picks.get(l))
+                        .map(|l| l.crosswalk.clone());
                     let Some(p) = self.picks.get_mut(&node) else { continue };
                     // (the answer of an earlier file or band is let go)
                     if !matches!(&p.classes, Cls::Loading(k) if *k == key) {
@@ -364,6 +493,12 @@ impl State {
                         Ok(found) => {
                             if let Some(t) = &p.template {
                                 p.crosswalk = my_data::suggest(t, &found);
+                                // (the same file as another date: its table, for the classes both have)
+                                for (user, to) in inherited.iter().flatten() {
+                                    if found.iter().any(|c| c.0 == *user) {
+                                        p.crosswalk.insert(*user, *to);
+                                    }
+                                }
                             }
                             Cls::Ready(found)
                         }
@@ -400,7 +535,24 @@ impl State {
     }
 
     fn key(&self, rev: u64) -> String {
-        format!("{rev}|{:?}|{:?}", self.reference_now(), self.choices())
+        format!("{rev}|{:?}|{:?}|{:?}", self.reference_now(), self.choices(), self.effective())
+    }
+
+    /// What the dates of the two files give the settings (the Wizard's defaults), when both are chosen.
+    fn derive(&mut self, s: &Session) {
+        let dates = date_sources(&s.my_data.sources, &s.source);
+        let picks: Vec<&Pick> = dates.iter().filter_map(|d| self.picks.get(d)).collect();
+        self.derived = if picks.len() == 2 {
+            let mut t: Vec<Option<f64>> =
+                picks.iter().map(|p| band_name(p).and_then(|b| b.trim().parse().ok())).collect();
+            // (bands that are no dates: 0 and 1, as the Wizard does)
+            if t.iter().any(Option::is_none) {
+                t = vec![Some(0.0), Some(1.0)];
+            }
+            my_data::derive(&s.source, &t, &classes_after(picks[0]), &self.settings)
+        } else {
+            BTreeMap::new()
+        };
     }
 
     /// The model changed or another is in front: the choices of sources it no longer has go (all of them for another
@@ -410,6 +562,7 @@ impl State {
         if self.seen != Some(now) {
             if self.seen.is_some_and(|(t, _)| t != tab) {
                 self.picks.clear();
+                self.settings.clear();
                 self.problems.clear();
                 self.reference = None;
                 self.page = Page::Data;
@@ -420,6 +573,7 @@ impl State {
             self.seen = Some(now);
         }
         self.poll();
+        self.derive(s);
         let choices = self.choices();
         let loading = self.picks.values().any(|p| matches!(p.classes, Cls::Loading(_)));
         if choices.is_empty() {
@@ -433,14 +587,21 @@ impl State {
             return;
         }
         let (model, base, reference) = (s.source.clone(), s.base(), self.reference_now());
+        let settings = self.effective();
         let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
         self.working = true;
         std::thread::spawn(move || {
             let r = Registry::standard();
-            let result = my_data::plan(&model, &r, &choices, reference.as_deref(), &base).map(|p| {
-                let f = my_data::check(&p, &base);
-                (p, f)
-            });
+            let result = my_data::plan(&model, &r, &choices, reference.as_deref(), &base)
+                .and_then(|mut p| {
+                    my_data::apply_settings(&mut p.model, &settings)?;
+                    p.notes.extend(setting_notes(&p.model, &settings));
+                    Ok(p)
+                })
+                .map(|p| {
+                    let f = my_data::check(&p, &base);
+                    (p, f)
+                });
             let _ = tx.send(Done::Checked { key, result: Box::new(result) });
             if let Some(c) = ctx {
                 c.request_repaint();
@@ -451,6 +612,20 @@ impl State {
     /// Whether *Apply* may be done: the choices checked as they are now, no error.
     pub fn can_apply(&self) -> bool {
         self.current() && self.plan().is_some() && !self.findings().iter().any(|f| f.level == Level::Error)
+    }
+
+    /// The pages the *Back* and *Next* buttons go through, in order: the classes when a file has a table of them, the
+    /// parameters when the model has some.
+    fn pages(&self, has_settings: bool) -> Vec<Page> {
+        let mut p = vec![Page::Data];
+        if self.needs_classes() {
+            p.push(Page::Classes);
+        }
+        if has_settings {
+            p.push(Page::Parameters);
+        }
+        p.push(Page::Review);
+        p
     }
 
     /// Whether any chosen file has a table of classes to look at.
@@ -478,7 +653,7 @@ impl State {
     }
 
     /// The page of *Your data*: a row for each thing the model draws.
-    fn data_page(&mut self, ui: &mut Ui, sources: &[Source]) {
+    fn data_page(&mut self, ui: &mut Ui, sources: &[Source], dates: &[String]) {
         ui.label(
             RichText::new(
                 "A file for each thing the model draws; what you leave out stays drawn. Each choice is checked as soon \
@@ -493,7 +668,7 @@ impl State {
             .map(|x| x.node.clone());
         let reference = self.reference_now().or(first);
         let many = self.picks.len() > 1;
-        let (mut choose, mut keep, mut band, mut refer) = (None, None, None, None);
+        let (mut choose, mut keep, mut band, mut refer, mut same) = (None, None, None, None, None);
         for src in sources {
             ui.separator();
             ui.horizontal_wrapped(|ui| {
@@ -513,7 +688,19 @@ impl State {
                     choose = Some((src.node.clone(), PathBuf::from(p)));
                 }
                 let Some(p) = pick else {
-                    ui.label(RichText::new("kept drawn").weak());
+                    match &src.file {
+                        Some(f) => ui.label(RichText::new(format!("keeps your file {f}")).weak()),
+                        None => ui.label(RichText::new("kept drawn").weak()),
+                    };
+                    // two dates of one file of bands: the other band of the file chosen for the other date
+                    if let Some((from, b)) = self.same_file_offer(dates, &src.node)
+                        && ui
+                            .button(format!("The same file, band {b}"))
+                            .on_hover_text("the file chosen for the other date, in the band of this one")
+                            .clicked()
+                    {
+                        same = Some((src.node.clone(), from, b));
+                    }
                     return;
                 };
                 let name = p
@@ -581,6 +768,11 @@ impl State {
         }
         if let Some((n, p)) = choose {
             self.pending(n, p);
+        }
+        if let Some((n, from, b)) = same
+            && let Err(e) = self.same_file(sources, &n, &from, &b)
+        {
+            self.error = Some(e);
         }
         if let Some(n) = keep {
             self.keep_drawn(&n);
@@ -681,6 +873,54 @@ impl State {
         }
         if !any {
             ui.label(RichText::new("No file chosen has classes to translate.").weak());
+        }
+    }
+
+    /// The page of *Parameters*: the settings of the model (the planned one is made with these values): the
+    /// model's exposed parameters and, for a land change model, those the Wizard asked.
+    fn parameters_page(&mut self, ui: &mut Ui, s: &mut Session) {
+        let all = self.settings_of(&s.source);
+        if all.is_empty() {
+            ui.label(RichText::new("This model has no parameters to set.").weak());
+            return;
+        }
+        ui.label(
+            RichText::new(
+                "What the model does, apart from the data. Where your files have dates (their bands' names) the steps \
+                 and dates start from them; a value you set stays.",
+            )
+            .weak(),
+        );
+        let method = all
+            .iter()
+            .find(|(st, _)| st.id == "method")
+            .and_then(|(_, v)| v.as_ref().and_then(Json::as_str).map(String::from))
+            .unwrap_or_default();
+        let mut change: Option<(String, Option<Json>)> = None;
+        for (st, now) in all.iter().filter(|(st, _)| my_data::shown(&st.id, &method)) {
+            ui.separator();
+            ui.label(RichText::new(st.param.label.clone().unwrap_or_else(|| st.id.clone())).strong());
+            if let Some(h) = &st.param.help {
+                ui.label(RichText::new(h).small().weak());
+            }
+            ui.horizontal_wrapped(|ui| {
+                if let Some((text, on)) = &st.auto {
+                    let mut auto = now.is_none();
+                    if ui.checkbox(&mut auto, text).changed() {
+                        change = Some((st.id.clone(), if auto { None } else { Some(on.clone()) }));
+                    }
+                }
+                if now.is_some() || st.auto.is_none() {
+                    // (its own text fields: the Parameters pane's are of the model open)
+                    let p = Parameter { key: format!("my data.{}", st.id), ..st.param.clone() };
+                    if let Some(v) = crate::params_view::control(ui, s, &p, now.as_ref(), "default") {
+                        change = Some((st.id.clone(), Some(v)));
+                    }
+                }
+            });
+        }
+        if let Some((id, v)) = change {
+            self.set_setting(&id, v);
         }
     }
 
@@ -809,6 +1049,7 @@ pub fn window(
                 return;
             };
             let sources = sources_of(s, r).to_vec();
+            let dates = date_sources(&sources, &s.source);
             if sources.is_empty() {
                 templates_page(ui, &mut act, s.source.nodes.is_empty());
                 return;
@@ -820,8 +1061,9 @@ pub fn window(
                 st.error = Some(e);
             }
             st.pump(s, tab);
+            let has_settings = !my_data::settings(&s.source).is_empty();
             ui.horizontal(|ui| {
-                for p in Page::ALL {
+                for p in Page::ALL.into_iter().filter(|p| *p != Page::Parameters || has_settings) {
                     if ui.selectable_label(st.page == p, p.title()).clicked() {
                         st.page = p;
                     }
@@ -829,50 +1071,46 @@ pub fn window(
             });
             let height = (ui.available_height() - 46.0).max(80.0);
             egui::ScrollArea::vertical().max_height(height).auto_shrink([false, false]).show(ui, |ui| match st.page {
-                Page::Data => st.data_page(ui, &sources),
+                Page::Data => st.data_page(ui, &sources, &dates),
                 Page::Classes => st.classes_page(ui, &sources),
+                Page::Parameters => st.parameters_page(ui, s),
                 Page::Review => st.review_page(ui, &s.source),
             });
             ui.separator();
             ui.horizontal(|ui| {
                 let any = !st.picks.is_empty();
-                match st.page {
-                    Page::Data => {
-                        let next = if st.needs_classes() { Page::Classes } else { Page::Review };
-                        if ui
-                            .add_enabled(any, egui::Button::new("Next"))
-                            .on_disabled_hover_text("choose the file of at least one data")
-                            .clicked()
-                        {
-                            st.page = next;
+                // the pages the buttons go through: classes only when a file has some, the parameters when there are
+                let pages = st.pages(has_settings);
+                let at = pages.iter().position(|p| *p == st.page).unwrap_or(0);
+                if st.page != Page::Review {
+                    if at > 0 && ui.button("Back").clicked() {
+                        st.page = pages[at - 1];
+                    }
+                    let enabled = any || st.page != Page::Data;
+                    if ui
+                        .add_enabled(enabled, egui::Button::new("Next"))
+                        .on_disabled_hover_text("choose the file of at least one data")
+                        .clicked()
+                    {
+                        st.page = pages[(at + 1).min(pages.len() - 1)];
+                    }
+                } else {
+                    if ui.button("Back").clicked() {
+                        st.page = pages[at.saturating_sub(1)];
+                    }
+                    let can = st.can_apply();
+                    if ui
+                        .add_enabled(can, crate::app::accent_button("Apply", can))
+                        .on_hover_text("the model with your data, as one step of undo, seen in the Changes pane")
+                        .on_disabled_hover_text("the choices are being checked, or have an error")
+                        .clicked()
+                    {
+                        match st.apply(s) {
+                            Ok(()) => applied = true,
+                            Err(e) => st.error = Some(e),
                         }
                     }
-                    Page::Classes => {
-                        if ui.button("Back").clicked() {
-                            st.page = Page::Data;
-                        }
-                        if ui.button("Next").clicked() {
-                            st.page = Page::Review;
-                        }
-                    }
-                    Page::Review => {
-                        if ui.button("Back").clicked() {
-                            st.page = if st.needs_classes() { Page::Classes } else { Page::Data };
-                        }
-                        let can = st.can_apply();
-                        if ui
-                            .add_enabled(can, crate::app::accent_button("Apply", can))
-                            .on_hover_text("the model with your data, as one step of undo, seen in the Changes pane")
-                            .on_disabled_hover_text("the choices are being checked, or have an error")
-                            .clicked()
-                        {
-                            match st.apply(s) {
-                                Ok(()) => applied = true,
-                                Err(e) => st.error = Some(e),
-                            }
-                        }
-                        ui.checkbox(&mut st.run_now, "Run it now").on_hover_text("run the model once its data is read");
-                    }
+                    ui.checkbox(&mut st.run_now, "Run it now").on_hover_text("run the model once its data is read");
                 }
                 if let Some(e) = &st.error {
                     ui.colored_label(ui.visuals().error_fg_color, e);
@@ -907,6 +1145,56 @@ mod tests {
         m.nodes.push(Node::new("b", "raster.read"));
         assert!(drawn(&my_data::sources(&m, &r)));
         assert!(!drawn(&[]));
+    }
+
+    #[test]
+    fn a_model_with_only_the_users_files_draws_nothing_but_offers_them_again() {
+        let r = Registry::standard();
+        let mut m = Model::new("t");
+        let input = |path: &str, data: Option<Data>| terraflux_graph::Input::Map {
+            path: path.into(),
+            band: None,
+            nodata: None,
+            note: None,
+            data,
+        };
+        m.inputs.insert("mine".into(), input("a.tif", Some(Data::new("a map", DataKind::Values))));
+        let s = my_data::sources(&m, &r);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].file.as_deref(), Some("a.tif"));
+        assert!(!drawn(&s), "a file of the user's is not drawn data: no banner");
+        // an input with no path is drawn
+        m.inputs.insert("empty".into(), input("", None));
+        assert!(drawn(&my_data::sources(&m, &r)));
+    }
+
+    #[test]
+    fn the_second_date_is_offered_the_same_file_in_another_band() {
+        let r = Registry::standard();
+        let file =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs/sibuyan_landuse.tif");
+        let mut s = Session::from_model(template("Dinamica EGO")).unwrap();
+        let sources = sources_of(&mut s, &r).to_vec();
+        let dates = date_sources(&sources, &s.source);
+        assert_eq!(dates, ["land_2000", "land_2010"]);
+        assert!(date_sources(&sources, &template("MSPA of a forest")).is_empty());
+        let mut w = State::new();
+        assert!(w.same_file_offer(&dates, "land_2010").is_none(), "no file chosen");
+        w.choose(&mut s, &r, "land_2000", &file).unwrap();
+        // the file has two bands: the later date takes the next, the earlier the previous one
+        assert_eq!(w.same_file_offer(&dates, "land_2010"), Some(("land_2000".to_string(), "2011".to_string())));
+        assert!(w.same_file_offer(&dates, "land_2000").is_none(), "no band before the first");
+        assert!(w.same_file_offer(&dates, "drivers").is_none(), "not a date");
+        w.same_file(&sources, "land_2010", "land_2000", "2011").unwrap();
+        assert!(w.picked("land_2010"));
+        assert_eq!(band_name(&w.picks["land_2010"]).as_deref(), Some("2011"));
+        assert_eq!(band_name(&w.picks["land_2000"]).as_deref(), Some("1997"));
+        assert!(w.same_file(&sources, "land_2010", "land_2000", "1900").is_err());
+        assert!(w.same_file(&sources, "land_2010", "drivers", "1997").is_err());
+        // the first date with the second's band chosen: the other is offered its previous one
+        w.keep_drawn("land_2000");
+        w.set_band("land_2010", Some("2011".into()));
+        assert_eq!(w.same_file_offer(&dates, "land_2000"), Some(("land_2010".to_string(), "1997".to_string())));
     }
 
     #[test]

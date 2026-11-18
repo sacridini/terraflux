@@ -11,9 +11,10 @@
 //! Decisions (see the report of the stage in IDEAS.md):
 //! - The grids are compared by the files' headers: a `raster.match` is put only where the grid or the CRS differs
 //!   from the reference's (`near` for classes and masks, `bilinear` for values, `auto` for the rest).
-//! - `data` goes to the LAST node of the chain (what the rest of the model reads), so a second run of Use my data
-//!   finds the data again. Where the chain has no node (a reference read straight as an input) there is none to
-//!   carry it, and the input's note says what it is.
+//! - `data` has ONE place: the LAST node of the chain (what the rest of the model reads) and, where the chain has
+//!   no node (a file read straight as an input), the input itself (`data` of [`Input`]). A second run of Use my
+//!   data finds it there ([`sources`] offers the nodes that carry it and the inputs that carry it with a file:
+//!   [`Source::file`]) and takes the first chain away.
 //! - Classes the table does not map, and a class mapped to "no data", become no data (`* -> nan` ends the rules).
 //! - An `nlm.*` that is left is put on the reference grid (`like`; rows, columns, resolution and crs taken away);
 //!   `nlm.curds` has no `like` and stays on its own grid, named in the notes.
@@ -22,8 +23,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
+use serde_json::Value as Json;
 use terraflux_exec::lint::{Finding, Level};
-use terraflux_graph::{Data, DataKind, Input, Model, Node, Ref, Severity, Source as Wire, Type};
+use terraflux_graph::{Data, DataKind, Input, Model, Node, Parameter, Ref, Severity, Source as Wire, Type};
 use terraflux_ops::Registry;
 use terraflux_raster::Grid;
 
@@ -46,6 +48,8 @@ pub struct Source {
     pub port: String,
     /// A map or a stack, from what reads it.
     pub needs: Type,
+    /// The file of an input that already holds the user's (a second run replaces it); none for what is drawn.
+    pub file: Option<String>,
 }
 
 /// What the user chose for a source.
@@ -155,13 +159,14 @@ fn source_of(m: &Model, r: &Registry, n: &Node) -> Source {
         what,
         port,
         needs: if stack { Type::Stack } else { Type::Map },
+        file: None,
     }
 }
 
 /// The data of the model a file can replace, at its top level: the nodes that stand for the user's data (`data`) in
 /// the model's order, then the `nlm.*` without the mark that something other than a node of `data` reads (the
 /// ones only such nodes read are inside a drawn map, as the suitability of a simulated change), the `raster.read`
-/// without a file, and the model's inputs without a path.
+/// without a file, and the model's inputs without a path or that carry `data` (the user's file, read straight).
 pub fn sources(m: &Model, r: &Registry) -> Vec<Source> {
     let mut out: Vec<Source> = m.nodes.iter().filter(|n| n.data.is_some()).map(|n| source_of(m, r, n)).collect();
     for n in m.nodes.iter().filter(|n| n.data.is_none()) {
@@ -179,20 +184,27 @@ pub fn sources(m: &Model, r: &Registry) -> Vec<Source> {
         }
     }
     for (name, input) in &m.inputs {
-        let (empty, needs, note) = match input {
-            Input::Map { path, note, .. } => (path.trim().is_empty(), Type::Map, note),
-            Input::Stack { path, note, .. } => (path.trim().is_empty(), Type::Stack, note),
+        let (path, needs, note) = match input {
+            Input::Map { path, note, .. } => (path, Type::Map, note),
+            Input::Stack { path, note, .. } => (path, Type::Stack, note),
             Input::Value { .. } => continue,
         };
-        if empty {
-            let what = note.clone().unwrap_or_else(|| format!("the input ${name}"));
+        let data = input.data().cloned();
+        let empty = path.trim().is_empty();
+        if empty || data.is_some() {
+            let what = match (&data, note) {
+                (Some(d), _) => d.what.clone(),
+                (None, Some(n)) => n.clone(),
+                _ => format!("the input ${name}"),
+            };
             out.push(Source {
                 node: name.clone(),
                 op: INPUT.to_string(),
-                data: None,
+                data,
                 what,
                 port: String::new(),
                 needs,
+                file: (!empty).then(|| path.clone()),
             });
         }
     }
@@ -395,9 +407,9 @@ pub fn plan(
         let kind = s.data.as_ref().map(|d| d.kind);
         let note = format!("{}: your file {file}{band}", s.what);
         let input = if s.needs == Type::Stack {
-            Input::Stack { path: file.clone(), bands: c.bands.clone(), nodata: c.nodata, note: Some(note) }
+            Input::Stack { path: file.clone(), bands: c.bands.clone(), nodata: c.nodata, note: Some(note), data: None }
         } else {
-            Input::Map { path: file.clone(), band: c.band.clone(), nodata: c.nodata, note: Some(note) }
+            Input::Map { path: file.clone(), band: c.band.clone(), nodata: c.nodata, note: Some(note), data: None }
         };
         out.inputs.insert(name.clone(), input);
         inputs.push(name.clone());
@@ -465,8 +477,16 @@ pub fn plan(
         }
         let end = chain.last().map(|(n, p)| format!("{}.{p}", n.id)).unwrap_or_else(|| format!("${name}"));
         let mut chain: Vec<Node> = chain.into_iter().map(|(n, _)| n).collect();
-        if let (Some(d), Some(last)) = (&s.data, chain.last_mut()) {
-            last.data = Some(d.clone());
+        // the data goes to the end of the chain: its last node, else the input read straight
+        if let Some(d) = &s.data {
+            match chain.last_mut() {
+                Some(last) => last.data = Some(d.clone()),
+                None => {
+                    if let Some(Input::Map { data, .. } | Input::Stack { data, .. }) = out.inputs.get_mut(&name) {
+                        *data = Some(d.clone());
+                    }
+                }
+            }
         }
         let old = if s.op == INPUT { format!("${}", s.node) } else { format!("{}.{}", s.node, s.port) };
         if old != end {
@@ -649,6 +669,436 @@ pub fn suggest(template: &BTreeMap<i64, String>, user: &[(i64, Option<String>, u
         .collect()
 }
 
+/// The land change models the Parameters page knows (the templates of Dinamica EGO, CLUE-S and PLUS, and what the
+/// Wizard's presets make: the same nodes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Land {
+    Dinamica,
+    Lulcc,
+    Plus,
+}
+
+/// The node at a path of ids (`simulation/allocate`).
+fn at<'a>(m: &'a Model, path: &str) -> Option<&'a Node> {
+    let mut parts = path.split('/');
+    let mut node = m.node(parts.next()?)?;
+    for id in parts {
+        node = node.body.as_ref()?.nodes.iter().find(|n| n.id == id)?;
+    }
+    Some(node)
+}
+
+/// Which land change model it is, by its nodes (none: it is not one).
+pub fn land(m: &Model) -> Option<Land> {
+    let top = |id: &str| m.node(id).map(|n| n.op.as_str());
+    let inner = |id: &str| at(m, &format!("simulation/{id}")).map(|n| n.op.as_str());
+    if top("markov") == Some("markov.fit")
+        && top("woe") == Some("woe.fit")
+        && top("patches") == Some("patches.observe")
+        && inner("allocate") == Some("dinamica.step")
+    {
+        Some(Land::Dinamica)
+    } else if top("demand") == Some("demand.from_maps") && inner("allocate") == Some("lulcc.step") {
+        Some(Land::Lulcc)
+    } else if top("leas") == Some("ml.potential") && inner("cars") == Some("cars.step") {
+        Some(Land::Plus)
+    } else {
+        None
+    }
+}
+
+/// A setting the Parameters page offers: one of the model's exposed parameters (its id is the key), or one of a land
+/// change model's (a word: `steps`, `method`...), with what the form needs.
+#[derive(Debug, Clone)]
+pub struct Setting {
+    pub id: String,
+    /// Its label, help, range, step and choices (its `key` is the id).
+    pub param: Parameter,
+    /// What it is now in the model (none: automatic, or the operator's default).
+    pub now: Option<Json>,
+    /// What the setting is when left automatic, and the value it takes when turned on; none: it is always a value.
+    pub auto: Option<(String, Json)>,
+}
+
+fn setting(id: &str, label: &str, help: &str, now: Option<Json>) -> Setting {
+    let param = Parameter { key: id.into(), label: Some(label.into()), help: Some(help.into()), ..Default::default() };
+    Setting { id: id.into(), param, now, auto: None }
+}
+
+fn ranged(mut s: Setting, min: f64, max: f64, step: f64) -> Setting {
+    s.param.min = Some(min);
+    s.param.max = Some(max);
+    s.param.step = Some(step);
+    s
+}
+
+fn automatic(mut s: Setting, text: &str, on: Json) -> Setting {
+    s.auto = Some((text.into(), on));
+    s
+}
+
+/// The allocation of a CLUE-S or ordered model.
+fn allocation_of(m: &Model) -> Option<&serde_json::Map<String, Json>> {
+    at(m, "simulation/allocate")?.params.get("allocation")?.as_object()
+}
+
+/// The method of a CLUE-S or ordered model's allocation.
+pub fn method_of(m: &Model) -> String {
+    allocation_of(m).and_then(|a| a.get("method")).and_then(Json::as_str).unwrap_or("clue").to_string()
+}
+
+/// The key of the setting a land change model's id stands for (those that are one node's setting).
+fn key_of(land: Land, id: &str) -> Option<&'static str> {
+    Some(match (land, id) {
+        (Land::Dinamica | Land::Plus, "steps") => "markov.steps",
+        (Land::Dinamica, "simulate") => "simulation.times",
+        (Land::Plus, "simulate") => "demand.steps",
+        (Land::Dinamica, "increment") => "woe.increment",
+        (Land::Dinamica, "expansion") => "patches.expansion",
+        (Land::Dinamica, "isometry") => "patches.isometry",
+        (Land::Dinamica, "seed") => "simulation/allocate.seed",
+        (Land::Plus, "seed") => "simulation/cars.seed",
+        (Land::Lulcc, "seed") => "rng.seed",
+        (Land::Lulcc, "elasticity") => "simulation/allocate.elasticity",
+        _ => return None,
+    })
+}
+
+/// What a land change model's simulation starts from: the map of the second date (the future, as the templates do)
+/// or the first (the observed period again, as the Wizard's models do, to compare what it gives with what happened).
+const START_LAST: &str = "the second date";
+const START_FIRST: &str = "the first date";
+
+/// The settings the Parameters page offers for a model: its land change settings (the Wizard's: the steps between
+/// the dates and to simulate, the buffer increment, the Expander's share and the isometry of Dinamica's; the method,
+/// the order of the classes, the elasticity and the dates of CLUE-S's and ordered; the seed), then the model's
+/// exposed parameters (`parameters` of the model). Empty for a model with neither.
+pub fn settings(m: &Model) -> Vec<Setting> {
+    let land = land(m);
+    let now = |id: &str| land.and_then(|l| key_of(l, id)).and_then(|k| m.setting(k)).cloned();
+    let mut out = Vec::new();
+    match land {
+        Some(Land::Dinamica) => {
+            let s = setting(
+                "steps",
+                "Time steps between the two maps",
+                "the transition rates are per step: the root of the matrix of the period",
+                now("steps"),
+            );
+            out.push(ranged(s, 1.0, 1000.0, 1.0));
+            let s =
+                setting("simulate", "Steps to simulate", "one iteration of Expander and Patcher each", now("simulate"));
+            out.push(ranged(s, 1.0, 10000.0, 1.0));
+            out.push(start_setting(m));
+            let s = setting(
+                "increment",
+                "Buffer increment of the weights",
+                "the width of the buffers the ranges of each variable are cut by",
+                now("increment"),
+            );
+            out.push(automatic(s, "automatic (a hundredth of each variable's range)", Json::from(1.0)));
+            let s = setting(
+                "expansion",
+                "Share of the changes that expand patches",
+                "the rest is made by new patches (Patcher)",
+                now("expansion"),
+            );
+            out.push(automatic(ranged(s, 0.0, 1.0, 0.01), "as observed", Json::from(0.5)));
+            let s = setting(
+                "isometry",
+                "Isometry of the patches",
+                "how round the new patches are (Dinamica's usual is 1.5)",
+                now("isometry"),
+            );
+            out.push(ranged(s, 0.0, 3.0, 0.1));
+            out.push(setting("seed", "Seed", "the seed of the simulation", now("seed")));
+        }
+        Some(Land::Lulcc) => {
+            let help = "CLUE-S: the classes compete for the cells until the demand is met; ordered: they are served one after the other, in the order given, each taking the cells it suits best";
+            let mut method = setting("method", "Allocation", help, Some(Json::from(method_of(m))));
+            method.param.choices = vec![Json::from("clue"), Json::from("ordered")];
+            out.push(method);
+            out.push(start_setting(m));
+            let order = allocation_of(m).and_then(|a| a.get("order")).cloned();
+            out.push(setting(
+                "order",
+                "The order classes are served in",
+                "the codes of the classes, the first served first",
+                order,
+            ));
+            let s = setting(
+                "elasticity",
+                "Elasticity (resistance to change, 0-1)",
+                "one number for every class, or one for each in the order of the classes (0.5, 0.2, 1)",
+                now("elasticity"),
+            );
+            out.push(s);
+            let s = setting(
+                "times",
+                "The date of each observed map",
+                "the dates of the two maps (the names of their bands, when they are numbers)",
+                m.setting("demand.times").cloned(),
+            );
+            out.push(s);
+            let s = setting(
+                "out_times",
+                "The dates simulated",
+                "the dates the demand is given for, the simulation one step to each after the first",
+                m.setting("demand.out_times").cloned(),
+            );
+            out.push(automatic(s, "every whole date from the first map to the last", json_numbers(&[0.0, 1.0])));
+            out.push(setting("seed", "Seed", "the seed of the simulation", now("seed")));
+        }
+        Some(Land::Plus) => {
+            let s = setting(
+                "steps",
+                "Time steps between the two maps",
+                "the transition probabilities of the period are per step",
+                now("steps"),
+            );
+            out.push(ranged(s, 1.0, 1000.0, 1.0));
+            let s = setting("simulate", "Steps to simulate", "the steps of the demand and of CARS", now("simulate"));
+            out.push(ranged(s, 1.0, 10000.0, 1.0));
+            out.push(setting("seed", "Seed", "the seed of the simulation", now("seed")));
+        }
+        None => {}
+    }
+    for p in &m.parameters {
+        out.push(Setting { id: p.key.clone(), param: p.clone(), now: m.setting(&p.key).cloned(), auto: None });
+    }
+    out
+}
+
+fn start_setting(m: &Model) -> Setting {
+    let help = "the map of the second date goes forward in time; the first one runs the observed period again, to compare it with what happened";
+    let mut s = setting("start", "The simulation starts from", help, Some(Json::from(start_of(m))));
+    s.param.choices = vec![Json::from(START_LAST), Json::from(START_FIRST)];
+    s
+}
+
+/// Where the simulation starts now: the first date when it reads what the first date's map is read as.
+fn start_of(m: &Model) -> &'static str {
+    match (dates_of(m), at(m, "simulation").and_then(|n| n.inputs.get("landscape"))) {
+        (Some((a, _)), Some(Wire::Ref(b))) if a == *b => START_FIRST,
+        _ => START_LAST,
+    }
+}
+
+/// The references the maps of the first two dates are read by: Dinamica's `markov` reads them as `t0` and `t1`,
+/// the stack of the observed maps of CLUE-S's has them first and second.
+fn dates_of(m: &Model) -> Option<(String, String)> {
+    let r = |s: &Wire| match s {
+        Wire::Ref(r) => Some(r.clone()),
+        Wire::Literal(_) => None,
+    };
+    match land(m)? {
+        Land::Dinamica => {
+            let n = m.node("markov")?;
+            Some((r(n.inputs.get("t0")?)?, r(n.inputs.get("t1")?)?))
+        }
+        Land::Lulcc => {
+            let mut it = m.node("observed")?.inputs.values();
+            Some((r(it.next()?)?, r(it.next()?)?))
+        }
+        Land::Plus => None,
+    }
+}
+
+/// The numbers of a value typed or kept: a number, a list, or text with them (`1, 2, 3`).
+fn numbers(v: &Json) -> Result<Vec<f64>, String> {
+    let one = |x: &Json| match x {
+        Json::Number(n) => n.as_f64().ok_or_else(|| format!("{n} is not a number")),
+        Json::String(t) => t.trim().parse::<f64>().map_err(|_| format!("{:?} is not a number", t.trim())),
+        other => Err(format!("{other} is not a number")),
+    };
+    match v {
+        Json::Array(a) => a.iter().map(one).collect(),
+        Json::String(t) => {
+            t.split([',', ';', ' ']).filter(|p| !p.trim().is_empty()).map(|p| one(&Json::from(p))).collect()
+        }
+        x => Ok(vec![one(x)?]),
+    }
+}
+
+fn json_numbers(v: &[f64]) -> Json {
+    let one = |x: &f64| if x.fract() == 0.0 && x.abs() < 1e15 { Json::from(*x as i64) } else { Json::from(*x) };
+    Json::Array(v.iter().map(one).collect())
+}
+
+/// A node's setting or literal input set (none: a setting taken away, back to the operator's default).
+fn put(m: &mut Model, key: &str, v: Option<Json>) -> Result<(), String> {
+    match v {
+        Some(v) => m.apply(&BTreeMap::from([(key.to_string(), v)])).map_err(|e| e.to_string()),
+        None => {
+            let (path, name) = key.rsplit_once('.').ok_or_else(|| format!("{key:?}: give node.setting"))?;
+            let n = m.node_mut(path).ok_or_else(|| format!("{key:?}: the model has no node {path:?}"))?;
+            n.params.remove(name);
+            Ok(())
+        }
+    }
+}
+
+/// Settings set in a model (the planned one): `values` by setting id (none: automatic). The model's exposed
+/// parameters are set by their key; a land change model's by what each is (the method of the allocation decides
+/// what its order and elasticity do; the start is the end of the chain of one date or the other).
+pub fn apply_settings(m: &mut Model, values: &BTreeMap<String, Option<Json>>) -> Result<(), String> {
+    let land = land(m);
+    let ordered = values.get("method").is_some_and(|x| x.as_ref().and_then(Json::as_str) == Some("ordered"));
+    for (id, v) in values {
+        if let Some(key) = land.and_then(|l| key_of(l, id)) {
+            // (an ordered allocation has no elasticity: its method takes it away below)
+            if id == "elasticity" && ordered {
+                continue;
+            }
+            let v = match (id.as_str(), v) {
+                ("elasticity", Some(e)) => {
+                    let n = numbers(e).map_err(|e| format!("the elasticity: {e}"))?;
+                    Some(if n.len() == 1 { Json::from(n[0]) } else { json_numbers(&n) })
+                }
+                _ => v.clone(),
+            };
+            put(m, key, v)?;
+        } else if matches!(id.as_str(), "times" | "out_times") && land == Some(Land::Lulcc) {
+            let v = match v {
+                Some(t) => Some(json_numbers(&numbers(t).map_err(|e| format!("the dates: {e}"))?)),
+                None => None,
+            };
+            put(m, &format!("demand.{id}"), v)?;
+        } else if (id.starts_with('$') || id.contains('.'))
+            && let Some(v) = v
+        {
+            put(m, id, Some(v.clone()))?;
+        }
+    }
+    if land == Some(Land::Lulcc) {
+        set_allocation(m, values)?;
+    }
+    if let Some(Some(Json::String(s))) = values.get("start") {
+        set_start(m, s == START_FIRST)?;
+    }
+    Ok(())
+}
+
+/// The allocation of a CLUE-S or ordered model by the method and order chosen: ordered has the order of the classes
+/// and no elasticity (as the Wizard's), CLUE-S keeps the template's settings of its iteration.
+fn set_allocation(m: &mut Model, values: &BTreeMap<String, Option<Json>>) -> Result<(), String> {
+    let method = match values.get("method") {
+        Some(Some(Json::String(s))) => s.clone(),
+        _ => method_of(m),
+    };
+    let order = match values.get("order") {
+        Some(Some(o)) => Some(numbers(o).map_err(|e| format!("the order of the classes: {e}"))?),
+        _ => None,
+    };
+    let n = m.node_mut("simulation/allocate").ok_or("the model has no allocation")?;
+    let mut alloc = n.params.get("allocation").and_then(Json::as_object).cloned().unwrap_or_default();
+    match method.as_str() {
+        "ordered" => {
+            let order = match order {
+                Some(o) => o,
+                None => alloc.get("order").map(numbers).transpose()?.unwrap_or_default(),
+            };
+            if order.is_empty() {
+                return Err("an ordered allocation needs the order of the classes".into());
+            }
+            alloc = serde_json::Map::from_iter([
+                ("method".to_string(), Json::from("ordered")),
+                ("order".to_string(), json_numbers(&order)),
+            ]);
+            n.params.remove("elasticity");
+        }
+        "clue" => {
+            alloc.insert("method".into(), Json::from("clue"));
+            alloc.remove("order");
+        }
+        other => return Err(format!("{other:?}: the allocation is clue or ordered")),
+    }
+    n.params.insert("allocation".into(), Json::Object(alloc));
+    Ok(())
+}
+
+/// The simulation started from the map of the first date, or the second's: what reads the other's map as its
+/// `landscape` (the nodes that start from it) reads this one's. The demand and the stack of the observed maps keep
+/// reading both.
+fn set_start(m: &mut Model, first: bool) -> Result<(), String> {
+    let Some((a, b)) = dates_of(m) else {
+        return Err("only Dinamica's and CLUE-S's models start from a date".into());
+    };
+    let (from, to) = if first { (b, a) } else { (a, b) };
+    for id in ["regression", "suitability", "history", "simulation"] {
+        if let Some(n) = m.node_mut(id)
+            && let Some(Wire::Ref(r)) = n.inputs.get_mut("landscape")
+            && *r == from
+        {
+            *r = to.clone();
+            n.wires.remove("landscape");
+        }
+    }
+    Ok(())
+}
+
+/// What the dates of two maps give a land change model before the user says (the Wizard's defaults): the steps
+/// between the dates (whole years), and for CLUE-S the dates of the maps (their band names), those simulated (as
+/// many as the template has, from the second date, or every whole date when it starts from the first), and for the
+/// ordered allocation its order (the classes of the first map). `dates` are the band names of the two maps as numbers
+/// (none: not a number); `user` what the user set already (the start decides what is simulated).
+pub fn derive(
+    m: &Model,
+    dates: &[Option<f64>],
+    order: &[i64],
+    user: &BTreeMap<String, Option<Json>>,
+) -> BTreeMap<String, Option<Json>> {
+    let mut out = BTreeMap::new();
+    let Some(land) = land(m) else { return out };
+    let (Some(Some(a)), Some(Some(b))) = (dates.first(), dates.get(1)) else {
+        return out;
+    };
+    let years = b - a;
+    let whole = years >= 1.0 && years.fract() == 0.0;
+    match land {
+        Land::Dinamica => {
+            if whole {
+                out.insert("steps".into(), Some(Json::from(years as i64)));
+                out.insert("simulate".into(), Some(Json::from(years as i64)));
+            }
+        }
+        Land::Plus => {
+            if whole {
+                out.insert("steps".into(), Some(Json::from(years as i64)));
+            }
+        }
+        Land::Lulcc => {
+            out.insert("times".into(), Some(json_numbers(&[*a, *b])));
+            let start = match user.get("start") {
+                Some(Some(Json::String(s))) => s.as_str(),
+                _ => start_of(m),
+            };
+            let out_times = if start == START_FIRST {
+                None
+            } else {
+                let n = m.setting("demand.out_times").and_then(Json::as_array).map_or(4, Vec::len).max(2);
+                let step = if years > 0.0 { years } else { 1.0 };
+                Some(json_numbers(&(0..n).map(|k| b + step * k as f64).collect::<Vec<_>>()))
+            };
+            out.insert("out_times".into(), out_times);
+            if !order.is_empty() {
+                out.insert("order".into(), Some(json_numbers(&order.iter().map(|c| *c as f64).collect::<Vec<_>>())));
+            }
+        }
+    }
+    out
+}
+
+/// Whether a setting is shown for the method of the allocation: the order for the ordered one, the elasticity for
+/// CLUE-S.
+pub fn shown(id: &str, method: &str) -> bool {
+    match id {
+        "order" => method == "ordered",
+        "elasticity" => method != "ordered",
+        _ => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -731,9 +1181,11 @@ mod tests {
     fn the_loose_nodes_and_inputs_are_offered_after_the_marked() {
         let r = Registry::standard();
         let mut m = Model::new("t");
-        let empty = Input::Map { path: String::new(), band: None, nodata: None, note: Some("the x".into()) };
+        let empty =
+            Input::Map { path: String::new(), band: None, nodata: None, note: Some("the x".into()), data: None };
         m.inputs.insert("x".into(), empty);
-        m.inputs.insert("y".into(), Input::Map { path: "y.tif".into(), band: None, nodata: None, note: None });
+        m.inputs
+            .insert("y".into(), Input::Map { path: "y.tif".into(), band: None, nodata: None, note: None, data: None });
         m.nodes.push(Node::new("loose", "nlm.fbm").note("a loose one"));
         m.nodes.push(Node::new("read", "raster.read"));
         m.nodes.push(Node::new("done", "raster.read").param("path", "a.tif"));
@@ -900,9 +1352,10 @@ mod tests {
         assert_eq!(p.model.node("omniscape").unwrap().inputs["resistance"], Wire::Ref("$resistance".into()));
         // the quality (drawn, it makes the cores) is on the file's grid
         assert_eq!(p.model.node("quality").unwrap().inputs["like"], Wire::Ref("$resistance".into()));
-        // (no node to carry the data: the input's note says what it is)
-        let Some(Input::Map { note, .. }) = p.model.inputs.get("resistance") else { panic!() };
+        // (no node to carry the data: the input does, and its note says what it is)
+        let Some(Input::Map { note, data, .. }) = p.model.inputs.get("resistance") else { panic!() };
         assert!(note.as_ref().unwrap().contains("a resistance"));
+        assert!(data.as_ref().unwrap().what.contains("a resistance"));
         assert!(errors(&p, &d).is_empty(), "{:?}", errors(&p, &d));
         let out = run(&p, &d);
         let Some(terraflux_ops::Value::Map(o)) = out.get("omniscape.normalized") else { panic!("no omniscape") };
@@ -927,6 +1380,345 @@ mod tests {
         c.crosswalk = BTreeMap::from([(1, Some(1))]);
         let e = plan(&m, &r, &one("cover", c), None, &d).unwrap_err();
         assert!(e.contains("any classes"), "{e}");
+    }
+
+    /// A file read straight (no chain) keeps what it stands for on the input: a second run finds it, with its file.
+    #[test]
+    fn a_file_read_straight_keeps_its_data_on_the_input_and_a_second_run_replaces_it() {
+        let r = Registry::standard();
+        let m = template("Landscape metrics");
+        let d = dir("straight");
+        let mut c = choice(&test_file("sibuyan_landuse.tif"));
+        c.band = Some("2011".into());
+        let p = plan(&m, &r, &one("cover", c.clone()), None, &d).unwrap();
+        assert!(p.model.nodes.iter().all(|n| n.data.is_none() || n.op != "raster.legend"));
+        let Some(Input::Map { data: Some(data), path, .. }) = p.model.inputs.get("cover") else { panic!() };
+        assert_eq!(data, m.node("cover").unwrap().data.as_ref().unwrap());
+        assert!(path.ends_with("sibuyan_landuse.tif"));
+        // offered again, with its file; the drawn ones before it
+        let s = sources(&p.model, &r);
+        assert_eq!(ids(&s), ["cover"]);
+        assert_eq!((s[0].op.as_str(), s[0].what.as_str()), (INPUT, data.what.as_str()));
+        assert!(s[0].file.as_deref().is_some_and(|f| f.ends_with("sibuyan_landuse.tif")));
+        assert_eq!(s[0].data.as_ref(), Some(data));
+        // another band of the same file in its place: one input, the data kept
+        c.band = Some("1997".into());
+        let q = plan(&p.model, &r, &one("cover", c), None, &d).unwrap();
+        let Some(Input::Map { band, data: kept, .. }) = q.model.inputs.get("cover") else { panic!() };
+        assert_eq!((band.as_deref(), kept.as_ref()), (Some("1997"), Some(data)));
+        assert_eq!(q.model.inputs.len(), 1);
+        assert!(errors(&q, &d).is_empty(), "{:?}", errors(&q, &d));
+        // a chain: the data on its last node, not on the input as well
+        let m = template("MSPA of a forest");
+        let p = plan(&m, &r, &one("landscape", forest_choice()), None, &d).unwrap();
+        assert!(p.model.inputs["landscape"].data().is_none());
+        assert!(p.model.node("landscape_legend").unwrap().data.is_some());
+        // an input of a value, a file with no data and an input with a path but no data are not offered
+        let mut m = Model::new("t");
+        m.inputs
+            .insert("v".into(), Input::Map { path: "a.tif".into(), band: None, nodata: None, note: None, data: None });
+        assert!(sources(&m, &r).is_empty());
+    }
+
+    /// The Wizard's two dates of land use from the model's two dates, in the three templates.
+    #[test]
+    fn the_land_change_templates_offer_the_wizards_settings() {
+        let ids_of = |m: &Model| settings(m).into_iter().map(|s| s.id).collect::<Vec<_>>();
+        let (din, clue, plus) = (template("Dinamica EGO"), template("CLUE-S"), template("PLUS (LEAS and CARS)"));
+        assert_eq!(
+            (land(&din), land(&clue), land(&plus), land(&template("MSPA of a forest"))),
+            (Some(Land::Dinamica), Some(Land::Lulcc), Some(Land::Plus), None)
+        );
+        assert_eq!(ids_of(&din), ["steps", "simulate", "start", "increment", "expansion", "isometry", "seed"]);
+        assert_eq!(ids_of(&clue), ["method", "start", "order", "elasticity", "times", "out_times", "seed"]);
+        assert_eq!(ids_of(&plus), ["steps", "simulate", "seed"]);
+        assert!(settings(&template("MSPA of a forest")).is_empty());
+        // what they are now
+        let now = |m: &Model, id: &str| settings(m).into_iter().find(|s| s.id == id).unwrap().now;
+        assert_eq!(
+            (now(&din, "steps"), now(&din, "simulate"), now(&din, "increment")),
+            (Some(1.into()), Some(3.into()), None)
+        );
+        assert_eq!(now(&din, "start"), Some("the second date".into()));
+        assert_eq!(now(&clue, "method"), Some("clue".into()));
+        assert_eq!(now(&clue, "times"), Some(serde_json::json!([2000.0, 2010.0])));
+        assert_eq!(now(&clue, "seed"), Some(7.into()));
+        // the exposed parameters come after, by their key
+        let mut m = template("Circuit connectivity");
+        m.parameters.push(Parameter { key: "omniscape.radius".into(), ..Default::default() });
+        assert_eq!(ids_of(&m), ["omniscape.radius"]);
+    }
+
+    #[test]
+    fn the_settings_are_set_in_the_planned_model() {
+        let mut m = template("Dinamica EGO");
+        let values: BTreeMap<String, Option<Json>> = BTreeMap::from([
+            ("steps".to_string(), Some(Json::from(14))),
+            ("simulate".to_string(), Some(Json::from(2))),
+            ("increment".to_string(), Some(Json::from(0.5))),
+            ("expansion".to_string(), Some(Json::from(0.25))),
+            ("isometry".to_string(), Some(Json::from(1.0))),
+            ("seed".to_string(), Some(Json::from(1))),
+        ]);
+        apply_settings(&mut m, &values).unwrap();
+        let n = |m: &Model, id: &str, k: &str| m.setting(&format!("{id}.{k}")).cloned();
+        assert_eq!(n(&m, "markov", "steps"), Some(14.into()));
+        assert_eq!(n(&m, "simulation", "times"), Some(2.into()));
+        assert_eq!(n(&m, "woe", "increment"), Some(0.5.into()));
+        assert_eq!(n(&m, "patches", "expansion"), Some(0.25.into()));
+        assert_eq!(n(&m, "patches", "isometry"), Some(1.0.into()));
+        assert_eq!(n(&m, "simulation/allocate", "seed"), Some(1.into()));
+        // automatic: the setting goes back to the operator's default
+        apply_settings(&mut m, &BTreeMap::from([("increment".to_string(), None), ("expansion".to_string(), None)]))
+            .unwrap();
+        assert!(n(&m, "woe", "increment").is_none() && n(&m, "patches", "expansion").is_none());
+        // the simulation from the first date: what read the second's map reads the first's
+        let t1 = m.node("simulation").unwrap().inputs["landscape"].clone();
+        let t0 = m.node("markov").unwrap().inputs["t0"].clone();
+        assert_ne!(t0, t1);
+        let first = BTreeMap::from([("start".to_string(), Some(Json::from("the first date")))]);
+        apply_settings(&mut m, &first).unwrap();
+        assert_eq!(m.node("simulation").unwrap().inputs["landscape"], t0);
+        assert_eq!(settings(&m).iter().find(|s| s.id == "start").unwrap().now, Some("the first date".into()));
+        let last = BTreeMap::from([("start".to_string(), Some(Json::from("the second date")))]);
+        apply_settings(&mut m, &last).unwrap();
+        assert_eq!(m.node("simulation").unwrap().inputs["landscape"], t1);
+        // a key that is not a node's: said
+        assert!(apply_settings(&mut m, &BTreeMap::from([("nothing.x".to_string(), Some(Json::from(1)))])).is_err());
+
+        // CLUE-S: the elasticity as typed, the dates as text, the ordered allocation with its order, no elasticity
+        let mut c = template("CLUE-S");
+        let typed = BTreeMap::from([
+            ("elasticity".to_string(), Some(Json::from("0.2"))),
+            ("times".to_string(), Some(Json::from("1997, 2011"))),
+            ("out_times".to_string(), None),
+            ("seed".to_string(), Some(Json::from(1))),
+        ]);
+        apply_settings(&mut c, &typed).unwrap();
+        assert_eq!(c.setting("simulation/allocate.elasticity"), Some(&Json::from(0.2)));
+        assert_eq!(c.setting("demand.times"), Some(&serde_json::json!([1997, 2011])));
+        assert!(c.setting("demand.out_times").is_none());
+        assert_eq!(c.setting("rng.seed"), Some(&Json::from(1)));
+        assert_eq!(method_of(&c), "clue");
+        let scale = c.setting("simulation/allocate.allocation").unwrap()["scale"].clone();
+        assert!(scale.as_f64().is_some(), "the template's iteration is kept: {scale}");
+        // (ordered with no order: told)
+        let ordered = BTreeMap::from([("method".to_string(), Some(Json::from("ordered")))]);
+        assert!(apply_settings(&mut c, &ordered).unwrap_err().contains("order"));
+        let with = BTreeMap::from([
+            ("method".to_string(), Some(Json::from("ordered"))),
+            ("order".to_string(), Some(Json::from("2, 1, 3"))),
+        ]);
+        apply_settings(&mut c, &with).unwrap();
+        assert_eq!(
+            c.setting("simulation/allocate.allocation"),
+            Some(&serde_json::json!({"method": "ordered", "order": [2, 1, 3]}))
+        );
+        assert!(c.setting("simulation/allocate.elasticity").is_none());
+        assert_eq!(method_of(&c), "ordered");
+        // and back to CLUE-S's: no order
+        apply_settings(&mut c, &BTreeMap::from([("method".to_string(), Some(Json::from("clue")))])).unwrap();
+        assert!(c.setting("simulation/allocate.allocation").unwrap().get("order").is_none());
+        assert!(apply_settings(&mut c, &BTreeMap::from([("method".to_string(), Some(Json::from("x")))])).is_err());
+        assert!(
+            apply_settings(&mut c, &BTreeMap::from([("elasticity".to_string(), Some(Json::from("lots")))])).is_err()
+        );
+    }
+
+    #[test]
+    fn the_dates_of_the_bands_give_the_first_settings() {
+        let none = BTreeMap::new();
+        let dates = [Some(1997.0), Some(2011.0)];
+        // Dinamica: the steps between the dates, and as many to simulate (the Wizard's)
+        let d = derive(&template("Dinamica EGO"), &dates, &[], &none);
+        assert_eq!(
+            d,
+            BTreeMap::from([
+                ("steps".to_string(), Some(Json::from(14))),
+                ("simulate".to_string(), Some(Json::from(14)))
+            ])
+        );
+        // not whole years, or no change of date: nothing
+        assert!(derive(&template("Dinamica EGO"), &[Some(1.0), Some(1.5)], &[], &none).is_empty());
+        assert!(derive(&template("Dinamica EGO"), &[Some(2000.0), None], &[], &none).is_empty());
+        assert!(derive(&template("MSPA of a forest"), &dates, &[], &none).is_empty());
+        // PLUS: the steps only
+        assert_eq!(derive(&template("PLUS (LEAS and CARS)"), &dates, &[], &none).len(), 1);
+        // CLUE-S: the dates, three steps of the period from the second date, the order of the classes
+        let c = derive(&template("CLUE-S"), &dates, &[1, 2, 3], &none);
+        assert_eq!(c["times"], Some(serde_json::json!([1997, 2011])));
+        assert_eq!(c["out_times"], Some(serde_json::json!([2011, 2025, 2039, 2053])));
+        assert_eq!(c["order"], Some(serde_json::json!([1, 2, 3])));
+        // from the first date: every whole date
+        let first = BTreeMap::from([("start".to_string(), Some(Json::from("the first date")))]);
+        assert_eq!(derive(&template("CLUE-S"), &dates, &[], &first)["out_times"], None);
+    }
+
+    /// The model's maps of a run, step by step.
+    fn steps_of(m: &Model, base: &Path, from: &str) -> Vec<terraflux_ops::Map> {
+        let inputs = terraflux_exec::load_inputs(m, base, &Default::default()).unwrap();
+        let out = terraflux_exec::Engine::default().run(m, &inputs, &mut terraflux_exec::Quiet).unwrap();
+        let Some(terraflux_ops::Value::Series(s)) = out.get(from) else { panic!("{from} is no series") };
+        s.iter()
+            .map(|v| match v {
+                terraflux_ops::Value::Map(m) => m.clone(),
+                _ => panic!("a step that is no map"),
+            })
+            .collect()
+    }
+
+    /// The maps cell by cell (a cell with no data is the same as another).
+    fn same_cells(a: &[terraflux_ops::Map], b: &[terraflux_ops::Map]) -> Result<(), String> {
+        if a.len() != b.len() {
+            return Err(format!("{} steps against {}", a.len(), b.len()));
+        }
+        for (k, (x, y)) in a.iter().zip(b).enumerate() {
+            if (x.grid.width, x.grid.height) != (y.grid.width, y.grid.height) || x.data.len() != y.data.len() {
+                return Err(format!("step {k}: the grids differ"));
+            }
+            let differ =
+                x.data.iter().zip(y.data.iter()).filter(|(p, q)| !(p == q || (p.is_nan() && q.is_nan()))).count();
+            if differ > 0 {
+                return Err(format!("step {k}: {differ} of {} cells differ", x.data.len()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Sibuyan's two dates and drivers in Use my data's three sources, the user's classes kept as they are (as the
+    /// Wizard reads them).
+    fn sibuyan_choices() -> BTreeMap<String, Choice> {
+        let mut first = choice(&test_file("sibuyan_landuse.tif"));
+        first.band = Some("1997".into());
+        let mut second = first.clone();
+        second.band = Some("2011".into());
+        BTreeMap::from([
+            ("land_2000".to_string(), first),
+            ("land_2010".to_string(), second),
+            ("drivers".to_string(), choice(&test_file("sibuyan_drivers.tif"))),
+        ])
+    }
+
+    fn wizard(kind: crate::wizard::Kind) -> crate::wizard::Wizard {
+        let mut w = crate::wizard::Wizard::default();
+        w.kind = kind;
+        w.landuse_picked(crate::wizard::Picked::read(&test_file("sibuyan_landuse.tif")).unwrap());
+        w.drivers = Some(crate::wizard::Picked::read(&test_file("sibuyan_drivers.tif")).unwrap());
+        w
+    }
+
+    /// Parity with the Wizard, Dinamica EGO's classic model. The Wizard's model simulates from its first date (the
+    /// observed period again); the template's from the second (the future): "start from the first date" is the
+    /// setting that makes them the same, and the maps are then the same cell by cell.
+    #[test]
+    fn dinamica_by_use_my_data_gives_what_the_wizard_gives() {
+        let r = Registry::standard();
+        let d = dir("parity-dinamica");
+        let mut w = wizard(crate::wizard::Kind::Dinamica);
+        assert_eq!((w.steps, w.simulate, w.seed), (14, 14, 1));
+        w.simulate = 2;
+        let wm = w.build(None).unwrap();
+        let mut p = plan(&template("Dinamica EGO"), &r, &sibuyan_choices(), None, &d).unwrap();
+        assert!(p.refused.is_empty(), "{:?}", p.refused);
+        let mut values = derive(&p.model, &[Some(1997.0), Some(2011.0)], &[], &BTreeMap::new());
+        assert_eq!(values["steps"], Some(Json::from(14)));
+        values.insert("simulate".into(), Some(Json::from(2)));
+        values.insert("seed".into(), Some(Json::from(1)));
+        values.insert("start".into(), Some(Json::from("the first date")));
+        apply_settings(&mut p.model, &values).unwrap();
+        assert!(errors(&p, &d).is_empty(), "{:?}", errors(&p, &d));
+        // the findings are the Wizard's: the same data, the same words (the inputs' names apart)
+        let inputs = terraflux_exec::load_inputs(&wm, Path::new(""), &Default::default()).unwrap();
+        let mut wizard_findings: Vec<String> =
+            terraflux_exec::lint::lint(&wm, &inputs).iter().map(|f| f.to_string()).collect();
+        let mut mine: Vec<String> = check(&p, &d)
+            .iter()
+            .filter(|f| f.at.starts_with('$'))
+            .map(|f| f.to_string().replace("$land_2000", "$t0").replace("$land_2010", "$t1"))
+            .collect();
+        wizard_findings.sort();
+        mine.sort();
+        assert_eq!(wizard_findings, mine);
+        let (a, b) = (steps_of(&wm, Path::new(""), "simulation.maps"), steps_of(&p.model, &d, "simulation.maps"));
+        assert_eq!(a.len(), 2);
+        same_cells(&a, &b).unwrap();
+        // from the second date it is another run: the template's way (the future)
+        let mut q = plan(&template("Dinamica EGO"), &r, &sibuyan_choices(), None, &d).unwrap();
+        values.insert("start".into(), Some(Json::from("the second date")));
+        apply_settings(&mut q.model, &values).unwrap();
+        assert!(same_cells(&a, &steps_of(&q.model, &d, "simulation.maps")).is_err());
+    }
+
+    /// Parity with the Wizard, CLUE-S and ordered. The template's allocation iterates in smaller steps than lulcc's
+    /// default (drawn maps of 25,600 cells): the test gives the Wizard's model the template's, the rest being the
+    /// same.
+    #[test]
+    fn clue_s_and_ordered_by_use_my_data_give_what_the_wizard_gives() {
+        use crate::wizard::Kind;
+        let r = Registry::standard();
+        let d = dir("parity-clue");
+        for kind in [Kind::Clue, Kind::Ordered] {
+            let mut w = wizard(kind);
+            assert_eq!(w.times, "1997, 2011");
+            let order = classes_of(&test_file("sibuyan_landuse.tif"), Some("1997")).unwrap();
+            let order: Vec<i64> = order.iter().map(|c| c.0).collect();
+            w.order = order.iter().map(i64::to_string).collect::<Vec<_>>().join(", ");
+            let mut wm = w.build(None).unwrap();
+            let mut p = plan(&template("CLUE-S"), &r, &sibuyan_choices(), None, &d).unwrap();
+            let mut values = derive(&p.model, &[Some(1997.0), Some(2011.0)], &order, &BTreeMap::new());
+            values.insert("seed".into(), Some(Json::from(1)));
+            values.insert("start".into(), Some(Json::from("the first date")));
+            values.insert("elasticity".into(), Some(Json::from(w.elasticity)));
+            if kind == Kind::Ordered {
+                values.insert("method".into(), Some(Json::from("ordered")));
+            }
+            // (the dates simulated: every whole date, as the Wizard's)
+            let derive_first = derive(&p.model, &[Some(1997.0), Some(2011.0)], &order, &values);
+            assert_eq!(derive_first["out_times"], None);
+            values.extend(derive_first);
+            apply_settings(&mut p.model, &values).unwrap();
+            if kind == Kind::Clue {
+                let template_allocation = p.model.setting("simulation/allocate.allocation").unwrap().clone();
+                wm.node_mut("simulation/allocate").unwrap().params.insert("allocation".into(), template_allocation);
+            }
+            assert!(errors(&p, &d).is_empty(), "{:?}", errors(&p, &d));
+            let (a, b) = (steps_of(&wm, Path::new(""), "simulation.maps"), steps_of(&p.model, &d, "simulation.maps"));
+            assert_eq!(a.len(), 14, "{kind:?}: the 14 years of the period");
+            if let Err(e) = same_cells(&a, &b) {
+                panic!("{kind:?}: {e}");
+            }
+        }
+    }
+
+    /// A stack of drivers on another grid is put on the land use map's by raster.match (the Wizard's Resample
+    /// button), its method chosen by the data (`auto`: the mean of the cells where they are coarser, else the
+    /// nearest), and the check of the grids says nothing of them.
+    #[test]
+    fn drivers_on_another_grid_are_matched_as_the_wizards_resample_does() {
+        if terraflux_gdal::gdal().is_err() {
+            return;
+        }
+        let r = Registry::standard();
+        let d = dir("drivers-grid");
+        let src = Raster::read(test_file("sibuyan_drivers.tif")).unwrap();
+        let mut fine = src.grid.clone();
+        fine.width *= 2;
+        fine.height *= 2;
+        fine.transform[1] /= 2.0;
+        fine.transform[5] /= 2.0;
+        let (moved, _) =
+            terraflux_raster::resample::resample(&src, &fine, terraflux_raster::resample::Method::Nearest).unwrap();
+        let file = d.join("drivers_fine.tif");
+        moved.write(&file).unwrap();
+        let mut choices = sibuyan_choices();
+        choices.insert("drivers".into(), choice(&file));
+        let p = plan(&template("Dinamica EGO"), &r, &choices, Some("land_2000"), &d).unwrap();
+        let mt = p.model.node("drivers_match").unwrap();
+        assert_eq!((mt.op.as_str(), mt.params["resampling"].as_str()), ("raster.match", Some("auto")));
+        assert_eq!(mt.inputs["like"], Wire::Ref("$land_2000".into()));
+        // what read the drivers reads them on the grid of the land use
+        assert_eq!(p.model.node("woe").unwrap().inputs["drivers"], Wire::Ref("drivers_match.raster".into()));
+        assert!(errors(&p, &d).is_empty(), "{:?}", errors(&p, &d));
     }
 
     #[test]

@@ -187,7 +187,13 @@ fn the_canvas_answers_the_pointer() {
     let mut m = Model::new("pointer");
     m.inputs.insert(
         "t0".into(),
-        terraflux_graph::Input::Map { path: data.to_string_lossy().into_owned(), band: None, nodata: None, note: None },
+        terraflux_graph::Input::Map {
+            path: data.to_string_lossy().into_owned(),
+            band: None,
+            nodata: None,
+            note: None,
+            data: None,
+        },
     );
     let mut dist = Node::new("dist", "dynamic.distance_to").param("classes", 1);
     dist.pos = Some([0.0, 0.0]);
@@ -711,7 +717,13 @@ fn optional_inputs_fold_and_a_connection_dropped_on_a_node_picks_one() {
     let mut m = Model::new("fold");
     m.inputs.insert(
         "t0".into(),
-        terraflux_graph::Input::Map { path: data.to_string_lossy().into_owned(), band: None, nodata: None, note: None },
+        terraflux_graph::Input::Map {
+            path: data.to_string_lossy().into_owned(),
+            band: None,
+            nodata: None,
+            note: None,
+            data: None,
+        },
     );
     let mut zon = Node::new("zon", "prioritize.zonation");
     zon.pos = Some([0.0, 0.0]);
@@ -2756,7 +2768,13 @@ fn an_input_box_has_copies_and_each_reader_takes_the_nearest() {
     let mut m = Model::new("copies");
     m.inputs.insert(
         "t0".into(),
-        terraflux_graph::Input::Map { path: data.to_string_lossy().into_owned(), band: None, nodata: None, note: None },
+        terraflux_graph::Input::Map {
+            path: data.to_string_lossy().into_owned(),
+            band: None,
+            nodata: None,
+            note: None,
+            data: None,
+        },
     );
     let mut low = Node::new("low", "raster.calc").input("land", "$t0").param("expression", "land");
     low.pos = Some([0.0, 0.0]);

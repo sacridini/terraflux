@@ -6084,6 +6084,7 @@ fn an_input_of_the_model_is_a_box_like_the_nodes() {
             band: None,
             nodata: None,
             note: None,
+            data: None,
         },
     );
     let mut n = terraflux_graph::Node::new("mspa", "landscape.mspa").input("map", "$land").param("foreground", 1);
@@ -11434,6 +11435,108 @@ fn use_my_data_puts_a_file_in_place_of_the_drawn_data_in_one_step() {
             && !s.loading()
             && matches!(s.value_of("mspa", "map"), Some(terraflux_ops::Value::Map(m)) if m.grid.width == 128)
     });
+    // one undo: the template as it was
+    let s = h.state_mut().session.as_mut().unwrap();
+    assert!(s.history.undo(&mut s.source));
+    assert_eq!(s.source, before, "one step of undo restores the template");
+}
+
+/// Dinamica EGO's template with the user's data: one file of bands for the two dates (the second date offered the
+/// same file, in its next band), a file of drivers, the steps set on the Parameters page, *Apply*, the run, and one
+/// undo to the template.
+#[test]
+fn use_my_data_on_dinamica_takes_two_dates_of_one_file_drivers_and_the_parameters() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    template_run(&mut h, "Dinamica EGO", ("markov", "markov"));
+    let before = h.state().session.as_ref().unwrap().source.clone();
+    h.state_mut().my_data = Some(terraflux_app::my_data_view::State::new());
+    h.run_steps(3);
+    let reg = terraflux_ops::Registry::standard();
+    // no offer of the same file while no date has a file
+    assert!(h.query_by_label_contains("The same file, band").is_none());
+    {
+        let app = h.state_mut();
+        let (w, s) = (app.my_data.as_mut().unwrap(), app.session.as_mut().unwrap());
+        w.choose(s, &reg, "land_2000", &data("sibuyan_landuse.tif")).unwrap();
+    }
+    h.run_steps(3);
+    // the second date: the same file, in its next band
+    assert_eq!(h.query_all_by_label_contains("The same file, band").count(), 1, "offered to the other date only");
+    h.get_by_label("The same file, band 2011").click();
+    h.run_steps(2);
+    until(&mut h, "the classes of both dates", |a| {
+        let w = a.my_data.as_ref().unwrap();
+        w.classes("land_2000").is_some() && w.classes("land_2010").is_some()
+    });
+    assert!(h.query_by_label_contains("The same file, band").is_none(), "once chosen, not offered");
+    {
+        let app = h.state_mut();
+        let (w, s) = (app.my_data.as_mut().unwrap(), app.session.as_mut().unwrap());
+        w.choose(s, &reg, "drivers", &data("sibuyan_drivers.tif")).unwrap();
+    }
+    h.run_steps(2);
+    until(&mut h, "the check", |a| a.my_data.as_ref().unwrap().current());
+    // the dates of the bands give the steps (the Wizard's defaults); the drivers are a stack of every band
+    {
+        let app = h.state();
+        let (w, s) = (app.my_data.as_ref().unwrap(), app.session.as_ref().unwrap());
+        let now = |id: &str| w.settings_of(&s.source).into_iter().find(|(st, _)| st.id == id).unwrap().1;
+        assert_eq!((now("steps"), now("simulate")), (Some(14.into()), Some(14.into())));
+        let plan = w.plan().unwrap();
+        assert_eq!(plan.model.setting("markov.steps"), Some(&14.into()));
+        assert!(matches!(plan.model.inputs.get("drivers"), Some(terraflux_graph::Input::Stack { bands: None, .. })));
+        let Some(terraflux_graph::Input::Map { band, .. }) = plan.model.inputs.get("land_2010") else { panic!() };
+        assert_eq!(band.as_deref(), Some("2011"));
+        assert!(w.can_apply(), "{:?}", w.findings().iter().map(|f| f.to_string()).collect::<Vec<_>>());
+    }
+    // the pages: data, classes, parameters, review
+    h.get_by_label("Next").click();
+    h.run_steps(3);
+    assert_eq!(h.query_all_by_label("Your class").count(), 2, "the table of each date");
+    h.get_by_label("Next").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Time steps between the two maps").is_some(), "the parameters");
+    assert!(h.query_by_label("Steps to simulate").is_some());
+    assert!(h.query_by_label_contains("a hundredth of each variable").is_some(), "the increment is automatic");
+    shot(&mut h, "38-use-my-data-parameters");
+    // the steps set: the plan is made again with them
+    {
+        let w = h.state_mut().my_data.as_mut().unwrap();
+        w.set_setting("steps", Some(5.into()));
+        w.set_setting("simulate", Some(2.into()));
+        w.set_setting("seed", Some(1.into()));
+    }
+    h.run_steps(2);
+    until(&mut h, "the check of the settings", |a| {
+        let w = a.my_data.as_ref().unwrap();
+        w.current() && w.plan().is_some_and(|p| p.model.setting("markov.steps") == Some(&5.into()))
+    });
+    h.get_by_label("Next").click();
+    h.run_steps(3);
+    let w = h.state().my_data.as_ref().unwrap();
+    let notes = &w.plan().unwrap().notes;
+    assert!(notes.iter().any(|n| n == "Time steps between the two maps: 5"), "{notes:?}");
+    assert_eq!(w.plan().unwrap().model.setting("simulation.times"), Some(&2.into()));
+    assert!(h.query_by_label_contains("Steps to simulate: 2").is_some(), "the review tells the settings");
+    h.get_by_label("Apply").click();
+    h.run_steps(3);
+    assert!(h.state().my_data.is_none(), "the window closes");
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.setting("markov.steps"), Some(&5.into()));
+    assert!(s.source.nodes.iter().all(|n| !n.op.starts_with("nlm.")));
+    assert!(s.review.as_ref().unwrap().by.contains("Use my data"));
+    // it runs, on the user's grid, the two steps
+    until(&mut h, "the run on the user's data", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.run_when_ready
+            && !s.running()
+            && !s.loading()
+            && matches!(s.value_of("simulation", "maps"), Some(terraflux_ops::Value::Series(v)) if v.len() == 2)
+    });
+    // a model of the user's files only draws nothing: no banner
+    h.run_steps(3);
+    assert!(h.query_by_label("This model runs on drawn data.").is_none(), "nothing drawn is left");
     // one undo: the template as it was
     let s = h.state_mut().session.as_mut().unwrap();
     assert!(s.history.undo(&mut s.source));

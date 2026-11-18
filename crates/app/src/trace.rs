@@ -1175,7 +1175,7 @@ mod tests {
         let mut m = Model::new("m");
         m.inputs.insert(
             "x".into(),
-            terraflux_graph::Input::Map { path: "x.tif".into(), band: None, nodata: None, note: None },
+            terraflux_graph::Input::Map { path: "x.tif".into(), band: None, nodata: None, note: None, data: None },
         );
         m.nodes.push(Node::new("classes", "raster.calc").param("expression", "x").input("x", "$x"));
         m.nodes.push(Node::new("patches", "raster.label").input("map", "classes.map"));

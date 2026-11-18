@@ -35,12 +35,13 @@ fn model() -> Model {
         band: Some(band.into()),
         nodata: None,
         note: None,
+        data: None,
     };
     m.inputs.insert("t0".into(), map("1997"));
     m.inputs.insert("t1".into(), map("2011"));
     m.inputs.insert(
         "drivers".into(),
-        Input::Stack { path: data("sibuyan_drivers.tif"), bands: None, nodata: None, note: None },
+        Input::Stack { path: data("sibuyan_drivers.tif"), bands: None, nodata: None, note: None, data: None },
     );
     m.inputs.insert("seed".into(), Input::Value { value: 1.into(), note: None });
     presets::dinamica(
@@ -178,7 +179,13 @@ async fn plugins_travel_to_the_workers() {
     let mut m = Model::new("plugin");
     m.inputs.insert(
         "t0".into(),
-        Input::Map { path: data("sibuyan_landuse.tif"), band: Some("1997".into()), nodata: None, note: None },
+        Input::Map {
+            path: data("sibuyan_landuse.tif"),
+            band: Some("1997".into()),
+            nodata: None,
+            note: None,
+            data: None,
+        },
     );
     // the map algebra in a submodel
     std::fs::write(

@@ -42,11 +42,11 @@ fn same_bits(what: &str, ours: &[f64], theirs: &[f64]) {
 }
 
 fn map(path: &str, band: &str) -> Input {
-    Input::Map { path: path.into(), band: Some(band.into()), nodata: None, note: None }
+    Input::Map { path: path.into(), band: Some(band.into()), nodata: None, note: None, data: None }
 }
 
 fn stack(path: &str) -> Input {
-    Input::Stack { path: path.into(), bands: None, nodata: None, note: None }
+    Input::Stack { path: path.into(), bands: None, nodata: None, note: None, data: None }
 }
 
 fn run(m: &Model) -> Results {

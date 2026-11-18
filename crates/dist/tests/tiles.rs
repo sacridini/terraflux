@@ -32,12 +32,13 @@ fn model() -> Model {
         band: Some(band.into()),
         nodata: None,
         note: None,
+        data: None,
     };
     m.inputs.insert("t0".into(), map("1997"));
     m.inputs.insert("t1".into(), map("2011"));
     m.inputs.insert(
         "drivers".into(),
-        Input::Stack { path: data("sibuyan_drivers.tif"), bands: None, nodata: None, note: None },
+        Input::Stack { path: data("sibuyan_drivers.tif"), bands: None, nodata: None, note: None, data: None },
     );
     m.inputs.insert("seed".into(), Input::Value { value: 1.into(), note: None });
     presets::dinamica(

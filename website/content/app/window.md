@@ -198,7 +198,8 @@ library). Turn it off with **Show this page when the model is empty** at its foo
 Every template draws its data by neutral landscape models. **File > Use my data...** (also in the command palette, as
 **Use my data in a template** on the start page, and as the strip *This model runs on drawn data* over the canvas of a
 model that draws some, with **Hide** for that model) puts your files in their place. With a model that draws nothing,
-the window first offers the templates: start one, then choose your files. It has three pages.
+the window first offers the templates: start one, then choose your files. It has four pages (the third only for a
+model that has parameters or is one of the three land change templates).
 
 - **Your data**: a row for each thing the model draws (what it is, its node and kind). **Choose a file...**, the band of
   a file with several, and **Keep drawn** for what you leave as it is. With more than one file, the **grid of reference**
@@ -208,12 +209,32 @@ the window first offers the templates: start one, then choose your files. It has
   the number of cells) against the classes the model reads, prefilled by name and else by code. A class sent to *no
   data* has none, and a line says how many cells that is. Data of any classes (Landscape metrics) keeps yours as they
   are.
-- **Review**: what will be done, what was refused and the findings of the check; an error stops **Apply**.
+- **Parameters**: the model's exposed parameters (the form of the **Parameters** pane) and, for the land change
+  templates, what the Wizard asked: for Dinamica EGO's classic model the steps between the two dates, the steps to
+  simulate, the buffer increment of the weights (automatic, or a value), the share of the changes that expand patches
+  (as observed, or a value), the isometry of the patches and the seed; for CLUE-S the allocation (**clue** or
+  **ordered**, with the order the classes are served in), the elasticity, the date of each map, the dates simulated
+  and the seed; for PLUS the steps and the seed. For Dinamica and CLUE-S, *the simulation starts from* the second
+  date (the future, what the templates do) or the first (the observed period again, as the Wizard's models do, to
+  compare it with what happened). Where your files have dates (the names of their bands, as numbers) the steps and
+  the dates start from them, as the Wizard's did; a value you set stays. What you set is part of the plan: the data
+  is checked again after each change.
+- **Review**: what will be done, what was refused and the findings of the check (the settings made are told too); an
+  error stops **Apply**.
+
+On a land change template (Dinamica EGO, CLUE-S, PLUS) the two dates are two data. Choose the file of the first; the
+second then offers **The same file, band ...** (the next band), so that a file with one band per date is chosen once;
+two files work as well. The drivers are one file with a band per variable. A file on another grid than the land use
+map's is put on its grid by a `raster.match`, its method chosen by the data (the mean of the cells where they are
+coarser). The checks are the Wizard's (the grids, whole class codes, some change between the two dates, the drivers'
+values), whatever the inputs are called: they follow the ports the data feeds, through the new nodes.
 
 **Apply** changes the model in one step named *Use my data*: your file as an input of the model, a reclassification of
 your classes into the model's, the drawn node gone, what read it reading the end of the new nodes, each with a note. It
 shows in the **Changes** pane, ++ctrl+z++ puts the template back, and the model runs once its data is read (untick
-**Run it now** to skip that).
+**Run it now** to skip that). A file read as it is stays an input that says what it stands for (*Stands for your
+data* in the Node pane), so a second **Use my data...** offers it again, to replace the file; and a model of your
+files only no longer shows the strip.
 
 ## Several models at once
 

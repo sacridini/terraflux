@@ -3965,6 +3965,13 @@ nó com nota.
   classes de t0 e t1, a grade dos fatores) e, por último, os parâmetros do modelo (passos, incremento, elasticidade,
   ordem das classes...) num passo final com o formulário do painel Parameters. Paridade com o Wizard: o modelo que um
   e outro dão com os mesmos dados roda e dá as mesmas saídas.
+  **Feito** (Unreleased). Duas datas de um arquivo de bandas ("The same file, band ...") ou de dois; página *Parameters* (os parâmetros expostos com o
+  `params_view::control`, mais passos, incremento, expansão, isometria, método clue/ordered, ordem, elasticidade, datas, semente e "começa da 1ª ou
+  2ª data"; as datas das bandas dão os primeiros valores); `lint` segue as portas que cada entrada alimenta (através de match/reclassify/legend/stack.of),
+  não o nome; `Input::Map/Stack` ganham `data` (um só lugar: o último nó da cadeia, ou a entrada quando não há nó). Paridade: Dinamica, CLUE-S e ordered dão
+  os mesmos mapas célula a célula que o Wizard com os mesmos arquivos, desde que a simulação comece da mesma data (o Wizard começa da 1ª, os templates da
+  2ª: é a escolha "start") e, no CLUE-S, com a alocação do template (scale/max_iter) dada ao Wizard. Drivers em outra grade ficam `raster.match auto` (a média
+  onde são mais grossos, como o botão Resample do Wizard), não `bilinear`.
 - **E. O fim do Wizard.** O botão Wizard, a tela inicial e a paleta abrem o *Use my data* com uma primeira página
   "qual modelo de mudança de uso" (os textos de `Kind::about`); `wizard.rs` sai; testes, site (páginas do aplicativo,
   tutoriais que citam o Wizard), README ("a wizard that checks and fixes the data") e CHANGELOG atualizados. O

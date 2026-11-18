@@ -4826,7 +4826,7 @@ mod tests {
         m.nodes.push(Node::new("other", "nlm.fbm").param("path", "keep"));
         m.inputs.insert(
             "x".into(),
-            terraflux_graph::Input::Map { path: "x.tif".into(), band: None, nodata: None, note: None },
+            terraflux_graph::Input::Map { path: "x.tif".into(), band: None, nodata: None, note: None, data: None },
         );
         let base = std::env::temp_dir();
         absolute_paths(&mut m, &base);

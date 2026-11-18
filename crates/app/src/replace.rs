@@ -764,7 +764,7 @@ mod tests {
         let mut m = Model::new("m");
         m.inputs.insert(
             "land".into(),
-            Input::Map { path: "D:/dados/land.tif".into(), band: None, nodata: Some(-9999.0), note: None },
+            Input::Map { path: "D:/dados/land.tif".into(), band: None, nodata: Some(-9999.0), note: None, data: None },
         );
         let read = Node::new("dem", "raster.read").param("path", "D:/dados/dem.tif").param("nodata", -9999);
         let calc = Node::new("slope", "raster.calc").param("expression", "out s = a * 2");
@@ -881,8 +881,14 @@ mod tests {
     #[test]
     fn an_invalid_replacement_refuses_everything() {
         let mut m = Model::new("m");
-        m.inputs.insert("land".into(), Input::Map { path: "a.tif".into(), band: None, nodata: None, note: None });
-        m.inputs.insert("other".into(), Input::Map { path: "b.tif".into(), band: None, nodata: None, note: None });
+        m.inputs.insert(
+            "land".into(),
+            Input::Map { path: "a.tif".into(), band: None, nodata: None, note: None, data: None },
+        );
+        m.inputs.insert(
+            "other".into(),
+            Input::Map { path: "b.tif".into(), band: None, nodata: None, note: None, data: None },
+        );
         m.nodes.push(Node::new("a", "raster.reclassify").input("map", "$land").param("rules", "1 -> 2"));
         m.nodes.push(Node::new("b", "raster.reclassify").input("map", "$other").param("rules", "1 -> 3"));
         let r = Registry::standard();
@@ -906,7 +912,10 @@ mod tests {
     #[test]
     fn a_setting_made_to_read_what_is_not_there_is_refused_by_the_check() {
         let mut m = Model::new("m");
-        m.inputs.insert("land".into(), Input::Map { path: "a.tif".into(), band: None, nodata: None, note: None });
+        m.inputs.insert(
+            "land".into(),
+            Input::Map { path: "a.tif".into(), band: None, nodata: None, note: None, data: None },
+        );
         m.nodes.push(Node::new("a", "raster.reclassify").input("map", "$land").param("rules", "1 -> 2"));
         m.nodes.push(Node::new("b", "raster.reclassify").input("map", "$land").param("rules", "$land"));
         let r = Registry::standard();

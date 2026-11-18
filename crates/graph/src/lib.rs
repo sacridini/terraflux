@@ -21,8 +21,8 @@ pub mod bookmarks;
 mod check;
 mod located;
 pub mod old_algebra;
-mod plugin;
 pub mod plots;
+mod plugin;
 pub mod submodel;
 mod types;
 pub mod user_node;
@@ -35,8 +35,8 @@ use serde::{Deserialize, Serialize};
 pub use bookmarks::{Place, PlaceView};
 pub use check::{Catalog, Issue, Severity, check, script_types};
 pub use located::{Located, is_inner, locate, plot_port};
-pub use plugin::{MAX_FUEL, MAX_RADIUS, plugin_problems};
 pub use plots::{PLOT_OP, Plot, PlotChart, PlotCompare, PlotGroup, PlotLayer, PlotRgb, PlotShade, PlotView};
+pub use plugin::{MAX_FUEL, MAX_RADIUS, plugin_problems};
 pub use types::{Access, OpSignature, PortSpec, Type, declared_outputs};
 pub use user_node::{UserInput, UserNode, UserOutput, Uses};
 
@@ -399,6 +399,9 @@ pub enum Input {
         nodata: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
+        /// What the file stands for, when the model read it in place of a drawn data of a template ("Use my data").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data: Option<Data>,
     },
     /// Every band of a raster file (or the bands named): a stack of maps, e.g. the drivers.
     Stack {
@@ -409,6 +412,9 @@ pub enum Input {
         nodata: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
+        /// As the map's.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data: Option<Data>,
     },
     /// A number or any structured value (e.g. the seed, a table of demands).
     Value {
@@ -423,6 +429,14 @@ impl Input {
     pub fn note(&self) -> Option<&str> {
         match self {
             Input::Map { note, .. } | Input::Stack { note, .. } | Input::Value { note, .. } => note.as_deref(),
+        }
+    }
+
+    /// What the file stands for, when it was chosen in place of a data a template draws.
+    pub fn data(&self) -> Option<&Data> {
+        match self {
+            Input::Map { data, .. } | Input::Stack { data, .. } => data.as_ref(),
+            Input::Value { .. } => None,
         }
     }
 
@@ -1470,7 +1484,13 @@ params = { expression = "out x = a ** 2" }
         let mut m = Model::new("sample");
         m.inputs.insert(
             "t0".into(),
-            Input::Map { path: "lu.tif".into(), band: Some("1997".into()), nodata: None, note: None },
+            Input::Map {
+                path: "lu.tif".into(),
+                band: Some("1997".into()),
+                nodata: None,
+                note: None,
+                data: Some(Data::new("a land use map, the first date", DataKind::Classes).classes(&[(1, "forest")])),
+            },
         );
         m.inputs.insert("seed".into(), Input::Value { value: 7.into(), note: None });
         m.nodes.push(Node::new("b", "x.op").input("a", "a.out").literal("k", 3));
@@ -1608,6 +1628,34 @@ op = "x.op"
         assert!(Data::parse_classes("2 =").is_err());
         // not part of what the node gives
         assert!(m.nodes[0].unrecorded().data.is_none());
+    }
+
+    #[test]
+    fn an_input_carries_the_data_it_stands_for_only_when_it_has_it() {
+        let mut m = sample();
+        let t = m.to_toml().unwrap();
+        assert!(t.contains("[inputs.t0.data]"), "{t}");
+        assert_eq!(Model::from_toml(&t).unwrap().inputs["t0"].data().unwrap().classes[&1], "forest");
+        let j = m.to_json().unwrap();
+        assert!(j.contains("\"1\": \"forest\""), "{j}");
+        assert_eq!(Model::from_json(&j).unwrap(), m);
+        // a model without it (and every older file) is written as before, with no `data`
+        m.inputs.insert(
+            "drivers".into(),
+            Input::Stack { path: "d.tif".into(), bands: None, nodata: None, note: None, data: None },
+        );
+        let t = m.to_toml().unwrap();
+        assert!(t.contains("inputs.t0.data]") && !t.contains("inputs.drivers.data"), "{t}");
+        let old = Model::from_toml(
+            "format = \"terraflux/1\"
+[inputs.x]
+kind = \"map\"
+path = \"x.tif\"
+",
+        )
+        .unwrap();
+        assert!(old.inputs["x"].data().is_none());
+        assert!(Input::Value { value: 1.into(), note: None }.data().is_none());
     }
 
     #[test]

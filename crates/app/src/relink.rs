@@ -624,7 +624,7 @@ mod tests {
         m.nodes.push(Node::new("out", "raster.write").param("path", r"C:\gone\out.tif"));
         m.inputs.insert(
             "drivers".into(),
-            Input::Stack { path: r"C:\gone\land.tif".into(), bands: None, nodata: None, note: None },
+            Input::Stack { path: r"C:\gone\land.tif".into(), bands: None, nodata: None, note: None, data: None },
         );
         let miss = missing(&m, &d);
         assert_eq!(miss.len(), 1, "the file written is not asked for: {miss:?}");

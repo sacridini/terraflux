@@ -2832,7 +2832,7 @@ from = \"inc.sum\"
         let mut m = Model::new("t");
         m.inputs.insert(
             "land".into(),
-            terraflux_graph::Input::Map { path: "x.tif".into(), band: None, nodata: None, note: None },
+            terraflux_graph::Input::Map { path: "x.tif".into(), band: None, nodata: None, note: None, data: None },
         );
         m.nodes.push(
             Node::new("calc", "raster.calc")
@@ -2863,7 +2863,7 @@ from = \"inc.sum\"
         let mut m = Model::new("t");
         m.inputs.insert(
             "x".into(),
-            terraflux_graph::Input::Map { path: "x.tif".into(), band: None, nodata: None, note: None },
+            terraflux_graph::Input::Map { path: "x.tif".into(), band: None, nodata: None, note: None, data: None },
         );
         assert!(engine().run(&m, &BTreeMap::new(), &mut Quiet).is_err());
         // an input of a value not given: its own value in the model

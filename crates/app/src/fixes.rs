@@ -505,9 +505,14 @@ params = { expression = "a + b" }
     fn a_map_without_nodata_gets_the_value_typed() {
         let r = Registry::standard();
         let mut m = Model::new("t");
-        m.inputs.insert("land".into(), Input::Map { path: "land.tif".into(), band: None, nodata: None, note: None });
-        m.inputs
-            .insert("dem".into(), Input::Map { path: "dem.tif".into(), band: None, nodata: Some(-1.0), note: None });
+        m.inputs.insert(
+            "land".into(),
+            Input::Map { path: "land.tif".into(), band: None, nodata: None, note: None, data: None },
+        );
+        m.inputs.insert(
+            "dem".into(),
+            Input::Map { path: "dem.tif".into(), band: None, nodata: Some(-1.0), note: None, data: None },
+        );
         let f = fix_for(&m, &r, &Problem::Finding(&finding("$land"))).remove(0);
         assert_eq!(f.need(), Need::Number);
         assert!(apply(&m, &r, &f).is_err());
@@ -548,7 +553,10 @@ params = { expression = "a + b" }
     fn an_input_left_empty_reads_a_file_or_a_model_input() {
         let r = Registry::standard();
         let mut m = Model::new("t");
-        m.inputs.insert("land".into(), Input::Map { path: "land.tif".into(), band: None, nodata: None, note: None });
+        m.inputs.insert(
+            "land".into(),
+            Input::Map { path: "land.tif".into(), band: None, nodata: None, note: None, data: None },
+        );
         m.nodes.push(Node::new("out", "raster.write").param("path", "out.tif"));
         let i = unfilled(&m, &r);
         let fixes = fix_for(&m, &r, &Problem::Unfilled(&i));
