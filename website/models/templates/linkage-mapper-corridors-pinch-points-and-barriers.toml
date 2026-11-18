@@ -1,0 +1,82 @@
+format = "terraflux/1"
+name = "Linkage Mapper: corridors, pinch points and barriers"
+description = "Linkage Mapper's three tools over one habitat: the least-cost corridors between its cores (Linkage Pathways), the pinch points in them (Pinchpoint Mapper, with Circuitscape) and the barriers where restoring a circle would shorten the links most (Barrier Mapper)."
+
+[[nodes]]
+id = "quality"
+op = "nlm.gaussian_field"
+params = { rows = 80, columns = 80, range = 12, seed = 31 }
+note = "A habitat's quality from 0 to 1 drawn by chance (in its place, a raster.read of a suitability map)."
+
+[[nodes]]
+id = "habitat"
+op = "raster.calc"
+inputs = { q = "quality.map" }
+params = { expression = "q > 0.7" }
+note = "The habitat: the quality above 0.7 (1), the rest 0."
+
+[[nodes]]
+id = "large"
+op = "raster.sieve"
+inputs = { map = "habitat.map" }
+params = { threshold = 25, neighbours = 8 }
+note = "The patches of fewer than 25 cells merged into what is around them: only the large ones are cores."
+
+[[nodes]]
+id = "cores"
+op = "raster.label"
+inputs = { map = "large.map" }
+params = { neighbours = 8, classes = [1] }
+note = "Every core numbered (1, 2, ...), no value elsewhere: Linkage Mapper's core areas (in their place, a raster of the reserves with their ids)."
+
+[[nodes]]
+id = "resistance"
+op = "raster.calc"
+inputs = { q = "quality.map" }
+params = { expression = "1 + 99 * (1 - q) ** 3" }
+note = "The resistance to movement: 1 in the best habitat, up to 100 where there is none (in its place, a raster.read of a resistance from the literature)."
+
+[[nodes]]
+id = "pathways"
+op = "linkage.pathways"
+inputs = { cores = "cores.map", resistance = "resistance.map" }
+params = { adjacency = "cost", width = 60 }
+note = "Linkage Pathways: the cores whose cost allocation zones touch are linked (links), by the least-cost path (paths) and the corridors around it, cut where a cell is 60 cost units dearer than the path (corridors)."
+
+[[nodes]]
+id = "pinchpoints"
+op = "linkage.pinchpoints"
+inputs = { cores = "cores.map", resistance = "resistance.map", links = "pathways.links" }
+params = { width = 60, mode = "pairwise" }
+note = "Pinchpoint Mapper: Circuitscape between the two cores of each link, inside its corridor only; current is the largest of the links': it concentrates where the corridor narrows. links has each effective resistance."
+
+[[nodes]]
+id = "barriers"
+op = "linkage.barriers"
+inputs = { cores = "cores.map", resistance = "resistance.map", links = "pathways.links" }
+params = { min_radius = 2, max_radius = 6, step = 2 }
+note = "Barrier Mapper: for each link and each radius (2, 4 and 6 cells), what restoring a circle there would gain: the shortening of the least-cost distance per unit of restored distance. circles is the map, radius the size that gave it."
+
+[[nodes]]
+id = "plot_cores"
+op = "view.plot"
+inputs = { value = "cores.map" }
+params = { title = "The cores" }
+
+[[nodes]]
+id = "plot_corridors"
+op = "view.plot"
+inputs = { value = "pathways.corridors" }
+params = { title = "Corridors (normalized cost distance)" }
+
+[[nodes]]
+id = "plot_current"
+op = "view.plot"
+inputs = { value = "pinchpoints.current" }
+params = { title = "Current in the corridors (pinch points)" }
+
+[[nodes]]
+id = "plot_improvement"
+op = "view.plot"
+inputs = { value = "barriers.circles" }
+params = { title = "Improvement of restoring a circle (barriers)" }

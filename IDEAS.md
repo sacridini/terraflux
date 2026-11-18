@@ -3882,6 +3882,9 @@ duas células, vezes o tamanho da célula) e o Circuitscape do terraflux-py. Mó
 - **2d. Template, tutorial, guia.** O template "Linkage Mapper: corridors, pinch points and barriers" (dados nlm.*),
   uma página de tutorial em `habitat-networks` ou `circuit-connectivity`, o guia `connectivity` do MCP e o README
   (tabela de campos: Linkage Mapper entre os métodos de).
+  **Feito** (Unreleased). Template em `crates/app/src/templates.rs` (grupo Connectivity; cores = `raster.sieve` + `raster.label` de um
+  habitat nlm), página `habitat-networks/linkage-mapper.md` (parte solta da série, ordem 70), guia `connectivity`, frases e método
+  (`phrases.rs`, `methods.rs`) e a linha Connectivity do README.
 
 ### 3. A máscara de nuvens por pixel no `data.stac`
 

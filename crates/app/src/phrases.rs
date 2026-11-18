@@ -198,6 +198,21 @@ const PHRASES: &[(&str, &str)] = &[
         "Omniscape's connectivity on <resistance>[ from the sources <source>], in windows of radius {radius} \
          cells[, a target every {block_size} cells].",
     ),
+    (
+        "linkage.pathways",
+        "Linkage Mapper's least-cost links and corridors between the cores <cores> over <resistance>[, the cores \
+         linked by {adjacency} adjacency][, corridors cut at {width}].",
+    ),
+    (
+        "linkage.pinchpoints",
+        "Linkage Mapper's pinch points: Circuitscape's current in the corridors (width {width}) of the links <links> \
+         between the cores <cores> over <resistance>[, in {mode} mode].",
+    ),
+    (
+        "linkage.barriers",
+        "Linkage Mapper's barriers: the gain of restoring circles of radius {min_radius}[ to {max_radius}] in the \
+         links <links> between the cores <cores> over <resistance>.",
+    ),
     ("cost.passage", "The passages of a random walk from <origins> to <goals> through <transition>[, theta {theta}]."),
     (
         "prioritize.evaluate",

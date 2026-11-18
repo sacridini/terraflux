@@ -193,7 +193,17 @@ paths); restoration.corridor and restoration.least_cost_path. Template \"Least c
 5. Circuits: circuit.pairwise (effective resistances and currents between focal points), circuit.one_to_all, \
 circuit.omniscape (omnidirectional, moving windows). The resistance must be above 0. Template \"Circuit \
 connectivity\".
-6. Rivers: hydro.dci (the dendritic connectivity index of dams). Template \"Rivers: dams and their connectivity \
+6. Linkage Mapper's corridors for conservation planning (McRae and Kavanagh 2011): when the cores are known \
+(reserves, large patches; a map of ids) and the question is which links to protect, where the current pinches and \
+where restoring would pay most, rather than a graph's indices or circuits between all points. In order: \
+linkage.pathways (cores, resistance: the links between neighbouring cores by least cost, with their length, the \
+paths and the corridors cut at `width`, in cost units), linkage.pinchpoints (the same cores and resistance, and \
+pathways' `links` table: Circuitscape inside each corridor, the current largest where the corridor narrows; \
+`width` the corridor's cutoff, as pathways'), linkage.barriers (the same inputs, radii in map units: the gain of \
+restoring a circle around each cell, `circles` the map). Euclidean distances are between the cells' centres, \
+and there is no pinch scenario of all pairs nor trim of the circles by the resistance. Template \"Linkage \
+Mapper: corridors, pinch points and barriers\".
+7. Rivers: hydro.dci (the dendritic connectivity index of dams). Template \"Rivers: dams and their connectivity \
 (DCI)\".",
     },
     Guide {

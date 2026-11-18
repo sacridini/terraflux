@@ -461,7 +461,7 @@ fn swat_from_rasters() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 55] = [
+pub const TEMPLATES: [Template; 56] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -2435,6 +2435,97 @@ id = "plot_corridor"
 op = "view.plot"
 inputs = { value = "shown.map" }
 params = { title = "The corridor (3)" }
+"#,
+    },
+    Template {
+        name: "Linkage Mapper: corridors, pinch points and barriers",
+        group: CONNECTIVITY,
+        build: None,
+        about: "the large patches of a habitat and a resistance: the least-cost corridors between them, where \
+                the current pinches and where restoring a circle would shorten a link most (Linkage Mapper)",
+        toml: r#"
+format = "terraflux/1"
+name = "Linkage Mapper: corridors, pinch points and barriers"
+description = "Linkage Mapper's three tools over one habitat: the least-cost corridors between its cores (Linkage Pathways), the pinch points in them (Pinchpoint Mapper, with Circuitscape) and the barriers where restoring a circle would shorten the links most (Barrier Mapper)."
+
+[[nodes]]
+id = "quality"
+op = "nlm.gaussian_field"
+params = { rows = 80, columns = 80, range = 12, seed = 31 }
+note = "A habitat's quality from 0 to 1 drawn by chance (in its place, a raster.read of a suitability map)."
+
+[[nodes]]
+id = "habitat"
+op = "raster.calc"
+inputs = { q = "quality.map" }
+params = { expression = "q > 0.7" }
+note = "The habitat: the quality above 0.7 (1), the rest 0."
+
+[[nodes]]
+id = "large"
+op = "raster.sieve"
+inputs = { map = "habitat.map" }
+params = { threshold = 25, neighbours = 8 }
+note = "The patches of fewer than 25 cells merged into what is around them: only the large ones are cores."
+
+[[nodes]]
+id = "cores"
+op = "raster.label"
+inputs = { map = "large.map" }
+params = { neighbours = 8, classes = [1] }
+note = "Every core numbered (1, 2, ...), no value elsewhere: Linkage Mapper's core areas (in their place, a raster of the reserves with their ids)."
+
+[[nodes]]
+id = "resistance"
+op = "raster.calc"
+inputs = { q = "quality.map" }
+params = { expression = "1 + 99 * (1 - q) ** 3" }
+note = "The resistance to movement: 1 in the best habitat, up to 100 where there is none (in its place, a raster.read of a resistance from the literature)."
+
+[[nodes]]
+id = "pathways"
+op = "linkage.pathways"
+inputs = { cores = "cores.map", resistance = "resistance.map" }
+params = { adjacency = "cost", width = 60 }
+note = "Linkage Pathways: the cores whose cost allocation zones touch are linked (links), by the least-cost path (paths) and the corridors around it, cut where a cell is 60 cost units dearer than the path (corridors)."
+
+[[nodes]]
+id = "pinchpoints"
+op = "linkage.pinchpoints"
+inputs = { cores = "cores.map", resistance = "resistance.map", links = "pathways.links" }
+params = { width = 60, mode = "pairwise" }
+note = "Pinchpoint Mapper: Circuitscape between the two cores of each link, inside its corridor only; current is the largest of the links': it concentrates where the corridor narrows. links has each effective resistance."
+
+[[nodes]]
+id = "barriers"
+op = "linkage.barriers"
+inputs = { cores = "cores.map", resistance = "resistance.map", links = "pathways.links" }
+params = { min_radius = 2, max_radius = 6, step = 2 }
+note = "Barrier Mapper: for each link and each radius (2, 4 and 6 cells), what restoring a circle there would gain: the shortening of the least-cost distance per unit of restored distance. circles is the map, radius the size that gave it."
+
+[[nodes]]
+id = "plot_cores"
+op = "view.plot"
+inputs = { value = "cores.map" }
+params = { title = "The cores" }
+
+[[nodes]]
+id = "plot_corridors"
+op = "view.plot"
+inputs = { value = "pathways.corridors" }
+params = { title = "Corridors (normalized cost distance)" }
+
+[[nodes]]
+id = "plot_current"
+op = "view.plot"
+inputs = { value = "pinchpoints.current" }
+params = { title = "Current in the corridors (pinch points)" }
+
+[[nodes]]
+id = "plot_improvement"
+op = "view.plot"
+inputs = { value = "barriers.circles" }
+params = { title = "Improvement of restoring a circle (barriers)" }
 "#,
     },
     Template {
@@ -4840,6 +4931,27 @@ mod tests {
         assert!(p.data.iter().all(|v| (0.0..=1.0).contains(v)));
         let Some(terraflux_ops::Value::Table(t)) = out.get("data.records") else { panic!("no records") };
         assert!(t.columns.contains(&"fold".to_string()) && t.rows.len() > 800);
+    }
+
+    /// The Linkage Mapper template runs: cores linked, current in the corridors and a barrier score somewhere.
+    #[test]
+    fn linkage_template_runs() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let m = TEMPLATES.iter().find(|t| t.name.starts_with("Linkage Mapper")).unwrap().model();
+        let out = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut Quiet).unwrap();
+        let Some(terraflux_ops::Value::Map(c)) = out.get("cores.map") else { panic!("no cores") };
+        let n = c.data.iter().cloned().filter(|v| v.is_finite()).fold(0.0, f64::max);
+        assert!(n >= 3.0, "{n} cores");
+        let Some(terraflux_ops::Value::Table(l)) = out.get("pathways.links") else { panic!("no links") };
+        let kept = l.columns.iter().position(|c| c == "kept").unwrap();
+        assert!(l.rows.iter().filter(|r| r[kept] > 0.0).count() >= 2, "{:?}", l.rows);
+        let Some(terraflux_ops::Value::Map(k)) = out.get("pathways.corridors") else { panic!("no corridors") };
+        assert!(k.data.iter().any(|v| v.is_finite()));
+        let Some(terraflux_ops::Value::Map(i)) = out.get("pinchpoints.current") else { panic!("no current") };
+        assert!(i.data.iter().any(|v| v.is_finite() && *v > 0.0));
+        let Some(terraflux_ops::Value::Map(b)) = out.get("barriers.circles") else { panic!("no circles") };
+        assert!(b.data.iter().any(|v| v.is_finite() && *v > 0.0));
     }
 }
 

@@ -72,7 +72,8 @@
    "title": "Habitat networks",
    "prefixes": [
     "networks",
-    "conn"
+    "conn",
+    "linkage"
    ]
   },
   {

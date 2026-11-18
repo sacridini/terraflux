@@ -279,6 +279,18 @@ pub const REFERENCES: &[Reference] = &[
         report: "General Technical Report PNW-GTR-351. USDA Forest Service, Pacific Northwest Research Station.",
     },
     paper!(
+        "mcrae2012",
+        ["McRae, B. H.", "Hall, S. A.", "Beier, P.", "Theobald, D. M."],
+        false,
+        2012,
+        "Where to restore ecological connectivity? Detecting barriers and quantifying restoration benefits",
+        "PLoS ONE",
+        "7",
+        "12",
+        "e52604",
+        "10.1371/journal.pone.0052604"
+    ),
+    paper!(
         "mcrae2008",
         ["McRae, B. H.", "Dickson, B. G.", "Keitt, T. H.", "Shah, V. B."],
         false,
@@ -637,6 +649,13 @@ pub const METHODS: &[Method] = &[
         name: "circuit-theory connectivity",
         refs: &["mcrae2008"],
         software: "Circuitscape",
+        software_refs: &[],
+    },
+    Method {
+        ops: &["linkage."],
+        name: "least-cost corridors, pinch points and barriers ({ops})",
+        refs: &["mcrae2012", "mcrae2008"],
+        software: "Linkage Mapper",
         software_refs: &[],
     },
     Method {

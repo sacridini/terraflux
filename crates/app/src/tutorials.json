@@ -411,6 +411,13 @@
      ]
     },
     {
+     "slug": "linkage-mapper",
+     "title": "Linkage Mapper: corridors, pinch points and barriers",
+     "template": "Linkage Mapper: corridors, pinch points and barriers",
+     "models": [],
+     "files": []
+    },
+    {
      "slug": "habitat-networks-in-python",
      "title": "Habitat networks in Python",
      "template": null,
