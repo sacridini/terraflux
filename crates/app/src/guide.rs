@@ -159,6 +159,12 @@ metrics.pca's, for the circle of correlations), explained (the variance of each 
 model. `components` is a number or the share of the variance to keep (0.95); `standardise` (the default) makes it \
 the correlation, which is right when the variables are in different units. The model scores another image or date \
 with ml.predict, using the means of this fit, not of the new data.
+8. Groups with no classes given (an unsupervised classification of an image, types of cells or records): ml.kmeans \
+clusters a stack or the columns of a table by k-means. `k` is a number, a list, or \"auto\" (the default: the best \
+silhouette from 2 to 10); outputs: clusters (a map, 1 to k, NaN where a variable has none), centres (a row per \
+cluster in the variables' own units, with its size), choice (inertia, silhouette and Calinski-Harabasz per k) and a \
+model for ml.predict. Variables are standardised by default; the clusters are numbered by the first principal \
+component of their centres, so the colours do not change between runs.
 Templates: \"Drivers of land change\", \"Cleaning a map of classes: filter, sieve, label and grow\", \"Terrain of a \
 surface\".",
     },

@@ -11,7 +11,9 @@
 //! Left as comments: `metrics.correlation` (the library takes and gives the long tables of the metrics, Terraflux's
 //! is a wide table and its square matrix), `distance.proximity` and `raster.mosaic` (GDAL's own algorithms, which the
 //! library does not have), `crafty.allocate` (CRAFTY is not in the library), `ml.pca` (scikit-learn's PCA gives the
-//! same numbers, but the script has no stack of scores nor model to hand on to `ml.predict` yet).
+//! same numbers, but the script has no stack of scores nor model to hand on to `ml.predict` yet), `ml.kmeans`
+//! (scikit-learn's KMeans is the same algorithm, but its random starts are not Terraflux's, so the clusters would be
+//! other ones, and the script has no map of clusters nor model to hand on either).
 
 #![allow(unused_imports)]
 
@@ -64,6 +66,12 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
         "ml.pca" => Err("scikit-learn's PCA (fit_transform on the z-scores of the cells with every variable, the \
              components' signs flipped to the largest loading positive) gives the same components, variances and \
              scores, but the script has no stack of scores and no model to hand on to ml.predict yet: no equivalent \
+             in the script"
+            .into()),
+        "ml.kmeans" => Err("scikit-learn's KMeans is the same algorithm (greedy k-means++ start, Lloyd's iterations, the \
+             best of n_init runs), but its random draws are not Terraflux's, so the clusters would be other ones \
+             from the same seed, and the script has no map of clusters (numbered by the first principal component of \
+             the centres) nor model to hand on to ml.predict, nor the choice of k by the silhouette: no equivalent \
              in the script"
             .into()),
         "nlm.image" => Err("a synthetic multispectral image of a map of classes, with the truth known (for templates \

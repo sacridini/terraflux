@@ -730,7 +730,12 @@ const PHRASES: &[(&str, &str)] = &[
     ),
     (
         "ml.pca",
-        "The principal components of the variables[ of <table>][ of the maps <predictors>][, {components} kept][,          by the covariance][; seed {seed}].",
+        "The principal components of the variables[ of <table>][ of the maps <predictors>][, {components} kept][, by the covariance][; seed {seed}].",
+    ),
+    (
+        "ml.kmeans",
+        "The k-means clusters of the variables[ of <table>][ of the maps <predictors>][, {k} clusters][, not \
+         standardised][; seed {seed}].",
     ),
     (
         "ml.potential",

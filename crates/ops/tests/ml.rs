@@ -692,3 +692,515 @@ fn pca_tells_what_is_wrong() {
     .unwrap_err();
     assert!(e.contains("no column \"e\""), "{e}");
 }
+
+// -- ml.kmeans ----------------------------------------------------------------------------------------------------
+// (scikit-learn's KMeans, tools/make_kmeans_reference.py: tests/data/reference/kmeans.json)
+
+fn km_reference() -> serde_json::Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference/kmeans.json");
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn numbers(v: &serde_json::Value) -> Vec<f64> {
+    v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect()
+}
+
+fn km_table(rows: &[Vec<f64>]) -> Table {
+    let mut t = Table::new(["a", "b", "c"].map(String::from).to_vec());
+    t.rows = rows.to_vec();
+    t
+}
+
+/// A stack of the three variables of some rows, as a grid of `nx` cells across.
+fn km_stack(rows: &[Vec<f64>], nx: usize) -> Stack {
+    Stack {
+        grid: Arc::new(Grid::new(nx, rows.len() / nx)),
+        keys: ["a", "b", "c"].iter().map(|n| Key::Name(n.to_string())).collect(),
+        layers: (0..3).map(|j| Arc::new(rows.iter().map(|r| r[j]).collect())).collect(),
+    }
+}
+
+/// `a` against `b` to a relative tolerance.
+fn near(what: &str, a: f64, b: f64, tol: f64) {
+    assert!((a - b).abs() <= tol * a.abs().max(b.abs()).max(1e-300), "{what}: {a} {b}");
+}
+
+/// The clusters of a column of labels as groups of rows: the same partition whatever the numbers.
+fn same_partition(a: &[f64], b: &[f64]) -> bool {
+    let mut map = BTreeMap::new();
+    let mut back = BTreeMap::new();
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(x, y)| {
+            let (kx, ky) = (x.to_bits(), y.to_bits());
+            *map.entry(kx).or_insert(ky) == ky && *back.entry(ky).or_insert(kx) == kx
+        })
+}
+
+/// The share of records whose cluster in `a` is the one most of that cluster's records have in `b`.
+fn agreement(a: &[f64], b: &[f64]) -> f64 {
+    let mut count: BTreeMap<(u64, u64), usize> = BTreeMap::new();
+    for (x, y) in a.iter().zip(b) {
+        *count.entry((x.to_bits(), y.to_bits())).or_insert(0) += 1;
+    }
+    let mut best: BTreeMap<u64, usize> = BTreeMap::new();
+    for ((x, _), c) in &count {
+        let e = best.entry(*x).or_insert(0);
+        *e = (*e).max(*c);
+    }
+    best.values().sum::<usize>() as f64 / a.len() as f64
+}
+
+fn cluster_column(t: &Table) -> Vec<f64> {
+    let j = t.columns.iter().position(|c| c == "cluster").unwrap();
+    t.rows.iter().map(|r| r[j]).collect()
+}
+
+fn map_data(v: &Value) -> Vec<f64> {
+    let Value::Map(m) = v else { panic!("{v:?}") };
+    m.data.to_vec()
+}
+
+#[test]
+fn lloyds_iterations_are_scikit_learns_from_the_same_centres() {
+    use terraflux_ops::multivar::kmeans::kmeans_from;
+    let z = km_reference();
+    let x: Vec<Vec<f64>> = z["x"].as_array().unwrap().iter().map(numbers).collect();
+    let (mean, scale) = (numbers(&z["mean"]), numbers(&z["scale"]));
+    let flat: Vec<f64> = x.iter().flat_map(|r| (0..3).map(|j| (r[j] - mean[j]) / scale[j])).collect();
+    for which in ["plus_plus", "random"] {
+        let w = &z[which];
+        let init: Vec<f64> = w["init"].as_array().unwrap().iter().flat_map(numbers).collect();
+        let km = kmeans_from(&flat, x.len(), 3, init, 300, 1e-4);
+        near(&format!("{which} inertia"), km.inertia, w["inertia"].as_f64().unwrap(), 1e-9);
+        let labels: Vec<f64> = km.labels.iter().map(|&l| l as f64).collect();
+        assert_eq!(labels, numbers(&w["labels"]), "{which}: labels");
+        for (a, b) in km.centres.iter().zip(w["centres"].as_array().unwrap().iter().flat_map(numbers)) {
+            near(&format!("{which} centre"), *a, b, 1e-9);
+        }
+        println!("{which}: {} iterations (scikit-learn: {})", km.iterations, w["n_iter"]);
+    }
+}
+
+#[test]
+fn kmeans_of_a_table_is_scikit_learns() {
+    let z = km_reference();
+    let x: Vec<Vec<f64>> = z["x"].as_array().unwrap().iter().map(numbers).collect();
+    let truth = numbers(&z["fits"][2]["labels"]);
+    let mut ctx = Ctx::default();
+    let fit = try_run(
+        "ml.kmeans",
+        vec![("table", Value::Table(km_table(&x)))],
+        serde_json::json!({"k": [2, 3, 4, 5, 6]}),
+        &mut ctx,
+    )
+    .unwrap();
+    // the choice: the inertia, silhouette and index of k = 2 to 4 are scikit-learn's (k above the groups have
+    // several optima: only a bound)
+    let choice = table(&fit["choice"]);
+    assert_eq!(choice.columns, ["k", "records", "inertia", "silhouette", "calinski_harabasz"]);
+    assert_eq!(choice.rows.len(), 5);
+    for (row, want) in choice.rows.iter().zip(z["fits"].as_array().unwrap()) {
+        let k = want["k"].as_f64().unwrap();
+        assert_eq!((row[0], row[1]), (k, 600.0));
+        if k <= 4.0 {
+            near(&format!("k {k} inertia"), row[2], want["inertia"].as_f64().unwrap(), 1e-9);
+            near(&format!("k {k} silhouette"), row[3], want["silhouette"].as_f64().unwrap(), 1e-9);
+            near(&format!("k {k} index"), row[4], want["calinski_harabasz"].as_f64().unwrap(), 1e-9);
+        } else {
+            assert!(row[2] <= want["inertia"].as_f64().unwrap() * 1.05, "k {k}: {}", row[2]);
+        }
+    }
+    // the best silhouette is k = 4, said in a note
+    assert_eq!(table(&fit["centres"]).rows.len(), 4);
+    assert!(ctx.warnings.len() == 1 && ctx.warnings[0].contains("k = 4 has the best silhouette"), "{:?}", ctx.warnings);
+    // the clusters are scikit-learn's of k = 4 (the groups overlap a little: not exactly the ones drawn)
+    let t = table(&fit["table"]);
+    assert_eq!(t.columns, ["a", "b", "c", "cluster"]);
+    let labels = cluster_column(t);
+    assert!(same_partition(&labels, &truth));
+    // the centres: cluster, size, inertia, then the variables in their own units: the mean of the cluster's records
+    let centres = table(&fit["centres"]);
+    assert_eq!(centres.columns, ["cluster", "size", "inertia", "a", "b", "c"]);
+    for (c, row) in centres.rows.iter().enumerate() {
+        assert_eq!(row[0], (c + 1) as f64);
+        let members: Vec<&Vec<f64>> = x.iter().zip(&labels).filter(|(_, l)| **l == row[0]).map(|(r, _)| r).collect();
+        assert_eq!(row[1], members.len() as f64);
+        for j in 0..3 {
+            let m = members.iter().map(|r| r[j]).sum::<f64>() / members.len() as f64;
+            near(&format!("centre {c} variable {j}"), row[3 + j], m, 1e-9);
+        }
+    }
+    assert_eq!(centres.rows.iter().map(|r| r[1]).sum::<f64>(), 600.0);
+    let fits = z["fits"].as_array().unwrap();
+    near(
+        "the inertias add up",
+        centres.rows.iter().map(|r| r[2]).sum::<f64>(),
+        fits[2]["inertia"].as_f64().unwrap(),
+        1e-9,
+    );
+    // without standardising: the same groups, the inertia of the variables as they are
+    let raw = run(
+        "ml.kmeans",
+        vec![("table", Value::Table(km_table(&x)))],
+        serde_json::json!({"k": 4, "standardise": false}),
+    );
+    assert!(raw.get("choice").is_some_and(|c| table(c).rows.len() == 1));
+    // (in these units the variable with the largest numbers decides, and the groups overlap in it: ours is the same
+    // optimum or a better one)
+    let inertia: f64 = table(&raw["centres"]).rows.iter().map(|r| r[2]).sum();
+    assert!(inertia <= z["raw"]["inertia"].as_f64().unwrap() * (1.0 + 1e-9), "{inertia}");
+    assert!(inertia > 0.99 * z["raw"]["inertia"].as_f64().unwrap(), "{inertia}");
+}
+
+#[test]
+fn the_clusters_of_a_synthetic_image_are_its_classes() {
+    // five classes in blocks (columns in fifths), the six bands of nlm.image with its noise, no blur
+    let v: Vec<f64> = (0..100 * 100).map(|i| ((i % 100) / 20 + 1) as f64).collect();
+    let classes = Value::Map(Map::new(Arc::new(Grid::new(100, 100)), v.clone()));
+    let image = run("nlm.image", vec![("classes", classes)], serde_json::json!({"blur": 0}));
+    let fit = run("ml.kmeans", vec![("predictors", image["image"].clone())], serde_json::json!({"k": 5}));
+    let labels = map_data(&fit["clusters"]);
+    // each class falls (nearly) in one cluster of its own
+    let mut taken = Vec::new();
+    for class in 1..=5 {
+        let mut count: BTreeMap<u64, f64> = BTreeMap::new();
+        let mut n = 0.0f64;
+        for (l, t) in labels.iter().zip(&v) {
+            if *t == class as f64 {
+                *count.entry(l.to_bits()).or_insert(0.0) += 1.0;
+                n += 1.0;
+            }
+        }
+        let (best, share) = count.iter().map(|(k, c)| (*k, c / n)).max_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
+        println!("class {class}: cluster {} holds {share:.3}", f64::from_bits(best));
+        assert!(share > 0.95, "class {class}: {share}");
+        taken.push(best);
+    }
+    taken.sort();
+    taken.dedup();
+    assert_eq!(taken.len(), 5, "two classes in one cluster");
+    // the table of centres has the bands' names
+    assert_eq!(table(&fit["centres"]).columns[3..], ["blue", "green", "red", "nir", "swir1", "swir2"]);
+}
+
+#[test]
+fn the_cluster_numbers_do_not_depend_on_the_run_or_the_order_of_the_records() {
+    let z = km_reference();
+    let x: Vec<Vec<f64>> = z["x"].as_array().unwrap().iter().map(numbers).collect();
+    let go = |rows: &[Vec<f64>], seed: u64| {
+        let fit = run(
+            "ml.kmeans",
+            vec![("table", Value::Table(km_table(rows)))],
+            serde_json::json!({"k": 4, "seed": seed, "n_init": 3}),
+        );
+        (
+            cluster_column(table(&fit["table"])),
+            table(&fit["centres"]).rows.iter().map(|r| r[3..].to_vec()).collect::<Vec<_>>(),
+        )
+    };
+    let (first, centres) = go(&x, 1);
+    for seed in 2..6 {
+        let (labels, c) = go(&x, seed);
+        assert_eq!(labels, first, "seed {seed}");
+        for (a, b) in c.concat().iter().zip(centres.concat()) {
+            near("centre", *a, b, 1e-9);
+        }
+    }
+    // the same records the other way round: each record has the same number
+    let back: Vec<Vec<f64>> = x.iter().rev().cloned().collect();
+    let (labels, _) = go(&back, 1);
+    assert_eq!(labels.iter().rev().copied().collect::<Vec<_>>(), first);
+    // numbered by the first principal component of the centres (standardised), its largest loading positive, from
+    // the least score: power iteration on the centres' covariance gives it here
+    let (mean, scale) = (numbers(&z["mean"]), numbers(&z["scale"]));
+    let std: Vec<Vec<f64>> = centres.iter().map(|r| (0..3).map(|j| (r[j] - mean[j]) / scale[j]).collect()).collect();
+    let m: Vec<f64> = (0..3).map(|j| std.iter().map(|r| r[j]).sum::<f64>() / 4.0).collect();
+    let mut v = vec![1.0, 0.7, 0.3];
+    for _ in 0..500 {
+        let mut w = [0.0; 3];
+        for r in &std {
+            let dot: f64 = (0..3).map(|j| (r[j] - m[j]) * v[j]).sum();
+            for j in 0..3 {
+                w[j] += (r[j] - m[j]) * dot;
+            }
+        }
+        let norm = w.iter().map(|x| x * x).sum::<f64>().sqrt();
+        v = w.iter().map(|x| x / norm).collect();
+    }
+    let big = (0..3).fold(0, |b, j| if v[j].abs() > v[b].abs() { j } else { b });
+    let sign = v[big].signum();
+    let score: Vec<f64> = std.iter().map(|r| sign * (0..3).map(|j| (r[j] - m[j]) * v[j]).sum::<f64>()).collect();
+    assert!(score.windows(2).all(|w| w[0] < w[1]), "{score:?}");
+}
+
+#[test]
+fn kmeans_is_the_same_on_one_thread_or_eight() {
+    // more cells than the blocks of the sums and the pieces of the assignment, four groups in a 3-D space and a few NaN
+    let n: usize = 150 * 150;
+    let rows: Vec<Vec<f64>> = (0..n)
+        .map(|i| {
+            let g = (i * 7919) % 4;
+            let f = ((i * 104729) % 1009) as f64 / 1009.0;
+            let h = ((i * 31) % 997) as f64 / 997.0;
+            let v = vec![g as f64 * 10.0 + f * 3.0, (g % 2) as f64 * 40.0 + h * 5.0, 100.0 - g as f64 * 7.0 + (f - h)];
+            if i % 61 == 0 {
+                v.into_iter().enumerate().map(|(j, x)| if j == 1 { f64::NAN } else { x }).collect()
+            } else {
+                v
+            }
+        })
+        .collect();
+    let on = |stack: &Stack, threads: usize, params: serde_json::Value| {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        pool.install(|| {
+            let fit = run("ml.kmeans", vec![("predictors", Value::Stack(stack.clone()))], params.clone());
+            let again = run(
+                "ml.predict",
+                vec![("model", fit["model"].clone()), ("predictors", Value::Stack(stack.clone()))],
+                serde_json::json!({}),
+            );
+            (fit, again)
+        })
+    };
+    // (the silhouette is quadratic in its records, at most 10 000: the k to choose among on fewer cells)
+    for (cells, nx, params) in
+        [(n, 150, serde_json::json!({"k": 4})), (4900, 70, serde_json::json!({"k": [3, 4, 5], "n_init": 3}))]
+    {
+        let stack = km_stack(&rows[..cells], nx);
+        let ((a, a2), (b, b2)) = (on(&stack, 1, params.clone()), on(&stack, 8, params));
+        check("clusters", &map_data(&a["clusters"]), &map_data(&b["clusters"]));
+        check("applied", &map_data(&a2["map"]), &map_data(&b2["map"]));
+        check("applied as fitted", &map_data(&a["clusters"]), &map_data(&a2["map"]));
+        for name in ["centres", "choice"] {
+            check(name, &table(&a[name]).rows.concat(), &table(&b[name]).rows.concat());
+        }
+        // the cells with a NaN have no cluster
+        let labels = map_data(&a["clusters"]);
+        assert!(labels.iter().enumerate().all(|(i, l)| l.is_nan() == (i % 61 == 0)));
+        assert_eq!(labels.len(), cells);
+    }
+}
+
+#[test]
+fn k_auto_finds_the_groups() {
+    let z = km_reference();
+    let x: Vec<Vec<f64>> = z["x"].as_array().unwrap().iter().map(numbers).collect();
+    // as a table and as maps, with no k: 2 to 10, the best silhouette is the four groups
+    let mut ctx = Ctx::default();
+    let fit =
+        try_run("ml.kmeans", vec![("predictors", Value::Stack(km_stack(&x, 30)))], serde_json::json!({}), &mut ctx)
+            .unwrap();
+    let choice = table(&fit["choice"]);
+    assert_eq!(choice.rows.iter().map(|r| r[0]).collect::<Vec<_>>(), (2..=10).map(f64::from).collect::<Vec<_>>());
+    let best = choice.rows.iter().max_by(|a, b| a[3].total_cmp(&b[3])).unwrap();
+    assert_eq!(best[0], 4.0);
+    assert_eq!(table(&fit["centres"]).rows.len(), 4);
+    assert!(ctx.warnings[0].contains("k = 4") && ctx.warnings[0].contains("2 to 10"), "{:?}", ctx.warnings);
+    let labels = map_data(&fit["clusters"]);
+    assert!(same_partition(&labels, &numbers(&z["fits"][2]["labels"])));
+    // "auto" said so is the same
+    let again = run("ml.kmeans", vec![("table", Value::Table(km_table(&x)))], serde_json::json!({"k": "auto"}));
+    assert!(same_partition(&cluster_column(table(&again["table"])), &labels));
+    // a list of one has no choice to make, and no note
+    let mut ctx = Ctx::default();
+    try_run("ml.kmeans", vec![("table", Value::Table(km_table(&x)))], serde_json::json!({"k": [3]}), &mut ctx).unwrap();
+    assert!(ctx.warnings.is_empty(), "{:?}", ctx.warnings);
+}
+
+#[test]
+fn kmeans_on_a_sample_says_so() {
+    let z = km_reference();
+    let x: Vec<Vec<f64>> = z["x"].as_array().unwrap().iter().map(numbers).collect();
+    let stack = km_stack(&x, 30);
+    let go = |seed: u64| {
+        let mut ctx = Ctx::default();
+        let out = try_run(
+            "ml.kmeans",
+            vec![("predictors", Value::Stack(stack.clone()))],
+            serde_json::json!({"k": 4, "sample": 200, "seed": seed}),
+            &mut ctx,
+        )
+        .unwrap();
+        (out, ctx.warnings)
+    };
+    let (a, note) = go(3);
+    assert_eq!(note.len(), 1, "{note:?}");
+    assert!(note[0].contains("sample of 200 of the 600 records"), "{}", note[0]);
+    // every cell has a cluster, from a fit on the sample: still the groups
+    let labels = map_data(&a["clusters"]);
+    assert!(labels.iter().all(|l| l.is_finite()));
+    let share = agreement(&labels, &numbers(&z["fits"][2]["labels"]));
+    assert!(share > 0.97, "{share}");
+    let (b, _) = go(3);
+    check("the same seed", &map_data(&a["clusters"]), &map_data(&b["clusters"]));
+    check("the same seed's centres", &table(&a["centres"]).rows.concat(), &table(&b["centres"]).rows.concat());
+    // the sizes are of all the cells
+    assert_eq!(table(&a["centres"]).rows.iter().map(|r| r[1]).sum::<f64>(), 600.0);
+}
+
+#[test]
+fn kmeans_leaves_out_nan_and_the_cells_not_asked_for() {
+    let z = km_reference();
+    let x: Vec<Vec<f64>> = z["x"].as_array().unwrap().iter().map(numbers).collect();
+    let mut stack = km_stack(&x, 30);
+    let mut b = stack.layers[1].to_vec();
+    b[7] = f64::NAN;
+    stack.layers[1] = Arc::new(b);
+    let g = stack.grid.clone();
+    let mut cells = vec![1.0; 600];
+    cells[0] = 0.0;
+    cells[1] = f64::NAN;
+    let fit = run(
+        "ml.kmeans",
+        vec![("predictors", Value::Stack(stack)), ("cells", Value::Map(Map::new(g, cells)))],
+        serde_json::json!({"k": 4}),
+    );
+    let labels = map_data(&fit["clusters"]);
+    for i in [0, 1, 7] {
+        assert!(labels[i].is_nan(), "cell {i}");
+    }
+    assert_eq!(labels.iter().filter(|l| l.is_finite()).count(), 597);
+    assert_eq!(table(&fit["centres"]).rows.iter().map(|r| r[1]).sum::<f64>(), 597.0);
+    // a table: the row with a NaN has no cluster
+    let mut rows = x.clone();
+    rows[2][0] = f64::NAN;
+    let fit = run("ml.kmeans", vec![("table", Value::Table(km_table(&rows)))], serde_json::json!({"k": 4}));
+    let labels = cluster_column(table(&fit["table"]));
+    assert!(labels[2].is_nan() && labels.iter().filter(|l| l.is_nan()).count() == 1);
+}
+
+#[test]
+fn a_kmeans_model_is_saved_as_json_and_gives_the_nearest_centre() {
+    let z = km_reference();
+    let x: Vec<Vec<f64>> = z["x"].as_array().unwrap().iter().map(numbers).collect();
+    let fit = run("ml.kmeans", vec![("table", Value::Table(km_table(&x)))], serde_json::json!({"k": 4}));
+    let Value::MlModel(model) = &fit["model"] else { panic!() };
+    let json = serde_json::to_string(&**model).unwrap();
+    assert!(json.starts_with("{\"kind\":\"kmeans\""), "{}", &json[..40]);
+    let back: terraflux_ops::ml::Model = serde_json::from_str(&json).unwrap();
+    let apply = |m: Value, rows: &[Vec<f64>]| {
+        let out = run("ml.predict", vec![("model", m), ("table", Value::Table(km_table(rows)))], serde_json::json!({}));
+        cluster_column(table(&out["table"]))
+    };
+    // the fitted records get the numbers they had; the model read back is the same
+    let as_fitted = cluster_column(table(&fit["table"]));
+    assert_eq!(apply(fit["model"].clone(), &x), as_fitted);
+    assert_eq!(apply(Value::MlModel(Arc::new(back)), &x), as_fitted);
+    // other records: the nearest centre, in the fit's units (its mean and scales, not the new data's). A record
+    // at each cluster's centre has that cluster's number.
+    let centres = table(&fit["centres"]);
+    let at_centres: Vec<Vec<f64>> = centres.rows.iter().map(|r| r[3..].to_vec()).collect();
+    assert_eq!(apply(fit["model"].clone(), &at_centres), vec![1.0, 2.0, 3.0, 4.0]);
+    // one record alone, far from the fit's mean: still assigned by the centres of the fit
+    let far = vec![vec![at_centres[3][0], at_centres[3][1], at_centres[3][2] + 50.0]];
+    assert_eq!(apply(fit["model"].clone(), &far), vec![4.0]);
+    // maps: a `map`
+    let out = run(
+        "ml.predict",
+        vec![("model", fit["model"].clone()), ("predictors", Value::Stack(km_stack(&x, 30)))],
+        serde_json::json!({}),
+    );
+    assert_eq!(map_data(&out["map"]), as_fitted);
+    // it is not a forest: the inspection of ml.importance does not take it
+    let mut t = km_table(&x);
+    t.columns[2] = "target".into();
+    let e = try_run(
+        "ml.importance",
+        vec![("model", fit["model"].clone()), ("table", Value::Table(t))],
+        serde_json::json!({}),
+        &mut Ctx::default(),
+    )
+    .unwrap_err();
+    assert!(e.contains("a model of ml.fit"), "{e}");
+}
+
+#[test]
+fn kmeans_tells_what_is_wrong() {
+    let z = km_reference();
+    let x: Vec<Vec<f64>> = z["x"].as_array().unwrap().iter().map(numbers).collect();
+    let table_in = || vec![("table", Value::Table(km_table(&x)))];
+    let fails = |inputs: Vec<(&str, Value)>, params: serde_json::Value, want: &str| {
+        let e = try_run("ml.kmeans", inputs, params, &mut Ctx::default()).unwrap_err();
+        assert!(e.contains(want), "{want}: {e}");
+    };
+    fails(table_in(), serde_json::json!({"k": 0}), "whole number");
+    fails(table_in(), serde_json::json!({"k": -2}), "whole number");
+    fails(table_in(), serde_json::json!({"k": 2.5}), "whole number");
+    fails(table_in(), serde_json::json!({"k": "many"}), "\"auto\"");
+    fails(table_in(), serde_json::json!({"k": []}), "\"auto\"");
+    fails(table_in(), serde_json::json!({"k": [1, 3]}), "2 or more");
+    fails(table_in(), serde_json::json!({"k": [3, "x"]}), "\"x\"");
+    fails(table_in(), serde_json::json!({"k": 601}), "more than the 600 records");
+    fails(table_in(), serde_json::json!({"k": 4, "sample": 50, "seed": 1.5}), "seed");
+    fails(table_in(), serde_json::json!({"k": 80, "sample": 50}), "more than the 50 records");
+    fails(table_in(), serde_json::json!({"n_init": 0}), "n_init");
+    fails(table_in(), serde_json::json!({"n_init": -1}), "n_init");
+    fails(table_in(), serde_json::json!({"max_iter": 0}), "max_iter");
+    fails(table_in(), serde_json::json!({"tol": -1}), "tol");
+    fails(table_in(), serde_json::json!({"tol": "small"}), "tol");
+    fails(table_in(), serde_json::json!({"standardise": "yes"}), "standardise");
+    fails(table_in(), serde_json::json!({"columns": ["a", "zz"]}), "no column \"zz\"");
+    fails(table_in(), serde_json::json!({"columns": ["a", "a"]}), "twice");
+    fails(table_in(), serde_json::json!({"columns": []}), "no numeric column");
+    fails(table_in(), serde_json::json!({"sample": 0}), "sample");
+    fails(vec![], serde_json::json!({}), "connect the records");
+    let stack = km_stack(&x, 30);
+    fails(
+        vec![("table", Value::Table(km_table(&x))), ("predictors", Value::Stack(stack.clone()))],
+        serde_json::json!({}),
+        "not both",
+    );
+    let g = stack.grid.clone();
+    fails(
+        vec![("table", Value::Table(km_table(&x))), ("cells", Value::Map(Map::new(g.clone(), vec![1.0; 600])))],
+        serde_json::json!({}),
+        "cells goes with maps",
+    );
+    fails(
+        vec![("predictors", Value::Stack(stack.clone())), ("cells", Value::Map(Map::new(g, vec![0.0; 600])))],
+        serde_json::json!({}),
+        "no record has every variable",
+    );
+    // auto needs three records at least
+    fails(vec![("table", Value::Table(km_table(&x[..2])))], serde_json::json!({}), "too few");
+    // a constant variable: standardising cannot divide by its deviation, in its own units it is only a null direction
+    let mut flat = x.clone();
+    flat.iter_mut().for_each(|r| r[1] = 4.0);
+    fails(vec![("table", Value::Table(km_table(&flat)))], serde_json::json!({}), "\"b\" is constant");
+    run("ml.kmeans", vec![("table", Value::Table(km_table(&flat)))], serde_json::json!({"standardise": false, "k": 3}));
+    // a table with a column cluster already
+    let mut t = km_table(&x);
+    t.columns.push("cluster".into());
+    t.rows.iter_mut().for_each(|r| r.push(0.0));
+    fails(
+        vec![("table", Value::Table(t))],
+        serde_json::json!({"columns": ["a", "b", "c"]}),
+        "already has a column \"cluster\"",
+    );
+    // ml.predict: a layer or a column the model reads is missing
+    let fit = run("ml.kmeans", table_in(), serde_json::json!({"k": 3}));
+    let mut few = km_stack(&x, 30);
+    few.keys.pop();
+    few.layers.pop();
+    let e = try_run(
+        "ml.predict",
+        vec![("model", fit["model"].clone()), ("predictors", Value::Stack(few))],
+        serde_json::json!({}),
+        &mut Ctx::default(),
+    )
+    .unwrap_err();
+    assert!(e.contains("no layer \"c\""), "{e}");
+    let mut narrow = km_table(&x);
+    narrow.columns.pop();
+    narrow.rows.iter_mut().for_each(|r| {
+        r.pop();
+    });
+    let e = try_run(
+        "ml.predict",
+        vec![("model", fit["model"].clone()), ("table", Value::Table(narrow))],
+        serde_json::json!({}),
+        &mut Ctx::default(),
+    )
+    .unwrap_err();
+    assert!(e.contains("no column \"c\""), "{e}");
+}

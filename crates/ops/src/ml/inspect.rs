@@ -116,7 +116,7 @@ impl Operator for Importance {
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let model = model_of(args)?;
-        if matches!(**model, Model::PerClass { .. } | Model::Pca(_)) {
+        if matches!(**model, Model::PerClass { .. } | Model::Pca(_) | Model::KMeans(_)) {
             return Err(fail(args, "a model of ml.fit (one model, not one per class)"));
         }
         let column: String = args.param("column", "target".to_string())?;
@@ -222,7 +222,7 @@ impl Operator for PartialDependence {
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let model = model_of(args)?;
-        if matches!(**model, Model::PerClass { .. } | Model::Pca(_)) {
+        if matches!(**model, Model::PerClass { .. } | Model::Pca(_) | Model::KMeans(_)) {
             return Err(fail(args, "a model of ml.fit (one model, not one per class)"));
         }
         let (x, _) = records(args, model, None)?;

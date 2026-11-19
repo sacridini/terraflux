@@ -293,53 +293,114 @@ pub fn kmeans(x: &[f64], n: usize, p: usize, k: usize, starts: usize, seed: u64)
     kmeans_init(x, n, p, k, starts, seed, Init::Greedy)
 }
 
-/// k-means of the points `x` (n x p) into `k` clusters, the best (least inertia) of `starts` runs from the `init`
-/// start, each of at most `max_iter` iterations, stopped when the centres move less than `tol` times the points'
-/// mean variance (scikit-learn's defaults: 300, 1e-4). Fewer distinct points than k: some clusters empty, kept where
-/// they were. The rayon pool of the caller's threads.
-pub fn kmeans_init(x: &[f64], n: usize, p: usize, k: usize, starts: usize, seed: u64, init: Init) -> KMeans {
-    assert!(x.len() == n * p && n > 0 && p > 0 && k > 0, "x must be n x p, n, p and k positive");
-    let k = k.min(n);
-    let (max_iter, tol) = (300, 1e-4);
-    let var: f64 = (0..p)
+/// How many runs, and when each stops.
+#[derive(Clone, Copy, Debug)]
+pub struct Settings {
+    /// Runs from different starts; the one with the least inertia is kept.
+    pub starts: usize,
+    /// The most iterations of a run.
+    pub max_iter: usize,
+    /// A run stops when its centres move (the sum of squared shifts) less than this times the points' mean variance.
+    pub tol: f64,
+}
+
+impl Default for Settings {
+    /// scikit-learn's `max_iter` and `tol`, one start.
+    fn default() -> Settings {
+        Settings { starts: 1, max_iter: 300, tol: 1e-4 }
+    }
+}
+
+/// The mean over the p variables of their variance (divisor n): what scikit-learn's `tol` is a share of.
+fn mean_variance(x: &[f64], n: usize, p: usize) -> f64 {
+    (0..p)
         .map(|j| {
             let m = (0..n).map(|i| x[i * p + j]).sum::<f64>() / n as f64;
             (0..n).map(|i| (x[i * p + j] - m).powi(2)).sum::<f64>() / n as f64
         })
         .sum::<f64>()
-        / p.max(1) as f64;
-    let tol = tol * var;
+        / p.max(1) as f64
+}
+
+/// Lloyd's iterations from the `centres` (k x p): each point to its nearest centre, each centre to the mean of its
+/// points (one an empty cluster has stays where it was), until the centres move at most `tol` (absolute) or
+/// `max_iter` iterations.
+fn lloyd(x: &[f64], p: usize, mut centres: Vec<f64>, max_iter: usize, tol: f64) -> KMeans {
+    let k = centres.len() / p;
+    let mut iterations = 0;
+    let (mut near, mut sums, mut counts) = assign_sums(x, p, &centres, k);
+    for it in 1..=max_iter {
+        iterations = it;
+        let mut shift = 0.0;
+        for c in 0..k {
+            if counts[c] == 0 {
+                continue;
+            }
+            for j in 0..p {
+                let v = sums[c * p + j] / counts[c] as f64;
+                shift += (v - centres[c * p + j]).powi(2);
+                centres[c * p + j] = v;
+            }
+        }
+        (near, sums, counts) = assign_sums(x, p, &centres, k);
+        if shift <= tol {
+            break;
+        }
+    }
+    let inertia: f64 = near.iter().map(|&(_, d)| d).sum();
+    KMeans { labels: near.iter().map(|&(c, _)| c).collect(), centres, inertia, iterations }
+}
+
+/// k-means of the points `x` (n x p) from the given `centres` (k x p): one run of Lloyd's, `tol` a share of the
+/// points' mean variance as scikit-learn's (to compare with its `KMeans(init=centres, n_init=1)`).
+pub fn kmeans_from(x: &[f64], n: usize, p: usize, centres: Vec<f64>, max_iter: usize, tol: f64) -> KMeans {
+    assert!(
+        x.len() == n * p && n > 0 && p > 0 && !centres.is_empty() && centres.len() / p * p == centres.len(),
+        "x must be n x p, the centres k x p"
+    );
+    lloyd(x, p, centres, max_iter, tol * mean_variance(x, n, p))
+}
+
+/// Each point's nearest centre (of the k x p `centres`) and its squared distance, in parallel by blocks of points.
+pub fn nearest(x: &[f64], p: usize, centres: &[f64]) -> Vec<(usize, f64)> {
+    let k = centres.len() / p;
+    let mut near = vec![(0, 0.0); x.len() / p];
+    near.par_chunks_mut(KERNEL_BLOCK).enumerate().for_each(|(b, o)| {
+        let i = b * KERNEL_BLOCK;
+        kernels::nearest(&x[i * p..(i + o.len()) * p], p, centres, k, o);
+    });
+    near
+}
+
+/// The squared distance between two points.
+pub fn squared_distance(a: &[f64], b: &[f64]) -> f64 {
+    d2(a, b)
+}
+
+/// k-means of the points `x` (n x p) into `k` clusters, the best (least inertia) of `starts` runs from the `init`
+/// start, each of at most `max_iter` iterations, stopped when the centres move less than `tol` times the points'
+/// mean variance (scikit-learn's defaults: 300, 1e-4). Fewer distinct points than k: some clusters empty, kept where
+/// they were. The rayon pool of the caller's threads.
+pub fn kmeans_init(x: &[f64], n: usize, p: usize, k: usize, starts: usize, seed: u64, init: Init) -> KMeans {
+    kmeans_with(x, n, p, k, seed, init, Settings { starts, ..Settings::default() })
+}
+
+/// `kmeans_init` with the stop of each run (`max_iter`, `tol`) set as well.
+pub fn kmeans_with(x: &[f64], n: usize, p: usize, k: usize, seed: u64, init: Init, set: Settings) -> KMeans {
+    assert!(x.len() == n * p && n > 0 && p > 0 && k > 0, "x must be n x p, n, p and k positive");
+    let k = k.min(n);
+    let tol = set.tol * mean_variance(x, n, p);
     let mut rng = Rng::new(seed);
     let mut numpy = NumpyRng::new(seed);
     let mut best: Option<KMeans> = None;
-    for _ in 0..starts.max(1) {
-        let mut centres = match init {
+    for _ in 0..set.starts.max(1) {
+        let centres = match init {
             Init::Greedy => plus_plus(x, n, p, k, &mut rng),
             Init::Numpy => plus_plus_numpy(x, n, p, k, &mut numpy),
         };
-        let mut iterations = 0;
-        let (mut near, mut sums, mut counts) = assign_sums(x, p, &centres, k);
-        for it in 1..=max_iter {
-            iterations = it;
-            let mut shift = 0.0;
-            for c in 0..k {
-                if counts[c] == 0 {
-                    continue;
-                }
-                for j in 0..p {
-                    let v = sums[c * p + j] / counts[c] as f64;
-                    shift += (v - centres[c * p + j]).powi(2);
-                    centres[c * p + j] = v;
-                }
-            }
-            (near, sums, counts) = assign_sums(x, p, &centres, k);
-            if shift <= tol {
-                break;
-            }
-        }
-        let inertia: f64 = near.iter().map(|&(_, d)| d).sum();
-        if best.as_ref().is_none_or(|b| inertia < b.inertia) {
-            best = Some(KMeans { labels: near.iter().map(|&(c, _)| c).collect(), centres, inertia, iterations });
+        let run = lloyd(x, p, centres, set.max_iter, tol);
+        if best.as_ref().is_none_or(|b| run.inertia < b.inertia) {
+            best = Some(run);
         }
     }
     best.unwrap()

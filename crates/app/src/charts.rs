@@ -37,6 +37,8 @@ pub enum Kind {
     Esp,
     /// ml.pca's explained variance (a row per component): the share of each as a bar, the cumulative share a line.
     Elbow,
+    /// ml.kmeans's choice of k (a row per k): the inertia and the silhouette against k, the best silhouette marked.
+    Choice,
 }
 
 impl Kind {
@@ -52,6 +54,7 @@ impl Kind {
             Kind::Matrix => "matrix",
             Kind::Esp => "ESP",
             Kind::Elbow => "elbow",
+            Kind::Choice => "choice of k",
         }
     }
 
@@ -76,6 +79,9 @@ impl Kind {
         if is_elbow(t) {
             v.push(Kind::Elbow);
         }
+        if is_choice(t) {
+            v.push(Kind::Choice);
+        }
         v
     }
 }
@@ -84,6 +90,12 @@ impl Kind {
 /// cumulative.
 pub fn is_elbow(t: &Table) -> bool {
     t.columns == ["component", "variance", "ratio", "cumulative"] && !t.rows.is_empty()
+}
+
+/// Whether a table is ml.kmeans's choice of k: a row per k, the columns k, records, inertia, silhouette and
+/// calinski_harabasz.
+pub fn is_choice(t: &Table) -> bool {
+    t.columns == ["k", "records", "inertia", "silhouette", "calinski_harabasz"] && !t.rows.is_empty()
 }
 
 /// Whether a table is segment.scale's: a row per scale (columns scale, roc_mean and suggested, and an lv_<band> for
@@ -338,6 +350,7 @@ pub fn show(ui: &mut Ui, t: &Table, rows: &[usize], chart: &mut Chart, id: egui:
         Kind::Matrix => matrix(ui, t, id),
         Kind::Esp => esp(ui, t, rows, id),
         Kind::Elbow => elbow(ui, t, rows, id),
+        Kind::Choice => choice(ui, t, rows, id),
         Kind::Loadings => loadings(ui, t, chart.components, id),
     }
 }
@@ -590,6 +603,55 @@ fn elbow(ui: &mut Ui, t: &Table, rows: &[usize], id: egui::Id) {
         });
 }
 
+/// ml.kmeans's choice of k: the inertia (to look for the elbow) and the silhouette (higher is better, the best marked
+/// by a vertical line) against k, side by side.
+fn choice(ui: &mut Ui, t: &Table, rows: &[usize], id: egui::Id) {
+    let mut inertia: Vec<[f64; 2]> = Vec::new();
+    let mut silhouette: Vec<[f64; 2]> = Vec::new();
+    let mut best: Option<[f64; 2]> = None;
+    for &i in rows {
+        let r = &t.rows[i];
+        if r[2].is_finite() {
+            inertia.push([r[0], r[2]]);
+        }
+        if r[3].is_finite() {
+            silhouette.push([r[0], r[3]]);
+            if best.is_none_or(|b| r[3] > b[1]) {
+                best = Some([r[0], r[3]]);
+            }
+        }
+    }
+    let colour = crate::palette::seen(crate::theme::accent());
+    let mark = ui.visuals().text_color().gamma_multiply(0.5);
+    let w = (ui.available_width() / 2.0 - 8.0).max(240.0);
+    ui.horizontal_wrapped(|ui| {
+        for (n, (label, pts)) in [("inertia", inertia), ("silhouette", silhouette)].into_iter().enumerate() {
+            ui.allocate_ui(Vec2::new(w, 200.0), |ui| {
+                crate::theme::plot(Plot::new(id.with(("choice", n))))
+                    .width(w)
+                    .height(200.0)
+                    .allow_scroll(false)
+                    .x_axis_label("k")
+                    .y_axis_label(label)
+                    .x_axis_formatter(|m, _| {
+                        let k = m.value.round();
+                        if (m.value - k).abs() < 1e-6 && k >= 1.0 { format!("{k}") } else { String::new() }
+                    })
+                    .show(ui, |p| {
+                        wheel_zoom(p);
+                        if n == 1
+                            && let Some(b) = best
+                        {
+                            p.vline(VLine::new("best", b[0]).color(mark));
+                        }
+                        p.line(Line::new(label, pts.clone()).color(colour).width(2.0));
+                        p.points(Points::new(label, pts).color(colour).radius(3.0));
+                    });
+            });
+        }
+    });
+}
+
 /// segment.scale's table: the local variance (the mean of the bands' lv_) and the rate of change (roc_mean) against
 /// the scale, side by side, a vertical line at each suggested scale.
 fn esp(ui: &mut Ui, t: &Table, rows: &[usize], id: egui::Id) {
@@ -818,5 +880,17 @@ mod tests {
         assert!(is_elbow(&t) && Kind::of(&t).contains(&Kind::Elbow));
         assert_eq!(Kind::Elbow.name(), "elbow");
         assert!(!is_elbow(&Table { columns: vec!["component".into(), "variance".into()], ..Default::default() }));
+    }
+
+    #[test]
+    fn the_choice_of_k_of_ml_kmeans_has_its_chart() {
+        let t = Table {
+            columns: ["k", "records", "inertia", "silhouette", "calinski_harabasz"].map(String::from).to_vec(),
+            rows: vec![vec![2.0, 600.0, 900.0, 0.5, 300.0], vec![3.0, 600.0, 500.0, 0.6, 700.0]],
+            ..Default::default()
+        };
+        assert!(is_choice(&t) && Kind::of(&t).contains(&Kind::Choice));
+        assert_eq!(Kind::Choice.name(), "choice of k");
+        assert!(!is_choice(&Table { columns: vec!["k".into(), "inertia".into()], ..Default::default() }));
     }
 }

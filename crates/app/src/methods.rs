@@ -389,6 +389,45 @@ pub const REFERENCES: &[Reference] = &[
         report: "",
     },
     Reference {
+        key: "lloyd1982",
+        authors: &["Lloyd, S. P."],
+        more: false,
+        year: 1982,
+        title: "Least squares quantization in PCM",
+        journal: "IEEE Transactions on Information Theory",
+        volume: "28",
+        issue: "2",
+        pages: "129-137",
+        doi: "10.1109/TIT.1982.1056489",
+        report: "",
+    },
+    Reference {
+        key: "arthur2007",
+        authors: &["Arthur, D.", "Vassilvitskii, S."],
+        more: false,
+        year: 2007,
+        title: "k-means++: the advantages of careful seeding",
+        journal: "",
+        volume: "",
+        issue: "",
+        pages: "",
+        doi: "",
+        report: "Proceedings of the Eighteenth Annual ACM-SIAM Symposium on Discrete Algorithms (SODA '07), 1027–1035.",
+    },
+    Reference {
+        key: "rousseeuw1987",
+        authors: &["Rousseeuw, P. J."],
+        more: false,
+        year: 1987,
+        title: "Silhouettes: a graphical aid to the interpretation and validation of cluster analysis",
+        journal: "Journal of Computational and Applied Mathematics",
+        volume: "20",
+        issue: "",
+        pages: "53-65",
+        doi: "10.1016/0377-0427(87)90125-7",
+        report: "",
+    },
+    Reference {
         key: "momsen2012",
         authors: &["Momsen, E.", "Metz, M."],
         more: false,
@@ -1077,6 +1116,13 @@ pub const METHODS: &[Method] = &[
         software_refs: &[],
     },
     Method {
+        ops: &["ml.kmeans"],
+        name: "k-means clustering",
+        refs: &["lloyd1982", "arthur2007", "rousseeuw1987"],
+        software: "",
+        software_refs: &[],
+    },
+    Method {
         ops: &["segment.multiresolution"],
         name: "multiresolution segmentation into objects",
         refs: &["baatz2000"],
@@ -1355,7 +1401,7 @@ pub fn of(m: &Model, r: &Registry, version: &str, file: Option<&str>) -> Methods
     let steps = nodes.iter().filter(|(_, n)| n.body.is_none()).count();
     let file = file.map(|f| format!(" ({f})")).unwrap_or_default();
     let mut paragraph = format!(
-        "The analysis was run in Terraflux {version} (Lacerda, 2026), as a model of {steps} step{}{file}; the          model's file, with every setting{}, is given with this paper.",
+        "The analysis was run in Terraflux {version} (Lacerda, 2026), as a model of {steps} step{}{file}; the model's file, with every setting{}, is given with this paper.",
         if steps == 1 { "" } else { "s" },
         if seeds { " and random seed" } else { "" },
     );
@@ -1648,6 +1694,7 @@ mod tests {
         assert_eq!(method_of("segment.scale").unwrap().refs, &["dragut2010", "dragut2014"]);
         assert_eq!(method_of("segment.optimize").unwrap().refs, &["espindola2006", "johnson2011"]);
         assert_eq!(method_of("ml.pca").unwrap().refs, &["pearson1901", "hotelling1933"]);
+        assert_eq!(method_of("ml.kmeans").unwrap().refs, &["lloyd1982", "arthur2007", "rousseeuw1987"]);
         assert!(method_of("raster.reclassify").is_none());
     }
 

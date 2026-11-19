@@ -815,7 +815,20 @@ pub const TIPS: &[(&str, &str)] = &[
     ),
     (
         "ml.pca",
-        "Keep `standardise` on (the correlation) when the variables are in different units or ranges (a band in          reflectance beside an elevation in metres), or the one with the largest numbers is the first component          alone; turn it off for bands in the same unit, where their spread is the information. The default keeps          the components that explain 95% of the variance: if the first few explain little (the `explained` table,          the cumulative column), the variables are nearly independent and a PCA will not reduce them. The scores          of other maps or a later date come from `ml.predict` with the model, which uses the means of this fit,          not of the new data, so the same change means the same numbers. For a very large stack the fit uses a          sample of a million cells (`sample` and `seed` to choose).",
+        "Keep `standardise` on (the correlation) when the variables are in different units or ranges (a band in reflectance beside an elevation in metres), or the one with the largest numbers is the first component alone; turn it off for bands in the same unit, where their spread is the information. The default keeps the components that explain 95% of the variance: if the first few explain little (the `explained` table, the cumulative column), the variables are nearly independent and a PCA will not reduce them. The scores of other maps or a later date come from `ml.predict` with the model, which uses the means of this fit, not of the new data, so the same change means the same numbers. For a very large stack the fit uses a sample of a million cells (`sample` and `seed` to choose).",
+    ),
+    (
+        "ml.kmeans",
+        "Keep `standardise` on when the variables are in different units or ranges (a band in reflectance beside an \
+         elevation in metres), or the one with the largest numbers decides the clusters alone; turn it off for bands \
+         in the same unit. Without `k` the best silhouette from 2 to 10 is taken: look at the `choice` table, for a \
+         silhouette that is low for every k (below 0.25) says the records have no clear groups, and the clusters \
+         are then a way of cutting a continuum, not of finding classes. A `k` large for the records (a few \
+         hundred per cluster at least) makes clusters of a handful of records that change with the seed: give \
+         fewer, or more records (`sample`). The clusters are numbered by the first principal component of their \
+         centres, so a number means the same from one run to the next, and `ml.predict` with the model gives \
+         another image or date the nearest centre of this fit, not of the new data. A fit on very many cells uses \
+         a sample of a million (`sample` and `seed` to choose); every cell then has its cluster.",
     ),
 ];
 

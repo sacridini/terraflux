@@ -4476,6 +4476,23 @@ Os três projetos são GPL-3.0, do mesmo autor; o Terraflux é GPL-3.0-or-later:
   (Sculley 2010) para amostras enormes, e o ISODATA (dividir e juntar grupos) dos programas de sensoriamento
   remoto. Testes: a inércia contra o `sklearn.cluster.KMeans` com os mesmos centros iniciais; a `nlm.image` (do plano
   dos objetos) separada nas suas classes; a ordem dos rótulos estável.
+  **Feito** (sem o mini-batch nem o ISODATA, que ficam como opções): `multivar/clusters.rs` (`Clusters`, o modelo:
+  nomes, média, escala, centros nas unidades do ajuste; `assign` por pedaços de 8192 registros, com tamanhos e inércia
+  somados em ordem; `order`, a ordem dos rótulos; `silhouette` e `calinski_harabasz`) e o operador em `ml/kmeans.rs`;
+  em `multivar/kmeans.rs`, `Settings` (`max_iter` e `tol`), `kmeans_with` e `kmeans_from` (Lloyd a partir de centros
+  dados, para comparar com o scikit-learn), e a leitura dos registros de `ml/pca.rs` passou a ser comum aos dois
+  operadores. A partida é a gulosa (`Init::Greedy`); o desvio padrão da padronização tem divisor n (como o
+  `StandardScaler`). **A ordem dos rótulos**: o primeiro componente principal da covariância dos centros (padronizados),
+  com o maior coeficiente positivo (o `sign_of` do `ml.pca`), do menor escore ao maior, empate pela posição. `k` é um
+  número, uma lista (cada um >= 2) ou `"auto"` (2 a 10, o padrão); com vários k, cada um é ajustado em até 100 000
+  registros sorteados (o escolhido é ajustado de novo em todos) e a silhueta é de uma amostra de até 10 000, a mesma
+  para todo k; vence a maior silhueta (o menor k no empate), dito num `ctx.warn`. Saídas: `clusters` (mapa) ou `table`
+  (coluna `cluster`), `centres` (cluster, size, inertia -- nas unidades do ajuste, padronizadas -- e os centros nas
+  unidades originais), `choice` (k, records, inertia, silhouette, calinski_harabasz; sempre, com uma linha para um k só)
+  e `model` (`Model::KMeans(Clusters)`, `"kind": "kmeans"`). O `ml.predict` dá a porta `map` com mapas e a coluna
+  `cluster` com tabela. O gráfico da escolha de k (`Kind::Choice`: inércia e silhueta contra k) está em `charts.rs`.
+  No `python_script`, `ml.kmeans` é "sem equivalente" (os sorteios do scikit-learn não são os do Terraflux).
+  Referência: `tools/make_kmeans_reference.py` e `tests/data/reference/kmeans.json`.
 - **D. `ml.som`.** O `som.rs` do Zeit trazido para `multivar/som.rs`, o `parallel::Shared` trocado pelo rayon e o
   `n_jobs` pelas threads do Terraflux, os testes do Zeit junto (inclusive os que conferem os bits contra o MiniSom).
   Ajustes: `rows` e `columns` (o padrão por Vesanto: 5 √n nós, a razão dos lados pelos dois primeiros autovalores do

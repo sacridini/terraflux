@@ -95,6 +95,105 @@ fn keep_of(args: &Args) -> Result<Keep> {
     }
 }
 
+/// The records a fit reads: the variables' names and values (a table's columns, or a stack's named layers), and the
+/// indices of the records the fit uses, those with every variable (and, with maps, in `cells`), all of them up to a
+/// million or a sample (`sample`, `seed`; said in a note).
+pub(super) struct Records {
+    pub names: Vec<String>,
+    pub columns: Vec<Arc<Vec<f64>>>,
+    pub idx: Vec<usize>,
+}
+
+/// The records of the node's `table` or `predictors` (and `cells`), and the sample of them to fit on.
+pub(super) fn records(ctx: &mut Ctx, args: &Args) -> Result<Records> {
+    // the variables: their names and values
+    let (names, columns): (Vec<String>, Vec<Arc<Vec<f64>>>) = match (args.get("table"), args.get("predictors")) {
+        (Some(_), Some(_)) => return Err(fail(args, "a table or maps (predictors), not both")),
+        (Some(Value::Table(t)), None) => {
+            if args.get("cells").is_some() {
+                return Err(fail(args, "cells goes with maps, not with a table"));
+            }
+            let names: Vec<String> = match args.opt_param::<Vec<String>>("columns")? {
+                Some(c) => c,
+                None => t.columns.iter().filter(|c| !t.is_text(c)).cloned().collect(),
+            };
+            if names.is_empty() {
+                return Err(fail(args, "the table has no numeric column"));
+            }
+            let mut columns = Vec::new();
+            for n in &names {
+                columns
+                    .push(Arc::new(t.column(n).ok_or_else(|| fail(args, format!("the table has no column {n:?}")))?));
+            }
+            (names, columns)
+        }
+        (Some(v), None) => return Err(fail(args, format!("table: a table, not a {:?}", v.ty()))),
+        (None, Some(_)) => {
+            let stack = args.stack("predictors")?;
+            let (names, layers): (Vec<String>, Vec<Arc<Vec<f64>>>) = stack
+                .keys
+                .iter()
+                .zip(&stack.layers)
+                .filter_map(|(k, l)| match k {
+                    Key::Name(n) => Some((n.clone(), l.clone())),
+                    _ => None,
+                })
+                .unzip();
+            if names.is_empty() {
+                return Err(fail(args, "the predictors' stack has no layer named by a variable"));
+            }
+            if layers.iter().any(|l| l.len() != stack.grid.cells()) {
+                return Err(fail(args, "the layers differ in size from the grid"));
+            }
+            (names, layers)
+        }
+        (None, None) => return Err(fail(args, "connect the records: a table, or maps (predictors)")),
+    };
+    if let Some(i) = (1..names.len()).find(|&i| names[..i].contains(&names[i])) {
+        return Err(fail(args, format!("the variable {:?} is twice", names[i])));
+    }
+    let n = columns[0].len();
+    // the records with every variable (and, with maps, in the cells)
+    let cells = args.opt_map("cells")?;
+    if cells.is_some_and(|c| c.data.len() != n) {
+        return Err(fail(args, "cells differs in size from the predictors"));
+    }
+    let complete: Vec<usize> = (0..n)
+        .filter(|&i| {
+            columns.iter().all(|c| !c[i].is_nan()) && cells.is_none_or(|c| !c.data[i].is_nan() && c.data[i] != 0.0)
+        })
+        .collect();
+    let total = complete.len();
+    if total == 0 {
+        return Err(fail(args, "no record has every variable"));
+    }
+    // the sample: numpy's draw, sorted (all of them up to a million by default)
+    let want = match args.opt_param::<f64>("sample")? {
+        Some(s) if !s.is_finite() || s <= 0.0 => {
+            return Err(fail(args, format!("sample {s}: a number of records (1 or more) or a share (below 1)")));
+        }
+        Some(s) => sample_size(s, total),
+        None => total.min(FIT_RECORDS),
+    };
+    if want == 0 {
+        return Err(fail(args, "the sample holds no record"));
+    }
+    let idx: Vec<usize> = if want < total {
+        let seed: u64 = args.param("seed", 1)?;
+        let mut pick = NumpyRng::new(seed).choice_distinct(total, want);
+        pick.sort_unstable();
+        ctx.warn(format!(
+            "node {:?}: fitted on a sample of {want} of the {total} records with every variable (seed {seed}; \
+             the setting sample)",
+            args.node
+        ));
+        pick.into_iter().map(|k| complete[k]).collect()
+    } else {
+        complete
+    };
+    Ok(Records { names, columns, idx })
+}
+
 impl Operator for Components {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
@@ -153,92 +252,7 @@ impl Operator for Components {
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let standardise: bool = args.param("standardise", true)?;
         let keep = keep_of(args)?;
-        // the variables: their names and values
-        let (names, columns): (Vec<String>, Vec<Arc<Vec<f64>>>) = match (args.get("table"), args.get("predictors")) {
-            (Some(_), Some(_)) => return Err(fail(args, "a table or maps (predictors), not both")),
-            (Some(Value::Table(t)), None) => {
-                if args.get("cells").is_some() {
-                    return Err(fail(args, "cells goes with maps, not with a table"));
-                }
-                let names: Vec<String> = match args.opt_param::<Vec<String>>("columns")? {
-                    Some(c) => c,
-                    None => t.columns.iter().filter(|c| !t.is_text(c)).cloned().collect(),
-                };
-                if names.is_empty() {
-                    return Err(fail(args, "the table has no numeric column"));
-                }
-                let mut columns = Vec::new();
-                for n in &names {
-                    columns.push(Arc::new(
-                        t.column(n).ok_or_else(|| fail(args, format!("the table has no column {n:?}")))?,
-                    ));
-                }
-                (names, columns)
-            }
-            (Some(v), None) => return Err(fail(args, format!("table: a table, not a {:?}", v.ty()))),
-            (None, Some(_)) => {
-                let stack = args.stack("predictors")?;
-                let (names, layers): (Vec<String>, Vec<Arc<Vec<f64>>>) = stack
-                    .keys
-                    .iter()
-                    .zip(&stack.layers)
-                    .filter_map(|(k, l)| match k {
-                        Key::Name(n) => Some((n.clone(), l.clone())),
-                        _ => None,
-                    })
-                    .unzip();
-                if names.is_empty() {
-                    return Err(fail(args, "the predictors' stack has no layer named by a variable"));
-                }
-                if layers.iter().any(|l| l.len() != stack.grid.cells()) {
-                    return Err(fail(args, "the layers differ in size from the grid"));
-                }
-                (names, layers)
-            }
-            (None, None) => return Err(fail(args, "connect the records: a table, or maps (predictors)")),
-        };
-        if let Some(i) = (1..names.len()).find(|&i| names[..i].contains(&names[i])) {
-            return Err(fail(args, format!("the variable {:?} is twice", names[i])));
-        }
-        let n = columns[0].len();
-        // the records with every variable (and, with maps, in the cells)
-        let cells = args.opt_map("cells")?;
-        if cells.is_some_and(|c| c.data.len() != n) {
-            return Err(fail(args, "cells differs in size from the predictors"));
-        }
-        let complete: Vec<usize> = (0..n)
-            .filter(|&i| {
-                columns.iter().all(|c| !c[i].is_nan()) && cells.is_none_or(|c| !c.data[i].is_nan() && c.data[i] != 0.0)
-            })
-            .collect();
-        let total = complete.len();
-        if total == 0 {
-            return Err(fail(args, "no record has every variable"));
-        }
-        // the sample: numpy's draw, sorted (all of them up to a million by default)
-        let want = match args.opt_param::<f64>("sample")? {
-            Some(s) if !s.is_finite() || s <= 0.0 => {
-                return Err(fail(args, format!("sample {s}: a number of records (1 or more) or a share (below 1)")));
-            }
-            Some(s) => sample_size(s, total),
-            None => total.min(FIT_RECORDS),
-        };
-        if want == 0 {
-            return Err(fail(args, "the sample holds no record"));
-        }
-        let idx: Vec<usize> = if want < total {
-            let seed: u64 = args.param("seed", 1)?;
-            let mut pick = NumpyRng::new(seed).choice_distinct(total, want);
-            pick.sort_unstable();
-            ctx.warn(format!(
-                "node {:?}: fitted on a sample of {want} of the {total} records with every variable (seed {seed}; \
-                 the setting sample)",
-                args.node
-            ));
-            pick.into_iter().map(|k| complete[k]).collect()
-        } else {
-            complete
-        };
+        let Records { names, columns, idx } = records(ctx, args)?;
         let used: Vec<Vec<f64>> = columns.iter().map(|c| idx.iter().map(|&i| c[i]).collect()).collect();
         let p = pca::fit(names.clone(), &used, standardise, keep).map_err(|e| fail(args, e))?;
         // the tables
