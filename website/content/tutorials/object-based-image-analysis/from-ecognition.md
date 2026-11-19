@@ -6,7 +6,7 @@ order: 20
 level: intermediate
 time: 30 min
 template: Classify an image by rules
-ops: [segment.multiresolution, segment.scale, objects.features, objects.calc, objects.rules, objects.nearest, objects.merge, objects.grow, objects.remove_small, objects.sample, objects.accuracy, objects.to_vector]
+ops: [segment.multiresolution, segment.scale, segment.optimize, objects.features, objects.calc, objects.rules, objects.nearest, objects.merge, objects.grow, objects.remove_small, objects.sample, objects.accuracy, objects.to_vector]
 ---
 
 If you have built rule sets in Trimble eCognition, you already know object-based image analysis: segment an image,
@@ -34,6 +34,7 @@ before it gives.
 | Multi-threshold segmentation | [[segment.threshold]] (`thresholds`, or `classes` for multi-level Otsu; `band`) |
 | Other segmentations | [[segment.slic]], [[segment.snic]], [[segment.felzenszwalb]], [[segment.watershed]], [[segment.meanshift]], [[segment.region_growing]] (GRASS `i.segment`), [[segment.quickshift]]; objects made elsewhere: [[segment.from_vector]], [[segment.from_map]] |
 | ESP tool (estimation of scale parameter) | [[segment.scale]]; and [[segment.multiresolution]] with no `scale` takes its first suggestion |
+| Trying scales and judging the result (USPO, of Espindola et al.) | [[segment.optimize]]: runs a segmenter at a list of values of one setting and keeps the one whose objects are the most homogeneous and the most unlike their neighbours |
 | Image object level | Objects that have a **parent**: [[segment.multiresolution]] with `from` (the level below becomes the start regions) and [[objects.merge]] with `level` make a level above; `below` outputs hold the level beneath |
 | Level, parent and child, super- and sub-objects | The Viewer: select an object and press ++p++ (its parent), ++c++ (its children), ++n++ (its neighbours); in [[objects.calc]] `parent.x` and, with `below`, `children.count(...)`, `children.area(...)`, `children.mean(...)` |
 | Features (object, relational) | [[objects.features]] (groups `spectral`, `shape`, `texture`, `context`, or `all`); the context in [[objects.calc]]: `nb.mean(x)`, `nb.count(cond)`, `border_to("water")`, `distance_to("road")` |
@@ -109,7 +110,8 @@ inputs = { objects = "same.objects" }
 
 1. **Segment.** [[segment.multiresolution]] takes `scale`, `shape` and `compactness` as eCognition does; `shape = 0.1`
    and `compactness = 0.5` are the usual start. Left without `scale`, it takes the first one [[segment.scale]]
-   suggests for the image.
+   suggests for the image; [[segment.optimize]] goes further and scores the objects of each scale in a list
+   (the variance inside them and Moran's I between them) and keeps the best.
 2. **Measure.** [[objects.features]] with `features = ["mean", "ndvi", "ndwi"]`: only what the rules read. NDVI and
    NDWI are found from the bands named `red`, `nir` and `green`.
 3. **Classify.** [[objects.rules]]. Each class has a `rule`, a membership from 0 to 1. `above(ndwi, 0, 0.2)` is 0 up
@@ -165,6 +167,11 @@ attributes you choose, in standard deviations, turned into a membership by `slop
 - Drăguţ, L., Tiede, D., & Levick, S. R. (2010). ESP: a tool to estimate scale parameter for multiresolution image
   segmentation of remotely sensed data. *International Journal of Geographical Information Science*, 24(6), 859-871.
   https://doi.org/10.1080/13658810903174803
+- Espindola, G. M., Câmara, G., Reis, I. A., Bins, L. S., & Monteiro, A. M. (2006). Parameter selection for
+  region-growing image segmentation algorithms using spatial autocorrelation. *International Journal of Remote
+  Sensing*, 27(14), 3035-3040.
+- Johnson, B., & Xie, Z. (2011). Unsupervised image segmentation evaluation and refinement using a multi-scale
+  approach. *ISPRS Journal of Photogrammetry and Remote Sensing*, 66(4), 473-483.
 - Olofsson, P., Foody, G. M., Herold, M., Stehman, S. V., Woodcock, C. E., & Wulder, M. A. (2014). Good practices for
   estimating area and assessing accuracy of land change. *Remote Sensing of Environment*, 148, 42-57.
   https://doi.org/10.1016/j.rse.2014.02.015

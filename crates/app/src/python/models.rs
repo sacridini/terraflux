@@ -52,7 +52,7 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
         "segment.from_map" | "segment.chessboard" | "segment.quadtree" | "segment.from_vector" | "objects.to_map"
         | "objects.to_vector" | "segment.multiresolution" | "segment.slic" | "segment.snic" | "segment.felzenszwalb"
         | "segment.watershed" | "segment.meanshift" | "segment.threshold" | "segment.spectral_difference" | "segment.region_growing" | "segment.quickshift"
-        | "segment.scale" | "objects.features"
+        | "segment.scale" | "segment.optimize" | "objects.features"
         | "objects.samples" | "objects.classify" | "objects.calc"
         | "objects.rules" | "objects.nearest" | "objects.resolve" | "objects.temporal" | "objects.transition_matrix"
         | "segment.sam" | "objects.embed" | "objects.accuracy" | "objects.sample" | "objects.merge" | "objects.grow"

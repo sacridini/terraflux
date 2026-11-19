@@ -670,6 +670,18 @@ pub const TIPS: &[(&str, &str)] = &[
          to look closer at a range of scales.",
     ),
     (
+        "segment.optimize",
+        "USPO: it runs a segmenter at each value you give (`values`, or `from`, `to` and `step`) and scores each \
+         result by the variance inside its objects (low: homogeneous objects) and Moran's I of the objects' means \
+         over the objects that touch (low: neighbours that differ), both scaled over the runs; the highest sum \
+         wins (`objective` f takes the F-measure of Johnson and Xie, `alpha` weighing the variance). Too fine \
+         a segmentation is alike its neighbours and too coarse a one is not homogeneous, so the best lies between. \
+         The segmenter is `segmenter` (multiresolution by default) and the setting varied is `parameter` (scale, \
+         threshold, size... by segmenter); its other settings go in `params`, an object. Look at the table of \
+         `scores` and at the objects, as for segment.scale: the score is a guide. The runs go in parallel, so \
+         try a range of 5 to 10 values on a part of a large image first.",
+    ),
+    (
         "objects.features",
         "`basic` (the default) is the usual start: the mean and standard deviation of each band, NDVI when the \
          red and near infrared bands are found, the area and the compactness. Ask for more by name, or `all` for \

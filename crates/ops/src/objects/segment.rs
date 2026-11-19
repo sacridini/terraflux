@@ -22,6 +22,7 @@ pub fn register(r: &mut Registry) {
     super::quickshift::register(r);
     super::meanshift::register(r);
     r.add(Arc::new(super::esp::Scale));
+    super::optimize::register(r);
 }
 
 /// A table of id, cells and area for objects, set on them: the objects and the table as outputs.

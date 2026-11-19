@@ -3331,3 +3331,164 @@ fn quickshift_checks_its_settings() {
     }
     assert!(quick(Value::Number(1.0), serde_json::json!({})).is_err());
 }
+
+fn optimize(image: Value, params: serde_json::Value) -> terraflux_ops::Result<Outputs> {
+    run("segment.optimize", vec![("image", image)], params)
+}
+
+fn scores_of(out: &Outputs) -> Table {
+    let Value::Table(t) = &out["scores"] else { panic!("scores") };
+    t.clone()
+}
+
+fn value_of(out: &Outputs) -> f64 {
+    let Value::Number(x) = &out["value"] else { panic!("value") };
+    *x
+}
+
+/// The lowest and highest of the numbers that are finite.
+fn range_of(x: &[f64]) -> (f64, f64) {
+    let g = x.iter().copied().filter(|y| y.is_finite());
+    (g.clone().fold(f64::INFINITY, f64::min), g.fold(f64::NEG_INFINITY, f64::max))
+}
+
+#[test]
+fn optimize_scores_the_runs_by_hand() {
+    // 4 x 2 cells, one band: size 2 makes two objects {1 3 1 3} and {5 9 5 9}, size 4 one object
+    let image = Value::Map(map(4, 2, vec![1.0, 3.0, 5.0, 9.0, 1.0, 3.0, 5.0, 9.0]));
+    let out = optimize(
+        image,
+        serde_json::json!({ "segmenter": "segment.chessboard", "parameter": "size", "values": [2, 4] }),
+    )
+    .unwrap();
+    let s = scores_of(&out);
+    assert_eq!(s.columns, ["value", "objects", "variance", "moran", "objective"]);
+    assert_eq!(col(&s, "value"), [2.0, 4.0]);
+    assert_eq!(col(&s, "objects"), [2.0, 1.0]);
+    // the variances 1 and 4 over four cells each; the means 2 and 7 that touch: Moran's I is -1
+    assert_eq!(s.rows[0][2], 2.5);
+    assert!((s.rows[0][3] + 1.0).abs() < 1e-12);
+    // one object: the variance of the eight values, no Moran's I
+    assert!((s.rows[1][2] - 8.75).abs() < 1e-12);
+    assert!(s.rows[1][3].is_nan() && s.rows[1][4].is_nan());
+    // only one run has scores: it is the best
+    assert_eq!(value_of(&out), 2.0);
+    assert_eq!(objects_of(&out).count, 2);
+    assert_eq!(table_of(&out).columns, ["id", "cells", "area"]);
+}
+
+#[test]
+fn optimize_picks_the_scale_that_finds_the_four_areas() {
+    let image = quadrants(48, 48, 2, 3.0, 5);
+    let values = [2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 400.0, 1000.0];
+    let out = optimize(image.clone(), serde_json::json!({ "values": values, "params": { "shape": 0.1 } })).unwrap();
+    let s = scores_of(&out);
+    assert_eq!(s.rows.len(), values.len());
+    assert_eq!(col(&s, "value"), values);
+    let objects = col(&s, "objects");
+    assert!(objects[0] > 100.0, "the finest scale over-segments: {objects:?}");
+    assert_eq!(*objects.last().unwrap(), 1.0);
+    assert_eq!(objects_of(&out).count, 4, "{s:?}");
+    // the objects are those of a run of the segmenter at the chosen value
+    let alone = multires(image, serde_json::json!({ "scale": value_of(&out), "shape": 0.1 }));
+    assert_eq!(objects_of(&out).labels, objects_of(&alone).labels);
+    assert_eq!(table_of(&out).rows, table_of(&alone).rows);
+    // the best has the highest objective
+    let obj = col(&s, "objective");
+    let at = col(&s, "value").iter().position(|&v| v == value_of(&out)).unwrap();
+    assert!(obj.iter().filter(|x| !x.is_nan()).all(|&x| x <= obj[at]));
+}
+
+#[test]
+fn optimize_f_measure_and_the_range_of_values() {
+    let image = quadrants(40, 40, 1, 3.0, 9);
+    let a = optimize(image.clone(), serde_json::json!({ "from": 10, "to": 70, "step": 20 })).unwrap();
+    let b = optimize(image.clone(), serde_json::json!({ "values": [10, 30, 50, 70] })).unwrap();
+    assert_eq!(scores_of(&a).rows.len(), 4);
+    for (x, y) in scores_of(&a).rows.iter().zip(&scores_of(&b).rows) {
+        assert!(same(x, y));
+    }
+    assert_eq!(col(&scores_of(&a), "value"), [10.0, 30.0, 50.0, 70.0]);
+    let f = optimize(image, serde_json::json!({ "values": [5, 10, 30, 50, 90], "objective": "f", "alpha": 2 })).unwrap();
+    let s = scores_of(&f);
+    let (v, m, obj) = (col(&s, "variance"), col(&s, "moran"), col(&s, "objective"));
+    let ((lo, hi), (mlo, mhi)) = (range_of(&v), range_of(&m));
+    for k in 0..v.len() {
+        if m[k].is_nan() {
+            assert!(obj[k].is_nan());
+            continue;
+        }
+        let (sv, sm) = ((hi - v[k]) / (hi - lo), (mhi - m[k]) / (mhi - mlo));
+        let want = if 4.0 * sm + sv > 0.0 { 5.0 * sv * sm / (4.0 * sm + sv) } else { 0.0 };
+        assert!((obj[k] - want).abs() < 1e-12, "{k}: {} {want}", obj[k]);
+    }
+}
+
+#[test]
+fn optimize_runs_other_segmenters_and_keeps_their_fixed_settings() {
+    let image = quadrants(40, 40, 2, 3.0, 2);
+    let out = optimize(image.clone(), serde_json::json!({ "segmenter": "segment.slic", "values": [4, 8, 16] })).unwrap();
+    assert_eq!(col(&scores_of(&out), "value"), [4.0, 8.0, 16.0]);
+    let alone = run("segment.slic", vec![("image", image.clone())], serde_json::json!({ "size": value_of(&out) as i64 })).unwrap();
+    assert_eq!(objects_of(&out).labels, objects_of(&alone).labels);
+    let out = optimize(
+        image.clone(),
+        serde_json::json!({ "segmenter": "segment.slic", "values": [8], "params": { "compactness": 5 } }),
+    )
+    .unwrap();
+    let alone = run("segment.slic", vec![("image", image)], serde_json::json!({ "size": 8, "compactness": 5 })).unwrap();
+    assert_eq!(objects_of(&out).labels, objects_of(&alone).labels);
+}
+
+#[test]
+fn optimize_is_the_same_on_one_thread_and_eight() {
+    let image = quadrants(70, 50, 3, 4.0, 3);
+    for p in [
+        serde_json::json!({ "values": [3, 6, 12, 25, 50, 100, 300] }),
+        serde_json::json!({ "values": [3, 6, 12, 25, 50, 100, 300], "objective": "f" }),
+        serde_json::json!({ "segmenter": "segment.region_growing", "values": [0.02, 0.05, 0.1, 0.3] }),
+    ] {
+        let a = run_on(1, "segment.optimize", vec![("image", image.clone())], p.clone());
+        let b = run_on(8, "segment.optimize", vec![("image", image.clone())], p.clone());
+        assert_eq!(scores_of(&a).rows.len(), scores_of(&b).rows.len());
+        for (x, y) in scores_of(&a).rows.iter().zip(&scores_of(&b).rows) {
+            assert!(same(x, y), "{p}: {x:?} {y:?}");
+        }
+        assert_eq!(value_of(&a), value_of(&b), "{p}");
+        assert_eq!(objects_of(&a).labels, objects_of(&b).labels, "{p}");
+    }
+}
+
+#[test]
+fn optimize_checks_its_settings() {
+    let image = quadrants(16, 16, 1, 3.0, 1);
+    for p in [
+        serde_json::json!({}),
+        serde_json::json!({ "values": [] }),
+        serde_json::json!({ "values": "a" }),
+        serde_json::json!({ "values": [10, "x"] }),
+        serde_json::json!({ "values": [10, 20], "from": 1, "to": 5, "step": 1 }),
+        serde_json::json!({ "from": 1, "to": 5 }),
+        serde_json::json!({ "from": 5, "to": 1, "step": 1 }),
+        serde_json::json!({ "from": 1, "to": 5, "step": 0 }),
+        serde_json::json!({ "from": 1, "to": 5000, "step": 1 }),
+        serde_json::json!({ "values": [10], "segmenter": "segment.nothing" }),
+        serde_json::json!({ "values": [10], "segmenter": "segment.optimize" }),
+        serde_json::json!({ "values": [10], "segmenter": "segment.from_map", "parameter": "neighbours" }),
+        serde_json::json!({ "values": [10], "segmenter": "raster.read" }),
+        serde_json::json!({ "values": [10], "segmenter": "segment.threshold" }),
+        serde_json::json!({ "values": [10], "parameter": "nothing" }),
+        serde_json::json!({ "values": [10], "params": [1] }),
+        serde_json::json!({ "values": [10], "params": { "scale": 20 } }),
+        serde_json::json!({ "values": [10], "objective": "g" }),
+        serde_json::json!({ "values": [10], "objective": "f", "alpha": 0 }),
+        serde_json::json!({ "values": [-10] }),
+        serde_json::json!({ "values": [10], "params": { "shape": 5 } }),
+    ] {
+        assert!(optimize(image.clone(), p.clone()).is_err(), "{p}");
+    }
+    assert!(optimize(Value::Number(1.0), serde_json::json!({ "values": [10] })).is_err());
+    // one object for every value: no score to choose by
+    let flat = Value::Map(map(8, 8, vec![1.0; 64]));
+    assert!(optimize(flat, serde_json::json!({ "values": [10, 20] })).is_err());
+}

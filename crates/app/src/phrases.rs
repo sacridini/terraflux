@@ -909,6 +909,10 @@ const PHRASES: &[(&str, &str)] = &[
         "The scales worth trying in a multiresolution segmentation of <image>, by ESP[ from {start}][ in steps of {step}].",
     ),
     (
+        "segment.optimize",
+        "<image> segmented by {segmenter} at the values of {parameter} tried, the best by the intra-object variance and Moran's I[ ({objective} objective)].",
+    ),
+    (
         "objects.features",
         "The attributes {features} of the objects of <objects>, from <image>[ and the layers of <more>].",
     ),

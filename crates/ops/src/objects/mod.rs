@@ -24,6 +24,7 @@ mod levels;
 mod meanshift;
 mod multiresolution;
 pub mod onnx;
+mod optimize;
 mod quickshift;
 mod resolve;
 mod rows;

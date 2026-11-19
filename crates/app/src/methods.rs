@@ -301,6 +301,30 @@ pub const REFERENCES: &[Reference] = &[
         "10.1016/j.isprsjprs.2013.11.018"
     ),
     paper!(
+        "espindola2006",
+        ["Espindola, G. M.", "Câmara, G.", "Reis, I. A.", "Bins, L. S.", "Monteiro, A. M."],
+        false,
+        2006,
+        "Parameter selection for region-growing image segmentation algorithms using spatial autocorrelation",
+        "International Journal of Remote Sensing",
+        "27",
+        "14",
+        "3035–3040",
+        "10.1080/01431160600617194"
+    ),
+    paper!(
+        "johnson2011",
+        ["Johnson, B.", "Xie, Z."],
+        false,
+        2011,
+        "Unsupervised image segmentation evaluation and refinement using a multi-scale approach",
+        "ISPRS Journal of Photogrammetry and Remote Sensing",
+        "66",
+        "4",
+        "473–483",
+        "10.1016/j.isprsjprs.2011.02.006"
+    ),
+    paper!(
         "felzenszwalb2004",
         ["Felzenszwalb, P. F.", "Huttenlocher, D. P."],
         false,
@@ -1097,6 +1121,13 @@ pub const METHODS: &[Method] = &[
         software_refs: &[],
     },
     Method {
+        ops: &["segment.optimize"],
+        name: "unsupervised optimisation of a segmentation's parameter (intra-object variance and Moran's I)",
+        refs: &["espindola2006", "johnson2011"],
+        software: "",
+        software_refs: &[],
+    },
+    Method {
         ops: &["objects.rules"],
         name: "classification of objects by a hierarchy of fuzzy rules",
         refs: &["zadeh1965", "benz2004"],
@@ -1582,6 +1613,7 @@ mod tests {
         assert_eq!(method_of("prioritize.actions_raster").unwrap().refs, &["salgadorojas2020"]);
         assert_eq!(method_of("segment.watershed").unwrap().refs, &["vincent1991", "neubert2014"]);
         assert_eq!(method_of("segment.scale").unwrap().refs, &["dragut2010", "dragut2014"]);
+        assert_eq!(method_of("segment.optimize").unwrap().refs, &["espindola2006", "johnson2011"]);
         assert!(method_of("raster.reclassify").is_none());
     }
 

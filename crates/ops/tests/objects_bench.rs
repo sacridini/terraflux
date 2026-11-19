@@ -110,6 +110,7 @@ fn objects_bench() {
         ("segment.region_growing", "t0.05-n8-manh", serde_json::json!({ "threshold": 0.05, "neighbours": 8, "similarity": "manhattan" })),
         ("segment.quickshift", "default", serde_json::json!({ "ratio": 10 })),
         ("segment.quickshift", "k3-d8", serde_json::json!({ "ratio": 10, "kernel_size": 3, "max_dist": 8 })),
+        ("segment.optimize", "ms-5-scales", serde_json::json!({ "values": [10, 20, 30, 40, 50] })),
     ];
     println!("\n{:<26} {:<16} {:<10} {:>7} {:>10} {:>9} {:>18}", "segmenter", "variant", "image", "threads", "seconds", "objects", "hash");
     let list = |k: &str, d: &str| -> Vec<usize> {

@@ -4339,6 +4339,13 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    milhão de objetos), contra 11 s do multiresolution. Uma região grande, com dezenas de milhares de vizinhos, funde
    um por passada, por milhares de passadas. Ideias: por tiles como o multiresolution (os mesmos tiles e a costura), ou
    deixar uma região fundir mais de uma vez por passada (outra semântica, a medir na qualidade).
+   **Feito, a terceira parte**: `segment.optimize` (o USPO de Espindola et al. 2006, como o `i.segment.uspo` do
+   GRASS): qualquer `segment.*` que toma uma imagem roda em cada valor de um ajuste, em paralelo (em ondas que cabem
+   em `TILES_BYTES`), e cada resultado é pontuado pela variância dentro dos objetos (pesada pelas células) e pelo I de
+   Moran das médias entre objetos vizinhos, as duas escaladas entre as rodadas; vence a maior soma, ou o F de Johnson
+   & Xie (2011) com `alpha` (a fórmula do `i.segment.uspo`: α acima de 1 pesa mais a variância). Só as rodadas não
+   dominadas guardam os objetos. Multiresolution em 5 escalas, 1000²: 10,2 s com 1 thread, 3,0 s com 8. Ficam de
+   fora os perfis morfológicos do OTB (não são um segmentador; um operador de raster, se for pedido).
 7. ~~Tudo no terraflux-py~~: desistido (2026-11-19, o usuário: o OBIA fica só no aplicativo). O `python_script`
    continua avisando que esses nós não têm equivalente no terraflux-py.
 8. **A segmentação o mais rápida possível, num núcleo e em paralelo** (pedido de 2026-11-19: um dos objetivos

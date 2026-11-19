@@ -294,7 +294,9 @@ segment.meanshift, segment.chessboard and segment.quadtree (the simplest), segme
 thresholds, or by multi-level Otsu); segment.spectral_difference merges the neighbours of an over-segmentation \
 whose means are close; segment.region_growing (the region growing of GRASS i.segment, with seeds and \
 bounds optional) and segment.quickshift (modes of the density in colour and position); segment.from_map and \
-segment.from_vector bring objects made elsewhere (a map of classes or labels, polygons).
+segment.from_vector bring objects made elsewhere (a map of classes or labels, polygons). segment.optimize \
+runs a segmenter at a range of values of one setting and keeps the best by the variance inside the objects and \
+Moran's I (USPO), the table of scores beside it.
 3. Describe: objects.features with the image (and `more`: a height model, another date, a class map). `basic` (the \
 default) is the mean and the standard deviation of each band, NDVI, the area, the compactness and the texture's \
 homogeneity; ask for groups (spectral, shape, texture, context) or `all` when the rules need them. A layer given \
