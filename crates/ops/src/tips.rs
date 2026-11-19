@@ -644,6 +644,20 @@ pub const TIPS: &[(&str, &str)] = &[
          raster.match first).",
     ),
     (
+        "segment.sam",
+        "Optional: it needs ONNX Runtime (pip install onnxruntime, then set ORT_DYLIB_PATH to its shared library) \
+         and the ONNX files of SAM's encoder and decoder, which do not come with Terraflux. It is slow on a CPU: \
+         one encoder run per 1024 x 1024 tile and one decoder run per prompt point, so start with `points` 8 on a \
+         small area. Give three bands as red, green and blue; raise `iou` for fewer, surer masks.",
+    ),
+    (
+        "objects.embed",
+        "Optional: it needs ONNX Runtime (pip install onnxruntime, then set ORT_DYLIB_PATH) and the ONNX encoder of \
+         a foundation model, which do not come with Terraflux. `patch` and `bands` must be what the model takes \
+         (its input is 1 x bands x patch x patch). The emb_ columns are for a classifier or a clustering of the \
+         objects, alone or with the objects.features columns.",
+    ),
+    (
         "objects.to_vector",
         "The polygons follow the cell edges exactly (stairs); `smooth` cuts their corners that many times (1 to 3 \
          is enough to look natural) and shrinks them a little at each corner, so keep 0 when the polygons are \

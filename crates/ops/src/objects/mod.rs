@@ -12,12 +12,14 @@ use crate::{Args, Error, Registry, Result, Table, Value};
 mod calc;
 mod classify;
 mod convert;
+pub mod deep;
 mod esp;
 mod features;
 mod meanshift;
 mod multiresolution;
 mod rules;
 mod resolve;
+pub mod onnx;
 mod segment;
 mod store;
 mod superpixels;
@@ -36,6 +38,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(features::Features));
     resolve::register(r);
     temporal::register(r);
+    deep::register(r);
 }
 
 /// The region of a cell that is in none ([`Objects::from_regions`]).
