@@ -4028,7 +4028,7 @@
  },
  {
   "name": "conn.eca_change",
-  "doc": "The change of the equivalent connected area (ECA) from graph to graph, e.g. the habitat of several              years (Makurhini's MK_dECA): per distance and graph the habitat's area, ECA (of PC or IIC), ECA              against the landscape's area and the habitat's, the changes of area and ECA (%; the first against              the landscape's area) and their ratio, and how they compare (dECA < dA < 0: connectivity loss...).",
+  "doc": "The change of the equivalent connected area (ECA) from graph to graph, e.g. the habitat of several years (Makurhini's MK_dECA): per distance and graph the habitat's area, ECA (of PC or IIC), ECA against the landscape's area and the habitat's, the changes of area and ECA (%; the first against the landscape's area) and their ratio, and how they compare (dECA < dA < 0: connectivity loss...).",
   "inputs": [
    {
     "name": "graphs",
@@ -6829,7 +6829,7 @@
     "name": "area",
     "type": "vector",
     "required": false,
-    "doc": "polygons to cut the data to (an area drawn): no data outside them; without like and extent, the grid              spans them"
+    "doc": "polygons to cut the data to (an area drawn): no data outside them; without like and extent, the grid spans them"
    }
   ],
   "outputs": [
@@ -13214,6 +13214,115 @@
   "container": false
  },
  {
+  "name": "ml.kmeans",
+  "doc": "The clusters of some variables by k-means (Lloyd 1982) from the greedy k-means++ start of scikit-learn (Arthur & Vassilvitskii 2007), the best of `n_init` runs: from a table's records, or the cells of a stack (a layer per variable; `cells` the cells to use) that have every variable; above a million records the fit uses a sample (said in a note). Each variable is divided by its standard deviation first (`standardise`, the default, right for variables in different units). `k` is a number, a list (each tried: inertia, silhouette on a sample of at most 10 000 records and Calinski-Harabasz index, the best silhouette kept) or \"auto\" (2 to 10, the default). The clusters are numbered from 1 by the first principal component of their centres, the same numbers from one run to the next. The model gives other data the nearest centre with ml.predict, from the means and scales of the fit. A record with a variable none has no cluster.",
+  "inputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": false,
+    "doc": "the records: a column per variable"
+   },
+   {
+    "name": "predictors",
+    "type": "stack",
+    "required": false,
+    "doc": "or maps: a layer per variable (stack.of)"
+   },
+   {
+    "name": "cells",
+    "type": "map",
+    "required": false,
+    "doc": "with maps: the cells to fit on (non-zero; default all)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "clusters",
+    "type": "map",
+    "required": false,
+    "doc": "with maps: the cluster of each cell (1 to k)"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": false,
+    "doc": "with a table: its columns, then the cluster of each row"
+   },
+   {
+    "name": "centres",
+    "type": "table",
+    "required": true,
+    "doc": "a row per cluster: cluster, size (its records), inertia (their squared distance to the centre, in the fit's units: standardised unless standardise is false) and the centre's value of each variable, in the variable's own units"
+   },
+   {
+    "name": "choice",
+    "type": "table",
+    "required": true,
+    "doc": "a row per k tried: k, records (those it was fitted on), inertia, silhouette and calinski_harabasz"
+   },
+   {
+    "name": "model",
+    "type": "ml_model",
+    "required": true,
+    "doc": "the centres, means and scales, for ml.predict on other data"
+   }
+  ],
+  "params": [
+   {
+    "name": "k",
+    "type": "any",
+    "required": false,
+    "doc": "the clusters: a number, a list of numbers to choose among by the best silhouette, or \"auto\" (2 to 10; default)"
+   },
+   {
+    "name": "n_init",
+    "type": "integer",
+    "required": false,
+    "doc": "runs from different starts, the least inertia kept (default 10)"
+   },
+   {
+    "name": "max_iter",
+    "type": "integer",
+    "required": false,
+    "doc": "iterations of a run at most (default 300)"
+   },
+   {
+    "name": "tol",
+    "type": "number",
+    "required": false,
+    "doc": "a run stops when its centres move, in squared distance, less than this times the variables' mean variance (default 1e-4)"
+   },
+   {
+    "name": "standardise",
+    "type": "bool",
+    "required": false,
+    "doc": "true (default): each variable divided by its standard deviation; false: in its own units"
+   },
+   {
+    "name": "columns",
+    "type": "any",
+    "required": false,
+    "doc": "with a table: the variables' columns (default: all the numeric ones)"
+   },
+   {
+    "name": "sample",
+    "type": "number",
+    "required": false,
+    "doc": "the records to fit on: a number (1 or more) or a share (below 1) drawn at random (default all up to a million)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the sample's draw and of the starts (default 1)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Keep `standardise` on when the variables are in different units or ranges (a band in reflectance beside an elevation in metres), or the one with the largest numbers decides the clusters alone; turn it off for bands in the same unit. Without `k` the best silhouette from 2 to 10 is taken: look at the `choice` table, for a silhouette that is low for every k (below 0.25) says the records have no clear groups, and the clusters are then a way of cutting a continuum, not of finding classes. A `k` large for the records (a few hundred per cluster at least) makes clusters of a handful of records that change with the seed: give fewer, or more records (`sample`). The clusters are numbered by the first principal component of their centres, so a number means the same from one run to the next, and `ml.predict` with the model gives another image or date the nearest centre of this fit, not of the new data. A fit on very many cells uses a sample of a million (`sample` and `seed` to choose); every cell then has its cluster."
+ },
+ {
   "name": "ml.partial_dependence",
   "doc": "How a fitted model's prediction follows a predictor (scikit-learn's partial_dependence, its brute method): every record with the predictor set to each value of a grid (its distinct values when fewer than the grid's resolution, else from one percentile of it to another, as scipy's mquantiles), the predictions averaged: the value of a regressor, the probability of each class of a classifier (the second of two).",
   "inputs": [
@@ -13260,6 +13369,97 @@
   ],
   "access": "none",
   "container": false
+ },
+ {
+  "name": "ml.pca",
+  "doc": "The principal components of some variables (Pearson 1901, Hotelling 1933): the eigenvectors of their correlation (the default: each variable by its standard deviation, for variables in different units) or covariance, from one pass over the records of a table, or over the cells of a stack (a layer per variable; `cells` the cells to use) that have every variable; above a million records the fit uses a sample (said in a note). The scores are each record's coordinates on the components, from the mean and scale of the fit: the model scores other data with ml.predict. Each component's largest loading is positive, as scikit-learn's and metrics.pca's. A record with a variable none has no scores.",
+  "inputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": false,
+    "doc": "the records: a column per variable"
+   },
+   {
+    "name": "predictors",
+    "type": "stack",
+    "required": false,
+    "doc": "or maps: a layer per variable (stack.of)"
+   },
+   {
+    "name": "cells",
+    "type": "map",
+    "required": false,
+    "doc": "with maps: the cells to fit on (non-zero; default all)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "scores",
+    "type": "stack",
+    "required": false,
+    "doc": "with maps: a layer per component (pc1, pc2...)"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": false,
+    "doc": "with a table: its columns, then the scores (pc1, pc2...)"
+   },
+   {
+    "name": "loadings",
+    "type": "table",
+    "required": true,
+    "doc": "per component kept: its share of the variance (explained) and the loadings of the variables (as metrics.pca's, for the circle of correlations)"
+   },
+   {
+    "name": "explained",
+    "type": "table",
+    "required": true,
+    "doc": "per component, all of them: its variance, its share of the total and the cumulative share"
+   },
+   {
+    "name": "model",
+    "type": "ml_model",
+    "required": true,
+    "doc": "the PCA, for ml.predict on other data"
+   }
+  ],
+  "params": [
+   {
+    "name": "components",
+    "type": "number",
+    "required": false,
+    "doc": "the components kept: a number (1 or more) or the share of the variance they explain at least (below 1; default 0.95)"
+   },
+   {
+    "name": "standardise",
+    "type": "bool",
+    "required": false,
+    "doc": "true (default): the correlation, each variable divided by its standard deviation; false: the covariance"
+   },
+   {
+    "name": "columns",
+    "type": "any",
+    "required": false,
+    "doc": "with a table: the variables' columns (default: all the numeric ones)"
+   },
+   {
+    "name": "sample",
+    "type": "number",
+    "required": false,
+    "doc": "the records to fit on: a number (1 or more) or a share (below 1) drawn at random (default all up to a million)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the sample's draw (numpy's; default 1)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Keep `standardise` on (the correlation) when the variables are in different units or ranges (a band in reflectance beside an elevation in metres), or the one with the largest numbers is the first component alone; turn it off for bands in the same unit, where their spread is the information. The default keeps the components that explain 95% of the variance: if the first few explain little (the `explained` table, the cumulative column), the variables are nearly independent and a PCA will not reduce them. The scores of other maps or a later date come from `ml.predict` with the model, which uses the means of this fit, not of the new data, so the same change means the same numbers. For a very large stack the fit uses a sample of a million cells (`sample` and `seed` to choose)."
  },
  {
   "name": "ml.potential",
@@ -13439,7 +13639,7 @@
  },
  {
   "name": "ml.predict",
-  "doc": "A fitted model (ml.fit, ml.potential) on maps or on the rows of a table: the value, or the class of the largest probability (the first on ties, as scikit-learn's predict) and the probability of each class (a forest's predict_proba, or each class's potential). No value where a predictor has none.",
+  "doc": "A fitted model (ml.fit, ml.potential) on maps or on the rows of a table: the value, or the class of the largest probability (the first on ties, as scikit-learn's predict) and the probability of each class (a forest's predict_proba, or each class's potential). A PCA model (ml.pca) gives the scores of its components, from the means and scales of its fit, a k-means model (ml.kmeans) the cluster of the nearest centre (1 to k), and a map model (ml.som) the node of the nearest weights (row by row, from 1) and its group, by the same. No value where a predictor has none.",
   "inputs": [
    {
     "name": "model",
@@ -13465,7 +13665,19 @@
     "name": "map",
     "type": "map",
     "required": false,
-    "doc": "with maps: the value, or the class of the largest probability"
+    "doc": "with maps: the value, or the class of the largest probability, or a k-means model's cluster, or a map model's node"
+   },
+   {
+    "name": "groups",
+    "type": "map",
+    "required": false,
+    "doc": "with maps: a map model's group of each cell's node"
+   },
+   {
+    "name": "scores",
+    "type": "stack",
+    "required": false,
+    "doc": "a PCA's model with maps: a layer per component (pc1, pc2...)"
    },
    {
     "name": "probability",
@@ -13477,12 +13689,201 @@
     "name": "table",
     "type": "table",
     "required": false,
-    "doc": "with a table: its columns, then prediction and the probability of each class (p_<class>)"
+    "doc": "with a table: its columns, then prediction and the probability of each class (p_<class>), or a PCA's scores (pc1, pc2...), or a k-means model's cluster, or a map model's node (and group)"
    }
   ],
   "params": [],
   "access": "global",
   "container": false
+ },
+ {
+  "name": "ml.som",
+  "doc": "A self-organizing map (Kohonen 1982) of some variables: a grid of nodes, each with a weight per variable, trained so that records near each other fall on nodes near each other; from a table's records, or the cells of a stack (a layer per variable; `cells` the cells to use) that have every variable; above a million records the fit uses a sample (said in a note). The variables are divided by their standard deviation first (`standardise`, the default, right for variables in different units). Without `rows` and `cols` the grid has about 5 sqrt(n) nodes (Vesanto & Alhoniemi 2000), its sides in the ratio of the square roots of the first two eigenvalues of the variables' covariance (said in a note). `training` is batch (the default: all the records, then the weights) or online (a record at a time, in random order); the MiniSom algorithm, with a rectangular or hexagonal `topology`. `clusters` k above 0 groups the nodes in k groups by Ward's method (or k-means), numbered by the first principal component of their centres. Each record gets its node (the row-major number, from 1) and its group; the model gives other data the same with ml.predict, from the means and scales of the fit. A record with a variable none has no node.",
+  "inputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": false,
+    "doc": "the records: a column per variable"
+   },
+   {
+    "name": "predictors",
+    "type": "stack",
+    "required": false,
+    "doc": "or maps: a layer per variable (stack.of)"
+   },
+   {
+    "name": "cells",
+    "type": "map",
+    "required": false,
+    "doc": "with maps: the cells to fit on (non-zero; default all)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "nodes",
+    "type": "map",
+    "required": false,
+    "doc": "with maps: the node of each cell, from 1 (row by row)"
+   },
+   {
+    "name": "groups",
+    "type": "map",
+    "required": false,
+    "doc": "with maps and clusters: the group of each cell's node (1 to k)"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": false,
+    "doc": "with a table: its columns, then the node of each row (and its group, with clusters)"
+   },
+   {
+    "name": "codebook",
+    "type": "table",
+    "required": true,
+    "doc": "a row per node: node, row, column, count (its records), group (with clusters), umatrix (its mean distance, in the fit's units, to the nodes next to it), topology (rectangular or hexagonal) and its weight for each variable, in the variable's own units"
+   },
+   {
+    "name": "quality",
+    "type": "table",
+    "required": true,
+    "doc": "one row: records (those fitted), rows, columns, quantisation_error (their mean distance to their node, in the fit's units: standardised unless standardise is false), topographic_error (the share whose two nearest nodes are not next to each other) and empty_nodes"
+   },
+   {
+    "name": "model",
+    "type": "ml_model",
+    "required": true,
+    "doc": "the weights, means and scales, for ml.predict on other data"
+   }
+  ],
+  "params": [
+   {
+    "name": "rows",
+    "type": "integer",
+    "required": false,
+    "doc": "the rows of nodes (with cols; default by Vesanto's rule)"
+   },
+   {
+    "name": "cols",
+    "type": "integer",
+    "required": false,
+    "doc": "the nodes of a row (with rows)"
+   },
+   {
+    "name": "topology",
+    "type": "text",
+    "required": false,
+    "doc": "rectangular (default) or hexagonal (MiniSom's: every other row shifted half a node)",
+    "choices": [
+     "rectangular",
+     "hexagonal"
+    ]
+   },
+   {
+    "name": "neighbourhood",
+    "type": "text",
+    "required": false,
+    "doc": "how the winner draws its neighbours in: gaussian (default), bubble or triangle",
+    "choices": [
+     "gaussian",
+     "bubble",
+     "triangle"
+    ]
+   },
+   {
+    "name": "learning_rate",
+    "type": "number",
+    "required": false,
+    "doc": "the weights' step towards the records, shrinking by `decay` (default 1 for batch, 0.5 for online)"
+   },
+   {
+    "name": "sigma",
+    "type": "number",
+    "required": false,
+    "doc": "the neighbourhood's spread, in nodes, shrinking towards 1 (default half the longer side of the map)"
+   },
+   {
+    "name": "decay",
+    "type": "text",
+    "required": false,
+    "doc": "how the learning rate and sigma shrink: asymptotic (default; MiniSom's), inverse or linear",
+    "choices": [
+     "asymptotic",
+     "inverse",
+     "linear"
+    ]
+   },
+   {
+    "name": "training",
+    "type": "text",
+    "required": false,
+    "doc": "batch (default: Kohonen's batch algorithm, on all the threads) or online (a record at a time)",
+    "choices": [
+     "batch",
+     "online"
+    ]
+   },
+   {
+    "name": "iterations",
+    "type": "integer",
+    "required": false,
+    "doc": "batch: the iterations over all the records (default 50); online: the passes over them (default 5)"
+   },
+   {
+    "name": "init",
+    "type": "text",
+    "required": false,
+    "doc": "the weights before training: pca (default; spread on the first two principal components) or random (records drawn with the seed)",
+    "choices": [
+     "pca",
+     "random"
+    ]
+   },
+   {
+    "name": "clusters",
+    "type": "integer",
+    "required": false,
+    "doc": "0 (default): no groups; k above 0: the nodes grouped in k groups"
+   },
+   {
+    "name": "grouping",
+    "type": "text",
+    "required": false,
+    "doc": "with clusters: ward (default) or kmeans",
+    "choices": [
+     "ward",
+     "kmeans"
+    ]
+   },
+   {
+    "name": "standardise",
+    "type": "bool",
+    "required": false,
+    "doc": "true (default): each variable divided by its standard deviation; false: in its own units"
+   },
+   {
+    "name": "columns",
+    "type": "any",
+    "required": false,
+    "doc": "with a table: the variables' columns (default: all the numeric ones)"
+   },
+   {
+    "name": "sample",
+    "type": "number",
+    "required": false,
+    "doc": "the records to fit on: a number (1 or more) or a share (below 1) drawn at random (default all up to a million)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the sample's draw, of the random start and of the online order (default 1)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Keep `standardise` on when the variables are in different units or ranges, or the one with the largest numbers decides the map alone. The grid is about 5 sqrt(n) nodes (Vesanto's rule, said in the note): with fewer than a few records per node (the `count` of the `codebook`, the `empty_nodes` of `quality`) the nodes are filled by the neighbours and not by data, so give `rows` and `cols` for a smaller grid, or more records. A `topographic_error` high (above 0.3) says the map is folded: more `iterations`, or a larger `sigma`; the `quantisation_error` falls as the grid grows, so it only compares maps of the same size. The `umatrix` column of the `codebook` is large across the gap between two types of records, and small inside one: `clusters` k groups the nodes (Ward's method) and the groups are numbered by the first principal component of their centres, so the colours do not change between runs. `training` online takes a record at a time and is slow for very many cells: batch (the default) uses all the threads. `ml.predict` with the model gives another image or date the nearest node of this fit, not of the new data."
  },
  {
   "name": "molusce.step",
@@ -16663,7 +17064,7 @@
  },
  {
   "name": "objects.classify",
-  "doc": "Objects classed by a fitted model (ml.fit on the table of objects.samples, a forest or a gradient boosting): the model reads each object's attributes, matched by the names of its predictors, and gives the probability of each class; the object takes the class of the largest probability (the first on ties), or stays unclassified when that is under `min`. The probabilities are the objects' memberships; the margin (the largest minus the second largest) tells the objects the model is least sure of. The attributes must be those of the training: run objects.features with the same settings.",
+  "doc": "Objects classed by a fitted model (ml.fit on the table of objects.samples, a forest or a gradient boosting): the model reads each object's attributes, matched by the names of its predictors, and gives the probability of each class; the object takes the class of the largest probability (the first on ties), or stays unclassified when that is under `min`. The probabilities are the objects' memberships; the margin (the largest minus the second largest) tells the objects the model is least sure of. The attributes must be those of the training: run objects.features with the same settings. A model without labels, from ml.kmeans or ml.som fitted on the objects' table (`columns` naming the attributes, not id, cells or area), classes the objects without samples: each takes its cluster (\"cluster 1\"...), or the group of its attributes' node in a map with `clusters` (\"group 1\"...), or the node (\"node 1\"...); the probabilities are 1 for its class and 0 for the others.",
   "inputs": [
    {
     "name": "objects",
@@ -16715,6 +17116,61 @@
   "access": "global",
   "container": false,
   "advice": "The objects must carry the same attributes as those of the training: run objects.features with the same settings on the same image before. Pass the samples' table to name the classes. The margin (first minus second probability) is low where the model hesitates: look there for more samples. `min` leaves unclassified the objects whose best probability is under it."
+ },
+ {
+  "name": "objects.edit",
+  "doc": "Objects corrected by hand: merge, cut and delete, kept as a list of edits by places (coordinates on the objects' grid) and not by object numbers, so the same list finds its objects again when the segmentation above changes. `edits` is applied in order: { \"merge\": [[x, y], ...] } (the objects at the points become the first one's), { \"cut\": [[x, y], ...] } (a line of two points or more splits each object it crosses into the pieces left without its cells; each cell of the line goes to a piece next to it) and { \"delete\": [x, y], \"into\": \"none\" | \"neighbour\" } (the object is left with no object, or taken by the most similar neighbour: the nearest band means with an image, else the longest shared border). An edit that finds no object, merges objects that are one, or cuts nothing is warned about and has a row in `report`. The objects are numbered again, with no classes and no level above: put this node right after the segmenter, before objects.features and the classification.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects to edit"
+   },
+   {
+    "name": "image",
+    "type": "raster",
+    "required": false,
+    "doc": "the image of the objects (on their grid): the similarity of a delete into a neighbour, and the table of band means"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the edited objects, numbered again, without classes"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the objects' table: id, cells, area (and the band means with an image)"
+   },
+   {
+    "name": "report",
+    "type": "table",
+    "required": true,
+    "doc": "a row per edit: its kind, how it ended and the cells it changed"
+   }
+  ],
+  "params": [
+   {
+    "name": "edits",
+    "type": "any",
+    "required": false,
+    "doc": "the edits, in order: [{ \"merge\": [[x, y], ...] }, { \"cut\": [[x, y], ...] }, { \"delete\": [x, y], \"into\": \"none\" | \"neighbour\" }, ...]"
+   },
+   {
+    "name": "neighbours",
+    "type": "number",
+    "required": false,
+    "doc": "4 or 8: the cells that make an object one (default: 4, or 8 when the objects need it to be whole)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Put it right after the segmenter, before objects.features and the classification, which run again on the edited objects (it gives objects with no classes). The edits are places, not object numbers: after a change of the segmentation above they find the objects now at those places, and an edit that finds none (or changes nothing) is warned about and has a row in `report`. A cut line must cross the object and split it; connect the image for a delete into the most similar neighbour and for the table of band means."
  },
  {
   "name": "objects.embed",
@@ -25977,7 +26433,7 @@
  },
  {
   "name": "segment.felzenszwalb",
-  "doc": "Objects as graph-based segments (Felzenszwalb & Huttenlocher 2004, as skimage's felzenszwalb): the cells are nodes, each joined to its 4 or 8 neighbours by an edge weighted with the distance of their bands (after a Gaussian smoothing of sigma cells). The edges are taken from the lowest weight up, and two components join when the edge is no heavier than the least of their inner weight (the heaviest edge in them) plus k / size: a small component is easy to join, a large one needs a closer match. Then components under min_size cells join, in the order of the edges. A constant area is one object. The objects are 4-connected: a link only by a corner splits. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges (reflectance 0-1 beside 0-10000) weigh alike in the distance; standardise: false uses the raw values. A cell without a value in every band is no object. One thread: the same result on every run.",
+  "doc": "Objects as graph-based segments (Felzenszwalb & Huttenlocher 2004, as skimage's felzenszwalb): the cells are nodes, each joined to its 4 or 8 neighbours by an edge weighted with the distance of their bands (after a Gaussian smoothing of sigma cells). The edges are taken from the lowest weight up, and two components join when the edge is no heavier than the least of their inner weight (the heaviest edge in them) plus k / size: a small component is easy to join, a large one needs a closer match. Then components under min_size cells join, in the order of the edges. A constant area is one object. The objects are 4-connected: a link only by a corner splits. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges (reflectance 0-1 beside 0-10000) weigh alike in the distance; standardise: false uses the raw values. A cell without a value in every band is no object. The same result on every run, on any number of threads.",
   "inputs": [
    {
     "name": "image",
@@ -26298,6 +26754,107 @@
   "advice": "The scale is in the image's units (the same scale gives other objects on reflectance 0-1 than on 0-10000), so find it with segment.scale, which suggests scales from the image, then look at the objects in the Viewer and raise or lower it. shape 0.1 and compactness 0.5 are eCognition's usual start: more shape gives smoother, more compact objects at the cost of following the colour. For a hierarchy, connect a level to `from` of the next with a higher scale; a superpixel level (segment.slic, segment.snic) as the first one makes the run faster than starting from single cells. Weights tell the bands apart (0 leaves one out of the colour)."
  },
  {
+  "name": "segment.optimize",
+  "doc": "The best value of a segmenter's setting, by unsupervised parameter optimisation (USPO of Espindola et al. 2006, as GRASS's i.segment.uspo; the F-measure of Johnson & Xie 2011). The segmenter runs once for each value, in parallel; each result is scored by its intra-object variance (the mean over the bands of the variance inside the objects, weighted by their cells: low when the objects are homogeneous) and by Moran's I of the objects' means over the objects that touch (per band, the mean: low when the neighbours differ). Both are scaled over the runs from 1 (lowest) to 0 (highest) and the objective is their sum, or with objective f their F-measure (1 + alpha²) v i / (alpha² i + v). The value with the highest objective wins: too fine a segmentation is not different from its neighbours, too coarse a one is not homogeneous. Its objects are the result. Read the table of scores as well as the winner: it is a guide, as segment.scale is. Of the segmenter's other settings, `params` holds those that stay fixed.",
+  "inputs": [
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a map, or a stack of bands, the colour (given to every run)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects of the best run"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the table of those objects, as the segmenter gives it"
+   },
+   {
+    "name": "scores",
+    "type": "table",
+    "required": true,
+    "doc": "a row per value: value, objects, variance, moran, objective (NaN where a run has no score, e.g. one object)"
+   },
+   {
+    "name": "value",
+    "type": "number",
+    "required": true,
+    "doc": "the best value of the setting"
+   }
+  ],
+  "params": [
+   {
+    "name": "segmenter",
+    "type": "text",
+    "required": false,
+    "doc": "the operator, a segment.* that takes an image (default segment.multiresolution)"
+   },
+   {
+    "name": "parameter",
+    "type": "text",
+    "required": false,
+    "doc": "the setting varied (default: scale for multiresolution, threshold for region_growing, size for slic and snic, k for felzenszwalb, h for watershed, kernel_size for quickshift, range_radius for meanshift, max_difference for spectral_difference; else needed)"
+   },
+   {
+    "name": "values",
+    "type": "any",
+    "required": false,
+    "doc": "a list of the values to try (or from, to and step)"
+   },
+   {
+    "name": "from",
+    "type": "number",
+    "required": false,
+    "doc": "the first value, with to and step"
+   },
+   {
+    "name": "to",
+    "type": "number",
+    "required": false,
+    "doc": "the last value, with from and step"
+   },
+   {
+    "name": "step",
+    "type": "number",
+    "required": false,
+    "doc": "the increase between values, above 0"
+   },
+   {
+    "name": "params",
+    "type": "any",
+    "required": false,
+    "doc": "an object of the segmenter's other settings, fixed ({\"shape\": 0.3})"
+   },
+   {
+    "name": "objective",
+    "type": "text",
+    "required": false,
+    "doc": "sum (default: the scaled variance plus the scaled Moran's I, Espindola) or f (their F-measure, Johnson & Xie)",
+    "choices": [
+     "sum",
+     "f"
+    ]
+   },
+   {
+    "name": "alpha",
+    "type": "number",
+    "required": false,
+    "doc": "with objective f, the weight of the variance's score against Moran's, above 0 (default 1: equal)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "USPO: it runs a segmenter at each value you give (`values`, or `from`, `to` and `step`) and scores each result by the variance inside its objects (low: homogeneous objects) and Moran's I of the objects' means over the objects that touch (low: neighbours that differ), both scaled over the runs; the highest sum wins (`objective` f takes the F-measure of Johnson and Xie, `alpha` weighing the variance). Too fine a segmentation is alike its neighbours and too coarse a one is not homogeneous, so the best lies between. The segmenter is `segmenter` (multiresolution by default) and the setting varied is `parameter` (scale, threshold, size... by segmenter); its other settings go in `params`, an object. Look at the table of `scores` and at the objects, as for segment.scale: the score is a guide. The runs go in parallel, so try a range of 5 to 10 values on a part of a large image first."
+ },
+ {
   "name": "segment.quadtree",
   "doc": "Objects by a quadtree: the image is one square (or squares of the largest size), split into four while the colour difference inside is above a threshold, down to a smallest size. Even areas stay in big squares and varied ones in small squares. The colour difference is the largest, over the bands, of the highest value minus the lowest among a square's cells (eCognition's quadtree-based segmentation uses the colour difference the same way). A cell without a value in every band is no object. Squares are of sizes of a power of two, clipped at the right and bottom edges; the result is always the same.",
   "inputs": [
@@ -26347,8 +26904,180 @@
   "advice": "Squares as small as the image needs: big where it is even, small at its edges. `threshold` is in the image's units (a range inside a square, any band): start from a tenth of the image's range and lower it until the objects follow the edges you want; `min_size` stops the splitting at a few cells. A stack uses every band, so give it the bands that tell the classes apart."
  },
  {
+  "name": "segment.quickshift",
+  "doc": "Objects by quick shift (Vedaldi & Soatto 2008, as scikit-image's quickshift): every cell is a point of (column, row, ratio times the bands), its density a Parzen estimate with a Gaussian of `kernel_size` (sigma) over the cells within 3 sigma, and it links to the nearest point (in that joint space) of a higher density, if within `max_dist`; the trees of the links are the segments, so the number of objects comes from the two distances and not from a count. The bands are standardised (z-score over the cells with a value) by default, so a band of range 0-10000 weighs as one of 0-1 and one standard deviation counts as `ratio` cells: scikit-image works on Lab colours of 0-100, so a `ratio` of 5 to 30 is the like of its default 1 on a photograph. Differences from scikit-image: the window is a disc, not a square; the link looks as far as `max_dist` (scikit-image's window of 3 sigma also limits it); cells of an equal density rank by their number (the lower one is higher), so a flat area is one segment where scikit-image leaves each cell its own; a segment whose cells the links leave apart (a link jumps up to `max_dist` cells) is split into its connected pieces, as the objects are always connected (4 neighbours). A cell without a value in every band is no object. The same result on every run, on any number of threads. The cost is about (6 sigma)² exponentials per cell: a large `kernel_size` is slow.",
+  "inputs": [
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a map, or a stack of bands, the colour"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the segments, each one connected"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, cells, area (map units squared), and mean_<band> and sd_<band> for each band"
+   }
+  ],
+  "params": [
+   {
+    "name": "ratio",
+    "type": "number",
+    "required": false,
+    "doc": "the weight of colour against position (default 1), 0 or more: higher gives more weight to the bands"
+   },
+   {
+    "name": "kernel_size",
+    "type": "number",
+    "required": false,
+    "doc": "sigma of the Gaussian that estimates the density, in cells (default 5), above 0: higher, fewer modes"
+   },
+   {
+    "name": "max_dist",
+    "type": "number",
+    "required": false,
+    "doc": "the longest link, in the joint space (default 10), above 0: higher, larger segments"
+   },
+   {
+    "name": "sigma",
+    "type": "number",
+    "required": false,
+    "doc": "a smoothing of the image first, a Gaussian in cells (default 0)"
+   },
+   {
+    "name": "standardise",
+    "type": "bool",
+    "required": false,
+    "doc": "standardise each band (z-score) first (default true)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Quick shift finds the modes of a density over position and colour, so it needs no count of objects: `kernel_size` (cells) and `max_dist` set how far apart the objects are, `ratio` how much colour counts against position (the bands are standardised, so one standard deviation counts as `ratio` cells: 5 to 30 is the usual range). The cost is about (6 x kernel_size) squared exponentials per cell, so keep `kernel_size` small on a large image. The objects are always connected: a mode's area that its links leave in pieces is split."
+ },
+ {
+  "name": "segment.region_growing",
+  "doc": "Objects by region growing and merging, the method of GRASS GIS's i.segment (Momsen & Metz). Regions start as single cells (or as the segments of `seeds`) and merge, pass after pass. Each band is scaled to 0-1 by its range over the whole image (raw values are not used: the threshold has the same meaning for any data) and two regions are as far apart as their means: the Euclidean distance divided by the square root of the bands, or the Manhattan one divided by the bands, so 0 is identical and 1 the widest apart (a band where either has no value is left out). In a pass the regions are visited in a pseudo-random order (the seed's); one merges with its most similar neighbour when the distance is at or under the threshold and, by default, the region is that neighbour's most similar as well (`mutual`), and a region that merged is left alone for the rest of the pass. It stops when a pass merges nothing (or at `iterations`). Then each region under `minsize` cells joins its most similar neighbour, whatever the distance, again and again until none is left under it (GRASS makes one such pass). A threshold of 0 joins only identical neighbours, 1 everything. `bounds`: a map whose zones (cells of one value) no object crosses; `seeds`: objects or a map to start from, each group of connected cells of one value being one start region, every other cell a region of its own. Neighbours are the 4 cells around (GRASS's default) or the 8. Differences from GRASS: the shape terms GRASS lists as future work are not there; a distance equal to the threshold merges, so the endpoints 0 and 1 mean what GRASS's manual says of them; a cell with a value in some bands only counts in those; the passes run until none merges (no limit) unless `iterations` is given. A cell without a value in every band is no object. The result is the same on every run, with the same seed, on any number of threads.",
+  "inputs": [
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a map, or a stack of bands, the colour"
+   },
+   {
+    "name": "seeds",
+    "type": "any",
+    "required": false,
+    "doc": "objects, or a map, to start from: a group of connected cells of one value (of one object) is one start region; cells without a value in the map are single-cell regions"
+   },
+   {
+    "name": "bounds",
+    "type": "map",
+    "required": false,
+    "doc": "a map of zones (cells of one value): no object crosses from one zone to another; cells without a value in it are one zone together"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the segments, each one connected"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, cells, area (map units squared), and mean_<band> and sd_<band> for each band"
+   }
+  ],
+  "params": [
+   {
+    "name": "threshold",
+    "type": "number",
+    "required": true,
+    "doc": "0 to 1: regions merge while their distance (of the means scaled to 0-1) is at or under it; 0.01 to 0.05 is a reasonable start"
+   },
+   {
+    "name": "similarity",
+    "type": "text",
+    "required": false,
+    "doc": "the distance: euclidean (default) or manhattan",
+    "choices": [
+     "euclidean",
+     "manhattan"
+    ]
+   },
+   {
+    "name": "mutual",
+    "type": "bool",
+    "required": false,
+    "doc": "merge only when each is the other's most similar neighbour (default true, as GRASS)"
+   },
+   {
+    "name": "minsize",
+    "type": "integer",
+    "required": false,
+    "doc": "the least cells of an object: smaller ones join their most similar neighbour at the end (default 1)"
+   },
+   {
+    "name": "iterations",
+    "type": "integer",
+    "required": false,
+    "doc": "the most passes (default: until a pass merges nothing)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the order of the visits (default 0)"
+   },
+   {
+    "name": "neighbours",
+    "type": "integer",
+    "required": false,
+    "doc": "which cells touch: 4 (default) or 8",
+    "choices": [
+     "4",
+     "8"
+    ]
+   },
+   {
+    "name": "ranges",
+    "type": "any",
+    "required": false,
+    "doc": "a list of [lowest, highest], one for each band: the range the 0-1 scaling uses instead of the image's own (a part of an image, or another date, scaled as the whole)"
+   },
+   {
+    "name": "tile",
+    "type": "integer",
+    "required": false,
+    "doc": "cells, the side of the tiles the image is cut into, grown in parallel and stitched at their borders (8 or more; default 0: the whole image at once, one thread). The objects at a tile border can differ a little from the run without tiles"
+   },
+   {
+    "name": "margin",
+    "type": "integer",
+    "required": false,
+    "doc": "cells, the margin around each tile that is grown with it for the context of its border; 0 (default) is automatic: 64 cells, at most half the tile"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "The method of GRASS GIS's i.segment. The bands are scaled to 0-1 over the whole image and `threshold` is a distance in that scale (0 to 1): 0.01 to 0.05 is the usual start, so the same threshold means the same on other data. Neighbouring regions merge when they are each other's most similar and closer than it, pass after pass until none does. Lower thresholds give finer objects: use the result as `seeds` of a run with a higher one for a hierarchy. `minsize` joins the specks to their most similar neighbour at the end; `bounds` (a map of zones, a field map for example) keeps the objects inside the zones."
+ },
+ {
   "name": "segment.sam",
-  "doc": "Objects by Segment Anything (SAM), automatic masks, simplified, run by ONNX Runtime (optional: it is loaded when this operator runs; if it is not found the error says how to install it and to set ORT_DYLIB_PATH, and every other operator works without it). Give the ONNX files of SAM's image encoder and mask decoder as the common SAM ONNX export makes them (no weights come with Terraflux: export them from the model's own tools, or take an export published by its authors or a community; the sizes are of the order of hundreds of megabytes). The encoder takes a 1 x 3 x 1024 x 1024 float image (after SAM's normalisation) and gives image_embeddings 1 x 256 x 64 x 64; the decoder takes image_embeddings, point_coords, point_labels, mask_input, has_mask_input and orig_im_size and gives masks and iou_predictions. The image is cut into tiles of 1024 x 1024 cells (clipped at the edges, resized so the longer side is 1024 and padded), the three bands stretched to 0-255 between their 2nd and 98th percentiles; a grid of `points` x `points` prompt points is run on each tile (a cell without a value is not prompted), the best mask of a point is kept when its predicted IoU is at least `iou`, and the overlaps are resolved by the higher IoU first, cell by cell (the first kept wins). With `fill` the cells that no mask holds become objects too (each connected area). The masks of a tile are cut at its edge, so an object spanning tiles is one object for each. Each mask's cells that are not connected are different objects.",
+  "doc": "Objects by Segment Anything (SAM), automatic masks, simplified, run by ONNX Runtime (optional: it is loaded when this operator runs; if it is not found the error says how to install it and to set ORT_DYLIB_PATH, and every other operator works without it). With no `encoder` and `decoder` the weights              download on first use: SAM ViT-B as exported to ONNX by vietanhdev (Apache-2.0,              huggingface.co/vietanhdev/segment-anything-onnx-models), the quantised one of 75 MB by default or, with              `weights` full, the full-precision one of 348 MB, to Terraflux's cache folder (the SHA-256 checked;              later runs reuse the files; TERRAFLUX_CACHE moves the folder). Or give the ONNX files of SAM's image              encoder and mask decoder as the common SAM ONNX export makes them. The encoder takes a 1 x 3 x 1024 x              1024 float image (after SAM's normalisation) or, for the exports that do that inside (input_image), the              tile as height x width x 3 values of 0-255, and gives image_embeddings 1 x 256 x 64 x 64; the decoder takes image_embeddings, point_coords, point_labels, mask_input, has_mask_input and orig_im_size and gives masks and iou_predictions. The image is cut into tiles of 1024 x 1024 cells (clipped at the edges, resized so the longer side is 1024 and padded), the three bands stretched to 0-255 between their 2nd and 98th percentiles; a grid of `points` x `points` prompt points is run on each tile (a cell without a value is not prompted), the best mask of a point is kept when its predicted IoU is at least `iou`, its stability score (the IoU of the mask cut at logit +`stability_offset` and at minus it) is at least `stability_thresh` and it covers at most `max_area` of the tile (a bigger one is the background); then the masks are thinned by box non-maximum suppression at 0.7, ranked by stability x IoU, as SAM's automatic mask generator does, and painted one over the other, the larger first, so that the smaller ones on top survive. With `fill` the cells that no mask holds become objects too (each connected area). The masks of a tile are cut at its edge, so an object spanning tiles is one object for each. Each mask's cells that are not connected are different objects.",
   "inputs": [
    {
     "name": "image",
@@ -26375,14 +27104,24 @@
    {
     "name": "encoder",
     "type": "text",
-    "required": true,
-    "doc": "the path of SAM's image encoder (an ONNX file)"
+    "required": false,
+    "doc": "the path of SAM's image encoder (an ONNX file); with no encoder and decoder the weights are downloaded"
    },
    {
     "name": "decoder",
     "type": "text",
-    "required": true,
+    "required": false,
     "doc": "the path of SAM's mask decoder (an ONNX file)"
+   },
+   {
+    "name": "weights",
+    "type": "text",
+    "required": false,
+    "doc": "the weights downloaded when no encoder and decoder are given: quant (75 MB, default) or full (348 MB)",
+    "choices": [
+     "quant",
+     "full"
+    ]
    },
    {
     "name": "bands",
@@ -26400,7 +27139,25 @@
     "name": "iou",
     "type": "number",
     "required": false,
-    "doc": "the least predicted IoU of a mask kept, 0 to 1 (default 0.8)"
+    "doc": "the least predicted IoU of a mask kept, 0 to 1 (default 0.88)"
+   },
+   {
+    "name": "stability_thresh",
+    "type": "number",
+    "required": false,
+    "doc": "the least stability score of a mask kept, 0 to 1 (default 0.95)"
+   },
+   {
+    "name": "stability_offset",
+    "type": "number",
+    "required": false,
+    "doc": "the logit offset of the stability score, above 0 (default 1)"
+   },
+   {
+    "name": "max_area",
+    "type": "number",
+    "required": false,
+    "doc": "the largest share of a tile a mask may cover, 0 to 1 (default 0.9)"
    },
    {
     "name": "min_size",
@@ -26417,7 +27174,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Optional: it needs ONNX Runtime (pip install onnxruntime, then set ORT_DYLIB_PATH to its shared library) and the ONNX files of SAM's encoder and decoder, which do not come with Terraflux. It is slow on a CPU: one encoder run per 1024 x 1024 tile and one decoder run per prompt point, so start with `points` 8 on a small area. Give three bands as red, green and blue; raise `iou` for fewer, surer masks."
+  "advice": "Optional: it needs ONNX Runtime (pip install onnxruntime, then set ORT_DYLIB_PATH to its shared library). With no `encoder` and `decoder` the weights of SAM ViT-B (Apache-2.0, exported to ONNX by vietanhdev, from huggingface.co) download on first use to the cache folder, 75 MB, or 348 MB with `weights` full; or give the ONNX files of SAM's encoder and decoder. It is slow on a CPU: one encoder run per 1024 x 1024 tile and one decoder run per prompt point, so start with `points` 8 on a small area. Give three bands as red, green and blue; raise `iou` for fewer, surer masks."
  },
  {
   "name": "segment.scale",
@@ -26506,7 +27263,7 @@
  },
  {
   "name": "segment.slic",
-  "doc": "Objects as SLIC superpixels (Achanta et al. 2012): seeds on a regular lattice, each moved to the lowest gradient of its 3 x 3, then k-means in the bands and the position, each centre taking the cells in a window of 2S x 2S around it, with the distance sqrt(d_colour² + (d_space / S)² m²), d_colour² being the mean over the bands of the squared gaps, so m means the same for any number of bands. Fragments smaller than a quarter of the expected size are joined to their largest neighbour, so each superpixel is connected. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges (reflectance 0-1 beside 0-10000) weigh alike in the distance; standardise: false uses the raw values. A cell without a value in every band is no object. One thread: the same result on every run.",
+  "doc": "Objects as SLIC superpixels (Achanta et al. 2012): seeds on a regular lattice, each moved to the lowest gradient of its 3 x 3, then k-means in the bands and the position, each centre taking the cells in a window of 2S x 2S around it, with the distance sqrt(d_colour² + (d_space / S)² m²), d_colour² being the mean over the bands of the squared gaps, so m means the same for any number of bands. Fragments smaller than a quarter of the expected size are joined to their largest neighbour, so each superpixel is connected. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges (reflectance 0-1 beside 0-10000) weigh alike in the distance; standardise: false uses the raw values. A cell without a value in every band is no object. The same result on every run, on any number of threads.",
   "inputs": [
    {
     "name": "image",
@@ -26567,7 +27324,7 @@
  },
  {
   "name": "segment.snic",
-  "doc": "Objects as SNIC superpixels (Achanta & Susstrunk 2017): the superpixels grow from seeds on a regular lattice, no iterations: a queue gives the next cell, the one nearest (in the bands and the position, as SLIC's distance) to the centroid of the superpixel it would join, and the centroid is updated at each cell. 4 neighbours, so a superpixel grows connected. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges (reflectance 0-1 beside 0-10000) weigh alike in the distance; standardise: false uses the raw values. A cell without a value in every band is no object. One thread: the same result on every run.",
+  "doc": "Objects as SNIC superpixels (Achanta & Susstrunk 2017): the superpixels grow from seeds on a regular lattice, no iterations: a queue gives the next cell, the one nearest (in the bands and the position, as SLIC's distance) to the centroid of the superpixel it would join, and the centroid is updated at each cell. 4 neighbours, so a superpixel grows connected. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges (reflectance 0-1 beside 0-10000) weigh alike in the distance; standardise: false uses the raw values. A cell without a value in every band is no object. The same result on every run, on any number of threads.",
   "inputs": [
    {
     "name": "image",
@@ -26621,8 +27378,128 @@
   "advice": "As segment.slic, and no iterations: it grows the superpixels from their seeds in one pass, so it is faster and needs no tuning of `iterations`. Use the superpixels as the first level of segment.multiresolution (`from`), or as the cells of a classification."
  },
  {
+  "name": "segment.spectral_difference",
+  "doc": "Objects merged by spectral difference (eCognition's spectral difference segmentation): neighbouring objects whose mean values in the image differ by less than `max_difference` become one, and the means of the new object count for the next merges, until no two neighbours are that close. The difference of two objects is the weighted mean, over the bands, of the absolute difference of the bands' means (the bands weighted by `weights`; a band where either has no value is left out), so with one band it is the plain difference of the means, in the image's units. The pair of the least difference merges first (the lower ids on a tie), so the result is always the same, on any number of threads; eCognition visits the objects in an order of its own. Neighbours are objects sharing a cell edge; the objects are numbered again in the order of their first cell. A cell without a value in a band counts in no mean of that band. Use it to merge the over-segmentation of a chessboard, a superpixel or a multiresolution level into areas of one tone.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects to merge (a segmenter's, on the grid of the image)"
+   },
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a map, or a stack of bands, whose values the means are of"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the merged objects"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, cells, area (map units squared), and mean_<band> and sd_<band> for each band"
+   }
+  ],
+  "params": [
+   {
+    "name": "max_difference",
+    "type": "number",
+    "required": true,
+    "doc": "above 0: neighbours merge while their difference is below this (in the image's units)"
+   },
+   {
+    "name": "weights",
+    "type": "any",
+    "required": false,
+    "doc": "a list, the weight of each band (default 1 for all)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "It merges the neighbours of objects you have (a chessboard, superpixels, a multiresolution level) whose mean values differ by less than `max_difference`, in the image's units, and repeats with the means of the merged objects, so a gradual change can chain into one object: keep the limit small against the contrast you want kept. It joins by the tone alone, with no shape, which is the reason to run it after a segmenter that keeps the edges, not on single cells. Use `weights` to make a band count more or less."
+ },
+ {
+  "name": "segment.threshold",
+  "doc": "Objects by multi-threshold segmentation (eCognition's): one band is cut at thresholds into classes of values, and each connected piece of a class is an object. The thresholds are given (a list, ascending), or found for a number of classes by multi-level Otsu (Otsu 1979; Liao, Chen & Chung 2001): the cuts of a histogram of the band that make the variance between the classes highest, the way a bimodal image splits at the gap between its two modes. Classes count from 1: class 1 is the values below the first threshold, class i those from threshold i - 1 up to threshold i, the last class those from the last threshold up. A cell without a value is no object. The thresholds used are an output, and with Otsu noted in the run's warnings. The same result on every run, on any number of threads.",
+  "inputs": [
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a map, or a stack of bands: the band cut is the one of `band`"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the pieces of the classes as objects"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, cells, area (map units squared), class (from 1), mean_<band> and sd_<band> of the band cut"
+   },
+   {
+    "name": "thresholds",
+    "type": "table",
+    "required": true,
+    "doc": "a row per threshold used: threshold"
+   }
+  ],
+  "params": [
+   {
+    "name": "band",
+    "type": "any",
+    "required": false,
+    "doc": "the band to cut, by name or by number from 1 (default the first)"
+   },
+   {
+    "name": "thresholds",
+    "type": "any",
+    "required": false,
+    "doc": "a list of numbers, strictly ascending: the cuts between the classes (a number of them gives that many plus one classes)"
+   },
+   {
+    "name": "classes",
+    "type": "integer",
+    "required": false,
+    "doc": "instead of thresholds: the number of classes, 2 to 8, whose thresholds multi-level Otsu finds (default 2 when there are no thresholds)"
+   },
+   {
+    "name": "bins",
+    "type": "integer",
+    "required": false,
+    "doc": "with Otsu: the bins of the histogram, 16 to 4096 (default 256); more bins place the thresholds finer, the work grows with their square"
+   },
+   {
+    "name": "neighbours",
+    "type": "integer",
+    "required": false,
+    "doc": "which cells touch: 4 (default, sharing an edge) or 8",
+    "choices": [
+     "4",
+     "8"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "The multi-threshold segmentation of eCognition: it cuts one band (`band`, the first by default) into classes of values and makes an object of each connected piece of a class, so it suits what one band separates (water against land in an index, burnt against unburnt). Give the `thresholds`, or `classes` and multi-level Otsu finds them in the gap between the modes of the histogram (the thresholds are an output and are noted in the run's warnings). It cuts at the values alone: noise in the band makes many small objects, so smooth the band first, or merge the small ones afterwards (objects.remove_small)."
+ },
+ {
   "name": "segment.watershed",
-  "doc": "Objects as the watershed of the image's gradient (Vincent & Soille 1991, as skimage's watershed), marker-controlled or not. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges weigh alike, and smoothed by a Gaussian of sigma cells; the gradient is the Sobel magnitude of each band, the largest over the bands. Without markers, they are the minima of the gradient that stand h or more above the lowest cell they would join (h-minima: a minimum shallower than h is noise and floods with its neighbour); with a map of markers, the cells with a value are the seeds, a group of connected cells of one value being one marker. The markers flood by a queue of the lowest gradient first (a cell takes the marker that reaches it first, ties to the cell queued first), 4 or 8 neighbours, with no watershed lines: every cell with a value gets a marker's label (areas cut off from every marker by cells without a value stay apart as objects of their own). compactness above 0 makes the watershed compact (Neubert & Protzel 2014): the queue's priority is the gradient plus compactness times the distance in cells to the marker's centre. The objects are made 4-connected whatever the neighbours: a marker's area linked only by a corner splits. A cell without a value in every band is no object. One thread: the same result on every run.",
+  "doc": "Objects as the watershed of the image's gradient (Vincent & Soille 1991, as skimage's watershed), marker-controlled or not. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges weigh alike, and smoothed by a Gaussian of sigma cells; the gradient is the Sobel magnitude of each band, the largest over the bands. Without markers, they are the minima of the gradient that stand h or more above the lowest cell they would join (h-minima: a minimum shallower than h is noise and floods with its neighbour); with a map of markers, the cells with a value are the seeds, a group of connected cells of one value being one marker. The markers flood by a queue of the lowest gradient first (a cell takes the marker that reaches it first, ties to the cell queued first), 4 or 8 neighbours, with no watershed lines: every cell with a value gets a marker's label (areas cut off from every marker by cells without a value stay apart as objects of their own). compactness above 0 makes the watershed compact (Neubert & Protzel 2014): the queue's priority is the gradient plus compactness times the distance in cells to the marker's centre. The objects are made 4-connected whatever the neighbours: a marker's area linked only by a corner splits. A cell without a value in every band is no object. The same result on every run, on any number of threads.",
   "inputs": [
    {
     "name": "image",
