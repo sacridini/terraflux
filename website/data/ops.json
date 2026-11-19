@@ -5913,10 +5913,29 @@
  },
  {
   "name": "control.group",
-  "doc": "Run the body once: its inputs (any names) are @name inside, its outputs the references of body.outputs. Submodels become groups.",
+  "doc": "Run the body once: its inputs (any names) are @name inside, its outputs the references of body.outputs. Submodels become groups. A group with the setting `class` is a branch of the class tree (the Classes view): it looks for that class, reads @region (its mother's region, a map of 1 and no value; the number 1 for a class with no mother) and gives `membership` (a map, 0 to 1, of its class).",
   "inputs": [],
   "outputs": [],
-  "params": [],
+  "params": [
+   {
+    "name": "class",
+    "type": "text",
+    "required": false,
+    "doc": "the class this branch looks for (a branch of the class tree)"
+   },
+   {
+    "name": "parent_class",
+    "type": "text",
+    "required": false,
+    "doc": "the class of its mother branch (none: a root class)"
+   },
+   {
+    "name": "colour",
+    "type": "text",
+    "required": false,
+    "doc": "the class's colour, #rrggbb"
+   }
+  ],
   "access": "none",
   "container": true,
   "extra": "any"
@@ -15602,6 +15621,78 @@
   "container": false
  },
  {
+  "name": "nlm.image",
+  "doc": "A synthetic multispectral image of a map of classes, with the truth known: for templates and tests, not a model of any sensor. It has the size of the classes map. Each class has a signature, its surface reflectance (0 to 1) in the bands blue, green, red, nir, swir1 and swir2 (by default water, forest, grassland, cropland and urban, codes 1 to 5). The signature image is blurred (mean filter) so the edges between classes mix, then a smooth random field (one for all the bands, so they vary together) is multiplied in, so dark classes stay dark, and independent noise is added to each cell. Values are kept between 0 and 1; cells without a class are NaN in every band.",
+  "inputs": [
+   {
+    "name": "classes",
+    "type": "map",
+    "required": true,
+    "doc": "the class codes (e.g. nlm.classify's), NaN for no class"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "image",
+    "type": "stack",
+    "required": true,
+    "doc": "a layer for each band, named blue, green, red..."
+   },
+   {
+    "name": "truth",
+    "type": "map",
+    "required": true,
+    "doc": "the classes, as given"
+   },
+   {
+    "name": "signatures",
+    "type": "table",
+    "required": true,
+    "doc": "class, name and the signature's value in each band"
+   }
+  ],
+  "params": [
+   {
+    "name": "signatures",
+    "type": "any",
+    "required": false,
+    "doc": "a list of {\"class\": 1, \"name\": \"water\", \"bands\": [six values: blue, green, red, nir, swir1, swir2]} or a map from the class code to the six values or to that object (default: the five classes above)"
+   },
+   {
+    "name": "bands",
+    "type": "any",
+    "required": false,
+    "doc": "the names of the bands to give (default all six)"
+   },
+   {
+    "name": "noise",
+    "type": "number",
+    "required": false,
+    "doc": "the standard deviation of the noise of each cell, in reflectance (default 0.01)"
+   },
+   {
+    "name": "texture",
+    "type": "number",
+    "required": false,
+    "doc": "how much the reflectance varies smoothly inside a class, as a share of its value (default 0.02)"
+   },
+   {
+    "name": "blur",
+    "type": "integer",
+    "required": false,
+    "doc": "the edges' blur: the signature image is averaged over a window of 2 x blur + 1 cells (default 1, 0 is sharp)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the noise and the texture (default 1)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
   "name": "nlm.merge",
   "doc": "Landscapes merged (NLMR's util_merge): the primary plus the sum of the secondary ones times the scaling, e.g. a gradient with noise on it.",
   "inputs": [
@@ -16447,6 +16538,1049 @@
   "params": [],
   "access": "global",
   "container": false
+ },
+ {
+  "name": "objects.accuracy",
+  "doc": "The accuracy of a classification of objects against objects of known class (apart from those the classifier was trained on). The reference is `samples` (points or polygons with the class, resolved to objects as objects.samples does) or `reference` (a table with the columns id, the object, and class: e.g. the points of objects.sample, filled in). The confusion matrix, the user's and producer's accuracies and the overall accuracy and kappa are by objects (a sampled object counts one). The area-adjusted estimates (Olofsson et al. 2014: the user's, producer's and overall accuracy, and each class's area with its confidence interval) take the classes of the map as strata, with the cells of the objects mapped to each as its area, so they hold for samples drawn with the same chance in every object of a class (objects.sample draws them so). An object left unclassified is a stratum only when sampled; a class with no sampled object is left out, with a warning.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the classified objects"
+   },
+   {
+    "name": "samples",
+    "type": "vector",
+    "required": false,
+    "doc": "points or polygons with the reference class, in any coordinate system"
+   },
+   {
+    "name": "reference",
+    "type": "table",
+    "required": false,
+    "doc": "the reference as a table instead: the columns id (the object) and class"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per class: class, map_cells, objects (sampled and mapped to it), reference_objects, user_objects, producer_objects, user_adjusted, user_se, user_ci, producer_adjusted, producer_se, producer_ci, area_share, area_cells, area_cells_ci, area_ha, area_ha_ci (the _ci the half-widths of the confidence intervals)"
+   },
+   {
+    "name": "overall",
+    "type": "table",
+    "required": true,
+    "doc": "overall_objects, overall_adjusted, overall_se, overall_ci, kappa (by objects), objects (sampled), cells, confidence"
+   },
+   {
+    "name": "matrix",
+    "type": "table",
+    "required": true,
+    "doc": "the confusion matrix by objects: a row per class of the map, a column per reference class"
+   },
+   {
+    "name": "errors",
+    "type": "table",
+    "required": true,
+    "doc": "the misclassified sample objects: id, mapped class, reference class"
+   }
+  ],
+  "params": [
+   {
+    "name": "class",
+    "type": "text",
+    "required": false,
+    "doc": "the attribute (samples) or column (reference) holding the class (default class)"
+   },
+   {
+    "name": "confidence",
+    "type": "number",
+    "required": false,
+    "doc": "the level of the confidence intervals (default 0.95)"
+   },
+   {
+    "name": "cell_area",
+    "type": "number",
+    "required": false,
+    "doc": "a cell's area in m2 for the hectares (default: the cells' sides)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Judge the classification on objects that were not used to train it: draw the reference apart from the training samples (objects.sample draws them stratified, with the same chance in every object of a class). The area-adjusted estimates are the ones to report (Olofsson et al. 2014): the counts of the confusion matrix by objects ignore how large each class is. Aim at 50 objects or more per class; a class with none sampled is left out. The errors table lists the misclassified objects to look at."
+ },
+ {
+  "name": "objects.calc",
+  "doc": "Attributes of objects computed from a script over the others, in map algebra's language (Python's syntax, as vector.calc): each attribute of the objects by its name, cls (the class name, \"unclassified\" when it has none), id, cells and area, numbers and texts (\"wet\" if ndwi > 0 else \"dry\"; cls == \"water\"). Of the context: nb.mean(x) (over the neighbours, weighted by the shared border, as eCognition's), nb.min(x), nb.max(x), nb.sum(x), nb.count(cond), border_to(\"water\") (the share of the perimeter shared with objects of that class), distance_to(\"road\") (centroid to the nearest centroid of that class, map units; NaN when there is none), parent.x (an attribute of the parent: a level above is needed) and, with `below`, children.count(cond), children.area(cond) (the share of the object's area in children where it holds) and children.mean(x). Fuzzy membership: above(x, a, b), below(x, a, b), between(x, a, b, c, d) and about(x, m, w), from 0 to 1; and, always, `and` is the smaller of two values, `or` the larger and `not x` is 1 - x (with 0 and 1, logic as usual). One statement a line (# a comment): name = value, name[where] = value, and out name = value (or out name) for each attribute given; without out, the last value is the attribute `column`. An attribute of the same name is replaced, else it is added.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects, with their attributes (objects.features)"
+   },
+   {
+    "name": "below",
+    "type": "objects",
+    "required": false,
+    "doc": "the level beneath: objects whose parent level is these objects (for children.*)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects with the attributes"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes, a row per object"
+   }
+  ],
+  "params": [
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "the attribute's name (a script without out)"
+   },
+   {
+    "name": "expression",
+    "type": "text",
+    "required": true,
+    "doc": "its value, e.g. nb.mean(mean_nir); or a script: wet = above(ndwi, 0, 0.3); out water = wet and border_to(\"water\") > 0.2"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Write a rule as a script: nb.mean(x) and border_to(\"water\") read the neighbours, parent.x and children.count(cond) the levels (children need the input `below`). above(x, a, b), below, between and about give a membership from 0 to 1, and in this calculator `and` is the smaller, `or` the larger and `not` is one minus. A class name in `cls == \"water\"` compares as text; an unclassified object has no cls, so the comparison is missing for it, not false."
+ },
+ {
+  "name": "objects.classify",
+  "doc": "Objects classed by a fitted model (ml.fit on the table of objects.samples, a forest or a gradient boosting): the model reads each object's attributes, matched by the names of its predictors, and gives the probability of each class; the object takes the class of the largest probability (the first on ties), or stays unclassified when that is under `min`. The probabilities are the objects' memberships; the margin (the largest minus the second largest) tells the objects the model is least sure of. The attributes must be those of the training: run objects.features with the same settings.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects, with the attributes the model was fitted on"
+   },
+   {
+    "name": "model",
+    "type": "ml_model",
+    "required": true,
+    "doc": "the model fitted on the samples' table (column class)"
+   },
+   {
+    "name": "samples",
+    "type": "table",
+    "required": false,
+    "doc": "the table of objects.samples: its class names for the model's codes"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects with their classes and memberships"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "id, class (text), the probability of each class and margin"
+   },
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the class (1..) of each cell's object, no value when unclassified"
+   }
+  ],
+  "params": [
+   {
+    "name": "min",
+    "type": "number",
+    "required": false,
+    "doc": "the least probability for a class, 0 to 1 (default 0: every object takes its most probable class)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "The objects must carry the same attributes as those of the training: run objects.features with the same settings on the same image before. Pass the samples' table to name the classes. The margin (first minus second probability) is low where the model hesitates: look there for more samples. `min` leaves unclassified the objects whose best probability is under it."
+ },
+ {
+  "name": "objects.embed",
+  "doc": "The embedding of each object by a foundation model of Earth observation (Clay, Prithvi or alike), run by ONNX Runtime (optional: it is loaded when this operator runs; if it is not found the error says how to install it and to set ORT_DYLIB_PATH, and every other operator works without it). `model` is the ONNX file of the model's encoder: it takes a 1 x C x P x P float image (the `bands`, standardised per band over the image unless `normalize` is false, a cell without a value 0) and gives 1 x D, or 1 x T x D tokens (any shape ending in D) that are averaged over the tokens. The image is cut into patches of P x P cells (clipped at the edges and padded with 0), each patch holding an object's cells run once; an object's embedding is the mean of the patches its cells fall in, weighted by its number of cells in each. The embeddings join the objects' table as emb_1 to emb_D (a column of an old name is replaced), to classify or cluster the objects by what the model sees. No weights come with Terraflux: export the model's encoder to ONNX with the model's own tools.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects"
+   },
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a map, or a stack of bands, on the objects' grid"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the same objects, with emb_1.. in their table"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the objects' table"
+   }
+  ],
+  "params": [
+   {
+    "name": "model",
+    "type": "text",
+    "required": true,
+    "doc": "the path of the model's encoder (an ONNX file)"
+   },
+   {
+    "name": "patch",
+    "type": "integer",
+    "required": false,
+    "doc": "the side P of a patch in cells, 1 or more (default 224)"
+   },
+   {
+    "name": "bands",
+    "type": "any",
+    "required": false,
+    "doc": "the layers the model reads, a list of names (default: all)"
+   },
+   {
+    "name": "normalize",
+    "type": "bool",
+    "required": false,
+    "doc": "standardise each band over the image (default true); false gives the values as they are"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Optional: it needs ONNX Runtime (pip install onnxruntime, then set ORT_DYLIB_PATH) and the ONNX encoder of a foundation model, which do not come with Terraflux. `patch` and `bands` must be what the model takes (its input is 1 x bands x patch x patch). The emb_ columns are for a classifier or a clustering of the objects, alone or with the objects.features columns."
+ },
+ {
+  "name": "objects.features",
+  "doc": "The attributes of each object, from the image under it: spectral (per band the mean, standard deviation (population), min, max and median over the object's cells with a value; brightness, the mean of the image bands' means; max_diff, (greatest mean - least) / brightness; ratio, a band's mean over the sum of the means; and, from the objects' mean bands, NDVI = (nir - red) / (nir + red), NDWI = (green - nir) / (green + nir) and NDMI = (nir - swir) / (nir + swir), as eCognition's customised features on the mean layers) and shape (cells turned into map units: area, perimeter = the cell edges that touch another object, no object or the image's edge, compactness = length x width / area of the minimum bounding rectangle, shape_index = perimeter / (4 sqrt(area)), length and width = the sides of the minimum-area rectangle around the cells' corners (convex hull and rotating calipers), length_width, asymmetry = 1 - minor / major axis of the cells' spread, direction = degrees from the x axis counter-clockwise, 0 to 180, of the major axis, elliptic_fit and rectangular_fit = the share of the cells inside the ellipse and the rectangle of the object's area and axes centred on it, border_index = perimeter / the rectangle's, density, centroid_x and centroid_y in map coordinates), texture (Haralick's grey-level co-occurrence matrix of the pairs of cells both in the object at distance 1 in the four directions, symmetric, summed and normalised, as eCognition's GLCM all directions: glcm_homogeneity, glcm_contrast, glcm_entropy, glcm_correlation (1 for a constant object) and glcm_asm, of the brightness and of each image band, grey levels cut linearly between the band's 1st and 99th percentile; NaN for an object with no pair) and context (nb_diff_<band> = the mean difference to neighbours weighted by border length, nb_count, border_image = the share of the perimeter on the image's edge or no object; with classes per class c: rel_border_<c>, dist_<c> = map distance from the centroid to the nearest centroid of an object of the class, nb_<c>; with a parent level: parent_id and parent_<column>; with `below`: children and per class of below children_<c> and children_area_<c>). The attributes join the objects' table: a column of an old name is replaced, the others kept.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects"
+   },
+   {
+    "name": "image",
+    "type": "raster",
+    "required": true,
+    "doc": "a map, or a stack of bands, on the objects' grid; rasters on disk too big to hold are read by strips of rows (the medians need one band's values of the objects in memory at a time)"
+   },
+   {
+    "name": "more",
+    "type": "raster",
+    "required": false,
+    "doc": "any raster as more layers, on the objects' grid: a DEM, a height model, a class map, another date; their names kept (a name already taken gets _2)"
+   },
+   {
+    "name": "below",
+    "type": "objects",
+    "required": false,
+    "doc": "the level beneath, whose parent level is these objects (for the context's children features)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the same objects, with the attributes in their table"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the objects' table"
+   }
+  ],
+  "params": [
+   {
+    "name": "features",
+    "type": "any",
+    "required": false,
+    "doc": "basic (the default: mean, sd and ndvi per band, area, compactness, glcm_homogeneity of the brightness), all, or a list of groups (spectral, shape, texture, context) and feature names"
+   },
+   {
+    "name": "levels",
+    "type": "integer",
+    "required": false,
+    "doc": "the grey levels of the texture, 2 to 256 (default 32)"
+   },
+   {
+    "name": "texture_bands",
+    "type": "any",
+    "required": false,
+    "doc": "the layers the texture reads, a list of names or brightness (default: brightness for basic, brightness and every image band otherwise)"
+   },
+   {
+    "name": "red",
+    "type": "text",
+    "required": false,
+    "doc": "the red band's name (default: found by the names)"
+   },
+   {
+    "name": "nir",
+    "type": "text",
+    "required": false,
+    "doc": "the near infrared band's name (default: found)"
+   },
+   {
+    "name": "green",
+    "type": "text",
+    "required": false,
+    "doc": "the green band's name (default: found)"
+   },
+   {
+    "name": "swir",
+    "type": "text",
+    "required": false,
+    "doc": "the short-wave infrared band's name (default: found)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "`basic` (the default) is the usual start: the mean and standard deviation of each band, NDVI when the red and near infrared bands are found, the area and the compactness. Ask for more by name, or `all` for every group: it computes many columns, so on a large image with many objects name what you will use (texture, when it comes, is the expensive group). Give `red`, `nir`, `green` and `swir` when the bands' names do not say which they are. Put a DEM, a height model or another date in `more` (on the same grid: raster.match first)."
+ },
+ {
+  "name": "objects.grow",
+  "doc": "Grows the objects of a class into the neighbours that meet a condition, as eCognition's grow: the condition is an objects.calc expression evaluated on the candidate neighbour (e.g. mean_nir > 0.2 and cls == \"unclassified\"); the neighbours where it holds (a candidate between two grown objects goes to the one with the longer border) are merged in and keep the class, and it repeats, the condition computed again over the grown objects, until nothing changes or `max_steps`. The merged objects' attributes are the means of their parts weighted by cells (objects.features again for exact ones). `count` is the number of objects, `done` is true when nothing grew.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects, with their classes and attributes"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects after the growth"
+   },
+   {
+    "name": "count",
+    "type": "integer",
+    "required": true,
+    "doc": "the number of objects after the growth"
+   },
+   {
+    "name": "done",
+    "type": "bool",
+    "required": true,
+    "doc": "true when nothing grew"
+   }
+  ],
+  "params": [
+   {
+    "name": "class",
+    "type": "text",
+    "required": true,
+    "doc": "the class that grows"
+   },
+   {
+    "name": "condition",
+    "type": "text",
+    "required": true,
+    "doc": "what a neighbour meets to be merged in (an objects.calc expression)"
+   },
+   {
+    "name": "max_steps",
+    "type": "integer",
+    "required": false,
+    "doc": "the most steps (default 100)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Grow a class into its neighbours for what is long and thin, as roads and rivers that a segmentation cut in pieces: the condition is read on the candidate neighbour (mean_nir > 0.2 and cls == \"unclassified\"), and it repeats, over the grown objects, up to `max_steps`. Keep the condition narrow, or the class eats the whole image."
+ },
+ {
+  "name": "objects.merge",
+  "doc": "Merges neighbouring objects. by = class (the default): neighbours of the same class become one object (`classes`: only those classes); by = condition: the pairs of neighbours where `condition` holds, an objects.calc expression over the pair (a.mean_red and b.mean_red are the attributes of the two neighbours, border the length of their shared border, e.g. abs(a.mean_red - b.mean_red) < 0.1), are merged, transitively. With `level` the result is a new level above and `below` holds the input objects inside it (the objects of a level are made by merging, never by printing one segmentation into another). An object left alone keeps its attributes; a merged one has cells and area summed and the other numeric attributes as the mean of its parts weighted by their cells (objects.features again for exact ones), the class of its largest part. Objects inside a level above only merge with those of the same parent. `count` is the number of objects and `done` is true when nothing merged: in a control.repeat set until to the done of this node to merge until nothing changes.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects, with their classes (by class) and attributes"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the merged objects (the new level with `level`)"
+   },
+   {
+    "name": "below",
+    "type": "objects",
+    "required": false,
+    "doc": "with `level`: the input objects, their parent the merged object"
+   },
+   {
+    "name": "count",
+    "type": "integer",
+    "required": true,
+    "doc": "the number of objects after the merge"
+   },
+   {
+    "name": "done",
+    "type": "bool",
+    "required": true,
+    "doc": "true when no objects merged"
+   }
+  ],
+  "params": [
+   {
+    "name": "by",
+    "type": "text",
+    "required": false,
+    "doc": "class (default) or condition"
+   },
+   {
+    "name": "classes",
+    "type": "any",
+    "required": false,
+    "doc": "by class: the class names that merge (default: all)"
+   },
+   {
+    "name": "condition",
+    "type": "text",
+    "required": false,
+    "doc": "by condition: an expression over a pair of neighbours, with a.x, b.x and border"
+   },
+   {
+    "name": "level",
+    "type": "bool",
+    "required": false,
+    "doc": "make a new level above (default: false, replace)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Merge by class to make a level above: neighbours of the same class become one object, and with `level` the objects of this level stay below it (`below`), each with one parent, so rules can read parent.x and children.count(cond). By condition, write it over the pair: abs(a.mean_red - b.mean_red) < 0.1 and border > 3. A merged object's attributes are means weighted by cells: run objects.features again when you need exact ones. To merge until nothing changes, put it in a control.repeat with `until` the `done` output of this node (or compare `count`)."
+ },
+ {
+  "name": "objects.nearest",
+  "doc": "Objects classed by their nearest samples, as eCognition's Standard Nearest Neighbour. The samples are the table of objects.samples (class and attributes). The distance of an object to a sample is d = sqrt(sum over the attributes of ((v - s) / sd)^2), each attribute divided by its standard deviation over the objects (the sum is not divided by their number: the more attributes, the farther things are; an attribute missing in either is left out, and so is one that does not vary). The membership of a class is that of its nearest sample, exp(-k d^2) with k = ln(1 / slope): 1 at d = 0 and `slope` at d = 1. The object takes the class of the largest membership, unclassified when it is under `min`.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects, with the attributes (objects.features)"
+   },
+   {
+    "name": "samples",
+    "type": "table",
+    "required": true,
+    "doc": "the table of objects.samples: class and the attributes"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects with their classes and memberships"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "id, class (text), m_<class> and margin"
+   },
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the class (1..) of each cell's object, no value when unclassified"
+   }
+  ],
+  "params": [
+   {
+    "name": "columns",
+    "type": "any",
+    "required": false,
+    "doc": "the attributes of the feature space (default: the colours in both tables, the bands' means (mean_<band>), brightness, ndvi, ndwi and ndmi; without any, every numeric attribute but id, class, cells, area and the centroid; a few, chosen well, work better than many)"
+   },
+   {
+    "name": "slope",
+    "type": "number",
+    "required": false,
+    "doc": "the membership at a distance of 1, between 0 and 1 (default 0.2, eCognition's function slope)"
+   },
+   {
+    "name": "min",
+    "type": "number",
+    "required": false,
+    "doc": "the least membership for a class, 0 to 1 (default 0.1, eCognition's minimum membership value)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "A few attributes, chosen with the feature space (objects.features), work better than many: every attribute adds to the distance, and size and shape attributes can swamp the spectral ones, so name the `columns` (the mean of each band). Give a few samples of every class, of different looks. `slope` is the membership at one standard deviation of distance; `min` leaves the far objects unclassified."
+ },
+ {
+  "name": "objects.reclassify",
+  "doc": "Renames and joins classes: `classes` maps old names to new ones (e.g. {\"marsh\": \"wet\", \"water\": \"wet\"}); a class not in the map keeps its name, and classes given the same name become one. `colours` gives the colour of a class by its (new) name, #rrggbb. With `merge`, neighbours that now share a class are merged as objects.merge by class does. `count` is the number of objects, `done` is true when no objects merged.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the classified objects"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects with the new classes"
+   },
+   {
+    "name": "count",
+    "type": "integer",
+    "required": true,
+    "doc": "the number of objects after"
+   },
+   {
+    "name": "done",
+    "type": "bool",
+    "required": true,
+    "doc": "true when no objects merged"
+   }
+  ],
+  "params": [
+   {
+    "name": "classes",
+    "type": "any",
+    "required": false,
+    "doc": "old class name to new class name, as a table"
+   },
+   {
+    "name": "colours",
+    "type": "any",
+    "required": false,
+    "doc": "new class name to colour (#rrggbb), as a table"
+   },
+   {
+    "name": "merge",
+    "type": "bool",
+    "required": false,
+    "doc": "merge neighbours that share a class (default: false)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Rename classes and join them (`classes`: old name to new name) without classifying again; `merge` then joins the neighbours that now share a class, which makes the objects of a coarser class map."
+ },
+ {
+  "name": "objects.remove_small",
+  "doc": "Merges the objects smaller than `min_cells` (or `min_area`, map units squared) into a neighbour, as eCognition's remove and raster.sieve: into = similar (the default) goes to the neighbour whose band means (the mean_* attributes, else every numeric attribute but the size) are nearest, Euclidean distance; into = border to the neighbour with the longest shared border. It repeats until no small object is left (a merged group may still be small); one with no neighbour stays. `classes`: only the small objects of these classes go. The merged objects' attributes are the means of their parts weighted by cells (objects.features again for exact ones). `count` is the number of objects and `done` is true when nothing merged.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects, with their attributes"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects without the small ones"
+   },
+   {
+    "name": "count",
+    "type": "integer",
+    "required": true,
+    "doc": "the number of objects after"
+   },
+   {
+    "name": "done",
+    "type": "bool",
+    "required": true,
+    "doc": "true when no object merged"
+   }
+  ],
+  "params": [
+   {
+    "name": "min_cells",
+    "type": "number",
+    "required": false,
+    "doc": "objects with fewer cells go"
+   },
+   {
+    "name": "min_area",
+    "type": "number",
+    "required": false,
+    "doc": "objects with a smaller area (map units squared) go"
+   },
+   {
+    "name": "into",
+    "type": "text",
+    "required": false,
+    "doc": "similar (default) or border"
+   },
+   {
+    "name": "classes",
+    "type": "any",
+    "required": false,
+    "doc": "the class names whose small objects go (default: all)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Run it after a segmentation to take the specks out: an object under `min_cells` (or `min_area`) goes into the neighbour most like it (`similar`, by the bands' means) or the one with the longest border (`border`, as raster.sieve), until none is left. `classes` limits it to the small objects of some classes."
+ },
+ {
+  "name": "objects.resolve",
+  "doc": "Decides between the hypotheses of sibling classes, cell by cell, as GeoAIDA (Bückner et al. 2001) and InterIMAGE (Costa et al. 2010) do: each class is found by its own method and gives a map of membership (0 outside its hypotheses), the maps overlap, and in each cell the class of the greatest membership wins, if it reaches `min` (below it the cell has no class); a tie goes by `order`. A hypothesis partly overlapped loses only the cells where another won. The winning cells become objects: one per connected area of a class (`connected`), one per class (`global`) or one per cell (`none`, to look at the arbitration). Gives the objects with their classes and the mean membership of each class over each object, the maps of the class (its number, 1 to the number of classes), of the winning membership and of the doubt (the second highest membership, where to look next), a table of the conflicts (the cells of each class's hypotheses that went to each other class) and the objects' table.",
+  "inputs": [
+   {
+    "name": "memberships",
+    "type": "any",
+    "required": true,
+    "doc": "a stack with a layer per sibling class, named for it: the membership of each cell, 0 to 1"
+   },
+   {
+    "name": "region",
+    "type": "map",
+    "required": false,
+    "doc": "the region of the parent class: only the cells with a value other than 0 are classified"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the winning cells as objects, with classes and memberships"
+   },
+   {
+    "name": "class",
+    "type": "map",
+    "required": true,
+    "doc": "the class number of each cell, 1 to the number of classes"
+   },
+   {
+    "name": "membership",
+    "type": "map",
+    "required": true,
+    "doc": "the membership of the winning class"
+   },
+   {
+    "name": "doubt",
+    "type": "map",
+    "required": true,
+    "doc": "the second highest membership of each cell"
+   },
+   {
+    "name": "conflicts",
+    "type": "table",
+    "required": true,
+    "doc": "class, lost_to, cells and area of the lost hypotheses"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "id, cells, area, class and membership of each object"
+   }
+  ],
+  "params": [
+   {
+    "name": "min",
+    "type": "number",
+    "required": false,
+    "doc": "the least membership that wins a cell (default 0.1)"
+   },
+   {
+    "name": "order",
+    "type": "any",
+    "required": false,
+    "doc": "the class names in the order a tie goes by (default: the order of the layers)"
+   },
+   {
+    "name": "merge",
+    "type": "text",
+    "required": false,
+    "doc": "connected (default: an object per connected area of a class, 4 neighbours), global (an object per class, in parts if need be) or none (an object per cell, to inspect the arbitration)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Give each class its own hypothesis (a membership map from a threshold, a model or a rule) as a layer of the stack, named for the class: where hypotheses overlap, the larger membership wins the cell and the loser keeps the rest. `min` leaves cells without a class when no hypothesis reaches it. `merge` connected makes an object of each connected area of a class, global one object per class and none one per cell: use none to inspect the arbitration. The conflicts table tells which classes took cells from which."
+ },
+ {
+  "name": "objects.rules",
+  "doc": "Objects classed by a hierarchy of fuzzy rules, as eCognition's class hierarchy. `classes` lists the classes, each { name, rule, parent, colour }: the rule is an objects.calc expression, a membership from 0 to 1 (above(ndwi, 0, 0.2), below(ndvi, 0.2, 0.4) and not border_to(\"urban\") > 0.5; a value out of 0 to 1 is cut, a missing one is 0; several lines are allowed, the last is the value); a class with a parent inherits its membership: the membership of a class is the smaller of its own rule and its parent's (a class without a rule is its parent's, or 1 at the root). Only the leaves (the classes that are no one's parent) are what an object becomes: the leaf of the largest membership, the first of the list on ties, unclassified when it is under `min`; the parents only narrow what their daughters may take. All the classes are in the output, in the list's order, with the membership of each (a parent's region is its descendants'). A rule that reads classes (border_to(\"water\"), nb.count(cls == \"water\")) reads the classes the objects have before this node: chain two objects.rules for a second pass.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects, with the attributes the rules read"
+   },
+   {
+    "name": "below",
+    "type": "objects",
+    "required": false,
+    "doc": "the level beneath: objects whose parent level is these objects (for children.*)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects with their classes and memberships"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "id, class (text), m_<class> and margin"
+   },
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the class (1.. in the list) of each cell's object, no value if none"
+   }
+  ],
+  "params": [
+   {
+    "name": "classes",
+    "type": "any",
+    "required": true,
+    "doc": "the hierarchy: [{ \"name\": \"water\", \"rule\": \"above(ndwi, 0, 0.2)\", \"parent\": \"wet\", \"colour\": \"#3366cc\" }, ...] (rule, parent and colour are optional)"
+   },
+   {
+    "name": "min",
+    "type": "number",
+    "required": false,
+    "doc": "the least membership for a class, 0 to 1 (default 0.1, eCognition's minimum membership value)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "A leaf class (one that is no one's parent) is what an object becomes; the parents only narrow what their daughters may take, as they inherit the mother's rule. An object whose best membership is under `min` (0.1, as eCognition's minimum membership value) stays unclassified: lower it, or widen the rules' ramps. A rule that reads classes (border_to, nb.count(cls == \"water\")) reads those the objects have before this node: chain a second objects.rules for a second pass. The margin shows where two classes are close."
+ },
+ {
+  "name": "objects.sample",
+  "doc": "A stratified random sample of classified objects to label for objects.accuracy: the strata are the classes, each object of a class with the same chance. `per_class` objects of each class, or `n` in all shared equally among the classes (a class with fewer objects gives them all, the rest go to the others). Olofsson et al. (2014) advise at least 50 per class: a class with fewer sampled objects (though it has more) is warned of. Each sampled object gets a point at the cell nearest its centroid that is in it, and a column `reference`, empty: fill it with the true class in the attribute table (or a table) and take it to objects.accuracy. Unclassified objects are not sampled.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the classified objects"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "points",
+    "type": "vector",
+    "required": true,
+    "doc": "a point per sampled object: id (the object), mapped (its class, text) and reference (empty text, to fill)"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "class, objects and sample of each class"
+   }
+  ],
+  "params": [
+   {
+    "name": "n",
+    "type": "integer",
+    "required": false,
+    "doc": "the sample in all, shared equally among the classes (default 50)"
+   },
+   {
+    "name": "per_class",
+    "type": "integer",
+    "required": false,
+    "doc": "the sample of each class, instead of n"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of numpy's generator (default 1)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "The sample is stratified by class, each object of a class with the same chance, as the area-adjusted estimates of objects.accuracy ask. Olofsson et al. advise 50 or more per class: use `per_class` 50 where the classes have that many objects, `n` to share a total equally. Fill the column `reference` of the points (their attribute table) with the true class, from imagery or the field, then give them to objects.accuracy as samples with `class` = reference."
+ },
+ {
+  "name": "objects.samples",
+  "doc": "Training samples of objects: points or polygons with a class pick the objects under them. A point gives the object of its cell; a polygon gives every object with at least half of its cells inside it (a cell is inside when its centre is). An object picked with two different classes is left out, and so are points outside every object, with a warning. The training table (class, then the numeric attributes of the objects; a row per sampled object, in id order, the `objects` output marks them) goes to ml.fit with column = class (every other column is then a predictor, no id among them). Classes are numbered by their names in alphabetical order, so a model fitted on the table has the codes 1.. of that order.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects, with the attributes (objects.features)"
+   },
+   {
+    "name": "samples",
+    "type": "vector",
+    "required": true,
+    "doc": "points or polygons with a class, in any coordinate system"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "class (text) and the numeric attributes, a row per sampled object"
+   },
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects with the sampled ones classed, the rest unclassified (to see the samples)"
+   },
+   {
+    "name": "counts",
+    "type": "table",
+    "required": true,
+    "doc": "class, objects and cells of the training objects"
+   }
+  ],
+  "params": [
+   {
+    "name": "class",
+    "type": "text",
+    "required": false,
+    "doc": "the samples' attribute holding the class, text or numbers (default class)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Give at least 10 objects per class (a few points or small polygons on each class, over its different looks): a point picks its object, a polygon every object it covers by half. Objects with samples of two classes are left out, so draw the samples inside one object. Fit the table with `column` = class: every other column is a predictor (the table has no id)."
+ },
+ {
+  "name": "objects.temporal",
+  "doc": "The classes of two dates bound by a fuzzy transition matrix (Feitosa et al. 2009, as InterIMAGE's multi-temporal analysis, Costa et al. 2010): a transition the matrix calls impossible cannot be what the objects of the second date are, whatever their spectra say. The first date's memberships are linked to each object of the second (the mean over its cells of the memberships of the objects of the first date they fall in; the segmentations may differ) and each membership of the second date becomes min(membership, max over the classes of origin of min(membership before, possibility of the transition)), the max-min composition. With `both`, the first date is adjusted the same way from the second. A class is the highest adjusted membership, below `min` none. The classes are matched by name with the matrix. The change table (the before and after class of each object of the second date) enters the land-change models (change.transitions, the Markov and CA models) as the observed dates. The matrix is estimated by objects.transition_matrix or written by hand with table.of (a first column `class` of text, then a column per destination).",
+  "inputs": [
+   {
+    "name": "before",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects of the first date, with classes and memberships"
+   },
+   {
+    "name": "after",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects of the second date, on the same grid, with classes and memberships"
+   },
+   {
+    "name": "matrix",
+    "type": "table",
+    "required": true,
+    "doc": "the possibility (0 to 1) of each transition: a row per class of origin, the column `class` (text) then a column per destination class"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the second date, classified with the adjusted memberships"
+   },
+   {
+    "name": "before",
+    "type": "objects",
+    "required": true,
+    "doc": "the first date: adjusted with `both`, else as given"
+   },
+   {
+    "name": "change",
+    "type": "table",
+    "required": true,
+    "doc": "from, to, objects, cells, area: the transitions found"
+   },
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the class number of the second date in each cell"
+   }
+  ],
+  "params": [
+   {
+    "name": "both",
+    "type": "bool",
+    "required": false,
+    "doc": "also adjust the first date from the second (default false)"
+   },
+   {
+    "name": "min",
+    "type": "number",
+    "required": false,
+    "doc": "the lowest adjusted membership that gives a class, below it the object has none (default 0.1)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "The matrix gives the possibility of each transition (1 possible, 0 impossible, between for rare ones): a transition it rules out cannot be what the objects of the second date are: each membership is cut to what the first date and the matrix allow (a max-min composition). Both dates must be on the same grid, classified with memberships (objects.classify, objects.rules). `both` adjusts the first date from the second too."
+ },
+ {
+  "name": "objects.to_map",
+  "doc": "Objects as a map: each cell takes a value of its object, the object's id, its class number, its parent's id or an attribute of the table. No value where there is no object.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the value of each cell's object"
+   }
+  ],
+  "params": [
+   {
+    "name": "what",
+    "type": "text",
+    "required": false,
+    "doc": "id (default); class (the class number, 1 to the number of classes, no value when unclassified); parent (the id of the object above); or the name of a column of the objects' table"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "objects.to_vector",
+  "doc": "Objects as polygons: a polygon per object (with its holes; a multipolygon when its cells are in parts), with the object's attributes: id, class (its name, when the objects have classes), parent (when they have a level above) and every column of the table. The boundaries follow the cell edges exactly, or are smoothed by cutting their corners.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "a polygon per object, in the objects' coordinate system"
+   }
+  ],
+  "params": [
+   {
+    "name": "smooth",
+    "type": "integer",
+    "required": false,
+    "doc": "how many times the corners are cut (Chaikin's): 0 (default) keeps the cell edges; each time rounds the boundary more and makes it a little smaller"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "The polygons follow the cell edges exactly (stairs); `smooth` cuts their corners that many times (1 to 3 is enough to look natural) and shrinks them a little at each corner, so keep 0 when the polygons are counted, measured or put back on the map's grid."
+ },
+ {
+  "name": "objects.transition_matrix",
+  "doc": "Estimate the fuzzy transition matrix of objects.temporal (Feitosa et al. 2009; InterIMAGE, Costa et al. 2010) from what was seen: `samples`, a table with the class of each sample at the two dates, or `transitions`, the table of change.transitions. A row per class of origin: its count of each transition over the count of its most frequent one, so that one is 1 and a transition never seen is 0 (or `floor`); an origin never seen is all 1. (InterIMAGE searches the matrix with a genetic algorithm; this one reads it straight from the samples.) To write the matrix by hand use table.of, with the columns `class` (text) and a column per class, and rows of the class of origin then its possibilities.",
+  "inputs": [
+   {
+    "name": "samples",
+    "type": "table",
+    "required": false,
+    "doc": "a row per sample with the class at the first date and at the second (text)"
+   },
+   {
+    "name": "transitions",
+    "type": "table",
+    "required": false,
+    "doc": "the table of change.transitions: from, to and the cells (a count of each pair)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "matrix",
+    "type": "table",
+    "required": true,
+    "doc": "the possibilities: `class`, then a column per class"
+   }
+  ],
+  "params": [
+   {
+    "name": "from_column",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the first date's class (default before)"
+   },
+   {
+    "name": "to_column",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the second date's class (default after)"
+   },
+   {
+    "name": "floor",
+    "type": "number",
+    "required": false,
+    "doc": "the possibility of a transition never seen (default 0)"
+   },
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "with `transitions`, the column that counts each pair (default cells; km2 works too)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Give samples labelled with the class at both dates (the table's columns before and after), or the transitions table of change.transitions: the possibility of each pair is its count over the largest one of its origin, so a pair never seen is 0, or `floor` when you would not rule it out. A matrix by hand (table.of with values 0 to 1) does the same for transitions you know are impossible, as forest to water in a year."
  },
  {
   "name": "patches.observe",
@@ -24805,6 +25939,759 @@
   "container": false
  },
  {
+  "name": "segment.chessboard",
+  "doc": "Objects as a chessboard: the image cut into squares of a size in cells, from its top-left corner (the squares at the right and bottom edges are clipped). The simplest segmentation, with no regard to what the image holds, to start from or to give the scale of a first level. A cell without a value in every band is no object, and a square cut in parts by such cells is an object for each part.",
+  "inputs": [
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a map, or a stack of bands: only its grid and its empty cells count"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the squares as objects"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, cells, area (map units squared)"
+   }
+  ],
+  "params": [
+   {
+    "name": "size",
+    "type": "integer",
+    "required": false,
+    "doc": "the side of a square in cells, 1 or more (default 10)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "The simplest segmentation, with no regard to the image: use it for a first level above finer objects, to test a rule set, or to give the scale of a sampling grid. `size` is in cells: 1 gives a cell per object. For objects that follow what the image holds, use segment.quadtree or segment.from_map."
+ },
+ {
+  "name": "segment.felzenszwalb",
+  "doc": "Objects as graph-based segments (Felzenszwalb & Huttenlocher 2004, as skimage's felzenszwalb): the cells are nodes, each joined to its 4 or 8 neighbours by an edge weighted with the distance of their bands (after a Gaussian smoothing of sigma cells). The edges are taken from the lowest weight up, and two components join when the edge is no heavier than the least of their inner weight (the heaviest edge in them) plus k / size: a small component is easy to join, a large one needs a closer match. Then components under min_size cells join, in the order of the edges. A constant area is one object. The objects are 4-connected: a link only by a corner splits. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges (reflectance 0-1 beside 0-10000) weigh alike in the distance; standardise: false uses the raw values. A cell without a value in every band is no object. One thread: the same result on every run.",
+  "inputs": [
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a map, or a stack of bands, the colour"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the superpixels, each one connected"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, cells, area (map units squared), and mean_<band> and sd_<band> for each band"
+   }
+  ],
+  "params": [
+   {
+    "name": "standardise",
+    "type": "bool",
+    "required": false,
+    "doc": "standardise each band (z-score) first (default true)"
+   },
+   {
+    "name": "k",
+    "type": "number",
+    "required": false,
+    "doc": "the scale (default 1): higher gives larger segments. It is in the distance of the bands: with standardised bands one unit is a standard deviation of a band (skimage's default 100 is for values 0-255, about 0.4 of the range)"
+   },
+   {
+    "name": "sigma",
+    "type": "number",
+    "required": false,
+    "doc": "the smoothing's Gaussian, in cells (default 0.8; 0 none)"
+   },
+   {
+    "name": "min_size",
+    "type": "integer",
+    "required": false,
+    "doc": "the least cells of a segment (default 20)"
+   },
+   {
+    "name": "neighbours",
+    "type": "integer",
+    "required": false,
+    "doc": "which cells are joined: 4 or 8 (default 8)",
+    "choices": [
+     "4",
+     "8"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "`k` sets how large the segments grow, in the units of the bands (standard deviations by default): raise it for larger segments; `min_size` joins the smallest ones. It makes segments of very different sizes, from a graph of the cells' differences, which suits irregular scenes and less a fixed scale: for a scale you control, use segment.multiresolution."
+ },
+ {
+  "name": "segment.from_map",
+  "doc": "Objects from a map: every group of connected cells of one value becomes an object (ids 1.., in the order of their first cell, row by row); the cells without a value are no object. The way in of any segmenter's result (a map of segments or of classes made elsewhere), with a table of each object's value, cells and area.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the segments or classes: a value for each region"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, value, cells, area (map units squared)"
+   }
+  ],
+  "params": [
+   {
+    "name": "neighbours",
+    "type": "integer",
+    "required": false,
+    "doc": "which cells touch: 4 (default, sharing an edge) or 8",
+    "choices": [
+     "4",
+     "8"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "The way in for any segmenter run elsewhere (SAM, scikit-image, OTB, eCognition, a k-means of the bands): give the map of its segments (a number per region) or of its classes. Cells of one value that do not touch are different objects, so a class map becomes its patches; `neighbours` 8 joins the diagonal ones. A cell without a value is no object."
+ },
+ {
+  "name": "segment.from_vector",
+  "doc": "Objects from polygons: each polygon is laid on the grid of a map (a cell belongs to the polygon holding its centre) and becomes an object, or several when it falls in parts that do not touch (a multipolygon of two areas, or a polygon cut by the map's edge). Where polygons overlap, the later one wins the cells. Cells in no polygon are no object. The way in of parcels, stands or segments drawn elsewhere (the polygons of another software's segmentation); their numeric attributes come to the table, and their text attributes too, as names.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the polygons (in the map's coordinate system, or reprojected)"
+   },
+   {
+    "name": "like",
+    "type": "map",
+    "required": true,
+    "doc": "a map whose grid the objects take"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, feature (the polygon, 1..), cells, area (map units squared) and the attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "neighbours",
+    "type": "integer",
+    "required": false,
+    "doc": "which cells touch: 4 (default, sharing an edge) or 8",
+    "choices": [
+     "4",
+     "8"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "segment.meanshift",
+  "doc": "Objects by mean shift (Comaniciu & Meer 2002), as OTB's large-scale mean-shift segmentation: the filter moves each cell's point in the joint domain (position, bands) to the mean of the cells within spatial_radius cells and range_radius in the bands (a flat kernel), until the move is under threshold or max_iterations; cells next to each other (4 neighbours) whose filtered bands are within range_radius of the mean of the region they join make a region; regions under min_size cells join the neighbour they are most alike. The bands are standardised (z-score over the cells with a value) by default, so that range_radius is in standard deviations and weighs the bands alike; standardise: false uses the raw values (and a range_radius in them). The cost is about cells x spatial_radius² x bands x iterations (1000 x 1000 cells, 4 bands and the defaults: a few seconds on the cap of threads); the filter of a cell is its own, so the result is the same for any number of threads. A cell without a value in every band is no object.",
+  "inputs": [
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a map, or a stack of bands, the colour"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the regions, each one connected"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, cells, area (map units squared), and mean_<band> and sd_<band> for each band"
+   }
+  ],
+  "params": [
+   {
+    "name": "standardise",
+    "type": "bool",
+    "required": false,
+    "doc": "standardise each band (z-score) first (default true)"
+   },
+   {
+    "name": "spatial_radius",
+    "type": "number",
+    "required": false,
+    "doc": "hs, the radius in cells of the window of the filter (default 5): larger smooths more and costs its square"
+   },
+   {
+    "name": "range_radius",
+    "type": "number",
+    "required": false,
+    "doc": "hr, the distance in the bands (Euclidean) within which cells count as alike (default 0.5: half a standard deviation of the bands on the standardised ones)"
+   },
+   {
+    "name": "max_iterations",
+    "type": "integer",
+    "required": false,
+    "doc": "the most moves of the filter (default 10)"
+   },
+   {
+    "name": "threshold",
+    "type": "number",
+    "required": false,
+    "doc": "the filter stops when a move (cells and band units together) is under this (default 0.01)"
+   },
+   {
+    "name": "min_size",
+    "type": "integer",
+    "required": false,
+    "doc": "the least cells of a region; smaller ones join the most alike neighbour (default 20; 1 none)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "It is the slowest of the segmenters: its cost grows with the square of `spatial_radius` and with the cells, so try it on a part of the image first. `range_radius` (in standard deviations when the bands are standardised) sets how different cells may be and still be one object; `min_size` removes the specks."
+ },
+ {
+  "name": "segment.multiresolution",
+  "doc": "Objects by multiresolution segmentation (Baatz & Schäpe 2000, eCognition's): regions start as single cells and merge, pass after pass. In each pass the regions are visited in a pseudo-random order (the seed's); a region merges with the neighbour that costs least when the cost is under scale squared and the region is that neighbour's best too (local mutual best fit; mutual: false merges with the best neighbour whatever its own best). The cost is (1 - shape) times the colour heterogeneity (the growth of cells times standard deviation, summed over the bands with their weights) plus shape times the shape heterogeneity (compactness against smoothness of the outline). It stops when a pass merges nothing (or at max_passes). The scale is in the units of the image's values and of its weights: the same scale gives other objects on reflectance 0-1 than on 0-10000, so choose it for the data (segment.scale suggests one). Raw values are used, not standardised. A cell without a value in every band is no object and never merges; a cell with a value in some bands counts in those bands only. With `from`, the objects of a level below are the start regions, and the result is the level above them: every object of `from` ends inside exactly one new object (output below). A run is one thread, except a big image (or `tile`), which is cut into tiles segmented in parallel and stitched at their borders; the result is the same on every run with the same seed.",
+  "inputs": [
+   {
+    "name": "image",
+    "type": "raster",
+    "required": true,
+    "doc": "a map, or a stack of bands, the colour; rasters on disk (raster.read) are read by tiles when the image is tiled, never whole"
+   },
+   {
+    "name": "from",
+    "type": "objects",
+    "required": false,
+    "doc": "objects of the same grid to start from (the level below); cells in none of them are no object"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the new level"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, cells, area (map units squared), and mean_<band> and sd_<band> for each band"
+   },
+   {
+    "name": "scale",
+    "type": "number",
+    "required": true,
+    "doc": "the scale used (the one given, or the one segment.scale suggests)"
+   },
+   {
+    "name": "below",
+    "type": "objects",
+    "required": false,
+    "doc": "with `from`: those objects inside the new level (their parent is the new object)"
+   }
+  ],
+  "params": [
+   {
+    "name": "scale",
+    "type": "number",
+    "required": false,
+    "doc": "the scale, above 0: objects merge while their cost is under its square (the image's units); without it, the first scale segment.scale suggests for the image (noted in the run's warnings, and the `scale` output)"
+   },
+   {
+    "name": "shape",
+    "type": "number",
+    "required": false,
+    "doc": "the weight of shape against colour, 0 to 0.9 (default 0.1)"
+   },
+   {
+    "name": "compactness",
+    "type": "number",
+    "required": false,
+    "doc": "in the shape, the weight of compactness against smoothness, 0 to 1 (default 0.5)"
+   },
+   {
+    "name": "weights",
+    "type": "any",
+    "required": false,
+    "doc": "a list, the weight of each band (default 1 for all)"
+   },
+   {
+    "name": "mutual",
+    "type": "bool",
+    "required": false,
+    "doc": "merge only when each is the other's best neighbour (default true)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the order of the visits (default 0)"
+   },
+   {
+    "name": "max_passes",
+    "type": "integer",
+    "required": false,
+    "doc": "the most passes over the objects (default 100)"
+   },
+   {
+    "name": "tile",
+    "type": "integer",
+    "required": false,
+    "doc": "cells, the side of the tiles segmented in parallel and stitched at their borders (Happ et al. 2010); 0 (default) is automatic: the whole image at once up to 4 million cells, tiles of 1024 above; a number forces tiles of that side. Ignored with `from`. The tiles change the objects a little (not the criterion); the result is the same for a seed at any number of threads"
+   },
+   {
+    "name": "margin",
+    "type": "integer",
+    "required": false,
+    "doc": "cells, the margin around each tile that is segmented with it for the context of its border; 0 (default) is automatic: 64 cells, at most half the tile"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "The scale is in the image's units (the same scale gives other objects on reflectance 0-1 than on 0-10000), so find it with segment.scale, which suggests scales from the image, then look at the objects in the Viewer and raise or lower it. shape 0.1 and compactness 0.5 are eCognition's usual start: more shape gives smoother, more compact objects at the cost of following the colour. For a hierarchy, connect a level to `from` of the next with a higher scale; a superpixel level (segment.slic, segment.snic) as the first one makes the run faster than starting from single cells. Weights tell the bands apart (0 leaves one out of the colour)."
+ },
+ {
+  "name": "segment.quadtree",
+  "doc": "Objects by a quadtree: the image is one square (or squares of the largest size), split into four while the colour difference inside is above a threshold, down to a smallest size. Even areas stay in big squares and varied ones in small squares. The colour difference is the largest, over the bands, of the highest value minus the lowest among a square's cells (eCognition's quadtree-based segmentation uses the colour difference the same way). A cell without a value in every band is no object. Squares are of sizes of a power of two, clipped at the right and bottom edges; the result is always the same.",
+  "inputs": [
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a map, or a stack of bands, the colour"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the squares as objects"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, cells, area (map units squared)"
+   }
+  ],
+  "params": [
+   {
+    "name": "threshold",
+    "type": "number",
+    "required": true,
+    "doc": "a square is split while, in any band, its highest value minus its lowest is above this (in the image's units)"
+   },
+   {
+    "name": "min_size",
+    "type": "integer",
+    "required": false,
+    "doc": "the smallest square's side in cells (default 1)"
+   },
+   {
+    "name": "max_size",
+    "type": "integer",
+    "required": false,
+    "doc": "the largest square's side in cells, taken down to a power of two (default: the smallest power of two covering the image)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Squares as small as the image needs: big where it is even, small at its edges. `threshold` is in the image's units (a range inside a square, any band): start from a tenth of the image's range and lower it until the objects follow the edges you want; `min_size` stops the splitting at a few cells. A stack uses every band, so give it the bands that tell the classes apart."
+ },
+ {
+  "name": "segment.sam",
+  "doc": "Objects by Segment Anything (SAM), automatic masks, simplified, run by ONNX Runtime (optional: it is loaded when this operator runs; if it is not found the error says how to install it and to set ORT_DYLIB_PATH, and every other operator works without it). Give the ONNX files of SAM's image encoder and mask decoder as the common SAM ONNX export makes them (no weights come with Terraflux: export them from the model's own tools, or take an export published by its authors or a community; the sizes are of the order of hundreds of megabytes). The encoder takes a 1 x 3 x 1024 x 1024 float image (after SAM's normalisation) and gives image_embeddings 1 x 256 x 64 x 64; the decoder takes image_embeddings, point_coords, point_labels, mask_input, has_mask_input and orig_im_size and gives masks and iou_predictions. The image is cut into tiles of 1024 x 1024 cells (clipped at the edges, resized so the longer side is 1024 and padded), the three bands stretched to 0-255 between their 2nd and 98th percentiles; a grid of `points` x `points` prompt points is run on each tile (a cell without a value is not prompted), the best mask of a point is kept when its predicted IoU is at least `iou`, and the overlaps are resolved by the higher IoU first, cell by cell (the first kept wins). With `fill` the cells that no mask holds become objects too (each connected area). The masks of a tile are cut at its edge, so an object spanning tiles is one object for each. Each mask's cells that are not connected are different objects.",
+  "inputs": [
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a stack of bands holding the three colours (red, green, blue)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, cells, area (map units squared), mean_<band> and sd_<band> of the three bands"
+   }
+  ],
+  "params": [
+   {
+    "name": "encoder",
+    "type": "text",
+    "required": true,
+    "doc": "the path of SAM's image encoder (an ONNX file)"
+   },
+   {
+    "name": "decoder",
+    "type": "text",
+    "required": true,
+    "doc": "the path of SAM's mask decoder (an ONNX file)"
+   },
+   {
+    "name": "bands",
+    "type": "any",
+    "required": false,
+    "doc": "three layer names for red, green and blue (default: the first three)"
+   },
+   {
+    "name": "points",
+    "type": "integer",
+    "required": false,
+    "doc": "prompt points per side of the grid, 1 to 64 (default 16)"
+   },
+   {
+    "name": "iou",
+    "type": "number",
+    "required": false,
+    "doc": "the least predicted IoU of a mask kept, 0 to 1 (default 0.8)"
+   },
+   {
+    "name": "min_size",
+    "type": "integer",
+    "required": false,
+    "doc": "the fewest cells of a mask (after the overlaps) kept (default 1)"
+   },
+   {
+    "name": "fill",
+    "type": "bool",
+    "required": false,
+    "doc": "make objects of the cells no mask holds (default true); else they are no object"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Optional: it needs ONNX Runtime (pip install onnxruntime, then set ORT_DYLIB_PATH to its shared library) and the ONNX files of SAM's encoder and decoder, which do not come with Terraflux. It is slow on a CPU: one encoder run per 1024 x 1024 tile and one decoder run per prompt point, so start with `points` 8 on a small area. Give three bands as red, green and blue; raise `iou` for fewer, surer masks."
+ },
+ {
+  "name": "segment.scale",
+  "doc": "The scales worth trying in segment.multiresolution (ESP of Drăguţ, Tiede & Levick 2010; ESP2 for several bands, Drăguţ et al. 2014). The image is segmented at the scales start, start + step, ... (each level made from the one below, so the run costs about one segmentation); at each the local variance LV is the mean over the objects of their standard deviation, and its rate of change ROC = (LV - LV before) / LV before x 100 (per band and the mean over the bands). A peak of the mean ROC, above both neighbours, is a level where the objects went from parts to wholes: the first three peaks are suggested (fine, medium, coarse). Without a start it is the square root of the sum over the bands of weight x the median local standard deviation (3 x 3 cells), so scale squared is about what merging two cells of noise costs. To stay fast it runs on the central window of at most `window` x `window` cells; the scales hold for the whole image. Read the curve (the chart of the table) as well as the peaks: ESP is a guide to scales, not an answer.",
+  "inputs": [
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a map, or a stack of bands, the colour"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per level: scale, objects, lv_<band> and roc_<band> for each band, roc_mean, and suggested (1 at the peaks)"
+   },
+   {
+    "name": "scales",
+    "type": "table",
+    "required": true,
+    "doc": "the suggested scales: level and scale (none if no peak)"
+   },
+   {
+    "name": "scale",
+    "type": "number",
+    "required": true,
+    "doc": "the first suggested scale (the median of those tried when there is no peak)"
+   }
+  ],
+  "params": [
+   {
+    "name": "start",
+    "type": "number",
+    "required": false,
+    "doc": "the first scale, above 0 (default: from the image's local standard deviation, see above)"
+   },
+   {
+    "name": "step",
+    "type": "number",
+    "required": false,
+    "doc": "the increase of the scale between levels (default start)"
+   },
+   {
+    "name": "levels",
+    "type": "integer",
+    "required": false,
+    "doc": "how many scales to try, 3 or more (default 30)"
+   },
+   {
+    "name": "shape",
+    "type": "number",
+    "required": false,
+    "doc": "as in segment.multiresolution (default 0.1)"
+   },
+   {
+    "name": "compactness",
+    "type": "number",
+    "required": false,
+    "doc": "as in segment.multiresolution (default 0.5)"
+   },
+   {
+    "name": "weights",
+    "type": "any",
+    "required": false,
+    "doc": "a list, the weight of each band (default 1 for all)"
+   },
+   {
+    "name": "window",
+    "type": "integer",
+    "required": false,
+    "doc": "the side in cells of the central window it runs on (default 512; 0 the whole image)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the order of the merges (default 0)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "ESP runs the segmentation at 30 scales on the central `window` of the image (512 x 512 cells by default) so it stays fast on large images: the scales hold for the whole image, but choose a window that holds the objects you want, or 0 for all of it. The peaks of the ROC are guides: open the chart of the table, try the suggested scales in segment.multiresolution and look at the objects. Give `start` and `step` to look closer at a range of scales."
+ },
+ {
+  "name": "segment.slic",
+  "doc": "Objects as SLIC superpixels (Achanta et al. 2012): seeds on a regular lattice, each moved to the lowest gradient of its 3 x 3, then k-means in the bands and the position, each centre taking the cells in a window of 2S x 2S around it, with the distance sqrt(d_colour² + (d_space / S)² m²), d_colour² being the mean over the bands of the squared gaps, so m means the same for any number of bands. Fragments smaller than a quarter of the expected size are joined to their largest neighbour, so each superpixel is connected. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges (reflectance 0-1 beside 0-10000) weigh alike in the distance; standardise: false uses the raw values. A cell without a value in every band is no object. One thread: the same result on every run.",
+  "inputs": [
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a map, or a stack of bands, the colour"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the superpixels, each one connected"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, cells, area (map units squared), and mean_<band> and sd_<band> for each band"
+   }
+  ],
+  "params": [
+   {
+    "name": "standardise",
+    "type": "bool",
+    "required": false,
+    "doc": "standardise each band (z-score) first (default true)"
+   },
+   {
+    "name": "size",
+    "type": "integer",
+    "required": false,
+    "doc": "the approximate side of a superpixel in cells (default 10): about cells / size² superpixels"
+   },
+   {
+    "name": "count",
+    "type": "integer",
+    "required": false,
+    "doc": "instead of size: the approximate number of superpixels"
+   },
+   {
+    "name": "compactness",
+    "type": "number",
+    "required": false,
+    "doc": "m, the weight of space against colour (default 1): the colour distance is the mean over the bands of the squared gap (in standard deviations when standardised), the space one the squared distance over the side S; m = 1 makes a distance of S cost as much as a gap of one standard deviation in every band. Higher gives more regular superpixels, lower ones that follow the edges"
+   },
+   {
+    "name": "iterations",
+    "type": "integer",
+    "required": false,
+    "doc": "the iterations of the k-means (default 10)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Superpixels are many small, regular objects: use them as the first level of segment.multiresolution (`from`), or as the cells of a classification, not as the final objects. `size` sets their side in cells and `compactness` their regularity (higher: more regular; lower: closer to the edges)."
+ },
+ {
+  "name": "segment.snic",
+  "doc": "Objects as SNIC superpixels (Achanta & Susstrunk 2017): the superpixels grow from seeds on a regular lattice, no iterations: a queue gives the next cell, the one nearest (in the bands and the position, as SLIC's distance) to the centroid of the superpixel it would join, and the centroid is updated at each cell. 4 neighbours, so a superpixel grows connected. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges (reflectance 0-1 beside 0-10000) weigh alike in the distance; standardise: false uses the raw values. A cell without a value in every band is no object. One thread: the same result on every run.",
+  "inputs": [
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a map, or a stack of bands, the colour"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the superpixels, each one connected"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, cells, area (map units squared), and mean_<band> and sd_<band> for each band"
+   }
+  ],
+  "params": [
+   {
+    "name": "standardise",
+    "type": "bool",
+    "required": false,
+    "doc": "standardise each band (z-score) first (default true)"
+   },
+   {
+    "name": "size",
+    "type": "integer",
+    "required": false,
+    "doc": "the approximate side of a superpixel in cells (default 10): about cells / size² superpixels"
+   },
+   {
+    "name": "count",
+    "type": "integer",
+    "required": false,
+    "doc": "instead of size: the approximate number of superpixels"
+   },
+   {
+    "name": "compactness",
+    "type": "number",
+    "required": false,
+    "doc": "m, the weight of space against colour (default 1): the colour distance is the mean over the bands of the squared gap (in standard deviations when standardised), the space one the squared distance over the side S; m = 1 makes a distance of S cost as much as a gap of one standard deviation in every band. Higher gives more regular superpixels, lower ones that follow the edges"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "As segment.slic, and no iterations: it grows the superpixels from their seeds in one pass, so it is faster and needs no tuning of `iterations`. Use the superpixels as the first level of segment.multiresolution (`from`), or as the cells of a classification."
+ },
+ {
+  "name": "segment.watershed",
+  "doc": "Objects as the watershed of the image's gradient (Vincent & Soille 1991, as skimage's watershed), marker-controlled or not. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges weigh alike, and smoothed by a Gaussian of sigma cells; the gradient is the Sobel magnitude of each band, the largest over the bands. Without markers, they are the minima of the gradient that stand h or more above the lowest cell they would join (h-minima: a minimum shallower than h is noise and floods with its neighbour); with a map of markers, the cells with a value are the seeds, a group of connected cells of one value being one marker. The markers flood by a queue of the lowest gradient first (a cell takes the marker that reaches it first, ties to the cell queued first), 4 or 8 neighbours, with no watershed lines: every cell with a value gets a marker's label (areas cut off from every marker by cells without a value stay apart as objects of their own). compactness above 0 makes the watershed compact (Neubert & Protzel 2014): the queue's priority is the gradient plus compactness times the distance in cells to the marker's centre. The objects are made 4-connected whatever the neighbours: a marker's area linked only by a corner splits. A cell without a value in every band is no object. One thread: the same result on every run.",
+  "inputs": [
+   {
+    "name": "image",
+    "type": "any",
+    "required": true,
+    "doc": "a map, or a stack of bands, the colour"
+   },
+   {
+    "name": "markers",
+    "type": "map",
+    "required": false,
+    "doc": "a map of the seeds: cells with a value are markers (a group of connected cells of one value is one); missing elsewhere. Without it the markers are found by the gradient's h-minima"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the basins, each one connected"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object: id, cells, area (map units squared), and mean_<band> and sd_<band> for each band"
+   }
+  ],
+  "params": [
+   {
+    "name": "standardise",
+    "type": "bool",
+    "required": false,
+    "doc": "standardise each band (z-score) first (default true)"
+   },
+   {
+    "name": "sigma",
+    "type": "number",
+    "required": false,
+    "doc": "the smoothing's Gaussian, in cells (default 1; 0 none)"
+   },
+   {
+    "name": "h",
+    "type": "number",
+    "required": false,
+    "doc": "without markers, the least depth of a minimum of the gradient to be a marker, in the gradient's units (default 0.05 of the gradient's range: a minimum under a twentieth of the strongest edge is noise; 0 makes every minimum a marker, with a plateau one)"
+   },
+   {
+    "name": "neighbours",
+    "type": "integer",
+    "required": false,
+    "doc": "which cells the flooding passes between: 4 or 8 (default 8)",
+    "choices": [
+     "4",
+     "8"
+    ]
+   },
+   {
+    "name": "compactness",
+    "type": "number",
+    "required": false,
+    "doc": "0 (default) is the plain watershed; above it the basins are more regular. The gradient is in standard deviations per cell when standardised, so values near 0.01 to 0.1 matter"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Without markers the basins are the minima of the gradient, so many on a noisy image: raise `sigma` (the smoothing) or `h` until they are about the objects you want. With markers (a map of seeds, the centres of the trees or the buildings, a classification's cores) every object has one marker, which is the way to control what it finds."
+ },
+ {
   "name": "sensitivity.analyze",
   "doc": "The indices of a global sensitivity analysis from its runs and their outputs (SALib's analyses, the same numbers): Morris's μ, μ* (the mean absolute elementary effect: the importance) and σ (the interactions and non-linearity) with μ*'s bootstrap interval; or Sobol's first order (S1: the share of the output's variance due to the factor alone), total (ST: with its interactions) and second order (S2: of pairs) indices with their bootstrap intervals.",
   "inputs": [
@@ -26074,6 +27961,48 @@
    }
   ],
   "access": "none",
+  "container": false
+ },
+ {
+  "name": "stack.rename",
+  "doc": "A stack whose layers are named again, in order: `names` has a name for each layer of the input (the bands of a file), an empty name or null drops the layer. Optionally every layer kept is then multiplied by `scale` and `offset` is added (an image's digital numbers to reflectance: scale 0.0001; Landsat collection 2: scale 0.0000275, offset -0.2). Use it to give the bands of an image the names the model reads (blue, green, red, nir, swir1, swir2).",
+  "inputs": [
+   {
+    "name": "stack",
+    "type": "stack",
+    "required": true,
+    "doc": "the stack (or the bands of a file)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "stack",
+    "type": "stack",
+    "required": true,
+    "doc": "the stack with the names, the layers kept"
+   }
+  ],
+  "params": [
+   {
+    "name": "names",
+    "type": "any",
+    "required": true,
+    "doc": "a list with a name for each layer, in order (\"\" or null: drop it)"
+   },
+   {
+    "name": "scale",
+    "type": "number",
+    "required": false,
+    "doc": "every layer kept multiplied by this (default 1)"
+   },
+   {
+    "name": "offset",
+    "type": "number",
+    "required": false,
+    "doc": "this added after the scale (default 0)"
+   }
+  ],
+  "access": "local",
   "container": false
  },
  {
