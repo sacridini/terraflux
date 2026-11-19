@@ -98,16 +98,20 @@ fn choice<T: Copy>(args: &Args, name: &str, default: &str, options: &[(&str, T)]
     })
 }
 
-/// A row per node: its number, row, column, records, group (when grouped), U-matrix distance, and its weights in the
-/// variables' own units.
+/// A row per node: its number, row, column, records, group (when grouped), U-matrix distance, topology (1 rectangular,
+/// 2 hexagonal, named by the table's labels: the viewer draws the grid by it), and its weights in the variables' own
+/// units.
 fn codebook_table(s: &Som, counts: &[usize]) -> Table {
     let mut cols: Vec<String> = ["node", "row", "column", "count"].map(String::from).to_vec();
     if !s.groups.is_empty() {
         cols.push("group".into());
     }
     cols.push("umatrix".into());
+    cols.push("topology".into());
     cols.extend(s.predictors.iter().cloned());
     let mut t = Table::new(cols);
+    t.labels.insert("topology".into(), vec!["rectangular".into(), "hexagonal".into()]);
+    let topology = if s.topology == Topology::Hexagonal { 2.0 } else { 1.0 };
     let u = s.umatrix();
     for k in 0..s.len() {
         let mut row = vec![(k + 1) as f64, (k / s.columns + 1) as f64, (k % s.columns + 1) as f64, counts[k] as f64];
@@ -115,6 +119,7 @@ fn codebook_table(s: &Som, counts: &[usize]) -> Table {
             row.push(s.groups[k] as f64);
         }
         row.push(u[k]);
+        row.push(topology);
         row.extend(s.original(k));
         t.rows.push(row);
     }
@@ -158,8 +163,8 @@ impl Operator for Organise {
             "codebook",
             Type::Table,
             "a row per node: node, row, column, count (its records), group (with clusters), umatrix (its mean \
-             distance, in the fit's units, to the nodes next to it) and its weight for each variable, in the \
-             variable's own units",
+             distance, in the fit's units, to the nodes next to it), topology (rectangular or hexagonal) and its \
+             weight for each variable, in the variable's own units",
         ))
         .output(PortSpec::new(
             "quality",

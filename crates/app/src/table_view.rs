@@ -252,7 +252,8 @@ pub fn show(ui: &mut Ui, t: &Table, id: egui::Id) {
 
 /// A table whose rows are clicked to select one (`pick`): the row drawn selected, scrolled to when asked.
 pub fn show_picking(ui: &mut Ui, t: &Table, id: egui::Id, mut pick: Option<&mut Pick>) {
-    let mut st: TableState = ui.data(|d| d.get_temp(id)).unwrap_or_default();
+    let mut st: TableState =
+        ui.data(|d| d.get_temp(id)).unwrap_or_else(|| TableState { chart: Chart::first(t), ..Default::default() });
     let shown = rows_shown(t, &st);
     ui.horizontal(|ui| {
         ui.add(

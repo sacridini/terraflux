@@ -33,7 +33,7 @@ impl Rgb {
     /// The composite a layer gets when it is first switched on: the natural colour of the bands' names when they
     /// say it, else the first three maps.
     pub fn first(names: &[String]) -> Rgb {
-        let found = presets(names).into_iter().find(|(label, _)| label.starts_with("natural"));
+        let found = presets(names).into_iter().find(|(label, _)| label.starts_with("natural") || label == PCA_LABEL);
         Rgb::new(found.map_or([0, 1, 2], |(_, b)| b))
     }
 
@@ -278,10 +278,23 @@ pub fn presets(names: &[String]) -> Vec<(String, [usize; 3])> {
             out.push((format!("{label} ({})", bands.join(" ")), [r, g, b]));
         }
     }
+    // ml.pca's scores: the first three components (pc1, pc2, pc3), whatever their place in the stack
+    if let Some(bands) = pca_bands(names) {
+        out.insert(0, (PCA_LABEL.to_string(), bands));
+    }
     if names.len() >= 3 {
         out.push(("first three".to_string(), [0, 1, 2]));
     }
     out
+}
+
+/// The label of the composite of the first three principal components.
+pub const PCA_LABEL: &str = "principal components (PC1 PC2 PC3)";
+
+/// The places of `pc1`, `pc2` and `pc3` (as ml.pca's `scores` stack names its layers; the case ignored) among `names`.
+pub fn pca_bands(names: &[String]) -> Option<[usize; 3]> {
+    let find = |n: &str| names.iter().position(|x| x.eq_ignore_ascii_case(n));
+    Some([find("pc1")?, find("pc2")?, find("pc3")?])
 }
 
 /// The roles of an image's bands the OBIA operators and templates read.
@@ -513,6 +526,20 @@ mod tests {
         let p = labels(&l8);
         assert!(!p.iter().any(|(x, _)| x.contains("Sentinel")), "{p:?}");
         assert!(p.iter().any(|(x, _)| x.contains("colour infrared, Landsat 8/9")));
+    }
+
+    #[test]
+    fn the_scores_of_ml_pca_are_a_composite_of_their_first_three_components() {
+        let n = names(&["pc1", "pc2", "pc3", "pc4"]);
+        assert_eq!(labels(&n)[0], (PCA_LABEL.to_string(), [0, 1, 2]));
+        assert_eq!(Rgb::first(&n).bands, [0, 1, 2]);
+        // wherever they are in the stack, whatever the case
+        let m = names(&["x", "PC3", "PC1", "pc2"]);
+        assert_eq!(pca_bands(&m), Some([2, 3, 1]));
+        assert_eq!(Rgb::first(&m).bands, [2, 3, 1]);
+        // two components are not enough
+        assert_eq!(pca_bands(&names(&["pc1", "pc2"])), None);
+        assert_eq!(pca_bands(&names(&["B2", "B3", "B4"])), None);
     }
 
     #[test]

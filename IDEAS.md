@@ -4671,6 +4671,20 @@ Os três projetos são GPL-3.0, do mesmo autor; o Terraflux é GPL-3.0-or-later:
   **SOM**: a grade dos nós com a U-matrix, os planos de componentes (uma grade por variável), o mapa de contagens e os
   grupos; um clique num nó (ou num grupo) acende as suas células no mapa do Viewer, e uma célula no mapa mostra o seu
   nó. No Viewer, os scores do PCA como composição RGB (`rgb.rs`: pc1, pc2, pc3) com um clique.
+  **Feito**: o cotovelo e a escolha do k já vinham das etapas B e C; agora o SOM e o composto RGB. O `codebook` ganhou a
+  coluna `topology` (1 retangular, 2 hexagonal, nomeada pelos `labels` da tabela) entre `umatrix` e os pesos, porque a
+  topologia não se infere da tabela; `Kind::Som` em `charts.rs` (a tabela de codebook abre assim, `Chart::first`): a grade
+  de quadrados ou hexágonos (`node_centre`, as linhas deslocadas meio nó como `shifted` do MiniSom, a distância (3/2)/raiz
+  de 3 entre as linhas hexagonais; `node_at` acha o nó sob o ponteiro) em quatro vistas, `SomView`: U-matrix, planos de
+  componentes (uma grade por variável), contagens e grupos, na rampa viridis (os grupos nas cores das classes). O clique
+  num nó escolhe `SomPick::Node` (na vista dos grupos, `Group`; de novo, solta). A ligação com o Viewer está em
+  `som_link.rs`, pelo nome do nó `ml.som` no contexto do egui: no Viewer, ao mostrar `nodes` ou `groups`, uma camada
+  acende as células do nó ou do grupo escolhido (as outras escurecidas), e uma célula clicada no mapa escolhe o seu
+  nó (ou grupo) na vista. A tabela e o mapa são saídas diferentes, e o Viewer mostra uma por vez: a escolha vale na
+  outra. O composto dos scores do PCA: `rgb::presets` ganhou "principal components (PC1 PC2 PC3)" (pelos nomes pc1, pc2,
+  pc3 onde estiverem) e `Rgb::first` o toma, então a caixa RGB das Camadas, de uma pilha de scores, já liga pc1 pc2 pc3,
+  cada banda de 2% a 98%. Em aberto: o mapa clicado de novo na mesma célula depois de escolher outro nó na vista não
+  repete a escolha (o Viewer só guarda a última célula); um botão para ir da vista ao mapa de nós numa só ação.
 - **F. Para quem está começando.** Templates (com a `nlm.image` ou pilhas `nlm.*`, rodando como estão, com `data`
   para o *Use my data*): "Principal components of an image", "Unsupervised classification of an image (k-means)",
   "Types of landscape by a self-organizing map" (uma pilha de variáveis ambientais, os grupos como mapa) e "Change

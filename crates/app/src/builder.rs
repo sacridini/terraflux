@@ -5636,7 +5636,16 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     });
                 }
             }
+            // an ml.som codebook's SOM view: its pick is the node's link with the maps (the pick of the map's click
+            // is shown in it, and the one made in it kept for the map)
+            let som = crate::charts::is_som(t);
+            if som {
+                crate::charts::set_picked(ui.ctx(), id, crate::som_link::linked(ui.ctx(), &node));
+            }
             egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| crate::table_view::show(ui, t, id));
+            if som {
+                crate::som_link::set_linked(ui.ctx(), &node, crate::charts::picked(ui.ctx(), id));
+            }
             return None;
         }
         egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
@@ -5782,6 +5791,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     );
     // (the hypotheses of the classes of an objects.resolve, over the map when asked for)
     rasters.extend(crate::hypotheses::layers(ui.ctx(), s, &node, &port, salt));
+    // (the node or group picked in an ml.som node's SOM view, lit on its map of nodes or groups)
+    rasters.extend(crate::som_link::layers(ui.ctx(), s, &node, &port));
     if let Some(e) = s.view_vectors.take_error() {
         s.editor.message = Some(e);
     }
@@ -6549,6 +6560,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         crate::live_segment::badge(ui.ctx(), rect, &live.lock().unwrap_or_else(|e| e.into_inner()));
     }
     crate::hypotheses::set_cursor(ui.ctx(), salt, &node, &port, hover.map(|h| (h.row, h.col)));
+    // (a cell clicked on an ml.som node's map of nodes or groups picks its node or group in the SOM view)
+    crate::som_link::clicked(ui.ctx(), s, salt, &node, &port, sh.view.picked);
     // what the pointer did on the objects (selected, or gave samples), and the keys over them (a level to go to)
     let events = std::mem::take(&mut sh.view.object_events);
     if let Some(a) = &active {

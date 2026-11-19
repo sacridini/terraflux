@@ -170,7 +170,7 @@ types, an unsupervised classification whose groups are ordered): ml.som trains a
 stack or the columns of a table. Without `rows` and `cols` the grid has about 5 sqrt(n) nodes (Vesanto's rule); \
 `clusters` k groups the nodes in k groups (Ward's method, or `grouping` = \"kmeans\"). Outputs: nodes (a map of each \
 cell's node, row by row from 1) and groups (a map, 1 to k), codebook (a row per node: row, column, count, group, \
-umatrix, and its weights in the variables' own units), quality (quantisation and topographic error) and a model for \
+umatrix, topology, and its weights in the variables' own units), quality (quantisation and topographic error) and a model for \
 ml.predict. `topology` is rectangular or hexagonal; `training` batch (the default) or online; variables are \
 standardised by default.
 Templates: \"Drivers of land change\", \"Cleaning a map of classes: filter, sieve, label and grow\", \"Terrain of a \

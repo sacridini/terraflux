@@ -132,3 +132,20 @@ fn charts_of_signatures() {
     let lines = Chart { columns: vec![2, 3], ..lines };
     draw(series, lines, "lines");
 }
+
+#[test]
+fn charts_of_a_som() {
+    use terraflux_app::charts::SomView;
+    let s = signatures();
+    for topology in ["rectangular", "hexagonal"] {
+        let params = serde_json::json!({
+            "rows": 3, "cols": 4, "clusters": 3, "topology": topology, "columns": ["shdi", "ed", "np"]
+        });
+        let book = table(&run("ml.som", &s, params), "codebook");
+        assert!(Kind::of(&book).contains(&Kind::Som), "{topology}");
+        for view in SomView::ALL {
+            let chart = Chart { kind: Kind::Som, som: view, ..Default::default() };
+            draw(book.clone(), chart, &format!("som-{topology}-{}", view.name().replace(' ', "-")));
+        }
+    }
+}

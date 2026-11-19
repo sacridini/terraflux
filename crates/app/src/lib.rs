@@ -101,6 +101,7 @@ pub mod sens_methods;
 pub mod series_drop;
 pub mod settings;
 pub mod shade;
+pub mod som_link;
 pub mod stale;
 pub mod start_page;
 pub mod table_view;

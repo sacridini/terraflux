@@ -1389,8 +1389,14 @@ fn a_map_of_four_groups_groups_its_nodes_into_them() {
         assert!(agreement(&truth, &groups) > 0.93, "{grouping} {topology}");
         // the codebook: 42 nodes in row-major order, the counts adding to the cells, the groups from 1 to 4
         let book = table(&fit["codebook"]);
-        assert_eq!(book.columns[..6], ["node", "row", "column", "count", "group", "umatrix"].map(String::from));
-        assert_eq!(&book.columns[6..], &["a", "b", "c"].map(String::from));
+        assert_eq!(
+            book.columns[..7],
+            ["node", "row", "column", "count", "group", "umatrix", "topology"].map(String::from)
+        );
+        assert_eq!(&book.columns[7..], &["a", "b", "c"].map(String::from));
+        let want = if topology == "hexagonal" { 2.0 } else { 1.0 };
+        assert!(book.rows.iter().all(|r| r[6] == want));
+        assert_eq!(book.label("topology", want), Some(topology));
         assert_eq!(book.rows.len(), 42);
         for (k, r) in book.rows.iter().enumerate() {
             assert_eq!((r[0], r[1], r[2]), ((k + 1) as f64, (k / 6 + 1) as f64, (k % 6 + 1) as f64));
@@ -1402,7 +1408,7 @@ fn a_map_of_four_groups_groups_its_nodes_into_them() {
             assert_eq!(book.rows[*n as usize - 1][4], *g);
         }
         // the weights are in the variables' own units: the nodes of the cells near the origin of a (about 100)
-        let a_range = book.rows.iter().fold((f64::MAX, f64::MIN), |m, r| (m.0.min(r[6]), m.1.max(r[6])));
+        let a_range = book.rows.iter().fold((f64::MAX, f64::MIN), |m, r| (m.0.min(r[7]), m.1.max(r[7])));
         assert!(a_range.0 > -50.0 && a_range.1 < 300.0 && a_range.1 - a_range.0 > 50.0, "{a_range:?}");
         // the quality: 600 records, a small error, the topology mostly kept
         let q = table(&fit["quality"]);
@@ -1552,12 +1558,12 @@ fn the_quality_by_hand() {
         serde_json::json!({"rows": 1, "cols": 2, "sigma": 0.1, "standardise": false, "iterations": 40}),
     );
     let book = table(&fit["codebook"]);
-    // node, row, column, count, umatrix, u, v
-    assert_eq!(book.columns[3..], ["count", "umatrix", "u", "v"].map(String::from));
+    // node, row, column, count, umatrix, topology, u, v
+    assert_eq!(book.columns[3..], ["count", "umatrix", "topology", "u", "v"].map(String::from));
     for (r, mean) in book.rows.iter().zip([0.1, 10.1]) {
         assert_eq!(r[3], 2.0);
-        near("u", r[5], mean, 1e-9);
-        near("v", r[6], mean, 1e-9);
+        near("u", r[6], mean, 1e-9);
+        near("v", r[7], mean, 1e-9);
     }
     // the U-matrix of two nodes: each one's distance to the other, sqrt(2) * 10
     near("umatrix", book.rows[0][4], 200.0f64.sqrt(), 1e-9);
@@ -1664,7 +1670,7 @@ fn a_som_model_is_saved_as_json_and_gives_the_nearest_node_and_group() {
         assert_eq!(apply(Value::MlModel(Arc::new(back)), &x), as_fitted);
         // a record at a node's weights has that node, and its group; the weights are the codebook's, own units
         let book = table(&fit["codebook"]);
-        let at_nodes: Vec<Vec<f64>> = book.rows.iter().map(|r| r[6..].to_vec()).collect();
+        let at_nodes: Vec<Vec<f64>> = book.rows.iter().map(|r| r[7..].to_vec()).collect();
         let t = apply(fit["model"].clone(), &at_nodes);
         for (k, r) in t.rows.iter().enumerate() {
             assert_eq!((r[3], r[4]), ((k + 1) as f64, book.rows[k][4]), "node {k}");

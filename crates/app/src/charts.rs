@@ -3,9 +3,10 @@
 //! plot_metric and plot_cluster_metrics; the clustergram of metrics.clustergram's means (the library's
 //! plot_clustergram); box plots of the columns by group (plot_cluster_metrics); the loadings of principal
 //! components as arrows in the circle of correlations (metrics.pca's loadings); and a correlation matrix
-//! (metrics.correlation) as a heatmap, as show_correlation.
+//! (metrics.correlation) as a heatmap, as show_correlation; and ml.pca's elbow, ml.kmeans's choice of k and ml.som's
+//! grid of nodes (squares or hexagons) in several views, whose picked node the Viewer links to the map.
 
-use egui::{Color32, Ui, Vec2};
+use egui::{Color32, RichText, Ui, Vec2};
 use egui_plot::{
     Arrows, Bar, BarChart, BoxElem, BoxPlot, BoxSpread, Heatmap, Line, Plot, PlotPoint, Points, Text, VLine,
 };
@@ -39,6 +40,9 @@ pub enum Kind {
     Elbow,
     /// ml.kmeans's choice of k (a row per k): the inertia and the silhouette against k, the best silhouette marked.
     Choice,
+    /// ml.som's codebook (a row per node): the grid of nodes as squares or hexagons, coloured by the U-matrix, a
+    /// variable's weights, the records each holds or its group; a click on a node picks it.
+    Som,
 }
 
 impl Kind {
@@ -55,6 +59,7 @@ impl Kind {
             Kind::Esp => "ESP",
             Kind::Elbow => "elbow",
             Kind::Choice => "choice of k",
+            Kind::Som => "SOM",
         }
     }
 
@@ -81,6 +86,9 @@ impl Kind {
         }
         if is_choice(t) {
             v.push(Kind::Choice);
+        }
+        if is_som(t) {
+            v.push(Kind::Som);
         }
         v
     }
@@ -232,9 +240,16 @@ pub struct Chart {
     pub x: Option<usize>,
     pub by: Option<usize>,
     pub components: [usize; 2],
+    /// For a SOM: what its nodes are coloured by.
+    pub som: SomView,
 }
 
 impl Chart {
+    /// The chart a table opens with: the SOM for a codebook (its grid is what it is for), else none.
+    pub fn first(t: &Table) -> Chart {
+        if is_som(t) { Chart::suggested(t, Kind::Som) } else { Chart::default() }
+    }
+
     /// A chart of a kind with what a table suggests: the first metric (not a key), along the date, split by the
     /// class, zone or cluster.
     pub fn suggested(t: &Table, kind: Kind) -> Chart {
@@ -296,6 +311,12 @@ pub fn show(ui: &mut Ui, t: &Table, rows: &[usize], chart: &mut Chart, id: egui:
                     });
             }
         }
+        if chart.kind == Kind::Som {
+            let grouped = som_map(t).is_some_and(|m| m.grouped());
+            for v in SomView::ALL.into_iter().filter(|v| grouped || *v != SomView::Groups) {
+                ui.selectable_value(&mut chart.som, v, v.name());
+            }
+        }
         if !matches!(chart.kind, Kind::Bars | Kind::Lines | Kind::Points | Kind::Boxes) {
             return;
         }
@@ -351,6 +372,7 @@ pub fn show(ui: &mut Ui, t: &Table, rows: &[usize], chart: &mut Chart, id: egui:
         Kind::Esp => esp(ui, t, rows, id),
         Kind::Elbow => elbow(ui, t, rows, id),
         Kind::Choice => choice(ui, t, rows, id),
+        Kind::Som => som(ui, t, chart.som, id),
         Kind::Loadings => loadings(ui, t, chart.components, id),
     }
 }
@@ -789,6 +811,405 @@ fn matrix(ui: &mut Ui, t: &Table, id: egui::Id) {
         });
 }
 
+/// What the nodes of a SOM are coloured by.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SomView {
+    /// The mean distance of each node to its neighbours: large across the gaps between types of records.
+    #[default]
+    Umatrix,
+    /// A grid per variable: its weight at each node.
+    Planes,
+    /// The records each node holds (the hits).
+    Counts,
+    /// The group of each node (with `clusters`).
+    Groups,
+}
+
+impl SomView {
+    pub const ALL: [SomView; 4] = [SomView::Umatrix, SomView::Planes, SomView::Counts, SomView::Groups];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            SomView::Umatrix => "U-matrix",
+            SomView::Planes => "component planes",
+            SomView::Counts => "counts",
+            SomView::Groups => "groups",
+        }
+    }
+}
+
+/// A node or a group of a SOM picked in its view (or on the map), by the numbers of the codebook's `node` and
+/// `group` (from 1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SomPick {
+    Node(usize),
+    Group(usize),
+}
+
+/// A node of ml.som's codebook: its place (row and column from 1), the records it holds, its group (with clusters),
+/// its U-matrix distance and its weights.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SomNode {
+    pub node: usize,
+    pub row: usize,
+    pub col: usize,
+    pub count: f64,
+    pub group: Option<usize>,
+    pub umatrix: f64,
+    pub weights: Vec<f64>,
+}
+
+/// ml.som's codebook read as a map: the size of the grid, its topology and the nodes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SomMap {
+    pub rows: usize,
+    pub cols: usize,
+    pub hex: bool,
+    /// The variables (the weights' columns).
+    pub names: Vec<String>,
+    pub nodes: Vec<SomNode>,
+}
+
+impl SomMap {
+    /// Whether the nodes are grouped.
+    pub fn grouped(&self) -> bool {
+        self.nodes.iter().any(|n| n.group.is_some())
+    }
+
+    /// The group of a node (its number, from 1).
+    pub fn group_of(&self, node: usize) -> Option<usize> {
+        self.nodes.iter().find(|n| n.node == node).and_then(|n| n.group)
+    }
+
+    /// Whether a pick covers a node.
+    pub fn lit(&self, pick: Option<SomPick>, n: &SomNode) -> bool {
+        match pick {
+            Some(SomPick::Node(k)) => n.node == k,
+            Some(SomPick::Group(g)) => n.group == Some(g),
+            None => false,
+        }
+    }
+
+    /// The records of the nodes a pick covers.
+    pub fn records(&self, pick: Option<SomPick>) -> f64 {
+        self.nodes.iter().filter(|n| self.lit(pick, n)).map(|n| n.count).sum()
+    }
+}
+
+/// Whether a table is ml.som's codebook: a row per node, the columns node, row, column, count, [group,] umatrix and
+/// topology, then the weights.
+pub fn is_som(t: &Table) -> bool {
+    som_map(t).is_some()
+}
+
+/// ml.som's codebook as a map, if the table is one.
+pub fn som_map(t: &Table) -> Option<SomMap> {
+    let at = |n: &str| t.columns.iter().position(|c| c == n);
+    let (node, row, col, count) = (at("node")?, at("row")?, at("column")?, at("count")?);
+    let (umatrix, topology) = (at("umatrix")?, at("topology")?);
+    let group = at("group");
+    if t.rows.is_empty() {
+        return None;
+    }
+    let whole = |v: f64| (v.is_finite() && v >= 1.0 && v.fract() == 0.0).then_some(v as usize);
+    let mut nodes = Vec::with_capacity(t.rows.len());
+    for r in &t.rows {
+        nodes.push(SomNode {
+            node: whole(r[node])?,
+            row: whole(r[row])?,
+            col: whole(r[col])?,
+            count: r[count],
+            group: group.and_then(|g| whole(r[g])),
+            umatrix: r[umatrix],
+            weights: r[topology + 1..].to_vec(),
+        });
+    }
+    Some(SomMap {
+        rows: nodes.iter().map(|n| n.row).max()?,
+        cols: nodes.iter().map(|n| n.col).max()?,
+        hex: t.rows[0][topology] == 2.0,
+        names: t.columns[topology + 1..].to_vec(),
+        nodes,
+    })
+}
+
+/// The distance between the rows of a hexagonal map, with the nodes 1 apart along a row: (3 / 2) / sqrt(3).
+pub const HEX_ROW: f64 = 0.866_025_403_784_438_6;
+
+/// The centre of the node at `row` and `col` (from 1) of a grid of `rows`, in units of the distance between
+/// neighbours, the first row at the top (y down). A hexagonal map's rows are shifted half a node as MiniSom does: the
+/// rows counted from the last, every other one.
+pub fn node_centre(row: usize, col: usize, rows: usize, hex: bool) -> [f64; 2] {
+    let (r, c) = (row - 1, col - 1);
+    if !hex {
+        return [c as f64, r as f64];
+    }
+    let shift = if terraflux_ops::multivar::som::shifted(r, rows) { -0.5 } else { 0.0 };
+    [c as f64 + shift, r as f64 * HEX_ROW]
+}
+
+/// The corners of a node drawn around its centre: a square of side 1, or a hexagon with a point up, 1 across its
+/// flat sides (so that neighbours touch along their sides).
+pub fn node_corners(centre: [f64; 2], hex: bool) -> Vec<[f64; 2]> {
+    if !hex {
+        return [(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)]
+            .iter()
+            .map(|(x, y)| [centre[0] + x, centre[1] + y])
+            .collect();
+    }
+    let radius = 1.0 / 3.0_f64.sqrt();
+    (0..6)
+        .map(|k| {
+            let a = (60.0 * k as f64 + 30.0).to_radians();
+            [centre[0] + radius * a.cos(), centre[1] + radius * a.sin()]
+        })
+        .collect()
+}
+
+/// The box a grid's nodes cover: (min x, min y, max x, max y).
+pub fn grid_extent(rows: usize, cols: usize, hex: bool) -> [f64; 4] {
+    let mut e = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+    for r in [1, rows] {
+        for c in [1, cols] {
+            for p in node_corners(node_centre(r, c, rows, hex), hex) {
+                e = [e[0].min(p[0]), e[1].min(p[1]), e[2].max(p[0]), e[3].max(p[1])];
+            }
+        }
+    }
+    // (a hexagonal map's rows are shifted by turns: the other column edge too)
+    if hex {
+        for r in 1..=rows.min(2) {
+            for c in [1, cols] {
+                for p in node_corners(node_centre(r, c, rows, hex), hex) {
+                    e = [e[0].min(p[0]), e[1].min(p[1]), e[2].max(p[0]), e[3].max(p[1])];
+                }
+            }
+        }
+    }
+    e
+}
+
+/// The node (row, column from 1) whose cell holds the point `p` (in the units of [`node_centre`]).
+pub fn node_at(p: [f64; 2], rows: usize, cols: usize, hex: bool) -> Option<(usize, usize)> {
+    let mut best: Option<(f64, usize, usize)> = None;
+    for r in 1..=rows {
+        for c in 1..=cols {
+            let m = node_centre(r, c, rows, hex);
+            let d = (p[0] - m[0]).powi(2) + (p[1] - m[1]).powi(2);
+            if best.is_none_or(|b| d < b.0) {
+                best = Some((d, r, c));
+            }
+        }
+    }
+    let (_, r, c) = best?;
+    let m = node_centre(r, c, rows, hex);
+    // (square cells: the square; hexagonal cells: the nearest centre's, which is the hexagon while inside the radius)
+    let inside = if hex {
+        (p[0] - m[0]).hypot(p[1] - m[1]) <= 1.0 / 3.0_f64.sqrt()
+    } else {
+        (p[0] - m[0]).abs() <= 0.5 && (p[1] - m[1]).abs() <= 0.5
+    };
+    inside.then_some((r, c))
+}
+
+/// Where a grid is on the screen: the units' origin, and the points per unit.
+struct Place {
+    min: [f64; 2],
+    origin: egui::Pos2,
+    scale: f32,
+}
+
+impl Place {
+    fn screen(&self, p: [f64; 2]) -> egui::Pos2 {
+        self.origin + Vec2::new((p[0] - self.min[0]) as f32 * self.scale, (p[1] - self.min[1]) as f32 * self.scale)
+    }
+
+    fn units(&self, s: egui::Pos2) -> [f64; 2] {
+        let d = s - self.origin;
+        [f64::from(d.x / self.scale) + self.min[0], f64::from(d.y / self.scale) + self.min[1]]
+    }
+}
+
+/// The id a SOM view keeps its pick under in the context, for the table drawn with `table`.
+pub fn pick_id(table: egui::Id) -> egui::Id {
+    table.with("chart").with("som pick")
+}
+
+/// The node or group picked in the SOM view of the table drawn with `table`.
+pub fn picked(ctx: &egui::Context, table: egui::Id) -> Option<SomPick> {
+    ctx.data(|d| d.get_temp::<Option<SomPick>>(pick_id(table))).flatten()
+}
+
+/// Pick a node or group in the SOM view of the table drawn with `table` (none: let go).
+pub fn set_picked(ctx: &egui::Context, table: egui::Id, pick: Option<SomPick>) {
+    ctx.data_mut(|d| d.insert_temp(pick_id(table), pick));
+}
+
+/// Where the nodes of the SOM view of the table drawn with `table` were drawn, by node (from 1), at the last frame.
+pub fn som_screen(ctx: &egui::Context, table: egui::Id, node: usize) -> Option<egui::Pos2> {
+    let v: Vec<(usize, egui::Pos2)> = ctx.data(|d| d.get_temp(pick_id(table).with("screen")))?;
+    v.iter().find(|(k, _)| *k == node).map(|(_, p)| *p)
+}
+
+/// The colour of a value in `lo` to `hi` on the viridis ramp (grey for none).
+fn ramp(v: f64, lo: f64, hi: f64) -> Color32 {
+    if !v.is_finite() {
+        return Color32::from_gray(90);
+    }
+    let t = if hi > lo { ((v - lo) / (hi - lo)).clamp(0.0, 1.0) } else { 0.5 };
+    crate::palette::seen(Ramp::Viridis.colour(t as f32))
+}
+
+/// The least and greatest finite of some values.
+fn span(values: impl Iterator<Item = f64>) -> (f64, f64) {
+    values.filter(|v| v.is_finite()).fold((f64::MAX, f64::MIN), |(a, b), v| (a.min(v), b.max(v)))
+}
+
+/// A grid of the nodes of a SOM in a rectangle of `size`, each filled by `fill`, the picked ones outlined; returns the
+/// node clicked (its place in `m.nodes`) and where each node was drawn (centres, by node).
+fn draw_grid(
+    ui: &mut Ui,
+    m: &SomMap,
+    size: Vec2,
+    fill: &dyn Fn(&SomNode) -> Color32,
+    pick: Option<SomPick>,
+    tip: &dyn Fn(&SomNode) -> String,
+) -> (Option<usize>, Vec<(usize, egui::Pos2)>) {
+    let (resp, painter) = ui.allocate_painter(size, egui::Sense::click());
+    let e = grid_extent(m.rows, m.cols, m.hex);
+    let (w, h) = ((e[2] - e[0]) as f32, (e[3] - e[1]) as f32);
+    let scale = (size.x / w).min(size.y / h);
+    let origin = resp.rect.center() - Vec2::new(w, h) * scale / 2.0;
+    let place = Place { min: [e[0], e[1]], origin, scale };
+    let stroke = egui::Stroke::new(1.0, ui.visuals().panel_fill);
+    let accent = egui::Stroke::new(2.5, crate::palette::seen(crate::theme::accent()));
+    let mut centres = Vec::with_capacity(m.nodes.len());
+    let mut outlined = Vec::new();
+    for n in &m.nodes {
+        let c = node_centre(n.row, n.col, m.rows, m.hex);
+        let points: Vec<egui::Pos2> = node_corners(c, m.hex).into_iter().map(|p| place.screen(p)).collect();
+        painter.add(egui::Shape::convex_polygon(points.clone(), fill(n), stroke));
+        centres.push((n.node, place.screen(c)));
+        if m.lit(pick, n) {
+            outlined.push(points);
+        }
+    }
+    for points in outlined {
+        painter.add(egui::Shape::closed_line(points, accent));
+    }
+    let at = |s: egui::Pos2| {
+        let p = place.units(s);
+        node_at(p, m.rows, m.cols, m.hex).and_then(|(r, c)| m.nodes.iter().position(|n| n.row == r && n.col == c))
+    };
+    if let Some(k) = resp.hover_pos().and_then(at) {
+        let _ = resp.clone().on_hover_text(tip(&m.nodes[k]));
+    }
+    let clicked = if resp.clicked() { resp.interact_pointer_pos().and_then(at) } else { None };
+    (clicked, centres)
+}
+
+/// ml.som's codebook: the grid of nodes coloured by the U-matrix, the component planes, the records each holds or the
+/// groups; a click on a node picks it (a click on a node of a grouped map in the groups view picks its group; the same
+/// again lets go). The pick is kept in the context ([`picked`]).
+fn som(ui: &mut Ui, t: &Table, view: SomView, id: egui::Id) {
+    let Some(m) = som_map(t) else { return };
+    let ctx = ui.ctx().clone();
+    // (the id the table was drawn with is the chart's parent: see [`pick_id`])
+    let key = id.with("som pick");
+    let mut pick: Option<SomPick> = ctx.data(|d| d.get_temp::<Option<SomPick>>(key)).flatten();
+    let by_group = view == SomView::Groups && m.grouped();
+    let tip = |n: &SomNode| {
+        let mut s = format!(
+            "node {} (row {}, column {})\n{} records\nU-matrix {}",
+            n.node,
+            n.row,
+            n.col,
+            cell(n.count),
+            cell(n.umatrix)
+        );
+        if let Some(g) = n.group {
+            s.push_str(&format!("\ngroup {g}"));
+        }
+        for (name, w) in m.names.iter().zip(&n.weights) {
+            s.push_str(&format!("\n{name} {}", cell(*w)));
+        }
+        s
+    };
+    let mut clicked: Option<usize> = None;
+    let mut screen: Vec<(usize, egui::Pos2)> = Vec::new();
+    let side = ui.available_width().clamp(240.0, 520.0);
+    let main = Vec2::new(side, (side * 0.8).min(420.0));
+    match view {
+        SomView::Planes => {
+            let across = ((ui.available_width() / 170.0).floor() as usize).clamp(1, m.names.len().max(1));
+            let w = ui.available_width() / across as f32 - 10.0;
+            ui.horizontal_wrapped(|ui| {
+                for (j, name) in m.names.iter().enumerate() {
+                    let (lo, hi) = span(m.nodes.iter().map(|n| n.weights[j]));
+                    ui.allocate_ui(Vec2::new(w, w * 0.8 + 34.0), |ui| {
+                        ui.vertical(|ui| {
+                            ui.label(RichText::new(name).strong());
+                            let fill = |n: &SomNode| ramp(n.weights[j], lo, hi);
+                            let (c, centres) = draw_grid(ui, &m, Vec2::new(w, w * 0.8), &fill, pick, &tip);
+                            clicked = clicked.or(c);
+                            if j == 0 {
+                                screen = centres;
+                            }
+                            ui.label(RichText::new(format!("{} to {}", cell(lo), cell(hi))).weak().size(11.0));
+                        });
+                    });
+                }
+            });
+        }
+        _ => {
+            let (label, lo, hi) = match view {
+                SomView::Counts => {
+                    let (lo, hi) = span(m.nodes.iter().map(|n| n.count));
+                    ("records per node", lo, hi)
+                }
+                SomView::Groups if by_group => ("group of each node", 1.0, 1.0),
+                _ => {
+                    let (lo, hi) = span(m.nodes.iter().map(|n| n.umatrix));
+                    ("mean distance to the nodes next to it", lo, hi)
+                }
+            };
+            let fill = |n: &SomNode| match (view, n.group) {
+                (SomView::Counts, _) => ramp(n.count, lo, hi),
+                (SomView::Groups, Some(g)) if by_group => crate::palette::seen(class_colour(g - 1)),
+                _ => ramp(n.umatrix, lo, hi),
+            };
+            let (c, centres) = draw_grid(ui, &m, main, &fill, pick, &tip);
+            clicked = c;
+            screen = centres;
+            if by_group {
+                ui.label(RichText::new(label).weak().size(11.0));
+            } else {
+                ui.label(RichText::new(format!("{label}: {} to {}", cell(lo), cell(hi))).weak().size(11.0));
+            }
+        }
+    }
+    if let Some(k) = clicked {
+        let n = &m.nodes[k];
+        let new = match (by_group, n.group) {
+            (true, Some(g)) => SomPick::Group(g),
+            _ => SomPick::Node(n.node),
+        };
+        pick = if pick == Some(new) { None } else { Some(new) };
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(key, pick);
+        if !screen.is_empty() {
+            d.insert_temp(key.with("screen"), screen);
+        }
+    });
+    let note = match pick {
+        Some(SomPick::Node(k)) => format!("node {k}: {} records", cell(m.records(pick))),
+        Some(SomPick::Group(g)) => format!("group {g}: {} records", cell(m.records(pick))),
+        None => "click a node to light its cells on the map (show the nodes or groups output)".to_string(),
+    };
+    ui.label(RichText::new(note).size(11.5));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -892,5 +1313,121 @@ mod tests {
         assert!(is_choice(&t) && Kind::of(&t).contains(&Kind::Choice));
         assert_eq!(Kind::Choice.name(), "choice of k");
         assert!(!is_choice(&Table { columns: vec!["k".into(), "inertia".into()], ..Default::default() }));
+    }
+
+    /// A codebook of `rows` x `cols` nodes as ml.som gives it (with a group column when `groups`).
+    fn codebook(rows: usize, cols: usize, hex: bool, groups: bool) -> Table {
+        let mut columns: Vec<String> = ["node", "row", "column", "count"].map(String::from).to_vec();
+        if groups {
+            columns.push("group".into());
+        }
+        columns.extend(["umatrix", "topology", "a", "b"].map(String::from));
+        let mut t = Table { columns, ..Default::default() };
+        for r in 0..rows {
+            for c in 0..cols {
+                let mut row = vec![(r * cols + c + 1) as f64, (r + 1) as f64, (c + 1) as f64, (r + c) as f64];
+                if groups {
+                    row.push((c * 2 / cols + 1) as f64);
+                }
+                row.extend([0.5, if hex { 2.0 } else { 1.0 }, r as f64, c as f64]);
+                t.rows.push(row);
+            }
+        }
+        t
+    }
+
+    #[test]
+    fn the_codebook_of_ml_som_has_the_som_view() {
+        let t = codebook(3, 4, false, true);
+        assert!(is_som(&t) && Kind::of(&t).contains(&Kind::Som));
+        assert_eq!(Kind::Som.name(), "SOM");
+        assert_eq!(Chart::first(&t).kind, Kind::Som);
+        let m = som_map(&t).unwrap();
+        assert_eq!((m.rows, m.cols, m.hex, m.grouped()), (3, 4, false, true));
+        assert_eq!(m.names, ["a", "b"]);
+        assert_eq!(
+            m.nodes[5],
+            SomNode { node: 6, row: 2, col: 2, count: 2.0, group: Some(1), umatrix: 0.5, weights: vec![1.0, 1.0] }
+        );
+        assert_eq!(m.group_of(4), Some(2));
+        assert_eq!(
+            m.records(Some(SomPick::Group(2))),
+            (0..3).flat_map(|r| [2, 3].map(|c| r + c)).sum::<usize>() as f64
+        );
+        assert!(som_map(&codebook(2, 2, true, false)).unwrap().hex);
+        // not a codebook: a table of other columns, one without the topology (an older codebook), an empty one
+        assert!(!is_som(&Table { columns: vec!["node".into(), "row".into()], ..Default::default() }));
+        let mut old = codebook(2, 2, false, false);
+        old.columns.retain(|c| c != "topology");
+        assert!(!is_som(&old) && Chart::first(&old).kind == Kind::None);
+        assert!(!is_som(&Table { rows: vec![], ..codebook(1, 1, false, false) }));
+    }
+
+    #[test]
+    fn square_nodes_lie_in_rows_and_columns() {
+        assert_eq!(node_centre(1, 1, 3, false), [0.0, 0.0]);
+        assert_eq!(node_centre(3, 4, 3, false), [3.0, 2.0]);
+        // a square's corners: the neighbours share them
+        let a = node_corners(node_centre(1, 1, 3, false), false);
+        let b = node_corners(node_centre(1, 2, 3, false), false);
+        assert_eq!(a[1], b[0]);
+        assert_eq!(a[2], b[3]);
+        assert_eq!(grid_extent(3, 4, false), [-0.5, -0.5, 3.5, 2.5]);
+        assert_eq!(node_at([2.2, 1.4], 3, 4, false), Some((2, 3)));
+        assert_eq!(node_at([-0.6, 0.0], 3, 4, false), None);
+        assert_eq!(node_at([3.4, 2.4], 3, 4, false), Some((3, 4)));
+        assert_eq!(node_at([3.6, 2.4], 3, 4, false), None);
+    }
+
+    #[test]
+    fn hexagonal_nodes_shift_every_other_row_as_minisom_does() {
+        // 3 rows: counted from the last, the last and the first are shifted half a node
+        let x = |r: usize| node_centre(r, 1, 3, true)[0];
+        assert_eq!((x(1), x(2), x(3)), (-0.5, 0.0, -0.5));
+        // 4 rows: the odd rows (the last is the 4th, shifted; the 2nd too)
+        let x = |r: usize| node_centre(r, 1, 4, true)[0];
+        assert_eq!((x(1), x(2), x(3), x(4)), (0.0, -0.5, 0.0, -0.5));
+        assert!((node_centre(3, 1, 3, true)[1] - 2.0 * HEX_ROW).abs() < 1e-12);
+        // every node has its neighbours at distance 1: the 2 along its row, and up to 4 in the rows around it
+        let (rows, cols) = (5, 6);
+        let d = |a: (usize, usize), b: (usize, usize)| {
+            let (p, q) = (node_centre(a.0, a.1, rows, true), node_centre(b.0, b.1, rows, true));
+            (p[0] - q[0]).hypot(p[1] - q[1])
+        };
+        for r in 2..rows {
+            for c in 2..cols {
+                let near = (r - 1..=r + 1)
+                    .flat_map(|rr| (c - 1..=c + 1).map(move |cc| (rr, cc)))
+                    .filter(|&p| p != (r, c) && (d((r, c), p) - 1.0).abs() < 1e-9)
+                    .count();
+                assert_eq!(near, 6, "node {r},{c}");
+            }
+        }
+        // hexagons touch: the corners of a node's right side are the left side's of the one next to it
+        let a = node_corners(node_centre(2, 3, rows, true), true);
+        let b = node_corners(node_centre(2, 4, rows, true), true);
+        let same = |p: [f64; 2], q: [f64; 2]| (p[0] - q[0]).abs() < 1e-9 && (p[1] - q[1]).abs() < 1e-9;
+        let shared = a.iter().filter(|p| b.iter().any(|q| same(**p, *q))).count();
+        assert_eq!(shared, 2);
+        // and so do those of the next row's nodes (a shifted one under an unshifted one: two nodes touch it)
+        let c = node_corners(node_centre(3, 3, rows, true), true);
+        let c2 = node_corners(node_centre(3, 4, rows, true), true);
+        let touching =
+            [&c, &c2].iter().filter(|h| h.iter().filter(|p| a.iter().any(|q| same(**p, *q))).count() == 2).count();
+        assert_eq!(touching, 2);
+        // the extent holds every corner
+        let e = grid_extent(rows, cols, true);
+        for r in 1..=rows {
+            for c in 1..=cols {
+                for p in node_corners(node_centre(r, c, rows, true), true) {
+                    assert!(p[0] >= e[0] - 1e-9 && p[0] <= e[2] + 1e-9 && p[1] >= e[1] - 1e-9 && p[1] <= e[3] + 1e-9);
+                }
+            }
+        }
+        // a point at a node's centre is its node, one in the gap beyond the map is none
+        for (r, c) in [(1, 1), (2, 6), (5, 3)] {
+            assert_eq!(node_at(node_centre(r, c, rows, true), rows, cols, true), Some((r, c)));
+        }
+        assert_eq!(node_at([-3.0, 0.0], rows, cols, true), None);
     }
 }

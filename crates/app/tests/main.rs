@@ -15,6 +15,7 @@ mod objects_live;
 mod objects_view;
 mod objects_viewer;
 mod prepare;
+mod som_view;
 mod vector_calc;
 mod vector_tiles;
 
