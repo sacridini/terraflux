@@ -4350,8 +4350,24 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    | watershed | 1,65 / 1,71 | | 9,29 / 9,40 | |
    | meanshift | 4,23 / 0,73 | | 18,2 / 3,17 | |
 
-   Falta: o slic, o snic, o felzenszwalb e o watershed não usam mais de um núcleo; a fila contínua dos tiles (hoje
-   lotes com barreira) e a costura em paralelo (cerca de 6% do tempo com 8 threads).
+   **Feito, os outros segmentadores** (5508adf), os mesmos rótulos (a bateria imprime um hash deles, igual ao de
+   antes): o SLIC atribui as células por linhas em paralelo; o Felzenszwalb monta e ordena as arestas em paralelo; o
+   watershed e o SNIC só põem uma célula na fila quando ela vence todas as prioridades já postas para ela, numa fila
+   4-ária compacta; a suavização, o gradiente, os componentes conexos de `Objects` e as arestas entre objetos nos
+   threads; os tiles do multiresolution numa fila contínua (sem barreira por lote), os núcleos postos na ordem dos
+   tiles. Segundos com 1 / 8 threads (medidos com outra compilação na máquina, a medir de novo com ela quieta):
+
+   | segmentador | 1000² antes | 1000² depois | 2000² antes | 2000² depois |
+   |---|---|---|---|---|
+   | slic | 0,55 / 0,51 | 0,25 / 0,06 | 2,2 / 2,1 | 1,0 / 0,39 |
+   | snic | 0,78 / 0,80 | 0,31 / 0,29 | 4,9 / 5,1 | 3,0 / 2,8 |
+   | felzenszwalb | 0,79 / 0,79 | 0,34 / 0,20 | 3,7 / 3,8 | 3,0 / 1,5 |
+   | watershed | 1,74 / 1,72 | 0,65 / 0,39 | 9,3 / 9,0 | 2,9 / 1,8 |
+   | multiresolution, tiles de 512, 8 threads | 0,96 | 0,92 | 3,35 | 2,90 |
+
+   Falta: o que segue sequencial domina com 8 threads (a fila do SNIC, o union-find do Felzenszwalb, o flood e os
+   mínimos do watershed); com `compactness` 0 o flood pode usar uma fila de baldes (exata, mais rápida que o heap); a
+   costura do multiresolution (`from_source` e a preparação dos rótulos, uns 6% com 8 threads) ainda num só thread.
 9. Depois, o bloco seguinte do PCA, do k-means e do SOM (abaixo).
 
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
