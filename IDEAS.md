@@ -4204,6 +4204,10 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
      validação (a amostra e a classe dada) numa lista que leva a cada um.
   8. Comparar: a cortina, o lado a lado e a diferença que o Viewer já tem, entre níveis, entre classificações e entre
      duas datas.
+  **Feito em parte** (Unreleased): 1, 2 e 4 (`crates/app/src/objects_inspect.rs`: a seleção ligada à tabela, N/P/C
+  e Esc, o seletor de nível; o inspetor com as barras de pertinência e o que decidiu; o modo *Samples*, cada amostra um
+  ponto na célula interior perto do centroide, gravada como `table.of` → `vector.from_table` → `objects.samples` →
+  `ml.fit` → `objects.classify` num passo de desfazer, num GeoPackage acima de 500).
 - **J. Para quem está começando.** O que faz do Terraflux mais fácil que o eCognition:
   1. **Templates** (com a `nlm.image`, rodam como estão; com `data` em cada fonte para o *Use my data*): "Classify an
      image by clicking samples" (o principal: segmentar, amostras, floresta aleatória, acurácia, polígonos), "Classify an
@@ -4227,6 +4231,11 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
      `objects.rules`, feature view → espaço dos atributos, customized feature → `objects.calc`), e o mesmo para quem vem do InterIMAGE (rede semântica → árvore de
      classes, operador top-down → o ramo de uma classe, regra bottom-up → `objects.resolve`, nó temporal →
      `objects.temporal`).
+  **Feito** (Unreleased): 1 (seis templates no grupo *Objects (OBIA)*, o de amostras com 94% de acurácia contra a
+  verdade), 2 (`DataKind::Image`; a página *Bands* com os papéis das bandas de Sentinel-2 e Landsat e a escala
+  0–10 000 ou Landsat C2 detectada, num `stack.rename` que renomeia, descarta e escala; as classes do `objects.rules`
+  editáveis na página *Classes*), 3 (`objects/warnings.rs` e o `advice.rs`) e 4 (o guia `objects`). Falta: "desenhe a
+  área e baixe" pelo `data.stac`, uma pasta de bandas soltas, e os tutoriais.
 - **K. Imagens grandes.** Segmentar por tiles do `crates/engine` com a costura dos objetos na borda (o método de Happ et
   al. ou o do LSMS do OTB: segmentar cada tile com margem e decidir os objetos que cruzam a borda numa segunda passada),
   os atributos por faixas sem a imagem inteira em memória, os rótulos em disco quando passam do limite, e o cluster
@@ -4236,6 +4245,10 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   acima de 4 M células): cada tile com a sua margem em paralelo, só o núcleo guardado, e uma segunda fusão dos pedaços
   sobre a imagem inteira junta os objetos cortados pela borda. 4000 × 4000 × 4: 74 s → 30 s com 3 threads, 0,98 das
   bordas iguais às sem tiles.
+  Os rasters em disco por janelas (`objects/big.rs`): os tiles leem só a sua janela, a costura e a tabela releem por
+  faixas, e `objects.features` por faixas (a mediana e o GLCM exatos); a imagem nunca inteira na memória. 4000 × 4000
+  × 4 do disco: 66 s e 1,2 GB de pico. Um limite de memória (metade da física) recusa ler inteira o que não cabe. O
+  cluster: a passada dos tiles cabe num `Task` novo do `crates/dist`, a costura fica local (não feito).
 - **L. Aprendizado profundo (opcional).** `segment.sam` (Segment Anything por ONNX, o ONNX Runtime carregado em tempo de
   execução; os pesos baixados uma vez para o cache; sem ele, o operador diz como instalar) e `objects.embed` (a média
   por objeto das incorporações de um modelo de base, como Clay ou Prithvi, como atributos para o `ml.fit`). O resto do
