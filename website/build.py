@@ -1421,7 +1421,8 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
     # pages made from data
     home_graph, _, _ = RENDERER.render((HERE / "models" / "home.toml").read_text(encoding="utf-8"))
     write("/", env.get_template("home.html").render(cats=cats, downloads=dl, ops_count=len(OPS), root="./", page=None,
-                                                    home_graph=home_graph, parity=PARITY, bibtex=bibtex(), page_url="/"))
+                                                    home_graph=home_graph, parity=PARITY, bibtex=bibtex(), page_url="/",
+                                                    py_example=highlight(PY_EXAMPLE, "python")))
     write("/download/", env.get_template("download.html").render(downloads=dl, root=rel_prefix("/download/"), page=None, page_url="/download/"))
     write("/tutorials/", env.get_template("tutorials.html").render(cats=cats, root=rel_prefix("/tutorials/"), page=None, page_url="/tutorials/",
                                                                   sidebar={"kind": "tutorials", "cats": cats}))
@@ -1500,12 +1501,25 @@ PARITY = [
     ("gdistance", "Least-cost and random-walk distances", "van Etten 2017"),
     ("Zonation 5", "Priority ranking of a landscape", "Moilanen et al. 2022"),
     ("Marxan", "Reserve selection by simulated annealing", "Ball et al. 2009"),
-    ("InVEST", "Carbon, habitat quality, water yield and sediment", "Nelson et al. 2009"),
+    ("InVEST", "Carbon, habitat quality, water, sediment, nutrients and pollination", "Nelson et al. 2009"),
     ("MaxNet and ENMeval", "Species distribution models", "Phillips et al. 2017"),
     ("Biodiverse", "Endemism and phylogenetic diversity", "Laffan et al. 2010"),
     ("Dinamica EGO", "Weights of evidence, Expander and Patcher", "Soares-Filho et al. 2002"),
     ("CLUE-S, lulcc and PLUS", "Demand-driven land allocation", "Verburg et al. 2002; Liang et al. 2021"),
+    ("prioritizr", "Conservation plans by integer linear programming", "Hanson et al. 2025"),
+    ("SWAT+ and WhiteboxTools", "Watersheds, flow routing and the SWAT+ model", "Bieger et al. 2017; Lindsay 2016"),
+    ("move2 and amt", "GPS tracks cleaned, measured and turned into steps", "Kranstauber et al. 2024; Signer et al. 2019"),
+    ("NLMR", "Neutral landscape models with the same seeds", "Sciaini et al. 2018"),
 ]
+
+# The Python example on the home page (runs as it is: the library's example data).
+PY_EXAMPLE = """import terraflux as tf
+
+landcover = tf.load_raster(tf.example_data("clc"))
+forest = tf.reclassify(landcover, foreground=[23, 24, 25])   # CORINE's forests
+
+morph = tf.mspa(forest)      # GuidosToolbox's MSPA, the same numbers
+tf.plot(morph)"""
 
 
 def bibtex() -> str:

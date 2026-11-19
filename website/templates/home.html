@@ -23,16 +23,18 @@
 <section class="hero">
   <div class="hero-in">
     <div class="hero-text">
-      <p class="hero-kicker">Open-source software for landscape ecology</p>
+      <p class="hero-kicker">Open-source software for landscape ecology and remote sensing</p>
       <h1>See a landscape change, cell by cell, and know why.</h1>
-      <p class="hero-sub">Terraflux is a free desktop application and command line for habitat patterns, connectivity,
-        spatial prioritization, species distributions and land change simulation. You build an analysis by
-        connecting nodes, and it gives the same numbers as the tools you would cite.</p>
+      <p class="hero-sub">Terraflux is a free desktop application, command line and Python library for habitat
+        patterns, connectivity, spatial prioritization, species distributions, ecosystem services, object-based
+        image analysis and land change simulation. You build an analysis by connecting nodes or by writing Python,
+        and it gives the same numbers as the tools you would cite.</p>
       <div class="hero-cta">
         <a class="btn btn-primary dl-auto" href="/download/" data-os-label="Download for {os}">Download Terraflux {{ site.release }}</a>
         <a class="btn btn-ghost" href="/quickstart/">Start the quickstart</a>
       </div>
-      <p class="hero-note">For Windows, macOS and Linux. GDAL included, nothing else to install. Free under the GPL.</p>
+      <p class="hero-note">For Windows, macOS and Linux, GDAL included, nothing else to install. For Python,
+        <code>pip install terraflux-py</code>. Free under the GPL.</p>
     </div>
     <figure class="hero-sim" aria-label="A land change simulation running in the browser">
       <div class="sim-window">
@@ -82,6 +84,10 @@
         <li>Every node carries a note saying why it is there, so a model explains itself to a colleague.</li>
         <li>The graph is a small text file: keep it under version control and publish it with your paper.</li>
         <li>The same file runs in the application, from the command line, on a cluster and from Python.</li>
+        <li>Start from a template, a ready model for a common study with its tutorial, and put in your own maps
+          with <em>Use my data</em>.</li>
+        <li>The Viewer is a GIS of its own: layers and symbology, swipe and side-by-side comparisons, up to four
+          views, and figures in PDF or SVG.</li>
       </ul>
       <a class="textlink" href="/tutorials/#getting-started">Learn the basics in the first tutorials</a>
     </div>
@@ -127,11 +133,52 @@
   </div>
 </section>
 
+<section class="band python" id="python">
+  <div class="wrap split">
+    <div class="split-text">
+      <h2>The same methods in Python</h2>
+      <p>For those who prefer code and notebooks, <code>pip install terraflux-py</code> gives the methods of the
+        application as functions on numpy and xarray arrays, with a C++ and OpenMP core underneath, and maps
+        larger than memory through dask.</p>
+      <ul class="ticks">
+        <li>The library runs the same kernels as the application, so both give the same numbers.</li>
+        <li><em>File &rsaquo; Python script</em> writes any model of the application as a script of the library.</li>
+        <li>Results are xarray arrays and pandas tables, and <code>tf.plot</code> draws any of them.</li>
+      </ul>
+      <a class="textlink" href="/python/">Read the Python library's documentation</a>
+    </div>
+    <div class="split-media">
+      <div class="codeblock"><button class="copy" type="button" aria-label="Copy">Copy</button>{{ py_example|safe }}</div>
+    </div>
+  </div>
+</section>
+
+<section class="band objects" id="objects">
+  <div class="wrap split rev">
+    <div class="split-text">
+      <h2>From pixels to objects</h2>
+      <p>Cut an image into objects with the multiresolution segmentation of eCognition, SLIC, watershed or
+        Felzenszwalb, describe each one by its colour, shape, texture and neighbours, and classify them by samples,
+        fuzzy rules or a class tree, as in eCognition and InterIMAGE. The accuracy of the map and its polygons come
+        out of the same graph.</p>
+      <a class="textlink" href="/tutorials/object-based-image-analysis/">Start with the object-based image analysis tutorials</a>
+    </div>
+    <div class="split-media">
+      <ol class="scale-steps">
+        <li><strong>Segment</strong><span>The scale chosen by the ESP's curve</span><code>segment.multiresolution</code></li>
+        <li><strong>Describe</strong><span>Spectral, shape, texture and context attributes</span><code>objects.features</code></li>
+        <li><strong>Classify</strong><span>Samples clicked on the map, rules or a class tree</span><code>objects.classify &middot; objects.rules</code></li>
+        <li><strong>Check and take</strong><span>The error matrix, then the polygons</span><code>objects.accuracy &middot; objects.to_vector</code></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
 <section class="band topics">
   <div class="wrap">
     <div class="sec-head">
       <h2>From a first map to a full study</h2>
-      <p>{{ ops_count }} operators in eighteen fields, each with tutorials that start from the idea behind the
+      <p>{{ ops_count }} operators in {{ cats|rejectattr("slug", "in", ["getting-started", "building-models"])|list|length }} fields, each with tutorials that start from the idea behind the
         method and the papers that introduced it, and end with the graph that runs it.</p>
     </div>
     <div class="topic-grid">

@@ -1,11 +1,12 @@
 # The website's settings. Build with `python website/build.py` (see website/README.md).
 
 name: Terraflux
-tagline: Landscape ecology, conservation planning and land change simulation in one open-source application.
+tagline: Landscape ecology, conservation planning, image objects and land change simulation in one open-source application.
 description: >-
-  Terraflux is a free, open-source desktop application and command line for landscape ecology: habitat patterns,
-  landscape metrics, connectivity, spatial prioritization, species distributions and land use change simulation,
-  with the same results as the reference tools, from a laptop to a cluster.
+  Terraflux is a free, open-source desktop application, command line and Python library for landscape ecology:
+  habitat patterns, landscape metrics, connectivity, spatial prioritization, species distributions, ecosystem
+  services, hydrology, object-based image analysis and land use change simulation, with the same results as the
+  reference tools, from a laptop to a cluster.
 repo: https://github.com/sacridini/terraflux
 # the site's public address (for links shared and the sitemap); pages link to each other relatively
 url: https://sacridini.github.io/terraflux/
