@@ -62,6 +62,8 @@ pub enum Type {
     SwatProject,
     /// A watershed divided as QSWAT+ divides it: its tables and grids (`swat.watershed`).
     SwatWatershed,
+    /// An image divided into objects (segments): each cell's object, the objects' neighbours, attributes and classes.
+    Objects,
 }
 
 impl Type {
@@ -96,6 +98,7 @@ impl Type {
             Type::StepDistribution => "step distribution",
             Type::SwatProject => "SWAT+ project",
             Type::SwatWatershed => "SWAT+ watershed",
+            Type::Objects => "objects",
         }
     }
 

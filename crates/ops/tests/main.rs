@@ -38,6 +38,7 @@ mod ml;
 mod movement;
 mod mspa_tiled;
 mod nlm;
+mod objects;
 mod ops;
 mod optimize;
 mod parity;

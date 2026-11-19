@@ -28,7 +28,7 @@ use crate::theme;
 /// the groups of its operators.
 /// The subjects of the library and the operators of each: by the prefix of their names, or by name (before the
 /// prefixes).
-pub(crate) const SUBJECTS: [(&str, &[&str]); 32] = [
+pub(crate) const SUBJECTS: [(&str, &[&str]); 33] = [
     ("IO", &[]),
     ("Data preparation", &["raster", "vector", "data"]),
     (
@@ -68,6 +68,7 @@ pub(crate) const SUBJECTS: [(&str, &[&str]); 32] = [
             "vector.density",
         ],
     ),
+    ("Objects (OBIA)", &["segment", "objects"]),
     ("Habitat patterns", &["landscape", "patterns"]),
     ("Fragmentation", &["fragmentation"]),
     ("Landscape metrics", &["metrics"]),
@@ -4313,6 +4314,8 @@ fn shade_layer(l: &Layer, src: &Source) -> Option<LayerMap> {
 struct Drawn {
     rasters: Vec<crate::map_view::RasterLayer>,
     overlays: Vec<crate::vector_tiles::Overlay>,
+    /// The objects whose outlines are drawn over them all (their fill is among the rasters).
+    objects: Vec<crate::map_view::ObjectsDraw>,
     table_at: Option<usize>,
 }
 
@@ -4336,6 +4339,7 @@ fn draw_layers(
 ) -> Drawn {
     // (the place of the layer whose attributes are in the table among the features drawn)
     let mut table_at: Option<usize> = None;
+    let mut objects: Vec<crate::map_view::ObjectsDraw> = Vec::new();
     let mut under: Vec<LayerMap> = Vec::new();
     let mut above: Vec<LayerMap> = Vec::new();
     // (the names the layers were given, for the legend of the map: the output's otherwise)
@@ -4385,6 +4389,29 @@ fn draw_layers(
                     vector: v,
                     style: l.style.clone(),
                     name: named(&l.node, &l.port),
+                });
+            }
+            Some(Value::Objects(o)) => {
+                // (the fill through the tiles as a map in the colours of the objects; the outlines over everything)
+                let f = objects_fill(&o, Some(&l.style));
+                if !matches!(&f.coloring, Coloring::Classes(c) if c.is_empty()) {
+                    let item = (
+                        Source::from(&f.map),
+                        l.opacity,
+                        l.node.clone(),
+                        l.port.clone(),
+                        Some((f.coloring.clone(), String::new())),
+                        l.blend,
+                    );
+                    if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
+                }
+                objects.push(crate::map_view::ObjectsDraw {
+                    objects: o,
+                    colour: crate::objects_view::outline_colour(&l.style),
+                    width: l.style.width,
+                    name: named(&l.node, &l.port),
+                    shown: false,
+                    picked: None,
                 });
             }
             Some(v) => {
@@ -4438,7 +4465,7 @@ fn draw_layers(
             Some(crate::map_view::RasterLayer { source: src, coloring: look.coloring, opacity, below, name, blend })
         })
         .collect();
-    Drawn { rasters, overlays, table_at }
+    Drawn { rasters, overlays, objects, table_at }
 }
 
 /// The difference a layer is, when made.
@@ -4805,8 +4832,23 @@ pub(crate) fn maps_of(value: &Value) -> (Vec<Source>, Vec<String>) {
             (0..r.layers.len()).map(|l| Source::Rasters(r.clone(), l)).collect(),
             by_year(r.layers.iter().map(|l| l.name.clone()).collect()),
         ),
+        // (the fill of objects: by class when they have classes, else nothing; the Viewer draws it by their style)
+        Value::Objects(o) => (vec![Source::from(&objects_fill(o, None).map)], vec![]),
         _ => (vec![], vec![]),
     }
+}
+
+/// The fill of objects as the Viewer draws it, in the way their layer's style says (none: by class when they have
+/// classes, else not at all).
+pub(crate) fn objects_fill(
+    o: &Arc<terraflux_ops::objects::Objects>,
+    style: Option<&crate::vector_tiles::Style>,
+) -> Arc<crate::objects_view::Filled> {
+    let how = match style {
+        Some(s) => crate::objects_view::fill_of(s, o),
+        None => crate::objects_view::fill_of(&Default::default(), o),
+    };
+    crate::objects_view::fill(o, how)
 }
 
 /// The names of a stack's maps shown as their years (`landuse_1997`, `landuse_2011`: `1997`, `2011`) when each has
@@ -4870,6 +4912,7 @@ pub fn first_source(v: &Value) -> Option<Source> {
         Value::Stack(st) => st.layers.first().map(|l| Source::Map(Map { grid: st.grid.clone(), data: l.clone() })),
         Value::Raster(r) => Some(Source::Rasters(r.clone(), r.chosen)),
         Value::Series(items) => items.iter().find_map(first_source),
+        Value::Objects(o) => Some(Source::from(&objects_fill(o, None).map)),
         _ => None,
     }
 }
@@ -4883,6 +4926,19 @@ fn map_values(s: &Session, r: &Registry, except: (&str, &str)) -> Vec<(String, S
                 continue;
             }
             if s.value_of(&n.id, &p).as_ref().and_then(first_source).is_some() {
+                out.push((n.id.clone(), p));
+            }
+        }
+    }
+    out
+}
+
+/// The objects outputs of a session's run: (node, port), in the model's order.
+pub fn objects_values(s: &Session, r: &Registry) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for n in &s.model.nodes {
+        for (p, ty) in crate::editor::output_ports(n, r) {
+            if ty == Type::Objects && matches!(s.value_of(&n.id, &p), Some(Value::Objects(_))) {
                 out.push((n.id.clone(), p));
             }
         }
@@ -5119,6 +5175,8 @@ fn draw_section(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, grid
 
 pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: &str) -> Option<Hover> {
     let (node, port) = (sh.node.clone(), sh.port.clone());
+    // (the objects drawn over the map are set again at every frame that shows it)
+    sh.view.objects.clear();
     // a node of a group's body: named by its place in the group, its own outputs to choose from (the group's
     // `inner.node.port`)
     let inner = inner_of(s, &node, &port);
@@ -5241,8 +5299,10 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 // the panel of the layers at the map's left, hidden or shown
                 let id = egui::Id::new(("layers open", salt));
                 let mut layers: bool = ui.data(|d| d.get_temp(id)).unwrap_or(true);
-                let drawn =
-                    matches!(&value, Some(Value::Map(_) | Value::Stack(_) | Value::Raster(_) | Value::Vector(_)))
+                let drawn = matches!(
+                    &value,
+                    Some(Value::Map(_) | Value::Stack(_) | Value::Raster(_) | Value::Vector(_) | Value::Objects(_))
+                )
                         || matches!(&value, Some(Value::Series(v)) if v.iter().all(|x| matches!(x, Value::Map(_))));
                 if drawn
                     && ui
@@ -5460,6 +5520,19 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             value = b;
         }
     }
+    // objects: their fill is the map shown (in the colours of their classes, or of their ids, or none), their outlines
+    // are drawn over it, their summary and table under it; the style is the layer's, or one kept here while the
+    // output is no layer
+    let style_id = egui::Id::new(("objects style", salt, &node, &port));
+    let objects_style: crate::vector_tiles::Style = {
+        let own = ui.data(|d| d.get_temp::<crate::vector_tiles::Style>(style_id));
+        sh.layers.iter().find(|l| l.is(&node, &port)).map(|l| l.style.clone()).or(own).unwrap_or_default()
+    };
+    let shown_objects: Option<(Arc<terraflux_ops::objects::Objects>, Arc<crate::objects_view::Filled>)> =
+        if let Value::Objects(o) = &value { Some((o.clone(), objects_fill(o, Some(&objects_style)))) } else { None };
+    if let Some((_, f)) = &shown_objects {
+        value = Value::Map(f.map.clone());
+    }
     // a map to show, of the maps of a stack, a series or rasters on disk
     let (maps, names) = maps_of(&value);
     // a raster's chosen band is shown first
@@ -5525,7 +5598,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         .get(&(node.clone(), port.clone()))
         .copied()
         .unwrap_or_else(|| default_palette(&s.model.nodes, &node, &port, Some(&maps[k])));
-    let look = s.looks.get_first(ui.ctx(), &maps[k], palette);
+    // (objects have their own colours: no look is worked out for their fill)
+    let look = if shown_objects.is_some() { None } else { s.looks.get_first(ui.ctx(), &maps[k], palette) };
     // while the look of another layer (a series' next step) is worked out, the last one: the map and its legend
     // stay, not a spinner in their place
     let held = egui::Id::new(("look held", salt, &node, &port));
@@ -5537,10 +5611,17 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         None => ui.data(|d| d.get_temp::<Look>(held)),
     };
     // the names and colours of the classes the model or the map gives
-    let legend_classes = crate::legend_view::legend_of(s, &node, &port, &maps[k]);
+    let legend_classes = match &shown_objects {
+        Some((_, f)) => Some(f.legend.clone()).filter(|l| !l.is_empty()),
+        None => crate::legend_view::legend_of(s, &node, &port, &maps[k]),
+    };
     let look = match (&look, &legend_classes) {
         (Some(l), Some(c)) => Some(crate::legend_view::apply(l, c)),
         _ => look,
+    };
+    let look = match &shown_objects {
+        Some((_, f)) => Some(Look { coloring: f.coloring.clone(), counts: f.counts.clone(), product: None }),
+        None => look,
     };
     // the range of the colours chosen by hand (the one by the values kept: the span of the histogram)
     let range = s.ranges.get(&(node.clone(), port.clone())).copied();
@@ -5630,7 +5711,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     // (a hidden group's layers not drawn, a group's opacity in its layers')
     let drawn_list = drawn_layers(&sh.layers, &sh.groups);
     let view_box = sh.view.view_box();
-    let Drawn { rasters, overlays, table_at } = draw_layers(
+    let Drawn { rasters, overlays, objects: layer_objects, table_at } = draw_layers(
         s,
         ui.ctx(),
         &drawn_list,
@@ -5679,6 +5760,17 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 ui.label(RichText::new(format!("{gw} x {gh} cells")).weak());
                 if gw * gh > 100_000_000 {
                     ui.label(RichText::new("on disk: read where it is shown").weak().size(11.0));
+                }
+                // objects: what they are, and (while the output is no layer, whose row has them) how they are drawn
+                if let Some((o, _)) = &shown_objects {
+                    ui.label(RichText::new(o.describe()).weak().size(11.0));
+                    if !sh.layers.iter().any(|l| l.is(&node, &port)) {
+                        let mut style = objects_style.clone();
+                        crate::objects_view::controls(ui, &mut style, o, egui::Id::new(("objects controls", salt)));
+                        if style != objects_style {
+                            ui.data_mut(|d| d.insert_temp(style_id, style));
+                        }
+                    }
                 }
                 // the map as a figure for a paper (alone, with the one compared, or every layer of it), or as the
                 // picture the Viewer shows (a file for QGIS or a slide)
@@ -5925,6 +6017,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 }
                 ui.add_space(4.0);
                 match &look {
+                    // objects not filled by class: nothing to count or draw a histogram of
+                    Some(l) if shown_objects.is_some() && !matches!(&l.coloring, Coloring::Classes(c) if !c.is_empty()) => {}
                     // (the legend is in the Layers, under the map's row) of classes: the area of each in the part
                     // chosen
                     Some(l) if matches!(l.coloring, Coloring::Classes(_)) => {
@@ -5947,7 +6041,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 }
                 // the area of each class or the values' statistics, of the map or a part of it; the profile along
                 // the line measured
-                if let Some(l) = &look {
+                if let Some(l) = look.as_ref().filter(|_| shown_objects.is_none()) {
                     ui.add_space(8.0);
                     if !matches!(l.coloring, Coloring::Classes(_)) {
                         region_section(ui, s, sh, &maps[k], l, legend_classes.as_deref(), salt);
@@ -6248,6 +6342,36 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     if other.is_none() || sh.compare.how != How::SideBySide {
         sh.view.hide_measure_box = false;
     }
+    // the objects: their summary and attribute table under the map (the row picked outlined on it), their outlines
+    // over the map (the layers' over the one shown)
+    let mut draws = layer_objects;
+    if let Some((o, _)) = &shown_objects {
+        let pick_id = egui::Id::new(("objects pick", salt, &node, &port));
+        let mut pick: crate::table_view::Pick = ui.data(|d| d.get_temp(pick_id)).unwrap_or_default();
+        egui::Panel::bottom(egui::Id::new(("objects table", salt)))
+            .resizable(true)
+            .default_size(190.0)
+            .max_size((ui.available_height() * 0.6).max(120.0))
+            .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::same(6)))
+            .show(ui, |ui| {
+                let table_id = egui::Id::new(("objects attributes", salt, &node, &port));
+                crate::objects_view::table_panel(ui, o, &output_name(&node, &port), table_id, &mut pick);
+            });
+        let picked = pick.row.map(|r| r as u32 + 1).filter(|&id| id as usize <= o.count);
+        ui.data_mut(|d| d.insert_temp(pick_id, pick));
+        draws.insert(
+            0,
+            crate::map_view::ObjectsDraw {
+                objects: o.clone(),
+                colour: crate::objects_view::outline_colour(&objects_style),
+                width: objects_style.width,
+                name: main_name.clone(),
+                shown: true,
+                picked,
+            },
+        );
+    }
+    sh.view.objects = draws;
     egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::well())).show(ui, |ui| {
         let Some(l) = &look else {
             ui.centered_and_justified(|ui| ui.spinner());

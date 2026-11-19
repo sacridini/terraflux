@@ -7,6 +7,9 @@ version.
 
 ## [Unreleased]
 
+### Added
+- **Objects: an image divided into objects, the base of object-based image analysis** (the first stage of OBIA, in place of eCognition; `crates/ops/src/objects/`): a new kind of value, **objects** (each cell's object, the objects' cells, boxes and neighbours with the length of the border they share, a table of attributes with a row per object, classes with their memberships, and the level above), kept on disk by frozen nodes and written as a GeoTIFF of the ids with the table beside it. **`segment.from_map`** makes objects of any map of classes or labels (every connected group of cells of one value, 4 or 8 neighbours: the way in for a segmenter run elsewhere, SAM included), **`segment.from_vector`** of polygons (their attributes in the table), **`segment.chessboard`** squares of a size and **`segment.quadtree`** squares split in four while a band's range in them passes a threshold; **`objects.to_map`** gives the id, the class, the parent or an attribute as a map, **`objects.to_vector`** a polygon per object with its class and attributes (Chaikin smoothing optional). The Viewer draws objects as a layer: outlines over the image at a width on the screen that does not change with the zoom (colour and width in the layer's row), filled by class (or a colour per object, or none); the object under the cursor highlighted, with its id, class and area in the status bar; a node's objects show their attribute table under the map. A new subject in the library, *Objects (OBIA)*. **`nlm.image`**: a synthetic multispectral image (blue to SWIR 2, Sentinel-2-like reflectances of water, forest, grassland, cropland and urban, or your signatures) from a map of classes, with noise, texture and blurred edges, its truth known: the data of the object templates and tests.
+
 ## [1.55.0] - 2026-11-18
 
 ### Added

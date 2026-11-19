@@ -211,6 +211,7 @@ pub fn grid_of(v: &Value) -> Option<std::sync::Arc<terraflux_raster::Grid>> {
         Value::Map(m) => Some(m.grid.clone()),
         Value::Stack(s) => Some(s.grid.clone()),
         Value::Raster(r) => Some(r.grid.clone()),
+        Value::Objects(o) => Some(o.grid.clone()),
         Value::Series(items) => items.last().and_then(grid_of),
         _ => None,
     }
@@ -242,6 +243,24 @@ pub fn at(v: &Value, x: f64, y: f64) -> Option<At> {
         }
         Value::Series(items) if items.iter().all(|i| matches!(i, Value::Map(_) | Value::Raster(_))) => {
             Some(At::Steps(items.iter().map(|i| at(i, x, y).and_then(|a| a.number()).unwrap_or(f64::NAN)).collect()))
+        }
+        Value::Objects(o) => {
+            let (r, c) = cell_of(&o.grid, x, y)?;
+            let id = o.id_at(r, c);
+            if id == 0 {
+                return Some(At::Other("no object".into()));
+            }
+            let k = id as usize - 1;
+            let mut parts = vec![format!("object {id}")];
+            parts.push(o.class_name(id).map_or("unclassified".to_string(), |n| format!("class {n}")));
+            if let Some(p) = o.parent_id(id) {
+                parts.push(format!("parent {p}"));
+            }
+            parts.push(format!("{} neighbours", o.neighbours_of(id).len()));
+            for (name, v) in o.table.columns.iter().zip(&o.table.rows[k]).skip(1) {
+                parts.push(format!("{name} {}", cell(*v)));
+            }
+            Some(At::Other(parts.join(", ")))
         }
         Value::Number(n) => Some(At::Number(*n)),
         Value::Integer(n) => Some(At::Number(*n as f64)),

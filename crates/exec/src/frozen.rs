@@ -156,6 +156,12 @@ pub fn freeze(folder: &Path, node: &str, outputs: &Outputs) -> Result<()> {
                 Value::StepDistribution(_) => part("step_distribution", file(write_value(v, &at, None)?)),
                 Value::SwatProject(_) => part("swat_project", file(write_value(v, &at, None)?)),
                 Value::SwatWatershed(_) => part("swat_watershed", file(write_value(v, &at, None)?)),
+                Value::Objects(o) => {
+                    // everything, losslessly, in one file (write_value's ids and CSV are for people)
+                    let path = at.with_extension("objects");
+                    std::fs::write(&path, o.to_bytes().map_err(|e| Error::Model(e.to_string()))?)?;
+                    part("objects", file(path))
+                }
                 other => {
                     return Err(Error::Model(format!("its output {port} ({}) cannot be kept on disk", kind_of(other))));
                 }
@@ -299,6 +305,10 @@ pub fn read(folder: &Path, node: &str) -> Result<(Outputs, u64)> {
             "step_distribution" => Value::StepDistribution(model(&path()?)?),
             "swat_project" => Value::SwatProject(model(&path()?)?),
             "swat_watershed" => Value::SwatWatershed(model(&path()?)?),
+            "objects" => Value::Objects(Arc::new(
+                terraflux_ops::objects::Objects::from_bytes(&std::fs::read(path()?)?)
+                    .map_err(|e| Error::Model(format!("{port}: {e}")))?,
+            )),
             k => return Err(Error::Model(format!("{port}: an output of an unknown kind {k:?}"))),
         };
         out.insert(port, v);
@@ -443,6 +453,73 @@ mod tests {
         let Value::Table(b) = &back["t"] else { panic!("a table") };
         assert_eq!(b.rows.len(), 3);
         assert!(b.rows[1][0].is_nan() && b.rows[2][0] == 2.0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Objects are frozen and read back whole: labels, table (NaN, text), classes, memberships and the level above;
+    /// written for people, the ids as a raster and the table as CSV beside it.
+    #[test]
+    fn objects_are_frozen_and_read_back() {
+        use terraflux_ops::objects::{NO_REGION, ObjectClass, Objects};
+        let dir = std::env::temp_dir().join(format!("terraflux-frozen-objects-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let folder = folder(&dir.join("model.toml"));
+        let mut g = terraflux_raster::Grid::new(4, 3);
+        g.transform = [100.0, 5.0, 0.0, 50.0, 0.0, -5.0];
+        let grid = Arc::new(g);
+        let n = NO_REGION;
+        let region = [1, 1, 2, n, 1, 3, 2, 2, 1, 3, 3, 2];
+        let above = Arc::new(Objects::from_regions(grid.clone(), &[1; 12], 4));
+        let o = Objects::from_regions(grid.clone(), &region, 4);
+        let count = o.count;
+        let mut table = o.table.clone();
+        table.columns.push("kind".into());
+        table.columns.push("x".into());
+        table.rows = (0..count).map(|k| vec![(k + 1) as f64, (k % 2 + 1) as f64, 1.0 / 7.0 + k as f64]).collect();
+        table.rows[1][2] = f64::NAN;
+        table.labels.insert("kind".into(), vec!["wet, deep".into(), "dry".into()]);
+        let classes = vec![
+            ObjectClass { name: "forest".into(), colour: Some([0, 100, 0]) },
+            ObjectClass { name: "field".into(), colour: None },
+        ];
+        let o = o
+            .with_table(table.clone())
+            .unwrap()
+            .with_classes(
+                classes.clone(),
+                (0..count).map(|k| (k % 3) as u32).collect(),
+                vec![vec![0.5; count], vec![f64::NAN; count]],
+            )
+            .unwrap()
+            .with_parent(above, vec![1; count])
+            .unwrap();
+        let outputs: Outputs = [("o".to_string(), Value::Objects(Arc::new(o.clone())))].into_iter().collect();
+        freeze(&folder, "n", &outputs).unwrap();
+        let (back, _) = read(&folder, "n").unwrap();
+        let Value::Objects(b) = &back["o"] else { panic!("objects") };
+        assert_eq!(*b.labels, *o.labels);
+        assert_eq!((b.count, b.grid.transform), (o.count, grid.transform));
+        assert_eq!((&b.cells, &b.boxes, &b.adjacency), (&o.cells, &o.boxes, &o.adjacency));
+        assert_eq!((&b.classes, &b.class_of, &b.parent_of), (&classes, &o.class_of, &o.parent_of));
+        assert_eq!(b.table.columns, table.columns);
+        assert_eq!(b.table.labels, table.labels);
+        assert!(b.table.rows[1][2].is_nan() && b.table.rows[2] == table.rows[2]);
+        assert!(b.membership[1][0].is_nan() && b.membership[0] == o.membership[0]);
+        assert_eq!(b.parent.as_ref().unwrap().count, 1);
+        assert!(Arc::ptr_eq(&b.grid, &b.parent.as_ref().unwrap().grid));
+        // a run's output: the ids (0 as no data) and the CSV
+        let tif = write_value(&Value::Objects(Arc::new(o.clone())), &dir.join("seg"), None).unwrap();
+        let Value::Map(m) = read_written(&tif).unwrap() else { panic!("a map") };
+        assert_eq!(m.data[0], 1.0);
+        assert!(m.data[3].is_nan());
+        let csv = std::fs::read_to_string(dir.join("seg.csv")).unwrap();
+        assert!(
+            csv.starts_with(
+                "id,kind,x
+1,\"wet, deep\","
+            ),
+            "{csv}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

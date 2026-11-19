@@ -63,6 +63,7 @@ pub mod node_remotes;
 pub mod node_view;
 pub mod notes;
 pub mod notify;
+pub mod objects_view;
 pub mod op_notes;
 pub mod pack_view;
 pub mod palette;

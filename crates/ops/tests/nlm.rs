@@ -110,3 +110,96 @@ fn a_drawn_map_takes_a_crs() {
     assert!(terraflux_ops::prepare::crs_of(&b.grid).is_some_and(|c| c.contains("32722") || c.contains("UTM")));
     check("the same values", &b.data, &a.data);
 }
+
+/// 100 x 100 cells of five blocky classes (columns in fifths), the first cell of the last row NaN if asked.
+fn blocks(nan: bool) -> Value {
+    let mut v: Vec<f64> = (0..100 * 100).map(|i| ((i % 100) / 20 + 1) as f64).collect();
+    if nan {
+        v[0] = f64::NAN;
+    }
+    Value::Map(Map::new(Arc::new(Grid::new(100, 100)), v))
+}
+
+fn image(classes: Value, params: serde_json::Value) -> Outputs {
+    run("nlm.image", vec![("classes".into(), classes)], &params)
+}
+
+fn layers(o: &Outputs) -> Vec<Vec<f64>> {
+    let Value::Stack(s) = &o["image"] else { panic!("no image") };
+    s.layers.iter().map(|l| l.to_vec()).collect()
+}
+
+const SIG: [[f64; 6]; 5] = [
+    [0.06, 0.05, 0.03, 0.02, 0.01, 0.005],
+    [0.03, 0.05, 0.03, 0.30, 0.15, 0.07],
+    [0.05, 0.08, 0.07, 0.30, 0.25, 0.15],
+    [0.07, 0.10, 0.12, 0.25, 0.30, 0.22],
+    [0.12, 0.13, 0.14, 0.18, 0.22, 0.20],
+];
+
+#[test]
+fn image_is_deterministic_for_a_seed() {
+    let a = layers(&image(blocks(false), serde_json::json!({ "seed": 3 })));
+    let b = layers(&image(blocks(false), serde_json::json!({ "seed": 3 })));
+    let c = layers(&image(blocks(false), serde_json::json!({ "seed": 4 })));
+    assert_eq!(a.len(), 6);
+    for k in 0..6 {
+        check("same seed", &a[k], &b[k]);
+    }
+    assert!(a[3] != c[3]);
+}
+
+#[test]
+fn image_without_noise_texture_blur_is_the_signature() {
+    let o = image(blocks(true), serde_json::json!({ "noise": 0, "texture": 0, "blur": 0 }));
+    let l = layers(&o);
+    for (b, band) in l.iter().enumerate() {
+        assert!(band[0].is_nan());
+        for i in 1..band.len() {
+            assert_eq!(band[i], SIG[(i % 100) / 20][b], "band {b} cell {i}");
+        }
+    }
+    let Value::Table(t) = &o["signatures"] else { panic!("no table") };
+    assert_eq!(t.columns[..3], ["class", "name", "blue"]);
+    assert_eq!(t.label("name", t.rows[1][1]), Some("forest"));
+    assert_eq!(values(&o["truth"]).len(), 10_000);
+}
+
+#[test]
+fn image_with_defaults_keeps_class_means_and_ndvi() {
+    let l = layers(&image(blocks(false), serde_json::json!({ "seed": 2 })));
+    for (c, sig) in SIG.iter().enumerate() {
+        // the middle of each block, away from the blurred edges
+        let cells: Vec<usize> = (0..10_000).filter(|i| (i % 100) / 20 == c && (i % 20) >= 2 && (i % 20) < 18).collect();
+        for (b, band) in l.iter().enumerate() {
+            let mean = cells.iter().map(|&i| band[i]).sum::<f64>() / cells.len() as f64;
+            assert!((mean - sig[b]).abs() < 0.01, "class {c} band {b}: {mean}");
+        }
+    }
+    let ndvi = |c: usize| {
+        let cells: Vec<usize> = (0..10_000).filter(|i| (i % 100) / 20 == c).collect();
+        let m = |b: usize| cells.iter().map(|&i| l[b][i]).sum::<f64>() / cells.len() as f64;
+        (m(3) - m(2)) / (m(3) + m(2))
+    };
+    assert!(ndvi(1) > 0.7, "forest {}", ndvi(1));
+    assert!(ndvi(0) < 0.0, "water {}", ndvi(0));
+}
+
+#[test]
+fn image_checks_classes_and_picks_bands() {
+    let r = Registry::standard();
+    let params = serde_json::json!({}).as_object().cloned().unwrap();
+    let mut classes = blocks(false);
+    if let Value::Map(m) = &mut classes {
+        let mut v = m.data.to_vec();
+        v[5] = 9.0;
+        *m = Map::new(m.grid.clone(), v);
+    }
+    let args = Args { node: "n", inputs: [("classes".to_string(), classes)].into_iter().collect(), params: &params };
+    let e = r.get("nlm.image").unwrap().run(&mut Ctx::default(), &args).unwrap_err().to_string();
+    assert!(e.contains("signatures") && e.contains('9'), "{e}");
+    let o = image(blocks(false), serde_json::json!({ "bands": ["red", "nir"], "noise": 0, "texture": 0, "blur": 0 }));
+    let Value::Stack(s) = &o["image"] else { panic!("no image") };
+    assert_eq!(s.names(), ["red", "nir"]);
+    assert_eq!(s.layers[1][0], 0.02);
+}

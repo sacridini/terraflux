@@ -101,6 +101,7 @@ pub fn bytes_of(v: &Value) -> usize {
         Value::Stack(s) => s.layers.iter().map(|l| l.len() * 8).sum(),
         Value::Table(t) => t.rows.iter().map(|r| r.len() * 8).sum(),
         Value::Series(s) => s.iter().map(bytes_of).sum(),
+        Value::Objects(o) => o.bytes(),
         Value::Vector(v) => {
             let mut n = 0;
             for g in &v.geometries {
@@ -849,6 +850,8 @@ fn fingerprint(
         match inputs.get(&name) {
             Some(Value::Map(m)) => (std::sync::Arc::as_ptr(&m.data) as usize).hash(&mut h),
             Some(Value::Stack(s)) => s.layers.iter().for_each(|l| (std::sync::Arc::as_ptr(l) as usize).hash(&mut h)),
+            // the value itself: a new table or classes over the same labels is a new Arc
+            Some(Value::Objects(o)) => (std::sync::Arc::as_ptr(o) as usize).hash(&mut h),
             Some(v) => format!("{v:?}").hash(&mut h),
             None => {}
         }

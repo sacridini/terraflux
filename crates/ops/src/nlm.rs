@@ -27,6 +27,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(MosaicField));
     r.add(Arc::new(Tess { gibbs: false }));
     r.add(Arc::new(Tess { gibbs: true }));
+    r.add(Arc::new(Image));
     r.add(Arc::new(Classify));
     r.add(Arc::new(Binarize));
     r.add(Arc::new(Merge));
@@ -901,6 +902,253 @@ fn cut(values: &[f64], mut breaks: Vec<f64>) -> std::result::Result<Vec<f64>, St
         return Err("the breaks are not unique (base::cut): classes would be empty".into());
     }
     Ok(ffi::nlm_cut(values, &breaks))
+}
+
+/// The bands of `nlm.image`, in order.
+const BANDS: [&str; 6] = ["blue", "green", "red", "nir", "swir1", "swir2"];
+
+/// The built-in classes of `nlm.image`: name and reflectance in each of the bands.
+const SIGNATURES: [(&str, [f64; 6]); 5] = [
+    ("water", [0.06, 0.05, 0.03, 0.02, 0.01, 0.005]),
+    ("forest", [0.03, 0.05, 0.03, 0.30, 0.15, 0.07]),
+    ("grassland", [0.05, 0.08, 0.07, 0.30, 0.25, 0.15]),
+    ("cropland", [0.07, 0.10, 0.12, 0.25, 0.30, 0.22]),
+    ("urban", [0.12, 0.13, 0.14, 0.18, 0.22, 0.20]),
+];
+
+/// One class of `nlm.image`: its code, name and reflectance in each of the six bands.
+struct Sig {
+    class: f64,
+    name: String,
+    bands: [f64; 6],
+}
+
+/// The signatures given (a list of objects, or a map from class code to an object or to a list of the six values),
+/// else the built-in ones.
+fn signatures(args: &Args) -> Result<Vec<Sig>> {
+    let Some(given) = args.opt_param::<serde_json::Value>("signatures")?.filter(|v| !v.is_null()) else {
+        return Ok(SIGNATURES
+            .iter()
+            .enumerate()
+            .map(|(i, (name, bands))| Sig { class: (i + 1) as f64, name: (*name).into(), bands: *bands })
+            .collect());
+    };
+    let entry = |class: Option<f64>, v: &serde_json::Value| -> Result<Sig> {
+        let (list, name, own) = match v {
+            serde_json::Value::Array(_) => (Some(v), None, None),
+            serde_json::Value::Object(o) => {
+                (o.get("bands"), o.get("name").and_then(|n| n.as_str()), o.get("class").and_then(|c| c.as_f64()))
+            }
+            _ => (None, None, None),
+        };
+        let class = class.or(own).ok_or_else(|| bad(args, "each signature needs a class code"))?;
+        let bands: Vec<f64> = list
+            .and_then(|l| l.as_array())
+            .map(|l| l.iter().map(|x| x.as_f64()).collect::<Option<Vec<f64>>>())
+            .unwrap_or(None)
+            .filter(|b| b.len() == BANDS.len())
+            .ok_or_else(|| {
+                bad(args, format!("the signature of class {class} needs {} numbers in bands", BANDS.len()))
+            })?;
+        let name = name.map_or_else(|| format!("class_{class}"), String::from);
+        Ok(Sig { class, name, bands: bands.try_into().unwrap() })
+    };
+    let sigs = match &given {
+        serde_json::Value::Array(a) => a.iter().map(|v| entry(None, v)).collect::<Result<Vec<_>>>()?,
+        serde_json::Value::Object(o) => o
+            .iter()
+            .map(|(k, v)| {
+                let c: f64 = k.trim().parse().map_err(|_| bad(args, format!("{k:?} is not a class code")))?;
+                entry(Some(c), v)
+            })
+            .collect::<Result<Vec<_>>>()?,
+        _ => return Err(bad(args, "signatures is a list of {class, name, bands}")),
+    };
+    if sigs.is_empty() {
+        return Err(bad(args, "signatures is empty"));
+    }
+    Ok(sigs)
+}
+
+/// Each cell's mean over the (2r+1)^2 window around it, NaN cells left out of it and kept NaN themselves.
+fn mean_filter(v: &[f64], rows: usize, cols: usize, r: usize) -> Vec<f64> {
+    if r == 0 {
+        return v.to_vec();
+    }
+    // box sums of the values and of the valid counts, a row pass then a column pass
+    let n = rows * cols;
+    let (mut sum, mut cnt) = (vec![0.0; n], vec![0.0; n]);
+    for i in 0..rows {
+        for j in 0..cols {
+            let (mut s, mut c) = (0.0, 0.0);
+            for jj in j.saturating_sub(r)..(j + r + 1).min(cols) {
+                let x = v[i * cols + jj];
+                if !x.is_nan() {
+                    s += x;
+                    c += 1.0;
+                }
+            }
+            sum[i * cols + j] = s;
+            cnt[i * cols + j] = c;
+        }
+    }
+    let mut out = vec![f64::NAN; n];
+    for i in 0..rows {
+        for j in 0..cols {
+            if v[i * cols + j].is_nan() {
+                continue;
+            }
+            let (mut s, mut c) = (0.0, 0.0);
+            for ii in i.saturating_sub(r)..(i + r + 1).min(rows) {
+                s += sum[ii * cols + j];
+                c += cnt[ii * cols + j];
+            }
+            out[i * cols + j] = s / c;
+        }
+    }
+    out
+}
+
+struct Image;
+
+impl Operator for Image {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "nlm.image",
+            "A synthetic multispectral image of a map of classes, with the truth known: for templates and tests, not a \
+             model of any sensor. It has the size of the classes map. Each class has a signature, its surface \
+             reflectance (0 to 1) in the bands blue, green, red, nir, swir1 and swir2 (by default water, forest, \
+             grassland, cropland and urban, codes 1 to 5). The signature image is blurred (mean filter) so the \
+             edges between classes mix, then a smooth random field (one for all the bands, so they vary together) \
+             is multiplied in, so dark classes stay dark, and independent noise is added to each cell. Values are \
+             kept between 0 and 1; cells without a class are NaN in every band.",
+            Access::Global,
+        )
+        .input(PortSpec::new("classes", Type::Map, "the class codes (e.g. nlm.classify's), NaN for no class"))
+        .output(PortSpec::new("image", Type::Stack, "a layer for each band, named blue, green, red..."))
+        .output(PortSpec::new("truth", Type::Map, "the classes, as given"))
+        .output(PortSpec::new("signatures", Type::Table, "class, name and the signature's value in each band"))
+        .param(PortSpec::optional(
+            "signatures",
+            Type::Any,
+            "a list of {\"class\": 1, \"name\": \"water\", \"bands\": [six values: blue, green, red, nir, swir1, \
+             swir2]} or a map from the class code to the six values or to that object (default: the five classes \
+             above)",
+        ))
+        .param(PortSpec::optional("bands", Type::Any, "the names of the bands to give (default all six)"))
+        .param(PortSpec::optional(
+            "noise",
+            Type::Number,
+            "the standard deviation of the noise of each cell, in reflectance (default 0.01)",
+        ))
+        .param(PortSpec::optional(
+            "texture",
+            Type::Number,
+            "how much the reflectance varies smoothly inside a class, as a share of its value (default 0.02)",
+        ))
+        .param(PortSpec::optional(
+            "blur",
+            Type::Integer,
+            "the edges' blur: the signature image is averaged over a window of 2 x blur + 1 cells (default 1, 0 is \
+             sharp)",
+        ))
+        .param(PortSpec::optional("seed", Type::Integer, "the seed of the noise and the texture (default 1)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let m = args.map("classes")?;
+        let seed = seed(args)?;
+        let (rows, cols) = m.shape();
+        let noise: f64 = args.param("noise", 0.01)?;
+        let texture: f64 = args.param("texture", 0.02)?;
+        let blur: i64 = args.param("blur", 1)?;
+        if !(noise.is_finite() && noise >= 0.0 && texture.is_finite() && texture >= 0.0 && blur >= 0) {
+            return Err(bad(args, "noise and texture must be at least 0, and blur a whole number of cells, 0 or more"));
+        }
+        let sigs = signatures(args)?;
+        let names: Vec<String> =
+            args.opt_param("bands")?.unwrap_or_else(|| BANDS.iter().map(|b| b.to_string()).collect());
+        if names.is_empty() {
+            return Err(bad(args, "bands is empty"));
+        }
+        let which: Vec<usize> = names
+            .iter()
+            .map(|n| {
+                BANDS
+                    .iter()
+                    .position(|b| b == n)
+                    .ok_or_else(|| bad(args, format!("no band {n:?}: {}", BANDS.join(", "))))
+            })
+            .collect::<Result<_>>()?;
+        // every cell's signature
+        let mut at: Vec<Option<usize>> = Vec::with_capacity(m.data.len());
+        for &c in m.data.iter() {
+            at.push(if c.is_nan() {
+                None
+            } else {
+                match sigs.iter().position(|s| s.class == c) {
+                    Some(i) => Some(i),
+                    None => {
+                        let known: Vec<String> = sigs.iter().map(|s| s.class.to_string()).collect();
+                        return Err(bad(
+                            args,
+                            format!("class {c} has no signature (known: {}): give it in signatures", known.join(", ")),
+                        ));
+                    }
+                }
+            });
+        }
+        // the shared texture field, standardised
+        let z = if texture > 0.0 {
+            let f = ls(
+                args,
+                ffi::nlm_gaussian_field(seed.wrapping_add(7919), rows as i64, cols as i64, 8.0, 5.0, 0.2, 0.5),
+            )?;
+            let ok: Vec<f64> = f.iter().zip(&at).filter(|(x, a)| a.is_some() && !x.is_nan()).map(|(x, _)| *x).collect();
+            let mean = ok.iter().sum::<f64>() / ok.len().max(1) as f64;
+            let sd = (ok.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / ok.len().max(1) as f64).sqrt();
+            f.iter().map(|x| if sd > 0.0 { (x - mean) / sd } else { 0.0 }).collect()
+        } else {
+            vec![0.0; m.data.len()]
+        };
+        let mut layers = Vec::with_capacity(which.len());
+        for (k, &b) in which.iter().enumerate() {
+            let sharp: Vec<f64> = at.iter().map(|a| a.map_or(f64::NAN, |i| sigs[i].bands[b])).collect();
+            let mut v = mean_filter(&sharp, rows, cols, blur as usize);
+            if noise > 0.0 {
+                // Box-Muller from R's uniforms, a stream for each band: the same for any thread count
+                let u = ffi::rrng_runif(ffi::rrng_new(seed.wrapping_add(31 * (k as i32 + 1))).pin_mut(), 2 * v.len());
+                for (i, x) in v.iter_mut().enumerate() {
+                    let (u1, u2) = (u[2 * i].max(f64::MIN_POSITIVE), u[2 * i + 1]);
+                    let g = (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos();
+                    *x = *x * (1.0 + texture * z[i]) + noise * g;
+                }
+            } else if texture > 0.0 {
+                v.iter_mut().zip(&z).for_each(|(x, z)| *x *= 1.0 + texture * z);
+            }
+            v.iter_mut().filter(|x| !x.is_nan()).for_each(|x| *x = x.clamp(0.0, 1.0));
+            layers.push(Arc::new(v));
+        }
+        let mut table = crate::Table::new(
+            ["class".to_string(), "name".to_string()].into_iter().chain(names.iter().cloned()).collect(),
+        );
+        table.labels.insert("name".into(), sigs.iter().map(|s| s.name.clone()).collect());
+        for (i, s) in sigs.iter().enumerate() {
+            table.rows.push([s.class, (i + 1) as f64].into_iter().chain(which.iter().map(|&b| s.bands[b])).collect());
+        }
+        Ok(outputs([
+            (
+                "image",
+                Value::Stack(Stack {
+                    grid: m.grid.clone(),
+                    keys: names.iter().map(|n| Key::Name(n.clone())).collect(),
+                    layers,
+                }),
+            ),
+            ("truth", Value::Map(Map { grid: m.grid.clone(), data: m.data.clone() })),
+            ("signatures", Value::Table(table)),
+        ]))
+    }
 }
 
 struct Classify;

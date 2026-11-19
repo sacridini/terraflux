@@ -168,6 +168,8 @@ fn type_bytes(ty: Type, g: Option<G>, file: Option<u64>, any: bool) -> u64 {
     let g = g.unwrap_or(G { cells: 0, layers: 1 });
     match ty {
         Type::Map => g.cells * CELL,
+        // the ids (4 bytes a cell) and the table, about
+        Type::Objects => g.cells * 4 + file.unwrap_or(0),
         Type::Any if any => g.cells * CELL,
         Type::Stack => g.cells * if g.layers > 1 { g.layers } else { STACK_LAYERS } * CELL,
         Type::Table | Type::Vector => file.unwrap_or(0),

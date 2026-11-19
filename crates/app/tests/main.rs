@@ -8,6 +8,7 @@ mod canvas;
 mod charts;
 mod cloud_public;
 mod my_nodes;
+mod objects_view;
 mod prepare;
 mod vector_calc;
 mod vector_tiles;

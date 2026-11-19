@@ -50,6 +50,13 @@
    ]
   },
   {
+   "title": "Objects (OBIA)",
+   "prefixes": [
+    "segment",
+    "objects"
+   ]
+  },
+  {
    "title": "Habitat patterns",
    "prefixes": [
     "landscape",

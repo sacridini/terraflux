@@ -861,6 +861,22 @@ const PHRASES: &[(&str, &str)] = &[
     ("raster.focal", "The {stat} of the cells of <map> in a {shape} window[ of radius {radius}] around each cell."),
     ("raster.label", "The patches of <map> numbered[, the classes {classes}], {neighbours} neighbours."),
     (
+        "segment.from_map",
+        "The regions of <map> as objects, each group of connected cells of one value[ ({neighbours} neighbours)].",
+    ),
+    ("segment.chessboard", "<image> cut into squares[ of {size} cells] as objects."),
+    (
+        "segment.quadtree",
+        "<image> split into squares as objects while their values differ by more than {threshold}[, down to {min_size} cells].",
+    ),
+    ("segment.from_vector", "The polygons of <vector> as objects on the grid of <like>[ ({neighbours} neighbours)]."),
+    ("objects.to_map", "The objects of <objects> as a map[ of their {what}]."),
+    ("objects.to_vector", "The objects of <objects> as polygons[, their corners cut {smooth} times]."),
+    (
+        "nlm.image",
+        "A synthetic multispectral image of the classes of <classes>, with their truth known[; seed {seed}].",
+    ),
+    (
         "raster.local_correlation",
         "The correlation between <x> and <y> in a {shape} window[ of radius {radius}] around each cell.",
     ),
@@ -1312,6 +1328,17 @@ mod tests {
         assert_eq!(
             sentence(&n, sig("markov.fit").as_ref()).as_deref(),
             Some("The Markov chain of the changes from landuse_2000 to landuse_2010.")
+        );
+        // objects: the optional settings only when given
+        let n = Node::new("blocks", "segment.chessboard").input("image", "scene.image").param("size", 8);
+        assert_eq!(
+            sentence(&n, sig("segment.chessboard").as_ref()).as_deref(),
+            Some("Scene cut into squares of 8 cells as objects.")
+        );
+        let n = Node::new("regions", "segment.from_map").input("map", "sam.map");
+        assert_eq!(
+            sentence(&n, sig("segment.from_map").as_ref()).as_deref(),
+            Some("The regions of sam as objects, each group of connected cells of one value.")
         );
         // an input it needs not given: no sentence
         assert_eq!(sentence(&Node::new("k", "validate.kappa"), sig("validate.kappa").as_ref()), None);

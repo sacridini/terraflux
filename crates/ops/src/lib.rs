@@ -70,6 +70,7 @@ pub mod molusce;
 pub mod movement;
 pub mod mspa_tiled;
 pub mod nlm;
+pub mod objects;
 pub mod npmath;
 pub mod planner;
 pub mod plugin;
@@ -484,6 +485,7 @@ impl Registry {
         values::register(&mut r);
         checks::register(&mut r);
         raster_analysis::register(&mut r);
+        objects::register(&mut r);
         r
     }
 

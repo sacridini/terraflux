@@ -96,12 +96,21 @@ fn name_edit(ui: &mut Ui, rect: Rect, id: egui::Id, text: &mut String, first: bo
     }
 }
 
-/// What a row is: a map (of values or classes), vector features, a difference of two maps.
+/// What a row is: a map (of values or classes), vector features, a difference of two maps, objects.
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
     Map,
     Features,
     Difference,
+    Objects,
+}
+
+/// The objects a layer is of, when it is a layer of objects.
+fn objects_of(s: &Session, l: &Layer) -> Option<Arc<terraflux_ops::objects::Objects>> {
+    match s.value_of(&l.node, &l.port)? {
+        Value::Objects(o) => Some(o),
+        _ => None,
+    }
 }
 
 /// What a row of the list is: a group's (by its place among the groups) or a layer's (by its index).
@@ -248,6 +257,7 @@ pub(super) fn layers_section(
         .iter()
         .cloned()
         .chain(vectors.iter().map(|(n, p, _)| (n.clone(), p.clone())))
+        .chain(objects_values(s, r))
         .filter(|(n, p)| !sh.layers.iter().any(|l| l.is(n, p)))
         .collect();
     toolbar(ui, sh, &more, (shown_is_layer, main_name), (selected, &chosen), &mut asked);
@@ -336,6 +346,7 @@ pub(super) fn layers_section(
                                 let kind = match &sh.layers[i] {
                                     l if l.minus.is_some() => Kind::Difference,
                                     l if vectors.iter().any(|(vn, vp, _)| l.is(vn, vp)) => Kind::Features,
+                                    l if objects_of(s, l).is_some() => Kind::Objects,
                                     _ => Kind::Map,
                                 };
                                 // (in a group: further in, and dim while the group is hidden)
@@ -398,6 +409,7 @@ pub(super) fn layers_section(
         let kind = match &sh.layers[i] {
             l if l.minus.is_some() => Kind::Difference,
             l if vectors.iter().any(|(vn, vp, _)| l.is(vn, vp)) => Kind::Features,
+            l if objects_of(s, l).is_some() => Kind::Objects,
             _ => Kind::Map,
         };
         ui.add_space(6.0);
@@ -793,6 +805,11 @@ fn layer_row(
     let made = made_of(s, &sh.layers[i]);
     let name = sh.layers[i].name_by(made.as_deref(), |n, p, b| band_name(s, n, p, b));
     let look = if kind == Kind::Map { layer_look(s, &ctx, &sh.layers[i]) } else { None };
+    // (objects: and how they are filled, by the layer's style)
+    let objects = objects_of(s, &sh.layers[i]).map(|o| {
+        let f = objects_fill(&o, Some(&sh.layers[i].style));
+        (o, f)
+    });
     let row_id = egui::Id::new(("layer row", salt, key_of(&sh.layers[i])));
     let open_id = row_id.with("open");
     // (every legend folded or unfolded from the bar; else each as it was, unfolded when there are a few layers)
@@ -808,6 +825,7 @@ fn layer_row(
         }
         Kind::Features => features.as_ref().map_or(String::new(), |v| format!("{} features", v.geometries.len())),
         Kind::Difference => "difference".into(),
+        Kind::Objects => objects.as_ref().map_or(String::new(), |(o, _)| format!("{} objects", o.count)),
     };
     let top = ui.cursor().top();
     let (rect, row) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 24.0), Sense::click_and_drag());
@@ -864,7 +882,13 @@ fn layer_row(
     x += 22.0;
     let symbol = Rect::from_min_size(Pos2::new(x, rect.center().y - 7.0), Vec2::new(18.0, 14.0));
     let packed = Coloring::Packed;
-    let by = if kind == Kind::Map && l.rgb.is_some() { Some(&packed) } else { look.as_ref().map(|x| &x.1.coloring) };
+    let by = if kind == Kind::Map && l.rgb.is_some() {
+        Some(&packed)
+    } else if kind == Kind::Objects {
+        objects.as_ref().map(|(_, f)| &f.coloring)
+    } else {
+        look.as_ref().map(|x| &x.1.coloring)
+    };
     paint_symbol(ui, symbol, kind, by, made.as_deref(), features.as_deref(), &l.style);
     x += 24.0;
     // its ⋯ at the right (seen on the row hovered or selected): what can be done with it
@@ -1496,6 +1520,25 @@ fn inline_legend(
                 ui.label(small("the difference...".into()).weak());
             }
         },
+        Kind::Objects => match objects_of(s, l) {
+            Some(o) => {
+                let f = objects_fill(&o, Some(&l.style));
+                let lines = crate::objects_view::legend_lines(&f);
+                if lines.is_empty() {
+                    let what = if f.legend.is_empty() && matches!(f.coloring, Coloring::Classes(_)) {
+                        "outlines only"
+                    } else {
+                        "a colour for each object"
+                    };
+                    ui.label(small(what.into()).weak());
+                } else {
+                    classes_of(ui, lines);
+                }
+            }
+            None => {
+                ui.label(small("not run yet".into()).weak());
+            }
+        },
         Kind::Features => {
             use terraflux_raster::vector::Geometry;
             let what = match features.and_then(|v| v.geometries.iter().find(|g| !matches!(g, Geometry::Empty))) {
@@ -2019,6 +2062,23 @@ fn properties(
                         }
                     }
                 }
+                Kind::Objects => {
+                    opacity_slider(ui, &mut l.opacity);
+                    blend_combo(ui, l, salt, active);
+                    if let Some(o) = objects_of(s, l) {
+                        crate::objects_view::controls(ui, &mut l.style, &o, egui::Id::new((&l.node, &l.port, salt)));
+                        ui.label(RichText::new(o.describe()).weak().size(11.0));
+                    }
+                    if active {
+                        ui.label(
+                            RichText::new(
+                                "the map shown: its table under the map, the object under the pointer outlined",
+                            )
+                            .weak()
+                            .size(11.0),
+                        );
+                    }
+                }
                 Kind::Features => {
                     if ui
                         .add(egui::Button::selectable(table_open, "Attribute table"))
@@ -2089,6 +2149,28 @@ fn paint_symbol(
     let edge = egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.fg_stroke.color.gamma_multiply(0.5));
     let coloring = coloring.or(made.map(|d| &d.coloring));
     match (kind, coloring, features) {
+        // objects: the colours of their classes (or none) inside, their outlines' colour around
+        (Kind::Objects, c, _) => {
+            let inner = r.shrink(1.0);
+            if let Some(Coloring::Classes(c)) = c.filter(|c| matches!(c, Coloring::Classes(k) if !k.is_empty())) {
+                for (j, (fx, fy)) in [(0.0, 0.0), (0.5, 0.0), (0.0, 0.5), (0.5, 0.5)].iter().enumerate() {
+                    let col = crate::palette::seen(c[(j * c.len() / 4) % c.len()].1);
+                    let q = Rect::from_min_size(
+                        inner.min + Vec2::new(inner.width() * fx, inner.height() * fy),
+                        inner.size() / 2.0,
+                    );
+                    p.rect_filled(q, 0.0, col);
+                }
+            } else if matches!(c, Some(Coloring::Packed)) {
+                p.rect_filled(inner, 2.0, crate::objects_view::id_colour(3).gamma_multiply(0.8));
+            }
+            p.rect_stroke(
+                inner,
+                2.0,
+                egui::Stroke::new(1.5, crate::objects_view::outline_colour(style)),
+                egui::StrokeKind::Inside,
+            );
+        }
         (Kind::Features, _, Some(v)) => {
             let c = crate::palette::seen(style.colour);
             match v.geometries.iter().find(|g| !matches!(g, Geometry::Empty)) {

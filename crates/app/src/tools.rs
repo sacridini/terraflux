@@ -1537,6 +1537,7 @@ pub fn summarise(v: &terraflux_ops::Value) -> String {
             }
             s
         }
+        V::Objects(o) => o.describe(),
         other => format!("a value of type {}", other.ty().name()),
     }
 }

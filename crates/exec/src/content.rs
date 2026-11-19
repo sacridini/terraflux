@@ -65,6 +65,10 @@ pub(crate) fn hash_value(v: &Value, h: &mut impl Hasher) -> bool {
         Value::Integer(i) => (6u8, i).hash(h),
         Value::Bool(b) => (7u8, b).hash(h),
         Value::Text(t) => (8u8, t).hash(h),
+        Value::Objects(o) => {
+            9u8.hash(h);
+            o.content_hash(h);
+        }
         // (the rest as the top level reads them: what they print)
         v => format!("{v:?}").hash(h),
     }

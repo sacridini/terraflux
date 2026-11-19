@@ -563,6 +563,33 @@ pub const TIPS: &[(&str, &str)] = &[
          last). Morris's mu* is the importance and sigma the interactions and non-linearity; Sobol's S1 is the \
          share of the factor alone and ST with its interactions. Read the indices with their bootstrap intervals.",
     ),
+    // objects (OBIA)
+    (
+        "segment.from_map",
+        "The way in for any segmenter run elsewhere (SAM, scikit-image, OTB, eCognition, a k-means of the bands): \
+         give the map of its segments (a number per region) or of its classes. Cells of one value that do not \
+         touch are different objects, so a class map becomes its patches; `neighbours` 8 joins the diagonal ones. \
+         A cell without a value is no object.",
+    ),
+    (
+        "segment.chessboard",
+        "The simplest segmentation, with no regard to the image: use it for a first level above finer objects, to \
+         test a rule set, or to give the scale of a sampling grid. `size` is in cells: 1 gives a cell per object. \
+         For objects that follow what the image holds, use segment.quadtree or segment.from_map.",
+    ),
+    (
+        "segment.quadtree",
+        "Squares as small as the image needs: big where it is even, small at its edges. `threshold` is in the \
+         image's units (a range inside a square, any band): start from a tenth of the image's range and lower it \
+         until the objects follow the edges you want; `min_size` stops the splitting at a few cells. A stack uses \
+         every band, so give it the bands that tell the classes apart.",
+    ),
+    (
+        "objects.to_vector",
+        "The polygons follow the cell edges exactly (stairs); `smooth` cuts their corners that many times (1 to 3 \
+         is enough to look natural) and shrinks them a little at each corner, so keep 0 when the polygons are \
+         counted, measured or put back on the map's grid.",
+    ),
 ];
 
 #[cfg(test)]

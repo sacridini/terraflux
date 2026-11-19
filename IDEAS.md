@@ -4055,6 +4055,10 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   de classes (`nlm.*`) e de assinaturas espectrais (água, floresta, campo, cultivo, cidade; ruído, textura e borda
   borrada), com a verdade conhecida: o dado dos templates e dos testes de acurácia. Testes: cada objeto conexo, os
   rótulos contíguos, ida e volta mapa → objetos → mapa e vetor → objetos → vetor.
+  **Feito** (Unreleased). `crates/ops/src/objects/` (`mod.rs` o tipo e `from_regions` por union-find, `store.rs` o
+  binário gzip dos nós congelados, `segment.rs`, `convert.rs`); `nlm.image` em `nlm.rs`; o Viewer em
+  `crates/app/src/objects_view.rs` (contornos numa imagem do tamanho da tela, refeita só quando a vista muda) e
+  `map_view.rs`. O Chaikin do `to_vector` encolhe cantos e suaviza cada objeto à parte (vizinhos podem não casar).
 - **B. Os segmentadores.** `segment.multiresolution` (Baatz & Schäpe 2000: escala, peso de cor e forma, compacidade e
   suavidade, peso das bandas; a partir dos pixels ou de um nível existente, para fazer um nível de cima; determinístico
   com a mesma semente; em paralelo pela abordagem de Happ et al. 2010, PUC-Rio, por blocos com a fusão entre blocos

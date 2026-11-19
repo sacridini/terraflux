@@ -49,6 +49,14 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
              rasterio's merge does not resample as gdalwarp does"
             .into()),
         "crafty.allocate" => Err("CRAFTY's competition between agent functional types is not in the Python library".into()),
+        "segment.from_map" | "segment.chessboard" | "segment.quadtree" | "segment.from_vector" | "objects.to_map"
+        | "objects.to_vector" => Err("objects (object-based image analysis: an image divided into objects with their \
+             attributes, classes and levels) are a Terraflux type the Python library has no counterpart for: no \
+             equivalent in the script"
+            .into()),
+        "nlm.image" => Err("a synthetic multispectral image of a map of classes, with the truth known (for templates \
+             and tests): the Python library has no function for it, so there is no equivalent in the script"
+            .into()),
         _ => Ok(None),
     }
 }
@@ -855,5 +863,38 @@ inputs = { raster = "a.map" }
         );
         assert_eq!(s.left.len(), 2, "{:?}", s.left);
         assert!(s.left[0].2.contains("gdal_proximity") && s.left[1].2.contains("gdalwarp"), "{:?}", s.left);
+    }
+
+    #[test]
+    fn objects_and_the_synthetic_image_have_no_equivalent() {
+        let s = script_of(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "a"
+op = "nlm.random"
+
+[[nodes]]
+id = "img"
+op = "nlm.image"
+inputs = { classes = "a.map" }
+
+[[nodes]]
+id = "seg"
+op = "segment.chessboard"
+inputs = { image = "a.map" }
+
+[[nodes]]
+id = "poly"
+op = "objects.to_vector"
+inputs = { objects = "seg.objects" }
+"#,
+        );
+        let mut left: Vec<&str> = s.left.iter().map(|(id, _, _)| id.as_str()).collect();
+        left.sort();
+        assert_eq!(left, ["img", "poly", "seg"], "{:?}", s.left);
+        assert!(s.left.iter().all(|(_, _, why)| why.contains("no equivalent")), "{:?}", s.left);
+        assert!(s.text.contains("# not translated: objects (object-based"), "{}", s.text);
     }
 }

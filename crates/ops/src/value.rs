@@ -460,6 +460,8 @@ pub enum Value {
     SwatProject(Arc<crate::swat::Project>),
     /// A watershed divided as QSWAT+ divides it.
     SwatWatershed(Arc<crate::swat_watershed::Watershed>),
+    /// An image divided into objects.
+    Objects(Arc<crate::objects::Objects>),
 }
 
 impl Value {
@@ -493,6 +495,7 @@ impl Value {
             Value::StepDistribution(_) => Type::StepDistribution,
             Value::SwatProject(_) => Type::SwatProject,
             Value::SwatWatershed(_) => Type::SwatWatershed,
+            Value::Objects(_) => Type::Objects,
         }
     }
 

@@ -223,6 +223,13 @@ pub fn write_value(value: &Value, path: &Path, dtype: Option<&str>) -> Result<Pa
         Value::StepDistribution(d) => write_text(path, "json", &json(&**d)?),
         Value::SwatProject(p) => write_text(path, "json", &json(&**p)?),
         Value::SwatWatershed(w) => write_text(path, "json", &json(&**w)?),
+        Value::Objects(o) => {
+            // the ids as a raster (NaN where there is no object) and the attributes as CSV beside it
+            let ids: Vec<f64> = o.labels.iter().map(|&l| if l == 0 { f64::NAN } else { l as f64 }).collect();
+            let tif = write_maps(&o.grid, vec![(None, &ids)], path, dtype)?;
+            write_text(path, "csv", &o.table.to_csv())?;
+            Ok(tif)
+        }
         Value::Vector(v) => {
             // GeoPackage, unless the path names another vector format
             let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();

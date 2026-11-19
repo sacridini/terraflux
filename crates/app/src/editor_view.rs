@@ -510,6 +510,7 @@ pub fn type_colour(t: Type, dark: bool) -> Option<Color32> {
         Type::Number | Type::Integer | Type::Bool => (0x9c, 0xcf, 0x7c),
         Type::Vector => (0xe2, 0x8a, 0xa8),
         Type::Agents => (0xd3, 0x9b, 0x6a),
+        Type::Objects => (0x6f, 0xc9, 0xb4),
         _ => return None,
     };
     let c = Color32::from_rgb(r, g, b);

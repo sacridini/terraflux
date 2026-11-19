@@ -492,6 +492,30 @@ pub struct Outline {
     pub bounds: (f32, f32, f32, f32),
 }
 
+/// Objects drawn over the map (see [`crate::objects_view`]): their outlines at a constant width on the screen, the
+/// one under the pointer told and outlined. Set for every frame by whoever shows the map; their fill is a raster layer.
+#[derive(Clone)]
+pub struct ObjectsDraw {
+    pub objects: Arc<terraflux_ops::objects::Objects>,
+    /// The outlines' colour and width, screen points.
+    pub colour: Color32,
+    pub width: f32,
+    /// The layer's name (told before the object under the pointer).
+    pub name: String,
+    /// Whether the map shown is the fill of these objects: the object is told in place of its value.
+    pub shown: bool,
+    /// The object chosen in the table, outlined in the accent.
+    pub picked: Option<u32>,
+}
+
+/// The outlines of some objects as an image of the part of them in view, with what it was made from (hashed): made
+/// again only when that changes.
+struct OutlineImage {
+    key: u64,
+    texture: TextureHandle,
+    rect: Rect,
+}
+
 /// The sides of an outline drawn one by one, at most (more: its rectangle).
 const OUTLINE_SIDES: usize = 60_000;
 /// The most features selected outlined at once (those in view).
@@ -578,6 +602,11 @@ pub struct MapView {
     /// The patch of the cell traced drawn around it (a trace's card of a patch's operator selected); let go when
     /// another cell is picked.
     pub patch: Option<Outline>,
+    /// The objects drawn over the map at the next frame (taken by it: set again for every frame), the images of their
+    /// outlines (by the address of their labels) and the outlines of the objects highlighted (by labels and id).
+    pub objects: Vec<ObjectsDraw>,
+    object_images: HashMap<usize, OutlineImage>,
+    object_outlines: HashMap<(usize, u32), Option<Arc<Outline>>>,
     /// The features selected in a table of attributes (layer, features), outlined in the accent; and the features
     /// (layer, feature) under the pointer at the last click, to select rows by (`feature_toggle`: with ctrl, to
     /// toggle them instead).
@@ -762,6 +791,11 @@ impl MapView {
     /// The layers drawn with the map at the last frame: how many maps (over or under it) and how many vector layers.
     pub fn layers_drawn(&self) -> (usize, usize) {
         self.layers_drawn
+    }
+
+    /// How many layers of objects had their outlines drawn at the last frame.
+    pub fn objects_drawn(&self) -> usize {
+        self.object_images.len()
     }
 
     /// Fit the map in the view at the next frame.
@@ -1823,6 +1857,145 @@ impl MapView {
         self.value_at(&l.source, c.x as usize, c.y as usize)
     }
 
+    /// The outlines of objects over the map: an image of the part in view at the screen's resolution (see
+    /// [`crate::objects_view::outline_image`]), painted over the tiles; made again only when the view, the objects or
+    /// their style change.
+    fn paint_objects(
+        &mut self,
+        ctx: &egui::Context,
+        painter: &egui::Painter,
+        rect: Rect,
+        base: &terraflux_raster::Grid,
+        objects: &[ObjectsDraw],
+    ) {
+        let ppp = ctx.pixels_per_point();
+        let mut live: HashSet<usize> = HashSet::new();
+        for d in objects {
+            let o = &d.objects;
+            let Some(place) = place_on(&o.grid, base) else { continue };
+            // the part of the objects' grid that is in view
+            let screen = |c: Vec2| rect.center() + (c - self.center) * self.zoom;
+            let (a, b) =
+                (place.to_view(Vec2::ZERO), place.to_view(Vec2::new(o.grid.width as f32, o.grid.height as f32)));
+            let vis = rect.intersect(Rect::from_two_pos(screen(a), screen(b)));
+            if vis.width() < 0.5 || vis.height() < 0.5 {
+                continue;
+            }
+            let id = Arc::as_ptr(&o.labels) as usize;
+            live.insert(id);
+            let origin = Pos2::new((vis.min.x * ppp).floor() / ppp, (vis.min.y * ppp).floor() / ppp);
+            let key = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::hash::DefaultHasher::new();
+                for x in [self.zoom, self.center.x, self.center.y, rect.min.x, rect.min.y, rect.max.x, rect.max.y, ppp]
+                {
+                    x.to_bits().hash(&mut h);
+                }
+                for x in [place.offset.x, place.offset.y, place.scale.x, place.scale.y, d.width] {
+                    x.to_bits().hash(&mut h);
+                }
+                (id, d.colour.to_array()).hash(&mut h);
+                h.finish()
+            };
+            if self.object_images.get(&id).is_none_or(|i| i.key != key) {
+                let ((pw, ph), per_point) =
+                    crate::objects_view::image_size(vis.max.x - origin.x, vis.max.y - origin.y, ppp);
+                // the cell under the middle of each pixel, by column and by row
+                let cell = |p: f32, center: f32, mid: f32, offset: f32, scale: f32, n: usize| {
+                    let view = center + (p - mid) / self.zoom;
+                    let c = ((view - offset) / scale).floor();
+                    if c >= 0.0 && (c as usize) < n { c as i32 } else { -1 }
+                };
+                let cols: Vec<i32> = (0..pw)
+                    .map(|x| {
+                        let sx = origin.x + (x as f32 + 0.5) / per_point;
+                        cell(sx, self.center.x, rect.center().x, place.offset.x, place.scale.x, o.grid.width)
+                    })
+                    .collect();
+                let rows: Vec<i32> = (0..ph)
+                    .map(|y| {
+                        let sy = origin.y + (y as f32 + 0.5) / per_point;
+                        cell(sy, self.center.y, rect.center().y, place.offset.y, place.scale.y, o.grid.height)
+                    })
+                    .collect();
+                let image = crate::objects_view::outline_image(
+                    &o.labels,
+                    o.grid.width,
+                    (&cols, &rows),
+                    d.colour,
+                    d.width,
+                    per_point,
+                );
+                let at = Rect::from_min_size(origin, Vec2::new(pw as f32 / per_point, ph as f32 / per_point));
+                match self.object_images.get_mut(&id) {
+                    Some(i) => {
+                        i.texture.set(image, TextureOptions::NEAREST);
+                        (i.key, i.rect) = (key, at);
+                    }
+                    None => {
+                        let texture =
+                            ctx.load_texture(format!("object outlines {id:x}"), image, TextureOptions::NEAREST);
+                        self.object_images.insert(id, OutlineImage { key, texture, rect: at });
+                    }
+                }
+            }
+            if let Some(i) = self.object_images.get(&id) {
+                painter.image(
+                    i.texture.id(),
+                    i.rect,
+                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+            }
+        }
+        // (the images of objects no longer drawn are let go)
+        self.object_images.retain(|k, _| live.contains(k));
+    }
+
+    /// The outline of an object, kept while it is asked for.
+    fn object_outline(&mut self, o: &Arc<terraflux_ops::objects::Objects>, id: u32) -> Option<Arc<Outline>> {
+        let key = (Arc::as_ptr(&o.labels) as usize, id);
+        if self.object_outlines.len() > 16 && !self.object_outlines.contains_key(&key) {
+            self.object_outlines.clear();
+        }
+        self.object_outlines
+            .entry(key)
+            .or_insert_with(|| crate::objects_view::object_outline(o, id).map(Arc::new))
+            .clone()
+    }
+
+    /// An object's outline over the map, white under the accent (the sides of its cells, or its box when it has too many).
+    fn paint_object(
+        &mut self,
+        painter: &egui::Painter,
+        rect: Rect,
+        d: &ObjectsDraw,
+        id: u32,
+        base: &terraflux_raster::Grid,
+    ) {
+        let Some(place) = place_on(&d.objects.grid, base) else { return };
+        let Some(out) = self.object_outline(&d.objects, id) else { return };
+        let at = |(x, y): (f32, f32)| rect.center() + (place.to_view(Vec2::new(x, y)) - self.center) * self.zoom;
+        let clip = painter.clip_rect();
+        let strokes = [egui::Stroke::new(3.0, Color32::WHITE), egui::Stroke::new(1.5, crate::theme::accent())];
+        if out.edges.is_empty() || out.edges.len() > OUTLINE_SIDES {
+            let (x0, y0, x1, y1) = out.bounds;
+            let r = Rect::from_two_pos(at((x0, y0)), at((x1, y1)));
+            for s in strokes {
+                painter.rect_stroke(r, 0.0, s, egui::StrokeKind::Middle);
+            }
+        } else {
+            for s in strokes {
+                for [a, b] in &out.edges {
+                    let (p, q) = (at(*a), at(*b));
+                    if clip.intersects(Rect::from_two_pos(p, q).expand(1.0)) {
+                        painter.line_segment([p, q], s);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn show(&mut self, ui: &mut Ui, source: &Source, coloring: &Coloring) -> Option<Hover> {
         self.show_layers(ui, source, coloring, &[])
     }
@@ -1867,6 +2040,7 @@ impl MapView {
         self.drawn_pass = ctx.cumulative_pass_nr();
         self.layers_drawn = (rasters.len(), overlays.len());
         self.pointer = None;
+        let objects = std::mem::take(&mut self.objects);
         let blank = matches!(source, Source::Blank(_));
         if self.workers.is_none() {
             self.workers = Some(Workers::new(ctx.clone()));
@@ -2365,6 +2539,17 @@ impl MapView {
                 }
             }
         }
+        // the objects' outlines over the tiles (the fill went through them), the object chosen in the table outlined
+        if show_data && !objects.is_empty() {
+            self.paint_objects(&ctx, &painter, rect, source.grid(), &objects);
+            for d in &objects {
+                if let Some(id) = d.picked {
+                    self.paint_object(&painter, rect, d, id, source.grid());
+                }
+            }
+        } else {
+            self.object_images.clear();
+        }
         // the patch of the cell traced, its border drawn (white under the accent, seen on any colour)
         if let Some(o) = self.patch.as_ref().filter(|_| !blank) {
             let at = |(x, y): (f32, f32)| rect.center() + (Vec2::new(x, y) - self.center) * self.zoom;
@@ -2550,6 +2735,20 @@ impl MapView {
             }
             self.picked = picked;
         }
+        // the object of each layer of objects under the pointer (0: none); the topmost outlined in the accent
+        let under: Vec<u32> = objects
+            .iter()
+            .map(|d| match place_on(&d.objects.grid, source.grid()) {
+                Some(place) if inside => {
+                    let s = place.to_source(c);
+                    if s.x < 0.0 || s.y < 0.0 { 0 } else { d.objects.id_at(s.y as usize, s.x as usize) }
+                }
+                _ => 0,
+            })
+            .collect();
+        if show_data && let Some((d, &id)) = objects.iter().zip(&under).rev().find(|(_, id)| **id != 0) {
+            self.paint_object(&painter, rect, d, id, source.grid());
+        }
         // close enough to see the cells: the one under the pointer outlined
         if inside && !blank && self.zoom >= 6.0 {
             let cell = Vec2::new(c.x.floor(), c.y.floor());
@@ -2571,9 +2770,16 @@ impl MapView {
             let mut text = format!("x {x:.digits$}   y {y:.digits$}");
             let said = |v: f64| if v.is_nan() { "no value".to_string() } else { terraflux_ops::value::class_label(v) };
             if inside && !blank {
-                let v = match source {
+                // (the map shown is the fill of objects: the object under the pointer is its value)
+                let shown_object = objects
+                    .iter()
+                    .zip(&under)
+                    .find(|(d, _)| d.shown)
+                    .map(|(d, &id)| crate::objects_view::object_text(&d.objects, id));
+                let v = match (source, shown_object) {
+                    (_, Some(t)) => t,
                     // (a colour composite: each channel's band and value)
-                    Source::Rgb(r) => r.text(self.rgb_cell(r, c.x as usize, c.y as usize)),
+                    (Source::Rgb(r), _) => r.text(self.rgb_cell(r, c.x as usize, c.y as usize)),
                     _ => said(self.value_at(source, c.x as usize, c.y as usize)),
                 };
                 text.push_str(&format!("   ·   row {}  column {}", c.y as usize, c.x as usize));
@@ -2600,6 +2806,15 @@ impl MapView {
                         }
                     }
                     None => text.push_str(&format!("   ·   {v}")),
+                }
+                // the objects of the layers over it: the object under the pointer, by the layer's name
+                for (d, &id) in objects.iter().zip(&under).rev().filter(|(d, _)| !d.shown) {
+                    let t = crate::objects_view::object_text(&d.objects, id);
+                    text.push_str(&if d.name.is_empty() {
+                        format!("   ·   {t}")
+                    } else {
+                        format!("   ·   {} {t}", d.name)
+                    });
                 }
             }
             let at = rect.left_bottom() + Vec2::new(6.0, -4.0);

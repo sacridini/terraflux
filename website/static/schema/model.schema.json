@@ -105,7 +105,7 @@
         "any", "number", "integer", "bool", "text", "map", "stack", "series", "table", "markov", "demand",
         "regional", "glm", "woe", "patches", "rules", "rng", "agents", "raster", "vector", "base_data", "tree",
         "label_matrix", "habitat_graph", "sdm_model", "ml_model", "step_distribution", "swat_project",
-        "swat_watershed"
+        "swat_watershed", "objects"
       ],
       "description": "The type of a value that flows along the graph."
     },
