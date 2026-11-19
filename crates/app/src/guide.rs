@@ -277,6 +277,62 @@ extrapolation where the environment is new (sdm.mess, sdm.exdet, sdm.mop); in an
 predictors' names on the future stack. Template \"Species distribution model\", \"A species in a warmer climate\".",
     },
     Guide {
+        name: "objects",
+        title: "Object-based image analysis (OBIA): segment, describe, classify, check, polygons",
+        text: "\
+1. Data: an image with a layer per band, named for what it is (blue, green, red, nir, swir1, swir2: the NDVI and \
+NDWI attributes find the red, near infrared and green bands by their names; otherwise give `red`, `nir` and \
+`green` to objects.features), and, for the context, any raster on the same grid (a height model, another date: \
+raster.match first). nlm.image draws a synthetic image of a map of classes, with the truth known, to try a flow \
+on.
+2. Segment: segment.multiresolution (Baatz and Schape: eCognition's) is the usual choice. Without `scale` it takes \
+the first scale segment.scale suggests (ESP, Dragut et al.); look at the objects in the Viewer and raise the scale \
+for larger objects, lower it for smaller ones. The scale is in the image's units: reflectance 0 to 1 and 0 to \
+10000 need other scales. shape 0.1 and compactness 0.5 are the usual start. The others: segment.slic and \
+segment.snic (superpixels: regular, small, many), segment.felzenszwalb, segment.watershed (markers optional), \
+segment.meanshift, segment.chessboard and segment.quadtree (the simplest); segment.from_map and \
+segment.from_vector bring objects made elsewhere (a map of classes or labels, polygons).
+3. Describe: objects.features with the image (and `more`: a height model, another date, a class map). `basic` (the \
+default) is the mean and the standard deviation of each band, NDVI, the area, the compactness and the texture's \
+homogeneity; ask for groups (spectral, shape, texture, context) or `all` when the rules need them. A layer given \
+in `more` is named mean_more (a map has its port's name).
+4. Classify, by one of these paths, which combine:
+   - by samples: points or polygons with a class column (vector.from_table of x, y and class, a drawing, or \
+vector.read) go to objects.samples (the object under a point; a polygon picks every object it covers by half), \
+which gives the training table; ml.fit with column = class (a random forest works without tuning); then \
+objects.classify gives the classes, the probability of each and the margin. Give at least 10 objects per class, \
+over their different looks; classes are numbered by their names in alphabetical order. objects.nearest is \
+eCognition's nearest neighbour on the same table, with a few spectral attributes chosen.
+   - by rules: objects.rules, a hierarchy of classes each with a fuzzy rule (objects.calc's script: above(ndwi, 0, \
+0.2), below, between, about; `and` is the smaller and `or` the larger), a class inheriting its parent's rule; an \
+object becomes the leaf of the largest membership. The thresholds come from the objects' attributes: read them in \
+the table. Chain a second objects.rules for rules that read the neighbours' classes (border_to, nb.count).
+   - by a class tree, when each class wants a method of its own inside its mother's region (urban, then buildings \
+and roads in it): a control.group per class with the settings class, parent_class and colour, its body reading \
+`@region` and giving a `membership` map; the siblings are decided by one objects.resolve. The Model pane's Classes \
+button shows and edits the tree.
+   - by two dates: objects.temporal binds the classes of two dates by a transition matrix (table.of, a column \
+`class` of text, then a column per destination; objects.transition_matrix estimates it) and gives the table of \
+what changed to what.
+5. Check: objects.sample draws a stratified random sample of the classified objects (at least 50 per class, \
+Olofsson et al.) with an empty column `reference`; fill it with the true class and take it to objects.accuracy: the \
+confusion matrix, the user's and producer's accuracies, kappa and the area of each class with its confidence \
+interval. Never check with the samples the model learned from: keep others apart. Look at the margin too (low \
+where the model hesitates: put samples there). A map of the objects' classes is objects.to_map.
+6. Polygons: objects.to_vector (`smooth` 1 to 3 cuts the corners; 0 keeps the cell edges when the polygons are \
+counted or measured), then vector.write.
+Templates: \"Classify an image by clicking samples\" (the main one), \"Classify an image by rules\", \
+\"Segment an image into polygons\", \"Land cover change by objects\", \
+\"Trees and buildings from a height model\". Each draws its image (nlm.image): put the user's in its place with \
+Use my data (the node marked as data).
+The prompt \"classify this image into water, forest and city\": new_model from the samples template; replace the \
+image with the user's (a stack of its bands, named); set the class names in the samples' table to water, forest \
+and city (the table's rows are points in the image's coordinates: in the application the user clicks them); \
+open_in_app and ask the user to click a few objects of each class in the Viewer; run_model; check the margin and \
+ask for more samples where the model hesitates; then objects.sample and objects.accuracy on samples kept apart; \
+the polygons are written beside the model.",
+    },
+    Guide {
         name: "hydrology",
         title: "Terrain hydrology and SWAT+: flow, streams, watersheds, a watershed model",
         text: "\
