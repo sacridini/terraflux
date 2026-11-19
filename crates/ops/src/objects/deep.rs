@@ -525,11 +525,14 @@ impl Operator for Sam {
             "the path of SAM's image encoder (an ONNX file); with no encoder and decoder the weights are downloaded",
         ))
         .param(PortSpec::optional("decoder", Type::Text, "the path of SAM's mask decoder (an ONNX file)"))
-        .param(PortSpec::optional(
-            "weights",
-            Type::Text,
-            "the weights downloaded when no encoder and decoder are given: quant (75 MB, default) or full (348 MB)",
-        ))
+        .param(
+            PortSpec::optional(
+                "weights",
+                Type::Text,
+                "the weights downloaded when no encoder and decoder are given: quant (75 MB, default) or full (348 MB)",
+            )
+            .choices(["quant", "full"]),
+        )
         .param(PortSpec::optional(
             "bands",
             Type::Any,
@@ -616,8 +619,8 @@ impl Operator for Sam {
                         total.map(|t| got as f64 / t.max(1) as f64),
                         format!(
                             "downloading the SAM weights ({name}): {} of {} MB",
-                            got >> 20,
-                            total.unwrap_or(0) >> 20
+                            got / 1_000_000,
+                            total.unwrap_or(0) / 1_000_000
                         ),
                     )
                 };

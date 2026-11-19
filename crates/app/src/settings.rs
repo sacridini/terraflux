@@ -127,6 +127,8 @@ pub struct Settings {
     /// The credentials of the cloud storage rasters and features are read from (`s3://`, `gs://`, `/vsiaz/`): in
     /// the system's store of credentials (the secrets) and the settings file, never in a model.
     pub cloud: Cloud,
+    /// The weights of SAM this computer agreed to download (`quant`, `full`): asked once for each.
+    pub sam_agreed: Vec<String>,
 }
 
 /// The credentials of cloud storage, given to GDAL as its configuration options (those of the environment, which GDAL
@@ -457,6 +459,7 @@ impl Default for Settings {
             custom_basemaps: Vec::new(),
             shortcuts: BTreeMap::new(),
             cloud: Cloud::default(),
+            sam_agreed: Vec::new(),
         }
     }
 }

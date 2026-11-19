@@ -694,6 +694,9 @@ pub struct Session {
     pub disk_space: Option<crate::disk::Space>,
     /// A run held back because it may need more memory than the computer has (see [`crate::memory`]).
     pub memory_ask: Option<crate::memory::Ask>,
+    /// A run held back because a `segment.sam` would download its weights for the first time (see
+    /// [`crate::sam_view`]); the window asks.
+    pub sam_ask: Option<crate::sam_view::Ask>,
     pub started: Option<Instant>,
     pub view: MapView,
     pub thumbs: Thumbs,
@@ -1009,6 +1012,7 @@ impl Session {
             disk_ask: None,
             disk_space: None,
             memory_ask: None,
+            sam_ask: None,
             started: None,
             view: MapView::default(),
             thumbs: Thumbs::default(),
@@ -1321,6 +1325,42 @@ impl Session {
                 false
             }
         }
+    }
+
+    /// The first `segment.sam` a run to `target` (none: the whole model) needs that would download its weights: no
+    /// encoder and decoder given, the weights not in the cache, and the machine not agreed to that download yet.
+    pub fn sam_need(&self, target: Option<&str>) -> Option<String> {
+        let needed = target.map(|t| self.needed(t));
+        let cache = terraflux_ops::cache::root();
+        let agreed = crate::settings::get().sam_agreed;
+        let text = |n: &terraflux_graph::Node, k: &str| {
+            n.params.get(k).and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(String::from)
+        };
+        self.model
+            .nodes
+            .iter()
+            .find(|n| {
+                if n.op != "segment.sam" || needed.as_ref().is_some_and(|s| !s.contains(&n.id)) {
+                    return false;
+                }
+                // (paths given, or a wire to give them: nothing is downloaded, or it is not known)
+                if ["encoder", "decoder", "weights"].iter().any(|k| n.inputs.contains_key(*k)) {
+                    return false;
+                }
+                if text(n, "encoder").is_some() || text(n, "decoder").is_some() {
+                    return false;
+                }
+                let w = text(n, "weights").unwrap_or_else(|| "quant".into());
+                // (a name the operator refuses: it says so when it runs)
+                let Ok(src) = terraflux_ops::objects::weights::source(&w) else { return false };
+                !terraflux_ops::objects::weights::cached(&cache, src) && !agreed.contains(&w)
+            })
+            .map(|n| n.id.clone())
+    }
+
+    /// Whether a run to `target` (none: the whole model) needs no question about SAM's weights first.
+    pub fn sam_ok(&self, target: Option<&str>) -> bool {
+        self.sam_need(target).is_none()
     }
 
     /// Open the window of *Clean outputs...*.
@@ -1649,13 +1689,27 @@ impl Session {
     /// The run, a normal one or (`check`) a check run, with the cache of its own kind: a check run's is a fresh one
     /// (its results are not the model's), the normal one kept aside; the next normal run takes it back, the check's
     /// results and mark gone.
-    fn start_run(
+    pub(crate) fn start_run(
         &mut self,
         target: Option<String>,
         repaint: Box<dyn Fn() + Send>,
         quiet: bool,
         check: Option<terraflux_ops::check::Check>,
     ) {
+        // (SAM's weights not downloaded yet, and not agreed to: the window asks first; a run the application
+        // started by itself only tells it, and is not tried again until the next edit)
+        if let Some(node) = self.sam_need(target.as_deref()) {
+            if quiet {
+                self.edited_at = None;
+                if self.sam_ask.is_none() {
+                    let text = "a run asks first before it downloads the weights of SAM (segment.sam)";
+                    self.notice = Some((text.into(), Instant::now()));
+                }
+            } else {
+                self.sam_ask = Some(crate::sam_view::Ask { node, target, check });
+            }
+            return;
+        }
         // (a run asked for: the nodes not filled in told)
         if !quiet {
             self.unfilled_shown = self.issues.iter().any(|i| i.unfilled);
@@ -5705,6 +5759,7 @@ impl TerrafluxApp {
                 let ctx = ui.ctx().clone();
                 s.start(Box::new(move || ctx.request_repaint()));
             }
+            crate::sam_view::window(ui.ctx(), s);
             crate::qgis::window(ui.ctx(), s);
             crate::graph_figure::window(ui.ctx(), s);
             crate::catalog::window(ui.ctx(), s, &self.registry);

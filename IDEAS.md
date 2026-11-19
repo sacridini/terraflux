@@ -4452,6 +4452,8 @@ dependências: 6, 2, 1, 4, 3, 7, 5, 8.
   (grava `weights`). `weights::cached` (pública) diz se já estão no cache. `.choices(["quant", "full"])` no
   `weights`; o texto do progresso em MB, não MiB. Testes: `cached`; no `--test app`, com `TERRAFLUX_CACHE` vazio, a
   janela aparece e a execução não começa; *Cancel* não muda o modelo.
+  **Feito** (Unreleased): `sam_view.rs` (a janela, `Session::sam_need`/`sam_ok` em `start_run`, o consentimento por
+  variante em `sam_agreed` das configurações); só os `segment.sam` do nível de cima do modelo passam pela porta.
 - **2. O gráfico e o *Apply* do `segment.optimize` (M).** `Kind::Scores` em `charts.rs` (`is_scores`: as colunas
   `value, objects, variance, moran, objective`): o objetivo e as duas medidas escaladas contra o valor, o melhor
   marcado, e o número de objetos num painel menor. `optimize::scaled` e `default_parameter` públicos. Um

@@ -95,6 +95,12 @@ pub fn ensure(cache: &Path, src: &Source, download: Download, report: Report) ->
     Ok((enc, dec))
 }
 
+/// Whether a source's encoder and decoder are in the cache already (a run then downloads nothing).
+pub fn cached(cache: &Path, src: &Source) -> bool {
+    let dir = cache.join("sam").join(src.name);
+    recorded(&dir.join("weights.ok"), src, &dir.join("encoder.onnx"), &dir.join("decoder.onnx"))
+}
+
 /// Whether the sidecar records this source and the two files have the sizes it records.
 fn recorded(ok: &Path, src: &Source, enc: &Path, dec: &Path) -> bool {
     let Ok(note) = std::fs::read_to_string(ok) else { return false };
@@ -341,12 +347,19 @@ mod tests {
             std::fs::write(to, &zip).map_err(|e| Error::msg(e.to_string()))
         };
         let mut told = 0;
+        assert!(!cached(&cache, &src));
         let (enc, dec) = ensure(&cache, &src, &mut dl, &mut |_, _| {
             told += 1;
             true
         })
         .unwrap();
         assert_eq!(told, 1);
+        assert!(cached(&cache, &src));
+        std::fs::write(&dec, b"cut").unwrap();
+        assert!(!cached(&cache, &src), "a file of another size is not cached");
+        ensure(&cache, &src, &mut dl, &mut |_, _| true).unwrap();
+        assert!(cached(&cache, &src));
+        calls.set(1);
         assert_eq!(std::fs::read(&enc).unwrap(), f[0].1);
         assert_eq!(std::fs::read(&dec).unwrap(), f[1].1);
         // no leftovers of the download
