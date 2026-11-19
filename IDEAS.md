@@ -4115,7 +4115,9 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   objetos, `parse_script_objects`, as chamadas de objetos viram colunas ocultas antes do script; `and`/`or`/`not` e as
   funções de pertinência reescritos na árvore; `cls` é "unclassified" sem classe), `rules.rs` (`objects.rules`, a
   hierarquia lida por `tree`; `objects.nearest`, as cores como espaço padrão). Na `nlm.image`: 95–100% por amostras,
-  99–100% por regras e por vizinho mais próximo. Falta a acurácia por objetos.
+  99–100% por regras e por vizinho mais próximo. A acurácia: `objects/accuracy.rs` (`objects.accuracy`, por objetos
+  e ajustada por área com `accuracy::olofsson`, as células de cada classe como estratos; `objects.sample`, a amostra
+  estratificada de objetos a rotular, pontos no objeto perto do centroide). **Feito** (Unreleased).
 - **E. Os níveis e as operações sobre objetos.** Um nível de cima feito do de baixo (`segment.multiresolution` com
   `from`, ou `objects.merge` por classe: os vizinhos da mesma classe viram um objeto), `objects.merge` por uma condição
   (`objects.calc` sobre o par de vizinhos), `objects.grow` (crescer objetos de uma classe para os vizinhos que atendem a
@@ -4124,6 +4126,10 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   `control.repeat`, com a parada quando o número de objetos não muda. Os níveis só por fusão: nada de imprimir os objetos de
   uma segmentação noutra para formar um terceiro nível nem de re-segmentar uma camada filtrada pelos objetos (as
   patentes ativas); segmentações diferentes só se encontram pela arbitragem célula a célula da etapa G.
+  **Feito** (Unreleased): `objects/levels.rs` (`regroup`, o núcleo comum: uma linha da tabela por objeto que ficou
+  sozinho, a média ponderada por células nos fundidos; objetos com pai só se fundem com os do mesmo pai). Cada um
+  dá `count` e `done` (o número de objetos não mudou), para o `until` do `control.repeat`. A condição do par lê
+  `a.x`, `b.x` e `border`.
 - **F. A árvore de classes (do InterIMAGE).** O que existe na cena, dito primeiro: Cena → Urbano (Prédios, Ruas),
   Vegetação (Árvores, Grama), Água. Cada nó da árvore é uma classe (nome, cor, a classe-mãe) e pode ter o seu ramo do
   modelo, não só as folhas: o ramo de um filho roda só dentro da região achada para o pai (a máscara do pai, como o
@@ -4150,6 +4156,9 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   ("Trees 0.82 venceu Grass 0.64"). A etapa fica separável das outras, para não entrar num lançamento antes da análise
   da patente (a nota acima). Testes: a sobreposição parcial, os três modos de junção, a arbitragem contra a conta à
   mão num mapa pequeno.
+  **Feito** (Unreleased), o operador: `objects/resolve.rs` (`objects.resolve`, as saídas `class`, `membership`,
+  `doubt` e `conflicts`; `union_region` para a etapa F). Falta o Viewer (as camadas de hipóteses e o conflito sob o
+  cursor). Antes de um lançamento: a revisão jurídica.
 - **H. Várias datas com a matriz de transição (do InterIMAGE).** As datas como ramos da árvore (os "nós temporais" do
   InterIMAGE), com duas estratégias. **Sequencial:** as classes validadas da data 1 dão as hipóteses iniciais da data 2
   (os objetos da 1 como partida da segmentação da 2, e a sua classe como atributo). **Síncrona:** as datas classificadas
@@ -4162,6 +4171,10 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   duas datas. É a ponte com o resto do Terraflux: o mapa de mudança por objetos entra direto nos modelos de mudança de
   uso como as datas observadas. Testes: uma transição de possibilidade 0 nunca acontece; com a matriz toda 1, igual a
   classificar cada data sozinha; o ganho de acurácia numa `nlm.image` de duas datas com ruído.
+  **Feito** (Unreleased): `objects/temporal.rs` (`objects.temporal`, a pertinência anterior de cada objeto como a
+  média ponderada por célula da outra data, a composição max-min; `objects.transition_matrix`, a matriz das amostras
+  das duas datas ou do `change.transitions`). Com a matriz toda 1 o resultado é `min(μ, max μ_antes)`: igual a
+  classificar só a data se o antes for nítido.
 - **I. O Viewer dos objetos.** Onde o eCognition prende quem o usa, e onde dá para ir além.
   1. **A camada de objetos:** contornos de um nível sobre a imagem, preenchimento pela classe (a legenda das classes,
      a transparência), a troca de nível, o objeto sob o cursor destacado. Um clique seleciona o objeto (e os seus
@@ -4214,6 +4227,10 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   os atributos por faixas sem a imagem inteira em memória, os rótulos em disco quando passam do limite, e o cluster
   (`crates/dist`) por tiles. Meta: uma cena Sentinel-2 inteira (10 980 × 10 980, 10 bandas) em um computador comum, e
   uma ortofoto de 50 cm de um município.
+  **Feito em parte** (Unreleased): `objects/tiles.rs`, `segment.multiresolution` com `tile` e `margin` (automático
+  acima de 4 M células): cada tile com a sua margem em paralelo, só o núcleo guardado, e uma segunda fusão dos pedaços
+  sobre a imagem inteira junta os objetos cortados pela borda. 4000 × 4000 × 4: 74 s → 30 s com 3 threads, 0,98 das
+  bordas iguais às sem tiles.
 - **L. Aprendizado profundo (opcional).** `segment.sam` (Segment Anything por ONNX, o ONNX Runtime carregado em tempo de
   execução; os pesos baixados uma vez para o cache; sem ele, o operador diz como instalar) e `objects.embed` (a média
   por objeto das incorporações de um modelo de base, como Clay ou Prithvi, como atributos para o `ml.fit`). O resto do
@@ -4230,6 +4247,10 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   `@region` (o proposto: nada muda no formato).
 - A matriz de transição fuzzy estimada: das amostras das duas datas (simples) ou pelo algoritmo genético de Feitosa
   et al. (o do artigo).
+  **Feito** (Unreleased): `objects/onnx.rs` (o ONNX Runtime 1.17 carregado por `libloading`, `ORT_DYLIB_PATH` ou ao
+  lado do executável; os índices da tabela `OrtApi` conferidos com o header do 1.17) e `objects/deep.rs`
+  (`segment.sam`, janelas de 1024, a máscara de melhor IoU de cada ponto; `objects.embed`, as colunas `emb_*`). Sem
+  teste com um runtime de verdade.
 
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
 
