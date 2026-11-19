@@ -644,13 +644,23 @@ pub fn samples_node(m: &Model, key: &(String, String)) -> Option<usize> {
 fn ours_of(m: &Model, samples: &Node) -> Option<(String, Option<String>)> {
     let Some(Source::Ref(r)) = samples.inputs.get("samples") else { return None };
     let (points, _) = r.split_once('.')?;
-    let p = m.nodes.iter().find(|n| n.id == points && n.id.starts_with(POINTS))?;
+    let p = m.nodes.iter().find(|n| n.id == points)?;
     match (p.op.as_str(), p.inputs.get("table")) {
+        // points written in the model as a table of x, y and class (ours, or a template's: the same form)
         ("vector.from_table", Some(Source::Ref(t))) => {
             let (table, _) = t.split_once('.')?;
-            m.nodes.iter().any(|n| n.id == table && n.op == "table.of").then(|| (p.id.clone(), Some(table.to_string())))
+            let xyc = serde_json::json!(["x", "y", "class"]);
+            m.nodes
+                .iter()
+                .any(|n| {
+                    n.id == table
+                        && n.op == "table.of"
+                        && (n.id.starts_with("sample_table") || n.params.get("columns") == Some(&xyc))
+                })
+                .then(|| (p.id.clone(), Some(table.to_string())))
         }
-        ("vector.read", _) => Some((p.id.clone(), None)),
+        // a file only when it is ours (a GeoPackage written beside the model): never the user's own
+        ("vector.read", _) if p.id.starts_with(POINTS) => Some((p.id.clone(), None)),
         _ => None,
     }
 }
@@ -904,5 +914,16 @@ mod tests {
         pick.rows = [0usize].into();
         st.sync(&mut pick, 2);
         assert_eq!(st.selected.iter().copied().collect::<Vec<_>>(), vec![1]);
+    }
+
+    #[test]
+    fn a_templates_points_are_the_samples_of_the_viewer() {
+        let m = crate::templates::TEMPLATES
+            .iter()
+            .find(|t| t.name == "Classify an image by clicking samples")
+            .expect("the template")
+            .model();
+        let sn = m.nodes.iter().find(|n| n.op == "objects.samples").expect("objects.samples");
+        assert_eq!(ours_of(&m, sn), Some(("samples".to_string(), Some("sample_table".to_string()))));
     }
 }
