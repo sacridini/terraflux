@@ -17235,7 +17235,7 @@
  },
  {
   "name": "objects.features",
-  "doc": "The attributes of each object, from the image under it: spectral (per band the mean, standard deviation (population), min, max and median over the object's cells with a value; brightness, the mean of the image bands' means; max_diff, (greatest mean - least) / brightness; ratio, a band's mean over the sum of the means; and, from the objects' mean bands, NDVI = (nir - red) / (nir + red), NDWI = (green - nir) / (green + nir) and NDMI = (nir - swir) / (nir + swir), as eCognition's customised features on the mean layers) and shape (cells turned into map units: area, perimeter = the cell edges that touch another object, no object or the image's edge, compactness = length x width / area of the minimum bounding rectangle, shape_index = perimeter / (4 sqrt(area)), length and width = the sides of the minimum-area rectangle around the cells' corners (convex hull and rotating calipers), length_width, asymmetry = 1 - minor / major axis of the cells' spread, direction = degrees from the x axis counter-clockwise, 0 to 180, of the major axis, elliptic_fit and rectangular_fit = the share of the cells inside the ellipse and the rectangle of the object's area and axes centred on it, border_index = perimeter / the rectangle's, density, centroid_x and centroid_y in map coordinates), texture (Haralick's grey-level co-occurrence matrix of the pairs of cells both in the object at distance 1 in the four directions, symmetric, summed and normalised, as eCognition's GLCM all directions: glcm_homogeneity, glcm_contrast, glcm_entropy, glcm_correlation (1 for a constant object) and glcm_asm, of the brightness and of each image band, grey levels cut linearly between the band's 1st and 99th percentile; NaN for an object with no pair) and context (nb_diff_<band> = the mean difference to neighbours weighted by border length, nb_count, border_image = the share of the perimeter on the image's edge or no object; with classes per class c: rel_border_<c>, dist_<c> = map distance from the centroid to the nearest centroid of an object of the class, nb_<c>; with a parent level: parent_id and parent_<column>; with `below`: children and per class of below children_<c> and children_area_<c>). The attributes join the objects' table: a column of an old name is replaced, the others kept.",
+  "doc": "The attributes of each object, from the image under it: spectral (per band the mean, standard deviation (population), min, max and median over the object's cells with a value; brightness, the mean of the image bands' means; max_diff, (greatest mean - least) / brightness; ratio, a band's mean over the sum of the means; and, from the objects' mean bands, NDVI = (nir - red) / (nir + red), NDWI = (green - nir) / (green + nir) and NDMI = (nir - swir) / (nir + swir), as eCognition's customised features on the mean layers) and shape (cells turned into map units: area, perimeter = the cell edges that touch another object, no object or the image's edge, compactness = length x width / area of the minimum bounding rectangle, shape_index = perimeter / (4 sqrt(area)), length and width = the sides of the minimum-area rectangle around the cells' corners (convex hull and rotating calipers), length_width, asymmetry = 1 - minor / major axis of the cells' spread, direction = degrees from the x axis counter-clockwise, 0 to 180, of the major axis, elliptic_fit and rectangular_fit = the share of the cells inside the ellipse and the rectangle of the object's area and axes centred on it, border_index = perimeter / the rectangle's, density, centroid_x and centroid_y in map coordinates), texture (Haralick's grey-level co-occurrence matrix of the pairs of cells both in the object at distance 1 in the four directions, symmetric, summed and normalised, as eCognition's GLCM all directions: glcm_homogeneity, glcm_contrast, glcm_entropy, glcm_correlation (1 for a constant object) and glcm_asm, of the brightness and of each image band, grey levels cut linearly between the band's 1st and 99th percentile; NaN for an object with no pair) and context (nb_diff_<band> = the mean difference to neighbours weighted by border length, nb_count, border_image = the share of the perimeter on the image's edge or no object; with classes per class c: rel_border_<c>, dist_<c> = map distance from the centroid to the nearest centroid of an object of the class, nb_<c>; with a parent level: parent_id and parent_<column>; with `below`: children and per class of below children_<c> and children_area_<c>). With a `thematic` layer: th_mode, its most common value among the object's cells (the smallest on a tie), and th_share, the share of the object's cells with a value that have it. The attributes join the objects' table: a column of an old name is replaced, the others kept.",
   "inputs": [
    {
     "name": "objects",
@@ -17260,6 +17260,12 @@
     "type": "objects",
     "required": false,
     "doc": "the level beneath, whose parent level is these objects (for the context's children features)"
+   },
+   {
+    "name": "thematic",
+    "type": "any",
+    "required": false,
+    "doc": "a thematic layer, a map or vectors (lots, a land-use map): th_mode and th_share of each object join the table. A map gives its values (cells without a value count for none); vectors give the attribute `field` (a text attribute as codes 1.. in the order its texts first appear, named in the table's labels), else the feature's number from 1; cells in no feature count for none"
    }
   ],
   "outputs": [
@@ -17277,6 +17283,12 @@
    }
   ],
   "params": [
+   {
+    "name": "field",
+    "type": "text",
+    "required": false,
+    "doc": "with vector `thematic`: the attribute to read (default the feature's number from 1)"
+   },
    {
     "name": "features",
     "type": "any",
@@ -17322,7 +17334,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "`basic` (the default) is the usual start: the mean and standard deviation of each band, NDVI when the red and near infrared bands are found, the area and the compactness. Ask for more by name, or `all` for every group: it computes many columns, so on a large image with many objects name what you will use (texture, when it comes, is the expensive group). Give `red`, `nir`, `green` and `swir` when the bands' names do not say which they are. Put a DEM, a height model or another date in `more` (on the same grid: raster.match first)."
+  "advice": "`basic` (the default) is the usual start: the mean and standard deviation of each band, NDVI when the red and near infrared bands are found, the area and the compactness. Ask for more by name, or `all` for every group: it computes many columns, so on a large image with many objects name what you will use (texture, when it comes, is the expensive group). Give `red`, `nir`, `green` and `swir` when the bands' names do not say which they are. Put a DEM, a height model or another date in `more` (on the same grid: raster.match first). Give a map or vectors (lots, a land-use layer) as `thematic` and each object gets th_mode, the most common value under it, and th_share, its share of the cells that have a value; with vectors, `field` names the attribute (text too: its codes are named in the table). Rules read th_mode as any column."
  },
  {
   "name": "objects.grow",
@@ -17624,6 +17636,110 @@
   "advice": "Run it after a segmentation to take the specks out: an object under `min_cells` (or `min_area`) goes into the neighbour most like it (`similar`, by the bands' means) or the one with the longest border (`border`, as raster.sieve), until none is left. `classes` limits it to the small objects of some classes."
  },
  {
+  "name": "objects.resize",
+  "doc": "Objects grown, shrunk and smoothed cell by cell, as eCognition's pixel-based object resizing, its morphology, its filling of holes and its border optimization (Serra 1982, Soille 2003). mode grow takes the free cells within distance (map units) or steps (cells) of the chosen objects, each to the nearest; shrink removes the cells of the chosen objects that lie within that distance of a cell that is not their object's (another object, no object; the image's edge is not a border); open is shrink and then grow back over the cells the object had (it cuts thin necks and drops specks); close is grow and then shrink only the cells that were added (it fills slits and gaps inside an object; the image's edge is outside, so what grew              up to it goes back); fill gives the holes of free cells that one object encloses, not touching the image's edge, to it (max_hole limits their cells); smooth gives each cell the most common label in a disc of that radius (spikes and notches go, corners round; nothing is added to the outside); refine is the border optimization: a border cell goes to the adjacent object whose band means are closest (z-scores of the whole image), in steps passes that read the means of the pass before. Without a mask or into, grow and shrink are exact Euclidean (Felzenszwalb & Huttenlocher) in one pass. A mask (a map: cells that are not 0 may be taken, say ndvi > 0.3 from raster.calc) or into (class names whose cells grow may take, eCognition's candidates) makes the growth geodesic, ring by ring: a cell takes the object with most cells around it, a tie the lower id. classes limits the objects that change. An object cut in two becomes two objects of its class; the level above is dropped (with a warning), as are the other attributes (objects.features again, or connect the image). report has a row per chosen object: its cells before and after and the objects it ended in. The same result on every run, on any number of threads.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects to resize"
+   },
+   {
+    "name": "mask",
+    "type": "map",
+    "required": false,
+    "doc": "a map on the objects' grid: only cells that are not 0 may be taken (grow, close) or filled"
+   },
+   {
+    "name": "image",
+    "type": "raster",
+    "required": false,
+    "doc": "the image of the objects: needed by refine; the table of band means"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the resized objects"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "id, cells, area (and the band means and deviations with an image)"
+   },
+   {
+    "name": "report",
+    "type": "table",
+    "required": true,
+    "doc": "a row per chosen object: its id in the input, its cells before and after, the objects it ended in"
+   }
+  ],
+  "params": [
+   {
+    "name": "mode",
+    "type": "text",
+    "required": false,
+    "doc": "grow (the default), shrink, open, close, fill, smooth or refine",
+    "choices": [
+     "grow",
+     "shrink",
+     "open",
+     "close",
+     "fill",
+     "smooth",
+     "refine"
+    ]
+   },
+   {
+    "name": "classes",
+    "type": "any",
+    "required": false,
+    "doc": "the class names whose objects change (default: all)"
+   },
+   {
+    "name": "distance",
+    "type": "number",
+    "required": false,
+    "doc": "how far, in map units (grow, shrink, open, close; the radius of smooth)"
+   },
+   {
+    "name": "steps",
+    "type": "integer",
+    "required": false,
+    "doc": "how far in cells, or the passes of refine (default 1)"
+   },
+   {
+    "name": "into",
+    "type": "any",
+    "required": false,
+    "doc": "grow, fill: none (the default: only cells of no object) or the class names whose cells may be taken"
+   },
+   {
+    "name": "max_hole",
+    "type": "integer",
+    "required": false,
+    "doc": "fill: the most cells of a hole (default: every enclosed hole)"
+   },
+   {
+    "name": "neighbours",
+    "type": "integer",
+    "required": false,
+    "doc": "4 or 8: the cells an object is connected by, and a ring grows by (default 8)",
+    "choices": [
+     "4",
+     "8"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "mode grow takes the free cells within `distance` (map units; or `steps` cells) of the objects, each to the          nearest, and shrink gives them back; open (shrink, then grow back over what the object had) cuts thin necks          and drops specks, close (grow, then shrink the cells added) fills slits and small gaps, fill closes the holes          one object encloses (`max_hole` limits their size), smooth rounds spikes and notches. A `mask` (raster.calc,          say ndvi > 0.3) or `into` (class names whose cells grow may take, eCognition's candidates) makes the growth          geodesic, ring by ring, so it follows the condition and cannot jump over a barrier. refine, the border          optimization, needs the image: each border cell goes to the adjacent object of the closest band means,          `steps` times. `classes` limits the objects that change. Pieces cut off by shrink or open become objects of          the same class; the level above and the other attributes are dropped, so run objects.features after it."
+ },
+ {
   "name": "objects.resolve",
   "doc": "Decides between the hypotheses of sibling classes, cell by cell, as GeoAIDA (Bückner et al. 2001) and InterIMAGE (Costa et al. 2010) do: each class is found by its own method and gives a map of membership (0 outside its hypotheses), the maps overlap, and in each cell the class of the greatest membership wins, if it reaches `min` (below it the cell has no class); a tie goes by `order`. A hypothesis partly overlapped loses only the cells where another won. The winning cells become objects: one per connected area of a class (`connected`), one per class (`global`) or one per cell (`none`, to look at the arbitration). Gives the objects with their classes and the mean membership of each class over each object, the maps of the class (its number, 1 to the number of classes), of the winning membership and of the doubt (the second highest membership, where to look next), a table of the conflicts (the cells of each class's hypotheses that went to each other class) and the objects' table.",
   "inputs": [
@@ -17854,6 +17970,107 @@
   "access": "global",
   "container": false,
   "advice": "Give at least 10 objects per class (a few points or small polygons on each class, over its different looks): a point picks its object, a polygon every object it covers by half. Objects with samples of two classes are left out, so draw the samples inside one object. Fit the table with `column` = class: every other column is a predictor (the table has no id)."
+ },
+ {
+  "name": "objects.split",
+  "doc": "Objects that touch divided into their pieces, as eCognition's watershed transformation and CellProfiler's declumping (Vincent & Soille 1991): tree crowns, buildings, cells, mounds. by = distance (the default) floods the distance from each cell to the object's border, so a piece grows from each rounded part and the cut is at the neck; by = surface floods a map (a canopy height model, the brightness) whose peaks are the centres (invert for dark ones). A centre needs to stand h above the saddle where it meets a higher one (h-minima, as segment.watershed's markers): a lower bump is noise and joins its neighbour. min_size sends a piece of fewer cells to the neighbour piece it shares the longest border with; max_neck (eCognition's length factor) keeps a cut only when it is shorter than max_neck times the width of the smaller piece (twice its largest distance to the border), so two parts joined by a wide neck stay one object. classes limits which objects split. The distance is computed inside the operator, per object and in parallel, exactly (Felzenszwalb & Huttenlocher); the cells off the object, the image's edge and the cells without a surface value are its border or are filled from the pieces around. The pieces take the class of their object and replace it in the same level: the level above is dropped (with a warning), as are the other attributes (objects.features again). report has a row per object that split. The same result on every run, on any number of threads.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects to split"
+   },
+   {
+    "name": "surface",
+    "type": "map",
+    "required": false,
+    "doc": "by surface: a map on the objects' grid whose peaks are the centres (a canopy height model, the brightness)"
+   },
+   {
+    "name": "image",
+    "type": "raster",
+    "required": false,
+    "doc": "the image of the objects, for the table of band means"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects with the pieces in place of those that split"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "id, cells, area (and the band means and deviations with an image)"
+   },
+   {
+    "name": "report",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object that split: its id in the input and its pieces"
+   }
+  ],
+  "params": [
+   {
+    "name": "by",
+    "type": "text",
+    "required": false,
+    "doc": "distance (the default) or surface"
+   },
+   {
+    "name": "invert",
+    "type": "bool",
+    "required": false,
+    "doc": "by surface: the centres are the lowest values (default false)"
+   },
+   {
+    "name": "classes",
+    "type": "any",
+    "required": false,
+    "doc": "the class names whose objects split (default: all)"
+   },
+   {
+    "name": "h",
+    "type": "number",
+    "required": false,
+    "doc": "how high a centre must stand over the saddle: map units by distance (default one cell), the surface's units by surface (default 0.05 of its range)"
+   },
+   {
+    "name": "min_size",
+    "type": "integer",
+    "required": false,
+    "doc": "a piece of fewer cells goes to the neighbour piece (default 0)"
+   },
+   {
+    "name": "max_neck",
+    "type": "number",
+    "required": false,
+    "doc": "a cut stays only when shorter than max_neck times the width of the smaller piece (default: no limit)"
+   },
+   {
+    "name": "sigma",
+    "type": "number",
+    "required": false,
+    "doc": "by surface: the smoothing's Gaussian in cells (default 0)"
+   },
+   {
+    "name": "neighbours",
+    "type": "integer",
+    "required": false,
+    "doc": "4 or 8: the cells a piece is connected by (default 8)",
+    "choices": [
+     "4",
+     "8"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "For crowns, buildings, cells and mounds that were segmented as one object. by distance cuts at the necks:          a centre must stand `h` (default one cell) above the saddle that joins it to a higher one, so raise `h` if          round objects split and lower it if a pinched one does not. by surface floods a map instead (a canopy height          model, the brightness: smooth it with `sigma` first when it is noisy) and `invert` is for dark centres.          `max_neck` keeps the objects whose parts are joined by a wide neck (a cut longer than max_neck times the          smaller piece's width is undone: 0.5 to 1 is usual), `min_size` sends the crumbs back to a neighbour piece,          and `classes` limits it to the objects of some classes. The pieces keep the class; the level above and the          other attributes are dropped, so run objects.features after it."
  },
  {
   "name": "objects.temporal",
@@ -26403,6 +26620,12 @@
     "type": "any",
     "required": true,
     "doc": "a map, or a stack of bands: only its grid and its empty cells count"
+   },
+   {
+    "name": "bounds",
+    "type": "any",
+    "required": false,
+    "doc": "a thematic layer whose zones no object crosses (the objects made are cut where they cross a zone): a              map (a zone for each value, the cells without a value one zone together), vectors (each feature a zone,              the cells in none one zone) or objects (each object a zone, id 0 one zone)"
    }
   ],
   "outputs": [
@@ -26429,7 +26652,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "The simplest segmentation, with no regard to the image: use it for a first level above finer objects, to test a rule set, or to give the scale of a sampling grid. `size` is in cells: 1 gives a cell per object. For objects that follow what the image holds, use segment.quadtree or segment.from_map."
+  "advice": "The simplest segmentation, with no regard to the image: use it for a first level above finer objects, to test a rule set, or to give the scale of a sampling grid. `size` is in cells: 1 gives a cell per object. For objects that follow what the image holds, use segment.quadtree or segment.from_map. `bounds` (a map, vectors such as parcels, or objects) cuts the squares where they cross a zone."
  },
  {
   "name": "segment.felzenszwalb",
@@ -26440,6 +26663,12 @@
     "type": "any",
     "required": true,
     "doc": "a map, or a stack of bands, the colour"
+   },
+   {
+    "name": "bounds",
+    "type": "any",
+    "required": false,
+    "doc": "a thematic layer whose zones no object crosses (none is made across a zone): a map (a zone for each              value, the cells without a value one zone together), vectors (each feature a zone, the cells in none one              zone) or objects (each object a zone, id 0 one zone)"
    }
   ],
   "outputs": [
@@ -26494,7 +26723,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "`k` sets how large the segments grow, in the units of the bands (standard deviations by default): raise it for larger segments; `min_size` joins the smallest ones. It makes segments of very different sizes, from a graph of the cells' differences, which suits irregular scenes and less a fixed scale: for a scale you control, use segment.multiresolution."
+  "advice": "`k` sets how large the segments grow, in the units of the bands (standard deviations by default): raise it for larger segments; `min_size` joins the smallest ones. It makes segments of very different sizes, from a graph of the cells' differences, which suits irregular scenes and less a fixed scale: for a scale you control, use segment.multiresolution. `bounds` (a map, vectors such as parcels, or objects) leaves out the graph's edges between zones, so no segment crosses one."
  },
  {
   "name": "segment.from_map",
@@ -26592,6 +26821,12 @@
     "type": "any",
     "required": true,
     "doc": "a map, or a stack of bands, the colour"
+   },
+   {
+    "name": "bounds",
+    "type": "any",
+    "required": false,
+    "doc": "a thematic layer whose zones no object crosses (the objects made are cut where they cross a zone): a              map (a zone for each value, the cells without a value one zone together), vectors (each feature a zone,              the cells in none one zone) or objects (each object a zone, id 0 one zone)"
    }
   ],
   "outputs": [
@@ -26648,11 +26883,11 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "It is the slowest of the segmenters: its cost grows with the square of `spatial_radius` and with the cells, so try it on a part of the image first. `range_radius` (in standard deviations when the bands are standardised) sets how different cells may be and still be one object; `min_size` removes the specks."
+  "advice": "It is the slowest of the segmenters: its cost grows with the square of `spatial_radius` and with the cells, so try it on a part of the image first. `range_radius` (in standard deviations when the bands are standardised) sets how different cells may be and still be one object; `min_size` removes the specks. `bounds` cuts the regions where they cross a zone."
  },
  {
   "name": "segment.multiresolution",
-  "doc": "Objects by multiresolution segmentation (Baatz & Schäpe 2000, eCognition's): regions start as single cells and merge, pass after pass. In each pass the regions are visited in a pseudo-random order (the seed's); a region merges with the neighbour that costs least when the cost is under scale squared and the region is that neighbour's best too (local mutual best fit; mutual: false merges with the best neighbour whatever its own best). The cost is (1 - shape) times the colour heterogeneity (the growth of cells times standard deviation, summed over the bands with their weights) plus shape times the shape heterogeneity (compactness against smoothness of the outline). It stops when a pass merges nothing (or at max_passes). The scale is in the units of the image's values and of its weights: the same scale gives other objects on reflectance 0-1 than on 0-10000, so choose it for the data (segment.scale suggests one). Raw values are used, not standardised. A cell without a value in every band is no object and never merges; a cell with a value in some bands counts in those bands only. With `from`, the objects of a level below are the start regions, and the result is the level above them: every object of `from` ends inside exactly one new object (output below). A run is one thread, except a big image (or `tile`), which is cut into tiles segmented in parallel and stitched at their borders; the result is the same on every run with the same seed.",
+  "doc": "Objects by multiresolution segmentation (Baatz & Schäpe 2000, eCognition's): regions start as single cells and merge, pass after pass. In each pass the regions are visited in a pseudo-random order (the seed's); a region merges with the neighbour that costs least when the cost is under scale squared and the region is that neighbour's best too (local mutual best fit; mutual: false merges with the best neighbour whatever its own best). The cost is (1 - shape) times the colour heterogeneity (the growth of cells times standard deviation, summed over the bands with their weights) plus shape times the shape heterogeneity (compactness against smoothness of the outline). It stops when a pass merges nothing (or at max_passes). The scale is in the units of the image's values and of its weights: the same scale gives other objects on reflectance 0-1 than on 0-10000, so choose it for the data (segment.scale suggests one). Raw values are used, not standardised. A cell without a value in every band is no object and never merges; a cell with a value in some bands counts in those bands only. With `from`, the objects of a level below are the start regions, and the result is the level above them: every object of `from` ends inside exactly one new object (output below). With `bounds` no object crosses from one zone to another (a lot, a block, a field); the shape cost still counts the zone's edge as the object's border. A run is one thread, except a big image (or `tile`), which is cut into tiles segmented in parallel and stitched at their borders; the result is the same on every run with the same seed.",
   "inputs": [
    {
     "name": "image",
@@ -26665,6 +26900,12 @@
     "type": "objects",
     "required": false,
     "doc": "objects of the same grid to start from (the level below); cells in none of them are no object"
+   },
+   {
+    "name": "bounds",
+    "type": "any",
+    "required": false,
+    "doc": "a thematic layer whose zones no object crosses: a map (a zone for each value, the cells without a value one zone together), vectors (each feature a zone, the cells in none one zone) or objects (each object a zone, id 0 one zone); with `from`, its objects are cut by the zones first"
    }
   ],
   "outputs": [
@@ -26751,7 +26992,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "The scale is in the image's units (the same scale gives other objects on reflectance 0-1 than on 0-10000), so find it with segment.scale, which suggests scales from the image, then look at the objects in the Viewer and raise or lower it. shape 0.1 and compactness 0.5 are eCognition's usual start: more shape gives smoother, more compact objects at the cost of following the colour. For a hierarchy, connect a level to `from` of the next with a higher scale; a superpixel level (segment.slic, segment.snic) as the first one makes the run faster than starting from single cells. Weights tell the bands apart (0 leaves one out of the colour)."
+  "advice": "The scale is in the image's units (the same scale gives other objects on reflectance 0-1 than on 0-10000), so find it with segment.scale, which suggests scales from the image, then look at the objects in the Viewer and raise or lower it. shape 0.1 and compactness 0.5 are eCognition's usual start: more shape gives smoother, more compact objects at the cost of following the colour. For a hierarchy, connect a level to `from` of the next with a higher scale; a superpixel level (segment.slic, segment.snic) as the first one makes the run faster than starting from single cells. Weights tell the bands apart (0 leaves one out of the colour). `bounds` (a map, vectors such as parcels, or objects) keeps every object inside one zone; with `from`, the objects of the level below are cut by the zones first."
  },
  {
   "name": "segment.optimize",
@@ -26863,6 +27104,12 @@
     "type": "any",
     "required": true,
     "doc": "a map, or a stack of bands, the colour"
+   },
+   {
+    "name": "bounds",
+    "type": "any",
+    "required": false,
+    "doc": "a thematic layer whose zones no object crosses (the objects made are cut where they cross a zone): a              map (a zone for each value, the cells without a value one zone together), vectors (each feature a zone,              the cells in none one zone) or objects (each object a zone, id 0 one zone)"
    }
   ],
   "outputs": [
@@ -26901,7 +27148,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Squares as small as the image needs: big where it is even, small at its edges. `threshold` is in the image's units (a range inside a square, any band): start from a tenth of the image's range and lower it until the objects follow the edges you want; `min_size` stops the splitting at a few cells. A stack uses every band, so give it the bands that tell the classes apart."
+  "advice": "Squares as small as the image needs: big where it is even, small at its edges. `threshold` is in the image's units (a range inside a square, any band): start from a tenth of the image's range and lower it until the objects follow the edges you want; `min_size` stops the splitting at a few cells. A stack uses every band, so give it the bands that tell the classes apart. `bounds` cuts the squares where they cross a zone."
  },
  {
   "name": "segment.quickshift",
@@ -26912,6 +27159,12 @@
     "type": "any",
     "required": true,
     "doc": "a map, or a stack of bands, the colour"
+   },
+   {
+    "name": "bounds",
+    "type": "any",
+    "required": false,
+    "doc": "a thematic layer whose zones no object crosses (the objects made are cut where they cross a zone): a              map (a zone for each value, the cells without a value one zone together), vectors (each feature a zone,              the cells in none one zone) or objects (each object a zone, id 0 one zone)"
    }
   ],
   "outputs": [
@@ -26962,11 +27215,11 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Quick shift finds the modes of a density over position and colour, so it needs no count of objects: `kernel_size` (cells) and `max_dist` set how far apart the objects are, `ratio` how much colour counts against position (the bands are standardised, so one standard deviation counts as `ratio` cells: 5 to 30 is the usual range). The cost is about (6 x kernel_size) squared exponentials per cell, so keep `kernel_size` small on a large image. The objects are always connected: a mode's area that its links leave in pieces is split."
+  "advice": "Quick shift finds the modes of a density over position and colour, so it needs no count of objects: `kernel_size` (cells) and `max_dist` set how far apart the objects are, `ratio` how much colour counts against position (the bands are standardised, so one standard deviation counts as `ratio` cells: 5 to 30 is the usual range). The cost is about (6 x kernel_size) squared exponentials per cell, so keep `kernel_size` small on a large image. The objects are always connected: a mode's area that its links leave in pieces is split. `bounds` cuts the segments where they cross a zone."
  },
  {
   "name": "segment.region_growing",
-  "doc": "Objects by region growing and merging, the method of GRASS GIS's i.segment (Momsen & Metz). Regions start as single cells (or as the segments of `seeds`) and merge, pass after pass. Each band is scaled to 0-1 by its range over the whole image (raw values are not used: the threshold has the same meaning for any data) and two regions are as far apart as their means: the Euclidean distance divided by the square root of the bands, or the Manhattan one divided by the bands, so 0 is identical and 1 the widest apart (a band where either has no value is left out). In a pass the regions are visited in a pseudo-random order (the seed's); one merges with its most similar neighbour when the distance is at or under the threshold and, by default, the region is that neighbour's most similar as well (`mutual`), and a region that merged is left alone for the rest of the pass. It stops when a pass merges nothing (or at `iterations`). Then each region under `minsize` cells joins its most similar neighbour, whatever the distance, again and again until none is left under it (GRASS makes one such pass). A threshold of 0 joins only identical neighbours, 1 everything. `bounds`: a map whose zones (cells of one value) no object crosses; `seeds`: objects or a map to start from, each group of connected cells of one value being one start region, every other cell a region of its own. Neighbours are the 4 cells around (GRASS's default) or the 8. Differences from GRASS: the shape terms GRASS lists as future work are not there; a distance equal to the threshold merges, so the endpoints 0 and 1 mean what GRASS's manual says of them; a cell with a value in some bands only counts in those; the passes run until none merges (no limit) unless `iterations` is given. A cell without a value in every band is no object. The result is the same on every run, with the same seed, on any number of threads.",
+  "doc": "Objects by region growing and merging, the method of GRASS GIS's i.segment (Momsen & Metz). Regions start as single cells (or as the segments of `seeds`) and merge, pass after pass. Each band is scaled to 0-1 by its range over the whole image (raw values are not used: the threshold has the same meaning for any data) and two regions are as far apart as their means: the Euclidean distance divided by the square root of the bands, or the Manhattan one divided by the bands, so 0 is identical and 1 the widest apart (a band where either has no value is left out). In a pass the regions are visited in a pseudo-random order (the seed's); one merges with its most similar neighbour when the distance is at or under the threshold and, by default, the region is that neighbour's most similar as well (`mutual`), and a region that merged is left alone for the rest of the pass. It stops when a pass merges nothing (or at `iterations`). Then each region under `minsize` cells joins its most similar neighbour, whatever the distance, again and again until none is left under it (GRASS makes one such pass). A threshold of 0 joins only identical neighbours, 1 everything. `bounds`: a map (a zone for each value), vectors (each feature a zone) or objects (each object a zone), that no object crosses; `seeds`: objects or a map to start from, each group of connected cells of one value being one start region, every other cell a region of its own. Neighbours are the 4 cells around (GRASS's default) or the 8. Differences from GRASS: the shape terms GRASS lists as future work are not there; a distance equal to the threshold merges, so the endpoints 0 and 1 mean what GRASS's manual says of them; a cell with a value in some bands only counts in those; the passes run until none merges (no limit) unless `iterations` is given. A cell without a value in every band is no object. The result is the same on every run, with the same seed, on any number of threads.",
   "inputs": [
    {
     "name": "image",
@@ -26982,9 +27235,9 @@
    },
    {
     "name": "bounds",
-    "type": "map",
+    "type": "any",
     "required": false,
-    "doc": "a map of zones (cells of one value): no object crosses from one zone to another; cells without a value in it are one zone together"
+    "doc": "a map of zones (cells of one value), vectors (each feature a zone) or objects (each object a zone): no object crosses from one zone to another; cells without a value in the map, in no feature or in no object are one zone together"
    }
   ],
   "outputs": [
@@ -27073,7 +27326,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "The method of GRASS GIS's i.segment. The bands are scaled to 0-1 over the whole image and `threshold` is a distance in that scale (0 to 1): 0.01 to 0.05 is the usual start, so the same threshold means the same on other data. Neighbouring regions merge when they are each other's most similar and closer than it, pass after pass until none does. Lower thresholds give finer objects: use the result as `seeds` of a run with a higher one for a hierarchy. `minsize` joins the specks to their most similar neighbour at the end; `bounds` (a map of zones, a field map for example) keeps the objects inside the zones."
+  "advice": "The method of GRASS GIS's i.segment. The bands are scaled to 0-1 over the whole image and `threshold` is a distance in that scale (0 to 1): 0.01 to 0.05 is the usual start, so the same threshold means the same on other data. Neighbouring regions merge when they are each other's most similar and closer than it, pass after pass until none does. Lower thresholds give finer objects: use the result as `seeds` of a run with a higher one for a hierarchy. `minsize` joins the specks to their most similar neighbour at the end; `bounds` (a map of zones, vectors such as parcels, or objects) keeps the objects inside the zones."
  },
  {
   "name": "segment.sam",
@@ -27270,6 +27523,12 @@
     "type": "any",
     "required": true,
     "doc": "a map, or a stack of bands, the colour"
+   },
+   {
+    "name": "bounds",
+    "type": "any",
+    "required": false,
+    "doc": "a thematic layer whose zones no object crosses (the objects made are cut where they cross a zone): a              map (a zone for each value, the cells without a value one zone together), vectors (each feature a zone,              the cells in none one zone) or objects (each object a zone, id 0 one zone)"
    }
   ],
   "outputs": [
@@ -27320,7 +27579,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Superpixels are many small, regular objects: use them as the first level of segment.multiresolution (`from`), or as the cells of a classification, not as the final objects. `size` sets their side in cells and `compactness` their regularity (higher: more regular; lower: closer to the edges)."
+  "advice": "Superpixels are many small, regular objects: use them as the first level of segment.multiresolution (`from`), or as the cells of a classification, not as the final objects. `size` sets their side in cells and `compactness` their regularity (higher: more regular; lower: closer to the edges). `bounds` (a map, vectors such as parcels, or objects) cuts the superpixels where they cross a zone."
  },
  {
   "name": "segment.snic",
@@ -27331,6 +27590,12 @@
     "type": "any",
     "required": true,
     "doc": "a map, or a stack of bands, the colour"
+   },
+   {
+    "name": "bounds",
+    "type": "any",
+    "required": false,
+    "doc": "a thematic layer whose zones no object crosses (the objects made are cut where they cross a zone): a              map (a zone for each value, the cells without a value one zone together), vectors (each feature a zone,              the cells in none one zone) or objects (each object a zone, id 0 one zone)"
    }
   ],
   "outputs": [
@@ -27375,7 +27640,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "As segment.slic, and no iterations: it grows the superpixels from their seeds in one pass, so it is faster and needs no tuning of `iterations`. Use the superpixels as the first level of segment.multiresolution (`from`), or as the cells of a classification."
+  "advice": "As segment.slic, and no iterations: it grows the superpixels from their seeds in one pass, so it is faster and needs no tuning of `iterations`. Use the superpixels as the first level of segment.multiresolution (`from`), or as the cells of a classification. `bounds` cuts the superpixels where they cross a zone."
  },
  {
   "name": "segment.spectral_difference",
@@ -27392,6 +27657,12 @@
     "type": "any",
     "required": true,
     "doc": "a map, or a stack of bands, whose values the means are of"
+   },
+   {
+    "name": "bounds",
+    "type": "any",
+    "required": false,
+    "doc": "a thematic layer whose zones no object crosses (none is made across a zone): a map (a zone for each              value, the cells without a value one zone together), vectors (each feature a zone, the cells in none one              zone) or objects (each object a zone, id 0 one zone)"
    }
   ],
   "outputs": [
@@ -27424,7 +27695,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "It merges the neighbours of objects you have (a chessboard, superpixels, a multiresolution level) whose mean values differ by less than `max_difference`, in the image's units, and repeats with the means of the merged objects, so a gradual change can chain into one object: keep the limit small against the contrast you want kept. It joins by the tone alone, with no shape, which is the reason to run it after a segmenter that keeps the edges, not on single cells. Use `weights` to make a band count more or less."
+  "advice": "It merges the neighbours of objects you have (a chessboard, superpixels, a multiresolution level) whose mean values differ by less than `max_difference`, in the image's units, and repeats with the means of the merged objects, so a gradual change can chain into one object: keep the limit small against the contrast you want kept. It joins by the tone alone, with no shape, which is the reason to run it after a segmenter that keeps the edges, not on single cells. Use `weights` to make a band count more or less. `bounds` (a map, vectors such as parcels, or objects) lets only neighbours of one zone merge, and cuts the objects you give where they cross a zone first."
  },
  {
   "name": "segment.threshold",
@@ -27435,6 +27706,12 @@
     "type": "any",
     "required": true,
     "doc": "a map, or a stack of bands: the band cut is the one of `band`"
+   },
+   {
+    "name": "bounds",
+    "type": "any",
+    "required": false,
+    "doc": "a thematic layer whose zones no object crosses (the objects made are cut where they cross a zone): a              map (a zone for each value, the cells without a value one zone together), vectors (each feature a zone,              the cells in none one zone) or objects (each object a zone, id 0 one zone)"
    }
   ],
   "outputs": [
@@ -27495,7 +27772,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "The multi-threshold segmentation of eCognition: it cuts one band (`band`, the first by default) into classes of values and makes an object of each connected piece of a class, so it suits what one band separates (water against land in an index, burnt against unburnt). Give the `thresholds`, or `classes` and multi-level Otsu finds them in the gap between the modes of the histogram (the thresholds are an output and are noted in the run's warnings). It cuts at the values alone: noise in the band makes many small objects, so smooth the band first, or merge the small ones afterwards (objects.remove_small)."
+  "advice": "The multi-threshold segmentation of eCognition: it cuts one band (`band`, the first by default) into classes of values and makes an object of each connected piece of a class, so it suits what one band separates (water against land in an index, burnt against unburnt). Give the `thresholds`, or `classes` and multi-level Otsu finds them in the gap between the modes of the histogram (the thresholds are an output and are noted in the run's warnings). It cuts at the values alone: noise in the band makes many small objects, so smooth the band first, or merge the small ones afterwards (objects.remove_small). `bounds` cuts the pieces where they cross a zone."
  },
  {
   "name": "segment.watershed",
@@ -27512,6 +27789,12 @@
     "type": "map",
     "required": false,
     "doc": "a map of the seeds: cells with a value are markers (a group of connected cells of one value is one); missing elsewhere. Without it the markers are found by the gradient's h-minima"
+   },
+   {
+    "name": "bounds",
+    "type": "any",
+    "required": false,
+    "doc": "a thematic layer whose zones no object crosses (the objects made are cut where they cross a zone): a              map (a zone for each value, the cells without a value one zone together), vectors (each feature a zone,              the cells in none one zone) or objects (each object a zone, id 0 one zone)"
    }
   ],
   "outputs": [
@@ -27566,7 +27849,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Without markers the basins are the minima of the gradient, so many on a noisy image: raise `sigma` (the smoothing) or `h` until they are about the objects you want. With markers (a map of seeds, the centres of the trees or the buildings, a classification's cores) every object has one marker, which is the way to control what it finds."
+  "advice": "Without markers the basins are the minima of the gradient, so many on a noisy image: raise `sigma` (the smoothing) or `h` until they are about the objects you want. With markers (a map of seeds, the centres of the trees or the buildings, a classification's cores) every object has one marker, which is the way to control what it finds. `bounds` cuts the basins where they cross a zone."
  },
  {
   "name": "sensitivity.analyze",
