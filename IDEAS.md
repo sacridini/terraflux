@@ -4324,8 +4324,8 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    *spectral difference*, a *multi-threshold* e a *contrast split* do eCognition, o crescimento de regiões do
    `i.segment` do GRASS e a otimização não supervisionada dos parâmetros do `i.segment.uspo`, os perfis morfológicos do
    OTB).
-7. **Tudo no terraflux-py**: os objetos, os segmentadores, os atributos, as classificações, os níveis, a acurácia, a
-   arbitragem e as datas no `import terraflux as tf`, o `python_script` dando o código deles em vez do aviso.
+7. ~~Tudo no terraflux-py~~: desistido (2026-11-19, o usuário: o OBIA fica só no aplicativo). O `python_script`
+   continua avisando que esses nós não têm equivalente no terraflux-py.
 8. **A segmentação o mais rápida possível, num núcleo e em paralelo** (pedido de 2026-11-19: um dos objetivos
    principais do OBIA é garantir que o processo seja o mais otimizado possível). Uma bateria fixa de imagens e o tempo
    de cada segmentador com 1 e com 8 threads, guardada aqui; o perfil do `segment.multiresolution` (a primeira passada
