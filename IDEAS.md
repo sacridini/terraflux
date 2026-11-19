@@ -4163,8 +4163,8 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   da patente (a nota acima). Testes: a sobreposição parcial, os três modos de junção, a arbitragem contra a conta à
   mão num mapa pequeno.
   **Feito** (Unreleased), o operador: `objects/resolve.rs` (`objects.resolve`, as saídas `class`, `membership`,
-  `doubt` e `conflicts`; `union_region` para a etapa F). Falta o Viewer (as camadas de hipóteses e o conflito sob o
-  cursor). Antes de um lançamento: a revisão jurídica.
+  `doubt` e `conflicts`; `union_region` para a etapa F). O Viewer veio com a etapa I (`hypotheses.rs`). Saiu
+  na 1.56.0 sem a revisão jurídica: é o item 1 do bloco seguinte, abaixo.
 - **H. Várias datas com a matriz de transição (do InterIMAGE).** As datas como ramos da árvore (os "nós temporais" do
   InterIMAGE), com duas estratégias. **Sequencial:** as classes validadas da data 1 dão as hipóteses iniciais da data 2
   (os objetos da 1 como partida da segmentação da 2, e a sua classe como atributo). **Síncrona:** as datas classificadas
@@ -4267,22 +4267,44 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   execução; os pesos baixados uma vez para o cache; sem ele, o operador diz como instalar) e `objects.embed` (a média
   por objeto das incorporações de um modelo de base, como Clay ou Prithvi, como atributos para o `ml.fit`). O resto do
   módulo nunca depende disso.
-
-**Decisões pendentes.**
-- O script Python (`python_script`): o terraflux-py não tem objetos; implementar lá (C++) ou o script avisar que esses
-  nós não têm equivalente.
-- Os nomes: `segment.*` e `objects.*` (como acima) ou uma família só, `obia.*`. A favor dos dois: o iniciante lê
-  "segment" e "objects" sem saber a sigla.
-- Guardar as amostras no modelo ou sempre num arquivo ao lado (o modelo leve contra um arquivo só).
-- Ler LiDAR direto (LAS/LAZ para nDSM) ou só por rasters já feitos fora.
-- A árvore de classes como estrutura própria do formato do modelo ou só como uma vista sobre grupos comuns com
-  `@region` (o proposto: nada muda no formato).
-- A matriz de transição fuzzy estimada: das amostras das duas datas (simples) ou pelo algoritmo genético de Feitosa
-  et al. (o do artigo).
   **Feito** (Unreleased): `objects/onnx.rs` (o ONNX Runtime 1.17 carregado por `libloading`, `ORT_DYLIB_PATH` ou ao
   lado do executável; os índices da tabela `OrtApi` conferidos com o header do 1.17) e `objects/deep.rs`
   (`segment.sam`, janelas de 1024, a máscara de melhor IoU de cada ponto; `objects.embed`, as colunas `emb_*`). Sem
-  teste com um runtime de verdade.
+  teste com um runtime de verdade (o item 2 do bloco seguinte).
+
+**Decisões tomadas** (2026-11-18): os nomes `segment.*` e `objects.*`; o `python_script` avisa que esses nós não
+têm equivalente no terraflux-py (até o porte do bloco seguinte); as amostras no modelo (num GeoPackage ao lado acima
+de 500); LiDAR só por rasters feitos fora; a árvore de classes como vista sobre `control.group` + `@region` (nada muda
+no formato); a matriz de transição fuzzy das amostras das duas datas (o algoritmo genético de Feitosa et al. não foi
+feito).
+
+**Lançado na 1.56.0** (2026-11-19), as etapas A a L.
+
+### O que ficou do OBIA, e o bloco seguinte (pedido de 2026-11-19)
+
+Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
+
+1. **A análise de liberdade de operação do `objects.resolve`** (a etapa G) diante da US8319793 e da US7801361 da
+   Definiens/Trimble e das outras patentes delas em vigor: as reivindicações elemento a elemento, a família no EP e no
+   INPI, a arte anterior (GeoAIDA 2001, InterIMAGE 2008/2010) e o que o operador não pode fazer. É uma leitura
+   técnica; a opinião formal fica com um advogado de patentes.
+2. **O ONNX Runtime de verdade**: `segment.sam` e `objects.embed` rodados com um runtime instalado (um modelo
+   pequeno feito com o `onnx` conferido contra o numpy; o SAM ViT-B exportado em ONNX em formas reais), o que estiver
+   errado corrigido, e os pesos do SAM baixados uma vez para o cache (com o SHA-256 conferido) quando não dados.
+3. **O cluster pelo aplicativo**: os tiles do `segment.multiresolution` nos computadores que trabalham juntos do app
+   (`computers.rs`), não só pelo `--coordinator` da CLI.
+4. **O `objects.features` no cluster**: as faixas de linhas como trabalhos dos workers, a tabela juntada no
+   coordenador, a mesma tabela que aqui.
+5. **Os rótulos em disco e a cena inteira**: um tipo `Labels` (na memória ou num arquivo mapeado quando passam de um
+   limite), o pico de memória do `merge_tiled` e das features reduzido, e uma cena Sentinel-2 inteira (10 980 × 10 980,
+   10 bandas) do disco segmentada e descrita abaixo de 4 GB de pico.
+6. **Os segmentadores que faltam** do eCognition, do OTB e do GRASS, os que fazem sentido aqui (por exemplo a
+   *spectral difference*, a *multi-threshold* e a *contrast split* do eCognition, o crescimento de regiões do
+   `i.segment` do GRASS e a otimização não supervisionada dos parâmetros do `i.segment.uspo`, os perfis morfológicos do
+   OTB).
+7. **Tudo no terraflux-py**: os objetos, os segmentadores, os atributos, as classificações, os níveis, a acurácia, a
+   arbitragem e as datas no `import terraflux as tf`, o `python_script` dando o código deles em vez do aviso.
+8. Depois, o bloco seguinte do PCA, do k-means e do SOM (abaixo).
 
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
 
