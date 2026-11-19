@@ -4546,6 +4546,179 @@ dependências: 6, 2, 1, 4, 3, 7, 5, 8.
 6. Os tiles do region growing são opcionais (`tile`, sem padrão), para não mudar os resultados de hoje; a estimativa
    do item 5 os sugere quando a imagem é grande.
 
+### O que falta do eCognition (pedido de 2026-11-19)
+
+Comparado com o eCognition Developer (os algoritmos do *Reference Book* e as suas features), o Terraflux já tem os
+segmentadores (todos menos a *contrast split*, fora pela patente US7801361), os níveis e a hierarquia, as features
+espectrais, de forma, de textura (GLCM) e de contexto (a borda relativa e a distância a uma classe, os vizinhos, o pai
+e os filhos), as regras fuzzy e a árvore de classes, o vizinho mais próximo e os classificadores, o *grow*, o *merge*,
+o *remove small* e o *reclassify*, a acurácia, o temporal, o espaço de atributos (com a separabilidade), as amostras
+por clique, o ESP e o USPO. Faltam seis coisas que aparecem em projetos reais, da mais para a menos importante:
+
+1. **As camadas temáticas na segmentação.** No eCognition, a segmentação respeita os limites de um vetor ou de um mapa
+   (lotes, quadras, talhões, estradas): nenhum objeto atravessa um limite, e os atributos da camada (a classe do lote)
+   servem às regras. Hoje só o `segment.region_growing` tem `bounds` (um mapa); o multiresolution, o mais usado, não.
+2. **Dividir objetos que se tocam.** A *watershed transformation* do eCognition separa objetos grudados pela distância
+   à borda (copas de árvores, prédios, células, cupinzeiros). O nosso `segment.watershed` segmenta a imagem; não divide
+   objetos existentes.
+3. **Crescer, encolher e alisar objetos célula a célula.** O *pixel-based object resizing* (crescer ou encolher com uma
+   condição sobre as células), a abertura e o fechamento dos objetos, tapar buracos e a *border optimization* (cada
+   célula da borda vai ao objeto mais parecido). O `objects.grow` cresce por objetos vizinhos, não por células.
+4. **A forma pelo esqueleto.** O comprimento da linha principal, a largura, a curvatura e os ramos: o que separa
+   estradas, rios, cercas vivas e canais de manchas de mesma área. Não há nenhuma.
+5. **Os extremos locais.** O *find local extrema*: o objeto de maior (ou menor) valor de um atributo num raio, como os
+   topos das copas ou o ponto mais fundo. O *find enclosed by class* já sai da borda relativa (`rel_border_<c>` = 1),
+   só falta dizê-lo.
+6. **A fusão pelo objeto resultante.** A *image object fusion*: juntar um objeto ao vizinho só quando o objeto juntado
+   melhora uma medida (a compacidade, a média de uma banda). O `objects.merge` por condição olha os dois objetos, não o
+   resultado.
+
+Ficam de fora: treinar CNNs dentro do programa (o eCognition usa o TensorFlow; pede um runtime de treino, e o SAM, os
+embeddings e o `ml.fit` cobrem boa parte); o *template matching* (nicho); as nuvens de pontos LiDAR (o Terraflux não
+tem o tipo; seria um bloco à parte); a *contrast split* e "imprimir" uma rede de objetos em outra (as patentes
+US7801361 e US8319793, até 2029 e 2031).
+
+**Plano de implementação** (levantado no código em 2026-11-19). Valem para todos:
+- Cada operador novo em `crates/ops/src/objects/` (registrado no `objects/mod.rs`), com a assinatura descrita; as
+  entradas em `tips.rs` e `phrases.rs`; na lista "sem equivalente" do `python/models.rs` (o OBIA não vai ao
+  terraflux-py); no `essentials.rs` se tiver mais de seis parâmetros; as referências no `methods.rs`; o tópico
+  `objects` do guia do MCP e o tutorial *from-ecognition* (a tabela algoritmo do eCognition → operador) atualizados;
+  o `website/data/ops.json` no release.
+- Os que percorrem objeto por objeto (2, 3, 4, 6) rodam os objetos em paralelo com o rayon sob o teto central de
+  núcleos (nunca todos), os maiores primeiro para equilibrar, e montam o resultado na ordem dos ids: o mesmo resultado
+  com 1 e com 8 threads, testado. Um auxiliar comum, `objects/each.rs`: a caixa e a máscara de cada objeto (com uma
+  borda de uma célula), aproveitando o que o `features.rs` já usa para percorrer os objetos.
+- Os que mudam a geometria (2, 3, 6) mantêm as classes (um pedaço herda a do objeto) e perdem os vínculos de nível,
+  com um `ctx.warn` quando a entrada os tinha (como o `objects.edit`, decisão 3 da qualidade de vida); a tabela sai de
+  novo com o `stats_table` quando há `image`.
+- Cada um ganha linhas na bateria `objects_bench.rs` (1000² e 2000², 1 e 8 threads) e os números no IDEAS.
+- Um commit por item, nesta ordem: 1, 2, 3, 4, 5, 6, e por fim o 7 (templates e documentação).
+
+- **1. As camadas temáticas (M).**
+  - Um auxiliar `objects/zones.rs::zones(args, "bounds", grid) -> Vec<u64>` (vazio = sem limites) lê o `bounds`
+    como mapa (uma zona por valor, como hoje no region growing, `growing.rs` ~863), como vetor (cada feição uma zona,
+    queimada pelo `vector::burn` com o índice da feição; as células fora de todas formam uma zona) ou como objetos (cada
+    objeto uma zona). O region growing passa a usá-lo (e aceita vetores e objetos).
+  - `segment.multiresolution` ganha a entrada opcional `bounds`. Com `from`, os objetos de partida são cortados
+    pelas zonas (os componentes conexos de (objeto, zona)); sem `from`, cada célula já é uma região. Em
+    `Regions::from_source` (`multiresolution.rs` ~170) as listas de vizinhos pulam os pares de células de zonas
+    diferentes: o perímetro continua contando essas arestas (é contado à parte, ~205), então o custo de forma fica
+    certo, como se a região encarasse outro objeto. Bit a bit igual ao de hoje sem `bounds` ou com uma só zona.
+  - Por tiles (`tiles.rs`): as zonas cortadas por janela, como o `Source::window`; a costura (`merge_level_src` com os
+    pedaços como `from`) recebe as zonas de novo; o caminho do cluster (`TileJob`) leva as zonas da janela.
+  - Os outros segmentadores: nativo no Felzenszwalb (as arestas entre zonas fora do grafo) e no spectral difference
+    (só junta dentro da zona); nos demais (SLIC, SNIC, watershed, quickshift, mean shift, threshold, chessboard,
+    quadtree) um passo depois, `split_by_zones(objects, zones)`, que renumera pelos componentes conexos de (rótulo,
+    zona) em tiras paralelas (`Objects::from_fn`). A segmentação ao vivo e a comparação cortam o `bounds` na janela
+    (`window.rs` já corta o do region growing).
+  - Os atributos da camada: `objects.features` ganha a entrada opcional `thematic` (mapa ou vetor, com `field` para o
+    atributo do vetor): por objeto `th_mode` (o valor mais comum) e `th_share` (a sua parte das células). Com `bounds`
+    da mesma camada, `th_share` é 1 e `th_mode` é a zona.
+  - Testes: nenhum objeto atravessa uma zona (mapa, vetor e objetos); uma zona só igual a sem `bounds`, bit a bit;
+    por tiles, o mesmo com 1 e 8 threads e o caminho do cluster (`terraflux-dist --test tiles`); o passo depois nos
+    outros; `th_mode`/`th_share`; o region growing com um vetor.
+- **2. Dividir objetos: `objects.split` (M).**
+  - Entradas `objects`, `surface` (mapa, opcional: um nDSM, o brilho) e `image` (opcional, para a tabela). Parâmetros:
+    `by` (`distance`, o padrão: a distância à borda do objeto; ou `surface`, os picos do mapa são os centros, `invert`
+    para centros escuros), `classes` (padrão: todos), `h` (a altura que um pico precisa acima da sela para ser um
+    pedaço: unidades do mapa para a distância, do `surface` no outro; padrão uma célula), `min_size` (células; um
+    pedaço menor volta ao vizinho de borda mais longa), `max_neck` (o *length factor* do eCognition: um corte só fica
+    se for mais curto que `max_neck` × a largura do pedaço menor, duas vezes a sua maior distância à borda), `sigma`
+    (suavizar o `surface`, padrão 0).
+  - Por objeto, na sua caixa: a distância pelo `linkage::edt` (exato, Felzenszwalb e Huttenlocher), com as células
+    fora do objeto como sítios, em unidades do mapa; os marcadores pelo `watershed::minima` sobre a distância negada
+    (as h-minima por persistência que já existem) e a inundação pelo `watershed::flood`, os dois sobre um `Prep` cujo
+    `valid` é a máscara do objeto (passam a `pub(super)`). Saídas `objects`, `table` e `report` (por objeto dividido,
+    os pedaços).
+  - Patente: fica perto da US7801361 (filtrar as células dos objetos de uma classe para uma camada nova e formar dela
+    uma segunda rede). O desenho evita os dois elementos: a distância é uma conta dentro do operador, não uma camada,
+    e os pedaços substituem os objetos no mesmo nível. A técnica anterior: o *declumping* do CellProfiler (Carpenter et
+    al. 2006, Genome Biology 7:R100), Vincent e Soille (1991), o *Watershed* binário do ImageJ. Um parágrafo no
+    `docs/patents-objects-resolve.md` antes do release.
+  - Testes: dois discos que se tocam viram dois, cortados no gargalo; um disco não se divide; `max_neck` segura um
+    haltere de gargalo largo; `min_size`; `classes`; `surface` com dois picos; o mesmo com 1 e 8 threads; células NaN;
+    um objeto que ocupa a imagem toda.
+- **3. Crescer, encolher e alisar: `objects.resize` (M/G).**
+  - Entradas `objects`, `mask` (mapa, opcional: a condição, as células com valor diferente de 0, feita pelo
+    `raster.calc`, por exemplo `ndvi > 0.3`) e `image` (para o `refine` e a tabela). Parâmetros: `mode` (`grow`,
+    `shrink`, `open`, `close`, `fill`, `smooth`, `refine`), `classes` (os objetos que mudam), `distance` (unidades do
+    mapa) ou `steps` (células), `into` (no `grow`: `none`, só as células sem objeto, o padrão, ou nomes de classes cujas
+    células podem ser tomadas, os *candidatos* do eCognition), `max_hole` (no `fill`, em células; padrão todos os
+    buracos fechados).
+  - Sem `mask` nem `into`, o `grow` e o `shrink` são euclidianos exatos numa passada: o `linkage::edt` com as células
+    dos objetos escolhidos como sítios dá a cada célula livre a distância e o objeto mais perto (crescer até `distance`
+    é tomar as de distância menor); encolher é o `edt` de fora para dentro. Com `mask` ou `into` o crescimento tem de
+    ser geodésico: anel por anel (`steps`), em paralelo por linhas com dois buffers, cada célula ao objeto com mais
+    vizinhas, o empate para o id menor. `open` = encolher e crescer de volta só sobre as células originais; `close` =
+    crescer e encolher só as células acrescentadas; `fill` = os componentes conexos de células sem objeto (ou de
+    `into`) cercados por um só objeto, sem tocar a borda da imagem, até `max_hole`; `smooth` = a moda dos rótulos num
+    disco de raio `distance` entre o objeto e os seus vizinhos (nenhum objeto novo); `refine` (a *border
+    optimization*) = cada célula da borda vai ao objeto vizinho de médias mais perto (em z-scores), `steps` passadas
+    ao estilo Jacobi (as médias atualizadas entre passadas, então paralelo e determinístico).
+  - Um objeto partido em dois pelo `shrink` ou pelo `open` vira dois objetos, com a mesma classe.
+  - Testes: um quadrado cresce 2 células; o disco euclidiano exato; dois objetos dividindo um vão pelo mais perto, o
+    empate determinístico; a `mask` segura; o `open` corta uma ponte de uma célula; o `close` fecha um vão; o `fill`
+    pelo tamanho; o `refine` leva uma borda errada à borda verdadeira numa imagem de duas regiões; 1 e 8 threads;
+    NaN.
+- **4. A forma pelo esqueleto (M).**
+  - Um grupo novo `skeleton` em `features.rs` (`Group { name: "skeleton", ... }`), fora do padrão (pedido em
+    `features`), com as colunas `skel_main_length` (o caminho mais longo, em unidades do mapa, a diagonal √2),
+    `skel_width` (área / comprimento principal), `skel_length_width`, `skel_branches` (os segmentos entre pontas e
+    junções), `skel_ends`, `skel_junctions`, `skel_branch_length` (média), `skel_curvature` (a soma dos ângulos de
+    giro ao longo da linha principal, suavizada numa janela de poucas células, por unidade de comprimento) e
+    `skel_curvature_sd`. A busca dos atributos pelo nome (`features.rs` ~250-280) conhece o prefixo.
+  - Por objeto, na caixa com borda: o afinamento de Zhang e Suen (1984, CACM 27(3):236-239), com a limpeza dos
+    degraus diagonais; as pontas mais curtas que `spur` células (padrão 3) podadas; o grafo das células do esqueleto
+    (grau 1 ponta, 3 ou mais junção); a linha principal pelo diâmetro (duas buscas de Dijkstra com pesos 1 e √2); um
+    ciclo não quebra a conta (a linha principal *no cycles* do eCognition).
+  - O eCognition faz o esqueleto do polígono (por uma triangulação de Delaunay), o nosso é do raster: os valores
+    diferem um pouco; a documentação diz isso.
+  - Testes: uma linha de 1×50 (comprimento 49 células, um ramo, curvatura 0); um retângulo de 10×100 (comprimento
+    perto de 90, largura perto de 10); um L (90° de curvatura); uma cruz (4 ramos, 1 junção); um anel; o tamanho da
+    célula; 1 e 8 threads.
+- **5. Os extremos locais: `objects.extrema` (P).**
+  - Parâmetros: `attribute` (uma coluna da tabela ou uma expressão do `objects.calc`), `kind` (`max` ou `min`),
+    `radius` (unidades do mapa, entre centróides) ou `steps` (vizinhos topológicos, padrão 1), `among` (as classes
+    candidatas, padrão todas), `class` (o nome dado aos extremos, padrão "maximum"/"minimum"), `strict` (o *exclude
+    equal* do eCognition: um empate não é extremo, o padrão). Saídas: os objetos com a classe nos extremos (os outros
+    mantêm a sua) e a tabela com a coluna `extremum`.
+  - O raio por uma grade de baldes do tamanho do raio; os passos por busca em largura sobre `neighbours_of`;
+    paralelo por objeto.
+  - O *find enclosed by class*: sem operador; uma dica, um exemplo no guia e no tutorial (`rel_border_<c> == 1`, e
+    para várias classes a soma das bordas).
+  - Testes: uma grade 3×3 de objetos com o máximo no centro; raio contra passos; `among`; empates; atributo NaN.
+- **6. A fusão pelo resultado: `objects.fuse` (M).**
+  - Parâmetros: `seeds` e `candidates` (classes, padrão todas), `fitting` (uma expressão do `objects.calc` sobre o
+    objeto juntado, por exemplo `compactness` ou `mean_nir`), `goal` (`max` ou `min`), `improve` (só junta se o
+    juntado for melhor que a semente; padrão sim), `threshold` (opcional, o valor que o juntado precisa alcançar),
+    `mode` (`best`, cada semente com o seu melhor candidato, o melhor mútuo como no multiresolution; ou `all`),
+    `max_passes`. A classe do resultado é a da semente.
+  - Os atributos do juntado sem refazer as features: as células, a área, o perímetro (pa + pb − 2 × a borda
+    comum, de `neighbours_of`), a caixa (o comprimento e a largura aproximados), as médias e os desvios das bandas
+    (somas e somas dos quadrados por objeto, da `image`), a compacidade e o índice de forma. As expressões são
+    avaliadas em lote sobre uma tabela de pares, como o `pair_condition` do `objects.merge` por condição
+    (`levels.rs` ~193). Por passada: os pares, o melhor por semente, os pares disjuntos juntados (como o `merge_all`),
+    e de novo. Uma feature que não sai assim (textura, esqueleto, contexto) é recusada com a lista das que podem.
+  - Testes: um prédio em L partido em três pedaços se junta pela compacidade; o `threshold` numa média; o mútuo; a
+    recusa da textura; as passadas; 1 e 8 threads.
+- **7. Templates e documentação (P).** No grupo dos objetos de `templates.rs`, com `data` nas entradas: "Classes por
+  lote" (um vetor de lotes desenhado e uma imagem → multiresolution com `bounds` → features com `thematic` →
+  classificação), "Copas de árvores separadas" (um nDSM de manchas do `nlm.*` → limiar → `objects.split` pelo
+  `surface` → `objects.extrema` dos topos) e "Estradas e rios pelo esqueleto" (segmentar → `skeleton` →
+  `skel_length_width` alto e `skel_width` baixo). O tutorial *from-ecognition* com as linhas novas. Testes: os
+  templates rodam como estão e os de sempre de todos os templates.
+
+**Decisões tomadas** (padrões; o usuário pode mudar):
+1. O `bounds` é nativo no multiresolution, no region growing, no Felzenszwalb e no spectral difference, e um passo
+   depois nos outros; uma feição do vetor é uma zona; as células fora de todas são uma zona.
+2. Os operadores que mudam a geometria mantêm as classes e perdem os vínculos de nível, com um aviso.
+3. O `objects.split` divide pela distância à borda; o `surface` é opcional.
+4. Crescer e encolher sem condição são euclidianos exatos (pelo `edt`); com `mask` ou `into`, anel por anel.
+5. O esqueleto é do raster (Zhang e Suen, com poda), não do polígono; a documentação diz que os valores diferem um
+   pouco dos do eCognition.
+6. O *find enclosed by class* fica na documentação, sem operador.
+7. A fusão pelo resultado é um operador novo, `objects.fuse`, não um modo do `objects.merge` (que fica simples).
+
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
 
 Pedido de 2026-11-19: operadores de componentes principais (PCA), k-means e mapas auto-organizáveis (SOM), com o
