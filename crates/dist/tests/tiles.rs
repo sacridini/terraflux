@@ -160,3 +160,81 @@ fn maps_in_memory_do_not_go_to_workers() {
     assert!(e.to_string().contains("on disk"), "{e}");
     local.shutdown();
 }
+
+/// A GeoTIFF of three f32 bands: blocks of two levels plus noise, a few cells without data.
+fn write_image(path: &Path, w: usize, h: usize) {
+    use terraflux_raster::{Band, DataType, Grid};
+    let mut s = 5u64;
+    let mut lcg = move || {
+        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((s >> 11) as f64) / (1u64 << 53) as f64
+    };
+    let bands: Vec<Band> = (0..3)
+        .map(|b| {
+            let data = (0..w * h)
+                .map(|i| {
+                    let (r, c) = (i / w, i % w);
+                    let level = if (r / 37 + c / 41) % 2 == 0 { 10.0 } else { 70.0 };
+                    let noise = (lcg() + lcg() - 1.0) * 6.0;
+                    if b == 0 && i % 211 == 0 { -9999.0 } else { (level + 3.0 * b as f64 + noise) as f32 as f64 }
+                })
+                .collect();
+            Band { name: Some(format!("B{}", b + 2)), data }
+        })
+        .collect();
+    let mut grid = Grid::new(w, h);
+    grid.transform = [500_000.0, 10.0, 0.0, 5_000_000.0, 0.0, -10.0];
+    Raster { grid, bands, dtype: DataType::F32, nodata: Some(-9999.0) }.write(path).unwrap();
+}
+
+/// The objects `segment.multiresolution` makes of the rasters in `path`, by tiles of 64, with the tiles run by
+/// `runner` when there is one.
+fn segment(path: &Path, runner: Option<Arc<Remote>>) -> Vec<u32> {
+    use terraflux_ops::files::Rasters;
+    use terraflux_ops::{Args, Ctx, Value};
+    let r = Arc::new(Rasters::open(&path.to_string_lossy(), None, None).unwrap());
+    let params = serde_json::json!({ "scale": 25, "shape": 0.1, "tile": 64, "margin": 12, "seed": 3 });
+    let params = params.as_object().cloned().unwrap();
+    let args = Args { node: "n", inputs: [("image".to_string(), Value::Raster(r))].into(), params: &params };
+    let registry = terraflux_ops::Registry::standard();
+    let mut ctx = Ctx::default().with_tile_runner(runner.map(|r| r as Arc<dyn terraflux_ops::objects::TileCores>));
+    let out = registry.get("segment.multiresolution").unwrap().run(&mut ctx, &args).unwrap();
+    assert!(ctx.warnings.is_empty(), "{:?}", ctx.warnings);
+    let Value::Objects(o) = &out["objects"] else { panic!("objects") };
+    assert!(o.count > 4, "{} objects", o.count);
+    o.labels.to_vec()
+}
+
+#[test]
+fn segmented_tiles_on_workers_give_the_objects_of_this_machine() {
+    terraflux_ops::threads::ensure();
+    let d = tmp("segment-data");
+    let path = d.join("img.tif");
+    write_image(&path, 256, 256);
+    let want = segment(&path, None);
+
+    // two workers sharing this machine's disk, the tiles cut in runs of any length
+    let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    let local = rt.block_on(Local::start(2, tmp("segment-cache"), CoordinatorOptions::default())).unwrap();
+    for per_worker in [4, 1, 16] {
+        let mut remote = Remote::connect(&local.url).unwrap();
+        remote.per_worker = per_worker;
+        remote.shared = true;
+        assert_eq!(segment(&path, Some(Arc::new(remote))), want, "{per_worker} runs per worker, shared disk");
+    }
+    local.shutdown();
+
+    // three workers with caches of their own: the file goes to them through the coordinator
+    let local = rt.block_on(Local::start(0, tmp("segment-sent-cache"), CoordinatorOptions::default())).unwrap();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    for k in 0..3 {
+        let mut o = terraflux_dist::worker::Options::new(&format!("w{k}"), tmp(&format!("segment-w{k}")));
+        o.threads = 2;
+        let (u, s) = (local.url.clone(), stop.clone());
+        rt.spawn(async move { terraflux_dist::worker::run(&u, o, s).await });
+    }
+    let remote = Remote::connect(&local.url).unwrap();
+    assert_eq!(segment(&path, Some(Arc::new(remote))), want, "files through the coordinator");
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    local.shutdown();
+}

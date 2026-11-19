@@ -82,7 +82,8 @@ enum Command {
         #[arg(long)]
         disk: Option<PathBuf>,
         /// Run the tiles on a coordinator's workers (with --tiled and --disk): the maps and the layers' tiles go
-        /// to them through the coordinator.
+        /// to them through the coordinator. Without --tiled, only the tiles of segment.multiresolution (an image
+        /// read with raster.read, on disk) go to them.
         #[arg(long)]
         coordinator: Option<String>,
         /// The coordinator's pairing code.
@@ -1470,6 +1471,16 @@ fn run_command(command: Command, engine: Engine) -> Result<()> {
     let engine = match &check {
         Some(c) => Engine::checked(c.clone()),
         None => engine,
+    };
+    // without --tiled, a coordinator takes only the tiles of segment.multiresolution (rasters on disk)
+    let engine = match (&coordinator, tiled) {
+        (Some(url), false) => {
+            let code = code.as_deref().map(terraflux_dist::secure::Code::parse).transpose()?;
+            let mut r = terraflux_dist::tiles::Remote::connect_with(url, code.as_ref())?;
+            r.shared = shared_disk;
+            engine.with_tile_runner(Some(std::sync::Arc::new(r)))
+        }
+        _ => engine,
     };
     let kind = || check.clone().map_or(Kind::Run, Kind::Check);
     // (the folder of the check run, when not chosen, replaced: whatever the run before left in it goes)

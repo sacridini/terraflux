@@ -312,9 +312,14 @@ async fn serve(url: &str, opts: &Options, stop: &AtomicBool) -> Ended {
         // the computer kept awake while it works
         let _awake = crate::awake::Awake::hold();
         let t0 = Instant::now();
-        let (result, payload) = if task.kind == "tiles" || task.kind == crate::tiles::SENT {
+        let (result, payload) = if task.kind == "tiles"
+            || task.kind == crate::tiles::SENT
+            || task.kind == crate::tiles::SEGMENT
+        {
             let r = if task.kind == "tiles" {
                 tiles(&mut client, opts, &id, &task).await
+            } else if task.kind == crate::tiles::SEGMENT {
+                segment(&mut client, opts, &id, &task).await
             } else {
                 tiles_sent(&mut client, opts, &id, &task).await
             };
@@ -393,6 +398,30 @@ async fn tiles(client: &mut Conn, opts: &Options, id: &str, task: &TaskAssignmen
     done.store(true, Ordering::Relaxed);
     beat.abort();
     r
+}
+
+/// The first pass of a segmentation by tiles on some tiles: the rasters from the cache (or shared storage), the
+/// tiles and their cores, encoded.
+async fn segment(client: &mut Conn, opts: &Options, id: &str, task: &TaskAssignment) -> Result<Vec<u8>> {
+    use terraflux_engine::pass::{decode, encode};
+    let e = |x: terraflux_engine::Error| Error::Other(x.to_string());
+    let mut job: terraflux_ops::objects::TileJob = decode(&task.payload).map_err(e)?;
+    let chosen: Vec<usize> = decode(&task.task_payload).map_err(e)?;
+    for f in &mut job.files {
+        *f = PathBuf::from(bundle::local(client, &opts.cache, &f.to_string_lossy()).await?);
+    }
+    let (done, beat) = heartbeats(client, id, opts.heartbeat);
+    let (threads, tiles) = (opts.threads, chosen.clone());
+    let r = tokio::task::spawn_blocking(move || {
+        terraflux_ops::threads::ensure();
+        terraflux_ops::threads::set_kernel_threads(threads);
+        job.cores(&tiles).map_err(|x| Error::Other(x.to_string()))
+    })
+    .await
+    .map_err(|x| Error::Other(format!("the task stopped: {x}")));
+    done.store(true, Ordering::Relaxed);
+    beat.abort();
+    encode(&(chosen, r??)).map_err(e)
 }
 
 /// A tile of a layer in a worker's folder of the layer, fetched by its hash unless it is there (a `<i>.hash`

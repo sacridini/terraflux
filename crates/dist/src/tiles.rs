@@ -19,6 +19,7 @@ use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
 use terraflux_engine::pass::{Job, Part, Runner, Task, decode, encode};
 use terraflux_engine::tiles::{Source, Spec, Tiling};
+use terraflux_ops::objects::{TileCores, TileJob};
 
 use crate::client::Client;
 
@@ -193,6 +194,76 @@ impl Remote {
             c.forget(&id).await?;
             Ok(parts)
         })
+    }
+}
+
+/// The kind of the jobs that segment the tiles of `segment.multiresolution` (their payload a [`TileJob`], a task
+/// the tiles of a run).
+pub const SEGMENT: &str = "segment";
+
+/// The tiles and the cores a worker gives back for them.
+pub type Cores = (Vec<usize>, Vec<Vec<u32>>);
+
+impl Remote {
+    /// The first pass of a segmentation by tiles on the workers: the cores of every tile, in order of tile. The
+    /// files go by hash (unless storage is shared), the tiles in contiguous runs.
+    fn segment(&self, mut job: TileJob) -> crate::Result<Vec<Vec<u32>>> {
+        let mut c = self.client.lock().unwrap_or_else(|e| e.into_inner());
+        self.rt.block_on(async {
+            let tiles = job.tiles();
+            let workers = c.workers().await?.len().max(1);
+            let runs = (workers * self.per_worker).clamp(1, tiles.max(1));
+            let per = tiles.div_ceil(runs).max(1);
+            let chunks: Vec<Vec<usize>> = (0..tiles).collect::<Vec<_>>().chunks(per).map(<[usize]>::to_vec).collect();
+            let tasks = chunks.iter().map(encode).collect::<terraflux_engine::Result<Vec<_>>>().map_err(other)?;
+            if !self.shared {
+                for f in &mut job.files {
+                    let known = self.sent.lock().unwrap().get(f.as_path()).cloned();
+                    let b = match known {
+                        Some(b) => b,
+                        None => {
+                            let b = c.send(&f.to_string_lossy(), Path::new("")).await?;
+                            self.sent.lock().unwrap().insert(f.clone(), b.clone());
+                            b
+                        }
+                    };
+                    *f = PathBuf::from(b);
+                }
+            }
+            let id = c.submit_payload(SEGMENT, encode(&job).map_err(other)?, tasks).await?;
+            let status = c.wait_done(&id).await?;
+            if status.failed > 0 {
+                let _ = c.forget(&id).await;
+                return Err(crate::Error::Other(format!(
+                    "the tiles failed on the workers: {}",
+                    status.errors.join("; ")
+                )));
+            }
+            let results = c.results(&id).await?;
+            let mut cores: Vec<Option<Vec<u32>>> = vec![None; tiles];
+            for r in &results {
+                let (ks, got): Cores = decode(&r.payload).map_err(other)?;
+                if ks.len() != got.len() {
+                    return Err(crate::Error::Other("a worker gave a wrong number of tiles".into()));
+                }
+                for (k, core) in ks.into_iter().zip(got) {
+                    *cores.get_mut(k).ok_or_else(|| crate::Error::Other(format!("a worker gave tile {k}")))? =
+                        Some(core);
+                }
+            }
+            c.forget(&id).await?;
+            cores
+                .into_iter()
+                .enumerate()
+                .map(|(k, c)| c.ok_or_else(|| crate::Error::Other(format!("tile {k} was not segmented"))))
+                .collect()
+        })
+    }
+}
+
+impl TileCores for Remote {
+    fn cores(&self, job: &TileJob) -> terraflux_ops::Result<Vec<Vec<u32>>> {
+        self.segment(job.clone()).map_err(|e| terraflux_ops::Error::msg(e.to_string()))
     }
 }
 
