@@ -16,6 +16,7 @@ mod calc;
 mod classify;
 mod convert;
 pub mod deep;
+mod edit;
 mod esp;
 mod features;
 mod growing;
@@ -58,6 +59,7 @@ pub fn register(r: &mut Registry) {
     classify::register(r);
     calc::register(r);
     rules::register(r);
+    edit::register(r);
     r.add(Arc::new(features::Features));
     resolve::register(r);
     temporal::register(r);

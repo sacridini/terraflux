@@ -955,6 +955,10 @@ const PHRASES: &[(&str, &str)] = &[
         "The objects of <objects> classed by a hierarchy of fuzzy rules[, a class only above a membership of {min}].",
     ),
     (
+        "objects.edit",
+        "The objects of <objects> corrected by hand: {edits}[, with <image> for the similarity].",
+    ),
+    (
         "objects.nearest",
         "The objects of <objects> classed by their nearest samples in <samples>[, a class only above a membership of {min}].",
     ),

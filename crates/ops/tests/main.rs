@@ -43,6 +43,7 @@ mod objects_accuracy;
 mod objects_bench;
 mod objects_big;
 mod objects_dl;
+mod objects_edit;
 mod objects_levels;
 mod objects_resolve;
 mod objects_temporal;

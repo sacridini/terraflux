@@ -735,6 +735,14 @@ pub const TIPS: &[(&str, &str)] = &[
          node: chain a second objects.rules for a second pass. The margin shows where two classes are close.",
     ),
     (
+        "objects.edit",
+        "Put it right after the segmenter, before objects.features and the classification, which run again on the \
+         edited objects (it gives objects with no classes). The edits are places, not object numbers: after a change \
+         of the segmentation above they find the objects now at those places, and an edit that finds none (or \
+         changes nothing) is warned about and has a row in `report`. A cut line must cross the object and split it; \
+         connect the image for a delete into the most similar neighbour and for the table of band means.",
+    ),
+    (
         "objects.nearest",
         "A few attributes, chosen with the feature space (objects.features), work better than many: every \
          attribute adds to the distance, and size and shape attributes can swamp the spectral ones, so name the \

@@ -6603,6 +6603,41 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 Err(e) => sh.objects.message = Some(e),
             }
         }
+        // the objects edited: a merge or a delete asked in the inspector, a cut by the line drawn on the map
+        if sh.objects.cutting {
+            use crate::draw::{Kind, Sketch};
+            match &sh.view.drawing {
+                None => {
+                    sh.view.drawing = Some(Sketch::new(Kind::Line));
+                    sh.objects.cut_sketch = true;
+                }
+                Some(d) if d.kind != Kind::Line => {
+                    sh.objects.cutting = false;
+                    sh.objects.message = Some("stop drawing the other kind of feature first".into());
+                }
+                Some(_) => {}
+            }
+            let line = sh.view.drawing.as_ref().filter(|d| d.kind == Kind::Line).and_then(|d| d.features.first());
+            if let Some(line) = line {
+                let t = maps[k].grid().transform;
+                let world = line.iter().map(|c| [t[0] + c[0] * t[1] + c[1] * t[2], t[3] + c[0] * t[4] + c[1] * t[5]]);
+                sh.objects.pending = Some(crate::objects_edit::Edit::Cut(world.collect()));
+                sh.objects.cutting = false;
+            }
+        }
+        if !sh.objects.cutting && sh.objects.cut_sketch {
+            sh.objects.cut_sketch = false;
+            sh.view.drawing = None;
+        }
+        if let Some(edit) = sh.objects.pending.take() {
+            match crate::objects_edit::apply(s, r, &a.key, &a.o, &edit) {
+                Ok(m) => {
+                    sh.objects.message = None;
+                    s.notice = Some((m, std::time::Instant::now()));
+                }
+                Err(e) => sh.objects.message = Some(e),
+            }
+        }
         // the feature space: a rule made from a range, an object gone to
         if let Some((class, text)) = space_action.rule.take() {
             match crate::feature_space::make_rule(s, r, &a.key, &class, &text) {

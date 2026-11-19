@@ -4505,6 +4505,11 @@ dependências: 6, 2, 1, 4, 3, 7, 5, 8.
   `draw::Sketch`); `objects_edit.rs::apply` acrescenta ao `objects.edit` que já lê aqueles objetos, ou cria um entre
   o segmentador e quem o lê (`editor::insert_between`). Testes: cada operação; as mesmas edições sobrevivendo a outra
   segmentação; o aviso; no app, inserir e desfazer; no `--test app`, juntar dois e contar um a menos.
+  **Feito** (Unreleased): `ops/objects/edit.rs` (`objects.edit`, `neighbours` pelos objetos de entrada: 8 quando eles só são
+  inteiros com 8), `app/objects_edit.rs` (`apply`, `steps`, `base_of`: de uma classificação sobe até o segmentador) e o bloco
+  *Edit* de `ObjectsUi::inspector` (*Cut* pelo `draw::Sketch` de linha, posto e tirado pelo `builder.rs`). Juntar que não toca
+  o primeiro objeto deixa os separados e avisa (`not touching`). Testes: `tests/objects_edit.rs`, `objects_edit.rs` e o
+  `tests/objects_viewer.rs`.
 - **7. O region growing por tiles (M/G).** Do `tiles.rs`, é do multiresolution: `tile_core` (o `merge_level` com o
   custo), os campos de `Run`, o `TileJob`/`TileCores` do cluster e a costura (`merge_level_src` sobre os pedaços). É
   genérico: o lado e a margem dos tiles, a semente, a geometria das janelas, a fila contínua (`spawn_tile`,

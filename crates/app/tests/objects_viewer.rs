@@ -326,3 +326,55 @@ fn many_samples_go_to_a_geopackage_beside_the_model() {
     assert!(v.attributes.iter().any(|(n, _)| n == "class"));
     assert!(s.source.nodes.iter().any(|n| n.op == "objects.samples"));
 }
+
+/// Two objects that touch, each with an interior cell (a click there is on it at any zoom).
+fn touching_pair(o: &Objects) -> (u32, u32) {
+    let w = o.grid.width;
+    let interior = |i: u32| {
+        let (r, c) = cell_of(o, i);
+        r > 0 && c > 0 && r + 1 < o.grid.height && c + 1 < w && {
+            let same = |r: usize, c: usize| o.labels[r * w + c] == i;
+            same(r - 1, c) && same(r + 1, c) && same(r, c - 1) && same(r, c + 1)
+        }
+    };
+    (1..=o.count as u32)
+        .filter(|&a| interior(a))
+        .find_map(|a| o.neighbours_of(a).iter().map(|n| n.0).find(|&b| interior(b)).map(|b| (a, b)))
+        .expect("two objects that touch")
+}
+
+#[test]
+fn merging_two_selected_objects_writes_an_edit_node_and_the_run_has_one_object_less() {
+    let mut h = harness("objects-viewer-merge");
+    run_and_show(&mut h, "seg");
+    until(&mut h, "the objects drawn", |h| h.state().session.as_ref().unwrap().preview_view.objects_drawn() == 1);
+    let o = objects_of(&h, "seg", "objects");
+    let (a, b) = touching_pair(&o);
+    h.state_mut().session.as_mut().unwrap().preview_objects.selected = [a, b].into();
+    h.run_steps(3);
+    until(&mut h, "the Edit block", |h| has(h, "Merge"));
+    h.get_by_label("Merge").click();
+    h.run_steps(4);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let e = s.source.nodes.iter().find(|n| n.op == "objects.edit").expect("an objects.edit node");
+        assert_eq!(e.inputs["objects"], Source::Ref("seg.objects".into()));
+        assert_eq!(e.params["edits"].as_array().unwrap().len(), 1);
+        // the node that read the segmenter's objects reads the edit's now
+        let rules = s.source.nodes.iter().find(|n| n.id == "rules").unwrap();
+        assert_eq!(rules.inputs["objects"], Source::Ref(format!("{}.objects", e.id)));
+        assert!(s.history.can_undo());
+    }
+    let id =
+        h.state().session.as_ref().unwrap().source.nodes.iter().find(|n| n.op == "objects.edit").unwrap().id.clone();
+    run_and_show(&mut h, &id);
+    let merged = objects_of(&h, &id, "objects");
+    assert_eq!(merged.count, o.count - 1, "one object less");
+    // the two are one now, at the places they were
+    let (ra, ca) = cell_of(&o, a);
+    let (rb, cb) = cell_of(&o, b);
+    assert_eq!(merged.id_at(ra, ca), merged.id_at(rb, cb));
+    // the classification after it read the edited objects
+    run_and_show(&mut h, "rules");
+    assert_eq!(objects_of(&h, "rules", "objects").count, o.count - 1);
+}

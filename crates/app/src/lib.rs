@@ -69,6 +69,7 @@ pub mod node_remotes;
 pub mod node_view;
 pub mod notes;
 pub mod notify;
+pub mod objects_edit;
 pub mod objects_inspect;
 pub mod objects_view;
 pub mod op_notes;

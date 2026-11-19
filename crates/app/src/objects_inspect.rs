@@ -77,6 +77,13 @@ pub struct ObjectsUi {
     rules: Option<(u64, Vec<Option<Vec<f64>>>)>,
     /// The feature space window (see [`crate::feature_space`]).
     pub space: crate::feature_space::Space,
+    /// An edit asked for in the *Edit* block (the Viewer writes it into the model), whether a cut line is being
+    /// drawn, and whether a delete goes into the most similar neighbour.
+    pub pending: Option<crate::objects_edit::Edit>,
+    pub cutting: bool,
+    /// Whether the Viewer put the sketch of the cut line on the map (so that it takes it away when the cut ends).
+    pub cut_sketch: bool,
+    into_neighbour: bool,
 }
 
 /// What a key pressed over the objects asks of what is drawn.
@@ -283,6 +290,7 @@ impl ObjectsUi {
                     .weak()
                     .size(11.0),
             );
+            self.edit_block(ui);
             return;
         };
         let k = id as usize - 1;
@@ -336,6 +344,56 @@ impl ObjectsUi {
                 }
             });
         });
+        self.edit_block(ui);
+    }
+
+    /// The *Edit* block: Merge (two objects selected or more) and Delete act on the selection, Cut asks for a line
+    /// drawn on the map (clicks, then Enter). What is asked is left in `pending` (or `cutting`) for the Viewer.
+    fn edit_block(&mut self, ui: &mut Ui) {
+        ui.add_space(4.0);
+        ui.label(RichText::new("Edit").size(11.5)).on_hover_text(
+            "corrections kept in an objects.edit node of the model, as places on the map, so that they hold when the segmentation above changes",
+        );
+        let n = self.selected.len();
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .add_enabled(n >= 2, egui::Button::new("Merge"))
+                .on_hover_text("the selected objects become one (select two or more: ctrl+click)")
+                .clicked()
+            {
+                self.pending = Some(crate::objects_edit::Edit::Merge(self.selected.iter().copied().collect()));
+            }
+            if ui
+                .add_enabled(n >= 1, egui::Button::new("Delete"))
+                .on_hover_text("the selected objects are left with no object, or taken by the most similar neighbour")
+                .clicked()
+            {
+                self.pending = Some(crate::objects_edit::Edit::Delete(
+                    self.selected.iter().copied().collect(),
+                    self.into_neighbour,
+                ));
+            }
+            ui.checkbox(&mut self.into_neighbour, "into a neighbour")
+                .on_hover_text("a deleted object joins its most similar neighbour (else it has no object)");
+            let text = if self.cutting { "Cancel cut" } else { "Cut" };
+            if ui
+                .add(egui::Button::selectable(self.cutting, text))
+                .on_hover_text(
+                    "draw a line on the map (a click a vertex, Enter ends it): the objects it crosses are split",
+                )
+                .clicked()
+            {
+                self.cutting = !self.cutting;
+            }
+        });
+        if self.cutting {
+            ui.label(RichText::new("click the vertices of the line on the map, then Enter").weak().size(11.0));
+        }
+        if !self.sampling
+            && let Some(m) = &self.message
+        {
+            ui.label(RichText::new(m).color(ui.visuals().warn_fg_color).size(11.0));
+        }
     }
 
     /// What decided the class: by the node that made the objects, when it is a node of the top level whose inputs can
@@ -528,7 +586,7 @@ fn cell_at(g: &terraflux_raster::Grid, x: f64, y: f64) -> Option<(usize, usize)>
 }
 
 /// The place of the centre of a cell.
-fn centre_of(g: &terraflux_raster::Grid, row: usize, col: usize) -> [f64; 2] {
+pub(crate) fn centre_of(g: &terraflux_raster::Grid, row: usize, col: usize) -> [f64; 2] {
     let t = g.transform;
     let (c, r) = (col as f64 + 0.5, row as f64 + 0.5);
     [t[0] + c * t[1] + r * t[2], t[3] + c * t[4] + r * t[5]]
