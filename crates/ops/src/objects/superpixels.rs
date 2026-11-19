@@ -380,9 +380,11 @@ impl Operator for Slic {
         ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let l = crate::raster_stats::layers(args, "image")?;
-        let p = prep(&l, args.param("standardise", true)?);
+        let standardise: bool = args.param("standardise", true)?;
+        super::warnings::image(ctx, args.node, &l.grid, &l.names, &l.data, standardise);
+        let p = prep(&l, standardise);
         let (s, m) = lattice_params(args, p.valid.iter().filter(|&&v| v).count())?;
         let iterations: i64 = args.param("iterations", 10)?;
         if iterations < 1 {
@@ -410,9 +412,11 @@ impl Operator for Snic {
         lattice_ports(signature("segment.snic", &about))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let l = crate::raster_stats::layers(args, "image")?;
-        let p = prep(&l, args.param("standardise", true)?);
+        let standardise: bool = args.param("standardise", true)?;
+        super::warnings::image(ctx, args.node, &l.grid, &l.names, &l.data, standardise);
+        let p = prep(&l, standardise);
         let (s, m) = lattice_params(args, p.valid.iter().filter(|&&v| v).count())?;
         let (seeds, side) = seeds(&p, s, false);
         let lab = snic(&p, &seeds, side, m);
@@ -554,7 +558,7 @@ impl Operator for Felzenszwalb {
             )
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let bad = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let k: f64 = args.param("k", 1.0)?;
@@ -574,7 +578,9 @@ impl Operator for Felzenszwalb {
             return Err(bad(format!("neighbours {nbs}: 4 or 8")));
         }
         let l = crate::raster_stats::layers(args, "image")?;
-        let mut p = prep(&l, args.param("standardise", true)?);
+        let standardise: bool = args.param("standardise", true)?;
+        super::warnings::image(ctx, args.node, &l.grid, &l.names, &l.data, standardise);
+        let mut p = prep(&l, standardise);
         if sigma > 0.0 {
             smooth(&mut p, sigma);
         }

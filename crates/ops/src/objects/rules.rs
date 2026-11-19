@@ -328,7 +328,7 @@ impl Operator for Nearest {
         ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let bad = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let o = objects_in(args, "objects")?;
@@ -395,6 +395,14 @@ impl Operator for Nearest {
         if feats.is_empty() {
             return Err(bad("no attribute common to the objects and the samples that varies".into()));
         }
+        let per: Vec<(String, usize)> = names
+            .iter()
+            .enumerate()
+            .map(|(c, n)| (n.clone(), codes.iter().filter(|&&x| x == (c + 1) as f64).count()))
+            .collect();
+        super::warnings::counts(ctx, "objects.nearest", node, &per);
+        let used: Vec<Vec<f64>> = columns.iter().map(|c| o.table.column(c).unwrap_or_default()).collect();
+        super::warnings::correlated(ctx, "objects.nearest", node, &columns, &used);
         let k = (1.0 / slope).ln();
         let n = o.count;
         let mut membership = vec![vec![0.0f64; n]; names.len()];

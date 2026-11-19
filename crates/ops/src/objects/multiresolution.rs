@@ -584,6 +584,7 @@ impl Operator for Multiresolution {
             ]));
         }
         let l = super::big::layers(args, "image")?;
+        super::warnings::image(ctx, args.node, &l.grid, &l.names, &l.data, false);
         let (w, h) = (l.grid.width, l.grid.height);
         let nb = l.data.len();
         let weights = weights_of(nb)?;

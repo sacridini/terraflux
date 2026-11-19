@@ -247,7 +247,7 @@ impl Operator for MeanShift {
         ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let bad = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let hs: f64 = args.param("spatial_radius", 5.0)?;
@@ -271,7 +271,9 @@ impl Operator for MeanShift {
             return Err(bad(format!("min_size {min}: 1 or more")));
         }
         let l = crate::raster_stats::layers(args, "image")?;
-        let p = prep(&l, args.param("standardise", true)?);
+        let standardise: bool = args.param("standardise", true)?;
+        super::warnings::image(ctx, args.node, &l.grid, &l.names, &l.data, standardise);
+        let p = prep(&l, standardise);
         let f = filter(&p, hs, hr, iters as usize, thr);
         let first = Objects::from_regions(l.grid.clone(), &group(&p, &f, hr), 4);
         finish(&l, &merge(&first, &f, p.nb, min.min(u32::MAX as i64) as u32))

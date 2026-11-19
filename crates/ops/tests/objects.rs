@@ -1174,7 +1174,10 @@ fn multiresolution_without_a_scale_uses_the_one_of_segment_scale() {
     assert!(ctx.warnings.iter().any(|w| w.contains("no scale given")), "{:?}", ctx.warnings);
     let with = multires(image, serde_json::json!({ "scale": suggested }));
     assert_eq!(objects_of(&out).labels, objects_of(&with).labels);
-    assert!(ctx.warnings.len() == 1 && named_number(&with, "scale") == suggested);
+    assert!(
+        ctx.warnings.iter().filter(|w| w.contains("no scale given")).count() == 1
+            && named_number(&with, "scale") == suggested
+    );
 }
 
 #[test]
@@ -1968,7 +1971,7 @@ fn samples_polygons_pick_the_objects_they_cover_by_half() {
     // rows 0 to 5: the top squares whole, the bottom ones by one row of five (20%)
     let (out, w) = samples_of(&o, sample_set(vec![(cells_square(0.0, 0.0, 10.0, 6.0), "a")]));
     assert_eq!(rows_of(&out.unwrap()), vec![(1, "a".to_string()), (2, "a".to_string())]);
-    assert!(w.is_empty(), "{w:?}");
+    assert!(!w.iter().any(|m| m.contains("outside")), "{w:?}");
     // rows 0 to 7: the bottom ones by three rows (60%)
     let (out, _) = samples_of(&o, sample_set(vec![(cells_square(0.0, 0.0, 10.0, 8.0), "a")]));
     assert_eq!(table_of(&out.unwrap()).rows.len(), 4);

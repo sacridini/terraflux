@@ -220,6 +220,65 @@ fn choose(node: &str, spec: &[String]) -> Result<Vec<Vec<(&'static str, bool)>>>
         .collect())
 }
 
+/// Whether `objects.features` with this setting `features` (none: the default) gives the column `column`: `None` when
+/// the column is not of the kinds it makes (an attribute of the user's, or the table's own id, cells and area) or the
+/// setting cannot be read; else its group and whether the setting makes it. For the static advice on rules that read what no node
+/// makes.
+pub fn features_give(spec: Option<&serde_json::Value>, column: &str) -> Option<(&'static str, bool)> {
+    let spec: Vec<String> = match spec {
+        None => vec!["basic".into()],
+        Some(serde_json::Value::String(s)) => vec![s.clone()],
+        Some(serde_json::Value::Array(a)) => a.iter().map(|v| v.as_str().map(String::from)).collect::<Option<_>>()?,
+        Some(_) => return None,
+    };
+    if spec.iter().any(|s| s.starts_with(['$', '@'])) {
+        return None;
+    }
+    let (group, feature) = feature_of(column)?;
+    let chosen = choose("", &spec).ok()?;
+    let g = GROUPS.iter().position(|g| g.name == group)?;
+    Some((group, chosen[g].iter().any(|(name, _)| *name == feature)))
+}
+
+/// The group and the feature of `objects.features` that make a column, by its name.
+fn feature_of(column: &str) -> Option<(&'static str, &'static str)> {
+    const FAMILIES: [&str; 6] = ["mean", "sd", "min", "max", "median", "ratio"];
+    const ALONE: [&str; 5] = ["brightness", "max_diff", "ndvi", "ndwi", "ndmi"];
+    const CONTEXT_PREFIX: [(&str, &str); 6] = [
+        ("nb_diff_", "nb_diff"),
+        ("rel_border_", "rel_border"),
+        ("dist_", "dist"),
+        ("parent_", "parent"),
+        ("children_", "children"),
+        ("nb_", "nb_class"),
+    ];
+    if let Some(f) = ALONE.iter().find(|f| **f == column) {
+        return Some(("spectral", f));
+    }
+    if matches!(column, "id" | "cells" | "area") {
+        return None;
+    }
+    if let Some(f) = SHAPE.iter().find(|f| **f == column) {
+        return Some(("shape", f));
+    }
+    if column == "nb_count" {
+        return Some(("context", "nb_count"));
+    }
+    if column == "border_image" {
+        return Some(("context", "border_image"));
+    }
+    if let Some(rest) = column.strip_prefix("glcm_") {
+        return GLCM
+            .iter()
+            .find(|g| rest == **g || rest.strip_prefix(**g).is_some_and(|t| t.starts_with('_')))
+            .map(|g| ("texture", *g));
+    }
+    if let Some(f) = FAMILIES.iter().find(|f| column.strip_prefix(**f).is_some_and(|t| t.starts_with('_'))) {
+        return Some(("spectral", f));
+    }
+    CONTEXT_PREFIX.iter().find(|(p, _)| column.starts_with(p)).map(|(_, f)| ("context", *f))
+}
+
 /// A layer's position by the name a setting gives (the exact name, else any case).
 fn layer_named(node: &str, names: &[String], setting: &str, name: &str) -> Result<usize> {
     names.iter().position(|n| n == name).or_else(|| names.iter().position(|n| n.eq_ignore_ascii_case(name))).ok_or_else(
@@ -321,6 +380,7 @@ impl Operator for Features {
             big::parts_of(args, "image")?
         } else {
             let l = big::layers(args, "image")?;
+            super::warnings::image(ctx, node, &l.grid, &l.names, &l.data, false);
             (l.names, l.grid, l.data.into_iter().map(Part::Mem).collect())
         };
         let mut names = band_names(&image_names);

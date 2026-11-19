@@ -28,9 +28,11 @@ mod store;
 mod superpixels;
 mod temporal;
 mod tiles;
+mod warnings;
 mod watershed;
 
 pub use calc::{evaluate, evaluate_numbers};
+pub use features::features_give;
 pub use rules::{RuleClass, leaves, tree};
 
 pub fn register(r: &mut Registry) {

@@ -163,7 +163,7 @@ impl Operator for Quadtree {
         ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let threshold = args
             .opt_param::<f64>("threshold")?
@@ -176,6 +176,7 @@ impl Operator for Quadtree {
             return Err(Error::msg(format!("node {node:?}: min_size {min_size}: 1 cell or more")));
         }
         let l = crate::raster_stats::layers(args, "image")?;
+        super::warnings::image(ctx, args.node, &l.grid, &l.names, &l.data, false);
         let (w, h) = (l.grid.width, l.grid.height);
         let cover = w.max(h).max(1).next_power_of_two();
         let start = match args.opt_param::<i64>("max_size")? {

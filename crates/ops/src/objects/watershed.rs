@@ -289,7 +289,7 @@ impl Operator for Watershed {
         ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let bad = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let sigma: f64 = args.param("sigma", 1.0)?;
@@ -311,7 +311,9 @@ impl Operator for Watershed {
             return Err(bad(format!("neighbours {nbs}: 4 or 8")));
         }
         let l = crate::raster_stats::layers(args, "image")?;
-        let mut p = prep(&l, args.param("standardise", true)?);
+        let standardise: bool = args.param("standardise", true)?;
+        super::warnings::image(ctx, args.node, &l.grid, &l.names, &l.data, standardise);
+        let mut p = prep(&l, standardise);
         if sigma > 0.0 {
             smooth(&mut p, sigma);
         }

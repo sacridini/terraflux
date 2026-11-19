@@ -399,10 +399,175 @@ pub fn advise(m: &Model, r: &Registry, dir: &Path, inputs: Option<&BTreeMap<Stri
         }
     }
 
+    // object-based classification: the training and the prediction objects, the validation samples, the rules' attributes
+    out.extend(objects_advice(&nodes));
+
     // outputs that will not fit the disk
     out.extend(crate::disk::advice(m, r, dir));
 
     out.sort_by_key(|a| std::cmp::Reverse(a.level));
+    out
+}
+
+/// What a reference reads as the node that makes it: its id, or the input's name (`$name`, `@name`).
+fn origin(n: &Node, port: &str) -> Option<String> {
+    let r = reads(n, port)?;
+    if r.starts_with(['$', '@']) { Some(r.to_string()) } else { Some(r.split('.').next()?.to_string()) }
+}
+
+/// The nodes a reference reads, and those they read in turn (not the container's inputs).
+fn upstream<'a>(nodes: &[&'a Node], r: &str) -> Vec<&'a Node> {
+    let mut out: Vec<&Node> = Vec::new();
+    let mut todo = vec![r.to_string()];
+    while let Some(r) = todo.pop() {
+        let Some(n) = source(nodes, &r) else { continue };
+        if out.iter().any(|o| o.id == n.id) {
+            continue;
+        }
+        out.push(n);
+        for s in n.inputs.values() {
+            if let Source::Ref(x) = s {
+                todo.push(x.as_str().to_string());
+            }
+        }
+    }
+    out
+}
+
+/// The advice on object-based classification, from the graph alone: a model fitted on a table that is not of the
+/// objects it classifies, validation samples that are the training ones, rules that read attributes no
+/// objects.features node makes.
+fn objects_advice(nodes: &[&Node]) -> Vec<Advice> {
+    let mut out = Vec::new();
+    let ops =
+        |names: &[&str]| -> Vec<&Node> { nodes.iter().copied().filter(|n| names.contains(&n.op.as_str())).collect() };
+    let trained = ops(&["objects.samples"]);
+    for n in ops(&["objects.classify"]) {
+        let Some(fit) = reads(n, "model").and_then(|r| source(nodes, r)).filter(|f| f.op == "ml.fit") else {
+            continue;
+        };
+        let Some(table) = reads(fit, "table") else { continue };
+        let made: Vec<&Node> = upstream(nodes, table).into_iter().filter(|u| u.op == "objects.samples").collect();
+        let same = origin(n, "objects");
+        if made.is_empty() {
+            out.push(Advice {
+                level: Level::Advice,
+                at: vec![n.id.clone()],
+                message: format!(
+                    "the model ({}) is fitted on a table that does not come from objects.samples: the model reads \
+                     the objects' attributes by name, so the table must hold the same attributes, made with the same \
+                     objects.features settings; take the training table from objects.samples, or check that its \
+                     columns match",
+                    fit.id
+                ),
+                guide: "objects",
+            });
+        } else if same.is_some() && made.iter().all(|s| origin(s, "objects").is_some_and(|o| Some(&o) != same.as_ref()))
+        {
+            out.push(Advice {
+                level: Level::Advice,
+                at: vec![n.id.clone()],
+                message: format!(
+                    "the model is fitted on the samples of other objects ({}) than the ones it classifies ({}): \
+                     fine when the training scene is another on purpose, but then make the attributes with the \
+                     same objects.features settings in both, bring the bands to the same scale, and check that the \
+                     classes look the same in the two",
+                    made.iter().filter_map(|s| origin(s, "objects")).collect::<Vec<_>>().join(", "),
+                    same.unwrap_or_default()
+                ),
+                guide: "objects",
+            });
+        }
+    }
+    // validation samples that are the training ones
+    let training: Vec<(String, String)> =
+        trained.iter().filter_map(|s| Some((origin(s, "samples")?, s.id.clone()))).collect();
+    for n in ops(&["objects.accuracy"]) {
+        let from_samples = origin(n, "samples")
+            .and_then(|k| training.iter().find(|(o, _)| *o == k))
+            .map(|(_, id)| id.clone())
+            .or_else(|| {
+                let r = reads(n, "reference")?;
+                upstream(nodes, r).into_iter().find(|u| u.op == "objects.samples").map(|u| u.id.clone())
+            });
+        if let Some(id) = from_samples {
+            out.push(Advice {
+                level: Level::Warning,
+                at: vec![n.id.clone()],
+                message: format!(
+                    "the accuracy is assessed with the samples the model was trained on (objects.samples {id}): it \
+                     is optimistic, the model has seen them; validation samples must be kept apart: draw them \
+                     separately (objects.sample draws a probability sample), not used to train"
+                ),
+                guide: "objects",
+            });
+        }
+    }
+    // rules that read attributes nothing makes
+    for n in ops(&["objects.rules"]) {
+        let Some(given) = n.params.get("classes").and_then(|v| terraflux_ops::objects::tree(v).ok()) else { continue };
+        let Some(objects) = reads(n, "objects") else { continue };
+        let up = upstream(nodes, objects);
+        if up.iter().any(|u| u.op == "objects.calc") {
+            continue;
+        }
+        let makers: Vec<&&Node> = up.iter().filter(|u| u.op == "objects.features").collect();
+        if makers.is_empty() {
+            continue;
+        }
+        let mut missing: Vec<(String, &str)> = Vec::new();
+        for text in given.iter().filter_map(|c| c.rule.as_deref()) {
+            let Ok(script) = terraflux_ops::algebra::parse_script_objects(text) else { continue };
+            use terraflux_ops::algebra::Stmt;
+            let mut names: Vec<String> = Vec::new();
+            let mut set: Vec<&str> = Vec::new();
+            for (_, s) in &script.statements {
+                match s {
+                    Stmt::Set { name, layer, mask, value, .. } => {
+                        names.extend(value.names());
+                        names.extend(mask.iter().flat_map(|m| m.names()));
+                        if layer.is_none() {
+                            set.push(name);
+                        }
+                    }
+                    Stmt::Out(_) => {}
+                    Stmt::Value(e) => names.extend(e.names()),
+                }
+            }
+            for name in names.into_iter().filter(|x| !set.contains(&x.as_str())) {
+                let gives: Vec<Option<(&str, bool)>> = makers
+                    .iter()
+                    .map(|f| terraflux_ops::objects::features_give(f.params.get("features"), &name))
+                    .collect();
+                if gives.iter().any(Option::is_none) || gives.iter().any(|g| g.is_some_and(|g| g.1)) {
+                    continue;
+                }
+                if let Some((group, _)) = gives[0]
+                    && !missing.iter().any(|(m, _)| *m == name)
+                {
+                    missing.push((name, group));
+                }
+            }
+        }
+        if !missing.is_empty() {
+            let mut groups: Vec<&str> = missing.iter().map(|m| m.1).collect();
+            groups.sort();
+            groups.dedup();
+            let names: Vec<&str> = missing.iter().map(|m| m.0.as_str()).collect();
+            out.push(Advice {
+                level: Level::Warning,
+                at: vec![n.id.clone()],
+                message: format!(
+                    "the rules read {}, which no objects.features node before them makes with its settings: the \
+                     rule would find no such attribute; add {} to `features` of {} (or `all`)",
+                    names.join(", "),
+                    groups.join(" and "),
+                    makers.iter().map(|f| f.id.as_str()).collect::<Vec<_>>().join(" or ")
+                ),
+                guide: "objects",
+            });
+        }
+    }
     out
 }
 
@@ -732,6 +897,108 @@ mod tests {
         assert!(!woe("nlm.random", "dist_river").iter().any(|a| a.message.contains("none of the drivers")));
         // a file of unknown layers: not told
         assert!(!woe("raster.read", "drivers_file").iter().any(|a| a.message.contains("none of the drivers")));
+    }
+
+    /// Features, samples of `samples_of`, a fit on their table and a classification of `classify_on`'s objects.
+    fn classification(samples_objects: &str, classify_objects: &str) -> Model {
+        let mut m = Model::new("obia");
+        m.nodes.push(Node::new("feats", "objects.features").input("objects", "$objects").input("image", "$image"));
+        m.nodes.push(Node::new("other", "objects.features").input("objects", "$scene2").input("image", "$image2"));
+        m.nodes
+            .push(Node::new("samples", "objects.samples").input("objects", samples_objects).input("samples", "$train"));
+        m.nodes.push(Node::new("fit", "ml.fit").input("table", "samples.table"));
+        m.nodes.push(
+            Node::new("classify", "objects.classify").input("objects", classify_objects).input("model", "fit.model"),
+        );
+        m
+    }
+
+    #[test]
+    fn a_model_fitted_on_other_objects_than_it_classifies() {
+        let r = registry();
+        let msg = "fitted on the samples of other objects";
+        let a = advise(&classification("feats.objects", "feats.objects"), &r, Path::new("."), None);
+        assert!(a.is_empty(), "{a:?}");
+        let a = advise(&classification("other.objects", "feats.objects"), &r, Path::new("."), None);
+        assert!(a.iter().any(|a| a.level == Level::Advice && a.message.contains(msg) && a.at == ["classify"]), "{a:?}");
+        // a table that is not objects.samples'
+        let mut m = classification("feats.objects", "feats.objects");
+        m.nodes.retain(|n| n.id != "fit");
+        m.nodes.push(Node::new("fit", "ml.fit").input("table", "$table"));
+        let a = advise(&m, &r, Path::new("."), None);
+        assert!(a.iter().any(|a| a.message.contains("does not come from objects.samples")), "{a:?}");
+        assert!(!a.iter().any(|a| a.message.contains(msg)), "{a:?}");
+    }
+
+    #[test]
+    fn validation_samples_that_are_the_training_ones() {
+        let r = registry();
+        let with = |samples: &str| {
+            let mut m = classification("feats.objects", "feats.objects");
+            m.nodes.push(
+                Node::new("acc", "objects.accuracy").input("objects", "classify.objects").input("samples", samples),
+            );
+            advise(&m, &r, Path::new("."), None)
+        };
+        let a = with("$train");
+        assert!(
+            a.iter().any(|a| a.level == Level::Warning && a.message.contains("kept apart") && a.at == ["acc"]),
+            "{a:?}"
+        );
+        assert!(!with("$validation").iter().any(|a| a.message.contains("kept apart")));
+        // the reference as the training table
+        let mut m = classification("feats.objects", "feats.objects");
+        m.nodes.push(
+            Node::new("acc", "objects.accuracy")
+                .input("objects", "classify.objects")
+                .input("reference", "samples.table"),
+        );
+        assert!(advise(&m, &r, Path::new("."), None).iter().any(|a| a.message.contains("kept apart")));
+    }
+
+    #[test]
+    fn rules_that_read_what_the_features_do_not_make() {
+        let r = registry();
+        let model = |features: Option<serde_json::Value>, rule: &str| {
+            let mut f = Node::new("feats", "objects.features").input("objects", "$objects").input("image", "$image");
+            if let Some(v) = features {
+                f = f.param("features", v);
+            }
+            let mut m = Model::new("rules");
+            m.nodes.push(f);
+            m.nodes.push(
+                Node::new("rules", "objects.rules")
+                    .input("objects", "feats.objects")
+                    .param("classes", serde_json::json!([{ "name": "field", "rule": rule }])),
+            );
+            advise(&m, &r, Path::new("."), None)
+        };
+        let rule = "above(rectangular_fit, 0.5, 0.9) and above(ndvi, 0.2, 0.4)";
+        let a = model(None, rule);
+        let w: Vec<&Advice> = a.iter().filter(|a| a.message.contains("the rules read")).collect();
+        assert_eq!(w.len(), 1, "{a:?}");
+        assert!(
+            w[0].level == Level::Warning
+                && w[0].message.contains("rectangular_fit, which")
+                && w[0].message.contains("add shape")
+        );
+        assert!(!w[0].message.contains("ndvi"), "{}", w[0].message);
+        for ok in [
+            serde_json::json!(["spectral", "shape"]),
+            serde_json::json!("all"),
+            serde_json::json!(["rectangular_fit", "ndvi"]),
+        ] {
+            assert!(!model(Some(ok), rule).iter().any(|a| a.message.contains("the rules read")));
+        }
+        // an attribute of the user's, or of the table itself: not told
+        assert!(
+            !model(None, "above(my_index, 0, 1) and above(area, 0, 100)")
+                .iter()
+                .any(|a| a.message.contains("the rules read"))
+        );
+        // a texture column of a band
+        let a = model(None, "above(glcm_contrast_b4, 0.1, 0.5)");
+        assert!(a.iter().any(|a| a.message.contains("glcm_contrast_b4") && a.message.contains("add texture")), "{a:?}");
     }
 
     /// The templates show good practice: none of them gets a warning.

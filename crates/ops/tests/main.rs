@@ -46,6 +46,7 @@ mod objects_levels;
 mod objects_resolve;
 mod objects_temporal;
 mod objects_tiles;
+mod objects_warnings;
 mod ops;
 mod optimize;
 mod parity;

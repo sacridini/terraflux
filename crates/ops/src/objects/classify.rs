@@ -65,7 +65,8 @@ impl Operator for Samples {
         let o = objects_in(args, "objects")?;
         let attr: String = args.param("class", "class".to_string())?;
         let v = crate::vector::on_grid(crate::vector::vector_of(args, "samples")?, &o.grid)?;
-        let (names, class_of) = sample_classes(ctx, node, o, &v, &attr)?;
+        let mut polygon_cells = Vec::new();
+        let (names, class_of) = sample_classes_sized(ctx, node, o, &v, &attr, &mut polygon_cells)?;
         // the training table
         let numeric: Vec<usize> = (1..o.table.columns.len())
             .filter(|&j| !o.table.is_text(&o.table.columns[j]) && o.table.columns[j] != "class")
@@ -92,6 +93,12 @@ impl Operator for Samples {
             table.rows.push(row);
         }
         text_column(&mut table, "class", names.clone());
+        let per_class: Vec<(String, usize)> =
+            names.iter().zip(&counts).map(|(n, c)| (n.clone(), c.0 as usize)).collect();
+        super::warnings::counts(ctx, "objects.samples", node, &per_class);
+        let mut sampled: Vec<f64> =
+            class_of.iter().zip(&o.cells).filter(|(c, _)| **c != 0).map(|(_, &n)| n as f64).collect();
+        super::warnings::sizes(ctx, node, &mut sampled, &mut polygon_cells);
         let mut ct = Table::new(["class", "objects", "cells"].map(String::from).to_vec());
         ct.rows = counts.iter().enumerate().map(|(c, n)| vec![(c + 1) as f64, n.0, n.1]).collect();
         text_column(&mut ct, "class", names.clone());
@@ -112,6 +119,18 @@ pub(super) fn sample_classes(
     o: &Objects,
     v: &Vector,
     attr: &str,
+) -> Result<(Vec<String>, Vec<u32>)> {
+    sample_classes_sized(ctx, node, o, v, attr, &mut Vec::new())
+}
+
+/// [`sample_classes`], and the cells inside each polygon with a class pushed to `polygon_cells`.
+fn sample_classes_sized(
+    ctx: &mut Ctx,
+    node: &str,
+    o: &Objects,
+    v: &Vector,
+    attr: &str,
+    polygon_cells: &mut Vec<f64>,
 ) -> Result<(Vec<String>, Vec<u32>)> {
     let col = v.attributes.iter().find(|(n, _)| *n == attr).map(|(_, c)| c).ok_or_else(|| {
         let have: Vec<&str> = v.attributes.iter().map(|(n, _)| n.as_str()).collect();
@@ -176,14 +195,19 @@ pub(super) fn sample_classes(
                 let p = polys.iter().position(|&i| i == k).unwrap();
                 let r = poly_runs.as_ref().unwrap();
                 let mut inside: BTreeMap<u32, u32> = BTreeMap::new();
+                let mut total = 0u32;
                 for q in r.offsets[p] as usize..r.offsets[p + 1] as usize {
                     let row = r.y[q] as usize * g.width;
                     for x in r.x0[q]..r.x1[q] {
                         let l = o.labels[row + x as usize];
+                        total += 1;
                         if l != 0 {
                             *inside.entry(l).or_default() += 1;
                         }
                     }
+                }
+                if total > 0 {
+                    polygon_cells.push(total as f64);
                 }
                 let mut any = false;
                 for (l, n) in inside {
@@ -266,7 +290,7 @@ impl Operator for Classify {
         ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let o = objects_in(args, "objects")?;
         let Some(Value::MlModel(model)) = args.get("model") else {
@@ -300,6 +324,14 @@ impl Operator for Classify {
                 ))
             })?);
         }
+        if let Some(t) = samples
+            && let Some(rows) = t.column("class")
+        {
+            let per: Vec<(String, usize)> =
+                codes.iter().zip(&names).map(|(&c, n)| (n.clone(), rows.iter().filter(|&&x| x == c).count())).collect();
+            super::warnings::counts(ctx, "objects.classify", node, &per);
+        }
+        super::warnings::correlated(ctx, "objects.classify", node, &predictors, &columns);
         let probs = model
             .outputs(&Frame { names: predictors, columns })
             .map_err(|e| Error::msg(format!("node {node:?}: {e}")))?;

@@ -226,10 +226,11 @@ impl Operator for Scale {
         .param(PortSpec::optional("seed", Type::Integer, "the seed of the order of the merges (default 0)"))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let bad = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let l = crate::raster_stats::layers(args, "image")?;
+        super::warnings::image(ctx, args.node, &l.grid, &l.names, &l.data, false);
         let nb = l.data.len();
         let above0 = |name: &str| -> Result<Option<f64>> {
             match args.opt_param::<f64>(name)? {
