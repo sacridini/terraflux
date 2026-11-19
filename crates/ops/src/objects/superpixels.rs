@@ -3,17 +3,29 @@
 //! All three work on the bands standardised (z-score over the cells with a value) unless told otherwise: the distance
 //! between two cells sums the squared differences of the bands, so a band of range 0-10000 would drown one of range
 //! 0-1; on z-scores every band counts alike. A cell with a value in some bands only takes the band's mean (0 after the
-//! z-score) in the others. A cell without a value in every band is no object. One thread: the same result on every run.
+//! z-score) in the others. A cell without a value in every band is no object. The same result on every run, on any number of threads.
 
 use std::cmp::Reverse;
-use std::collections::BinaryHeap;
 use std::sync::Arc;
 
+use rayon::prelude::*;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 
 use super::{NO_REGION, Objects, find};
 use crate::raster_stats::Layers;
 use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Value, outputs};
+
+/// A hint to the processor to bring the memory at `p` into the cache (nothing where there is no such instruction).
+#[inline(always)]
+pub(super) fn prefetch<T>(p: *const T) {
+    #[cfg(target_arch = "x86_64")]
+    // SAFETY: a prefetch only hints: it reads nothing and cannot fault, whatever the address.
+    unsafe {
+        std::arch::x86_64::_mm_prefetch(p as *const i8, std::arch::x86_64::_MM_HINT_T0)
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    let _ = p;
+}
 
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(Slic));
@@ -37,31 +49,42 @@ pub(super) struct Prep {
 pub(super) fn prep(l: &Layers, standardise: bool) -> Prep {
     let (w, h, nb) = (l.grid.width, l.grid.height, l.data.len());
     let n = w * h;
-    let valid: Vec<bool> = (0..n).map(|i| l.data.iter().any(|b| !b[i].is_nan())).collect();
+    let valid: Vec<bool> = (0..n).into_par_iter().map(|i| l.data.iter().any(|b| !b[i].is_nan())).collect();
+    // each band's mean and scale, the bands in parallel (a band's sums stay in the order of the cells)
+    let st: Vec<(f64, f64)> = l
+        .data
+        .par_iter()
+        .map(|b| {
+            let (mut s, mut c) = (0.0, 0usize);
+            for &v in b.iter().filter(|v| !v.is_nan()) {
+                s += v;
+                c += 1;
+            }
+            let mean = if c > 0 { s / c as f64 } else { 0.0 };
+            let mut s2 = 0.0;
+            for &v in b.iter().filter(|v| !v.is_nan()) {
+                s2 += (v - mean) * (v - mean);
+            }
+            let sd = if c > 0 { (s2 / c as f64).sqrt() } else { 0.0 };
+            // a band with no spread has nothing to tell cells apart: its z-scores are 0
+            (mean, if standardise && sd > 0.0 { 1.0 / sd } else { 1.0 })
+        })
+        .collect();
     let mut x = vec![0.0; n * nb];
-    for (j, b) in l.data.iter().enumerate() {
-        let (mut s, mut c) = (0.0, 0usize);
-        for &v in b.iter().filter(|v| !v.is_nan()) {
-            s += v;
-            c += 1;
-        }
-        let mean = if c > 0 { s / c as f64 } else { 0.0 };
-        let mut s2 = 0.0;
-        for &v in b.iter().filter(|v| !v.is_nan()) {
-            s2 += (v - mean) * (v - mean);
-        }
-        let sd = if c > 0 { (s2 / c as f64).sqrt() } else { 0.0 };
-        // a band with no spread has nothing to tell cells apart: its z-scores are 0
-        let scale = if standardise && sd > 0.0 { 1.0 / sd } else { 1.0 };
-        for i in 0..n {
-            let v = b[i];
-            if !v.is_nan() {
-                x[i * nb + j] = if standardise { (v - mean) * scale } else { v };
-            } else if !standardise {
-                x[i * nb + j] = mean;
+    const CHUNK: usize = 4096;
+    x.par_chunks_mut(CHUNK * nb.max(1)).enumerate().for_each(|(ch, xs)| {
+        for (q, cell) in xs.chunks_mut(nb.max(1)).enumerate() {
+            let i = ch * CHUNK + q;
+            for (j, (b, &(mean, scale))) in l.data.iter().zip(&st).enumerate() {
+                let v = b[i];
+                if !v.is_nan() {
+                    cell[j] = if standardise { (v - mean) * scale } else { v };
+                } else if !standardise {
+                    cell[j] = mean;
+                }
             }
         }
-    }
+    });
     Prep { w, h, nb, valid, x }
 }
 
@@ -155,12 +178,76 @@ fn seeds(p: &Prep, s: f64, gradient: bool) -> (Vec<usize>, f64) {
     (out, side)
 }
 
+/// The squared difference of the bands of a cell and of a centre; `N` the bands when known (0: `nb`), so the loop unrolls.
+#[inline(always)]
+fn colour_gap<const N: usize>(f: &[f64], c: &[f64], nb: usize) -> f64 {
+    let n = if N == 0 { nb } else { N };
+    let mut s = 0.0;
+    for b in 0..n {
+        let d = f[b] - c[b];
+        s += d * d;
+    }
+    s
+}
+
+/// One assignment of SLIC: each cell takes the centre of the least distance among those whose window holds it (the
+/// lowest centre on a tie), rows in parallel. `ks[start[r]..start[r + 1]]` are the centres whose window holds row `r`,
+/// in order. Returns whether some cell keeps a label from an earlier pass that no window holds now.
+#[allow(clippy::too_many_arguments)]
+fn assign<const N: usize>(
+    p: &Prep,
+    cen: &[f64],
+    win: &[[usize; 4]],
+    start: &[usize],
+    ks: &[u32],
+    wt: f64,
+    lab: &mut [u32],
+) -> bool {
+    let (w, nb) = (p.w, p.nb);
+    let stride = nb + 2;
+    lab.par_chunks_mut(w.max(1))
+        .enumerate()
+        .map_init(
+            || vec![f64::INFINITY; w],
+            |dist, (r, row)| {
+                dist.fill(f64::INFINITY);
+                let valid = &p.valid[r * w..(r + 1) * w];
+                let x = &p.x[r * w * nb..(r + 1) * w * nb];
+                for &k in &ks[start[r]..start[r + 1]] {
+                    let k = k as usize;
+                    let c = &cen[k * stride..(k + 1) * stride];
+                    let dr = r as f64 - c[0];
+                    let dr2 = dr * dr;
+                    for q in win[k][2]..=win[k][3] {
+                        if !valid[q] {
+                            continue;
+                        }
+                        let dq = q as f64 - c[1];
+                        let sp = (dr2 + dq * dq) * wt;
+                        // (the colour part is never negative: the cell cannot win with the space part alone not enough)
+                        if sp >= dist[q] {
+                            continue;
+                        }
+                        let d = colour_gap::<N>(&x[q * nb..(q + 1) * nb], &c[2..], nb) + sp;
+                        if d < dist[q] {
+                            dist[q] = d;
+                            row[q] = k as u32 + 1;
+                        }
+                    }
+                }
+                (0..w).any(|q| dist[q] == f64::INFINITY && row[q] != 0)
+            },
+        )
+        .reduce(|| false, |a, b| a || b)
+}
+
 /// SLIC (Achanta et al. 2012): k-means on the bands and the position, each centre looking only at a window of 2S x 2S
-/// around it; D² = d_colour² + (d_space / S)² m² (d_colour² the mean over the bands of the squared gaps). Returns the superpixel of each cell (0 none).
+/// around it; DÂ² = d_colourÂ² + (d_space / S)Â² mÂ² (d_colourÂ² the mean over the bands of the squared gaps). Returns the superpixel of each cell (0 none).
 fn slic(p: &Prep, seeds: &[usize], s: f64, m: f64, iterations: usize) -> Vec<u32> {
     let (w, h, nb) = (p.w, p.h, p.nb);
     let stride = nb + 2;
-    let mut cen = vec![0.0f64; seeds.len() * stride];
+    let nk = seeds.len();
+    let mut cen = vec![0.0f64; nk * stride];
     for (k, &i) in seeds.iter().enumerate() {
         cen[k * stride] = (i / w) as f64;
         cen[k * stride + 1] = (i % w) as f64;
@@ -168,53 +255,99 @@ fn slic(p: &Prep, seeds: &[usize], s: f64, m: f64, iterations: usize) -> Vec<u32
     }
     let wt = m * m * nb as f64 / (s * s);
     let mut lab = vec![0u32; w * h];
+    // the window of each centre (row min, row max, column min, column max) and, by row, the centres whose window holds it
+    let mut win = vec![[0usize; 4]; nk];
+    let mut start = vec![0usize; h + 1];
+    let mut fill = vec![0usize; h];
+    let mut ks: Vec<u32> = Vec::new();
+    let mut sum = vec![0.0f64; nk * stride];
     for _ in 0..iterations {
-        let mut dist = vec![f64::INFINITY; w * h];
-        for k in 0..seeds.len() {
-            let c = &cen[k * stride..(k + 1) * stride];
-            let r0 = (c[0] - s).floor().max(0.0) as usize;
-            let r1 = ((c[0] + s).ceil() as usize).min(h - 1);
-            let c0 = (c[1] - s).floor().max(0.0) as usize;
-            let c1 = ((c[1] + s).ceil() as usize).min(w - 1);
-            for r in r0..=r1 {
-                for q in c0..=c1 {
-                    let i = r * w + q;
-                    if !p.valid[i] {
-                        continue;
-                    }
-                    let dc: f64 = p.feat(i).iter().zip(&c[2..]).map(|(a, b)| (a - b) * (a - b)).sum();
-                    let (dr, dq) = (r as f64 - c[0], q as f64 - c[1]);
-                    let d = dc + (dr * dr + dq * dq) * wt;
-                    if d < dist[i] {
-                        dist[i] = d;
-                        lab[i] = k as u32 + 1;
-                    }
-                }
+        for (k, c) in cen.chunks(stride).enumerate() {
+            win[k] = [
+                (c[0] - s).floor().max(0.0) as usize,
+                ((c[0] + s).ceil() as usize).min(h - 1),
+                (c[1] - s).floor().max(0.0) as usize,
+                ((c[1] + s).ceil() as usize).min(w - 1),
+            ];
+        }
+        start.fill(0);
+        for wk in &win {
+            for r in wk[0]..=wk[1] {
+                start[r + 1] += 1;
             }
         }
+        for r in 0..h {
+            start[r + 1] += start[r];
+        }
+        ks.resize(start[h], 0);
+        fill.copy_from_slice(&start[..h]);
+        for (k, wk) in win.iter().enumerate() {
+            for r in wk[0]..=wk[1] {
+                ks[fill[r]] = k as u32;
+                fill[r] += 1;
+            }
+        }
+        let stale = match nb {
+            1 => assign::<1>(p, &cen, &win, &start, &ks, wt, &mut lab),
+            2 => assign::<2>(p, &cen, &win, &start, &ks, wt, &mut lab),
+            3 => assign::<3>(p, &cen, &win, &start, &ks, wt, &mut lab),
+            4 => assign::<4>(p, &cen, &win, &start, &ks, wt, &mut lab),
+            _ => assign::<0>(p, &cen, &win, &start, &ks, wt, &mut lab),
+        };
         // the centres move to the mean of their cells
-        let mut sum = vec![0.0f64; seeds.len() * stride];
-        let mut cnt = vec![0u32; seeds.len()];
-        for (i, &l) in lab.iter().enumerate() {
-            let l = l as usize;
-            if l == 0 {
-                continue;
-            }
-            let k = l - 1;
-            cnt[k] += 1;
-            let t = &mut sum[k * stride..(k + 1) * stride];
-            t[0] += (i / w) as f64;
-            t[1] += (i % w) as f64;
-            for (a, b) in t[2..].iter_mut().zip(p.feat(i)) {
-                *a += b;
-            }
-        }
-        for k in 0..seeds.len() {
-            if cnt[k] > 0 {
-                for q in 0..stride {
-                    cen[k * stride + q] = sum[k * stride + q] / cnt[k] as f64;
+        if stale {
+            // some cell kept the label of an earlier pass, maybe outside the window: all the cells, in order
+            let mut cnt = vec![0u32; nk];
+            sum.fill(0.0);
+            for (i, &l) in lab.iter().enumerate() {
+                if l == 0 {
+                    continue;
+                }
+                let k = l as usize - 1;
+                cnt[k] += 1;
+                let t = &mut sum[k * stride..(k + 1) * stride];
+                t[0] += (i / w) as f64;
+                t[1] += (i % w) as f64;
+                for (a, b) in t[2..].iter_mut().zip(p.feat(i)) {
+                    *a += b;
                 }
             }
+            for k in 0..nk {
+                if cnt[k] > 0 {
+                    for q in 0..stride {
+                        cen[k * stride + q] = sum[k * stride + q] / cnt[k] as f64;
+                    }
+                }
+            }
+        } else {
+            // every cell of a centre is in its window: the sums of each centre in parallel, its cells in the same order
+            // as over the whole image, so the same floats
+            let lab = &lab;
+            let win = &win;
+            sum.par_chunks_mut(stride).zip(cen.par_chunks_mut(stride)).enumerate().for_each(|(k, (t, c))| {
+                t.fill(0.0);
+                let mut cnt = 0u32;
+                let id = k as u32 + 1;
+                for r in win[k][0]..=win[k][1] {
+                    for q in win[k][2]..=win[k][3] {
+                        let i = r * w + q;
+                        if lab[i] != id {
+                            continue;
+                        }
+                        cnt += 1;
+                        t[0] += r as f64;
+                        t[1] += q as f64;
+                        for (a, b) in t[2..].iter_mut().zip(p.feat(i)) {
+                            *a += b;
+                        }
+                    }
+                }
+                if cnt > 0 {
+                    for q in 0..stride {
+                        c[q] = t[q] / cnt as f64;
+                    }
+                }
+            });
         }
     }
     lab
@@ -225,62 +358,190 @@ fn slic(p: &Prep, seeds: &[usize], s: f64, m: f64, iterations: usize) -> Vec<u32
 /// the cell queued first. Returns the superpixel of each cell (0 none).
 fn snic(p: &Prep, seeds: &[usize], s: f64, m: f64) -> Vec<u32> {
     let (w, h, nb) = (p.w, p.h, p.nb);
+    // the queue numbers its pushes in 32 bits, at most 4 a cell (`run` refuses bigger images)
+    assert!(w * h < 1 << 28, "segment.snic: an image of more than 2^28 cells");
     let stride = nb + 3;
     // per superpixel: count, row sum, column sum, band sums
     let mut sum = vec![0.0f64; seeds.len() * stride];
     let wt = m * m * nb as f64 / (s * s);
-    let mut lab = vec![0u32; w * h];
-    let mut heap: BinaryHeap<Reverse<(u64, u64, u32, u32)>> = BinaryHeap::new();
-    let mut seq = 0u64;
+    // The queue holds (distance bits, push number << 32 | cell): the distance is never negative, so its bits sort as the
+    // values, and the push number breaks ties (the cell queued first). The superpixel of push number q is `owner[q]`.
+    // A cell is queued only when its distance is below every one queued for it so far: a later push with a distance
+    // no lower would come out after the first, when the cell is labelled already.
+    let mut cells = cells_of(p);
+    let mut heap = Queue::with_capacity(w * h / 4);
+    let mut owner: Vec<u32> = Vec::with_capacity(w * h / 4);
     for (k, &i) in seeds.iter().enumerate() {
-        heap.push(Reverse((0f64.to_bits(), seq, i as u32, k as u32)));
-        seq += 1;
+        heap.push(Queue::key(0.0, owner.len(), i));
+        owner.push(k as u32);
+        cells[i].low = 0.0;
     }
-    while let Some(Reverse((_, _, i, k))) = heap.pop() {
-        let i = i as usize;
-        if lab[i] != 0 {
+    let mut mean = vec![0.0f64; nb];
+    while let Some(q) = heap.pop() {
+        let i = Queue::cell(q);
+        if cells[i].lab != 0 {
             continue;
         }
-        lab[i] = k + 1;
-        let t = &mut sum[k as usize * stride..(k as usize + 1) * stride];
+        // (the next cell to come out is likely this one's neighbour work after: its memory is fetched meanwhile)
+        if let Some(nx) = heap.peek() {
+            let j = Queue::cell(nx);
+            prefetch(cells.as_ptr().wrapping_add(j));
+            prefetch(cells.as_ptr().wrapping_add(j).wrapping_sub(w));
+            prefetch(cells.as_ptr().wrapping_add(j + w));
+            prefetch(p.x.as_ptr().wrapping_add(j * nb));
+            prefetch(p.x.as_ptr().wrapping_add(j.wrapping_sub(w).wrapping_mul(nb)));
+            prefetch(p.x.as_ptr().wrapping_add((j + w) * nb));
+            prefetch(owner.as_ptr().wrapping_add(Queue::push_of(nx)));
+        }
+        let k = owner[Queue::push_of(q)] as usize;
+        cells[i].lab = k as u32 + 1;
+        let (r, c) = (i / w, i % w);
+        let t = &mut sum[k * stride..(k + 1) * stride];
         t[0] += 1.0;
-        t[1] += (i / w) as f64;
-        t[2] += (i % w) as f64;
+        t[1] += r as f64;
+        t[2] += c as f64;
         for (a, b) in t[3..].iter_mut().zip(p.feat(i)) {
             *a += b;
         }
-        let t = &sum[k as usize * stride..(k as usize + 1) * stride];
-        let (r, c) = (i / w, i % w);
         let (mr, mc) = (t[1] / t[0], t[2] / t[0]);
-        let mut go = |j: usize| {
-            if !p.valid[j] || lab[j] != 0 {
+        for (a, b) in mean.iter_mut().zip(&t[3..]) {
+            *a = b / t[0];
+        }
+        let mut go = |j: usize, rj: usize, cj: usize| {
+            let cell = &mut cells[j];
+            if cell.lab != 0 {
                 return;
             }
-            let dc: f64 = p.feat(j).iter().zip(&t[3..]).map(|(a, b)| (a - b / t[0]) * (a - b / t[0])).sum();
-            let (dr, dq) = ((j / w) as f64 - mr, (j % w) as f64 - mc);
-            let d = dc + (dr * dr + dq * dq) * wt;
-            heap.push(Reverse((d.to_bits(), seq, j as u32, k)));
-            seq += 1;
+            let (dr, dq) = (rj as f64 - mr, cj as f64 - mc);
+            let sp = (dr * dr + dq * dq) * wt;
+            // (the colour part is never negative)
+            if sp >= cell.low {
+                return;
+            }
+            let mut dc = 0.0;
+            for (a, b) in p.feat(j).iter().zip(&mean) {
+                dc += (a - b) * (a - b);
+            }
+            let d = dc + sp;
+            if d < cell.low {
+                cell.low = d;
+                heap.push(Queue::key(d, owner.len(), j));
+                owner.push(k as u32);
+            }
         };
         if r > 0 {
-            go(i - w);
+            go(i - w, r - 1, c);
         }
         if c > 0 {
-            go(i - 1);
+            go(i - 1, r, c - 1);
         }
         if c + 1 < w {
-            go(i + 1);
+            go(i + 1, r, c + 1);
         }
         if r + 1 < h {
-            go(i + w);
+            go(i + w, r + 1, c);
         }
     }
-    lab
+    labels_of(&cells)
+}
+
+/// A cell of the queue-driven growth of `snic` and the watershed's flood: the lowest priority queued for it so far
+/// (infinity none) and its label (0 none yet, `u32::MAX` a cell without a value), side by side for one cache miss.
+#[derive(Clone, Copy)]
+pub(super) struct Cell {
+    pub(super) low: f64,
+    pub(super) lab: u32,
+}
+
+pub(super) fn cells_of(p: &Prep) -> Vec<Cell> {
+    (0..p.w * p.h)
+        .into_par_iter()
+        .map(|i| Cell { low: f64::INFINITY, lab: if p.valid[i] { 0 } else { u32::MAX } })
+        .collect()
+}
+
+/// The label of each cell (0 for none or no value).
+pub(super) fn labels_of(cells: &[Cell]) -> Vec<u32> {
+    cells.par_iter().map(|c| if c.lab == u32::MAX { 0 } else { c.lab }).collect()
+}
+
+/// A min-heap of 128-bit keys with four children to a node: fewer levels than a binary heap, and the children side by
+/// side. A key is the priority's bits (the priority is never negative, so they sort as the values), then the number of
+/// the push (so equal priorities come out in the order they went in) and the cell.
+pub(super) struct Queue {
+    v: Vec<u128>,
+}
+
+impl Queue {
+    pub(super) fn with_capacity(n: usize) -> Queue {
+        Queue { v: Vec::with_capacity(n) }
+    }
+
+    pub(super) fn key(pri: f64, push: usize, cell: usize) -> u128 {
+        ((pri.to_bits() as u128) << 64) | ((push as u128) << 32) | cell as u128
+    }
+
+    pub(super) fn cell(key: u128) -> usize {
+        (key as u64 & 0xFFFF_FFFF) as usize
+    }
+
+    pub(super) fn push_of(key: u128) -> usize {
+        ((key as u64) >> 32) as usize
+    }
+
+    /// The least key, left in.
+    pub(super) fn peek(&self) -> Option<u128> {
+        self.v.first().copied()
+    }
+
+    pub(super) fn push(&mut self, x: u128) {
+        let mut i = self.v.len();
+        self.v.push(x);
+        while i > 0 {
+            let up = (i - 1) / 4;
+            if self.v[up] <= x {
+                break;
+            }
+            self.v[i] = self.v[up];
+            i = up;
+        }
+        self.v[i] = x;
+    }
+
+    pub(super) fn pop(&mut self) -> Option<u128> {
+        let last = self.v.pop()?;
+        let n = self.v.len();
+        if n == 0 {
+            return Some(last);
+        }
+        let top = self.v[0];
+        let mut i = 0;
+        loop {
+            let first = 4 * i + 1;
+            if first >= n {
+                break;
+            }
+            let (mut at, mut least) = (first, self.v[first]);
+            for q in first + 1..(first + 4).min(n) {
+                if self.v[q] < least {
+                    (at, least) = (q, self.v[q]);
+                }
+            }
+            if least >= last {
+                break;
+            }
+            self.v[i] = least;
+            i = at;
+        }
+        self.v[i] = last;
+        Some(top)
+    }
 }
 
 /// The regions of a labelling (0 where a cell with a value has none: those are `LOOSE`).
 fn regions_of(p: &Prep, lab: &[u32]) -> Vec<u64> {
     (0..p.w * p.h)
+        .into_par_iter()
         .map(|i| match (p.valid[i], lab[i]) {
             (false, _) => NO_REGION,
             (true, 0) => LOOSE,
@@ -315,7 +576,9 @@ fn absorb(o: &Objects, min: u32) -> Vec<u64> {
             size[b as usize] += size[me as usize];
         }
     }
-    o.labels.iter().map(|&l| if l == 0 { NO_REGION } else { find(&mut parent, l) as u64 }).collect()
+    // the root of each id, then the cells in parallel
+    let root: Vec<u32> = (0..=o.count as u32).map(|id| find(&mut parent, id)).collect();
+    o.labels[..].par_iter().map(|&l| if l == 0 { NO_REGION } else { root[l as usize] as u64 }).collect()
 }
 
 /// The objects and the table of a segmenter's regions.
@@ -341,7 +604,7 @@ fn signature(name: &str, about: &str) -> OpSignature {
 
 const STANDARD: &str = "The bands are standardised (z-score over the cells with a value) by default, so that bands \
     of different ranges (reflectance 0-1 beside 0-10000) weigh alike in the distance; standardise: false uses the \
-    raw values. A cell without a value in every band is no object. One thread: the same result on every run.";
+    raw values. A cell without a value in every band is no object. The same result on every run, on any number of threads.";
 
 fn lattice_ports(sig: OpSignature) -> OpSignature {
     sig.param(PortSpec::optional(
@@ -414,6 +677,12 @@ impl Operator for Snic {
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let l = crate::raster_stats::layers(args, "image")?;
+        if l.grid.width * l.grid.height >= 1 << 28 {
+            return Err(Error::msg(format!(
+                "node {:?}: an image of {} × {} cells, more than segment.snic works in memory",
+                args.node, l.grid.width, l.grid.height
+            )));
+        }
         let standardise: bool = args.param("standardise", true)?;
         super::warnings::image(ctx, args.node, &l.grid, &l.names, &l.data, standardise);
         let p = prep(&l, standardise);
@@ -425,103 +694,234 @@ impl Operator for Snic {
 }
 
 /// The bands smoothed by a Gaussian of `sigma` cells (to 4 sigma), over the cells with a value only: a cell's smooth is
-/// the weighted mean of those around it.
+/// the weighted mean of those around it. Both passes run by rows in parallel, each cell summing its line in the same
+/// order.
 pub(super) fn smooth(p: &mut Prep, sigma: f64) {
-    let (w, h, nb) = (p.w, p.h, p.nb);
+    if p.w == 0 || p.h == 0 || p.nb == 0 {
+        return;
+    }
     let rad = (4.0 * sigma).ceil() as i64;
     let ker: Vec<f64> = (-rad..=rad).map(|d| (-((d * d) as f64) / (2.0 * sigma * sigma)).exp()).collect();
-    // one pass along lines of `len` cells, `step` apart, the lines starting `line_step` apart
-    let pass = |valid: &[bool], src: &[f64], len: usize, step: usize, lines: usize, line_step: usize| -> Vec<f64> {
-        let mut dst = src.to_vec();
-        let mut acc = vec![0.0f64; nb];
-        for line in 0..lines {
-            for pos in 0..len {
-                let i = line * line_step + pos * step;
-                if !valid[i] {
+    match p.nb {
+        1 => smooth_n::<1>(p, &ker, rad),
+        2 => smooth_n::<2>(p, &ker, rad),
+        3 => smooth_n::<3>(p, &ker, rad),
+        4 => smooth_n::<4>(p, &ker, rad),
+        _ => smooth_n::<0>(p, &ker, rad),
+    }
+}
+
+/// [`smooth`] with `N` bands when known (0: as many as `p.nb`), so the loops over the bands unroll.
+fn smooth_n<const N: usize>(p: &mut Prep, ker: &[f64], rad: i64) {
+    let (w, h, nb) = (p.w, p.h, p.nb);
+    let n = if N == 0 { nb } else { N };
+    let valid = &p.valid;
+    // along the rows
+    let mut rows = p.x.clone();
+    rows.par_chunks_mut(w * nb).zip(p.x.par_chunks(w * nb)).enumerate().for_each_init(
+        || vec![0.0f64; nb],
+        |acc, (r, (dst, src))| {
+            let vr = &valid[r * w..(r + 1) * w];
+            let acc = &mut acc[..n];
+            for pos in 0..w {
+                if !vr[pos] {
                     continue;
                 }
-                acc.iter_mut().for_each(|a| *a = 0.0);
+                acc.fill(0.0);
                 let mut wsum = 0.0;
                 for (q, &kw) in ker.iter().enumerate() {
                     let at = pos as i64 + q as i64 - rad;
-                    if at < 0 || at >= len as i64 {
+                    if at < 0 || at >= w as i64 {
                         continue;
                     }
-                    let j = line * line_step + at as usize * step;
-                    if valid[j] {
+                    let j = at as usize;
+                    if vr[j] {
                         wsum += kw;
-                        for b in 0..nb {
-                            acc[b] += kw * src[j * nb + b];
+                        let s = &src[j * nb..j * nb + n];
+                        for b in 0..n {
+                            acc[b] += kw * s[b];
                         }
                     }
                 }
-                for b in 0..nb {
-                    dst[i * nb + b] = acc[b] / wsum;
+                let d = &mut dst[pos * nb..pos * nb + n];
+                for b in 0..n {
+                    d[b] = acc[b] / wsum;
                 }
             }
-        }
-        dst
-    };
-    let rows = pass(&p.valid, &p.x, w, 1, h, w);
-    p.x = pass(&p.valid, &rows, h, w, w, 1);
+        },
+    );
+    // along the columns: an output row sums the rows around it, cell by cell
+    let mut out = rows.clone();
+    out.par_chunks_mut(w * nb).enumerate().for_each_init(
+        || (vec![0.0f64; w * nb], vec![0.0f64; w]),
+        |(acc, wsum), (r, dst)| {
+            acc.fill(0.0);
+            wsum.fill(0.0);
+            for (q, &kw) in ker.iter().enumerate() {
+                let at = r as i64 + q as i64 - rad;
+                if at < 0 || at >= h as i64 {
+                    continue;
+                }
+                let at = at as usize;
+                let vr = &valid[at * w..(at + 1) * w];
+                let src = &rows[at * w * nb..(at + 1) * w * nb];
+                for c in 0..w {
+                    if vr[c] {
+                        wsum[c] += kw;
+                        let (a, s) = (&mut acc[c * nb..c * nb + n], &src[c * nb..c * nb + n]);
+                        for b in 0..n {
+                            a[b] += kw * s[b];
+                        }
+                    }
+                }
+            }
+            for c in 0..w {
+                if valid[r * w + c] {
+                    let (d, a) = (&mut dst[c * nb..c * nb + n], &acc[c * nb..c * nb + n]);
+                    for b in 0..n {
+                        d[b] = a[b] / wsum[c];
+                    }
+                }
+            }
+        },
+    );
+    p.x = out;
 }
 
 /// Felzenszwalb & Huttenlocher's (2004) segments: returns the region of each cell.
 fn felzenszwalb(p: &Prep, eight: bool, k: f64, min_size: usize) -> Vec<u64> {
-    let (w, h) = (p.w, p.h);
-    let mut edges: Vec<(f64, u32, u32)> = Vec::new();
-    for r in 0..h {
-        for c in 0..w {
-            let i = r * w + c;
-            if !p.valid[i] {
-                continue;
-            }
-            let mut add = |j: usize| {
-                if p.valid[j] {
-                    edges.push((p.gap(i, j).sqrt(), i as u32, j as u32));
+    let (w, h, nb) = (p.w, p.h, p.nb);
+    // the edges as sort keys: the weight's bits (never negative, so they sort as the values), then the cell and the
+    // kind of edge (0 right, 1 down, 2 down-right, 3 down-left), which is the order they are made in: equal weights
+    // keep it. Rows in parallel.
+    let rows: Vec<Vec<u128>> = (0..h)
+        .into_par_iter()
+        .map(|r| {
+            let mut row: Vec<u128> = Vec::with_capacity(w * if eight { 4 } else { 2 });
+            for c in 0..w {
+                let i = r * w + c;
+                if !p.valid[i] {
+                    continue;
                 }
-            };
-            if c + 1 < w {
-                add(i + 1);
-            }
-            if r + 1 < h {
-                add(i + w);
-                if eight && c + 1 < w {
-                    add(i + w + 1);
+                let f = p.feat(i);
+                let mut add = |j: usize, kind: u128| {
+                    if p.valid[j] {
+                        let g = p.feat(j);
+                        let mut s = 0.0;
+                        for b in 0..nb {
+                            let d = f[b] - g[b];
+                            s += d * d;
+                        }
+                        row.push(((s.sqrt().to_bits() as u128) << 64) | ((i as u128) << 2) | kind);
+                    }
+                };
+                if c + 1 < w {
+                    add(i + 1, 0);
                 }
-                if eight && c > 0 {
-                    add(i + w - 1);
+                if r + 1 < h {
+                    add(i + w, 1);
+                    if eight && c + 1 < w {
+                        add(i + w + 1, 2);
+                    }
+                    if eight && c > 0 {
+                        add(i + w - 1, 3);
+                    }
                 }
             }
-        }
+            row
+        })
+        .collect();
+    let mut edges: Vec<u128> = Vec::with_capacity(rows.iter().map(Vec::len).sum());
+    for row in rows {
+        edges.extend_from_slice(&row);
     }
-    // stable: equal weights stay in the order the edges were made
-    edges.sort_by(|a, b| a.0.total_cmp(&b.0));
+    edges.par_sort_unstable();
     let n = w * h;
-    let mut parent: Vec<u32> = (0..n as u32).collect();
-    let mut size = vec![1u32; n];
-    // the largest edge inside each component
-    let mut inner = vec![0.0f64; n];
-    for &(wt, a, b) in &edges {
-        let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
+    let other = |e: u128| -> (u32, u32) {
+        let i = ((e as u64) >> 2) as usize;
+        let j = match e as u64 & 3 {
+            0 => i + 1,
+            1 => i + w,
+            2 => i + w + 1,
+            _ => i + w - 1,
+        };
+        (i as u32, j as u32)
+    };
+    // each cell's set: the root, the cells in it, the largest edge inside it. Which cell is the root of a set does not
+    // matter (only the sets do), so the larger one stays the root, for short paths.
+    let mut set: Vec<Set> = (0..n as u32).map(|i| Set { parent: i, size: 1, inner: 0.0 }).collect();
+    // (the sets of the edges to come are fetched ahead, and, nearer, the sets their cells point to: the edges are in the
+    // order of their weights, so far apart)
+    const AHEAD: usize = 16;
+    for (at, &e) in edges.iter().enumerate() {
+        if let Some(&f) = edges.get(at + AHEAD) {
+            let (a, b) = other(f);
+            prefetch(set.as_ptr().wrapping_add(a as usize));
+            prefetch(set.as_ptr().wrapping_add(b as usize));
+        }
+        if let Some(&f) = edges.get(at + AHEAD / 2) {
+            let (a, b) = other(f);
+            prefetch(set.as_ptr().wrapping_add(set[a as usize].parent as usize));
+            prefetch(set.as_ptr().wrapping_add(set[b as usize].parent as usize));
+        }
+        let (a, b) = other(e);
+        let wt = f64::from_bits((e >> 64) as u64);
+        let (ra, rb) = (set_find(&mut set, a), set_find(&mut set, b));
         if ra == rb {
             continue;
         }
-        let (ia, ib) = (ra as usize, rb as usize);
-        if wt <= (inner[ia] + k / size[ia] as f64).min(inner[ib] + k / size[ib] as f64) {
-            parent[ib] = ra;
-            size[ia] += size[ib];
-            inner[ia] = wt;
+        let (sa, sb) = (set[ra as usize], set[rb as usize]);
+        if wt <= (sa.inner + k / sa.size as f64).min(sb.inner + k / sb.size as f64) {
+            let (big, little) = if sa.size >= sb.size { (ra, rb) } else { (rb, ra) };
+            set[little as usize].parent = big;
+            set[big as usize].size = sa.size + sb.size;
+            set[big as usize].inner = wt;
         }
     }
-    for &(_, a, b) in &edges {
-        let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
-        if ra != rb && (size[ra as usize] < min_size as u32 || size[rb as usize] < min_size as u32) {
-            parent[rb as usize] = ra;
-            size[ra as usize] += size[rb as usize];
+    // the second pass joins only sets under min_size, and a set that has reached it only grows: the cells already in
+    // sets that large are left out of it
+    let small: Vec<bool> = (0..n as u32)
+        .map(|i| p.valid[i as usize] && {
+            let r = set_find(&mut set, i);
+            set[r as usize].size < min_size as u32
+        })
+        .collect();
+    for (at, &e) in edges.iter().enumerate() {
+        let (a, b) = other(e);
+        if !small[a as usize] && !small[b as usize] {
+            continue;
+        }
+        if let Some(&f) = edges.get(at + AHEAD) {
+            let (a, b) = other(f);
+            prefetch(set.as_ptr().wrapping_add(a as usize));
+            prefetch(set.as_ptr().wrapping_add(b as usize));
+        }
+        let (ra, rb) = (set_find(&mut set, a), set_find(&mut set, b));
+        if ra != rb && (set[ra as usize].size < min_size as u32 || set[rb as usize].size < min_size as u32) {
+            let (big, little) = if set[ra as usize].size >= set[rb as usize].size { (ra, rb) } else { (rb, ra) };
+            set[little as usize].parent = big;
+            set[big as usize].size += set[little as usize].size;
         }
     }
-    (0..n).map(|i| if p.valid[i] { find(&mut parent, i as u32) as u64 } else { NO_REGION }).collect()
+    (0..n).map(|i| if p.valid[i] { set_find(&mut set, i as u32) as u64 } else { NO_REGION }).collect()
+}
+
+/// A set of cells of `felzenszwalb`.
+#[derive(Clone, Copy)]
+struct Set {
+    parent: u32,
+    size: u32,
+    inner: f64,
+}
+
+/// The root of a cell's set (its path halved on the way).
+fn set_find(set: &mut [Set], mut x: u32) -> u32 {
+    while set[x as usize].parent != x {
+        let g = set[set[x as usize].parent as usize].parent;
+        set[x as usize].parent = g;
+        x = g;
+    }
+    x
 }
 
 /// `segment.felzenszwalb`.

@@ -1,6 +1,6 @@
 //! A benchmark battery of the segmenters on fixed synthetic images (ignored: run it by hand, in release):
 //! `cargo test -p terraflux-ops --release --test ops objects_bench -- --ignored --nocapture --test-threads=1`
-//! It prints a table: segmenter, image, threads, seconds, objects. `BENCH_SKIP=meanshift,watershed` leaves some out,
+//! It prints a table: segmenter, image, threads, seconds, objects, and a hash of the labels (a change that must not alter the objects keeps it). `BENCH_SKIP=meanshift,watershed` leaves some out,
 //! `BENCH_ONLY=multiresolution` keeps only those, `BENCH_SIDES=1000` the sides of the images, `BENCH_THREADS=1`.
 
 use std::sync::Arc;
@@ -52,7 +52,16 @@ fn image(w: usize, h: usize, bands: usize, seed: u64) -> Value {
     Value::Stack(Stack { grid: Arc::new(Grid::new(w, h)), keys, layers })
 }
 
-fn run(op: &str, img: &Value, params: serde_json::Value, threads: usize) -> (f64, usize) {
+/// FNV-1a over the labels as u32 (and the count): equal hashes mean the same objects.
+fn hash(o: &Objects) -> u64 {
+    let mut h = 0xcbf29ce484222325u64;
+    for b in (o.count as u32).to_le_bytes().into_iter().chain((0..o.grid.cells()).flat_map(|i| o.labels[i].to_le_bytes())) {
+        h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+fn run(op: &str, img: &Value, params: serde_json::Value, threads: usize) -> (f64, usize, u64) {
     let r = Registry::standard();
     let params = params.as_object().cloned().unwrap_or_default();
     let args = Args { node: "n", inputs: [("image".to_string(), img.clone())].into_iter().collect(), params: &params };
@@ -62,7 +71,7 @@ fn run(op: &str, img: &Value, params: serde_json::Value, threads: usize) -> (f64
     let secs = t.elapsed().as_secs_f64();
     let Value::Objects(o) = &out["objects"] else { panic!("objects") };
     let o: &Arc<Objects> = o;
-    (secs, o.count)
+    (secs, o.count, hash(o))
 }
 
 #[test]
@@ -83,7 +92,7 @@ fn objects_bench() {
         ("segment.watershed", "default", serde_json::json!({})),
         ("segment.meanshift", "default", serde_json::json!({})),
     ];
-    println!("\n{:<26} {:<16} {:<10} {:>7} {:>10} {:>9}", "segmenter", "variant", "image", "threads", "seconds", "objects");
+    println!("\n{:<26} {:<16} {:<10} {:>7} {:>10} {:>9} {:>18}", "segmenter", "variant", "image", "threads", "seconds", "objects", "hash");
     let list = |k: &str, d: &str| -> Vec<usize> {
         std::env::var(k).unwrap_or(d.into()).split(',').filter_map(|x| x.parse().ok()).collect()
     };
@@ -99,12 +108,12 @@ fn objects_bench() {
             }
             for threads in list("BENCH_THREADS", "1,8") {
                 let reps = list("BENCH_REPEAT", "1")[0];
-                let (mut secs, mut n) = (f64::MAX, 0);
+                let (mut secs, mut n, mut hs) = (f64::MAX, 0, 0);
                 for _ in 0..reps {
-                    let (s, k) = run(op, &img, params.clone(), threads);
-                    (secs, n) = (secs.min(s), k);
+                    let (s, k, x) = run(op, &img, params.clone(), threads);
+                    (secs, n, hs) = (secs.min(s), k, x);
                 }
-                println!("{op:<26} {variant:<16} {:<10} {threads:>7} {secs:>10.2} {n:>9}", format!("{side}x{side}x4"));
+                println!("{op:<26} {variant:<16} {:<10} {threads:>7} {secs:>10.2} {n:>9} {hs:>18x}", format!("{side}x{side}x4"));
             }
         }
     }

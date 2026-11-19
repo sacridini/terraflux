@@ -4,15 +4,14 @@
 //! (superpixels.rs's, which ignores the cells without a value). The gradient of a cell is the Sobel magnitude of each
 //! band (per cell, so the units are standard deviations per cell when standardised), and the largest over the bands:
 //! an edge in any one band counts in full, and adding bands does not dilute it as the Euclidean norm would. Edges and
-//! cells without a value count as the cell itself in the Sobel window. One thread: the same result on every run.
+//! cells without a value count as the cell itself in the Sobel window. The same result on every run, on any number of threads.
 
-use std::cmp::Reverse;
-use std::collections::BinaryHeap;
 use std::sync::Arc;
 
+use rayon::prelude::*;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 
-use super::superpixels::{Prep, finish, prep, smooth};
+use super::superpixels::{Cell, Prep, Queue, cells_of, finish, labels_of, prefetch, prep, smooth};
 use super::{NO_REGION, find};
 use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Value};
 
@@ -27,8 +26,8 @@ const LOOSE: u64 = u64::MAX - 1;
 fn gradient(p: &Prep) -> Vec<f64> {
     let (w, h, nb) = (p.w, p.h, p.nb);
     let mut g = vec![0.0; w * h];
-    for r in 0..h {
-        for c in 0..w {
+    g.par_chunks_mut(w.max(1)).enumerate().for_each(|(r, grow)| {
+        for (c, out) in grow.iter_mut().enumerate() {
             let i = r * w + c;
             if !p.valid[i] {
                 continue;
@@ -50,28 +49,39 @@ fn gradient(p: &Prep) -> Vec<f64> {
                 let gy = (v(2, 0) + 2.0 * v(2, 1) + v(2, 2)) - (v(0, 0) + 2.0 * v(0, 1) + v(0, 2));
                 best = best.max((gx * gx + gy * gy).sqrt() / 8.0);
             }
-            g[i] = best;
+            *out = best;
         }
-    }
+    });
     g
 }
 
-/// The neighbours of a cell (4 or 8) in a grid of `w` x `h`: written to `out`, how many there are.
+/// The neighbours of a cell (4 or 8) in a grid of `w` x `h`: written to `out`, how many there are. In the order of
+/// the rows above, the row, the rows below (left to right).
+#[inline]
 fn around(i: usize, w: usize, h: usize, eight: bool, out: &mut [usize; 8]) -> usize {
     let (r, c) = (i / w, i % w);
+    around_at(i, r, c, w, h, eight, out)
+}
+
+/// [`around`] for a cell whose row and column are known.
+#[inline]
+fn around_at(i: usize, r: usize, c: usize, w: usize, h: usize, eight: bool, out: &mut [usize; 8]) -> usize {
+    let (up, down, left, right) = (r > 0, r + 1 < h, c > 0, c + 1 < w);
     let mut n = 0;
-    for dr in -1i64..=1 {
-        for dc in -1i64..=1 {
-            if (dr, dc) == (0, 0) || (!eight && dr != 0 && dc != 0) {
-                continue;
-            }
-            let (rr, cc) = (r as i64 + dr, c as i64 + dc);
-            if rr >= 0 && cc >= 0 && rr < h as i64 && cc < w as i64 {
-                out[n] = rr as usize * w + cc as usize;
-                n += 1;
-            }
+    let mut put = |ok: bool, j: usize| {
+        if ok {
+            out[n] = j;
+            n += 1;
         }
-    }
+    };
+    put(eight && up && left, i.wrapping_sub(w + 1));
+    put(up, i.wrapping_sub(w));
+    put(eight && up && right, i.wrapping_sub(w).wrapping_add(1));
+    put(left, i.wrapping_sub(1));
+    put(right, i + 1);
+    put(eight && down && left, (i + w).wrapping_sub(1));
+    put(down, i + w);
+    put(eight && down && right, i + w + 1);
     n
 }
 
@@ -83,24 +93,34 @@ fn around(i: usize, w: usize, h: usize, eight: bool, out: &mut [usize; 8]) -> us
 fn minima(p: &Prep, grad: &[f64], eight: bool, h: f64) -> Vec<Vec<usize>> {
     let (w, hh) = (p.w, p.h);
     let n = w * hh;
-    let mut order: Vec<(u64, u32)> = (0..n).filter(|&i| p.valid[i]).map(|i| (grad[i].to_bits(), i as u32)).collect();
+    let mut order: Vec<(u64, u32)> =
+        (0..n).into_par_iter().filter(|&i| p.valid[i]).map(|i| (grad[i].to_bits(), i as u32)).collect();
     // (the gradient is never negative, so its bits sort as the values)
-    order.sort_unstable();
+    order.par_sort_unstable();
     let mut parent: Vec<u32> = Vec::new();
     let mut low: Vec<f64> = Vec::new();
     let mut depth: Vec<f64> = Vec::new();
-    let mut comp = vec![u32::MAX; n];
-    let mut origin = vec![u32::MAX; n];
+    // per cell: the component it joined and, if it is at the lowest value of its minimum, the minimum (side by side:
+    // a cell's turn reads the components around it and writes its own)
+    let mut cell = vec![[u32::MAX; 2]; n];
     let mut nb = [0usize; 8];
     let mut roots: Vec<u32> = Vec::with_capacity(8);
-    for &(_, i) in &order {
+    const AHEAD: usize = 12;
+    for (at, &(bits, i)) in order.iter().enumerate() {
+        // (the cells to come are anywhere in the image: their surroundings are fetched ahead)
+        if let Some(&(_, f)) = order.get(at + AHEAD) {
+            let f = f as usize;
+            prefetch(cell.as_ptr().wrapping_add(f));
+            prefetch(cell.as_ptr().wrapping_add(f).wrapping_sub(w));
+            prefetch(cell.as_ptr().wrapping_add(f + w));
+        }
         let i = i as usize;
-        let v = grad[i];
+        let v = f64::from_bits(bits);
         roots.clear();
         let k = around(i, w, hh, eight, &mut nb);
         for &j in &nb[..k] {
-            if comp[j] != u32::MAX {
-                let r = find(&mut parent, comp[j]);
+            if cell[j][0] != u32::MAX {
+                let r = find(&mut parent, cell[j][0]);
                 if !roots.contains(&r) {
                     roots.push(r);
                 }
@@ -111,8 +131,7 @@ fn minima(p: &Prep, grad: &[f64], eight: bool, h: f64) -> Vec<Vec<usize>> {
             parent.push(id);
             low.push(v);
             depth.push(f64::INFINITY);
-            comp[i] = id;
-            origin[i] = id;
+            cell[i] = [id, id];
             continue;
         }
         // the elder: the lowest minimum, then the first made
@@ -124,14 +143,14 @@ fn minima(p: &Prep, grad: &[f64], eight: bool, h: f64) -> Vec<Vec<usize>> {
                 parent[r as usize] = elder;
             }
         }
-        comp[i] = elder;
+        cell[i][0] = elder;
         if v == low[elder as usize] {
-            origin[i] = elder;
+            cell[i][1] = elder;
         }
     }
     let mut index = vec![u32::MAX; parent.len()];
     let mut out: Vec<Vec<usize>> = Vec::new();
-    for (i, &k) in origin.iter().enumerate() {
+    for (i, &[_, k]) in cell.iter().enumerate() {
         if k == u32::MAX {
             continue;
         }
@@ -182,7 +201,9 @@ fn given(p: &Prep, m: &[f64]) -> Vec<Vec<usize>> {
 /// join, ties to the cell queued first. Returns the label of each cell (0 none).
 fn flood(p: &Prep, grad: &[f64], markers: &[Vec<usize>], eight: bool, compact: f64) -> Vec<u32> {
     let (w, h) = (p.w, p.h);
-    let mut lab = vec![0u32; w * h];
+    // the queue numbers its pushes in 32 bits, at most 8 a cell (`run` refuses bigger images)
+    assert!(w * h < 1 << 28, "segment.watershed: an image of more than 2^28 cells");
+    let mut cells = cells_of(p);
     let centre: Vec<(f64, f64)> = markers
         .iter()
         .map(|m| {
@@ -192,40 +213,66 @@ fn flood(p: &Prep, grad: &[f64], markers: &[Vec<usize>], eight: bool, compact: f
         .collect();
     for (k, m) in markers.iter().enumerate() {
         for &i in m {
-            lab[i] = k as u32 + 1;
+            cells[i].lab = k as u32 + 1;
         }
     }
-    let mut heap: BinaryHeap<Reverse<(u64, u64, u32, u32)>> = BinaryHeap::new();
-    let mut seq = 0u64;
+    // The queue holds (priority bits, push number << 32 | cell), see `Queue`. The label of push number q is `owner[q]`.
+    // A cell is queued only when its priority is below every one queued for it so far: a later push with a priority no
+    // lower would come out after the first, when the cell is labelled already.
+    let mut heap = Queue::with_capacity(w * h / 4);
+    let mut owner: Vec<u32> = Vec::with_capacity(w * h / 4);
     let mut nb = [0usize; 8];
-    let mut push = |i: usize, k: u32, lab: &[u32], heap: &mut BinaryHeap<Reverse<(u64, u64, u32, u32)>>| {
-        let k8 = around(i, w, h, eight, &mut nb);
+    let mut push = |i: usize, k: u32, cells: &mut [Cell], heap: &mut Queue, owner: &mut Vec<u32>| {
+        let k8 = around_at(i, i / w, i % w, w, h, eight, &mut nb);
         for &j in &nb[..k8] {
-            if p.valid[j] && lab[j] == 0 {
-                let mut pri = grad[j];
-                if compact > 0.0 {
-                    let (cr, cc) = centre[k as usize - 1];
-                    pri += compact * (((j / w) as f64 - cr).powi(2) + ((j % w) as f64 - cc).powi(2)).sqrt();
-                }
-                heap.push(Reverse((pri.to_bits(), seq, j as u32, k)));
-                seq += 1;
+            let cell = &mut cells[j];
+            if cell.lab != 0 {
+                continue;
+            }
+            let mut pri;
+            if compact > 0.0 {
+                pri = grad[j];
+                let (cr, cc) = centre[k as usize - 1];
+                pri += compact * (((j / w) as f64 - cr).powi(2) + ((j % w) as f64 - cc).powi(2)).sqrt();
+            } else if cell.low == f64::INFINITY {
+                // (the priority is the gradient whichever label comes: the first push is the only one)
+                pri = grad[j];
+            } else {
+                continue;
+            }
+            if pri < cell.low {
+                cell.low = pri;
+                heap.push(Queue::key(pri, owner.len(), j));
+                owner.push(k);
             }
         }
     };
     for (k, m) in markers.iter().enumerate() {
         for &i in m {
-            push(i, k as u32 + 1, &lab, &mut heap);
+            push(i, k as u32 + 1, &mut cells, &mut heap, &mut owner);
         }
     }
-    while let Some(Reverse((_, _, j, k))) = heap.pop() {
-        let j = j as usize;
-        if lab[j] != 0 {
+    while let Some(q) = heap.pop() {
+        let j = Queue::cell(q);
+        if cells[j].lab != 0 {
             continue;
         }
-        lab[j] = k;
-        push(j, k, &lab, &mut heap);
+        // (the next cell to come out is likely this one's neighbour work after: its memory is fetched meanwhile)
+        if let Some(nx) = heap.peek() {
+            let x = Queue::cell(nx);
+            prefetch(cells.as_ptr().wrapping_add(x));
+            prefetch(cells.as_ptr().wrapping_add(x).wrapping_sub(w));
+            prefetch(cells.as_ptr().wrapping_add(x + w));
+            prefetch(grad.as_ptr().wrapping_add(x));
+            prefetch(grad.as_ptr().wrapping_add(x).wrapping_sub(w));
+            prefetch(grad.as_ptr().wrapping_add(x + w));
+            prefetch(owner.as_ptr().wrapping_add(Queue::push_of(nx)));
+        }
+        let k = owner[Queue::push_of(q)];
+        cells[j].lab = k;
+        push(j, k, &mut cells, &mut heap, &mut owner);
     }
-    lab
+    labels_of(&cells)
 }
 
 /// `segment.watershed`.
@@ -248,7 +295,7 @@ impl Operator for Watershed {
              makes the watershed compact (Neubert & Protzel 2014): the queue's priority is the gradient plus \
              compactness times the distance in cells to the marker's centre. The objects are made 4-connected \
              whatever the neighbours: a marker's area linked only by a corner splits. A cell without a value in \
-             every band is no object. One thread: the same result on every run.",
+             every band is no object. The same result on every run, on any number of threads.",
             Access::Global,
         )
         .input(PortSpec::new("image", Type::Any, "a map, or a stack of bands, the colour"))
@@ -311,6 +358,12 @@ impl Operator for Watershed {
             return Err(bad(format!("neighbours {nbs}: 4 or 8")));
         }
         let l = crate::raster_stats::layers(args, "image")?;
+        if l.grid.width * l.grid.height >= 1 << 28 {
+            return Err(bad(format!(
+                "an image of {} × {} cells, more than segment.watershed works in memory",
+                l.grid.width, l.grid.height
+            )));
+        }
         let standardise: bool = args.param("standardise", true)?;
         super::warnings::image(ctx, args.node, &l.grid, &l.names, &l.data, standardise);
         let mut p = prep(&l, standardise);

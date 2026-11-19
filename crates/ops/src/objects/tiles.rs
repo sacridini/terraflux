@@ -18,9 +18,10 @@
 //! sums of the pieces (count, sum, sum of squares per band), never the whole. Only the labels (4 bytes a cell) are
 //! whole in memory. From disk or from memory the objects are the same.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -171,6 +172,88 @@ pub trait TileCores: Send + Sync {
     }
 }
 
+/// The tiles of a run in flight: what each needs, and the cores made but not put yet.
+struct Run<'a> {
+    src: &'a dyn Source,
+    dims: (usize, usize),
+    cost: &'a Cost,
+    scale: f64,
+    mutual: bool,
+    seed: u64,
+    max_passes: u32,
+    t: usize,
+    margin: usize,
+    total: usize,
+    /// The most tiles worked at once.
+    step: usize,
+    state: Mutex<Ordered<'a>>,
+}
+
+/// Where the tiles have got to: the next one to put, how many were started and finished, the cores that wait for
+/// those before them.
+struct Ordered<'a> {
+    next: usize,
+    started: usize,
+    done: usize,
+    ready: BTreeMap<usize, Vec<u32>>,
+    err: Option<Error>,
+    put: &'a mut (dyn FnMut(usize, &[u32]) -> Result<()> + Send),
+}
+
+/// Starts tile `k` as a task of the scope. When a tile is done its core is put (with those waiting before it) and the
+/// next tiles start, so there is no wait for the others; no task ever blocks (a task that waited could be one that a
+/// thread took up while it held the tile the others wait for). A tile starts only while fewer than `step` are at work
+/// and the tile before it is less than `2 * step` back from the last one put, so few cores wait in memory.
+fn spawn_tile<'s, 'a: 's>(sc: &rayon::Scope<'s>, run: &'s Run<'a>, k: usize) {
+    sc.spawn(move |sc| {
+        let core = tile_core(
+            run.src,
+            run.dims,
+            run.cost,
+            run.scale,
+            run.mutual,
+            run.seed,
+            run.max_passes,
+            run.t,
+            run.margin,
+            k,
+        );
+        let mut guard = run.state.lock().unwrap();
+        let st = &mut *guard;
+        st.done += 1;
+        match core {
+            Ok(core) => {
+                st.ready.insert(k, core);
+                while let Some(core) = st.ready.remove(&st.next) {
+                    if let Err(e) = (st.put)(st.next, &core) {
+                        st.err = Some(e);
+                        break;
+                    }
+                    st.next += 1;
+                }
+            }
+            Err(e) => {
+                if st.err.is_none() {
+                    st.err = Some(e);
+                }
+            }
+        }
+        let mut more = Vec::new();
+        while st.err.is_none()
+            && st.started < run.total
+            && st.started - st.done < run.step
+            && st.started < st.next + 2 * run.step
+        {
+            more.push(st.started);
+            st.started += 1;
+        }
+        drop(guard);
+        for k in more {
+            spawn_tile(sc, run, k);
+        }
+    });
+}
+
 /// The image segmented by tiles of side `t` with `margin` cells around each. The objects carry no table. The image
 /// is read from `src` by windows (a tile's with its margin) and by strips (the stitching): from disk, never whole.
 #[allow(clippy::too_many_arguments)]
@@ -224,19 +307,43 @@ pub(crate) fn merge_tiled(
             }
         }
         None => {
-            // a few tiles at a time, in parallel (as many as the memory for tiles allows, up to the threads)
+            // As many tiles at once as the memory for tiles allows (up to the threads), each worker taking the next as soon
+            // as it is done (see `spawn_tile`). A core is put into the labels when all those before it have been, so the
+            // labels are the same whatever the order the tiles finish in.
             let side = (t + 2 * margin) as u64;
             let per = side.min(w as u64) * side.min(h as u64) * (src.nb() as u64 * 40 + 200);
             let fit = (TILES_BYTES.load(Ordering::Relaxed) / per.max(1)) as usize;
             let step = fit.clamp(1, rayon::current_num_threads());
-            for first in (0..nx * ny).step_by(step) {
-                let cores = (first..(first + step).min(nx * ny))
-                    .into_par_iter()
-                    .map(|k| tile_core(src, (w, h), cost, scale, mutual, seed, max_passes, t, margin, k))
-                    .collect::<Result<Vec<_>>>()?;
-                for (j, core) in cores.iter().enumerate() {
-                    put(first + j, core)?;
+            let total = nx * ny;
+            let first = step.min(total);
+            let run = Run {
+                src,
+                dims: (w, h),
+                cost,
+                scale,
+                mutual,
+                seed,
+                max_passes,
+                t,
+                margin,
+                total,
+                step,
+                state: Mutex::new(Ordered {
+                    next: 0,
+                    started: first,
+                    done: 0,
+                    ready: BTreeMap::new(),
+                    err: None,
+                    put: &mut put,
+                }),
+            };
+            rayon::scope(|sc| {
+                for k in 0..first {
+                    spawn_tile(sc, &run, k);
                 }
+            });
+            if let Some(e) = run.state.into_inner().unwrap().err {
+                return Err(e);
             }
         }
     }

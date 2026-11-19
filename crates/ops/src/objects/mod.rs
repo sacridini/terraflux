@@ -5,6 +5,7 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use rayon::prelude::*;
 use terraflux_raster::Grid;
 
 use crate::{Args, Error, Registry, Result, Table, Value};
@@ -113,72 +114,132 @@ impl Objects {
 
     /// [`Objects::from_regions`] with the region of a cell given by a function (of the cell's index, `none` for no
     /// region), so a big image needs no array of regions.
-    pub(crate) fn from_fn<R: Copy + PartialEq>(
+    pub(crate) fn from_fn<R: Copy + PartialEq + Send + Sync>(
         grid: Arc<Grid>,
-        region: impl Fn(usize) -> R,
+        region: impl Fn(usize) -> R + Sync,
         none: R,
         neighbours: usize,
     ) -> Objects {
         let (w, h) = (grid.width, grid.height);
         let eight = neighbours == 8;
         let mut prov = Labels::zeros(w * h);
-        // the sets of provisional labels (label 0 is none)
+        if w == 0 || h == 0 {
+            return Objects::indexed(grid, prov, 0);
+        }
+        // The rows in strips, each labelled on its own by the one-pass union-find (label 0 is none), all in parallel; the
+        // labels of a strip count from 1. Then the strips' labels are made one numbering, the sets of two strips that
+        // touch across their border are joined, and the final ids follow the order of the first cell of each set.
+        let rows_per = h.div_ceil((rayon::current_num_threads() * 2).clamp(1, h));
+        let local: Vec<Vec<u32>> = prov
+            .par_chunks_mut(rows_per * w)
+            .enumerate()
+            .map(|(s, chunk)| {
+                let base = s * rows_per * w;
+                let mut parent: Vec<u32> = vec![0];
+                for r in s * rows_per..s * rows_per + chunk.len() / w {
+                    for c in 0..w {
+                        let i = r * w + c;
+                        let reg = region(i);
+                        if reg == none {
+                            continue;
+                        }
+                        let mut label = 0u32;
+                        let mut see = |j: usize, parent: &mut Vec<u32>| {
+                            if region(j) != reg {
+                                return;
+                            }
+                            let l = find(parent, chunk[j - base]);
+                            if label == 0 {
+                                label = l;
+                            } else if l != label {
+                                // the smaller label stays the root
+                                let (lo, hi) = (l.min(label), l.max(label));
+                                parent[hi as usize] = lo;
+                                label = lo;
+                            }
+                        };
+                        if c > 0 {
+                            see(i - 1, &mut parent);
+                        }
+                        if r > s * rows_per {
+                            see(i - w, &mut parent);
+                            if eight && c > 0 {
+                                see(i - w - 1, &mut parent);
+                            }
+                            if eight && c + 1 < w {
+                                see(i - w + 1, &mut parent);
+                            }
+                        }
+                        if label == 0 {
+                            label = parent.len() as u32;
+                            parent.push(label);
+                        }
+                        chunk[i - base] = label;
+                    }
+                }
+                parent
+            })
+            .collect();
+        let mut at = Vec::with_capacity(local.len());
         let mut parent: Vec<u32> = vec![0];
-        for r in 0..h {
+        for lp in &local {
+            let base = parent.len() as u32 - 1;
+            at.push(base);
+            parent.extend(lp[1..].iter().map(|&q| q + base));
+        }
+        drop(local);
+        prov.par_chunks_mut(rows_per * w).zip(at.par_iter()).for_each(|(chunk, &base)| {
+            for v in chunk.iter_mut().filter(|v| **v != 0) {
+                *v += base;
+            }
+        });
+        for s in 1..h.div_ceil(rows_per) {
+            let r = s * rows_per;
             for c in 0..w {
                 let i = r * w + c;
                 let reg = region(i);
                 if reg == none {
                     continue;
                 }
-                let mut label = 0u32;
-                let mut see = |j: usize, parent: &mut Vec<u32>| {
+                let mut join = |j: usize| {
                     if region(j) != reg {
                         return;
                     }
-                    let l = find(parent, prov[j]);
-                    if label == 0 {
-                        label = l;
-                    } else if l != label {
-                        // the smaller label stays the root
-                        let (lo, hi) = (l.min(label), l.max(label));
-                        parent[hi as usize] = lo;
-                        label = lo;
+                    let (a, b) = (find(&mut parent, prov[i]), find(&mut parent, prov[j]));
+                    if a != b {
+                        parent[a.max(b) as usize] = a.min(b);
                     }
                 };
-                if c > 0 {
-                    see(i - 1, &mut parent);
+                join(i - w);
+                if eight && c > 0 {
+                    join(i - w - 1);
                 }
-                if r > 0 {
-                    see(i - w, &mut parent);
-                    if eight && c > 0 {
-                        see(i - w - 1, &mut parent);
-                    }
-                    if eight && c + 1 < w {
-                        see(i - w + 1, &mut parent);
-                    }
+                if eight && c + 1 < w {
+                    join(i - w + 1);
                 }
-                if label == 0 {
-                    label = parent.len() as u32;
-                    parent.push(label);
-                }
-                prov[i] = label;
             }
         }
-        // the final ids, in the order of the first cell of each set
+        // the final id of each label, in the order of the first cell of each set
+        let root: Vec<u32> = (0..parent.len() as u32).map(|l| find(&mut parent, l)).collect();
         let mut id_of = vec![0u32; parent.len()];
         let mut count = 0u32;
-        for p in prov.iter_mut() {
-            if *p == 0 {
+        let mut prev = 0u32;
+        for &l in prov.iter() {
+            if l == prev {
                 continue;
             }
-            let root = find(&mut parent, *p) as usize;
-            if id_of[root] == 0 {
+            prev = l;
+            if l != 0 && id_of[root[l as usize] as usize] == 0 {
                 count += 1;
-                id_of[root] = count;
+                id_of[root[l as usize] as usize] = count;
             }
-            *p = id_of[root];
         }
+        let fin: Vec<u32> = root.iter().map(|&r| id_of[r as usize]).collect();
+        prov.par_chunks_mut(1 << 16).for_each(|chunk| {
+            for v in chunk.iter_mut() {
+                *v = fin[*v as usize];
+            }
+        });
         Objects::indexed(grid, prov, count as usize)
     }
 
@@ -207,11 +268,9 @@ impl Objects {
         let (w, h) = (grid.width, grid.height);
         let mut cells = vec![0u32; count];
         let mut boxes = vec![[u32::MAX, u32::MAX, 0, 0]; count];
-        let mut edges: Vec<u64> = Vec::new();
         for r in 0..h {
             for c in 0..w {
-                let i = r * w + c;
-                let a = labels[i];
+                let a = labels[r * w + c];
                 if a == 0 {
                     continue;
                 }
@@ -222,21 +281,40 @@ impl Objects {
                 b[1] = b[1].min(c as u32);
                 b[2] = b[2].max(r as u32);
                 b[3] = b[3].max(c as u32);
-                let mut edge = |j: usize| {
-                    let o = labels[j];
-                    if o != 0 && o != a {
-                        edges.push(((a.min(o) as u64) << 32) | a.max(o) as u64);
-                    }
-                };
-                if c + 1 < w {
-                    edge(i + 1);
-                }
-                if r + 1 < h {
-                    edge(i + w);
-                }
             }
         }
-        edges.sort_unstable();
+        // the cell edges between two objects, as keys (lower id, higher id), rows in parallel
+        let rows: Vec<Vec<u64>> = (0..h)
+            .into_par_iter()
+            .map(|r| {
+                let mut row: Vec<u64> = Vec::new();
+                for c in 0..w {
+                    let i = r * w + c;
+                    let a = labels[i];
+                    if a == 0 {
+                        continue;
+                    }
+                    let mut edge = |j: usize| {
+                        let o = labels[j];
+                        if o != 0 && o != a {
+                            row.push(((a.min(o) as u64) << 32) | a.max(o) as u64);
+                        }
+                    };
+                    if c + 1 < w {
+                        edge(i + 1);
+                    }
+                    if r + 1 < h {
+                        edge(i + w);
+                    }
+                }
+                row
+            })
+            .collect();
+        let mut edges: Vec<u64> = Vec::with_capacity(rows.iter().map(Vec::len).sum());
+        for row in rows {
+            edges.extend_from_slice(&row);
+        }
+        edges.par_sort_unstable();
         let mut adjacency: Vec<Vec<(u32, u32)>> = vec![Vec::new(); count];
         let mut e = 0;
         while e < edges.len() {
@@ -481,32 +559,32 @@ pub(crate) fn stats_table_src(o: &Objects, names: &[String], src: &dyn big::Sour
     let all: Vec<usize> = (0..nb).collect();
     // the centre of each band
     let mut sums = vec![(0.0f64, 0usize); nb];
+    // (the bands in parallel: each band's sums stay in the order of the cells)
     big::strips(src, h, &all, |_, _, rows| {
-        for (j, b) in rows.iter().enumerate() {
+        sums.par_iter_mut().zip(rows.par_iter()).for_each(|(sum, b)| {
             for &v in b.iter().filter(|v| !v.is_nan()) {
-                sums[j] = (sums[j].0 + v, sums[j].1 + 1);
+                *sum = (sum.0 + v, sum.1 + 1);
             }
-        }
+        });
     })?;
     let centres: Vec<f64> = sums.iter().map(|&(s, c)| if c > 0 { s / c as f64 } else { 0.0 }).collect();
     // sums of the values less the band's mean (the rounding error stays small): count, sum, sum of squares
-    let mut st = vec![0.0f64; o.count * nb * 3];
+    // per band, in parallel (each band's sums in the order of the cells): count, sum, sum of squares of each object
+    let mut bands = vec![vec![0.0f64; o.count * 3]; nb];
     big::strips(src, h, &all, |r0, _, rows| {
-        for (j, b) in rows.iter().enumerate() {
-            let centre = centres[j];
+        bands.par_iter_mut().zip(rows.par_iter()).zip(centres.par_iter()).for_each(|((st, b), &centre)| {
             for (&l, &v) in o.labels[r0 * w..].iter().zip(b.iter()) {
                 if l != 0 && !v.is_nan() {
-                    let (d, k) = (v - centre, ((l as usize - 1) * nb + j) * 3);
+                    let (d, k) = (v - centre, (l as usize - 1) * 3);
                     st[k] += 1.0;
                     st[k + 1] += d;
                     st[k + 2] += d * d;
                 }
             }
-        }
+        });
     })?;
-    for (j, &centre) in centres.iter().enumerate() {
-        for k in 0..o.count {
-            let at = (k * nb + j) * 3;
+    for (st, &centre) in bands.iter_mut().zip(&centres) {
+        for at in (0..o.count * 3).step_by(3) {
             // the sum becomes the mean and the sum of squares the deviation
             if st[at] > 0.0 {
                 let m = st[at + 1] / st[at];
@@ -523,8 +601,8 @@ pub(crate) fn stats_table_src(o: &Objects, names: &[String], src: &dyn big::Sour
     t.rows = (0..o.count)
         .map(|k| {
             let mut row = vec![(k + 1) as f64, o.cells[k] as f64, o.cells[k] as f64 * area];
-            row.extend((0..nb).map(|j| st[(k * nb + j) * 3 + 1]));
-            row.extend((0..nb).map(|j| st[(k * nb + j) * 3 + 2]));
+            row.extend(bands.iter().map(|st| st[k * 3 + 1]));
+            row.extend(bands.iter().map(|st| st[k * 3 + 2]));
             row
         })
         .collect();
