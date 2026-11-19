@@ -4401,6 +4401,43 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    costura do multiresolution (`from_source` e a preparação dos rótulos, uns 6% com 8 threads) ainda num só thread.
 9. Depois, o bloco seguinte do PCA, do k-means e do SOM (abaixo).
 
+### Qualidade de vida do OBIA (pedido de 2026-11-19)
+
+O que o aplicativo já tem: a segmentação ao vivo do `segment.multiresolution` no Viewer (`live_segment.rs`), os
+contornos e o preenchimento por classe (`objects_view.rs`), o inspetor, a seleção com vizinhos, pais e filhos e as
+amostras por clique (`objects_inspect.rs`), o espaço de atributos com o histograma, a separabilidade e *Make a rule*
+(`feature_space.rs`), a árvore de classes (`class_tree.rs`) e o tempo de cada nó depois de rodar. O que falta, na
+ordem em que será feito, depois do bloco do PCA, do k-means e do SOM (um commit por item):
+
+1. **A segmentação ao vivo para todos os segmentadores.** Hoje os sliders só valem para o `segment.multiresolution`.
+   Com os segmentadores rápidos (em 1000², o SLIC em 0,06 s com 8 threads, o watershed em 0,4 s, o threshold em
+   0,02 s), cada um ganha os seus dois ou três ajustes principais como sliders sobre a parte do mapa à vista: o
+   `size` e a `compactness` do SLIC e do SNIC, o `k` e o `sigma` do Felzenszwalb, o `h` e a `compactness` do
+   watershed, os limiares ou as `classes` do threshold, o `max_difference` do spectral difference, o `threshold` do
+   region growing, o `kernel_size` e o `max_dist` do quickshift, os raios do mean shift. *Apply* grava no nó, um passo
+   de desfazer, como hoje.
+2. **O gráfico e o *Apply* do `segment.optimize`.** A tabela `scores` como gráfico em `charts.rs` (o objetivo, a
+   variância e o I de Moran escalados contra o valor, o melhor marcado), como o cotovelo do PCA e a escolha do k; e
+   um botão que grava o melhor valor no nó do segmentador (ou num `segment.*` novo ligado à mesma imagem).
+3. **A edição manual dos objetos.** No inspetor: juntar os objetos selecionados, cortar um objeto por uma linha
+   desenhada, apagar (o objeto vira sem objeto, ou é absorvido pelo vizinho mais parecido). As edições ficam no
+   modelo, num nó `objects.edit` com a lista das operações (por coordenadas, não por números de objeto, que mudam
+   quando a segmentação de cima muda), para que a análise continue reproduzível; um aviso quando uma edição não
+   acha mais o seu objeto. É o que quem vem do eCognition faz o tempo todo para corrigir o segmentador.
+4. **Comparar segmentadores lado a lado.** A mesma janela do Viewer segmentada em três ou quatro miniaturas
+   (multiresolution, SLIC, watershed, Felzenszwalb, ou os escolhidos), cada uma com o número de objetos e o tempo;
+   um clique numa troca o nó (ou cria um). Responde à primeira pergunta de quem começa: qual segmentador usar.
+5. **A estimativa do tempo antes de rodar.** Das taxas da bateria (`crates/ops/tests/objects_bench.rs`, células por
+   segundo de cada segmentador, com 1 e com N threads) e do tamanho da imagem, o nó diz antes de rodar "cerca de 5
+   min com 8 threads; por tiles de 512, cerca de 1 min", e sugere os tiles quando a imagem é grande.
+6. **O SAM na primeira vez.** Antes do download dos pesos, um aviso no aplicativo (75 MB, a licença Apache-2.0, a
+   origem, onde ficam no cache), a barra de progresso e o cancelamento; e onde trocar para os pesos completos.
+7. **O region growing por tiles**, como o multiresolution (os tiles com margem, a fila contínua e a costura), para
+   tirar os 30 a 70 s das imagens grandes e usar os núcleos (hoje um thread só).
+8. **Templates dos operadores novos**: a água pelo Otsu sobre o NDWI (`segment.threshold`), a escala escolhida
+   sozinha (`segment.optimize`), e as classes não supervisionadas dos objetos (`ml.kmeans` ou `ml.som` sobre a tabela
+   de atributos, junto com a etapa G do plano abaixo), rodando como estão e com `data` para o *Use my data*.
+
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
 
 Pedido de 2026-11-19: operadores de componentes principais (PCA), k-means e mapas auto-organizáveis (SOM), com o
