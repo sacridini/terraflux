@@ -968,7 +968,7 @@ const PHRASES: &[(&str, &str)] = &[
     ),
     (
         "segment.sam",
-        "<image> cut into the masks of the Segment Anything Model ({encoder}, {decoder})[, {points} prompt points per side] as objects.",
+        "<image> cut into the masks of the Segment Anything Model[ ({encoder}, {decoder})][, {points} prompt points per side] as objects.",
     ),
     (
         "objects.embed",

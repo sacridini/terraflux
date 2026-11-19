@@ -69,40 +69,85 @@ pub fn to_byte(v: f64, (lo, hi): (f64, f64)) -> f32 {
     if v.is_nan() { 0.0 } else { (((v - lo) / (hi - lo)).clamp(0.0, 1.0) * 255.0) as f32 }
 }
 
-/// SAM's input for a tile: the three bands stretched to 0-255, the tile resized (bilinear) so its longer side is
-/// 1024, normalised as SAM does and padded with zeros at the right and bottom: a 1 x 3 x 1024 x 1024 tensor, and the
-/// scale of the resize.
-pub fn sam_image(rgb: [&[f64]; 3], width: usize, t: &Tile, ranges: [(f64, f64); 3]) -> (Tensor, f64) {
-    let scale = SAM_SIZE as f64 / t.w.max(t.h) as f64;
-    let nw = ((t.w as f64 * scale).round() as usize).clamp(1, SAM_SIZE);
-    let nh = ((t.h as f64 * scale).round() as usize).clamp(1, SAM_SIZE);
-    let mut data = vec![0.0f32; 3 * SAM_SIZE * SAM_SIZE];
-    for b in 0..3 {
+/// A tile's three bands stretched to 0-255 and resized (bilinear) as large as fits in a `frame` (height, width), the
+/// aspect kept: each band's `nw` x `nh` values, `nw`, `nh` and the scale of the resize.
+fn resized(
+    rgb: [&[f64]; 3],
+    width: usize,
+    t: &Tile,
+    ranges: [(f64, f64); 3],
+    frame: (usize, usize),
+) -> ([Vec<f32>; 3], usize, usize, f64) {
+    let scale = (frame.1 as f64 / t.w as f64).min(frame.0 as f64 / t.h as f64);
+    let nw = ((t.w as f64 * scale).round() as usize).clamp(1, frame.1);
+    let nh = ((t.h as f64 * scale).round() as usize).clamp(1, frame.0);
+    // (the source position of an output pixel's centre, clamped at the tile's edges)
+    let axis = |n: usize, len: usize| -> Vec<(usize, usize, f32)> {
+        (0..n)
+            .map(|i| {
+                let x = ((i as f64 + 0.5) * len as f64 / n as f64 - 0.5).clamp(0.0, (len - 1) as f64);
+                let i0 = x.floor() as usize;
+                (i0, (i0 + 1).min(len - 1), (x - i0 as f64) as f32)
+            })
+            .collect()
+    };
+    let (ys, xs) = (axis(nh, t.h), axis(nw, t.w));
+    let band = |b: usize| -> Vec<f32> {
         let src: Vec<f32> = (0..t.h)
             .flat_map(|r| (0..t.w).map(move |c| (r, c)))
             .map(|(r, c)| to_byte(rgb[b][(t.r0 + r) * width + t.c0 + c], ranges[b]))
             .collect();
-        let out = &mut data[b * SAM_SIZE * SAM_SIZE..(b + 1) * SAM_SIZE * SAM_SIZE];
-        // (the source position of an output pixel's centre, clamped at the tile's edges)
-        let axis = |n: usize, len: usize| -> Vec<(usize, usize, f32)> {
-            (0..n)
-                .map(|i| {
-                    let x = ((i as f64 + 0.5) * len as f64 / n as f64 - 0.5).clamp(0.0, (len - 1) as f64);
-                    let i0 = x.floor() as usize;
-                    (i0, (i0 + 1).min(len - 1), (x - i0 as f64) as f32)
-                })
-                .collect()
-        };
-        let (ys, xs) = (axis(nh, t.h), axis(nw, t.w));
+        let mut out = vec![0.0f32; nw * nh];
         for (y, &(y0, y1, fy)) in ys.iter().enumerate() {
             for (x, &(x0, x1, fx)) in xs.iter().enumerate() {
                 let a = src[y0 * t.w + x0] * (1.0 - fx) + src[y0 * t.w + x1] * fx;
                 let c = src[y1 * t.w + x0] * (1.0 - fx) + src[y1 * t.w + x1] * fx;
-                out[y * SAM_SIZE + x] = (a * (1.0 - fy) + c * fy - SAM_MEAN[b]) / SAM_STD[b];
+                out[y * nw + x] = a * (1.0 - fy) + c * fy;
+            }
+        }
+        out
+    };
+    ([band(0), band(1), band(2)], nw, nh, scale)
+}
+
+/// SAM's input for a tile: the three bands stretched to 0-255, the tile resized (bilinear) so its longer side is
+/// 1024, normalised as SAM does and padded with zeros at the right and bottom: a 1 x 3 x 1024 x 1024 tensor, and the
+/// scale of the resize.
+pub fn sam_image(rgb: [&[f64]; 3], width: usize, t: &Tile, ranges: [(f64, f64); 3]) -> (Tensor, f64) {
+    let (bands, nw, nh, scale) = resized(rgb, width, t, ranges, (SAM_SIZE, SAM_SIZE));
+    let mut data = vec![0.0f32; 3 * SAM_SIZE * SAM_SIZE];
+    for (b, band) in bands.iter().enumerate() {
+        let out = &mut data[b * SAM_SIZE * SAM_SIZE..(b + 1) * SAM_SIZE * SAM_SIZE];
+        for y in 0..nh {
+            for x in 0..nw {
+                out[y * SAM_SIZE + x] = (band[y * nw + x] - SAM_MEAN[b]) / SAM_STD[b];
             }
         }
     }
     (Tensor::new(vec![1, 3, SAM_SIZE as i64, SAM_SIZE as i64], data), scale)
+}
+
+/// The frame (height, width) of the exports that normalise and pad inside the graph (`input_image`): the ones made
+/// by `samexporter` were traced with an image of 1500 x 2250, which fixes the decoder's crop of the mask to the top
+/// 683 x 1024 of the 1024 x 1024 frame whatever `orig_im_size` is (a tile of another aspect gets masks stretched
+/// and shifted in height, as measured). So a tile is resized to fit that frame and the decoder told the size of the
+/// frame in the tile's cells.
+pub const HWC_FRAME: (usize, usize) = (683, 1024);
+
+/// SAM's input for the exports that normalise and pad inside the graph (`input_image`): the tile resized to fit
+/// [`HWC_FRAME`], as height x width x 3 values of 0-255 (neither normalised nor padded), the scale and the size
+/// (height, width) to give the decoder as `orig_im_size`: the tile's cells, plus the margin that makes its aspect the
+/// frame's (the masks come as large as that, and are cut to the tile).
+pub fn sam_image_hwc(
+    rgb: [&[f64]; 3],
+    width: usize,
+    t: &Tile,
+    ranges: [(f64, f64); 3],
+) -> (Tensor, f64, (usize, usize)) {
+    let (bands, nw, nh, scale) = resized(rgb, width, t, ranges, HWC_FRAME);
+    let data = (0..nw * nh).flat_map(|i| [bands[0][i], bands[1][i], bands[2][i]]).collect();
+    let size = ((HWC_FRAME.0 as f64 / scale).round() as usize, (HWC_FRAME.1 as f64 / scale).round() as usize);
+    (Tensor::new(vec![nh as i64, nw as i64, 3], data), scale, size)
 }
 
 // ---- masks
@@ -187,7 +232,7 @@ pub struct SamParams {
 /// not prompted); of the masks the decoder gives for a point the one of the best predicted IoU is kept when that is
 /// at least `iou`. A mask holds only cells with a value. Decoder inputs: `image_embeddings`, `point_coords`
 /// (1 x N x 2, in the resized 1024 frame, the point and a padding point 0,0), `point_labels` (1 x N: 1 and -1),
-/// `mask_input` (zeros 1 x 1 x 256 x 256), `has_mask_input` (0) and `orig_im_size` (height, width of the tile);
+/// `mask_input` (zeros 1 x 1 x 256 x 256), `has_mask_input` (0) and `orig_im_size` (height, width of the tile, or of the frame in its cells for the HWC export);
 /// outputs `masks` (1 x K x height x width, logits: above 0 is in) and `iou_predictions` (1 x K).
 #[allow(clippy::too_many_arguments)]
 pub fn sam_tile(
@@ -200,16 +245,24 @@ pub fn sam_tile(
     ranges: [(f64, f64); 3],
     p: &SamParams,
 ) -> Result<Vec<Mask>> {
-    let (image, scale) = sam_image(rgb, width, t, ranges);
     let (e_in, e_out) =
         (pick(&enc.input_names(), "input_image", 0)?, pick(&enc.output_names(), "image_embeddings", 0)?);
+    // (an input of three dimensions, or named input_image when the model does not say, is the export that takes
+    // the raw HWC image)
+    let hwc = enc.input_rank(&e_in).map_or(e_in == "input_image", |r| r == 3);
+    let (image, scale, osize) = if hwc {
+        sam_image_hwc(rgb, width, t, ranges)
+    } else {
+        let (image, scale) = sam_image(rgb, width, t, ranges);
+        (image, scale, (t.h, t.w))
+    };
     let emb = enc.run(&[(&e_in, &image)], &[&e_out])?.pop().ok_or_else(|| Error::msg("the encoder gave nothing"))?;
     drop(image);
     let d_in = dec.input_names();
     let d_out = [pick(&dec.output_names(), "masks", 0)?, pick(&dec.output_names(), "iou_predictions", 1)?];
     let mask_input = Tensor::new(vec![1, 1, 256, 256], vec![0.0; 256 * 256]);
     let has_mask = Tensor::new(vec![1], vec![0.0]);
-    let size = Tensor::new(vec![2], vec![t.h as f32, t.w as f32]);
+    let size = Tensor::new(vec![2], vec![osize.0 as f32, osize.1 as f32]);
     let labels = Tensor::new(vec![1, 2], vec![1.0, -1.0]);
     let n = p.points.max(1);
     let mut masks = Vec::new();
@@ -235,14 +288,18 @@ pub fn sam_tile(
                 all.iter().copied().filter(|(k, _)| d_in.iter().any(|n| n == k)).collect();
             let out = dec.run(&given, &[&d_out[0], &d_out[1]])?;
             let [m, q] = <[Tensor; 2]>::try_from(out).map_err(|_| Error::msg("the decoder gave fewer outputs"))?;
-            let cells = t.h * t.w;
+            // (the masks are as large as the size given, at least the tile)
             let k = q.data.len();
-            if k == 0 || m.data.len() != k * cells {
+            let (mh, mw) = match m.shape[..] {
+                [_, _, h, w] if h as usize >= t.h && w as usize >= t.w => (h as usize, w as usize),
+                _ => (0, 0),
+            };
+            if k == 0 || mh == 0 || m.data.len() != k * mh * mw {
                 return Err(Error::msg(format!(
                     "the decoder's masks hold {} values for {k} masks of {} x {} cells (shape {:?})",
                     m.data.len(),
-                    t.h,
-                    t.w,
+                    osize.0,
+                    osize.1,
                     m.shape
                 )));
             }
@@ -250,9 +307,13 @@ pub fn sam_tile(
             if q.data[best] < p.iou {
                 continue;
             }
-            let logits = &m.data[best * cells..(best + 1) * cells];
-            let inside: Vec<bool> =
-                (0..cells).map(|q| logits[q] > 0.0 && valid[(t.r0 + q / t.w) * width + t.c0 + q % t.w]).collect();
+            let logits = &m.data[best * mh * mw..(best + 1) * mh * mw];
+            let inside: Vec<bool> = (0..t.h * t.w)
+                .map(|q| {
+                    let (r, c) = (q / t.w, q % t.w);
+                    logits[r * mw + c] > 0.0 && valid[(t.r0 + r) * width + t.c0 + c]
+                })
+                .collect();
             masks.push(Mask::from_bools(q.data[best], &inside));
         }
     }
@@ -342,11 +403,7 @@ impl Operator for Sam {
             "segment.sam",
             "Objects by Segment Anything (SAM), automatic masks, simplified, run by ONNX Runtime (optional: it is \
              loaded when this operator runs; if it is not found the error says how to install it and to set \
-             ORT_DYLIB_PATH, and every other operator works without it). Give the ONNX files of SAM's image encoder \
-             and mask decoder as the common SAM ONNX export makes them (no weights come with Terraflux: export them \
-             from the model's own tools, or take an export published by its authors or a community; the sizes are \
-             of the order of hundreds of megabytes). The encoder takes a 1 x 3 x 1024 x 1024 float image (after \
-             SAM's normalisation) and gives image_embeddings 1 x 256 x 64 x 64; the decoder takes image_embeddings, \
+             ORT_DYLIB_PATH, and every other operator works without it). With no `encoder` and `decoder` the weights              download on first use: SAM ViT-B as exported to ONNX by vietanhdev (Apache-2.0,              huggingface.co/vietanhdev/segment-anything-onnx-models), the quantised one of 75 MB by default or, with              `weights` full, the full-precision one of 348 MB, to Terraflux's cache folder (the SHA-256 checked;              later runs reuse the files; TERRAFLUX_CACHE moves the folder). Or give the ONNX files of SAM's image              encoder and mask decoder as the common SAM ONNX export makes them. The encoder takes a 1 x 3 x 1024 x              1024 float image (after SAM's normalisation) or, for the exports that do that inside (input_image), the              tile as height x width x 3 values of 0-255, and gives image_embeddings 1 x 256 x 64 x 64; the decoder takes image_embeddings, \
              point_coords, point_labels, mask_input, has_mask_input and orig_im_size and gives masks and \
              iou_predictions. The image is cut into tiles of 1024 x 1024 cells (clipped at the edges, resized so \
              the longer side is 1024 and padded), the three bands stretched to 0-255 between their 2nd and 98th \
@@ -365,8 +422,17 @@ impl Operator for Sam {
             Type::Table,
             "a row per object: id, cells, area (map units squared), mean_<band> and sd_<band> of the three bands",
         ))
-        .param(PortSpec::new("encoder", Type::Text, "the path of SAM's image encoder (an ONNX file)"))
-        .param(PortSpec::new("decoder", Type::Text, "the path of SAM's mask decoder (an ONNX file)"))
+        .param(PortSpec::optional(
+            "encoder",
+            Type::Text,
+            "the path of SAM's image encoder (an ONNX file); with no encoder and decoder the weights are downloaded",
+        ))
+        .param(PortSpec::optional("decoder", Type::Text, "the path of SAM's mask decoder (an ONNX file)"))
+        .param(PortSpec::optional(
+            "weights",
+            Type::Text,
+            "the weights downloaded when no encoder and decoder are given: quant (75 MB, default) or full (348 MB)",
+        ))
         .param(PortSpec::optional(
             "bands",
             Type::Any,
@@ -386,15 +452,17 @@ impl Operator for Sam {
         ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let bad = |m: String| Error::msg(format!("node {node:?}: {m}"));
-        let text = |name: &str| -> Result<String> {
-            args.opt_param::<String>(name)?
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| bad(format!("the setting {name} is needed")))
-        };
+        let text =
+            |name: &str| -> Result<Option<String>> { Ok(args.opt_param::<String>(name)?.filter(|s| !s.is_empty())) };
         let (encoder, decoder) = (text("encoder")?, text("decoder")?);
+        if encoder.is_some() != decoder.is_some() {
+            return Err(bad("give both encoder and decoder, or neither (the weights are then downloaded)".into()));
+        }
+        let weights = text("weights")?.unwrap_or_else(|| "quant".into());
+        let src = super::weights::source(&weights).map_err(|e| bad(e.to_string()))?;
         let points: i64 = args.param("points", 16)?;
         if !(1..=64).contains(&points) {
             return Err(bad(format!("points {points}: from 1 to 64")));
@@ -414,6 +482,31 @@ impl Operator for Sam {
             return Err(bad(format!("an image of three bands (red, green, blue) is needed: {} given", data.len())));
         }
         let ort = Ort::load().map_err(|e| bad(e.to_string()))?;
+        let (encoder, decoder) = match (encoder, decoder) {
+            (Some(e), Some(d)) => (e, d),
+            _ => {
+                // (the weights come after the runtime: no download when it cannot run)
+                let name = src.name;
+                let mut report = |got: u64, total: Option<u64>| {
+                    ctx.progress(
+                        total.map(|t| got as f64 / t.max(1) as f64),
+                        format!(
+                            "downloading the SAM weights ({name}): {} of {} MB",
+                            got >> 20,
+                            total.unwrap_or(0) >> 20
+                        ),
+                    )
+                };
+                let (e, d) = super::weights::ensure(
+                    &crate::sdm::refdata::cache_dir(),
+                    src,
+                    &mut super::weights::download,
+                    &mut report,
+                )
+                .map_err(|e| bad(e.to_string()))?;
+                (e.to_string_lossy().into_owned(), d.to_string_lossy().into_owned())
+            }
+        };
         let enc = super::onnx::open(&ort, node, "encoder", &encoder)?;
         let dec = super::onnx::open(&ort, node, "decoder", &decoder)?;
         let (w, h) = (l.grid.width, l.grid.height);

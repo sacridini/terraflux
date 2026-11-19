@@ -39,6 +39,10 @@ pub trait Infer {
     fn input_names(&self) -> Vec<String>;
     /// The names of the model's outputs, in order.
     fn output_names(&self) -> Vec<String>;
+    /// The number of dimensions of an input, when the model says (none: unknown).
+    fn input_rank(&self, _name: &str) -> Option<usize> {
+        None
+    }
     /// Run it: the inputs by name, the outputs asked for by name (in that order).
     fn run(&self, inputs: &[(&str, &Tensor)], outputs: &[&str]) -> Result<Vec<Tensor>>;
 }
@@ -79,6 +83,8 @@ mod idx {
     pub const SESSION_GET_OUTPUT_COUNT: usize = 31;
     pub const SESSION_GET_INPUT_NAME: usize = 36;
     pub const SESSION_GET_OUTPUT_NAME: usize = 37;
+    pub const SESSION_GET_INPUT_TYPE_INFO: usize = 33;
+    pub const CAST_TYPE_INFO_TO_TENSOR_INFO: usize = 55;
     pub const CREATE_TENSOR_WITH_DATA_AS_ORT_VALUE: usize = 49;
     pub const GET_TENSOR_MUTABLE_DATA: usize = 51;
     pub const GET_TENSOR_ELEMENT_TYPE: usize = 60;
@@ -94,6 +100,7 @@ mod idx {
     pub const RELEASE_MEMORY_INFO: usize = 94;
     pub const RELEASE_SESSION: usize = 95;
     pub const RELEASE_VALUE: usize = 96;
+    pub const RELEASE_TYPE_INFO: usize = 98;
     pub const RELEASE_TENSOR_TYPE_AND_SHAPE_INFO: usize = 99;
     pub const RELEASE_SESSION_OPTIONS: usize = 100;
     /// How many entries of the table are read.
@@ -132,6 +139,9 @@ struct Fns {
     set_intra_op_num_threads: unsafe extern "system" fn(Ptr, c_int) -> Status,
     session_get_count: [unsafe extern "system" fn(Ptr, *mut usize) -> Status; 2],
     session_get_name: [unsafe extern "system" fn(Ptr, usize, Ptr, *mut *mut c_char) -> Status; 2],
+    session_get_input_type_info: unsafe extern "system" fn(Ptr, usize, *mut Ptr) -> Status,
+    cast_type_info: unsafe extern "system" fn(Ptr, *mut Ptr) -> Status,
+    release_type_info: unsafe extern "system" fn(Ptr),
     create_tensor: unsafe extern "system" fn(Ptr, *mut c_void, usize, *const i64, usize, c_int, *mut Ptr) -> Status,
     get_tensor_mutable_data: unsafe extern "system" fn(Ptr, *mut *mut c_void) -> Status,
     get_tensor_element_type: unsafe extern "system" fn(Ptr, *mut c_int) -> Status,
@@ -243,6 +253,9 @@ impl Ort {
             set_intra_op_num_threads: f!(idx::SET_INTRA_OP_NUM_THREADS),
             session_get_count: [f!(idx::SESSION_GET_INPUT_COUNT), f!(idx::SESSION_GET_OUTPUT_COUNT)],
             session_get_name: [f!(idx::SESSION_GET_INPUT_NAME), f!(idx::SESSION_GET_OUTPUT_NAME)],
+            session_get_input_type_info: f!(idx::SESSION_GET_INPUT_TYPE_INFO),
+            cast_type_info: f!(idx::CAST_TYPE_INFO_TO_TENSOR_INFO),
+            release_type_info: f!(idx::RELEASE_TYPE_INFO),
             create_tensor: f!(idx::CREATE_TENSOR_WITH_DATA_AS_ORT_VALUE),
             get_tensor_mutable_data: f!(idx::GET_TENSOR_MUTABLE_DATA),
             get_tensor_element_type: f!(idx::GET_TENSOR_ELEMENT_TYPE),
@@ -373,6 +386,23 @@ impl Infer for Session {
 
     fn output_names(&self) -> Vec<String> {
         self.outputs.clone()
+    }
+
+    fn input_rank(&self, name: &str) -> Option<usize> {
+        let k = self.inputs.iter().position(|n| n == name)?;
+        let f = &self.ort.f;
+        let mut ti: Ptr = std::ptr::null_mut();
+        if !self.ort.check(unsafe { (f.session_get_input_type_info)(self.session, k, &mut ti) }, "").is_ok() {
+            return None;
+        }
+        // (the tensor info is owned by the type info)
+        let mut info: Ptr = std::ptr::null_mut();
+        let mut dims = 0usize;
+        let ok = self.ort.check(unsafe { (f.cast_type_info)(ti, &mut info) }, "").is_ok()
+            && !info.is_null()
+            && self.ort.check(unsafe { (f.get_dimensions_count)(info, &mut dims) }, "").is_ok();
+        unsafe { (f.release_type_info)(ti) };
+        ok.then_some(dims)
     }
 
     fn run(&self, inputs: &[(&str, &Tensor)], outputs: &[&str]) -> Result<Vec<Tensor>> {

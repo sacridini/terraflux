@@ -692,8 +692,10 @@ pub const TIPS: &[(&str, &str)] = &[
     ),
     (
         "segment.sam",
-        "Optional: it needs ONNX Runtime (pip install onnxruntime, then set ORT_DYLIB_PATH to its shared library) \
-         and the ONNX files of SAM's encoder and decoder, which do not come with Terraflux. It is slow on a CPU: \
+        "Optional: it needs ONNX Runtime (pip install onnxruntime, then set ORT_DYLIB_PATH to its shared library). \
+         With no `encoder` and `decoder` the weights of SAM ViT-B (Apache-2.0, exported to ONNX by vietanhdev, from \
+         huggingface.co) download on first use to the cache folder, 75 MB, or 348 MB with `weights` full; or give \
+         the ONNX files of SAM's encoder and decoder. It is slow on a CPU: \
          one encoder run per 1024 x 1024 tile and one decoder run per prompt point, so start with `points` 8 on a \
          small area. Give three bands as red, green and blue; raise `iou` for fewer, surer masks.",
     ),

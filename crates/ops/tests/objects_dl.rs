@@ -1,15 +1,15 @@
 //! Deep learning of objects (ONNX Runtime loaded at run time): the loader's message when the runtime is missing, the
 //! plain Rust parts (tiling, stretching, resolving masks, averaging patches) with a fake model, and, when the model
 //! files and the runtime are given (`TF_TEST_SAM_ENCODER`, `TF_TEST_SAM_DECODER`, `TF_TEST_EMBED_MODEL`,
-//! `ORT_DYLIB_PATH`), both operators for real (`cargo test -- --ignored`).
+//! `TF_TEST_EMBED_PATCH`, `ORT_DYLIB_PATH`), both operators for real (`cargo test -- --ignored`).
 
 use std::cell::Cell;
 use std::ffi::OsString;
 use std::sync::Arc;
 
 use terraflux_ops::objects::deep::{
-    Mask, SAM_SIZE, SamParams, Tile, embed_objects, patch_tensor, pool, resolve, sam_image, sam_regions, standardize,
-    stretch_range, tiles, to_byte, with_embeddings,
+    Mask, SAM_SIZE, SamParams, Tile, embed_objects, patch_tensor, pool, resolve, sam_image, sam_image_hwc, sam_regions,
+    standardize, stretch_range, tiles, to_byte, with_embeddings,
 };
 use terraflux_ops::objects::onnx::{Infer, Ort, Tensor};
 use terraflux_ops::objects::{NO_REGION, Objects};
@@ -63,8 +63,15 @@ fn operators_are_registered_and_ask_for_their_models() {
     assert!(r.get("segment.sam").is_some());
     assert!(r.get("objects.embed").is_some());
     let img = stack(4, 4, vec![vec![1.0; 16], vec![2.0; 16], vec![3.0; 16]]);
-    let e = run("segment.sam", vec![("image", img)], serde_json::json!({})).err().unwrap().to_string();
-    assert!(e.contains("encoder"), "{e}");
+    // (one of the two files alone, or a weights setting that is none: refused before anything is loaded)
+    let e = run("segment.sam", vec![("image", img.clone())], serde_json::json!({ "encoder": "e.onnx" }))
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(e.contains("both encoder and decoder"), "{e}");
+    let e =
+        run("segment.sam", vec![("image", img)], serde_json::json!({ "weights": "huge" })).err().unwrap().to_string();
+    assert!(e.contains("quant") && e.contains("full"), "{e}");
 }
 
 // ---- tiling, stretching, the input
@@ -196,12 +203,58 @@ impl Infer for Encoder {
         vec!["image_embeddings".into()]
     }
 
+    fn input_rank(&self, _: &str) -> Option<usize> {
+        Some(4)
+    }
+
     fn run(&self, inputs: &[(&str, &Tensor)], outputs: &[&str]) -> Result<Vec<Tensor>> {
         assert_eq!(inputs[0].0, "input_image");
         assert_eq!(inputs[0].1.shape, vec![1, 3, 1024, 1024]);
         assert_eq!(outputs, ["image_embeddings"]);
         Ok(vec![Tensor::new(vec![1, 1, 1, 1], vec![0.0])])
     }
+}
+
+/// The export that normalises and pads inside (an input of three dimensions): it gets the raw resized tile.
+struct EncoderHwc;
+
+impl Infer for EncoderHwc {
+    fn input_names(&self) -> Vec<String> {
+        vec!["input_image".into()]
+    }
+
+    fn output_names(&self) -> Vec<String> {
+        vec!["image_embeddings".into()]
+    }
+
+    fn input_rank(&self, _: &str) -> Option<usize> {
+        Some(3)
+    }
+
+    fn run(&self, inputs: &[(&str, &Tensor)], _outputs: &[&str]) -> Result<Vec<Tensor>> {
+        // a 40 x 30 tile resized to fit 683 x 1024 (by 22.77), three values of 0-255 a cell
+        assert_eq!(inputs[0].1.shape, vec![683, 911, 3]);
+        assert!(inputs[0].1.data.iter().all(|v| (-0.001..=255.001).contains(v)));
+        Ok(vec![Tensor::new(vec![1, 1, 1, 1], vec![0.0])])
+    }
+}
+
+#[test]
+fn sam_sends_the_resized_hwc_image_to_an_export_that_normalises_inside() {
+    let (w, h) = (40, 30);
+    let band: Vec<f64> = (0..w * h).map(|i| (i % w) as f64).collect();
+    let dec = halves(0.3, 0.9);
+    let p = SamParams { points: 2, iou: 0.8 };
+    sam_regions(&EncoderHwc, &dec, [&band, &band, &band], (w, h), &p, 1, true).unwrap();
+    assert_eq!(dec.calls.get(), 4);
+    let (x, scale, size) = sam_image_hwc([&band, &band, &band], w, &Tile { r0: 0, c0: 0, h, w }, [(0.0, 39.0); 3]);
+    assert_eq!(x.shape, vec![683, 911, 3]);
+    assert!((scale - 683.0 / 30.0).abs() < 1e-9);
+    // the frame in the tile's cells: the tile's height, and the width that makes the frame's aspect
+    assert_eq!(size, (30, 45));
+    // the left edge is the first column's value (0), the right edge the last (255)
+    assert_eq!(&x.data[..3], &[0.0; 3]);
+    assert!((x.data[910 * 3] - 255.0).abs() < 1e-3);
 }
 
 fn sam(dec: &Halves, p: SamParams, min_size: usize, fill: bool) -> (Objects, Vec<u64>) {
@@ -361,6 +414,39 @@ fn embeddings_join_the_table_and_replace_old_ones() {
 
 // ---- with a real runtime and real models
 
+/// A scene of textured shapes on a textured ground: the bands and the truth (0 ground, 1.. the shapes).
+fn scene(w: usize, h: usize) -> (Vec<Vec<f64>>, Vec<u32>) {
+    // (centre row, centre column, radius or half sides, disc?, colour)
+    let shapes: [(f64, f64, f64, bool, [f64; 3]); 4] = [
+        (80.0, 90.0, 45.0, true, [220.0, 60.0, 50.0]),
+        (90.0, 250.0, 40.0, false, [50.0, 80.0, 210.0]),
+        (200.0, 100.0, 38.0, false, [240.0, 220.0, 60.0]),
+        (190.0, 240.0, 50.0, true, [40.0, 190.0, 80.0]),
+    ];
+    let mut truth = vec![0u32; w * h];
+    let mut bands = vec![vec![0.0; w * h]; 3];
+    for r in 0..h {
+        for c in 0..w {
+            let i = r * w + c;
+            let (y, x) = (r as f64, c as f64);
+            let k = shapes.iter().position(|&(cy, cx, s, disc, _)| {
+                if disc { (y - cy).hypot(x - cx) <= s } else { (y - cy).abs() <= s && (x - cx).abs() <= s }
+            });
+            // a deterministic texture, a few units of noise and a slow wave
+            let tex = ((r * 31 + c * 17) % 13) as f64 - 6.0 + 4.0 * ((x / 9.0).sin() + (y / 7.0).cos());
+            let base = match k {
+                Some(k) => shapes[k].4,
+                None => [90.0, 100.0, 95.0],
+            };
+            truth[i] = k.map_or(0, |k| k as u32 + 1);
+            for b in 0..3 {
+                bands[b][i] = (base[b] + tex).clamp(0.0, 255.0);
+            }
+        }
+    }
+    (bands, truth)
+}
+
 /// Both operators with the real runtime and models: skipped unless the four variables are set.
 #[test]
 #[ignore = "needs ONNX Runtime and model files: TF_TEST_SAM_ENCODER, TF_TEST_SAM_DECODER, TF_TEST_EMBED_MODEL, ORT_DYLIB_PATH"]
@@ -372,29 +458,154 @@ fn real_models_make_objects_and_embeddings() {
         eprintln!("skipped: the model files and ORT_DYLIB_PATH are not given");
         return;
     };
-    // an image of a bright square on a dark ground
-    let (w, h) = (256usize, 256usize);
-    let band = |v: f64| -> Vec<f64> {
-        (0..w * h)
-            .map(|i| if (64..192).contains(&(i / w)) && (64..192).contains(&(i % w)) { v } else { v / 4.0 })
-            .collect()
-    };
-    let img = stack(w, h, vec![band(200.0), band(180.0), band(160.0)]);
+    // a 4-shape scene, not square (300 x 400 cells: resized by 2.56)
+    let (w, h) = (400usize, 300usize);
+    let (bands, truth) = scene(w, h);
+    let img = stack(w, h, bands.clone());
+    // the masks of single points: each shape must have one that matches it (the geometry of the frame, the
+    // resize and the prompt points)
+    {
+        use terraflux_ops::objects::deep::sam_tile;
+        let path = |v: &str| std::path::PathBuf::from(v);
+        let ort = Ort::load().unwrap();
+        let (e, d) = (ort.session(&path(&enc)).unwrap(), ort.session(&path(&dec)).unwrap());
+        let ranges = [stretch_range(&bands[0]), stretch_range(&bands[1]), stretch_range(&bands[2])];
+        let p = SamParams { points: 12, iou: 0.0 };
+        let masks = sam_tile(
+            &e,
+            &d,
+            [&bands[0], &bands[1], &bands[2]],
+            w,
+            &vec![true; w * h],
+            &Tile { r0: 0, c0: 0, h, w },
+            ranges,
+            &p,
+        )
+        .unwrap();
+        let mut best = Vec::new();
+        for k in 1..=*truth.iter().max().unwrap() {
+            let t = truth.iter().filter(|&&v| v == k).count();
+            let iou = masks
+                .iter()
+                .map(|m| {
+                    let inter = (0..w * h).filter(|&i| truth[i] == k && m.get(i)).count();
+                    inter as f64 / (t + m.cells() - inter) as f64
+                })
+                .fold(0.0, f64::max);
+            best.push(iou);
+        }
+        eprintln!("segment.sam: {} masks; best mask IoU with the truth per shape: {best:.3?}", masks.len());
+        assert!(best.iter().all(|&v| v > 0.9), "best mask IoU per shape: {best:?}");
+    }
     let out = run(
         "segment.sam",
         vec![("image", img.clone())],
-        serde_json::json!({ "encoder": enc, "decoder": dec, "points": 4 }),
+        serde_json::json!({ "encoder": enc, "decoder": dec, "points": 12 }),
     )
     .unwrap();
     let Value::Objects(o) = &out["objects"] else { panic!("objects") };
     assert!(o.count >= 1);
+    // each shape's best IoU with an object
+    let shapes = *truth.iter().max().unwrap() as usize;
+    let mut ious = Vec::new();
+    for k in 1..=shapes as u32 {
+        let t = truth.iter().filter(|&&v| v == k).count();
+        let mut inter = vec![0usize; o.count + 1];
+        for (i, &v) in truth.iter().enumerate() {
+            if v == k {
+                inter[o.labels[i] as usize] += 1;
+            }
+        }
+        let best = (1..=o.count)
+            .map(|id| inter[id] as f64 / (t + o.cells[id - 1] as usize - inter[id]) as f64)
+            .fold(0.0, f64::max);
+        ious.push(best);
+    }
+    eprintln!("segment.sam: {} objects; IoU with the truth per shape: {ious:.3?}", o.count);
+    // (after the overlaps are resolved by predicted IoU, which this export gives as about 1 for any mask)
+    assert!(ious.iter().any(|&v| v > 0.7), "IoU per shape: {ious:?}");
+    // (the side of the patches the model takes: TF_TEST_EMBED_PATCH, 224 by default; the fixture model takes 16)
+    let patch: u64 = var("TF_TEST_EMBED_PATCH").and_then(|v| v.parse().ok()).unwrap_or(224);
     let out = run(
         "objects.embed",
         vec![("objects", Value::Objects(o.clone())), ("image", img)],
-        serde_json::json!({ "model": emb, "patch": 224 }),
+        serde_json::json!({ "model": emb, "patch": patch }),
     )
     .unwrap();
     let Value::Objects(e) = &out["objects"] else { panic!("objects") };
     assert!(e.table.columns.iter().any(|c| c == "emb_1"));
     assert_eq!(e.table.rows.len(), o.count);
+}
+
+/// `objects.embed` with the real runtime and a small Conv + ReLU + pooling model, against numpy's embeddings of the
+/// same image and objects (tools/make_embed_reference.py); skipped without ORT_DYLIB_PATH.
+#[test]
+fn embed_matches_numpy_with_a_real_runtime() {
+    if std::env::var_os("ORT_DYLIB_PATH").is_none_or(|v| v.is_empty()) {
+        eprintln!("skipped: ORT_DYLIB_PATH is not set");
+        return;
+    }
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
+    let r: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("embed.json")).unwrap()).unwrap();
+    let (w, h) = (r["width"].as_u64().unwrap() as usize, r["height"].as_u64().unwrap() as usize);
+    let bands: Vec<Vec<f64>> = r["bands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b.as_array().unwrap().iter().map(|v| v.as_f64().unwrap_or(f64::NAN)).collect())
+        .collect();
+    let labels: Vec<u64> = r["labels"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+    // (the rectangles are numbered by their first cell, as the file's ids are)
+    let region: Vec<u64> = labels.iter().map(|&l| if l == 0 { NO_REGION } else { l - 1 }).collect();
+    let o = Objects::from_regions(Arc::new(Grid::new(w, h)), &region, 4);
+    let model = dir.join("embed_conv.onnx");
+    let out = run(
+        "objects.embed",
+        vec![("objects", Value::Objects(Arc::new(o))), ("image", stack(w, h, bands))],
+        serde_json::json!({ "model": model.to_string_lossy(), "patch": r["patch"] }),
+    )
+    .unwrap();
+    let Value::Objects(e) = &out["objects"] else { panic!("objects") };
+    let want = r["embeddings"].as_array().unwrap();
+    assert_eq!(e.table.rows.len(), want.len());
+    for (row, want) in e.table.rows.iter().zip(want) {
+        for (j, v) in want.as_array().unwrap().iter().enumerate() {
+            let c = e.table.columns.iter().position(|c| *c == format!("emb_{}", j + 1)).unwrap();
+            let v = v.as_f64().unwrap();
+            assert!((row[c] - v).abs() < 1e-5, "emb_{}: {} against numpy's {v}", j + 1, row[c]);
+        }
+    }
+}
+
+/// The default weights downloaded for real into a temporary cache (75 MB from the network), then reused by a second
+/// call without a download; run with `--ignored`.
+#[test]
+#[ignore = "downloads 75 MB"]
+fn quant_weights_download_once_and_reuse() {
+    use terraflux_ops::objects::weights::{self, QUANT};
+    let cache = std::env::temp_dir().join(format!("tf_sam_cache_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&cache);
+    let mut last = (0u64, 0u64);
+    let (enc, dec) = weights::ensure(&cache, &QUANT, &mut weights::download, &mut |got, total| {
+        last = (got, total.unwrap_or(0));
+        true
+    })
+    .unwrap();
+    eprintln!("downloaded {} of {} bytes: {} and {}", last.0, last.1, enc.display(), dec.display());
+    assert_eq!(last.0, QUANT.bytes);
+    assert!(enc.is_file() && dec.is_file());
+    let mut calls = 0;
+    let again = weights::ensure(
+        &cache,
+        &QUANT,
+        &mut |_: &weights::Source, _: &std::path::Path, _: weights::Report| {
+            calls += 1;
+            Ok(())
+        },
+        &mut |_, _| true,
+    )
+    .unwrap();
+    assert_eq!(again, (enc, dec));
+    assert_eq!(calls, 0);
+    let _ = std::fs::remove_dir_all(&cache);
 }

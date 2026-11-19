@@ -38,6 +38,7 @@ mod threshold;
 mod tiles;
 mod warnings;
 mod watershed;
+pub mod weights;
 mod window;
 
 pub use calc::{evaluate, evaluate_numbers};
