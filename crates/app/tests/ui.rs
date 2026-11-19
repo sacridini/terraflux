@@ -11899,3 +11899,56 @@ fn the_start_page_lists_recent_models_and_goes_with_a_node() {
     h.run_steps(3);
     assert!(h.query_by_label("Start from a task").is_none(), "the page goes with the first node");
 }
+
+/// No image of one's own: the image's row offers "No image of your own?", the area form opens, *Use this area* chooses
+/// a Sentinel-2 scene (a data.stac node, nothing downloaded now) and the Review page says so.
+#[test]
+fn use_my_data_offers_a_cloud_free_sentinel_2_scene_of_an_area_for_an_image() {
+    use terraflux_graph::{Data, DataKind, Model, Node};
+    let mut m = Model::new("scene");
+    m.nodes.push(Node::new("land", "nlm.fbm").param("rows", 20).param("columns", 20));
+    m.nodes.push(Node::new("classes", "nlm.classify").input("map", "land.map").param("n", 3));
+    let image = Node::new("image", "nlm.image").input("classes", "classes.classes");
+    m.nodes.push(image.data(Data::new("a multispectral image", DataKind::Image)));
+    m.nodes.push(Node::new("segments", "segment.slic").input("image", "image.image").param("size", 4));
+    m.nodes.push(
+        Node::new("features", "objects.features").input("objects", "segments.objects").input("image", "image.image"),
+    );
+    let model = tmp("use-my-data-scene.toml");
+    std::fs::write(&model, m.to_toml().unwrap()).unwrap();
+    let mut h = harness(new_app(Some(model)));
+    h.run_steps(3);
+    h.state_mut().my_data = Some(terraflux_app::my_data_view::State::new());
+    h.run_steps(3);
+    assert!(h.query_by_label("Choose band files...").is_some() && h.query_by_label("Choose a folder of bands...").is_some());
+    assert!(h.query_by_label("Use this area").is_none(), "the form is closed");
+    h.get_by_label("No image of your own?").click();
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("Nothing is downloaded now").is_some(), "the form says it");
+    h.get_by_label("Use this area").click();
+    h.run_steps(3);
+    h.state_mut().my_data.as_mut().unwrap().run_now = false;
+    until(&mut h, "the check", |a| a.my_data.as_ref().unwrap().current());
+    h.run_steps(2);
+    let w = h.state().my_data.as_ref().unwrap();
+    assert!(w.can_apply(), "{:?}", w.findings().iter().map(|f| f.to_string()).collect::<Vec<_>>());
+    let plan = w.plan().unwrap();
+    let n = plan.model.node("image_scene").expect("the data.stac node");
+    assert_eq!(n.op, "data.stac");
+    assert_eq!(n.params["collection"], "sentinel-2-l2a");
+    assert_eq!(plan.model.node("image_bands").unwrap().op, "stack.rename");
+    assert!(plan.inputs.is_empty());
+    // the Bands page, then the Review page with what will be done
+    h.get_by_label("Next").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Role").is_some() && h.query_by_label_contains("divided by 10 000").is_some());
+    h.get_by_label("Next").click();
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("a data.stac node reads a cloud-free Sentinel-2 scene").is_some());
+    assert!(h.query_by_label_contains("nothing is downloaded until the model runs").is_some());
+    h.get_by_label("Apply").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.node("image_scene").unwrap().op, "data.stac");
+    assert!(s.source.nodes.iter().all(|n| !n.op.starts_with("nlm.")));
+}

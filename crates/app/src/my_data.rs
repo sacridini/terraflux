@@ -22,7 +22,9 @@
 //! - An image (data of kind `image`, or an `nlm.image`'s `image` output) is one multiband file: a `stack.rename` names
 //!   its bands by their roles (blue, green, red, nir, swir1, swir2; guessed from the names, else `other`, dropped) and
 //!   scales the reflectance to 0-1 (detected: none, divided by 10 000, Landsat collection 2); no node when the bands are
-//!   named already and the scale is 0-1. A folder of single-band files is not offered yet.
+//!   named already and the scale is 0-1. An image can also be a folder (or a selection) of single-band files ([`Choice::files`]:
+//!   sorted by band number, each an input, the coarser put on the finest by `raster.match`, a `stack.of`), or a cloud-free
+//!   Sentinel-2 scene of an area ([`Scene`]: a `data.stac` node, nothing downloaded before the model runs).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -77,6 +79,201 @@ pub struct Choice {
     pub roles: Option<Vec<String>>,
     /// For an image: the scale of its reflectance. None: detected from the file ([`image_info`]).
     pub scale: Option<Scale>,
+    /// For an image of single-band files: the files in band order (see [`band_files`]); `file` is the first.
+    pub files: Vec<PathBuf>,
+    /// For an image with no file of the user's: a cloud-free Sentinel-2 scene of an area, read by `data.stac`.
+    pub scene: Option<Scene>,
+}
+
+/// The assets of Earth Search's Sentinel-2 L2A a scene reads, in the order of their roles (blue, green, red, nir,
+/// swir1, swir2: B02, B03, B04, B08, B11, B12).
+pub const SCENE_ASSETS: [&str; 6] = ["blue", "green", "red", "nir", "swir16", "swir22"];
+
+/// The preset of the data catalog a scene reads.
+const SCENE_PRESET: &str = "es-sentinel-2-l2a";
+
+/// A cloud-free Sentinel-2 scene of an area, for an image: the area, the cells and the dates.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Scene {
+    /// West, south, east, north, in degrees.
+    pub extent: [f64; 4],
+    /// The cells' side in degrees (0.00009 is about 10 m).
+    pub cellsize: f64,
+    /// A day or an interval (2025-11-19/2026-11-19), as `data.stac`'s `datetime`.
+    pub dates: String,
+}
+
+/// The cells' sides a scene offers, in degrees: 10, 20 and 30 m at the equator.
+pub const SCENE_CELLS: [(f64, &str); 3] = [(0.00009, "10 m"), (0.00018, "20 m"), (0.00027, "30 m")];
+
+impl Scene {
+    /// An area, the last 12 months, 10 m cells.
+    pub fn new(extent: [f64; 4]) -> Self {
+        Scene { extent, cellsize: SCENE_CELLS[0].0, dates: last_year() }
+    }
+
+    /// The grid the scene is read on: the extent in whole cells.
+    pub fn grid(&self) -> Grid {
+        let mut g = Grid::new(self.cols(), self.rows());
+        g.transform = [self.extent[0], self.cellsize, 0.0, self.extent[3], 0.0, -self.cellsize];
+        g
+    }
+
+    pub fn cols(&self) -> usize {
+        ((self.extent[2] - self.extent[0]) / self.cellsize).round().max(1.0) as usize
+    }
+
+    pub fn rows(&self) -> usize {
+        ((self.extent[3] - self.extent[1]) / self.cellsize).round().max(1.0) as usize
+    }
+
+    /// Why the scene cannot be asked for, if so.
+    pub fn problem(&self) -> Option<String> {
+        let [w, s, e, n] = self.extent;
+        let bad = !self.extent.iter().all(|x| x.is_finite())
+            || e <= w
+            || n <= s
+            || w < -180.0
+            || e > 180.0
+            || s < -90.0
+            || n > 90.0;
+        if bad {
+            return Some("the area: west below east and south below north, in degrees".into());
+        }
+        if !(self.cellsize.is_finite() && self.cellsize > 0.0) {
+            return Some("the cells: above 0".into());
+        }
+        if self.cols() * self.rows() > 100_000_000 {
+            return Some(format!(
+                "the area is {} x {} cells: choose a smaller one or larger cells",
+                self.cols(),
+                self.rows()
+            ));
+        }
+        let parts: Vec<&str> = self.dates.trim().split('/').map(str::trim).collect();
+        let one = |d: &&str| *d == ".." || terraflux_ops::data::parse_date(d).is_ok();
+        if self.dates.trim().is_empty() || parts.len() > 2 || !parts.iter().all(one) {
+            return Some("the dates: a day (2025-06-01) or an interval (2025-06-01/2025-08-31)".into());
+        }
+        None
+    }
+}
+
+/// The last 12 months as an interval: a year ago today, to today.
+pub fn last_year() -> String {
+    let end = crate::report::today();
+    let year: i64 = end[..4].parse().unwrap_or(2026);
+    let day = if &end[5..] == "02-29" { "02-28" } else { &end[5..] };
+    format!("{}-{day}/{end}", year - 1)
+}
+
+/// The band files of a folder (or of a selection) of an image's bands, in band order: with a folder, the `.tif`,
+/// `.tiff` and `.jp2` files under it (three levels down) that have a band number in their names (B02, B8A, SR_B4:
+/// the others, a true colour image or a scene classification, are left out), one for each band, the finest when
+/// several resolutions are there (`_10m` before `_20m`); with files, those, sorted.
+pub fn band_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+    fn walk(d: &Path, depth: usize, out: &mut Vec<PathBuf>) -> Result<(), String> {
+        let rd = std::fs::read_dir(d).map_err(|e| format!("{}: {e}", d.display()))?;
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                if depth < 3 {
+                    walk(&p, depth + 1, out)?;
+                }
+            } else if p
+                .extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| ["tif", "tiff", "jp2"].contains(&x.to_lowercase().as_str()))
+            {
+                out.push(p);
+            }
+        }
+        Ok(())
+    }
+    let folder = paths.len() == 1 && paths[0].is_dir();
+    let mut found: Vec<PathBuf> = Vec::new();
+    if folder {
+        walk(&paths[0], 0, &mut found)?;
+        found.retain(|p| crate::rgb::band_id(&stem(p)).is_some());
+    } else {
+        found = paths.to_vec();
+    }
+    // the band, then the finest resolution, then the name
+    found.sort_by_key(|p| (band_rank(p), resolution(p), stem(p)));
+    if folder {
+        found.dedup_by_key(|p| band_rank(p));
+    }
+    if found.is_empty() {
+        return Err("no single-band file with a band number in its name (B02, B8A, SR_B4...) there".into());
+    }
+    Ok(found)
+}
+
+/// A file's name without its extension.
+pub fn stem(p: &Path) -> String {
+    p.file_stem().map_or_else(|| p.display().to_string(), |s| s.to_string_lossy().into_owned())
+}
+
+/// The place of a band file among the bands: its number twice, one more for an `A` (B8 before B8A before B9), those
+/// without one last.
+fn band_rank(p: &Path) -> u32 {
+    crate::rgb::band_id(&stem(p)).map_or(u32::MAX, |id| {
+        let n: u32 = id.trim_end_matches('a').parse().unwrap_or(999);
+        n * 2 + u32::from(id.ends_with('a'))
+    })
+}
+
+/// The resolution a name says (`_10m`), 0 when none.
+fn resolution(p: &Path) -> u32 {
+    stem(p)
+        .to_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .find_map(|w| w.strip_suffix('m').and_then(|n| n.parse::<u32>().ok()))
+        .unwrap_or(0)
+}
+
+/// A band file's short name for an input: its band word (`b02`, `b4`), else the name made of letters and digits.
+fn band_label(stem: &str) -> String {
+    let lower = stem.to_lowercase();
+    let word = lower.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).find(|w| {
+        w.strip_prefix("band")
+            .or_else(|| w.strip_prefix('b'))
+            .is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
+    });
+    word.map_or_else(|| lower.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect(), String::from)
+}
+
+/// What the files of an image's bands say: the index of the finest grid among them, the grids, and the names (the
+/// stems).
+fn files_header(files: &[PathBuf]) -> Result<(usize, Vec<Grid>, Vec<String>), String> {
+    let mut grids = Vec::new();
+    for f in files {
+        let (g, bands) = header(f)?;
+        if bands.len() != 1 {
+            return Err(format!(
+                "{} has {} bands: a file for each band takes single-band files",
+                f.display(),
+                bands.len()
+            ));
+        }
+        grids.push(g);
+    }
+    let cell = |g: &Grid| g.transform[1].abs();
+    let finest = (0..grids.len()).fold(0, |b, k| if cell(&grids[k]) < cell(&grids[b]) - 1e-12 { k } else { b });
+    Ok((finest, grids, files.iter().map(|f| stem(f)).collect()))
+}
+
+/// The scale of the reflectance of single-band files: the one their values and names tell.
+pub fn files_scale(files: &[PathBuf]) -> Result<Scale, String> {
+    let mut out = Scale::None;
+    for f in files {
+        match image_scale(f, &[stem(f)])? {
+            Scale::None => {}
+            Scale::LandsatC2 => return Ok(Scale::LandsatC2),
+            s => out = s,
+        }
+    }
+    Ok(out)
 }
 
 /// The model with the user's data, what was done, and what was not.
@@ -415,7 +612,23 @@ fn vet(m: &Model, s: &Source, c: &Choice) -> Result<Grid, String> {
     if s.op != INPUT && readers(m, &s.node).ports.len() > 1 {
         return Err("the model reads more than one of its outputs: it cannot be replaced by a file".into());
     }
-    let (grid, names) = header(&c.file)?;
+    if (c.scene.is_some() || !c.files.is_empty()) && !is_image(s) {
+        return Err("bands of several files, or a Sentinel-2 scene, are for an image".into());
+    }
+    if c.scene.is_some() && !c.files.is_empty() {
+        return Err("a scene or files, not both".into());
+    }
+    let (grid, names) = if let Some(sc) = &c.scene {
+        if let Some(p) = sc.problem() {
+            return Err(p);
+        }
+        (sc.grid(), SCENE_ASSETS.iter().map(|a| a.to_string()).collect())
+    } else if !c.files.is_empty() {
+        let (finest, mut grids, names) = files_header(&c.files)?;
+        (grids.swap_remove(finest), names)
+    } else {
+        header(&c.file)?
+    };
     let known = |b: &String| names.contains(b) || b.parse::<usize>().is_ok_and(|i| i < names.len());
     if let Some(b) = c.band.iter().chain(c.bands.iter().flatten()).find(|b| !known(b)) {
         return Err(format!("{} has no band {b:?} (its bands are {names:?})", c.file.display()));
@@ -579,6 +792,7 @@ pub fn plan(
         None => ok
             .iter()
             .find(|(s, ..)| s.needs == Type::Map)
+            .or_else(|| ok.iter().find(|(_, c, _)| c.scene.is_none()))
             .or(ok.first())
             .map(|(s, _, g)| (s.node.clone(), g.clone(), s.needs)),
     }
@@ -590,9 +804,26 @@ pub fn plan(
     let mut taken_in: BTreeSet<String> = out.inputs.keys().cloned().collect();
     let mut taken: BTreeSet<String> = out.nodes.iter().map(|n| n.id.clone()).collect();
     let mut names: HashMap<String, String> = HashMap::new();
-    for (s, ..) in &ok {
-        let name = if s.op == INPUT { s.node.clone() } else { fresh(&mut taken_in, &s.node) };
-        names.insert(s.node.clone(), name);
+    // (an image of band files: an input for each, the finest the source's own)
+    let mut band_inputs: HashMap<String, Vec<String>> = HashMap::new();
+    for (s, c, _) in &ok {
+        if c.files.is_empty() {
+            let name = if s.op == INPUT { s.node.clone() } else { fresh(&mut taken_in, &s.node) };
+            names.insert(s.node.clone(), name);
+            continue;
+        }
+        let (finest, ..) = files_header(&c.files)?;
+        let mut list = Vec::new();
+        for (k, f) in c.files.iter().enumerate() {
+            let label = band_label(&stem(f));
+            list.push(if k == finest && s.op == INPUT {
+                s.node.clone()
+            } else {
+                fresh(&mut taken_in, &format!("{}_{label}", s.node))
+            });
+        }
+        names.insert(s.node.clone(), list[finest].clone());
+        band_inputs.insert(s.node.clone(), list);
     }
     let ref_in = names[&ref_node].clone();
     let mut inputs = Vec::new();
@@ -600,7 +831,14 @@ pub fn plan(
     let mut candidates: Vec<String> = Vec::new();
     for (s, c, grid) in &ok {
         let name = names[&s.node].clone();
-        let file = path_text(&c.file, base);
+        let file = if let Some(sc) = &c.scene {
+            format!("a cloud-free Sentinel-2 scene of {} to {} ({})", sc.extent[0], sc.extent[2], sc.dates)
+        } else if c.files.is_empty() {
+            path_text(&c.file, base)
+        } else {
+            let at = c.files[0].parent().map(|p| path_text(p, base)).unwrap_or_default();
+            format!("the {} band files in {at}", c.files.len())
+        };
         let band = match (&c.band, &c.bands) {
             (Some(b), _) => format!(", band {b}"),
             (None, Some(b)) => format!(", bands {}", b.join(" ")),
@@ -608,21 +846,110 @@ pub fn plan(
         };
         let kind = s.data.as_ref().map(|d| d.kind);
         let note = format!("{}: your file {file}{band}", s.what);
-        let input = if s.needs == Type::Stack {
-            Input::Stack { path: file.clone(), bands: c.bands.clone(), nodata: c.nodata, note: Some(note), data: None }
-        } else {
-            Input::Map { path: file.clone(), band: c.band.clone(), nodata: c.nodata, note: Some(note), data: None }
-        };
-        out.inputs.insert(name.clone(), input);
-        inputs.push(name.clone());
-        notes.push(format!("{}: reads your file {file}{band} as the input ${name}", s.node));
-        let why = if s.op == INPUT {
-            format!("for the input ${}: your file {file}{band}", s.node)
-        } else {
-            format!("in place of the drawn {}: your file {file}{band}", s.node)
-        };
+        let what =
+            if c.scene.is_some() || !c.files.is_empty() { file.clone() } else { format!("your file {file}{band}") };
         let mut chain: Vec<(Node, &str)> = Vec::new();
         let mut cur = format!("${name}");
+        let why = if s.op == INPUT {
+            format!("for the input ${}: {what}", s.node)
+        } else {
+            format!("in place of the drawn {}: {what}", s.node)
+        };
+        if let Some(sc) = &c.scene {
+            // nothing is read now: the node searches the catalogue and reads the scenes when the model runs
+            let p = crate::catalog::preset_of(SCENE_PRESET);
+            let id = fresh(&mut taken, &format!("{}_scene", s.node));
+            let mut n = Node::new(&id, "data.stac")
+                .param("url", p.url)
+                .param("collection", p.collection)
+                .param("assets", serde_json::json!(SCENE_ASSETS))
+                .param("datetime", sc.dates.trim())
+                .param("query", serde_json::json!({"eo:cloud_cover": {"lt": 20}}).to_string())
+                .param("composite", p.composite)
+                .param("mask", p.mask)
+                .param("mask_buffer", 1)
+                .param("extent", serde_json::json!(sc.extent))
+                .param("cellsize", sc.cellsize)
+                .note(&format!(
+                    "A Sentinel-2 L2A scene of your area without clouds: the scenes of {} with less than 20% of \
+                     cloud, the clouds, shadows and cirrus of each taken out pixel by pixel, the median of the \
+                     rest, on cells of {} degrees. Read from Earth Search when the model runs.",
+                    sc.dates.trim(),
+                    sc.cellsize
+                ))
+                .why(&why);
+            n.refs = vec![p.reference.to_string()];
+            if s.op == INPUT {
+                out.inputs.remove(&s.node);
+            }
+            notes.push(format!(
+                "{}: a data.stac node reads a cloud-free Sentinel-2 scene of the area {:?} ({}), nothing is downloaded until the model runs",
+                s.node, sc.extent, sc.dates
+            ));
+            cur = format!("{id}.raster");
+            chain.push((n, "raster"));
+        } else if let Some(list) = band_inputs.get(&s.node) {
+            // an input for each band file; the finer grid is the reference of the others; a stack of them, in band order
+            let (finest, grids, fnames) = files_header(&c.files)?;
+            let like = format!("${}", list[finest]);
+            let mut wires = Vec::new();
+            for (k, f) in c.files.iter().enumerate() {
+                let path = path_text(f, base);
+                out.inputs.insert(
+                    list[k].clone(),
+                    Input::Map {
+                        path: path.clone(),
+                        band: None,
+                        nodata: c.nodata,
+                        note: Some(format!("{}: band file {path}", s.what)),
+                        data: None,
+                    },
+                );
+                inputs.push(list[k].clone());
+                let mut wire = format!("${}", list[k]);
+                if k != finest && !same_grid(&grids[k], &grids[finest]) {
+                    let id = fresh(&mut taken, &format!("{}_{}_match", s.node, band_label(&fnames[k])));
+                    let n = Node::new(&id, "raster.match")
+                        .input("raster", &wire)
+                        .input("like", &like)
+                        .param("resampling", "bilinear")
+                        .note(&format!("The band {} put on the finest grid of the image's bands ({like}).", fnames[k]))
+                        .why(&why);
+                    notes.push(format!(
+                        "{}: {} put on the grid of the finest band ({}) by raster.match (bilinear)",
+                        s.node, fnames[k], fnames[finest]
+                    ));
+                    wire = format!("{id}.raster");
+                    chain.push((n, "raster"));
+                }
+                wires.push(wire);
+            }
+            let id = fresh(&mut taken, &format!("{}_stack", s.node));
+            let mut n = Node::new(&id, "stack.of")
+                .note("The image's band files as one stack, in band order (the layers are named for the bands).")
+                .why(&why);
+            for (k, w) in wires.iter().enumerate() {
+                n = n.input(&format!("b{:02}", k + 1), w);
+            }
+            cur = format!("{id}.stack");
+            chain.push((n, "stack"));
+            notes.push(format!("{}: reads {file}, in band order: {}", s.node, fnames.join(" ")));
+        } else {
+            let input = if s.needs == Type::Stack {
+                Input::Stack {
+                    path: file.clone(),
+                    bands: c.bands.clone(),
+                    nodata: c.nodata,
+                    note: Some(note),
+                    data: None,
+                }
+            } else {
+                Input::Map { path: file.clone(), band: c.band.clone(), nodata: c.nodata, note: Some(note), data: None }
+            };
+            out.inputs.insert(name.clone(), input);
+            inputs.push(name.clone());
+            notes.push(format!("{}: reads your file {file}{band} as the input ${name}", s.node));
+        }
         if s.node != ref_node {
             if same_grid(grid, &ref_grid) {
                 notes.push(format!("{}: already on the grid of ${ref_in}: no raster.match", s.node));
@@ -650,13 +977,22 @@ pub fn plan(
             }
         }
         if is_image(s) {
-            let fnames = header(&c.file)?.1;
+            let (fnames, scale) = if c.scene.is_some() {
+                // (Earth Search's Sentinel-2 L2A: digital numbers, 0 to 10 000)
+                (SCENE_ASSETS.iter().map(|a| a.to_string()).collect(), c.scale.unwrap_or(Scale::Div10000))
+            } else if !c.files.is_empty() {
+                let n = files_header(&c.files)?.2;
+                (n, c.scale.unwrap_or_else(|| files_scale(&c.files).unwrap_or_default()))
+            } else {
+                let n = header(&c.file)?.1;
+                let sc = c.scale.unwrap_or_else(|| image_scale(&c.file, &n).unwrap_or_default());
+                (n, sc)
+            };
             let roles = image_roles(c, &fnames);
-            let scale = c.scale.unwrap_or_else(|| image_scale(&c.file, &fnames).unwrap_or_default());
             let names: Vec<&str> = roles.iter().map(|r| if r == "other" { "" } else { r.as_str() }).collect();
             let kept: Vec<&str> = names.iter().copied().filter(|n| !n.is_empty()).collect();
             let dropped = roles.len() - kept.len();
-            let renamed = names.iter().zip(&fnames).any(|(r, n)| r != n);
+            let renamed = !c.files.is_empty() || names.iter().zip(&fnames).any(|(r, n)| r != n);
             if renamed || scale != Scale::None {
                 let id = fresh(&mut taken, &format!("{}_bands", s.node));
                 let mut n = Node::new(&id, "stack.rename")
@@ -2288,6 +2624,139 @@ mod tests {
             let k = t.columns.iter().position(|c| c == "mean_nir").unwrap();
             assert!(t.rows.iter().all(|row| (0.5..0.55).contains(&row[k])), "{:?}", t.rows[0]);
         }
+    }
+
+    /// A folder of Sentinel-2's bands: B02, B03, B04 and B08 on 10 m cells, B11 and B12 on 20 m, and a true colour
+    /// image that is no band.
+    fn band_folder(name: &str) -> PathBuf {
+        let d = dir(name);
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            let _ = std::fs::remove_file(e.path());
+        }
+        for (k, band) in ["B02", "B03", "B04", "B08", "B11", "B12", "TCI"].iter().enumerate() {
+            let coarse = matches!(*band, "B11" | "B12");
+            let (size, cell) = if coarse { ((10, 10), 20.0) } else { ((20, 20), 10.0) };
+            let f = |row: usize, col: usize| 1000.0 * (k + 1) as f64 + (row + col) as f64 * 10.0;
+            let res = if coarse { "20m" } else { "10m" };
+            write(&d, &format!("T32UMU_20240101T103021_{band}_{res}.tif"), size, cell, f);
+        }
+        d
+    }
+
+    #[test]
+    fn a_folder_of_single_band_files_is_stacked_in_band_order_with_the_roles_guessed() {
+        let r = Registry::standard();
+        let d = band_folder("band-folder");
+        let files = band_files(std::slice::from_ref(&d)).unwrap();
+        let names: Vec<String> = files.iter().map(|f| stem(f)).collect();
+        assert_eq!(names.len(), 6, "{names:?}");
+        assert!(names[0].contains("B02") && names[3].contains("B08") && names[5].contains("B12"), "{names:?}");
+        // (the same files picked one by one, in any order, come out in band order)
+        let mut shuffled = files.clone();
+        shuffled.reverse();
+        assert_eq!(band_files(&shuffled).unwrap(), files);
+        let roles = crate::rgb::band_roles(&names);
+        assert_eq!(roles, ["blue", "green", "red", "nir", "swir1", "swir2"]);
+        assert_eq!(files_scale(&files).unwrap(), Scale::Div10000);
+        for marked in [true, false] {
+            let c = Choice { file: files[0].clone(), files: files.clone(), ..Default::default() };
+            let p = plan(&image_model(marked), &r, &one("image", c), None, &d).unwrap();
+            assert!(p.refused.is_empty(), "{:?}", p.refused);
+            let md = &p.model;
+            assert_eq!(p.inputs.len(), 6);
+            let stack = md.node("image_stack").expect("the stack");
+            assert_eq!(stack.op, "stack.of");
+            assert_eq!(stack.inputs.len(), 6);
+            // the 20 m bands put on the 10 m grid
+            let matched: Vec<&Node> = md.nodes.iter().filter(|n| n.op == "raster.match").collect();
+            assert_eq!(matched.len(), 2, "{:?}", md.nodes.iter().map(|n| &n.id).collect::<Vec<_>>());
+            assert!(matched.iter().all(|n| matches!(n.inputs.get("like"), Some(Wire::Ref(r)) if r == "$image_b02")));
+            let n = md.node("image_bands").expect("the rename");
+            assert_eq!(n.op, "stack.rename");
+            assert_eq!(n.params["names"], serde_json::json!(["blue", "green", "red", "nir", "swir1", "swir2"]));
+            assert_eq!(n.params["scale"], serde_json::json!(1e-4));
+            assert_eq!(n.data.is_some(), marked);
+            for c in ["segments", "features"] {
+                let read = md.node(c).unwrap().inputs.get("image");
+                assert!(matches!(read, Some(Wire::Ref(r)) if r == "image_bands.stack"), "{c}: {read:?}");
+            }
+            assert!(md.node("land").is_none() && md.node("image").is_none());
+            assert_eq!(errors(&p, &d), Vec::<String>::new());
+            let out = run(&p, &d);
+            let Some(terraflux_ops::Value::Table(t)) = out.get("features.table") else { panic!("no features") };
+            for col in ["mean_blue", "mean_nir", "mean_swir2"] {
+                assert!(t.columns.iter().any(|c| c == col), "{col}: {:?}", t.columns);
+            }
+            // (B08 is the fourth file: 4000 to 4400 over 10 000)
+            let k = t.columns.iter().position(|c| c == "mean_nir").unwrap();
+            assert!(t.rows.iter().all(|row| (0.4..0.45).contains(&row[k])), "{:?}", t.rows[0]);
+        }
+        // a file of several bands is no band file
+        let multi = write_bands(&d, "multi.tif", &S2, |b, _, _| b as f64);
+        let c = Choice { file: multi.clone(), files: vec![multi], ..Default::default() };
+        let err = plan(&image_model(true), &r, &one("image", c), None, &d).unwrap_err();
+        assert!(err.contains("single-band"), "{err}");
+        // and bands are for an image
+        let c = Choice { file: files[0].clone(), files, ..Default::default() };
+        let cls = template("Dinamica EGO");
+        let node = sources(&cls, &r).first().unwrap().node.clone();
+        assert!(plan(&cls, &r, &one(&node, c), None, &d).is_err());
+    }
+
+    #[test]
+    fn a_folder_with_no_band_files_says_so() {
+        let d = dir("no-band-folder");
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            let _ = std::fs::remove_file(e.path());
+        }
+        write(&d, "elevation.tif", (4, 4), 10.0, |_, _| 1.0);
+        assert!(band_files(&[d]).unwrap_err().contains("band number"));
+    }
+
+    #[test]
+    fn a_scene_of_an_area_is_a_data_stac_node_and_the_roles_and_the_scale_follow() {
+        let r = Registry::standard();
+        let d = dir("scene");
+        let scene =
+            Scene { extent: [-47.9, -15.9, -47.88, -15.88], cellsize: 0.00018, dates: "2025-06-01/2025-08-31".into() };
+        for marked in [true, false] {
+            let c = Choice { scene: Some(scene.clone()), ..Default::default() };
+            let p = plan(&image_model(marked), &r, &one("image", c), None, &d).unwrap();
+            assert!(p.refused.is_empty(), "{:?}", p.refused);
+            assert!(p.inputs.is_empty(), "nothing is read from a file");
+            let md = &p.model;
+            let n = md.node("image_scene").expect("the data.stac node");
+            assert_eq!(n.op, "data.stac");
+            assert_eq!(n.params["url"], "https://earth-search.aws.element84.com/v1");
+            assert_eq!(n.params["collection"], "sentinel-2-l2a");
+            assert_eq!(n.params["assets"], serde_json::json!(["blue", "green", "red", "nir", "swir16", "swir22"]));
+            assert_eq!(n.params["datetime"], "2025-06-01/2025-08-31");
+            assert_eq!(n.params["mask"], "auto");
+            assert_eq!(n.params["extent"], serde_json::json!([-47.9, -15.9, -47.88, -15.88]));
+            assert_eq!(n.params["cellsize"], serde_json::json!(0.00018));
+            assert_eq!(n.params["query"], r#"{"eo:cloud_cover":{"lt":20}}"#);
+            let b = md.node("image_bands").expect("the rename");
+            assert_eq!(b.op, "stack.rename");
+            assert_eq!(b.params["names"], serde_json::json!(["blue", "green", "red", "nir", "swir1", "swir2"]));
+            assert_eq!(b.params["scale"], serde_json::json!(1e-4));
+            assert_eq!(b.data.is_some(), marked);
+            assert!(matches!(b.inputs.get("stack"), Some(Wire::Ref(r)) if r == "image_scene.raster"));
+            for c in ["segments", "features"] {
+                let read = md.node(c).unwrap().inputs.get("image");
+                assert!(matches!(read, Some(Wire::Ref(r)) if r == "image_bands.stack"), "{c}: {read:?}");
+            }
+            assert!(md.node("image").is_none() && md.node("land").is_none());
+            // (checked, not run: the run reads the catalogue)
+            assert_eq!(errors(&p, &d), Vec::<String>::new());
+        }
+        // an area that cannot be asked for
+        let bad = Scene { extent: [1.0, 1.0, 0.0, 2.0], ..scene.clone() };
+        assert!(bad.problem().unwrap().contains("area"));
+        let bad = Scene { dates: "last summer".into(), ..scene.clone() };
+        assert!(bad.problem().unwrap().contains("dates"));
+        assert!(Scene::new([0.0, 0.0, 0.01, 0.01]).problem().is_none());
+        let c = Choice { scene: Some(bad), ..Default::default() };
+        assert!(plan(&image_model(true), &r, &one("image", c), None, &d).is_err());
     }
 
     #[test]

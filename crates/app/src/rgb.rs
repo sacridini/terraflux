@@ -224,7 +224,7 @@ pub fn legend(names: &[String; 3], ranges: &[(f64, f64); 3]) -> [(egui::Color32,
 
 /// A band's number as its name says it: "B4", "SR_B4", "B04", "band 4", "S2_B8A_10m" are 4, 4, 4, 4 and 8A; none
 /// when no word of the name is one.
-fn band_id(name: &str) -> Option<String> {
+pub fn band_id(name: &str) -> Option<String> {
     let lower = name.to_lowercase();
     lower
         .split(|c: char| !c.is_ascii_alphanumeric())

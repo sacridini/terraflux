@@ -223,6 +223,10 @@ struct Pick {
     like: Option<String>,
     /// An image: the roles of its bands and its scale.
     image: Option<ImagePick>,
+    /// An image of single-band files: the files in band order (`file` is the first, `bands` their names).
+    files: Vec<PathBuf>,
+    /// An image with no file of the user's: a Sentinel-2 scene of an area.
+    scene: Option<my_data::Scene>,
 }
 
 /// What a thread did.
@@ -276,6 +280,12 @@ pub struct State {
     classes: BTreeMap<String, Vec<UserClass>>,
     /// A file chosen at a click, taken on the next frame (which has the session).
     asked: Option<(String, PathBuf)>,
+    /// The band files (a folder, or a selection) of an image chosen at a click, taken on the next frame.
+    asked_files: Option<(String, Vec<PathBuf>)>,
+    /// The area form of an image's Sentinel-2 scene: its source and the scene being set.
+    scene_form: Option<(String, my_data::Scene)>,
+    /// A scene chosen at a click, taken on the next frame.
+    asked_scene: Option<(String, my_data::Scene)>,
 }
 
 impl Default for State {
@@ -420,6 +430,9 @@ impl State {
             rules: Vec::new(),
             classes: BTreeMap::new(),
             asked: None,
+            asked_files: None,
+            scene_form: None,
+            asked_scene: None,
         }
     }
 
@@ -476,6 +489,8 @@ impl State {
                     crosswalk: BTreeMap::new(),
                     like: None,
                     image,
+                    files: Vec::new(),
+                    scene: None,
                 };
                 self.picks.insert(node.to_string(), pick);
                 if self.dates.iter().any(|d| d == node) {
@@ -489,6 +504,111 @@ impl State {
                 Err(e)
             }
         }
+    }
+
+    /// Choose the single-band files of an image (a folder, or the files selected): sorted by band, the bands named by
+    /// the files' names, their roles guessed from them. The reason when it cannot be.
+    pub fn choose_files(&mut self, s: &mut Session, r: &Registry, node: &str, paths: &[PathBuf]) -> Result<(), String> {
+        let src = sources_of(s, r).iter().find(|x| x.node == node).cloned();
+        let Some(src) = src else { return Err(format!("{node}: the model draws no such data")) };
+        let made = (|| {
+            if !my_data::is_image(&src) {
+                return Err("bands of several files are for an image".to_string());
+            }
+            let files = my_data::band_files(paths)?;
+            for f in &files {
+                if bands_of(f)?.len() != 1 {
+                    return Err(format!(
+                        "{} has more than one band: a file for each band takes single-band files",
+                        f.display()
+                    ));
+                }
+            }
+            Ok(files)
+        })();
+        let files = match made {
+            Ok(f) => f,
+            Err(e) => {
+                self.problems.insert(node.to_string(), e.clone());
+                return Err(e);
+            }
+        };
+        self.problems.remove(node);
+        let bands: Vec<String> = files.iter().map(|f| my_data::stem(f)).collect();
+        let image = ImagePick {
+            roles: crate::rgb::band_roles(&bands).into_iter().map(String::from).collect(),
+            scale: None,
+            detected: None,
+        };
+        let (tx, ctx, list, first) = (self.tx.clone(), self.ctx.clone(), files.clone(), files[0].clone());
+        let name = node.to_string();
+        std::thread::spawn(move || {
+            let result = my_data::files_scale(&list);
+            let _ = tx.send(Done::Scale { node: name, file: list[0].clone(), result });
+            if let Some(c) = ctx {
+                c.request_repaint();
+            }
+        });
+        self.picks.insert(
+            node.to_string(),
+            Pick {
+                file: first,
+                bands,
+                band: None,
+                template: None,
+                classes: Cls::None,
+                crosswalk: BTreeMap::new(),
+                like: None,
+                image: Some(image),
+                files,
+                scene: None,
+            },
+        );
+        self.scene_form = None;
+        Ok(())
+    }
+
+    /// Choose a cloud-free Sentinel-2 scene of an area for an image that has no file of the user's: nothing is
+    /// downloaded until the model runs. The reason when the area or the dates cannot be asked for.
+    pub fn choose_scene(
+        &mut self,
+        s: &mut Session,
+        r: &Registry,
+        node: &str,
+        scene: my_data::Scene,
+    ) -> Result<(), String> {
+        let src = sources_of(s, r).iter().find(|x| x.node == node).cloned();
+        let Some(src) = src else { return Err(format!("{node}: the model draws no such data")) };
+        let problem =
+            if !my_data::is_image(&src) { Some("a scene is for an image".to_string()) } else { scene.problem() };
+        if let Some(e) = problem {
+            self.problems.insert(node.to_string(), e.clone());
+            return Err(e);
+        }
+        self.problems.remove(node);
+        let bands: Vec<String> = my_data::SCENE_ASSETS.iter().map(|a| a.to_string()).collect();
+        let image = ImagePick {
+            roles: crate::rgb::band_roles(&bands).into_iter().map(String::from).collect(),
+            scale: None,
+            detected: Some(Scale::Div10000),
+        };
+        self.picks.insert(
+            node.to_string(),
+            Pick {
+                file: PathBuf::new(),
+                bands,
+                band: None,
+                template: None,
+                classes: Cls::None,
+                crosswalk: BTreeMap::new(),
+                like: None,
+                image: Some(image),
+                files: Vec::new(),
+                scene: Some(scene),
+            },
+        );
+        self.scene_form = None;
+        Ok(())
     }
 
     /// Keep the drawn data of a source: no file for it.
@@ -518,6 +638,8 @@ impl State {
             crosswalk: BTreeMap::new(),
             like: Some(from.to_string()),
             image: None,
+            files: Vec::new(),
+            scene: None,
         };
         self.problems.remove(node);
         self.picks.insert(node.to_string(), pick);
@@ -750,6 +872,8 @@ impl State {
                     dates: dated && self.dates.first() == Some(k),
                     roles: p.image.as_ref().map(|i| i.roles.clone()),
                     scale: p.image.as_ref().and_then(|i| i.scale.or(i.detected)),
+                    files: p.files.clone(),
+                    scene: p.scene.clone(),
                     ..Default::default()
                 };
                 (k.clone(), c)
@@ -951,6 +1075,10 @@ impl State {
         let many = self.picks.len() > 1;
         let (mut choose, mut keep, mut band, mut refer, mut same) = (None, None, None, None, None);
         let mut all: Option<(String, String)> = None;
+        let mut files: Option<(String, Vec<PathBuf>)> = None;
+        let mut open_form: Option<String> = None;
+        let mut use_scene: Option<(String, my_data::Scene)> = None;
+        let mut close_form = false;
         for src in sources {
             ui.separator();
             ui.horizontal_wrapped(|ui| {
@@ -968,6 +1096,39 @@ impl State {
                     && let Some(p) = crate::fixes::pick_file("raster.read")
                 {
                     choose = Some((src.node.clone(), PathBuf::from(p)));
+                }
+                // an image: a band to a file, a folder of them, or a scene of an area for the one who has no image
+                if my_data::is_image(src) {
+                    if ui
+                        .button("Choose band files...")
+                        .on_hover_text(
+                            "single-band files (Sentinel-2 B02, B03...; Landsat SR_B2...): stacked in band order",
+                        )
+                        .clicked()
+                        && let Some(p) = rfd::FileDialog::new()
+                            .set_title("The band files of the image")
+                            .add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS)
+                            .pick_files()
+                    {
+                        files = Some((src.node.clone(), p));
+                    }
+                    if ui
+                        .button("Choose a folder of bands...")
+                        .on_hover_text("the single-band files of a folder (a Sentinel-2 or Landsat product), by band")
+                        .clicked()
+                        && let Some(p) = rfd::FileDialog::new().set_title("The folder of the band files").pick_folder()
+                    {
+                        files = Some((src.node.clone(), vec![p]));
+                    }
+                    if ui
+                        .button("No image of your own?")
+                        .on_hover_text(
+                            "choose an area and a cloud-free Sentinel-2 scene of it is read from a STAC catalogue",
+                        )
+                        .clicked()
+                    {
+                        open_form = Some(src.node.clone());
+                    }
                 }
                 let Some(p) = pick else {
                     match &src.file {
@@ -997,11 +1158,24 @@ impl State {
                     }
                     return;
                 };
-                let name = p
-                    .file
-                    .file_name()
-                    .map_or_else(|| p.file.display().to_string(), |n| n.to_string_lossy().into_owned());
-                ui.label(RichText::new(name).strong()).on_hover_text(p.file.display().to_string());
+                let name = if p.scene.is_some() {
+                    "a Sentinel-2 scene of your area".to_string()
+                } else if !p.files.is_empty() {
+                    format!("{} band files", p.files.len())
+                } else {
+                    p.file
+                        .file_name()
+                        .map_or_else(|| p.file.display().to_string(), |n| n.to_string_lossy().into_owned())
+                };
+                let tip = match &p.scene {
+                    Some(sc) => format!(
+                        "{:?}, {} to {}, read from Earth Search when the model runs",
+                        sc.extent, sc.dates, sc.cellsize
+                    ),
+                    None if !p.files.is_empty() => p.bands.join(", "),
+                    None => p.file.display().to_string(),
+                };
+                ui.label(RichText::new(name).strong()).on_hover_text(tip);
                 if src.needs == Type::Stack {
                     ui.label(RichText::new(format!("all {} bands", p.bands.len())).weak());
                 } else if p.bands.len() > 1 {
@@ -1031,6 +1205,9 @@ impl State {
             });
             if let Some(e) = self.problems.get(&src.node) {
                 ui.colored_label(ui.visuals().error_fg_color, e);
+            }
+            if let Some((_, sc)) = self.scene_form.as_mut().filter(|f| f.0 == src.node) {
+                scene_form(ui, sc, &mut use_scene, &mut close_form, &src.node);
             }
             if let Some(Pick { classes: Cls::Failed(e), .. }) = pick {
                 ui.colored_label(ui.visuals().error_fg_color, e);
@@ -1078,6 +1255,19 @@ impl State {
             && let Err(e) = self.all_dates_from(sources, &n, &from)
         {
             self.error = Some(e);
+        }
+        if let Some(f) = files {
+            self.asked_files = Some(f);
+        }
+        if let Some(n) = open_form {
+            let kept = self.picks.get(&n).and_then(|p| p.scene.clone());
+            self.scene_form = Some((n, kept.unwrap_or_else(|| my_data::Scene::new([-47.90, -15.90, -47.85, -15.85]))));
+        }
+        if let Some(u) = use_scene {
+            self.asked_scene = Some(u);
+        }
+        if close_form {
+            self.scene_form = None;
         }
         if let Some(n) = keep {
             self.keep_drawn(&n);
@@ -1443,6 +1633,74 @@ impl State {
     }
 }
 
+/// The form of an image's Sentinel-2 scene: the area (west, south, east, north), the cells and the dates, and what is
+/// done with them; *Use this area* sets `use_scene`, *Cancel* `close`.
+fn scene_form(
+    ui: &mut Ui,
+    sc: &mut my_data::Scene,
+    use_scene: &mut Option<(String, my_data::Scene)>,
+    close: &mut bool,
+    node: &str,
+) {
+    ui.group(|ui| {
+        ui.label(RichText::new("A cloud-free Sentinel-2 scene of your area").strong());
+        ui.label(
+            RichText::new(
+                "Nothing is downloaded now. When the model runs, Terraflux searches Earth Search (Sentinel-2 L2A) \
+                 for the scenes of those dates with less than 20% of cloud, takes the clouds, shadows and cirrus of \
+                 each out pixel by pixel, and combines them (the median) into the bands blue, green, red, nir, swir1 \
+                 and swir2, read only for your area. The area is a small one: at 10 m, a side of 5 km is 500 cells.",
+            )
+            .weak(),
+        );
+        let [w, s, e, n] = &mut sc.extent;
+        fn drag(v: &mut f64, lo: f64, hi: f64) -> egui::DragValue<'_> {
+            egui::DragValue::new(v).range(lo..=hi).speed(0.001).max_decimals(5).suffix("\u{b0}")
+        }
+        ui.horizontal(|ui| {
+            ui.label("west");
+            ui.add(drag(w, -180.0, 180.0));
+            ui.label("east");
+            ui.add(drag(e, -180.0, 180.0));
+            ui.label("south");
+            ui.add(drag(s, -90.0, 90.0));
+            ui.label("north");
+            ui.add(drag(n, -90.0, 90.0));
+        });
+        ui.horizontal(|ui| {
+            ui.label("cells");
+            let shown =
+                my_data::SCENE_CELLS.iter().find(|(c, _)| (c - sc.cellsize).abs() < 1e-9).map_or("", |(_, n)| *n);
+            egui::ComboBox::from_id_salt(("my data scene cells", node)).selected_text(shown).show_ui(ui, |ui| {
+                for (c, name) in my_data::SCENE_CELLS {
+                    ui.selectable_value(&mut sc.cellsize, c, name);
+                }
+            });
+            ui.label("dates");
+            ui.add(egui::TextEdit::singleline(&mut sc.dates).desired_width(190.0)).on_hover_text(
+                "a day (2025-06-01) or an interval (2025-06-01/2025-08-31); the last 12 months by default",
+            );
+        });
+        let problem = sc.problem();
+        match &problem {
+            Some(p) => {
+                ui.colored_label(ui.visuals().error_fg_color, p);
+            }
+            None => {
+                ui.label(RichText::new(format!("{} \u{d7} {} cells", sc.cols(), sc.rows())).weak());
+            }
+        }
+        ui.horizontal(|ui| {
+            if ui.add_enabled(problem.is_none(), egui::Button::new("Use this area")).clicked() {
+                *use_scene = Some((node.to_string(), sc.clone()));
+            }
+            if ui.button("Cancel").clicked() {
+                *close = true;
+            }
+        });
+    });
+}
+
 /// A finding: its level, where, what, and what to do about it.
 fn finding_line(ui: &mut Ui, f: &Finding) {
     let (word, colour) = match f.level {
@@ -1559,6 +1817,16 @@ pub fn window(
             // (a file chosen at a click in the last frame)
             if let Some((node, file)) = st.asked.take()
                 && let Err(e) = st.choose(s, r, &node, &file)
+            {
+                st.error = Some(e);
+            }
+            if let Some((node, paths)) = st.asked_files.take()
+                && let Err(e) = st.choose_files(s, r, &node, &paths)
+            {
+                st.error = Some(e);
+            }
+            if let Some((node, scene)) = st.asked_scene.take()
+                && let Err(e) = st.choose_scene(s, r, &node, scene)
             {
                 st.error = Some(e);
             }
