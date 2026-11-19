@@ -2402,10 +2402,12 @@ fn zonation_rank_in_its_colours() {
 #[test]
 fn templates_run() {
     for t in &terraflux_app::templates::TEMPLATES {
-        let m = t.model();
+        let mut m = t.model();
         if m.nodes.iter().any(|n| n.op == "raster.read") {
             continue;
         }
+        // (a template that writes its result, the polygons of the objects', writes beside the model: not here)
+        m.nodes.retain(|n| n.op != "vector.write");
         let r = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet);
         assert!(r.is_ok(), "{}: {:?}", t.name, r.err());
     }
