@@ -2,16 +2,20 @@
 //!
 //! Regions start as single cells (or the objects of a level below) and merge, pass after pass, while the fusion cost
 //! stays under scale². The state is a region adjacency graph: per region its cells, perimeter, box, and per band
-//! (count, sum, sum of squares) of the values, and a sorted list of (neighbour, shared border). A merge is O(bands) for
-//! the cost and O(neighbours) for the lists; nothing per pass costs O(cells). A region whose every neighbour costs
-//! more than scale² is left alone until it or a neighbour changes (its cost depends on nothing else), so the late
-//! passes only visit what can still merge.
+//! (count, sum, sum of squares) of the values, and a sorted list of (neighbour, shared border, cost of the merge). A
+//! cost is worked out once and kept until either region changes (from terms cached per region: the n·sd of each band
+//! and the shape terms of the region alone, so a cost takes one square root per band for the merged region only). A
+//! merge is O(bands) for the cost and O(neighbours) for the lists; nothing per pass costs O(cells). The visits are a
+//! shuffle, so every one would wait for memory: the regions of the visits to come are prefetched. A region whose
+//! every neighbour costs more than scale² is left alone until it or a neighbour changes (its cost depends on nothing
+//! else), so the late passes only visit what can still merge.
 //!
 //! One thread. Happ et al. (2010) run it in parallel by blocks of the image, with the merges across blocks made
 //! apart: that is `tiles.rs`, which uses this for each tile and for the stitching.
 
 use std::sync::Arc;
 
+use smallvec::SmallVec;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_raster::Grid;
 
@@ -70,7 +74,8 @@ pub(crate) struct Cost {
 }
 
 /// A region as the cost sees it: cells, perimeter (in cell edges), box (row min, column min, row max, column max) and
-/// per band `[count, sum, sum of squares]`.
+/// per band `[count, sum, sum of squares]`. The reference of [`Regions::cost`], which works from cached terms.
+#[cfg(test)]
 #[derive(Clone, Copy)]
 pub(crate) struct View<'a> {
     pub cells: u32,
@@ -90,6 +95,7 @@ fn sd(s: &[f64]) -> f64 {
 
 /// The cost of merging two regions with `shared` edges of border: `f = w h_colour + (1 - w) h_shape`, the colour
 /// heterogeneity the growth of n·sd per band (weighted), the shape one a mix of compactness and smoothness.
+#[cfg(test)]
 pub(crate) fn fusion_cost(p: &Cost, a: View, b: View, shared: u32) -> f64 {
     let mut hc = 0.0;
     for (k, w) in p.weights.iter().enumerate() {
@@ -101,7 +107,6 @@ pub(crate) fn fusion_cost(p: &Cost, a: View, b: View, shared: u32) -> f64 {
         return hc;
     }
     let bbox = [a.bbox[0].min(b.bbox[0]), a.bbox[1].min(b.bbox[1]), a.bbox[2].max(b.bbox[2]), a.bbox[3].max(b.bbox[3])];
-    let around = |x: [u32; 4]| 2.0 * ((x[2] - x[0] + 1) + (x[3] - x[1] + 1)) as f64;
     let (n1, n2) = (a.cells as f64, b.cells as f64);
     let nm = n1 + n2;
     let (l1, l2) = (a.perim as f64, b.perim as f64);
@@ -112,16 +117,44 @@ pub(crate) fn fusion_cost(p: &Cost, a: View, b: View, shared: u32) -> f64 {
     p.colour * hc + (1.0 - p.colour) * hs
 }
 
+/// The perimeter of a box (row min, column min, row max, column max), in cell edges.
+fn around(x: [u32; 4]) -> f64 {
+    2.0 * ((x[2] - x[0] + 1) + (x[3] - x[1] + 1)) as f64
+}
+
+/// A neighbour in a region's list: its number, the edges of border shared, and the cost of merging the two (NaN
+/// while not known: a cost lives until either region changes).
+#[derive(Clone, Copy)]
+struct Edge {
+    nb: u32,
+    shared: u32,
+    cost: f64,
+}
+
+/// Neighbours kept in the region itself (a cell has 4, a region of the middle passes about 6): no heap per region.
+type Adj = SmallVec<[Edge; 6]>;
+
+/// What the cost reads of a region besides its sums, with the terms of the shape that depend on the region only.
+#[derive(Clone, Copy)]
+struct Reg {
+    cells: u32,
+    perim: u32,
+    bbox: [u32; 4],
+    /// n·l/√n and n·l/around(box): the region's own terms of compactness and smoothness.
+    cmpct: f64,
+    smooth: f64,
+}
+
 /// The regions' state.
 pub(crate) struct Regions {
-    /// Numbers per region and band in `st` (count, sum, sum of squares).
+    /// Numbers per region in `st`: per band (count, sum, sum of squares, count · standard deviation).
     stride: usize,
-    cells: Vec<u32>,
-    perim: Vec<u32>,
-    bbox: Vec<[u32; 4]>,
+    reg: Vec<Reg>,
     st: Vec<f64>,
-    /// Per region: (neighbour, shared border), sorted by neighbour.
-    adj: Vec<Vec<(u32, u32)>>,
+    /// Per region: the neighbours, sorted by number.
+    adj: Vec<Adj>,
+    /// The joined list of a merge (kept to reuse its memory).
+    scratch: Vec<Edge>,
 }
 
 impl Regions {
@@ -143,14 +176,14 @@ impl Regions {
         centre: &[f64],
     ) -> Result<Regions> {
         let nb = src.nb();
-        let stride = 3 * nb;
+        let stride = 4 * nb;
+        let empty = Reg { cells: 0, perim: 0, bbox: [u32::MAX, u32::MAX, 0, 0], cmpct: 0.0, smooth: 0.0 };
         let mut g = Regions {
             stride,
-            cells: vec![0; count],
-            perim: vec![0; count],
-            bbox: vec![[u32::MAX, u32::MAX, 0, 0]; count],
+            reg: vec![empty; count],
             st: vec![0.0; count * stride],
-            adj: vec![Vec::new(); count],
+            adj: vec![Adj::new(); count],
+            scratch: Vec::new(),
         };
         let all: Vec<usize> = (0..nb).collect();
         strips(src, h, &all, |r0, r1, rows| {
@@ -162,68 +195,175 @@ impl Regions {
                         continue;
                     }
                     let k = a as usize - 1;
-                    g.cells[k] += 1;
-                    let b = &mut g.bbox[k];
+                    let at = |ok: bool, j: usize| if ok { labels[j] } else { 0 };
+                    let (left, up) = (at(c > 0, i.wrapping_sub(1)), at(r > 0, i.wrapping_sub(w)));
+                    let (right, down) = (at(c + 1 < w, i + 1), at(r + 1 < h, i + w));
+                    let reg = &mut g.reg[k];
+                    reg.cells += 1;
+                    let b = &mut reg.bbox;
                     *b = [b[0].min(r as u32), b[1].min(c as u32), b[2].max(r as u32), b[3].max(c as u32)];
+                    reg.perim += [left, up, right, down].iter().filter(|&&o| o != a).count() as u32;
                     for (j, band) in rows.iter().enumerate() {
                         let v = band[(r - r0) * w + c];
                         if !v.is_nan() {
                             let d = v - centre[j];
-                            let s = &mut g.st[k * stride + 3 * j..k * stride + 3 * j + 3];
+                            let s = &mut g.st[k * stride + 4 * j..k * stride + 4 * j + 3];
                             s[0] += 1.0;
                             s[1] += d;
                             s[2] += d * d;
                         }
                     }
-                    let at = |ok: bool, j: usize| if ok { labels[j] } else { 0 };
-                    let (left, up) = (at(c > 0, i.wrapping_sub(1)), at(r > 0, i.wrapping_sub(w)));
-                    let (right, down) = (at(c + 1 < w, i + 1), at(r + 1 < h, i + w));
-                    g.perim[k] += [left, up, right, down].iter().filter(|&&o| o != a).count() as u32;
                     for o in [right, down] {
                         if o != 0 && o != a {
-                            g.adj[k].push((o - 1, 1));
-                            g.adj[o as usize - 1].push((a - 1, 1));
+                            g.adj[k].push(Edge { nb: o - 1, shared: 1, cost: f64::NAN });
+                            g.adj[o as usize - 1].push(Edge { nb: a - 1, shared: 1, cost: f64::NAN });
                         }
                     }
                 }
             }
         })?;
         for l in g.adj.iter_mut() {
-            l.sort_unstable();
+            l.sort_unstable_by_key(|e| e.nb);
             l.dedup_by(|b, a| {
-                if a.0 == b.0 {
-                    a.1 += b.1;
+                if a.nb == b.nb {
+                    a.shared += b.shared;
                     true
                 } else {
                     false
                 }
             });
         }
+        for r in 0..count {
+            g.refresh(r);
+        }
         Ok(g)
     }
 
-    fn view(&self, r: usize) -> View<'_> {
-        View {
-            cells: self.cells[r],
-            perim: self.perim[r],
-            bbox: self.bbox[r],
-            bands: &self.st[r * self.stride..(r + 1) * self.stride],
+    /// Prefetch what a visit to region `a` reads first: its list (the part in the region), its numbers and its sums.
+    #[inline]
+    fn prefetch_region(&self, a: usize) {
+        let l = &self.adj[a];
+        prefetch(l as *const Adj);
+        prefetch((l as *const Adj).wrapping_byte_add(64));
+        prefetch(&self.reg[a]);
+        prefetch(self.st[a * self.stride..].as_ptr());
+    }
+
+    /// The part of the list of `a` that did not fit in the region (the first part is in the cache by now).
+    #[inline]
+    fn prefetch_heap(&self, a: usize) {
+        let l = &self.adj[a];
+        if l.spilled() {
+            prefetch(l.as_ptr());
+            prefetch(l.as_ptr().wrapping_add(4));
         }
     }
 
+    /// Prefetch what the cost to each neighbour of region `a` reads (its whole list is in the cache by now).
+    #[inline]
+    fn prefetch_neighbours(&self, a: usize, stamp: &[u32]) {
+        for e in &self.adj[a] {
+            let b = e.nb as usize;
+            prefetch(&self.reg[b]);
+            prefetch(self.st[b * self.stride..].as_ptr());
+            prefetch(&self.adj[b]);
+            prefetch(&stamp[b]);
+        }
+    }
+
+    /// The lists of the neighbours of `a` that spilled out of their regions.
+    #[inline]
+    fn prefetch_neighbour_heaps(&self, a: usize) {
+        for e in &self.adj[a] {
+            self.prefetch_heap(e.nb as usize);
+        }
+    }
+
+    /// The cost of every pair of neighbours worked out, in the order of the regions (what the first pass would do at
+    /// random: read in a row, memory keeps up).
+    fn eval_all(&mut self, p: &Cost) {
+        for a in 0..self.reg.len() {
+            for i in 0..self.adj[a].len() {
+                let e = self.adj[a][i];
+                if (e.nb as usize) > a && e.cost.is_nan() {
+                    let f = self.cost(p, a, e.nb as usize, e.shared);
+                    self.adj[a][i].cost = f;
+                    let l = &mut self.adj[e.nb as usize];
+                    if let Ok(j) = l.binary_search_by_key(&(a as u32), |x| x.nb) {
+                        l[j].cost = f;
+                    }
+                }
+            }
+        }
+    }
+
+    /// The terms cached for region `r` worked out again from its state (after its sums or its shape changed).
+    fn refresh(&mut self, r: usize) {
+        let st = &mut self.st[r * self.stride..(r + 1) * self.stride];
+        for j in (0..st.len()).step_by(4) {
+            st[j + 3] = st[j] * sd(&st[j..j + 3]);
+        }
+        let g = &mut self.reg[r];
+        let (n, l) = (g.cells as f64, g.perim as f64);
+        g.cmpct = n * l / n.sqrt();
+        g.smooth = n * l / around(g.bbox);
+    }
+
+    /// The statistics of region `r`: per band (count, sum, sum of squares, count · standard deviation).
+    fn stats(&self, r: usize) -> &[f64] {
+        &self.st[r * self.stride..(r + 1) * self.stride]
+    }
+
+    /// The cost of merging regions `a` and `b` that touch along `shared` edges (as `fusion_cost`, the same number,
+    /// bit for bit): from the regions' cached terms, so only the merged region's own terms are worked out.
+    fn cost(&self, p: &Cost, a: usize, b: usize, shared: u32) -> f64 {
+        let (sa, sb) = (self.stats(a), self.stats(b));
+        let mut hc = 0.0;
+        for (k, w) in p.weights.iter().enumerate() {
+            let (x, y) = (&sa[4 * k..4 * k + 4], &sb[4 * k..4 * k + 4]);
+            let m = [x[0] + y[0], x[1] + y[1], x[2] + y[2]];
+            hc += w * (m[0] * sd(&m) - (x[3] + y[3]));
+        }
+        if p.colour >= 1.0 {
+            return hc;
+        }
+        let (ra, rb) = (&self.reg[a], &self.reg[b]);
+        let bbox = [
+            ra.bbox[0].min(rb.bbox[0]),
+            ra.bbox[1].min(rb.bbox[1]),
+            ra.bbox[2].max(rb.bbox[2]),
+            ra.bbox[3].max(rb.bbox[3]),
+        ];
+        let nm = ra.cells as f64 + rb.cells as f64;
+        let lm = ra.perim as f64 + rb.perim as f64 - 2.0 * shared as f64;
+        let cmpct = nm * lm / nm.sqrt() - (ra.cmpct + rb.cmpct);
+        let smooth = nm * lm / around(bbox) - (ra.smooth + rb.smooth);
+        let hs = p.compact * cmpct + (1.0 - p.compact) * smooth;
+        p.colour * hc + (1.0 - p.colour) * hs
+    }
+
     /// The neighbour of `a` of the lowest cost among those not merged in this pass (the lowest id on a tie): the
-    /// neighbour, its cost, the border, and whether any was left out.
-    fn best(&self, p: &Cost, a: usize, stamp: &[u32], pass: u32) -> (Option<(u32, f64, u32)>, bool) {
+    /// neighbour, its cost, the border, and whether any was left out. The costs worked out are kept in both lists.
+    fn best(&mut self, p: &Cost, a: usize, stamp: &[u32], pass: u32) -> (Option<(u32, f64, u32)>, bool) {
         let mut best: Option<(u32, f64, u32)> = None;
         let mut left_out = false;
-        for &(b, shared) in &self.adj[a] {
-            if stamp[b as usize] == pass {
+        for i in 0..self.adj[a].len() {
+            let e = self.adj[a][i];
+            if stamp[e.nb as usize] == pass {
                 left_out = true;
                 continue;
             }
-            let f = fusion_cost(p, self.view(a), self.view(b as usize), shared);
+            let mut f = e.cost;
+            if f.is_nan() {
+                f = self.cost(p, a, e.nb as usize, e.shared);
+                self.adj[a][i].cost = f;
+                let l = &mut self.adj[e.nb as usize];
+                if let Ok(j) = l.binary_search_by_key(&(a as u32), |x| x.nb) {
+                    l[j].cost = f;
+                }
+            }
             if best.is_none_or(|(_, g, _)| f < g) {
-                best = Some((b, f, shared));
+                best = Some((e.nb, f, e.shared));
             }
         }
         (best, left_out)
@@ -231,50 +371,65 @@ impl Regions {
 
     /// Merge region `b` into `a` (they touch along `shared` edges).
     fn merge(&mut self, a: usize, b: usize, shared: u32) {
-        for k in 0..self.stride {
-            self.st[a * self.stride + k] += self.st[b * self.stride + k];
+        let s = self.stride;
+        for k in 0..s {
+            self.st[a * s + k] += self.st[b * s + k];
         }
-        self.cells[a] += self.cells[b];
-        self.perim[a] = self.perim[a] + self.perim[b] - 2 * shared;
-        let (x, y) = (self.bbox[a], self.bbox[b]);
-        self.bbox[a] = [x[0].min(y[0]), x[1].min(y[1]), x[2].max(y[2]), x[3].max(y[3])];
-        let la = std::mem::take(&mut self.adj[a]);
+        let (x, y) = (self.reg[a], self.reg[b]);
+        let ra = &mut self.reg[a];
+        ra.cells = x.cells + y.cells;
+        ra.perim = x.perim + y.perim - 2 * shared;
+        ra.bbox = [x.bbox[0].min(y.bbox[0]), x.bbox[1].min(y.bbox[1]), x.bbox[2].max(y.bbox[2]), x.bbox[3].max(y.bbox[3])];
+        self.refresh(a);
         let lb = std::mem::take(&mut self.adj[b]);
-        // the lists joined, the two of them left out
-        let (mut merged, mut i, mut j) = (Vec::with_capacity(la.len() + lb.len()), 0, 0);
+        let mut merged = std::mem::take(&mut self.scratch);
+        merged.clear();
         let (a32, b32) = (a as u32, b as u32);
-        while i < la.len() || j < lb.len() {
-            if i < la.len() && la[i].0 == b32 {
-                i += 1;
-            } else if j < lb.len() && lb[j].0 == a32 {
-                j += 1;
-            } else if j == lb.len() || (i < la.len() && la[i].0 < lb[j].0) {
-                merged.push(la[i]);
-                i += 1;
-            } else if i == la.len() || lb[j].0 < la[i].0 {
-                merged.push(lb[j]);
-                j += 1;
-            } else {
-                merged.push((la[i].0, la[i].1 + lb[j].1));
-                i += 1;
-                j += 1;
+        // the lists joined, the two of them left out, the costs unknown
+        {
+            let la = &self.adj[a];
+            let (mut i, mut j) = (0, 0);
+            while i < la.len() || j < lb.len() {
+                if i < la.len() && la[i].nb == b32 {
+                    i += 1;
+                } else if j < lb.len() && lb[j].nb == a32 {
+                    j += 1;
+                } else if j == lb.len() || (i < la.len() && la[i].nb < lb[j].nb) {
+                    merged.push(Edge { cost: f64::NAN, ..la[i] });
+                    i += 1;
+                } else if i == la.len() || lb[j].nb < la[i].nb {
+                    merged.push(Edge { cost: f64::NAN, ..lb[j] });
+                    j += 1;
+                } else {
+                    merged.push(Edge { nb: la[i].nb, shared: la[i].shared + lb[j].shared, cost: f64::NAN });
+                    i += 1;
+                    j += 1;
+                }
             }
         }
-        // each neighbour of b now points to a
-        for &(c, len) in &lb {
-            if c == a32 {
-                continue;
-            }
-            let l = &mut self.adj[c as usize];
-            if let Ok(p) = l.binary_search_by_key(&b32, |e| e.0) {
-                l.remove(p);
-            }
-            match l.binary_search_by_key(&a32, |e| e.0) {
-                Ok(p) => l[p].1 += len,
-                Err(p) => l.insert(p, (a32, len)),
+        // each neighbour of the two now points to a (b gone), the cost of that pair unknown
+        for e in &merged {
+            let l = &mut self.adj[e.nb as usize];
+            let pa = l.binary_search_by_key(&a32, |x| x.nb);
+            let pb = l.binary_search_by_key(&b32, |x| x.nb);
+            match (pa, pb) {
+                (Ok(i), Ok(j)) => {
+                    l[i] = Edge { nb: a32, shared: e.shared, cost: f64::NAN };
+                    l.remove(j);
+                }
+                (Ok(i), Err(_)) => l[i].cost = f64::NAN,
+                (Err(_), Ok(j)) => {
+                    l.remove(j);
+                    let at = l.binary_search_by_key(&a32, |x| x.nb).unwrap_or_else(|p| p);
+                    l.insert(at, Edge { nb: a32, shared: e.shared, cost: f64::NAN });
+                }
+                (Err(_), Err(_)) => unreachable!("a neighbour of the merged regions lists neither"),
             }
         }
-        self.adj[a] = merged;
+        let la = &mut self.adj[a];
+        la.clear();
+        la.extend_from_slice(&merged);
+        self.scratch = merged;
     }
 }
 
@@ -291,16 +446,33 @@ impl Rng {
     }
 }
 
+/// How many visits ahead the regions are prefetched.
+const AHEAD: usize = 4;
+
+/// A hint to the processor to bring the memory at `p` into the cache (nothing where there is no such instruction).
+#[inline(always)]
+fn prefetch<T>(p: *const T) {
+    #[cfg(target_arch = "x86_64")]
+    // SAFETY: a prefetch only hints: it reads nothing and cannot fault, whatever the address.
+    unsafe {
+        std::arch::x86_64::_mm_prefetch(p as *const i8, std::arch::x86_64::_MM_HINT_T0)
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    let _ = p;
+}
+
 /// The regions of an image merged: each cell's final region (a region of the start, merged), by the cell's start
 /// label (0 none). `labels` has the start regions 1..=count.
 fn merge_all(g: &mut Regions, p: &Cost, scale: f64, mutual: bool, seed: u64, max_passes: u32) -> Vec<u32> {
-    let n = g.cells.len();
+    let n = g.reg.len();
     let scale2 = scale * scale;
     let mut parent: Vec<u32> = (0..n as u32).collect();
     let mut alive: Vec<u32> = (0..n as u32).collect();
     let mut dead = vec![false; n];
     let mut quiet = vec![false; n];
     let mut stamp = vec![0u32; n];
+    // the cost of every pair at the start, read in a row, as the first pass would work them out at random
+    g.eval_all(p);
     let mut rng = Rng(seed ^ 0xA5A5_5A5A_1234_5678);
     for pass in 1..=max_passes {
         alive.retain(|&r| !dead[r as usize]);
@@ -312,7 +484,22 @@ fn merge_all(g: &mut Regions, p: &Cost, scale: f64, mutual: bool, seed: u64, max
             order.swap(i, (rng.next() % (i as u64 + 1)) as usize);
         }
         let mut merges = 0usize;
-        for &a in &order {
+        for (at, &a) in order.iter().enumerate() {
+            // the regions visited soon are fetched while this one is worked on: the order is a shuffle, so every
+            // visit would wait for memory (the lists first, then the neighbours they name)
+            let soon = |k: usize| order.get(at + k * AHEAD).map(|&x| x as usize);
+            if let Some(x) = soon(4) {
+                g.prefetch_region(x);
+            }
+            if let Some(x) = soon(3) {
+                g.prefetch_heap(x);
+            }
+            if let Some(x) = soon(2) {
+                g.prefetch_neighbours(x, &stamp);
+            }
+            if let Some(x) = soon(1) {
+                g.prefetch_neighbour_heaps(x);
+            }
             let a = a as usize;
             if dead[a] || stamp[a] == pass {
                 continue;
@@ -333,8 +520,8 @@ fn merge_all(g: &mut Regions, p: &Cost, scale: f64, mutual: bool, seed: u64, max
             stamp[a] = pass;
             stamp[b] = pass;
             quiet[a] = false;
-            for &(c, _) in &g.adj[a] {
-                quiet[c as usize] = false;
+            for e in &g.adj[a] {
+                quiet[e.nb as usize] = false;
             }
             merges += 1;
         }
@@ -468,8 +655,8 @@ impl Level {
 
     /// The standard deviation of object `r`'s values in each band (NaN where it has none), `r` from [`Level::roots`].
     pub fn sds(&self, r: usize) -> Vec<f64> {
-        let s = self.g.view(r).bands;
-        (0..s.len() / 3).map(|j| if s[3 * j] > 0.0 { sd(&s[3 * j..3 * j + 3]) } else { f64::NAN }).collect()
+        let s = self.g.stats(r);
+        (0..s.len() / 4).map(|j| if s[4 * j] > 0.0 { sd(&s[4 * j..4 * j + 3]) } else { f64::NAN }).collect()
     }
 }
 
@@ -739,12 +926,12 @@ impl Operator for Multiresolution {
         }
         t.rows = (0..o.count)
             .map(|k| {
-                let s = g.view(at[k]).bands;
+                let s = g.stats(at[k]);
                 let mut row = vec![(k + 1) as f64, o.cells[k] as f64, o.cells[k] as f64 * area];
                 row.extend(
-                    (0..nb).map(|j| if s[3 * j] > 0.0 { centre[j] + s[3 * j + 1] / s[3 * j] } else { f64::NAN }),
+                    (0..nb).map(|j| if s[4 * j] > 0.0 { centre[j] + s[4 * j + 1] / s[4 * j] } else { f64::NAN }),
                 );
-                row.extend((0..nb).map(|j| if s[3 * j] > 0.0 { sd(&s[3 * j..3 * j + 3]) } else { f64::NAN }));
+                row.extend((0..nb).map(|j| if s[4 * j] > 0.0 { sd(&s[4 * j..4 * j + 3]) } else { f64::NAN }));
                 row
             })
             .collect();
@@ -801,13 +988,63 @@ mod tests {
     fn merging_joins_the_lists_and_the_perimeter() {
         let band = Arc::new(vec![0.0, 1.0, 2.0]);
         let mut g = Regions::new(&[1, 2, 3], 3, 3, 1, &[band], &[0.0]);
-        assert_eq!(g.adj[1], vec![(0, 1), (2, 1)]);
+        let list = |g: &Regions, r: usize| g.adj[r].iter().map(|e| (e.nb, e.shared)).collect::<Vec<_>>();
+        assert_eq!(list(&g, 1), vec![(0, 1), (2, 1)]);
         g.merge(0, 1, 1);
-        assert_eq!(g.perim[0], 6);
-        assert_eq!(g.bbox[0], [0, 0, 0, 1]);
-        assert_eq!(g.adj[0], vec![(2, 1)]);
-        assert_eq!(g.adj[2], vec![(0, 1)]);
+        assert_eq!(g.reg[0].perim, 6);
+        assert_eq!(g.reg[0].bbox, [0, 0, 0, 1]);
+        assert_eq!(list(&g, 0), vec![(2, 1)]);
+        assert_eq!(list(&g, 2), vec![(0, 1)]);
         g.merge(0, 2, 1);
-        assert_eq!((g.cells[0], g.perim[0]), (3, 8));
+        assert_eq!((g.reg[0].cells, g.reg[0].perim), (3, 8));
+    }
+
+    /// The cost from the cached terms is the reference's number bit for bit, before and after merges, and the costs
+    /// kept in the lists are the ones worked out again.
+    #[test]
+    fn the_cached_cost_is_the_reference_cost() {
+        let (w, h) = (12, 9);
+        let mut s = 7u64;
+        let mut next = || {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (s >> 33) as f64 / (1u64 << 31) as f64
+        };
+        let bands: Vec<Arc<Vec<f64>>> =
+            (0..3).map(|_| Arc::new((0..w * h).map(|_| 100.0 * next()).collect())).collect();
+        let labels: Vec<u32> = (1..=(w * h) as u32).collect();
+        for colour in [1.0, 0.9] {
+            let mut g = Regions::new(&labels, w * h, w, h, &bands, &[50.0; 3]);
+            let p = Cost { colour, compact: 0.4, weights: vec![1.0, 2.0, 0.5] };
+            let view = |g: &Regions, r: usize| {
+                let (reg, st) = (g.reg[r], g.stats(r));
+                let bands: Vec<f64> = st.chunks(4).flat_map(|c| c[..3].to_vec()).collect();
+                (reg, bands)
+            };
+            let mut alive: Vec<usize> = (0..w * h).collect();
+            let mut stamp = vec![0u32; w * h];
+            for step in 0..60 {
+                for &a in &alive {
+                    let (ra, ba) = view(&g, a);
+                    let es: Vec<Edge> = g.adj[a].to_vec();
+                    for e in es {
+                        let (rb, bb) = view(&g, e.nb as usize);
+                        let va = View { cells: ra.cells, perim: ra.perim, bbox: ra.bbox, bands: &ba };
+                        let vb = View { cells: rb.cells, perim: rb.perim, bbox: rb.bbox, bands: &bb };
+                        let want = fusion_cost(&p, va, vb, e.shared);
+                        assert_eq!(g.cost(&p, a, e.nb as usize, e.shared).to_bits(), want.to_bits());
+                        if !e.cost.is_nan() {
+                            assert_eq!(e.cost.to_bits(), want.to_bits(), "a stale cost kept");
+                        }
+                    }
+                    g.best(&p, a, &stamp, u32::MAX);
+                }
+                let a = alive[(step * 7) % alive.len()];
+                if let Some((b, _, shared)) = g.best(&p, a, &stamp, u32::MAX).0 {
+                    g.merge(a, b as usize, shared);
+                    alive.retain(|&r| r != b as usize);
+                    stamp[b as usize] = 1;
+                }
+            }
+        }
     }
 }

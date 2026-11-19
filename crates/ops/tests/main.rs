@@ -40,6 +40,7 @@ mod mspa_tiled;
 mod nlm;
 mod objects;
 mod objects_accuracy;
+mod objects_bench;
 mod objects_big;
 mod objects_dl;
 mod objects_levels;

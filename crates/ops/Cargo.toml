@@ -22,6 +22,7 @@ terraflux-graph = { path = "../graph" }
 terraflux-ls-sys = { path = "../ls-sys" }
 terraflux-raster = { path = "../raster" }
 h3o = { version = "0.11", features = ["geo"] }
+smallvec = "1"
 libloading = "0.8"
 # the matrix products of kernel densities (sdm.bias_surface), AVX2 and FMA chosen when the program runs
 matrixmultiply = "0.3"

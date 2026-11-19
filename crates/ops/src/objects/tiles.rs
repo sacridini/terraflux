@@ -226,7 +226,7 @@ pub(crate) fn merge_tiled(
         None => {
             // a few tiles at a time, in parallel (as many as the memory for tiles allows, up to the threads)
             let side = (t + 2 * margin) as u64;
-            let per = side.min(w as u64) * side.min(h as u64) * (src.nb() as u64 * 32 + 120);
+            let per = side.min(w as u64) * side.min(h as u64) * (src.nb() as u64 * 40 + 200);
             let fit = (TILES_BYTES.load(Ordering::Relaxed) / per.max(1)) as usize;
             let step = fit.clamp(1, rayon::current_num_threads());
             for first in (0..nx * ny).step_by(step) {
