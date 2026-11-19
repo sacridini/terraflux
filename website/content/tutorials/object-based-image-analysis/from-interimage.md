@@ -1,7 +1,7 @@
 ---
 title: Coming from InterIMAGE
 short: Coming from InterIMAGE
-description: What is what when you know InterIMAGE's knowledge-based interpretation: the semantic network is the class tree, a top-down operator is a class's branch, the bottom-up rule is objects.resolve, the temporal node is objects.temporal; with the template Each class its own way.
+description: "What is what when you know InterIMAGE's knowledge-based interpretation: the semantic network is the class tree, a top-down operator is a class's branch, the bottom-up rule is objects.resolve, the temporal node is objects.temporal; with the template Each class its own way."
 order: 30
 level: advanced
 time: 40 min

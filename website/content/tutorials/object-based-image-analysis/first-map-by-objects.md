@@ -1,7 +1,7 @@
 ---
 title: Your first map by objects in 10 minutes
 short: Your first map by objects
-description: Open a template that cuts an image into objects, click a few objects of each class in the Viewer, and read the map of classes, its accuracy and its polygons; then put your own image in its place.
+description: "Open a template that cuts an image into objects, click a few objects of each class in the Viewer, and read the map of classes, its accuracy and its polygons; then put your own image in its place."
 order: 10
 level: beginner
 time: 10 min

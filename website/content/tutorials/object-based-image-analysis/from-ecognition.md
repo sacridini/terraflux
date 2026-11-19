@@ -1,7 +1,7 @@
 ---
 title: Coming from eCognition
 short: Coming from eCognition
-description: What is what when you know Trimble eCognition's rule sets: the process tree is a graph, the segmentations are segment.* operators, the class hierarchy is objects.rules, the levels are objects with a parent; with a worked example and what is deliberately not there.
+description: "What is what when you know Trimble eCognition's rule sets: the process tree is a graph, the segmentations are segment.* operators, the class hierarchy is objects.rules, the levels are objects with a parent; with a worked example and what is deliberately not there."
 order: 20
 level: intermediate
 time: 30 min
