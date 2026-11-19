@@ -977,9 +977,12 @@ pub fn plan(
             }
         }
         if is_image(s) {
-            let (fnames, scale) = if c.scene.is_some() {
-                // (Earth Search's Sentinel-2 L2A: digital numbers, 0 to 10 000)
-                (SCENE_ASSETS.iter().map(|a| a.to_string()).collect(), c.scale.unwrap_or(Scale::Div10000))
+            let (fnames, scale) = if let Some(sc) = &c.scene {
+                // (Earth Search's Sentinel-2 L2A: digital numbers, 0 to 10 000, with an offset of 1000 from the
+                // processing baseline 04.00 on, 25 January 2022: dates from then on take it off)
+                let offset = sc.dates.trim() >= "2022-01-25";
+                let default = if offset { Scale::Sentinel2Offset } else { Scale::Div10000 };
+                (SCENE_ASSETS.iter().map(|a| a.to_string()).collect(), c.scale.unwrap_or(default))
             } else if !c.files.is_empty() {
                 let n = files_header(&c.files)?.2;
                 (n, c.scale.unwrap_or_else(|| files_scale(&c.files).unwrap_or_default()))
@@ -2739,6 +2742,8 @@ mod tests {
             assert_eq!(b.op, "stack.rename");
             assert_eq!(b.params["names"], serde_json::json!(["blue", "green", "red", "nir", "swir1", "swir2"]));
             assert_eq!(b.params["scale"], serde_json::json!(1e-4));
+            // dates after 25 January 2022: the offset of the baseline 04.00 taken off
+            assert_eq!(b.params["offset"], serde_json::json!(-0.1));
             assert_eq!(b.data.is_some(), marked);
             assert!(matches!(b.inputs.get("stack"), Some(Wire::Ref(r)) if r == "image_scene.raster"));
             for c in ["segments", "features"] {

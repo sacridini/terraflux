@@ -335,16 +335,20 @@ pub enum Scale {
     Div10000,
     /// Landsat collection 2 level 2 (digital numbers up to 65 535): `DN * 0.0000275 - 0.2`.
     LandsatC2,
+    /// Sentinel-2 L2A of processing baseline 04.00 or later (from 25 January 2022 on): `DN / 10 000 - 0.1`, the
+    /// offset of 1000 the products add.
+    Sentinel2Offset,
 }
 
 impl Scale {
-    pub const ALL: [Scale; 3] = [Scale::None, Scale::Div10000, Scale::LandsatC2];
+    pub const ALL: [Scale; 4] = [Scale::None, Scale::Div10000, Scale::LandsatC2, Scale::Sentinel2Offset];
 
     pub fn label(self) -> &'static str {
         match self {
             Scale::None => "none (already 0 to 1)",
             Scale::Div10000 => "divided by 10 000",
             Scale::LandsatC2 => "Landsat collection 2 (x 0.0000275 - 0.2)",
+            Scale::Sentinel2Offset => "Sentinel-2 from 2022 (divided by 10 000, - 0.1)",
         }
     }
 
@@ -354,6 +358,7 @@ impl Scale {
             Scale::None => (1.0, 0.0),
             Scale::Div10000 => (1e-4, 0.0),
             Scale::LandsatC2 => (0.000_027_5, -0.2),
+            Scale::Sentinel2Offset => (1e-4, -0.1),
         }
     }
 

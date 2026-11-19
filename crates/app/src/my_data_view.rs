@@ -326,6 +326,10 @@ fn reflectance_line(s: Scale) -> String {
         Scale::None => "Reflectance 0\u{2013}1: kept as it is".to_string(),
         Scale::Div10000 => "Reflectance 0\u{2013}10 000 \u{2192} divided by 10 000".to_string(),
         Scale::LandsatC2 => "Landsat collection 2 \u{2192} x 0.0000275 - 0.2, reflectance 0\u{2013}1".to_string(),
+        Scale::Sentinel2Offset => {
+            "Sentinel-2 from 2022 \u{2192} divided by 10 000, - 0.1 (the offset of processing baseline 04.00)"
+                .to_string()
+        }
     }
 }
 
