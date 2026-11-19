@@ -177,6 +177,19 @@ pub const REFERENCES: &[Reference] = &[
         report: "Proceedings of the 3rd International Conference on Geographic Object-Based Image Analysis (GEOBIA 2010).",
     },
     Reference {
+        key: "feitosa2009",
+        authors: &["Feitosa, R. Q.", "Costa, G. A. O. P.", "Mota, G. L. A.", "Pakzad, K.", "Costa, M. C. O."],
+        more: false,
+        year: 2009,
+        title: "Cascade multitemporal classification based on fuzzy Markov chains",
+        journal: "ISPRS Journal of Photogrammetry and Remote Sensing",
+        volume: "64",
+        issue: "2",
+        pages: "159-170",
+        doi: "",
+        report: "",
+    },
+    Reference {
         key: "kirillov2023",
         authors: &["Kirillov, A."],
         more: true,
@@ -1014,7 +1027,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["objects.temporal", "objects.transition_matrix"],
         name: "multitemporal classification bound by a fuzzy transition matrix (as InterIMAGE)",
-        refs: &["costa2010"],
+        refs: &["feitosa2009", "costa2010"],
         software: "",
         software_refs: &[],
     },
