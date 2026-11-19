@@ -213,7 +213,7 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
         "markov.matrix" => {
             // the library takes the principal root of `single` per step: a `multi` given cannot be passed
             if raw(n, "multi")?.is_some() || n.params.get("multi").is_some_and(|v| !v.is_null()) {
-                return Err("its multi (the probabilities per step): tf.simulate.Markov takes the root of single and                      has no way to be given them"
+                return Err("its multi (the probabilities per step): tf.simulate.Markov takes the root of single and has no way to be given them"
                     .into());
             }
             let mut args =

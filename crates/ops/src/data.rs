@@ -729,7 +729,7 @@ impl Operator for Download {
         .input(PortSpec::optional(
             "area",
             Type::Vector,
-            "polygons to cut the data to (an area drawn): no data outside them; without like and extent, the grid              spans them",
+            "polygons to cut the data to (an area drawn): no data outside them; without like and extent, the grid spans them",
         ))
         .output(PortSpec::new("raster", Type::Raster, "the layers on the grid, a file each"))
         .param(PortSpec::optional("source", Type::Text, "the data (or url instead)").choices(SOURCES))

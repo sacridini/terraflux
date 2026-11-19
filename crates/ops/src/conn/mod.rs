@@ -470,7 +470,7 @@ impl Operator for EcaChange {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "conn.eca_change",
-            "The change of the equivalent connected area (ECA) from graph to graph, e.g. the habitat of several              years (Makurhini's MK_dECA): per distance and graph the habitat's area, ECA (of PC or IIC), ECA              against the landscape's area and the habitat's, the changes of area and ECA (%; the first against              the landscape's area) and their ratio, and how they compare (dECA < dA < 0: connectivity loss...).",
+            "The change of the equivalent connected area (ECA) from graph to graph, e.g. the habitat of several years (Makurhini's MK_dECA): per distance and graph the habitat's area, ECA (of PC or IIC), ECA against the landscape's area and the habitat's, the changes of area and ECA (%; the first against the landscape's area) and their ratio, and how they compare (dECA < dA < 0: connectivity loss...).",
             Access::Global,
         )
         .input(PortSpec::new("graphs", Type::Any, "habitat graphs in time order (a series), or one"))

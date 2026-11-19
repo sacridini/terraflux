@@ -1925,7 +1925,7 @@ params = { title = "Fractal" }
     Template {
         name: "PLUS (LEAS and CARS)",
         group: LAND_CHANGE,
-        about: "PLUS on two dates of land use drawn by chance: the land expansion analysis (a random forest per                 class) gives the growth probabilities, CARS allocates three steps ahead",
+        about: "PLUS on two dates of land use drawn by chance: the land expansion analysis (a random forest per class) gives the growth probabilities, CARS allocates three steps ahead",
         toml: "",
         build: Some(plus),
     },
@@ -3593,7 +3593,7 @@ params = { title = "Reserva Legal: surplus (+) or deficit (-), ha" }
         name: "Rivers: the land upstream and the gauges' catchments",
         group: CONSERVATION,
         build: None,
-        about: "Rivers as a network on a drawn landscape: the share of forest and the mean slope upstream of every                 link, gauges moved onto the rivers and the catchment of each",
+        about: "Rivers as a network on a drawn landscape: the share of forest and the mean slope upstream of every link, gauges moved onto the rivers and the catchment of each",
         toml: r#"
 format = "terraflux/1"
 name = "Rivers: the land upstream and the gauges' catchments"

@@ -991,7 +991,7 @@ fn preview(ui: &mut Ui, c: &mut Calculator, inputs: &Inputs, values: &BTreeMap<S
             Ok(outs) => {
                 let mut view = None;
                 ui.checkbox(&mut c.follow, RichText::new("Follow the viewer").small()).on_hover_text(
-                    "the preview of the part of the map in view in the Viewer, as it is zoomed and moved (the maps                      of the same place)",
+                    "the preview of the part of the map in view in the Viewer, as it is zoomed and moved (the maps of the same place)",
                 );
                 // a part of the map: which, and the way back to all of it
                 if let (Some(_), Some(w)) = (c.view, c.shown_window) {
