@@ -4332,6 +4332,26 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    sobre os pixels, o grafo de regiões, as alocações, a costura dos tiles, que hoje refaz a fusão sobre a imagem
    inteira) e dos outros; os mesmos objetos sempre que possível, e qualidade medida quando não. Os segmentadores novos
    da fase 6 já entram com o tempo medido.
+   **Feito, o `segment.multiresolution` num núcleo** (cc01e11): cerca de 1,7 vez mais rápido, os mesmos objetos (os
+   custos são os mesmos números, bit a bit). O custo de fusão era pouco do tempo: o resto era esperar a memória, pois
+   as visitas são embaralhadas. Agora cada região guarda os termos do custo que só dependem dela (o n·sd de cada banda e
+   os de forma), o custo de cada par fica nas listas de vizinhos até uma das regiões mudar, as listas ficam na região
+   (`SmallVec`, sem heap por região) e as regiões das próximas visitas são buscadas antes (prefetch). A bateria é
+   `crates/ops/tests/objects_bench.rs` (ignorada), em imagens sintéticas de 4 bandas, segundos com 1 / 8 threads:
+
+   | segmentador | 1000² antes | 1000² depois | 2000² antes | 2000² depois |
+   |---|---|---|---|---|
+   | multiresolution, escala 20 | 2,34 / 3,92 | 1,37 / 1,39 | 19,5 / 19,6 | 11,1 / 11,3 |
+   | multiresolution, escala 50 | 4,49 / 4,47 | 2,49 / 2,62 | 19,7 / 19,7 | 11,4 / 11,3 |
+   | multiresolution, escala 50, tiles de 512 | 5,21 / 1,52 | 2,90 / 0,97 | 23,7 / 4,66 | 13,6 / 3,30 |
+   | slic | 0,53 / 0,53 | | 2,13 / 2,01 | |
+   | snic | 0,77 / 0,75 | | 5,20 / 5,15 | |
+   | felzenszwalb | 0,86 / 0,83 | | 3,90 / 3,93 | |
+   | watershed | 1,65 / 1,71 | | 9,29 / 9,40 | |
+   | meanshift | 4,23 / 0,73 | | 18,2 / 3,17 | |
+
+   Falta: o slic, o snic, o felzenszwalb e o watershed não usam mais de um núcleo; a fila contínua dos tiles (hoje
+   lotes com barreira) e a costura em paralelo (cerca de 6% do tempo com 8 threads).
 9. Depois, o bloco seguinte do PCA, do k-means e do SOM (abaixo).
 
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
