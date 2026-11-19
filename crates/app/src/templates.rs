@@ -30,9 +30,10 @@ const CONSERVATION: &str = "Conservation and restoration";
 const SPECIES: &str = "Species";
 const LAND_CHANGE: &str = "Land change";
 const SURFACES: &str = "Surfaces and uncertainty";
+const OBJECTS: &str = "Objects (OBIA)";
 
 /// The templates' groups, in the menu's order.
-pub const GROUPS: [&str; 7] = [PATTERNS, METRICS, CONNECTIVITY, CONSERVATION, SPECIES, LAND_CHANGE, SURFACES];
+pub const GROUPS: [&str; 8] = [PATTERNS, METRICS, CONNECTIVITY, CONSERVATION, SPECIES, LAND_CHANGE, SURFACES, OBJECTS];
 
 /// The classes of the land use drawn for the land change templates.
 const LAND_CLASSES: [(i64, &str); 3] = [(1, "forest"), (2, "farming"), (3, "water")];
@@ -473,7 +474,7 @@ fn swat_from_rasters() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 56] = [
+pub const TEMPLATES: [Template; 61] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -4675,7 +4676,485 @@ note = "alpha: 1 / the mean dispersal distance (12.5 cells); e and x: the extinc
         toml: "",
         build: Some(swat_from_rasters),
     },
+    Template {
+        name: "Classify an image by clicking samples",
+        group: OBJECTS,
+        toml: "",
+        build: Some(obia_samples),
+        about: "an image cut into objects, a few objects of each class picked by their samples, and a random forest \
+                that gives every object a class: the polygons, and the map of the classes (the image is drawn, in \
+                its place yours; the samples are points to be replaced by yours, clicked in the Viewer)",
+    },
+    Template {
+        name: "Classify an image by rules",
+        group: OBJECTS,
+        toml: "",
+        build: Some(obia_rules),
+        about: "objects classed by a hierarchy of fuzzy rules, as eCognition's class hierarchy: water by its NDWI, \
+                vegetation by its NDVI (forest and grassland by the short-wave infrared), the rest by its NDVI \
+                (cropland and urban)",
+    },
+    Template {
+        name: "Segment an image into polygons",
+        group: OBJECTS,
+        build: None,
+        about: "a multiresolution segmentation (Baatz and Schape) at the scale the image suggests, the objects' \
+                attributes and the polygons written to a file, smoothed",
+        toml: r#"
+format = "terraflux/1"
+name = "Segment an image into polygons"
+description = "An image cut into objects of alike cells (multiresolution segmentation, as eCognition's) and the objects as polygons with their attributes: the mean and the standard deviation of each band, NDVI, area, compactness and texture. The scale is the one the image suggests (ESP, Dragut et al. 2010); give `scale` to the segmentation to choose it."
+
+[[nodes]]
+id = "land"
+op = "nlm.mosaic_gibbs"
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+note = "A map of five classes drawn by chance (1 water, 2 forest, 3 grassland, 4 cropland, 5 urban): only the ground truth of the image below."
+
+[[nodes]]
+id = "image"
+op = "nlm.image"
+inputs = { classes = "land.map" }
+params = { seed = 1 }
+note = "A synthetic image of six bands (blue, green, red, nir, swir1, swir2) of the classes, with noise and a blur at the edges. In its place, a raster.read of your image as a stack of its bands, each named for the band it is (blue, green, red, nir...): the attributes read the names."
+data = { what = "a multispectral image, a layer per band (named blue, green, red, nir, swir1, swir2 where there are such bands)", kind = "stack" }
+
+[[nodes]]
+id = "segments"
+op = "segment.multiresolution"
+inputs = { image = "image.image" }
+note = "Objects by multiresolution segmentation. Without `scale` it takes the first scale segment.scale suggests for the image (the `scale` output says which). Raise the scale for larger objects, lower it for smaller."
+why = "shape 0.1 and compactness 0.5 are eCognition's usual start; the scale is in the image's units, so the one found for the image is the safest."
+
+[[nodes]]
+id = "features"
+op = "objects.features"
+inputs = { objects = "segments.objects", image = "image.image" }
+note = "The attributes of each object: the mean and the standard deviation of each band, NDVI, the area, the compactness and the homogeneity of the texture."
+why = "The basic set is enough for most classifications; ask for `all` to see what else there is."
+
+[[nodes]]
+id = "polygons"
+op = "objects.to_vector"
+inputs = { objects = "features.objects" }
+params = { smooth = 1 }
+note = "A polygon for each object with its attributes in the table; smooth cuts the corners once so they do not look like stairs (keep 0 when the polygons are counted or measured)."
+
+[[nodes]]
+id = "write"
+op = "vector.write"
+inputs = { vector = "polygons.vector" }
+params = { path = "objects.gpkg" }
+note = "The polygons, in a file beside the model."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "segments.objects" }
+params = { title = "The objects" }
+"#,
+    },
+    Template {
+        name: "Land cover change by objects",
+        group: OBJECTS,
+        toml: "",
+        build: Some(obia_change),
+        about: "two dates of an image, each cut in objects and classed by rules, and the classes of the second date \
+                bound by a transition matrix written by hand (a forest does not become water in ten years): the \
+                table of what changed to what",
+    },
+    Template {
+        name: "Trees and buildings from a height model",
+        group: OBJECTS,
+        build: None,
+        about: "objects of an image classed with a height model (nDSM): trees are tall and green, buildings tall, \
+                not green and rectangular, the ground low",
+        toml: r##"
+format = "terraflux/1"
+name = "Trees and buildings from a height model"
+description = "Objects of an image classed with a height model, the way a lidar nDSM and an image tell trees from buildings: both are taller than 2 m, trees are green (NDVI) and buildings are not, and a building's outline is close to a rectangle (rectangular fit). The nDSM goes in `more` of objects.features, which names its column mean_more."
+
+[[nodes]]
+id = "ground"
+op = "nlm.mosaic_gibbs"
+params = { rows = 120, columns = 120, germs = 24, r = 12, patch_classes = 4, nlmr_compat = false, rescale = false, seed = 6 }
+note = "The ground cover drawn by chance: 1 water, 2 forest, 3 grassland, 4 cropland."
+
+[[nodes]]
+id = "footprints"
+op = "nlm.random_rectangular_cluster"
+params = { rows = 120, columns = 120, minl = 5, maxl = 12, seed = 7 }
+note = "Rectangles of random values: the tallest of them are the buildings' footprints."
+
+[[nodes]]
+id = "scene"
+op = "raster.calc"
+inputs = { g = "ground.map", r = "footprints.map" }
+params = { expression = "5 if r > 0.93 and g != 1 else g" }
+note = "The scene's classes: the buildings (5, urban) on the ground, never on the water."
+
+[[nodes]]
+id = "relief"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 6, seed = 8 }
+note = "A smooth field that makes the heights vary."
+
+[[nodes]]
+id = "image"
+op = "nlm.image"
+inputs = { classes = "scene.map" }
+params = { seed = 2 }
+note = "A synthetic image of the scene, six bands. In its place, a raster.read of your image as a stack of named bands."
+data = { what = "a multispectral image, a layer per band (named blue, green, red, nir, swir1, swir2 where there are such bands)", kind = "stack" }
+
+[[nodes]]
+id = "ndsm"
+op = "raster.calc"
+inputs = { s = "scene.map", f = "relief.map" }
+params = { expression = "(12 + 6 * f) if s == 2 else ((9 + 4 * f) if s == 5 else 0.2 * f)" }
+note = "The height above the ground, metres: trees 12 to 18, buildings 9 to 13, the rest near 0. In its place, a normalised digital surface model (DSM minus DTM) on the image's grid."
+data = { what = "a height model, the height above the ground on the image's grid", kind = "values", expect = "metres above the ground" }
+
+[[nodes]]
+id = "segments"
+op = "segment.multiresolution"
+inputs = { image = "image.image" }
+note = "Objects from the image alone, at the scale ESP suggests."
+
+[[nodes]]
+id = "features"
+op = "objects.features"
+inputs = { objects = "segments.objects", image = "image.image", more = "ndsm.map" }
+params = { features = ["mean", "ndvi", "ndwi", "area", "compactness", "rectangular_fit"] }
+note = "The attributes the rules read: the bands' means, NDVI, the shape, and the nDSM's mean as mean_more."
+
+[[nodes]]
+id = "rules"
+op = "objects.rules"
+inputs = { objects = "features.objects" }
+note = "Trees: tall and green. Buildings: tall, not green and close to a rectangle. Ground: low. Raise the heights for a taller canopy; the rectangular fit is what tells a roof from a clump of bare ground that is tall."
+why = "A height model alone does not tell trees from buildings, nor the image alone a roof from bare ground: together they do."
+refs = ["Blaschke 2010, Object based image analysis for remote sensing"]
+
+[nodes.params]
+classes = [
+  { name = "tall", rule = "above(mean_more, 2, 4)" },
+  { name = "trees", rule = "above(ndvi, 0.45, 0.55)", parent = "tall", colour = "#2f7d32" },
+  { name = "buildings", rule = "below(ndvi, 0.35, 0.45) and above(rectangular_fit, 0.3, 0.5)", parent = "tall", colour = "#b33a3a" },
+  { name = "ground", rule = "below(mean_more, 1, 2)", colour = "#c8b88a" },
+]
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "rules.map" }
+params = { title = "Trees, buildings and ground" }
+"##,
+    },
 ];
+
+/// The scene of the object templates: a map of five classes drawn by chance (1 water, 2 forest, 3 grassland,
+/// 4 cropland, 5 urban) and the image of it, for each of the seeds.
+const OBIA_SCENE: &str = r#"
+[[nodes]]
+id = "land"
+op = "nlm.mosaic_gibbs"
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+note = "A map of five classes drawn by chance (1 water, 2 forest, 3 grassland, 4 cropland, 5 urban): only the ground truth of the image below."
+
+[[nodes]]
+id = "image"
+op = "nlm.image"
+inputs = { classes = "land.map" }
+params = { seed = 1 }
+note = "A synthetic image of six bands (blue, green, red, nir, swir1, swir2) of the classes, with noise and a blur at the edges. In its place, a raster.read of your image as a stack of its bands, each named for the band it is (blue, green, red, nir...): the attributes read the names."
+data = { what = "a multispectral image, a layer per band (named blue, green, red, nir, swir1, swir2 where there are such bands)", kind = "stack" }
+
+[[nodes]]
+id = "segments"
+op = "segment.multiresolution"
+inputs = { image = "image.image" }
+note = "Objects by multiresolution segmentation. Without `scale` it takes the first scale segment.scale suggests for the image (the `scale` output says which); raise it for larger objects, lower it for smaller ones."
+why = "shape 0.1 and compactness 0.5 are eCognition's usual start; the scale is in the image's units, so the one found for the image is the safest."
+"#;
+
+/// The points of the samples' table, `x`, `y` and the class of each (SAMPLE_ROWS).
+const OBIA_SAMPLE_ROWS: &str = r#"[[9.5, 104.5, "water"], [85.5, 46.5, "water"], [5.5, 38.5, "water"], [9.5, 86.5, "water"], [68.5, 112.5, "water"], [84.5, 78.5, "water"], [10.5, 18.5, "water"], [83.5, 62.5, "water"], [10.5, 3.5, "forest"], [98.5, 30.5, "forest"], [29.5, 97.5, "forest"], [100.5, 19.5, "forest"], [89.5, 22.5, "forest"], [23.5, 110.5, "forest"], [39.5, 91.5, "forest"], [38.5, 103.5, "forest"], [65.5, 90.5, "grassland"], [92.5, 100.5, "grassland"], [87.5, 114.5, "grassland"], [29.5, 20.5, "grassland"], [106.5, 111.5, "grassland"], [94.5, 7.5, "grassland"], [115.5, 69.5, "cropland"], [96.5, 55.5, "cropland"], [114.5, 8.5, "cropland"], [114.5, 85.5, "cropland"], [104.5, 75.5, "cropland"], [74.5, 7.5, "cropland"], [76.5, 16.5, "cropland"], [49.5, 110.5, "cropland"], [71.5, 60.5, "urban"], [60.5, 70.5, "urban"], [26.5, 43.5, "urban"], [59.5, 44.5, "urban"], [55.5, 58.5, "urban"], [20.5, 35.5, "urban"], [64.5, 61.5, "urban"], [50.5, 31.5, "urban"]]"#;
+
+/// "Classify an image by clicking samples".
+fn obia_samples() -> Model {
+    let mut text = String::from(
+        r#"
+format = "terraflux/1"
+name = "Classify an image by clicking samples"
+description = "An image classified by examples, the way a user would in eCognition or QGIS: the image is cut into objects (multiresolution segmentation at the scale ESP suggests), their attributes are measured, a few objects of each class are named by points (their cell picks the object), a random forest learns the classes from them and gives every object a class and the probability of each class. The objects as polygons and as a map. Replace the image with yours (Use my data) and the points with yours: in the Viewer, click objects with the class's name."
+"#,
+    );
+    text.push_str(OBIA_SCENE);
+    text.push_str(
+        r#"
+[[nodes]]
+id = "features"
+op = "objects.features"
+inputs = { objects = "segments.objects", image = "image.image" }
+note = "The attributes of each object (the basic set): the mean and the standard deviation of each band, NDVI, the area, the compactness and the homogeneity of the texture."
+why = "These are the columns the forest learns from; the classification needs the same ones for every object."
+
+[[nodes]]
+id = "sample_table"
+op = "table.of"
+note = "The samples: a point (x and y in the image's coordinates) on an object of each class, with the class's name. Eight per class, over different objects. In its place, the points you clicked in the Viewer (or a vector.read of points with a `class` column)."
+why = "A point picks the object under it: the more different the objects of a class you name, the better the forest knows the class."
+
+[nodes.params]
+columns = ["x", "y", "class"]
+rows = SAMPLE_ROWS
+
+[[nodes]]
+id = "samples"
+op = "vector.from_table"
+inputs = { table = "sample_table.table" }
+note = "The points as features, with the class as an attribute."
+
+[[nodes]]
+id = "training"
+op = "objects.samples"
+inputs = { objects = "features.objects", samples = "samples.vector" }
+note = "The objects under the points, with their attributes: the table the forest learns from. A warning names an object that holds two classes and a point outside the image."
+why = "Classes are numbered by their names in alphabetical order, so the model's codes follow that order."
+
+[[nodes]]
+id = "model"
+op = "ml.fit"
+inputs = { table = "training.table" }
+params = { column = "class", method = "random_forest", seed = 1 }
+note = "A random forest on the samples' table (the target is the column class, every other column a predictor)."
+why = "The forest works without tuning and says which attributes mattered (the importance output)."
+
+[[nodes]]
+id = "classify"
+op = "objects.classify"
+inputs = { objects = "features.objects", model = "model.model", samples = "training.table" }
+note = "Every object takes the class of the largest probability; the table has the probabilities and the margin (low where the forest hesitates: look there for more samples). Check the result against samples kept apart, not those it learned from."
+
+[[nodes]]
+id = "polygons"
+op = "objects.to_vector"
+inputs = { objects = "classify.objects" }
+params = { smooth = 1 }
+note = "A polygon for each object with its class and its attributes."
+
+[[nodes]]
+id = "write"
+op = "vector.write"
+inputs = { vector = "polygons.vector" }
+params = { path = "objects_classified.gpkg" }
+note = "The classified polygons, in a file beside the model."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "classify.map" }
+params = { title = "The classes of the objects" }
+"#,
+    );
+    Model::from_toml(&text.replace("SAMPLE_ROWS", OBIA_SAMPLE_ROWS)).expect("a template is a model")
+}
+
+/// The class hierarchy of the rules template: water, vegetation (forest, grassland) and the rest (cropland, urban),
+/// from the signatures of nlm.image's classes.
+const OBIA_HIERARCHY: &str = r##"[
+  { name = "wet", rule = "above(ndwi, 0, 0.2)" },
+  { name = "water", parent = "wet", colour = "#2b6cb0" },
+  { name = "vegetation", rule = "above(ndvi, 0.45, 0.55)" },
+  { name = "forest", rule = "below(mean_swir1, 0.18, 0.22)", parent = "vegetation", colour = "#2f7d32" },
+  { name = "grassland", rule = "above(mean_swir1, 0.18, 0.22)", parent = "vegetation", colour = "#9bc53d" },
+  { name = "other", rule = "below(ndwi, 0, 0.2) and below(ndvi, 0.45, 0.55)" },
+  { name = "cropland", rule = "between(ndvi, 0.2, 0.28, 0.45, 0.5)", parent = "other", colour = "#e8c547" },
+  { name = "urban", rule = "below(ndvi, 0.2, 0.28)", parent = "other", colour = "#8d8d8d" },
+]"##;
+
+/// "Classify an image by rules".
+fn obia_rules() -> Model {
+    let mut text = String::from(
+        r#"
+format = "terraflux/1"
+name = "Classify an image by rules"
+description = "An image classified by rules, the way eCognition's class hierarchy does: each class is a fuzzy rule on the objects' attributes (a membership from 0 to 1), a class inherits its parent's rule, and an object becomes the leaf class of the largest membership. Water has a high NDWI, vegetation a high NDVI (forest and grassland tell apart by the short-wave infrared, swir1), cropland a middle NDVI and urban a low one. The thresholds come from the spectra of the synthetic image: look at your image's objects (attributes table) and move them."
+"#,
+    );
+    text.push_str(OBIA_SCENE);
+    text.push_str(
+        r#"
+[[nodes]]
+id = "features"
+op = "objects.features"
+inputs = { objects = "segments.objects", image = "image.image" }
+params = { features = ["mean", "ndvi", "ndwi"] }
+note = "What the rules read: the mean of each band, NDVI and NDWI (found from the bands' names)."
+
+[[nodes]]
+id = "rules"
+op = "objects.rules"
+inputs = { objects = "features.objects" }
+note = "The class hierarchy. wet, vegetation and other only narrow what their daughters may take; an object becomes water, forest, grassland, cropland or urban. A ramp, above(x, a, b), is 0 up to a and 1 from b."
+why = "Fuzzy ramps rather than sharp thresholds: an object near a limit has a small margin, and the margin shows where the rules are unsure."
+refs = ["Baatz and Schape 2000", "Definiens eCognition Developer, Reference Book"]
+
+[nodes.params]
+classes = HIERARCHY
+
+[[nodes]]
+id = "polygons"
+op = "objects.to_vector"
+inputs = { objects = "rules.objects" }
+params = { smooth = 1 }
+note = "A polygon for each object with its class, its attributes and the margin."
+
+[[nodes]]
+id = "write"
+op = "vector.write"
+inputs = { vector = "polygons.vector" }
+params = { path = "objects_by_rules.gpkg" }
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "rules.map" }
+params = { title = "The classes by the rules" }
+"#,
+    );
+    Model::from_toml(&text.replace("HIERARCHY", OBIA_HIERARCHY)).expect("a template is a model")
+}
+
+/// "Land cover change by objects".
+fn obia_change() -> Model {
+    let flat = r##"[
+  { name = "water", rule = "above(ndwi, 0, 0.2)", colour = "#2b6cb0" },
+  { name = "forest", rule = "above(ndvi, 0.45, 0.55) and below(mean_swir1, 0.18, 0.22)", colour = "#2f7d32" },
+  { name = "grassland", rule = "above(ndvi, 0.45, 0.55) and above(mean_swir1, 0.18, 0.22)", colour = "#9bc53d" },
+  { name = "cropland", rule = "between(ndvi, 0.2, 0.28, 0.45, 0.5)", colour = "#e8c547" },
+  { name = "urban", rule = "below(ndvi, 0.2, 0.28) and below(ndwi, 0, 0.2)", colour = "#8d8d8d" },
+]"##;
+    let text = r#"
+format = "terraflux/1"
+name = "Land cover change by objects"
+description = "Land cover change from two images, by objects: each date is cut in objects and classed by rules, then the classes of the second date are bound by a fuzzy transition matrix written by hand (Feitosa et al. 2009, as InterIMAGE's multi-temporal analysis): a transition the matrix calls impossible, water becoming forest in a few years, cannot be what an object is, whatever its spectra say. The table `change` has what became what, with the objects, the cells and the area."
+
+[[nodes]]
+id = "land_2000"
+op = "nlm.mosaic_gibbs"
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+note = "The first date's classes drawn by chance (1 water, 2 forest, 3 grassland, 4 cropland, 5 urban): only the truth of the image below."
+
+[[nodes]]
+id = "patches"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 25, seed = 9 }
+note = "Where the land changes: the highest of the field."
+
+[[nodes]]
+id = "land_2020"
+op = "raster.calc"
+inputs = { t = "land_2000.map", f = "patches.map" }
+params = { expression = "5 if t == 2 and f > 0.5 else (4 if t == 3 and f > 0.5 else t)" }
+note = "Twenty years later: forest cleared to urban land and grassland ploughed to cropland where the field is high."
+
+[[nodes]]
+id = "image_2000"
+op = "nlm.image"
+inputs = { classes = "land_2000.map" }
+params = { seed = 1 }
+note = "The first date's image, six bands. In its place, a raster.read of your image as a stack of named bands (blue, green, red, nir, swir1, swir2)."
+data = { what = "the first date's multispectral image, a layer per band (named blue, green, red, nir, swir1, swir2)", kind = "stack" }
+
+[[nodes]]
+id = "image_2020"
+op = "nlm.image"
+inputs = { classes = "land_2020.map" }
+params = { seed = 2 }
+note = "The second date's image, on the same grid and with the same bands."
+data = { what = "the second date's multispectral image, on the first's grid, the same bands", kind = "stack" }
+
+[[nodes]]
+id = "segments_2000"
+op = "segment.multiresolution"
+inputs = { image = "image_2000.image" }
+note = "Objects of the first date at the scale ESP suggests."
+
+[[nodes]]
+id = "segments_2020"
+op = "segment.multiresolution"
+inputs = { image = "image_2020.image" }
+note = "Objects of the second date: its own segmentation (the two may differ; objects.temporal links them cell by cell)."
+
+[[nodes]]
+id = "features_2000"
+op = "objects.features"
+inputs = { objects = "segments_2000.objects", image = "image_2000.image" }
+params = { features = ["mean", "ndvi", "ndwi"] }
+
+[[nodes]]
+id = "features_2020"
+op = "objects.features"
+inputs = { objects = "segments_2020.objects", image = "image_2020.image" }
+params = { features = ["mean", "ndvi", "ndwi"] }
+
+[[nodes]]
+id = "classes_2000"
+op = "objects.rules"
+inputs = { objects = "features_2000.objects" }
+note = "The first date's classes by fuzzy rules on NDWI, NDVI and the short-wave infrared."
+
+[nodes.params]
+classes = CLASSES
+
+[[nodes]]
+id = "classes_2020"
+op = "objects.rules"
+inputs = { objects = "features_2020.objects" }
+note = "The same rules on the second date: the dates must be classed alike, and the classes carry the same names."
+
+[nodes.params]
+classes = CLASSES
+
+[[nodes]]
+id = "matrix"
+op = "table.of"
+note = "How possible each transition is, from 0 (impossible) to 1 (common): a row for each class of origin (the column class, text), a column for each destination. Water stays water; a forest may be cleared to grassland, cropland or urban land; urban land rarely goes back. Change the numbers for your area."
+why = "The matrix is the knowledge of the analyst about what can happen in the period, written down: it removes the changes a noisy spectrum suggests and nothing could explain."
+refs = ["Feitosa et al. 2009", "Costa et al. 2010, InterIMAGE"]
+
+[nodes.params]
+columns = ["class", "water", "forest", "grassland", "cropland", "urban"]
+rows = [
+  ["water", 1, 0, 0, 0, 0],
+  ["forest", 0, 1, 0.5, 0.3, 1],
+  ["grassland", 0, 0.5, 1, 1, 1],
+  ["cropland", 0, 0.3, 0.5, 1, 1],
+  ["urban", 0, 0, 0, 0.1, 1],
+]
+
+[[nodes]]
+id = "temporal"
+op = "objects.temporal"
+inputs = { before = "classes_2000.objects", after = "classes_2020.objects", matrix = "matrix.table" }
+note = "The second date's classes adjusted by the matrix: min(membership, the possibility of the transition from what the place was). The table change has the transitions found."
+
+[[nodes]]
+id = "change_map"
+op = "view.plot"
+inputs = { value = "temporal.map" }
+params = { title = "The classes of the second date" }
+
+[[nodes]]
+id = "change_table"
+op = "view.plot"
+inputs = { table = "temporal.change" }
+params = { title = "What changed to what" }
+"#;
+    Model::from_toml(&text.replace("CLASSES", flat)).expect("a template is a model")
+}
 
 /// Where the user's own templates are kept (the user's application data): a model file each, named as shown.
 pub fn user_dir() -> Option<std::path::PathBuf> {
@@ -4749,6 +5228,124 @@ pub fn save_user_template(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The object templates run, quickly, and do what they say: the samples' classification and the rules' agree
+    /// with the truth the image was drawn from, the polygons are the objects, the change table has the changes drawn
+    /// and none the matrix forbids, the trees and the buildings are found.
+    #[test]
+    fn the_object_templates_run() {
+        use terraflux_ops::Value;
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        // (the file a template writes is left out: a test writes nothing)
+        let run = |name: &str| {
+            let mut m = TEMPLATES.iter().find(|t| t.name == name).unwrap().model();
+            m.nodes.retain(|n| n.op != "vector.write");
+            let t0 = std::time::Instant::now();
+            let out = terraflux_exec::Engine::default()
+                .run(&m, &Default::default(), &mut Quiet)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            println!("{name}: {} nodes, {:.2?}", m.nodes.len(), t0.elapsed());
+            out
+        };
+        let map = |out: &terraflux_exec::Results, port: &str| match out.get(port) {
+            Some(Value::Map(m)) => m.clone(),
+            _ => panic!("no map {port}"),
+        };
+        let objects = |out: &terraflux_exec::Results, port: &str| match out.get(port) {
+            Some(Value::Objects(o)) => o.clone(),
+            _ => panic!("no objects {port}"),
+        };
+        // the share of the truth's cells whose object has the class of the same name (the codes 1.. of `names`)
+        let agree = |m: &terraflux_ops::Map,
+                     o: &terraflux_ops::objects::Objects,
+                     truth: &terraflux_ops::Map,
+                     names: &[&str]| {
+            let hit = m
+                .data
+                .iter()
+                .zip(truth.data.iter())
+                .filter(|(p, t)| {
+                    !p.is_nan() && !t.is_nan() && o.classes[**p as usize - 1].name == names[**t as usize - 1]
+                })
+                .count();
+            hit as f64 / truth.data.len() as f64
+        };
+        let names = ["water", "forest", "grassland", "cropland", "urban"];
+
+        // by samples
+        let out = run("Classify an image by clicking samples");
+        let (m, o, truth) = (map(&out, "classify.map"), objects(&out, "classify.objects"), map(&out, "land.map"));
+        let acc = agree(&m, &o, &truth, &names);
+        println!("samples: {} objects, accuracy {acc:.4}", o.count);
+        assert!(acc >= 0.85, "accuracy {acc}");
+        assert_eq!(o.classes.len(), 5);
+        let Some(Value::Table(c)) = out.get("training.counts") else { panic!("no counts") };
+        assert!(c.rows.iter().all(|r| r[1] >= 5.0), "{:?}", c.rows);
+
+        // by rules
+        let out = run("Classify an image by rules");
+        let (m, o, truth) = (map(&out, "rules.map"), objects(&out, "rules.objects"), map(&out, "land.map"));
+        let acc = agree(&m, &o, &truth, &names);
+        println!("rules: {} objects, accuracy {acc:.4}", o.count);
+        assert!(acc >= 0.8, "accuracy {acc}");
+        // (the parents are not what an object becomes)
+        let parents: Vec<usize> =
+            ["wet", "vegetation", "other"].iter().filter_map(|p| o.classes.iter().position(|c| c.name == *p)).collect();
+        assert_eq!(parents.len(), 3);
+        assert!(o.class_of.iter().all(|&k| k == 0 || !parents.contains(&(k as usize - 1))));
+
+        // segmentation: a polygon per object
+        let out = run("Segment an image into polygons");
+        let o = objects(&out, "features.objects");
+        let Some(Value::Vector(v)) = out.get("polygons.vector") else { panic!("no polygons") };
+        assert!(o.count > 10 && v.len() == o.count, "{} objects, {} polygons", o.count, v.len());
+        assert!(v.attributes.iter().any(|(n, _)| n == "mean_nir"));
+
+        // change
+        let out = run("Land cover change by objects");
+        let Some(Value::Table(t)) = out.get("temporal.change") else { panic!("no change table") };
+        let (from, to) = (t.labels.get("from").expect("from"), t.labels.get("to").expect("to"));
+        let (fi, ti) = (t.column("from").unwrap(), t.column("to").unwrap());
+        let cells = t.column("cells").unwrap();
+        let moved = |a: &str, b: &str| -> f64 {
+            (0..t.rows.len())
+                .filter(|&k| from[fi[k] as usize - 1] == a && to[ti[k] as usize - 1] == b)
+                .map(|k| cells[k])
+                .sum()
+        };
+        println!(
+            "change: forest to urban {}, grassland to cropland {}",
+            moved("forest", "urban"),
+            moved("grassland", "cropland")
+        );
+        assert!(moved("forest", "urban") > 100.0 && moved("grassland", "cropland") > 100.0);
+        // the matrix: the water stays water (but for the objects that straddle its edge)
+        let (stay, all) = (
+            moved("water", "water"),
+            (0..t.rows.len()).filter(|&k| from[fi[k] as usize - 1] == "water").map(|k| cells[k]).sum::<f64>(),
+        );
+        assert!(stay > 0.8 * all, "{stay} of {all} cells of water");
+
+        // trees and buildings
+        let out = run("Trees and buildings from a height model");
+        let (m, o, scene) = (map(&out, "rules.map"), objects(&out, "rules.objects"), map(&out, "scene.map"));
+        let class = |name: &str| o.classes.iter().position(|c| c.name == name).unwrap() as f64 + 1.0;
+        let recall = |truth: f64, name: &str| {
+            let (mut hit, mut all) = (0usize, 0usize);
+            for (p, t) in m.data.iter().zip(scene.data.iter()) {
+                if *t == truth {
+                    all += 1;
+                    hit += (*p == class(name)) as usize;
+                }
+            }
+            hit as f64 / all.max(1) as f64
+        };
+        let (trees, buildings) = (recall(2.0, "trees"), recall(5.0, "buildings"));
+        println!("trees {trees:.3}, buildings {buildings:.3}");
+        assert!(trees >= 0.8, "trees {trees}");
+        assert!(buildings >= 0.5, "buildings {buildings}");
+    }
 
     #[test]
     fn templates_are_sound() {
