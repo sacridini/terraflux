@@ -39,6 +39,7 @@ mod movement;
 mod mspa_tiled;
 mod nlm;
 mod objects;
+mod objects_resolve;
 mod ops;
 mod optimize;
 mod parity;

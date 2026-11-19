@@ -17,6 +17,7 @@ mod features;
 mod meanshift;
 mod multiresolution;
 mod rules;
+mod resolve;
 mod segment;
 mod store;
 mod superpixels;
@@ -32,6 +33,7 @@ pub fn register(r: &mut Registry) {
     calc::register(r);
     rules::register(r);
     r.add(Arc::new(features::Features));
+    resolve::register(r);
 }
 
 /// The region of a cell that is in none ([`Objects::from_regions`]).
