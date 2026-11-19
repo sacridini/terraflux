@@ -542,6 +542,44 @@ pub const REFERENCES: &[Reference] = &[
         "R100",
         "10.1186/gb-2006-7-10-r100"
     ),
+    Reference {
+        key: "serra1982",
+        authors: &["Serra, J."],
+        more: false,
+        year: 1982,
+        title: "Image Analysis and Mathematical Morphology",
+        journal: "",
+        volume: "",
+        issue: "",
+        pages: "",
+        doi: "",
+        report: "Academic Press, London.",
+    },
+    Reference {
+        key: "soille2004",
+        authors: &["Soille, P."],
+        more: false,
+        year: 2004,
+        title: "Morphological Image Analysis: Principles and Applications (2nd ed.)",
+        journal: "",
+        volume: "",
+        issue: "",
+        pages: "",
+        doi: "10.1007/978-3-662-05088-0",
+        report: "Springer, Berlin, Heidelberg.",
+    },
+    paper!(
+        "felzenszwalb2012",
+        ["Felzenszwalb, P. F.", "Huttenlocher, D. P."],
+        false,
+        2012,
+        "Distance transforms of sampled functions",
+        "Theory of Computing",
+        "8",
+        "1",
+        "415–428",
+        "10.4086/toc.2012.v008a019"
+    ),
     paper!(
         "campolongo2007",
         ["Campolongo, F.", "Cariboni, J.", "Saltelli, A."],
@@ -1251,6 +1289,13 @@ pub const METHODS: &[Method] = &[
         software_refs: &[],
     },
     Method {
+        ops: &["objects.resize"],
+        name: "pixel-based resizing, morphological opening and closing, filling and border optimization of objects",
+        refs: &["serra1982", "soille2004", "felzenszwalb2012"],
+        software: "",
+        software_refs: &[],
+    },
+    Method {
         ops: &["segment.meanshift"],
         name: "mean shift segmentation into objects",
         refs: &["comaniciu2002"],
@@ -1757,6 +1802,7 @@ mod tests {
         assert_eq!(method_of("prioritize.actions_raster").unwrap().refs, &["salgadorojas2020"]);
         assert_eq!(method_of("segment.watershed").unwrap().refs, &["vincent1991", "neubert2014"]);
         assert_eq!(method_of("objects.split").unwrap().refs, &["vincent1991", "carpenter2006"]);
+        assert_eq!(method_of("objects.resize").unwrap().refs, &["serra1982", "soille2004", "felzenszwalb2012"]);
         assert_eq!(method_of("segment.scale").unwrap().refs, &["dragut2010", "dragut2014"]);
         assert_eq!(method_of("segment.optimize").unwrap().refs, &["espindola2006", "johnson2011"]);
         assert_eq!(method_of("ml.pca").unwrap().refs, &["pearson1901", "hotelling1933"]);

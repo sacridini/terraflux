@@ -276,3 +276,48 @@ fn objects_split_bench() {
         }
     }
 }
+
+/// `objects.resize` over many blobs: grow, open and refine (on blobs grown until they touch), on 1 and N threads (the
+/// same hash on both).
+#[test]
+#[ignore]
+fn objects_resize_bench() {
+    let r = Registry::standard();
+    let list = |k: &str, d: &str| -> Vec<usize> {
+        std::env::var(k).unwrap_or(d.into()).split(',').filter_map(|x| x.parse().ok()).collect()
+    };
+    println!("
+{:<26} {:<16} {:<10} {:>7} {:>10} {:>9} {:>18}", "operator", "variant", "image", "threads", "seconds", "objects", "hash");
+    for side in list("BENCH_SIDES", "1000,2000") {
+        let o = blobs(side);
+        let img = image(side, side, 2, 5);
+        let p = serde_json::json!({ "mode": "grow", "distance": 6.0 }).as_object().cloned().unwrap();
+        let inputs = [("objects".to_string(), Value::Objects(o.clone()))].into_iter().collect();
+        let touching = match r.get("objects.resize").unwrap().run(&mut Ctx::default(), &Args { node: "n", inputs, params: &p }).unwrap().remove("objects") {
+            Some(Value::Objects(t)) => t,
+            _ => panic!("objects"),
+        };
+        let cases = [
+            ("grow", serde_json::json!({ "mode": "grow", "distance": 3.0 }), false),
+            ("open", serde_json::json!({ "mode": "open", "steps": 2 }), false),
+            ("refine", serde_json::json!({ "mode": "refine", "steps": 3 }), true),
+        ];
+        for (variant, params, refine) in cases {
+            let input = if refine { touching.clone() } else { o.clone() };
+            for threads in list("BENCH_THREADS", "1,8") {
+                let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+                let mut inputs: std::collections::BTreeMap<String, Value> = [("objects".to_string(), Value::Objects(input.clone()))].into_iter().collect();
+                if refine {
+                    inputs.insert("image".to_string(), img.clone());
+                }
+                let p = params.as_object().cloned().unwrap();
+                let args = Args { node: "n", inputs, params: &p };
+                let t = Instant::now();
+                let out = pool.install(|| r.get("objects.resize").unwrap().run(&mut Ctx::default(), &args).unwrap());
+                let secs = t.elapsed().as_secs_f64();
+                let Value::Objects(s) = &out["objects"] else { panic!("objects") };
+                println!("{:<26} {variant:<16} {:<10} {threads:>7} {secs:>10.2} {:>9} {:>18x}", "objects.resize", format!("{side}x{side}"), s.count, hash(s));
+            }
+        }
+    }
+}

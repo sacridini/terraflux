@@ -62,7 +62,7 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
         | "objects.rules" | "objects.nearest" | "objects.resolve" | "objects.temporal" | "objects.transition_matrix"
         | "segment.sam" | "objects.embed" | "objects.accuracy" | "objects.sample" | "objects.merge" | "objects.grow"
         | "objects.remove_small" | "objects.reclassify" | "objects.edit"
-        | "objects.split" => Err("objects (object-based image analysis: an image divided into objects with their \
+        | "objects.split" | "objects.resize" => Err("objects (object-based image analysis: an image divided into objects with their \
              attributes, classes and levels) are a Terraflux type the Python library has no counterpart for: no \
              equivalent in the script"
             .into()),

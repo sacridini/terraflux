@@ -29,6 +29,7 @@ pub mod onnx;
 mod optimize;
 mod quickshift;
 mod rates;
+mod resize;
 mod resolve;
 mod rows;
 mod rules;
@@ -68,6 +69,7 @@ pub fn register(r: &mut Registry) {
     rules::register(r);
     edit::register(r);
     split::register(r);
+    resize::register(r);
     r.add(Arc::new(features::Features));
     resolve::register(r);
     temporal::register(r);

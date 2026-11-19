@@ -45,6 +45,7 @@ mod objects_big;
 mod objects_dl;
 mod objects_edit;
 mod objects_levels;
+mod objects_resize;
 mod objects_resolve;
 mod objects_split;
 mod objects_thematic;

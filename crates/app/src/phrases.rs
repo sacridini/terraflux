@@ -963,6 +963,10 @@ const PHRASES: &[(&str, &str)] = &[
         "The objects of <objects>[ of the classes {classes}] divided into their pieces by the {by} (a peak must stand {h} over the saddle)[, pieces under {min_size} cells given back][, cuts kept shorter than {max_neck} times the width][, with <surface> as the surface].",
     ),
     (
+        "objects.resize",
+        "The objects of <objects>[ of the classes {classes}] resized by {mode}[ over {distance} map units][ in {steps} steps][, taking the cells of {into}][, limited by <mask>][, holes up to {max_hole} cells][, with <image> for the border optimization].",
+    ),
+    (
         "objects.nearest",
         "The objects of <objects> classed by their nearest samples in <samples>[, a class only above a membership of {min}].",
     ),

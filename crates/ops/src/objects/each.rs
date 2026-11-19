@@ -31,9 +31,13 @@ impl Frame {
 
     /// The index in the grid of a cell of the frame: none off the grid.
     pub(super) fn global(&self, o: &Objects, i: usize) -> Option<usize> {
+        self.index(o.grid.width, o.grid.height, i)
+    }
+
+    /// [`Frame::global`] for a grid of this width and height, when the labels are not an `Objects`'.
+    pub(super) fn index(&self, width: usize, height: usize, i: usize) -> Option<usize> {
         let (r, c) = (self.top + (i / self.w) as i64, self.left + (i % self.w) as i64);
-        (r >= 0 && c >= 0 && (r as usize) < o.grid.height && (c as usize) < o.grid.width)
-            .then(|| r as usize * o.grid.width + c as usize)
+        (r >= 0 && c >= 0 && (r as usize) < height && (c as usize) < width).then(|| r as usize * width + c as usize)
     }
 
     /// The cells of the object in the frame (false in the pad and on the cells of other objects).
@@ -46,11 +50,17 @@ impl Frame {
 /// the order of `ids`.
 pub(super) fn each<T: Send>(o: &Objects, ids: &[u32], f: impl Fn(u32, &Frame) -> T + Sync) -> Vec<T> {
     let frames: Vec<Frame> = ids.iter().map(|&id| Frame::of(o, id)).collect();
-    let mut order: Vec<usize> = (0..ids.len()).collect();
-    // (a stable sort: equal boxes stay in the order of the ids)
+    each_with(&frames, |k, fr| f(ids[k], fr))
+}
+
+/// `f(k, frame)` for each of the frames, in parallel and the biggest first; the results in the order of `frames`.
+/// For boxes that do not come from the objects' own (a label array that changed).
+pub(super) fn each_with<T: Send>(frames: &[Frame], f: impl Fn(usize, &Frame) -> T + Sync) -> Vec<T> {
+    let mut order: Vec<usize> = (0..frames.len()).collect();
+    // (a stable sort: equal boxes stay in their order)
     order.sort_by_key(|&k| std::cmp::Reverse(frames[k].cells()));
-    let done: Vec<(usize, T)> = order.par_iter().map(|&k| (k, f(ids[k], &frames[k]))).collect();
-    let mut out: Vec<Option<T>> = (0..ids.len()).map(|_| None).collect();
+    let done: Vec<(usize, T)> = order.par_iter().map(|&k| (k, f(k, &frames[k]))).collect();
+    let mut out: Vec<Option<T>> = (0..frames.len()).map(|_| None).collect();
     for (k, t) in done {
         out[k] = Some(t);
     }
