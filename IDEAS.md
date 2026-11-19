@@ -4298,6 +4298,15 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
 2. **O ONNX Runtime de verdade**: `segment.sam` e `objects.embed` rodados com um runtime instalado (um modelo
    pequeno feito com o `onnx` conferido contra o numpy; o SAM ViT-B exportado em ONNX em formas reais), o que estiver
    errado corrigido, e os pesos do SAM baixados uma vez para o cache (com o SHA-256 conferido) quando não dados.
+   **Feito** (d17236f, f8e09fc): o ONNX Runtime 1.32 carrega pela API 17 sem mudança. O export do SAM ViT-B usado
+   (vietanhdev/segment-anything-onnx-models, Apache-2.0) toma a imagem em HWC de 0 a 255 e normaliza por dentro: o
+   encoder agora vê o formato da entrada (o caminho NCHW fica para os outros exports). O decoder desse export corta a
+   máscara num quadro fixo de 683 × 1024: o tile vai redimensionado para caber nele. As sobreposições como o gerador
+   automático do SAM (estabilidade, IoU previsto, área máxima, NMS das caixas, as máscaras maiores pintadas antes): numa
+   cena sintética de 4 formas, cada uma vira um objeto com IoU de 0,994 a 1,000 (antes 0,19 a 0,97). O
+   `objects.embed` confere com o numpy até 1e-5 (`tools/make_embed_reference.py`, um modelo de 684 bytes). Sem
+   `encoder` e `decoder`, os pesos (75 MB quantizados, ou 348 MB com `weights` full) são baixados uma vez para o cache,
+   o SHA-256 conferido, extraídos por um leitor de zip sobre o flate2 (sem dependência nova).
 3. **O cluster pelo aplicativo**: os tiles do `segment.multiresolution` nos computadores que trabalham juntos do app
    (`computers.rs`), não só pelo `--coordinator` da CLI.
    **Feito**: `Computers::cluster()` dá o endereço e o código do pool do app só quando outros computadores trabalham
