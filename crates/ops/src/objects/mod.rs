@@ -21,6 +21,7 @@ mod resolve;
 mod segment;
 mod store;
 mod superpixels;
+mod temporal;
 mod watershed;
 
 pub use calc::{evaluate, evaluate_numbers};
@@ -34,6 +35,7 @@ pub fn register(r: &mut Registry) {
     rules::register(r);
     r.add(Arc::new(features::Features));
     resolve::register(r);
+    temporal::register(r);
 }
 
 /// The region of a cell that is in none ([`Objects::from_regions`]).
