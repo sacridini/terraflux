@@ -474,7 +474,7 @@ fn swat_from_rasters() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 61] = [
+pub const TEMPLATES: [Template; 62] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -4695,6 +4695,16 @@ note = "alpha: 1 / the mean dispersal distance (12.5 cells); e and x: the extinc
                 (cropland and urban)",
     },
     Template {
+        name: "Each class its own way",
+        group: OBJECTS,
+        toml: "",
+        build: Some(obia_tree),
+        about: "a class tree where each class is found its own way, as GeoAIDA and InterIMAGE do: water by its NDWI, \
+                vegetation by its NDVI, built land by samples, and inside the vegetation forest and grassland by \
+                samples; the classes of one mother are arbitrated cell by cell, and the map of the leaf classes with \
+                the table of conflicts are the outputs (Add a class... adds one more)",
+    },
+    Template {
         name: "Segment an image into polygons",
         group: OBJECTS,
         build: None,
@@ -5027,6 +5037,126 @@ params = { title = "The classes by the rules" }
     Model::from_toml(&text.replace("HIERARCHY", OBIA_HIERARCHY)).expect("a template is a model")
 }
 
+/// "Each class its own way": the class tree of `class_tree::add_class` (what *Add a class...* writes) on the scene of
+/// the object templates. Water and Vegetation by their indices, Built (cropland and urban) by samples, Vegetation's
+/// Forest and Grassland by samples; the classes of a mother are arbitrated by objects.resolve.
+fn obia_tree() -> Model {
+    use crate::class_tree::{NewClass, Recipe, add_class};
+    let mut text = String::from(
+        r#"
+format = "terraflux/1"
+name = "Each class its own way"
+description = "A class tree where each class is found by the method that suits it, as GeoAIDA and InterIMAGE do: every class is a branch (a group) that reads the image and gives a map of membership, 0 to 1; the sibling classes are arbitrated cell by cell (objects.resolve: the greatest membership wins), and the children of a class are looked for only inside the region where their mother won. Water is found by its NDWI, vegetation by its NDVI, built land (cropland and urban) by samples, and inside the vegetation forest and grassland by samples. The map `leaves` has the class of each cell (1 built, 2 forest, 3 grassland, 4 water) and `conflicts` the cells of one class's hypotheses that another class won. Replace the image with yours (Use my data) and the samples with yours; Add a class... in the class tree adds a branch."
+request = "Classify the image with a class tree: water by its NDWI, vegetation by its NDVI with forest and grassland inside it, and built land by samples."
+summary = "A class tree of five classes (Water, Vegetation, Built; Forest and Grassland inside Vegetation), each with its own method, the siblings of each mother arbitrated cell by cell, and the map of the leaf classes."
+"#,
+    );
+    text.push_str(OBIA_SCENE);
+    // (the samples of the classes the forest tells apart: Built holds cropland and urban, the rest is Other)
+    let rows = OBIA_SAMPLE_ROWS
+        .replace("\"water\"", "\"Other\"")
+        .replace("\"forest\"", "\"Forest\"")
+        .replace("\"grassland\"", "\"Grassland\"")
+        .replace("\"cropland\"", "\"Built\"")
+        .replace("\"urban\"", "\"Built\"");
+    text.push_str(
+        r#"
+[[nodes]]
+id = "sample_table"
+op = "table.of"
+note = "The samples of the classes found by samples: a point (x and y in the image's coordinates) on an object, with the class's name (Forest, Grassland, Built; Other for what is none of them). In its place, the points you clicked in the Viewer."
+why = "One table serves every class that learns from samples: each class's forest takes its own name as the class and every other value as what it is not."
+
+[nodes.params]
+columns = ["x", "y", "class"]
+rows = SAMPLE_ROWS
+
+[[nodes]]
+id = "samples"
+op = "vector.from_table"
+inputs = { table = "sample_table.table" }
+note = "The points as features, with the class as an attribute."
+"#,
+    );
+    let mut m = Model::from_toml(&text.replace("SAMPLE_ROWS", &rows)).expect("a template is a model");
+    let r = terraflux_ops::Registry::standard();
+    let class = |name: &str, colour: [u8; 3], parent: Option<&str>, recipe| NewClass {
+        name: name.into(),
+        colour,
+        parent: parent.map(String::from),
+        recipe,
+    };
+    for c in [
+        class("Water", [0x2b, 0x6c, 0xb0], None, Recipe::Water),
+        class("Vegetation", [0x5f, 0xa8, 0x3a], None, Recipe::Vegetation),
+        class("Built", [0x8d, 0x8d, 0x8d], None, Recipe::Samples),
+        class("Forest", [0x2f, 0x7d, 0x32], Some("Vegetation"), Recipe::Samples),
+        class("Grassland", [0x9b, 0xc5, 0x3d], Some("Vegetation"), Recipe::Samples),
+    ] {
+        add_class(&mut m, &[], &r, &c).unwrap_or_else(|e| panic!("{}: {e}", c.name));
+    }
+    let why = |m: &mut Model, id: &str, note: &str, why: &str| {
+        let n = m.nodes.iter_mut().find(|n| n.id == id).expect("a class of the tree");
+        n.note = Some(note.into());
+        n.why = Some(why.into());
+    };
+    why(
+        &mut m,
+        "class_Water",
+        "Water by NDWI: the membership rises from 0 at an NDWI of 0 to 1 at 0.3 (the bands named green and nir).",
+        "Water is the one class a single index tells apart, so it needs no samples.",
+    );
+    why(
+        &mut m,
+        "class_Vegetation",
+        "Vegetation by NDVI: the membership rises from 0 at an NDVI of 0.2 to 1 at 0.5 (the bands named red and nir). Forest and grassland are looked for only inside the cells it wins.",
+        "A middle NDVI (cropland) gets a membership below 1, so Built, which learns from samples, wins it.",
+    );
+    why(
+        &mut m,
+        "class_Built",
+        "Built land by samples: cropland and urban objects are the samples of Built, a random forest learns them from the objects' attributes; the membership is 1 for the objects it gives the class.",
+        "Cropland and urban are told apart from vegetation and water by their spectra, not by one index; samples say it best.",
+    );
+    why(
+        &mut m,
+        "class_Forest",
+        "Forest by samples, inside the vegetation: a random forest learns forest from the objects the samples point to.",
+        "Forest and grassland have alike NDVI and differ in the short-wave infrared: the forest of trees finds it from the objects' attributes.",
+    );
+    why(
+        &mut m,
+        "class_Grassland",
+        "Grassland by samples, inside the vegetation: the same, for the grassland.",
+        "As forest: the attributes of the objects tell it, the region keeps it to the vegetation.",
+    );
+    let extra = r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "leaves"
+op = "raster.calc"
+inputs = { a = "resolve.class", b = "resolve_of_Vegetation.class" }
+params = { expression = "4 if a == 3 else (1 if a == 1 else (2 if b == 1 else (3 if b == 2 else None)))" }
+note = "The leaf classes in one map: 1 built, 2 forest, 3 grassland, 4 water (no value where nothing won). The roots' decision numbers its classes by their names (Built 1, Vegetation 2, Water 3), Vegetation's children's (Forest 1, Grassland 2): the map joins them."
+why = "A leaf is the class a cell ends in: Water and Built are decided among the roots, Forest and Grassland inside the cells Vegetation won."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "leaves.map" }
+params = { title = "The leaf classes (1 built, 2 forest, 3 grassland, 4 water)" }
+
+[[nodes]]
+id = "conflicts"
+op = "view.plot"
+inputs = { table = "resolve.conflicts" }
+params = { title = "Hypotheses lost between the roots" }
+"#;
+    m.nodes.extend(Model::from_toml(extra).expect("a template is a model").nodes);
+    m
+}
+
 /// "Land cover change by objects".
 fn obia_change() -> Model {
     let flat = r##"[
@@ -5345,6 +5475,38 @@ mod tests {
         println!("trees {trees:.3}, buildings {buildings:.3}");
         assert!(trees >= 0.8, "trees {trees}");
         assert!(buildings >= 0.5, "buildings {buildings}");
+
+        // the class tree: the leaf map against the truth (water 4, forest 2, grassland 3, cropland and urban 1)
+        let out = run("Each class its own way");
+        let (leaves, truth) = (map(&out, "leaves.map"), map(&out, "land.map"));
+        let leaf_of = [4.0, 2.0, 3.0, 1.0, 1.0];
+        let hit = leaves
+            .data
+            .iter()
+            .zip(truth.data.iter())
+            .filter(|(p, t)| !p.is_nan() && !t.is_nan() && **p == leaf_of[**t as usize - 1])
+            .count();
+        let acc = hit as f64 / truth.data.len() as f64;
+        println!("tree: accuracy {acc:.4}");
+        assert!(acc >= 0.8, "accuracy {acc}");
+        let Some(Value::Table(c)) = out.get("resolve.conflicts") else { panic!("no conflicts table") };
+        println!("tree: {} rows of conflicts", c.rows.len());
+        // (the tree is what Add a class... writes: five classes with their mothers)
+        let m = TEMPLATES.iter().find(|t| t.name == "Each class its own way").unwrap().model();
+        let tree = crate::class_tree::read(&m.nodes);
+        let mut seen: Vec<(&str, Option<&str>)> =
+            tree.iter().map(|e| (e.name.as_str(), e.parent.map(|p| tree[p].name.as_str()))).collect();
+        seen.sort();
+        assert_eq!(
+            seen,
+            [
+                ("Built", None),
+                ("Forest", Some("Vegetation")),
+                ("Grassland", Some("Vegetation")),
+                ("Vegetation", None),
+                ("Water", None)
+            ]
+        );
     }
 
     #[test]
