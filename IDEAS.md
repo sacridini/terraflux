@@ -4145,7 +4145,8 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   `params` `class`, `parent_class` e `colour` (o `control.group` os declara), que lê `@region` e dá `membership`;
   os irmãos num `stack.of` e um `objects.resolve`, a região de cada mãe um `raster.calc` do `class` dele. O botão
   *Classes* do painel Model mostra os cartões; *Add a class...* com as receitas NDWI, NDVI, altura e amostras, num
-  passo de desfazer. Falta: a mãe como união dos filhos (`union_region`), a forma na receita de prédios.
+  passo de desfazer. Depois: a receita *made of its daughters* (a mãe como a união fuzzy, o máximo, das filhas, que
+  leem a região da avó: de baixo para cima, como no InterIMAGE) e os prédios por altura e forma (`rectangular_fit`).
 - **G. Hipóteses por classe e a arbitragem (do InterIMAGE).** Cada classe achada pelo seu próprio método (um limiar de
   NDWI para a água, a segmentação multirresolução com regras de forma para os telhados, o nDSM para as árvores, o SAM),
   sem que um método tenha de servir para todas. Cada ramo da etapa F dá um mapa de pertinência da sua classe (0 fora
@@ -4207,7 +4208,14 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   **Feito em parte** (Unreleased): 1, 2 e 4 (`crates/app/src/objects_inspect.rs`: a seleção ligada à tabela, N/P/C
   e Esc, o seletor de nível; o inspetor com as barras de pertinência e o que decidiu; o modo *Samples*, cada amostra um
   ponto na célula interior perto do centroide, gravada como `table.of` → `vector.from_table` → `objects.samples` →
-  `ml.fit` → `objects.classify` num passo de desfazer, num GeoPackage acima de 500).
+  `ml.fit` → `objects.classify` num passo de desfazer, num GeoPackage acima de 500). Depois, o resto: 3
+  (`live_segment.rs`: os controles de escala, forma e compacidade re-segmentam só a janela visível numa thread, 0,3 a
+  0,8 s numa janela de 800 × 600, com a curva do ESP e as escalas sugeridas; `objects::segment_window`), 5 a 7
+  (`feature_space.rs`: a dispersão, o histograma por classe, a separabilidade de Jeffries-Matusita e os atributos que
+  mais separam; a faixa do histograma vira regra no `objects.rules` com as bordas fuzzy; os objetos de menor margem e os
+  erros da validação, cada um levando ao objeto) e 8 (a cortina, o lado a lado e a diferença entre dois `Objects`).
+  A etapa G no Viewer: `hypotheses.rs`, a pertinência de cada classe como camada e, sob o cursor, o vencedor, a dúvida e
+  o conflito. **Feito** (Unreleased).
 - **J. Para quem está começando.** O que faz do Terraflux mais fácil que o eCognition:
   1. **Templates** (com a `nlm.image`, rodam como estão; com `data` em cada fonte para o *Use my data*): "Classify an
      image by clicking samples" (o principal: segmentar, amostras, floresta aleatória, acurácia, polígonos), "Classify an
@@ -4235,7 +4243,11 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   verdade), 2 (`DataKind::Image`; a página *Bands* com os papéis das bandas de Sentinel-2 e Landsat e a escala
   0–10 000 ou Landsat C2 detectada, num `stack.rename` que renomeia, descarta e escala; as classes do `objects.rules`
   editáveis na página *Classes*), 3 (`objects/warnings.rs` e o `advice.rs`) e 4 (o guia `objects`). Falta: "desenhe a
-  área e baixe" pelo `data.stac`, uma pasta de bandas soltas, e os tutoriais.
+  área e baixe" e a pasta de bandas soltas vieram depois: uma pasta ou arquivos de uma banda empilhados na ordem das
+  bandas (`raster.match` para as de 20 m), e *No image of your own?*, uma área e datas dão um `data.stac` do Sentinel-2
+  L2A sem nuvens (a mediana, `mask = auto`), com o desconto de 0,1 da baseline 04.00. E 5: três tutoriais no site e na
+  Ajuda ("Your first map by objects in 10 minutes", "Coming from eCognition", "Coming from InterIMAGE"). **Feito**
+  (Unreleased).
 - **K. Imagens grandes.** Segmentar por tiles do `crates/engine` com a costura dos objetos na borda (o método de Happ et
   al. ou o do LSMS do OTB: segmentar cada tile com margem e decidir os objetos que cruzam a borda numa segunda passada),
   os atributos por faixas sem a imagem inteira em memória, os rótulos em disco quando passam do limite, e o cluster
@@ -4248,7 +4260,9 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   Os rasters em disco por janelas (`objects/big.rs`): os tiles leem só a sua janela, a costura e a tabela releem por
   faixas, e `objects.features` por faixas (a mediana e o GLCM exatos); a imagem nunca inteira na memória. 4000 × 4000
   × 4 do disco: 66 s e 1,2 GB de pico. Um limite de memória (metade da física) recusa ler inteira o que não cabe. O
-  cluster: a passada dos tiles cabe num `Task` novo do `crates/dist`, a costura fica local (não feito).
+  cluster: `TileCores` e `TileJob` no ops, o `Ctx` e o `Engine` com um `tile_runner`, e o `Remote` do `crates/dist` com o
+  trabalho `segment` (os tiles nos workers, a costura no coordenador; os mesmos rótulos que aqui); o `--coordinator` da
+  CLI sem `--tiled` o liga. **Feito** (Unreleased).
 - **L. Aprendizado profundo (opcional).** `segment.sam` (Segment Anything por ONNX, o ONNX Runtime carregado em tempo de
   execução; os pesos baixados uma vez para o cache; sem ele, o operador diz como instalar) e `objects.embed` (a média
   por objeto das incorporações de um modelo de base, como Clay ou Prithvi, como atributos para o `ml.fit`). O resto do
