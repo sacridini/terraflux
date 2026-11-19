@@ -24,6 +24,7 @@ mod segment;
 mod store;
 mod superpixels;
 mod temporal;
+mod tiles;
 mod watershed;
 
 pub use calc::{evaluate, evaluate_numbers};

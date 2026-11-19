@@ -42,6 +42,7 @@ mod objects;
 mod objects_resolve;
 mod objects_temporal;
 mod objects_dl;
+mod objects_tiles;
 mod ops;
 mod optimize;
 mod parity;

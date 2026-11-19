@@ -7,8 +7,8 @@
 //! more than scale² is left alone until it or a neighbour changes (its cost depends on nothing else), so the late
 //! passes only visit what can still merge.
 //!
-//! For now one thread. Happ et al. (2010) run it in parallel by blocks of the image, with the merges across blocks
-//! made apart: that comes in a later stage (stage K), and must give the same result at any thread count.
+//! One thread. Happ et al. (2010) run it in parallel by blocks of the image, with the merges across blocks made
+//! apart: that is `tiles.rs`, which uses this for each tile and for the stitching.
 
 use std::sync::Arc;
 
@@ -404,8 +404,9 @@ impl Operator for Multiresolution {
              suggests one). Raw values are used, not standardised. A cell without a value in every band is no object \
              and never merges; a cell with a value in some bands counts in those bands only. With `from`, the \
              objects of a level below are the start regions, and the result is the level above them: every \
-             object of `from` ends inside exactly one new object (output below). For now it runs on one thread; \
-             the result is the same on every run with the same seed.",
+             object of `from` ends inside exactly one new object (output below). A run is one thread, except a big \
+             image (or `tile`), which is cut into tiles segmented in parallel and stitched at their borders; the \
+             result is the same on every run with the same seed.",
             Access::Global,
         )
         .input(PortSpec::new("image", Type::Any, "a map, or a stack of bands, the colour"))
@@ -450,10 +451,20 @@ impl Operator for Multiresolution {
             "merge only when each is the other's best neighbour (default true)",
         ))
         .param(PortSpec::optional("seed", Type::Integer, "the seed of the order of the visits (default 0)"))
+        .param(PortSpec::optional("max_passes", Type::Integer, "the most passes over the objects (default 100)"))
         .param(PortSpec::optional(
-            "max_passes",
+            "tile",
             Type::Integer,
-            "the most passes over the objects (default 100)",
+            "cells, the side of the tiles segmented in parallel and stitched at their borders (Happ et al. 2010); \
+             0 (default) is automatic: the whole image at once up to 4 million cells, tiles of 1024 above; a number \
+             forces tiles of that side. Ignored with `from`. The tiles change the objects a little (not the \
+             criterion); the result is the same for a seed at any number of threads",
+        ))
+        .param(PortSpec::optional(
+            "margin",
+            Type::Integer,
+            "cells, the margin around each tile that is segmented with it for the context of its border; 0 \
+             (default) is automatic: 64 cells, at most half the tile",
         ))
     }
 
@@ -513,6 +524,29 @@ impl Operator for Multiresolution {
             }
         };
         let cost = Cost { colour: 1.0 - shape, compact, weights };
+        let tile: i64 = args.param("tile", 0)?;
+        if tile < 0 || (tile > 0 && tile < 8) {
+            return Err(bad(format!("tile {tile}: 0 (automatic) or 8 cells or more")));
+        }
+        let margin: i64 = args.param("margin", 0)?;
+        if margin < 0 {
+            return Err(bad(format!("margin {margin}: 0 (automatic) or more")));
+        }
+        // by tiles (an image without `from` that is big, or when `tile` says so): the objects, their table at once
+        if from.is_none()
+            && let Some(t) = super::tiles::tile_side(w, h, tile as usize)
+        {
+            let m = super::tiles::margin_of(t, margin as usize);
+            let o =
+                super::tiles::merge_tiled(&l.grid, &l.data, &cost, scale, mutual, seed as u64, max_passes as u32, t, m);
+            let table = super::stats_table(&o, &l.names, &l.data);
+            let o = Arc::new(o.with_table(table.clone())?);
+            return Ok(outputs([
+                ("objects", Value::Objects(o)),
+                ("table", Value::Table(table)),
+                ("scale", Value::Number(scale)),
+            ]));
+        }
         let Level { objects: o, labels, root, g, centre } =
             merge_level(&l.grid, &l.data, &cost, scale, mutual, seed as u64, max_passes as u32, from.map(|f| &**f));
         // the table: the statistics of each object from its root region
