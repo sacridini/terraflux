@@ -16,6 +16,7 @@ mod convert;
 pub mod deep;
 mod esp;
 mod features;
+mod levels;
 mod meanshift;
 mod multiresolution;
 pub mod onnx;
@@ -42,6 +43,7 @@ pub fn register(r: &mut Registry) {
     resolve::register(r);
     temporal::register(r);
     deep::register(r);
+    levels::register(r);
 }
 
 /// The region of a cell that is in none ([`Objects::from_regions`]).

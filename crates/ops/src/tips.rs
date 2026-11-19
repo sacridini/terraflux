@@ -739,6 +739,33 @@ pub const TIPS: &[(&str, &str)] = &[
          `not` is one minus. A class name in `cls == \"water\"` compares as text; an unclassified object has no cls, \
          so the comparison is missing for it, not false.",
     ),
+    (
+        "objects.merge",
+        "Merge by class to make a level above: neighbours of the same class become one object, and with `level` \
+         the objects of this level stay below it (`below`), each with one parent, so rules can read parent.x and \
+         children.count(cond). By condition, write it over the pair: abs(a.mean_red - b.mean_red) < 0.1 and \
+         border > 3. A merged object's attributes are means weighted by cells: run objects.features again when \
+         you need exact ones. To merge until nothing changes, put it in a control.repeat with `until` the `done` \
+         output of this node (or compare `count`).",
+    ),
+    (
+        "objects.grow",
+        "Grow a class into its neighbours for what is long and thin, as roads and rivers that a segmentation cut \
+         in pieces: the condition is read on the candidate neighbour (mean_nir > 0.2 and cls == \"unclassified\"), \
+         and it repeats, over the grown objects, up to `max_steps`. Keep the condition narrow, or the class eats \
+         the whole image.",
+    ),
+    (
+        "objects.remove_small",
+        "Run it after a segmentation to take the specks out: an object under `min_cells` (or `min_area`) goes into \
+         the neighbour most like it (`similar`, by the bands' means) or the one with the longest border (`border`, \
+         as raster.sieve), until none is left. `classes` limits it to the small objects of some classes.",
+    ),
+    (
+        "objects.reclassify",
+        "Rename classes and join them (`classes`: old name to new name) without classifying again; `merge` then \
+         joins the neighbours that now share a class, which makes the objects of a coarser class map.",
+    ),
 ];
 
 #[cfg(test)]

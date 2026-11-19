@@ -904,6 +904,19 @@ const PHRASES: &[(&str, &str)] = &[
         "The attributes of the objects of <objects>[ ({column})] computed from their attributes, their neighbours and their levels by a script.",
     ),
     (
+        "objects.merge",
+        "The neighbouring objects of <objects> merged[ by {by}][ where {condition}][ into a level above].",
+    ),
+    (
+        "objects.grow",
+        "The objects of class {class} in <objects> grown into the neighbours where {condition}[, at most {max_steps} steps].",
+    ),
+    (
+        "objects.remove_small",
+        "The small objects of <objects>[ (under {min_cells} cells)][ (under {min_area} of area)] merged into a neighbour[, the {into} one].",
+    ),
+    ("objects.reclassify", "The classes of <objects> renamed and joined as {classes}[, neighbours of a class merged]."),
+    (
         "objects.rules",
         "The objects of <objects> classed by a hierarchy of fuzzy rules[, a class only above a membership of {min}].",
     ),

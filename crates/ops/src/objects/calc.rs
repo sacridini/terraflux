@@ -40,7 +40,7 @@ pub fn register(r: &mut Registry) {
 
 /// The columns a script over objects reads: the table's (by their script names), then `cls`, `id`, `cells`, `area`
 /// where the table has none of the name.
-fn attributes(o: &Objects) -> Vec<(String, Column)> {
+pub(super) fn attributes(o: &Objects) -> Vec<(String, Column)> {
     let t = &o.table;
     let mut out: Vec<(String, Column)> = Vec::new();
     for (j, c) in t.columns.iter().enumerate() {

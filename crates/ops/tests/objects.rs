@@ -2367,11 +2367,7 @@ fn rules_row() -> Arc<Objects> {
     Arc::new((*o).clone().with_table(t).unwrap())
 }
 
-fn rules_out(
-    o: &Arc<Objects>,
-    classes: serde_json::Value,
-    min: Option<f64>,
-) -> terraflux_ops::Result<Outputs> {
+fn rules_out(o: &Arc<Objects>, classes: serde_json::Value, min: Option<f64>) -> terraflux_ops::Result<Outputs> {
     let mut p = serde_json::json!({ "classes": classes });
     if let Some(m) = min {
         p["min"] = serde_json::json!(m);
@@ -2509,12 +2505,9 @@ fn rules_read_the_classes_the_objects_have_before_the_node() {
     // a second pass reads the first's classes
     let first = rules_out(&rules_row(), wet_land(), None).unwrap();
     let c1 = objects_of(&first);
-    let second = rules_out(
-        &c1,
-        serde_json::json!([{ "name": "by_land", "rule": r#"above(border_to("land"), 0, 0.5)"# }]),
-        None,
-    )
-    .unwrap();
+    let second =
+        rules_out(&c1, serde_json::json!([{ "name": "by_land", "rule": r#"above(border_to("land"), 0, 0.5)"# }]), None)
+            .unwrap();
     // land is object 3, and only object 2 touches it: 1 of its 4 edges, a membership of 0.5
     close(&col(&table_of(&second), "m_by_land"), &[0.0, 0.5, 0.0], "second pass");
 }
@@ -2559,7 +2552,10 @@ fn nearest_takes_the_class_of_the_nearest_samples() {
     let Value::Map(m) = &out["map"] else { panic!("map") };
     assert_eq!(m.data.to_vec(), vec![1.0, 1.0, 1.0, 2.0, 2.0, 2.0]);
     // the columns can be chosen: f1 alone, and a missing one is named
-    assert_eq!(objects_of(&nearest_out(&o, &s, serde_json::json!({ "columns": ["f1"] })).unwrap()).class_of, c.class_of);
+    assert_eq!(
+        objects_of(&nearest_out(&o, &s, serde_json::json!({ "columns": ["f1"] })).unwrap()).class_of,
+        c.class_of
+    );
     let e = nearest_out(&o, &s, serde_json::json!({ "columns": ["f9"] })).unwrap_err().to_string();
     assert!(e.contains("f9") && e.contains("objects"), "{e}");
     let e = nearest_out(&o, &s, serde_json::json!({ "slope": 1.0 })).unwrap_err().to_string();
@@ -2637,10 +2633,9 @@ fn rules_on_nlm_image_by_hand_written_thresholds_are_accurate() {
         { "name": "urban", "rule": "below(ndvi, 0.2, 0.28) and below(ndwi, 0, 0.2)" }
     ]);
     let names = ["water", "forest", "grassland", "cropland", "urban"];
-    for (segmenter, params) in [
-        ("segment.slic", serde_json::json!({})),
-        ("segment.multiresolution", serde_json::json!({ "scale": 5 })),
-    ] {
+    for (segmenter, params) in
+        [("segment.slic", serde_json::json!({})), ("segment.multiresolution", serde_json::json!({ "scale": 5 }))]
+    {
         let (o, truth) = sharp_case(segmenter, params);
         let out = rules_out(&o, classes.clone(), None).unwrap();
         let acc = named_accuracy(&out, &truth, &names);
@@ -2655,10 +2650,9 @@ fn rules_on_nlm_image_by_hand_written_thresholds_are_accurate() {
 
 #[test]
 fn nearest_on_nlm_image_by_samples_is_accurate() {
-    for (segmenter, params) in [
-        ("segment.slic", serde_json::json!({})),
-        ("segment.multiresolution", serde_json::json!({ "scale": 5 })),
-    ] {
+    for (segmenter, params) in
+        [("segment.slic", serde_json::json!({})), ("segment.multiresolution", serde_json::json!({ "scale": 5 }))]
+    {
         let (o, truth) = sharp_case(segmenter, params);
         let s = run(
             "objects.samples",
