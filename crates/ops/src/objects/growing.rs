@@ -20,14 +20,22 @@
 //! come are prefetched. The merging is one thread (the order of the visits is the algorithm); the set up (the scaling, the
 //! regions, their lists, the first distances) and the objects run in parallel, and every number is the same on any
 //! number of threads.
+//!
+//! With `tile` the image is cut into tiles (the machinery of `tiles.rs`, as multiresolution does): each tile, with a
+//! margin around it, is grown on its own, all tiles in parallel, with the scaling of the whole image and `minsize` 1;
+//! the cores of the tiles are the pieces, and the ordinary merging over the whole image starts from them (the path of
+//! `seeds`), joins the pieces of one seed, and applies `minsize`. Only the pieces along the tile borders merge there.
 
 use std::sync::Arc;
 
 use rayon::prelude::*;
 use smallvec::SmallVec;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
+use terraflux_raster::Grid;
 
+use super::big::{Layered, Source};
 use super::superpixels::prefetch;
+use super::tiles::{Tile, margin_of, merge_tiled_with, tile_seed, tile_side};
 use super::{NO_REGION, Objects, find};
 use crate::raster_stats::Layers;
 use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Value, outputs};
@@ -591,6 +599,115 @@ fn merge_all(g: &mut Regions, p: &Plan) -> Vec<u32> {
     (0..n as u32).map(|r| find(&mut parent, r)).collect()
 }
 
+/// The objects of the image `l`: the regions grown from the cells (or from the groups of connected cells of one seed,
+/// `seeds`, a key per cell, `u64::MAX` for none) and merged as `plan` says, none crossing the `zone`s (empty for none).
+fn grow(
+    l: &Layers,
+    sc: &[(f64, f64)],
+    zone: &[u64],
+    seeds: Option<&[u64]>,
+    eight: bool,
+    manhattan: bool,
+    plan: &Plan,
+) -> Objects {
+    let nbs = if eight { 8 } else { 4 };
+    let (mut g, labels) = match seeds {
+        None => Regions::from_cells(l, sc, zone, eight, manhattan),
+        Some(s) => {
+            // each group of connected cells of one seed (and one zone) a start region; the other cells one each
+            let any = |i: usize| l.data.iter().any(|b| b[i].is_finite());
+            let key = |i: usize| -> (u64, u64) {
+                if !any(i) {
+                    (u64::MAX, u64::MAX)
+                } else if s[i] == u64::MAX {
+                    (i as u64, u64::MAX)
+                } else {
+                    (s[i], if zone.is_empty() { 0 } else { zone[i] })
+                }
+            };
+            let start = Objects::from_fn(l.grid.clone(), key, (u64::MAX, u64::MAX), nbs);
+            let labels: Vec<u32> = start.labels[..].to_vec();
+            (Regions::from_labels(l, sc, &labels, start.count, zone, eight, manhattan), labels)
+        }
+    };
+    let root = merge_all(&mut g, plan);
+    drop(g);
+    from_roots(l, &labels, &root, nbs)
+}
+
+/// The objects of the regions' `labels` (0 none) with each region's root.
+fn from_roots(l: &Layers, labels: &[u32], root: &[u32], nbs: usize) -> Objects {
+    debug_assert_eq!(labels.len(), l.grid.width * l.grid.height);
+    Objects::from_fn(
+        l.grid.clone(),
+        |i| match labels[i] {
+            0 => NO_REGION,
+            a => root[a as usize - 1] as u64,
+        },
+        NO_REGION,
+        nbs,
+    )
+}
+
+/// The merging over the whole image that follows the tiles: it starts from their `pieces` (each connected), which
+/// are joined first when they hold cells of one seed (a seed cut by a tile border is whole again), and goes on as
+/// `plan` says (the threshold, and `minsize`, which the tiles did not apply).
+#[allow(clippy::too_many_arguments)]
+fn stitch(
+    l: &Layers,
+    sc: &[(f64, f64)],
+    zone: &[u64],
+    seeds: Option<&[u64]>,
+    pieces: Objects,
+    eight: bool,
+    manhattan: bool,
+    plan: &Plan,
+) -> Objects {
+    let nbs = if eight { 8 } else { 4 };
+    let mut labels: Vec<u32> = pieces.labels[..].to_vec();
+    let mut count = pieces.count;
+    if let Some(s) = seeds {
+        let any = |i: usize| l.data.iter().any(|b| b[i].is_finite());
+        let key = |i: usize| -> (u64, u64) {
+            if s[i] == u64::MAX || !any(i) {
+                (u64::MAX, u64::MAX)
+            } else {
+                (s[i], if zone.is_empty() { 0 } else { zone[i] })
+            }
+        };
+        let groups = Objects::from_fn(l.grid.clone(), key, (u64::MAX, u64::MAX), nbs);
+        // the pieces holding cells of one seed group are one (pieces numbered from 1, the lowest root)
+        let mut parent: Vec<u32> = (0..=count as u32).collect();
+        let mut first = vec![0u32; groups.count + 1];
+        for (i, &p) in labels.iter().enumerate() {
+            let g = groups.labels[i] as usize;
+            if g == 0 || p == 0 {
+                continue;
+            }
+            if first[g] == 0 {
+                first[g] = p;
+            } else {
+                let (a, b) = (find(&mut parent, first[g]), find(&mut parent, p));
+                parent[a.max(b) as usize] = a.min(b);
+            }
+        }
+        let mut number = vec![0u32; count + 1];
+        count = 0;
+        for p in labels.iter_mut().filter(|p| **p != 0) {
+            let r = find(&mut parent, *p) as usize;
+            if number[r] == 0 {
+                count += 1;
+                number[r] = count as u32;
+            }
+            *p = number[r];
+        }
+    }
+    let mut g = Regions::from_labels(l, sc, &labels, count, zone, eight, manhattan);
+    let root = merge_all(&mut g, plan);
+    drop(g);
+    from_roots(l, &labels, &root, nbs)
+}
+
 /// The bits of a number as a zone or a seed: the same for equal numbers (-0 and 0, any NaN).
 fn bits(v: f64) -> u64 {
     if v.is_nan() {
@@ -682,6 +799,19 @@ impl Operator for RegionGrowing {
             "a list of [lowest, highest], one for each band: the range the 0-1 scaling uses instead of the image's \
              own (a part of an image, or another date, scaled as the whole)",
         ))
+        .param(PortSpec::optional(
+            "tile",
+            Type::Integer,
+            "cells, the side of the tiles the image is cut into, grown in parallel and stitched at their borders (8 or \
+             more; default 0: the whole image at once, one thread). The objects at a tile border can differ a little \
+             from the run without tiles",
+        ))
+        .param(PortSpec::optional(
+            "margin",
+            Type::Integer,
+            "cells, the margin around each tile that is grown with it for the context of its border; 0 (default) is \
+             automatic: 64 cells, at most half the tile",
+        ))
     }
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -714,6 +844,14 @@ impl Operator for RegionGrowing {
         if nbs != 4 && nbs != 8 {
             return Err(bad(format!("neighbours {nbs}: 4 or 8")));
         }
+        let tile: i64 = args.param("tile", 0)?;
+        if tile < 0 || (tile > 0 && tile < 8) {
+            return Err(bad(format!("tile {tile}: 0 (no tiles) or 8 cells or more")));
+        }
+        let margin: i64 = args.param("margin", 0)?;
+        if margin < 0 {
+            return Err(bad(format!("margin {margin}: 0 (automatic) or more")));
+        }
         let l = crate::raster_stats::layers(args, "image")?;
         if l.grid.width * l.grid.height >= 1 << 31 {
             return Err(bad(
@@ -721,7 +859,6 @@ impl Operator for RegionGrowing {
             ));
         }
         super::warnings::image(ctx, node, &l.grid, &l.names, &l.data, false);
-        let n = l.grid.width * l.grid.height;
         let eight = nbs == 8;
         let zone: Vec<u64> = match args.get("bounds") {
             None => Vec::new(),
@@ -764,45 +901,40 @@ impl Operator for RegionGrowing {
                 r.into_iter().map(scale_of).collect()
             }
         };
-        let (mut g, labels) = match &seeds {
-            None => Regions::from_cells(&l, &sc, &zone, eight, manhattan),
-            Some(s) => {
-                // each group of connected cells of one seed (and one zone) a start region; the other cells one each
-                let any = |i: usize| l.data.iter().any(|b| b[i].is_finite());
-                let key = |i: usize| -> (u64, u64) {
-                    if !any(i) {
-                        (u64::MAX, u64::MAX)
-                    } else if s[i] == u64::MAX {
-                        (i as u64, u64::MAX)
-                    } else {
-                        (s[i], if zone.is_empty() { 0 } else { zone[i] })
-                    }
-                };
-                let start = Objects::from_fn(l.grid.clone(), key, (u64::MAX, u64::MAX), nbs as usize);
-                let labels: Vec<u32> = start.labels[..].to_vec();
-                (Regions::from_labels(&l, &sc, &labels, start.count, &zone, eight, manhattan), labels)
-            }
-        };
-        let limit = if manhattan { threshold } else { threshold * threshold } as f32;
         let plan = Plan {
-            limit,
+            limit: if manhattan { threshold } else { threshold * threshold } as f32,
             mutual,
             seed: seed as u64,
             max_passes: iterations.map_or(u32::MAX, |k| k.min(u32::MAX as i64) as u32),
             minsize: minsize.min(u32::MAX as i64) as u32,
         };
-        let root = merge_all(&mut g, &plan);
-        drop(g);
-        let o = Objects::from_fn(
-            l.grid.clone(),
-            |i| match labels[i] {
-                0 => NO_REGION,
-                a => root[a as usize - 1] as u64,
-            },
-            NO_REGION,
-            nbs as usize,
-        );
-        debug_assert_eq!(labels.len(), n);
+        let (w, h) = (l.grid.width, l.grid.height);
+        let sd = seeds.as_deref();
+        let tiles = if tile > 0 { tile_side(w, h, tile as usize) } else { None };
+        let o = match tiles {
+            None => grow(&l, &sc, &zone, sd, eight, manhattan, &plan),
+            Some(t) => {
+                let m = margin_of(t, margin as usize);
+                let src = Layered::mem(&l.data, &l.grid);
+                let tile_plan = |k: usize| Plan { minsize: 1, seed: tile_seed(plan.seed, k), ..plan };
+                let core = |k: usize| -> Result<Vec<u32>> {
+                    let tl = Tile::new((w, h), t, m, k);
+                    let win = Layers {
+                        grid: Arc::new(Grid::new(tl.width(), tl.wr1 - tl.wr0)),
+                        names: Vec::new(),
+                        data: src.window(tl.wr0, tl.wr1, tl.wc0, tl.wc1)?,
+                    };
+                    let z = if zone.is_empty() { Vec::new() } else { tl.cut(&zone, w) };
+                    let s = sd.map(|s| tl.cut(s, w));
+                    let o = grow(&win, &sc, &z, s.as_deref(), eight, manhattan, &tile_plan(k));
+                    Ok(tl.core(&o.labels[..]))
+                };
+                let per_cell = l.data.len() as u64 * 40 + 300;
+                merge_tiled_with(&l.grid, t, m, per_cell, nbs as usize, None, &core, |pieces| {
+                    Ok(stitch(&l, &sc, &zone, sd, pieces, eight, manhattan, &plan))
+                })?
+            }
+        };
         let t = super::stats_table(&o, &l.names, &l.data);
         let o = o.with_table(t.clone())?;
         Ok(outputs([("objects", Value::Objects(Arc::new(o))), ("table", Value::Table(t))]))

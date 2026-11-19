@@ -55,15 +55,71 @@ pub(crate) fn margin_of(t: usize, margin: usize) -> usize {
 }
 
 /// The seed of tile `k`.
-fn tile_seed(seed: u64, k: usize) -> u64 {
+pub(super) fn tile_seed(seed: u64, k: usize) -> u64 {
     seed ^ (k as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+}
+
+/// Where tile `k` is: its core (rows `r0..r1`, columns `c0..c1`) and its window, the core plus the margin within the
+/// image. The tiles are numbered row by row.
+pub(super) struct Tile {
+    pub r0: usize,
+    pub r1: usize,
+    pub c0: usize,
+    pub c1: usize,
+    pub wr0: usize,
+    pub wr1: usize,
+    pub wc0: usize,
+    pub wc1: usize,
+}
+
+impl Tile {
+    pub fn new((w, h): (usize, usize), t: usize, margin: usize, k: usize) -> Tile {
+        let nx = w.div_ceil(t);
+        let (r0, c0) = ((k / nx) * t, (k % nx) * t);
+        let (r1, c1) = ((r0 + t).min(h), (c0 + t).min(w));
+        Tile {
+            r0,
+            r1,
+            c0,
+            c1,
+            wr0: r0.saturating_sub(margin),
+            wc0: c0.saturating_sub(margin),
+            wr1: (r1 + margin).min(h),
+            wc1: (c1 + margin).min(w),
+        }
+    }
+
+    /// The width of the window.
+    pub fn width(&self) -> usize {
+        self.wc1 - self.wc0
+    }
+
+    /// The window of a map of the whole image (`w` wide), row by row.
+    pub fn cut<T: Copy>(&self, full: &[T], w: usize) -> Vec<T> {
+        let mut out = Vec::with_capacity((self.wr1 - self.wr0) * self.width());
+        for r in self.wr0..self.wr1 {
+            out.extend_from_slice(&full[r * w + self.wc0..r * w + self.wc1]);
+        }
+        out
+    }
+
+    /// The core of a map of the window (`win`, row by row), row by row.
+    pub fn core(&self, win: &[u32]) -> Vec<u32> {
+        let ww = self.width();
+        let mut core = Vec::with_capacity((self.r1 - self.r0) * (self.c1 - self.c0));
+        for r in self.r0..self.r1 {
+            let at = (r - self.wr0) * ww + (self.c0 - self.wc0);
+            core.extend_from_slice(&win[at..at + (self.c1 - self.c0)]);
+        }
+        core
+    }
 }
 
 /// The core of tile `k` (labels of the objects of its window, row by row), the window read from `src`.
 #[allow(clippy::too_many_arguments)]
 fn tile_core(
     src: &dyn Source,
-    (w, h): (usize, usize),
+    dims: (usize, usize),
     cost: &Cost,
     scale: f64,
     mutual: bool,
@@ -73,21 +129,11 @@ fn tile_core(
     margin: usize,
     k: usize,
 ) -> Result<Vec<u32>> {
-    let nx = w.div_ceil(t);
-    let (r0, c0) = ((k / nx) * t, (k % nx) * t);
-    let (r1, c1) = ((r0 + t).min(h), (c0 + t).min(w));
-    let (wr0, wc0) = (r0.saturating_sub(margin), c0.saturating_sub(margin));
-    let (wr1, wc1) = ((r1 + margin).min(h), (c1 + margin).min(w));
-    let ww = wc1 - wc0;
-    let sub = src.window(wr0, wr1, wc0, wc1)?;
-    let sub_grid = Arc::new(Grid::new(ww, wr1 - wr0));
+    let tl = Tile::new(dims, t, margin, k);
+    let sub = src.window(tl.wr0, tl.wr1, tl.wc0, tl.wc1)?;
+    let sub_grid = Arc::new(Grid::new(tl.width(), tl.wr1 - tl.wr0));
     let o = merge_level(&sub_grid, &sub, cost, scale, mutual, tile_seed(seed, k), max_passes, None).objects;
-    let mut core = Vec::with_capacity((r1 - r0) * (c1 - c0));
-    for r in r0..r1 {
-        let at = (r - wr0) * ww + (c0 - wc0);
-        core.extend_from_slice(&o.labels[at..at + (c1 - c0)]);
-    }
-    Ok(core)
+    Ok(tl.core(&o.labels))
 }
 
 /// The first pass of a run on rasters on disk, as another machine can do it: where the files are, which layers make
@@ -174,15 +220,8 @@ pub trait TileCores: Send + Sync {
 
 /// The tiles of a run in flight: what each needs, and the cores made but not put yet.
 struct Run<'a> {
-    src: &'a dyn Source,
-    dims: (usize, usize),
-    cost: &'a Cost,
-    scale: f64,
-    mutual: bool,
-    seed: u64,
-    max_passes: u32,
-    t: usize,
-    margin: usize,
+    /// The core of a tile, by its number.
+    core: &'a (dyn Fn(usize) -> Result<Vec<u32>> + Sync),
     total: usize,
     /// The most tiles worked at once.
     step: usize,
@@ -206,18 +245,7 @@ struct Ordered<'a> {
 /// and the tile before it is less than `2 * step` back from the last one put, so few cores wait in memory.
 fn spawn_tile<'s, 'a: 's>(sc: &rayon::Scope<'s>, run: &'s Run<'a>, k: usize) {
     sc.spawn(move |sc| {
-        let core = tile_core(
-            run.src,
-            run.dims,
-            run.cost,
-            run.scale,
-            run.mutual,
-            run.seed,
-            run.max_passes,
-            run.t,
-            run.margin,
-            k,
-        );
+        let core = (run.core)(k);
         let mut guard = run.state.lock().unwrap();
         let st = &mut *guard;
         st.done += 1;
@@ -269,6 +297,42 @@ pub(crate) fn merge_tiled(
     margin: usize,
     remote: Option<(&dyn TileCores, TileJob)>,
 ) -> Result<Objects> {
+    let dims = (grid.width, grid.height);
+    let tiles = dims.0.div_ceil(t) * dims.1.div_ceil(t);
+    let given = match remote {
+        Some((runner, job)) => {
+            let cores = runner.cores(&job)?;
+            if cores.len() != tiles {
+                return Err(Error::msg(format!("the cluster gave {} tiles of {tiles}", cores.len())));
+            }
+            Some(cores)
+        }
+        None => None,
+    };
+    let core = |k: usize| tile_core(src, dims, cost, scale, mutual, seed, max_passes, t, margin, k);
+    let per_cell = src.nb() as u64 * 40 + 200;
+    merge_tiled_with(grid, t, margin, per_cell, 4, given, &core, |pieces| {
+        Ok(merge_level_src(grid, src, cost, scale, mutual, seed, max_passes, Some(&pieces))?.objects)
+    })
+}
+
+/// A run by tiles of side `t` with `margin` cells around each, for any segmenter: `core(k)` segments tile `k` (the
+/// labels of the objects of its window that lie in its core, row by row, 0 for none, 1 to the count) and `stitch` makes
+/// the objects of the image from the pieces (the cores put together, each in its parts connected by `conn` cells).
+/// `given` has the cores already (made elsewhere), all of them in order. A tile's window takes `per_cell` bytes a
+/// cell, which with `TILES_BYTES` limits the tiles at once. The cores are put in order of tile, so the pieces never
+/// depend on the order the tiles finish in, and so on the number of threads.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn merge_tiled_with(
+    grid: &Arc<Grid>,
+    t: usize,
+    margin: usize,
+    per_cell: u64,
+    conn: usize,
+    given: Option<Vec<Vec<u32>>>,
+    core: &(dyn Fn(usize) -> Result<Vec<u32>> + Sync),
+    stitch: impl FnOnce(Objects) -> Result<Objects>,
+) -> Result<Objects> {
     let (w, h) = (grid.width, grid.height);
     let (nx, ny) = (w.div_ceil(t), h.div_ceil(t));
     crate::threads::ensure();
@@ -296,14 +360,10 @@ pub(crate) fn merge_tiled(
         off += most;
         Ok(())
     };
-    match remote {
-        Some((runner, job)) => {
-            let cores = runner.cores(&job)?;
-            if cores.len() != nx * ny {
-                return Err(Error::msg(format!("the cluster gave {} tiles of {}", cores.len(), nx * ny)));
-            }
-            for (k, core) in cores.into_iter().enumerate() {
-                put(k, &core)?;
+    match given {
+        Some(cores) => {
+            for (k, c) in cores.into_iter().enumerate() {
+                put(k, &c)?;
             }
         }
         None => {
@@ -311,21 +371,13 @@ pub(crate) fn merge_tiled(
             // as it is done (see `spawn_tile`). A core is put into the labels when all those before it have been, so the
             // labels are the same whatever the order the tiles finish in.
             let side = (t + 2 * margin) as u64;
-            let per = side.min(w as u64) * side.min(h as u64) * (src.nb() as u64 * 40 + 200);
+            let per = side.min(w as u64) * side.min(h as u64) * per_cell;
             let fit = (TILES_BYTES.load(Ordering::Relaxed) / per.max(1)) as usize;
             let step = fit.clamp(1, rayon::current_num_threads());
             let total = nx * ny;
             let first = step.min(total);
             let run = Run {
-                src,
-                dims: (w, h),
-                cost,
-                scale,
-                mutual,
-                seed,
-                max_passes,
-                t,
-                margin,
+                core,
                 total,
                 step,
                 state: Mutex::new(Ordered {
@@ -347,7 +399,7 @@ pub(crate) fn merge_tiled(
             }
         }
     }
-    let pieces = Objects::from_fn(grid.clone(), |i| lab[i], 0u32, 4);
+    let pieces = Objects::from_fn(grid.clone(), |i| lab[i], 0u32, conn);
     drop(lab);
-    Ok(merge_level_src(grid, src, cost, scale, mutual, seed, max_passes, Some(&pieces))?.objects)
+    stitch(pieces)
 }

@@ -4520,6 +4520,15 @@ dependências: 6, 2, 1, 4, 3, 7, 5, 8.
   pedaços; `bounds` e `seeds` cortados por tile; os parâmetros `tile` e `margin`. Testes: o mesmo hash com 1 e 8
   threads; em imagens de blocos constantes, por tiles igual a sem tiles; na imagem da bateria, o número de objetos a
   poucos por cento do sem tiles; uma linha nova na bateria.
+  **Feito** (Unreleased): `merge_tiled_with` em `tiles.rs` (`Tile`, a fila contínua, os deslocamentos e o `TILES_BYTES`
+  genéricos; `merge_tiled` do multiresolution é uma chamada dela, com o caminho do cluster, os hashes da bateria
+  iguais), `grow` e `stitch` em `growing.rs`, os parâmetros `tile` (sem padrão: 0 é sem tiles) e `margin`. A costura
+  une também os pedaços de um mesmo grupo de `seeds` (uma semente cortada por um tile volta inteira) antes de rodar
+  com o `minsize`; só imagens na memória (do disco, não). Bateria 2000² x 4 bandas, `threshold` 0,05: sem tiles 16,2 s
+  (1 thread) e 16,4 s (8); `tile` 512 em 14,1 s (1 thread) e 4,2 s (8), 2277 objetos contra 2590; com `minsize` 20,
+  12,7 s e 4,4 s, 225 objetos contra 228. Os objetos não são os mesmos (a fusão gulosa depende da ordem): a diferença
+  de 12% de objetos sem `minsize` está nos objetos minúsculos (o ruído de uma ou poucas células): com `minsize` 20 cai
+  a 1%, e o padrão continua sem tiles (os testes sintéticos pequenos ficam abaixo de 6%).
 - **5. A estimativa do tempo (M, depois do 7).** A bateria com `BENCH_RATES=1` grava
   `crates/ops/src/objects/rates.json` (lido por `include_str!`): por operador, segundos por milhão de células com 1 e
   com N threads e o expoente α tirado de 1000² e 2000² (o tempo não é linear: o multiresolution vai de 1,4 a 11,1 s

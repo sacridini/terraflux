@@ -3246,6 +3246,136 @@ fn region_growing_checks_its_settings() {
     assert!(grow(Value::Number(1.0), serde_json::json!({ "threshold": 0.1 })).is_err());
 }
 
+/// `region_growing` params with a tile side and a margin added.
+fn tiled(p: serde_json::Value, tile: usize, margin: usize) -> serde_json::Value {
+    let mut p = p;
+    p["tile"] = tile.into();
+    p["margin"] = margin.into();
+    p
+}
+
+#[test]
+fn region_growing_by_tiles_is_the_same_on_one_thread_and_eight() {
+    let image = quadrants(130, 90, 3, 6.0, 3);
+    let seeds = map(130, 90, (0..130 * 90).map(|i| if i % 130 < 60 && (i / 130) % 7 == 0 { 1.0 } else { NAN }).collect());
+    let bounds = map(130, 90, (0..130 * 90).map(|i| ((i % 130) / 45) as f64).collect());
+    for p in [
+        serde_json::json!({ "threshold": 0.05 }),
+        serde_json::json!({ "threshold": 0.08, "neighbours": 8, "similarity": "manhattan", "minsize": 12 }),
+        serde_json::json!({ "threshold": 0.04, "mutual": false, "seed": 3 }),
+    ] {
+        for (s, b) in [(false, false), (true, false), (false, true), (true, true)] {
+            let mut inputs = vec![("image", image.clone())];
+            if s {
+                inputs.push(("seeds", Value::Map(seeds.clone())));
+            }
+            if b {
+                inputs.push(("bounds", Value::Map(bounds.clone())));
+            }
+            let p = tiled(p.clone(), 40, 8);
+            let a = run_on(1, "segment.region_growing", inputs.clone(), p.clone());
+            let c = run_on(8, "segment.region_growing", inputs, p.clone());
+            assert_eq!(objects_of(&a).labels, objects_of(&c).labels, "{p} seeds {s} bounds {b}");
+            assert_eq!(table_of(&a).rows, table_of(&c).rows);
+            connected(&objects_of(&a));
+        }
+    }
+}
+
+#[test]
+fn region_growing_by_tiles_equals_the_whole_on_blocks_of_one_value() {
+    // 10 x 10 blocks, each constant and unlike its neighbours: tiles cut through them, the stitching joins them again
+    let (w, h) = (95, 70);
+    let data: Vec<f64> = (0..w * h).map(|i| (((i % w) / 10 + 2 * ((i / w) / 10)) % 5) as f64 * 10.0).collect();
+    let image = Value::Map(map(w, h, data));
+    let p = serde_json::json!({ "threshold": 0.05 });
+    let whole = objects_of(&grow(image.clone(), p.clone()).unwrap());
+    assert_eq!(whole.count, 10 * 7);
+    for (t, m) in [(32, 8), (24, 4), (50, 20), (17, 1)] {
+        let o = objects_of(&grow(image.clone(), tiled(p.clone(), t, m)).unwrap());
+        assert_eq!(o.labels.to_vec(), whole.labels.to_vec(), "tile {t} margin {m}");
+    }
+}
+
+#[test]
+fn region_growing_by_tiles_finds_about_the_objects_of_the_whole() {
+    let image = quadrants(160, 120, 3, 4.0, 5);
+    for p in [serde_json::json!({ "threshold": 0.08 }), serde_json::json!({ "threshold": 0.12, "minsize": 6 })] {
+        let whole = objects_of(&grow(image.clone(), p.clone()).unwrap()).count as f64;
+        let o = objects_of(&grow(image.clone(), tiled(p.clone(), 64, 16)).unwrap());
+        let gap = (o.count as f64 - whole).abs() / whole;
+        assert!(gap < 0.06, "{p}: {} objects by tiles, {whole} whole", o.count);
+        connected(&o);
+    }
+}
+
+#[test]
+fn region_growing_by_tiles_applies_minsize_at_the_stitching() {
+    let image = quadrants(120, 100, 2, 5.0, 9);
+    let p = tiled(serde_json::json!({ "threshold": 0.05, "minsize": 25, "neighbours": 8 }), 40, 10);
+    let o = objects_of(&grow(image, p).unwrap());
+    assert!(o.cells.iter().all(|&c| c >= 25), "{:?}", o.cells.iter().min());
+    connected(&o);
+}
+
+#[test]
+fn region_growing_with_a_tile_over_the_image_is_the_whole() {
+    let image = quadrants(50, 40, 2, 4.0, 2);
+    for p in [serde_json::json!({ "threshold": 0.07 }), serde_json::json!({ "threshold": 0.03, "minsize": 9, "seed": 4 })] {
+        let a = grow(image.clone(), p.clone()).unwrap();
+        for t in [50, 64, 1000] {
+            let b = grow(image.clone(), tiled(p.clone(), t, 0)).unwrap();
+            assert_eq!(objects_of(&a).labels, objects_of(&b).labels, "tile {t}");
+            assert_eq!(table_of(&a).rows, table_of(&b).rows);
+        }
+    }
+}
+
+#[test]
+fn region_growing_by_tiles_keeps_the_bounds_and_the_seeds_across_tiles() {
+    let (w, h) = (100, 80);
+    let image = quadrants(w, h, 2, 3.0, 4);
+    // zones of 17 columns, cut by the tile borders of 30
+    let zones = map(w, h, (0..w * h).map(|i| ((i % w) / 17) as f64).collect());
+    let out = run(
+        "segment.region_growing",
+        vec![("image", image.clone()), ("bounds", Value::Map(zones))],
+        tiled(serde_json::json!({ "threshold": 1 }), 30, 6),
+    )
+    .unwrap();
+    let o = objects_of(&out);
+    assert_eq!(o.count, 6);
+    for i in 0..w * h {
+        assert_eq!(o.labels[i], o.labels[(i / w) * w + (i % w) / 17 * 17], "cell {i}");
+    }
+    // a seed that crosses every tile border stays one object, whatever its values (threshold 0 merges nothing else)
+    let bar = |i: usize| (i / w == 12 || i / w == 13) && (4..96).contains(&(i % w));
+    let seeds = map(w, h, (0..w * h).map(|i| if bar(i) { 1.0 } else { NAN }).collect());
+    for sd in [Value::Map(seeds.clone()), Value::Objects(segment(&seeds, 4).0)] {
+        let out = run(
+            "segment.region_growing",
+            vec![("image", image.clone()), ("seeds", sd)],
+            tiled(serde_json::json!({ "threshold": 0 }), 30, 6),
+        )
+        .unwrap();
+        let o = objects_of(&out);
+        let id = o.labels[12 * w + 4];
+        assert!((0..w * h).filter(|&i| bar(i)).all(|i| o.labels[i] == id));
+        assert_eq!(o.cells[id as usize - 1], 2 * 92);
+        connected(&o);
+    }
+}
+
+#[test]
+fn region_growing_checks_its_tile_settings() {
+    let image = || quadrants(20, 20, 1, 1.0, 1);
+    for p in [serde_json::json!({ "tile": 3 }), serde_json::json!({ "tile": -1 }), serde_json::json!({ "tile": 8, "margin": -2 })] {
+        let mut q = serde_json::json!({ "threshold": 0.1 });
+        q.as_object_mut().unwrap().extend(p.as_object().unwrap().clone());
+        assert!(grow(image(), q.clone()).is_err(), "{q}");
+    }
+}
+
 fn quick(image: Value, params: serde_json::Value) -> terraflux_ops::Result<Outputs> {
     run("segment.quickshift", vec![("image", image)], params)
 }
