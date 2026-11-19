@@ -1297,7 +1297,13 @@ mod tests {
             m.upgrade();
             let d = Document::of(&m, &r);
             let steps = d.sections.iter().map(|s| s.steps.len()).sum::<usize>();
-            assert_eq!(steps, m.nodes.len(), "{}: every node once", t.name);
+            // a group (a stage, or a class of the class tree) is a section of the nodes of its body
+            let nodes = m
+                .nodes
+                .iter()
+                .map(|n| if n.op == GROUP { n.body.as_ref().map_or(0, |b| b.nodes.len()) } else { 1 })
+                .sum::<usize>();
+            assert_eq!(steps, nodes, "{}: every node once", t.name);
             // every Plot showing a step's output a figure
             let figures = d.steps().iter().map(|s| s.figures.len()).sum::<usize>() + d.figures.len();
             let shown = m.plots.iter().filter(|p| plotted(&m, &r, p).is_some()).count();
