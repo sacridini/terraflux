@@ -693,6 +693,45 @@ pub const TIPS: &[(&str, &str)] = &[
          membership at one standard deviation of distance; `min` leaves the far objects unclassified.",
     ),
     (
+        "objects.resolve",
+        "Give each class its own hypothesis (a membership map from a threshold, a model or a rule) as a layer of the \
+         stack, named for the class: where hypotheses overlap, the larger membership wins the cell and the loser \
+         keeps the rest. `min` leaves cells without a class when no hypothesis reaches it. `merge` connected makes \
+         an object of each connected area of a class, global one object per class and none one per cell: use none \
+         to inspect the arbitration. The conflicts table tells which classes took cells from which.",
+    ),
+    (
+        "objects.temporal",
+        "The matrix gives the possibility of each transition (1 possible, 0 impossible, between for rare ones): a \
+         transition it rules out cannot be what the objects of the second date are: each membership is cut to \
+         what the first date and the matrix allow (a max-min composition). Both \
+         dates must be on the same grid, classified with memberships (objects.classify, objects.rules). `both` \
+         adjusts the first date from the second too.",
+    ),
+    (
+        "objects.transition_matrix",
+        "Give samples labelled with the class at both dates (the table's columns before and after), or the \
+         transitions table of change.transitions: the possibility of each pair is its count over the largest one of \
+         its origin, so a pair never seen is 0, or `floor` when you would not rule it out. A matrix by hand (table.of \
+         with values 0 to 1) does the same for transitions you know are impossible, as forest to water in a year.",
+    ),
+    (
+        "objects.accuracy",
+        "Judge the classification on objects that were not used to train it: draw the reference apart from the \
+         training samples (objects.sample draws them stratified, with the same chance in every object of a \
+         class). The area-adjusted estimates are the ones to report (Olofsson et al. 2014): the counts of the \
+         confusion matrix by objects ignore how large each class is. Aim at 50 objects or more per class; a class \
+         with none sampled is left out. The errors table lists the misclassified objects to look at.",
+    ),
+    (
+        "objects.sample",
+        "The sample is stratified by class, each object of a class with the same chance, as the area-adjusted \
+         estimates of objects.accuracy ask. Olofsson et al. advise 50 or more per class: use `per_class` 50 where \
+         the classes have that many objects, `n` to share a total equally. Fill the column `reference` of the \
+         points (their attribute table) with the true class, from imagery or the field, then give them to \
+         objects.accuracy as samples with `class` = reference.",
+    ),
+    (
         "objects.calc",
         "Write a rule as a script: nb.mean(x) and border_to(\"water\") read the neighbours, parent.x and \
          children.count(cond) the levels (children need the input `below`). above(x, a, b), below, between and \

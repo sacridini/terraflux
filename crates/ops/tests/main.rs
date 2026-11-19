@@ -41,6 +41,7 @@ mod nlm;
 mod objects;
 mod objects_resolve;
 mod objects_temporal;
+mod objects_accuracy;
 mod objects_dl;
 mod objects_tiles;
 mod ops;

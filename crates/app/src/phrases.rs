@@ -913,6 +913,31 @@ const PHRASES: &[(&str, &str)] = &[
     ),
     ("objects.to_vector", "The objects of <objects> as polygons[, their corners cut {smooth} times]."),
     (
+        "objects.resolve",
+        "The hypotheses of <memberships> arbitrated cell by cell into objects[, a class only above a membership of {min}][, merged {merge}].",
+    ),
+    (
+        "objects.temporal",
+        "The classes of <after> adjusted by <matrix>, the transitions possible from <before>[, both dates adjusted {both}][, a class only above a membership of {min}].",
+    ),
+    (
+        "objects.transition_matrix",
+        "The matrix of possible transitions between two dates, from <samples> or <transitions>[, a transition never seen at {floor}].",
+    ),
+    (
+        "segment.sam",
+        "<image> cut into the masks of the Segment Anything Model ({encoder}, {decoder})[, {points} prompt points per side] as objects.",
+    ),
+    (
+        "objects.embed",
+        "The objects of <objects> given the embeddings of {model} over patches of <image>[ of {patch} cells].",
+    ),
+    (
+        "objects.accuracy",
+        "The accuracy of the classes of <objects> against <samples> or <reference>[ (the class in {class})], by objects and by area.",
+    ),
+    ("objects.sample", "A stratified sample of the objects of <objects>[, {per_class} of each class][, {n} in all], to label."),
+    (
         "nlm.image",
         "A synthetic multispectral image of the classes of <classes>, with their truth known[; seed {seed}].",
     ),

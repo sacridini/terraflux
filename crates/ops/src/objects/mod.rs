@@ -9,6 +9,7 @@ use terraflux_raster::Grid;
 
 use crate::{Args, Error, Registry, Result, Table, Value};
 
+mod accuracy;
 mod calc;
 mod classify;
 mod convert;
@@ -32,6 +33,7 @@ pub use rules::{RuleClass, leaves, tree};
 
 pub fn register(r: &mut Registry) {
     segment::register(r);
+    accuracy::register(r);
     convert::register(r);
     classify::register(r);
     calc::register(r);

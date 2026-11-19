@@ -6,9 +6,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
-use terraflux_raster::vector::{Column, Geometry};
+use terraflux_raster::vector::{Column, Geometry, Vector};
 
-use super::{ObjectClass, objects_in};
+use super::{ObjectClass, Objects, objects_in};
 use crate::sdm::extrapolation::Frame;
 use crate::{Args, Ctx, Error, Map, Operator, Outputs, Registry, Result, Table, Value, outputs};
 
@@ -65,125 +65,7 @@ impl Operator for Samples {
         let o = objects_in(args, "objects")?;
         let attr: String = args.param("class", "class".to_string())?;
         let v = crate::vector::on_grid(crate::vector::vector_of(args, "samples")?, &o.grid)?;
-        let col = v.attributes.iter().find(|(n, _)| *n == attr).map(|(_, c)| c).ok_or_else(|| {
-            let have: Vec<&str> = v.attributes.iter().map(|(n, _)| n.as_str()).collect();
-            Error::msg(format!("node {node:?}: the samples have no attribute {attr:?} ({})", have.join(", ")))
-        })?;
-        // the class of each sample as text (none: empty)
-        let text: Vec<String> = match col {
-            Column::Texts(x) => x.clone(),
-            Column::Numbers(x) => x.iter().map(|&f| if f.is_nan() { String::new() } else { format!("{f}") }).collect(),
-        };
-        let mut names: Vec<String> = text.iter().filter(|s| !s.is_empty()).cloned().collect();
-        names.sort();
-        names.dedup();
-        let code = |s: &str| names.binary_search_by(|n| n.as_str().cmp(s)).ok();
-
-        let g = &o.grid;
-        let t = g.transform;
-        if t[2] != 0.0 || t[4] != 0.0 {
-            return Err(Error::msg(format!("node {node:?}: the objects' grid is rotated")));
-        }
-        let (w, h) = (g.width as i64, g.height as i64);
-        // the objects of each sample: (object index, ) with the class of the sample
-        let mut picked: Vec<Vec<usize>> = vec![Vec::new(); o.count];
-        let (mut outside, mut classless, mut unfit) = (0usize, 0usize, 0usize);
-        // polygons: their cells in one call
-        let polys: Vec<usize> = (0..v.len()).filter(|&i| v.geometries[i].is_polygonal()).collect();
-        let mut poly_runs = None;
-        if !polys.is_empty() {
-            let geoms: Vec<&Geometry> = polys.iter().map(|&i| &v.geometries[i]).collect();
-            poly_runs =
-                Some(crate::vector::runs(&geoms, g, false).map_err(|e| Error::msg(format!("node {node:?}: {e}")))?);
-        }
-        // the object under a point: 0 none
-        let object_at = |xy: [f64; 2]| -> u32 {
-            let (c, r) = (((xy[0] - t[0]) / t[1]).floor(), ((xy[1] - t[3]) / t[5]).floor());
-            if c >= 0.0 && r >= 0.0 && (c as i64) < w && (r as i64) < h {
-                o.labels[r as usize * g.width + c as usize]
-            } else {
-                0
-            }
-        };
-        for (k, class) in text.iter().enumerate() {
-            if code(class).is_none() {
-                classless += 1;
-                continue;
-            }
-            match &v.geometries[k] {
-                Geometry::Point(_) | Geometry::MultiPoint(_) => {
-                    let ps = match &v.geometries[k] {
-                        Geometry::Point(p) => vec![*p],
-                        Geometry::MultiPoint(ps) => ps.clone(),
-                        _ => unreachable!(),
-                    };
-                    for p in ps {
-                        match object_at(p) {
-                            0 => outside += 1,
-                            id => picked[id as usize - 1].push(k),
-                        }
-                    }
-                }
-                Geometry::Empty => {}
-                geo if geo.is_polygonal() => {
-                    let p = polys.iter().position(|&i| i == k).unwrap();
-                    let r = poly_runs.as_ref().unwrap();
-                    let mut inside: BTreeMap<u32, u32> = BTreeMap::new();
-                    for q in r.offsets[p] as usize..r.offsets[p + 1] as usize {
-                        let row = r.y[q] as usize * g.width;
-                        for x in r.x0[q]..r.x1[q] {
-                            let l = o.labels[row + x as usize];
-                            if l != 0 {
-                                *inside.entry(l).or_default() += 1;
-                            }
-                        }
-                    }
-                    let mut any = false;
-                    for (l, n) in inside {
-                        if 2 * n >= o.cells[l as usize - 1] {
-                            picked[l as usize - 1].push(k);
-                            any = true;
-                        }
-                    }
-                    if !any {
-                        outside += 1;
-                    }
-                }
-                _ => unfit += 1,
-            }
-        }
-        if outside > 0 {
-            ctx.warn(format!(
-                "objects.samples: {outside} sample(s) are outside every object (or a polygon holds no object by half): ignored"
-            ));
-        }
-        if classless > 0 {
-            ctx.warn(format!("objects.samples: {classless} sample(s) without a class ({attr}): ignored"));
-        }
-        if unfit > 0 {
-            ctx.warn(format!("objects.samples: {unfit} sample(s) are lines: ignored"));
-        }
-        // the class of each object: none, or the only one its samples agree on
-        let mut class_of = vec![0u32; o.count];
-        let mut conflict: Vec<u32> = Vec::new();
-        for (k, ks) in picked.iter().enumerate() {
-            let mut cs: Vec<usize> = ks.iter().filter_map(|&s| code(&text[s])).collect();
-            cs.dedup();
-            cs.sort_unstable();
-            cs.dedup();
-            match cs.len() {
-                0 => {}
-                1 => class_of[k] = cs[0] as u32 + 1,
-                _ => conflict.push(k as u32 + 1),
-            }
-        }
-        if !conflict.is_empty() {
-            ctx.warn(format!(
-                "objects.samples: {} object(s) hold samples of different classes and are left out (ids {})",
-                conflict.len(),
-                some(&conflict)
-            ));
-        }
+        let (names, class_of) = sample_classes(ctx, node, o, &v, &attr)?;
         // the training table
         let numeric: Vec<usize> = (1..o.table.columns.len())
             .filter(|&j| !o.table.is_text(&o.table.columns[j]) && o.table.columns[j] != "class")
@@ -219,6 +101,137 @@ impl Operator for Samples {
         out.insert("objects".into(), Value::Objects(Arc::new(marked)));
         Ok(out)
     }
+}
+
+/// The class of each object under samples (points or polygons with a class attribute `attr`, already on the
+/// objects' grid): the class names (alphabetical; the codes are 1..) and per object its code, 0 for none, left out
+/// when its samples disagree. `objects.samples` and `objects.accuracy` read their samples this way.
+pub(super) fn sample_classes(
+    ctx: &mut Ctx,
+    node: &str,
+    o: &Objects,
+    v: &Vector,
+    attr: &str,
+) -> Result<(Vec<String>, Vec<u32>)> {
+    let col = v.attributes.iter().find(|(n, _)| *n == attr).map(|(_, c)| c).ok_or_else(|| {
+        let have: Vec<&str> = v.attributes.iter().map(|(n, _)| n.as_str()).collect();
+        Error::msg(format!("node {node:?}: the samples have no attribute {attr:?} ({})", have.join(", ")))
+    })?;
+    // the class of each sample as text (none: empty)
+    let text: Vec<String> = match col {
+        Column::Texts(x) => x.clone(),
+        Column::Numbers(x) => x.iter().map(|&f| if f.is_nan() { String::new() } else { format!("{f}") }).collect(),
+    };
+    let mut names: Vec<String> = text.iter().filter(|s| !s.is_empty()).cloned().collect();
+    names.sort();
+    names.dedup();
+    let code = |s: &str| names.binary_search_by(|n| n.as_str().cmp(s)).ok();
+
+    let g = &o.grid;
+    let t = g.transform;
+    if t[2] != 0.0 || t[4] != 0.0 {
+        return Err(Error::msg(format!("node {node:?}: the objects' grid is rotated")));
+    }
+    let (w, h) = (g.width as i64, g.height as i64);
+    // the objects of each sample: (object index, ) with the class of the sample
+    let mut picked: Vec<Vec<usize>> = vec![Vec::new(); o.count];
+    let (mut outside, mut classless, mut unfit) = (0usize, 0usize, 0usize);
+    // polygons: their cells in one call
+    let polys: Vec<usize> = (0..v.len()).filter(|&i| v.geometries[i].is_polygonal()).collect();
+    let mut poly_runs = None;
+    if !polys.is_empty() {
+        let geoms: Vec<&Geometry> = polys.iter().map(|&i| &v.geometries[i]).collect();
+        poly_runs = Some(crate::vector::runs(&geoms, g, false).map_err(|e| Error::msg(format!("node {node:?}: {e}")))?);
+    }
+    // the object under a point: 0 none
+    let object_at = |xy: [f64; 2]| -> u32 {
+        let (c, r) = (((xy[0] - t[0]) / t[1]).floor(), ((xy[1] - t[3]) / t[5]).floor());
+        if c >= 0.0 && r >= 0.0 && (c as i64) < w && (r as i64) < h {
+            o.labels[r as usize * g.width + c as usize]
+        } else {
+            0
+        }
+    };
+    for (k, class) in text.iter().enumerate() {
+        if code(class).is_none() {
+            classless += 1;
+            continue;
+        }
+        match &v.geometries[k] {
+            Geometry::Point(_) | Geometry::MultiPoint(_) => {
+                let ps = match &v.geometries[k] {
+                    Geometry::Point(p) => vec![*p],
+                    Geometry::MultiPoint(ps) => ps.clone(),
+                    _ => unreachable!(),
+                };
+                for p in ps {
+                    match object_at(p) {
+                        0 => outside += 1,
+                        id => picked[id as usize - 1].push(k),
+                    }
+                }
+            }
+            Geometry::Empty => {}
+            geo if geo.is_polygonal() => {
+                let p = polys.iter().position(|&i| i == k).unwrap();
+                let r = poly_runs.as_ref().unwrap();
+                let mut inside: BTreeMap<u32, u32> = BTreeMap::new();
+                for q in r.offsets[p] as usize..r.offsets[p + 1] as usize {
+                    let row = r.y[q] as usize * g.width;
+                    for x in r.x0[q]..r.x1[q] {
+                        let l = o.labels[row + x as usize];
+                        if l != 0 {
+                            *inside.entry(l).or_default() += 1;
+                        }
+                    }
+                }
+                let mut any = false;
+                for (l, n) in inside {
+                    if 2 * n >= o.cells[l as usize - 1] {
+                        picked[l as usize - 1].push(k);
+                        any = true;
+                    }
+                }
+                if !any {
+                    outside += 1;
+                }
+            }
+            _ => unfit += 1,
+        }
+    }
+    if outside > 0 {
+        ctx.warn(format!(
+            "objects.samples: {outside} sample(s) are outside every object (or a polygon holds no object by half): ignored"
+        ));
+    }
+    if classless > 0 {
+        ctx.warn(format!("objects.samples: {classless} sample(s) without a class ({attr}): ignored"));
+    }
+    if unfit > 0 {
+        ctx.warn(format!("objects.samples: {unfit} sample(s) are lines: ignored"));
+    }
+    // the class of each object: none, or the only one its samples agree on
+    let mut class_of = vec![0u32; o.count];
+    let mut conflict: Vec<u32> = Vec::new();
+    for (k, ks) in picked.iter().enumerate() {
+        let mut cs: Vec<usize> = ks.iter().filter_map(|&s| code(&text[s])).collect();
+        cs.dedup();
+        cs.sort_unstable();
+        cs.dedup();
+        match cs.len() {
+            0 => {}
+            1 => class_of[k] = cs[0] as u32 + 1,
+            _ => conflict.push(k as u32 + 1),
+        }
+    }
+    if !conflict.is_empty() {
+        ctx.warn(format!(
+            "objects.samples: {} object(s) hold samples of different classes and are left out (ids {})",
+            conflict.len(),
+            some(&conflict)
+        ));
+    }
+    Ok((names, class_of))
 }
 
 /// `objects.classify`.
