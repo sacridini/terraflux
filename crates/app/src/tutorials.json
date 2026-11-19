@@ -791,6 +791,33 @@
    ]
   },
   {
+   "slug": "object-based-image-analysis",
+   "title": "Object-based image analysis",
+   "tutorials": [
+    {
+     "slug": "first-map-by-objects",
+     "title": "Your first map by objects in 10 minutes",
+     "template": "Classify an image by clicking samples",
+     "models": [],
+     "files": []
+    },
+    {
+     "slug": "from-ecognition",
+     "title": "Coming from eCognition",
+     "template": "Classify an image by rules",
+     "models": [],
+     "files": []
+    },
+    {
+     "slug": "from-interimage",
+     "title": "Coming from InterIMAGE",
+     "template": "Each class its own way",
+     "models": [],
+     "files": []
+    }
+   ]
+  },
+  {
    "slug": "neutral-landscapes",
    "title": "Neutral landscape models",
    "tutorials": [

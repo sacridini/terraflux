@@ -89,6 +89,7 @@ tutorial_categories:
   - { slug: grid-distances, title: Grid distances, cells: "100110111", prefixes: [cost], blurb: "Least-cost paths, cost distances and random walks across a landscape, as R's gdistance." }
   - { slug: distance-restoration, title: Distance and restoration, cells: "111110100", prefixes: [distance, restoration], blurb: "Distances, ecological intactness and where restoration does most for species." }
   - { slug: change-detection, title: Change detection, cells: "112122222", prefixes: [change], blurb: "What changed between two maps, how fast and how intensely: transitions, intensity analysis and diffeR." }
+  - { slug: object-based-image-analysis, title: Object-based image analysis, cells: "010111010", blurb: "Cut an image into objects, describe them, classify them by samples, rules or a class tree, check the map and take the polygons: eCognition and InterIMAGE in a graph." }
   - { slug: neutral-landscapes, title: Neutral landscape models, cells: "101011010", prefixes: [nlm], blurb: "Landscapes drawn by chance, to test methods and to ask what pattern alone would give." }
   - { slug: biodiversity, title: Biodiversity analysis, cells: "011101110", prefixes: [bio], blurb: "Biodiverse's analyses: richness, endemism, phylogenetic diversity and clusters of regions." }
   - { slug: spatial-prioritization, title: Spatial prioritization, cells: "122121111", prefixes: [prioritize], blurb: "Zonation, Marxan, integer linear programming and multi-action planning: where to protect, restore and act." }
