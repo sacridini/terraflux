@@ -19,6 +19,11 @@ use crate::{Args, Error, Result, Value};
 /// instead of whole (256 MiB by default; the tests set it to 0 to try the strips on small images).
 pub static STRIP_BYTES: AtomicU64 = AtomicU64::new(256 << 20);
 
+/// The memory the tiles of `segment.multiresolution` in flight at once may take together (2 GiB by default): a tile's
+/// window and its regions take about 32 bytes a cell and band, so fewer tiles than threads run at once when they are
+/// big or the bands many (the objects are the same whatever runs together).
+pub static TILES_BYTES: AtomicU64 = AtomicU64::new(2 << 30);
+
 /// The values of a strip (all the bands) a read aims at, about (8 million numbers, 64 MB; the tests make it small).
 pub static STRIP_VALUES: AtomicUsize = AtomicUsize::new(1 << 23);
 

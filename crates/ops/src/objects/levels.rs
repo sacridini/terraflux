@@ -145,7 +145,7 @@ fn regroup(o: &Objects, group: &[u32]) -> Result<(Objects, Vec<u32>)> {
                 .collect()
         })
         .collect();
-    let mut out = Objects::indexed(o.grid.clone(), labels, n).with_table(table)?.with_classes(
+    let mut out = Objects::indexed(o.grid.clone(), labels.into(), n).with_table(table)?.with_classes(
         o.classes.clone(),
         class_of,
         membership,

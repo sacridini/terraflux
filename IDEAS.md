@@ -4305,6 +4305,13 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
 5. **Os rótulos em disco e a cena inteira**: um tipo `Labels` (na memória ou num arquivo mapeado quando passam de um
    limite), o pico de memória do `merge_tiled` e das features reduzido, e uma cena Sentinel-2 inteira (10 980 × 10 980,
    10 bandas) do disco segmentada e descrita abaixo de 4 GB de pico.
+   **Feito**: `objects/labels.rs` (`Labels`, na memória ou num arquivo temporário mapeado pelo `memmap2` acima de
+   1/16 da memória, `LABELS_DISK_BYTES`); `merge_tiled` grava o núcleo de cada tile direto num só mapa de rótulos (o
+   deslocamento de cada tile somando os rótulos dos anteriores), sem os núcleos todos nem o mapa u64 das regiões, e
+   roda tantos tiles juntos quanto cabem em 2 GB (`TILES_BYTES`); `Objects::from_fn`; o índice das células por objeto
+   das features só quando um grupo o pede. A cena inteira (u16, tiles de 512, escala 300, 175 639 objetos, 8 threads):
+   segmentação em 413 s e features em 233 s, pico de 2,07 GB (antes 5,29 GB). No Windows as páginas mapeadas tocadas
+   contam no working set: o arquivo só deixa a memória ser devolvida, não baixa o pico medido.
 6. **Os segmentadores que faltam** do eCognition, do OTB e do GRASS, os que fazem sentido aqui (por exemplo a
    *spectral difference*, a *multi-threshold* e a *contrast split* do eCognition, o crescimento de regiões do
    `i.segment` do GRASS e a otimização não supervisionada dos parâmetros do `i.segment.uspo`, os perfis morfológicos do

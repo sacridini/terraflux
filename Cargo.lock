@@ -4810,6 +4810,7 @@ dependencies = [
  "libloading",
  "lzma-rs",
  "matrixmultiply",
+ "memmap2",
  "rayon",
  "regex",
  "robust",

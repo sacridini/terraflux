@@ -64,9 +64,9 @@ pub(super) struct Roles {
 pub(super) struct Input<'a> {
     pub node: &'a str,
     pub o: &'a Objects,
-    /// Where each object's cells start in `cells` (count + 1 numbers), and the cells' positions, in cell order.
-    offsets: Vec<usize>,
-    cells: Vec<u32>,
+    /// Where each object's cells start (count + 1 numbers), and the cells' positions, in cell order: made when a
+    /// group first asks for the cells of an object (a u32 a cell, so not for a scene read by strips that needs none).
+    index: std::sync::OnceLock<(Vec<usize>, Vec<u32>)>,
     pub names: Vec<String>,
     /// The layers in memory (none when the image is read by strips).
     pub data: Vec<Arc<Vec<f64>>>,
@@ -86,7 +86,8 @@ pub(super) struct Input<'a> {
 impl Input<'_> {
     /// The cells of an object (index k = id - 1) by position row * width + column, ascending.
     pub fn cells_of(&self, k: usize) -> &[u32] {
-        &self.cells[self.offsets[k]..self.offsets[k + 1]]
+        let (offsets, cells) = self.index.get_or_init(|| index(self.o));
+        &cells[offsets[k]..offsets[k + 1]]
     }
 }
 
@@ -454,7 +455,6 @@ impl Operator for Features {
             }
             Some(v) => return Err(bad(format!("below is a {:?}, not objects", v.ty()))),
         };
-        let (offsets, cells) = index(o);
         let held = o.cells.iter().map(|&c| c as u64).sum::<u64>() * 8;
         if strips.is_some() && chosen[0].iter().any(|f| f.0 == "median") && held > MEDIAN_WARN {
             ctx.warn(format!(
@@ -464,8 +464,8 @@ impl Operator for Features {
                 held as f64 / 1e9
             ));
         }
-        let input =
-            Input { node, o, offsets, cells, names, data, strips, image: img_n, roles, levels, texture_bands, below };
+        let index = Default::default();
+        let input = Input { node, o, index, names, data, strips, image: img_n, roles, levels, texture_bands, below };
         let mut columns: Vec<(String, Vec<f64>)> = Vec::new();
         for (grp, want) in GROUPS.iter().zip(&chosen) {
             if !want.is_empty() {

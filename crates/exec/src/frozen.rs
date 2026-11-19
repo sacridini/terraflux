@@ -460,7 +460,9 @@ mod tests {
     /// written for people, the ids as a raster and the table as CSV beside it.
     #[test]
     fn objects_are_frozen_and_read_back() {
-        use terraflux_ops::objects::{NO_REGION, ObjectClass, Objects};
+        use terraflux_ops::objects::{LABELS_DISK_BYTES, NO_REGION, ObjectClass, Objects};
+        // the labels are read back into a mapped file, as when they are too big for memory
+        LABELS_DISK_BYTES.store(0, std::sync::atomic::Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!("terraflux-frozen-objects-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let folder = folder(&dir.join("model.toml"));
@@ -497,6 +499,8 @@ mod tests {
         freeze(&folder, "n", &outputs).unwrap();
         let (back, _) = read(&folder, "n").unwrap();
         let Value::Objects(b) = &back["o"] else { panic!("objects") };
+        assert!(b.labels.is_mapped() && o.labels.is_mapped());
+        LABELS_DISK_BYTES.store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
         assert_eq!(*b.labels, *o.labels);
         assert_eq!((b.count, b.grid.transform), (o.count, grid.transform));
         assert_eq!((&b.cells, &b.boxes, &b.adjacency), (&o.cells, &o.boxes, &o.adjacency));

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use terraflux_ops::files::Rasters;
-use terraflux_ops::objects::Objects;
+use terraflux_ops::objects::{LABELS_DISK_BYTES, Objects};
 use terraflux_ops::objects::big::{STRIP_BYTES, STRIP_VALUES};
 use terraflux_ops::{Args, Ctx, Outputs, Registry, Table, Value};
 use terraflux_raster::{Band, DataType, Grid, Raster};
@@ -113,6 +113,56 @@ fn tiles_read_from_disk_are_the_tiles_read_from_memory() {
     let a = objects_of(&run("segment.multiresolution", vec![("image", mem)], p.clone()).unwrap());
     let b = objects_of(&run("segment.multiresolution", vec![("image", disk)], p).unwrap());
     assert_eq!(a.labels, b.labels);
+    std::fs::remove_dir_all(&d).ok();
+}
+
+#[test]
+fn labels_in_a_file_are_the_labels_in_memory() {
+    small_strips();
+    let d = dir("labels");
+    let path = d.join("img.tif");
+    write_image(&path, 150, 130, 3, 5, true);
+    let (disk, mem) = open(&path);
+    let p = serde_json::json!({ "scale": 25, "shape": 0.1, "tile": 48, "margin": 12, "seed": 3 });
+    // (a threshold far above any labels, then 0: every labels in a file)
+    LABELS_DISK_BYTES.store(1 << 40, Ordering::Relaxed);
+    let a = run("segment.multiresolution", vec![("image", mem.clone())], p.clone()).unwrap();
+    let a_disk = run("segment.multiresolution", vec![("image", disk.clone())], p.clone()).unwrap();
+    let af = run(
+        "objects.features",
+        vec![("objects", Value::Objects(objects_of(&a))), ("image", disk.clone())],
+        serde_json::json!({ "features": "basic" }),
+    )
+    .unwrap();
+    LABELS_DISK_BYTES.store(0, Ordering::Relaxed);
+    let b = run("segment.multiresolution", vec![("image", mem)], p.clone()).unwrap();
+    let b_disk = run("segment.multiresolution", vec![("image", disk.clone())], p).unwrap();
+    let (oa, ob) = (objects_of(&a), objects_of(&b));
+    assert!(oa.count > 4 && !oa.labels.is_mapped(), "{} objects, {:?}", oa.count, oa.labels);
+    assert!(ob.labels.is_mapped() && objects_of(&b_disk).labels.is_mapped(), "{:?}", ob.labels);
+    assert_eq!(oa.labels, ob.labels);
+    assert_eq!(objects_of(&a_disk).labels, objects_of(&b_disk).labels);
+    assert_eq!((&oa.cells, &oa.boxes, &oa.adjacency), (&ob.cells, &ob.boxes, &ob.adjacency));
+    let (ta, tb) = (table_of(&a), table_of(&b));
+    assert_eq!(ta.columns, tb.columns);
+    assert_eq!(ta.rows.len(), tb.rows.len());
+    for (ra, rb) in ta.rows.iter().zip(&tb.rows) {
+        assert!(ra.iter().zip(rb).all(|(x, y)| x == y || (x.is_nan() && y.is_nan())));
+    }
+    // the features over labels in a file
+    let bf = run(
+        "objects.features",
+        vec![("objects", Value::Objects(ob.clone())), ("image", disk)],
+        serde_json::json!({ "features": "basic" }),
+    )
+    .unwrap();
+    same_tables(&table_of(&af), &table_of(&bf), 0.0);
+    // the store round trip, read back into a file too
+    let back = Objects::from_bytes(&ob.to_bytes().unwrap()).unwrap();
+    assert!(back.labels.is_mapped());
+    assert_eq!(back.labels, oa.labels);
+    assert_eq!(back.table.columns, tb.columns);
+    LABELS_DISK_BYTES.store(u64::MAX, Ordering::Relaxed);
     std::fs::remove_dir_all(&d).ok();
 }
 
@@ -351,5 +401,107 @@ fn big_image_from_disk_and_from_memory() {
     .unwrap();
     println!("features from memory: {:.1} s, peak {}", t.elapsed().as_secs_f64(), mb(peak_bytes()));
     same_tables(&table_of(&f), &table_of(&f2), 1e-9);
+    std::fs::remove_dir_all(&d).ok();
+}
+
+/// A hash of (cell, band, seed) as a number in 0..1: noise that does not depend on the order cells are made in.
+fn noise(i: u64, b: u64, seed: u64) -> f64 {
+    let mut x = i.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (b + 1).wrapping_mul(0xBF58_476D_1CE4_E5B9) ^ seed;
+    x ^= x >> 30;
+    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x ^= x >> 27;
+    x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
+    x ^= x >> 31;
+    (x >> 11) as f64 / (1u64 << 53) as f64
+}
+
+/// A tiled, deflated u16 GeoTIFF of `bands` bands written tile by tile (never whole in memory): blocks of two levels
+/// plus noise, as Sentinel-2 reflectance (0-10000).
+fn write_scene(path: &Path, w: usize, h: usize, bands: usize, seed: u64) {
+    use rayon::prelude::*;
+    let mut grid = Grid::new(w, h);
+    grid.transform = [500_000.0, 10.0, 0.0, 5_000_000.0, 0.0, -10.0];
+    let names = (0..bands).map(|b| Some(format!("B{}", b + 2))).collect();
+    let t = 256;
+    let mut out =
+        terraflux_raster::tiff::TiledWriter::create(path, &grid, names, DataType::U16, Some(0.0), t, Some(1)).unwrap();
+    let (nx, ny) = (w.div_ceil(t), h.div_ceil(t));
+    for row in 0..ny {
+        // a row of tiles made in parallel, written in order
+        let tiles: Vec<Vec<Vec<f64>>> = (0..nx)
+            .into_par_iter()
+            .map(|col| {
+                let (tw, th) = (t.min(w - col * t), t.min(h - row * t));
+                (0..bands)
+                    .map(|b| {
+                        let mut v = Vec::with_capacity(tw * th);
+                        for y in 0..th {
+                            for x in 0..tw {
+                                let (r, c) = (row * t + y, col * t + x);
+                                let level = if (r / 37 + c / 41) % 2 == 0 { 1000.0 } else { 4000.0 };
+                                let n = noise((r * w + c) as u64, b as u64, seed) + noise((r * w + c) as u64, 99, seed);
+                                v.push((level + 300.0 * b as f64 + (n - 1.0) * 300.0).round().max(1.0));
+                            }
+                        }
+                        v
+                    })
+                    .collect()
+            })
+            .collect();
+        for (col, tile) in tiles.iter().enumerate() {
+            let refs: Vec<&[f64]> = tile.iter().map(|b| b.as_slice()).collect();
+            out.write_tile(col, row, &refs).unwrap();
+        }
+    }
+    out.finish().unwrap();
+}
+
+/// A whole Sentinel-2 scene, 10 980 x 10 980 x 10 bands of u16 on disk: `segment.multiresolution` by tiles and
+/// `objects.features` basic, with the time and the process's peak working set of each step.
+/// `cargo test -p terraflux-ops --release --test objects_big -- --ignored --nocapture whole_scene`.
+#[test]
+#[ignore = "a 2 GB file and many minutes: run by hand with --nocapture"]
+fn whole_scene_from_disk() {
+    STRIP_BYTES.store(256 << 20, Ordering::Relaxed);
+    STRIP_VALUES.store(1 << 23, Ordering::Relaxed);
+    let (w, h, nb) = (10_980usize, 10_980usize, 10usize);
+    let d = dir("scene");
+    let path = d.join("scene.tif");
+    let mb = |b: Option<u64>| b.map_or("?".to_string(), |b| format!("{:.0} MB", b as f64 / 1e6));
+    let t = std::time::Instant::now();
+    write_scene(&path, w, h, nb, 3);
+    println!(
+        "written in {:.1} s, the file {:.0} MB, peak {}",
+        t.elapsed().as_secs_f64(),
+        std::fs::metadata(&path).unwrap().len() as f64 / 1e6,
+        mb(peak_bytes())
+    );
+    let r = Arc::new(Rasters::open(&path.to_string_lossy(), None, None).unwrap());
+    let disk = Value::Raster(r);
+    let scale: f64 = std::env::var("SCENE_SCALE").ok().and_then(|s| s.parse().ok()).unwrap_or(300.0);
+    let p = serde_json::json!({ "scale": scale, "tile": 512, "margin": 64, "seed": 1 });
+    let t = std::time::Instant::now();
+    let seg = run("segment.multiresolution", vec![("image", disk.clone())], p).unwrap();
+    let objects = objects_of(&seg);
+    println!(
+        "tiles from disk: {:.1} s, {} objects ({:.0} cells each), peak {}",
+        t.elapsed().as_secs_f64(),
+        objects.count,
+        (w * h) as f64 / objects.count as f64,
+        mb(peak_bytes())
+    );
+    let t = std::time::Instant::now();
+    let f = run(
+        "objects.features",
+        vec![("objects", Value::Objects(objects)), ("image", disk)],
+        serde_json::json!({ "features": "basic" }),
+    )
+    .unwrap();
+    println!(
+        "features from disk: {:.1} s, {} columns, peak {}",
+        t.elapsed().as_secs_f64(),
+        table_of(&f).columns.len(),
+        mb(peak_bytes())
+    );
     std::fs::remove_dir_all(&d).ok();
 }

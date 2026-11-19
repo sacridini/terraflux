@@ -7,6 +7,9 @@ version.
 
 ## [Unreleased]
 
+### Added
+- **A whole Sentinel-2 scene by objects on a common computer**: `segment.multiresolution` by tiles writes each tile's objects straight into one map of labels (the tiles never all in memory, as many in flight as 2 GB allow) and `objects.features` keeps each object's cells only when a feature asks for them: a 10 980 × 10 980 × 10 band scene from disk segmented and described with a peak of 2.1 GB (5.3 GB before). Labels larger than a sixteenth of the memory are kept in a memory-mapped temporary file, deleted with them.
+
 ## [1.56.0] - 2026-11-19
 
 ### Added

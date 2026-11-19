@@ -16,7 +16,7 @@ use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_raster::Grid;
 
 use super::big::{Layered, Source, strips};
-use super::{NO_REGION, Objects, find};
+use super::{Labels, NO_REGION, Objects, find};
 use crate::{Args, Ctx, Error, Operator, Outputs, Result, Table, Value, outputs};
 
 /// The first pass of a run on rasters on disk as a job for another machine: none for a part of a file (a check run).
@@ -349,7 +349,7 @@ fn merge_all(g: &mut Regions, p: &Cost, scale: f64, mutual: bool, seed: u64, max
 pub(crate) struct Level {
     pub objects: Objects,
     /// Each cell's start region (0 none) and each start region's root.
-    pub labels: Vec<u32>,
+    pub labels: Labels,
     pub root: Vec<u32>,
     pub g: Regions,
     /// The centre of each band: the sums of `g` are of the values less it.
@@ -408,25 +408,21 @@ pub(crate) fn merge_level_src(
     let centre: Vec<f64> = sums.iter().map(|&(s, c)| if c > 0 { s / c as f64 } else { 0.0 }).collect();
     let (labels, count) = match from {
         None => {
+            let mut v = Labels::zeros(n);
             let mut next = 0u32;
-            let v = valid
-                .iter()
-                .map(|&ok| {
-                    if ok {
-                        next += 1;
-                        next
-                    } else {
-                        0
-                    }
-                })
-                .collect::<Vec<u32>>();
+            for (to, &ok) in v.iter_mut().zip(&valid) {
+                if ok {
+                    next += 1;
+                    *to = next;
+                }
+            }
             (v, next as usize)
         }
         Some(f) => {
             // from-objects with no valid cell are no region: the ids closed up
             let mut id = vec![0u32; f.count + 1];
             let mut next = 0u32;
-            let mut v = vec![0u32; n];
+            let mut v = Labels::zeros(n);
             for i in 0..n {
                 let a = f.labels[i] as usize;
                 if valid[i] && a != 0 {
@@ -443,9 +439,16 @@ pub(crate) fn merge_level_src(
     drop(valid);
     let mut g = Regions::from_source(&labels, count, w, h, src, &centre)?;
     let root = merge_all(&mut g, cost, scale, mutual, seed, max_passes);
-    let region: Vec<u64> =
-        labels.iter().map(|&a| if a == 0 { NO_REGION } else { root[a as usize - 1] as u64 }).collect();
-    let objects = Objects::from_regions(grid.clone(), &region, 4);
+    // (the region of each cell is read through the start labels, never made as an array)
+    let objects = Objects::from_fn(
+        grid.clone(),
+        |i| match labels[i] {
+            0 => NO_REGION,
+            a => root[a as usize - 1] as u64,
+        },
+        NO_REGION,
+        4,
+    );
     Ok(Level { objects, labels, root, g, centre })
 }
 

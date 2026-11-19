@@ -20,14 +20,15 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use terraflux_raster::Grid;
 
-use super::big::{Layered, Part, Source};
+use super::big::{Layered, Part, Source, TILES_BYTES};
 use super::multiresolution::{Cost, merge_level, merge_level_src};
-use super::{NO_REGION, Objects};
+use super::{Labels, Objects};
 use crate::files::Rasters;
 use crate::{Error, Result};
 
@@ -182,35 +183,58 @@ pub(crate) fn merge_tiled(
     let (w, h) = (grid.width, grid.height);
     let (nx, ny) = (w.div_ceil(t), h.div_ceil(t));
     crate::threads::ensure();
-    // each tile's core, as the labels of the objects of its window (in order of tile, so any thread count is one run)
-    let cores: Vec<Vec<u32>> = match remote {
+    // each tile's core, as the labels of the objects of its window (in order of tile, so any thread count is one run),
+    // written into one map of labels as it is made (in order of tile), its labels offset by the labels of the tiles
+    // before it so no two tiles share one: the cores are never all in memory
+    let mut lab = Labels::zeros(w * h);
+    let mut off = 0u64;
+    let mut put = |k: usize, core: &[u32]| -> Result<()> {
+        let (r0, c0) = ((k / nx) * t, (k % nx) * t);
+        let cw = (c0 + t).min(w) - c0;
+        let most = core.iter().copied().max().unwrap_or(0) as u64;
+        if off + most >= u32::MAX as u64 {
+            return Err(Error::msg("the image has more pieces of objects than the labels can number (use a bigger scale)"));
+        }
+        let o = off as u32;
+        for (j, row) in core.chunks(cw).enumerate() {
+            let at = (r0 + j) * w + c0;
+            for (to, &l) in lab[at..at + cw].iter_mut().zip(row) {
+                if l != 0 {
+                    *to = o + l;
+                }
+            }
+        }
+        off += most;
+        Ok(())
+    };
+    match remote {
         Some((runner, job)) => {
             let cores = runner.cores(&job)?;
             if cores.len() != nx * ny {
                 return Err(Error::msg(format!("the cluster gave {} tiles of {}", cores.len(), nx * ny)));
             }
-            cores
+            for (k, core) in cores.into_iter().enumerate() {
+                put(k, &core)?;
+            }
         }
-        None => (0..nx * ny)
-            .into_par_iter()
-            .map(|k| tile_core(src, (w, h), cost, scale, mutual, seed, max_passes, t, margin, k))
-            .collect::<Result<_>>()?,
-    };
-    let mut region = vec![NO_REGION; w * h];
-    for (k, core) in cores.iter().enumerate() {
-        let (r0, c0) = ((k / nx) * t, (k % nx) * t);
-        let cw = (c0 + t).min(w) - c0;
-        for (j, row) in core.chunks(cw).enumerate() {
-            let at = (r0 + j) * w + c0;
-            for (to, &l) in region[at..at + cw].iter_mut().zip(row) {
-                if l != 0 {
-                    *to = ((k as u64) << 32) | l as u64;
+        None => {
+            // a few tiles at a time, in parallel (as many as the memory for tiles allows, up to the threads)
+            let side = (t + 2 * margin) as u64;
+            let per = side.min(w as u64) * side.min(h as u64) * (src.nb() as u64 * 32 + 120);
+            let fit = (TILES_BYTES.load(Ordering::Relaxed) / per.max(1)) as usize;
+            let step = fit.clamp(1, rayon::current_num_threads());
+            for first in (0..nx * ny).step_by(step) {
+                let cores = (first..(first + step).min(nx * ny))
+                    .into_par_iter()
+                    .map(|k| tile_core(src, (w, h), cost, scale, mutual, seed, max_passes, t, margin, k))
+                    .collect::<Result<Vec<_>>>()?;
+                for (j, core) in cores.iter().enumerate() {
+                    put(first + j, core)?;
                 }
             }
         }
     }
-    drop(cores);
-    let pieces = Objects::from_regions(grid.clone(), &region, 4);
-    drop(region);
+    let pieces = Objects::from_fn(grid.clone(), |i| lab[i], 0u32, 4);
+    drop(lab);
     Ok(merge_level_src(grid, src, cost, scale, mutual, seed, max_passes, Some(&pieces))?.objects)
 }

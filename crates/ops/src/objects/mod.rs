@@ -17,6 +17,7 @@ mod convert;
 pub mod deep;
 mod esp;
 mod features;
+mod labels;
 mod levels;
 mod meanshift;
 mod multiresolution;
@@ -34,6 +35,7 @@ mod window;
 
 pub use calc::{evaluate, evaluate_numbers};
 pub use features::features_give;
+pub use labels::{LABELS_DISK_BYTES, Labels};
 pub use resolve::{Verdict, arbitrate, explain_cell};
 pub use rules::{RuleClass, leaves, tree};
 pub use tiles::{TileCores, TileJob};
@@ -69,7 +71,7 @@ pub struct Objects {
     pub grid: Arc<Grid>,
     /// Each cell's object: 0 none (no data), 1..=count; ids contiguous, numbered in the order of their first cell
     /// row by row.
-    pub labels: Arc<Vec<u32>>,
+    pub labels: Arc<Labels>,
     pub count: usize,
     /// Per object (index id - 1): its cells.
     pub cells: Vec<u32>,
@@ -103,22 +105,33 @@ impl Objects {
     /// each object is connected; ids in the order of an object's first cell, row by row. `region` holds a number per
     /// cell, [`NO_REGION`] where there is none. One pass of union-find, no scan per object.
     pub fn from_regions(grid: Arc<Grid>, region: &[u64], neighbours: usize) -> Objects {
+        assert_eq!(region.len(), grid.cells(), "the regions are not one a cell of the grid");
+        Objects::from_fn(grid, |i| region[i], NO_REGION, neighbours)
+    }
+
+    /// [`Objects::from_regions`] with the region of a cell given by a function (of the cell's index, `none` for no
+    /// region), so a big image needs no array of regions.
+    pub(crate) fn from_fn<R: Copy + PartialEq>(
+        grid: Arc<Grid>,
+        region: impl Fn(usize) -> R,
+        none: R,
+        neighbours: usize,
+    ) -> Objects {
         let (w, h) = (grid.width, grid.height);
-        assert_eq!(region.len(), w * h, "the regions are not one a cell of the grid");
         let eight = neighbours == 8;
-        let mut prov = vec![0u32; region.len()];
+        let mut prov = Labels::zeros(w * h);
         // the sets of provisional labels (label 0 is none)
         let mut parent: Vec<u32> = vec![0];
         for r in 0..h {
             for c in 0..w {
                 let i = r * w + c;
-                let reg = region[i];
-                if reg == NO_REGION {
+                let reg = region(i);
+                if reg == none {
                     continue;
                 }
                 let mut label = 0u32;
                 let mut see = |j: usize, parent: &mut Vec<u32>| {
-                    if region[j] != reg {
+                    if region(j) != reg {
                         return;
                     }
                     let l = find(parent, prov[j]);
@@ -184,11 +197,11 @@ impl Objects {
         if let Some(missing) = seen.iter().skip(1).position(|s| !s) {
             return Err(Error::msg(format!("objects: the id {} has no cell", missing + 1)));
         }
-        Ok(Objects::indexed(grid, labels, count))
+        Ok(Objects::indexed(grid, Labels::from(labels), count))
     }
 
     /// The cells, boxes, adjacency and the table of ids of labels that are right.
-    fn indexed(grid: Arc<Grid>, labels: Vec<u32>, count: usize) -> Objects {
+    fn indexed(grid: Arc<Grid>, labels: Labels, count: usize) -> Objects {
         let (w, h) = (grid.width, grid.height);
         let mut cells = vec![0u32; count];
         let mut boxes = vec![[u32::MAX, u32::MAX, 0, 0]; count];

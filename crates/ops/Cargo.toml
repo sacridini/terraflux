@@ -29,6 +29,8 @@ geo = { version = "0.33", default-features = false }
 regex = "1"
 flate2.workspace = true
 robust = "1.2"
+# the labels of objects too big for memory, kept in a mapped temporary file
+memmap2 = "0.9"
 rstar = "0.12"
 sha2 = "0.11"
 # the STAC catalogues' searches (data.stac)
