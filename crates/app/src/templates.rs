@@ -474,7 +474,7 @@ fn swat_from_rasters() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 67] = [
+pub const TEMPLATES: [Template; 69] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -4871,6 +4871,113 @@ params = { title = "Trees, buildings and ground" }
                 the map of the clusters)",
     },
     Template {
+        name: "Water by Otsu on the NDWI",
+        group: OBJECTS,
+        build: None,
+        about: "the water of an image found with no samples and no thresholds to choose: the NDWI of its green and                 near-infrared bands cut in two classes at the threshold multi-level Otsu finds, the water class kept                 as objects and given as polygons",
+        toml: r##"
+format = "terraflux/1"
+name = "Water by Otsu on the NDWI"
+description = "Water without samples: the NDWI, (green - nir) / (green + nir), is high over water and low over the rest, so its histogram has two modes, and Otsu's method puts the threshold in the gap between them (segment.threshold with two classes; the threshold it found is its `thresholds` output). Each connected piece of a class is an object; objects.rules keeps the high class as `water` and the other as `land`, and objects.to_vector gives the polygons. The bands must be named green and nir. Replace the image with yours (Use my data); for a scene with shadows or clouds, an NDWI that is bimodal needs them masked first."
+
+[[nodes]]
+id = "land"
+op = "nlm.mosaic_gibbs"
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+note = "A map of five classes drawn by chance (1 water, 2 forest, 3 grassland, 4 cropland, 5 urban): only the ground truth of the image below."
+
+[[nodes]]
+id = "image"
+op = "nlm.image"
+inputs = { classes = "land.map" }
+params = { seed = 1 }
+note = "A synthetic image of six bands (blue, green, red, nir, swir1, swir2) of the classes, with noise and a blur at the edges. In its place, a raster.read of your image as a stack of its bands, with at least green and nir named so."
+data = { what = "a multispectral image with a green and a near-infrared band, a layer per band (named green and nir)", kind = "stack" }
+
+[[nodes]]
+id = "ndwi"
+op = "raster.calc"
+inputs = { img = "image.image" }
+params = { expression = "(img.green - img.nir) / (img.green + img.nir)" }
+note = "McFeeters' NDWI: above 0 where the green reflects more than the near-infrared, as water does."
+refs = ["McFeeters 1996, The use of the Normalized Difference Water Index (NDWI)"]
+
+[[nodes]]
+id = "split"
+op = "segment.threshold"
+inputs = { image = "ndwi.map" }
+params = { classes = 2 }
+note = "Two classes by Otsu: the objects are the connected pieces of the low NDWI (class 1) and of the high (class 2). The threshold is in the `thresholds` output."
+why = "Otsu needs no threshold from you: it takes the one that separates the two modes best, so it follows the image (a turbid lake, another sensor)."
+refs = ["Otsu 1979"]
+
+[[nodes]]
+id = "water"
+op = "objects.rules"
+inputs = { objects = "split.objects" }
+note = "The objects of the high class are water, the others land (the `class` column of the threshold's table is 1 or 2)."
+
+[nodes.params]
+classes = [
+  { name = "water", rule = "above(class, 1, 2)", colour = "#2b6cb0" },
+  { name = "land", rule = "below(class, 1, 2)", colour = "#c8b88a" },
+]
+
+[[nodes]]
+id = "polygons"
+op = "objects.to_vector"
+inputs = { objects = "water.objects" }
+params = { smooth = 1 }
+note = "A polygon for each object with its class."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "water.map" }
+params = { title = "Water (1) and land (2)" }
+"##,
+    },
+    Template {
+        name: "The scale chosen by itself",
+        group: OBJECTS,
+        build: None,
+        about: "the scale of a multiresolution segmentation chosen by the data: the segmentation run at a range of                 scales and each scored by the variance inside the objects and Moran's I between them (USPO); the                 scores open as a chart and `value` is the best scale (Apply in the Viewer writes it into a segmenter)",
+        toml: r##"
+format = "terraflux/1"
+name = "The scale chosen by itself"
+description = "The scale of the segmentation chosen by the data (unsupervised parameter optimisation, Espindola et al. 2006): segment.optimize runs multiresolution segmentation at each scale from 2 to 20, and scores each run by the variance inside its objects (low: the objects are homogeneous) and Moran's I between neighbouring objects (low: they differ); both are scaled over the runs and summed, and the scale of the lowest sum is the best. The `scores` output opens as the chart of the scores (select it in the Viewer): the objective as a curve with its best marked, and the variance and Moran's I beside it; `value` is the best scale and `objects` the objects of that run. Apply to... above the chart writes the best scale into a segmenter of the model (a new one, or the one you choose), as one step you can undo. It is a guide: look at the objects of the scales around it. Replace the image with yours (Use my data)."
+
+[[nodes]]
+id = "land"
+op = "nlm.mosaic_gibbs"
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+note = "A map of five classes drawn by chance: only the ground truth of the image below."
+
+[[nodes]]
+id = "image"
+op = "nlm.image"
+inputs = { classes = "land.map" }
+params = { seed = 1 }
+note = "A synthetic image of six bands of the classes, with noise and a blur at the edges. In its place, a raster.read of your image as a stack of its bands."
+data = { what = "a multispectral image, a layer per band", kind = "stack" }
+
+[[nodes]]
+id = "best"
+op = "segment.optimize"
+inputs = { image = "image.image" }
+params = { segmenter = "segment.multiresolution", parameter = "scale", from = 2, to = 20, step = 2, params = { shape = 0.1, compactness = 0.5 } }
+note = "Multiresolution segmentation at the scales 2, 4... 20, each scored. The range is in the image's units: widen it, or take segment.scale's suggestion as the middle of it. `params` holds the settings that stay fixed."
+why = "Too small a scale gives objects that are all alike (the variance is low, but Moran's I is high: the neighbours are alike too), too large mixes the classes (the variance rises): the sum of the two scaled scores is lowest between."
+refs = ["Espindola et al. 2006", "Johnson and Xie 2011"]
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { table = "best.scores" }
+params = { title = "The scores of each scale" }
+"##,
+    },
+    Template {
         name: "Principal components of an image",
         group: SURFACES,
         build: None,
@@ -5827,6 +5934,24 @@ mod tests {
         assert!(o.classes.iter().enumerate().all(|(k, c)| c.name == format!("cluster {}", k + 1)));
         assert!(o.class_of.iter().all(|&k| k > 0));
         assert!(purity >= 0.85, "purity {purity}");
+
+        // water by Otsu on the NDWI: the water class (1) is the drawn water (1)
+        let out = run("Water by Otsu on the NDWI");
+        let (m, o, truth) = (map(&out, "water.map"), objects(&out, "water.objects"), map(&out, "land.map"));
+        assert_eq!((o.classes[0].name.as_str(), o.classes[1].name.as_str()), ("water", "land"));
+        let hit = m.data.iter().zip(truth.data.iter()).filter(|(p, t)| (**p == 1.0) == (**t == 1.0)).count();
+        let acc = hit as f64 / truth.data.len() as f64;
+        println!("water: {} objects, agreement {acc:.4}", o.count);
+        assert!(acc >= 0.9, "agreement {acc}");
+        let Some(Value::Vector(v)) = out.get("polygons.vector") else { panic!("no polygons") };
+        assert_eq!(v.len(), o.count);
+
+        // the scale chosen by itself: a best value among the scales, and the scores' table
+        let out = run("The scale chosen by itself");
+        let Some(Value::Number(best)) = out.get("best.value") else { panic!("no value") };
+        let Some(Value::Table(sc)) = out.get("best.scores") else { panic!("no scores") };
+        println!("optimize: best {best}, {} scales", sc.rows.len());
+        assert!((2.0..=20.0).contains(best) && sc.rows.len() == 10, "{best}");
 
         // segmentation: a polygon per object
         let out = run("Segment an image into polygons");

@@ -4545,6 +4545,11 @@ dependências: 6, 2, 1, 4, 3, 7, 5, 8.
   supervisionadas dos objetos (as features → `ml.kmeans` na tabela), que pede ao `objects.classify` aceitar os modelos
   `KMeans` e `Som` (a etapa G do plano abaixo). Testes: `the_object_templates_run` estendido (a água ≥ 0,9 com a
   verdade; o optimize dá `value`; k classes) e os testes de todos os templates.
+  **Feito** (Unreleased): `templates.rs`, no grupo dos objetos, "Water by Otsu on the NDWI" (`raster.calc` do NDWI, `segment.threshold` com
+  2 classes, `objects.rules` com a classe 2 como `water` e a 1 como `land`, `objects.to_vector`) e "The scale chosen by itself"
+  (`segment.optimize` de 2 a 20, de 2 em 2, com o `scores` que abre como o gráfico e o `value`; a descrição diz que o *Apply* grava
+  a melhor escala num segmentador), ambos com `data` na imagem; o terceiro, "Unsupervised classes of objects", já existia.
+  `the_object_templates_run` estendido (a água concorda 0,975 com a verdade desenhada; o optimize dá `value` e 10 escalas); no guia.
 
 **Decisões tomadas** (padrões; o usuário pode mudar):
 1. O region growing ganha o parâmetro opcional `ranges` (as faixas das bandas para a escala de 0 a 1), que a janela
