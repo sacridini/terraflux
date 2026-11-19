@@ -674,9 +674,11 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             }
         });
     }
+    // (a group's settings of the class tree only on a branch of it: a group of a stage, or a node of yours, has none)
+    let branch = n.op != terraflux_graph::GROUP || n.params.contains_key("class");
     let mut params: Vec<(String, String, Option<terraflux_graph::PortSpec>)> = sig
         .as_ref()
-        .map(|g| g.params.iter().map(|p| (p.name.clone(), p.doc.clone(), Some(p.clone()))).collect())
+        .map(|g| g.params.iter().filter(|_| branch).map(|p| (p.name.clone(), p.doc.clone(), Some(p.clone()))).collect())
         .unwrap_or_default();
     for k in n.params.keys() {
         if !params.iter().any(|(p, _, _)| p == k) {
