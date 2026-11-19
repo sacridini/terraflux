@@ -304,6 +304,22 @@ impl Observer for Sending {
     }
 }
 
+/// The engine of a run: as a check run when `check` is given, its tiles and feature groups on the workers of the
+/// `cluster` (address and code) when there is one. A cluster that cannot be reached is no cluster: the run is local.
+pub fn engine_for(
+    check: Option<&terraflux_ops::check::Check>,
+    cluster: Option<&(String, terraflux_dist::secure::Code)>,
+) -> Engine {
+    let engine = match check {
+        Some(c) => Engine::checked(c.clone()),
+        None => Engine::default(),
+    };
+    match cluster.and_then(|(url, code)| terraflux_dist::tiles::Remote::connect_with(url, Some(code)).ok()) {
+        Some(r) => engine.with_tile_runner(Some(Arc::new(r))),
+        None => engine,
+    }
+}
+
 /// A run in progress.
 pub struct Run {
     pub rx: Receiver<Message>,
@@ -327,12 +343,14 @@ impl Run {
         gate: Arc<Gate>,
         repaint: Box<dyn Fn() + Send>,
     ) -> Run {
-        Run::start_checked(model, inputs, base, cache, target, record, gate, repaint, None)
+        Run::start_checked(model, inputs, base, cache, target, record, gate, repaint, None, None)
     }
 
     /// [`Run::start`] as a check run when `check` is given: the inputs read through its window and coarser grid
     /// (`inputs` are then read here, not taken), the engine telling every operator. Its `cache` must be one of its
-    /// own: the results are not the model's.
+    /// own: the results are not the model's. With a `cluster` (the address and code of the application's pool, when
+    /// other computers work for it) the tiles of `segment.multiresolution` and the groups of `objects.features` go
+    /// to its workers.
     #[allow(clippy::too_many_arguments)]
     pub fn start_checked(
         model: Model,
@@ -344,6 +362,7 @@ impl Run {
         gate: Arc<Gate>,
         repaint: Box<dyn Fn() + Send>,
         check: Option<terraflux_ops::check::Check>,
+        cluster: Option<(String, terraflux_dist::secure::Code)>,
     ) -> Run {
         let (tx, rx) = channel();
         let stop = Arc::new(AtomicBool::new(false));
@@ -359,10 +378,7 @@ impl Run {
                         .map_err(|e| e.to_string())?,
                 };
                 let mut obs = Sending { tx, stop: s, gate: g, repaint, told: None, steps: BTreeMap::new() };
-                let engine = match &check {
-                    Some(c) => Engine::checked(c.clone()),
-                    None => Engine::default(),
-                };
+                let engine = engine_for(check.as_ref(), cluster.as_ref());
                 let r = engine.run_with(&model, &inputs, &mut obs, Some(&cache), target.as_deref());
                 if let Err(Error::Node { at, .. }) = &r {
                     let top = at.split(['/', '.']).next().unwrap_or(at).to_string();

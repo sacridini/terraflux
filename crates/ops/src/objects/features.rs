@@ -474,6 +474,7 @@ impl Operator for Features {
         // spectral, shape and texture on the cluster's workers when there is one (else, or if it fails, here)
         let mut offloaded: Vec<Option<Columns>> = vec![None; GROUPS.len()];
         if let Some(r) = &remote {
+            ctx.progress(None, "features on other computers");
             match super::rows::offload(&**r, &input, &chosen) {
                 Ok(Some(done)) => offloaded = done,
                 Ok(None) => {}

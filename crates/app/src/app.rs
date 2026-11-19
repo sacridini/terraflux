@@ -809,6 +809,8 @@ pub struct Session {
     edited_at: Option<Instant>,
     /// The run going on was started by the application itself (after an edit): its failure is not told.
     quiet_run: bool,
+    /// The address and code of the application's pool while other computers work for it (set every frame).
+    cluster: Option<(String, terraflux_dist::secure::Code)>,
     /// Where such a run failed (the node), until the next edit or run: its pane says a run tells why.
     pub quiet_failed: Option<String>,
     /// The output whose grid the model's maps are put on (node, port).
@@ -1067,6 +1069,7 @@ impl Session {
             edited_at: None,
             run_when_ready: false,
             quiet_run: false,
+            cluster: None,
             quiet_failed: None,
             saving: Vec::new(),
             notice: None,
@@ -1734,8 +1737,20 @@ impl Session {
             (!quiet && self.path.is_some()).then(|| (self.source.clone(), target.clone(), self.scenario_now()));
         self.python_due = !quiet && check.is_none() && self.path.is_some();
         let (cache, gate) = (self.cache.clone(), self.gate.clone());
-        self.run =
-            Some(Run::start_checked(self.model.clone(), inputs, base, cache, target, record, gate, repaint, check));
+        // other computers working for this one's pool take the tiles and the feature groups of the objects
+        let cluster = self.cluster.clone();
+        self.run = Some(Run::start_checked(
+            self.model.clone(),
+            inputs,
+            base,
+            cache,
+            target,
+            record,
+            gate,
+            repaint,
+            check,
+            cluster,
+        ));
     }
 
     /// After an edit, run up to the node shown (when the edits paused a moment and nothing runs).
@@ -5427,6 +5442,10 @@ impl TerrafluxApp {
 
     /// One frame of the application.
     pub fn frame(&mut self, ui: &mut Ui) {
+        // (the computers helping now: a run started from anywhere in this frame sends its tiles to them)
+        if let Some(s) = &mut self.session {
+            s.cluster = self.computers.cluster();
+        }
         self.draw(ui);
         open_links(ui.ctx());
     }

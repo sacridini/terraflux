@@ -4300,6 +4300,10 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    errado corrigido, e os pesos do SAM baixados uma vez para o cache (com o SHA-256 conferido) quando não dados.
 3. **O cluster pelo aplicativo**: os tiles do `segment.multiresolution` nos computadores que trabalham juntos do app
    (`computers.rs`), não só pelo `--coordinator` da CLI.
+   **Feito**: `Computers::cluster()` dá o endereço e o código do pool do app só quando outros computadores trabalham
+   para ele (o "Let other computers help" de sempre, nada novo nos ajustes); a execução monta o `Remote` (`runner.rs`,
+   `engine_for`) e, sem conexão, fica aqui. Se os tiles falham no cluster, rodam aqui com um aviso, como as features. O
+   teste com um pool do app em 127.0.0.1 e dois workers dá os mesmos rótulos e a mesma tabela.
 4. **O `objects.features` no cluster**: as faixas de linhas como trabalhos dos workers, a tabela juntada no
    coordenador, a mesma tabela que aqui.
    **Feito**: `objects/rows.rs` (`FeatureJob`, `offload`): os grupos `spectral` e `shape` e a textura de cada camada
@@ -4322,7 +4326,13 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    OTB).
 7. **Tudo no terraflux-py**: os objetos, os segmentadores, os atributos, as classificações, os níveis, a acurácia, a
    arbitragem e as datas no `import terraflux as tf`, o `python_script` dando o código deles em vez do aviso.
-8. Depois, o bloco seguinte do PCA, do k-means e do SOM (abaixo).
+8. **A segmentação o mais rápida possível, num núcleo e em paralelo** (pedido de 2026-11-19: um dos objetivos
+   principais do OBIA é garantir que o processo seja o mais otimizado possível). Uma bateria fixa de imagens e o tempo
+   de cada segmentador com 1 e com 8 threads, guardada aqui; o perfil do `segment.multiresolution` (a primeira passada
+   sobre os pixels, o grafo de regiões, as alocações, a costura dos tiles, que hoje refaz a fusão sobre a imagem
+   inteira) e dos outros; os mesmos objetos sempre que possível, e qualidade medida quando não. Os segmentadores novos
+   da fase 6 já entram com o tempo medido.
+9. Depois, o bloco seguinte do PCA, do k-means e do SOM (abaixo).
 
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
 

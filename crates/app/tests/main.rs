@@ -8,6 +8,7 @@ mod canvas;
 mod charts;
 mod class_tree;
 mod cloud_public;
+mod cluster_run;
 mod my_nodes;
 mod objects_space;
 mod objects_live;

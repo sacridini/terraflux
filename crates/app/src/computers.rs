@@ -177,6 +177,16 @@ impl Computers {
         self.seen.as_ref().map(|(_, w)| w.clone()).unwrap_or_default()
     }
 
+    /// The pool's address and code when other computers work for it now (a run's tiles and feature groups go to
+    /// them); `None` otherwise, and the run stays on this computer.
+    pub fn cluster(&mut self) -> Option<(String, Code)> {
+        if self.helpers().is_empty() {
+            return None;
+        }
+        let p = self.pool.as_ref()?;
+        Some((p.url(), p.code().clone()))
+    }
+
     /// The other computers working for the pool now.
     pub fn helpers(&mut self) -> Vec<WorkerState> {
         let me = format!("{} ", hostname());

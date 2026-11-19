@@ -617,8 +617,13 @@ impl Operator for Multiresolution {
             };
             let m = super::tiles::margin_of(t, margin as usize);
             let job = tile_job(&d, &cost, scale, mutual, seed as u64, max_passes as u32, t, m);
-            let remote = ctx.tile_runner().zip(job).map(|(r, j)| (&**r, j));
-            let o = super::tiles::merge_tiled(
+            let runner = ctx.tile_runner().cloned();
+            let remote = runner.as_ref().zip(job.as_ref()).map(|(r, j)| (&**r, j.clone()));
+            let on_cluster = remote.is_some();
+            if on_cluster {
+                ctx.progress(None, "tiles on other computers");
+            }
+            let mut o = super::tiles::merge_tiled(
                 &d.grid,
                 &d.src,
                 &cost,
@@ -629,7 +634,24 @@ impl Operator for Multiresolution {
                 t,
                 m,
                 remote,
-            )?;
+            );
+            // a cluster that fails (a computer left) never fails the run: the tiles run here
+            if let (true, Err(e)) = (on_cluster, &o) {
+                ctx.warn(format!("node {node:?}: the tiles could not run on the cluster, they ran here: {e}"));
+                o = super::tiles::merge_tiled(
+                    &d.grid,
+                    &d.src,
+                    &cost,
+                    scale,
+                    mutual,
+                    seed as u64,
+                    max_passes as u32,
+                    t,
+                    m,
+                    None,
+                );
+            }
+            let o = o?;
             let table = super::stats_table_src(&o, &d.names, &d.src)?;
             let o = Arc::new(o.with_table(table.clone())?);
             return Ok(outputs([
