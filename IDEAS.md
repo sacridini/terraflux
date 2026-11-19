@@ -4808,6 +4808,15 @@ duas a três páginas por agente, dois agentes por vez (as figuras rodam o `terr
 threads cada), cada um só nos seus arquivos (as regras de trabalho em paralelo do AUTHORING). Cada página: o build sem
 avisos, o `--check` sem erros de grafo, as capturas lidas. Um commit por lote (`docs(tutorials): ...`).
 
+**O que a base da série achou no `data.stac`** (2026-11-19), para um release próximo:
+- Ele lê só a banda 1 de cada asset (`-srcband 1`, `stac.rs` ~643). O NAIP tem RGB e NIR num asset só (`image`), e
+  outros (as ortofotos, o Planet) também: um asset de várias bandas deve dar uma camada por banda, nomeadas pelos
+  `eo:bands` do item (ou `image_1`...), ou um `bands` para escolher. Até lá, o NAIP da série é recortado pelo script
+  e lido com `raster.read`.
+- A grade só vem em graus (`extent` e `cellsize` em graus) ou de um `like`. Um `crs` (o `extent` e o `cellsize` nesse
+  CRS) daria a grade UTM direto, sem o `raster.reproject` depois (uma reamostragem a menos). Quando sair, os
+  modelos da série passam a usá-lo.
+
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
 
 Pedido de 2026-11-19: operadores de componentes principais (PCA), k-means e mapas auto-organizáveis (SOM), com o
