@@ -2,6 +2,9 @@
 //! `cargo test -p terraflux-ops --release --test ops objects_bench -- --ignored --nocapture --test-threads=1`
 //! It prints a table: segmenter, image, threads, seconds, objects, and a hash of the labels (a change that must not alter the objects keeps it). `BENCH_SKIP=meanshift,watershed` leaves some out,
 //! `BENCH_ONLY=multiresolution` keeps only those (`segment.threshold`, `segment.spectral_difference`: `from` names the segmenter that makes the objects first), `BENCH_SIDES=1000` the sides of the images, `BENCH_THREADS=1`.
+//! `BENCH_RATES=1` also writes `crates/ops/src/objects/rates.json` (what `terraflux_ops::objects::estimate` reads): it needs
+//! the default sides (1000 and 2000), `BENCH_THREADS` with 1 and N (the largest is N), and the segmenters of `RATED`;
+//! `BENCH_SKIP=optimize` leaves out what the rates do not use.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -83,6 +86,65 @@ fn run(op: &str, img: &Value, params: serde_json::Value, threads: usize) -> (f64
     (secs, o.count, hash(o))
 }
 
+/// The variants the rates are made of: segmenter, the variant of the whole image, the tiled one.
+type Rated = (&'static str, &'static str, Option<&'static str>);
+
+const RATED: [Rated; 12] = [
+    // (no setting scales the rate: multiresolution's scale changes it by 3%, region growing's threshold the other way
+    // at 1000 and at 2000)
+    ("segment.multiresolution", "scale50", Some("scale50-tile512")),
+    ("segment.slic", "default", None),
+    ("segment.snic", "default", None),
+    ("segment.felzenszwalb", "default", None),
+    ("segment.watershed", "default", None),
+    ("segment.meanshift", "default", None),
+    ("segment.threshold", "otsu-3", None),
+    ("segment.spectral_difference", "slic-d8", None),
+    ("segment.region_growing", "t0.05", Some("t0.05-tile512")),
+    ("segment.quickshift", "default", None),
+    ("segment.chessboard", "default", None),
+    ("segment.quadtree", "default", None),
+];
+
+type Seen = Vec<(String, String, usize, usize, f64)>;
+
+/// The rates file from the seconds seen: `{ cells, t1, tn }` for the whole image and for the tiled run.
+fn write_rates(seen: &Seen, n: usize) {
+    let at = |op: &str, variant: &str, side: usize, threads: usize| -> Option<f64> {
+        seen.iter().find(|r| r.0 == op && r.1 == variant && r.2 == side && r.3 == threads).map(|r| r.4)
+    };
+    let series = |op: &str, variant: &str| -> Option<serde_json::Value> {
+        let t = |side, threads| at(op, variant, side, threads);
+        Some(serde_json::json!({
+            "cells": [1_000_000, 4_000_000],
+            "t1": [t(1000, 1)?, t(2000, 1)?],
+            "tn": [t(1000, n)?, t(2000, n)?],
+        }))
+    };
+    let mut ops = serde_json::Map::new();
+    for (op, variant, tiled) in RATED {
+        let Some(mut entry) = series(op, variant) else {
+            println!("rates: {op} {variant} is missing a run, left out");
+            continue;
+        };
+        if let Some(t) = tiled.and_then(|v| series(op, v)) {
+            let mut t = t;
+            t["tile"] = 512.into();
+            entry["tiled"] = t;
+        }
+        ops.insert(op.to_string(), entry);
+    }
+    let doc = serde_json::json!({
+        "note": "written by BENCH_RATES=1 on crates/ops/tests/objects_bench.rs: seconds of 1000x1000 and 2000x2000 cells, 4 bands, on 1 thread and on `threads`",
+        "threads": n,
+        "ops": ops,
+    });
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/objects/rates.json");
+    std::fs::write(path, serde_json::to_string_pretty(&doc).unwrap() + "
+").unwrap();
+    println!("rates written to {path}");
+}
+
 #[test]
 #[ignore]
 fn objects_bench() {
@@ -95,6 +157,8 @@ fn objects_bench() {
             "scale50-tile512",
             serde_json::json!({ "scale": 50, "shape": 0.1, "compactness": 0.5, "tile": 512 }),
         ),
+        ("segment.chessboard", "default", serde_json::json!({})),
+        ("segment.quadtree", "default", serde_json::json!({ "threshold": 20 })),
         ("segment.slic", "default", serde_json::json!({})),
         ("segment.snic", "default", serde_json::json!({})),
         ("segment.felzenszwalb", "default", serde_json::json!({})),
@@ -120,6 +184,7 @@ fn objects_bench() {
         std::env::var(k).unwrap_or(d.into()).split(',').filter_map(|x| x.parse().ok()).collect()
     };
     let only = std::env::var("BENCH_ONLY").unwrap_or_default();
+    let mut seen: Seen = Vec::new();
     for side in list("BENCH_SIDES", "1000,2000") {
         let img = image(side, side, 4, 7);
         for (op, variant, params) in &cases {
@@ -137,7 +202,11 @@ fn objects_bench() {
                     (secs, n, hs) = (secs.min(s), k, x);
                 }
                 println!("{op:<26} {variant:<16} {:<10} {threads:>7} {secs:>10.2} {n:>9} {hs:>18x}", format!("{side}x{side}x4"));
+                seen.push((op.to_string(), variant.to_string(), side, threads, secs));
             }
         }
+    }
+    if std::env::var("BENCH_RATES").is_ok_and(|v| v == "1") {
+        write_rates(&seen, list("BENCH_THREADS", "1,8").into_iter().max().unwrap_or(1));
     }
 }

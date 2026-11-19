@@ -871,6 +871,8 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 ui.add(egui::Label::new(RichText::new(format!("last run {}{size}", seconds_text(*secs))).weak()).extend())
                     .on_hover_text("how long it took when it last ran (a loop's body: every step summed), and about how much memory what it gave holds");
             }
+            // how long it will take, from the size of the image, and the tiles when they shorten it
+            crate::time_estimate::line(ui, s, &n, &path);
         };
         // what does not fit on the next row (a narrow pane, a large text)
         ui.horizontal_wrapped(row);

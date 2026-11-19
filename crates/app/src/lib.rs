@@ -114,6 +114,7 @@ pub mod templates;
 pub mod tutorial_models;
 pub mod tutorials;
 pub mod theme;
+pub mod time_estimate;
 pub mod tools;
 pub mod trace;
 pub mod trace_view;

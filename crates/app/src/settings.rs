@@ -129,6 +129,9 @@ pub struct Settings {
     pub cloud: Cloud,
     /// The weights of SAM this computer agreed to download (`quant`, `full`): asked once for each.
     pub sam_agreed: Vec<String>,
+    /// How long each image segmenter took here against what the rates of the benchmark said, the last run's (see
+    /// [`crate::time_estimate`]).
+    pub time_ratios: BTreeMap<String, f64>,
 }
 
 /// The credentials of cloud storage, given to GDAL as its configuration options (those of the environment, which GDAL
@@ -460,6 +463,7 @@ impl Default for Settings {
             shortcuts: BTreeMap::new(),
             cloud: Cloud::default(),
             sam_agreed: Vec::new(),
+            time_ratios: BTreeMap::new(),
         }
     }
 }

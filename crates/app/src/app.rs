@@ -2048,6 +2048,7 @@ impl Session {
                     {
                         self.status_rev += 1;
                     }
+                    crate::time_estimate::learn(self, &at, seconds);
                     self.timings.insert(at, (seconds, bytes));
                 }
                 Message::Finished { at, cached } => {

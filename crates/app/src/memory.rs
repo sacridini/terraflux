@@ -212,6 +212,8 @@ pub struct Estimate {
     pub tiled: bool,
     /// The cells of the largest grid.
     pub cells: u64,
+    /// The grid of each top-level node that has one: its cells and layers (what its time is estimated from).
+    pub grids: BTreeMap<String, (u64, u64)>,
 }
 
 impl Estimate {
@@ -447,6 +449,7 @@ pub fn estimate(m: &Model, r: &Registry, dir: &Path) -> Estimate {
         }
     }
     let (grids, files) = w.resolve(&m.nodes, None);
+    e.grids = grids.iter().map(|(id, g)| (id.clone(), (g.cells, g.layers))).collect();
     let all = crate::disk::nodes(&m.nodes);
     let mut weights = Vec::new();
     for n in &m.nodes {

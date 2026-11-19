@@ -19,6 +19,7 @@ mod prepare;
 mod sam_first_time;
 mod segment_compare;
 mod som_view;
+mod time_estimate;
 mod vector_calc;
 mod vector_tiles;
 

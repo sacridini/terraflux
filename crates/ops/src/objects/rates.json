@@ -1,0 +1,44 @@
+{
+  "note": "written by BENCH_RATES=1 on crates/ops/tests/objects_bench.rs: seconds of 1000x1000 and 2000x2000 cells, 4 bands, on 1 thread and on `threads`",
+  "threads": 8,
+  "ops": {
+    "segment.chessboard": {
+      "cells": [1000000, 4000000], "t1": [0.01895, 0.08906], "tn": [0.01102, 0.05308]
+    },
+    "segment.felzenszwalb": {
+      "cells": [1000000, 4000000], "t1": [0.4302, 1.713], "tn": [0.3213, 1.169]
+    },
+    "segment.meanshift": {
+      "cells": [1000000, 4000000], "t1": [2.258, 8.604], "tn": [0.4188, 1.659]
+    },
+    "segment.multiresolution": {
+      "cells": [1000000, 4000000], "t1": [1.432, 7.232], "tn": [1.428, 7.188],
+      "tiled": { "tile": 512, "cells": [1000000, 4000000], "t1": [1.609, 8.779], "tn": [0.7957, 3.238] }
+    },
+    "segment.quadtree": {
+      "cells": [1000000, 4000000], "t1": [0.2224, 0.7884], "tn": [0.2114, 0.7618]
+    },
+    "segment.quickshift": {
+      "cells": [1000000, 4000000], "t1": [2.465, 8.408], "tn": [0.4328, 2.177]
+    },
+    "segment.region_growing": {
+      "cells": [1000000, 4000000], "t1": [3.683, 16.2], "tn": [3.6, 15.62],
+      "tiled": { "tile": 512, "cells": [1000000, 4000000], "t1": [3.326, 11.83], "tn": [1.675, 3.668] }
+    },
+    "segment.slic": {
+      "cells": [1000000, 4000000], "t1": [0.2796, 1.242], "tn": [0.0884, 0.2865]
+    },
+    "segment.snic": {
+      "cells": [1000000, 4000000], "t1": [0.4431, 2.016], "tn": [0.4763, 1.981]
+    },
+    "segment.spectral_difference": {
+      "cells": [1000000, 4000000], "t1": [0.05171, 0.1593], "tn": [0.03552, 0.1102]
+    },
+    "segment.threshold": {
+      "cells": [1000000, 4000000], "t1": [0.02509, 0.1183], "tn": [0.01458, 0.05736]
+    },
+    "segment.watershed": {
+      "cells": [1000000, 4000000], "t1": [0.5323, 1.643], "tn": [0.3384, 1.244]
+    }
+  }
+}
