@@ -29,6 +29,7 @@ before it gives.
 |---|---|
 | Process tree, rule set | The model (the graph); a group (`control.group`) to fold a part; `control.repeat` for a loop |
 | Multiresolution segmentation | [[segment.multiresolution]] (`scale`, `shape`, `compactness`, band `weights`) |
+| Thematic layer (a parcel or block vector, a map of zones) that the segmentation respects | `bounds` of [[segment.multiresolution]] and [[segment.region_growing]]: a map (a zone for each value), vectors (each feature a zone) or objects (each object a zone); no object crosses from one zone to another, and with `from` the objects of the level below are cut by the zones first. The thematic layer's attributes for the rules and the other segmenters come next |
 | Chessboard, quadtree segmentation | [[segment.chessboard]], [[segment.quadtree]] |
 | Spectral difference segmentation | [[segment.spectral_difference]] (`max_difference`, band `weights`) on the objects of a first segmentation; or [[objects.merge]] with `by = "condition"` (a condition on the two neighbours' means) |
 | Multi-threshold segmentation | [[segment.threshold]] (`thresholds`, or `classes` for multi-level Otsu; `band`) |

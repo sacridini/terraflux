@@ -19,7 +19,9 @@ use std::time::{Duration, Instant};
 
 use egui::{Color32, RichText, Ui};
 use terraflux_graph::{Node, Source};
-use terraflux_ops::objects::{Objects, Whole, Window, WindowSettings, esp_window, segment_window, segment_window_op};
+use terraflux_ops::objects::{
+    Objects, Whole, Window, WindowSettings, esp_window, segment_window_bounds, segment_window_op,
+};
 use terraflux_ops::{Registry, Table, Value};
 use terraflux_raster::Grid;
 
@@ -277,14 +279,21 @@ fn input_of(s: &Session, n: &Node, port: &str) -> Option<Value> {
 }
 
 /// The inputs of the node besides its image that the segmenter reads over the cells (objects, markers, seeds,
-/// bounds), as the model gives them; an error says which has not run.
+/// bounds; the multiresolution only the bounds), as the model gives them; an error says which has not run.
 fn extras_of(s: &Session, n: &Node) -> Result<Vec<(String, Value)>, String> {
     let mut out = Vec::new();
-    for port in ["objects", "markers", "seeds", "bounds"] {
+    let ports: &[&str] = if n.op == OP { &["bounds"] } else { &["objects", "markers", "seeds", "bounds"] };
+    for &port in ports {
         if n.inputs.contains_key(port) {
             match input_of(s, n, port) {
                 Some(v @ (Value::Objects(_) | Value::Map(_))) => out.push((port.to_string(), v)),
-                _ => return Err(format!("the input {port} of the node has not run (or is not objects or a map)")),
+                Some(v @ Value::Vector(_)) if port == "bounds" => out.push((port.to_string(), v)),
+                _ => {
+                    return Err(format!(
+                        "the input {port} of the node has not run (or is not objects, a map{})",
+                        if port == "bounds" { " or vectors" } else { "" }
+                    ));
+                }
             }
         }
     }
@@ -296,6 +305,7 @@ fn identity(v: &Value) -> usize {
     match v {
         Value::Objects(o) => Arc::as_ptr(o) as usize,
         Value::Map(m) => Arc::as_ptr(&m.data) as usize,
+        Value::Vector(v) => Arc::as_ptr(v) as usize,
         _ => 0,
     }
 }
@@ -417,8 +427,9 @@ fn ordinal(n: usize) -> String {
 
 /// What a request has the worker run.
 enum Job {
-    /// The multiresolution, then (with a key) the curve of ESP over the same window.
-    Multires { esp_key: Option<u64>, set: WindowSettings },
+    /// The multiresolution (with the node's `bounds`, cut to the window), then (with a key) the curve of ESP over the
+    /// same window.
+    Multires { esp_key: Option<u64>, set: WindowSettings, bounds: Option<Value> },
     /// Any other segmenter through the registry: the node's settings with the sliders' values, the inputs besides the
     /// image (cut to the window), and what the whole image gives the window (made once, by the first job).
     Op {
@@ -561,8 +572,8 @@ impl Live {
                 let Request { image, win, step, job, .. } = req;
                 let t = Instant::now();
                 let (made, esp) = match job {
-                    Job::Multires { esp_key, set } => {
-                        let made = segment_window(&image.grid, &image.data, win, step, &set)
+                    Job::Multires { esp_key, set, bounds } => {
+                        let made = segment_window_bounds(&image.grid, &image.data, win, step, &set, bounds.as_ref())
                             .map(Arc::new)
                             .map_err(|e| e.to_string());
                         (made, esp_key.map(|k| (k, set)))
@@ -723,7 +734,7 @@ pub fn panel(ui: &mut Ui, s: &mut Session, id: &str, view: &MapView, salt: &str)
     if live.touched() {
         // the part in view (or the whole image): asked again when the view, the image or a value changes
         let planned = plan_for(&node.op, view.visible(), &image.grid);
-        let extra = if node.op == OP { Ok(Vec::new()) } else { extras_of(s, &node) };
+        let extra = extras_of(s, &node);
         if let Err(e) = &extra {
             live.error = Some(e.clone());
         }
@@ -748,7 +759,8 @@ pub fn panel(ui: &mut Ui, s: &mut Session, id: &str, view: &MapView, salt: &str)
                         (image.key(), win, step, set.shape.to_bits(), set.compactness.to_bits(), set.seed).hash(h);
                     });
                     let need = esp_node(s, &node).is_none() && live.esp_asked != Some(esp_key);
-                    Job::Multires { esp_key: need.then_some(esp_key), set }
+                    let bounds = extra.iter().find(|(p, _)| p == "bounds").map(|(_, v)| v.clone());
+                    Job::Multires { esp_key: need.then_some(esp_key), set, bounds }
                 } else {
                     Job::Op { op: node.op.clone(), params, extra, whole: live.whole_of(&image) }
                 };
@@ -966,5 +978,20 @@ mod tests {
         let mut n = Node::new("t", "segment.threshold").input("image", "land.map");
         n.params.insert("thresholds".into(), serde_json::json!([0.5]));
         assert!(!params_with(&n, &[3.0]).contains_key("thresholds"));
+    }
+
+    #[test]
+    fn the_multiresolution_reads_its_bounds_and_nothing_else_over_the_cells() {
+        let mut m = terraflux_graph::Model::new("live");
+        m.nodes.push(Node::new("land", "nlm.random").param("rows", 10).param("columns", 10).param("seed", 1));
+        m.nodes.push(Node::new("plain", "segment.multiresolution").input("image", "land.map"));
+        m.nodes
+            .push(Node::new("cut", "segment.multiresolution").input("image", "land.map").input("bounds", "land.map"));
+        let s = Session::from_model(m).unwrap();
+        let node = |id: &str| s.source.nodes.iter().find(|n| n.id == id).unwrap().clone();
+        assert!(extras_of(&s, &node("plain")).unwrap().is_empty());
+        // (the bounds are asked for, so they must have run)
+        let e = extras_of(&s, &node("cut")).unwrap_err();
+        assert!(e.contains("bounds") && e.contains("vectors"), "{e}");
     }
 }

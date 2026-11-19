@@ -190,12 +190,21 @@ fn write_image(path: &Path, w: usize, h: usize) {
 /// The objects `segment.multiresolution` makes of the rasters in `path`, by tiles of 64, with the tiles run by
 /// `runner` when there is one.
 fn segment(path: &Path, runner: Option<Arc<Remote>>) -> Vec<u32> {
+    segment_bounded(path, runner, None)
+}
+
+/// The same with `bounds` (a map of the image's grid) when given.
+fn segment_bounded(path: &Path, runner: Option<Arc<Remote>>, bounds: Option<terraflux_ops::Map>) -> Vec<u32> {
     use terraflux_ops::files::Rasters;
     use terraflux_ops::{Args, Ctx, Value};
     let r = Arc::new(Rasters::open(&path.to_string_lossy(), None, None).unwrap());
     let params = serde_json::json!({ "scale": 25, "shape": 0.1, "tile": 64, "margin": 12, "seed": 3 });
     let params = params.as_object().cloned().unwrap();
-    let args = Args { node: "n", inputs: [("image".to_string(), Value::Raster(r))].into(), params: &params };
+    let mut inputs: std::collections::BTreeMap<String, Value> = [("image".to_string(), Value::Raster(r))].into();
+    if let Some(m) = bounds {
+        inputs.insert("bounds".into(), Value::Map(m));
+    }
+    let args = Args { node: "n", inputs, params: &params };
     let registry = terraflux_ops::Registry::standard();
     let mut ctx = Ctx::default().with_tile_runner(runner.map(|r| r as Arc<dyn terraflux_ops::objects::TileCores>));
     let out = registry.get("segment.multiresolution").unwrap().run(&mut ctx, &args).unwrap();
@@ -203,6 +212,37 @@ fn segment(path: &Path, runner: Option<Arc<Remote>>) -> Vec<u32> {
     let Value::Objects(o) = &out["objects"] else { panic!("objects") };
     assert!(o.count > 4, "{} objects", o.count);
     o.labels.to_vec()
+}
+
+#[test]
+fn segmented_tiles_with_bounds_on_workers_give_the_objects_of_this_machine() {
+    terraflux_ops::threads::ensure();
+    let d = tmp("segment-bounds-data");
+    let path = d.join("img.tif");
+    write_image(&path, 256, 256);
+    // zones of 100 x 90 cells: their borders cross the tiles of 64 (the image's own blocks are 37 x 41)
+    let grid = terraflux_ops::files::Rasters::open(&path.to_string_lossy(), None, None).unwrap().grid.clone();
+    let zone: Vec<f64> = (0..256 * 256).map(|i| ((i % 256) / 100 + 3 * ((i / 256) / 90)) as f64).collect();
+    let bounds = terraflux_ops::Map::new(grid, zone.clone());
+    let want = segment_bounded(&path, None, Some(bounds.clone()));
+    let mut of = std::collections::HashMap::new();
+    for (i, &l) in want.iter().enumerate() {
+        if l != 0 {
+            assert_eq!(*of.entry(l).or_insert(zone[i]), zone[i], "object {l} crosses a zone at cell {i}");
+        }
+    }
+    assert_ne!(want, segment(&path, None), "the zones change the objects");
+
+    let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    let local = rt.block_on(Local::start(2, tmp("segment-bounds-cache"), CoordinatorOptions::default())).unwrap();
+    for per_worker in [4, 1] {
+        let mut remote = Remote::connect(&local.url).unwrap();
+        remote.per_worker = per_worker;
+        remote.shared = true;
+        let got = segment_bounded(&path, Some(Arc::new(remote)), Some(bounds.clone()));
+        assert_eq!(got, want, "{per_worker} runs per worker, with bounds");
+    }
+    local.shutdown();
 }
 
 #[test]

@@ -50,6 +50,7 @@ mod objects_temporal;
 mod objects_tiles;
 mod objects_warnings;
 mod objects_window;
+mod objects_zones;
 mod ops;
 mod optimize;
 mod parity;

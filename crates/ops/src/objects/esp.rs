@@ -129,7 +129,7 @@ pub(crate) fn esp(l: &Layers, cost: &Cost, s: &Settings) -> Result<Esp> {
     let mut below = None;
     for k in 0..s.levels {
         let scale = start + k as f64 * step;
-        let level = merge_level(&grid, &data, cost, scale, true, s.seed, 100, below.as_ref());
+        let level = merge_level(&grid, &data, cost, scale, true, s.seed, 100, below.as_ref(), &[]);
         let (mut sum, mut cnt) = (vec![0.0; nb], vec![0usize; nb]);
         for r in level.roots() {
             for (j, x) in level.sds(r).into_iter().enumerate() {

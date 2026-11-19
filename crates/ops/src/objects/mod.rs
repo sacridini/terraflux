@@ -42,6 +42,7 @@ mod warnings;
 mod watershed;
 pub mod weights;
 mod window;
+mod zones;
 
 pub use calc::{evaluate, evaluate_numbers};
 pub use features::features_give;
@@ -52,7 +53,9 @@ pub use rules::{RuleClass, leaves, tree};
 pub use rates::{Estimate, SEGMENTERS as IMAGE_SEGMENTERS, SUGGESTED_TILE, estimate, exponent};
 pub use rows::{DiskLayers, FeatureColumns, FeatureJob, FeatureTask};
 pub use tiles::{TileCores, TileJob};
-pub use window::{Whole, Window, WindowSettings, esp_window, segment_window, segment_window_op, window_op};
+pub use window::{
+    Whole, Window, WindowSettings, esp_window, segment_window, segment_window_bounds, segment_window_op, window_op,
+};
 
 pub fn register(r: &mut Registry) {
     segment::register(r);

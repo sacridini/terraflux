@@ -7,7 +7,8 @@
 //! 2. Only the core of each tile is kept: the cells of the objects of the window that lie in the core, each piece in
 //!    its connected parts, are the regions of the second pass.
 //! 3. The second pass is the ordinary merging over the whole image that starts from those pieces (the `from` of
-//!    [`merge_level`]) with the same criterion and scale. A piece far from a tile border is at a fixpoint already (its
+//!    [`merge_level`]) with the same criterion and scale (and the zones of the whole image, when there are `bounds`:
+//!    each tile gets those of its window). A piece far from a tile border is at a fixpoint already (its
 //!    neighbours are in its tile), so only the pieces along the borders merge, across them: an object cut by a border
 //!    is one again whenever the criterion allows. The cost of this pass is linear in the cells, one thread.
 //!
@@ -115,7 +116,8 @@ impl Tile {
     }
 }
 
-/// The core of tile `k` (labels of the objects of its window, row by row), the window read from `src`.
+/// The core of tile `k` (labels of the objects of its window, row by row), the window read from `src`. `zone` gives
+/// the zones of a tile's window (empty for none).
 #[allow(clippy::too_many_arguments)]
 fn tile_core(
     src: &dyn Source,
@@ -128,11 +130,13 @@ fn tile_core(
     t: usize,
     margin: usize,
     k: usize,
+    zone: &dyn Fn(&Tile) -> Vec<u64>,
 ) -> Result<Vec<u32>> {
     let tl = Tile::new(dims, t, margin, k);
     let sub = src.window(tl.wr0, tl.wr1, tl.wc0, tl.wc1)?;
     let sub_grid = Arc::new(Grid::new(tl.width(), tl.wr1 - tl.wr0));
-    let o = merge_level(&sub_grid, &sub, cost, scale, mutual, tile_seed(seed, k), max_passes, None).objects;
+    let z = zone(&tl);
+    let o = merge_level(&sub_grid, &sub, cost, scale, mutual, tile_seed(seed, k), max_passes, None, &z).objects;
     Ok(tl.core(&o.labels))
 }
 
@@ -156,6 +160,9 @@ pub struct TileJob {
     pub max_passes: u32,
     pub tile: usize,
     pub margin: usize,
+    /// The zones no object crosses (`bounds`) of every cell of the image, row by row, numbered from 0; empty for none.
+    #[serde(default)]
+    pub zones: Vec<u32>,
 }
 
 impl TileJob {
@@ -190,6 +197,13 @@ impl TileJob {
                     return Err(Error::msg(format!("no tile {k}")));
                 }
                 let dims = (self.width, self.height);
+                let zone = |tl: &Tile| -> Vec<u64> {
+                    if self.zones.is_empty() {
+                        Vec::new()
+                    } else {
+                        tl.cut(&self.zones, self.width).into_iter().map(u64::from).collect()
+                    }
+                };
                 tile_core(
                     &src,
                     dims,
@@ -201,6 +215,7 @@ impl TileJob {
                     self.tile,
                     self.margin,
                     k,
+                    &zone,
                 )
             })
             .collect()
@@ -296,6 +311,7 @@ pub(crate) fn merge_tiled(
     t: usize,
     margin: usize,
     remote: Option<(&dyn TileCores, TileJob)>,
+    zones: &[u64],
 ) -> Result<Objects> {
     let dims = (grid.width, grid.height);
     let tiles = dims.0.div_ceil(t) * dims.1.div_ceil(t);
@@ -309,10 +325,11 @@ pub(crate) fn merge_tiled(
         }
         None => None,
     };
-    let core = |k: usize| tile_core(src, dims, cost, scale, mutual, seed, max_passes, t, margin, k);
+    let zone = |tl: &Tile| if zones.is_empty() { Vec::new() } else { tl.cut(zones, dims.0) };
+    let core = |k: usize| tile_core(src, dims, cost, scale, mutual, seed, max_passes, t, margin, k, &zone);
     let per_cell = src.nb() as u64 * 40 + 200;
     merge_tiled_with(grid, t, margin, per_cell, 4, given, &core, |pieces| {
-        Ok(merge_level_src(grid, src, cost, scale, mutual, seed, max_passes, Some(&pieces))?.objects)
+        Ok(merge_level_src(grid, src, cost, scale, mutual, seed, max_passes, Some(&pieces), zones)?.objects)
     })
 }
 

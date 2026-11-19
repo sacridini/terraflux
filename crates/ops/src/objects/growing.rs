@@ -36,6 +36,7 @@ use terraflux_raster::Grid;
 use super::big::{Layered, Source};
 use super::superpixels::prefetch;
 use super::tiles::{Tile, margin_of, merge_tiled_with, tile_seed, tile_side};
+use super::zones::{bits, zones};
 use super::{NO_REGION, Objects, find};
 use crate::raster_stats::Layers;
 use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Value, outputs};
@@ -708,17 +709,6 @@ fn stitch(
     from_roots(l, &labels, &root, nbs)
 }
 
-/// The bits of a number as a zone or a seed: the same for equal numbers (-0 and 0, any NaN).
-fn bits(v: f64) -> u64 {
-    if v.is_nan() {
-        0x7ff8_0000_0000_0000
-    } else if v == 0.0 {
-        0
-    } else {
-        v.to_bits()
-    }
-}
-
 /// `segment.region_growing`.
 struct RegionGrowing;
 
@@ -737,8 +727,9 @@ impl Operator for RegionGrowing {
              region that merged is left alone for the rest of the pass. It stops when a pass merges nothing (or at \
              `iterations`). Then each region under `minsize` cells joins its \
              most similar neighbour, whatever the distance, again and again until none is left under it (GRASS makes \
-             one such pass). A threshold of 0 joins only identical neighbours, 1 everything. `bounds`: a map whose \
-             zones (cells of one value) no object crosses; `seeds`: objects or a map to start from, each group of \
+             one such pass). A threshold of 0 joins only identical neighbours, 1 everything. `bounds`: a map (a \
+             zone for each value), vectors (each feature a zone) or objects (each object a zone), that no object \
+             crosses; `seeds`: objects or a map to start from, each group of \
              connected cells of one value being one start region, every other cell a region of its own. Neighbours \
              are the 4 cells around (GRASS's default) or the 8. Differences from GRASS: the shape terms GRASS lists \
              as future work are not there; a distance equal to the threshold merges, so the endpoints 0 and 1 mean \
@@ -756,9 +747,10 @@ impl Operator for RegionGrowing {
         ))
         .input(PortSpec::optional(
             "bounds",
-            Type::Map,
-            "a map of zones (cells of one value): no object crosses from one zone to another; cells without a value \
-             in it are one zone together",
+            Type::Any,
+            "a map of zones (cells of one value), vectors (each feature a zone) or objects (each object a zone): no \
+             object crosses from one zone to another; cells without a value in the map, in no feature or in no \
+             object are one zone together",
         ))
         .output(PortSpec::new("objects", Type::Objects, "the segments, each one connected"))
         .output(PortSpec::new(
@@ -860,16 +852,7 @@ impl Operator for RegionGrowing {
         }
         super::warnings::image(ctx, node, &l.grid, &l.names, &l.data, false);
         let eight = nbs == 8;
-        let zone: Vec<u64> = match args.get("bounds") {
-            None => Vec::new(),
-            Some(Value::Map(m)) => {
-                if !m.grid.same_as(&l.grid) {
-                    return Err(bad("bounds: a map of another grid than the image".into()));
-                }
-                m.data.iter().map(|&v| bits(v)).collect()
-            }
-            Some(v) => return Err(bad(format!("bounds: a {:?}, not a map", v.ty()))),
-        };
+        let zone = zones(args, "bounds", &l.grid)?;
         // the key of the seed segment of each cell (none: u64::MAX)
         let seeds: Option<Vec<u64>> = match args.get("seeds") {
             None => None,

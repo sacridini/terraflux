@@ -7,6 +7,9 @@ version.
 
 ## [Unreleased]
 
+### Added
+- **Thematic layers in the multiresolution segmentation**: `segment.multiresolution` takes the optional input `bounds` (`crates/ops/src/objects/zones.rs` reads it), as eCognition's thematic layer: a map (a zone for each value, the cells without a value one zone together), vectors (each feature a zone, burnt with its index, the cells in none one zone) or objects (each object a zone, id 0 one zone), and no object crosses from one zone to another (a parcel, a block, a field). With `from` the objects of the level below are cut by the zones first; the neighbour lists skip the pairs of cells of different zones while the perimeter still counts those edges, so the shape cost stays right; without `bounds`, or with one zone, the objects are the same as before, bit for bit. By tiles each tile gets the zones of its window, the stitching the whole layer, and the cluster's `TileJob` carries the zones, so the same objects come on any number of threads and on the workers. `segment.region_growing` reads `bounds` through the same helper, so it takes vectors and objects too (it took a map only). The live segmentation in the Viewer cuts the node's `bounds` to the window for the multiresolution (`segment_window_bounds`), and `segment_window_op` runs `segment.multiresolution` as the other segmenters. The other segmenters and the layer's attributes for `objects.features` come next.
+
 ## [1.57.0] - 2026-11-19
 
 ### Added

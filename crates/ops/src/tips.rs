@@ -592,7 +592,8 @@ pub const TIPS: &[(&str, &str)] = &[
          gives smoother, more compact objects at the cost of following the colour. For a hierarchy, connect a \
          level to `from` of the next with a higher scale; a superpixel level (segment.slic, segment.snic) as the \
          first one makes the run faster than starting from single cells. Weights tell the bands apart (0 \
-         leaves one out of the colour).",
+         leaves one out of the colour). `bounds` (a map, vectors such as parcels, or objects) keeps every \
+         object inside one zone; with `from`, the objects of the level below are cut by the zones first.",
     ),
     (
         "segment.slic",
@@ -637,7 +638,7 @@ pub const TIPS: &[(&str, &str)] = &[
          other data. Neighbouring regions merge when they are each other's most similar and closer than it, pass \
          after pass until none does. Lower thresholds give finer objects: use the result as `seeds` of a run with a \
          higher one for a hierarchy. `minsize` joins the specks to their most similar neighbour at the end; \
-         `bounds` (a map of zones, a field map for example) keeps the objects inside the zones.",
+         `bounds` (a map of zones, vectors such as parcels, or objects) keeps the objects inside the zones.",
     ),
     (
         "segment.quickshift",

@@ -886,7 +886,7 @@ const PHRASES: &[(&str, &str)] = &[
     ("segment.from_vector", "The polygons of <vector> as objects on the grid of <like>[ ({neighbours} neighbours)]."),
     (
         "segment.multiresolution",
-        "<image> merged into objects by multiresolution segmentation[ at scale {scale}][, shape {shape}][, compactness {compactness}][, on top of the objects of <from>].",
+        "<image> merged into objects by multiresolution segmentation[ at scale {scale}][, shape {shape}][, compactness {compactness}][, on top of the objects of <from>][, within the zones of <bounds>].",
     ),
     ("segment.slic", "<image> divided into SLIC superpixels[ of about {size} cells][, compactness {compactness}]."),
     ("segment.snic", "<image> divided into SNIC superpixels[ of about {size} cells][, compactness {compactness}]."),

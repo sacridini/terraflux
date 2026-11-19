@@ -34,6 +34,7 @@ fn tile_job(
     max_passes: u32,
     tile: usize,
     margin: usize,
+    zones: &[u64],
 ) -> Option<super::tiles::TileJob> {
     let super::big::Part::Disk(r, _) = d.src.parts.first()? else { return None };
     let layers = d
@@ -60,6 +61,7 @@ fn tile_job(
         max_passes,
         tile,
         margin,
+        zones: super::zones::compact(zones),
     })
 }
 
@@ -163,10 +165,11 @@ impl Regions {
     #[cfg(test)]
     fn new(labels: &[u32], count: usize, w: usize, h: usize, bands: &[Arc<Vec<f64>>], centre: &[f64]) -> Regions {
         let src = Layered::new(bands.iter().cloned().map(super::big::Part::Mem).collect(), w, h);
-        Regions::from_source(labels, count, w, h, &src, centre).expect("memory is read without failing")
+        Regions::from_source(labels, count, w, h, &src, centre, &[]).expect("memory is read without failing")
     }
 
     /// The same with the values read by strips of rows from `src` (an image on disk is never whole in memory).
+    /// `zones` (one number a cell, empty for none) keeps the cells of different zones from being neighbours.
     fn from_source(
         labels: &[u32],
         count: usize,
@@ -174,6 +177,7 @@ impl Regions {
         h: usize,
         src: &dyn Source,
         centre: &[f64],
+        zones: &[u64],
     ) -> Result<Regions> {
         let nb = src.nb();
         let stride = 4 * nb;
@@ -213,8 +217,9 @@ impl Regions {
                             s[2] += d * d;
                         }
                     }
-                    for o in [right, down] {
-                        if o != 0 && o != a {
+                    // (cells of two zones are not neighbours; their edge still counts in the perimeter above)
+                    for (o, j) in [(right, i + 1), (down, i + w)] {
+                        if o != 0 && o != a && (zones.is_empty() || zones[i] == zones[j]) {
                             g.adj[k].push(Edge { nb: o - 1, shared: 1, cost: f64::NAN });
                             g.adj[o as usize - 1].push(Edge { nb: a - 1, shared: 1, cost: f64::NAN });
                         }
@@ -555,9 +560,11 @@ pub(crate) fn merge_level(
     seed: u64,
     max_passes: u32,
     from: Option<&Objects>,
+    zones: &[u64],
 ) -> Level {
     let src = Layered::mem(data, grid);
-    merge_level_src(grid, &src, cost, scale, mutual, seed, max_passes, from).expect("memory is read without failing")
+    merge_level_src(grid, &src, cost, scale, mutual, seed, max_passes, from, zones)
+        .expect("memory is read without failing")
 }
 
 /// [`merge_level`] over an image read by strips of rows from `src` (on disk, say): the same regions, the sums made
@@ -572,6 +579,7 @@ pub(crate) fn merge_level_src(
     seed: u64,
     max_passes: u32,
     from: Option<&Objects>,
+    zones: &[u64],
 ) -> Result<Level> {
     let (w, h) = (grid.width, grid.height);
     // the start: a label for each cell that has a value (and, with `from`, is in an object); the centre of each
@@ -605,6 +613,20 @@ pub(crate) fn merge_level_src(
             }
             (v, next as usize)
         }
+        Some(f) if !zones.is_empty() => {
+            // an object of `from` cut by the zones: a region for each (object, zone), in the order of the first cell
+            // (one zone: the same regions as without zones)
+            let mut id = std::collections::HashMap::new();
+            let mut v = Labels::zeros(n);
+            for i in 0..n {
+                let a = f.labels[i];
+                if valid[i] && a != 0 {
+                    let next = id.len() as u32 + 1;
+                    v[i] = *id.entry((a, zones[i])).or_insert(next);
+                }
+            }
+            (v, id.len())
+        }
         Some(f) => {
             // from-objects with no valid cell are no region: the ids closed up
             let mut id = vec![0u32; f.count + 1];
@@ -624,7 +646,7 @@ pub(crate) fn merge_level_src(
         }
     };
     drop(valid);
-    let mut g = Regions::from_source(&labels, count, w, h, src, &centre)?;
+    let mut g = Regions::from_source(&labels, count, w, h, src, &centre, zones)?;
     let root = merge_all(&mut g, cost, scale, mutual, seed, max_passes);
     // (the region of each cell is read through the start labels, never made as an array)
     let objects = Objects::from_fn(
@@ -679,7 +701,9 @@ impl Operator for Multiresolution {
              suggests one). Raw values are used, not standardised. A cell without a value in every band is no object \
              and never merges; a cell with a value in some bands counts in those bands only. With `from`, the \
              objects of a level below are the start regions, and the result is the level above them: every \
-             object of `from` ends inside exactly one new object (output below). A run is one thread, except a big \
+             object of `from` ends inside exactly one new object (output below). With `bounds` no object crosses \
+             from one zone to another (a lot, a block, a field); the shape cost still counts the zone's edge as the \
+             object's border. A run is one thread, except a big \
              image (or `tile`), which is cut into tiles segmented in parallel and stitched at their borders; the \
              result is the same on every run with the same seed.",
             Access::Global,
@@ -694,6 +718,13 @@ impl Operator for Multiresolution {
             "from",
             Type::Objects,
             "objects of the same grid to start from (the level below); cells in none of them are no object",
+        ))
+        .input(PortSpec::optional(
+            "bounds",
+            Type::Any,
+            "a thematic layer whose zones no object crosses: a map (a zone for each value, the cells without a value \
+             one zone together), vectors (each feature a zone, the cells in none one zone) or objects (each object a \
+             zone, id 0 one zone); with `from`, its objects are cut by the zones first",
         ))
         .output(PortSpec::new("objects", Type::Objects, "the new level"))
         .output(PortSpec::new(
@@ -803,7 +834,8 @@ impl Operator for Multiresolution {
                 ));
             };
             let m = super::tiles::margin_of(t, margin as usize);
-            let job = tile_job(&d, &cost, scale, mutual, seed as u64, max_passes as u32, t, m);
+            let zone = super::zones::zones(args, "bounds", &d.grid)?;
+            let job = tile_job(&d, &cost, scale, mutual, seed as u64, max_passes as u32, t, m, &zone);
             let runner = ctx.tile_runner().cloned();
             let remote = runner.as_ref().zip(job.as_ref()).map(|(r, j)| (&**r, j.clone()));
             let on_cluster = remote.is_some();
@@ -821,6 +853,7 @@ impl Operator for Multiresolution {
                 t,
                 m,
                 remote,
+                &zone,
             );
             // a cluster that fails (a computer left) never fails the run: the tiles run here
             if let (true, Err(e)) = (on_cluster, &o) {
@@ -836,6 +869,7 @@ impl Operator for Multiresolution {
                     t,
                     m,
                     None,
+                    &zone,
                 );
             }
             let o = o?;
@@ -875,6 +909,7 @@ impl Operator for Multiresolution {
             }
         };
         let cost = Cost { colour: 1.0 - shape, compact, weights };
+        let zone = super::zones::zones(args, "bounds", &l.grid)?;
         // by tiles (an image without `from` that is big, or when `tile` says so): the objects, their table at once
         if from.is_none()
             && let Some(t) = super::tiles::tile_side(w, h, tile as usize)
@@ -898,6 +933,7 @@ impl Operator for Multiresolution {
                 t,
                 m,
                 None,
+                &zone,
             )?;
             let table = super::stats_table(&o, &l.names, &l.data);
             let o = Arc::new(o.with_table(table.clone())?);
@@ -907,8 +943,17 @@ impl Operator for Multiresolution {
                 ("scale", Value::Number(scale)),
             ]));
         }
-        let Level { objects: o, labels, root, g, centre } =
-            merge_level(&l.grid, &l.data, &cost, scale, mutual, seed as u64, max_passes as u32, from.map(|f| &**f));
+        let Level { objects: o, labels, root, g, centre } = merge_level(
+            &l.grid,
+            &l.data,
+            &cost,
+            scale,
+            mutual,
+            seed as u64,
+            max_passes as u32,
+            from.map(|f| &**f),
+            &zone,
+        );
         // the table: the statistics of each object from its root region
         let names = super::band_names(&l.names);
         let mut columns: Vec<String> = ["id", "cells", "area"].map(String::from).to_vec();

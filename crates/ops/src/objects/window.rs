@@ -14,6 +14,7 @@ use super::esp::{Settings, esp, tables};
 use super::growing::ranges_of;
 use super::multiresolution::{Cost, merge_level};
 use super::superpixels::band_stats;
+use super::zones::zones_of;
 use crate::raster_stats::Layers;
 use crate::{Args, Ctx, Error, Key, Map, Outputs, Registry, Result, Stack, Table, Value};
 
@@ -134,9 +135,26 @@ pub fn segment_window(
     step: usize,
     p: &WindowSettings,
 ) -> Result<Objects> {
+    segment_window_bounds(grid, data, win, step, p, None)
+}
+
+/// [`segment_window`] with the `bounds` of the node (a map, vectors or objects of the whole image) cut to the
+/// window: no object crosses a zone.
+pub fn segment_window_bounds(
+    grid: &Grid,
+    data: &[Arc<Vec<f64>>],
+    win: Window,
+    step: usize,
+    p: &WindowSettings,
+    bounds: Option<&Value>,
+) -> Result<Objects> {
     let cost = p.cost(data.len())?;
     let (g, bands) = read(grid, data, win, step)?;
-    Ok(merge_level(&g, &bands, &cost, p.scale, p.mutual, p.seed, 100, None).objects)
+    let zone = match bounds {
+        None => Vec::new(),
+        Some(v) => zones_of(&cut("bounds", v, grid, win, step, &g)?, &g, "bounds")?,
+    };
+    Ok(merge_level(&g, &bands, &cost, p.scale, p.mutual, p.seed, 100, None, &zone).objects)
 }
 
 /// The table of ESP (as `segment.scale`'s `table`: scale, objects, lv_, roc_, roc_mean, suggested) over a window read
@@ -176,7 +194,7 @@ impl Whole {
 }
 
 /// The segmenters `segment_window_op` runs, and whether each standardises its bands (the others read the values).
-const OPS: [(&str, bool); 9] = [
+const OPS: [(&str, bool); 10] = [
     ("segment.slic", true),
     ("segment.snic", true),
     ("segment.felzenszwalb", true),
@@ -186,6 +204,7 @@ const OPS: [(&str, bool); 9] = [
     ("segment.threshold", false),
     ("segment.spectral_difference", false),
     ("segment.region_growing", false),
+    ("segment.multiresolution", false),
 ];
 
 /// The settings that count cells or are measured over them, as the reading step changes them: the setting, its
@@ -234,7 +253,7 @@ fn stepped(op: &str, p: &mut Params, step: usize) {
     }
 }
 
-/// The part of an input of the whole image (objects or a map on its grid) that lies in the window read every
+/// The part of an input of the whole image (objects, a map or vectors on its grid) that lies in the window read every
 /// `step`-th cell, on the window's grid `g`.
 fn cut(name: &str, v: &Value, grid: &Grid, win: Window, step: usize, g: &Arc<Grid>) -> Result<Value> {
     let bad = |m: &str| Error::msg(format!("{name}: {m}"));
@@ -247,8 +266,14 @@ fn cut(name: &str, v: &Value, grid: &Grid, win: Window, step: usize, g: &Arc<Gri
             let labels: Vec<u32> = (0..g.cells()).map(|i| o.labels[pick(i)]).collect();
             Ok(Value::Objects(Arc::new(Objects::from_fn(g.clone(), |i| labels[i], 0u32, 4))))
         }
+        // (vectors are burnt on the whole grid, one number for each feature, and cut as a map)
+        Value::Vector(_) => {
+            let zone = zones_of(v, grid, name)?;
+            let data = (0..g.cells()).map(|i| f64::from_bits(zone[pick(i)])).collect();
+            Ok(Value::Map(Map::new(g.clone(), data)))
+        }
         Value::Map(_) | Value::Objects(_) => Err(bad("not on the grid of the image")),
-        _ => Err(bad("objects or a map, to be cut to the window")),
+        _ => Err(bad("objects, a map or vectors, to be cut to the window")),
     }
 }
 
