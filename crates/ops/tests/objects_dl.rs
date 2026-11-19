@@ -8,8 +8,8 @@ use std::ffi::OsString;
 use std::sync::Arc;
 
 use terraflux_ops::objects::deep::{
-    Mask, SAM_SIZE, SamParams, Tile, embed_objects, patch_tensor, pool, resolve, sam_image, sam_image_hwc, sam_regions,
-    standardize, stretch_range, tiles, to_byte, with_embeddings,
+    Mask, SAM_SIZE, SamParams, Tile, embed_objects, paint, patch_tensor, pool, resolve, sam_image, sam_image_hwc,
+    sam_regions, standardize, stretch_range, suppress, tiles, to_byte, with_embeddings,
 };
 use terraflux_ops::objects::onnx::{Infer, Ort, Tensor};
 use terraflux_ops::objects::{NO_REGION, Objects};
@@ -152,6 +152,95 @@ fn overlaps_go_to_the_higher_iou_and_the_first_on_a_tie() {
     assert!(resolve(&[], 3).iter().all(|&x| x == 0));
 }
 
+#[test]
+fn smaller_masks_are_painted_over_the_larger() {
+    let m = |iou: f32, cells: &[usize]| {
+        let mut b = vec![false; 6];
+        cells.iter().for_each(|&c| b[c] = true);
+        Mask::from_bools(iou, &b)
+    };
+    // the largest (0..=4) first, then 1..=2, then 2 alone on top, whatever the predicted IoU
+    let masks = [m(0.99, &[2]), m(0.5, &[0, 1, 2, 3, 4]), m(0.7, &[1, 2])];
+    assert_eq!(paint(&masks, 6), vec![2, 3, 1, 2, 2, 0]);
+}
+
+#[test]
+fn boxes_that_overlap_are_thinned_by_stability_times_iou() {
+    // masks in a tile 10 wide: a box of 4 x 4 cells twice (shifted by one column), and a far one
+    let m = |iou: f32, st: f32, r: usize, c: usize| {
+        let mut b = vec![false; 100];
+        for i in r..r + 4 {
+            for j in c..c + 4 {
+                b[i * 10 + j] = true;
+            }
+        }
+        Mask::from_bools(iou, &b).with_stability(st)
+    };
+    let kept = suppress(vec![m(1.0, 0.8, 0, 0), m(0.9, 0.99, 0, 1), m(0.9, 0.9, 6, 6)], 10, 0.7);
+    // the boxes' IoU is 12 / 20 = 0.6: under 0.7 both stay ...
+    assert_eq!(kept.len(), 3);
+    // ... and at a lower bar the worse of the two goes
+    let kept = suppress(vec![m(1.0, 0.8, 0, 0), m(0.9, 0.99, 0, 1), m(0.9, 0.9, 6, 6)], 10, 0.5);
+    assert_eq!(kept.len(), 2);
+    assert!((kept[0].stability - 0.99).abs() < 1e-6);
+}
+
+/// A decoder that gives one mask: logits that are +3 in the left third, +0.5 in the next third (inside, but not
+/// stable) and -3 elsewhere.
+struct Soft;
+
+impl Infer for Soft {
+    fn input_names(&self) -> Vec<String> {
+        ["image_embeddings", "point_coords", "point_labels", "mask_input", "has_mask_input", "orig_im_size"]
+            .map(String::from)
+            .to_vec()
+    }
+
+    fn output_names(&self) -> Vec<String> {
+        ["masks", "iou_predictions"].map(String::from).to_vec()
+    }
+
+    fn run(&self, inputs: &[(&str, &Tensor)], _outputs: &[&str]) -> Result<Vec<Tensor>> {
+        let size = inputs.iter().find(|(k, _)| *k == "orig_im_size").unwrap().1;
+        let (h, w) = (size.data[0] as usize, size.data[1] as usize);
+        let m = (0..h * w)
+            .map(|i| {
+                if i % w < w / 3 {
+                    3.0
+                } else if i % w < 2 * w / 3 {
+                    0.5
+                } else {
+                    -3.0
+                }
+            })
+            .collect();
+        Ok(vec![Tensor::new(vec![1, 1, h as i64, w as i64], m), Tensor::new(vec![1, 1], vec![0.95])])
+    }
+}
+
+#[test]
+fn unstable_and_background_masks_are_dropped() {
+    use terraflux_ops::objects::deep::sam_tile;
+    let (w, h) = (30, 30);
+    let band: Vec<f64> = (0..w * h).map(|i| (i % w) as f64).collect();
+    let t = Tile { r0: 0, c0: 0, h, w };
+    let run = |p: SamParams| {
+        sam_tile(&Encoder, &Soft, [&band, &band, &band], w, &vec![true; w * h], &t, [(0.0, 29.0); 3], &p).unwrap()
+    };
+    let base = SamParams { points: 1, iou: 0.5, stability: 0.0, max_area: 1.0, ..SamParams::default() };
+    // 20 of 30 columns are inside; 10 are surely in: stability 0.5
+    let m = run(base);
+    assert_eq!(m.len(), 1);
+    assert!((m[0].stability - 0.5).abs() < 1e-6, "{}", m[0].stability);
+    assert_eq!(m[0].cells(), 600);
+    assert!(run(SamParams { stability: 0.6, ..base }).is_empty());
+    // a smaller offset (0.4) makes both parts stable: 20 over 20
+    let m = run(SamParams { stability: 0.95, offset: 0.4, ..base });
+    assert_eq!(m.len(), 1);
+    // 600 of 900 cells: dropped when the limit is a half
+    assert!(run(SamParams { max_area: 0.5, ..base }).is_empty());
+}
+
 /// A decoder that, for a prompt point, gives two masks: the whole tile (IoU `low`) and the half of the tile that
 /// holds the point, left or right (IoU `high`).
 struct Halves {
@@ -186,8 +275,8 @@ impl Infer for Halves {
         assert_eq!(get("point_labels").data, vec![1.0, -1.0]);
         let x = coords.data[0] / scale;
         let left = x < w as f32 / 2.0;
-        let mut masks = vec![1.0f32; h * w];
-        masks.extend((0..h * w).map(|i| if (i % w < w / 2) == left { 1.0 } else { -1.0 }));
+        let mut masks = vec![10.0f32; h * w];
+        masks.extend((0..h * w).map(|i| if (i % w < w / 2) == left { 10.0 } else { -10.0 }));
         Ok(vec![Tensor::new(vec![1, 2, h as i64, w as i64], masks), Tensor::new(vec![1, 2], vec![self.low, self.high])])
     }
 }
@@ -244,7 +333,7 @@ fn sam_sends_the_resized_hwc_image_to_an_export_that_normalises_inside() {
     let (w, h) = (40, 30);
     let band: Vec<f64> = (0..w * h).map(|i| (i % w) as f64).collect();
     let dec = halves(0.3, 0.9);
-    let p = SamParams { points: 2, iou: 0.8 };
+    let p = SamParams { points: 2, iou: 0.8, ..SamParams::default() };
     sam_regions(&EncoderHwc, &dec, [&band, &band, &band], (w, h), &p, 1, true).unwrap();
     assert_eq!(dec.calls.get(), 4);
     let (x, scale, size) = sam_image_hwc([&band, &band, &band], w, &Tile { r0: 0, c0: 0, h, w }, [(0.0, 39.0); 3]);
@@ -271,7 +360,7 @@ fn halves(low: f32, high: f32) -> Halves {
 #[test]
 fn sam_keeps_the_best_mask_of_each_point_and_resolves_the_overlaps() {
     let dec = halves(0.3, 0.9);
-    let (o, _) = sam(&dec, SamParams { points: 2, iou: 0.8 }, 1, false);
+    let (o, _) = sam(&dec, SamParams { points: 2, iou: 0.8, ..SamParams::default() }, 1, false);
     // 4 prompts, each with the whole tile at 0.3 and a half at 0.9: the best is the half
     assert_eq!(dec.calls.get(), 4);
     assert_eq!(dec.given.get(), 6);
@@ -284,11 +373,11 @@ fn sam_keeps_the_best_mask_of_each_point_and_resolves_the_overlaps() {
 #[test]
 fn sam_drops_masks_under_the_iou_and_fills_the_rest() {
     let dec = halves(0.3, 0.7);
-    let (o, region) = sam(&dec, SamParams { points: 2, iou: 0.8 }, 1, false);
+    let (o, region) = sam(&dec, SamParams { points: 2, iou: 0.8, ..SamParams::default() }, 1, false);
     assert_eq!(o.count, 0);
     assert!(region.iter().all(|&r| r == NO_REGION));
     // with fill the whole tile is leftover: one object
-    let (o, _) = sam(&dec, SamParams { points: 2, iou: 0.8 }, 1, true);
+    let (o, _) = sam(&dec, SamParams { points: 2, iou: 0.8, ..SamParams::default() }, 1, true);
     assert_eq!(o.count, 1);
     assert_eq!(o.cells, vec![1200]);
 }
@@ -297,9 +386,9 @@ fn sam_drops_masks_under_the_iou_and_fills_the_rest() {
 fn sam_min_size_sends_small_masks_to_the_leftover() {
     let dec = halves(0.3, 0.9);
     // the halves are 600 cells: a minimum above leaves them out, and fill keeps the cells as one object
-    let (o, _) = sam(&dec, SamParams { points: 2, iou: 0.8 }, 601, false);
+    let (o, _) = sam(&dec, SamParams { points: 2, iou: 0.8, ..SamParams::default() }, 601, false);
     assert_eq!(o.count, 0);
-    let (o, _) = sam(&dec, SamParams { points: 2, iou: 0.8 }, 601, true);
+    let (o, _) = sam(&dec, SamParams { points: 2, iou: 0.8, ..SamParams::default() }, 601, true);
     assert_eq!(o.count, 1);
 }
 
@@ -309,7 +398,7 @@ fn sam_does_not_prompt_cells_without_a_value() {
     let (w, h) = (40, 30);
     // the left half has no value: the points there are not run, and no mask holds it
     let band: Vec<f64> = (0..w * h).map(|i| if i % w < 20 { f64::NAN } else { 1.0 }).collect();
-    let p = SamParams { points: 2, iou: 0.8 };
+    let p = SamParams { points: 2, iou: 0.8, ..SamParams::default() };
     let region = sam_regions(&Encoder, &dec, [&band, &band, &band], (w, h), &p, 1, true).unwrap();
     assert_eq!(dec.calls.get(), 2);
     let o = Objects::from_regions(Arc::new(Grid::new(w, h)), &region, 4);
@@ -470,7 +559,7 @@ fn real_models_make_objects_and_embeddings() {
         let ort = Ort::load().unwrap();
         let (e, d) = (ort.session(&path(&enc)).unwrap(), ort.session(&path(&dec)).unwrap());
         let ranges = [stretch_range(&bands[0]), stretch_range(&bands[1]), stretch_range(&bands[2])];
-        let p = SamParams { points: 12, iou: 0.0 };
+        let p = SamParams { points: 12, iou: 0.0, stability: 0.0, max_area: 1.0, nms: 1.0, ..SamParams::default() };
         let masks = sam_tile(
             &e,
             &d,
@@ -522,8 +611,8 @@ fn real_models_make_objects_and_embeddings() {
         ious.push(best);
     }
     eprintln!("segment.sam: {} objects; IoU with the truth per shape: {ious:.3?}", o.count);
-    // (after the overlaps are resolved by predicted IoU, which this export gives as about 1 for any mask)
-    assert!(ious.iter().any(|&v| v > 0.7), "IoU per shape: {ious:?}");
+    // (stability, the background dropped, box NMS and the smaller masks painted last: one object a shape)
+    assert!(ious.iter().all(|&v| v >= 0.9), "IoU per shape: {ious:?}");
     // (the side of the patches the model takes: TF_TEST_EMBED_PATCH, 224 by default; the fixture model takes 16)
     let patch: u64 = var("TF_TEST_EMBED_PATCH").and_then(|v| v.parse().ok()).unwrap_or(224);
     let out = run(

@@ -152,10 +152,12 @@ pub fn sam_image_hwc(
 
 // ---- masks
 
-/// A mask of a tile's cells (a bit each) and the model's predicted IoU of it.
+/// A mask of a tile's cells (a bit each), the model's predicted IoU of it and its stability score.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mask {
     pub iou: f32,
+    /// The IoU between the mask cut at logit +offset and at -offset (1 when not worked out).
+    pub stability: f32,
     n: usize,
     bits: Vec<u64>,
 }
@@ -168,7 +170,29 @@ impl Mask {
                 bits[i / 64] |= 1 << (i % 64);
             }
         }
-        Mask { iou, n: cells.len(), bits }
+        Mask { iou, stability: 1.0, n: cells.len(), bits }
+    }
+
+    /// The same mask with its stability score.
+    pub fn with_stability(mut self, stability: f32) -> Mask {
+        self.stability = stability;
+        self
+    }
+
+    /// The box of its cells in a tile `width` cells wide: first row and column, last row and column (none when empty).
+    pub fn bbox(&self, width: usize) -> Option<[usize; 4]> {
+        let mut b: Option<[usize; 4]> = None;
+        for (wi, &word) in self.bits.iter().enumerate() {
+            let mut w = word;
+            while w != 0 {
+                let i = wi * 64 + w.trailing_zeros() as usize;
+                w &= w - 1;
+                let (r, c) = (i / width, i % width);
+                let b = b.get_or_insert([r, c, r, c]);
+                *b = [b[0].min(r), b[1].min(c), b[2].max(r), b[3].max(c)];
+            }
+        }
+        b
     }
 
     pub fn get(&self, i: usize) -> bool {
@@ -209,6 +233,48 @@ pub fn resolve(masks: &[Mask], n: usize) -> Vec<u32> {
     out
 }
 
+/// The masks painted one over the other, the larger first so that the smaller ones lie on top and survive (of equal
+/// size the later on top). Each cell's mask (its index in `masks` plus 1), 0 for none.
+pub fn paint(masks: &[Mask], n: usize) -> Vec<u32> {
+    let mut order: Vec<(usize, usize)> = masks.iter().enumerate().map(|(k, m)| (m.cells(), k)).collect();
+    order.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    let mut out = vec![0u32; n];
+    for (_, k) in order {
+        for (wi, &word) in masks[k].bits.iter().enumerate() {
+            let mut w = word;
+            while w != 0 {
+                let i = wi * 64 + w.trailing_zeros() as usize;
+                w &= w - 1;
+                if i < n {
+                    out[i] = k as u32 + 1;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Box non-maximum suppression: the masks by `stability x iou` first, one is dropped when the box of a kept one
+/// overlaps its box by more than `nms` (IoU of the boxes). The masks kept, best first.
+pub fn suppress(masks: Vec<Mask>, width: usize, nms: f32) -> Vec<Mask> {
+    let mut v: Vec<(Mask, [usize; 4])> = masks.into_iter().filter_map(|m| m.bbox(width).map(|b| (m, b))).collect();
+    v.sort_by(|a, b| (b.0.stability * b.0.iou).total_cmp(&(a.0.stability * a.0.iou)));
+    let area = |b: &[usize; 4]| ((b[2] - b[0] + 1) * (b[3] - b[1] + 1)) as f64;
+    let mut kept: Vec<(Mask, [usize; 4])> = Vec::new();
+    for (m, b) in v {
+        let same = kept.iter().any(|(_, k)| {
+            let h = (b[2].min(k[2]) + 1).saturating_sub(b[0].max(k[0]));
+            let w = (b[3].min(k[3]) + 1).saturating_sub(b[1].max(k[1]));
+            let inter = (h * w) as f64;
+            inter / (area(&b) + area(k) - inter) > nms as f64
+        });
+        if !same {
+            kept.push((m, b));
+        }
+    }
+    kept.into_iter().map(|(m, _)| m).collect()
+}
+
 /// The name among a model's `names` that is `want`, else the one at `at`.
 fn pick(names: &[String], want: &str, at: usize) -> Result<String> {
     names
@@ -226,11 +292,27 @@ pub struct SamParams {
     pub points: usize,
     /// The least predicted IoU kept.
     pub iou: f32,
+    /// The least stability score kept.
+    pub stability: f32,
+    /// The logit offset of the stability score: the mask cut at +offset against at -offset.
+    pub offset: f32,
+    /// The largest share of a tile's cells a mask may cover (a bigger one is the background).
+    pub max_area: f32,
+    /// The box IoU above which the worse of two masks is dropped.
+    pub nms: f32,
 }
 
-/// The masks of a tile: the encoder run once, then the decoder on each point of a grid (a cell without a value is
-/// not prompted); of the masks the decoder gives for a point the one of the best predicted IoU is kept when that is
-/// at least `iou`. A mask holds only cells with a value. Decoder inputs: `image_embeddings`, `point_coords`
+impl Default for SamParams {
+    /// The settings of SAM's automatic mask generator (16 points a side, as 32 would be slow on a CPU).
+    fn default() -> SamParams {
+        SamParams { points: 16, iou: 0.88, stability: 0.95, offset: 1.0, max_area: 0.9, nms: 0.7 }
+    }
+}
+
+/// The masks of a tile as SAM's automatic mask generator makes them: the encoder run once, then the decoder on each
+/// point of a grid (a cell without a value is not prompted); of the masks the decoder gives for a point the one of
+/// the best predicted IoU is kept when that is at least `iou`, its stability score at least `stability` and it
+/// covers no more than `max_area` of the tile; then the boxes' non-maximum suppression at `nms`. A mask holds only cells with a value. Decoder inputs: `image_embeddings`, `point_coords`
 /// (1 x N x 2, in the resized 1024 frame, the point and a padding point 0,0), `point_labels` (1 x N: 1 and -1),
 /// `mask_input` (zeros 1 x 1 x 256 x 256), `has_mask_input` (0) and `orig_im_size` (height, width of the tile, or of the frame in its cells for the HWC export);
 /// outputs `masks` (1 x K x height x width, logits: above 0 is in) and `iou_predictions` (1 x K).
@@ -308,19 +390,30 @@ pub fn sam_tile(
                 continue;
             }
             let logits = &m.data[best * mh * mw..(best + 1) * mh * mw];
-            let inside: Vec<bool> = (0..t.h * t.w)
-                .map(|q| {
-                    let (r, c) = (q / t.w, q % t.w);
-                    logits[r * mw + c] > 0.0 && valid[(t.r0 + r) * width + t.c0 + c]
-                })
-                .collect();
-            masks.push(Mask::from_bools(q.data[best], &inside));
+            let (mut inside, mut hi, mut lo) = (vec![false; t.h * t.w], 0usize, 0usize);
+            for (q, cell) in inside.iter_mut().enumerate() {
+                let (r, c) = (q / t.w, q % t.w);
+                if !valid[(t.r0 + r) * width + t.c0 + c] {
+                    continue;
+                }
+                let l = logits[r * mw + c];
+                *cell = l > 0.0;
+                hi += (l > p.offset) as usize;
+                lo += (l > -p.offset) as usize;
+            }
+            // (the stability: the cells surely in over the cells possibly in)
+            let stability = if lo == 0 { 0.0 } else { hi as f32 / lo as f32 };
+            let cells = inside.iter().filter(|&&b| b).count();
+            if stability < p.stability || cells as f64 > p.max_area as f64 * (t.h * t.w) as f64 {
+                continue;
+            }
+            masks.push(Mask::from_bools(q.data[best], &inside).with_stability(stability));
         }
     }
-    Ok(masks)
+    Ok(suppress(masks, t.w, p.nms))
 }
 
-/// The regions of a whole image by SAM: tiles of 1024, each tile's masks resolved by IoU, one region per mask (the
+/// The regions of a whole image by SAM: tiles of 1024, each tile's masks painted larger first, one region per mask (the
 /// ones of different tiles are different); the cells no mask holds are the region [`LEFT`] when `fill`, else none.
 /// Masks of fewer than `min_size` cells are left out.
 pub fn sam_regions(
@@ -338,7 +431,7 @@ pub fn sam_regions(
     let mut next = 0u64;
     for t in tiles(width, height, SAM_SIZE) {
         let masks = sam_tile(enc, dec, rgb, width, &valid, &t, ranges, p)?;
-        let owner = resolve(&masks, t.h * t.w);
+        let owner = paint(&masks, t.h * t.w);
         // each mask's cells left after the overlaps, kept when they are enough
         let mut left = vec![0usize; masks.len()];
         owner.iter().filter(|&&o| o != 0).for_each(|&o| left[o as usize - 1] += 1);
@@ -408,8 +501,12 @@ impl Operator for Sam {
              iou_predictions. The image is cut into tiles of 1024 x 1024 cells (clipped at the edges, resized so \
              the longer side is 1024 and padded), the three bands stretched to 0-255 between their 2nd and 98th \
              percentiles; a grid of `points` x `points` prompt points is run on each tile (a cell without a value is \
-             not prompted), the best mask of a point is kept when its predicted IoU is at least `iou`, and the \
-             overlaps are resolved by the higher IoU first, cell by cell (the first kept wins). With `fill` the \
+             not prompted), the best mask of a point is kept when its predicted IoU is at least `iou`, its \
+             stability score (the IoU of the mask cut at logit +`stability_offset` and at minus it) is at least \
+             `stability_thresh` and it covers at most `max_area` of the tile (a bigger one is the background); then \
+             the masks are thinned by box non-maximum suppression at 0.7, ranked by stability x IoU, as SAM's \
+             automatic mask generator does, and painted one over the other, the larger first, so that the smaller \
+             ones on top survive. With `fill` the \
              cells that no mask holds become objects too (each connected area). The masks of a tile are cut at its \
              edge, so an object spanning tiles is one object for each. Each mask's cells that are not connected \
              are different objects.",
@@ -439,7 +536,22 @@ impl Operator for Sam {
             "three layer names for red, green and blue (default: the first three)",
         ))
         .param(PortSpec::optional("points", Type::Integer, "prompt points per side of the grid, 1 to 64 (default 16)"))
-        .param(PortSpec::optional("iou", Type::Number, "the least predicted IoU of a mask kept, 0 to 1 (default 0.8)"))
+        .param(PortSpec::optional("iou", Type::Number, "the least predicted IoU of a mask kept, 0 to 1 (default 0.88)"))
+        .param(PortSpec::optional(
+            "stability_thresh",
+            Type::Number,
+            "the least stability score of a mask kept, 0 to 1 (default 0.95)",
+        ))
+        .param(PortSpec::optional(
+            "stability_offset",
+            Type::Number,
+            "the logit offset of the stability score, above 0 (default 1)",
+        ))
+        .param(PortSpec::optional(
+            "max_area",
+            Type::Number,
+            "the largest share of a tile a mask may cover, 0 to 1 (default 0.9)",
+        ))
         .param(PortSpec::optional(
             "min_size",
             Type::Integer,
@@ -467,9 +579,21 @@ impl Operator for Sam {
         if !(1..=64).contains(&points) {
             return Err(bad(format!("points {points}: from 1 to 64")));
         }
-        let iou: f64 = args.param("iou", 0.8)?;
+        let iou: f64 = args.param("iou", 0.88)?;
         if !(0.0..=1.0).contains(&iou) {
             return Err(bad(format!("iou {iou}: from 0 to 1")));
+        }
+        let stability: f64 = args.param("stability_thresh", 0.95)?;
+        if !(0.0..=1.0).contains(&stability) {
+            return Err(bad(format!("stability_thresh {stability}: from 0 to 1")));
+        }
+        let offset: f64 = args.param("stability_offset", 1.0)?;
+        if offset <= 0.0 {
+            return Err(bad(format!("stability_offset {offset}: above 0")));
+        }
+        let max_area: f64 = args.param("max_area", 0.9)?;
+        if !(0.0..=1.0).contains(&max_area) {
+            return Err(bad(format!("max_area {max_area}: from 0 to 1")));
         }
         let min_size: i64 = args.param("min_size", 1)?;
         if min_size < 1 {
@@ -510,7 +634,14 @@ impl Operator for Sam {
         let enc = super::onnx::open(&ort, node, "encoder", &encoder)?;
         let dec = super::onnx::open(&ort, node, "decoder", &decoder)?;
         let (w, h) = (l.grid.width, l.grid.height);
-        let p = SamParams { points: points as usize, iou: iou as f32 };
+        let p = SamParams {
+            points: points as usize,
+            iou: iou as f32,
+            stability: stability as f32,
+            offset: offset as f32,
+            max_area: max_area as f32,
+            ..SamParams::default()
+        };
         let rgb = [data[0].as_slice(), data[1].as_slice(), data[2].as_slice()];
         let region =
             sam_regions(&enc, &dec, rgb, (w, h), &p, min_size as usize, fill).map_err(|e| bad(e.to_string()))?;
