@@ -230,6 +230,7 @@ impl Operator for Quickshift {
             Access::Global,
         )
         .input(PortSpec::new("image", Type::Any, "a map, or a stack of bands, the colour"))
+        .input(super::zones::port(false))
         .output(PortSpec::new("objects", Type::Objects, "the segments, each one connected"))
         .output(PortSpec::new(
             "table",
@@ -292,7 +293,7 @@ impl Operator for Quickshift {
         if sigma > 0.0 {
             smooth(&mut p, sigma);
         }
-        finish(&l, &quickshift(&p, ratio, kernel, max_dist))
+        finish(args, &l, &quickshift(&p, ratio, kernel, max_dist))
     }
 }
 

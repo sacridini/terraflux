@@ -236,6 +236,10 @@ pub fn features_give(spec: Option<&serde_json::Value>, column: &str) -> Option<(
         return None;
     }
     let (group, feature) = feature_of(column)?;
+    if group == "thematic" {
+        // (made by the input `thematic`, not by a setting)
+        return Some((group, true));
+    }
     let chosen = choose("", &spec).ok()?;
     let g = GROUPS.iter().position(|g| g.name == group)?;
     Some((group, chosen[g].iter().any(|(name, _)| *name == feature)))
@@ -261,6 +265,9 @@ fn feature_of(column: &str) -> Option<(&'static str, &'static str)> {
     }
     if let Some(f) = SHAPE.iter().find(|f| **f == column) {
         return Some(("shape", f));
+    }
+    if matches!(column, "th_mode" | "th_share") {
+        return Some(("thematic", "th"));
     }
     if column == "nb_count" {
         return Some(("context", "nb_count"));
@@ -315,7 +322,9 @@ impl Operator for Features {
              the perimeter on the image's edge or no object; with classes per class c: rel_border_<c>, dist_<c> \
              = map distance from the centroid to the nearest centroid of an object of the class, nb_<c>; with a \
              parent level: parent_id and parent_<column>; with `below`: children and per class of below \
-             children_<c> and children_area_<c>). \
+             children_<c> and children_area_<c>). With a `thematic` layer: th_mode, its most common value among the \
+             object's cells (the smallest on a tie), and th_share, the share of the object's cells with a value that \
+             have it. \
              The attributes join the objects' table: a column of an old name is replaced, the others kept.",
             Access::Global,
         )
@@ -337,8 +346,21 @@ impl Operator for Features {
             Type::Objects,
             "the level beneath, whose parent level is these objects (for the context's children features)",
         ))
+        .input(PortSpec::optional(
+            "thematic",
+            Type::Any,
+            "a thematic layer, a map or vectors (lots, a land-use map): th_mode and th_share of each object join the \
+             table. A map gives its values (cells without a value count for none); vectors give the attribute `field` \
+             (a text attribute as codes 1.. in the order its texts first appear, named in the table's labels), else \
+             the feature's number from 1; cells in no feature count for none",
+        ))
         .output(PortSpec::new("objects", Type::Objects, "the same objects, with the attributes in their table"))
         .output(PortSpec::new("table", Type::Table, "the objects' table"))
+        .param(PortSpec::optional(
+            "field",
+            Type::Text,
+            "with vector `thematic`: the attribute to read (default the feature's number from 1)",
+        ))
         .param(PortSpec::optional(
             "features",
             Type::Any,
@@ -484,6 +506,16 @@ impl Operator for Features {
             }
         }
         let mut columns: Vec<(String, Vec<f64>)> = Vec::new();
+        let mut th_names: Option<Vec<String>> = None;
+        if args.get("thematic").is_some() {
+            let (cells, names) = thematic_cells(args, &o.grid)?;
+            let (mode, share) = thematic_of(o, &cells);
+            columns.push(("th_mode".into(), mode));
+            columns.push(("th_share".into(), share));
+            th_names = names;
+        } else if args.opt_param::<String>("field")?.is_some() {
+            return Err(bad("field: names an attribute of the thematic layer, which is not connected".into()));
+        }
         for ((grp, want), done) in GROUPS.iter().zip(&chosen).zip(offloaded) {
             if !want.is_empty() {
                 columns.extend(match done {
@@ -506,9 +538,106 @@ impl Operator for Features {
                 }
             }
         }
+        t.labels.remove("th_mode");
+        if let Some(names) = th_names {
+            t.labels.insert("th_mode".into(), names);
+        }
         let out = Objects::clone(o).with_table(t.clone())?;
         Ok(outputs([("objects", Value::Objects(Arc::new(out))), ("table", Value::Table(t))]))
     }
+}
+
+// ---- thematic
+
+/// The value of the thematic layer at each cell (NaN for none), and the names of the codes when it is a text
+/// attribute of vectors.
+fn thematic_cells(args: &Args, grid: &terraflux_raster::Grid) -> Result<(Vec<f64>, Option<Vec<String>>)> {
+    let node = args.node;
+    let bad = |m: String| Error::msg(format!("node {node:?}: {m}"));
+    let field = args.opt_param::<String>("field")?;
+    match args.get("thematic") {
+        Some(Value::Map(m)) => {
+            if field.is_some() {
+                return Err(bad("field: only vectors have attributes, thematic is a map".into()));
+            }
+            if !m.grid.same_as(grid) {
+                return Err(bad("thematic: a map of another grid than the objects".into()));
+            }
+            Ok((m.data.to_vec(), None))
+        }
+        Some(Value::Vector(v)) => {
+            let v = crate::vector::on_grid(v, grid)?;
+            let mut names = None;
+            let values: Vec<f64> = match &field {
+                None => (1..=v.len()).map(|k| k as f64).collect(),
+                Some(f) => match v.column(f) {
+                    None => {
+                        let have: Vec<&str> = v.attributes.iter().map(|(n, _)| n.as_str()).collect();
+                        return Err(bad(format!("field {f:?} is none of the attributes: {}", have.join(", "))));
+                    }
+                    Some(terraflux_raster::vector::Column::Numbers(x)) => x.clone(),
+                    Some(terraflux_raster::vector::Column::Texts(x)) => {
+                        // a code per distinct text, in the order they come (an empty text has none)
+                        let mut seen: Vec<String> = Vec::new();
+                        let codes = x
+                            .iter()
+                            .map(|s| {
+                                if s.is_empty() {
+                                    return f64::NAN;
+                                }
+                                let at = seen.iter().position(|q| q == s).unwrap_or_else(|| {
+                                    seen.push(s.clone());
+                                    seen.len() - 1
+                                });
+                                (at + 1) as f64
+                            })
+                            .collect();
+                        names = Some(seen);
+                        codes
+                    }
+                },
+            };
+            let mut burnt = vec![f64::NAN; grid.cells()];
+            if !v.is_empty() {
+                crate::vector::burn(&mut burnt, grid, &v, &values, false, false)
+                    .map_err(|e| bad(format!("thematic: {e}")))?;
+            }
+            Ok((burnt, names))
+        }
+        Some(v) => Err(bad(format!("thematic is a {:?}, not a map or vectors", v.ty()))),
+        None => Err(bad("no input thematic".into())),
+    }
+}
+
+/// Per object the most common value of `cells` among its cells (the smallest on a tie, NaN when no cell has a value)
+/// and its share of the cells that have a value. The objects in parallel, each from its own cells in order.
+fn thematic_of(o: &Objects, cells: &[f64]) -> (Vec<f64>, Vec<f64>) {
+    let (offsets, at) = index(o);
+    let pairs: Vec<(f64, f64)> = (0..o.count)
+        .into_par_iter()
+        .map(|k| {
+            // (+ 0.0 makes -0 a 0)
+            let mut v: Vec<f64> = at[offsets[k]..offsets[k + 1]]
+                .iter()
+                .map(|&i| cells[i as usize])
+                .filter(|x| !x.is_nan())
+                .map(|x| x + 0.0)
+                .collect();
+            if v.is_empty() {
+                return (f64::NAN, f64::NAN);
+            }
+            v.sort_unstable_by(f64::total_cmp);
+            let (mut best, mut best_n, mut run) = (v[0], 0usize, 0usize);
+            for (j, &x) in v.iter().enumerate() {
+                run = if j > 0 && x == v[j - 1] { run + 1 } else { 1 };
+                if run > best_n {
+                    (best, best_n) = (x, run);
+                }
+            }
+            (best, best_n as f64 / v.len() as f64)
+        })
+        .collect();
+    pairs.into_iter().unzip()
 }
 
 // ---- spectral

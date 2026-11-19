@@ -575,14 +575,16 @@ pub const TIPS: &[(&str, &str)] = &[
         "segment.chessboard",
         "The simplest segmentation, with no regard to the image: use it for a first level above finer objects, to \
          test a rule set, or to give the scale of a sampling grid. `size` is in cells: 1 gives a cell per object. \
-         For objects that follow what the image holds, use segment.quadtree or segment.from_map.",
+         For objects that follow what the image holds, use segment.quadtree or segment.from_map. `bounds` (a map, \
+         vectors such as parcels, or objects) cuts the squares where they cross a zone.",
     ),
     (
         "segment.quadtree",
         "Squares as small as the image needs: big where it is even, small at its edges. `threshold` is in the \
          image's units (a range inside a square, any band): start from a tenth of the image's range and lower it \
          until the objects follow the edges you want; `min_size` stops the splitting at a few cells. A stack uses \
-         every band, so give it the bands that tell the classes apart.",
+         every band, so give it the bands that tell the classes apart. `bounds` cuts the squares where they cross \
+         a zone.",
     ),
     (
         "segment.multiresolution",
@@ -599,20 +601,22 @@ pub const TIPS: &[(&str, &str)] = &[
         "segment.slic",
         "Superpixels are many small, regular objects: use them as the first level of segment.multiresolution \
          (`from`), or as the cells of a classification, not as the final objects. `size` sets their side in cells \
-         and `compactness` their regularity (higher: more regular; lower: closer to the edges).",
+         and `compactness` their regularity (higher: more regular; lower: closer to the edges). `bounds` (a map, \
+         vectors such as parcels, or objects) cuts the superpixels where they cross a zone.",
     ),
     (
         "segment.snic",
         "As segment.slic, and no iterations: it grows the superpixels from their seeds in one pass, so it is faster \
          and needs no tuning of `iterations`. Use the superpixels as the first level of segment.multiresolution \
-         (`from`), or as the cells of a classification.",
+         (`from`), or as the cells of a classification. `bounds` cuts the superpixels where they cross a zone.",
     ),
     (
         "segment.felzenszwalb",
         "`k` sets how large the segments grow, in the units of the bands (standard deviations by default): raise it \
          for larger segments; `min_size` joins the smallest ones. It makes segments of very different sizes, from \
          a graph of the cells' differences, which suits irregular scenes and less a fixed scale: for a scale you \
-         control, use segment.multiresolution.",
+         control, use segment.multiresolution. `bounds` (a map, vectors such as parcels, or objects) leaves out \
+         the graph's edges between zones, so no segment crosses one.",
     ),
     (
         "segment.threshold",
@@ -621,7 +625,8 @@ pub const TIPS: &[(&str, &str)] = &[
          separates (water against land in an index, burnt against unburnt). Give the `thresholds`, or `classes` \
          and multi-level Otsu finds them in the gap between the modes of the histogram (the thresholds are an \
          output and are noted in the run's warnings). It cuts at the values alone: noise in the band makes many \
-         small objects, so smooth the band first, or merge the small ones afterwards (objects.remove_small).",
+         small objects, so smooth the band first, or merge the small ones afterwards (objects.remove_small). `bounds` cuts the pieces where they cross a \
+         zone.",
     ),
     (
         "segment.spectral_difference",
@@ -629,7 +634,8 @@ pub const TIPS: &[(&str, &str)] = &[
          mean values differ by less than `max_difference`, in the image's units, and repeats with the means of the \
          merged objects, so a gradual change can chain into one object: keep the limit small against the contrast \
          you want kept. It joins by the tone alone, with no shape, which is the reason to run it after a \
-         segmenter that keeps the edges, not on single cells. Use `weights` to make a band count more or less.",
+         segmenter that keeps the edges, not on single cells. Use `weights` to make a band count more or less. `bounds` (a map, vectors such as parcels, or objects) \
+         lets only neighbours of one zone merge, and cuts the objects you give where they cross a zone first.",
     ),
     (
         "segment.region_growing",
@@ -647,20 +653,21 @@ pub const TIPS: &[(&str, &str)] = &[
          against position (the bands are standardised, so one standard deviation counts as `ratio` cells: 5 to 30 \
          is the usual range). The cost is about (6 x kernel_size) squared exponentials per cell, so keep `kernel_size` \
          small on a large image. The objects are always connected: a mode's area that its links leave in pieces is \
-         split.",
+         split. `bounds` cuts the segments where they cross a zone.",
     ),
     (
         "segment.watershed",
         "Without markers the basins are the minima of the gradient, so many on a noisy image: raise `sigma` (the \
          smoothing) or `h` until they are about the objects you want. With markers (a map of seeds, the centres of \
          the trees or the buildings, a classification's cores) every object has one marker, which is the way to \
-         control what it finds.",
+         control what it finds. `bounds` cuts the basins where they cross a zone.",
     ),
     (
         "segment.meanshift",
         "It is the slowest of the segmenters: its cost grows with the square of `spatial_radius` and with the \
          cells, so try it on a part of the image first. `range_radius` (in standard deviations when the bands are \
-         standardised) sets how different cells may be and still be one object; `min_size` removes the specks.",
+         standardised) sets how different cells may be and still be one object; `min_size` removes the specks. \
+         `bounds` cuts the regions where they cross a zone.",
     ),
     (
         "segment.scale",
@@ -689,7 +696,10 @@ pub const TIPS: &[(&str, &str)] = &[
          every group: it computes many columns, so on a large image with many objects name what you will use \
          (texture, when it comes, is the expensive group). Give `red`, `nir`, `green` and `swir` when the bands' \
          names do not say which they are. Put a DEM, a height model or another date in `more` (on the same grid: \
-         raster.match first).",
+         raster.match first). Give a map or vectors (lots, a land-use layer) as `thematic` and each object gets \
+         th_mode, the most common value under it, and th_share, its share of the cells that have a value; with \
+         vectors, `field` names the attribute (text too: its codes are named in the table). Rules read th_mode \
+         as any column.",
     ),
     (
         "segment.sam",

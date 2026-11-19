@@ -268,7 +268,7 @@ impl Image {
 }
 
 /// The value a node's input reads (`node.port`).
-fn input_of(s: &Session, n: &Node, port: &str) -> Option<Value> {
+pub(crate) fn input_of(s: &Session, n: &Node, port: &str) -> Option<Value> {
     match n.inputs.get(port)? {
         Source::Ref(r) => {
             let (node, p) = r.split_once('.')?;
@@ -301,7 +301,7 @@ fn extras_of(s: &Session, n: &Node) -> Result<Vec<(String, Value)>, String> {
 }
 
 /// The identity of an input's cells, to tell a new one from the one asked for.
-fn identity(v: &Value) -> usize {
+pub(crate) fn identity(v: &Value) -> usize {
     match v {
         Value::Objects(o) => Arc::as_ptr(o) as usize,
         Value::Map(m) => Arc::as_ptr(&m.data) as usize,

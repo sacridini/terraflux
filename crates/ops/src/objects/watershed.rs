@@ -305,6 +305,7 @@ impl Operator for Watershed {
             "a map of the seeds: cells with a value are markers (a group of connected cells of one value is one); \
              missing elsewhere. Without it the markers are found by the gradient's h-minima",
         ))
+        .input(super::zones::port(false))
         .output(PortSpec::new("objects", Type::Objects, "the basins, each one connected"))
         .output(PortSpec::new(
             "table",
@@ -396,6 +397,6 @@ impl Operator for Watershed {
                 (true, k) => k as u64,
             })
             .collect();
-        finish(&l, &region)
+        finish(args, &l, &region)
     }
 }

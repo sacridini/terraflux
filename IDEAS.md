@@ -4614,9 +4614,15 @@ US7801361 e US8319793, até 2029 e 2031).
 - Cada um ganha linhas na bateria `objects_bench.rs` (1000² e 2000², 1 e 8 threads) e os números no IDEAS.
 - Um commit por item, nesta ordem: 1, 2, 3, 4, 5, 6, e por fim o 7 (templates e documentação).
 
-- **1. As camadas temáticas (M).** *1a feito (2026-11-19):* `zones.rs`, o `bounds` (mapa, vetor ou objetos) no
-  multiresolution (com `from`, por tiles, pelo cluster e ao vivo) e no region growing; falta a 1b (os outros
-  segmentadores, `split_by_zones` e o `thematic` do `objects.features`).
+- **1. As camadas temáticas (M). Feito (2026-11-19).** *1a:* `zones.rs`, o `bounds` (mapa, vetor ou objetos) no
+  multiresolution (com `from`, por tiles, pelo cluster e ao vivo) e no region growing. *1b:* o `bounds` nativo no
+  Felzenszwalb (as arestas entre zonas fora do grafo) e no spectral difference (corta os objetos dados pelas zonas e só
+  junta dentro da zona); `split_by_zones(objects, zones, neighbours)` (o `neighbours` a mais, para o threshold com 8)
+  no SLIC, SNIC, watershed, quickshift, mean shift, threshold, chessboard e quadtree, como um passo depois, com a
+  tabela refeita dos objetos finais (devolve os mesmos objetos quando nenhum cruza uma zona); a segmentação ao vivo já
+  passava o `bounds` de todos (`extras_of`) e a comparação passa o `bounds` do nó mostrado a cada segmentador; o
+  `thematic` e o `field` do `objects.features` (`th_mode`, `th_share`; um atributo de texto vira códigos com os nomes
+  nos rótulos da tabela). Testes: `crates/ops/tests/objects_thematic.rs` e os de `zones.rs`.
   - Um auxiliar `objects/zones.rs::zones(args, "bounds", grid) -> Vec<u64>` (vazio = sem limites) lê o `bounds`
     como mapa (uma zona por valor, como hoje no region growing, `growing.rs` ~863), como vetor (cada feição uma zona,
     queimada pelo `vector::burn` com o índice da feição; as células fora de todas formam uma zona) ou como objetos (cada

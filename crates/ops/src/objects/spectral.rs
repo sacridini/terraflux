@@ -310,6 +310,7 @@ impl Operator for SpectralDifference {
             "the objects to merge (a segmenter's, on the grid of the image)",
         ))
         .input(PortSpec::new("image", Type::Any, "a map, or a stack of bands, whose values the means are of"))
+        .input(super::zones::port(true))
         .output(PortSpec::new("objects", Type::Objects, "the merged objects"))
         .output(PortSpec::new(
             "table",
@@ -340,6 +341,9 @@ impl Operator for SpectralDifference {
         if (o.grid.width, o.grid.height) != (w, h) {
             return Err(bad("objects: objects of another grid than the image".into()));
         }
+        // with bounds, an object that crosses a zone is cut by it first, and only neighbours in one zone merge
+        let zone = super::zones::zones(args, "bounds", &l.grid)?;
+        let o = if zone.is_empty() { o } else { Arc::new(super::zones::split_by_zones(&o, &zone, 4)) };
         let nb = l.data.len();
         let weights: Vec<f64> = match args.opt_param::<Vec<f64>>("weights")? {
             None => vec![1.0; nb],
@@ -375,6 +379,20 @@ impl Operator for SpectralDifference {
                 (centre, cnt, sum)
             })
             .collect();
+        // each object's zone (the one of its first cell; an object lies in one), none when there are no bounds
+        let of: Vec<u64> = if zone.is_empty() {
+            vec![0; count]
+        } else {
+            let mut of = vec![0u64; count];
+            let mut seen = vec![false; count];
+            for (&id, &z) in o.labels.iter().zip(&zone) {
+                if id != 0 && !seen[id as usize - 1] {
+                    seen[id as usize - 1] = true;
+                    of[id as usize - 1] = z;
+                }
+            }
+            of
+        };
         let mut state = State {
             nb,
             weights: &weights,
@@ -382,7 +400,12 @@ impl Operator for SpectralDifference {
             sum: vec![0.0; count * nb],
             centre: per_band.iter().map(|b| b.0).collect(),
             mean: vec![f64::NAN; count * nb],
-            near: o.adjacency.par_iter().map(|a| a.iter().map(|&(n, _)| n - 1).collect()).collect(),
+            near: o
+                .adjacency
+                .par_iter()
+                .enumerate()
+                .map(|(k, a)| a.iter().map(|&(n, _)| n - 1).filter(|&n| of[n as usize] == of[k]).collect())
+                .collect(),
             best: Vec::new(),
             alive: vec![true; count],
         };

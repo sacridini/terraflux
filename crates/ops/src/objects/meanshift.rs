@@ -216,6 +216,7 @@ impl Operator for MeanShift {
             Access::Global,
         )
         .input(PortSpec::new("image", Type::Any, "a map, or a stack of bands, the colour"))
+        .input(super::zones::port(false))
         .output(PortSpec::new("objects", Type::Objects, "the regions, each one connected"))
         .output(PortSpec::new(
             "table",
@@ -276,6 +277,6 @@ impl Operator for MeanShift {
         let p = prep(&l, standardise);
         let f = filter(&p, hs, hr, iters as usize, thr);
         let first = Objects::from_regions(l.grid.clone(), &group(&p, &f, hr), 4);
-        finish(&l, &merge(&first, &f, p.nb, min.min(u32::MAX as i64) as u32))
+        finish(args, &l, &merge(&first, &f, p.nb, min.min(u32::MAX as i64) as u32))
     }
 }

@@ -19,7 +19,8 @@ use std::time::{Duration, Instant};
 use egui::{Color32, ColorImage, RichText, TextureHandle, TextureOptions, Ui};
 use terraflux_graph::{Node, Source};
 use terraflux_ops::Registry;
-use terraflux_ops::objects::{Objects, Whole, Window, WindowSettings, segment_window, segment_window_op};
+use terraflux_ops::Value;
+use terraflux_ops::objects::{Objects, Whole, Window, WindowSettings, segment_window_bounds, segment_window_op};
 
 use crate::app::Session;
 use crate::live_segment::{self, Image, PREVIEW, knobs};
@@ -50,6 +51,8 @@ struct Item {
     params: Params,
     /// The multiresolution's own settings (it does not run through the registry).
     set: Option<WindowSettings>,
+    /// The thematic layer of the shown node's `bounds`, which every segmenter keeps to.
+    bounds: Option<Value>,
 }
 
 /// A segmenter's result: its outlines over the image, the objects and the seconds.
@@ -139,6 +142,15 @@ fn multires_set(params: &Params, image: &Image, s: &Session) -> WindowSettings {
     live_segment::settings_of(&n, &values)
 }
 
+/// The thematic layer the shown segmenter keeps to (objects, a map or vectors wired to its `bounds`, and run), if any.
+fn bounds_of(s: &Session, node: &Node) -> Option<Value> {
+    if !node.inputs.contains_key("bounds") {
+        return None;
+    }
+    live_segment::input_of(s, node, "bounds")
+        .filter(|v| matches!(v, Value::Objects(_) | Value::Map(_) | Value::Vector(_)))
+}
+
 /// What to run for the segmenters chosen, over the window `win` read every `step`-th cell.
 fn items_for(
     s: &Session,
@@ -147,6 +159,7 @@ fn items_for(
     image: &Image,
     win: Window,
     step: usize,
+    bounds: Option<&Value>,
 ) -> Vec<Item> {
     OPS.iter()
         .filter(|(op, _)| chosen.contains(*op))
@@ -157,8 +170,9 @@ fn items_for(
                 (image.key(), win, step, op).hash(h);
                 serde_json::to_string(&params).unwrap_or_default().hash(h);
                 format!("{set:?}").hash(h);
+                bounds.map(live_segment::identity).hash(h);
             });
-            Item { op: op.to_string(), key, params, set }
+            Item { op: op.to_string(), key, params, set, bounds: bounds.cloned() }
         })
         .collect()
 }
@@ -171,9 +185,11 @@ fn signature(
     image: &Image,
     win: Window,
     step: usize,
+    bounds: Option<&Value>,
 ) -> u64 {
     live_segment::hashed(|h| {
         (image.key(), win, step, chosen).hash(h);
+        bounds.map(live_segment::identity).hash(h);
         for (op, _) in OPS {
             if let Some(n) = existing(s, op, image_ref) {
                 (&n.id, serde_json::to_string(&n.params).unwrap_or_default()).hash(h);
@@ -308,8 +324,13 @@ impl Compare {
                     }
                     let t = Instant::now();
                     let made = match &item.set {
-                        Some(set) => segment_window(&image.grid, &image.data, win, step, set).map(Arc::new),
+                        Some(set) => {
+                            segment_window_bounds(&image.grid, &image.data, win, step, set, item.bounds.as_ref())
+                                .map(Arc::new)
+                        }
                         None => {
+                            let extra: Vec<(String, Value)> =
+                                item.bounds.iter().map(|b| ("bounds".to_string(), b.clone())).collect();
                             let whole = whole.get_or_init(|| Whole::of(&image.data));
                             segment_window_op(
                                 live_segment::registry(),
@@ -321,7 +342,7 @@ impl Compare {
                                 whole,
                                 win,
                                 step,
-                                &[],
+                                &extra,
                             )
                         }
                     };
@@ -451,10 +472,11 @@ fn window(ctx: &egui::Context, s: &mut Session, node: &Node, image: &Image, view
     let planned = live_segment::plan_for("segment.quickshift", view.visible(), &image.grid);
     match planned {
         Some((win, step)) => {
-            let sig = signature(s, &c.chosen, image_ref.as_ref(), image, win, step);
+            let bounds = bounds_of(s, node);
+            let sig = signature(s, &c.chosen, image_ref.as_ref(), image, win, step, bounds.as_ref());
             if sig != c.sig || c.items.is_empty() != c.chosen.is_empty() {
                 c.sig = sig;
-                c.items = items_for(s, &c.chosen, image_ref.as_ref(), image, win, step);
+                c.items = items_for(s, &c.chosen, image_ref.as_ref(), image, win, step, bounds.as_ref());
             }
             c.poll(ctx, image, win, step);
         }

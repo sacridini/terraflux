@@ -878,29 +878,29 @@ const PHRASES: &[(&str, &str)] = &[
         "segment.from_map",
         "The regions of <map> as objects, each group of connected cells of one value[ ({neighbours} neighbours)].",
     ),
-    ("segment.chessboard", "<image> cut into squares[ of {size} cells] as objects."),
+    ("segment.chessboard", "<image> cut into squares[ of {size} cells] as objects[, within the zones of <bounds>]."),
     (
         "segment.quadtree",
-        "<image> split into squares as objects while their values differ by more than {threshold}[, down to {min_size} cells].",
+        "<image> split into squares as objects while their values differ by more than {threshold}[, down to {min_size} cells][, within the zones of <bounds>].",
     ),
     ("segment.from_vector", "The polygons of <vector> as objects on the grid of <like>[ ({neighbours} neighbours)]."),
     (
         "segment.multiresolution",
         "<image> merged into objects by multiresolution segmentation[ at scale {scale}][, shape {shape}][, compactness {compactness}][, on top of the objects of <from>][, within the zones of <bounds>].",
     ),
-    ("segment.slic", "<image> divided into SLIC superpixels[ of about {size} cells][, compactness {compactness}]."),
-    ("segment.snic", "<image> divided into SNIC superpixels[ of about {size} cells][, compactness {compactness}]."),
+    ("segment.slic", "<image> divided into SLIC superpixels[ of about {size} cells][, compactness {compactness}][, within the zones of <bounds>]."),
+    ("segment.snic", "<image> divided into SNIC superpixels[ of about {size} cells][, compactness {compactness}][, within the zones of <bounds>]."),
     (
         "segment.felzenszwalb",
-        "<image> segmented by Felzenszwalb and Huttenlocher's graph method[ with k {k}][, segments of at least {min_size} cells].",
+        "<image> segmented by Felzenszwalb and Huttenlocher's graph method[ with k {k}][, segments of at least {min_size} cells][, within the zones of <bounds>].",
     ),
     (
         "segment.threshold",
-        "<image> cut into classes by thresholds[ in band {band}][ at {thresholds}][, or into {classes} classes by multi-level Otsu]; each connected piece of a class is an object.",
+        "<image> cut into classes by thresholds[ in band {band}][ at {thresholds}][, or into {classes} classes by multi-level Otsu][, within the zones of <bounds>]; each connected piece of a class is an object.",
     ),
     (
         "segment.spectral_difference",
-        "The neighbouring objects of <objects> whose means in <image> differ by less than {max_difference} merged[, the bands weighted {weights}].",
+        "The neighbouring objects of <objects> whose means in <image> differ by less than {max_difference} merged[, the bands weighted {weights}][, within the zones of <bounds>].",
     ),
     (
         "segment.region_growing",
@@ -908,15 +908,15 @@ const PHRASES: &[(&str, &str)] = &[
     ),
     (
         "segment.quickshift",
-        "<image> segmented by quick shift[ with a kernel size of {kernel_size}][ and links up to {max_dist}][, colour weighed {ratio}].",
+        "<image> segmented by quick shift[ with a kernel size of {kernel_size}][ and links up to {max_dist}][, colour weighed {ratio}][, within the zones of <bounds>].",
     ),
     (
         "segment.watershed",
-        "<image> cut into the watershed basins of its gradient[, from the markers of <markers>][, smoothed by {sigma} cells].",
+        "<image> cut into the watershed basins of its gradient[, from the markers of <markers>][, smoothed by {sigma} cells][, within the zones of <bounds>].",
     ),
     (
         "segment.meanshift",
-        "<image> segmented by mean shift[ with a range radius of {range_radius}][ and a spatial radius of {spatial_radius} cells].",
+        "<image> segmented by mean shift[ with a range radius of {range_radius}][ and a spatial radius of {spatial_radius} cells][, within the zones of <bounds>].",
     ),
     (
         "segment.scale",
@@ -928,7 +928,7 @@ const PHRASES: &[(&str, &str)] = &[
     ),
     (
         "objects.features",
-        "The attributes {features} of the objects of <objects>, from <image>[ and the layers of <more>].",
+        "The attributes {features} of the objects of <objects>, from <image>[ and the layers of <more>][, with the thematic layer <thematic> (field {field})].",
     ),
     ("objects.to_map", "The objects of <objects> as a map[ of their {what}]."),
     ("objects.samples", "The objects under the samples of <samples> (the class in {class}), as a training table."),

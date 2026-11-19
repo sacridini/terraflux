@@ -198,6 +198,7 @@ impl Operator for Threshold {
             Access::Global,
         )
         .input(PortSpec::new("image", Type::Any, "a map, or a stack of bands: the band cut is the one of `band`"))
+        .input(super::zones::port(false))
         .output(PortSpec::new("objects", Type::Objects, "the pieces of the classes as objects"))
         .output(PortSpec::new(
             "table",
@@ -308,6 +309,7 @@ impl Operator for Threshold {
             }
         });
         let o = Objects::from_fn(l.grid.clone(), |i| cls[i], NONE, nbs);
+        let o = super::zones::bounded(args, o, nbs)?;
         // each object's class: the one of its first cell
         let mut class = vec![0u32; o.count];
         let mut left = o.count;

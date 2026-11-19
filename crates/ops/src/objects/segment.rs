@@ -53,6 +53,7 @@ impl Operator for Chessboard {
             Access::Global,
         )
         .input(PortSpec::new("image", Type::Any, "a map, or a stack of bands: only its grid and its empty cells count"))
+        .input(super::zones::port(false))
         .output(PortSpec::new("objects", Type::Objects, "the squares as objects"))
         .output(PortSpec::new("table", Type::Table, "a row per object: id, cells, area (map units squared)"))
         .param(PortSpec::optional(
@@ -75,7 +76,7 @@ impl Operator for Chessboard {
         let region: Vec<u64> = (0..w * h)
             .map(|i| if valid[i] { ((i / w / size) * across + (i % w) / size) as u64 } else { NO_REGION })
             .collect();
-        square_outputs(Objects::from_regions(l.grid.clone(), &region, 4))
+        square_outputs(super::zones::bounded(args, Objects::from_regions(l.grid.clone(), &region, 4), 4)?)
     }
 }
 
@@ -152,6 +153,7 @@ impl Operator for Quadtree {
             Access::Global,
         )
         .input(PortSpec::new("image", Type::Any, "a map, or a stack of bands, the colour"))
+        .input(super::zones::port(false))
         .output(PortSpec::new("objects", Type::Objects, "the squares as objects"))
         .output(PortSpec::new("table", Type::Table, "a row per object: id, cells, area (map units squared)"))
         .param(PortSpec::new(
@@ -203,7 +205,7 @@ impl Operator for Quadtree {
                 s.square(r, c, start);
             }
         }
-        square_outputs(Objects::from_regions(l.grid.clone(), &s.region, 4))
+        square_outputs(super::zones::bounded(args, Objects::from_regions(l.grid.clone(), &s.region, 4), 4)?)
     }
 }
 

@@ -588,8 +588,14 @@ fn absorb(o: &Objects, min: u32) -> Vec<u64> {
 }
 
 /// The objects and the table of a segmenter's regions.
-pub(super) fn finish(l: &Layers, region: &[u64]) -> Result<Outputs> {
+/// With `bounds` the objects are cut where they cross a zone.
+pub(super) fn finish(args: &Args, l: &Layers, region: &[u64]) -> Result<Outputs> {
     let o = Objects::from_regions(l.grid.clone(), region, 4);
+    made(l, super::zones::bounded(args, o, 4)?)
+}
+
+/// The table of a segmenter's objects, and both as outputs.
+fn made(l: &Layers, o: Objects) -> Result<Outputs> {
     let t = super::stats_table(&o, &l.names, &l.data);
     let o = o.with_table(t.clone())?;
     Ok(outputs([("objects", Value::Objects(Arc::new(o))), ("table", Value::Table(t))]))
@@ -605,6 +611,7 @@ fn signature(name: &str, about: &str) -> OpSignature {
             Type::Table,
             "a row per object: id, cells, area (map units squared), and mean_<band> and sd_<band> for each band",
         ))
+        .input(super::zones::port(name == "segment.felzenszwalb"))
         .param(PortSpec::optional("standardise", Type::Bool, "standardise each band (z-score) first (default true)"))
 }
 
@@ -663,7 +670,7 @@ impl Operator for Slic {
         let lab = slic(&p, &seeds, side, m, iterations as usize);
         let first = Objects::from_regions(l.grid.clone(), &regions_of(&p, &lab), 4);
         let min = (side * side / 4.0).ceil() as u32;
-        finish(&l, &absorb(&first, min))
+        finish(args, &l, &absorb(&first, min))
     }
 }
 
@@ -695,7 +702,7 @@ impl Operator for Snic {
         let (s, m) = lattice_params(args, p.valid.iter().filter(|&&v| v).count())?;
         let (seeds, side) = seeds(&p, s, false);
         let lab = snic(&p, &seeds, side, m);
-        finish(&l, &regions_of(&p, &lab))
+        finish(args, &l, &regions_of(&p, &lab))
     }
 }
 
@@ -794,8 +801,9 @@ fn smooth_n<const N: usize>(p: &mut Prep, ker: &[f64], rad: i64) {
     p.x = out;
 }
 
-/// Felzenszwalb & Huttenlocher's (2004) segments: returns the region of each cell.
-fn felzenszwalb(p: &Prep, eight: bool, k: f64, min_size: usize) -> Vec<u64> {
+/// Felzenszwalb & Huttenlocher's (2004) segments: returns the region of each cell. With `zone` (a number a cell, or
+/// empty for none) the edges between cells of different zones are left out of the graph.
+fn felzenszwalb(p: &Prep, eight: bool, k: f64, min_size: usize, zone: &[u64]) -> Vec<u64> {
     let (w, h, nb) = (p.w, p.h, p.nb);
     // the edges as sort keys: the weight's bits (never negative, so they sort as the values), then the cell and the
     // kind of edge (0 right, 1 down, 2 down-right, 3 down-left), which is the order they are made in: equal weights
@@ -811,7 +819,7 @@ fn felzenszwalb(p: &Prep, eight: bool, k: f64, min_size: usize) -> Vec<u64> {
                 }
                 let f = p.feat(i);
                 let mut add = |j: usize, kind: u128| {
-                    if p.valid[j] {
+                    if p.valid[j] && (zone.is_empty() || zone[i] == zone[j]) {
                         let g = p.feat(j);
                         let mut s = 0.0;
                         for b in 0..nb {
@@ -990,6 +998,9 @@ impl Operator for Felzenszwalb {
         if sigma > 0.0 {
             smooth(&mut p, sigma);
         }
-        finish(&l, &felzenszwalb(&p, nbs == 8, k, min_size as usize))
+        let zone = super::zones::zones(args, "bounds", &l.grid)?;
+        let region = felzenszwalb(&p, nbs == 8, k, min_size as usize, &zone);
+        // (the zones kept out of the graph, no object crosses one)
+        made(&l, Objects::from_regions(l.grid.clone(), &region, 4))
     }
 }

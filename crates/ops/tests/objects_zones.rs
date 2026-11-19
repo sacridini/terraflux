@@ -12,31 +12,31 @@ use terraflux_raster::vector::{Geometry, Vector};
 const W: usize = 60;
 const H: usize = 48;
 
-fn lcg(s: &mut u64) -> f64 {
+pub(crate) fn lcg(s: &mut u64) -> f64 {
     *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
     ((*s >> 11) as f64) / (1u64 << 53) as f64
 }
 
 /// Two bands of an almost flat image (noise of about 1): with a big scale it is one object, unless bounds cut it.
-fn flat(w: usize, h: usize) -> (Arc<Grid>, Vec<Arc<Vec<f64>>>) {
+pub(crate) fn flat(w: usize, h: usize) -> (Arc<Grid>, Vec<Arc<Vec<f64>>>) {
     let mut s = 21u64;
     let data = (0..2).map(|b| Arc::new((0..w * h).map(|_| 100.0 + b as f64 + lcg(&mut s)).collect())).collect();
     (Arc::new(Grid::new(w, h)), data)
 }
 
-fn stack((grid, data): &(Arc<Grid>, Vec<Arc<Vec<f64>>>)) -> Value {
+pub(crate) fn stack((grid, data): &(Arc<Grid>, Vec<Arc<Vec<f64>>>)) -> Value {
     let keys = (0..data.len()).map(|k| Key::Name(format!("b{}", k + 1))).collect();
     Value::Stack(Stack { grid: grid.clone(), keys, layers: data.clone() })
 }
 
-fn run(op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value) -> terraflux_ops::Result<Outputs> {
+pub(crate) fn run(op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value) -> terraflux_ops::Result<Outputs> {
     let params = params.as_object().cloned().unwrap_or_default();
     let args =
         Args { node: "n", inputs: inputs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), params: &params };
     Registry::standard().get(op).unwrap().run(&mut Ctx::default(), &args)
 }
 
-fn objects_of(out: &Outputs) -> Arc<Objects> {
+pub(crate) fn objects_of(out: &Outputs) -> Arc<Objects> {
     let Value::Objects(o) = &out["objects"] else { panic!("objects") };
     o.clone()
 }
@@ -47,12 +47,12 @@ fn multires(image: Value, extra: Vec<(&str, Value)>, params: serde_json::Value) 
     objects_of(&run("segment.multiresolution", inputs, params).unwrap())
 }
 
-fn map(w: usize, h: usize, data: Vec<f64>) -> Value {
+pub(crate) fn map(w: usize, h: usize, data: Vec<f64>) -> Value {
     Value::Map(Map::new(Arc::new(Grid::new(w, h)), data))
 }
 
 /// A map of zones: six blocks of 20 x 24 cells, a few cells without a value.
-fn blocks_map() -> (Value, Vec<i64>) {
+pub(crate) fn blocks_map() -> (Value, Vec<i64>) {
     let zone: Vec<i64> = (0..W * H).map(|i| ((i % W) / 20 + 3 * ((i / W) / 24)) as i64).collect();
     let data = zone.iter().enumerate().map(|(i, &z)| if i % 97 == 5 { f64::NAN } else { z as f64 }).collect();
     let zone = zone.iter().enumerate().map(|(i, &z)| if i % 97 == 5 { -1 } else { z }).collect();
@@ -60,7 +60,7 @@ fn blocks_map() -> (Value, Vec<i64>) {
 }
 
 /// Vectors: the left half, the top right quarter, and (in no feature) the bottom right quarter.
-fn features() -> (Value, Vec<i64>) {
+pub(crate) fn features() -> (Value, Vec<i64>) {
     let square = |c0: f64, r0: f64, c1: f64, r1: f64| {
         Geometry::Polygon(vec![vec![[c0, -r0], [c1, -r0], [c1, -r1], [c0, -r1], [c0, -r0]]])
     };
@@ -81,7 +81,7 @@ fn features() -> (Value, Vec<i64>) {
 }
 
 /// Objects: nine blocks of 20 x 16 cells (from a map), the cells of the first without an object in a stripe.
-fn blocks_objects() -> (Value, Vec<i64>) {
+pub(crate) fn blocks_objects() -> (Value, Vec<i64>) {
     let data: Vec<f64> = (0..W * H)
         .map(|i| {
             let (r, c) = (i / W, i % W);
@@ -95,7 +95,7 @@ fn blocks_objects() -> (Value, Vec<i64>) {
 }
 
 /// No object has cells of two zones, and every zone has an object.
-fn assert_no_crossing(o: &Objects, zone: &[i64], what: &str) {
+pub(crate) fn assert_no_crossing(o: &Objects, zone: &[i64], what: &str) {
     let mut of = vec![i64::MIN; o.count];
     for (i, &l) in o.labels.iter().enumerate() {
         if l == 0 {
@@ -113,7 +113,7 @@ fn assert_no_crossing(o: &Objects, zone: &[i64], what: &str) {
     assert!(o.count >= zones.len(), "{what}: {} objects for {} zones", o.count, zones.len());
 }
 
-fn crosses(o: &Objects, zone: &[i64]) -> bool {
+pub(crate) fn crosses(o: &Objects, zone: &[i64]) -> bool {
     let mut of = vec![i64::MIN; o.count];
     o.labels.iter().enumerate().any(|(i, &l)| {
         l != 0 && {

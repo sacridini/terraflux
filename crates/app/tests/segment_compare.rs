@@ -13,6 +13,11 @@ use terraflux_graph::{Model, Node, Source};
 use terraflux_ops::Registry;
 
 fn model() -> Model {
+    model_with(false)
+}
+
+/// The model, with the shown segmenter's `bounds` wired to the map (each of its values a zone) when `bounded`.
+fn model_with(bounded: bool) -> Model {
     let mut m = Model::new("segment compare");
     m.nodes.push(
         Node::new("land", "nlm.mpd")
@@ -21,7 +26,11 @@ fn model() -> Model {
             .param("seed", 3)
             .param("nlmr_compat", false),
     );
-    m.nodes.push(Node::new("fine", "segment.multiresolution").input("image", "land.map").param("scale", 0.02));
+    let mut fine = Node::new("fine", "segment.multiresolution").input("image", "land.map").param("scale", 0.02);
+    if bounded {
+        fine = fine.input("bounds", "land.map");
+    }
+    m.nodes.push(fine);
     // two readers of the objects shown
     for id in ["rules_a", "rules_b"] {
         m.nodes.push(Node::new(id, "objects.rules").input("objects", "fine.objects").param(
@@ -36,13 +45,17 @@ fn model() -> Model {
 }
 
 fn harness(name: &str) -> Harness<'static, TerrafluxApp> {
+    harness_of(name, model())
+}
+
+fn harness_of(name: &str, model: Model) -> Harness<'static, TerrafluxApp> {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     crate::point_settings();
     terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
     let p = dir.join("model.toml");
-    model().save(&p).unwrap();
+    model.save(&p).unwrap();
     let mut app = TerrafluxApp::new(Some(p));
     app.session.as_mut().unwrap().wait();
     let rs = egui_kittest::wgpu::create_render_state(
@@ -128,4 +141,33 @@ fn four_thumbnails_and_use_puts_the_slic_in_place_of_the_shown_segmenter() {
     }
     let s = h.state().session.as_ref().unwrap();
     assert!(!s.source.nodes.iter().any(|n| n.op == "segment.slic"), "one undo takes it away");
+}
+
+#[test]
+fn the_comparison_keeps_every_segmenter_to_the_zones_of_the_shown_one() {
+    // each value of the map is a zone: every cell is an object, whatever the segmenter
+    let mut h = harness_of("segment-compare-bounds", model_with(true));
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &Registry::standard(), "fine");
+    }
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(3);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Enter);
+    until(&mut h, "the run", |h| {
+        let s = h.state().session.as_ref().unwrap();
+        s.outputs.get("fine").is_some_and(|o| o.contains_key("objects"))
+    });
+    h.state_mut().session.as_mut().unwrap().preview = Some(("fine".into(), "objects".into()));
+    h.run_steps(3);
+    until(&mut h, "the panel", |h| has(h, "LIVE SEGMENTATION"));
+    let st = segment_compare::state(&h.ctx, "viewer", "fine");
+    h.get_by_label("Compare...").click();
+    h.run_steps(3);
+    until(&mut h, "the thumbnails", |_| st.lock().unwrap().ready() >= 4);
+    let c = st.lock().unwrap();
+    assert!(c.error.is_none(), "{:?}", c.error);
+    for (op, _) in segment_compare::OPS.iter().take(4) {
+        assert!(c.count(op).is_some_and(|n| n > 60 * 80 * 9 / 10), "{op}: {:?}", c.count(op));
+    }
 }
