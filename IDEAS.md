@@ -4442,6 +4442,12 @@ Os três projetos são GPL-3.0, do mesmo autor; o Terraflux é GPL-3.0-or-later:
   fixos, rayon) com duas partidas: a de hoje (k-means++ do `NumpyRng`, a ordem das somas do numpy, para o
   `metrics.cluster`) e a do scikit-learn guloso (para os mapas). Testes: os do Janus (`tests/kmeans.rs`,
   `cluster.rs:398-440`) trazidos para cá; os de `metrics.*` intactos; 1 e 8 threads dão os mesmos rótulos.
+  **Feito**: `crates/ops/src/multivar/` (`linalg.rs`: o `svd` e o `sign_of` vindos do `signatures.rs`, `moments`
+  (médias e covariância em uma passada, blocos fixos de 4096 células fundidos em ordem pela fórmula de Chan, iguais
+  com 1 ou 8 threads), o Jacobi do Janus e `eigen`; `kmeans.rs`: o k-means do Janus com as partidas `Greedy` e
+  `Numpy`, Ward e o corte, e o `kmeans_numpy` do `metrics.cluster`, cujo laço de Lloyd segue o de antes). As tabelas
+  de `metrics.*` iguais (os testes de paridade intactos). O `tests/kmeans.rs` do Janus roda um job inteiro (GDAL,
+  SOM) e não veio; vieram os testes de unidade do `cluster.rs`.
 - **B. `ml.pca`.** Entradas `table` ou `predictors` (pilha) + `cells`; ajustes `components` (um número, ou a parte
   da variância, 0.95 por padrão), `standardise` (correlação, o padrão, ou covariância), `sample`, `seed`. Saídas:
   `scores` (pilha `pc1`, `pc2`..., ou as colunas na tabela), `loadings` (a tabela no formato do `metrics.pca`: uma
@@ -4489,8 +4495,6 @@ Os três projetos são GPL-3.0, do mesmo autor; o Terraflux é GPL-3.0-or-later:
   `ml.som` sobre ela são a classificação não supervisionada de objetos, e `ml.pca` reduz os atributos antes do
   `ml.fit`. Um exemplo no template dos objetos e um teste.
 
-**Decisões pendentes.**
-- Manter `metrics.pca` e `metrics.cluster` como estão (finos sobre o módulo comum, o que proponho) ou torná-los nomes
-  antigos de `ml.pca` e `ml.kmeans` sobre a tabela de assinaturas.
-- O limite de células acima do qual o ajuste passa a usar uma amostra (proposta: 1 milhão), e se isso é aviso ou só
-  nota.
+**Decisões tomadas** (2026-11-19, as propostas):
+- `metrics.pca` e `metrics.cluster` ficam como estão, finos sobre o módulo comum.
+- Acima de 1 milhão de células o ajuste usa uma amostra, dito numa nota do nó (não um aviso).

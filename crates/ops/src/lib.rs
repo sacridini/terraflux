@@ -69,6 +69,7 @@ pub mod ml;
 pub mod molusce;
 pub mod movement;
 pub mod mspa_tiled;
+pub mod multivar;
 pub mod nlm;
 pub mod objects;
 pub mod npmath;

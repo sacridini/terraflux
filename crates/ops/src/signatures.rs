@@ -13,6 +13,9 @@ use std::sync::Arc;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 
 use crate::change::numpy_sum;
+use crate::multivar::kmeans::{dist2, first_appearance, kmeans_numpy, mean_of};
+pub use crate::multivar::linalg::svd;
+use crate::multivar::linalg::{Matrix, sign_of};
 use crate::sampling::KEYS;
 use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Table, Value, outputs};
 
@@ -260,80 +263,6 @@ impl NumpyRng {
     }
 }
 
-// -- linear algebra -----------------------------------------------------------------------------------------------
-
-/// A matrix of rows.
-type Matrix = Vec<Vec<f64>>;
-
-/// The thin singular value decomposition of an n × m matrix by one-sided Jacobi rotations: U (n × k), the singular
-/// values decreasing (k) and Vᵀ (k × m), k = min(n, m).
-pub fn svd(a: &Matrix) -> (Matrix, Vec<f64>, Matrix) {
-    let n = a.len();
-    let m = a.first().map_or(0, Vec::len);
-    if n < m {
-        // A = (Aᵀ)ᵀ = (U' S V'ᵀ)ᵀ = V' S U'ᵀ
-        let t: Matrix = (0..m).map(|j| (0..n).map(|i| a[i][j]).collect()).collect();
-        let (u, s, vt) = svd(&t);
-        let u2: Matrix = (0..n).map(|i| (0..s.len()).map(|c| vt[c][i]).collect()).collect();
-        let vt2: Matrix = (0..s.len()).map(|c| (0..m).map(|j| u[j][c]).collect()).collect();
-        return (u2, s, vt2);
-    }
-    // columns of A, rotated until orthogonal; V accumulates the rotations
-    let mut cols: Matrix = (0..m).map(|j| (0..n).map(|i| a[i][j]).collect()).collect();
-    let mut v: Matrix = (0..m).map(|j| (0..m).map(|i| if i == j { 1.0 } else { 0.0 }).collect()).collect();
-    let dot = |x: &[f64], y: &[f64]| x.iter().zip(y).map(|(p, q)| p * q).sum::<f64>();
-    for _sweep in 0..100 {
-        let mut rotated = false;
-        for p in 0..m {
-            for q in p + 1..m {
-                let alpha = dot(&cols[p], &cols[p]);
-                let beta = dot(&cols[q], &cols[q]);
-                let gamma = dot(&cols[p], &cols[q]);
-                if gamma == 0.0 || gamma.abs() <= f64::EPSILON * (alpha * beta).sqrt() {
-                    continue;
-                }
-                rotated = true;
-                let zeta = (beta - alpha) / (2.0 * gamma);
-                let t = zeta.signum() / (zeta.abs() + (1.0 + zeta * zeta).sqrt());
-                let c = 1.0 / (1.0 + t * t).sqrt();
-                let s = c * t;
-                for x in [&mut cols, &mut v] {
-                    let (lo, hi) = x.split_at_mut(q);
-                    for (a, b) in lo[p].iter_mut().zip(hi[0].iter_mut()) {
-                        let (ap, bq) = (*a, *b);
-                        *a = c * ap - s * bq;
-                        *b = s * ap + c * bq;
-                    }
-                }
-            }
-        }
-        if !rotated {
-            break;
-        }
-    }
-    let norms: Vec<f64> = cols.iter().map(|c| dot(c, c).sqrt()).collect();
-    let mut order: Vec<usize> = (0..m).collect();
-    order.sort_by(|&i, &j| norms[j].total_cmp(&norms[i]));
-    let s: Vec<f64> = order.iter().map(|&j| norms[j]).collect();
-    let u: Matrix = (0..n)
-        .map(|i| order.iter().map(|&j| if norms[j] > 0.0 { cols[j][i] / norms[j] } else { 0.0 }).collect())
-        .collect();
-    let vt: Matrix = order.iter().map(|&j| v[j].clone()).collect();
-    (u, s, vt)
-}
-
-/// The sign that makes a vector's largest absolute value (the first of them) positive, as terraflux-py (and
-/// scikit-learn) give components.
-fn sign_of(v: &[f64]) -> f64 {
-    let mut best = 0;
-    for (i, x) in v.iter().enumerate() {
-        if x.abs() > v[best].abs() {
-            best = i;
-        }
-    }
-    if v.get(best).copied().unwrap_or(0.0) < 0.0 { -1.0 } else { 1.0 }
-}
-
 // -- the signatures -----------------------------------------------------------------------------------------------
 
 /// A table's metrics: the rows without NA (the others left out), their keys, the metrics' names and values.
@@ -550,113 +479,6 @@ fn nmf(x: &Matrix, k: usize, max_iter: usize, tol: f64) -> (Matrix, Matrix, f64,
 }
 
 // -- clusters -----------------------------------------------------------------------------------------------------
-
-/// Labels numbered 0.. in order of first appearance.
-fn first_appearance(labels: &[usize]) -> Vec<usize> {
-    let mut order: Vec<usize> = Vec::new();
-    labels
-        .iter()
-        .map(|l| match order.iter().position(|o| o == l) {
-            Some(i) => i,
-            None => {
-                order.push(*l);
-                order.len() - 1
-            }
-        })
-        .collect()
-}
-
-/// The squared distance between two rows, summed in order (numpy's sum along an outer axis).
-fn dist2(a: &[f64], b: &[f64]) -> f64 {
-    a.iter().zip(b).fold(0.0, |s, (p, q)| s + (p - q) * (p - q))
-}
-
-/// The mean of rows (numpy's mean along the first axis: the rows added in order).
-fn mean_of(rows: &[&Vec<f64>]) -> Vec<f64> {
-    let mut s = rows[0].clone();
-    for r in &rows[1..] {
-        for (a, b) in s.iter_mut().zip(r.iter()) {
-            *a += b;
-        }
-    }
-    let n = rows.len() as f64;
-    s.iter().map(|v| v / n).collect()
-}
-
-/// The library's k-means: k-means++ starts from numpy's generator, Lloyd's iterations (at most 300), the best of
-/// `n_init` starts by inertia. `by_columns`: how numpy holds `x` (the order of the inertia's sum).
-fn kmeans(x: &Matrix, k: usize, n_init: usize, seed: u64, by_columns: bool) -> Vec<usize> {
-    let n = x.len();
-    let mut rng = NumpyRng::new(seed);
-    let mut best: Option<Vec<usize>> = None;
-    let mut best_inertia = f64::INFINITY;
-    for _ in 0..n_init.max(1) {
-        let mut centres: Matrix = vec![x[rng.integers(n as u64) as usize].clone()];
-        for _ in 1..k {
-            let d2: Vec<f64> =
-                x.iter().map(|r| centres.iter().map(|c| dist2(r, c)).fold(f64::INFINITY, f64::min)).collect();
-            let total = numpy_sum(&d2);
-            let i = if total > 0.0 {
-                let p: Vec<f64> = d2.iter().map(|v| v / total).collect();
-                rng.choice(&p)
-            } else {
-                rng.integers(n as u64) as usize
-            };
-            centres.push(x[i].clone());
-        }
-        let mut labels = vec![0usize; n];
-        for _ in 0..300 {
-            let new: Vec<usize> = x
-                .iter()
-                .map(|r| {
-                    let mut best = 0;
-                    let mut d = dist2(r, &centres[0]);
-                    for (j, c) in centres.iter().enumerate().skip(1) {
-                        let e = dist2(r, c);
-                        if e < d {
-                            (best, d) = (j, e);
-                        }
-                    }
-                    best
-                })
-                .collect();
-            let moved: Matrix = (0..k)
-                .map(|j| {
-                    let members: Vec<&Vec<f64>> =
-                        x.iter().zip(&new).filter(|(_, l)| **l == j).map(|(r, _)| r).collect();
-                    if members.is_empty() { centres[j].clone() } else { mean_of(&members) }
-                })
-                .collect();
-            let close = moved
-                .iter()
-                .flatten()
-                .zip(centres.iter().flatten())
-                .all(|(a, b)| (a - b).abs() <= 1e-8 + 1e-5 * b.abs());
-            if new == labels && close {
-                break;
-            }
-            labels = new;
-            centres = moved;
-        }
-        let sq: Vec<f64> = if by_columns {
-            let d = x[0].len();
-            (0..d)
-                .flat_map(|j| (0..n).map(move |i| (j, i)))
-                .map(|(j, i)| (x[i][j] - centres[labels[i]][j]).powi(2))
-                .collect()
-        } else {
-            (0..n)
-                .flat_map(|i| x[i].iter().zip(&centres[labels[i]]).map(|(a, b)| (a - b).powi(2)).collect::<Vec<_>>())
-                .collect()
-        };
-        let inertia = numpy_sum(&sq);
-        if inertia < best_inertia - 1e-12 {
-            best = Some(labels);
-            best_inertia = inertia;
-        }
-    }
-    first_appearance(&best.unwrap_or_else(|| vec![0; n]))
-}
 
 /// scipy's linkages, in its order of methods.
 const LINKAGES: [&str; 7] = ["single", "complete", "average", "centroid", "median", "ward", "weighted"];
@@ -1143,7 +965,7 @@ fn clusters(
     by_columns: bool,
 ) -> Result<Vec<Vec<usize>>> {
     if method == "kmeans" {
-        Ok(ks.iter().map(|&k| kmeans(x, k, n_init, seed, by_columns)).collect())
+        Ok(ks.iter().map(|&k| kmeans_numpy(x, k, n_init, seed, by_columns)).collect())
     } else {
         hierarchical(x, ks, method)
     }
