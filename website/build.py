@@ -264,12 +264,18 @@ style sub summary sup table tbody td tfoot th thead title tr u ul var wbr math m
 annotation semantics svg g path rect circle ellipse line polyline polygon text tspan textpath defs marker lineargradient
 radialgradient stop clippath mask pattern symbol use image foreignobject desc filter fegaussianblur feoffset feblend
 fecolormatrix fecomposite feflood femerge femergenode fedropshadow feturbulence fedisplacementmap femorphology""".split())
-# (form and interactive tags such as output, data, map, time, label, template or dialog are left out on purpose: no page
-# writes them, and operator docs use some of those words as placeholders, <output>)
+# (form and interactive tags such as data, map, time, template or dialog are left out on purpose: no page writes them,
+# and operator docs use some of those words as placeholders)
+# Tags the pages do write but texts also use as placeholders (<output>, <label>): a tag when it opens with attributes
+# (the sliders' <label class="sl-label"> and <output class="sl-value">, the tabs' <label for="__tabbed_1_1">) or
+# closes, a placeholder when it is bare.
+ATTR_TAGS = {"label", "output"}
 
 
-def _known_tag(name: str) -> bool:
+def _known_tag(name: str, attrs: str = "", closing: bool = False) -> bool:
     name = name.lower()
+    if name in ATTR_TAGS:
+        return closing or bool(attrs.strip())
     return name in HTML_TAGS or "-" in name
 
 
@@ -278,7 +284,8 @@ def escape_unknown_tags(html: str) -> str:
     `<variable>_<statistic>` or `d.<name>` outside code, which a browser takes for tags and hides. Code is already
     escaped by then, so only such stray placeholders match."""
     def one(m):
-        if m.group(4) or not _known_tag(m.group(2)):  # `percentile_<p>`: a <p> glued to a word is a placeholder
+        # `percentile_<p>`: a <p> glued to a word is a placeholder
+        if m.group(4) or not _known_tag(m.group(2), m.group(3) or "", m.group(1) == "/"):
             return m.group(0).replace("<", "&lt;").replace(">", "&gt;")
         return m.group(0)
     return re.sub(r"<(/?)([A-Za-z_][\w.-]*)((?:\s[^<>]*)?)>|(?<=\w)<(p)>", one, html)
