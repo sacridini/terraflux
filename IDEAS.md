@@ -4288,6 +4288,13 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    Definiens/Trimble e das outras patentes delas em vigor: as reivindicações elemento a elemento, a família no EP e no
    INPI, a arte anterior (GeoAIDA 2001, InterIMAGE 2008/2010) e o que o operador não pode fazer. É uma leitura
    técnica; a opinião formal fica com um advogado de patentes.
+   **Feito** (`docs/patents-objects-resolve.md`): nenhuma reivindicação independente da US8319793 se lê no
+   `objects.resolve` (faltam as duas redes de objetos e a impressão de uma na outra), e pelo *terminal disclaimer* ela
+   deve acabar com a US7801361, por volta de 2029-01-20, não em 2031. As duas só valem nos EUA (os parentes europeus
+   foram recusados ou expiraram; nada no INPI). O risco está num fluxo depois do `resolve` (editar o mapa de classes
+   nos objetos de uma classe, segmentar de novo e reclassificar: US7801361, reivindicações 25 e 28), que o Terraflux
+   não oferece, e no classificador por pixel aprendido de objetos (US10445557, até 2035). As regras de projeto estão no
+   documento; um advogado ainda deve confirmar o disclaimer, o prazo, o titular e o INPI.
 2. **O ONNX Runtime de verdade**: `segment.sam` e `objects.embed` rodados com um runtime instalado (um modelo
    pequeno feito com o `onnx` conferido contra o numpy; o SAM ViT-B exportado em ONNX em formas reais), o que estiver
    errado corrigido, e os pesos do SAM baixados uma vez para o cache (com o SHA-256 conferido) quando não dados.
