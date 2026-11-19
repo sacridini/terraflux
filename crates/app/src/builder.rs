@@ -5642,7 +5642,14 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             if som {
                 crate::charts::set_picked(ui.ctx(), id, crate::som_link::linked(ui.ctx(), &node));
             }
-            egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| crate::table_view::show(ui, t, id));
+            // a segment.optimize's scores: its best value and *Apply to...* above the chart
+            let scores = port == "scores" && crate::charts::is_scores(t);
+            egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| {
+                if scores {
+                    crate::optimize_view::panel(ui, s, r, &node, salt);
+                }
+                crate::table_view::show(ui, t, id)
+            });
             if som {
                 crate::som_link::set_linked(ui.ctx(), &node, crate::charts::picked(ui.ctx(), id));
             }

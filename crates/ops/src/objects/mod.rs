@@ -44,6 +44,7 @@ mod window;
 pub use calc::{evaluate, evaluate_numbers};
 pub use features::features_give;
 pub use labels::{LABELS_DISK_BYTES, Labels};
+pub use optimize::{default_parameter, scaled};
 pub use resolve::{Verdict, arbitrate, explain_cell};
 pub use rules::{RuleClass, leaves, tree};
 pub use rows::{DiskLayers, FeatureColumns, FeatureJob, FeatureTask};

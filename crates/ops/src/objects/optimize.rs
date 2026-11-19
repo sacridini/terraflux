@@ -28,7 +28,7 @@ const MAX_VALUES: usize = 1000;
 const PIECES: usize = 16;
 
 /// The setting `segment.optimize` varies when `parameter` is not given, for the segmenters that have a main one.
-fn default_parameter(segmenter: &str) -> Option<&'static str> {
+pub fn default_parameter(segmenter: &str) -> Option<&'static str> {
     Some(match segmenter {
         "segment.multiresolution" => "scale",
         "segment.region_growing" => "threshold",
@@ -145,7 +145,7 @@ pub(crate) fn score(o: &Objects, data: &[Arc<Vec<f64>>]) -> (f64, f64) {
 
 /// A score scaled over the runs to 1 (the lowest) to 0 (the highest): (max - x) / (max - min); 0 when they are all
 /// the same, NaN for a NaN.
-fn scaled(x: &[f64]) -> Vec<f64> {
+pub fn scaled(x: &[f64]) -> Vec<f64> {
     let good = || x.iter().copied().filter(|v| v.is_finite());
     let lo = good().fold(f64::INFINITY, f64::min);
     let hi = good().fold(f64::NEG_INFINITY, f64::max);

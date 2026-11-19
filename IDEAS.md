@@ -4461,6 +4461,12 @@ dependências: 6, 2, 1, 4, 3, 7, 5, 8.
   *Apply to...*, com os nós do mesmo segmentador sobre a mesma imagem e "um nó novo" (`add_node_named` + `connect`).
   Testes: `is_scores`; aplicar num nó existente e num novo, um passo de desfazer cada; no `--test app`, rodar,
   aplicar e conferir o parâmetro.
+  **Feito**: `Kind::Scores` e `is_scores` em `charts.rs` (o objetivo, a variância e o I de Moran escalados por
+  `optimize::scaled`, agora pública com `default_parameter`; o melhor marcado por um `VLine`, os objetos num painel
+  menor; a tabela abre já como o gráfico); `optimize_view.rs` (`panel`, `apply`, `targets`) no ramo das tabelas do
+  Viewer e no `node_view.rs`: "best scale = 4", *Apply to:* e *Apply*, grava o valor e os ajustes fixos do `params`
+  num segmentador da mesma imagem ou num nó novo, um passo de desfazer. Testes: `charts.rs`, `optimize_view.rs` e
+  `tests/optimize_view.rs`. Não feito: clicar no gráfico para escolher outro valor que não o melhor.
 - **1. A segmentação ao vivo para todos (G).** O worker do `live_segment.rs` (`Request`, `spawn`, só o último pedido,
   `stale`) serve a qualquer pedido: `Job::Multires` (o de hoje, com a curva do ESP) e `Job::Op { op, params, extra }`.
   Uma tabela `knobs(op)` dos sliders (parâmetro, faixa, log, inteiro, unidade em valores ou em células): `size` e

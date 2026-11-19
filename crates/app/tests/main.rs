@@ -14,6 +14,7 @@ mod objects_space;
 mod objects_live;
 mod objects_view;
 mod objects_viewer;
+mod optimize_view;
 mod prepare;
 mod sam_first_time;
 mod som_view;

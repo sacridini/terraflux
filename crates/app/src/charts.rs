@@ -43,6 +43,9 @@ pub enum Kind {
     /// ml.som's codebook (a row per node): the grid of nodes as squares or hexagons, coloured by the U-matrix, a
     /// variable's weights, the records each holds or its group; a click on a node picks it.
     Som,
+    /// segment.optimize's scores (a row per value): the objective, the variance and Moran's I scaled 0-1 against the
+    /// value, the best marked, and the number of objects in a smaller panel.
+    Scores,
 }
 
 impl Kind {
@@ -60,6 +63,7 @@ impl Kind {
             Kind::Elbow => "elbow",
             Kind::Choice => "choice of k",
             Kind::Som => "SOM",
+            Kind::Scores => "scores",
         }
     }
 
@@ -90,8 +94,17 @@ impl Kind {
         if is_som(t) {
             v.push(Kind::Som);
         }
+        if is_scores(t) {
+            v.push(Kind::Scores);
+        }
         v
     }
+}
+
+/// Whether a table is segment.optimize's scores: a row per value, the columns value, objects, variance, moran and
+/// objective.
+pub fn is_scores(t: &Table) -> bool {
+    t.columns == ["value", "objects", "variance", "moran", "objective"] && !t.rows.is_empty()
 }
 
 /// Whether a table is ml.pca's explained variance: a row per component, the columns component, variance, ratio and
@@ -245,9 +258,16 @@ pub struct Chart {
 }
 
 impl Chart {
-    /// The chart a table opens with: the SOM for a codebook (its grid is what it is for), else none.
+    /// The chart a table opens with: the SOM for a codebook (its grid is what it is for), the curves of the scores of
+    /// segment.optimize, else none.
     pub fn first(t: &Table) -> Chart {
-        if is_som(t) { Chart::suggested(t, Kind::Som) } else { Chart::default() }
+        if is_som(t) {
+            Chart::suggested(t, Kind::Som)
+        } else if is_scores(t) {
+            Chart::suggested(t, Kind::Scores)
+        } else {
+            Chart::default()
+        }
     }
 
     /// A chart of a kind with what a table suggests: the first metric (not a key), along the date, split by the
@@ -373,6 +393,7 @@ pub fn show(ui: &mut Ui, t: &Table, rows: &[usize], chart: &mut Chart, id: egui:
         Kind::Elbow => elbow(ui, t, rows, id),
         Kind::Choice => choice(ui, t, rows, id),
         Kind::Som => som(ui, t, chart.som, id),
+        Kind::Scores => scores(ui, t, rows, id),
         Kind::Loadings => loadings(ui, t, chart.components, id),
     }
 }
@@ -672,6 +693,69 @@ fn choice(ui: &mut Ui, t: &Table, rows: &[usize], id: egui::Id) {
             });
         }
     });
+}
+
+/// The value of the best row of a scores table (the highest objective, the earliest when tied).
+pub fn best_value(t: &Table) -> Option<f64> {
+    let mut best: Option<(f64, f64)> = None;
+    for r in t.rows.iter().filter(|r| r.len() == 5 && r[4].is_finite()) {
+        if best.is_none_or(|b| r[4] > b.1) {
+            best = Some((r[0], r[4]));
+        }
+    }
+    best.map(|b| b.0)
+}
+
+/// segment.optimize's scores: the objective and the variance and Moran's I scaled 0-1 as the operator scales them
+/// (1 the lowest, the best) against the value, a vertical line at the best, and the objects each value made in a
+/// smaller panel under it.
+fn scores(ui: &mut Ui, t: &Table, rows: &[usize], id: egui::Id) {
+    let col = |j: usize| -> Vec<f64> { rows.iter().map(|&i| t.rows[i][j]).collect() };
+    let value = col(0);
+    let (variance, moran) = (terraflux_ops::objects::scaled(&col(2)), terraflux_ops::objects::scaled(&col(3)));
+    let line = |y: &[f64]| -> Vec<[f64; 2]> {
+        value.iter().zip(y).filter(|(_, y)| y.is_finite()).map(|(&x, &y)| [x, y]).collect()
+    };
+    let curves =
+        [("objective", line(&col(4))), ("variance (scaled)", line(&variance)), ("Moran's I (scaled)", line(&moran))];
+    let objects: Vec<[f64; 2]> = rows.iter().map(|&i| [t.rows[i][0], t.rows[i][1]]).collect();
+    let best = best_value(t);
+    let mark = ui.visuals().text_color().gamma_multiply(0.5);
+    let w = ui.available_width().clamp(240.0, 640.0);
+    crate::theme::plot(Plot::new(id.with("scores")))
+        .width(w)
+        .height(220.0)
+        .allow_scroll(false)
+        .x_axis_label("value")
+        .y_axis_label("score (1 is the best of the values)")
+        .legend(egui_plot::Legend::default())
+        .show(ui, |p| {
+            wheel_zoom(p);
+            if let Some(b) = best {
+                p.vline(VLine::new("best", b).color(mark));
+            }
+            for (k, (label, pts)) in curves.into_iter().enumerate() {
+                let c = colour(k, 3);
+                p.line(Line::new(label, pts.clone()).color(c).width(if k == 0 { 2.5 } else { 1.5 }));
+                p.points(Points::new(label, pts).color(c).radius(3.0));
+            }
+        });
+    let accent = crate::palette::seen(crate::theme::accent());
+    crate::theme::plot(Plot::new(id.with("scores objects")))
+        .width(w)
+        .height(100.0)
+        .allow_scroll(false)
+        .x_axis_label("value")
+        .y_axis_label("objects")
+        .include_y(0.0)
+        .show(ui, |p| {
+            wheel_zoom(p);
+            if let Some(b) = best {
+                p.vline(VLine::new("best", b).color(mark));
+            }
+            p.line(Line::new("objects", objects.clone()).color(accent).width(1.5));
+            p.points(Points::new("objects", objects).color(accent).radius(2.5));
+        });
 }
 
 /// segment.scale's table: the local variance (the mean of the bands' lv_) and the rate of change (roc_mean) against
@@ -1313,6 +1397,28 @@ mod tests {
         assert!(is_choice(&t) && Kind::of(&t).contains(&Kind::Choice));
         assert_eq!(Kind::Choice.name(), "choice of k");
         assert!(!is_choice(&Table { columns: vec!["k".into(), "inertia".into()], ..Default::default() }));
+    }
+
+    #[test]
+    fn the_scores_of_segment_optimize_have_their_chart() {
+        let t = Table {
+            columns: ["value", "objects", "variance", "moran", "objective"].map(String::from).to_vec(),
+            rows: vec![
+                vec![5.0, 90.0, 2.0, 0.1, 0.4],
+                vec![10.0, 40.0, 3.0, -0.2, 1.7],
+                vec![20.0, 9.0, 6.0, -0.3, 1.1],
+            ],
+            ..Default::default()
+        };
+        assert!(is_scores(&t) && Kind::of(&t).contains(&Kind::Scores));
+        assert_eq!(Kind::Scores.name(), "scores");
+        assert_eq!(Chart::first(&t).kind, Kind::Scores);
+        assert_eq!(best_value(&t), Some(10.0));
+        assert!(!is_scores(&Table { columns: vec!["value".into(), "objective".into()], ..Default::default() }));
+        assert!(!is_scores(&Table { rows: vec![], ..t.clone() }));
+        // (a NaN objective is never the best)
+        let nan = Table { rows: vec![vec![1.0, 2.0, 1.0, 1.0, f64::NAN]], ..t };
+        assert_eq!(best_value(&nan), None);
     }
 
     /// A codebook of `rows` x `cols` nodes as ml.som gives it (with a group column when `groups`).
