@@ -4438,6 +4438,98 @@ ordem em que será feito, depois do bloco do PCA, do k-means e do SOM (um commit
    sozinha (`segment.optimize`), e as classes não supervisionadas dos objetos (`ml.kmeans` ou `ml.som` sobre a tabela
    de atributos, junto com a etapa G do plano abaixo), rodando como estão e com `data` para o *Use my data*.
 
+**Plano de implementação** (levantado no código em 2026-11-19). Todos editam o modelo como hoje o `live_segment::apply`
+e o *Make a rule* do `feature_space`: os parâmetros do nó ou `editor::{add_node_named, connect, set_param,
+insert_between}` (nós novos postos por `builder::beside`), depois `s.history.name(...)` e `s.edited()`, um passo de
+desfazer (a cópia `before` volta se der erro); os testes desfazem com `builder::undo_redo`. A ordem, pelas
+dependências: 6, 2, 1, 4, 3, 7, 5, 8.
+
+- **6. O SAM na primeira vez (P).** O progresso e o cancelamento já funcionam (`deep.rs` chama `ctx.progress`, que
+  chega pelo `runner.rs` à barra de estado; parar apaga o zip). Falta a confirmação antes: uma porta como as de
+  disco e memória (`disk_ok`/`memory_ok` em `app.rs`), `Session::sam_ok`, posta em `start_run` (não em `run_all`, que
+  as execuções até um nó e as automáticas pulam; numa automática, um aviso em vez da janela). A janela (o padrão do
+  `confirm_window`, `egui::Modal`) diz o tamanho, a licença, a origem e a pasta do cache, com a escolha quant/full
+  (grava `weights`). `weights::cached` (pública) diz se já estão no cache. `.choices(["quant", "full"])` no
+  `weights`; o texto do progresso em MB, não MiB. Testes: `cached`; no `--test app`, com `TERRAFLUX_CACHE` vazio, a
+  janela aparece e a execução não começa; *Cancel* não muda o modelo.
+- **2. O gráfico e o *Apply* do `segment.optimize` (M).** `Kind::Scores` em `charts.rs` (`is_scores`: as colunas
+  `value, objects, variance, moran, objective`): o objetivo e as duas medidas escaladas contra o valor, o melhor
+  marcado, e o número de objetos num painel menor. `optimize::scaled` e `default_parameter` públicos. Um
+  `optimize_view.rs` (`panel`) no ramo das tabelas do Viewer (`builder.rs`) e no `node_view.rs`: "melhor size = 12" e
+  *Apply to...*, com os nós do mesmo segmentador sobre a mesma imagem e "um nó novo" (`add_node_named` + `connect`).
+  Testes: `is_scores`; aplicar num nó existente e num novo, um passo de desfazer cada; no `--test app`, rodar,
+  aplicar e conferir o parâmetro.
+- **1. A segmentação ao vivo para todos (G).** O worker do `live_segment.rs` (`Request`, `spawn`, só o último pedido,
+  `stale`) serve a qualquer pedido: `Job::Multires` (o de hoje, com a curva do ESP) e `Job::Op { op, params, extra }`.
+  Uma tabela `knobs(op)` dos sliders (parâmetro, faixa, log, inteiro, unidade em valores ou em células): `size` e
+  `compactness` do SLIC e do SNIC, `k` e `sigma` do Felzenszwalb, `h` e `compactness` do watershed, `classes` do
+  threshold, `max_difference` do spectral difference, `threshold` do region growing, `kernel_size` e `max_dist` do
+  quickshift, os raios do mean shift. Em `ops/objects/window.rs`, `segment_window_op` roda qualquer segmentador pelo
+  registro numa janela (como o `segment.optimize` já faz). Para a janela dar os objetos da imagem inteira: os que
+  padronizam recebem a janela já em z-scores pela média e o desvio da imagem inteira, com `standardise` desligado; os
+  ajustes em células divididos pelo passo de leitura; os lentos (region growing, quickshift, mean shift) com menos
+  células; as entradas `objects`, `markers`, `seeds` e `bounds` cortadas na janela. O SAM e os `from_*` ficam de
+  fora. Testes: `segment_window_op` na janela inteira igual à execução do operador (o hash dos rótulos), para cada um;
+  `knobs` cobre todos; `apply` grava o `size` inteiro, um passo de desfazer; no `--test app`, o slider do SLIC mostra
+  a prévia e o *Apply* grava.
+- **4. Comparar segmentadores (M, depois do 1).** `segment_compare.rs`, uma janela aberta do painel da segmentação ao
+  vivo: um worker roda os escolhidos um depois do outro pelo `segment_window_op` na mesma janela (com os ajustes de um
+  nó existente daquela imagem, ou os padrões da tabela); miniaturas com o `objects_view::outline_image` sobre a
+  imagem, o número de objetos e os segundos. *Usar* põe o segmentador no lugar do mostrado. Testes: os padrões por
+  operador; no `--test app`, as quatro miniaturas e *Usar* criando o `segment.slic` ligado à imagem.
+- **3. A edição manual dos objetos (G).** Um operador `objects.edit` (`ops/objects/edit.rs`): entradas `objects` e
+  `image` (opcional, para a semelhança e a tabela); o parâmetro `edits` (`Type::Any`, uma lista JSON aplicada em
+  ordem, como `objects.rules` guarda as classes): `{"merge": [[x, y], ...]}`, `{"cut": [[x, y], ...]}` (uma linha) e
+  `{"delete": [x, y], "into": "none" | "neighbour"}`, por coordenadas no CRS da grade (a célula interior mais perto do
+  centróide, como o modo de amostras escolhe: `objects_inspect::sample_cell`). Juntar renumera para o objeto do
+  primeiro ponto; cortar rasteriza a linha, separa em componentes conexos e dá cada célula da linha a um pedaço
+  vizinho; apagar deixa sem objeto ou junta ao vizinho mais parecido (as médias das bandas; sem `image`, a borda mais
+  longa). Uma edição que não acha o seu objeto vira um aviso e uma linha da tabela `report`. No app, um bloco
+  *Edit* no inspetor (`ObjectsUi::inspector`): *Merge* (dois ou mais selecionados), *Delete*, *Cut* (a linha pelo
+  `draw::Sketch`); `objects_edit.rs::apply` acrescenta ao `objects.edit` que já lê aqueles objetos, ou cria um entre
+  o segmentador e quem o lê (`editor::insert_between`). Testes: cada operação; as mesmas edições sobrevivendo a outra
+  segmentação; o aviso; no app, inserir e desfazer; no `--test app`, juntar dois e contar um a menos.
+- **7. O region growing por tiles (M/G).** Do `tiles.rs`, é do multiresolution: `tile_core` (o `merge_level` com o
+  custo), os campos de `Run`, o `TileJob`/`TileCores` do cluster e a costura (`merge_level_src` sobre os pedaços). É
+  genérico: o lado e a margem dos tiles, a semente, a geometria das janelas, a fila contínua (`spawn_tile`,
+  `Ordered`), os deslocamentos dos rótulos, o limite `TILES_BYTES`, `Source::window`. Refatorar em `merge_tiled_with`
+  (uma função por tile e uma de costura); o multiresolution mantém o caminho do cluster. O region growing: o núcleo
+  `grow(...)` separado do `run`; as escalas das bandas (`scales`) da imagem inteira passadas a cada tile; os tiles com
+  `minsize` 1 e o `minsize` só na costura; a costura pelo caminho de `seeds` (`Regions::from_labels`) sobre os
+  pedaços; `bounds` e `seeds` cortados por tile; os parâmetros `tile` e `margin`. Testes: o mesmo hash com 1 e 8
+  threads; em imagens de blocos constantes, por tiles igual a sem tiles; na imagem da bateria, o número de objetos a
+  poucos por cento do sem tiles; uma linha nova na bateria.
+- **5. A estimativa do tempo (M, depois do 7).** A bateria com `BENCH_RATES=1` grava
+  `crates/ops/src/objects/rates.json` (lido por `include_str!`): por operador, segundos por milhão de células com 1 e
+  com N threads e o expoente α tirado de 1000² e 2000² (o tempo não é linear: o multiresolution vai de 1,4 a 11,1 s
+  para 4 vezes as células, α ≈ 1,5); por tiles, tiles × t(tile + 2 margens)^α / threads mais a costura. `estimate(op,
+  params, células, bandas, threads)`. O tamanho da imagem antes de rodar vem do valor da entrada, se já rodou, ou do
+  `Walk` do `memory.rs`, que já resolve a grade de cada nó pelos cabeçalhos dos arquivos (o `memory::Estimate` passa a
+  levar as grades). No `node_view.rs`, ao lado do tempo da última execução: "cerca de 5 min com 8 threads; por tiles
+  de 512, cerca de 1 min", e *Use tiles*. As taxas são de uma máquina: depois, corrigidas pela razão entre o tempo
+  visto e o previsto. Testes: todo segmentador de imagem tem uma taxa; a estimativa cresce com células^α; no app, um
+  nó de 4000² mostra a estimativa e *Use tiles* grava `tile`.
+- **8. Templates (P; M com a mudança no `objects.classify`).** No grupo dos objetos de `templates.rs`, com `data` na
+  imagem: a água pelo Otsu sobre o NDWI (`raster.calc` → `segment.threshold` com 2 classes → a classe da água →
+  `objects.to_vector`); a escala escolhida sozinha (`segment.optimize` → o gráfico do item 2); as classes não
+  supervisionadas dos objetos (as features → `ml.kmeans` na tabela), que pede ao `objects.classify` aceitar os modelos
+  `KMeans` e `Som` (a etapa G do plano abaixo). Testes: `the_object_templates_run` estendido (a água ≥ 0,9 com a
+  verdade; o optimize dá `value`; k classes) e os testes de todos os templates.
+
+**Decisões tomadas** (padrões; o usuário pode mudar):
+1. O region growing ganha o parâmetro opcional `ranges` (as faixas das bandas para a escala de 0 a 1), que a janela
+   ao vivo e os tiles passam com as da imagem inteira, e que serve também para comparar datas.
+2. O *Apply* do `segment.optimize` grava o valor escolhido e os ajustes fixos do `params` do optimize (o que foi
+   pontuado); a dica do botão diz o que muda.
+3. O `objects.edit` vai logo depois do segmentador (antes das features e da classificação, que rodam de novo) e dá
+   objetos sem classes nem níveis; as edições ficam nos parâmetros (um vetor de pontos e linhas só se alguém precisar
+   de milhares).
+4. *Usar* na comparação põe o novo segmentador no lugar do mostrado (quem o lia passa a ler o novo; o antigo fica
+   desligado no modelo), um passo de desfazer.
+5. O consentimento do download do SAM é lembrado por máquina, para cada variante (quant e full).
+6. Os tiles do region growing são opcionais (`tile`, sem padrão), para não mudar os resultados de hoje; a estimativa
+   do item 5 os sugere quando a imagem é grande.
+
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
 
 Pedido de 2026-11-19: operadores de componentes principais (PCA), k-means e mapas auto-organizáveis (SOM), com o
