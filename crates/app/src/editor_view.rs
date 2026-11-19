@@ -1041,6 +1041,8 @@ pub struct EditorState {
     chosen_in: Vec<String>,
     /// The model shown as text instead of the canvas.
     pub text: bool,
+    /// The Classes view shown instead of the canvas ([`crate::class_view`]).
+    pub classes: bool,
     /// A node being renamed (ctrl+R): its id, the name typed, whether the field was given the focus.
     pub renaming: Option<(String, String, bool)>,
     /// The node renamed is a group just made: its name asked for, and whether to save it as a node of the user's

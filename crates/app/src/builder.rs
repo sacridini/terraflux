@@ -990,7 +990,11 @@ pub fn model_pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
             theme::quiet(ui);
             bar(ui, s, r)
         });
-    if s.editor.text {
+    if s.editor.classes && !s.editor.text {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(ui.visuals().panel_fill))
+            .show(ui, |ui| crate::class_view::pane(ui, s, r));
+    } else if s.editor.text {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::same(8)))
             .show(ui, |ui| text_view(ui, s));
@@ -2972,6 +2976,13 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
             .clicked()
         {
             s.editor.text = !s.editor.text;
+        }
+        if ui
+            .add(egui::Button::new("Classes").selected(s.editor.classes))
+            .on_hover_text("the model as the tree of its classes: a branch for each, inside its mother's region")
+            .clicked()
+        {
+            s.editor.classes = !s.editor.classes;
         }
         if let Some(m) = &s.editor.message {
             ui.colored_label(ui.visuals().warn_fg_color, m);

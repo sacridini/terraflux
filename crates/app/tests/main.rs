@@ -6,6 +6,7 @@
 mod calculator;
 mod canvas;
 mod charts;
+mod class_tree;
 mod cloud_public;
 mod my_nodes;
 mod objects_view;

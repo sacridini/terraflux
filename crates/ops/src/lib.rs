@@ -604,10 +604,16 @@ impl Operator for Group {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             terraflux_graph::GROUP,
-            "Run the body once: its inputs (any names) are @name inside, its outputs the references of body.outputs. Submodels become groups.",
+            "Run the body once: its inputs (any names) are @name inside, its outputs the references of body.outputs. Submodels become groups. \
+             A group with the setting `class` is a branch of the class tree (the Classes view): it looks for that class, \
+             reads @region (its mother's region, a map of 1 and no value; the number 1 for a class with no mother) and \
+             gives `membership` (a map, 0 to 1, of its class).",
             Access::None,
         )
         .extra(Type::Any)
+        .param(PortSpec::optional("class", Type::Text, "the class this branch looks for (a branch of the class tree)"))
+        .param(PortSpec::optional("parent_class", Type::Text, "the class of its mother branch (none: a root class)"))
+        .param(PortSpec::optional("colour", Type::Text, "the class's colour, #rrggbb"))
         .container()
     }
 

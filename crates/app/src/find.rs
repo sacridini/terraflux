@@ -118,6 +118,7 @@ pub fn go(s: &mut Session, r: &Registry, at: &[String]) {
         return;
     }
     s.editor.text = false;
+    s.editor.classes = false;
     s.editor.path = path.to_vec();
     crate::builder::select(s, r, id);
     s.editor.chosen = [id.clone()].into();

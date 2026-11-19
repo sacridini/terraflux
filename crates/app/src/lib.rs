@@ -20,6 +20,8 @@ pub mod charts;
 pub mod chat;
 pub mod checks;
 pub mod clean_view;
+pub mod class_tree;
+pub mod class_view;
 pub mod commands;
 pub mod computers;
 pub mod diagnose;
