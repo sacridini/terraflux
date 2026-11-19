@@ -98,6 +98,9 @@ fn rule_of(expression: &str) -> Option<String> {
 
 /// How a branch finds its class, and the rule when a calculator says it.
 fn method_of(body: &Body) -> (String, Option<String>) {
+    if body.nodes.iter().any(|n| n.id == "union") {
+        return ("made of its daughters".into(), None);
+    }
     let calc = body.nodes.iter().find(|n| matches!(n.op.as_str(), "raster.calc" | "objects.calc"));
     let script = calc.and_then(|n| text(n, "expression")).map(str::to_lowercase).unwrap_or_default();
     let rule = calc.and_then(|n| text(n, "expression")).and_then(rule_of);
@@ -268,10 +271,13 @@ pub enum Recipe {
     Buildings,
     /// Any class: a forest fitted on the objects the user's samples point to.
     Samples,
+    /// A mother with no method of its own: the fuzzy union of its daughters (the greatest of their memberships).
+    Daughters,
 }
 
 impl Recipe {
-    pub const ALL: [Recipe; 4] = [Recipe::Water, Recipe::Vegetation, Recipe::Buildings, Recipe::Samples];
+    pub const ALL: [Recipe; 5] =
+        [Recipe::Water, Recipe::Vegetation, Recipe::Buildings, Recipe::Samples, Recipe::Daughters];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -279,6 +285,7 @@ impl Recipe {
             Recipe::Vegetation => "vegetation by NDVI",
             Recipe::Buildings => "buildings by height",
             Recipe::Samples => "by samples",
+            Recipe::Daughters => "made of its daughters",
         }
     }
 
@@ -294,7 +301,14 @@ impl Recipe {
             }
             Recipe::Buildings => {
                 "Buildings by height: the membership rises from 0 at 2 m above the ground to 1 at 5 m (the nDSM, the \
-                 height of the surface above the ground; add the shape of the objects to tell them from trees)."
+                 height of the surface above the ground; add the shape of the objects to tell them from trees). With \
+                 the model's objects the membership is the smaller of that of the objects' mean height (2 m to 5 m) \
+                 and of their rectangular fit (0.6 to 0.85)."
+            }
+            Recipe::Daughters => {
+                "Made of its daughters: no method of its own; its membership is the greatest of its daughters' (the \
+                 fuzzy union), and the daughters are looked for in the region this class itself is given, not in \
+                 the one it wins, so the class is decided among its siblings as any other."
             }
             Recipe::Samples => {
                 "By samples: the objects the samples point to (a vector of points or polygons whose `class` attribute \
@@ -308,7 +322,8 @@ impl Recipe {
 /// What a recipe's body reads besides `@region`: the names of the group's inputs.
 fn needs(recipe: Recipe) -> &'static [&'static str] {
     match recipe {
-        Recipe::Water | Recipe::Vegetation => &["image"],
+        // (the daughters' class has the image only for the grid of its empty union, until a daughter comes)
+        Recipe::Water | Recipe::Vegetation | Recipe::Daughters => &["image"],
         Recipe::Buildings => &["ndsm"],
         Recipe::Samples => &["image", "objects", "samples"],
     }
@@ -322,9 +337,45 @@ fn calc(id: &str, inputs: &[(&str, &str)], expression: &str) -> Node {
     n
 }
 
-/// The nodes of a recipe's body for the class `name`, and the reference of its membership.
-fn body_of(recipe: Recipe, name: &str) -> Body {
+/// The input of a "made of its daughters" group that carries a daughter's membership (and the layer's name).
+fn daughter_input(name: &str) -> String {
+    format!("d_{}", slug(name))
+}
+
+/// The body of a "made of its daughters" class with these daughters: their memberships as a stack, the greatest of
+/// them at each cell (a daughter with no value there is skipped; none has: no value). With no daughter yet, a union
+/// that is 0 (a class that wins no cell).
+fn union_body(daughters: &[String]) -> Body {
+    let nodes = if daughters.is_empty() {
+        vec![calc("union", &[("image", "@image"), ("region", "@region")], "out membership = image.nir * 0 * region")]
+    } else {
+        let mut layers = Node::new("layers", "stack.of");
+        for d in daughters {
+            layers = layers.input(&daughter_input(d), &format!("@{}", daughter_input(d)));
+        }
+        vec![layers, Node::new("union", "stack.reduce").input("maps", "layers.stack").param("stat", "max")]
+    };
+    let out = if daughters.is_empty() { "union.membership" } else { "union.map" };
+    Body { nodes, outputs: [("membership".to_string(), out.to_string())].into(), ..Default::default() }
+}
+
+/// The nodes of a recipe's body for the class `name`, and the reference of its membership. `shape`: the Buildings'
+/// recipe has the model's objects to tell the buildings by their shape.
+fn body_of(recipe: Recipe, name: &str, shape: bool) -> Body {
     let nodes = match recipe {
+        Recipe::Daughters => return union_body(&[]),
+        Recipe::Buildings if shape => vec![
+            Node::new("h", "stack.of").input("ndsm", "@ndsm"),
+            Node::new("feat", "objects.features")
+                .input("objects", "@objects")
+                .input("image", "h.stack")
+                .param("features", serde_json::json!(["basic", "rectangular_fit"])),
+            Node::new("mark", "objects.calc")
+                .input("objects", "feat.objects")
+                .param("expression", "out membership = above(mean_ndsm, 2, 5) and above(rectangular_fit, 0.6, 0.85)"),
+            Node::new("map", "objects.to_map").input("objects", "mark.objects").param("what", "membership"),
+            calc("m", &[("map", "map.map"), ("region", "@region")], "out membership = map * region"),
+        ],
         Recipe::Water => vec![calc(
             "m",
             &[("image", "@image"), ("region", "@region")],
@@ -357,6 +408,11 @@ fn body_of(recipe: Recipe, name: &str) -> Body {
         ],
     };
     Body { nodes, outputs: [("membership".to_string(), "m.membership".to_string())].into(), ..Default::default() }
+}
+
+/// Whether a node is the group of a class made of its daughters.
+fn is_union(n: &Node) -> bool {
+    n.op == GROUP && n.body.as_ref().is_some_and(|b| b.nodes.iter().any(|x| x.id == "union"))
 }
 
 /// The class a new branch is for.
@@ -510,6 +566,16 @@ fn add_inner(m: &mut Model, path: &[String], r: &Registry, c: &NewClass) -> Resu
         g = g.param(PARENT, p.clone());
     }
     g.note = Some(c.recipe.about().to_string());
+    // the daughters of a class made of its daughters read that class's own region (bottom-up: its membership comes
+    // from them, so they cannot wait for the region it wins)
+    let union_mother = mother
+        .as_ref()
+        .and_then(|p| groups(&nodes).find(|n| text(n, CLASS) == Some(p.as_str())))
+        .filter(|n| is_union(n));
+    let region = match union_mother.and_then(|n| n.inputs.get("region")) {
+        Some(own) => own.clone(),
+        None => region,
+    };
     g.inputs.insert("region".into(), region);
     for need in needs(c.recipe) {
         let found = match *need {
@@ -542,7 +608,26 @@ fn add_inner(m: &mut Model, path: &[String], r: &Registry, c: &NewClass) -> Resu
             None => told.push(format!("no {need} found in the model: connect the input {need} of {gid}")),
         }
     }
-    g.body = Some(body_of(c.recipe, &name));
+    // (Buildings: the model's objects, when it has some, give the shape)
+    let shape = c.recipe == Recipe::Buildings
+        && match source_of(m, &nodes, r, Type::Objects, "objects") {
+            Some(f) => {
+                g.inputs.insert("objects".into(), Source::Ref(f));
+                true
+            }
+            None => false,
+        };
+    if c.recipe == Recipe::Buildings {
+        g.note = Some(if shape {
+            c.recipe.about().to_string()
+        } else {
+            "Buildings by height only: the membership rises from 0 at 2 m above the ground to 1 at 5 m (the nDSM). \
+             The model has no objects; connect the input objects of this group to add the shape (objects.features, \
+             rectangular_fit) to tell buildings from trees."
+                .to_string()
+        });
+    }
+    g.body = Some(body_of(c.recipe, &name, shape));
     new_nodes.push(g);
     // the siblings' decision: the stack of their memberships, and the arbitration
     let (members, resolve) = (members_id(mother.as_deref()), resolve_id(mother.as_deref()));
@@ -566,6 +651,15 @@ fn add_inner(m: &mut Model, path: &[String], r: &Registry, c: &NewClass) -> Resu
     }
     let scope = m.scope_mut(path).ok_or("the scope is not there")?;
     scope.extend(new_nodes);
+    // a mother made of its daughters: its membership is the union of the daughters, the new one too
+    if let Some(p) = &mother
+        && let Some(mg) = scope.iter().position(|n| n.op == GROUP && text(n, CLASS) == Some(p.as_str()))
+        && is_union(&scope[mg])
+    {
+        let daughters = siblings_of(scope, Some(p));
+        scope[mg].inputs.insert(daughter_input(&name), Source::Ref(format!("{gid}.membership")));
+        scope[mg].body = Some(union_body(&daughters));
+    }
     let stack = scope.iter_mut().find(|n| n.id == members).ok_or("the stack of memberships is not there")?;
     if stack.op != "stack.of" {
         return Err(format!("the node {members} is not a stack.of"));
@@ -798,6 +892,134 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_mother_made_of_its_daughters_is_the_union_of_their_memberships() {
+        let r = registry();
+        let mut m = scene();
+        for c in [
+            new("Vegetation", None, Recipe::Daughters),
+            new("Water", None, Recipe::Water),
+            new("Forest", Some("Vegetation"), Recipe::Vegetation),
+            new("Grassland", Some("Vegetation"), Recipe::Water),
+        ] {
+            let told = add_class(&mut m, &[], &r, &c).unwrap_or_else(|e| panic!("{}: {e}", c.name));
+            assert!(told.is_empty(), "{}: {told:?}", c.name);
+        }
+        assert_eq!(errors(&m), Vec::<String>::new());
+        // the wiring: the daughters read the mother's own region, the mother a union of their memberships
+        let v = m.node("class_Vegetation").unwrap();
+        assert_eq!(v.inputs["d_Forest"], Source::Ref("class_Forest.membership".into()));
+        assert_eq!(v.inputs["d_Grassland"], Source::Ref("class_Grassland.membership".into()));
+        let body = v.body.as_ref().unwrap();
+        assert_eq!(body.nodes.iter().map(|n| n.op.as_str()).collect::<Vec<_>>(), ["stack.of", "stack.reduce"]);
+        assert_eq!(body.outputs["membership"], "union.map");
+        assert_eq!(m.node("class_Forest").unwrap().inputs["region"], Source::Literal(1.into()));
+        assert_eq!(
+            m.node("resolve_of_Vegetation").unwrap().inputs["region"],
+            Source::Ref("region_Vegetation.region".into())
+        );
+        // read back
+        let t = read(&m.nodes);
+        let method = |n: &str| t.iter().find(|e| e.name == n).unwrap().method.clone();
+        assert_eq!(method("Vegetation"), "made of its daughters");
+        assert_eq!(method("Forest"), "by NDVI");
+        assert_eq!(method("Grassland"), "by NDWI");
+        assert_eq!(method("Water"), "by NDWI");
+        // run
+        let out = run(&m);
+        let (veg, forest, grass) = (
+            map(&out, "class_Vegetation", "membership"),
+            map(&out, "class_Forest", "membership"),
+            map(&out, "class_Grassland", "membership"),
+        );
+        let water = map(&out, "class_Water", "membership");
+        let mut strong = 0;
+        for i in 0..veg.data.len() {
+            let want = [forest.data[i], grass.data[i]].into_iter().filter(|v| !v.is_nan()).fold(f64::NAN, f64::max);
+            assert!(veg.data[i] == want || (veg.data[i].is_nan() && want.is_nan()), "cell {i}");
+        }
+        // the root decision: Vegetation (the first of the roots by name) wins where it is the greatest, from the least (0.1)
+        let class = map(&out, "resolve", "class");
+        for i in 0..veg.data.len() {
+            let (v, w) = (veg.data[i], water.data[i]);
+            if v > 0.1 && v > w.max(0.0) {
+                assert_eq!(class.data[i], 1.0, "cell {i}: {v} against {w}");
+                strong += 1;
+            }
+        }
+        assert!(strong > 0, "Vegetation wins somewhere");
+        let (f, g) =
+            (forest.data.iter().filter(|&&v| v > 0.0).count(), grass.data.iter().filter(|&&v| v > 0.0).count());
+        assert!(f > 0 && g > 0, "both daughters find something ({f}, {g})");
+    }
+
+    /// A scene of a rectangle and an L, both 8 m tall, and the ground: the objects of the labels, the heights.
+    fn shapes() -> (Model, BTreeMap<String, Value>) {
+        let (w, h) = (20, 24);
+        let mut labels = vec![3.0; w * h];
+        let mut ndsm = vec![0.0; w * h];
+        for row in 2..9 {
+            for col in 2..14 {
+                labels[row * w + col] = 1.0;
+                ndsm[row * w + col] = 8.0;
+            }
+        }
+        // the L: a bar down and a bar across
+        for row in 11..23 {
+            for col in 2..16 {
+                if col < 5 || row >= 20 {
+                    labels[row * w + col] = 2.0;
+                    ndsm[row * w + col] = 8.0;
+                }
+            }
+        }
+        let grid = std::sync::Arc::new(terraflux_raster::Grid::new(w, h));
+        let mut m = Model::new("shapes");
+        for name in ["ndsm", "labels"] {
+            m.inputs.insert(
+                name.into(),
+                Input::Map { path: format!("{name}.tif"), band: None, nodata: None, note: None, data: None },
+            );
+        }
+        m.nodes.push(Node::new("seg", "segment.from_map").input("map", "$labels"));
+        let inputs = BTreeMap::from([
+            ("ndsm".to_string(), Value::Map(Map::new(grid.clone(), ndsm))),
+            ("labels".to_string(), Value::Map(Map::new(grid, labels))),
+        ]);
+        (m, inputs)
+    }
+
+    #[test]
+    fn buildings_by_height_and_shape_leave_an_irregular_tall_object_out() {
+        let r = registry();
+        let (mut m, inputs) = shapes();
+        let told = add_class(&mut m, &[], &r, &new("Buildings", None, Recipe::Buildings)).unwrap();
+        assert!(told.is_empty(), "{told:?}");
+        assert_eq!(errors(&m), Vec::<String>::new());
+        let g = m.node("class_Buildings").unwrap();
+        assert_eq!(g.inputs["objects"], Source::Ref("seg.objects".into()));
+        assert!(g.body.as_ref().unwrap().nodes.iter().any(|n| n.op == "objects.features"));
+        assert_eq!(read(&m.nodes)[0].method, "by height (nDSM)");
+        let out = Engine { registry: r.clone() }.run(&m, &inputs, &mut Quiet).unwrap_or_else(|e| panic!("{e}")).values;
+        let mem = map(&out, "class_Buildings", "membership");
+        let w = 20;
+        let rect = mem.data[5 * w + 8];
+        let ell = mem.data[15 * w + 3];
+        let ground = mem.data[0];
+        assert!(rect > 0.9, "the rectangle: {rect}");
+        assert!(ell < 0.5 && ell < rect, "the L: {ell}");
+        assert!(ground == 0.0, "the ground: {ground}");
+        // with no objects in the model: the height alone, said in the note
+        let mut bare = Model::new("bare");
+        bare.inputs = m.inputs.clone();
+        let told = add_class(&mut bare, &[], &r, &new("Buildings", None, Recipe::Buildings)).unwrap();
+        assert!(told.is_empty(), "{told:?}");
+        let g = bare.node("class_Buildings").unwrap();
+        assert!(!g.inputs.contains_key("objects"));
+        assert!(g.note.as_deref().unwrap().contains("height only"));
+        assert!(!g.body.as_ref().unwrap().nodes.iter().any(|n| n.op == "objects.features"));
+    }
+
     /// The samples as a table of points (one per object of the segments, at its first cell) of this scene's classes.
     fn with_samples(m: &mut Model) {
         let out = run(m);
@@ -827,6 +1049,10 @@ mod tests {
         let mut base = scene();
         with_samples(&mut base);
         for recipe in Recipe::ALL {
+            // (a class made of its daughters has none yet here: its own test below)
+            if recipe == Recipe::Daughters {
+                continue;
+            }
             let mut m = base.clone();
             let told = add_class(&mut m, &[], &r, &new("Water", None, recipe)).unwrap();
             assert!(told.is_empty(), "{recipe:?}: {told:?}");
