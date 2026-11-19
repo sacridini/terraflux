@@ -114,7 +114,7 @@ impl Knob {
     }
 
     /// The value as the node's setting.
-    fn json(&self, v: f64) -> serde_json::Value {
+    pub(crate) fn json(&self, v: f64) -> serde_json::Value {
         if self.integer { serde_json::json!(v.round() as i64) } else { serde_json::json!(v) }
     }
 }
@@ -225,7 +225,7 @@ fn plan_most(shown: &Grid, b: [f32; 4], image: &Grid, most: usize) -> Option<(Wi
 
 /// The plan for the segmenter `op`: the whole image when it has no more cells than the segmenter does at once (the
 /// preview is then what the node makes, whatever the view), else the part in view.
-fn plan_for(op: &str, view: Option<(&Grid, [f32; 4])>, image: &Grid) -> Option<(Window, usize)> {
+pub(crate) fn plan_for(op: &str, view: Option<(&Grid, [f32; 4])>, image: &Grid) -> Option<(Window, usize)> {
     if op == OP {
         return view.and_then(|(g, b)| plan(g, b, image));
     }
@@ -238,15 +238,15 @@ fn plan_for(op: &str, view: Option<(&Grid, [f32; 4])>, image: &Grid) -> Option<(
 
 /// What the node segments: its image's bands.
 #[derive(Clone)]
-struct Image {
-    grid: Arc<Grid>,
-    names: Vec<String>,
-    data: Vec<Arc<Vec<f64>>>,
+pub(crate) struct Image {
+    pub(crate) grid: Arc<Grid>,
+    pub(crate) names: Vec<String>,
+    pub(crate) data: Vec<Arc<Vec<f64>>>,
 }
 
 impl Image {
     /// A map or a stack in memory (rasters on disk are not segmented here).
-    fn of(v: &Value) -> Option<Image> {
+    pub(crate) fn of(v: &Value) -> Option<Image> {
         match v {
             Value::Map(m) => {
                 Some(Image { grid: m.grid.clone(), names: vec!["image".into()], data: vec![m.data.clone()] })
@@ -260,7 +260,7 @@ impl Image {
         }
     }
 
-    fn key(&self) -> usize {
+    pub(crate) fn key(&self) -> usize {
         self.data.first().map_or(0, |d| Arc::as_ptr(d) as usize)
     }
 }
@@ -312,7 +312,7 @@ pub fn is_target(s: &Session, id: &str) -> bool {
 
 /// The settings a node has, one for each of its knobs (the scale of its output when it has none given, and a rough
 /// one when it has no output either).
-fn base_of(s: &Session, n: &Node, image: &Image) -> Vec<f64> {
+pub(crate) fn base_of(s: &Session, n: &Node, image: &Image) -> Vec<f64> {
     let band = band_range(image);
     knobs(&n.op)
         .iter()
@@ -349,7 +349,7 @@ fn rough_scale(image: &Image) -> f64 {
 }
 
 /// The settings of a segmentation as the node has them (its weights, mutual and seed with the sliders' values).
-fn settings_of(n: &Node, values: &[f64]) -> WindowSettings {
+pub(crate) fn settings_of(n: &Node, values: &[f64]) -> WindowSettings {
     let weights: Vec<f64> = n
         .params
         .get("weights")
@@ -444,7 +444,7 @@ enum Msg {
 }
 
 /// The operators of the registry (made once).
-fn registry() -> &'static Registry {
+pub(crate) fn registry() -> &'static Registry {
     static R: OnceLock<Registry> = OnceLock::new();
     R.get_or_init(Registry::standard)
 }
@@ -614,7 +614,7 @@ impl Live {
     }
 }
 
-fn hashed(parts: impl FnOnce(&mut std::hash::DefaultHasher)) -> u64 {
+pub(crate) fn hashed(parts: impl FnOnce(&mut std::hash::DefaultHasher)) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     parts(&mut h);
     h.finish()
@@ -780,6 +780,7 @@ pub fn panel(ui: &mut Ui, s: &mut Session, id: &str, view: &MapView, salt: &str)
             _ => {}
         }
     });
+    crate::segment_compare::section(ui, s, &node, &image, view, salt);
     let mut apply_now = false;
     let mut reset = false;
     ui.horizontal(|ui| {

@@ -17,6 +17,7 @@ mod objects_viewer;
 mod optimize_view;
 mod prepare;
 mod sam_first_time;
+mod segment_compare;
 mod som_view;
 mod vector_calc;
 mod vector_tiles;

@@ -4489,6 +4489,10 @@ dependências: 6, 2, 1, 4, 3, 7, 5, 8.
   nó existente daquela imagem, ou os padrões da tabela); miniaturas com o `objects_view::outline_image` sobre a
   imagem, o número de objetos e os segundos. *Usar* põe o segmentador no lugar do mostrado. Testes: os padrões por
   operador; no `--test app`, as quatro miniaturas e *Usar* criando o `segment.slic` ligado à imagem.
+  **Feito** (Unreleased): `segment_compare.rs` (`section`, `use_op`, `params_for`; o botão *Compare...* no painel de `live_segment.rs`, a janela
+  de todos os oito segmentadores, os quatro primeiros marcados, uma janela só para todos pelo `plan_for`, o worker um por vez, só o
+  último pedido); *Use* religa quem lia o mostrado (reusa o nó do operador sobre a imagem, ou cria um com os ajustes das miniaturas), um passo de
+  desfazer. Não feito: abrir a comparação de qualquer imagem do Viewer sem um segmentador mostrado.
 - **3. A edição manual dos objetos (G).** Um operador `objects.edit` (`ops/objects/edit.rs`): entradas `objects` e
   `image` (opcional, para a semelhança e a tabela); o parâmetro `edits` (`Type::Any`, uma lista JSON aplicada em
   ordem, como `objects.rules` guarda as classes): `{"merge": [[x, y], ...]}`, `{"cut": [[x, y], ...]}` (uma linha) e

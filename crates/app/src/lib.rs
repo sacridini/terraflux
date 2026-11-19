@@ -52,6 +52,7 @@ pub mod keymap;
 pub mod labels;
 pub mod legend_view;
 pub mod live_segment;
+pub mod segment_compare;
 pub mod llm;
 pub mod logo;
 pub mod map_view;
