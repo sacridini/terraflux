@@ -257,6 +257,13 @@ pub fn at(v: &Value, x: f64, y: f64) -> Option<At> {
                 parts.push(format!("parent {p}"));
             }
             parts.push(format!("{} neighbours", o.neighbours_of(id).len()));
+            // (the membership to each class, and the margin: the largest minus the next)
+            if !o.membership.is_empty() {
+                let said: Vec<String> =
+                    o.classes.iter().zip(&o.membership).map(|(c, m)| format!("{} {}", c.name, cell(m[k]))).collect();
+                parts.push(format!("membership {}", said.join(" ")));
+                parts.push(format!("margin {}", cell(crate::objects_inspect::margin_in(o, id))));
+            }
             for (name, v) in o.table.columns.iter().zip(&o.table.rows[k]).skip(1) {
                 parts.push(format!("{name} {}", cell(*v)));
             }

@@ -780,6 +780,8 @@ pub struct Session {
     pub preview_attributes: Option<crate::attribute_table::Open>,
     /// The features selected of each vector layer (node, port), by their rows from 0, kept while its table is closed.
     pub preview_kept: std::collections::HashMap<(String, String), std::collections::BTreeSet<usize>>,
+    /// The objects selected in the Viewer and the samples given by clicking (see [`crate::objects_inspect`]).
+    pub preview_objects: crate::objects_inspect::ObjectsUi,
     /// The animations (GIF) of steps or of a stack's maps being made, and what the last one said.
     pub animations: crate::animation::Animations,
     pub looks: Looks,
@@ -1048,6 +1050,7 @@ impl Session {
             preview_playing: None,
             preview_attributes: None,
             preview_kept: Default::default(),
+            preview_objects: Default::default(),
             animations: Default::default(),
             palettes: Default::default(),
             ranges: Default::default(),

@@ -3576,6 +3576,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
         playing: s.preview_playing,
         attributes: s.preview_attributes.take(),
         kept: std::mem::take(&mut s.preview_kept),
+        objects: std::mem::take(&mut s.preview_objects),
     };
     let cmp = &mut shown.compare;
     for l in cmp.layers.iter_mut().chain(cmp.more.iter_mut().filter_map(|b| b.layers.as_mut())) {
@@ -3605,6 +3606,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
     s.preview_playing = shown.playing;
     s.preview_attributes = shown.attributes;
     s.preview_kept = shown.kept;
+    s.preview_objects = shown.objects;
     hover
 }
 
@@ -3629,6 +3631,8 @@ pub struct Shown {
     pub attributes: Option<crate::attribute_table::Open>,
     /// The features selected of each vector layer (node, port), by their rows from 0, kept while its table is closed.
     pub kept: Selections,
+    /// The objects selected on the map and the samples given by clicking.
+    pub objects: crate::objects_inspect::ObjectsUi,
 }
 
 /// The features selected of vector layers (node, port), by their rows from 0.
@@ -4320,6 +4324,36 @@ fn shade_layer(l: &Layer, src: &Source) -> Option<LayerMap> {
     ))
 }
 
+/// The level of the objects at `key` drawn set: in the layer's style, or (the output shown, no layer) in the style kept
+/// for it.
+fn set_level(
+    sh: &mut Shown,
+    ui: &Ui,
+    key: &(String, String),
+    shown: (&str, &str),
+    style_id: egui::Id,
+    shown_style: &crate::vector_tiles::Style,
+    level: usize,
+) {
+    if let Some(l) = sh.layers.iter_mut().find(|l| l.is(&key.0, &key.1)) {
+        l.style.level = level;
+    } else if (key.0.as_str(), key.1.as_str()) == shown {
+        let mut style = shown_style.clone();
+        style.level = level;
+        ui.data_mut(|d| d.insert_temp(style_id, style));
+    }
+}
+
+/// The objects the pointer works on in the Viewer: their place (node, output), the objects of the node and the level
+/// of them shown (`level` up the chain of parents, `o`), and their place among the objects drawn.
+struct ActiveObjects {
+    key: (String, String),
+    base: Arc<terraflux_ops::objects::Objects>,
+    level: usize,
+    o: Arc<terraflux_ops::objects::Objects>,
+    draw: usize,
+}
+
 /// What a view draws of a list of layers: the maps (under and over the map of the view), the vector features, and
 /// the place among them of the layer whose attributes are open.
 struct Drawn {
@@ -4403,7 +4437,9 @@ fn draw_layers(
                 });
             }
             Some(Value::Objects(o)) => {
-                // (the fill through the tiles as a map in the colours of the objects; the outlines over everything)
+                // (the fill through the tiles as a map in the colours of the objects; the outlines over everything;
+                // the level above them when the layer is set to it)
+                let o = crate::objects_view::at_level(&o, l.style.level);
                 let f = objects_fill(&o, Some(&l.style));
                 if !matches!(&f.coloring, Coloring::Classes(c) if c.is_empty()) {
                     let item = (
@@ -4423,6 +4459,10 @@ fn draw_layers(
                     name: named(&l.node, &l.port),
                     shown: false,
                     picked: None,
+                    key: (l.node.clone(), l.port.clone()),
+                    selected: Vec::new(),
+                    sampling: false,
+                    marks: Vec::new(),
                 });
             }
             Some(v) => {
@@ -5539,8 +5579,15 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         let own = ui.data(|d| d.get_temp::<crate::vector_tiles::Style>(style_id));
         sh.layers.iter().find(|l| l.is(&node, &port)).map(|l| l.style.clone()).or(own).unwrap_or_default()
     };
+    // (the objects of the node, and those of the level shown: the layer's `level` up their chain of parents)
+    let shown_base: Option<Arc<terraflux_ops::objects::Objects>> =
+        if let Value::Objects(o) = &value { Some(o.clone()) } else { None };
     let shown_objects: Option<(Arc<terraflux_ops::objects::Objects>, Arc<crate::objects_view::Filled>)> =
-        if let Value::Objects(o) = &value { Some((o.clone(), objects_fill(o, Some(&objects_style)))) } else { None };
+        shown_base.as_ref().map(|b| {
+            let o = crate::objects_view::at_level(b, objects_style.level);
+            let f = objects_fill(&o, Some(&objects_style));
+            (o, f)
+        });
     if let Some((_, f)) = &shown_objects {
         value = Value::Map(f.map.clone());
     }
@@ -5759,6 +5806,28 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     } else {
         Vec::new()
     };
+    // the objects the pointer works on (selects, inspects, gives samples to): the output shown when it is objects, else
+    // the topmost layer of objects
+    let active: Option<ActiveObjects> = match (&shown_objects, &shown_base) {
+        (Some((o, _)), Some(base)) => Some(ActiveObjects {
+            key: (node.clone(), port.clone()),
+            base: base.clone(),
+            level: objects_style.level,
+            o: o.clone(),
+            draw: 0,
+        }),
+        _ => layer_objects.last().and_then(|d| {
+            let Some(Value::Objects(base)) = s.value_of(&d.key.0, &d.key.1) else { return None };
+            let level = sh.layers.iter().find(|l| l.is(&d.key.0, &d.key.1)).map_or(0, |l| l.style.level);
+            Some(ActiveObjects { key: d.key.clone(), base, level, o: d.objects.clone(), draw: layer_objects.len() - 1 })
+        }),
+    };
+    if let Some(a) = &active {
+        sh.objects.target(&a.key, &a.o);
+    } else {
+        sh.objects = Default::default();
+    }
+    let mut apply_samples = false;
     // (the panels beside the map narrower in a narrow Viewer: the map keeps room)
     egui::Panel::right(egui::Id::new(("output side", salt)))
         .resizable(true)
@@ -5773,15 +5842,22 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     ui.label(RichText::new("on disk: read where it is shown").weak().size(11.0));
                 }
                 // objects: what they are, and (while the output is no layer, whose row has them) how they are drawn
-                if let Some((o, _)) = &shown_objects {
+                if let (Some((o, _)), Some(base)) = (&shown_objects, &shown_base) {
                     ui.label(RichText::new(o.describe()).weak().size(11.0));
                     if !sh.layers.iter().any(|l| l.is(&node, &port)) {
                         let mut style = objects_style.clone();
-                        crate::objects_view::controls(ui, &mut style, o, egui::Id::new(("objects controls", salt)));
+                        crate::objects_view::controls(ui, &mut style, base, egui::Id::new(("objects controls", salt)));
                         if style != objects_style {
                             ui.data_mut(|d| d.insert_temp(style_id, style));
                         }
                     }
+                }
+                // the objects selected, inspected, and given samples
+                if let Some(a) = &active {
+                    ui.separator();
+                    let below = (a.level > 0).then(|| crate::objects_view::at_level(&a.base, a.level - 1));
+                    apply_samples = sh.objects.samples_ui(ui, s, &a.o);
+                    sh.objects.inspector(ui, s, &a.o, below.as_deref());
                 }
                 // the map as a figure for a paper (alone, with the one compared, or every layer of it), or as the
                 // picture the Viewer shows (a file for QGIS or a slide)
@@ -6359,6 +6435,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     if let Some((o, _)) = &shown_objects {
         let pick_id = egui::Id::new(("objects pick", salt, &node, &port));
         let mut pick: crate::table_view::Pick = ui.data(|d| d.get_temp(pick_id)).unwrap_or_default();
+        // (the objects selected on the map are the rows picked, and the other way)
+        sh.objects.sync(&mut pick, o.count);
         egui::Panel::bottom(egui::Id::new(("objects table", salt)))
             .resizable(true)
             .default_size(190.0)
@@ -6379,8 +6457,18 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 name: main_name.clone(),
                 shown: true,
                 picked,
+                key: (node.clone(), port.clone()),
+                selected: Vec::new(),
+                sampling: false,
+                marks: Vec::new(),
             },
         );
+    }
+    // (the selection, the samples and the mode, drawn on the objects the pointer works on)
+    if let Some(d) = active.as_ref().and_then(|a| draws.get_mut(a.draw)) {
+        d.selected = sh.objects.selected.iter().copied().collect();
+        d.sampling = sh.objects.sampling;
+        d.marks = sh.objects.marks();
     }
     sh.view.objects = draws;
     egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::well())).show(ui, |ui| {
@@ -6434,6 +6522,41 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             }
         }
     });
+    // what the pointer did on the objects (selected, or gave samples), and the keys over them (a level to go to)
+    let events = std::mem::take(&mut sh.view.object_events);
+    if let Some(a) = &active {
+        let mut changed = sh.objects.pointer(&events, a.draw, &a.o);
+        // (a layer made by a node that has a `below` output: its objects are the children's level)
+        let below_out = (a.level == 0 && a.key.1 != "below" && sh.layers.iter().any(|l| l.is(&a.key.0, &a.key.1)))
+            .then(|| match s.value_of(&a.key.0, "below") {
+                Some(Value::Objects(b)) if b.parent.as_ref().is_some_and(|p| p.count == a.base.count) => Some(b),
+                _ => None,
+            })
+            .flatten();
+        match sh.objects.keys(ui, &a.base, a.level, below_out.as_ref()) {
+            Some(crate::objects_inspect::Go::Level(level)) => {
+                set_level(sh, ui, &a.key, (&node, &port), style_id, &objects_style, level);
+                changed = true;
+            }
+            Some(crate::objects_inspect::Go::Below) => {
+                if let Some(l) = sh.layers.iter_mut().find(|l| l.is(&a.key.0, &a.key.1)) {
+                    l.port = "below".into();
+                }
+                changed = true;
+            }
+            None => {}
+        }
+        if changed {
+            ui.ctx().request_repaint();
+        }
+        if apply_samples {
+            sh.objects.changed = None;
+            match crate::objects_inspect::apply(s, r, &sh.objects, &a.o) {
+                Ok(m) => s.notice = Some((m, std::time::Instant::now())),
+                Err(e) => sh.objects.message = Some(e),
+            }
+        }
+    }
     // a feature clicked on the map selects its row (a click with no table open only picks the cell); so does one
     // clicked in a view side by side that draws the Viewer's layers (not one with layers of its own)
     let side = sh.compare.how == How::SideBySide && compared.is_some();

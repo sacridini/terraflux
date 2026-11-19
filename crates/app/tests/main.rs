@@ -10,6 +10,7 @@ mod class_tree;
 mod cloud_public;
 mod my_nodes;
 mod objects_view;
+mod objects_viewer;
 mod prepare;
 mod vector_calc;
 mod vector_tiles;

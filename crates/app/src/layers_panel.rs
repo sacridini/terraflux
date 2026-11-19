@@ -807,6 +807,7 @@ fn layer_row(
     let look = if kind == Kind::Map { layer_look(s, &ctx, &sh.layers[i]) } else { None };
     // (objects: and how they are filled, by the layer's style)
     let objects = objects_of(s, &sh.layers[i]).map(|o| {
+        let o = crate::objects_view::at_level(&o, sh.layers[i].style.level);
         let f = objects_fill(&o, Some(&sh.layers[i].style));
         (o, f)
     });
@@ -1522,6 +1523,7 @@ fn inline_legend(
         },
         Kind::Objects => match objects_of(s, l) {
             Some(o) => {
+                let o = crate::objects_view::at_level(&o, l.style.level);
                 let f = objects_fill(&o, Some(&l.style));
                 let lines = crate::objects_view::legend_lines(&f);
                 if lines.is_empty() {
@@ -2067,7 +2069,11 @@ fn properties(
                     blend_combo(ui, l, salt, active);
                     if let Some(o) = objects_of(s, l) {
                         crate::objects_view::controls(ui, &mut l.style, &o, egui::Id::new((&l.node, &l.port, salt)));
-                        ui.label(RichText::new(o.describe()).weak().size(11.0));
+                        ui.label(
+                            RichText::new(crate::objects_view::at_level(&o, l.style.level).describe())
+                                .weak()
+                                .size(11.0),
+                        );
                     }
                     if active {
                         ui.label(

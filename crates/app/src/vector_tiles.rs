@@ -183,6 +183,8 @@ pub struct Style {
     pub size_min: f32,
     pub size_max: f32,
     pub symbol: Symbol,
+    /// Objects: the level drawn, 0 this one, k the k-th level above (see `Objects::parent`).
+    pub level: usize,
 }
 
 impl Default for Style {
@@ -202,6 +204,7 @@ impl Default for Style {
             size_min: 3.0,
             size_max: 18.0,
             symbol: Symbol::Circle,
+            level: 0,
         }
     }
 }
@@ -246,6 +249,9 @@ impl Style {
         if self.symbol != d.symbol {
             o["symbol"] = self.symbol.key().into();
         }
+        if self.level != 0 {
+            o["level"] = self.level.into();
+        }
         o
     }
 
@@ -289,6 +295,7 @@ impl Style {
             size_min: size_min.min(size_max),
             size_max,
             symbol: text("symbol").and_then(Symbol::named).unwrap_or(d.symbol),
+            level: v.get("level").and_then(|x| x.as_u64()).map_or(0, |x| x as usize),
         }
     }
 

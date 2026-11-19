@@ -506,6 +506,34 @@ pub struct ObjectsDraw {
     pub shown: bool,
     /// The object chosen in the table, outlined in the accent.
     pub picked: Option<u32>,
+    /// The layer's node and output (what an event of the pointer is told by).
+    pub key: (String, String),
+    /// The objects selected (outlined in the accent; a click on the map or a row of the table selects them).
+    pub selected: Vec<u32>,
+    /// Samples mode: a click gives the object its class, a drag paints, a right click takes it away; the map is not
+    /// panned by a drag. `marks` are the samples drawn: the cell and the class's colour.
+    pub sampling: bool,
+    pub marks: Vec<((usize, usize), Color32)>,
+}
+
+/// What the pointer did on an object of a layer of objects ([`MapView::object_events`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObjectEvent {
+    /// The layer, by its place among the objects drawn.
+    pub layer: usize,
+    /// The object under the pointer (0: none).
+    pub id: u32,
+    pub kind: ObjectEventKind,
+    /// Whether ctrl was held.
+    pub ctrl: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjectEventKind {
+    Click,
+    RightClick,
+    /// The pointer dragged over the object (samples mode only).
+    Drag,
 }
 
 /// The outlines of some objects as an image of the part of them in view, with what it was made from (hashed): made
@@ -607,6 +635,8 @@ pub struct MapView {
     pub objects: Vec<ObjectsDraw>,
     object_images: HashMap<usize, OutlineImage>,
     object_outlines: HashMap<(usize, u32), Option<Arc<Outline>>>,
+    /// What the pointer did on the objects drawn at the last frame (clicks, drags), for whoever shows the map to take.
+    pub object_events: Vec<ObjectEvent>,
     /// The features selected in a table of attributes (layer, features), outlined in the accent; and the features
     /// (layer, feature) under the pointer at the last click, to select rows by (`feature_toggle`: with ctrl, to
     /// toggle them instead).
@@ -755,6 +785,12 @@ impl MapView {
             (self.center.y + half.y).clamp(0.0, h),
         ];
         (b[2] > b[0] && b[3] > b[1]).then_some((g, b))
+    }
+
+    /// Where the centre of a cell (column, row) is on the screen, at the last frame (none before a map was drawn).
+    pub fn cell_screen(&self, col: usize, row: usize) -> Option<Pos2> {
+        let rect = self.rect?;
+        Some(rect.center() + (Vec2::new(col as f32 + 0.5, row as f32 + 0.5) - self.center) * self.zoom)
     }
 
     /// The part of the map in view as a box of its coordinates (west, south, east, north), not cut to the map: what
@@ -2041,6 +2077,7 @@ impl MapView {
         self.layers_drawn = (rasters.len(), overlays.len());
         self.pointer = None;
         let objects = std::mem::take(&mut self.objects);
+        self.object_events.clear();
         let blank = matches!(source, Source::Blank(_));
         if self.workers.is_none() {
             self.workers = Some(Workers::new(ctx.clone()));
@@ -2122,7 +2159,9 @@ impl MapView {
             rect,
             !overlays.is_empty() && self.drawing.is_none() && self.editing.is_none() && self.measuring.is_none(),
         );
-        if response.dragged() && !editing && !self.selecting {
+        // (a drag paints samples, in samples mode, and does not move the map)
+        let sampling = objects.iter().any(|d| d.sampling);
+        if response.dragged() && !editing && !self.selecting && !sampling {
             self.center -= response.drag_delta() / self.zoom;
         }
         // B over the map: the satellite's imagery under it, or none
@@ -2546,6 +2585,19 @@ impl MapView {
                 if let Some(id) = d.picked {
                     self.paint_object(&painter, rect, d, id, source.grid());
                 }
+                for &id in &d.selected {
+                    self.paint_object(&painter, rect, d, id, source.grid());
+                }
+                // the samples: a dot in the class's colour at the cell
+                if let Some(place) = place_on(&d.objects.grid, source.grid()) {
+                    for &((row, col), colour) in &d.marks {
+                        let c = place.to_view(Vec2::new(col as f32 + 0.5, row as f32 + 0.5));
+                        let at = rect.center() + (c - self.center) * self.zoom;
+                        if rect.contains(at) {
+                            painter.circle(at, 5.0, colour, egui::Stroke::new(1.5, Color32::WHITE));
+                        }
+                    }
+                }
             }
         } else {
             self.object_images.clear();
@@ -2622,7 +2674,7 @@ impl MapView {
         }
         // a right click: why the cell has its value (its menu drawn whether or not the pointer is over the map:
         // it stays open while the pointer goes to it; the cell picked by the click that opens it, below)
-        if !blank {
+        if !blank && !sampling {
             response.context_menu(|ui| {
                 if let Some((row, col)) = self.picked {
                     ui.label(egui::RichText::new(format!("row {row}, column {col}")).weak().small());
@@ -2748,6 +2800,24 @@ impl MapView {
             .collect();
         if show_data && let Some((d, &id)) = objects.iter().zip(&under).rev().find(|(_, id)| **id != 0) {
             self.paint_object(&painter, rect, d, id, source.grid());
+        }
+        // what the pointer did on the objects: told to whoever shows the map (clicks; drags in samples mode)
+        {
+            let ctrl = crate::table_view::click_modifiers(ui).command;
+            let kind = if response.clicked() {
+                Some(ObjectEventKind::Click)
+            } else if response.secondary_clicked() {
+                Some(ObjectEventKind::RightClick)
+            } else if sampling && response.dragged_by(egui::PointerButton::Primary) {
+                Some(ObjectEventKind::Drag)
+            } else {
+                None
+            };
+            if let Some(kind) = kind.filter(|_| show_data && inside) {
+                for (layer, &id) in under.iter().enumerate() {
+                    self.object_events.push(ObjectEvent { layer, id, kind, ctrl });
+                }
+            }
         }
         // close enough to see the cells: the one under the pointer outlined
         if inside && !blank && self.zoom >= 6.0 {

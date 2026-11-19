@@ -71,6 +71,21 @@ pub fn set_fill(style: &mut Style, fill: Fill) {
     };
 }
 
+/// How many levels the objects have above them (the chain of `parent`).
+pub fn levels_above(o: &Objects) -> usize {
+    std::iter::successors(o.parent.as_ref(), |p| p.parent.as_ref()).count()
+}
+
+/// The objects `level` levels up the chain of parents (0: these; more than there are: the topmost).
+pub fn at_level(o: &Arc<Objects>, level: usize) -> Arc<Objects> {
+    let mut at = o.clone();
+    for _ in 0..level {
+        let Some(p) = at.parent.clone() else { break };
+        at = p;
+    }
+    at
+}
+
 /// The outlines' colour: the style's, yellow while it is the untouched default.
 pub fn outline_colour(style: &Style) -> Color32 {
     if style.colour == Style::default().colour { OUTLINE } else { style.colour }
@@ -122,7 +137,7 @@ pub fn fill(o: &Arc<Objects>, how: Fill) -> Arc<Filled> {
 }
 
 /// The colour of an object's class: the one it was given, else the standard class palette's.
-fn class_colour_of(o: &Objects, k: usize) -> Color32 {
+pub fn class_colour_of(o: &Objects, k: usize) -> Color32 {
     match o.classes[k - 1].colour {
         Some([r, g, b]) => Color32::from_rgb(r, g, b),
         None => class_colour(k - 1),
@@ -380,6 +395,37 @@ pub fn legend_lines(f: &Filled) -> Vec<(Color32, String, usize)> {
 
 /// The controls of a layer of objects: how they are filled, the outlines' colour and width.
 pub fn controls(ui: &mut Ui, style: &mut Style, o: &Objects, id: egui::Id) {
+    // (objects inside those of a level above: the level drawn)
+    let above = levels_above(o);
+    if above > 0 {
+        style.level = style.level.min(above);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Level").size(11.5));
+            let count = |k: usize| {
+                let mut at = o;
+                for _ in 0..k {
+                    at = at.parent.as_deref().unwrap_or(at);
+                }
+                at.count
+            };
+            let name = |k: usize| match k {
+                0 => format!("this level ({} objects)", count(0)),
+                1 => format!("the level above ({} objects)", count(1)),
+                k => format!("{k} levels above ({} objects)", count(k)),
+            };
+            egui::ComboBox::from_id_salt(id.with("level"))
+                .selected_text(name(style.level))
+                .show_ui(ui, |ui| {
+                    for k in 0..=above {
+                        if ui.add(egui::Button::selectable(style.level == k, name(k))).clicked() {
+                            style.level = k;
+                        }
+                    }
+                })
+                .response
+                .on_hover_text("the objects of this node, or of the level above them (their parents)");
+        });
+    }
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Fill").size(11.5));
         let now = fill_of(style, o);
