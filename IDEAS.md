@@ -4141,6 +4141,11 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   "buildings by height", "by samples"). Para quem está começando é o ponto de partida mais natural ("o que há na minha
   imagem?") em vez de "qual a escala?". Testes: o filho não acha nada fora do pai; a árvore lida e escrita com o
   modelo; uma receita aplicada a um nó roda.
+  **Feito** (Unreleased): `crates/app/src/class_tree.rs` e `class_view.rs`. Um ramo é um `control.group` com os
+  `params` `class`, `parent_class` e `colour` (o `control.group` os declara), que lê `@region` e dá `membership`;
+  os irmãos num `stack.of` e um `objects.resolve`, a região de cada mãe um `raster.calc` do `class` dele. O botão
+  *Classes* do painel Model mostra os cartões; *Add a class...* com as receitas NDWI, NDVI, altura e amostras, num
+  passo de desfazer. Falta: a mãe como união dos filhos (`union_region`), a forma na receita de prédios.
 - **G. Hipóteses por classe e a arbitragem (do InterIMAGE).** Cada classe achada pelo seu próprio método (um limiar de
   NDWI para a água, a segmentação multirresolução com regras de forma para os telhados, o nDSM para as árvores, o SAM),
   sem que um método tenha de servir para todas. Cada ramo da etapa F dá um mapa de pertinência da sua classe (0 fora
