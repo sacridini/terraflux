@@ -585,6 +585,56 @@ pub const TIPS: &[(&str, &str)] = &[
          every band, so give it the bands that tell the classes apart.",
     ),
     (
+        "segment.multiresolution",
+        "The scale is in the image's units (the same scale gives other objects on reflectance 0-1 than on 0-10000), \
+         so find it with segment.scale, which suggests scales from the image, then look at the objects in the \
+         Viewer and raise or lower it. shape 0.1 and compactness 0.5 are eCognition's usual start: more shape \
+         gives smoother, more compact objects at the cost of following the colour. For a hierarchy, connect a \
+         level to `from` of the next with a higher scale; a superpixel level (segment.slic, segment.snic) as the \
+         first one makes the run faster than starting from single cells. Weights tell the bands apart (0 \
+         leaves one out of the colour).",
+    ),
+    (
+        "segment.slic",
+        "Superpixels are many small, regular objects: use them as the first level of segment.multiresolution \
+         (`from`), or as the cells of a classification, not as the final objects. `size` sets their side in cells \
+         and `compactness` their regularity (higher: more regular; lower: closer to the edges).",
+    ),
+    (
+        "segment.snic",
+        "As segment.slic, and no iterations: it grows the superpixels from their seeds in one pass, so it is faster \
+         and needs no tuning of `iterations`. Use the superpixels as the first level of segment.multiresolution \
+         (`from`), or as the cells of a classification.",
+    ),
+    (
+        "segment.felzenszwalb",
+        "`k` sets how large the segments grow, in the units of the bands (standard deviations by default): raise it \
+         for larger segments; `min_size` joins the smallest ones. It makes segments of very different sizes, from \
+         a graph of the cells' differences, which suits irregular scenes and less a fixed scale: for a scale you \
+         control, use segment.multiresolution.",
+    ),
+    (
+        "segment.watershed",
+        "Without markers the basins are the minima of the gradient, so many on a noisy image: raise `sigma` (the \
+         smoothing) or `h` until they are about the objects you want. With markers (a map of seeds, the centres of \
+         the trees or the buildings, a classification's cores) every object has one marker, which is the way to \
+         control what it finds.",
+    ),
+    (
+        "segment.meanshift",
+        "It is the slowest of the segmenters: its cost grows with the square of `spatial_radius` and with the \
+         cells, so try it on a part of the image first. `range_radius` (in standard deviations when the bands are \
+         standardised) sets how different cells may be and still be one object; `min_size` removes the specks.",
+    ),
+    (
+        "segment.scale",
+        "ESP runs the segmentation at 30 scales on the central `window` of the image (512 x 512 cells by default) \
+         so it stays fast on large images: the scales hold for the whole image, but choose a window that holds \
+         the objects you want, or 0 for all of it. The peaks of the ROC are guides: open the chart of the table, \
+         try the suggested scales in segment.multiresolution and look at the objects. Give `start` and `step` \
+         to look closer at a range of scales.",
+    ),
+    (
         "objects.to_vector",
         "The polygons follow the cell edges exactly (stairs); `smooth` cuts their corners that many times (1 to 3 \
          is enough to look natural) and shrinks them a little at each corner, so keep 0 when the polygons are \

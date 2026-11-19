@@ -4069,6 +4069,13 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   dada. Testes: invariantes (a heterogeneidade de cada fusão abaixo do limiar, a imagem homogênea vira poucos objetos,
   escala maior dá menos objetos, determinismo entre 1 e 8 threads), e a qualidade na `nlm.image` (a sobre e a
   subsegmentação contra a verdade). Benchmarks com no máximo 8 threads.
+  **Feito** (Unreleased). `objects/multiresolution.rs` (grafo de regiões com n, Σx, Σx² por banda, regiões "quietas"
+  fora das visitas; uma thread por ora: o paralelo por blocos fica na etapa K; 1 Mcélula × 4 bandas em 2,7 s),
+  `superpixels.rs` (SLIC, SNIC, Felzenszwalb; bandas padronizadas por padrão, a `compactness` do SLIC/SNIC padrão 1
+  com a cor pela média por banda), `watershed.rs` (Sobel, o máximo das bandas, h-minima por persistência, compacto de
+  Neubert & Protzel), `meanshift.rs` (filtro plano em rayon pelo teto central, agrupamento pela média da região),
+  `esp.rs` (ESP2 hierárquico numa janela central de 512², 0,8 s; o primeiro pico do ROC médio é a escala padrão do
+  multiresolution, dita pela saída `scale` e por um aviso). Gráfico *ESP* em `charts.rs` pela forma da tabela.
 - **C. Os atributos.** `objects.features`: lê os objetos e uma ou mais imagens ou mapas (qualquer raster como camada:
   MDE, nDSM, um mapa de classes anterior, a imagem de outra data) e dá os objetos com a tabela, e a tabela à parte.
   Grupos: **espectrais** (média, desvio, mínimo, máximo, mediana por banda, brilho, diferença máxima, razão; os índices

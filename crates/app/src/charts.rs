@@ -6,7 +6,9 @@
 //! (metrics.correlation) as a heatmap, as show_correlation.
 
 use egui::{Color32, Ui, Vec2};
-use egui_plot::{Arrows, Bar, BarChart, BoxElem, BoxPlot, BoxSpread, Heatmap, Line, Plot, PlotPoint, Points, Text};
+use egui_plot::{
+    Arrows, Bar, BarChart, BoxElem, BoxPlot, BoxSpread, Heatmap, Line, Plot, PlotPoint, Points, Text, VLine,
+};
 use terraflux_ops::Table;
 
 use crate::palette::{Ramp, class_colour};
@@ -31,6 +33,8 @@ pub enum Kind {
     Loadings,
     /// A square table (a correlation matrix) as a heatmap.
     Matrix,
+    /// segment.scale's table: LV and ROC against the scale, the suggested scales marked.
+    Esp,
 }
 
 impl Kind {
@@ -44,6 +48,7 @@ impl Kind {
             Kind::Clustergram => "clustergram",
             Kind::Loadings => "loadings",
             Kind::Matrix => "matrix",
+            Kind::Esp => "ESP",
         }
     }
 
@@ -62,8 +67,18 @@ impl Kind {
         if is_matrix(t) {
             v.push(Kind::Matrix);
         }
+        if is_esp(t) {
+            v.push(Kind::Esp);
+        }
         v
     }
+}
+
+/// Whether a table is segment.scale's: a row per scale (columns scale, roc_mean and suggested, and an lv_<band> for
+/// each band).
+pub fn is_esp(t: &Table) -> bool {
+    let has = |n: &str| t.columns.iter().any(|c| c == n);
+    has("scale") && has("roc_mean") && has("suggested") && t.columns.iter().any(|c| c.starts_with("lv_"))
 }
 
 /// The columns of a table named `k<number>` (a clustergram's): (k, column), by k.
@@ -309,6 +324,7 @@ pub fn show(ui: &mut Ui, t: &Table, rows: &[usize], chart: &mut Chart, id: egui:
             }
         }
         Kind::Matrix => matrix(ui, t, id),
+        Kind::Esp => esp(ui, t, rows, id),
         Kind::Loadings => loadings(ui, t, chart.components, id),
     }
 }
@@ -529,6 +545,53 @@ fn loadings(ui: &mut Ui, t: &Table, [a, b]: [usize; 2], id: egui::Id) {
         });
 }
 
+/// segment.scale's table: the local variance (the mean of the bands' lv_) and the rate of change (roc_mean) against
+/// the scale, side by side, a vertical line at each suggested scale.
+fn esp(ui: &mut Ui, t: &Table, rows: &[usize], id: egui::Id) {
+    let at = |n: &str| t.columns.iter().position(|c| c == n);
+    let (Some(sc), Some(roc), Some(sg)) = (at("scale"), at("roc_mean"), at("suggested")) else { return };
+    let lvs: Vec<usize> = (0..t.columns.len()).filter(|&j| t.columns[j].starts_with("lv_")).collect();
+    let mut lv: Vec<[f64; 2]> = Vec::new();
+    let mut rc: Vec<[f64; 2]> = Vec::new();
+    let mut marks: Vec<f64> = Vec::new();
+    for &i in rows {
+        let r = &t.rows[i];
+        let v: Vec<f64> = lvs.iter().map(|&j| r[j]).filter(|x| x.is_finite()).collect();
+        if !v.is_empty() {
+            lv.push([r[sc], v.iter().sum::<f64>() / v.len() as f64]);
+        }
+        if r[roc].is_finite() {
+            rc.push([r[sc], r[roc]]);
+        }
+        if r[sg] == 1.0 {
+            marks.push(r[sc]);
+        }
+    }
+    let colour = crate::palette::seen(crate::theme::accent());
+    let mark = ui.visuals().text_color().gamma_multiply(0.5);
+    let w = (ui.available_width() / 2.0 - 8.0).max(240.0);
+    ui.horizontal_wrapped(|ui| {
+        for (k, (label, pts)) in [("LV (mean of the bands)", lv), ("ROC (%)", rc)].into_iter().enumerate() {
+            ui.allocate_ui(Vec2::new(w, 200.0), |ui| {
+                crate::theme::plot(Plot::new(id.with(("esp", k))))
+                    .width(w)
+                    .height(200.0)
+                    .allow_scroll(false)
+                    .x_axis_label("scale")
+                    .y_axis_label(label)
+                    .show(ui, |p| {
+                        wheel_zoom(p);
+                        for &x in &marks {
+                            p.vline(VLine::new("suggested", x).color(mark));
+                        }
+                        p.line(Line::new(label, pts.clone()).color(colour).width(2.0));
+                        p.points(Points::new(label, pts).color(colour).radius(3.0));
+                    });
+            });
+        }
+    });
+}
+
 /// A square table as a heatmap: blue to red around 0 (a correlation), its values written.
 fn matrix(ui: &mut Ui, t: &Table, id: egui::Id) {
     let m = t.columns.len();
@@ -647,5 +710,17 @@ mod tests {
         let points = Chart::suggested(&t, Kind::Points);
         assert_eq!((points.columns, points.x, points.by), (vec![3], Some(2), Some(0)));
         assert!(!Kind::of(&t).contains(&Kind::Matrix));
+    }
+
+    #[test]
+    fn segment_scale_tables_have_the_esp_chart() {
+        let esp = Table {
+            columns: ["scale", "objects", "lv_b1", "roc_b1", "roc_mean", "suggested"].map(String::from).to_vec(),
+            rows: vec![vec![1.0, 100.0, 0.5, f64::NAN, f64::NAN, 0.0]],
+            ..Default::default()
+        };
+        assert!(is_esp(&esp) && Kind::of(&esp).contains(&Kind::Esp));
+        let other = Table { columns: vec!["scale".into(), "x".into()], ..Default::default() };
+        assert!(!is_esp(&other));
     }
 }

@@ -139,6 +139,117 @@ macro_rules! paper {
 /// The papers of the methods Terraflux reproduces (the website's "Cite Terraflux").
 pub const REFERENCES: &[Reference] = &[
     paper!(
+        "achanta2012",
+        ["Achanta, R.", "Shaji, A.", "Smith, K.", "Lucchi, A.", "Fua, P.", "Süsstrunk, S."],
+        false,
+        2012,
+        "SLIC superpixels compared to state-of-the-art superpixel methods",
+        "IEEE Transactions on Pattern Analysis and Machine Intelligence",
+        "34",
+        "11",
+        "2274–2282",
+        "10.1109/TPAMI.2012.120"
+    ),
+    Reference {
+        key: "achanta2017",
+        authors: &["Achanta, R.", "Süsstrunk, S."],
+        more: false,
+        year: 2017,
+        title: "Superpixels and polygons using simple non-iterative clustering",
+        journal: "",
+        volume: "",
+        issue: "",
+        pages: "",
+        doi: "",
+        report: "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 4651–4660.",
+    },
+    Reference {
+        key: "baatz2000",
+        authors: &["Baatz, M.", "Schäpe, A."],
+        more: false,
+        year: 2000,
+        title: "Multiresolution segmentation: an optimization approach for high quality multi-scale image segmentation",
+        journal: "",
+        volume: "",
+        issue: "",
+        pages: "",
+        doi: "",
+        report: "In J. Strobl, T. Blaschke & G. Griesebner (Eds.), Angewandte Geographische Informationsverarbeitung XII (pp. 12–23). Wichmann.",
+    },
+    paper!(
+        "comaniciu2002",
+        ["Comaniciu, D.", "Meer, P."],
+        false,
+        2002,
+        "Mean shift: a robust approach toward feature space analysis",
+        "IEEE Transactions on Pattern Analysis and Machine Intelligence",
+        "24",
+        "5",
+        "603–619",
+        "10.1109/34.1000236"
+    ),
+    paper!(
+        "dragut2010",
+        ["Drăguţ, L.", "Tiede, D.", "Levick, S. R."],
+        false,
+        2010,
+        "ESP: a tool to estimate scale parameter for multiresolution image segmentation of remotely sensed data",
+        "International Journal of Geographical Information Science",
+        "24",
+        "6",
+        "859–871",
+        "10.1080/13658810903174803"
+    ),
+    paper!(
+        "dragut2014",
+        ["Drăguţ, L.", "Csillik, O.", "Eisank, C.", "Tiede, D."],
+        false,
+        2014,
+        "Automated parameterisation for multi-scale image segmentation on multiple layers",
+        "ISPRS Journal of Photogrammetry and Remote Sensing",
+        "88",
+        "",
+        "119–127",
+        "10.1016/j.isprsjprs.2013.11.018"
+    ),
+    paper!(
+        "felzenszwalb2004",
+        ["Felzenszwalb, P. F.", "Huttenlocher, D. P."],
+        false,
+        2004,
+        "Efficient graph-based image segmentation",
+        "International Journal of Computer Vision",
+        "59",
+        "2",
+        "167–181",
+        "10.1023/B:VISI.0000022288.19776.77"
+    ),
+    Reference {
+        key: "neubert2014",
+        authors: &["Neubert, P.", "Protzel, P."],
+        more: false,
+        year: 2014,
+        title: "Compact watershed and preemptive SLIC: on improving trade-offs of superpixel segmentation algorithms",
+        journal: "",
+        volume: "",
+        issue: "",
+        pages: "",
+        doi: "",
+        report: "22nd International Conference on Pattern Recognition (ICPR), 996–1001.",
+    },
+    paper!(
+        "vincent1991",
+        ["Vincent, L.", "Soille, P."],
+        false,
+        1991,
+        "Watersheds in digital spaces: an efficient algorithm based on immersion simulations",
+        "IEEE Transactions on Pattern Analysis and Machine Intelligence",
+        "13",
+        "6",
+        "583–598",
+        "10.1109/34.87344"
+    ),
+    paper!(
         "campolongo2007",
         ["Campolongo, F.", "Cariboni, J.", "Saltelli, A."],
         false,
@@ -756,6 +867,55 @@ pub const METHODS: &[Method] = &[
         software_refs: &[],
     },
     Method {
+        ops: &["segment.multiresolution"],
+        name: "multiresolution segmentation into objects",
+        refs: &["baatz2000"],
+        software: "",
+        software_refs: &[],
+    },
+    Method {
+        ops: &["segment.slic"],
+        name: "SLIC superpixels",
+        refs: &["achanta2012"],
+        software: "",
+        software_refs: &[],
+    },
+    Method {
+        ops: &["segment.snic"],
+        name: "SNIC superpixels",
+        refs: &["achanta2017"],
+        software: "",
+        software_refs: &[],
+    },
+    Method {
+        ops: &["segment.felzenszwalb"],
+        name: "graph-based segmentation into objects",
+        refs: &["felzenszwalb2004"],
+        software: "",
+        software_refs: &[],
+    },
+    Method {
+        ops: &["segment.watershed"],
+        name: "watershed segmentation into objects",
+        refs: &["vincent1991", "neubert2014"],
+        software: "",
+        software_refs: &[],
+    },
+    Method {
+        ops: &["segment.meanshift"],
+        name: "mean shift segmentation into objects",
+        refs: &["comaniciu2002"],
+        software: "",
+        software_refs: &[],
+    },
+    Method {
+        ops: &["segment.scale"],
+        name: "the estimation of the scale parameter of multiresolution segmentation (ESP)",
+        refs: &["dragut2010", "dragut2014"],
+        software: "",
+        software_refs: &[],
+    },
+    Method {
         ops: &["sensitivity.design", "sensitivity.analyze"],
         name: "a global sensitivity analysis ({ops})",
         refs: &["morris1991", "campolongo2007", "sobol2001", "saltelli2002", "saltelli2010"],
@@ -1197,6 +1357,8 @@ mod tests {
         assert_eq!(method_of("restoration.plan").unwrap().refs, &["strassburg2020"]);
         assert_eq!(method_of("prioritize.zonation_project").unwrap().software, "Zonation 5");
         assert_eq!(method_of("prioritize.actions_raster").unwrap().refs, &["salgadorojas2020"]);
+        assert_eq!(method_of("segment.watershed").unwrap().refs, &["vincent1991", "neubert2014"]);
+        assert_eq!(method_of("segment.scale").unwrap().refs, &["dragut2010", "dragut2014"]);
         assert!(method_of("raster.reclassify").is_none());
     }
 

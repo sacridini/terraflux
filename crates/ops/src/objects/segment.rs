@@ -13,6 +13,11 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Chessboard));
     r.add(Arc::new(Quadtree));
     r.add(Arc::new(FromVector));
+    r.add(Arc::new(super::multiresolution::Multiresolution));
+    super::superpixels::register(r);
+    super::watershed::register(r);
+    super::meanshift::register(r);
+    r.add(Arc::new(super::esp::Scale));
 }
 
 /// A table of id, cells and area for objects, set on them: the objects and the table as outputs.

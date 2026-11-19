@@ -10,8 +10,13 @@ use terraflux_raster::Grid;
 use crate::{Args, Error, Registry, Result, Table, Value};
 
 mod convert;
+mod esp;
+mod meanshift;
+mod multiresolution;
 mod segment;
 mod store;
+mod superpixels;
+mod watershed;
 
 pub fn register(r: &mut Registry) {
     segment::register(r);
@@ -407,6 +412,58 @@ impl std::fmt::Debug for Objects {
             if self.parent.is_some() { ", with a parent level" } else { "" }
         )
     }
+}
+
+/// The names of the bands of an image: an empty name is `b<k>`.
+pub(crate) fn band_names(names: &[String]) -> Vec<String> {
+    names.iter().enumerate().map(|(k, s)| if s.is_empty() { format!("b{}", k + 1) } else { s.clone() }).collect()
+}
+
+/// The table of segmenters over an image: id, cells, area (map units squared), and mean_<band> and sd_<band> (the
+/// population standard deviation) over the cells of each object that have a value in the band (NaN for none).
+pub(crate) fn stats_table(o: &Objects, names: &[String], data: &[Arc<Vec<f64>>]) -> Table {
+    let names = band_names(names);
+    let nb = data.len();
+    let mut columns: Vec<String> = ["id", "cells", "area"].map(String::from).to_vec();
+    columns.extend(names.iter().map(|s| format!("mean_{s}")));
+    columns.extend(names.iter().map(|s| format!("sd_{s}")));
+    // sums of the values less the band's mean (the rounding error stays small): count, sum, sum of squares
+    let mut st = vec![0.0f64; o.count * nb * 3];
+    for (j, b) in data.iter().enumerate() {
+        let (s, c) = b.iter().filter(|v| !v.is_nan()).fold((0.0, 0usize), |(s, c), v| (s + v, c + 1));
+        let centre = if c > 0 { s / c as f64 } else { 0.0 };
+        for (&l, &v) in o.labels.iter().zip(b.iter()) {
+            if l != 0 && !v.is_nan() {
+                let (d, k) = (v - centre, ((l as usize - 1) * nb + j) * 3);
+                st[k] += 1.0;
+                st[k + 1] += d;
+                st[k + 2] += d * d;
+            }
+        }
+        for k in 0..o.count {
+            let at = (k * nb + j) * 3;
+            // the sum becomes the mean and the sum of squares the deviation
+            if st[at] > 0.0 {
+                let m = st[at + 1] / st[at];
+                st[at + 2] = (st[at + 2] / st[at] - m * m).max(0.0).sqrt();
+                st[at + 1] = centre + m;
+            } else {
+                st[at + 1] = f64::NAN;
+                st[at + 2] = f64::NAN;
+            }
+        }
+    }
+    let area = o.cell_area();
+    let mut t = Table::new(columns);
+    t.rows = (0..o.count)
+        .map(|k| {
+            let mut row = vec![(k + 1) as f64, o.cells[k] as f64, o.cells[k] as f64 * area];
+            row.extend((0..nb).map(|j| st[(k * nb + j) * 3 + 1]));
+            row.extend((0..nb).map(|j| st[(k * nb + j) * 3 + 2]));
+            row
+        })
+        .collect();
+    t
 }
 
 /// The objects an input holds, or why it holds none.

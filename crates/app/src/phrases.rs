@@ -870,6 +870,28 @@ const PHRASES: &[(&str, &str)] = &[
         "<image> split into squares as objects while their values differ by more than {threshold}[, down to {min_size} cells].",
     ),
     ("segment.from_vector", "The polygons of <vector> as objects on the grid of <like>[ ({neighbours} neighbours)]."),
+    (
+        "segment.multiresolution",
+        "<image> merged into objects by multiresolution segmentation[ at scale {scale}][, shape {shape}][, compactness {compactness}][, on top of the objects of <from>].",
+    ),
+    ("segment.slic", "<image> divided into SLIC superpixels[ of about {size} cells][, compactness {compactness}]."),
+    ("segment.snic", "<image> divided into SNIC superpixels[ of about {size} cells][, compactness {compactness}]."),
+    (
+        "segment.felzenszwalb",
+        "<image> segmented by Felzenszwalb and Huttenlocher's graph method[ with k {k}][, segments of at least {min_size} cells].",
+    ),
+    (
+        "segment.watershed",
+        "<image> cut into the watershed basins of its gradient[, from the markers of <markers>][, smoothed by {sigma} cells].",
+    ),
+    (
+        "segment.meanshift",
+        "<image> segmented by mean shift[ with a range radius of {range_radius}][ and a spatial radius of {spatial_radius} cells].",
+    ),
+    (
+        "segment.scale",
+        "The scales worth trying in a multiresolution segmentation of <image>, by ESP[ from {start}][ in steps of {step}].",
+    ),
     ("objects.to_map", "The objects of <objects> as a map[ of their {what}]."),
     ("objects.to_vector", "The objects of <objects> as polygons[, their corners cut {smooth} times]."),
     (
