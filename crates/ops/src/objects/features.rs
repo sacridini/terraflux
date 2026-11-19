@@ -8,11 +8,13 @@
 //! its own, objects in parallel on the shared pool (the central cap of threads). Nothing is merged between threads:
 //! an object's numbers come from its own cells in a fixed order, so the result is the same for any number of threads.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use rayon::prelude::*;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 
+use super::big::{self, Layered, Part, strips};
 use super::{Objects, band_names, objects_in};
 use crate::{Args, Ctx, Error, Operator, Outputs, Result, Value, outputs};
 
@@ -23,6 +25,9 @@ pub(super) type Want<'a> = &'a [(&'static str, bool)];
 pub(super) type Columns = Vec<(String, Vec<f64>)>;
 
 type Pick = fn(&Stat) -> f64;
+
+/// The bytes above which the medians of an image read by strips are told to hold much memory (1 GiB).
+const MEDIAN_WARN: u64 = 1 << 30;
 
 /// A group of features: its name, its features in column order, those `basic` takes, and what gives their columns
 /// (a feature name with whether the user named it: a feature that cannot be worked out is an error when named, left
@@ -63,7 +68,11 @@ pub(super) struct Input<'a> {
     offsets: Vec<usize>,
     cells: Vec<u32>,
     pub names: Vec<String>,
+    /// The layers in memory (none when the image is read by strips).
     pub data: Vec<Arc<Vec<f64>>>,
+    /// The layers read by strips of rows, when some are rasters on disk: then `data` is empty and every group reads
+    /// the strips (the same numbers, a strip at a time in memory).
+    pub strips: Option<Layered>,
     /// How many layers are the image's (the rest come from `more`).
     pub image: usize,
     pub roles: Roles,
@@ -251,10 +260,15 @@ impl Operator for Features {
             Access::Global,
         )
         .input(PortSpec::new("objects", Type::Objects, "the objects"))
-        .input(PortSpec::new("image", Type::Any, "a map, or a stack of bands, on the objects' grid"))
+        .input(PortSpec::new(
+            "image",
+            Type::Raster,
+            "a map, or a stack of bands, on the objects' grid; rasters on disk too big to hold are read by strips of \
+             rows (the medians need one band's values of the objects in memory at a time)",
+        ))
         .input(PortSpec::optional(
             "more",
-            Type::Any,
+            Type::Raster,
             "any raster as more layers, on the objects' grid: a DEM, a height model, a class map, another date; \
              their names kept (a name already taken gets _2)",
         ))
@@ -284,7 +298,7 @@ impl Operator for Features {
         .param(PortSpec::optional("swir", Type::Text, "the short-wave infrared band's name (default: found)"))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let bad = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let o = objects_in(args, "objects")?;
@@ -301,10 +315,16 @@ impl Operator for Features {
             return Err(bad("features: no name given".into()));
         }
         let chosen = choose(node, &spec)?;
-        let image = crate::raster_stats::layers(args, "image")?;
-        let mut names = band_names(&image.names);
-        let mut data = image.data.clone();
-        let img_n = data.len();
+        // rasters on disk too big to hold are read by strips of rows; the rest are in memory
+        let by_strips = big::strips_wanted(args, &["image", "more"]);
+        let (image_names, image_grid, mut parts) = if by_strips {
+            big::parts_of(args, "image")?
+        } else {
+            let l = big::layers(args, "image")?;
+            (l.names, l.grid, l.data.into_iter().map(Part::Mem).collect())
+        };
+        let mut names = band_names(&image_names);
+        let img_n = parts.len();
         let on_grid = |what: &str, g: &terraflux_raster::Grid| {
             if g.same_as(&o.grid) {
                 Ok(())
@@ -315,12 +335,17 @@ impl Operator for Features {
                 )))
             }
         };
-        on_grid("the image", &image.grid)?;
+        on_grid("the image", &image_grid)?;
         let roles_found = detect(&names);
         if args.get("more").is_some() {
-            let more = crate::raster_stats::layers(args, "more")?;
-            on_grid("more", &more.grid)?;
-            for (n, d) in band_names(&more.names).into_iter().zip(more.data) {
+            let (more_names, more_grid, more_parts) = if by_strips {
+                big::parts_of(args, "more")?
+            } else {
+                let l = big::layers(args, "more")?;
+                (l.names, l.grid, l.data.into_iter().map(Part::Mem).collect())
+            };
+            on_grid("more", &more_grid)?;
+            for (n, d) in band_names(&more_names).into_iter().zip(more_parts) {
                 let mut name = n.clone();
                 let mut k = 2;
                 while names.contains(&name) {
@@ -328,9 +353,15 @@ impl Operator for Features {
                     k += 1;
                 }
                 names.push(name);
-                data.push(d);
+                parts.push(d);
             }
         }
+        let (strips, data) = if by_strips {
+            (Some(Layered::new(parts, o.grid.width, o.grid.height)), Vec::new())
+        } else {
+            let data = parts.into_iter().map(|p| if let Part::Mem(d) = p { d } else { unreachable!("in memory") });
+            (None, data.collect())
+        };
         let pick = |setting: &str, found: Option<usize>| -> Result<Option<usize>> {
             match args.opt_param::<String>(setting)? {
                 Some(n) => layer_named(node, &names, setting, &n).map(Some),
@@ -364,7 +395,17 @@ impl Operator for Features {
             Some(v) => return Err(bad(format!("below is a {:?}, not objects", v.ty()))),
         };
         let (offsets, cells) = index(o);
-        let input = Input { node, o, offsets, cells, names, data, image: img_n, roles, levels, texture_bands, below };
+        let held = o.cells.iter().map(|&c| c as u64).sum::<u64>() * 8;
+        if strips.is_some() && chosen[0].iter().any(|f| f.0 == "median") && held > MEDIAN_WARN {
+            ctx.warn(format!(
+                "node {node:?}: the median of each band is worked out holding that band's values of the cells in \
+                 objects in memory ({:.1} GB as numbers), a band at a time: leave `median` out of the features to \
+                 spare it",
+                held as f64 / 1e9
+            ));
+        }
+        let input =
+            Input { node, o, offsets, cells, names, data, strips, image: img_n, roles, levels, texture_bands, below };
         let mut columns: Vec<(String, Vec<f64>)> = Vec::new();
         for (grp, want) in GROUPS.iter().zip(&chosen) {
             if !want.is_empty() {
@@ -407,7 +448,7 @@ fn spectral(inp: &Input, want: Want) -> Result<Columns> {
     let has = |n: &str| want.iter().any(|w| w.0 == n);
     let named = |n: &str| want.iter().any(|w| w.0 == n && w.1);
     let r = inp.roles;
-    let nb = inp.data.len();
+    let nb = inp.names.len();
     // each index: the two bands it reads (a - b) / (a + b)
     let index_bands = |name: &str| -> Result<Option<(usize, usize)>> {
         let (a, b, need) = match name {
@@ -443,41 +484,45 @@ fn spectral(inp: &Input, want: Want) -> Result<Columns> {
     }
     let (sd, mm, med) = (has("sd"), has("min") || has("max"), has("median"));
     let o = inp.o;
-    let stats: Vec<Vec<Stat>> = (0..o.count)
-        .into_par_iter()
-        .map_init(Vec::<f64>::new, |buf, k| {
-            let cells = inp.cells_of(k);
-            (0..nb)
-                .map(|j| {
-                    if !used[j] {
-                        return NO_STAT;
-                    }
-                    let d = &inp.data[j];
-                    buf.clear();
-                    buf.extend(cells.iter().map(|&i| d[i as usize]).filter(|v| !v.is_nan()));
-                    if buf.is_empty() {
-                        return NO_STAT;
-                    }
-                    let n = buf.len() as f64;
-                    let mean = buf.iter().sum::<f64>() / n;
-                    let mut s = Stat { mean, ..NO_STAT };
-                    if sd {
-                        s.sd = (buf.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / n).sqrt();
-                    }
-                    if mm {
-                        s.min = buf.iter().copied().fold(f64::INFINITY, f64::min);
-                        s.max = buf.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-                    }
-                    if med {
-                        buf.sort_unstable_by(f64::total_cmp);
-                        let m = buf.len() / 2;
-                        s.median = if buf.len() % 2 == 1 { buf[m] } else { (buf[m - 1] + buf[m]) / 2.0 };
-                    }
-                    s
-                })
-                .collect()
-        })
-        .collect();
+    let stats: Vec<Vec<Stat>> = if let Some(src) = &inp.strips {
+        spectral_strips(inp, src, &used, [sd, mm, med])?
+    } else {
+        (0..o.count)
+            .into_par_iter()
+            .map_init(Vec::<f64>::new, |buf, k| {
+                let cells = inp.cells_of(k);
+                (0..nb)
+                    .map(|j| {
+                        if !used[j] {
+                            return NO_STAT;
+                        }
+                        let d = &inp.data[j];
+                        buf.clear();
+                        buf.extend(cells.iter().map(|&i| d[i as usize]).filter(|v| !v.is_nan()));
+                        if buf.is_empty() {
+                            return NO_STAT;
+                        }
+                        let n = buf.len() as f64;
+                        let mean = buf.iter().sum::<f64>() / n;
+                        let mut s = Stat { mean, ..NO_STAT };
+                        if sd {
+                            s.sd = (buf.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / n).sqrt();
+                        }
+                        if mm {
+                            s.min = buf.iter().copied().fold(f64::INFINITY, f64::min);
+                            s.max = buf.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                        }
+                        if med {
+                            buf.sort_unstable_by(f64::total_cmp);
+                            let m = buf.len() / 2;
+                            s.median = if buf.len() % 2 == 1 { buf[m] } else { (buf[m - 1] + buf[m]) / 2.0 };
+                        }
+                        s
+                    })
+                    .collect()
+            })
+            .collect()
+    };
     let mut out: Columns = Vec::new();
     let fams: [(&str, Pick); 5] =
         [("mean", |s| s.mean), ("sd", |s| s.sd), ("min", |s| s.min), ("max", |s| s.max), ("median", |s| s.median)];
@@ -528,6 +573,130 @@ fn spectral(inp: &Input, want: Want) -> Result<Columns> {
         }
     }
     Ok(out)
+}
+
+/// The statistics of each object in each band `used` (`[sd, min or max, median]` asked) from an image read by strips
+/// of rows, as the cell lists give them: each object's values are summed in cell order (strip after strip, row after
+/// row, so the sums are the same), the deviation by a second pass over the strips with the mean, the median from the
+/// values of the objects' cells of one band at a time (the one thing here that holds a band's cells in memory).
+fn spectral_strips(inp: &Input, src: &Layered, used: &[bool], [sd, mm, med]: [bool; 3]) -> Result<Vec<Vec<Stat>>> {
+    /// A band's numbers per object: count, sum (then the mean), minimum, maximum, sum of squared deviations.
+    struct Acc {
+        n: Vec<u32>,
+        sum: Vec<f64>,
+        lo: Vec<f64>,
+        hi: Vec<f64>,
+        sq: Vec<f64>,
+    }
+    let o = inp.o;
+    let (w, h, n) = (o.grid.width, o.grid.height, o.count);
+    let bands: Vec<usize> = (0..used.len()).filter(|&j| used[j]).collect();
+    let mut acc: Vec<Acc> = bands
+        .iter()
+        .map(|_| Acc {
+            n: vec![0; n],
+            sum: vec![0.0; n],
+            lo: if mm { vec![f64::INFINITY; n] } else { Vec::new() },
+            hi: if mm { vec![f64::NEG_INFINITY; n] } else { Vec::new() },
+            sq: Vec::new(),
+        })
+        .collect();
+    strips(src, h, &bands, |r0, r1, rows| {
+        let labels = &o.labels[r0 * w..r1 * w];
+        acc.par_iter_mut().zip(rows.par_iter()).for_each(|(a, v)| {
+            for (&l, &x) in labels.iter().zip(v.iter()) {
+                if l == 0 || x.is_nan() {
+                    continue;
+                }
+                let k = l as usize - 1;
+                a.n[k] += 1;
+                a.sum[k] += x;
+                if mm {
+                    a.lo[k] = a.lo[k].min(x);
+                    a.hi[k] = a.hi[k].max(x);
+                }
+            }
+        });
+    })?;
+    for a in acc.iter_mut() {
+        for k in 0..n {
+            a.sum[k] = if a.n[k] > 0 { a.sum[k] / a.n[k] as f64 } else { f64::NAN };
+        }
+    }
+    if sd {
+        acc.iter_mut().for_each(|a| a.sq = vec![0.0; n]);
+        strips(src, h, &bands, |r0, r1, rows| {
+            let labels = &o.labels[r0 * w..r1 * w];
+            acc.par_iter_mut().zip(rows.par_iter()).for_each(|(a, v)| {
+                for (&l, &x) in labels.iter().zip(v.iter()) {
+                    if l != 0 && !x.is_nan() {
+                        let k = l as usize - 1;
+                        let d = x - a.sum[k];
+                        a.sq[k] += d * d;
+                    }
+                }
+            });
+        })?;
+    }
+    let mut stats: Vec<Vec<Stat>> = vec![vec![NO_STAT; used.len()]; n];
+    for (a, &j) in acc.iter().zip(&bands) {
+        for (k, row) in stats.iter_mut().enumerate() {
+            if a.n[k] > 0 {
+                let s = &mut row[j];
+                s.mean = a.sum[k];
+                if sd {
+                    s.sd = (a.sq[k] / a.n[k] as f64).sqrt();
+                }
+                if mm {
+                    s.min = a.lo[k];
+                    s.max = a.hi[k];
+                }
+            }
+        }
+    }
+    drop(acc);
+    if med {
+        // the object's values in one list per object (a band at a time), sorted object by object in parallel
+        let mut off = vec![0usize; n + 1];
+        for k in 0..n {
+            off[k + 1] = off[k] + o.cells[k] as usize;
+        }
+        for &j in &bands {
+            let mut vals = vec![0.0f64; off[n]];
+            let mut fill = vec![0usize; n];
+            strips(src, h, &[j], |r0, r1, rows| {
+                for (&l, &x) in o.labels[r0 * w..r1 * w].iter().zip(rows[0].iter()) {
+                    if l != 0 && !x.is_nan() {
+                        let k = l as usize - 1;
+                        vals[off[k] + fill[k]] = x;
+                        fill[k] += 1;
+                    }
+                }
+            })?;
+            let mut lists: Vec<&mut [f64]> = Vec::with_capacity(n);
+            let mut rest = vals.as_mut_slice();
+            for k in 0..n {
+                let (a, b) = rest.split_at_mut(o.cells[k] as usize);
+                lists.push(&mut a[..fill[k]]);
+                rest = b;
+            }
+            let medians: Vec<f64> = lists
+                .into_par_iter()
+                .map(|v| {
+                    if v.is_empty() {
+                        return f64::NAN;
+                    }
+                    v.sort_unstable_by(f64::total_cmp);
+                    let m = v.len() / 2;
+                    if v.len() % 2 == 1 { v[m] } else { (v[m - 1] + v[m]) / 2.0 }
+                })
+                .collect();
+            for (s, m) in stats.iter_mut().zip(medians) {
+                s[j].median = m;
+            }
+        }
+    }
+    Ok(stats)
 }
 
 // ---- shape
@@ -781,19 +950,57 @@ fn grey(values: &[f64], levels: usize) -> Vec<u16> {
     }
     let (lo, hi) = (quantile(&mut v, 0.01), quantile(&mut v, 0.99));
     let scale = if hi > lo { levels as f64 / (hi - lo) } else { 0.0 };
-    values
-        .iter()
-        .map(
-            |&x| {
-                if x.is_nan() { NO_GREY } else { (((x - lo) * scale).floor().max(0.0) as usize).min(levels - 1) as u16 }
-            },
-        )
-        .collect()
+    values.iter().map(|&x| level_of(x, lo, scale, levels)).collect()
+}
+
+/// The grey level of a value for the cut `lo`, `scale` ([`grey`]).
+fn level_of(x: f64, lo: f64, scale: f64, levels: usize) -> u16 {
+    if x.is_nan() { NO_GREY } else { (((x - lo) * scale).floor().max(0.0) as usize).min(levels - 1) as u16 }
 }
 
 /// The offsets (row, column) of the pairs at distance 1: 0, 45, 90 and 135 degrees (the opposite ones come with the
 /// matrix being symmetric).
 const PAIRS: [(i64, i64); 4] = [(0, 1), (-1, 1), (-1, 0), (-1, -1)];
+
+/// The five statistics of [`GLCM`] of one object's matrix: `pairs` pairs counted in the entries `touched` (positions
+/// in the levels x levels matrix, in the order they came) whose counts are in `cnt`; NaN without a pair.
+fn glcm_stats(touched: &[usize], cnt: &[u32], pairs: u64, l: usize, on: &[bool; 5]) -> [f64; 5] {
+    let mut out = [f64::NAN; 5];
+    if pairs > 0 {
+        let total = (2 * pairs) as f64;
+        let (mut hom, mut con, mut ent, mut asm, mut mu) = (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        for &e in touched.iter() {
+            let (i, j) = ((e / l) as f64, (e % l) as f64);
+            let p = cnt[e] as f64 / total;
+            hom += p / (1.0 + (i - j) * (i - j));
+            con += p * (i - j) * (i - j);
+            ent -= p * p.ln();
+            asm += p * p;
+            mu += i * p;
+        }
+        out[0] = hom;
+        out[1] = con;
+        out[2] = ent;
+        out[4] = asm;
+        // (by the symmetry both axes have the same mean and spread; one entry is one level on the
+        // diagonal: the object is constant, no spread, and the correlation is taken as 1)
+        out[3] = if touched.len() == 1 {
+            1.0
+        } else if on[3] {
+            let (mut var, mut cov) = (0.0f64, 0.0f64);
+            for &e in touched.iter() {
+                let (i, j) = ((e / l) as f64 - mu, (e % l) as f64 - mu);
+                let p = cnt[e] as f64 / total;
+                var += i * i * p;
+                cov += i * j * p;
+            }
+            cov / var
+        } else {
+            f64::NAN
+        };
+    }
+    out
+}
 
 /// The texture of the objects over grey levels: per object the five statistics of [`GLCM`] (NaN where not wanted or
 /// there is no pair).
@@ -841,40 +1048,7 @@ fn glcm(inp: &Input, grey: &[u16], on: &[bool; 5]) -> Vec<[f64; 5]> {
                         bump(b as usize, a as usize, touched);
                     }
                 }
-                let mut out = [f64::NAN; 5];
-                if pairs > 0 {
-                    let total = (2 * pairs) as f64;
-                    let (mut hom, mut con, mut ent, mut asm, mut mu) = (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
-                    for &e in touched.iter() {
-                        let (i, j) = ((e / l) as f64, (e % l) as f64);
-                        let p = cnt[e] as f64 / total;
-                        hom += p / (1.0 + (i - j) * (i - j));
-                        con += p * (i - j) * (i - j);
-                        ent -= p * p.ln();
-                        asm += p * p;
-                        mu += i * p;
-                    }
-                    out[0] = hom;
-                    out[1] = con;
-                    out[2] = ent;
-                    out[4] = asm;
-                    // (by the symmetry both axes have the same mean and spread; one entry is one level on the
-                    // diagonal: the object is constant, no spread, and the correlation is taken as 1)
-                    out[3] = if touched.len() == 1 {
-                        1.0
-                    } else if on[3] {
-                        let (mut var, mut cov) = (0.0f64, 0.0f64);
-                        for &e in touched.iter() {
-                            let (i, j) = ((e / l) as f64 - mu, (e % l) as f64 - mu);
-                            let p = cnt[e] as f64 / total;
-                            var += i * i * p;
-                            cov += i * j * p;
-                        }
-                        cov / var
-                    } else {
-                        f64::NAN
-                    };
-                }
+                let out = glcm_stats(touched, cnt, pairs, l, on);
                 for &e in touched.iter() {
                     cnt[e] = 0;
                 }
@@ -910,28 +1084,32 @@ fn texture(inp: &Input, want: Want) -> Result<Columns> {
         None => std::iter::once(None).chain((0..inp.image).map(Some)).collect(),
     };
     let cells = inp.o.grid.cells();
-    let tables: Vec<Vec<[f64; 5]>> = targets
-        .iter()
-        .map(|t| {
-            let g = match t {
-                Some(j) => grey(&inp.data[*j], inp.levels),
-                None => {
-                    let b: Vec<f64> = (0..cells)
-                        .into_par_iter()
-                        .map(|i| {
-                            let (s, c) = (0..inp.image)
-                                .map(|j| inp.data[j][i])
-                                .filter(|v| !v.is_nan())
-                                .fold((0.0, 0usize), |(s, c), v| (s + v, c + 1));
-                            if c == 0 { f64::NAN } else { s / c as f64 }
-                        })
-                        .collect();
-                    grey(&b, inp.levels)
-                }
-            };
-            glcm(inp, &g, &on)
-        })
-        .collect();
+    let tables: Vec<Vec<[f64; 5]>> = if let Some(src) = &inp.strips {
+        texture_strips(inp, src, &targets, &on)?
+    } else {
+        targets
+            .iter()
+            .map(|t| {
+                let g = match t {
+                    Some(j) => grey(&inp.data[*j], inp.levels),
+                    None => {
+                        let b: Vec<f64> = (0..cells)
+                            .into_par_iter()
+                            .map(|i| {
+                                let (s, c) = (0..inp.image)
+                                    .map(|j| inp.data[j][i])
+                                    .filter(|v| !v.is_nan())
+                                    .fold((0.0, 0usize), |(s, c), v| (s + v, c + 1));
+                                if c == 0 { f64::NAN } else { s / c as f64 }
+                            })
+                            .collect();
+                        grey(&b, inp.levels)
+                    }
+                };
+                glcm(inp, &g, &on)
+            })
+            .collect()
+    };
     let mut out: Columns = Vec::new();
     for (f, stat) in GLCM.iter().enumerate().filter(|(f, _)| on[*f]) {
         for (t, rows) in targets.iter().zip(&tables) {
@@ -943,6 +1121,267 @@ fn texture(inp: &Input, want: Want) -> Result<Columns> {
         }
     }
     Ok(out)
+}
+
+// ---- texture by strips
+
+/// The order-preserving integer of a number (for [`f64::total_cmp`]'s order), and back.
+fn key(v: f64) -> u64 {
+    let b = v.to_bits();
+    if b >> 63 == 1 { !b } else { b | 1 << 63 }
+}
+
+fn unkey(k: u64) -> f64 {
+    f64::from_bits(if k >> 63 == 1 { k ^ 1 << 63 } else { !k })
+}
+
+/// The 1st and 99th percentile of values met strip after strip, exactly, as [`quantile`] gives them over all the
+/// values: the four order statistics they need (two each, the second for the interpolation) found by radix passes of
+/// 16 bits over the numbers' keys, each pass a histogram of the digit among the values whose higher digits are the
+/// ones found so far. Four passes over the strips, nothing else held.
+struct Quant {
+    n: u64,
+    /// The ranks wanted, the digits found so far of each, and the rank within the values of those digits.
+    ranks: [u64; 4],
+    prefix: [u64; 4],
+    rem: [u64; 4],
+    /// A histogram of the next digit for each distinct prefix.
+    hist: Vec<(u64, Vec<u64>)>,
+}
+
+impl Quant {
+    fn new() -> Quant {
+        Quant { n: 0, ranks: [0; 4], prefix: [0; 4], rem: [0; 4], hist: vec![(0, vec![0; 1 << 16])] }
+    }
+
+    /// The values of a strip in pass `pass` (0 to 3).
+    fn add(&mut self, pass: u32, values: &[f64]) {
+        if pass > 0 && self.n == 0 {
+            return;
+        }
+        let (shift, above) = (48 - 16 * pass, 64 - 16 * pass);
+        for &x in values.iter().filter(|x| !x.is_nan()) {
+            let k = key(x);
+            for (pre, h) in self.hist.iter_mut() {
+                if pass == 0 || k >> above == *pre {
+                    h[((k >> shift) & 0xFFFF) as usize] += 1;
+                }
+            }
+        }
+    }
+
+    /// The pass over: the next digit of each rank.
+    fn finish(&mut self, pass: u32) {
+        if pass == 0 {
+            self.n = self.hist[0].1.iter().sum();
+            if self.n == 0 {
+                return;
+            }
+            let at = |p: f64| ((p * (self.n - 1) as f64).floor() as u64).min(self.n - 1);
+            let (a, b) = (at(0.01), at(0.99));
+            self.ranks = [a, (a + 1).min(self.n - 1), b, (b + 1).min(self.n - 1)];
+            self.rem = self.ranks;
+        }
+        if self.n == 0 {
+            return;
+        }
+        for r in 0..4 {
+            let h = &self.hist.iter().find(|(p, _)| *p == self.prefix[r]).expect("a histogram of the prefix").1;
+            let mut cum = 0;
+            for (b, &c) in h.iter().enumerate() {
+                if self.rem[r] < cum + c {
+                    self.prefix[r] = (self.prefix[r] << 16) | b as u64;
+                    self.rem[r] -= cum;
+                    break;
+                }
+                cum += c;
+            }
+        }
+        let mut pre = self.prefix.to_vec();
+        pre.sort_unstable();
+        pre.dedup();
+        self.hist = pre.into_iter().map(|p| (p, vec![0; 1 << 16])).collect();
+    }
+
+    /// The cut of the grey levels (the first percentile and the scale), none without values.
+    fn cut(&self, levels: usize) -> Option<(f64, f64)> {
+        if self.n == 0 {
+            return None;
+        }
+        let q = |p: f64, at: usize| {
+            let pos = p * (self.n - 1) as f64;
+            let lo = pos.floor() as u64;
+            let a = unkey(self.prefix[at]);
+            if lo + 1 >= self.n || pos == lo as f64 {
+                return a;
+            }
+            let b = unkey(self.prefix[at + 1]);
+            a + (b - a) * (pos - lo as f64)
+        };
+        let (lo, hi) = (q(0.01, 0), q(0.99, 2));
+        Some((lo, if hi > lo { levels as f64 / (hi - lo) } else { 0.0 }))
+    }
+}
+
+/// The bands the targets read (the image's for the brightness), ascending.
+fn bands_of(targets: &[Option<usize>], image: usize) -> Vec<usize> {
+    let mut which: Vec<usize> =
+        targets.iter().flat_map(|t| t.map_or_else(|| (0..image).collect(), |j| vec![j])).collect();
+    which.sort_unstable();
+    which.dedup();
+    which
+}
+
+/// The values of each target over a strip (`rows` are the bands `which`): a band's as they are, the brightness (the
+/// mean of the image bands' values in each cell, summed in the band order) made.
+fn target_rows<'a>(
+    rows: &'a [Cow<'_, [f64]>],
+    which: &[usize],
+    image: usize,
+    targets: &[Option<usize>],
+) -> Vec<Cow<'a, [f64]>> {
+    let at = |j: usize| which.iter().position(|&x| x == j).expect("a band read");
+    targets
+        .iter()
+        .map(|t| match t {
+            Some(j) => Cow::Borrowed(&*rows[at(*j)]),
+            None => {
+                let bands: Vec<&[f64]> = (0..image).map(|j| &*rows[at(j)]).collect();
+                Cow::Owned(
+                    (0..bands[0].len())
+                        .map(|i| {
+                            let (s, c) = bands
+                                .iter()
+                                .map(|b| b[i])
+                                .filter(|v| !v.is_nan())
+                                .fold((0.0, 0usize), |(s, c), v| (s + v, c + 1));
+                            if c == 0 { f64::NAN } else { s / c as f64 }
+                        })
+                        .collect(),
+                )
+            }
+        })
+        .collect()
+}
+
+/// An object's co-occurrence counts, the pairs of grey levels (a * levels + b) in the order they came and their counts.
+#[derive(Default)]
+struct Sparse {
+    pairs: u64,
+    entries: Vec<(u32, u32)>,
+    /// The keys in order, with the place of each in `entries`.
+    order: Vec<(u32, u32)>,
+}
+
+impl Sparse {
+    fn bump(&mut self, key: u32) {
+        match self.order.binary_search_by_key(&key, |e| e.0) {
+            Ok(p) => self.entries[self.order[p].1 as usize].1 += 1,
+            Err(p) => {
+                self.order.insert(p, (key, self.entries.len() as u32));
+                self.entries.push((key, 1));
+            }
+        }
+    }
+}
+
+/// The pairs of cells of a strip (rows `r0..r1`, whole width) of one target counted for the objects, those across
+/// the strip's top edge with the last row of the strip before (`prev`, kept for the next).
+fn glcm_strip(inp: &Input, r0: usize, vals: &[f64], cut: Option<(f64, f64)>, prev: &mut Vec<u16>, sp: &mut [Sparse]) {
+    let o = inp.o;
+    let (w, l) = (o.grid.width, inp.levels);
+    let rows = vals.len() / w;
+    let g: Vec<u16> = vals
+        .iter()
+        .map(|&x| match cut {
+            Some((lo, scale)) => level_of(x, lo, scale, l),
+            None => NO_GREY,
+        })
+        .collect();
+    for r in r0..r0 + rows {
+        for c in 0..w {
+            let id = o.labels[r * w + c];
+            let a = g[(r - r0) * w + c];
+            if id == 0 || a == NO_GREY {
+                continue;
+            }
+            for (dr, dc) in PAIRS {
+                let nc = c as i64 + dc;
+                if (dr < 0 && r == 0) || nc < 0 || nc >= w as i64 {
+                    continue;
+                }
+                let (nr, nc) = ((r as i64 + dr) as usize, nc as usize);
+                let b = if nr >= r0 { g[(nr - r0) * w + nc] } else { prev[nc] };
+                if o.labels[nr * w + nc] != id || b == NO_GREY {
+                    continue;
+                }
+                let s = &mut sp[id as usize - 1];
+                s.pairs += 1;
+                s.bump(a as u32 * l as u32 + b as u32);
+                s.bump(b as u32 * l as u32 + a as u32);
+            }
+        }
+    }
+    prev.clear();
+    prev.extend_from_slice(&g[(rows - 1) * w..]);
+}
+
+/// The texture statistics of each object for each target, from an image read by strips of rows: the grey levels' cut
+/// by four passes ([`Quant`]), then the pairs counted strip by strip in the order of the cells, so each matrix is the
+/// one [`glcm`] makes. The matrices are kept sparse per object; targets go in groups when they would take much memory.
+fn texture_strips(inp: &Input, src: &Layered, targets: &[Option<usize>], on: &[bool; 5]) -> Result<Vec<Vec<[f64; 5]>>> {
+    let o = inp.o;
+    let (h, n, l) = (o.grid.height, o.count, inp.levels);
+    let which = bands_of(targets, inp.image);
+    let mut quants: Vec<Quant> = targets.iter().map(|_| Quant::new()).collect();
+    for pass in 0..4 {
+        strips(src, h, &which, |_, _, rows| {
+            let tv = target_rows(rows, &which, inp.image, targets);
+            quants.par_iter_mut().zip(tv.par_iter()).for_each(|(q, v)| q.add(pass, v));
+        })?;
+        quants.iter_mut().for_each(|q| q.finish(pass));
+    }
+    let cuts: Vec<Option<(f64, f64)>> = quants.iter().map(|q| q.cut(l)).collect();
+    drop(quants);
+    // (some 600 bytes an object and target: groups of targets that keep it under 1 GiB)
+    let group = ((1usize << 30) / (n.max(1) * 600)).max(1);
+    let mut tables: Vec<Vec<[f64; 5]>> = Vec::with_capacity(targets.len());
+    for ids in (0..targets.len()).collect::<Vec<usize>>().chunks(group) {
+        let sub: Vec<Option<usize>> = ids.iter().map(|&t| targets[t]).collect();
+        let which = bands_of(&sub, inp.image);
+        let mut sp: Vec<Vec<Sparse>> = sub.iter().map(|_| (0..n).map(|_| Sparse::default()).collect()).collect();
+        let mut prev: Vec<Vec<u16>> = sub.iter().map(|_| Vec::new()).collect();
+        strips(src, h, &which, |r0, _, rows| {
+            let tv = target_rows(rows, &which, inp.image, &sub);
+            sp.par_iter_mut()
+                .zip(prev.par_iter_mut())
+                .zip(tv.par_iter())
+                .zip(ids.par_iter())
+                .for_each(|(((s, p), v), &t)| glcm_strip(inp, r0, v, cuts[t], p, s));
+        })?;
+        for s in sp {
+            tables.push(
+                s.into_par_iter()
+                    .map_init(
+                        || (vec![0u32; l * l], Vec::<usize>::new()),
+                        |(cnt, touched), s| {
+                            for &(k, c) in &s.entries {
+                                cnt[k as usize] = c;
+                                touched.push(k as usize);
+                            }
+                            let out = glcm_stats(touched, cnt, s.pairs, l, on);
+                            for &e in touched.iter() {
+                                cnt[e] = 0;
+                            }
+                            touched.clear();
+                            out
+                        },
+                    )
+                    .collect(),
+            );
+        }
+    }
+    Ok(tables)
 }
 
 // ---- context
@@ -1038,6 +1477,29 @@ pub(super) fn nearest(pts: &[(f64, f64)], members: &[usize]) -> Vec<f64> {
         .collect()
 }
 
+/// The mean of each object in each image band, from the strips of rows (summed in cell order, so as from memory).
+fn means_strips(inp: &Input, src: &Layered) -> Result<Vec<Vec<f64>>> {
+    let o = inp.o;
+    let (w, h, n) = (o.grid.width, o.grid.height, o.count);
+    let bands: Vec<usize> = (0..inp.image).collect();
+    let mut acc: Vec<(Vec<f64>, Vec<usize>)> = bands.iter().map(|_| (vec![0.0; n], vec![0usize; n])).collect();
+    strips(src, h, &bands, |r0, r1, rows| {
+        let labels = &o.labels[r0 * w..r1 * w];
+        acc.par_iter_mut().zip(rows.par_iter()).for_each(|((sum, cnt), v)| {
+            for (&l, &x) in labels.iter().zip(v.iter()) {
+                if l != 0 && !x.is_nan() {
+                    sum[l as usize - 1] += x;
+                    cnt[l as usize - 1] += 1;
+                }
+            }
+        });
+    })?;
+    Ok(acc
+        .into_iter()
+        .map(|(sum, cnt)| sum.iter().zip(&cnt).map(|(s, &c)| if c == 0 { f64::NAN } else { s / c as f64 }).collect())
+        .collect())
+}
+
 /// The context of the objects: their neighbours, classes, the level above and the level beneath.
 ///
 /// Means are the image bands' (cells with a value), made here. `nb_diff_<band>` is eCognition's mean difference to
@@ -1063,17 +1525,26 @@ fn context(inp: &Input, want: Want) -> Result<Columns> {
     let cname: Vec<String> = o.classes.iter().map(|c| crate::vector_algebra::script_name(&c.name)).collect();
     let mut out: Columns = Vec::new();
     if has("nb_diff") {
+        // (the means of the image bands by object, made by strips when the image is read so)
+        let by_strips = match &inp.strips {
+            Some(src) => Some(means_strips(inp, src)?),
+            None => None,
+        };
         for j in 0..inp.image {
-            let mut sum = vec![0.0f64; n];
-            let mut cnt = vec![0usize; n];
-            for (&l, &v) in o.labels.iter().zip(inp.data[j].iter()) {
-                if l != 0 && !v.is_nan() {
-                    sum[l as usize - 1] += v;
-                    cnt[l as usize - 1] += 1;
+            let mean: Vec<f64> = match &by_strips {
+                Some(m) => m[j].clone(),
+                None => {
+                    let mut sum = vec![0.0f64; n];
+                    let mut cnt = vec![0usize; n];
+                    for (&l, &v) in o.labels.iter().zip(inp.data[j].iter()) {
+                        if l != 0 && !v.is_nan() {
+                            sum[l as usize - 1] += v;
+                            cnt[l as usize - 1] += 1;
+                        }
+                    }
+                    sum.iter().zip(&cnt).map(|(s, &c)| if c == 0 { f64::NAN } else { s / c as f64 }).collect()
                 }
-            }
-            let mean: Vec<f64> =
-                sum.iter().zip(&cnt).map(|(s, &c)| if c == 0 { f64::NAN } else { s / c as f64 }).collect();
+            };
             let v = (0..n)
                 .map(|k| {
                     if mean[k].is_nan() {

@@ -15,6 +15,7 @@ use std::sync::Arc;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_raster::Grid;
 
+use super::big::{Layered, Source, strips};
 use super::{NO_REGION, Objects, find};
 use crate::{Args, Ctx, Error, Operator, Outputs, Result, Table, Value, outputs};
 
@@ -86,8 +87,23 @@ pub(crate) struct Regions {
 impl Regions {
     /// The regions of labels (0 none, 1..=count) over the bands; values are taken from `centre` for the sums (the
     /// deviation does not change, the rounding error does).
+    #[cfg(test)]
     fn new(labels: &[u32], count: usize, w: usize, h: usize, bands: &[Arc<Vec<f64>>], centre: &[f64]) -> Regions {
-        let stride = 3 * bands.len();
+        let src = Layered::new(bands.iter().cloned().map(super::big::Part::Mem).collect(), w, h);
+        Regions::from_source(labels, count, w, h, &src, centre).expect("memory is read without failing")
+    }
+
+    /// The same with the values read by strips of rows from `src` (an image on disk is never whole in memory).
+    fn from_source(
+        labels: &[u32],
+        count: usize,
+        w: usize,
+        h: usize,
+        src: &dyn Source,
+        centre: &[f64],
+    ) -> Result<Regions> {
+        let nb = src.nb();
+        let stride = 3 * nb;
         let mut g = Regions {
             stride,
             cells: vec![0; count],
@@ -96,39 +112,42 @@ impl Regions {
             st: vec![0.0; count * stride],
             adj: vec![Vec::new(); count],
         };
-        for r in 0..h {
-            for c in 0..w {
-                let i = r * w + c;
-                let a = labels[i];
-                if a == 0 {
-                    continue;
-                }
-                let k = a as usize - 1;
-                g.cells[k] += 1;
-                let b = &mut g.bbox[k];
-                *b = [b[0].min(r as u32), b[1].min(c as u32), b[2].max(r as u32), b[3].max(c as u32)];
-                for (j, band) in bands.iter().enumerate() {
-                    let v = band[i];
-                    if !v.is_nan() {
-                        let d = v - centre[j];
-                        let s = &mut g.st[k * stride + 3 * j..k * stride + 3 * j + 3];
-                        s[0] += 1.0;
-                        s[1] += d;
-                        s[2] += d * d;
+        let all: Vec<usize> = (0..nb).collect();
+        strips(src, h, &all, |r0, r1, rows| {
+            for r in r0..r1 {
+                for c in 0..w {
+                    let i = r * w + c;
+                    let a = labels[i];
+                    if a == 0 {
+                        continue;
                     }
-                }
-                let at = |ok: bool, j: usize| if ok { labels[j] } else { 0 };
-                let (left, up) = (at(c > 0, i.wrapping_sub(1)), at(r > 0, i.wrapping_sub(w)));
-                let (right, down) = (at(c + 1 < w, i + 1), at(r + 1 < h, i + w));
-                g.perim[k] += [left, up, right, down].iter().filter(|&&o| o != a).count() as u32;
-                for o in [right, down] {
-                    if o != 0 && o != a {
-                        g.adj[k].push((o - 1, 1));
-                        g.adj[o as usize - 1].push((a - 1, 1));
+                    let k = a as usize - 1;
+                    g.cells[k] += 1;
+                    let b = &mut g.bbox[k];
+                    *b = [b[0].min(r as u32), b[1].min(c as u32), b[2].max(r as u32), b[3].max(c as u32)];
+                    for (j, band) in rows.iter().enumerate() {
+                        let v = band[(r - r0) * w + c];
+                        if !v.is_nan() {
+                            let d = v - centre[j];
+                            let s = &mut g.st[k * stride + 3 * j..k * stride + 3 * j + 3];
+                            s[0] += 1.0;
+                            s[1] += d;
+                            s[2] += d * d;
+                        }
+                    }
+                    let at = |ok: bool, j: usize| if ok { labels[j] } else { 0 };
+                    let (left, up) = (at(c > 0, i.wrapping_sub(1)), at(r > 0, i.wrapping_sub(w)));
+                    let (right, down) = (at(c + 1 < w, i + 1), at(r + 1 < h, i + w));
+                    g.perim[k] += [left, up, right, down].iter().filter(|&&o| o != a).count() as u32;
+                    for o in [right, down] {
+                        if o != 0 && o != a {
+                            g.adj[k].push((o - 1, 1));
+                            g.adj[o as usize - 1].push((a - 1, 1));
+                        }
                     }
                 }
             }
-        }
+        })?;
         for l in g.adj.iter_mut() {
             l.sort_unstable();
             l.dedup_by(|b, a| {
@@ -140,7 +159,7 @@ impl Regions {
                 }
             });
         }
-        g
+        Ok(g)
     }
 
     fn view(&self, r: usize) -> View<'_> {
@@ -310,10 +329,43 @@ pub(crate) fn merge_level(
     max_passes: u32,
     from: Option<&Objects>,
 ) -> Level {
+    let src = Layered::mem(data, grid);
+    merge_level_src(grid, &src, cost, scale, mutual, seed, max_passes, from).expect("memory is read without failing")
+}
+
+/// [`merge_level`] over an image read by strips of rows from `src` (on disk, say): the same regions, the sums made
+/// strip after strip in the order of the cells, so the result is the same as from memory.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn merge_level_src(
+    grid: &Arc<Grid>,
+    src: &dyn Source,
+    cost: &Cost,
+    scale: f64,
+    mutual: bool,
+    seed: u64,
+    max_passes: u32,
+    from: Option<&Objects>,
+) -> Result<Level> {
     let (w, h) = (grid.width, grid.height);
-    // the start: a label for each cell that has a value (and, with `from`, is in an object)
+    // the start: a label for each cell that has a value (and, with `from`, is in an object); the centre of each
+    // band: sums are of the values less it
     let n = w * h;
-    let valid: Vec<bool> = (0..n).map(|i| data.iter().any(|b| !b[i].is_nan())).collect();
+    let nb = src.nb();
+    let all: Vec<usize> = (0..nb).collect();
+    let mut valid = vec![false; n];
+    let mut sums = vec![(0.0f64, 0usize); nb];
+    strips(src, h, &all, |r0, _, rows| {
+        for (j, b) in rows.iter().enumerate() {
+            for (k, &v) in b.iter().enumerate() {
+                if !v.is_nan() {
+                    valid[r0 * w + k] = true;
+                    sums[j].0 += v;
+                    sums[j].1 += 1;
+                }
+            }
+        }
+    })?;
+    let centre: Vec<f64> = sums.iter().map(|&(s, c)| if c > 0 { s / c as f64 } else { 0.0 }).collect();
     let (labels, count) = match from {
         None => {
             let mut next = 0u32;
@@ -348,20 +400,13 @@ pub(crate) fn merge_level(
             (v, next as usize)
         }
     };
-    // the centre of each band: sums are of the values less it
-    let centre: Vec<f64> = data
-        .iter()
-        .map(|b| {
-            let (s, c) = b.iter().filter(|v| !v.is_nan()).fold((0.0, 0usize), |(s, c), v| (s + v, c + 1));
-            if c > 0 { s / c as f64 } else { 0.0 }
-        })
-        .collect();
-    let mut g = Regions::new(&labels, count, w, h, data, &centre);
+    drop(valid);
+    let mut g = Regions::from_source(&labels, count, w, h, src, &centre)?;
     let root = merge_all(&mut g, cost, scale, mutual, seed, max_passes);
     let region: Vec<u64> =
         labels.iter().map(|&a| if a == 0 { NO_REGION } else { root[a as usize - 1] as u64 }).collect();
     let objects = Objects::from_regions(grid.clone(), &region, 4);
-    Level { objects, labels, root, g, centre }
+    Ok(Level { objects, labels, root, g, centre })
 }
 
 impl Level {
@@ -409,7 +454,12 @@ impl Operator for Multiresolution {
              result is the same on every run with the same seed.",
             Access::Global,
         )
-        .input(PortSpec::new("image", Type::Any, "a map, or a stack of bands, the colour"))
+        .input(PortSpec::new(
+            "image",
+            Type::Raster,
+            "a map, or a stack of bands, the colour; rasters on disk (raster.read) are read by tiles when the image \
+             is tiled, never whole",
+        ))
         .input(PortSpec::optional(
             "from",
             Type::Objects,
@@ -491,16 +541,52 @@ impl Operator for Multiresolution {
         if max_passes < 1 {
             return Err(bad(format!("max_passes {max_passes}: 1 or more")));
         }
-        let l = crate::raster_stats::layers(args, "image")?;
+        let tile: i64 = args.param("tile", 0)?;
+        if tile < 0 || (tile > 0 && tile < 8) {
+            return Err(bad(format!("tile {tile}: 0 (automatic) or 8 cells or more")));
+        }
+        let margin: i64 = args.param("margin", 0)?;
+        if margin < 0 {
+            return Err(bad(format!("margin {margin}: 0 (automatic) or more")));
+        }
+        let weights_of = |nb: usize| -> Result<Vec<f64>> {
+            let weights: Vec<f64> = match args.opt_param::<Vec<f64>>("weights")? {
+                None => vec![1.0; nb],
+                Some(v) => v,
+            };
+            if weights.len() != nb || weights.iter().any(|x| !x.is_finite() || *x < 0.0) {
+                return Err(bad(format!("weights: {nb} numbers, 0 or more (one for each band)")));
+            }
+            Ok(weights)
+        };
+        // rasters on disk cut in tiles: each tile's window is read when its turn comes, never the whole image
+        if args.get("from").is_none()
+            && let Some(d) = super::big::disk_image(args, "image")
+            && let Some(t) = super::tiles::tile_side(d.grid.width, d.grid.height, tile as usize)
+        {
+            let cost = Cost { colour: 1.0 - shape, compact, weights: weights_of(d.names.len())? };
+            let Some(scale) = given else {
+                return Err(bad(
+                    "scale: give the scale (the one segment.scale suggests needs the image in memory: run it on a \
+                     part of the image)"
+                        .into(),
+                ));
+            };
+            let m = super::tiles::margin_of(t, margin as usize);
+            let o =
+                super::tiles::merge_tiled(&d.grid, &d.src, &cost, scale, mutual, seed as u64, max_passes as u32, t, m)?;
+            let table = super::stats_table_src(&o, &d.names, &d.src)?;
+            let o = Arc::new(o.with_table(table.clone())?);
+            return Ok(outputs([
+                ("objects", Value::Objects(o)),
+                ("table", Value::Table(table)),
+                ("scale", Value::Number(scale)),
+            ]));
+        }
+        let l = super::big::layers(args, "image")?;
         let (w, h) = (l.grid.width, l.grid.height);
         let nb = l.data.len();
-        let weights: Vec<f64> = match args.opt_param::<Vec<f64>>("weights")? {
-            None => vec![1.0; nb],
-            Some(v) => v,
-        };
-        if weights.len() != nb || weights.iter().any(|x| !x.is_finite() || *x < 0.0) {
-            return Err(bad(format!("weights: {nb} numbers, 0 or more (one for each band)")));
-        }
+        let weights = weights_of(nb)?;
         let from = match args.get("from") {
             None => None,
             Some(_) => Some(super::objects_in(args, "from")?),
@@ -524,21 +610,14 @@ impl Operator for Multiresolution {
             }
         };
         let cost = Cost { colour: 1.0 - shape, compact, weights };
-        let tile: i64 = args.param("tile", 0)?;
-        if tile < 0 || (tile > 0 && tile < 8) {
-            return Err(bad(format!("tile {tile}: 0 (automatic) or 8 cells or more")));
-        }
-        let margin: i64 = args.param("margin", 0)?;
-        if margin < 0 {
-            return Err(bad(format!("margin {margin}: 0 (automatic) or more")));
-        }
         // by tiles (an image without `from` that is big, or when `tile` says so): the objects, their table at once
         if from.is_none()
             && let Some(t) = super::tiles::tile_side(w, h, tile as usize)
         {
             let m = super::tiles::margin_of(t, margin as usize);
+            let src = Layered::mem(&l.data, &l.grid);
             let o =
-                super::tiles::merge_tiled(&l.grid, &l.data, &cost, scale, mutual, seed as u64, max_passes as u32, t, m);
+                super::tiles::merge_tiled(&l.grid, &src, &cost, scale, mutual, seed as u64, max_passes as u32, t, m)?;
             let table = super::stats_table(&o, &l.names, &l.data);
             let o = Arc::new(o.with_table(table.clone())?);
             return Ok(outputs([

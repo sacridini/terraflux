@@ -10,6 +10,7 @@ use terraflux_raster::Grid;
 use crate::{Args, Error, Registry, Result, Table, Value};
 
 mod accuracy;
+pub mod big;
 mod calc;
 mod classify;
 mod convert;
@@ -445,24 +446,44 @@ pub(crate) fn band_names(names: &[String]) -> Vec<String> {
 /// The table of segmenters over an image: id, cells, area (map units squared), and mean_<band> and sd_<band> (the
 /// population standard deviation) over the cells of each object that have a value in the band (NaN for none).
 pub(crate) fn stats_table(o: &Objects, names: &[String], data: &[Arc<Vec<f64>>]) -> Table {
+    stats_table_src(o, names, &big::Layered::mem(data, &o.grid)).expect("memory is read without failing")
+}
+
+/// [`stats_table`] over an image read by strips of rows (from disk, say): the same numbers.
+pub(crate) fn stats_table_src(o: &Objects, names: &[String], src: &dyn big::Source) -> Result<Table> {
     let names = band_names(names);
-    let nb = data.len();
+    let nb = src.nb();
+    let (w, h) = (o.grid.width, o.grid.height);
     let mut columns: Vec<String> = ["id", "cells", "area"].map(String::from).to_vec();
     columns.extend(names.iter().map(|s| format!("mean_{s}")));
     columns.extend(names.iter().map(|s| format!("sd_{s}")));
-    // sums of the values less the band's mean (the rounding error stays small): count, sum, sum of squares
-    let mut st = vec![0.0f64; o.count * nb * 3];
-    for (j, b) in data.iter().enumerate() {
-        let (s, c) = b.iter().filter(|v| !v.is_nan()).fold((0.0, 0usize), |(s, c), v| (s + v, c + 1));
-        let centre = if c > 0 { s / c as f64 } else { 0.0 };
-        for (&l, &v) in o.labels.iter().zip(b.iter()) {
-            if l != 0 && !v.is_nan() {
-                let (d, k) = (v - centre, ((l as usize - 1) * nb + j) * 3);
-                st[k] += 1.0;
-                st[k + 1] += d;
-                st[k + 2] += d * d;
+    let all: Vec<usize> = (0..nb).collect();
+    // the centre of each band
+    let mut sums = vec![(0.0f64, 0usize); nb];
+    big::strips(src, h, &all, |_, _, rows| {
+        for (j, b) in rows.iter().enumerate() {
+            for &v in b.iter().filter(|v| !v.is_nan()) {
+                sums[j] = (sums[j].0 + v, sums[j].1 + 1);
             }
         }
+    })?;
+    let centres: Vec<f64> = sums.iter().map(|&(s, c)| if c > 0 { s / c as f64 } else { 0.0 }).collect();
+    // sums of the values less the band's mean (the rounding error stays small): count, sum, sum of squares
+    let mut st = vec![0.0f64; o.count * nb * 3];
+    big::strips(src, h, &all, |r0, _, rows| {
+        for (j, b) in rows.iter().enumerate() {
+            let centre = centres[j];
+            for (&l, &v) in o.labels[r0 * w..].iter().zip(b.iter()) {
+                if l != 0 && !v.is_nan() {
+                    let (d, k) = (v - centre, ((l as usize - 1) * nb + j) * 3);
+                    st[k] += 1.0;
+                    st[k + 1] += d;
+                    st[k + 2] += d * d;
+                }
+            }
+        }
+    })?;
+    for (j, &centre) in centres.iter().enumerate() {
         for k in 0..o.count {
             let at = (k * nb + j) * 3;
             // the sum becomes the mean and the sum of squares the deviation
@@ -486,7 +507,7 @@ pub(crate) fn stats_table(o: &Objects, names: &[String], data: &[Arc<Vec<f64>>])
             row
         })
         .collect();
-    t
+    Ok(t)
 }
 
 /// The objects an input holds, or why it holds none.
