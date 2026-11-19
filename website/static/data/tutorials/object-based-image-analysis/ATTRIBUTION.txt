@@ -1,0 +1,15 @@
+Data of the object-based image analysis tutorials of Terraflux (https://terraflux.org)
+
+sentinel2_brasilia.tif
+  Sentinel-2 L2A, scene S2A_22LHH_20240809_0_L2A (9 August 2024), from Earth Search
+  (https://earth-search.aws.element84.com/v1). Bands blue, green, red, nir (10 m) and swir16 (20 m, resampled to the
+  grid), reflectance x 10000, Int16, EPSG:31983 (SIRGAS 2000 / UTM 23S), square 10 m cells, 580 x 580. The area is the edge of
+  Lago Paranoa, Brasilia, Brazil.
+  Contains modified Copernicus Sentinel data 2024.
+
+naip_plano.tif
+  NAIP (National Agriculture Imagery Program), item tx_m_3309658_se_14_060_20241109 (9 November 2024), from the
+  Microsoft Planetary Computer. Bands red, green, blue and nir, 8 bit, EPSG:26914, 0.6 m, a window of 600 x 600 m in
+  Plano, Texas, United States.
+  Imagery by USDA Farm Production and Conservation, Business Center, Geospatial Enterprise Operations; US Government
+  work, in the public domain.

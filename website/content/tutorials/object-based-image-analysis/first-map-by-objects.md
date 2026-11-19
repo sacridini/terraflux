@@ -7,6 +7,8 @@ level: beginner
 time: 10 min
 template: Classify an image by clicking samples
 ops: [segment.multiresolution, objects.features, objects.samples, objects.classify, objects.to_vector, objects.sample, objects.accuracy, ml.fit, vector.write]
+series: Object-based image analysis
+part: 1
 ---
 
 A satellite image is a grid of pixels, but the things you want to map (a lake, a forest stand, a field, a town) are
@@ -232,6 +234,7 @@ Things to watch with real images:
 
 ## Going further
 
+- What the objects are and how they are made, on a real image: [What an object is: segmentation](/tutorials/object-based-image-analysis/what-is-an-object/).
 - Classes by rules instead of examples: [Coming from eCognition](/tutorials/object-based-image-analysis/from-ecognition/).
 - A different method for each class: [Coming from InterIMAGE](/tutorials/object-based-image-analysis/from-interimage/).
 - Other segmentations ([[segment.slic]], [[segment.watershed]], [[segment.meanshift]], [[segment.region_growing]], [[segment.quickshift]]), and the guide `objects` of the
