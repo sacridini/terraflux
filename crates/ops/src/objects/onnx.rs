@@ -62,6 +62,12 @@ fn library_names() -> &'static [&'static str] {
 }
 
 /// Positions in `OrtApi` (onnxruntime_c_api.h, 1.17) of the functions used. The order must match the header.
+/// Checked against the header of the Microsoft.ML.OnnxRuntime 1.17.0 package (`ORT_API_VERSION` 17): every slot of
+/// `struct OrtApi` (`ORT_API2_STATUS`, `ORT_CLASS_RELEASE` or a plain pointer; 276 in all, from `CreateStatus` = 0 to
+/// `SessionOptionsAppendExecutionProvider_OpenVINO_V2` = 275) was counted with a script, and the parameter lists,
+/// `OrtLoggingLevel` (WARNING = 2), `OrtAllocatorType` (arena = 1), `OrtMemType` (default = 0), the element type
+/// (FLOAT = 1) and `ORTCHAR_T` (wchar_t on Windows) were read there too. `ORT_API_CALL` is `_stdcall`, which is
+/// the C ABI on x64 and what `extern "system"` gives on x86.
 mod idx {
     pub const GET_ERROR_MESSAGE: usize = 2;
     pub const CREATE_ENV: usize = 3;
