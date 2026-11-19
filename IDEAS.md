@@ -4331,6 +4331,14 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    refeitas a cada fusão; cada objeto na fila com o seu melhor par). Em 2000² × 4 bandas, 1 / 8 threads: o threshold
    com Otsu de 3 classes 0,10 / 0,06 s; o spectral difference sobre o SLIC 0,33 / 0,20 s, sobre um xadrez de 4 (250 mil
    objetos) 2,7 s. A *contrast split* fica de fora (a patente US7801361, até cerca de 2029).
+   **Feito, a segunda parte**: `segment.region_growing` (o crescimento de regiões do `i.segment` do GRASS, descrito do
+   manual, sem o código GPL: bandas escaladas a 0–1, o vizinho mais parecido e mútuo abaixo do `threshold`, passadas até
+   nenhuma fundir, `seeds`, `bounds`, `minsize`) e `segment.quickshift` (Vedaldi & Soatto 2008: a densidade e as
+   ligações por linhas em paralelo). Em 2000² × 4 bandas, 1 / 8 threads: o quickshift 19,6 / 2,7 s. O region growing
+   fica num thread (a ordem embaralhada das visitas é o algoritmo): 27 s com `threshold` 0,05 e 72 s com 0,02 (1,6
+   milhão de objetos), contra 11 s do multiresolution. Uma região grande, com dezenas de milhares de vizinhos, funde
+   um por passada, por milhares de passadas. Ideias: por tiles como o multiresolution (os mesmos tiles e a costura), ou
+   deixar uma região fundir mais de uma vez por passada (outra semântica, a medir na qualidade).
 7. ~~Tudo no terraflux-py~~: desistido (2026-11-19, o usuário: o OBIA fica só no aplicativo). O `python_script`
    continua avisando que esses nós não têm equivalente no terraflux-py.
 8. **A segmentação o mais rápida possível, num núcleo e em paralelo** (pedido de 2026-11-19: um dos objetivos

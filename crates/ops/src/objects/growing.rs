@@ -36,7 +36,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(RegionGrowing));
 }
 
-/// A neighbour in a region's list: its number and the distance to it.
+/// A region's nearest neighbour: its number and the distance to it.
 #[derive(Clone, Copy)]
 struct Edge {
     nb: u32,
@@ -47,8 +47,10 @@ struct Edge {
 const INVALID: u32 = u32::MAX;
 const EMPTY: u32 = u32::MAX - 1;
 
-/// Neighbours kept in the region itself (a cell has 4 or 8): no heap per region.
-type Adj = SmallVec<[Edge; 8]>;
+/// Neighbours' numbers kept in the region itself (a cell has 4 or 8): no heap per region. The distances are not kept
+/// in the lists (a merge changes a region's distance to every neighbour, and a list per neighbour would be written):
+/// they are worked out from the means, which is cheap, and each region keeps its nearest.
+type Adj = SmallVec<[u32; 8]>;
 
 /// The regions' state.
 struct Regions {
@@ -66,8 +68,11 @@ struct Regions {
     /// while not known, `EMPTY` for no neighbour. Kept up to date through the merges, so the mutual check of a
     /// region with thousands of neighbours does not read them.
     top: Vec<Edge>,
-    /// The joined list of a merge (kept to reuse its memory).
-    scratch: Vec<Edge>,
+    /// The joined list of a merge, each neighbour with where it came from (1 the first region's list, 2 the second's,
+    /// 3 both), kept to reuse its memory.
+    scratch: Vec<(u32, u8)>,
+    /// The regions the last merge leaves to be visited again, in the order to wake them.
+    woken: Vec<u32>,
 }
 
 /// The distance of two regions' means (to the power the similarity works in: the squares for Euclidean, so no root is
@@ -140,6 +145,7 @@ impl Regions {
             adj: vec![Adj::new(); count],
             top: vec![Edge { nb: INVALID, cost: 0.0 }; count],
             scratch: Vec::new(),
+            woken: Vec::new(),
         }
     }
 
@@ -186,7 +192,7 @@ impl Regions {
                         }
                         let j = rr as usize * w + cc as usize;
                         if lab[j] != 0 && (zone.is_empty() || zone[i] == zone[j]) {
-                            a.push(Edge { nb: lab[j] - 1, cost: 0.0 });
+                            a.push(lab[j] - 1);
                         }
                     }
                 });
@@ -233,8 +239,8 @@ impl Regions {
                 let j = rr as usize * w + cc as usize;
                 let o = labels[j];
                 if o != 0 && o != a && (zone.is_empty() || zone[i] == zone[j]) {
-                    g.adj[k].push(Edge { nb: o - 1, cost: 0.0 });
-                    g.adj[o as usize - 1].push(Edge { nb: a - 1, cost: 0.0 });
+                    g.adj[k].push(o - 1);
+                    g.adj[o as usize - 1].push(a - 1);
                 }
             }
         }
@@ -244,8 +250,8 @@ impl Regions {
             }
         }
         for a in g.adj.iter_mut() {
-            a.sort_unstable_by_key(|e| e.nb);
-            a.dedup_by_key(|e| e.nb);
+            a.sort_unstable();
+            a.dedup();
         }
         g
     }
@@ -256,10 +262,10 @@ impl Regions {
         let (mean, nb, man) = (&self.mean, self.nb, self.manhattan);
         self.adj.par_iter_mut().zip(self.top.par_iter_mut()).enumerate().for_each(|(a, (l, top))| {
             *top = Edge { nb: EMPTY, cost: f32::INFINITY };
-            for e in l.iter_mut() {
-                e.cost = distance(mean, nb, man, a, e.nb as usize);
-                if top.nb == EMPTY || e.cost < top.cost {
-                    *top = *e;
+            for &x in l.iter() {
+                let cost = distance(mean, nb, man, a, x as usize);
+                if top.nb == EMPTY || cost < top.cost {
+                    *top = Edge { nb: x, cost };
                 }
             }
         });
@@ -274,33 +280,6 @@ impl Regions {
         prefetch(self.mean.as_ptr().wrapping_add(a * self.nb));
     }
 
-    /// The part of the list of `a` that did not fit in the region.
-    #[inline]
-    fn prefetch_heap(&self, a: usize) {
-        let l = &self.adj[a];
-        if l.spilled() {
-            prefetch(l.as_ptr());
-        }
-    }
-
-    /// Prefetch what the distance to each neighbour of region `a` reads.
-    #[inline]
-    fn prefetch_neighbours(&self, a: usize, stamp: &[u32]) {
-        for e in &self.adj[a] {
-            let b = e.nb as usize;
-            prefetch(self.mean.as_ptr().wrapping_add(b * self.nb));
-            prefetch(&self.adj[b]);
-            prefetch(&stamp[b]);
-        }
-    }
-
-    #[inline]
-    fn prefetch_neighbour_heaps(&self, a: usize) {
-        for e in &self.adj[a] {
-            self.prefetch_heap(e.nb as usize);
-        }
-    }
-
     /// The neighbour of `a` of the least distance over the whole list.
     #[inline]
     fn top_of(&mut self, a: usize) -> Edge {
@@ -309,9 +288,10 @@ impl Regions {
             return t;
         }
         let mut top = Edge { nb: EMPTY, cost: f32::INFINITY };
-        for e in &self.adj[a] {
-            if top.nb == EMPTY || e.cost < top.cost {
-                top = *e;
+        for &x in &self.adj[a] {
+            let cost = distance(&self.mean, self.nb, self.manhattan, a, x as usize);
+            if top.nb == EMPTY || cost < top.cost {
+                top = Edge { nb: x, cost };
             }
         }
         self.top[a] = top;
@@ -329,16 +309,22 @@ impl Regions {
             return (Some((t.nb, t.cost)), false);
         }
         let mut best: Option<(u32, f32)> = None;
-        for e in &self.adj[a] {
-            if stamp[e.nb as usize] != pass && best.is_none_or(|(_, g)| e.cost < g) {
-                best = Some((e.nb, e.cost));
+        for &x in &self.adj[a] {
+            if stamp[x as usize] != pass {
+                let cost = distance(&self.mean, self.nb, self.manhattan, a, x as usize);
+                if best.is_none_or(|(_, g)| cost < g) {
+                    best = Some((x, cost));
+                }
             }
         }
         (best, true)
     }
 
-    /// Merge region `b` into `a` (they touch).
-    fn merge(&mut self, a: usize, b: usize) {
+    /// Merge region `b` into `a` (they touch). One pass over the joined list works out `a`'s distance to each
+    /// neighbour and so its nearest; only the neighbours of `b` have their lists changed (b becomes a), and a neighbour's
+    /// nearest changes only when it was `a` or `b`, or `a` is now nearer. The neighbours left to look again (their
+    /// nearest within `limit`, and that nearest) are put in `woken`.
+    fn merge(&mut self, a: usize, b: usize, limit: f32) {
         let nb = self.nb;
         self.cells[a] += self.cells[b];
         for j in 0..nb {
@@ -348,51 +334,58 @@ impl Regions {
             self.mean[x] = if self.cnt[x] > 0 { self.sum[x] / self.cnt[x] as f64 } else { f64::NAN };
         }
         let lb = std::mem::take(&mut self.adj[b]);
+        let la = std::mem::take(&mut self.adj[a]);
         let mut merged = std::mem::take(&mut self.scratch);
         merged.clear();
         let (a32, b32) = (a as u32, b as u32);
-        // the lists joined, the two of them left out
+        // the lists joined, the two regions left out
         {
-            let la = &self.adj[a];
             let (mut i, mut j) = (0, 0);
             while i < la.len() || j < lb.len() {
-                if i < la.len() && la[i].nb == b32 {
+                if i < la.len() && la[i] == b32 {
                     i += 1;
-                } else if j < lb.len() && lb[j].nb == a32 {
+                } else if j < lb.len() && lb[j] == a32 {
                     j += 1;
-                } else if j == lb.len() || (i < la.len() && la[i].nb < lb[j].nb) {
-                    merged.push(la[i]);
+                } else if j == lb.len() || (i < la.len() && la[i] < lb[j]) {
+                    merged.push((la[i], 1));
                     i += 1;
-                } else if i == la.len() || lb[j].nb < la[i].nb {
-                    merged.push(lb[j]);
+                } else if i == la.len() || lb[j] < la[i] {
+                    merged.push((lb[j], 2));
                     j += 1;
                 } else {
-                    merged.push(la[i]);
+                    merged.push((la[i], 3));
                     i += 1;
                     j += 1;
                 }
             }
         }
-        // each neighbour of the two now points to a (b gone), at its new distance, which may change its least
-        for e in merged.iter_mut() {
-            let x = e.nb as usize;
-            e.cost = distance(&self.mean, nb, self.manhattan, a, x);
-            let c = e.cost;
-            let l = &mut self.adj[x];
-            match (l.binary_search_by_key(&a32, |y| y.nb), l.binary_search_by_key(&b32, |y| y.nb)) {
-                (Ok(i), Ok(j)) => {
-                    l[i].cost = c;
-                    l.remove(j);
-                }
-                (Ok(i), Err(_)) => l[i].cost = c,
-                (Err(_), Ok(j)) => {
-                    l.remove(j);
-                    let at = l.binary_search_by_key(&a32, |y| y.nb).unwrap_or_else(|p| p);
-                    l.insert(at, Edge { nb: a32, cost: c });
-                }
-                (Err(_), Err(_)) => unreachable!("a neighbour of the merged regions lists neither"),
+        self.woken.clear();
+        let mut least = Edge { nb: EMPTY, cost: f32::INFINITY };
+        const AHEAD: usize = 8;
+        for i in 0..merged.len() {
+            if let Some(&(y, _)) = merged.get(i + AHEAD) {
+                prefetch(self.mean.as_ptr().wrapping_add(y as usize * nb));
+                prefetch(&self.top[y as usize]);
+                prefetch(&self.adj[y as usize]);
             }
-            let t = &mut self.top[x];
+            let (x, tag) = merged[i];
+            let xu = x as usize;
+            let c = distance(&self.mean, nb, self.manhattan, a, xu);
+            if least.nb == EMPTY || c < least.cost {
+                least = Edge { nb: x, cost: c };
+            }
+            if tag & 2 != 0 {
+                // a neighbour of b now points to a (b gone)
+                let l = &mut self.adj[xu];
+                if let Ok(j) = l.binary_search(&b32) {
+                    l.remove(j);
+                }
+                if tag == 2 {
+                    let at = l.binary_search(&a32).unwrap_or_else(|p| p);
+                    l.insert(at, a32);
+                }
+            }
+            let t = &mut self.top[xu];
             if t.nb == b32 || (t.nb == a32 && c > t.cost) {
                 t.nb = INVALID;
             } else if t.nb != INVALID && (t.nb == EMPTY || c < t.cost || (c == t.cost && a32 < t.nb)) {
@@ -400,11 +393,17 @@ impl Regions {
             } else if t.nb == a32 {
                 t.cost = c;
             }
+            let t = self.top_of(xu);
+            if t.nb < EMPTY && t.cost <= limit {
+                self.woken.push(x);
+                self.woken.push(t.nb);
+            }
         }
-        self.top[a].nb = INVALID;
-        let la = &mut self.adj[a];
+        self.top[a] = least;
+        let mut la = la;
         la.clear();
-        la.extend_from_slice(&merged);
+        la.extend(merged.iter().map(|m| m.0));
+        self.adj[a] = la;
         self.scratch = merged;
     }
 }
@@ -432,12 +431,19 @@ struct Plan {
     minsize: u32,
 }
 
+/// A region's flags in the passes (one byte, so a visit reads one place): merged away, nothing to do until something
+/// changes, in the list of the next pass.
+const DEAD: u8 = 1;
+const QUIET: u8 = 2;
+const QUEUED: u8 = 4;
+
 /// Region `x` is to be visited again: no longer quiet, and in the list of the next pass (once).
 #[inline]
-fn wake(x: u32, quiet: &mut [bool], queued: &mut [bool], active: &mut Vec<u32>) {
-    quiet[x as usize] = false;
-    if !queued[x as usize] {
-        queued[x as usize] = true;
+fn wake(x: u32, flags: &mut [u8], active: &mut Vec<u32>) {
+    let f = &mut flags[x as usize];
+    *f &= !QUIET;
+    if *f & QUEUED == 0 {
+        *f |= QUEUED;
         active.push(x);
     }
 }
@@ -449,9 +455,7 @@ fn wake(x: u32, quiet: &mut [bool], queued: &mut [bool], active: &mut Vec<u32>) 
 fn merge_all(g: &mut Regions, p: &Plan) -> Vec<u32> {
     let n = g.cells.len();
     let mut parent: Vec<u32> = (0..n as u32).collect();
-    let mut dead = vec![false; n];
-    let mut quiet = vec![false; n];
-    let mut queued = vec![true; n];
+    let mut flags = vec![QUEUED; n];
     let mut active: Vec<u32> = (0..n as u32).collect();
     let mut stamp = vec![0u32; n];
     g.eval_all();
@@ -461,9 +465,9 @@ fn merge_all(g: &mut Regions, p: &Plan) -> Vec<u32> {
         pass += 1;
         let mut order = std::mem::take(&mut active);
         for &r in &order {
-            queued[r as usize] = false;
+            flags[r as usize] &= !QUEUED;
         }
-        order.retain(|&r| !dead[r as usize] && !quiet[r as usize]);
+        order.retain(|&r| flags[r as usize] & (DEAD | QUIET) == 0);
         if order.is_empty() {
             break;
         }
@@ -472,31 +476,43 @@ fn merge_all(g: &mut Regions, p: &Plan) -> Vec<u32> {
         }
         let mut merges = 0usize;
         for (at, &a) in order.iter().enumerate() {
-            // the regions visited soon are fetched while this one is worked on
+            // the regions visited soon are fetched while this one is worked on: a visit reads the region's flags,
+            // stamp and nearest, then the nearest's, then the stamp of the nearest's nearest (a shuffle: every read
+            // would wait for memory)
             let soon = |k: usize| order.get(at + k * AHEAD).map(|&x| x as usize);
-            if let Some(x) = soon(4) {
-                g.prefetch_region(x);
-            }
             if let Some(x) = soon(3) {
-                g.prefetch_heap(x);
+                prefetch(&g.top[x]);
+                prefetch(&flags[x]);
+                prefetch(&stamp[x]);
             }
             if let Some(x) = soon(2) {
-                g.prefetch_neighbours(x, &stamp);
+                let b = g.top[x].nb;
+                if b < EMPTY {
+                    prefetch(&g.top[b as usize]);
+                    prefetch(&stamp[b as usize]);
+                }
             }
             if let Some(x) = soon(1) {
-                g.prefetch_neighbour_heaps(x);
+                let b = g.top[x].nb;
+                if b < EMPTY {
+                    let c = g.top[b as usize].nb;
+                    if c < EMPTY {
+                        prefetch(&stamp[c as usize]);
+                    }
+                    g.prefetch_region(b as usize);
+                }
             }
             let ai = a as usize;
-            if dead[ai] || stamp[ai] == pass {
+            if flags[ai] & DEAD != 0 || stamp[ai] == pass {
                 continue;
             }
             let (best, left_out) = g.best(ai, &stamp, pass);
             let Some((b, _)) = best.filter(|&(_, f)| f <= p.limit) else {
                 // nothing close enough, and nothing left out: it stays so until it or a neighbour changes
                 if left_out {
-                    wake(a, &mut quiet, &mut queued, &mut active);
+                    wake(a, &mut flags, &mut active);
                 } else {
-                    quiet[ai] = true;
+                    flags[ai] |= QUIET;
                 }
                 continue;
             };
@@ -506,33 +522,28 @@ fn merge_all(g: &mut Regions, p: &Plan) -> Vec<u32> {
                 if theirs.is_none_or(|(c, _)| c as usize != ai) {
                     // not mutual: the same next time unless a merge changes what either sees
                     if left_out || left_b {
-                        wake(a, &mut quiet, &mut queued, &mut active);
+                        wake(a, &mut flags, &mut active);
                     } else {
-                        quiet[ai] = true;
+                        flags[ai] |= QUIET;
                     }
                     continue;
                 }
             }
-            g.merge(ai, b);
-            dead[b] = true;
+            g.merge(ai, b, p.limit);
+            flags[b] |= DEAD;
             parent[b] = a;
             stamp[ai] = pass;
             stamp[b] = pass;
             // the merged region and its neighbours have changed, and so has each one's least distance. A neighbour
             // with a least distance over the limit has nothing to do whatever it is; one under it looks again, and so
             // does the one it names (which may wait on it: it is its least, and was not its own)
-            wake(a, &mut quiet, &mut queued, &mut active);
-            let least = g.top_of(ai);
+            wake(a, &mut flags, &mut active);
+            let least = g.top[ai];
             if least.nb < EMPTY && least.cost <= p.limit {
-                wake(least.nb, &mut quiet, &mut queued, &mut active);
+                wake(least.nb, &mut flags, &mut active);
             }
-            for i in 0..g.adj[ai].len() {
-                let x = g.adj[ai][i].nb;
-                let least = g.top_of(x as usize);
-                if least.nb < EMPTY && least.cost <= p.limit {
-                    wake(x, &mut quiet, &mut queued, &mut active);
-                    wake(least.nb, &mut quiet, &mut queued, &mut active);
-                }
+            for k in 0..g.woken.len() {
+                wake(g.woken[k], &mut flags, &mut active);
             }
             merges += 1;
         }
@@ -544,24 +555,24 @@ fn merge_all(g: &mut Regions, p: &Plan) -> Vec<u32> {
         // the regions under minsize, in the order of the numbers, each into its most similar neighbour whatever the
         // distance (a region still under minsize after it takes its turn again)
         let mut small: Vec<u32> =
-            (0..n as u32).filter(|&r| !dead[r as usize] && g.cells[r as usize] < p.minsize).collect();
+            (0..n as u32).filter(|&r| flags[r as usize] & DEAD == 0 && g.cells[r as usize] < p.minsize).collect();
         small.reverse();
         stamp.fill(0);
         while let Some(a) = small.pop() {
             let a = a as usize;
-            if dead[a] || g.cells[a] >= p.minsize {
+            if flags[a] & DEAD != 0 || g.cells[a] >= p.minsize {
                 continue;
             }
             // (no pass is u32::MAX: nothing is left out)
             let Some((b, _)) = g.best(a, &stamp, u32::MAX).0.filter(|&(_, f)| f.is_finite()).or_else(|| {
                 // no band in common with any neighbour: the neighbour with the most cells
-                g.adj[a].iter().map(|e| (e.nb, 0.0f32)).max_by_key(|&(b, _)| (g.cells[b as usize], u32::MAX - b))
+                g.adj[a].iter().map(|&e| (e, 0.0f32)).max_by_key(|&(b, _)| (g.cells[b as usize], u32::MAX - b))
             }) else {
                 continue;
             };
             let b = b as usize;
-            g.merge(b, a);
-            dead[a] = true;
+            g.merge(b, a, f32::NEG_INFINITY);
+            flags[a] |= DEAD;
             parent[a] = b as u32;
             if g.cells[b] < p.minsize {
                 small.push(b as u32);
