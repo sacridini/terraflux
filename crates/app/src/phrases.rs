@@ -889,6 +889,14 @@ const PHRASES: &[(&str, &str)] = &[
         "The neighbouring objects of <objects> whose means in <image> differ by less than {max_difference} merged[, the bands weighted {weights}].",
     ),
     (
+        "segment.region_growing",
+        "<image> segmented by region growing and merging (as GRASS's i.segment) at a threshold of {threshold}[, by the {similarity} distance][, from the seeds of <seeds>][, within the zones of <bounds>][, segments of at least {minsize} cells].",
+    ),
+    (
+        "segment.quickshift",
+        "<image> segmented by quick shift[ with a kernel size of {kernel_size}][ and links up to {max_dist}][, colour weighed {ratio}].",
+    ),
+    (
         "segment.watershed",
         "<image> cut into the watershed basins of its gradient[, from the markers of <markers>][, smoothed by {sigma} cells].",
     ),

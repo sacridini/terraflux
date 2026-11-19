@@ -2970,3 +2970,364 @@ fn spectral_difference_checks_its_inputs_and_settings() {
     );
     assert!(e.is_err());
 }
+
+fn grow(image: Value, params: serde_json::Value) -> terraflux_ops::Result<Outputs> {
+    run("segment.region_growing", vec![("image", image)], params)
+}
+
+fn grow_labels(m: Vec<f64>, params: serde_json::Value) -> Vec<u32> {
+    let n = m.len();
+    let o = objects_of(&grow(Value::Map(map(n, 1, m)), params).unwrap());
+    o.labels.to_vec()
+}
+
+#[test]
+fn region_growing_merges_the_neighbours_under_the_threshold() {
+    // scaled by the range 11: the gaps are 1/11 inside the pairs, 9/11 between them
+    let m = vec![0.0, 1.0, 10.0, 11.0];
+    assert_eq!(grow_labels(m.clone(), serde_json::json!({ "threshold": 0.1 })), [1, 1, 2, 2]);
+    assert_eq!(grow_labels(m.clone(), serde_json::json!({ "threshold": 0.05 })), [1, 2, 3, 4]);
+    assert_eq!(grow_labels(m.clone(), serde_json::json!({ "threshold": 1.0 })), [1, 1, 1, 1]);
+    // 0 joins only the identical
+    assert_eq!(grow_labels(vec![3.0, 3.0, 5.0, 5.0, 9.0], serde_json::json!({ "threshold": 0 })), [1, 1, 2, 2, 3]);
+}
+
+#[test]
+fn region_growing_joins_the_mutually_closest_first() {
+    // 0 4 7 (range 7): 4 and 7 are each other's closest, 0 is not 4's: the means 0 and 5.5 stay apart at 0.6
+    let labels = grow_labels(vec![0.0, 4.0, 7.0], serde_json::json!({ "threshold": 0.6 }));
+    assert_eq!(labels, [1, 2, 2]);
+    // without the mutual condition everything under the threshold at the time of the visit joins
+    let all = grow_labels(vec![0.0, 4.0, 7.0], serde_json::json!({ "threshold": 1.0, "mutual": false }));
+    assert_eq!(all, [1, 1, 1]);
+}
+
+#[test]
+fn region_growing_euclidean_and_manhattan_differ() {
+    // bands scaled to 0-1: A (0, 0), B (0.6, 0.2), C (1, 1): A-B is 0.4 by Manhattan, 0.447 by Euclid
+    let image = stack(3, 1, vec![vec![0.0, 0.6, 1.0], vec![0.0, 0.2, 1.0]]);
+    let n = |sim: &str| {
+        objects_of(&grow(image.clone(), serde_json::json!({ "threshold": 0.42, "similarity": sim })).unwrap()).count
+    };
+    assert_eq!(n("manhattan"), 2);
+    assert_eq!(n("euclidean"), 3);
+    assert!(grow(image, serde_json::json!({ "threshold": 0.42, "similarity": "cosine" })).is_err());
+}
+
+#[test]
+fn region_growing_leaves_the_cells_without_a_value_out() {
+    let labels = grow_labels(vec![3.0, 3.0, NAN, 3.0, 4.0], serde_json::json!({ "threshold": 0 }));
+    assert_eq!(labels, [1, 1, 0, 2, 3]);
+    // a band with no value in a cell counts in the others
+    let image = stack(3, 1, vec![vec![0.0, NAN, 1.0], vec![0.0, 0.0, 1.0]]);
+    let o = objects_of(&grow(image, serde_json::json!({ "threshold": 0.01 })).unwrap());
+    assert_eq!(o.labels.to_vec(), [1, 1, 2]);
+}
+
+#[test]
+fn region_growing_minsize_joins_the_small_to_the_most_similar() {
+    let m = vec![0.0, 0.0, 4.0, 10.0, 10.0];
+    assert_eq!(grow_labels(m.clone(), serde_json::json!({ "threshold": 0 })), [1, 1, 2, 3, 3]);
+    assert_eq!(grow_labels(m.clone(), serde_json::json!({ "threshold": 0, "minsize": 2 })), [1, 1, 1, 2, 2]);
+    // a fragment still small after a join is joined again
+    assert_eq!(grow_labels(m, serde_json::json!({ "threshold": 0, "minsize": 5 })), [1, 1, 1, 1, 1]);
+}
+
+#[test]
+fn region_growing_iterations_stop_the_passes() {
+    // a gradient of equal steps: a pass joins the mutual pairs only, so one pass cannot make one object
+    let m: Vec<f64> = (0..16).map(|k| k as f64).collect();
+    let one = grow_labels(m.clone(), serde_json::json!({ "threshold": 0.2, "iterations": 1 }));
+    let many = grow_labels(m, serde_json::json!({ "threshold": 0.2 }));
+    let count = |v: &[u32]| *v.iter().max().unwrap();
+    assert!(count(&one) > count(&many), "{one:?} {many:?}");
+}
+
+#[test]
+fn region_growing_never_crosses_the_bounds() {
+    let image = Value::Map(map(6, 1, vec![5.0; 6]));
+    let bounds = Value::Map(map(6, 1, vec![1.0, 1.0, 2.0, 2.0, 2.0, NAN]));
+    let out = run(
+        "segment.region_growing",
+        vec![("image", image.clone()), ("bounds", bounds)],
+        serde_json::json!({ "threshold": 1 }),
+    )
+    .unwrap();
+    assert_eq!(objects_of(&out).labels.to_vec(), [1, 1, 2, 2, 2, 3]);
+    assert_eq!(objects_of(&grow(image.clone(), serde_json::json!({ "threshold": 1 })).unwrap()).count, 1);
+    // bounds of another grid
+    let other = Value::Map(map(5, 1, vec![1.0; 5]));
+    let e = run(
+        "segment.region_growing",
+        vec![("image", image), ("bounds", other)],
+        serde_json::json!({ "threshold": 1 }),
+    );
+    assert!(e.is_err());
+}
+
+#[test]
+fn region_growing_starts_from_the_seeds_and_keeps_them_whole() {
+    // the seeds' cells differ in value, yet each seed is one start region
+    let image = Value::Map(map(6, 1, vec![0.0, 10.0, 0.0, 10.0, 0.0, 10.0]));
+    let seeds = map(6, 1, vec![1.0, 1.0, NAN, NAN, 2.0, 2.0]);
+    let run_seeds = |s: Value, p: serde_json::Value| {
+        objects_of(&run("segment.region_growing", vec![("image", image.clone()), ("seeds", s)], p).unwrap())
+    };
+    let o = run_seeds(Value::Map(seeds.clone()), serde_json::json!({ "threshold": 0 }));
+    assert_eq!(o.labels.to_vec(), [1, 1, 2, 3, 4, 4]);
+    // the same from objects
+    let (objects, _) = segment(&seeds, 4);
+    let o = run_seeds(Value::Objects(objects), serde_json::json!({ "threshold": 0 }));
+    assert_eq!(o.labels.to_vec(), [1, 1, 2, 3, 4, 4]);
+    // two groups of a value apart are two seeds; seeds that merge on stay whole
+    let (w, h) = (40, 30);
+    let img = quadrants(w, h, 1, 2.0, 5);
+    let sd = map(w, h, (0..w * h).map(|i| if i % w < 3 && i / w < 3 { 1.0 } else { NAN }).collect());
+    let o = objects_of(
+        &run("segment.region_growing", vec![("image", img), ("seeds", Value::Map(sd))], serde_json::json!({ "threshold": 0.1 }))
+            .unwrap(),
+    );
+    let id = o.labels[0];
+    assert!((0..w * h).filter(|&i| i % w < 3 && i / w < 3).all(|i| o.labels[i] == id));
+    connected(&o);
+    // seeds of another grid or a text
+    let e = run(
+        "segment.region_growing",
+        vec![("image", image.clone()), ("seeds", Value::Map(map(5, 1, vec![1.0; 5])))],
+        serde_json::json!({ "threshold": 0.1 }),
+    );
+    assert!(e.is_err());
+}
+
+#[test]
+fn region_growing_finds_the_areas_of_a_noisy_image() {
+    let (w, h) = (64, 64);
+    let image = quadrants(w, h, 2, 3.0, 11);
+    let out = grow(image.clone(), serde_json::json!({ "threshold": 0.1, "minsize": 40, "neighbours": 8 })).unwrap();
+    let o = objects_of(&out);
+    assert_eq!(o.count, 4, "{}", o.count);
+    assert_eq!(table_of(&out).columns, ["id", "cells", "area", "mean_b1", "mean_b2", "sd_b1", "sd_b2"]);
+    connected(&o);
+    // with minsize every object has that many cells
+    assert!(o.cells.iter().all(|&c| c >= 40));
+    // the seed changes the order of the visits, not what the objects are
+    let b = objects_of(&grow(image, serde_json::json!({ "threshold": 0.1, "minsize": 40, "seed": 7 })).unwrap());
+    assert_eq!(b.count, 4);
+}
+
+#[test]
+fn region_growing_is_the_same_on_one_thread_and_eight() {
+    let image = quadrants(130, 90, 3, 6.0, 3);
+    let seeds = map(130, 90, (0..130 * 90).map(|i| if i % 130 < 20 && (i / 130) % 7 == 0 { 1.0 } else { NAN }).collect());
+    for p in [
+        serde_json::json!({ "threshold": 0.05 }),
+        serde_json::json!({ "threshold": 0.08, "neighbours": 8, "similarity": "manhattan", "minsize": 12 }),
+        serde_json::json!({ "threshold": 0.04, "mutual": false, "seed": 3 }),
+    ] {
+        for s in [false, true] {
+            let mut inputs = vec![("image", image.clone())];
+            if s {
+                inputs.push(("seeds", Value::Map(seeds.clone())));
+            }
+            let a = run_on(1, "segment.region_growing", inputs.clone(), p.clone());
+            let b = run_on(8, "segment.region_growing", inputs, p.clone());
+            assert_eq!(objects_of(&a).labels, objects_of(&b).labels, "{p} seeds {s}");
+            assert_eq!(table_of(&a).rows, table_of(&b).rows);
+        }
+    }
+}
+
+#[test]
+fn region_growing_checks_its_settings() {
+    let image = || Value::Map(map(4, 1, vec![1.0, 2.0, 3.0, 4.0]));
+    for p in [
+        serde_json::json!({}),
+        serde_json::json!({ "threshold": -0.1 }),
+        serde_json::json!({ "threshold": 1.5 }),
+        serde_json::json!({ "threshold": 0.1, "minsize": 0 }),
+        serde_json::json!({ "threshold": 0.1, "iterations": 0 }),
+        serde_json::json!({ "threshold": 0.1, "neighbours": 6 }),
+        serde_json::json!({ "threshold": 0.1, "similarity": "chebyshev" }),
+    ] {
+        assert!(grow(image(), p.clone()).is_err(), "{p}");
+    }
+    assert!(grow(Value::Number(1.0), serde_json::json!({ "threshold": 0.1 })).is_err());
+}
+
+fn quick(image: Value, params: serde_json::Value) -> terraflux_ops::Result<Outputs> {
+    run("segment.quickshift", vec![("image", image)], params)
+}
+
+/// Two flat halves, 0 and 10, of a 20 x 10 image.
+fn halves() -> Value {
+    stack(20, 10, vec![(0..200).map(|i| if i % 20 < 10 { 0.0 } else { 10.0 }).collect()])
+}
+
+#[test]
+fn quickshift_cuts_two_flat_halves_apart_by_colour() {
+    let o = objects_of(&quick(halves(), serde_json::json!({ "kernel_size": 2, "max_dist": 6, "ratio": 10 })).unwrap());
+    assert_eq!(o.count, 2);
+    for (i, &l) in o.labels.iter().enumerate() {
+        assert_eq!(l, if i % 20 < 10 { 1 } else { 2 }, "cell {i}");
+    }
+    // colour is ignored with a ratio of 0: one mode for the whole image
+    let o = objects_of(&quick(halves(), serde_json::json!({ "kernel_size": 2, "max_dist": 12, "ratio": 0 })).unwrap());
+    assert_eq!(o.count, 1);
+}
+
+#[test]
+fn quickshift_with_a_short_link_leaves_every_cell_alone() {
+    let out = quick(halves(), serde_json::json!({ "kernel_size": 2, "max_dist": 0.5 })).unwrap();
+    assert_eq!(objects_of(&out).count, 200);
+    assert_eq!(table_of(&out).rows.len(), 200);
+}
+
+#[test]
+fn quickshift_skips_the_cells_without_a_value() {
+    let mut v: Vec<f64> = (0..200).map(|i| if i % 20 < 10 { 0.0 } else { 10.0 }).collect();
+    v[5] = NAN;
+    v[17 + 40] = NAN;
+    let o = objects_of(&quick(stack(20, 10, vec![v]), serde_json::json!({ "kernel_size": 2, "max_dist": 6, "ratio": 10 })).unwrap());
+    assert_eq!(o.labels[5], 0);
+    assert_eq!(o.labels[57], 0);
+    assert!(o.labels[6] != 0 && o.labels[56] != 0);
+    connected(&o);
+}
+
+/// Quick shift by its definition in f64, with exact exponentials: the segments of cells by the roots (the trees cut into
+/// 4-connected pieces).
+fn quickshift_by_hand(v: &[f64], w: usize, h: usize, ratio: f64, sigma: f64, max_dist: f64) -> Vec<usize> {
+    let rad = (3.0 * sigma).ceil() as i64;
+    let d2 = |i: usize, j: usize| {
+        let (dr, dc) = ((i / w) as f64 - (j / w) as f64, (i % w) as f64 - (j % w) as f64);
+        (dr * dr + dc * dc, ratio * ratio * (v[i] - v[j]) * (v[i] - v[j]))
+    };
+    let dens: Vec<f64> = (0..w * h)
+        .map(|i| {
+            let mut s = 0.0;
+            for (j, x) in v.iter().enumerate() {
+                let (sp, co) = d2(i, j);
+                if !x.is_nan() && sp <= (rad * rad) as f64 {
+                    s += (-(sp + co) / (2.0 * sigma * sigma)).exp();
+                }
+            }
+            s
+        })
+        .collect();
+    let mut root: Vec<usize> = (0..w * h).collect();
+    for i in 0..w * h {
+        let mut best: Option<(f64, usize)> = None;
+        for j in 0..w * h {
+            let (sp, co) = d2(i, j);
+            let higher = dens[j] > dens[i] || (dens[j] == dens[i] && j < i);
+            if j != i && higher && sp + co <= max_dist * max_dist && best.is_none_or(|(d, _)| sp + co < d) {
+                best = Some((sp + co, j));
+            }
+        }
+        if let Some((_, j)) = best {
+            root[i] = j;
+        }
+    }
+    let top = |mut i: usize| {
+        while root[i] != i {
+            i = root[i];
+        }
+        i
+    };
+    let tops: Vec<usize> = (0..w * h).map(top).collect();
+    // 4-connected pieces of each tree, numbered by the first cell
+    let mut piece = vec![usize::MAX; w * h];
+    let mut next = 0;
+    for s in 0..w * h {
+        if piece[s] != usize::MAX {
+            continue;
+        }
+        let mut stack = vec![s];
+        piece[s] = next;
+        while let Some(i) = stack.pop() {
+            let (r, c) = (i / w, i % w);
+            let mut near = vec![];
+            if r > 0 {
+                near.push(i - w);
+            }
+            if r + 1 < h {
+                near.push(i + w);
+            }
+            if c > 0 {
+                near.push(i - 1);
+            }
+            if c + 1 < w {
+                near.push(i + 1);
+            }
+            for j in near {
+                if piece[j] == usize::MAX && tops[j] == tops[s] {
+                    piece[j] = next;
+                    stack.push(j);
+                }
+            }
+        }
+        next += 1;
+    }
+    piece
+}
+
+#[test]
+fn quickshift_is_the_definition() {
+    let (w, h) = (18, 14);
+    let mut s = 77u64;
+    let v: Vec<f64> = (0..w * h)
+        .map(|i| (if i % w < 9 { 0.0 } else { 6.0 }) + gauss(&mut s, 1.0))
+        .collect();
+    for (ratio, sigma, max_dist) in [(1.0, 1.5, 5.0), (3.0, 2.0, 7.0), (0.5, 1.0, 3.0)] {
+        let p = serde_json::json!({ "ratio": ratio, "kernel_size": sigma, "max_dist": max_dist, "standardise": false });
+        let o = objects_of(&quick(stack(w, h, vec![v.clone()]), p).unwrap());
+        let want = quickshift_by_hand(&v, w, h, ratio, sigma, max_dist);
+        // the same partition: ids by the first cell on both sides
+        assert_eq!(o.labels.iter().map(|&l| l as usize - 1).collect::<Vec<_>>(), want, "{ratio} {sigma} {max_dist}");
+    }
+}
+
+#[test]
+fn quickshift_is_the_same_on_one_thread_and_eight() {
+    let image = quadrants(70, 50, 2, 5.0, 9);
+    for p in [
+        serde_json::json!({ "kernel_size": 2, "max_dist": 6, "ratio": 3 }),
+        serde_json::json!({ "kernel_size": 3, "max_dist": 8, "sigma": 1, "standardise": false, "ratio": 0.1 }),
+    ] {
+        let a = run_on(1, "segment.quickshift", vec![("image", image.clone())], p.clone());
+        let b = run_on(8, "segment.quickshift", vec![("image", image.clone())], p.clone());
+        assert_eq!(objects_of(&a).labels, objects_of(&b).labels, "{p}");
+        assert_eq!(table_of(&a).rows, table_of(&b).rows);
+    }
+}
+
+#[test]
+fn quickshift_finds_the_areas_of_a_noisy_image() {
+    let out = quick(quadrants(64, 64, 2, 3.0, 11), serde_json::json!({ "kernel_size": 3, "max_dist": 12, "ratio": 8 })).unwrap();
+    let o = objects_of(&out);
+    connected(&o);
+    assert_eq!(table_of(&out).rows.len(), o.count);
+    // the four areas, each in a few objects at most, none across two areas
+    assert!(o.count >= 4 && o.count < 40, "{}", o.count);
+    let area = |i: usize| (i / 64 >= 32) as usize * 2 + (i % 64 >= 32) as usize;
+    let mut of_area = vec![usize::MAX; o.count];
+    for (i, &l) in o.labels.iter().enumerate() {
+        let a = &mut of_area[l as usize - 1];
+        assert!(*a == usize::MAX || *a == area(i), "object {l} in two areas");
+        *a = area(i);
+    }
+}
+
+#[test]
+fn quickshift_checks_its_settings() {
+    for p in [
+        serde_json::json!({ "ratio": -1 }),
+        serde_json::json!({ "kernel_size": 0 }),
+        serde_json::json!({ "kernel_size": -2 }),
+        serde_json::json!({ "max_dist": 0 }),
+        serde_json::json!({ "sigma": -1 }),
+    ] {
+        assert!(quick(halves(), p.clone()).is_err(), "{p}");
+    }
+    assert!(quick(Value::Number(1.0), serde_json::json!({})).is_err());
+}

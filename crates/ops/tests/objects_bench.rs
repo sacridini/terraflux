@@ -105,6 +105,11 @@ fn objects_bench() {
         ("segment.threshold", "given-4", serde_json::json!({ "thresholds": [40, 80, 120, 160] })),
         ("segment.spectral_difference", "chess4-d8", serde_json::json!({ "from": "chessboard", "max_difference": 8 })),
         ("segment.spectral_difference", "slic-d8", serde_json::json!({ "from": "slic", "max_difference": 8 })),
+        ("segment.region_growing", "t0.02", serde_json::json!({ "threshold": 0.02 })),
+        ("segment.region_growing", "t0.05-min20", serde_json::json!({ "threshold": 0.05, "minsize": 20 })),
+        ("segment.region_growing", "t0.05-n8-manh", serde_json::json!({ "threshold": 0.05, "neighbours": 8, "similarity": "manhattan" })),
+        ("segment.quickshift", "default", serde_json::json!({ "ratio": 10 })),
+        ("segment.quickshift", "k3-d8", serde_json::json!({ "ratio": 10, "kernel_size": 3, "max_dist": 8 })),
     ];
     println!("\n{:<26} {:<16} {:<10} {:>7} {:>10} {:>9} {:>18}", "segmenter", "variant", "image", "threads", "seconds", "objects", "hash");
     let list = |k: &str, d: &str| -> Vec<usize> {

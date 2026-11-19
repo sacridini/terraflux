@@ -32,7 +32,7 @@ before it gives.
 | Chessboard, quadtree segmentation | [[segment.chessboard]], [[segment.quadtree]] |
 | Spectral difference segmentation | [[segment.spectral_difference]] (`max_difference`, band `weights`) on the objects of a first segmentation; or [[objects.merge]] with `by = "condition"` (a condition on the two neighbours' means) |
 | Multi-threshold segmentation | [[segment.threshold]] (`thresholds`, or `classes` for multi-level Otsu; `band`) |
-| Other segmentations | [[segment.slic]], [[segment.snic]], [[segment.felzenszwalb]], [[segment.watershed]], [[segment.meanshift]]; objects made elsewhere: [[segment.from_vector]], [[segment.from_map]] |
+| Other segmentations | [[segment.slic]], [[segment.snic]], [[segment.felzenszwalb]], [[segment.watershed]], [[segment.meanshift]], [[segment.region_growing]] (GRASS `i.segment`), [[segment.quickshift]]; objects made elsewhere: [[segment.from_vector]], [[segment.from_map]] |
 | ESP tool (estimation of scale parameter) | [[segment.scale]]; and [[segment.multiresolution]] with no `scale` takes its first suggestion |
 | Image object level | Objects that have a **parent**: [[segment.multiresolution]] with `from` (the level below becomes the start regions) and [[objects.merge]] with `level` make a level above; `below` outputs hold the level beneath |
 | Level, parent and child, super- and sub-objects | The Viewer: select an object and press ++p++ (its parent), ++c++ (its children), ++n++ (its neighbours); in [[objects.calc]] `parent.x` and, with `below`, `children.count(...)`, `children.area(...)`, `children.mean(...)` |

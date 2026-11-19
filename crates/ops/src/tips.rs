@@ -631,6 +631,24 @@ pub const TIPS: &[(&str, &str)] = &[
          segmenter that keeps the edges, not on single cells. Use `weights` to make a band count more or less.",
     ),
     (
+        "segment.region_growing",
+        "The method of GRASS GIS's i.segment. The bands are scaled to 0-1 over the whole image and `threshold` is a \
+         distance in that scale (0 to 1): 0.01 to 0.05 is the usual start, so the same threshold means the same on \
+         other data. Neighbouring regions merge when they are each other's most similar and closer than it, pass \
+         after pass until none does. Lower thresholds give finer objects: use the result as `seeds` of a run with a \
+         higher one for a hierarchy. `minsize` joins the specks to their most similar neighbour at the end; \
+         `bounds` (a map of zones, a field map for example) keeps the objects inside the zones.",
+    ),
+    (
+        "segment.quickshift",
+        "Quick shift finds the modes of a density over position and colour, so it needs no count of objects: \
+         `kernel_size` (cells) and `max_dist` set how far apart the objects are, `ratio` how much colour counts \
+         against position (the bands are standardised, so one standard deviation counts as `ratio` cells: 5 to 30 \
+         is the usual range). The cost is about (6 x kernel_size) squared exponentials per cell, so keep `kernel_size` \
+         small on a large image. The objects are always connected: a mode's area that its links leave in pieces is \
+         split.",
+    ),
+    (
         "segment.watershed",
         "Without markers the basins are the minima of the gradient, so many on a noisy image: raise `sigma` (the \
          smoothing) or `h` until they are about the objects you want. With markers (a map of seeds, the centres of \

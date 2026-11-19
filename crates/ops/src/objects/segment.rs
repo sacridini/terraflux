@@ -18,6 +18,8 @@ pub fn register(r: &mut Registry) {
     super::watershed::register(r);
     super::threshold::register(r);
     super::spectral::register(r);
+    super::growing::register(r);
+    super::quickshift::register(r);
     super::meanshift::register(r);
     r.add(Arc::new(super::esp::Scale));
 }

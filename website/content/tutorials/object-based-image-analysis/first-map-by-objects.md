@@ -234,7 +234,7 @@ Things to watch with real images:
 
 - Classes by rules instead of examples: [Coming from eCognition](/tutorials/object-based-image-analysis/from-ecognition/).
 - A different method for each class: [Coming from InterIMAGE](/tutorials/object-based-image-analysis/from-interimage/).
-- Other segmentations ([[segment.slic]], [[segment.watershed]], [[segment.meanshift]]), and the guide `objects` of the
+- Other segmentations ([[segment.slic]], [[segment.watershed]], [[segment.meanshift]], [[segment.region_growing]], [[segment.quickshift]]), and the guide `objects` of the
   MCP server, which an assistant can follow to build the model with you.
 
 ## References
