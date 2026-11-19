@@ -30,9 +30,12 @@ mod temporal;
 mod tiles;
 mod warnings;
 mod watershed;
+mod window;
 
 pub use calc::{evaluate, evaluate_numbers};
 pub use features::features_give;
+pub use resolve::{Verdict, arbitrate, explain_cell};
+pub use window::{Window, WindowSettings, esp_window, segment_window};
 pub use rules::{RuleClass, leaves, tree};
 
 pub fn register(r: &mut Registry) {

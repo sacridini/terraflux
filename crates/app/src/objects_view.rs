@@ -218,7 +218,14 @@ fn made(o: &Objects, how: Fill) -> Filled {
             (data, Coloring::Packed)
         }
     };
-    Filled { map: Map::new(o.grid.clone(), data), coloring, legend, counts }
+    // (the classes' names go with the map, as a map of classes carries its legend: a difference of two of them names
+    // the transitions)
+    let grid = if legend.is_empty() {
+        o.grid.clone()
+    } else {
+        Arc::new(terraflux_ops::legend::with_legend(&o.grid, Some(&legend)))
+    };
+    Filled { map: Map::new(grid, data), coloring, legend, counts }
 }
 
 /// The text of an object under the pointer: `object 12 · class water · area 340 m²` (the cells when the cells are in

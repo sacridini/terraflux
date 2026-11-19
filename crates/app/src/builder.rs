@@ -5769,7 +5769,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     // (a hidden group's layers not drawn, a group's opacity in its layers')
     let drawn_list = drawn_layers(&sh.layers, &sh.groups);
     let view_box = sh.view.view_box();
-    let Drawn { rasters, overlays, objects: layer_objects, table_at } = draw_layers(
+    let Drawn { mut rasters, overlays, objects: layer_objects, table_at } = draw_layers(
         s,
         ui.ctx(),
         &drawn_list,
@@ -5780,6 +5780,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         Some(&maps[k]),
         view_box.as_ref(),
     );
+    // (the hypotheses of the classes of an objects.resolve, over the map when asked for)
+    rasters.extend(crate::hypotheses::layers(ui.ctx(), s, &node, &port, salt));
     if let Some(e) = s.view_vectors.take_error() {
         s.editor.message = Some(e);
     }
@@ -5829,6 +5831,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     }
     let mut apply_samples = false;
     let mut space_action = crate::feature_space::SpaceAction::default();
+    // (the node whose objects the live segmentation previews: the objects the pointer works on, else the output's)
+    let seg_node: String = active.as_ref().map_or_else(|| node.clone(), |a| a.key.0.clone());
     // (the panels beside the map narrower in a narrow Viewer: the map keeps room)
     egui::Panel::right(egui::Id::new(("output side", salt)))
         .resizable(true)
@@ -5862,6 +5866,13 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     sh.objects.inspector(ui, s, &a.o, below.as_deref());
                     space_action = sh.objects.space_window(ui.ctx(), s, &a.o);
                 }
+                // the objects of a segment.multiresolution segmented live in the part in view
+                if crate::live_segment::is_target(s, &seg_node) {
+                    ui.separator();
+                    crate::live_segment::panel(ui, s, &seg_node, &sh.view, salt);
+                }
+                // the hypotheses of the classes of an objects.resolve (or of the stack it reads)
+                crate::hypotheses::panel(ui, s, &node, &port, salt);
                 // the map as a figure for a paper (alone, with the one compared, or every layer of it), or as the
                 // picture the Viewer shows (a file for QGIS or a slide)
                 let (figure, export) = ui
@@ -6225,6 +6236,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 theme::section(ui, "Compare");
                 // (the layers kept first, from the top: the map shown compared with another of its layers)
                 let mut others = map_values(s, r, (&node, &port));
+                // (objects too: two levels, two classifications, two dates compared as they are drawn)
+                others.extend(objects_values(s, r).into_iter().filter(|(n, p)| (n.as_str(), p.as_str()) != (&*node, &*port)));
                 let rank = |(n, p): &(String, String)| {
                     sh.layers.iter().rev().position(|l| l.is(n, p)).unwrap_or(sh.layers.len())
                 };
@@ -6473,6 +6486,11 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         d.sampling = sh.objects.sampling;
         d.marks = sh.objects.marks();
     }
+    // (the live segmentation's preview, over them all: its outlines in their own colour)
+    {
+        let live = crate::live_segment::state(ui.ctx(), salt, &seg_node);
+        draws.extend(crate::live_segment::draw(&live.lock().unwrap_or_else(|e| e.into_inner()), &seg_node));
+    }
     sh.view.objects = draws;
     egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::well())).show(ui, |ui| {
         let Some(l) = &look else {
@@ -6525,6 +6543,12 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             }
         }
     });
+    // the live segmentation's preview is marked on the map; the cell under the pointer is the hypotheses'
+    if let Some(rect) = sh.view.rect() {
+        let live = crate::live_segment::state(ui.ctx(), salt, &seg_node);
+        crate::live_segment::badge(ui.ctx(), rect, &live.lock().unwrap_or_else(|e| e.into_inner()));
+    }
+    crate::hypotheses::set_cursor(ui.ctx(), salt, &node, &port, hover.map(|h| (h.row, h.col)));
     // what the pointer did on the objects (selected, or gave samples), and the keys over them (a level to go to)
     let events = std::mem::take(&mut sh.view.object_events);
     if let Some(a) = &active {
@@ -7341,6 +7365,17 @@ fn compared_map(
 /// An output of the run as a map: its source (a stack's first layer...), its name, its look in its own colours
 /// and legend (none while it is being made).
 fn output_map(s: &mut Session, ctx: &egui::Context, n: &str, p: &str, band: Option<usize>) -> Option<Compared> {
+    // objects compared: their fill in the colours of their classes (a colour each when they have none), no look to
+    // work out; two classified ones make a difference of classes, the cells whose class changed
+    if let Some(Value::Objects(o)) = s.value_of(n, p) {
+        let f = if o.classes.is_empty() {
+            crate::objects_view::fill(&o, crate::objects_view::Fill::Random)
+        } else {
+            objects_fill(&o, None)
+        };
+        let look = Look { coloring: f.coloring.clone(), counts: f.counts.clone(), product: None };
+        return Some((Source::from(&f.map), output_name(n, p), Some(look)));
+    }
     let src = s.value_of(n, p).as_ref().and_then(|v| layer_source(v, band))?;
     let (made, mut hint) = producer(s, n, p);
     hint.push_str(p);

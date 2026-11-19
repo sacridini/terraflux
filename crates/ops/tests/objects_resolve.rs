@@ -183,3 +183,31 @@ fn resolve_region_restricts() {
     let c = table_of(&out, "conflicts");
     assert_eq!(c.rows.iter().map(|r| r[2]).sum::<f64>(), 2.0);
 }
+
+#[test]
+fn one_cells_arbitration_is_told_as_the_operator_decides_it() {
+    use terraflux_ops::objects::{arbitrate, explain_cell};
+    let names = ["A".to_string(), "B".to_string()];
+    let cell = |i: usize| [A[i], B[i]];
+    // (0, 1): A 0.8 over B 0.5, both above the minimum: a conflict
+    let v = arbitrate(&cell(1), &[], 0.1);
+    assert_eq!((v.winner, v.second, v.conflict), (Some(0), Some(1), true));
+    assert_eq!((v.best, v.doubt), (0.8, 0.5));
+    // (0, 2): a tie, the class first in the order wins
+    assert_eq!(arbitrate(&cell(2), &[], 0.1).winner, Some(0));
+    assert_eq!(arbitrate(&cell(2), &[1, 0], 0.1).winner, Some(1));
+    // (0, 3): only B, no doubt; (3, 0): B 0.05 does not reach the minimum
+    let v = arbitrate(&cell(3), &[], 0.1);
+    assert_eq!((v.winner, v.doubt, v.conflict), (Some(1), 0.0, false));
+    assert_eq!(arbitrate(&cell(12), &[], 0.1).winner, None);
+    // the operator's own winners are these
+    let out = resolve(serde_json::json!({}));
+    let class = map_of(&out, "class");
+    for (i, got) in class.iter().enumerate() {
+        let w = arbitrate(&cell(i), &[], 0.1).winner.map_or(NAN, |c| (c + 1) as f64);
+        assert!(w == *got || (w.is_nan() && got.is_nan()), "cell {i}: {w} against {got}");
+    }
+    let said = explain_cell(&names, &cell(1), None, 0.1);
+    assert!(said.contains("A 0.80 won over B 0.50") && said.contains("conflict"), "{said}");
+    assert!(explain_cell(&names, &cell(12), None, 0.1).contains("no class"));
+}

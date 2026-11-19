@@ -577,6 +577,10 @@ fn walk(
     } else if n.op == "raster.calc" {
         let text = n.params.get("expression").map(words).unwrap_or_default();
         How::Expression { with_values: substituted(&text, &at_inputs), text }
+    } else if n.op == "objects.resolve"
+        && let Some(h) = resolve_how(n, &at_inputs)
+    {
+        h
     } else if !reads_nodes {
         How::Data
     } else if let Some(p) = PATCHES.contains(&n.op.as_str()).then(|| patch_of(m, r, path, n, values, x, y)).flatten() {
@@ -650,6 +654,24 @@ fn walk(
     step.how = how;
     step.body = body;
     Some(k)
+}
+
+/// What an `objects.resolve` decided at the cell: the memberships of each class, the winner, the doubt, the conflict
+/// (the sentence of `terraflux_ops::objects::explain_cell`); none when the memberships at the cell are not known.
+fn resolve_how(n: &Node, at_inputs: &BTreeMap<String, At>) -> Option<How> {
+    let Some(At::Layers(layers)) = at_inputs.get("memberships") else { return None };
+    let names: Vec<String> = layers.iter().map(|(k, _)| k.clone()).collect();
+    let values: Vec<f64> = layers.iter().map(|(_, v)| *v).collect();
+    let min = n.params.get("min").and_then(|v| v.as_f64()).unwrap_or(0.1);
+    let order: Option<Vec<String>> = n
+        .params
+        .get("order")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect());
+    Some(How::Whole(format!(
+        "the class of the greatest membership wins a cell that reaches {min}: {}",
+        terraflux_ops::objects::explain_cell(&names, &values, order.as_deref(), min)
+    )))
 }
 
 /// The map an input of a node reads, by its source (a series: its last step).
@@ -1094,6 +1116,18 @@ impl Trace {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_resolve_step_tells_the_memberships_the_winner_and_the_doubt() {
+        let n = Node::new("res", "objects.resolve").param("min", 0.1);
+        let at: BTreeMap<String, At> =
+            [("memberships".to_string(), At::Layers(vec![("Grass".into(), 0.64), ("Trees".into(), 0.82)]))].into();
+        let How::Whole(text) = resolve_how(&n, &at).expect("memberships known") else { panic!("a sentence") };
+        assert!(text.contains("Grass 0.64, Trees 0.82"), "{text}");
+        assert!(text.contains("Trees 0.82 won over Grass 0.64 (conflict"), "{text}");
+        // (no memberships at the cell: the step is explained as any whole-map operator is)
+        assert!(resolve_how(&n, &BTreeMap::new()).is_none());
+    }
 
     #[test]
     fn expressions_take_the_values_at_the_cell() {

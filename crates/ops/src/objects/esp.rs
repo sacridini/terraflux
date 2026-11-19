@@ -263,28 +263,34 @@ impl Operator for Scale {
         let cost = Cost { colour: 1.0 - shape, compact, weights };
         let set = Settings { start, step, levels: levels as usize, window: window as usize, seed: seed as u64 };
         let run = esp(&l, &cost, &set).map_err(|e| bad(e.to_string()))?;
-        let names = super::band_names(&l.names);
-        let mut columns: Vec<String> = ["scale", "objects"].map(String::from).to_vec();
-        columns.extend(names.iter().map(|s| format!("lv_{s}")));
-        columns.extend(names.iter().map(|s| format!("roc_{s}")));
-        columns.push("roc_mean".into());
-        columns.push("suggested".into());
-        let mut t = Table::new(columns);
-        t.rows = run
-            .rows
-            .iter()
-            .enumerate()
-            .map(|(k, r)| {
-                let mut row = vec![r.scale, r.objects as f64];
-                row.extend(&r.lv);
-                row.extend(&r.roc);
-                row.push(r.roc_mean);
-                row.push(if run.peaks.contains(&k) { 1.0 } else { 0.0 });
-                row
-            })
-            .collect();
-        let mut sc = Table::new(["level", "scale"].map(String::from).to_vec());
-        sc.rows = run.peaks.iter().map(|&k| vec![(k + 1) as f64, run.rows[k].scale]).collect();
+        let (t, sc) = tables(&run, &l.names);
         Ok(outputs([("table", Value::Table(t)), ("scales", Value::Table(sc)), ("scale", Value::Number(run.scale()))]))
     }
+}
+
+/// The tables of a run: a row per level (`table`) and the suggested scales (`scales`).
+pub(crate) fn tables(run: &Esp, names: &[String]) -> (Table, Table) {
+    let names = super::band_names(names);
+    let mut columns: Vec<String> = ["scale", "objects"].map(String::from).to_vec();
+    columns.extend(names.iter().map(|s| format!("lv_{s}")));
+    columns.extend(names.iter().map(|s| format!("roc_{s}")));
+    columns.push("roc_mean".into());
+    columns.push("suggested".into());
+    let mut t = Table::new(columns);
+    t.rows = run
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(k, r)| {
+            let mut row = vec![r.scale, r.objects as f64];
+            row.extend(&r.lv);
+            row.extend(&r.roc);
+            row.push(r.roc_mean);
+            row.push(if run.peaks.contains(&k) { 1.0 } else { 0.0 });
+            row
+        })
+        .collect();
+    let mut sc = Table::new(["level", "scale"].map(String::from).to_vec());
+    sc.rows = run.peaks.iter().map(|&k| vec![(k + 1) as f64, run.rows[k].scale]).collect();
+    (t, sc)
 }

@@ -80,6 +80,78 @@ fn decide(layers: &[Arc<Vec<f64>>], priority: &[usize], min: f64, region: Option
     d
 }
 
+/// What the arbitration decides in one cell (the Viewer and the trace tell it): the memberships `values` of the
+/// classes, in the order `order` (indices, priority first; empty: the order of `values`), and `min`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Verdict {
+    /// The class (index in `values`) that wins, if its membership reaches `min`.
+    pub winner: Option<usize>,
+    pub best: f64,
+    /// The class of the second highest membership and that membership (the doubt, 0 when there is none).
+    pub second: Option<usize>,
+    pub doubt: f64,
+    /// Whether the doubt reaches `min` (another class had its claim, lost to the winner).
+    pub conflict: bool,
+}
+
+/// The arbitration of one cell: the same decision [`decide`] makes.
+pub fn arbitrate(values: &[f64], order: &[usize], min: f64) -> Verdict {
+    let all: Vec<usize> = (0..values.len()).collect();
+    let priority: &[usize] = if order.is_empty() { &all } else { order };
+    let (mut first, mut second) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    let (mut at, mut at2) = (None, None);
+    for &c in priority {
+        let v = mem(values[c]);
+        if v > first {
+            (second, at2) = (first, at);
+            (first, at) = (v, Some(c));
+        } else if v > second {
+            (second, at2) = (v, Some(c));
+        }
+    }
+    let doubt = if second.is_finite() { second } else { 0.0 };
+    let winner = at.filter(|_| first >= min && first > 0.0);
+    Verdict {
+        winner,
+        best: if winner.is_some() { first } else { f64::NAN },
+        second: at2.filter(|_| second.is_finite()),
+        doubt,
+        conflict: winner.is_some() && doubt >= min && doubt > 0.0,
+    }
+}
+
+/// A cell's arbitration in a sentence: `Trees 0.82 won over Grass 0.64 (conflict: the second reaches the minimum
+/// 0.1)`; the classes by `names`, `order` as the node's setting names them (none: the order of the layers).
+pub fn explain_cell(names: &[String], values: &[f64], order: Option<&[String]>, min: f64) -> String {
+    let order: Vec<usize> =
+        order.map(|o| o.iter().filter_map(|n| names.iter().position(|x| x == n)).collect()).unwrap_or_default();
+    // (the classes `order` leaves out, in the order of the layers)
+    let order: Vec<usize> = if order.is_empty() {
+        order
+    } else {
+        order.iter().copied().chain((0..names.len()).filter(|c| !order.contains(c))).collect()
+    };
+    let v = arbitrate(values, &order, min);
+    let num = |x: f64| format!("{x:.2}");
+    let name = |c: usize| names.get(c).map_or("?", |n| n.as_str());
+    let said: Vec<String> = names.iter().zip(values).map(|(n, x)| format!("{n} {}", num(mem(*x)))).collect();
+    let tail = match (v.winner, v.second) {
+        (Some(w), Some(s)) if v.conflict => format!(
+            "{} {} won over {} {} (conflict: the second reaches the minimum {min})",
+            name(w),
+            num(v.best),
+            name(s),
+            num(v.doubt)
+        ),
+        (Some(w), Some(s)) => {
+            format!("{} {} won; doubt {} {}", name(w), num(v.best), name(s), num(v.doubt))
+        }
+        (Some(w), None) => format!("{} {} won; no doubt", name(w), num(v.best)),
+        (None, _) => format!("no class: the greatest membership does not reach the minimum {min}"),
+    };
+    format!("memberships {}; {tail}", said.join(", "))
+}
+
 /// The region of a parent class: the union of the winning cells of its children, a map of 1 and NaN. A child is a
 /// `class` map of [`Resolve`] (NaN where it won nothing); every map is on the grid.
 #[allow(dead_code)] // for the class tree

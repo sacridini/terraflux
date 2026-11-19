@@ -592,6 +592,45 @@ fn esp(ui: &mut Ui, t: &Table, rows: &[usize], id: egui::Id) {
     });
 }
 
+/// The scales an ESP table suggests (its rows with `suggested` 1), by scale.
+pub fn suggested_scales(t: &Table) -> Vec<f64> {
+    let at = |n: &str| t.columns.iter().position(|c| c == n);
+    let (Some(sc), Some(sg)) = (at("scale"), at("suggested")) else { return Vec::new() };
+    t.rows.iter().filter(|r| r[sg] == 1.0).map(|r| r[sc]).collect()
+}
+
+/// The ROC of an ESP table as one small curve (the Viewer's live segmentation draws it beside the sliders), the
+/// suggested scales marked; a click on it is the suggested scale nearest the click, which is returned.
+pub fn esp_curve(ui: &mut Ui, t: &Table, id: egui::Id) -> Option<f64> {
+    let at = |n: &str| t.columns.iter().position(|c| c == n);
+    let (Some(sc), Some(roc)) = (at("scale"), at("roc_mean")) else { return None };
+    let pts: Vec<[f64; 2]> = t.rows.iter().filter(|r| r[roc].is_finite()).map(|r| [r[sc], r[roc]]).collect();
+    let marks = suggested_scales(t);
+    let colour = crate::palette::seen(crate::theme::accent());
+    let mark = ui.visuals().text_color().gamma_multiply(0.5);
+    let mut picked = None;
+    crate::theme::plot(Plot::new(id))
+        .height(110.0)
+        .allow_scroll(false)
+        .allow_drag(false)
+        .allow_zoom(false)
+        .x_axis_label("scale")
+        .y_axis_label("ROC (%)")
+        .show(ui, |p| {
+            for &x in &marks {
+                p.vline(VLine::new("suggested", x).color(mark));
+            }
+            p.line(Line::new("ROC", pts.clone()).color(colour).width(2.0));
+            p.points(Points::new("ROC", pts).color(colour).radius(2.5));
+            if p.response().clicked()
+                && let Some(c) = p.pointer_coordinate()
+            {
+                picked = marks.iter().copied().min_by(|a, b| (a - c.x).abs().total_cmp(&(b - c.x).abs()));
+            }
+        });
+    picked
+}
+
 /// A square table as a heatmap: blue to red around 0 (a correlation), its values written.
 fn matrix(ui: &mut Ui, t: &Table, id: egui::Id) {
     let m = t.columns.len();
