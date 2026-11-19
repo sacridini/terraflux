@@ -292,3 +292,403 @@ fn partial_dependence_is_scikit_learns() {
         check(&format!("{name} average"), &got, &want.data);
     }
 }
+
+// -- ml.pca -------------------------------------------------------------------------------------------------------
+// (scikit-learn's PCA, tools/make_pca_reference.py: tests/data/reference/pca.json)
+
+fn pca_reference() -> serde_json::Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference/pca.json");
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn rows_of(v: &serde_json::Value) -> Vec<Vec<f64>> {
+    v.as_array().unwrap().iter().map(|r| r.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect()).collect()
+}
+
+fn pca_table(rows: &[Vec<f64>]) -> Table {
+    let mut t = Table::new(["a", "b", "c", "d", "e"].map(String::from).to_vec());
+    t.rows = rows.to_vec();
+    t
+}
+
+/// A stack of the columns of some rows, as a grid of `nx` cells across.
+fn pca_stack(rows: &[Vec<f64>], nx: usize) -> Stack {
+    let g = Arc::new(Grid::new(nx, rows.len() / nx));
+    let names = ["a", "b", "c", "d", "e"];
+    Stack {
+        grid: g,
+        keys: names.iter().map(|n| Key::Name(n.to_string())).collect(),
+        layers: (0..5).map(|j| Arc::new(rows.iter().map(|r| r[j]).collect())).collect(),
+    }
+}
+
+fn try_run(op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value, ctx: &mut Ctx) -> Result<Outputs, String> {
+    let r = Registry::standard();
+    let params = params.as_object().cloned().unwrap_or_default();
+    let args =
+        Args { node: "n", inputs: inputs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), params: &params };
+    r.get(op).unwrap().run(ctx, &args).map_err(|e| e.to_string())
+}
+
+/// `got` against `want` to a relative tolerance of the larger absolute value, the sign of `got` flipped to `want`'s.
+fn close_up_to_sign(what: &str, got: &[f64], want: &[f64], tol: f64) {
+    let dot: f64 = got.iter().zip(want).map(|(a, b)| a * b).sum();
+    let sign = if dot < 0.0 { -1.0 } else { 1.0 };
+    let big = want.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+    for (k, (a, b)) in got.iter().zip(want).enumerate() {
+        assert!((sign * a - b).abs() <= tol * big.max(1e-300), "{what} at {k}: {} {b}", sign * a);
+    }
+    assert_eq!(got.len(), want.len(), "{what}: length");
+}
+
+fn columns_of(t: &Table, from: usize, count: usize) -> Vec<Vec<f64>> {
+    (from..from + count).map(|j| t.rows.iter().map(|r| r[j]).collect()).collect()
+}
+
+#[test]
+fn pca_is_scikit_learns() {
+    let z = pca_reference();
+    let (x, other) = (rows_of(&z["x"]), rows_of(&z["other"]));
+    for (mode, standardise) in [("correlation", true), ("covariance", false)] {
+        let m = &z[mode];
+        let fit = run(
+            "ml.pca",
+            vec![("table", Value::Table(pca_table(&x)))],
+            serde_json::json!({"components": 5, "standardise": standardise}),
+        );
+        // the loadings: component, explained, then a column per variable
+        let loadings = table(&fit["loadings"]);
+        assert_eq!(loadings.columns, ["component", "explained", "a", "b", "c", "d", "e"]);
+        let comps = rows_of(&m["components"]);
+        let ratio: Vec<f64> = m["ratio"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+        let var: Vec<f64> = m["variance"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+        let mut signs = Vec::new();
+        for c in 0..5 {
+            let row = &loadings.rows[c];
+            assert_eq!(row[0], (c + 1) as f64);
+            assert!((row[1] - ratio[c]).abs() < 1e-12, "{mode} explained {c}");
+            close_up_to_sign(&format!("{mode} component {c}"), &row[2..], &comps[c], 1e-8);
+            // the largest loading is positive, as metrics.pca's
+            let big = (0..5).fold(0, |b, j| if row[2 + j].abs() > row[2 + b].abs() { j } else { b });
+            assert!(row[2 + big] > 0.0);
+            signs.push(if row[2..].iter().zip(&comps[c]).map(|(a, b)| a * b).sum::<f64>() < 0.0 { -1.0 } else { 1.0 });
+        }
+        // the variance table: component, variance, ratio, cumulative
+        let ex = table(&fit["explained"]);
+        assert_eq!(ex.columns, ["component", "variance", "ratio", "cumulative"]);
+        let mut cum = 0.0;
+        for c in 0..5 {
+            cum += ratio[c];
+            assert!((ex.rows[c][1] - var[c]).abs() <= 1e-9 * var[0], "{mode} variance {c}");
+            assert!((ex.rows[c][2] - ratio[c]).abs() < 1e-12 && (ex.rows[c][3] - cum).abs() < 1e-12);
+        }
+        // the scores of the records fitted, and of another set with the fit's means and scales (ml.predict)
+        let t = table(&fit["table"]);
+        assert_eq!(t.columns[5..], ["pc1", "pc2", "pc3", "pc4", "pc5"]);
+        let scores = columns_of(t, 5, 5);
+        let want = rows_of(&m["scores"]);
+        let out = run(
+            "ml.predict",
+            vec![("model", fit["model"].clone()), ("table", Value::Table(pca_table(&other)))],
+            serde_json::json!({}),
+        );
+        let applied = columns_of(table(&out["table"]), 5, 5);
+        let want_other = rows_of(&m["other_scores"]);
+        for c in 0..5 {
+            let w: Vec<f64> = want.iter().map(|r| r[c] * signs[c]).collect();
+            close_up_to_sign(&format!("{mode} scores {c}"), &scores[c], &w, 1e-8);
+            let w: Vec<f64> = want_other.iter().map(|r| r[c] * signs[c]).collect();
+            close_up_to_sign(&format!("{mode} other scores {c}"), &applied[c], &w, 1e-8);
+        }
+    }
+}
+
+#[test]
+fn a_share_of_the_variance_picks_the_components_as_scikit_learn() {
+    let z = pca_reference();
+    let x = rows_of(&z["x"]);
+    for (mode, standardise) in [("correlation", true), ("covariance", false)] {
+        for (share, k) in z[mode]["k_share"].as_object().unwrap() {
+            let fit = run(
+                "ml.pca",
+                vec![("table", Value::Table(pca_table(&x)))],
+                serde_json::json!({"components": share.parse::<f64>().unwrap(), "standardise": standardise}),
+            );
+            assert_eq!(table(&fit["loadings"]).rows.len() as u64, k.as_u64().unwrap(), "{mode} {share}");
+            assert_eq!(table(&fit["table"]).columns.len(), 5 + k.as_u64().unwrap() as usize);
+            // the variance table lists every component
+            assert_eq!(table(&fit["explained"]).rows.len(), 5);
+        }
+    }
+    // the default is 0.95
+    let fit = run("ml.pca", vec![("table", Value::Table(pca_table(&x)))], serde_json::json!({}));
+    assert_eq!(table(&fit["loadings"]).rows.len() as u64, z["correlation"]["k_share"]["0.95"].as_u64().unwrap());
+}
+
+#[test]
+fn pca_of_maps_scores_other_maps_with_the_fits_mean() {
+    let z = pca_reference();
+    let x = rows_of(&z["x"]);
+    let stack = pca_stack(&x, 20);
+    let n = 400;
+    // covariance: the scale is 1, so a shift of one variable moves each score by its loading times the shift
+    let fit = run(
+        "ml.pca",
+        vec![("predictors", Value::Stack(stack.clone()))],
+        serde_json::json!({"components": 3, "standardise": false}),
+    );
+    let Value::Stack(s) = &fit["scores"] else { panic!() };
+    assert_eq!(s.keys, vec![Key::Name("pc1".into()), Key::Name("pc2".into()), Key::Name("pc3".into())]);
+    // the same scores as the table's
+    let by_table = run(
+        "ml.pca",
+        vec![("table", Value::Table(pca_table(&x)))],
+        serde_json::json!({"components": 3, "standardise": false}),
+    );
+    let tab = columns_of(table(&by_table["table"]), 5, 3);
+    for (c, col) in tab.iter().enumerate() {
+        check(&format!("pc{}", c + 1), &s.layers[c], col);
+    }
+    let mut later = stack.clone();
+    later.layers[0] = Arc::new(stack.layers[0].iter().map(|v| v + 50.0).collect());
+    let out = run(
+        "ml.predict",
+        vec![("model", fit["model"].clone()), ("predictors", Value::Stack(later))],
+        serde_json::json!({}),
+    );
+    let Value::Stack(p) = &out["scores"] else { panic!() };
+    let loadings = table(&fit["loadings"]);
+    for c in 0..3 {
+        let load = loadings.rows[c][2];
+        for i in 0..n {
+            let d = p.layers[c][i] - s.layers[c][i];
+            assert!((d - 50.0 * load).abs() < 1e-9, "pc{} cell {i}: {d} {}", c + 1, 50.0 * load);
+        }
+    }
+}
+
+#[test]
+fn pca_leaves_out_nan_and_the_cells_not_asked_for() {
+    let z = pca_reference();
+    let x = rows_of(&z["x"]);
+    let mut stack = pca_stack(&x, 20);
+    let mut b = (*stack.layers[1]).clone();
+    b[7] = f64::NAN;
+    stack.layers[1] = Arc::new(b);
+    // the fit on the cells of the first half
+    let g = stack.grid.clone();
+    let mask = Map::new(g.clone(), (0..400).map(|i| if i < 200 { 1.0 } else { 0.0 }).collect());
+    let half = run(
+        "ml.pca",
+        vec![("predictors", Value::Stack(stack.clone())), ("cells", Value::Map(mask))],
+        serde_json::json!({"components": 2}),
+    );
+    let all = run("ml.pca", vec![("predictors", Value::Stack(stack.clone()))], serde_json::json!({"components": 2}));
+    let (Value::Stack(h), Value::Stack(a)) = (&half["scores"], &all["scores"]) else { panic!() };
+    // a NaN in any variable is NaN in every score, in the cells off the mask too
+    for layer in h.layers.iter().chain(&a.layers) {
+        assert!(layer[7].is_nan());
+        assert_eq!(layer.iter().filter(|v| v.is_nan()).count(), 1);
+    }
+    // another mean and scale, so other numbers
+    assert!(h.layers[0].iter().zip(a.layers[0].iter()).any(|(p, q)| (p - q).abs() > 1e-3));
+    // the half fit equals the fit on the first 200 rows alone
+    let mut first = x[..200].to_vec();
+    first.remove(7);
+    let own = run("ml.pca", vec![("table", Value::Table(pca_table(&first)))], serde_json::json!({"components": 2}));
+    check("loadings", &table(&half["loadings"]).rows.concat(), &table(&own["loadings"]).rows.concat());
+}
+
+#[test]
+fn pca_is_the_same_on_one_thread_or_eight() {
+    // more cells than the blocks of the covariance and the pieces of the scores
+    let n: usize = 300 * 300;
+    let rows: Vec<Vec<f64>> = (0..n)
+        .map(|i| {
+            let f = ((i * 7919) % 1009) as f64 / 1009.0;
+            let g = ((i * 104729) % 997) as f64 / 997.0;
+            let v = vec![f * 10.0, f * 3.0 + g, 100.0 * g - f, f * f, (f - g) * 1000.0];
+            if i % 61 == 0 {
+                v.into_iter().enumerate().map(|(j, x)| if j == 2 { f64::NAN } else { x }).collect()
+            } else {
+                v
+            }
+        })
+        .collect();
+    let stack = pca_stack(&rows, 300);
+    let on = |threads: usize| {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        pool.install(|| {
+            let fit = run("ml.pca", vec![("predictors", Value::Stack(stack.clone()))], serde_json::json!({}));
+            let again = run(
+                "ml.predict",
+                vec![("model", fit["model"].clone()), ("predictors", Value::Stack(stack.clone()))],
+                serde_json::json!({}),
+            );
+            (fit, again)
+        })
+    };
+    let ((a, a2), (b, b2)) = (on(1), on(8));
+    let layers = |o: &Outputs| match &o["scores"] {
+        Value::Stack(s) => s.layers.iter().flat_map(|l| l.iter().copied()).collect::<Vec<f64>>(),
+        _ => panic!(),
+    };
+    check("scores", &layers(&a), &layers(&b));
+    check("applied", &layers(&a2), &layers(&b2));
+    check("applied as fitted", &layers(&a), &layers(&a2));
+    for name in ["loadings", "explained"] {
+        check(name, &table(&a[name]).rows.concat(), &table(&b[name]).rows.concat());
+    }
+}
+
+#[test]
+fn pca_on_a_sample_says_so() {
+    let z = pca_reference();
+    let x = rows_of(&z["x"]);
+    let stack = pca_stack(&x, 20);
+    let go = |seed: u64| {
+        let mut ctx = Ctx::default();
+        let out = try_run(
+            "ml.pca",
+            vec![("predictors", Value::Stack(stack.clone()))],
+            serde_json::json!({"sample": 100, "seed": seed, "components": 2}),
+            &mut ctx,
+        )
+        .unwrap();
+        (out, ctx.warnings)
+    };
+    let (a, note) = go(3);
+    assert_eq!(note.len(), 1, "{note:?}");
+    assert!(note[0].contains("sample of 100 of the 400 records"), "{}", note[0]);
+    let (b, _) = go(3);
+    let (c, _) = go(4);
+    let rows = |o: &Outputs| table(&o["loadings"]).rows.concat();
+    check("the same seed", &rows(&a), &rows(&b));
+    assert_ne!(rows(&a), rows(&c));
+    // a share
+    let mut ctx = Ctx::default();
+    try_run("ml.pca", vec![("predictors", Value::Stack(stack.clone()))], serde_json::json!({"sample": 0.25}), &mut ctx)
+        .unwrap();
+    assert!(ctx.warnings[0].contains("sample of 100 of the 400"), "{:?}", ctx.warnings);
+    // all of them: no note
+    let mut ctx = Ctx::default();
+    try_run("ml.pca", vec![("predictors", Value::Stack(stack))], serde_json::json!({}), &mut ctx).unwrap();
+    assert!(ctx.warnings.is_empty());
+}
+
+#[test]
+fn a_pca_model_is_saved_as_json_and_only_scores() {
+    let z = pca_reference();
+    let (x, other) = (rows_of(&z["x"]), rows_of(&z["other"]));
+    let fit = run("ml.pca", vec![("table", Value::Table(pca_table(&x)))], serde_json::json!({"components": 2}));
+    let Value::MlModel(model) = &fit["model"] else { panic!() };
+    let json = serde_json::to_string(&**model).unwrap();
+    assert!(json.starts_with("{\"kind\":\"pca\""), "{}", &json[..40]);
+    let back: terraflux_ops::ml::Model = serde_json::from_str(&json).unwrap();
+    let apply = |m: Value| {
+        let out =
+            run("ml.predict", vec![("model", m), ("table", Value::Table(pca_table(&other)))], serde_json::json!({}));
+        table(&out["table"]).rows.concat()
+    };
+    check("the model read back", &apply(Value::MlModel(Arc::new(back))), &apply(fit["model"].clone()));
+    // it is not a forest: the inspection of ml.importance does not take it
+    let mut t = pca_table(&x);
+    t.columns[4] = "target".into();
+    let mut ctx = Ctx::default();
+    let e = try_run(
+        "ml.importance",
+        vec![("model", fit["model"].clone()), ("table", Value::Table(t))],
+        serde_json::json!({}),
+        &mut ctx,
+    )
+    .unwrap_err();
+    assert!(e.contains("a model of ml.fit"), "{e}");
+}
+
+#[test]
+fn pca_tells_what_is_wrong() {
+    let z = pca_reference();
+    let x = rows_of(&z["x"]);
+    let table_in = || vec![("table", Value::Table(pca_table(&x)))];
+    let fails = |inputs: Vec<(&str, Value)>, params: serde_json::Value, want: &str| {
+        let e = try_run("ml.pca", inputs, params, &mut Ctx::default()).unwrap_err();
+        assert!(e.contains(want), "{want}: {e}");
+    };
+    fails(table_in(), serde_json::json!({"components": 0}), "components");
+    fails(table_in(), serde_json::json!({"components": -2}), "components");
+    fails(table_in(), serde_json::json!({"components": 2.5}), "whole number");
+    fails(table_in(), serde_json::json!({"components": 6}), "1 to 5");
+    fails(table_in(), serde_json::json!({"components": "many"}), "components");
+    fails(table_in(), serde_json::json!({"standardise": "yes"}), "standardise");
+    fails(table_in(), serde_json::json!({"columns": ["a", "zz"]}), "no column \"zz\"");
+    fails(table_in(), serde_json::json!({"columns": ["a", "a"]}), "twice");
+    fails(table_in(), serde_json::json!({"columns": []}), "no numeric column");
+    fails(table_in(), serde_json::json!({"sample": 0}), "sample");
+    fails(table_in(), serde_json::json!({"sample": -1}), "sample");
+    fails(vec![], serde_json::json!({}), "connect the records");
+    let stack = pca_stack(&x, 20);
+    fails(
+        vec![("table", Value::Table(pca_table(&x))), ("predictors", Value::Stack(stack.clone()))],
+        serde_json::json!({}),
+        "not both",
+    );
+    let g = stack.grid.clone();
+    fails(
+        vec![("table", Value::Table(pca_table(&x))), ("cells", Value::Map(Map::new(g.clone(), vec![1.0; 400])))],
+        serde_json::json!({}),
+        "cells goes with maps",
+    );
+    fails(
+        vec![("predictors", Value::Stack(stack.clone())), ("cells", Value::Map(Map::new(g.clone(), vec![0.0; 400])))],
+        serde_json::json!({}),
+        "no record has every variable",
+    );
+    fails(
+        vec![
+            ("predictors", Value::Stack(stack.clone())),
+            ("cells", Value::Map(Map::new(Arc::new(Grid::new(2, 2)), vec![1.0; 4]))),
+        ],
+        serde_json::json!({}),
+        "differs in size",
+    );
+    // a constant variable: the correlation cannot standardise it, the covariance can
+    let mut flat = x.clone();
+    flat.iter_mut().for_each(|r| r[3] = 4.0);
+    fails(vec![("table", Value::Table(pca_table(&flat)))], serde_json::json!({}), "\"d\" is constant");
+    run("ml.pca", vec![("table", Value::Table(pca_table(&flat)))], serde_json::json!({"standardise": false}));
+    // a table with a column pc1 already
+    let mut t = pca_table(&x);
+    t.columns.push("pc1".into());
+    t.rows.iter_mut().for_each(|r| r.push(0.0));
+    fails(
+        vec![("table", Value::Table(t))],
+        serde_json::json!({"columns": ["a", "b", "c", "d", "e"]}),
+        "already has a column \"pc1\"",
+    );
+    // ml.predict: a layer or a column the model reads is missing
+    let fit = run("ml.pca", table_in(), serde_json::json!({}));
+    let mut few = pca_stack(&x, 20);
+    few.keys.pop();
+    few.layers.pop();
+    let e = try_run(
+        "ml.predict",
+        vec![("model", fit["model"].clone()), ("predictors", Value::Stack(few))],
+        serde_json::json!({}),
+        &mut Ctx::default(),
+    )
+    .unwrap_err();
+    assert!(e.contains("no layer \"e\""), "{e}");
+    let mut narrow = pca_table(&x);
+    narrow.columns.pop();
+    narrow.rows.iter_mut().for_each(|r| {
+        r.pop();
+    });
+    let e = try_run(
+        "ml.predict",
+        vec![("model", fit["model"].clone()), ("table", Value::Table(narrow))],
+        serde_json::json!({}),
+        &mut Ctx::default(),
+    )
+    .unwrap_err();
+    assert!(e.contains("no column \"e\""), "{e}");
+}

@@ -4458,6 +4458,15 @@ Os três projetos são GPL-3.0, do mesmo autor; o Terraflux é GPL-3.0-or-later:
   vizinhos) e o PCA das duas datas para mudança, como opções. Testes: contra o `sklearn.decomposition.PCA` (até o
   sinal) num script de referência como o `tools/make_signature_reference.py`; os scores aplicados a outra imagem
   com a média do ajuste; o gráfico de cotovelo em `charts.rs`.
+  **Feito** (sem a MNF nem o PCA de duas datas, que ficam como opções): `multivar/pca.rs` (`fit`, `Pca::scores`, a
+  parte da variância pelo menor k com soma acumulada >= a parte) e o operador em `ml/pca.rs`. `scores` (pilha) ou
+  `table` (a tabela com `pc1`...: duas portas, não uma, pelo tipo fixo das portas), `loadings` (o formato do
+  `metrics.pca`), `explained` (componente, variância, razão, acumulada: todos os componentes) e `model`
+  (`Model::Pca(Pca)`: nomes, média, escala, componentes, variâncias). O `ml.predict` aplica o modelo (porta `scores`
+  com mapas, `table` com tabela); `ml.importance` e `ml.partial_dependence` o recusam. Acima de 1 milhão de
+  registros completos o ajuste usa uma amostra, dita num `ctx.warn` (a única via de notas do nó). O gráfico de
+  cotovelo (`Kind::Elbow`) está em `charts.rs`. No `python_script`, `ml.pca` é "sem equivalente" por ora.
+  Referência: `tools/make_pca_reference.py` e `tests/data/reference/pca.json`.
 - **C. `ml.kmeans`.** Entradas como acima; ajustes `k` (um número, uma lista, ou `auto`: a melhor silhueta numa
   amostra entre 2 e 10), `n_init`, `max_iter`, `tol`, `standardise`, `sample`, `seed`. Saídas: `clusters` (o mapa,
   ou a coluna `cluster` na tabela), `centres` (a tabela: um centro por linha, nas unidades originais, com o tamanho e

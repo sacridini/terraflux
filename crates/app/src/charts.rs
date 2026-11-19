@@ -35,6 +35,8 @@ pub enum Kind {
     Matrix,
     /// segment.scale's table: LV and ROC against the scale, the suggested scales marked.
     Esp,
+    /// ml.pca's explained variance (a row per component): the share of each as a bar, the cumulative share a line.
+    Elbow,
 }
 
 impl Kind {
@@ -49,6 +51,7 @@ impl Kind {
             Kind::Loadings => "loadings",
             Kind::Matrix => "matrix",
             Kind::Esp => "ESP",
+            Kind::Elbow => "elbow",
         }
     }
 
@@ -70,8 +73,17 @@ impl Kind {
         if is_esp(t) {
             v.push(Kind::Esp);
         }
+        if is_elbow(t) {
+            v.push(Kind::Elbow);
+        }
         v
     }
+}
+
+/// Whether a table is ml.pca's explained variance: a row per component, the columns component, variance, ratio and
+/// cumulative.
+pub fn is_elbow(t: &Table) -> bool {
+    t.columns == ["component", "variance", "ratio", "cumulative"] && !t.rows.is_empty()
 }
 
 /// Whether a table is segment.scale's: a row per scale (columns scale, roc_mean and suggested, and an lv_<band> for
@@ -325,6 +337,7 @@ pub fn show(ui: &mut Ui, t: &Table, rows: &[usize], chart: &mut Chart, id: egui:
         }
         Kind::Matrix => matrix(ui, t, id),
         Kind::Esp => esp(ui, t, rows, id),
+        Kind::Elbow => elbow(ui, t, rows, id),
         Kind::Loadings => loadings(ui, t, chart.components, id),
     }
 }
@@ -545,6 +558,38 @@ fn loadings(ui: &mut Ui, t: &Table, [a, b]: [usize; 2], id: egui::Id) {
         });
 }
 
+/// ml.pca's explained variance as an elbow: a bar per component with its share of the variance, and the cumulative
+/// share as a line over it.
+fn elbow(ui: &mut Ui, t: &Table, rows: &[usize], id: egui::Id) {
+    let colour = crate::palette::seen(crate::theme::accent());
+    let line = ui.visuals().text_color().gamma_multiply(0.6);
+    let bars: Vec<Bar> = rows
+        .iter()
+        .map(|&i| {
+            Bar::new(t.rows[i][0], t.rows[i][2] * 100.0).name(format!("PC{}", t.rows[i][0])).width(0.7).fill(colour)
+        })
+        .collect();
+    let cum: Vec<[f64; 2]> = rows.iter().map(|&i| [t.rows[i][0], t.rows[i][3] * 100.0]).collect();
+    crate::theme::plot(Plot::new(id.with("elbow")))
+        .width(ui.available_width().clamp(240.0, 520.0))
+        .height(220.0)
+        .allow_scroll(false)
+        .x_axis_label("component")
+        .y_axis_label("% of the variance")
+        .include_y(0.0)
+        .include_y(100.0)
+        .x_axis_formatter(|m, _| {
+            let k = m.value.round();
+            if (m.value - k).abs() < 1e-6 && k >= 1.0 { format!("PC{k}") } else { String::new() }
+        })
+        .show(ui, |p| {
+            wheel_zoom(p);
+            p.bar_chart(BarChart::new("share", bars));
+            p.line(Line::new("cumulative", cum.clone()).color(line).width(1.5));
+            p.points(Points::new("cumulative", cum).color(line).radius(3.0));
+        });
+}
+
 /// segment.scale's table: the local variance (the mean of the bands' lv_) and the rate of change (roc_mean) against
 /// the scale, side by side, a vertical line at each suggested scale.
 fn esp(ui: &mut Ui, t: &Table, rows: &[usize], id: egui::Id) {
@@ -761,5 +806,17 @@ mod tests {
         assert!(is_esp(&esp) && Kind::of(&esp).contains(&Kind::Esp));
         let other = Table { columns: vec!["scale".into(), "x".into()], ..Default::default() };
         assert!(!is_esp(&other));
+    }
+
+    #[test]
+    fn the_explained_variance_of_ml_pca_has_the_elbow() {
+        let t = Table {
+            columns: ["component", "variance", "ratio", "cumulative"].map(String::from).to_vec(),
+            rows: vec![vec![1.0, 3.0, 0.6, 0.6], vec![2.0, 2.0, 0.4, 1.0]],
+            ..Default::default()
+        };
+        assert!(is_elbow(&t) && Kind::of(&t).contains(&Kind::Elbow));
+        assert_eq!(Kind::Elbow.name(), "elbow");
+        assert!(!is_elbow(&Table { columns: vec!["component".into(), "variance".into()], ..Default::default() }));
     }
 }

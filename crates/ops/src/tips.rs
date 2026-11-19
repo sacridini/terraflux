@@ -813,6 +813,10 @@ pub const TIPS: &[(&str, &str)] = &[
         "Rename classes and join them (`classes`: old name to new name) without classifying again; `merge` then \
          joins the neighbours that now share a class, which makes the objects of a coarser class map.",
     ),
+    (
+        "ml.pca",
+        "Keep `standardise` on (the correlation) when the variables are in different units or ranges (a band in          reflectance beside an elevation in metres), or the one with the largest numbers is the first component          alone; turn it off for bands in the same unit, where their spread is the information. The default keeps          the components that explain 95% of the variance: if the first few explain little (the `explained` table,          the cumulative column), the variables are nearly independent and a PCA will not reduce them. The scores          of other maps or a later date come from `ml.predict` with the model, which uses the means of this fit,          not of the new data, so the same change means the same numbers. For a very large stack the fit uses a          sample of a million cells (`sample` and `seed` to choose).",
+    ),
 ];
 
 #[cfg(test)]

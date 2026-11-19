@@ -153,6 +153,12 @@ categories. Not constant, with values wherever the land has a class, not colline
 6. Sentinel-2 or Landsat scenes (data.stac): set `mask = \"auto\"` (and `mask_buffer = 1`) to take each scene's \
 clouds, shadows and cirrus out per pixel before the composite; a median without it keeps the clouds where they \
 persist (the humid tropics), whatever the cloud cover asked for.
+7. Many correlated bands or drivers: ml.pca gives their principal components, from a stack (a layer per variable) \
+or the columns of a table: scores (a stack pc1, pc2... or the table with the columns added), loadings (as \
+metrics.pca's, for the circle of correlations), explained (the variance of each component, for an elbow) and a \
+model. `components` is a number or the share of the variance to keep (0.95); `standardise` (the default) makes it \
+the correlation, which is right when the variables are in different units. The model scores another image or date \
+with ml.predict, using the means of this fit, not of the new data.
 Templates: \"Drivers of land change\", \"Cleaning a map of classes: filter, sieve, label and grow\", \"Terrain of a \
 surface\".",
     },

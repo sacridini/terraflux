@@ -10,7 +10,8 @@
 //!
 //! Left as comments: `metrics.correlation` (the library takes and gives the long tables of the metrics, Terraflux's
 //! is a wide table and its square matrix), `distance.proximity` and `raster.mosaic` (GDAL's own algorithms, which the
-//! library does not have), `crafty.allocate` (CRAFTY is not in the library).
+//! library does not have), `crafty.allocate` (CRAFTY is not in the library), `ml.pca` (scikit-learn's PCA gives the
+//! same numbers, but the script has no stack of scores nor model to hand on to `ml.predict` yet).
 
 #![allow(unused_imports)]
 
@@ -59,6 +60,11 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
         | "objects.remove_small" | "objects.reclassify" => Err("objects (object-based image analysis: an image divided into objects with their \
              attributes, classes and levels) are a Terraflux type the Python library has no counterpart for: no \
              equivalent in the script"
+            .into()),
+        "ml.pca" => Err("scikit-learn's PCA (fit_transform on the z-scores of the cells with every variable, the \
+             components' signs flipped to the largest loading positive) gives the same components, variances and \
+             scores, but the script has no stack of scores and no model to hand on to ml.predict yet: no equivalent \
+             in the script"
             .into()),
         "nlm.image" => Err("a synthetic multispectral image of a map of classes, with the truth known (for templates \
              and tests): the Python library has no function for it, so there is no equivalent in the script"

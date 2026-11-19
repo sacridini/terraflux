@@ -363,6 +363,32 @@ pub const REFERENCES: &[Reference] = &[
         report: "",
     },
     Reference {
+        key: "pearson1901",
+        authors: &["Pearson, K."],
+        more: false,
+        year: 1901,
+        title: "On lines and planes of closest fit to systems of points in space",
+        journal: "The London, Edinburgh, and Dublin Philosophical Magazine and Journal of Science",
+        volume: "2",
+        issue: "11",
+        pages: "559-572",
+        doi: "10.1080/14786440109462720",
+        report: "",
+    },
+    Reference {
+        key: "hotelling1933",
+        authors: &["Hotelling, H."],
+        more: false,
+        year: 1933,
+        title: "Analysis of a complex of statistical variables into principal components",
+        journal: "Journal of Educational Psychology",
+        volume: "24",
+        issue: "6",
+        pages: "417-441",
+        doi: "10.1037/h0071325",
+        report: "",
+    },
+    Reference {
         key: "momsen2012",
         authors: &["Momsen, E.", "Metz, M."],
         more: false,
@@ -1044,6 +1070,13 @@ pub const METHODS: &[Method] = &[
         software_refs: &[],
     },
     Method {
+        ops: &["ml.pca"],
+        name: "principal component analysis",
+        refs: &["pearson1901", "hotelling1933"],
+        software: "",
+        software_refs: &[],
+    },
+    Method {
         ops: &["segment.multiresolution"],
         name: "multiresolution segmentation into objects",
         refs: &["baatz2000"],
@@ -1614,6 +1647,7 @@ mod tests {
         assert_eq!(method_of("segment.watershed").unwrap().refs, &["vincent1991", "neubert2014"]);
         assert_eq!(method_of("segment.scale").unwrap().refs, &["dragut2010", "dragut2014"]);
         assert_eq!(method_of("segment.optimize").unwrap().refs, &["espindola2006", "johnson2011"]);
+        assert_eq!(method_of("ml.pca").unwrap().refs, &["pearson1901", "hotelling1933"]);
         assert!(method_of("raster.reclassify").is_none());
     }
 

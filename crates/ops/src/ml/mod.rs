@@ -2,17 +2,20 @@
 //! bit (`forest`, `boosting`), fitted to the records of a table or the cells of maps (`ml.fit`), predicted on others
 //! (`ml.predict`), and the potential of each class from a model per class as the library's Estimator gives it
 //! (`ml.potential`): where each class is, or where it appeared between two maps (PLUS's land expansion analysis,
-//! LEAS), for the allocations.
+//! LEAS), for the allocations. Also the principal components of a stack or a table (`ml.pca`), whose model scores
+//! other data with the fit's means and scales.
 
 pub mod boosting;
 pub mod forest;
 pub mod inspect;
+mod pca;
 
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 
+use crate::multivar::pca::Pca;
 use crate::sdm::extrapolation::Frame;
 use crate::signatures::NumpyRng;
 use crate::value::{Key, class_label};
@@ -24,11 +27,13 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Fit));
     r.add(Arc::new(Predict));
     r.add(Arc::new(Potential));
+    r.add(Arc::new(pca::Components));
     inspect::register(r);
 }
 
 /// A fitted model: one forest or boosting of classes or values (`ml.fit`), or one per class, each of the class
-/// against the other cells (`ml.potential`: `target` presence or expansion; its forests or its boostings).
+/// against the other cells (`ml.potential`: `target` presence or expansion; its forests or its boostings), or the
+/// principal components of some variables (`ml.pca`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Model {
@@ -42,6 +47,7 @@ pub enum Model {
         #[serde(default)]
         boostings: Vec<Boosting>,
     },
+    Pca(Pca),
 }
 
 /// One fitted model of classes or values.
@@ -75,6 +81,7 @@ impl Model {
             Model::PerClass { forests, boostings, .. } => {
                 forests.first().map_or_else(|| &boostings[0].predictors, |f| &f.predictors)
             }
+            Model::Pca(p) => &p.predictors,
         }
     }
 
@@ -84,10 +91,12 @@ impl Model {
             Model::Forest(f) => &f.classes,
             Model::Boosting(b) => &b.classes,
             Model::PerClass { classes, .. } => classes,
+            Model::Pca(_) => &[],
         }
     }
 
-    /// Its outputs for the rows: a column per class (its probability, or its potential), or one of values.
+    /// Its outputs for the rows: a column per class (its probability, or its potential), or one of values; a PCA's,
+    /// a column per component (the scores).
     pub fn outputs(&self, x: &Frame) -> std::result::Result<Vec<Vec<f64>>, String> {
         match self {
             Model::Forest(f) => f.outputs(x),
@@ -99,6 +108,7 @@ impl Model {
                     forests.iter().map(|f| f.predict(x)).collect()
                 }
             }
+            Model::Pca(p) => p.scores(&x.columns.iter().map(Vec::as_slice).collect::<Vec<_>>()),
         }
     }
 }
@@ -463,23 +473,33 @@ impl Operator for Predict {
             "ml.predict",
             "A fitted model (ml.fit, ml.potential) on maps or on the rows of a table: the value, or the class of \
              the largest probability (the first on ties, as scikit-learn's predict) and the probability of each \
-             class (a forest's predict_proba, or each class's potential). No value where a predictor has none.",
+             class (a forest's predict_proba, or each class's potential). A PCA model (ml.pca) gives the scores of \
+             its components, from the means and scales of its fit. No value where a predictor has none.",
             Access::Global,
         )
         .input(PortSpec::new("model", Type::MlModel, "the fitted model"))
         .input(PortSpec::optional("predictors", Type::Stack, "maps: a layer per predictor, named as in the fit"))
         .input(PortSpec::optional("table", Type::Table, "or the rows of a table, a column per predictor"))
         .output(PortSpec::optional("map", Type::Map, "with maps: the value, or the class of the largest probability"))
+        .output(PortSpec::optional(
+            "scores",
+            Type::Stack,
+            "a PCA's model with maps: a layer per component (pc1, pc2...)",
+        ))
         .output(PortSpec::optional("probability", Type::Stack, "with maps: the probability of each class"))
         .output(PortSpec::optional(
             "table",
             Type::Table,
-            "with a table: its columns, then prediction and the probability of each class (p_<class>)",
+            "with a table: its columns, then prediction and the probability of each class (p_<class>), or a PCA's \
+             scores (pc1, pc2...)",
         ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let Some(Value::MlModel(model)) = args.get("model") else { return Err(fail(args, "connect a fitted model")) };
+        if let Model::Pca(p) = &**model {
+            return pca::apply(args, p);
+        }
         let names = model.predictors().to_vec();
         let classes = model.classes().to_vec();
         // the prediction of a row: the value, or the first class of the largest probability
