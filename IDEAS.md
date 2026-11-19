@@ -4747,6 +4747,11 @@ US7801361 e US8319793, até 2029 e 2031).
 6. O *find enclosed by class* fica na documentação, sem operador.
 7. A fusão pelo resultado é um operador novo, `objects.fuse`, não um modo do `objects.merge` (que fica simples).
 
+**Onde parou (2026-11-19, à noite).** Feitos os itens 1 (as camadas temáticas: `065e46b`, `ec58391`), 2
+(`objects.split`, `a2365f7`) e 3 (`objects.resize`, `e175e9f`). Faltam o 4 (o esqueleto; não começou), o 5
+(`objects.extrema`), o 6 (`objects.fuse`) e o 7 (os templates e o tutorial). O `website/data/ops.json` ainda não
+tem `objects.split` e `objects.resize` (o build avisa no `from-ecognition.md` até o próximo release, que o atualiza).
+
 ### Os tutoriais de OBIA, do básico ao complexo (pedido de 2026-11-19)
 
 Hoje são três páginas: *Your first map by objects* (o template com a imagem sintética), e os guias de quem vem do
@@ -4807,6 +4812,13 @@ cada um com a sua página quando o operador sair.
 duas a três páginas por agente, dois agentes por vez (as figuras rodam o `terraflux.exe` de release com no máximo 4
 threads cada), cada um só nos seus arquivos (as regras de trabalho em paralelo do AUTHORING). Cada página: o build sem
 avisos, o `--check` sem erros de grafo, as capturas lidas. Um commit por lote (`docs(tutorials): ...`).
+
+**Onde parou (2026-11-19, à noite).** Feitas: a base (`obia_data.py`, os recortes em UTM, os downloads) e a parte 2
+(`what-is-an-object.md`); a parte 1 entrou na série. Da parte 3 (`choosing-the-scale`) só o script das figuras e as
+figuras (`375fb7f`, e o commit seguinte); falta a página. As partes 4 e 5 (`describing-objects`,
+`classifying-by-samples`) e 7 (`water-by-thresholds`) não começaram. Ao retomar: a página da parte 3 sobre as figuras
+já feitas, depois 4, 5 e 7, dois agentes por vez, e regenerar o índice do app (`python website/tools/tutorial_index.py`,
+que escreve `crates/app/src/tutorials.json`) a cada página nova.
 
 **O que a base da série achou no `data.stac`** (2026-11-19), para um release próximo:
 - Ele lê só a banda 1 de cada asset (`-srcband 1`, `stac.rs` ~643). O NAIP tem RGB e NIR num asset só (`image`), e
