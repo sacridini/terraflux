@@ -809,6 +809,15 @@
      "files": []
     },
     {
+     "slug": "what-is-an-object",
+     "title": "What an object is: segmentation",
+     "template": null,
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/what-is-an-object/scale.csv"
+     ]
+    },
+    {
      "slug": "from-interimage",
      "title": "Coming from InterIMAGE",
      "template": "Each class its own way",
