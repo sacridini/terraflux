@@ -66,7 +66,7 @@ pub(super) struct Input<'a> {
     pub o: &'a Objects,
     /// Where each object's cells start (count + 1 numbers), and the cells' positions, in cell order: made when a
     /// group first asks for the cells of an object (a u32 a cell, so not for a scene read by strips that needs none).
-    index: std::sync::OnceLock<(Vec<usize>, Vec<u32>)>,
+    pub(super) index: std::sync::OnceLock<(Vec<usize>, Vec<u32>)>,
     pub names: Vec<String>,
     /// The layers in memory (none when the image is read by strips).
     pub data: Vec<Arc<Vec<f64>>>,
@@ -376,7 +376,12 @@ impl Operator for Features {
         }
         let chosen = choose(node, &spec)?;
         // rasters on disk too big to hold are read by strips of rows; the rest are in memory
-        let by_strips = big::strips_wanted(args, &["image", "more"]);
+        // (with a cluster to take the groups, rasters on disk are read by strips whatever their size: the workers read them too)
+        let remote = ctx.tile_runner().cloned().filter(|_| {
+            big::disk_image(args, "image").is_some()
+                && (args.get("more").is_none() || big::disk_image(args, "more").is_some())
+        });
+        let by_strips = remote.is_some() || big::strips_wanted(args, &["image", "more"]);
         let (image_names, image_grid, mut parts) = if by_strips {
             big::parts_of(args, "image")?
         } else {
@@ -466,10 +471,24 @@ impl Operator for Features {
         }
         let index = Default::default();
         let input = Input { node, o, index, names, data, strips, image: img_n, roles, levels, texture_bands, below };
+        // spectral, shape and texture on the cluster's workers when there is one (else, or if it fails, here)
+        let mut offloaded: Vec<Option<Columns>> = vec![None; GROUPS.len()];
+        if let Some(r) = &remote {
+            match super::rows::offload(&**r, &input, &chosen) {
+                Ok(Some(done)) => offloaded = done,
+                Ok(None) => {}
+                Err(e) => {
+                    ctx.warn(format!("node {node:?}: the features could not run on the cluster, they ran here: {e}"))
+                }
+            }
+        }
         let mut columns: Vec<(String, Vec<f64>)> = Vec::new();
-        for (grp, want) in GROUPS.iter().zip(&chosen) {
+        for ((grp, want), done) in GROUPS.iter().zip(&chosen).zip(offloaded) {
             if !want.is_empty() {
-                columns.extend((grp.run)(&input, want)?);
+                columns.extend(match done {
+                    Some(c) => c,
+                    None => (grp.run)(&input, want)?,
+                });
             }
         }
         // the table: the old columns (a recomputed one replaced in place) and the new
@@ -983,7 +1002,7 @@ fn shape_of(inp: &Input, k: usize, on: &[bool; 15]) -> [f64; 15] {
 
 // ---- texture
 
-const GLCM: &[&str] = &["homogeneity", "contrast", "entropy", "correlation", "asm"];
+pub(super) const GLCM: &[&str] = &["homogeneity", "contrast", "entropy", "correlation", "asm"];
 
 /// The grey level of a cell without a value.
 const NO_GREY: u16 = u16::MAX;
@@ -1119,10 +1138,8 @@ fn glcm(inp: &Input, grey: &[u16], on: &[bool; 5]) -> Vec<[f64; 5]> {
         .collect()
 }
 
-/// The texture: per layer (the brightness, then the bands) and statistic, a column `glcm_<stat>` for the brightness
-/// (the mean of the image bands in each cell) and `glcm_<stat>_<band>`, the statistics by [`glcm`] of the grey levels
-/// of [`grey`]. `basic` alone (homogeneity not named) reads the brightness only; `texture_bands` says the layers.
-fn texture(inp: &Input, want: Want) -> Result<Columns> {
+/// The layers the texture reads (None is the brightness) and the statistics asked, as `want` and `texture_bands` say.
+pub(super) fn texture_layout(inp: &Input, want: Want) -> Result<(Vec<Option<usize>>, [bool; 5])> {
     let on: [bool; 5] = std::array::from_fn(|f| want.iter().any(|w| w.0 == GLCM[f]));
     let basic_only = want.len() == 1 && want[0].0 == "homogeneity" && !want[0].1;
     // the layers: None is the brightness
@@ -1143,6 +1160,22 @@ fn texture(inp: &Input, want: Want) -> Result<Columns> {
         None if basic_only => vec![None],
         None => std::iter::once(None).chain((0..inp.image).map(Some)).collect(),
     };
+    Ok((targets, on))
+}
+
+/// The column of a texture statistic of a layer (None is the brightness).
+pub(super) fn glcm_column(stat: &str, t: Option<usize>, names: &[String]) -> String {
+    match t {
+        None => format!("glcm_{stat}"),
+        Some(j) => format!("glcm_{stat}_{}", names[j]),
+    }
+}
+
+/// The texture: per layer (the brightness, then the bands) and statistic, a column `glcm_<stat>` for the brightness
+/// (the mean of the image bands in each cell) and `glcm_<stat>_<band>`, the statistics by [`glcm`] of the grey levels
+/// of [`grey`]. `basic` alone (homogeneity not named) reads the brightness only; `texture_bands` says the layers.
+fn texture(inp: &Input, want: Want) -> Result<Columns> {
+    let (targets, on) = texture_layout(inp, want)?;
     let cells = inp.o.grid.cells();
     let tables: Vec<Vec<[f64; 5]>> = if let Some(src) = &inp.strips {
         texture_strips(inp, src, &targets, &on)?
@@ -1173,11 +1206,7 @@ fn texture(inp: &Input, want: Want) -> Result<Columns> {
     let mut out: Columns = Vec::new();
     for (f, stat) in GLCM.iter().enumerate().filter(|(f, _)| on[*f]) {
         for (t, rows) in targets.iter().zip(&tables) {
-            let name = match t {
-                None => format!("glcm_{stat}"),
-                Some(j) => format!("glcm_{stat}_{}", inp.names[*j]),
-            };
-            out.push((name, rows.iter().map(|r| r[f]).collect()));
+            out.push((glcm_column(stat, *t, &inp.names), rows.iter().map(|r| r[f]).collect()));
         }
     }
     Ok(out)

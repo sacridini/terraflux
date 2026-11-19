@@ -163,6 +163,12 @@ impl TileJob {
 /// What runs the first pass of the tiles elsewhere (a cluster): the cores of every tile of the job, in order.
 pub trait TileCores: Send + Sync {
     fn cores(&self, job: &TileJob) -> Result<Vec<Vec<u32>>>;
+
+    /// The columns of every task of an `objects.features` job, in order of task; `None` when this runner takes no such
+    /// job (the features are then worked out here).
+    fn features(&self, _job: &super::FeatureJob) -> Result<Option<Vec<super::FeatureColumns>>> {
+        Ok(None)
+    }
 }
 
 /// The image segmented by tiles of side `t` with `margin` cells around each. The objects carry no table. The image

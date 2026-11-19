@@ -238,3 +238,91 @@ fn segmented_tiles_on_workers_give_the_objects_of_this_machine() {
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     local.shutdown();
 }
+
+/// The objects of `segment.multiresolution` over the rasters in `path` (whole, no tiles).
+fn objects_of(path: &Path) -> Arc<terraflux_ops::objects::Objects> {
+    use terraflux_ops::files::Rasters;
+    use terraflux_ops::{Args, Ctx, Value};
+    let r = Arc::new(Rasters::open(&path.to_string_lossy(), None, None).unwrap());
+    let params = serde_json::json!({ "scale": 25, "shape": 0.1, "seed": 3 });
+    let params = params.as_object().cloned().unwrap();
+    let args = Args { node: "n", inputs: [("image".to_string(), Value::Raster(r))].into(), params: &params };
+    let out = terraflux_ops::Registry::standard()
+        .get("segment.multiresolution")
+        .unwrap()
+        .run(&mut Ctx::default(), &args)
+        .unwrap();
+    let Value::Objects(o) = &out["objects"] else { panic!("objects") };
+    o.clone()
+}
+
+/// The table `objects.features` gives (every group), with the work run by `runner` when there is one.
+fn features(
+    path: &Path,
+    o: &Arc<terraflux_ops::objects::Objects>,
+    runner: Option<Arc<Remote>>,
+) -> terraflux_ops::Table {
+    use terraflux_ops::files::Rasters;
+    use terraflux_ops::{Args, Ctx, Value};
+    let r = Arc::new(Rasters::open(&path.to_string_lossy(), None, None).unwrap());
+    let params = serde_json::json!({ "features": "all", "levels": 16 });
+    let params = params.as_object().cloned().unwrap();
+    let inputs = [("objects".to_string(), Value::Objects(o.clone())), ("image".to_string(), Value::Raster(r))];
+    let args = Args { node: "n", inputs: inputs.into(), params: &params };
+    let mut ctx = Ctx::default().with_tile_runner(runner.map(|r| r as Arc<dyn terraflux_ops::objects::TileCores>));
+    let out = terraflux_ops::Registry::standard().get("objects.features").unwrap().run(&mut ctx, &args).unwrap();
+    // (the advice on the image comes only from a run that reads it whole; a failure on the cluster must not pass)
+    assert!(ctx.warnings.iter().all(|w| !w.contains("cluster")), "{:?}", ctx.warnings);
+    let Value::Table(t) = &out["table"] else { panic!("table") };
+    t.clone()
+}
+
+fn same_table(a: &terraflux_ops::Table, b: &terraflux_ops::Table, what: &str) {
+    assert_eq!(a.columns, b.columns, "{what}: columns");
+    assert_eq!(a.rows.len(), b.rows.len(), "{what}: rows");
+    for (j, name) in a.columns.iter().enumerate() {
+        for (i, (x, y)) in a.rows.iter().zip(&b.rows).enumerate() {
+            assert!(
+                x[j] == y[j] || (x[j].is_nan() && y[j].is_nan()),
+                "{what}: {name} of object {}: {} {}",
+                i + 1,
+                x[j],
+                y[j]
+            );
+        }
+    }
+}
+
+#[test]
+fn features_on_workers_give_the_table_of_this_machine() {
+    terraflux_ops::threads::ensure();
+    let d = tmp("features-data");
+    let path = d.join("img.tif");
+    write_image(&path, 160, 120);
+    let o = objects_of(&path);
+    assert!(o.count > 6, "{} objects", o.count);
+    let want = features(&path, &o, None);
+    assert!(want.columns.len() > 60, "{} columns", want.columns.len());
+
+    // two workers sharing this machine's disk
+    let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    let local = rt.block_on(Local::start(2, tmp("features-cache"), CoordinatorOptions::default())).unwrap();
+    let mut remote = Remote::connect(&local.url).unwrap();
+    remote.shared = true;
+    same_table(&features(&path, &o, Some(Arc::new(remote))), &want, "shared disk");
+    local.shutdown();
+
+    // three workers with caches of their own: the rasters and the labels go through the coordinator
+    let local = rt.block_on(Local::start(0, tmp("features-sent-cache"), CoordinatorOptions::default())).unwrap();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    for k in 0..3 {
+        let mut w = terraflux_dist::worker::Options::new(&format!("f{k}"), tmp(&format!("features-w{k}")));
+        w.threads = 2;
+        let (u, s) = (local.url.clone(), stop.clone());
+        rt.spawn(async move { terraflux_dist::worker::run(&u, w, s).await });
+    }
+    let remote = Remote::connect(&local.url).unwrap();
+    same_table(&features(&path, &o, Some(Arc::new(remote))), &want, "files through the coordinator");
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    local.shutdown();
+}

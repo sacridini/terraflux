@@ -315,11 +315,14 @@ async fn serve(url: &str, opts: &Options, stop: &AtomicBool) -> Ended {
         let (result, payload) = if task.kind == "tiles"
             || task.kind == crate::tiles::SENT
             || task.kind == crate::tiles::SEGMENT
+            || task.kind == crate::tiles::FEATURES
         {
             let r = if task.kind == "tiles" {
                 tiles(&mut client, opts, &id, &task).await
             } else if task.kind == crate::tiles::SEGMENT {
                 segment(&mut client, opts, &id, &task).await
+            } else if task.kind == crate::tiles::FEATURES {
+                features(&mut client, opts, &id, &task).await
             } else {
                 tiles_sent(&mut client, opts, &id, &task).await
             };
@@ -416,6 +419,35 @@ async fn segment(client: &mut Conn, opts: &Options, id: &str, task: &TaskAssignm
         terraflux_ops::threads::ensure();
         terraflux_ops::threads::set_kernel_threads(threads);
         job.cores(&tiles).map_err(|x| Error::Other(x.to_string()))
+    })
+    .await
+    .map_err(|x| Error::Other(format!("the task stopped: {x}")));
+    done.store(true, Ordering::Relaxed);
+    beat.abort();
+    encode(&(chosen, r??)).map_err(e)
+}
+
+/// Some tasks of the features of objects: the rasters and the labels from the cache (or shared storage), the
+/// tasks and their columns, encoded.
+async fn features(client: &mut Conn, opts: &Options, id: &str, task: &TaskAssignment) -> Result<Vec<u8>> {
+    use terraflux_engine::pass::{decode, encode};
+    let e = |x: terraflux_engine::Error| Error::Other(x.to_string());
+    let mut job: terraflux_ops::objects::FeatureJob = decode(&task.payload).map_err(e)?;
+    let chosen: Vec<usize> = decode(&task.task_payload).map_err(e)?;
+    let paths: Vec<PathBuf> = job.paths_mut().map(|p| p.clone()).collect();
+    let mut local = Vec::new();
+    for f in &paths {
+        local.push(PathBuf::from(bundle::local(client, &opts.cache, &f.to_string_lossy()).await?));
+    }
+    for (to, from) in job.paths_mut().zip(local) {
+        *to = from;
+    }
+    let (done, beat) = heartbeats(client, id, opts.heartbeat);
+    let (threads, which) = (opts.threads, chosen.clone());
+    let r = tokio::task::spawn_blocking(move || {
+        terraflux_ops::threads::ensure();
+        terraflux_ops::threads::set_kernel_threads(threads);
+        job.run(&which).map_err(|x| Error::Other(x.to_string()))
     })
     .await
     .map_err(|x| Error::Other(format!("the task stopped: {x}")));

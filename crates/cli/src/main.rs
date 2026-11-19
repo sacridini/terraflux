@@ -82,8 +82,8 @@ enum Command {
         #[arg(long)]
         disk: Option<PathBuf>,
         /// Run the tiles on a coordinator's workers (with --tiled and --disk): the maps and the layers' tiles go
-        /// to them through the coordinator. Without --tiled, only the tiles of segment.multiresolution (an image
-        /// read with raster.read, on disk) go to them.
+        /// to them through the coordinator. Without --tiled, only the tiles of segment.multiresolution and the
+        /// features of objects.features (an image read with raster.read, on disk) go to them.
         #[arg(long)]
         coordinator: Option<String>,
         /// The coordinator's pairing code.

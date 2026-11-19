@@ -23,6 +23,7 @@ mod meanshift;
 mod multiresolution;
 pub mod onnx;
 mod resolve;
+mod rows;
 mod rules;
 mod segment;
 mod store;
@@ -38,6 +39,7 @@ pub use features::features_give;
 pub use labels::{LABELS_DISK_BYTES, Labels};
 pub use resolve::{Verdict, arbitrate, explain_cell};
 pub use rules::{RuleClass, leaves, tree};
+pub use rows::{DiskLayers, FeatureColumns, FeatureJob, FeatureTask};
 pub use tiles::{TileCores, TileJob};
 pub use window::{Window, WindowSettings, esp_window, segment_window};
 

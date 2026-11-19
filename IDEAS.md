@@ -4302,6 +4302,10 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    (`computers.rs`), não só pelo `--coordinator` da CLI.
 4. **O `objects.features` no cluster**: as faixas de linhas como trabalhos dos workers, a tabela juntada no
    coordenador, a mesma tabela que aqui.
+   **Feito**: `objects/rows.rs` (`FeatureJob`, `offload`): os grupos `spectral` e `shape` e a textura de cada camada
+   como tarefas dos workers (os rótulos num arquivo temporário, os rasters pelo hash ou pelo disco compartilhado, como
+   o trabalho `segment`), o `context` no coordenador; um segundo método do `TileCores`, o mesmo `--coordinator`. Sem
+   cluster, com a imagem na memória, ou se o cluster falhar (com um aviso), tudo aqui. A tabela igual, coluna a coluna.
 5. **Os rótulos em disco e a cena inteira**: um tipo `Labels` (na memória ou num arquivo mapeado quando passam de um
    limite), o pico de memória do `merge_tiled` e das features reduzido, e uma cena Sentinel-2 inteira (10 980 × 10 980,
    10 bandas) do disco segmentada e descrita abaixo de 4 GB de pico.

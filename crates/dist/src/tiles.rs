@@ -19,7 +19,7 @@ use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
 use terraflux_engine::pass::{Job, Part, Runner, Task, decode, encode};
 use terraflux_engine::tiles::{Source, Spec, Tiling};
-use terraflux_ops::objects::{TileCores, TileJob};
+use terraflux_ops::objects::{FeatureColumns, FeatureJob, TileCores, TileJob};
 
 use crate::client::Client;
 
@@ -261,9 +261,73 @@ impl Remote {
     }
 }
 
+/// The kind of the jobs that work out the features of objects (their payload a [`FeatureJob`], a task the numbers of
+/// some of its tasks).
+pub const FEATURES: &str = "features";
+
+/// The tasks and the columns a worker gives back for them.
+pub type Rows = (Vec<usize>, Vec<FeatureColumns>);
+
+impl Remote {
+    /// The tasks of an `objects.features` job on the workers, one each: the columns of every task, in order. The
+    /// files (and the labels) go by hash unless storage is shared.
+    fn features(&self, mut job: FeatureJob) -> crate::Result<Vec<FeatureColumns>> {
+        let mut c = self.client.lock().unwrap_or_else(|e| e.into_inner());
+        self.rt.block_on(async {
+            let n = job.tasks.len();
+            let tasks =
+                (0..n).map(|k| encode(&vec![k])).collect::<terraflux_engine::Result<Vec<_>>>().map_err(other)?;
+            if !self.shared {
+                for f in job.paths_mut() {
+                    let known = self.sent.lock().unwrap().get(f.as_path()).cloned();
+                    let b = match known {
+                        Some(b) => b,
+                        None => {
+                            let b = c.send(&f.to_string_lossy(), Path::new("")).await?;
+                            self.sent.lock().unwrap().insert(f.clone(), b.clone());
+                            b
+                        }
+                    };
+                    *f = PathBuf::from(b);
+                }
+            }
+            let id = c.submit_payload(FEATURES, encode(&job).map_err(other)?, tasks).await?;
+            let status = c.wait_done(&id).await?;
+            if status.failed > 0 {
+                let _ = c.forget(&id).await;
+                return Err(crate::Error::Other(format!(
+                    "the features failed on the workers: {}",
+                    status.errors.join("; ")
+                )));
+            }
+            let results = c.results(&id).await?;
+            let mut rows: Vec<Option<FeatureColumns>> = vec![None; n];
+            for r in &results {
+                let (ks, got): Rows = decode(&r.payload).map_err(other)?;
+                if ks.len() != got.len() {
+                    return Err(crate::Error::Other("a worker gave a wrong number of tasks".into()));
+                }
+                for (k, cols) in ks.into_iter().zip(got) {
+                    *rows.get_mut(k).ok_or_else(|| crate::Error::Other(format!("a worker gave task {k}")))? =
+                        Some(cols);
+                }
+            }
+            c.forget(&id).await?;
+            rows.into_iter()
+                .enumerate()
+                .map(|(k, c)| c.ok_or_else(|| crate::Error::Other(format!("task {k} was not worked out"))))
+                .collect()
+        })
+    }
+}
+
 impl TileCores for Remote {
     fn cores(&self, job: &TileJob) -> terraflux_ops::Result<Vec<Vec<u32>>> {
         self.segment(job.clone()).map_err(|e| terraflux_ops::Error::msg(e.to_string()))
+    }
+
+    fn features(&self, job: &FeatureJob) -> terraflux_ops::Result<Option<Vec<FeatureColumns>>> {
+        self.features(job.clone()).map(Some).map_err(|e| terraflux_ops::Error::msg(e.to_string()))
     }
 }
 
