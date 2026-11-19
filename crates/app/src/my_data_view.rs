@@ -23,7 +23,8 @@ use terraflux_graph::{DataKind, Model, Parameter, Type};
 use terraflux_ops::Registry;
 
 use crate::app::Session;
-use crate::my_data::{self, Choice, Plan, Source};
+use crate::my_data::{self, Choice, Plan, Source, UserClass};
+use crate::rgb::{ROLES, Scale};
 
 /// What a model draws, kept for the revision it was worked out for, and whether the banner was hidden.
 #[derive(Default)]
@@ -163,18 +164,21 @@ pub enum Page {
     /// Which land change model (only when opened from a land change entry point).
     Model,
     Data,
+    /// The roles of an image's bands and its reflectance's scale (only when a file is chosen for an image).
+    Bands,
     Classes,
     Parameters,
     Review,
 }
 
 impl Page {
-    const ALL: [Page; 5] = [Page::Model, Page::Data, Page::Classes, Page::Parameters, Page::Review];
+    const ALL: [Page; 6] = [Page::Model, Page::Data, Page::Bands, Page::Classes, Page::Parameters, Page::Review];
 
     fn title(self) -> &'static str {
         match self {
             Page::Model => "Which model",
             Page::Data => "Your data",
+            Page::Bands => "Bands",
             Page::Classes => "Classes",
             Page::Parameters => "Parameters",
             Page::Review => "Review",
@@ -194,6 +198,17 @@ enum Cls {
     Failed(String),
 }
 
+/// What the user sets for an image: the role of each band and the scale of its reflectance.
+struct ImagePick {
+    /// The role of each band (`blue`, `green`, `red`, `nir`, `swir1`, `swir2` or `other`, dropped), guessed from the
+    /// bands' names until the user sets them.
+    roles: Vec<String>,
+    /// The scale the user chose (none: the one detected).
+    scale: Option<Scale>,
+    /// The scale the file's values and names tell, once read in a thread.
+    detected: Option<Scale>,
+}
+
 /// A file chosen for a source.
 struct Pick {
     file: PathBuf,
@@ -206,11 +221,14 @@ struct Pick {
     /// The source whose file this one was offered as ("the same file, another band"): its table of classes is the
     /// first one of this.
     like: Option<String>,
+    /// An image: the roles of its bands and its scale.
+    image: Option<ImagePick>,
 }
 
 /// What a thread did.
 enum Done {
     Classes { node: String, key: String, result: Result<Found, String> },
+    Scale { node: String, file: PathBuf, result: Result<Scale, String> },
     Checked { key: String, result: Box<Result<(Plan, Vec<Finding>), String>> },
 }
 
@@ -252,6 +270,10 @@ pub struct State {
     /// Whether `done` is of the choices as they are now.
     current: bool,
     error: Option<String>,
+    /// The classes of the template's rules (`objects.rules`, by node) and the user's for them (none for a node: the
+    /// template's own), for an image.
+    rules: Vec<(String, Vec<UserClass>)>,
+    classes: BTreeMap<String, Vec<UserClass>>,
     /// A file chosen at a click, taken on the next frame (which has the session).
     asked: Option<(String, PathBuf)>,
 }
@@ -276,6 +298,25 @@ fn template_of(s: &Source) -> Option<BTreeMap<i64, String>> {
 /// Whether what a source stands for is classes or a mask (its page of classes has a line for it).
 fn is_classes(s: &Source) -> bool {
     s.data.as_ref().is_some_and(|d| matches!(d.kind, DataKind::Classes | DataKind::Mask))
+}
+
+/// A colour written `#rrggbb`.
+fn hex_rgb(s: &str) -> Option<[u8; 3]> {
+    let h = s.trim().strip_prefix('#')?;
+    if h.len() != 6 || !h.is_ascii() {
+        return None;
+    }
+    let b = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).ok();
+    Some([b(0)?, b(2)?, b(4)?])
+}
+
+/// What the scale of an image's reflectance does, in a line.
+fn reflectance_line(s: Scale) -> String {
+    match s {
+        Scale::None => "Reflectance 0\u{2013}1: kept as it is".to_string(),
+        Scale::Div10000 => "Reflectance 0\u{2013}10 000 \u{2192} divided by 10 000".to_string(),
+        Scale::LandsatC2 => "Landsat collection 2 \u{2192} x 0.0000275 - 0.2, reflectance 0\u{2013}1".to_string(),
+    }
 }
 
 /// The cells that go to no data under a table, and all the cells: a class mapped to nothing, or not in the table.
@@ -376,6 +417,8 @@ impl State {
             done: None,
             current: false,
             error: None,
+            rules: Vec::new(),
+            classes: BTreeMap::new(),
             asked: None,
         }
     }
@@ -408,6 +451,22 @@ impl State {
             Ok(bands) => {
                 self.problems.remove(node);
                 let template = template_of(&src);
+                let image = my_data::is_image(&src).then(|| ImagePick {
+                    roles: crate::rgb::band_roles(&bands).into_iter().map(String::from).collect(),
+                    scale: None,
+                    detected: None,
+                });
+                if image.is_some() {
+                    let (tx, ctx, names) = (self.tx.clone(), self.ctx.clone(), bands.clone());
+                    let (node, file) = (node.to_string(), file.to_path_buf());
+                    std::thread::spawn(move || {
+                        let result = my_data::image_scale(&file, &names);
+                        let _ = tx.send(Done::Scale { node, file, result });
+                        if let Some(c) = ctx {
+                            c.request_repaint();
+                        }
+                    });
+                }
                 let pick = Pick {
                     file: file.to_path_buf(),
                     bands,
@@ -416,6 +475,7 @@ impl State {
                     classes: Cls::None,
                     crosswalk: BTreeMap::new(),
                     like: None,
+                    image,
                 };
                 self.picks.insert(node.to_string(), pick);
                 if self.dates.iter().any(|d| d == node) {
@@ -457,6 +517,7 @@ impl State {
             classes: Cls::None,
             crosswalk: BTreeMap::new(),
             like: Some(from.to_string()),
+            image: None,
         };
         self.problems.remove(node);
         self.picks.insert(node.to_string(), pick);
@@ -658,6 +719,13 @@ impl State {
                         Err(e) => Cls::Failed(e),
                     };
                 }
+                Done::Scale { node, file, result } => {
+                    // (the answer of an earlier file is let go)
+                    if let Some(i) = self.picks.get_mut(&node).filter(|p| p.file == file).and_then(|p| p.image.as_mut())
+                    {
+                        i.detected = Some(result.unwrap_or_default());
+                    }
+                }
                 Done::Checked { key, result } => {
                     self.working = false;
                     self.done = Some(Checked { key, result: *result });
@@ -680,6 +748,8 @@ impl State {
                     band: p.band.clone(),
                     crosswalk: if dated { BTreeMap::new() } else { p.crosswalk.clone() },
                     dates: dated && self.dates.first() == Some(k),
+                    roles: p.image.as_ref().map(|i| i.roles.clone()),
+                    scale: p.image.as_ref().and_then(|i| i.scale.or(i.detected)),
                     ..Default::default()
                 };
                 (k.clone(), c)
@@ -692,7 +762,7 @@ impl State {
     }
 
     fn key(&self, rev: u64) -> String {
-        format!("{rev}|{:?}|{:?}|{:?}", self.reference_now(), self.choices(), self.effective())
+        format!("{rev}|{:?}|{:?}|{:?}|{:?}", self.reference_now(), self.choices(), self.effective(), self.classes)
     }
 
     /// What the dates of the two files give the settings (the steps between them, the dates of CLUE-S's), when both are
@@ -735,6 +805,10 @@ impl State {
             }
             self.seen = Some(now);
         }
+        // (the classes of the rules of the model open, and the edits of those it no longer has gone)
+        self.rules = my_data::rule_classes(&s.source);
+        let rules = self.rules.clone();
+        self.classes.retain(|k, _| rules.iter().any(|(n, _)| n == k));
         // (ordered allocation: CLUE-S's template once it is the model open)
         if let Some(o) = self.start_ordered
             && my_data::land(&s.source) == Some(my_data::Land::Lulcc)
@@ -747,7 +821,10 @@ impl State {
         self.poll();
         self.derive(s);
         let choices = self.choices();
-        let loading = self.picks.values().any(|p| matches!(p.classes, Cls::Loading(_)));
+        let loading = self.picks.values().any(|p| {
+            matches!(p.classes, Cls::Loading(_))
+                || p.image.as_ref().is_some_and(|i| i.scale.is_none() && i.detected.is_none())
+        });
         if choices.is_empty() {
             self.done = None;
             self.current = false;
@@ -760,6 +837,8 @@ impl State {
         }
         let (model, base, reference) = (s.source.clone(), s.base(), self.reference_now());
         let settings = self.effective();
+        let classes =
+            if self.picks.values().any(|p| p.image.is_some()) { self.classes.clone() } else { BTreeMap::new() };
         let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
         self.working = true;
         std::thread::spawn(move || {
@@ -768,6 +847,12 @@ impl State {
                 .and_then(|mut p| {
                     my_data::apply_settings(&mut p.model, &settings)?;
                     p.notes.extend(setting_notes(&p.model, &settings));
+                    for (node, list) in &classes {
+                        match my_data::apply_classes(&mut p.model, node, list) {
+                            Ok(note) => p.notes.extend(note),
+                            Err(e) => p.refused.push(e),
+                        }
+                    }
                     Ok(p)
                 })
                 .map(|p| {
@@ -790,7 +875,10 @@ impl State {
     /// parameters when the model has some.
     fn pages(&self, has_settings: bool) -> Vec<Page> {
         let mut p = if self.land { vec![Page::Model, Page::Data] } else { vec![Page::Data] };
-        if self.needs_classes() {
+        if self.has_image() {
+            p.push(Page::Bands);
+        }
+        if self.needs_classes() || (self.has_image() && !self.rules.is_empty()) {
             p.push(Page::Classes);
         }
         if has_settings {
@@ -798,6 +886,11 @@ impl State {
         }
         p.push(Page::Review);
         p
+    }
+
+    /// Whether a file is chosen for an image (the *Bands* page has a table for it).
+    fn has_image(&self) -> bool {
+        self.picks.values().any(|p| p.image.is_some())
     }
 
     /// Whether any chosen file has a table of classes to look at.
@@ -826,10 +919,12 @@ impl State {
 
     /// The pages to go to, the one at hand lit.
     fn strip(&mut self, ui: &mut Ui, has_settings: bool) {
+        let (land, image) = (self.land, self.has_image());
         ui.horizontal(|ui| {
             for p in Page::ALL
                 .into_iter()
-                .filter(|p| (*p != Page::Parameters || has_settings) && (*p != Page::Model || self.land))
+                .filter(|p| (*p != Page::Parameters || has_settings) && (*p != Page::Model || land))
+                .filter(|p| *p != Page::Bands || image)
             {
                 if ui.selectable_label(self.page == p, p.title()).clicked() {
                     self.page = p;
@@ -1013,6 +1108,84 @@ impl State {
         self.asked = Some((node, file));
     }
 
+    /// The page of *Bands*: for each image chosen, the role of each band (what the model's attributes and rules
+    /// call it: blue, green, red, nir, swir1, swir2) and the scale of its reflectance.
+    fn bands_page(&mut self, ui: &mut Ui, sources: &[Source]) {
+        let mut any = false;
+        let chosen: Vec<&Source> =
+            sources.iter().filter(|x| self.picks.get(&x.node).is_some_and(|p| p.image.is_some())).collect();
+        for src in chosen {
+            any = true;
+            ui.separator();
+            ui.label(RichText::new(&src.what).strong());
+            let Some(p) = self.picks.get_mut(&src.node) else { continue };
+            let bands = p.bands.clone();
+            let Some(img) = p.image.as_mut() else { continue };
+            ui.label(
+                RichText::new(
+                    "The role of each band, as the model reads it: its attributes are named for them (mean_nir, ndvi...). \
+                     A band with the role other is left out. Guessed from the names of the bands (Sentinel-2 B02, B03, \
+                     B04, B08, B11, B12; Landsat 8/9 SR_B2 to SR_B7).",
+                )
+                .weak(),
+            );
+            egui::Grid::new(("my data bands", &src.node)).striped(true).show(ui, |ui| {
+                ui.label(RichText::new("Band").strong());
+                ui.label(RichText::new("Role").strong());
+                ui.end_row();
+                for (k, name) in bands.iter().enumerate() {
+                    ui.label(name);
+                    let now = img.roles.get(k).cloned().unwrap_or_else(|| "other".into());
+                    egui::ComboBox::from_id_salt(("my data role", &src.node, k)).selected_text(&now).show_ui(
+                        ui,
+                        |ui| {
+                            for role in ROLES.iter().copied().chain(["other"]) {
+                                if ui.selectable_label(now == role, role).clicked() {
+                                    img.roles[k] = role.to_string();
+                                }
+                            }
+                        },
+                    );
+                    ui.end_row();
+                }
+            });
+            let mut seen = BTreeSet::new();
+            if let Some(r) = img.roles.iter().filter(|r| *r != "other").find(|r| !seen.insert(r.as_str())) {
+                ui.colored_label(ui.visuals().error_fg_color, format!("Two bands are {r}: a role is one band's."));
+            } else if img.roles.iter().all(|r| r == "other") {
+                ui.colored_label(ui.visuals().warn_fg_color, "No band has a role: choose at least red and nir.");
+            }
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("Reflectance").strong());
+                match img.detected {
+                    None => {
+                        ui.spinner();
+                        ui.label("Reading its values...");
+                    }
+                    Some(d) => {
+                        let now = img.scale.unwrap_or(d);
+                        let auto = if img.scale.is_none() { " (detected)" } else { "" };
+                        ui.label(format!("{}{auto}", reflectance_line(now)));
+                        egui::ComboBox::from_id_salt(("my data scale", &src.node)).selected_text(now.label()).show_ui(
+                            ui,
+                            |ui| {
+                                for sc in Scale::ALL {
+                                    if ui.selectable_label(now == sc, sc.label()).clicked() {
+                                        img.scale = Some(sc);
+                                    }
+                                }
+                            },
+                        );
+                    }
+                }
+            });
+        }
+        if !any {
+            ui.label(RichText::new("No file chosen is an image.").weak());
+        }
+    }
+
     /// The page of *Classes*: for each chosen map of classes, the user's classes against the model's.
     fn classes_page(&mut self, ui: &mut Ui, sources: &[Source]) {
         let mut any = false;
@@ -1087,8 +1260,81 @@ impl State {
                 p.crosswalk = cross;
             }
         }
+        if self.has_image() && !self.rules.is_empty() {
+            any = true;
+            self.image_classes(ui);
+        }
         if !any {
             ui.label(RichText::new("No file chosen has classes to translate.").weak());
+        }
+    }
+
+    /// The classes of the template's rules (`objects.rules`), to be the user's: each a name and a colour, the ones
+    /// not wanted removed, new ones added (with the rule 0: no object until a rule is written for them). The rules of
+    /// the classes kept stay, with the references to a renamed class renamed. Classes by samples have none here:
+    /// their names are the ones of the samples.
+    fn image_classes(&mut self, ui: &mut Ui) {
+        ui.separator();
+        ui.label(RichText::new("The classes of the image").strong());
+        ui.label(
+            RichText::new(
+                "Your classes in place of the template's: rename, recolour, remove, add. A class keeps the rule it \
+                 had (edit the rules in the model afterwards); a new class has the rule 0 until you write one. Where \
+                 you classify by samples, the classes are the names of your samples.",
+            )
+            .weak(),
+        );
+        let mut changes: Vec<(String, Option<Vec<UserClass>>)> = Vec::new();
+        for (node, start) in &self.rules {
+            let mut list = self.classes.get(node).cloned().unwrap_or_else(|| start.clone());
+            let before = list.clone();
+            ui.label(RichText::new(format!("Rules of {node}")).strong());
+            let mut gone = None;
+            egui::Grid::new(("my data image classes", node)).striped(true).show(ui, |ui| {
+                for h in ["Name", "Colour", "Was", ""] {
+                    ui.label(RichText::new(h).strong());
+                }
+                ui.end_row();
+                for (k, c) in list.iter_mut().enumerate() {
+                    ui.add(egui::TextEdit::singleline(&mut c.name).desired_width(140.0).id_salt((node, "n", k)));
+                    let mut rgb = c.colour.as_deref().and_then(hex_rgb).unwrap_or([128, 128, 128]);
+                    if ui.color_edit_button_srgb(&mut rgb).changed() {
+                        c.colour = Some(format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]));
+                    }
+                    ui.label(RichText::new(c.from.clone().unwrap_or_else(|| "new".into())).weak());
+                    if ui.small_button("Remove").clicked() {
+                        gone = Some(k);
+                    }
+                    ui.end_row();
+                }
+            });
+            if let Some(k) = gone {
+                list.remove(k);
+            }
+            ui.horizontal(|ui| {
+                if ui.small_button("Add a class").clicked() {
+                    let mut name = "class".to_string();
+                    for k in 2.. {
+                        if !list.iter().any(|c| c.name == name) {
+                            break;
+                        }
+                        name = format!("class {k}");
+                    }
+                    list.push(UserClass { from: None, name, colour: None });
+                }
+                if ui.small_button("Back to the template's").clicked() {
+                    list = start.clone();
+                }
+            });
+            if list != before {
+                changes.push((node.clone(), (list != *start).then_some(list)));
+            }
+        }
+        for (node, list) in changes {
+            match list {
+                Some(l) => self.classes.insert(node, l),
+                None => self.classes.remove(&node),
+            };
         }
     }
 
@@ -1322,6 +1568,7 @@ pub fn window(
             let height = (ui.available_height() - 46.0).max(80.0);
             egui::ScrollArea::vertical().max_height(height).auto_shrink([false, false]).show(ui, |ui| match st.page {
                 Page::Model | Page::Data => st.data_page(ui, &sources, &dates),
+                Page::Bands => st.bands_page(ui, &sources),
                 Page::Classes => st.classes_page(ui, &sources),
                 Page::Parameters => st.parameters_page(ui, s),
                 Page::Review => st.review_page(ui, &s.source),

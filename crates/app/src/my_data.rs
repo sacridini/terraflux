@@ -19,6 +19,10 @@
 //! - An `nlm.*` that is left is put on the reference grid (`like`; rows, columns, resolution and crs taken away);
 //!   `nlm.curds` has no `like` and stays on its own grid, named in the notes.
 //! - A stack is one file's bands (`Choice::bands`); a stack of several files is not offered yet.
+//! - An image (data of kind `image`, or an `nlm.image`'s `image` output) is one multiband file: a `stack.rename` names
+//!   its bands by their roles (blue, green, red, nir, swir1, swir2; guessed from the names, else `other`, dropped) and
+//!   scales the reflectance to 0-1 (detected: none, divided by 10 000, Landsat collection 2); no node when the bands are
+//!   named already and the scale is 0-1. A folder of single-band files is not offered yet.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -30,6 +34,7 @@ use terraflux_ops::Registry;
 use terraflux_raster::Grid;
 
 use crate::editor;
+use crate::rgb::Scale;
 
 /// The `op` of a [`Source`] that is an input of the model (`$name`) with no file.
 pub const INPUT: &str = "input";
@@ -67,6 +72,11 @@ pub struct Choice {
     /// (the demand reads them all as a stack; the simulation starts from the bands chosen for the two date sources).
     /// No table of classes with it (`raster.reclassify` takes a map, not a stack).
     pub dates: bool,
+    /// For an image: the role of each band of the file (blue, green, red, nir, swir1, swir2 or other; the others are
+    /// dropped), in the band order. None: guessed from the bands' names ([`crate::rgb::band_roles`]).
+    pub roles: Option<Vec<String>>,
+    /// For an image: the scale of its reflectance. None: detected from the file ([`image_info`]).
+    pub scale: Option<Scale>,
 }
 
 /// The model with the user's data, what was done, and what was not.
@@ -149,7 +159,8 @@ fn source_of(m: &Model, r: &Registry, n: &Node) -> Source {
         let sig = m.node(c).and_then(|c| r.sig(&c.op));
         sig.and_then(|s| s.inputs.iter().find(|i| &i.name == p)).is_some_and(|i| i.ty == Type::Stack)
     });
-    let stack = stack_out || stack_in || n.data.as_ref().is_some_and(|d| d.kind == DataKind::Stack);
+    let stack =
+        stack_out || stack_in || n.data.as_ref().is_some_and(|d| matches!(d.kind, DataKind::Stack | DataKind::Image));
     let what = n
         .data
         .as_ref()
@@ -233,6 +244,157 @@ fn header(path: &Path) -> Result<(Grid, Vec<String>), String> {
     Ok((meta.grid.clone(), meta.band_names()))
 }
 
+/// The roles of an image's bands as a choice has them: the user's, else guessed from the bands' names.
+pub fn image_roles(c: &Choice, names: &[String]) -> Vec<String> {
+    c.roles.clone().unwrap_or_else(|| crate::rgb::band_roles(names).into_iter().map(String::from).collect())
+}
+
+/// The scale of an image's reflectance, from its bands' names and the greatest value of a sample of its bands
+/// (every few cells, no-data left out).
+pub fn image_scale(path: &Path, names: &[String]) -> Result<Scale, String> {
+    let f = terraflux_ops::files::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let meta = f.meta();
+    let (w, h) = (meta.grid.width, meta.grid.height);
+    let step = w.max(h).div_ceil(512).max(1);
+    let win = terraflux_raster::tiff::Window { x0: 0, y0: 0, width: w, height: h };
+    let nodata = meta.nodata.filter(|n| !n.is_nan());
+    let mut max = f64::NEG_INFINITY;
+    for b in 0..names.len() {
+        let v = f.sample(b, win, step).map_err(|e| format!("{}: {e}", path.display()))?;
+        for x in v.into_iter().map(f64::from).filter(|x| x.is_finite() && Some(*x) != nodata) {
+            max = max.max(x);
+        }
+    }
+    Ok(Scale::detect(names, max))
+}
+
+/// What a file says of an image: its bands, their roles by their names, and its scale.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageInfo {
+    pub names: Vec<String>,
+    pub roles: Vec<String>,
+    pub scale: Scale,
+}
+
+pub fn image_info(path: &Path) -> Result<ImageInfo, String> {
+    let names = header(path)?.1;
+    let roles = image_roles(&Choice::default(), &names);
+    let scale = image_scale(path, &names)?;
+    Ok(ImageInfo { names, roles, scale })
+}
+
+/// Whether a source is a multispectral image: data of kind image, or an `nlm.image`'s `image` output (the drawn image
+/// the segmenters and `objects.features` read, with or without the mark).
+pub fn is_image(s: &Source) -> bool {
+    s.data.as_ref().is_some_and(|d| d.kind == DataKind::Image) || (s.op == "nlm.image" && s.port == "image")
+}
+
+/// A class of the user's for an image: the name it has in the template's rules (none: a class of the user's own),
+/// the name it is given, and its colour (`#rrggbb`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserClass {
+    pub from: Option<String>,
+    pub name: String,
+    pub colour: Option<String>,
+}
+
+/// The classes of each `objects.rules` of a model (its node and the classes in the list's order), as a start for the
+/// user's. The samples a template classes by (`objects.samples`) have no list here: their names are the ones of the
+/// vector the user draws or chooses.
+pub fn rule_classes(m: &Model) -> Vec<(String, Vec<UserClass>)> {
+    let mut out = Vec::new();
+    for n in m.nodes.iter().filter(|n| n.op == "objects.rules") {
+        let Some(list) = n.params.get("classes").and_then(Json::as_array) else { continue };
+        let classes: Vec<UserClass> = list
+            .iter()
+            .filter_map(|c| {
+                let name = c.get("name")?.as_str()?.to_string();
+                let colour = c.get("colour").and_then(Json::as_str).map(String::from);
+                Some(UserClass { from: Some(name.clone()), name, colour })
+            })
+            .collect();
+        if !classes.is_empty() {
+            out.push((n.id.clone(), classes));
+        }
+    }
+    out
+}
+
+/// A model's `objects.rules` with the user's classes: each class renamed and coloured (its rule kept, and the
+/// references to it in the rules and the daughters' `parent` renamed), the ones left out taken away (their daughters
+/// become roots), the new ones added with the rule `0` (they take no object until a rule is written for them).
+/// What was done, a line; none when the classes are the template's as they were.
+pub fn apply_classes(m: &mut Model, node: &str, user: &[UserClass]) -> Result<Option<String>, String> {
+    let n = m.nodes.iter_mut().find(|n| n.id == node).ok_or_else(|| format!("{node}: no such node"))?;
+    let old = n.params.get("classes").and_then(Json::as_array).cloned().ok_or_else(|| format!("{node}: no classes"))?;
+    if user.is_empty() {
+        return Err(format!("{node}: no class: the rules need at least one"));
+    }
+    let mut seen = BTreeSet::new();
+    if let Some(u) = user.iter().find(|u| u.name.trim().is_empty() || !seen.insert(u.name.trim().to_string())) {
+        return Err(format!("{node}: the class {:?} has no name or the name is used twice", u.name));
+    }
+    let renames: Vec<(String, String)> = user
+        .iter()
+        .filter_map(|u| u.from.as_ref().map(|f| (f.clone(), u.name.trim().to_string())))
+        .filter(|(f, t)| f != t)
+        .collect();
+    let kept: BTreeSet<&str> = user.iter().filter_map(|u| u.from.as_deref()).collect();
+    let rename = |s: &str| -> String {
+        let mut s = s.to_string();
+        // (through a placeholder, so that a swap of two names does not undo itself)
+        for (k, (f, _)) in renames.iter().enumerate() {
+            for q in ['"', '\''] {
+                s = s.replace(&format!("{q}{f}{q}"), &format!("{q}\u{1}{k}\u{1}{q}"));
+            }
+        }
+        for (k, (_, t)) in renames.iter().enumerate() {
+            s = s.replace(&format!("\u{1}{k}\u{1}"), t);
+        }
+        s
+    };
+    let mut list = Vec::new();
+    for u in user {
+        let name = u.name.trim().to_string();
+        let mut c =
+            match u.from.as_ref().and_then(|f| old.iter().find(|c| c.get("name").and_then(Json::as_str) == Some(f))) {
+                Some(c) => c.clone(),
+                None => serde_json::json!({ "rule": "0" }),
+            };
+        let o = c.as_object_mut().ok_or_else(|| format!("{node}: a class is not an object"))?;
+        o.insert("name".into(), Json::from(name));
+        match u.colour.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+            Some(c) => o.insert("colour".into(), Json::from(c)),
+            None => o.remove("colour"),
+        };
+        if let Some(r) = o.get("rule").and_then(Json::as_str).map(rename) {
+            o.insert("rule".into(), Json::from(r));
+        }
+        match o.get("parent").and_then(Json::as_str).map(String::from) {
+            Some(p) if kept.contains(p.as_str()) => {
+                o.insert("parent".into(), Json::from(rename(&format!("\"{p}\"")).trim_matches('"').to_string()));
+            }
+            Some(_) => {
+                o.remove("parent");
+            }
+            None => {}
+        }
+        list.push(c);
+    }
+    let same = list == old;
+    n.params.insert("classes".into(), Json::Array(list));
+    if same {
+        return Ok(None);
+    }
+    let added = user.iter().filter(|u| u.from.is_none()).count();
+    let gone = old.len() - kept.len();
+    Ok(Some(format!(
+        "{node}: your classes ({}): {} kept, {added} added (rule 0: write theirs), {gone} taken away",
+        user.iter().map(|u| u.name.trim()).collect::<Vec<_>>().join(", "),
+        user.iter().filter(|u| u.from.is_some()).count()
+    )))
+}
+
 fn same_grid(a: &Grid, b: &Grid) -> bool {
     let near = |x: &f64, y: &f64| (x - y).abs() <= 1e-9 * (1.0 + x.abs().max(y.abs()));
     let crs = match (a.geo.epsg(), b.geo.epsg()) {
@@ -257,6 +419,31 @@ fn vet(m: &Model, s: &Source, c: &Choice) -> Result<Grid, String> {
     let known = |b: &String| names.contains(b) || b.parse::<usize>().is_ok_and(|i| i < names.len());
     if let Some(b) = c.band.iter().chain(c.bands.iter().flatten()).find(|b| !known(b)) {
         return Err(format!("{} has no band {b:?} (its bands are {names:?})", c.file.display()));
+    }
+    if is_image(s) {
+        if c.band.is_some() {
+            return Err("an image takes all its bands: their roles are set, not one band".into());
+        }
+        if let Some(roles) = &c.roles {
+            if roles.len() != names.len() {
+                return Err(format!("{} roles for the {} bands of the file", roles.len(), names.len()));
+            }
+            if let Some(r) = roles.iter().find(|r| r.as_str() != "other" && !crate::rgb::ROLES.contains(&r.as_str())) {
+                return Err(format!("{r:?} is no role of a band ({}, other)", crate::rgb::ROLES.join(", ")));
+            }
+            let mut seen = BTreeSet::new();
+            if let Some(r) = roles.iter().filter(|r| r.as_str() != "other").find(|r| !seen.insert(r.as_str())) {
+                return Err(format!("two bands are {r}: a role is one band's"));
+            }
+        }
+        if image_roles(c, &names).iter().all(|r| r == "other") {
+            return Err(format!(
+                "no band of {} has a role (blue, green, red, nir, swir1, swir2): choose them on the Bands page",
+                c.file.display()
+            ));
+        }
+    } else if c.roles.is_some() || c.scale.is_some() {
+        return Err("roles and a scale of reflectance are for an image".into());
     }
     if c.dates {
         if land(m) != Some(Land::Lulcc) || m.node("observed").is_none_or(|n| n.op != "stack.of") {
@@ -461,6 +648,43 @@ pub fn plan(
                 cur = format!("{id}.raster");
                 chain.push((n, "raster"));
             }
+        }
+        if is_image(s) {
+            let fnames = header(&c.file)?.1;
+            let roles = image_roles(c, &fnames);
+            let scale = c.scale.unwrap_or_else(|| image_scale(&c.file, &fnames).unwrap_or_default());
+            let names: Vec<&str> = roles.iter().map(|r| if r == "other" { "" } else { r.as_str() }).collect();
+            let kept: Vec<&str> = names.iter().copied().filter(|n| !n.is_empty()).collect();
+            let dropped = roles.len() - kept.len();
+            let renamed = names.iter().zip(&fnames).any(|(r, n)| r != n);
+            if renamed || scale != Scale::None {
+                let id = fresh(&mut taken, &format!("{}_bands", s.node));
+                let mut n = Node::new(&id, "stack.rename")
+                    .input("stack", &cur)
+                    .param("names", serde_json::json!(names))
+                    .note(
+                        "The bands of your image named by their roles (blue, green, red, nir, swir1, swir2: the names \
+                         the model's features and rules read), the bands with no role dropped, the reflectance on a \
+                         scale of 0 to 1.",
+                    )
+                    .why(&why);
+                if scale != Scale::None {
+                    let (k, off) = scale.factors();
+                    n = n.param("scale", k);
+                    if off != 0.0 {
+                        n = n.param("offset", off);
+                    }
+                }
+                cur = format!("{id}.stack");
+                chain.push((n, "stack"));
+            }
+            notes.push(format!(
+                "{}: the bands {}{}; reflectance {}",
+                s.node,
+                kept.join(" "),
+                if dropped > 0 { format!(" ({dropped} with no role dropped)") } else { String::new() },
+                scale.label()
+            ));
         }
         if !c.crosswalk.is_empty() {
             let rules = rules_of(&c.crosswalk);
@@ -1978,5 +2202,208 @@ mod tests {
         let c = classes_of(&test_file("sibuyan_landuse.tif"), Some("2011")).unwrap();
         assert_eq!(c.iter().map(|c| c.2).sum::<usize>(), 4160 + 1404 + 1090 + 288 + 284);
         assert!(classes_of(&test_file("sibuyan_landuse.tif"), Some("nope")).is_err());
+    }
+
+    /// A file of bands, a band by name (none: unnamed): its cell `(row, column)` is `f(band, row, column)`.
+    fn write_bands(d: &Path, name: &str, names: &[Option<&str>], f: impl Fn(usize, usize, usize) -> f64) -> PathBuf {
+        let (w, h) = (20, 20);
+        let mut g = terraflux_raster::Grid::new(w, h);
+        g.transform = [1000.0, 10.0, 0.0, 1200.0, 0.0, -10.0];
+        let bands = names
+            .iter()
+            .enumerate()
+            .map(|(b, n)| terraflux_raster::Band {
+                name: n.map(String::from),
+                data: (0..w * h).map(|i| f(b, i / w, i % w)).collect(),
+            })
+            .collect();
+        let p = d.join(name);
+        Raster { grid: g, bands, dtype: DataType::F32, nodata: None }.write(&p).unwrap();
+        p
+    }
+
+    /// nlm.image -> segment.slic -> objects.features, as the templates of OBIA are built.
+    fn image_model(marked: bool) -> Model {
+        let mut m = Model::new("obia");
+        m.nodes.push(Node::new("land", "nlm.fbm").param("rows", 20).param("columns", 20));
+        m.nodes.push(Node::new("classes", "nlm.classify").input("map", "land.map").param("n", 3));
+        let image = Node::new("image", "nlm.image").input("classes", "classes.classes");
+        m.nodes.push(if marked { image.data(Data::new("a multispectral image", DataKind::Image)) } else { image });
+        m.nodes.push(Node::new("segments", "segment.slic").input("image", "image.image").param("size", 4));
+        m.nodes.push(
+            Node::new("features", "objects.features")
+                .input("objects", "segments.objects")
+                .input("image", "image.image"),
+        );
+        m
+    }
+
+    const S2: [Option<&str>; 7] =
+        [Some("B01"), Some("B02"), Some("B03"), Some("B04"), Some("B08"), Some("B11"), Some("B12")];
+
+    #[test]
+    fn an_image_is_offered_as_data_of_kind_image_or_as_an_nlm_image() {
+        let r = Registry::standard();
+        for marked in [true, false] {
+            let s = sources(&image_model(marked), &r);
+            let img = s.iter().find(|s| s.node == "image").unwrap();
+            assert!(is_image(img), "{marked}");
+            assert_eq!((img.needs, img.port.as_str()), (Type::Stack, "image"));
+        }
+    }
+
+    #[test]
+    fn an_image_file_replaces_the_drawn_image_with_its_bands_named_and_scaled() {
+        let r = Registry::standard();
+        let d = dir("image");
+        let f = write_bands(&d, "s2.tif", &S2, |b, row, col| 1000.0 * (b + 1) as f64 + (row + col) as f64 * 10.0);
+        let info = image_info(&f).unwrap();
+        assert_eq!(info.roles, ["other", "blue", "green", "red", "nir", "swir1", "swir2"]);
+        assert_eq!(info.scale, Scale::Div10000);
+        for marked in [true, false] {
+            let p = plan(&image_model(marked), &r, &one("image", choice(&f)), None, &d).unwrap();
+            assert!(p.refused.is_empty(), "{:?}", p.refused);
+            let md = &p.model;
+            for gone in ["image", "land", "classes"] {
+                assert!(md.node(gone).is_none(), "{gone}");
+            }
+            let n = md.node("image_bands").expect("the rename");
+            assert_eq!(n.op, "stack.rename");
+            assert_eq!(n.params["names"], serde_json::json!(["", "blue", "green", "red", "nir", "swir1", "swir2"]));
+            assert_eq!(n.params["scale"], serde_json::json!(1e-4));
+            assert!(!n.params.contains_key("offset"));
+            assert_eq!(n.data.is_some(), marked);
+            assert!(matches!(n.inputs.get("stack"), Some(Wire::Ref(r)) if r == "$image"));
+            for c in ["segments", "features"] {
+                let read = md.node(c).unwrap().inputs.get("image");
+                assert!(matches!(read, Some(Wire::Ref(r)) if r == "image_bands.stack"), "{c}: {read:?}");
+            }
+            assert!(matches!(md.inputs.get("image"), Some(Input::Stack { bands: None, .. })));
+            assert_eq!(errors(&p, &d), Vec::<String>::new());
+            let out = run(&p, &d);
+            let Some(terraflux_ops::Value::Table(t)) = out.get("features.table") else { panic!("no features") };
+            assert!(t.columns.iter().any(|c| c == "mean_nir"), "{:?}", t.columns);
+            assert!(!t.columns.iter().any(|c| c.contains("B01") || c.contains("other")), "{:?}", t.columns);
+            // (B08 is 5000 to 5400 over 10 000)
+            let k = t.columns.iter().position(|c| c == "mean_nir").unwrap();
+            assert!(t.rows.iter().all(|row| (0.5..0.55).contains(&row[k])), "{:?}", t.rows[0]);
+        }
+    }
+
+    #[test]
+    fn the_roles_and_the_scale_can_be_chosen() {
+        let r = Registry::standard();
+        let d = dir("image-roles");
+        let f = write_bands(&d, "s2.tif", &S2, |b, _, _| 0.1 * (b + 1) as f64);
+        // reflectance already: no scale, and the names are the only change
+        assert_eq!(image_info(&f).unwrap().scale, Scale::None);
+        let p = plan(&image_model(true), &r, &one("image", choice(&f)), None, &d).unwrap();
+        let n = p.model.node("image_bands").unwrap();
+        assert!(!n.params.contains_key("scale"));
+        // the user's roles: the B01 is the blue, the B02 dropped; and the Landsat's scale
+        let mut c = choice(&f);
+        c.roles = Some(["blue", "other", "green", "red", "nir", "swir1", "other"].map(String::from).to_vec());
+        c.scale = Some(Scale::LandsatC2);
+        let p = plan(&image_model(true), &r, &one("image", c.clone()), None, &d).unwrap();
+        let n = p.model.node("image_bands").unwrap();
+        assert_eq!(n.params["names"], serde_json::json!(["blue", "", "green", "red", "nir", "swir1", ""]));
+        assert_eq!((n.params["scale"].as_f64(), n.params["offset"].as_f64()), (Some(0.000_027_5), Some(-0.2)));
+        // a role twice, a role that is none, a wrong number of roles, a band chosen, no role at all
+        let bad = |roles: &[&str]| {
+            let mut c = choice(&f);
+            c.roles = Some(roles.iter().map(|s| s.to_string()).collect());
+            plan(&image_model(true), &r, &one("image", c), None, &d).unwrap_err()
+        };
+        assert!(bad(&["blue", "blue", "red", "nir", "other", "other", "other"]).contains("two bands are blue"));
+        assert!(bad(&["blue", "xx", "red", "nir", "other", "other", "other"]).contains("no role"));
+        assert!(bad(&["blue"]).contains("1 roles for the 7 bands"));
+        assert!(bad(&["other"; 7]).contains("has a role"));
+        let mut c = choice(&f);
+        c.band = Some("B02".into());
+        assert!(plan(&image_model(true), &r, &one("image", c), None, &d).unwrap_err().contains("all its bands"));
+    }
+
+    #[test]
+    fn bands_with_no_names_have_no_roles_and_the_scale_is_read_from_the_file() {
+        let r = Registry::standard();
+        let d = dir("image-unnamed");
+        let f = write_bands(&d, "plain.tif", &[None, None, None], |b, _, _| b as f64);
+        assert_eq!(image_info(&f).unwrap().roles, ["other"; 3]);
+        let e = plan(&image_model(true), &r, &one("image", choice(&f)), None, &d).unwrap_err();
+        assert!(e.contains("has a role"), "{e}");
+        // Landsat's collection 2: SR_B names and digital numbers; Sentinel-2's 0 to 10 000; reflectance
+        let l8 = [Some("SR_B2"), Some("SR_B3"), Some("SR_B4"), Some("SR_B5"), Some("SR_B6"), Some("SR_B7")];
+        let f = write_bands(&d, "l8.tif", &l8, |b, row, _| 8000.0 + 1000.0 * b as f64 + row as f64);
+        let info = image_info(&f).unwrap();
+        assert_eq!(info.scale, Scale::LandsatC2);
+        assert_eq!(info.roles, ["blue", "green", "red", "nir", "swir1", "swir2"]);
+        let f = write_bands(&d, "s2.tif", &S2, |b, _, _| 100.0 * b as f64 + 300.0);
+        assert_eq!(image_info(&f).unwrap().scale, Scale::Div10000);
+        let f = write_bands(&d, "r.tif", &S2, |b, _, _| 0.05 * b as f64);
+        assert_eq!(image_info(&f).unwrap().scale, Scale::None);
+        // the roles of a file named blue, green...: nothing to rename and no scale: no node, the data on the input
+        let named = [Some("blue"), Some("green"), Some("red"), Some("nir")];
+        let f = write_bands(&d, "named.tif", &named, |b, _, _| 0.1 * b as f64);
+        let p = plan(&image_model(true), &r, &one("image", choice(&f)), None, &d).unwrap();
+        assert!(p.model.node("image_bands").is_none());
+        let Some(Input::Stack { data: Some(data), .. }) = p.model.inputs.get("image") else { panic!("no data") };
+        assert_eq!(data.kind, DataKind::Image);
+        assert_eq!(errors(&p, &d), Vec::<String>::new());
+    }
+
+    fn rules_model() -> Model {
+        let mut m = Model::new("rules");
+        let classes = serde_json::json!([
+            { "name": "water", "rule": "above(ndwi, 0, 0.2)", "colour": "#3366cc" },
+            { "name": "wet", "rule": "below(ndvi, 0.2, 0.4)" },
+            { "name": "green", "rule": "above(ndvi, 0.4, 0.6) and not border_to(\"water\") > 0.5", "parent": "wet" },
+            { "name": "rest" },
+        ]);
+        m.nodes.push(Node::new("rules", "objects.rules").param("classes", classes));
+        m
+    }
+
+    #[test]
+    fn the_users_classes_replace_the_names_and_colours_of_the_rules() {
+        let mut m = rules_model();
+        let start = rule_classes(&m);
+        assert_eq!(start.len(), 1);
+        let names: Vec<&str> = start[0].1.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["water", "wet", "green", "rest"]);
+        // the classes as they are: nothing done
+        assert_eq!(apply_classes(&mut m, "rules", &start[0].1).unwrap(), None);
+        let mut user = start[0].1.clone();
+        user[0].name = "lake".into();
+        user[0].colour = Some("#0000ff".into());
+        user.remove(3);
+        user.push(UserClass { from: None, name: "city".into(), colour: Some("#888888".into()) });
+        let said = apply_classes(&mut m, "rules", &user).unwrap().unwrap();
+        assert!(said.contains("1 added") && said.contains("1 taken away"), "{said}");
+        let list = m.node("rules").unwrap().params["classes"].as_array().unwrap().clone();
+        let name = |i: usize| list[i]["name"].as_str().unwrap().to_string();
+        assert_eq!((name(0), name(3)), ("lake".to_string(), "city".to_string()));
+        assert_eq!(list[0]["colour"], "#0000ff");
+        // the rule of "green" reads "lake" now; "city" has the rule 0; "green" is still wet's daughter
+        assert!(list[2]["rule"].as_str().unwrap().contains("border_to(\"lake\")"), "{}", list[2]);
+        assert_eq!((list[3]["rule"].as_str(), list[2]["parent"].as_str()), (Some("0"), Some("wet")));
+        // a name taken away: its daughters are roots; a swap of two names does not undo itself
+        let mut user = rule_classes(&rules_model())[0].1.clone();
+        user.remove(1);
+        let mut m = rules_model();
+        apply_classes(&mut m, "rules", &user).unwrap();
+        assert!(m.node("rules").unwrap().params["classes"][1].get("parent").is_none());
+        let mut user = rule_classes(&rules_model())[0].1.clone();
+        (user[0].name, user[2].name) = ("green".into(), "water".into());
+        let mut m = rules_model();
+        apply_classes(&mut m, "rules", &user).unwrap();
+        let rule = m.node("rules").unwrap().params["classes"][2]["rule"].as_str().unwrap().to_string();
+        assert!(rule.contains("border_to(\"green\")"), "{rule}");
+        // no name, a name twice, no class
+        let mut user = rule_classes(&rules_model())[0].1.clone();
+        user[1].name = " ".into();
+        assert!(apply_classes(&mut rules_model(), "rules", &user).is_err());
+        user[1].name = "water".into();
+        assert!(apply_classes(&mut rules_model(), "rules", &user).is_err());
+        assert!(apply_classes(&mut rules_model(), "rules", &[]).is_err());
     }
 }

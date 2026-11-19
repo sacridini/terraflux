@@ -708,10 +708,14 @@ pub enum DataKind {
     Mask,
     /// A stack of layers (the drivers).
     Stack,
+    /// A multispectral image (a stack of bands: blue, green, red, nir, swir1, swir2): the bands' roles and the
+    /// reflectance's scale are set by Use my data.
+    Image,
 }
 
 impl DataKind {
-    pub const ALL: [DataKind; 4] = [DataKind::Classes, DataKind::Values, DataKind::Mask, DataKind::Stack];
+    pub const ALL: [DataKind; 5] =
+        [DataKind::Classes, DataKind::Values, DataKind::Mask, DataKind::Stack, DataKind::Image];
 
     /// The kind as it is written in the model file.
     pub fn name(self) -> &'static str {
@@ -720,6 +724,7 @@ impl DataKind {
             DataKind::Values => "values",
             DataKind::Mask => "mask",
             DataKind::Stack => "stack",
+            DataKind::Image => "image",
         }
     }
 
@@ -1479,6 +1484,21 @@ params = { expression = "out x = a ** 2" }
         assert_eq!(m.node("new").unwrap().params["expression"], "out x = a ** 2");
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert!(notes[0].starts_with("node \"calc\": its expression was in map algebra's old syntax"), "{notes:?}");
+    }
+
+    #[test]
+    fn a_data_of_kind_image_round_trips() {
+        let mut m = Model::new("img");
+        let d = Data::new("a multispectral image", DataKind::Image);
+        m.nodes.push(Node::new("image", "nlm.image").input("classes", "$c").data(d.clone()));
+        assert_eq!(DataKind::parse("Image"), Some(DataKind::Image));
+        assert!(DataKind::ALL.contains(&DataKind::Image));
+        let toml = m.to_toml().unwrap();
+        assert!(toml.contains("kind = \"image\""), "{toml}");
+        assert_eq!(Model::from_toml(&toml).unwrap().nodes[0].data, Some(d.clone()));
+        let json = m.to_json().unwrap();
+        assert!(json.contains("\"kind\": \"image\""), "{json}");
+        assert_eq!(Model::from_json(&json).unwrap().nodes[0].data, Some(d));
     }
 
     fn sample() -> Model {

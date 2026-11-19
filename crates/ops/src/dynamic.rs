@@ -271,6 +271,62 @@ impl Operator for Classes {
     }
 }
 
+/// `stack.rename`: the layers of a stack named again, some dropped, the values scaled.
+struct Rename;
+
+impl Operator for Rename {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "stack.rename",
+            "A stack whose layers are named again, in order: `names` has a name for each layer of the input (the \
+             bands of a file), an empty name or null drops the layer. Optionally every layer kept is then multiplied \
+             by `scale` and `offset` is added (an image's digital numbers to reflectance: scale 0.0001; Landsat \
+             collection 2: scale 0.0000275, offset -0.2). Use it to give the bands of an image the names the model \
+             reads (blue, green, red, nir, swir1, swir2).",
+            Access::Local,
+        )
+        .input(PortSpec::new("stack", Type::Stack, "the stack (or the bands of a file)"))
+        .output(PortSpec::new("stack", Type::Stack, "the stack with the names, the layers kept"))
+        .param(PortSpec::new("names", Type::Any, "a list with a name for each layer, in order (\"\" or null: drop it)"))
+        .param(PortSpec::optional("scale", Type::Number, "every layer kept multiplied by this (default 1)"))
+        .param(PortSpec::optional("offset", Type::Number, "this added after the scale (default 0)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let s = args.stack("stack")?;
+        let names: Vec<Option<String>> = args
+            .opt_param("names")?
+            .ok_or_else(|| Error::msg(format!("node {:?}: give the layers' names", args.node)))?;
+        if names.len() != s.layers.len() {
+            return Err(Error::msg(format!(
+                "node {:?}: {} names for {} layers",
+                args.node,
+                names.len(),
+                s.layers.len()
+            )));
+        }
+        let scale: f64 = args.param("scale", 1.0)?;
+        let offset: f64 = args.param("offset", 0.0)?;
+        let (mut keys, mut layers) = (Vec::new(), Vec::new());
+        for (name, layer) in names.into_iter().zip(&s.layers) {
+            let Some(name) = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()) else { continue };
+            if keys.contains(&Key::Name(name.clone())) {
+                return Err(Error::msg(format!("node {:?}: two layers named {name:?}", args.node)));
+            }
+            keys.push(Key::Name(name));
+            layers.push(if scale == 1.0 && offset == 0.0 {
+                layer.clone()
+            } else {
+                Arc::new(layer.iter().map(|v| v * scale + offset).collect())
+            });
+        }
+        if keys.is_empty() {
+            return Err(Error::msg(format!("node {:?}: every layer is dropped", args.node)));
+        }
+        Ok(outputs([("stack", Value::Stack(Stack { grid: s.grid.clone(), keys, layers }))]))
+    }
+}
+
 /// `stack.extract_layer`: one layer of a stack taken out as a map.
 struct Layer;
 
@@ -343,6 +399,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(ShareOf));
     r.add(Arc::new(Set));
     r.add(Arc::new(Layer));
+    r.add(Arc::new(Rename));
     r.add(Arc::new(Of));
     r.add(Arc::new(TableOf));
     r.add(Arc::new(Classes));
@@ -504,6 +561,30 @@ mod tests {
         let mixed = serde_json::json!({ "columns": ["a"], "rows": [[1], ["x"]] });
         let args = Args { node: "t", inputs: Default::default(), params: mixed.as_object().unwrap() };
         assert!(TableOf.run(&mut Ctx::default(), &args).unwrap_err().to_string().contains("mixes"));
+    }
+
+    #[test]
+    fn rename_names_drops_and_scales_the_layers() {
+        let grid = Arc::new(terraflux_raster::Grid::new(2, 1));
+        let stack = Value::Stack(Stack {
+            grid: grid.clone(),
+            keys: ["B2", "B3", "B9"].iter().map(|n| Key::Name(n.to_string())).collect(),
+            layers: vec![Arc::new(vec![1000.0, 2000.0]), Arc::new(vec![3000.0, 4000.0]), Arc::new(vec![5.0, 6.0])],
+        });
+        let run = |params: serde_json::Value| {
+            let inputs = [("stack".to_string(), stack.clone())].into_iter().collect();
+            let args = Args { node: "t", inputs, params: params.as_object().unwrap() };
+            Rename.run(&mut Ctx::default(), &args)
+        };
+        let out = run(serde_json::json!({ "names": ["blue", "green", null], "scale": 0.0001 })).unwrap();
+        let Some(Value::Stack(s)) = out.get("stack") else { panic!("no stack") };
+        assert_eq!(s.keys, [Key::Name("blue".into()), Key::Name("green".into())]);
+        assert!((s.layers[0][0] - 0.1).abs() < 1e-12 && (s.layers[1][1] - 0.4).abs() < 1e-12);
+        let out = run(serde_json::json!({ "names": ["a", "b", ""], "scale": 0.5, "offset": -1 })).unwrap();
+        let Some(Value::Stack(s)) = out.get("stack") else { panic!("no stack") };
+        assert_eq!(s.layers[0][0], 499.0);
+        assert!(run(serde_json::json!({ "names": ["a", "b"] })).unwrap_err().to_string().contains("2 names for 3"));
+        assert!(run(serde_json::json!({ "names": ["a", "a", "c"] })).unwrap_err().to_string().contains("two layers"));
     }
 
     #[test]

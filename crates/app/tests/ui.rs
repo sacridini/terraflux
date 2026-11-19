@@ -11587,6 +11587,85 @@ fn use_my_data_puts_a_file_in_place_of_the_drawn_data_in_one_step() {
     assert_eq!(s.source, before, "one step of undo restores the template");
 }
 
+/// An image of the user's in place of the drawn one: the *Bands* page with the roles guessed from Sentinel-2's names
+/// and the scale detected, the classes of the rules on the *Classes* page, and *Apply* with the bands renamed.
+#[test]
+fn use_my_data_for_an_image_shows_the_bands_their_roles_and_the_scale() {
+    use terraflux_graph::{Data, DataKind, Model, Node};
+    let mut m = Model::new("image");
+    m.nodes.push(Node::new("land", "nlm.fbm").param("rows", 20).param("columns", 20));
+    m.nodes.push(Node::new("classes", "nlm.classify").input("map", "land.map").param("n", 3));
+    let image = Node::new("image", "nlm.image").input("classes", "classes.classes");
+    m.nodes.push(image.data(Data::new("a multispectral image", DataKind::Image)));
+    m.nodes.push(Node::new("segments", "segment.slic").input("image", "image.image").param("size", 4));
+    m.nodes.push(
+        Node::new("features", "objects.features").input("objects", "segments.objects").input("image", "image.image"),
+    );
+    let rules = serde_json::json!([{ "name": "water", "rule": "above(ndwi, 0, 0.2)" }, { "name": "rest" }]);
+    m.nodes.push(Node::new("rules", "objects.rules").input("objects", "features.objects").param("classes", rules));
+    let model = tmp("use-my-data-image.toml");
+    std::fs::write(&model, m.to_toml().unwrap()).unwrap();
+    // the file: Sentinel-2's bands, in 0 to 10 000
+    let names = ["B01", "B02", "B03", "B04", "B08", "B11", "B12"];
+    let mut g = terraflux_raster::Grid::new(20, 20);
+    g.transform = [1000.0, 10.0, 0.0, 1200.0, 0.0, -10.0];
+    let bands = names
+        .iter()
+        .enumerate()
+        .map(|(b, n)| terraflux_raster::Band {
+            name: Some(n.to_string()),
+            data: (0..400).map(|i| 1000.0 * (b + 1) as f64 + (i % 20) as f64 * 10.0).collect(),
+        })
+        .collect();
+    let file = tmp("use-my-data-s2.tif");
+    terraflux_raster::Raster { grid: g, bands, dtype: terraflux_raster::DataType::F32, nodata: None }
+        .write(&file)
+        .unwrap();
+
+    let mut h = harness(new_app(Some(model)));
+    h.run_steps(3);
+    h.state_mut().my_data = Some(terraflux_app::my_data_view::State::new());
+    h.run_steps(3);
+    let reg = terraflux_ops::Registry::standard();
+    {
+        let app = h.state_mut();
+        let (w, s) = (app.my_data.as_mut().unwrap(), app.session.as_mut().unwrap());
+        w.choose(s, &reg, "image", &file).unwrap();
+        w.run_now = false;
+    }
+    h.run_steps(3);
+    until(&mut h, "the check", |a| a.my_data.as_ref().unwrap().current());
+    let w = h.state().my_data.as_ref().unwrap();
+    assert!(w.can_apply(), "{:?}", w.findings().iter().map(|f| f.to_string()).collect::<Vec<_>>());
+    // the strip has the Bands page; Next goes to it
+    assert!(h.query_by_label("Bands").is_some());
+    h.get_by_label("Next").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Role").is_some(), "the table of roles");
+    assert!(h.query_by_label_contains("divided by 10 000").is_some(), "the scale");
+    // (a row for each band; the roles are in the combos, seen in the plan below)
+    for band in ["B01", "B02", "B03", "B04", "B08", "B11", "B12"] {
+        assert!(h.query_by_label(band).is_some(), "the band {band}");
+    }
+    // the roles the plan has: B01 left out, the rest by their names
+    let n = h.state().my_data.as_ref().unwrap().plan().unwrap().model.node("image_bands").unwrap().clone();
+    assert_eq!(n.params["names"], serde_json::json!(["", "blue", "green", "red", "nir", "swir1", "swir2"]));
+    shot(&mut h, "38-use-my-data-bands");
+    // the classes of the rules, then the review
+    h.get_by_label("Next").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("The classes of the image").is_some());
+    assert!(h.query_by_label("Add a class").is_some());
+    h.get_by_label("Next").click();
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("reflectance divided by 10 000").is_some(), "the notes");
+    h.get_by_label("Apply").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.node("image_bands").unwrap().op, "stack.rename");
+    assert!(s.source.nodes.iter().all(|n| !n.op.starts_with("nlm.")));
+}
+
 /// Dinamica EGO's template with the user's data: one file of bands for the two dates (the second date offered the
 /// same file, in its next band), a file of drivers, the steps set on the Parameters page, *Apply*, the run, and one
 /// undo to the template.

@@ -1122,6 +1122,7 @@ const PHRASES: &[(&str, &str)] = &[
     ),
     ("stack.classes", "<stack> with its layers taken as classes or transitions."),
     ("stack.extract_layer", "The layer {layer} of <stack>."),
+    ("stack.rename", "<stack> with its layers named {names}[, multiplied by {scale}][ plus {offset}]."),
     ("stack.reduce", "The {stat} of the layers of <maps> at each cell."),
     ("stats.getis_ord", "The Getis-Ord Gi* hot and cold spots of <map>[, {contiguity} neighbours]."),
     (

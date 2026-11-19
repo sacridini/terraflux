@@ -284,6 +284,96 @@ pub fn presets(names: &[String]) -> Vec<(String, [usize; 3])> {
     out
 }
 
+/// The roles of an image's bands the OBIA operators and templates read.
+pub const ROLES: [&str; 6] = ["blue", "green", "red", "nir", "swir1", "swir2"];
+
+/// The role of each band of an image by its name: `blue`, `green`, `red`, `nir`, `swir1`, `swir2`, or `other`.
+/// A name that says it (`blue`, `nir08`, `swir16`, `swir22`) is taken as it is; else the number of the band by the
+/// sensor the names tell: Sentinel-2 (B02 blue, B03 green, B04 red, B08 nir, B11 swir1, B12 swir2; B8A is `other`
+/// when a B08 is there) or Landsat 8/9 (SR_B2 to SR_B7), which is also taken when a B5 is there without a B8 or a
+/// B11. A role is given to one band (the first): a second is `other`.
+pub fn band_roles(names: &[String]) -> Vec<&'static str> {
+    let ids: Vec<Option<String>> = names.iter().map(|n| band_id(n)).collect();
+    let find = |id: &str| ids.iter().position(|x| x.as_deref() == Some(id));
+    let landsat = find("10").is_some()
+        || names.iter().any(|n| n.to_lowercase().contains("sr_b"))
+        || (find("5").is_some() && find("8").is_none() && find("11").is_none() && find("12").is_none());
+    let sentinel_table: [&str; 13] = ["", "", "blue", "green", "red", "", "", "", "nir", "", "", "swir1", "swir2"];
+    let landsat_table: [&str; 8] = ["", "", "blue", "green", "red", "nir", "swir1", "swir2"];
+    let by_word = |n: &str| -> Option<&'static str> {
+        n.to_lowercase().split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).find_map(|w| {
+            Some(match w {
+                "blue" => "blue",
+                "green" => "green",
+                "red" => "red",
+                "nir" | "nir08" | "nir09" | "nir1" => "nir",
+                "swir1" | "swir16" | "swir" => "swir1",
+                "swir2" | "swir22" => "swir2",
+                _ => return None,
+            })
+        })
+    };
+    let mut out: Vec<&'static str> = Vec::new();
+    for (n, id) in names.iter().zip(&ids) {
+        let by_id = id.as_ref().and_then(|i| i.parse::<usize>().ok()).and_then(|k| {
+            let t: &[&str] = if landsat { &landsat_table } else { &sentinel_table };
+            t.get(k).copied().filter(|r| !r.is_empty())
+        });
+        let role = by_word(n).or(by_id).unwrap_or("other");
+        out.push(if role != "other" && out.contains(&role) { "other" } else { role });
+    }
+    out
+}
+
+/// The scale an image's reflectance is stored in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Scale {
+    /// 0 to 1 already.
+    #[default]
+    None,
+    /// 0 to 10 000 (Sentinel-2 L2A, most products): divided by 10 000.
+    Div10000,
+    /// Landsat collection 2 level 2 (digital numbers up to 65 535): `DN * 0.0000275 - 0.2`.
+    LandsatC2,
+}
+
+impl Scale {
+    pub const ALL: [Scale; 3] = [Scale::None, Scale::Div10000, Scale::LandsatC2];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Scale::None => "none (already 0 to 1)",
+            Scale::Div10000 => "divided by 10 000",
+            Scale::LandsatC2 => "Landsat collection 2 (x 0.0000275 - 0.2)",
+        }
+    }
+
+    /// The multiplier and the offset: `value * scale + offset`.
+    pub fn factors(self) -> (f64, f64) {
+        match self {
+            Scale::None => (1.0, 0.0),
+            Scale::Div10000 => (1e-4, 0.0),
+            Scale::LandsatC2 => (0.000_027_5, -0.2),
+        }
+    }
+
+    /// The scale the bands' names and the greatest value of the image tell: values up to 1.5 are reflectance;
+    /// Landsat's `SR_B2`... names with larger ones, collection 2; other larger values are 0 to 10 000.
+    pub fn detect(names: &[String], max: f64) -> Scale {
+        let c2 = names.iter().any(|n| {
+            let n = n.to_lowercase();
+            n.find("sr_b").is_some_and(|i| n[i + 4..].starts_with(|c: char| c.is_ascii_digit()))
+        });
+        if !max.is_finite() || max <= 1.5 {
+            Scale::None
+        } else if c2 {
+            Scale::LandsatC2
+        } else {
+            Scale::Div10000
+        }
+    }
+}
+
 /// What the 2nd to 98th percentiles of the bands are, worked out by threads from a sample of each (as the looks of
 /// the maps are) and kept by the band: asked for again and again by the frames, it costs nothing once it is there.
 #[derive(Default)]
@@ -428,6 +518,40 @@ mod tests {
         assert_eq!(Rgb::first(&names(&["B2", "B3", "B4"])).bands, [2, 1, 0]);
         assert_eq!(Rgb::first(&names(&["x", "y", "z", "w"])).bands, [0, 1, 2]);
         assert_eq!(Rgb::first(&names(&["B3", "B4", "B8"])).bands, [0, 1, 2]);
+    }
+
+    #[test]
+    fn the_roles_of_the_bands_of_sentinel_2_and_landsat() {
+        let roles = |v: &[&str]| band_roles(&names(v));
+        assert_eq!(
+            roles(&["B01", "B02", "B03", "B04", "B05", "B08", "B8A", "B11", "B12"]),
+            ["other", "blue", "green", "red", "other", "nir", "other", "swir1", "swir2"]
+        );
+        assert_eq!(roles(&["B2", "B3", "B4", "B8"]), ["blue", "green", "red", "nir"]);
+        assert_eq!(
+            roles(&["LC08_SR_B1", "SR_B2", "SR_B3", "SR_B4", "SR_B5", "SR_B6", "SR_B7"]),
+            ["other", "blue", "green", "red", "nir", "swir1", "swir2"]
+        );
+        // Landsat without a B8 or a B11: its B5 is the nir
+        assert_eq!(roles(&["B2", "B3", "B4", "B5"]), ["blue", "green", "red", "nir"]);
+        // names that say it, STAC's too; a role once only
+        assert_eq!(roles(&["Blue", "green", "RED", "nir08", "swir16", "swir22"]), ROLES);
+        assert_eq!(roles(&["red", "red"]), ["red", "other"]);
+        // no names: none
+        assert_eq!(roles(&["0", "1", "2"]), ["other"; 3]);
+        assert_eq!(roles(&["1997", "2011"]), ["other"; 2]);
+    }
+
+    #[test]
+    fn the_scale_is_told_by_the_values_and_the_names() {
+        let n = names(&["SR_B2", "SR_B3"]);
+        assert_eq!(Scale::detect(&n, 0.9), Scale::None);
+        assert_eq!(Scale::detect(&n, 21000.0), Scale::LandsatC2);
+        assert_eq!(Scale::detect(&names(&["B02"]), 9500.0), Scale::Div10000);
+        assert_eq!(Scale::detect(&names(&["sr_band2"]), 9500.0), Scale::Div10000);
+        assert_eq!(Scale::detect(&names(&["B02"]), f64::NEG_INFINITY), Scale::None);
+        let (k, off) = Scale::LandsatC2.factors();
+        assert!((20000.0 * k + off - 0.35).abs() < 1e-9);
     }
 
     #[test]
