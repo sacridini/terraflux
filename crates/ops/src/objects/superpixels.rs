@@ -46,14 +46,10 @@ pub(super) struct Prep {
     pub(super) x: Vec<f64>,
 }
 
-pub(super) fn prep(l: &Layers, standardise: bool) -> Prep {
-    let (w, h, nb) = (l.grid.width, l.grid.height, l.data.len());
-    let n = w * h;
-    let valid: Vec<bool> = (0..n).into_par_iter().map(|i| l.data.iter().any(|b| !b[i].is_nan())).collect();
-    // each band's mean and scale, the bands in parallel (a band's sums stay in the order of the cells)
-    let st: Vec<(f64, f64)> = l
-        .data
-        .par_iter()
+/// The mean and the standard deviation of each band over the cells with a value, the bands in parallel (a band's sums
+/// stay in the order of the cells). What [`prep`] standardises by, and what a window of the image is standardised by.
+pub(super) fn band_stats(data: &[Arc<Vec<f64>>]) -> Vec<(f64, f64)> {
+    data.par_iter()
         .map(|b| {
             let (mut s, mut c) = (0.0, 0usize);
             for &v in b.iter().filter(|v| !v.is_nan()) {
@@ -65,10 +61,20 @@ pub(super) fn prep(l: &Layers, standardise: bool) -> Prep {
             for &v in b.iter().filter(|v| !v.is_nan()) {
                 s2 += (v - mean) * (v - mean);
             }
-            let sd = if c > 0 { (s2 / c as f64).sqrt() } else { 0.0 };
-            // a band with no spread has nothing to tell cells apart: its z-scores are 0
-            (mean, if standardise && sd > 0.0 { 1.0 / sd } else { 1.0 })
+            (mean, if c > 0 { (s2 / c as f64).sqrt() } else { 0.0 })
         })
+        .collect()
+}
+
+pub(super) fn prep(l: &Layers, standardise: bool) -> Prep {
+    let (w, h, nb) = (l.grid.width, l.grid.height, l.data.len());
+    let n = w * h;
+    let valid: Vec<bool> = (0..n).into_par_iter().map(|i| l.data.iter().any(|b| !b[i].is_nan())).collect();
+    // each band's mean and scale, the bands in parallel (a band's sums stay in the order of the cells)
+    let st: Vec<(f64, f64)> = band_stats(&l.data)
+        .into_iter()
+        // a band with no spread has nothing to tell cells apart: its z-scores are 0
+        .map(|(mean, sd)| (mean, if standardise && sd > 0.0 { 1.0 / sd } else { 1.0 }))
         .collect();
     let mut x = vec![0.0; n * nb];
     const CHUNK: usize = 4096;

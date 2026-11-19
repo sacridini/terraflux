@@ -26,6 +26,15 @@ fn model() -> Model {
             .param("nlmr_compat", false),
     );
     m.nodes.push(Node::new("fine", "segment.multiresolution").input("image", "land.map").param("scale", 0.02));
+    // other segmenters with sliders: SLIC, a chessboard and the merge of its squares by their difference
+    m.nodes.push(Node::new("slic", "segment.slic").input("image", "land.map").param("size", 10));
+    m.nodes.push(Node::new("chess", "segment.chessboard").input("image", "land.map").param("size", 6));
+    m.nodes.push(
+        Node::new("diff", "segment.spectral_difference")
+            .input("objects", "chess.objects")
+            .input("image", "land.map")
+            .param("max_difference", 0.001),
+    );
     // two classifications of the same objects (a different limit for "big")
     m.nodes.push(Node::new("cls", "nlm.classify").param("n", 4).input("map", "land.map"));
     m.nodes.push(Node::new("seg", "segment.from_map").input("map", "cls.classes"));
@@ -121,7 +130,7 @@ fn a_slider_previews_the_part_in_view_and_apply_writes_the_node() {
     let st = live_segment::state(&h.ctx, "viewer", "fine");
     assert!(st.lock().unwrap().preview.is_none());
     // the scale slider moved to a coarser scale: the part in view is segmented in a thread
-    st.lock().unwrap().scale = 0.5;
+    st.lock().unwrap().values[0] = 0.5;
     until(&mut h, "the preview", |h| {
         let _ = h;
         st.lock().unwrap().preview.is_some()
@@ -146,8 +155,8 @@ fn a_slider_previews_the_part_in_view_and_apply_writes_the_node() {
         h.run_steps(2);
         h.get_by_label(&text).click();
         h.run_steps(3);
-        assert!((st.lock().unwrap().scale - m).abs() < 1e-12, "the slider is at {m}");
-        st.lock().unwrap().scale = 0.5;
+        assert!((st.lock().unwrap().values[0] - m).abs() < 1e-12, "the slider is at {m}");
+        st.lock().unwrap().values[0] = 0.5;
         h.run_steps(2);
     }
     // Apply: the node has the values, as one step of undo
@@ -168,6 +177,70 @@ fn a_slider_previews_the_part_in_view_and_apply_writes_the_node() {
         terraflux_app::builder::undo_redo(s, false);
     }
     assert_eq!(param(&h, "fine", "scale"), Some(0.02), "undo puts the scale back");
+}
+
+#[test]
+fn a_slic_slider_previews_the_whole_small_image_and_apply_writes_the_size() {
+    let mut h = harness("objects-live-slic");
+    run_and_show(&mut h, "slic", "objects");
+    until(&mut h, "the panel", |h| has(h, "LIVE SEGMENTATION"));
+    let full = objects_of(&h, "slic", "objects");
+    let st = live_segment::state(&h.ctx, "viewer", "slic");
+    assert_eq!(st.lock().unwrap().values, [10.0, 1.0], "the node's size, and SLIC's own compactness");
+    // a smaller size: more superpixels, of the whole (small) image whatever the view
+    st.lock().unwrap().values[0] = 6.0;
+    until(&mut h, "the preview", |_| st.lock().unwrap().preview.is_some());
+    {
+        let l = st.lock().unwrap();
+        let p = l.preview.as_ref().unwrap();
+        assert!(p.objects.count > full.count, "{} against {}", p.objects.count, full.count);
+        assert_eq!((p.win.width, p.win.height, p.step), (80, 60, 1), "the whole image, read whole");
+        assert!(l.touched());
+    }
+    until(&mut h, "the outlines", |h| h.state().session.as_ref().unwrap().preview_view.objects_drawn() >= 2);
+    until(&mut h, "its text", |h| has(h, "preview: "));
+    // Apply writes the size as a whole number, one step of undo
+    assert_eq!(param(&h, "slic", "size"), Some(10.0));
+    for _ in 0..6 {
+        if param(&h, "slic", "size") == Some(6.0) {
+            break;
+        }
+        h.get_by_label("Apply").click();
+        h.run_steps(4);
+    }
+    assert_eq!(param(&h, "slic", "size"), Some(6.0));
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let n = s.source.nodes.iter().find(|n| n.id == "slic").unwrap();
+        assert!(n.params["size"].is_i64() || n.params["size"].is_u64(), "an integer: {:?}", n.params["size"]);
+        assert!(!n.params.contains_key("compactness"), "the compactness at SLIC's own default is not written");
+        assert!(s.history.can_undo());
+    }
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::undo_redo(s, false);
+    }
+    assert_eq!(param(&h, "slic", "size"), Some(10.0), "undo puts the size back");
+}
+
+#[test]
+fn a_spectral_difference_fed_by_a_chessboard_previews_its_merged_squares() {
+    let mut h = harness("objects-live-difference-merge");
+    run_and_show(&mut h, "diff", "objects");
+    until(&mut h, "the panel", |h| has(h, "LIVE SEGMENTATION"));
+    let squares = objects_of(&h, "chess", "objects");
+    let st = live_segment::state(&h.ctx, "viewer", "diff");
+    assert_eq!(st.lock().unwrap().values, [0.001]);
+    // a looser limit merges neighbouring squares of alike tone
+    st.lock().unwrap().values[0] = 0.3;
+    until(&mut h, "the preview", |_| {
+        let l = st.lock().unwrap();
+        l.preview.is_some() || l.error.is_some()
+    });
+    let l = st.lock().unwrap();
+    assert!(l.error.is_none(), "{:?}", l.error);
+    let p = l.preview.as_ref().unwrap();
+    assert!(p.objects.count > 0 && p.objects.count < squares.count, "{} against {}", p.objects.count, squares.count);
 }
 
 #[test]

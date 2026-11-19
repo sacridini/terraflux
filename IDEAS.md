@@ -4474,6 +4474,10 @@ dependências: 6, 2, 1, 4, 3, 7, 5, 8.
   fora. Testes: `segment_window_op` na janela inteira igual à execução do operador (o hash dos rótulos), para cada um;
   `knobs` cobre todos; `apply` grava o `size` inteiro, um passo de desfazer; no `--test app`, o slider do SLIC mostra
   a prévia e o *Apply* grava.
+  **Feito** (Unreleased): `live_segment.rs` (`knobs(op)`, `Job::Op`, `plan_for`: a imagem de até 1 milhão de células, 250 mil nos
+  lentos, é segmentada inteira, senão a parte à vista), `segment_window_op` e `Whole` em `ops/objects/window.rs`, o parâmetro `ranges`
+  do region growing. Os limiares do threshold vêm da imagem inteira (lida a cada poucas células); `h` e `compactness` do
+  watershed e `k` do Felzenszwalb também são ajustados pelo passo.
 - **4. Comparar segmentadores (M, depois do 1).** `segment_compare.rs`, uma janela aberta do painel da segmentação ao
   vivo: um worker roda os escolhidos um depois do outro pelo `segment_window_op` na mesma janela (com os ajustes de um
   nó existente daquela imagem, ou os padrões da tabela); miniaturas com o `objects_view::outline_image` sobre a

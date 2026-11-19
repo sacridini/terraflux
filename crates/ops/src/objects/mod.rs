@@ -48,7 +48,7 @@ pub use resolve::{Verdict, arbitrate, explain_cell};
 pub use rules::{RuleClass, leaves, tree};
 pub use rows::{DiskLayers, FeatureColumns, FeatureJob, FeatureTask};
 pub use tiles::{TileCores, TileJob};
-pub use window::{Window, WindowSettings, esp_window, segment_window};
+pub use window::{Whole, Window, WindowSettings, esp_window, segment_window, segment_window_op, window_op};
 
 pub fn register(r: &mut Registry) {
     segment::register(r);

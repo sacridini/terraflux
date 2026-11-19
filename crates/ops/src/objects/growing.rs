@@ -96,8 +96,17 @@ const AHEAD: usize = 4;
 
 /// The scaling of each band to 0-1: its lowest value and 1 / range (0 for a band of one value or none).
 fn scales(l: &Layers) -> Vec<(f64, f64)> {
-    l.data
-        .par_iter()
+    ranges_of(&l.data).iter().map(|r| scale_of(*r)).collect()
+}
+
+/// The scaling of a band from its range `[lowest, highest]`.
+fn scale_of([lo, hi]: [f64; 2]) -> (f64, f64) {
+    if lo < hi { (lo, 1.0 / (hi - lo)) } else { (lo, 0.0) }
+}
+
+/// The range of each band, its lowest and highest value with a value (infinite and reversed for a band with none).
+pub(super) fn ranges_of(data: &[Arc<Vec<f64>>]) -> Vec<[f64; 2]> {
+    data.par_iter()
         .map(|b| {
             let (lo, hi) = b
                 .par_chunks(1 << 16)
@@ -112,7 +121,7 @@ fn scales(l: &Layers) -> Vec<(f64, f64)> {
                     (lo, hi)
                 })
                 .reduce(|| (f64::INFINITY, f64::NEG_INFINITY), |a, b| (a.0.min(b.0), a.1.max(b.1)));
-            if lo < hi { (lo, 1.0 / (hi - lo)) } else { (lo, 0.0) }
+            [lo, hi]
         })
         .collect()
 }
@@ -667,6 +676,12 @@ impl Operator for RegionGrowing {
         ))
         .param(PortSpec::optional("seed", Type::Integer, "the seed of the order of the visits (default 0)"))
         .param(PortSpec::optional("neighbours", Type::Integer, "which cells touch: 4 (default) or 8").choices([4, 8]))
+        .param(PortSpec::optional(
+            "ranges",
+            Type::Any,
+            "a list of [lowest, highest], one for each band: the range the 0-1 scaling uses instead of the image's \
+             own (a part of an image, or another date, scaled as the whole)",
+        ))
     }
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -735,7 +750,20 @@ impl Operator for RegionGrowing {
             }
             Some(v) => return Err(bad(format!("seeds: a {:?}, not objects or a map", v.ty()))),
         };
-        let sc = scales(&l);
+        let sc = match args.params.get("ranges") {
+            None | Some(serde_json::Value::Null) => scales(&l),
+            Some(v) => {
+                let r: Vec<[f64; 2]> = serde_json::from_value(v.clone())
+                    .map_err(|_| bad("ranges: a list of [lowest, highest], one for each band".into()))?;
+                if r.len() != l.data.len() || r.iter().any(|b| b.iter().any(|x| !x.is_finite())) {
+                    return Err(bad(format!(
+                        "ranges: {} finite pairs [lowest, highest], one for each band",
+                        l.data.len()
+                    )));
+                }
+                r.into_iter().map(scale_of).collect()
+            }
+        };
         let (mut g, labels) = match &seeds {
             None => Regions::from_cells(&l, &sc, &zone, eight, manhattan),
             Some(s) => {
