@@ -116,6 +116,52 @@ fn tiles_read_from_disk_are_the_tiles_read_from_memory() {
     std::fs::remove_dir_all(&d).ok();
 }
 
+/// A runner that does the tiles in this process, through the job a worker gets, and counts its calls.
+struct InProcess(std::sync::atomic::AtomicUsize);
+
+impl terraflux_ops::objects::TileCores for InProcess {
+    fn cores(&self, job: &terraflux_ops::objects::TileJob) -> terraflux_ops::Result<Vec<Vec<u32>>> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        // through a wire's form, as a worker would get it
+        let back: terraflux_ops::objects::TileJob = serde_json::from_str(&serde_json::to_string(job).unwrap()).unwrap();
+        let all: Vec<usize> = (0..back.tiles()).collect();
+        back.cores(&all)
+    }
+}
+
+#[test]
+fn tiles_given_to_a_runner_are_the_tiles_run_here() {
+    small_strips();
+    let d = dir("runner");
+    let path = d.join("img.tif");
+    write_image(&path, 150, 130, 3, 5, true);
+    let (disk, mem) = open(&path);
+    let runner = Arc::new(InProcess(Default::default()));
+    for (tile, margin, shape) in [(48, 12, 0.1), (64, 0, 0.3)] {
+        let p = serde_json::json!({ "scale": 25, "shape": shape, "tile": tile, "margin": margin, "seed": 3 });
+        let params = p.as_object().cloned().unwrap();
+        let args = |v: &Value| Args { node: "n", inputs: [("image".to_string(), v.clone())].into(), params: &params };
+        let r = Registry::standard();
+        let op = r.get("segment.multiresolution").unwrap();
+        let here = objects_of(&op.run(&mut Ctx::default(), &args(&disk)).unwrap());
+        let before = runner.0.load(Ordering::Relaxed);
+        let mut ctx = Ctx::default().with_tile_runner(Some(runner.clone()));
+        let there = objects_of(&op.run(&mut ctx, &args(&disk)).unwrap());
+        assert_eq!(runner.0.load(Ordering::Relaxed), before + 1, "the runner was not asked");
+        assert!(here.count > 4);
+        assert_eq!(here.labels, there.labels, "tile {tile} margin {margin}");
+        assert!(ctx.warnings.is_empty(), "{:?}", ctx.warnings);
+        // an image in memory runs here, with a warning
+        let before = runner.0.load(Ordering::Relaxed);
+        let mut ctx = Ctx::default().with_tile_runner(Some(runner.clone()));
+        let mem_out = objects_of(&op.run(&mut ctx, &args(&mem)).unwrap());
+        assert_eq!(runner.0.load(Ordering::Relaxed), before);
+        assert_eq!(mem_out.labels, here.labels);
+        assert!(ctx.warnings.iter().any(|w| w.contains("raster.read")), "{:?}", ctx.warnings);
+    }
+    std::fs::remove_dir_all(&d).ok();
+}
+
 /// Every column of two tables equal: the ones from sums within `tol`, the rest exactly.
 fn same_tables(a: &Table, b: &Table, tol: f64) -> usize {
     assert_eq!(a.columns, b.columns);

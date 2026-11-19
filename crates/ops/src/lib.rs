@@ -168,18 +168,30 @@ pub struct Ctx<'a> {
     watch: Option<Watch<'a>>,
     stopped: bool,
     check: Option<Arc<check::Check>>,
+    tile_runner: Option<Arc<dyn objects::TileCores>>,
 }
 
 impl<'a> Ctx<'a> {
     /// A context whose progress `watch` is told (the engine's, which shows it and says when the run is stopped).
     pub fn watched(watch: Watch<'a>) -> Self {
-        Ctx { warnings: Vec::new(), watch: Some(watch), stopped: false, check: None }
+        Ctx { warnings: Vec::new(), watch: Some(watch), stopped: false, check: None, tile_runner: None }
     }
 
     /// The same context in a check run (a part of the map, or a coarser resolution): `None` for a normal run.
     pub fn checked(mut self, check: Option<Arc<check::Check>>) -> Self {
         self.check = check;
         self
+    }
+
+    /// The same context with a runner for the tiles of `segment.multiresolution` (a cluster), if there is one.
+    pub fn with_tile_runner(mut self, runner: Option<Arc<dyn objects::TileCores>>) -> Self {
+        self.tile_runner = runner;
+        self
+    }
+
+    /// Where the tiles of `segment.multiresolution` run besides this machine, if anywhere.
+    pub fn tile_runner(&self) -> Option<&Arc<dyn objects::TileCores>> {
+        self.tile_runner.as_ref()
     }
 
     /// The check run this operator runs in, if it is one.
@@ -371,17 +383,29 @@ pub struct Registry {
     ops: BTreeMap<String, Arc<dyn Operator>>,
     sigs: BTreeMap<String, Arc<OpSignature>>,
     check: Option<Arc<check::Check>>,
+    tile_runner: Option<Arc<dyn objects::TileCores>>,
 }
 
 impl Registry {
     pub fn empty() -> Self {
-        Registry { ops: BTreeMap::new(), sigs: BTreeMap::new(), check: None }
+        Registry { ops: BTreeMap::new(), sigs: BTreeMap::new(), check: None, tile_runner: None }
     }
 
     /// The same operators for a check run: the engine tells each operator it runs in it ([`Ctx::check`]).
     pub fn checked(mut self, check: check::Check) -> Self {
         self.check = (!check.is_none()).then(|| Arc::new(check));
         self
+    }
+
+    /// The same operators with a runner for the tiles of `segment.multiresolution` (a cluster).
+    pub fn with_tile_runner(mut self, runner: Option<Arc<dyn objects::TileCores>>) -> Self {
+        self.tile_runner = runner;
+        self
+    }
+
+    /// The runner of the tiles of `segment.multiresolution`, if there is one.
+    pub fn tile_runner(&self) -> Option<&Arc<dyn objects::TileCores>> {
+        self.tile_runner.as_ref()
     }
 
     /// The check run the operators run in, if it is one.

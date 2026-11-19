@@ -1105,6 +1105,13 @@ impl Engine {
         Engine { registry: Registry::standard().checked(check) }
     }
 
+    /// The same engine with the tiles of `segment.multiresolution` run by `runner` (a cluster) when the image is on
+    /// disk.
+    pub fn with_tile_runner(mut self, runner: Option<std::sync::Arc<dyn terraflux_ops::objects::TileCores>>) -> Engine {
+        self.registry = self.registry.with_tile_runner(runner);
+        self
+    }
+
     /// The check run this engine does, if it does one.
     pub fn check(&self) -> Option<&terraflux_ops::check::Check> {
         self.registry.check().map(|c| &**c)
@@ -2057,7 +2064,9 @@ impl Engine {
                 }
                 !obs.cancelled()
             };
-            let mut ctx = Ctx::watched(&mut watch).checked(self.registry.check().cloned());
+            let mut ctx = Ctx::watched(&mut watch)
+                .checked(self.registry.check().cloned())
+                .with_tile_runner(self.registry.tile_runner().cloned());
             let out = op.run(&mut ctx, &args);
             (out, std::mem::take(&mut ctx.warnings), ctx.was_stopped())
         };

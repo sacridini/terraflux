@@ -18,15 +18,18 @@
 //! sums of the pieces (count, sum, sum of squares per band), never the whole. Only the labels (4 bytes a cell) are
 //! whole in memory. From disk or from memory the objects are the same.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use terraflux_raster::Grid;
 
-use super::big::Source;
+use super::big::{Layered, Part, Source};
 use super::multiresolution::{Cost, merge_level, merge_level_src};
 use super::{NO_REGION, Objects};
-use crate::Result;
+use crate::files::Rasters;
+use crate::{Error, Result};
 
 /// The cells above which a run is tiled by default, and the side of the tiles then.
 const AUTO_CELLS: usize = 4_000_000;
@@ -54,6 +57,113 @@ fn tile_seed(seed: u64, k: usize) -> u64 {
     seed ^ (k as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15)
 }
 
+/// The core of tile `k` (labels of the objects of its window, row by row), the window read from `src`.
+#[allow(clippy::too_many_arguments)]
+fn tile_core(
+    src: &dyn Source,
+    (w, h): (usize, usize),
+    cost: &Cost,
+    scale: f64,
+    mutual: bool,
+    seed: u64,
+    max_passes: u32,
+    t: usize,
+    margin: usize,
+    k: usize,
+) -> Result<Vec<u32>> {
+    let nx = w.div_ceil(t);
+    let (r0, c0) = ((k / nx) * t, (k % nx) * t);
+    let (r1, c1) = ((r0 + t).min(h), (c0 + t).min(w));
+    let (wr0, wc0) = (r0.saturating_sub(margin), c0.saturating_sub(margin));
+    let (wr1, wc1) = ((r1 + margin).min(h), (c1 + margin).min(w));
+    let ww = wc1 - wc0;
+    let sub = src.window(wr0, wr1, wc0, wc1)?;
+    let sub_grid = Arc::new(Grid::new(ww, wr1 - wr0));
+    let o = merge_level(&sub_grid, &sub, cost, scale, mutual, tile_seed(seed, k), max_passes, None).objects;
+    let mut core = Vec::with_capacity((r1 - r0) * (c1 - c0));
+    for r in r0..r1 {
+        let at = (r - wr0) * ww + (c0 - wc0);
+        core.extend_from_slice(&o.labels[at..at + (c1 - c0)]);
+    }
+    Ok(core)
+}
+
+/// The first pass of a run on rasters on disk, as another machine can do it: where the files are, which layers make
+/// the image, and the settings of the segmentation. Its tiles are numbered row by row.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TileJob {
+    pub files: Vec<PathBuf>,
+    /// The layers of the image, by their number among the layers of the files.
+    pub layers: Vec<usize>,
+    /// The no-data value of every layer of the files.
+    pub nodata: Vec<Option<f64>>,
+    pub width: usize,
+    pub height: usize,
+    pub colour: f64,
+    pub compact: f64,
+    pub weights: Vec<f64>,
+    pub scale: f64,
+    pub mutual: bool,
+    pub seed: u64,
+    pub max_passes: u32,
+    pub tile: usize,
+    pub margin: usize,
+}
+
+impl TileJob {
+    /// How many tiles the job has.
+    pub fn tiles(&self) -> usize {
+        self.width.div_ceil(self.tile) * self.height.div_ceil(self.tile)
+    }
+
+    /// The cores of some tiles (by number), in parallel on this machine: what a worker does.
+    pub fn cores(&self, tiles: &[usize]) -> Result<Vec<Vec<u32>>> {
+        crate::threads::ensure();
+        let name = self.files.first().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        let mut r = Rasters::open_files(&name, self.files.clone(), None, None)?;
+        if r.layers.len() != self.nodata.len() || self.layers.iter().any(|&l| l >= r.layers.len()) {
+            return Err(Error::msg(format!("{name}: not the rasters the job was made for")));
+        }
+        for (l, nd) in r.layers.iter_mut().zip(&self.nodata) {
+            l.nodata = *nd;
+        }
+        let r = Arc::new(r);
+        if (r.grid.width, r.grid.height) != (self.width, self.height) {
+            return Err(Error::msg(format!("{name}: not the grid the job was made for")));
+        }
+        let parts = self.layers.iter().map(|&l| Part::Disk(r.clone(), l)).collect();
+        let src = Layered::new(parts, self.width, self.height);
+        let cost = Cost { colour: self.colour, compact: self.compact, weights: self.weights.clone() };
+        let n = self.tiles();
+        tiles
+            .par_iter()
+            .map(|&k| {
+                if k >= n {
+                    return Err(Error::msg(format!("no tile {k}")));
+                }
+                let dims = (self.width, self.height);
+                tile_core(
+                    &src,
+                    dims,
+                    &cost,
+                    self.scale,
+                    self.mutual,
+                    self.seed,
+                    self.max_passes,
+                    self.tile,
+                    self.margin,
+                    k,
+                )
+            })
+            .collect()
+    }
+}
+
+/// What runs the first pass of the tiles elsewhere (a cluster): the cores of every tile of the job, in order.
+pub trait TileCores: Send + Sync {
+    fn cores(&self, job: &TileJob) -> Result<Vec<Vec<u32>>>;
+}
+
 /// The image segmented by tiles of side `t` with `margin` cells around each. The objects carry no table. The image
 /// is read from `src` by windows (a tile's with its margin) and by strips (the stitching): from disk, never whole.
 #[allow(clippy::too_many_arguments)]
@@ -67,30 +177,25 @@ pub(crate) fn merge_tiled(
     max_passes: u32,
     t: usize,
     margin: usize,
+    remote: Option<(&dyn TileCores, TileJob)>,
 ) -> Result<Objects> {
     let (w, h) = (grid.width, grid.height);
     let (nx, ny) = (w.div_ceil(t), h.div_ceil(t));
     crate::threads::ensure();
     // each tile's core, as the labels of the objects of its window (in order of tile, so any thread count is one run)
-    let cores: Vec<Vec<u32>> = (0..nx * ny)
-        .into_par_iter()
-        .map(|k| -> Result<Vec<u32>> {
-            let (r0, c0) = ((k / nx) * t, (k % nx) * t);
-            let (r1, c1) = ((r0 + t).min(h), (c0 + t).min(w));
-            let (wr0, wc0) = (r0.saturating_sub(margin), c0.saturating_sub(margin));
-            let (wr1, wc1) = ((r1 + margin).min(h), (c1 + margin).min(w));
-            let ww = wc1 - wc0;
-            let sub = src.window(wr0, wr1, wc0, wc1)?;
-            let sub_grid = Arc::new(Grid::new(ww, wr1 - wr0));
-            let o = merge_level(&sub_grid, &sub, cost, scale, mutual, tile_seed(seed, k), max_passes, None).objects;
-            let mut core = Vec::with_capacity((r1 - r0) * (c1 - c0));
-            for r in r0..r1 {
-                let at = (r - wr0) * ww + (c0 - wc0);
-                core.extend_from_slice(&o.labels[at..at + (c1 - c0)]);
+    let cores: Vec<Vec<u32>> = match remote {
+        Some((runner, job)) => {
+            let cores = runner.cores(&job)?;
+            if cores.len() != nx * ny {
+                return Err(Error::msg(format!("the cluster gave {} tiles of {}", cores.len(), nx * ny)));
             }
-            Ok(core)
-        })
-        .collect::<Result<_>>()?;
+            cores
+        }
+        None => (0..nx * ny)
+            .into_par_iter()
+            .map(|k| tile_core(src, (w, h), cost, scale, mutual, seed, max_passes, t, margin, k))
+            .collect::<Result<_>>()?,
+    };
     let mut region = vec![NO_REGION; w * h];
     for (k, core) in cores.iter().enumerate() {
         let (r0, c0) = ((k / nx) * t, (k % nx) * t);

@@ -514,6 +514,15 @@ impl Rasters {
         })
     }
 
+    /// The paths of the files, in order, for another machine to open the same rasters ([`Rasters::open_files`]);
+    /// none when one is a part of a file (a check run's), which only this run has.
+    pub fn paths(&self) -> Option<Vec<PathBuf>> {
+        if self.images.iter().any(|i| i.is_view()) {
+            return None;
+        }
+        Some(self.images.iter().map(|i| i.path()).collect())
+    }
+
     /// The same rasters, another layer the map.
     pub fn choose(&self, layer: usize) -> Rasters {
         Rasters {

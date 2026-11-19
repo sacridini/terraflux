@@ -19,6 +19,46 @@ use super::big::{Layered, Source, strips};
 use super::{NO_REGION, Objects, find};
 use crate::{Args, Ctx, Error, Operator, Outputs, Result, Table, Value, outputs};
 
+/// The first pass of a run on rasters on disk as a job for another machine: none for a part of a file (a check run).
+#[allow(clippy::too_many_arguments)]
+fn tile_job(
+    d: &super::big::Image,
+    cost: &Cost,
+    scale: f64,
+    mutual: bool,
+    seed: u64,
+    max_passes: u32,
+    tile: usize,
+    margin: usize,
+) -> Option<super::tiles::TileJob> {
+    let super::big::Part::Disk(r, _) = d.src.parts.first()? else { return None };
+    let layers = d
+        .src
+        .parts
+        .iter()
+        .map(|p| match p {
+            super::big::Part::Disk(_, l) => Some(*l),
+            super::big::Part::Mem(_) => None,
+        })
+        .collect::<Option<Vec<usize>>>()?;
+    Some(super::tiles::TileJob {
+        files: r.paths()?,
+        layers,
+        nodata: r.layers.iter().map(|l| l.nodata).collect(),
+        width: d.grid.width,
+        height: d.grid.height,
+        colour: cost.colour,
+        compact: cost.compact,
+        weights: cost.weights.clone(),
+        scale,
+        mutual,
+        seed,
+        max_passes,
+        tile,
+        margin,
+    })
+}
+
 /// What the cost of a fusion needs besides the regions.
 pub(crate) struct Cost {
     /// The weight of colour: 1 - shape.
@@ -573,8 +613,20 @@ impl Operator for Multiresolution {
                 ));
             };
             let m = super::tiles::margin_of(t, margin as usize);
-            let o =
-                super::tiles::merge_tiled(&d.grid, &d.src, &cost, scale, mutual, seed as u64, max_passes as u32, t, m)?;
+            let job = tile_job(&d, &cost, scale, mutual, seed as u64, max_passes as u32, t, m);
+            let remote = ctx.tile_runner().zip(job).map(|(r, j)| (&**r, j));
+            let o = super::tiles::merge_tiled(
+                &d.grid,
+                &d.src,
+                &cost,
+                scale,
+                mutual,
+                seed as u64,
+                max_passes as u32,
+                t,
+                m,
+                remote,
+            )?;
             let table = super::stats_table_src(&o, &d.names, &d.src)?;
             let o = Arc::new(o.with_table(table.clone())?);
             return Ok(outputs([
@@ -617,8 +669,24 @@ impl Operator for Multiresolution {
         {
             let m = super::tiles::margin_of(t, margin as usize);
             let src = Layered::mem(&l.data, &l.grid);
-            let o =
-                super::tiles::merge_tiled(&l.grid, &src, &cost, scale, mutual, seed as u64, max_passes as u32, t, m)?;
+            if ctx.tile_runner().is_some() {
+                ctx.warn(format!(
+                    "node {node:?}: the cluster reads rasters on disk: read the image with raster.read to segment it \
+                     there"
+                ));
+            }
+            let o = super::tiles::merge_tiled(
+                &l.grid,
+                &src,
+                &cost,
+                scale,
+                mutual,
+                seed as u64,
+                max_passes as u32,
+                t,
+                m,
+                None,
+            )?;
             let table = super::stats_table(&o, &l.names, &l.data);
             let o = Arc::new(o.with_table(table.clone())?);
             return Ok(outputs([
