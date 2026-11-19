@@ -46,6 +46,7 @@ mod objects_dl;
 mod objects_edit;
 mod objects_levels;
 mod objects_resolve;
+mod objects_split;
 mod objects_thematic;
 mod objects_temporal;
 mod objects_tiles;

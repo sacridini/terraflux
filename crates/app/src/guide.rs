@@ -365,6 +365,7 @@ bounds optional) and segment.quickshift (modes of the density in colour and posi
 segment.from_vector bring objects made elsewhere (a map of classes or labels, polygons). segment.optimize \
 runs a segmenter at a range of values of one setting and keeps the best by the variance inside the objects and \
 Moran's I (USPO), the table of scores beside it.
+   Touching objects (crowns, buildings, cells) are divided by objects.split: by the distance to the object's border (the cut is at the neck) or by a surface whose peaks are the centres (a height model); `h`, `min_size` and `max_neck` decide how many pieces it makes, `classes` which objects it works on. The pieces keep the class.
 3. Describe: objects.features with the image (and `more`: a height model, another date, a class map). `basic` (the \
 default) is the mean and the standard deviation of each band, NDVI, the area, the compactness and the texture's \
 homogeneity; ask for groups (spectral, shape, texture, context) or `all` when the rules need them. A layer given \

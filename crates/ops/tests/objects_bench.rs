@@ -210,3 +210,69 @@ fn objects_bench() {
         write_rates(&seen, list("BENCH_THREADS", "1,8").into_iter().max().unwrap_or(1));
     }
 }
+
+/// Many touching blobs: pairs of overlapping discs on a lattice (jittered, seeded), one object each pair.
+fn blobs(side: usize) -> Arc<Objects> {
+    let mut s = 11u64;
+    let step = 36usize;
+    let mut discs: Vec<(f64, f64, f64)> = Vec::new();
+    for gr in 0..side / step {
+        for gc in 0..side / step {
+            let (r, c) = ((gr * step + 18) as f64, (gc * step + 12) as f64);
+            let rad = 7.0 + lcg(&mut s) * 3.0;
+            discs.push((r, c, rad));
+            discs.push((r + (lcg(&mut s) - 0.5) * 4.0, c + rad * 1.5 + lcg(&mut s) * 2.0, 6.0 + lcg(&mut s) * 3.0));
+        }
+    }
+    let mut region = vec![terraflux_ops::objects::NO_REGION; side * side];
+    for &(cr, cc, rad) in &discs {
+        let (r0, r1) = ((cr - rad).max(0.0) as usize, ((cr + rad) as usize + 1).min(side));
+        let (c0, c1) = ((cc - rad).max(0.0) as usize, ((cc + rad) as usize + 1).min(side));
+        for r in r0..r1 {
+            for c in c0..c1 {
+                if (r as f64 - cr).powi(2) + (c as f64 - cc).powi(2) <= rad * rad {
+                    region[r * side + c] = 1;
+                }
+            }
+        }
+    }
+    Arc::new(Objects::from_regions(Arc::new(Grid::new(side, side)), &region, 4))
+}
+
+/// `objects.split` over many touching blobs, by distance and by a surface, on 1 and N threads (the same hash on both).
+#[test]
+#[ignore]
+fn objects_split_bench() {
+    let r = Registry::standard();
+    let list = |k: &str, d: &str| -> Vec<usize> {
+        std::env::var(k).unwrap_or(d.into()).split(',').filter_map(|x| x.parse().ok()).collect()
+    };
+    println!("
+{:<26} {:<16} {:<10} {:>7} {:>10} {:>9} {:>18}", "operator", "variant", "image", "threads", "seconds", "objects", "hash");
+    for side in list("BENCH_SIDES", "1000,2000") {
+        let o = blobs(side);
+        let z: Vec<f64> = (0..side * side).map(|i| ((i / side) as f64 * 0.31).sin() + ((i % side) as f64 * 0.23).cos()).collect();
+        let surface = Value::Map(terraflux_ops::Map::new(o.grid.clone(), z));
+        let cases = [
+            ("distance", serde_json::json!({ "min_size": 10 })),
+            ("distance-neck", serde_json::json!({ "min_size": 10, "max_neck": 1.0 })),
+            ("surface", serde_json::json!({ "by": "surface", "h": 0.3 })),
+        ];
+        for (variant, params) in cases {
+            for threads in list("BENCH_THREADS", "1,8") {
+                let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+                let mut inputs: std::collections::BTreeMap<String, Value> = [("objects".to_string(), Value::Objects(o.clone()))].into_iter().collect();
+                if variant == "surface" {
+                    inputs.insert("surface".to_string(), surface.clone());
+                }
+                let p = params.as_object().cloned().unwrap();
+                let args = Args { node: "n", inputs, params: &p };
+                let t = Instant::now();
+                let out = pool.install(|| r.get("objects.split").unwrap().run(&mut Ctx::default(), &args).unwrap());
+                let secs = t.elapsed().as_secs_f64();
+                let Value::Objects(s) = &out["objects"] else { panic!("objects") };
+                println!("{:<26} {variant:<16} {:<10} {threads:>7} {secs:>10.2} {:>9} {:>18x}", "objects.split", format!("{side}x{side}"), s.count, hash(s));
+            }
+        }
+    }
+}

@@ -531,6 +531,18 @@ pub const REFERENCES: &[Reference] = &[
         "10.1109/34.87344"
     ),
     paper!(
+        "carpenter2006",
+        ["Carpenter, A. E.", "Jones, T. R.", "Lamprecht, M. R.", "Clarke, C.", "Kang, I. H.", "Friman, O."],
+        true,
+        2006,
+        "CellProfiler: image analysis software for identifying and quantifying cell phenotypes",
+        "Genome Biology",
+        "7",
+        "10",
+        "R100",
+        "10.1186/gb-2006-7-10-r100"
+    ),
+    paper!(
         "campolongo2007",
         ["Campolongo, F.", "Cariboni, J.", "Saltelli, A."],
         false,
@@ -1232,6 +1244,13 @@ pub const METHODS: &[Method] = &[
         software_refs: &[],
     },
     Method {
+        ops: &["objects.split"],
+        name: "splitting of touching objects by the watershed of the distance to their border",
+        refs: &["vincent1991", "carpenter2006"],
+        software: "",
+        software_refs: &[],
+    },
+    Method {
         ops: &["segment.meanshift"],
         name: "mean shift segmentation into objects",
         refs: &["comaniciu2002"],
@@ -1737,6 +1756,7 @@ mod tests {
         assert_eq!(method_of("prioritize.zonation_project").unwrap().software, "Zonation 5");
         assert_eq!(method_of("prioritize.actions_raster").unwrap().refs, &["salgadorojas2020"]);
         assert_eq!(method_of("segment.watershed").unwrap().refs, &["vincent1991", "neubert2014"]);
+        assert_eq!(method_of("objects.split").unwrap().refs, &["vincent1991", "carpenter2006"]);
         assert_eq!(method_of("segment.scale").unwrap().refs, &["dragut2010", "dragut2014"]);
         assert_eq!(method_of("segment.optimize").unwrap().refs, &["espindola2006", "johnson2011"]);
         assert_eq!(method_of("ml.pca").unwrap().refs, &["pearson1901", "hotelling1933"]);

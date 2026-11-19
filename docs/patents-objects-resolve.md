@@ -226,3 +226,30 @@ Every output of `resolve` (argmax, threshold to unclassified, priority tie-break
 - The words "imprint"/"imprinting" appear nowhere in the code or the site.
 - Not offered: a pixel classifier learned from objects in one area and applied unsegmented in another with the argmax
   colours (the US10445557 family, to about 2035).
+
+---
+
+## 8. `objects.split` (2026-11-19)
+
+`objects.split` divides the objects that touch (tree crowns, buildings, cells, mounds) into pieces by the watershed of
+the distance from each cell to the object's border, or of a surface. It sits close to US 7,801,361 (section 1.2):
+filtering the cells of the objects of one class into a new layer and forming a second network from it. The design
+avoids both elements:
+
+- The distance is a computation inside the operator, for one object at a time, and is never a layer: no pixel values
+  are filtered into a new layer, and nothing is "linked" to a thematic class.
+- The pieces replace their object in the same level, with its class. There is no second network and no re-segmentation
+  of the cells of a class: the operator never takes the cells of the objects of one class out to segment them again
+  as a separate step, and the optional `classes` setting only chooses which objects are cut.
+- The `surface` is a map the user gives; it is read, not made from the objects.
+
+Prior art for the method, to be cited wherever it is described: the declumping of CellProfiler (Carpenter et al. 2006,
+Genome Biology 7:R100, doi:10.1186/gb-2006-7-10-r100: it splits touching objects by the watershed of the distance
+transform or of the intensity), the watershed by immersion of Vincent and Soille (1991, IEEE Transactions on Pattern
+Analysis and Machine Intelligence 13(6):583-598, doi:10.1109/34.87344), and the binary Watershed of ImageJ (the
+watershed of the Euclidean distance map). Both DOIs were checked with Crossref on 2026-11-19. The `max_neck` limit is
+the "length factor" of eCognition's watershed transformation, described in its Reference Book.
+
+Design rule to keep: do not add a template or a mode that takes the objects of one class, splits them, and classifies
+the pieces into a second class within the same flow (the chain that US 7,801,361 claims 25 and 28 read on, section
+3.3). Splitting a class's objects and keeping the class is fine.

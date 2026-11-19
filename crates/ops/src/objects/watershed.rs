@@ -90,7 +90,7 @@ fn around_at(i: usize, r: usize, c: usize, w: usize, h: usize, eight: bool, out:
 /// before it that touch it; when two meet the one with the higher minimum (the younger) ends, its depth being the level
 /// of the meeting less its minimum. Each area cut off by cells without a value keeps its lowest minimum whatever its
 /// depth. The marker of a minimum is its cells at its lowest value (a plateau is one marker).
-fn minima(p: &Prep, grad: &[f64], eight: bool, h: f64) -> Vec<Vec<usize>> {
+pub(super) fn minima(p: &Prep, grad: &[f64], eight: bool, h: f64) -> Vec<Vec<usize>> {
     let (w, hh) = (p.w, p.h);
     let n = w * hh;
     let mut order: Vec<(u64, u32)> =
@@ -199,7 +199,7 @@ fn given(p: &Prep, m: &[f64]) -> Vec<Vec<usize>> {
 /// The flooding: the markers' cells labelled (marker k with k + 1), then the cell of the lowest priority among those
 /// that touch a labelled one, the gradient plus `compact` times its distance to the centre of the marker it would
 /// join, ties to the cell queued first. Returns the label of each cell (0 none).
-fn flood(p: &Prep, grad: &[f64], markers: &[Vec<usize>], eight: bool, compact: f64) -> Vec<u32> {
+pub(super) fn flood(p: &Prep, grad: &[f64], markers: &[Vec<usize>], eight: bool, compact: f64) -> Vec<u32> {
     let (w, h) = (p.w, p.h);
     // the queue numbers its pushes in 32 bits, at most 8 a cell (`run` refuses bigger images)
     assert!(w * h < 1 << 28, "segment.watershed: an image of more than 2^28 cells");

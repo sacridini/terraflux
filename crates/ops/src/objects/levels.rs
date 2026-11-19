@@ -243,7 +243,7 @@ fn truth(c: Column) -> Result<Vec<bool>> {
 }
 
 /// The classes named, as their numbers (1-based).
-fn class_numbers(o: &Objects, names: &[String]) -> Result<BTreeSet<u32>> {
+pub(super) fn class_numbers(o: &Objects, names: &[String]) -> Result<BTreeSet<u32>> {
     names
         .iter()
         .map(|n| {

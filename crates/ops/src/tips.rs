@@ -754,6 +754,10 @@ pub const TIPS: &[(&str, &str)] = &[
          connect the image for a delete into the most similar neighbour and for the table of band means.",
     ),
     (
+        "objects.split",
+        "For crowns, buildings, cells and mounds that were segmented as one object. by distance cuts at the necks:          a centre must stand `h` (default one cell) above the saddle that joins it to a higher one, so raise `h` if          round objects split and lower it if a pinched one does not. by surface floods a map instead (a canopy height          model, the brightness: smooth it with `sigma` first when it is noisy) and `invert` is for dark centres.          `max_neck` keeps the objects whose parts are joined by a wide neck (a cut longer than max_neck times the          smaller piece's width is undone: 0.5 to 1 is usual), `min_size` sends the crumbs back to a neighbour piece,          and `classes` limits it to the objects of some classes. The pieces keep the class; the level above and the          other attributes are dropped, so run objects.features after it.",
+    ),
+    (
         "objects.nearest",
         "A few attributes, chosen with the feature space (objects.features), work better than many: every \
          attribute adds to the distance, and size and shape attributes can swamp the spectral ones, so name the \

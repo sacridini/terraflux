@@ -4645,7 +4645,7 @@ US7801361 e US8319793, até 2029 e 2031).
   - Testes: nenhum objeto atravessa uma zona (mapa, vetor e objetos); uma zona só igual a sem `bounds`, bit a bit;
     por tiles, o mesmo com 1 e 8 threads e o caminho do cluster (`terraflux-dist --test tiles`); o passo depois nos
     outros; `th_mode`/`th_share`; o region growing com um vetor.
-- **2. Dividir objetos: `objects.split` (M).**
+- **2. Dividir objetos: `objects.split` (M). Feito (2026-11-19).** `split.rs` e `each.rs` (a caixa com borda e a máscara de cada objeto, `each` em paralelo, os maiores primeiro, o resultado na ordem dos ids), `minima` e `flood` do watershed passaram a `pub(super)` (o hash do `segment.watershed` não mudou). O `h` padrão é uma célula pela distância e 0,05 da amplitude do mapa pelo `surface`; o `neighbours` (4 ou 8, padrão 8) liga as células de um pedaço; sem nada a dividir devolve os mesmos objetos (com os níveis e a tabela). As células sem valor no `surface` (NaN) entram no pedaço mais próximo. O parágrafo da patente é a seção 8 de `docs/patents-objects-resolve.md` (os DOIs conferidos no Crossref). Bateria `objects_split_bench` (blobs que se tocam; 1 e 8 threads, o mesmo hash): 1000² em 0,05 s e 0,01 s, 2000² em 0,20 s e 0,05 s (distância; o `surface` e o `max_neck` na mesma ordem). Testes: `crates/ops/tests/objects_split.rs`.
   - Entradas `objects`, `surface` (mapa, opcional: um nDSM, o brilho) e `image` (opcional, para a tabela). Parâmetros:
     `by` (`distance`, o padrão: a distância à borda do objeto; ou `surface`, os picos do mapa são os centros, `invert`
     para centros escuros), `classes` (padrão: todos), `h` (a altura que um pico precisa acima da sela para ser um

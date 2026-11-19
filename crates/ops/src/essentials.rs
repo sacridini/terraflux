@@ -92,6 +92,8 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     ("ml.som", &["table", "predictors", "cells", "rows", "cols", "topology", "training", "clusters"]),
     // objects
     ("segment.sam", &["image", "weights", "bands", "points", "iou", "min_size", "fill"]),
+    ("objects.split", &["surface", "by", "classes", "h", "min_size", "max_neck"]),
+    ("segment.region_growing", &["threshold", "minsize", "similarity", "bounds", "seeds", "tile"]),
     // species distributions and biodiversity
     ("sdm.fit", &["predictors", "categorical", "model", "classes", "regmult", "cv"]),
     ("sdm.migrate", &["initial", "suitability", "barriers", "steps", "kernel", "ldd_frequency", "seed"]),
