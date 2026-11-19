@@ -120,3 +120,79 @@ fn a_script_over_features_that_fails_is_not_written() {
         .unwrap_err();
     assert!(e.contains("c is a vector.calc, not a vector.filter"), "{e}");
 }
+
+/// Three objects in a row, A, B and C (mean_red 2, 6, 12), classed water, field and water.
+fn tiles() -> Value {
+    use terraflux_ops::objects::{ObjectClass, Objects};
+    let o = Objects::from_labels(Arc::new(terraflux_raster::Grid::new(3, 1)), vec![1, 2, 3], 3).unwrap();
+    let mut t = terraflux_ops::Table::new(vec!["id".into(), "mean_red".into()]);
+    t.rows = vec![vec![1.0, 2.0], vec![2.0, 6.0], vec![3.0, 12.0]];
+    let classes = ["water", "field"].map(|name| ObjectClass { name: name.into(), colour: None }).to_vec();
+    Value::Objects(Arc::new(o.with_table(t).unwrap().with_classes(classes, vec![1, 2, 1], vec![]).unwrap()))
+}
+
+fn objects_known(r: &Ref) -> Option<Value> {
+    matches!(r, Ref::Port { node, port } if node == "tiles" && port == "objects").then(tiles)
+}
+
+fn objects_model() -> Model {
+    Model::from_toml(
+        r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "tiles"
+op = "segment.chessboard"
+params = { size = 1 }
+"#,
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_script_over_objects_is_tried_on_them() {
+    let (r, dir) = (Registry::standard(), Path::new("."));
+    let mut m = objects_model();
+    let script = "# the neighbours' red, a membership and a text\n\
+                  out around = nb.mean(mean_red)\n\
+                  out wet = above(mean_red, 2, 12) and not (cls == \"field\")\n\
+                  out kind = \"water\" if cls == \"water\" else \"land\"";
+    let a =
+        json!({ "node": "rules", "op": "objects.calc", "script": script, "inputs": { "objects": "tiles.objects" } });
+    let reply = write_calc(&mut m, &r, dir, &a, &objects_known).unwrap();
+    assert!(reply.contains("Its attributes, on a sample of every object (3):"), "{reply}");
+    // A 6, B (2 + 12) / 2 = 7, C 6
+    assert!(reply.contains("- around: numbers: classes 6 (66.7 %), 7 (33.3 %)"), "{reply}");
+    assert!(reply.contains("- wet: numbers:"), "{reply}");
+    assert!(reply.contains("- kind: texts \"water\" (66.7 %), \"land\" (33.3 %)"), "{reply}");
+    let n = m.node("rules").unwrap();
+    assert_eq!(n.op, "objects.calc");
+    assert!(!n.params.contains_key("column"));
+
+    // explained: its inputs and what each name holds
+    let t = explain_calc(&m, dir, &json!({ "node": "rules" }), &objects_known).unwrap();
+    assert!(t.contains("- objects <- tiles.objects: 3 objects"), "{t}");
+    assert!(t.contains("- around (an attribute given): numbers:"), "{t}");
+
+    // refused: no out, a level that is not there, a function the others have not; the model as it was
+    let before = m.clone();
+    let write = |m: &mut Model, script: &str| {
+        let a = json!({ "node": "rules", "op": "objects.calc", "script": script, "inputs": { "objects": "tiles.objects" } });
+        write_calc(m, &r, dir, &a, &objects_known).unwrap_err()
+    };
+    let e = write(&mut m, "nb.mean(mean_red)");
+    assert!(e.contains("gives each attribute with out"), "{e}");
+    let e = write(&mut m, "out c = children.count(cls == \"water\")");
+    assert!(e.contains("on a sample of its objects it fails") && e.contains("below"), "{e}");
+    let e = write(&mut m, "out c = nb.median(mean_red)");
+    assert!(e.contains("no \"nb.median\""), "{e}");
+    assert_eq!(m.nodes.len(), before.nodes.len());
+    // the fuzzy functions are for objects.calc only
+    let a = json!({ "node": "v", "op": "vector.calc", "script": "out m = above(pop, 0, 1)", "inputs": { "vector": "tiles.objects" } });
+    let e = write_calc(&mut m, &r, dir, &a, &objects_known).unwrap_err();
+    assert!(e.contains("above"), "{e}");
+    // the objects not known: written, without a preview
+    let a = json!({ "node": "other", "op": "objects.calc", "script": "out d = nb.sum(mean_red)", "inputs": { "objects": "tiles.objects" } });
+    let reply = write_calc(&mut m, &r, dir, &a, &|_| None).unwrap();
+    assert!(reply.contains("No preview: the objects"), "{reply}");
+}

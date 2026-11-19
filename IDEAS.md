@@ -4110,6 +4110,12 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
     pelos operadores de acurácia que já existem sobre o mapa das classes.
   Testes: na `nlm.image`, acurácia acima de um limite com poucas amostras por classe; as regras fuzzy contra a conta à
   mão; a hierarquia de classes.
+  **Feito em parte** (Unreleased): os três caminhos. `objects/classify.rs` (`objects.samples`: a tabela de treino sem
+  o id, para o `ml.fit` só com `column = "class"`; `objects.classify`), `calc.rs` (`objects.calc`: o analisador em modo
+  objetos, `parse_script_objects`, as chamadas de objetos viram colunas ocultas antes do script; `and`/`or`/`not` e as
+  funções de pertinência reescritos na árvore; `cls` é "unclassified" sem classe), `rules.rs` (`objects.rules`, a
+  hierarquia lida por `tree`; `objects.nearest`, as cores como espaço padrão). Na `nlm.image`: 95–100% por amostras,
+  99–100% por regras e por vizinho mais próximo. Falta a acurácia por objetos.
 - **E. Os níveis e as operações sobre objetos.** Um nível de cima feito do de baixo (`segment.multiresolution` com
   `from`, ou `objects.merge` por classe: os vizinhos da mesma classe viram um objeto), `objects.merge` por uma condição
   (`objects.calc` sobre o par de vizinhos), `objects.grow` (crescer objetos de uma classe para os vizinhos que atendem a

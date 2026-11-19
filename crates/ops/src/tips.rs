@@ -649,6 +649,43 @@ pub const TIPS: &[(&str, &str)] = &[
          is enough to look natural) and shrinks them a little at each corner, so keep 0 when the polygons are \
          counted, measured or put back on the map's grid.",
     ),
+    (
+        "objects.samples",
+        "Give at least 10 objects per class (a few points or small polygons on each class, over its different \
+         looks): a point picks its object, a polygon every object it covers by half. Objects with samples of \
+         two classes are left out, so draw the samples inside one object. Fit the table with `column` = class: every \
+         other column is a predictor (the table has no id).",
+    ),
+    (
+        "objects.classify",
+        "The objects must carry the same attributes as those of the training: run objects.features with the same \
+         settings on the same image before. Pass the samples' table to name the classes. The margin (first minus \
+         second probability) is low where the model hesitates: look there for more samples. `min` leaves \
+         unclassified the objects whose best probability is under it.",
+    ),
+    (
+        "objects.rules",
+        "A leaf class (one that is no one's parent) is what an object becomes; the parents only narrow what their \
+         daughters may take, as they inherit the mother's rule. An object whose best membership is under `min` \
+         (0.1, as eCognition's minimum membership value) stays unclassified: lower it, or widen the rules' ramps. \
+         A rule that reads classes (border_to, nb.count(cls == \"water\")) reads those the objects have before this \
+         node: chain a second objects.rules for a second pass. The margin shows where two classes are close.",
+    ),
+    (
+        "objects.nearest",
+        "A few attributes, chosen with the feature space (objects.features), work better than many: every \
+         attribute adds to the distance, and size and shape attributes can swamp the spectral ones, so name the \
+         `columns` (the mean of each band). Give a few samples of every class, of different looks. `slope` is the \
+         membership at one standard deviation of distance; `min` leaves the far objects unclassified.",
+    ),
+    (
+        "objects.calc",
+        "Write a rule as a script: nb.mean(x) and border_to(\"water\") read the neighbours, parent.x and \
+         children.count(cond) the levels (children need the input `below`). above(x, a, b), below, between and \
+         about give a membership from 0 to 1, and in this calculator `and` is the smaller, `or` the larger and \
+         `not` is one minus. A class name in `cls == \"water\"` compares as text; an unclassified object has no cls, \
+         so the comparison is missing for it, not false.",
+    ),
 ];
 
 #[cfg(test)]

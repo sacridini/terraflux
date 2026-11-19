@@ -9,19 +9,28 @@ use terraflux_raster::Grid;
 
 use crate::{Args, Error, Registry, Result, Table, Value};
 
+mod calc;
+mod classify;
 mod convert;
 mod esp;
 mod features;
 mod meanshift;
 mod multiresolution;
+mod rules;
 mod segment;
 mod store;
 mod superpixels;
 mod watershed;
 
+pub use calc::{evaluate, evaluate_numbers};
+pub use rules::{RuleClass, leaves, tree};
+
 pub fn register(r: &mut Registry) {
     segment::register(r);
     convert::register(r);
+    classify::register(r);
+    calc::register(r);
+    rules::register(r);
     r.add(Arc::new(features::Features));
 }
 

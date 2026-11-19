@@ -897,6 +897,20 @@ const PHRASES: &[(&str, &str)] = &[
         "The attributes {features} of the objects of <objects>, from <image>[ and the layers of <more>].",
     ),
     ("objects.to_map", "The objects of <objects> as a map[ of their {what}]."),
+    ("objects.samples", "The objects under the samples of <samples> (the class in {class}), as a training table."),
+    ("objects.classify", "The objects of <objects> classed by <model>[, a class only above a probability of {min}]."),
+    (
+        "objects.calc",
+        "The attributes of the objects of <objects>[ ({column})] computed from their attributes, their neighbours and their levels by a script.",
+    ),
+    (
+        "objects.rules",
+        "The objects of <objects> classed by a hierarchy of fuzzy rules[, a class only above a membership of {min}].",
+    ),
+    (
+        "objects.nearest",
+        "The objects of <objects> classed by their nearest samples in <samples>[, a class only above a membership of {min}].",
+    ),
     ("objects.to_vector", "The objects of <objects> as polygons[, their corners cut {smooth} times]."),
     (
         "nlm.image",

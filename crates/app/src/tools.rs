@@ -34,7 +34,9 @@ macro_rules! calc {
     () => {
         "- write_calc writes a calculator's script: of maps (raster.calc), of features' attributes (vector.calc: \
 `out name = value` for each attribute, texts compared as uso == \"forest\", the geometry as geometry.area) or of the \
-features kept (vector.filter: the script ends with the condition); checked, and tried on a sample of its inputs' \
+features kept (vector.filter: the script ends with the condition) or of objects (objects.calc: as vector.calc over \
+the objects' attributes, with nb.mean(x), border_to(\"water\"), parent.x, children.count(cond) and the fuzzy \
+above, below, between, about); checked, and tried on a sample of its inputs' \
 cells or features, before anything changes; read what each output gives in its reply. explain_calc takes a script \
 apart: what each input is and what each name holds on a sample. Use them, not add_node or edit_node, for a \
 calculator's script."
@@ -82,7 +84,7 @@ ports and settings, advice, and what the operator usually reads and gives to. Ne
 - A node's input reads `node.port`, `$name` (a model's input) or `@name` (inside a container); a setting is a \
 value or `\"$name\"`. Every edit is checked: a wrong one is refused with the reason and the file left as it was; \
 the reply lists the problems left.
-- Calculators (raster.calc, vector.calc, vector.filter) are written with write_calc, in Python's syntax: one \
+- Calculators (raster.calc, vector.calc, vector.filter, objects.calc) are written with write_calc, in Python's syntax: one \
 statement a line, `out name = value` for each output (guide calc). Containers (control.repeat, control.each, \
 control.switch, control.group) hold a body: edit inside one with `scope` (guide containers).
 - Record each choice: a node's `note` and `why` (and `refs`, `assumptions`, `alternatives`), the model's \
@@ -772,12 +774,17 @@ pub fn write_calc(m: &mut Model, r: &Registry, dir: &Path, a: &Value, known: Kno
     o.remove("script");
     o.remove("op");
     if features {
-        let s = terraflux_ops::algebra::parse_script(script).map_err(|e| format!("{refused}: {}", e.0))?;
+        let s = parse_features_script(&op, script).map_err(|e| format!("{refused}: {}", e.0))?;
         match (op.as_str(), s.outputs().is_empty()) {
             ("vector.calc", true) => {
                 return Err(format!(
                     "{refused}: a vector.calc's script gives each attribute with out (out density = pop / \
                      geometry.area)"
+                ));
+            }
+            ("objects.calc", true) => {
+                return Err(format!(
+                    "{refused}: an objects.calc's script gives each attribute with out (out wet = above(ndwi, 0, 1))"
                 ));
             }
             ("vector.filter", false) => {
@@ -789,7 +796,7 @@ pub fn write_calc(m: &mut Model, r: &Registry, dir: &Path, a: &Value, known: Kno
         }
     }
     // (a vector.calc's attributes named by its out lines, not by its column)
-    let settings = if op == "vector.calc" {
+    let settings = if op == "vector.calc" || op == "objects.calc" {
         json!({ "expression": script, "column": null })
     } else {
         json!({ "expression": script })
@@ -808,7 +815,8 @@ pub fn write_calc(m: &mut Model, r: &Registry, dir: &Path, a: &Value, known: Kno
     let (inputs, values) = calc_inputs(nodes, path.is_empty(), dir, n, known);
     if features {
         let values = with_texts(n, values);
-        let tried = match features_sample(script, n, &values, false) {
+        let of = if op == "objects.calc" { "objects" } else { "features" };
+        let tried = match sample_of(&op, script, n, &values, false) {
             Some(Ok((given, sample))) if op == "vector.filter" => {
                 let Column::Numbers(keep) = &given[0].1 else {
                     return Err(format!(
@@ -820,21 +828,27 @@ pub fn write_calc(m: &mut Model, r: &Registry, dir: &Path, a: &Value, known: Kno
             Some(Ok((given, sample))) => {
                 let old = match values.get("vector") {
                     Some(terraflux_ops::Value::Vector(v)) => v.attributes.iter().map(|(a, _)| a.clone()).collect(),
+                    Some(terraflux_ops::Value::Objects(o)) => o.table.columns.clone(),
                     _ => Vec::new(),
                 };
+                let old_of = if op == "objects.calc" { "objects'" } else { "features'" };
                 let outs: Vec<String> = given
                     .iter()
                     .map(|(name, c)| {
-                        let replaced = if old.contains(name) { " (replacing the features' attribute)" } else { "" };
+                        let replaced = if old.contains(name) {
+                            format!(" (replacing the {old_of} attribute)")
+                        } else {
+                            String::new()
+                        };
                         format!("- {name}{replaced}: {}", column_text(c))
                     })
                     .collect();
                 format!("\nIts attributes, on a sample of {sample}:\n{}", outs.join("\n"))
             }
-            Some(Err(e)) => return Err(format!("{refused}: on a sample of its features it fails: {e}")),
-            None => "\nNo preview: the features, or an input it reads, have not run yet (run the model, then \
-                     explain_calc)."
-                .into(),
+            Some(Err(e)) => return Err(format!("{refused}: on a sample of its {of} it fails: {e}")),
+            None => format!(
+                "\nNo preview: the {of}, or an input it reads, have not run yet (run the model, then explain_calc)."
+            ),
         };
         *m = next;
         return Ok(format!("{done}{tried}"));
@@ -911,9 +925,9 @@ pub fn explain_calc(m: &Model, dir: &Path, a: &Value, known: Known) -> Reply {
     Ok(t)
 }
 
-/// The calculators: of maps (`raster.calc`), of features' attributes (`vector.calc`) and of the features kept
-/// (`vector.filter`).
-const CALCULATORS: [&str; 3] = ["raster.calc", "vector.calc", "vector.filter"];
+/// The calculators: of maps (`raster.calc`), of features' attributes (`vector.calc`), of the features kept
+/// (`vector.filter`) and of objects' attributes (`objects.calc`).
+const CALCULATORS: [&str; 4] = ["raster.calc", "vector.calc", "vector.filter", "objects.calc"];
 
 /// The features a calculator over features is tried on, at most.
 const FEATURES_SAMPLE: usize = 5_000;
@@ -968,6 +982,60 @@ fn features_sample(
         format!("every feature ({all})")
     };
     Some(given.map(|g| (g, what)).map_err(|e| e.0))
+}
+
+/// The objects a script of `objects.calc` is tried on, at most (it is run on all of them: a level's neighbours and
+/// children cannot be sampled).
+const OBJECTS_SAMPLE: usize = 200_000;
+
+/// A script over features or objects parsed in its calculator's language.
+fn parse_features_script(op: &str, script: &str) -> terraflux_ops::Result<terraflux_ops::algebra::Script> {
+    if op == "objects.calc" {
+        terraflux_ops::algebra::parse_script_objects(script)
+    } else {
+        terraflux_ops::algebra::parse_script(script)
+    }
+}
+
+/// A calculator over features or objects tried: [`features_sample`] or [`objects_sample`].
+fn sample_of(
+    op: &str,
+    script: &str,
+    n: &Node,
+    values: &BTreeMap<String, terraflux_ops::Value>,
+    every_name: bool,
+) -> Option<std::result::Result<FeaturesSample, String>> {
+    if op == "objects.calc" {
+        objects_sample(script, n, values, every_name)
+    } else {
+        features_sample(script, n, values, every_name)
+    }
+}
+
+/// A script of `objects.calc` run on the objects (and the level beneath, if connected): the attributes it gives by
+/// name, and the sample in words. None when the objects, or another input of the node, are not known, or there are
+/// more than [`OBJECTS_SAMPLE`].
+fn objects_sample(
+    script: &str,
+    n: &Node,
+    values: &BTreeMap<String, terraflux_ops::Value>,
+    every_name: bool,
+) -> Option<std::result::Result<FeaturesSample, String>> {
+    let Some(terraflux_ops::Value::Objects(o)) = values.get("objects") else { return None };
+    if n.inputs.keys().any(|port| !values.contains_key(port)) || o.count > OBJECTS_SAMPLE {
+        return None;
+    }
+    let below = match values.get("below") {
+        Some(terraflux_ops::Value::Objects(b)) => Some(&**b),
+        _ => None,
+    };
+    let script = match terraflux_ops::algebra::parse_script_objects(script) {
+        Ok(s) => s,
+        Err(e) => return Some(Err(e.0)),
+    };
+    let script = if every_name { vector_algebra::with_every_name(&script) } else { script };
+    let given = terraflux_ops::objects::evaluate(o, below, &script);
+    Some(given.map(|g| (g, format!("every object ({})", o.count))).map_err(|e| e.0))
 }
 
 /// An attribute's values in words: numbers as a map's cells ([`cells_text`]), texts by their shares (a dozen
@@ -1031,13 +1099,14 @@ fn explain_features(n: &Node, script: &str, values: &BTreeMap<String, terraflux_
                     if attributes.is_empty() { "none".into() } else { attributes.join(", ") }
                 )
             }
+            Some(V::Objects(o)) => format!("{} (and cls, id, cells, area)", o.describe()),
             Some(V::Text(x)) => format!("the text {x:?}"),
             Some(v) => v.as_number().map_or_else(|| format!("a {:?}", v.ty()), |x| format!("the number {x}")),
             None => "not known yet (what it reads has not run)".into(),
         };
         t.push_str(&format!("\n- {port} <- {from}: {what}"));
     }
-    match features_sample(script, n, values, true) {
+    match sample_of(&n.op, script, n, values, true) {
         Some(Ok((given, sample))) => {
             let declared = terraflux_graph::declared_outputs(script);
             let column = n.params.get("column").and_then(Value::as_str).unwrap_or("");
@@ -1047,7 +1116,7 @@ fn explain_features(n: &Node, script: &str, values: &BTreeMap<String, terraflux_
                     (vector_algebra::LAST_LINE, "vector.filter", Column::Numbers(keep)) => {
                         format!("the condition: {}", kept_text(keep))
                     }
-                    (vector_algebra::LAST_LINE, "vector.calc", _) => {
+                    (vector_algebra::LAST_LINE, "vector.calc" | "objects.calc", _) => {
                         format!("the attribute {column:?} given: {}", column_text(&c))
                     }
                     (vector_algebra::LAST_LINE, ..) => format!("its last line: {}", column_text(&c)),
@@ -1058,7 +1127,7 @@ fn explain_features(n: &Node, script: &str, values: &BTreeMap<String, terraflux_
             }
         }
         Some(Err(e)) => t.push_str(&format!("\nIts error, on a sample of its features: {e}")),
-        None => match terraflux_ops::algebra::parse_script(script) {
+        None => match parse_features_script(&n.op, script) {
             Err(e) => t.push_str(&format!("\nIts error: {}", e.0)),
             Ok(_) => {
                 t.push_str("\nNo values: the features, or an input it reads, have not run yet (run the model first).")
@@ -1760,11 +1829,11 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "write_calc",
-            "Write the script of a calculator: of maps (raster.calc, the default), of the attributes of vector features (vector.calc: `out name = value` for each attribute given or replaced) or of the features kept (vector.filter: the script's last line is the condition, no out); a new node of that id (`op`), or the one of that id rewritten. A script over features reads the attributes by their names, numbers and texts (uso == \"forest\", \"high\" if pop > 100 else \"low\", float(code) a text read as a number), the geometry's measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (1..), x.sum() and the other methods over all the features; connect the features to its input `vector`. Give `inputs` for the names the script reads (name -> `node.port` or `$input`; a stack's layers are read as `s.layer`). The script is checked before anything changes (its language, every name an input of the node or given a value before, the layers a stack has) and run on a sample of its inputs' cells: the reply tells what each output gives (a map's classes and their shares, or its least, mean and largest values), or why it was refused (the model as it was). Read the reply: a map of a single class, or no cell with a value, is seldom what was asked for.",
+            "Write the script of a calculator: of maps (raster.calc, the default), of the attributes of vector features (vector.calc: `out name = value` for each attribute given or replaced), of the features kept (vector.filter: the script's last line is the condition, no out) or of the attributes of objects (objects.calc, as vector.calc over the objects' attributes and `cls`: nb.mean(x), nb.count(cond), border_to(\"water\"), distance_to(\"road\"), parent.x, children.count(cond) with the input `below`, and the fuzzy above, below, between, about, where `and` is the smaller, `or` the larger and `not` one minus; connect the objects to its input `objects`); a new node of that id (`op`), or the one of that id rewritten. A script over features reads the attributes by their names, numbers and texts (uso == \"forest\", \"high\" if pop > 100 else \"low\", float(code) a text read as a number), the geometry's measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (1..), x.sum() and the other methods over all the features; connect the features to its input `vector`. Give `inputs` for the names the script reads (name -> `node.port` or `$input`; a stack's layers are read as `s.layer`). The script is checked before anything changes (its language, every name an input of the node or given a value before, the layers a stack has) and run on a sample of its inputs' cells: the reply tells what each output gives (a map's classes and their shares, or its least, mean and largest values), or why it was refused (the model as it was). Read the reply: a map of a single class, or no cell with a value, is seldom what was asked for.",
             json!({
                 "model": model,
                 "node": { "type": "string", "description": "The calculator's id: one that exists (rewritten) or a new one." },
-                "op": { "type": "string", "enum": CALCULATORS, "description": "A new calculator's operator: raster.calc (the default), vector.calc or vector.filter." },
+                "op": { "type": "string", "enum": CALCULATORS, "description": "A new calculator's operator: raster.calc (the default), vector.calc, vector.filter or objects.calc." },
                 "script": { "type": "string", "description": "The script: a statement a line, a comment saying what it does, `out name = value` (or `out name`) for each output." },
                 "inputs": inputs,
                 "note": { "type": "string", "description": "What the calculator is for." },
@@ -1794,7 +1863,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "explain_calc",
-            "A calculator's script (raster.calc, vector.calc, vector.filter) taken apart: each input (what it reads, and what it is: a map, a stack and its layers, a number; features, how many and their attributes), the layers it reads, its error if it has one, and what each name it gives a value holds at the end on a sample of the cells or features (classes and their shares, texts and their shares, or least, mean and largest values; the features a condition keeps). Explain a script, or find why it gives what it gives, from it.",
+            "A calculator's script (raster.calc, vector.calc, vector.filter, objects.calc) taken apart: each input (what it reads, and what it is: a map, a stack and its layers, a number; features, how many and their attributes), the layers it reads, its error if it has one, and what each name it gives a value holds at the end on a sample of the cells or features (classes and their shares, texts and their shares, or least, mean and largest values; the features a condition keeps). Explain a script, or find why it gives what it gives, from it.",
             json!({ "model": model, "node": { "type": "string" }, "scope": scope }),
             &["model", "node"],
             Some(&read_only),

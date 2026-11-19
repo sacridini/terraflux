@@ -51,7 +51,9 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
         "crafty.allocate" => Err("CRAFTY's competition between agent functional types is not in the Python library".into()),
         "segment.from_map" | "segment.chessboard" | "segment.quadtree" | "segment.from_vector" | "objects.to_map"
         | "objects.to_vector" | "segment.multiresolution" | "segment.slic" | "segment.snic" | "segment.felzenszwalb"
-        | "segment.watershed" | "segment.meanshift" | "segment.scale" | "objects.features" => Err("objects (object-based image analysis: an image divided into objects with their \
+        | "segment.watershed" | "segment.meanshift" | "segment.scale" | "objects.features"
+        | "objects.samples" | "objects.classify" | "objects.calc"
+        | "objects.rules" | "objects.nearest" => Err("objects (object-based image analysis: an image divided into objects with their \
              attributes, classes and levels) are a Terraflux type the Python library has no counterpart for: no \
              equivalent in the script"
             .into()),

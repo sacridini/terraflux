@@ -186,11 +186,41 @@ struct Parser {
     lines: Vec<usize>,
     spans: Vec<std::ops::Range<usize>>,
     at: usize,
+    /// The language of `objects.calc`: also the calls of objects (`nb.mean(x)`, `border_to("water")`) and the fuzzy
+    /// functions (`above(x, a, b)`), which the other calculators refuse.
+    objects: bool,
+}
+
+/// What `objects.calc` reads of the neighbours and the children (`nb.mean(x)` is the call `nb.mean`): name and the
+/// values taken.
+pub(crate) const OBJECT_METHODS: [(&str, usize); 8] = [
+    ("nb.mean", 1),
+    ("nb.min", 1),
+    ("nb.max", 1),
+    ("nb.sum", 1),
+    ("nb.count", 1),
+    ("children.count", 1),
+    ("children.area", 1),
+    ("children.mean", 1),
+];
+
+/// The functions only `objects.calc` has: name and the values taken.
+pub(crate) const OBJECT_FUNCTIONS: [(&str, usize); 6] =
+    [("border_to", 1), ("distance_to", 1), ("above", 3), ("below", 3), ("between", 5), ("about", 3)];
+
+/// A call of `objects.calc` checked: none when the name is not one of its own.
+fn check_object_call(name: &str, args: &[Expr]) -> Option<Result<()>> {
+    let (_, n) = OBJECT_METHODS.iter().chain(OBJECT_FUNCTIONS.iter()).find(|(f, _)| *f == name)?;
+    Some(if args.len() == *n {
+        Ok(())
+    } else {
+        Err(Error::msg(format!("{name} takes {n} value(s), not {}", args.len())))
+    })
 }
 
 impl Parser {
     fn new(l: Lexed) -> Parser {
-        Parser { toks: l.toks, lines: l.lines, spans: l.spans, at: 0 }
+        Parser { toks: l.toks, lines: l.lines, spans: l.spans, at: 0, objects: false }
     }
 
     /// Where the token read now is (the end of the text after the last).
@@ -406,6 +436,19 @@ impl Parser {
             self.at += 1;
             if self.is_op("(") {
                 let args = self.args()?;
+                if self.objects && matches!(&e, Expr::Var(v) if v == "nb" || v == "children") {
+                    // nb.mean(x): the call "nb.mean", not a method of a value called nb
+                    let call = format!("{of}.{name}");
+                    check_object_call(&call, &args)
+                        .unwrap_or_else(|| {
+                            let all: Vec<&str> =
+                                OBJECT_METHODS.iter().map(|(m, _)| *m).filter(|m| m.starts_with(&of)).collect();
+                            Err(Error::msg(format!("no {call:?} (the calls of {of}: {})", all.join(", "))))
+                        })
+                        .inspect_err(|_| self.at = at)?;
+                    e = Expr::Call(call, args);
+                    continue;
+                }
                 check_method(&name, &args).inspect_err(|_| self.at = at)?;
                 e = Expr::Method(Box::new(e), name, args);
             } else {
@@ -470,7 +513,11 @@ impl Parser {
                 "if" | "else" | "and" | "or" | "not" | "out" => back(self, Error::msg(format!("unexpected {id:?}"))),
                 _ if self.is_op("(") => {
                     let args = self.args()?;
-                    match check_call(&id, &args) {
+                    let checked = match self.objects.then(|| check_object_call(&id, &args)).flatten() {
+                        Some(r) => r,
+                        None => check_call(&id, &args),
+                    };
+                    match checked {
                         Ok(()) => Ok(Expr::Call(id, args)),
                         Err(e) => back(self, e),
                     }
@@ -786,12 +833,26 @@ pub fn out_types(text: &str, inputs: &BTreeMap<String, Type>) -> Option<Vec<(Str
 
 /// Parse a script; an error with its line and where it is in the text (bytes).
 pub(crate) fn parse_located(text: &str) -> std::result::Result<Script, (Error, usize, std::ops::Range<usize>)> {
+    parse_located_in(text, false)
+}
+
+/// [`parse_script`] in the language of `objects.calc`: besides the usual, `nb.mean(x)` and the like (the calls
+/// `nb.mean`... of [`OBJECT_METHODS`]), `border_to(...)`, `distance_to(...)` and the fuzzy functions
+/// ([`OBJECT_FUNCTIONS`]) parse. What the other calculators accept parses the same.
+pub fn parse_script_objects(text: &str) -> Result<Script> {
+    let lines = text.trim().contains(['\n', ';']);
+    parse_located_in(text, true)
+        .map_err(|(e, line, _)| if lines { Error::msg(format!("line {line}: {}", e.0)) } else { e })
+}
+
+fn parse_located_in(text: &str, objects: bool) -> std::result::Result<Script, (Error, usize, std::ops::Range<usize>)> {
     let lines = text.trim().contains(['\n', ';']);
     let line_at = |i: usize| 1 + text[..i.min(text.len())].matches('\n').count();
     let mut p = Parser::new(lex(text, true).map_err(|(e, i)| {
         let end = text[i..].chars().next().map_or(i, |c| i + c.len_utf8());
         (e, line_at(i), i..end)
     })?);
+    p.objects = objects;
     let mut statements = Vec::new();
     loop {
         while p.peek() == Some(&Tok::End) {

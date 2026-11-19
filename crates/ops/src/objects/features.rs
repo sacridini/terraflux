@@ -954,7 +954,7 @@ const CONTEXT: &[&str] =
 /// there is none. A uniform grid of about one member to a bucket, rings of buckets around the point searched until
 /// the best is nearer than the ring: about O(n + m) for n points and m members when they are spread, O(n m) at worst
 /// (all in a bucket). The distance is exact, so the result does not depend on the order of the search.
-fn nearest(pts: &[(f64, f64)], members: &[usize]) -> Vec<f64> {
+pub(super) fn nearest(pts: &[(f64, f64)], members: &[usize]) -> Vec<f64> {
     if members.is_empty() {
         return vec![f64::NAN; pts.len()];
     }

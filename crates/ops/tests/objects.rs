@@ -1888,3 +1888,797 @@ fn features_all_timing_on_irregular_objects() {
         t.elapsed()
     );
 }
+
+// objects.samples and objects.classify
+
+/// The operator with the warnings it gave.
+fn run_warn(
+    op: &str,
+    inputs: Vec<(&str, Value)>,
+    params: serde_json::Value,
+) -> (terraflux_ops::Result<Outputs>, Vec<String>) {
+    let r = Registry::standard();
+    let params = params.as_object().cloned().unwrap_or_default();
+    let args =
+        Args { node: "n", inputs: inputs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), params: &params };
+    let mut ctx = Ctx::default();
+    let out = r.get(op).unwrap().run(&mut ctx, &args);
+    (out, ctx.warnings.clone())
+}
+
+/// Four squares of 5 x 5 cells on a 10 x 10 grid (ids 1 top-left, 2 top-right, 3 bottom-left, 4 bottom-right), with
+/// the columns id, cells and area.
+fn four_squares() -> Arc<Objects> {
+    let m = map(10, 10, vec![1.0; 100]);
+    let out = run("segment.chessboard", vec![("image", Value::Map(m))], serde_json::json!({ "size": 5 })).unwrap();
+    objects_of(&out)
+}
+
+/// Samples: a geometry and a class each.
+fn sample_set(items: Vec<(Geometry, &str)>) -> Value {
+    let (geometries, classes): (Vec<Geometry>, Vec<String>) =
+        items.into_iter().map(|(g, c)| (g, c.to_string())).unzip();
+    Value::Vector(Arc::new(Vector {
+        geometries,
+        attributes: vec![("class".to_string(), Column::Texts(classes))],
+        ..Default::default()
+    }))
+}
+
+fn samples_of(o: &Arc<Objects>, s: Value) -> (terraflux_ops::Result<Outputs>, Vec<String>) {
+    run_warn("objects.samples", vec![("objects", Value::Objects(o.clone())), ("samples", s)], serde_json::json!({}))
+}
+
+/// The ids and class names of the rows of a training table.
+fn rows_of(out: &Outputs) -> Vec<(u32, String)> {
+    let t = table_of(out);
+    let marked = objects_of(out);
+    let ids = marked.class_of.iter().enumerate().filter(|(_, k)| **k != 0).map(|(i, _)| i as u32 + 1);
+    ids.zip(t.rows.iter()).map(|(id, r)| (id, t.cell(0, r[0]))).collect()
+}
+
+#[test]
+fn samples_points_pick_the_objects_under_them() {
+    let o = four_squares();
+    let s = sample_set(vec![
+        (Geometry::Point([1.5, -1.5]), "water"),
+        (Geometry::Point([7.5, -1.5]), "forest"),
+        (Geometry::Point([2.5, -7.5]), "forest"),
+        (Geometry::Point([50.0, -50.0]), "forest"),
+    ]);
+    let (out, warnings) = samples_of(&o, s);
+    let out = out.unwrap();
+    let t = table_of(&out);
+    // classes numbered by name: forest 1, water 2
+    assert_eq!(rows_of(&out), vec![(1, "water".to_string()), (2, "forest".to_string()), (3, "forest".to_string())]);
+    assert_eq!(t.columns, ["class", "cells", "area"]);
+    assert_eq!(t.rows[0][0], 2.0);
+    assert!(warnings.iter().any(|w| w.contains("1 sample") && w.contains("outside")), "{warnings:?}");
+    let Value::Table(c) = &out["counts"] else { panic!("counts") };
+    assert_eq!(c.rows, vec![vec![1.0, 2.0, 50.0], vec![2.0, 1.0, 25.0]]);
+    assert_eq!(c.cell(0, 1.0), "forest");
+    let m = objects_of(&out);
+    assert_eq!(m.class_of, vec![2, 1, 1, 0]);
+    assert_eq!(m.classes.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["forest", "water"]);
+}
+
+#[test]
+fn samples_polygons_pick_the_objects_they_cover_by_half() {
+    let o = four_squares();
+    // rows 0 to 5: the top squares whole, the bottom ones by one row of five (20%)
+    let (out, w) = samples_of(&o, sample_set(vec![(cells_square(0.0, 0.0, 10.0, 6.0), "a")]));
+    assert_eq!(rows_of(&out.unwrap()), vec![(1, "a".to_string()), (2, "a".to_string())]);
+    assert!(w.is_empty(), "{w:?}");
+    // rows 0 to 7: the bottom ones by three rows (60%)
+    let (out, _) = samples_of(&o, sample_set(vec![(cells_square(0.0, 0.0, 10.0, 8.0), "a")]));
+    assert_eq!(table_of(&out.unwrap()).rows.len(), 4);
+    // a polygon holding no object by half is ignored, with a warning
+    let (out, w) = samples_of(&o, sample_set(vec![(cells_square(0.0, 4.0, 10.0, 6.0), "a")]));
+    assert!(table_of(&out.unwrap()).rows.is_empty());
+    assert!(w.iter().any(|w| w.contains("outside")), "{w:?}");
+}
+
+#[test]
+fn samples_of_two_classes_on_an_object_leave_it_out() {
+    let o = four_squares();
+    let s = sample_set(vec![
+        (Geometry::Point([6.5, -6.5]), "a"),
+        (Geometry::Point([8.5, -8.5]), "b"),
+        (Geometry::Point([8.5, -8.5]), "b"),
+        (Geometry::Point([1.5, -1.5]), "a"),
+    ]);
+    let (out, warnings) = samples_of(&o, s);
+    let out = out.unwrap();
+    assert_eq!(rows_of(&out), vec![(1, "a".to_string())]);
+    assert!(warnings.iter().any(|w| w.contains("1 object") && w.contains("ids 4")), "{warnings:?}");
+    assert_eq!(objects_of(&out).class_of, vec![1, 0, 0, 0]);
+    // a samples attribute that is not there is named
+    let e = run_warn(
+        "objects.samples",
+        vec![("objects", Value::Objects(o.clone())), ("samples", sample_set(vec![]))],
+        serde_json::json!({ "class": "kind" }),
+    )
+    .0
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("kind"), "{e}");
+}
+
+/// The blocky nlm image cut in objects, their basic features, and the truth.
+fn obia_case(segmenter: &str, params: serde_json::Value) -> (Arc<Objects>, Map) {
+    let image = run("nlm.image", vec![("classes", blocky())], serde_json::json!({})).unwrap();
+    let (stack, truth) = (image["image"].clone(), image["truth"].clone());
+    let Value::Map(truth) = truth else { panic!("truth") };
+    let o = objects_of(&run(segmenter, vec![("image", stack.clone())], params).unwrap());
+    let out =
+        run("objects.features", vec![("objects", Value::Objects(o)), ("image", stack)], serde_json::json!({})).unwrap();
+    (objects_of(&out), truth)
+}
+
+/// Sample points: up to `per` random objects of each truth class (by their main class), at the cell of the object
+/// closest to its box centre.
+fn truth_points(o: &Objects, truth: &Map, per: usize, seed: u64) -> Value {
+    let w = o.grid.width;
+    let mut by_class: Vec<Vec<usize>> = vec![Vec::new(); 8];
+    for k in 0..o.count {
+        let mut n = [0u32; 8];
+        for (&l, &c) in o.labels.iter().zip(truth.data.iter()) {
+            if l as usize == k + 1 && !c.is_nan() {
+                n[c as usize] += 1;
+            }
+        }
+        let main = (0..8).max_by_key(|&c| (n[c], std::cmp::Reverse(c))).unwrap();
+        by_class[main].push(k);
+    }
+    let mut s = seed;
+    let mut items = Vec::new();
+    for (c, list) in by_class.iter_mut().enumerate() {
+        for _ in 0..per.min(list.len()) {
+            let k = list.remove((lcg(&mut s) * list.len() as f64) as usize % list.len());
+            let b = o.boxes[k];
+            let (cr, cc) = ((b[0] + b[2]) as f64 / 2.0, (b[1] + b[3]) as f64 / 2.0);
+            let d = |i: usize| ((i / w) as f64 - cr).powi(2) + ((i % w) as f64 - cc).powi(2);
+            let best = (0..o.labels.len())
+                .filter(|&i| o.labels[i] as usize == k + 1)
+                .min_by(|&i, &j| d(i).partial_cmp(&d(j)).unwrap())
+                .unwrap();
+            let (r, col) = (best / w, best % w);
+            items.push((Geometry::Point([col as f64 + 0.5, -(r as f64 + 0.5)]), format!("c{c}")));
+        }
+    }
+    let (geometries, classes): (Vec<_>, Vec<_>) = items.into_iter().unzip();
+    Value::Vector(Arc::new(Vector {
+        geometries,
+        attributes: vec![("class".to_string(), Column::Texts(classes))],
+        ..Default::default()
+    }))
+}
+
+/// Samples, a fit and a classification: (the samples' table, the model, the classification's outputs).
+fn classify_case(o: &Arc<Objects>, truth: &Map, per: usize, method: &str, min: f64) -> (Table, Value, Outputs) {
+    let s = run(
+        "objects.samples",
+        vec![("objects", Value::Objects(o.clone())), ("samples", truth_points(o, truth, per, 7))],
+        serde_json::json!({}),
+    )
+    .unwrap();
+    let train = table_of(&s);
+    let columns: Vec<&String> = train.columns.iter().filter(|c| *c != "id" && *c != "class").collect();
+    let fit = run(
+        "ml.fit",
+        vec![("table", Value::Table(train.clone()))],
+        // (the boosting splits nodes of 20 records or more: its default, with 25 training objects, learns nothing)
+        serde_json::json!({ "column": "class", "columns": columns, "method": method, "seed": 1, "min_samples_leaf": 2 }),
+    )
+    .unwrap();
+    let model = fit["model"].clone();
+    let out = run(
+        "objects.classify",
+        vec![
+            ("objects", Value::Objects(o.clone())),
+            ("model", model.clone()),
+            ("samples", Value::Table(train.clone())),
+        ],
+        serde_json::json!({ "min": min }),
+    )
+    .unwrap();
+    (train, model, out)
+}
+
+/// The share of the cells whose class (the name's number) is the truth's.
+fn accuracy(out: &Outputs, truth: &Map) -> f64 {
+    let Value::Map(m) = &out["map"] else { panic!("map") };
+    let names = &table_of(out).labels["class"];
+    let hit = m
+        .data
+        .iter()
+        .zip(truth.data.iter())
+        .filter(|(p, t)| !p.is_nan() && names[**p as usize - 1] == format!("c{}", **t as usize))
+        .count();
+    hit as f64 / truth.data.len() as f64
+}
+
+#[test]
+fn classify_on_nlm_image_by_samples_is_accurate() {
+    for (segmenter, params, method) in [
+        ("segment.slic", serde_json::json!({}), "random_forest"),
+        ("segment.multiresolution", serde_json::json!({ "scale": 5 }), "random_forest"),
+        ("segment.slic", serde_json::json!({}), "gradient_boosting"),
+    ] {
+        let (o, truth) = obia_case(segmenter, params);
+        let (train, _, out) = classify_case(&o, &truth, 5, method, 0.0);
+        let acc = accuracy(&out, &truth);
+        println!("{segmenter} {method}: {} objects, {} training, accuracy {acc:.4}", o.count, train.rows.len());
+        assert!(acc >= 0.9, "{segmenter} {method}: accuracy {acc}");
+        let t = table_of(&out);
+        assert_eq!(t.rows.len(), o.count);
+        assert!(t.columns.contains(&"margin".to_string()));
+        let c = objects_of(&out);
+        assert_eq!(c.classes.len(), 5);
+        assert_eq!(c.membership.len(), 5);
+        assert!(c.class_of.iter().all(|&k| k > 0));
+        // the probabilities add up to 1, the margin is the first minus the second
+        for r in &t.rows {
+            let p = &r[2..r.len() - 1];
+            assert!((p.iter().sum::<f64>() - 1.0).abs() < 1e-9);
+            let mut q = p.to_vec();
+            q.sort_by(|a, b| b.partial_cmp(a).unwrap());
+            assert!((r[r.len() - 1] - (q[0] - q[1])).abs() < 1e-9);
+        }
+        // the same again, the same result
+        let (_, _, again) = classify_case(&o, &truth, 5, method, 0.0);
+        assert!(same(&table_of(&out).rows.concat(), &table_of(&again).rows.concat()));
+    }
+}
+
+#[test]
+fn classify_min_leaves_the_unsure_unclassified_and_missing_attributes_are_named() {
+    let (o, truth) = obia_case("segment.slic", serde_json::json!({}));
+    let (train, model, out) = classify_case(&o, &truth, 5, "random_forest", 0.9);
+    let none = objects_of(&out).class_of.iter().filter(|&&k| k == 0).count();
+    println!("min 0.9: {none} of {} objects unclassified", o.count);
+    assert!(none > 0 && none < o.count, "{none} unclassified");
+    let t = table_of(&out);
+    assert!(t.rows.iter().all(|r| (r[1].is_nan()) == (r[2..r.len() - 1].iter().all(|&p| p < 0.9))));
+    let Value::Map(m) = &out["map"] else { panic!("map") };
+    assert!(m.data.iter().any(|v| v.is_nan()));
+    // the objects without the attributes the model reads
+    let mut bare = o.as_ref().clone();
+    bare.table = Table { rows: bare.table.rows.iter().map(|r| vec![r[0]]).collect(), ..Table::new(vec!["id".into()]) };
+    let e = run(
+        "objects.classify",
+        vec![("objects", Value::Objects(Arc::new(bare))), ("model", model), ("samples", Value::Table(train))],
+        serde_json::json!({}),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("objects.features"), "{e}");
+}
+
+#[test]
+fn samples_table_fits_without_the_id_as_a_predictor() {
+    let (o, truth) = obia_case("segment.slic", serde_json::json!({}));
+    let s = run(
+        "objects.samples",
+        vec![("objects", Value::Objects(o.clone())), ("samples", truth_points(&o, &truth, 5, 7))],
+        serde_json::json!({}),
+    )
+    .unwrap();
+    let train = table_of(&s);
+    assert_eq!(train.columns[0], "class");
+    assert!(!train.columns.contains(&"id".to_string()));
+    // ml.fit with only the target: every other column is a predictor
+    let fit = run(
+        "ml.fit",
+        vec![("table", Value::Table(train.clone()))],
+        serde_json::json!({ "column": "class", "seed": 1, "min_samples_leaf": 2 }),
+    )
+    .unwrap();
+    let Value::MlModel(m) = &fit["model"] else { panic!("a model") };
+    assert!(m.predictors().iter().all(|p| p != "id" && p != "class"), "{:?}", m.predictors());
+    assert_eq!(m.predictors().len(), train.columns.len() - 1);
+}
+
+// ---- objects.calc
+
+/// Three objects on a 3 x 2 grid: A the first column, B the cell right of it on the top row, C the other three cells
+/// (ids 1, 2, 3; borders A-B 1, A-C 1, B-C 2; perimeters 6, 4, 8). Columns id, mean_red (2, 6, 12) and ndwi; classes
+/// water, field and road, A and C water, B field, none of road.
+fn calc_row() -> Arc<Objects> {
+    let (o, _) = segment(&map(3, 2, vec![1.0, 2.0, 3.0, 1.0, 3.0, 3.0]), 4);
+    assert_eq!(o.count, 3);
+    let mut t = Table::new(["id", "mean_red", "ndwi"].map(String::from).to_vec());
+    t.rows = vec![vec![1.0, 2.0, -0.2], vec![2.0, 6.0, 0.1], vec![3.0, 12.0, 0.5]];
+    let classes = ["water", "field", "road"].map(|name| ObjectClass { name: name.into(), colour: None }).to_vec();
+    Arc::new((*o).clone().with_table(t).unwrap().with_classes(classes, vec![1, 2, 1], vec![]).unwrap())
+}
+
+fn calc_out(o: &Arc<Objects>, below: Option<&Arc<Objects>>, script: &str) -> terraflux_ops::Result<Outputs> {
+    let mut inputs = vec![("objects", Value::Objects(o.clone()))];
+    inputs.extend(below.map(|b| ("below", Value::Objects(b.clone()))));
+    run("objects.calc", inputs, serde_json::json!({ "expression": script }))
+}
+
+/// The column `v` that `out v = <expr>` gives.
+fn calc_col(o: &Arc<Objects>, below: Option<&Arc<Objects>>, expr: &str) -> Vec<f64> {
+    let out = calc_out(o, below, &format!("out v = {expr}")).unwrap_or_else(|e| panic!("{expr}: {e}"));
+    col(&table_of(&out), "v")
+}
+
+fn close(got: &[f64], want: &[f64], what: &str) {
+    assert_eq!(got.len(), want.len(), "{what}: {got:?} against {want:?}");
+    for (a, b) in got.iter().zip(want) {
+        assert!((a.is_nan() && b.is_nan()) || (a - b).abs() <= 1e-12, "{what}: {got:?} against {want:?}");
+    }
+}
+
+/// Seven objects in a row with the columns x and y.
+fn fuzzy_row() -> Arc<Objects> {
+    let (o, _) = segment(&map(7, 1, (1..=7).map(f64::from).collect()), 4);
+    let mut t = Table::new(["id", "x", "y"].map(String::from).to_vec());
+    let x = [-1.0, 0.0, 0.25, 0.5, 1.0, 2.0, NAN];
+    let y = [0.2, 0.9, 0.5, 0.5, 0.1, 0.3, 0.4];
+    t.rows = (0..7).map(|k| vec![(k + 1) as f64, x[k], y[k]]).collect();
+    Arc::new((*o).clone().with_table(t).unwrap())
+}
+
+#[test]
+fn calc_membership_functions_by_hand() {
+    let o = fuzzy_row();
+    close(&calc_col(&o, None, "above(x, 0, 1)"), &[0.0, 0.0, 0.25, 0.5, 1.0, 1.0, NAN], "above");
+    close(&calc_col(&o, None, "below(x, 0, 1)"), &[1.0, 1.0, 0.75, 0.5, 0.0, 0.0, NAN], "below");
+    // rises from 0 to 0.5, 1 up to 1, falls to 0 at 2
+    close(&calc_col(&o, None, "between(x, 0, 0.5, 1, 2)"), &[0.0, 0.0, 0.5, 1.0, 1.0, 0.0, NAN], "between");
+    close(&calc_col(&o, None, "about(x, 0.5, 1)"), &[0.0, 0.5, 0.75, 1.0, 0.5, 0.0, NAN], "about");
+    // a bound that is a value of the objects
+    close(&calc_col(&o, None, "above(x, 0, y)"), &[0.0, 0.0, 0.5, 1.0, 1.0, 1.0, NAN], "above with y");
+    // fuzzy and, or, not: the smaller, the larger, one minus
+    let a = [0.0, 0.0, 0.25, 0.5, 1.0, 1.0, NAN];
+    close(&calc_col(&o, None, "above(x, 0, 1) and below(y, 0, 1)"), &[0.0, 0.0, 0.25, 0.5, 0.9, 0.7, NAN], "and");
+    close(&calc_col(&o, None, "above(x, 0, 1) or below(y, 0, 1)"), &[0.8, 0.1, 0.5, 0.5, 1.0, 1.0, NAN], "or");
+    close(&calc_col(&o, None, "not above(x, 0, 1)"), &a.map(|v| 1.0 - v), "not");
+    // with 0 and 1 it is logic as usual
+    close(&calc_col(&o, None, "(x > 0 and y > 0.3) or not (y > 0.2)"), &[1.0, 0.0, 1.0, 1.0, 1.0, 0.0, NAN], "logic");
+    // the other calculators do not know these
+    for text in ["above(x, 0, 1)", "nb.mean(x)", "border_to(\"a\")", "children.count(x)"] {
+        assert!(terraflux_ops::algebra::parse_script(text).is_err(), "{text}");
+        assert!(terraflux_ops::algebra::parse_script_objects(text).is_ok(), "{text}");
+    }
+    // a wrong number of values is told
+    let e = calc_out(&o, None, "above(x, 0)").unwrap_err().to_string();
+    assert!(e.contains("above takes 3"), "{e}");
+    let e = calc_out(&o, None, "nb.median(x)").unwrap_err().to_string();
+    assert!(e.contains("no \"nb.median\""), "{e}");
+}
+
+#[test]
+fn calc_neighbours_and_classes_by_hand() {
+    let o = calc_row();
+    // border-weighted: A (6 x 1 + 12 x 1) / 2, B (2 x 1 + 12 x 2) / 3, C (2 x 1 + 6 x 2) / 3
+    close(&calc_col(&o, None, "nb.mean(mean_red)"), &[9.0, 26.0 / 3.0, 14.0 / 3.0], "nb.mean");
+    close(&calc_col(&o, None, "nb.min(mean_red)"), &[6.0, 2.0, 2.0], "nb.min");
+    close(&calc_col(&o, None, "nb.max(mean_red)"), &[12.0, 12.0, 6.0], "nb.max");
+    close(&calc_col(&o, None, "nb.sum(mean_red)"), &[18.0, 14.0, 8.0], "nb.sum");
+    close(&calc_col(&o, None, "nb.count(cls == \"water\")"), &[1.0, 2.0, 1.0], "nb.count");
+    // the share of the perimeter (6, 4, 8 edges) shared with water: C 1, A 1 and C 2, A 1
+    close(&calc_col(&o, None, "border_to(\"water\")"), &[1.0 / 6.0, 0.75, 0.125], "border_to");
+    close(&calc_col(&o, None, "border_to(\"road\")"), &[0.0, 0.0, 0.0], "border_to road");
+    // centroids (0.5, -1), (1.5, -0.5), (13/6, -7/6): water is 0 for itself, B is 2/3 x sqrt 2 from C
+    let b = (2.0f64 / 3.0).hypot(2.0 / 3.0);
+    close(&calc_col(&o, None, "distance_to(\"water\")"), &[0.0, b, 0.0], "distance_to");
+    close(&calc_col(&o, None, "distance_to(\"road\")"), &[NAN, NAN, NAN], "distance_to none");
+    // the argument is any expression over the objects, names the script gave included
+    close(&calc_col(&o, None, "nb.mean(mean_red * 2)"), &[18.0, 52.0 / 3.0, 28.0 / 3.0], "nb.mean of an expression");
+    let out = calc_out(&o, None, "d = mean_red - 1\nout v = nb.max(d)").unwrap();
+    close(&col(&table_of(&out), "v"), &[11.0, 11.0, 5.0], "nb.max of a name");
+    // a call inside a call, and in a condition
+    close(&calc_col(&o, None, "nb.mean(nb.count(cls == \"water\"))"), &[1.5, 1.0, 5.0 / 3.0], "nested");
+    close(&calc_col(&o, None, "1 if nb.count(cls == \"water\") > 1 else 0"), &[0.0, 1.0, 0.0], "in a condition");
+    // a class that is not there is told, with the classes
+    let e = calc_out(&o, None, "border_to(\"sea\")").unwrap_err().to_string();
+    assert!(e.contains("sea") && e.contains("water, field, road"), "{e}");
+    let (bare, _) = segment(&map(3, 1, vec![1.0, 2.0, 3.0]), 4);
+    let e = calc_out(&bare, None, "distance_to(\"water\")").unwrap_err().to_string();
+    assert!(e.contains("no classes"), "{e}");
+}
+
+#[test]
+fn calc_parent_and_children_by_hand() {
+    let o = calc_row();
+    // the level above: P1 holds A and B, P2 holds C
+    let (up, _) = segment(&map(3, 2, vec![1.0, 1.0, 2.0, 1.0, 2.0, 2.0]), 4);
+    let mut t = Table::new(["id", "mean_red"].map(String::from).to_vec());
+    t.rows = vec![vec![1.0, 100.0], vec![2.0, 200.0]];
+    let classes = ["urban", "rural"].map(|name| ObjectClass { name: name.into(), colour: None }).to_vec();
+    let up = (*up).clone().with_table(t).unwrap().with_classes(classes, vec![1, 2], vec![]).unwrap();
+    let nested = Arc::new((*o).clone().with_parent(Arc::new(up), vec![1, 1, 2]).unwrap());
+    close(&calc_col(&nested, None, "parent.mean_red"), &[100.0, 100.0, 200.0], "parent.mean_red");
+    close(&calc_col(&nested, None, "mean_red / parent.mean_red"), &[0.02, 0.06, 0.06], "ratio to the parent");
+    close(&calc_col(&nested, None, "parent.cls == \"urban\""), &[1.0, 1.0, 0.0], "parent.cls");
+    // A: (100 + 200) / 2, B: (100 x 1 + 200 x 2) / 3, C: (100 x 1 + 100 x 2) / 3
+    close(&calc_col(&nested, None, "nb.mean(parent.mean_red)"), &[150.0, 500.0 / 3.0, 100.0], "nb of parent");
+    // no level above, or no such attribute: told
+    let e = calc_out(&o, None, "parent.mean_red").unwrap_err().to_string();
+    assert!(e.contains("parent level"), "{e}");
+    let e = calc_out(&nested, None, "parent.nope").unwrap_err().to_string();
+    assert!(e.contains("nope") && e.contains("mean_red"), "{e}");
+
+    // the level beneath: the six cells, in classes tree, shrub, none; parents A, B, C, A, C, C
+    let (cells, _) = segment(&map(3, 2, (1..=6).map(f64::from).collect()), 4);
+    let classes = ["tree", "shrub"].map(|name| ObjectClass { name: name.into(), colour: None }).to_vec();
+    let below = (*cells).clone().with_parent(o.clone(), vec![1, 2, 3, 1, 3, 3]).unwrap();
+    let below = Arc::new(below.with_classes(classes, vec![1, 2, 1, 1, 2, 0], vec![]).unwrap());
+    let b = Some(&below);
+    close(&calc_col(&o, b, "children.count(cls == \"tree\")"), &[2.0, 0.0, 1.0], "children.count");
+    close(&calc_col(&o, b, "children.area(cls == \"tree\")"), &[1.0, 0.0, 1.0 / 3.0], "children.area");
+    close(&calc_col(&o, b, "children.mean(id)"), &[2.5, 2.0, 14.0 / 3.0], "children.mean");
+    // the argument is read over the children: their parent's attributes too
+    close(
+        &calc_col(&o, b, "children.count(cls == \"tree\" and parent.mean_red > 5)"),
+        &[0.0, 0.0, 1.0],
+        "children of a parent",
+    );
+    // without below, or with a level that is not beneath: told
+    let e = calc_out(&o, None, "children.count(cls == \"tree\")").unwrap_err().to_string();
+    assert!(e.contains("below"), "{e}");
+    let e = calc_out(&nested, Some(&cells), "1").unwrap_err().to_string();
+    assert!(e.contains("below"), "{e}");
+}
+
+#[test]
+fn calc_outputs_text_and_table() {
+    let o = calc_row();
+    let out = calc_out(&o, None, "out kind = \"wet\" if ndwi > 0 else \"dry\"\nout wet = above(ndwi, 0, 0.5)").unwrap();
+    let t = table_of(&out);
+    assert_eq!(t.columns, ["id", "mean_red", "ndwi", "kind", "wet"]);
+    assert!(t.is_text("kind"));
+    assert_eq!(t.rows.iter().map(|r| t.cell(3, r[3])).collect::<Vec<_>>(), ["dry", "wet", "wet"]);
+    close(&col(&t, "wet"), &[0.0, 0.2, 1.0], "wet");
+    // the objects carry the same table, and a column of the same name is replaced
+    let carried = objects_of(&out).table.clone();
+    assert!(carried.columns == t.columns && carried.rows == t.rows && carried.labels == t.labels);
+    let out = calc_out(&o, None, "out ndwi = ndwi * 10\nout cls_here = cls").unwrap();
+    let t = table_of(&out);
+    close(&col(&t, "ndwi"), &[-2.0, 1.0, 5.0], "ndwi replaced");
+    assert_eq!(t.columns.len(), 4);
+    assert_eq!(t.rows.iter().map(|r| t.cell(3, r[3])).collect::<Vec<_>>(), ["water", "field", "water"]);
+    // a script without out needs the column; with out, not
+    let e = calc_out(&o, None, "ndwi * 2").unwrap_err().to_string();
+    assert!(e.contains("name the column"), "{e}");
+    let out = run(
+        "objects.calc",
+        vec![("objects", Value::Objects(o.clone()))],
+        serde_json::json!({ "expression": "ndwi * 2", "column": "twice" }),
+    )
+    .unwrap();
+    close(&col(&table_of(&out), "twice"), &[-0.4, 0.2, 1.0], "twice");
+    let e = calc_out(&o, None, "out id = 1").unwrap_err().to_string();
+    assert!(e.contains("id"), "{e}");
+}
+
+// ---- objects.rules and objects.nearest
+
+/// Three objects in a row (ids 1 to 3) with the columns ndwi (0.125, 0.5, -0.25) and ndvi (0.5, 0.25, 1), values
+/// that make the memberships below exact.
+fn rules_row() -> Arc<Objects> {
+    let (o, _) = segment(&map(3, 1, vec![1.0, 2.0, 3.0]), 4);
+    let mut t = Table::new(["id", "ndwi", "ndvi"].map(String::from).to_vec());
+    t.rows = vec![vec![1.0, 0.125, 0.5], vec![2.0, 0.5, 0.25], vec![3.0, -0.25, 1.0]];
+    Arc::new((*o).clone().with_table(t).unwrap())
+}
+
+fn rules_out(
+    o: &Arc<Objects>,
+    classes: serde_json::Value,
+    min: Option<f64>,
+) -> terraflux_ops::Result<Outputs> {
+    let mut p = serde_json::json!({ "classes": classes });
+    if let Some(m) = min {
+        p["min"] = serde_json::json!(m);
+    }
+    run("objects.rules", vec![("objects", Value::Objects(o.clone()))], p)
+}
+
+/// wet (water, marsh) and land: the hierarchy of the hand calculation.
+fn wet_land() -> serde_json::Value {
+    serde_json::json!([
+        { "name": "wet", "rule": "above(ndwi, 0, 0.25)", "colour": "#3366cc" },
+        { "name": "water", "rule": "below(ndvi, 0.25, 0.75)", "parent": "wet" },
+        { "name": "marsh", "rule": "above(ndvi, 0.25, 0.75)", "parent": "wet" },
+        { "name": "land", "rule": "below(ndwi, 0, 0.25)" }
+    ])
+}
+
+#[test]
+fn rules_inherit_the_mothers_membership_and_leaves_decide() {
+    let o = rules_row();
+    let out = rules_out(&o, wet_land(), None).unwrap();
+    let t = table_of(&out);
+    assert_eq!(t.columns, ["id", "class", "m_wet", "m_water", "m_marsh", "m_land", "margin"]);
+    // wet 0.5, 1, 0; own water 0.5 (ndvi .5), 1, 0; own marsh 0.5, 0, 1; land 0.5, 0, 1; the child is the smaller
+    close(&col(&t, "m_wet"), &[0.5, 1.0, 0.0], "wet");
+    close(&col(&t, "m_water"), &[0.5, 1.0, 0.0], "water = min(wet, own)");
+    close(&col(&t, "m_marsh"), &[0.5, 0.0, 0.0], "marsh = min(wet, own)");
+    close(&col(&t, "m_land"), &[0.5, 0.0, 1.0], "land");
+    // leaves are water, marsh and land: object 1 ties at 0.5 (the first of the list, water), 2 water, 3 land
+    let c = objects_of(&out);
+    assert_eq!(c.classes.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["wet", "water", "marsh", "land"]);
+    assert_eq!(c.classes[0].colour, Some([0x33, 0x66, 0xcc]));
+    assert_eq!(c.class_of, vec![2, 2, 4]);
+    assert_eq!(c.membership.len(), 4);
+    assert_eq!(t.cell(1, t.rows[2][1]), "land");
+    // the margin: best leaf less the second best
+    close(&col(&t, "margin"), &[0.0, 1.0, 1.0], "margin");
+    // the map holds the leaf's class (1..) of each cell
+    let Value::Map(m) = &out["map"] else { panic!("map") };
+    assert_eq!(m.data.to_vec(), vec![2.0, 2.0, 4.0]);
+}
+
+#[test]
+fn rules_min_leaves_the_unsure_unclassified() {
+    let o = rules_row();
+    let out = rules_out(&o, wet_land(), Some(0.6)).unwrap();
+    assert_eq!(objects_of(&out).class_of, vec![0, 2, 4]);
+    let Value::Map(m) = &out["map"] else { panic!("map") };
+    assert!(m.data[0].is_nan() && m.data[1] == 2.0);
+    let t = table_of(&out);
+    assert!(t.rows[0][1].is_nan());
+    // the default is 0.1: an object at 0.05 is left out, at 0.1 it is not
+    let (o, _) = segment(&map(3, 1, vec![1.0, 2.0, 3.0]), 4);
+    let mut t = Table::new(["id", "x"].map(String::from).to_vec());
+    t.rows = vec![vec![1.0, 0.05], vec![2.0, 0.1], vec![3.0, 0.5]];
+    let o = Arc::new((*o).clone().with_table(t).unwrap());
+    let out = rules_out(&o, serde_json::json!([{ "name": "a", "rule": "x" }]), None).unwrap();
+    assert_eq!(objects_of(&out).class_of, vec![0, 1, 1]);
+    // min must be 0 to 1
+    let e = rules_out(&o, serde_json::json!([{ "name": "a", "rule": "x" }]), Some(2.0)).unwrap_err().to_string();
+    assert!(e.contains("min"), "{e}");
+}
+
+#[test]
+fn rules_clamp_missing_values_and_a_class_without_a_rule_is_its_mothers() {
+    let o = fuzzy_row();
+    let classes = serde_json::json!([
+        { "name": "any" },
+        { "name": "c", "rule": "x", "parent": "any" },
+        { "name": "d", "rule": "2 - x * 0 - 2 + 0.5", "parent": "any" }
+    ]);
+    let t = table_of(&rules_out(&o, classes, Some(0.0)).unwrap());
+    // the value is cut to 0..1 and a missing one is 0; the root with no rule is 1
+    close(&col(&t, "m_any"), &[1.0; 7], "any");
+    close(&col(&t, "m_c"), &[0.0, 0.0, 0.25, 0.5, 1.0, 1.0, 0.0], "c");
+    // x * 0 is missing for the missing x: 0
+    close(&col(&t, "m_d"), &[0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0], "d");
+    // a script of several lines: the last value counts
+    let classes = serde_json::json!([{ "name": "s", "rule": "a = above(x, 0, 1)\nb = 1 - a\nb" }]);
+    let t = table_of(&rules_out(&o, classes, Some(0.0)).unwrap());
+    close(&col(&t, "m_s"), &[1.0, 1.0, 0.75, 0.5, 0.0, 0.0, 0.0], "script");
+}
+
+#[test]
+fn rules_errors_name_the_class() {
+    let o = rules_row();
+    let e = |classes: serde_json::Value| rules_out(&o, classes, None).unwrap_err().to_string();
+    let m = e(serde_json::json!([
+        { "name": "a", "parent": "b", "rule": "ndwi" },
+        { "name": "b", "parent": "c" },
+        { "name": "c", "parent": "a" }
+    ]));
+    assert!(m.contains("cycle") && m.contains("a -> b -> c -> a"), "{m}");
+    let m = e(serde_json::json!([{ "name": "a", "parent": "a" }]));
+    assert!(m.contains("cycle"), "{m}");
+    let m = e(serde_json::json!([{ "name": "a", "parent": "nope" }]));
+    assert!(m.contains("\"nope\"") && m.contains("\"a\""), "{m}");
+    let m = e(serde_json::json!([{ "name": "a" }, { "name": "a" }]));
+    assert!(m.contains("\"a\""), "{m}");
+    let m = e(serde_json::json!([{ "name": "a", "colour": "blue" }]));
+    assert!(m.contains("colour") && m.contains("blue"), "{m}");
+    let m = e(serde_json::json!([{ "name": "a", "rule": "nothing > 1" }]));
+    assert!(m.contains("class \"a\"") && m.contains("nothing"), "{m}");
+    let m = e(serde_json::json!([{ "name": "a", "rule": "above(ndwi, 0)" }]));
+    assert!(m.contains("class \"a\"") && m.contains("above takes 3"), "{m}");
+    let m = e(serde_json::json!([{ "name": "a", "rune": "ndwi" }]));
+    assert!(m.contains("rune"), "{m}");
+    let m = e(serde_json::json!([]));
+    assert!(m.contains("empty"), "{m}");
+    // no classes at all
+    let r = run("objects.rules", vec![("objects", Value::Objects(o.clone()))], serde_json::json!({}));
+    assert!(r.unwrap_err().to_string().contains("no classes"));
+    // the hierarchy a stage that shows it reads
+    let t = terraflux_ops::objects::tree(&wet_land()).unwrap();
+    assert_eq!(t.iter().map(|c| c.parent).collect::<Vec<_>>(), [None, Some(0), Some(0), None]);
+    assert_eq!(terraflux_ops::objects::leaves(&t), vec![1, 2, 3]);
+    assert_eq!(t[1].rule.as_deref(), Some("below(ndvi, 0.25, 0.75)"));
+}
+
+#[test]
+fn rules_read_the_classes_the_objects_have_before_the_node() {
+    // calc_row: A and C water, B field, borders A-B 1, A-C 1, B-C 2, perimeters 6, 4, 8
+    let o = calc_row();
+    let classes = serde_json::json!([{ "name": "near", "rule": r#"above(border_to("water"), 0, 0.5)"# }]);
+    let out = rules_out(&o, classes, Some(0.3)).unwrap();
+    // the border to water: A 1/6, B 3/4, C 1/8; the membership is twice that, at most 1
+    close(&col(&table_of(&out), "m_near"), &[1.0 / 3.0, 1.0, 0.25], "near");
+    // (the classes of the input, not those the node gives, are read: the output classes are only `near`)
+    assert_eq!(objects_of(&out).class_of, vec![1, 1, 0]);
+    // objects without classes cannot be asked about them
+    let e = rules_out(&rules_row(), serde_json::json!([{ "name": "a", "rule": r#"border_to("water")"# }]), None)
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("class \"a\"") && e.contains("no classes"), "{e}");
+    // a second pass reads the first's classes
+    let first = rules_out(&rules_row(), wet_land(), None).unwrap();
+    let c1 = objects_of(&first);
+    let second = rules_out(
+        &c1,
+        serde_json::json!([{ "name": "by_land", "rule": r#"above(border_to("land"), 0, 0.5)"# }]),
+        None,
+    )
+    .unwrap();
+    // land is object 3, and only object 2 touches it: 1 of its 4 edges, a membership of 0.5
+    close(&col(&table_of(&second), "m_by_land"), &[0.0, 0.5, 0.0], "second pass");
+}
+
+/// Objects in a row with the columns f1 and f2, and the samples' table (class a, b).
+fn nearest_case(f1: &[f64], f2: &[f64], samples: &[(f64, f64, f64)]) -> (Arc<Objects>, Table) {
+    let n = f1.len();
+    let (o, _) = segment(&map(n, 1, (1..=n).map(|v| v as f64).collect()), 4);
+    let mut t = Table::new(["id", "f1", "f2"].map(String::from).to_vec());
+    t.rows = (0..n).map(|k| vec![(k + 1) as f64, f1[k], f2[k]]).collect();
+    let mut s = Table::new(["class", "f1", "f2"].map(String::from).to_vec());
+    s.rows = samples.iter().map(|&(c, a, b)| vec![c, a, b]).collect();
+    s.labels.insert("class".into(), vec!["a".into(), "b".into()]);
+    (Arc::new((*o).clone().with_table(t).unwrap()), s)
+}
+
+fn nearest_out(o: &Arc<Objects>, s: &Table, params: serde_json::Value) -> terraflux_ops::Result<Outputs> {
+    run("objects.nearest", vec![("objects", Value::Objects(o.clone())), ("samples", Value::Table(s.clone()))], params)
+}
+
+fn sd(v: &[f64]) -> f64 {
+    let m = v.iter().sum::<f64>() / v.len() as f64;
+    (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt()
+}
+
+#[test]
+fn nearest_takes_the_class_of_the_nearest_samples() {
+    let f1 = [0.0, 0.1, 0.2, 10.0, 10.1, 10.2];
+    let f2 = [1.0, 1.1, 0.9, 5.0, 5.2, 4.9];
+    let (o, s) = nearest_case(&f1, &f2, &[(1.0, 0.0, 1.0), (1.0, 0.3, 1.0), (2.0, 10.0, 5.0)]);
+    let out = nearest_out(&o, &s, serde_json::json!({})).unwrap();
+    let c = objects_of(&out);
+    assert_eq!(c.class_of, vec![1, 1, 1, 2, 2, 2]);
+    assert_eq!(c.classes.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+    let t = table_of(&out);
+    assert_eq!(t.columns, ["id", "class", "m_a", "m_b", "margin"]);
+    // an object that is a sample has the membership 1 to its class
+    near(col(&t, "m_a")[0], 1.0, 1e-12, "the sample itself");
+    near(col(&t, "m_b")[3], 1.0, 1e-12, "the sample itself");
+    assert!(col(&t, "m_a")[5] < 1e-3 && col(&t, "m_b")[0] < 1e-3);
+    near(col(&t, "margin")[0], 1.0 - col(&t, "m_b")[0], 1e-12, "margin");
+    let Value::Map(m) = &out["map"] else { panic!("map") };
+    assert_eq!(m.data.to_vec(), vec![1.0, 1.0, 1.0, 2.0, 2.0, 2.0]);
+    // the columns can be chosen: f1 alone, and a missing one is named
+    assert_eq!(objects_of(&nearest_out(&o, &s, serde_json::json!({ "columns": ["f1"] })).unwrap()).class_of, c.class_of);
+    let e = nearest_out(&o, &s, serde_json::json!({ "columns": ["f9"] })).unwrap_err().to_string();
+    assert!(e.contains("f9") && e.contains("objects"), "{e}");
+    let e = nearest_out(&o, &s, serde_json::json!({ "slope": 1.0 })).unwrap_err().to_string();
+    assert!(e.contains("slope"), "{e}");
+}
+
+#[test]
+fn nearest_membership_at_a_distance_of_one_is_the_slope() {
+    let f1 = [0.0, 1.0, 4.0, 5.0];
+    let f2 = [0.0, 3.0, 1.0, 2.0];
+    let (s1, s2) = (sd(&f1), sd(&f2));
+    // a sample one deviation of f1 from the object 2, and one far away
+    let (o, s) = nearest_case(&f1, &f2, &[(1.0, f1[1] - s1, f2[1]), (2.0, f1[3] + 10.0 * s1, f2[3])]);
+    let t = table_of(&nearest_out(&o, &s, serde_json::json!({ "columns": ["f1"] })).unwrap());
+    near(col(&t, "m_a")[1], 0.2, 1e-9, "d = 1 gives the slope (0.2)");
+    // by hand: exp(-ln(5) * d^2) for the others
+    let d = (f1[2] - (f1[1] - s1)) / s1;
+    near(col(&t, "m_a")[2], 0.2f64.powf(d * d), 1e-9, "d by hand");
+    let t = table_of(&nearest_out(&o, &s, serde_json::json!({ "columns": ["f1"], "slope": 0.5 })).unwrap());
+    near(col(&t, "m_a")[1], 0.5, 1e-9, "slope 0.5");
+    // min: 0.2 passes the default 0.1, not 0.3
+    let out = nearest_out(&o, &s, serde_json::json!({ "columns": ["f1"] })).unwrap();
+    assert_eq!(objects_of(&out).class_of[1], 1);
+    let out = nearest_out(&o, &s, serde_json::json!({ "columns": ["f1"], "min": 0.3 })).unwrap();
+    assert_eq!(objects_of(&out).class_of[1], 0);
+    // two attributes: the distances add as squares, d^2 = 2 gives slope^2 (0.04)
+    let (o, s) = nearest_case(&f1, &f2, &[(1.0, f1[1] - s1, f2[1] - s2), (2.0, f1[3] + 10.0 * s1, f2[3] + 10.0 * s2)]);
+    let t = table_of(&nearest_out(&o, &s, serde_json::json!({ "columns": ["f1", "f2"] })).unwrap());
+    near(col(&t, "m_a")[1], 0.04, 1e-9, "d = sqrt(2)");
+    // without colours (no mean_*, no index) the default is every numeric attribute common to both tables but id, class,
+    // cells, area and the centroid: the same
+    let t2 = table_of(&nearest_out(&o, &s, serde_json::json!({})).unwrap());
+    close(&col(&t2, "m_a"), &col(&t, "m_a"), "default columns");
+}
+
+/// The share of the cells whose class (by name, `names[truth - 1]`) is the truth's.
+fn named_accuracy(out: &Outputs, truth: &Map, names: &[&str]) -> f64 {
+    let Value::Map(m) = &out["map"] else { panic!("map") };
+    let o = objects_of(out);
+    let hit = m
+        .data
+        .iter()
+        .zip(truth.data.iter())
+        .filter(|(p, t)| !p.is_nan() && o.classes[**p as usize - 1].name == names[**t as usize - 1])
+        .count();
+    hit as f64 / truth.data.len() as f64
+}
+
+/// Sharp blocks (nlm.image without blur), segmented and with spectral attributes (mean per band, ndvi, ndwi).
+fn sharp_case(segmenter: &str, params: serde_json::Value) -> (Arc<Objects>, Map) {
+    let image = run("nlm.image", vec![("classes", blocky())], serde_json::json!({ "blur": 0 })).unwrap();
+    let (stack, truth) = (image["image"].clone(), image["truth"].clone());
+    let Value::Map(truth) = truth else { panic!("truth") };
+    let o = objects_of(&run(segmenter, vec![("image", stack.clone())], params).unwrap());
+    let out = run(
+        "objects.features",
+        vec![("objects", Value::Objects(o)), ("image", stack)],
+        serde_json::json!({ "features": ["mean", "ndvi", "ndwi"] }),
+    )
+    .unwrap();
+    (objects_of(&out), truth)
+}
+
+#[test]
+fn rules_on_nlm_image_by_hand_written_thresholds_are_accurate() {
+    // signatures (blue green red nir swir1 swir2): ndwi (green - nir) / (green + nir) is 0.43 for water and under -0.15
+    // for the rest; ndvi is 0.82 forest, 0.62 grassland, 0.35 cropland, 0.125 urban; swir1 is 0.15 forest, 0.25
+    // grassland
+    let classes = serde_json::json!([
+        { "name": "water", "rule": "above(ndwi, 0, 0.2)", "colour": "#2b6cb0" },
+        { "name": "vegetation", "rule": "above(ndvi, 0.45, 0.55)" },
+        { "name": "forest", "rule": "below(mean_swir1, 0.18, 0.22)", "parent": "vegetation" },
+        { "name": "grassland", "rule": "above(mean_swir1, 0.18, 0.22)", "parent": "vegetation" },
+        { "name": "cropland", "rule": "between(ndvi, 0.2, 0.28, 0.45, 0.5)" },
+        { "name": "urban", "rule": "below(ndvi, 0.2, 0.28) and below(ndwi, 0, 0.2)" }
+    ]);
+    let names = ["water", "forest", "grassland", "cropland", "urban"];
+    for (segmenter, params) in [
+        ("segment.slic", serde_json::json!({})),
+        ("segment.multiresolution", serde_json::json!({ "scale": 5 })),
+    ] {
+        let (o, truth) = sharp_case(segmenter, params);
+        let out = rules_out(&o, classes.clone(), None).unwrap();
+        let acc = named_accuracy(&out, &truth, &names);
+        println!("rules, {segmenter}: {} objects, accuracy {acc:.4}", o.count);
+        assert!(acc >= 0.8, "{segmenter}: accuracy {acc}");
+        // the parent is not a class an object becomes
+        let c = objects_of(&out);
+        assert!(c.class_of.iter().all(|&k| k != 2));
+        assert_eq!(c.classes.len(), 6);
+    }
+}
+
+#[test]
+fn nearest_on_nlm_image_by_samples_is_accurate() {
+    for (segmenter, params) in [
+        ("segment.slic", serde_json::json!({})),
+        ("segment.multiresolution", serde_json::json!({ "scale": 5 })),
+    ] {
+        let (o, truth) = sharp_case(segmenter, params);
+        let s = run(
+            "objects.samples",
+            vec![("objects", Value::Objects(o.clone())), ("samples", truth_points(&o, &truth, 3, 7))],
+            serde_json::json!({}),
+        )
+        .unwrap();
+        let train = table_of(&s);
+        let bands: Vec<&str> = ["blue", "green", "red", "nir", "swir1", "swir2"].to_vec();
+        let columns: Vec<String> = bands.iter().map(|b| format!("mean_{b}")).collect();
+        let out = nearest_out(&o, &train, serde_json::json!({ "columns": columns })).unwrap();
+        let acc = accuracy(&out, &truth);
+        println!("nearest, {segmenter}: {} objects, {} training, accuracy {acc:.4}", o.count, train.rows.len());
+        assert!(acc >= 0.9, "{segmenter}: accuracy {acc}");
+        assert_eq!(objects_of(&out).classes.len(), 5);
+        // the default feature space (the colours: means and indices) is as good
+        let all = nearest_out(&o, &train, serde_json::json!({})).unwrap();
+        let default = accuracy(&all, &truth);
+        println!("nearest, {segmenter}, default columns: accuracy {default:.4}");
+        assert!(default >= 0.9, "{segmenter}: default columns, accuracy {default}");
+        assert_eq!(table_of(&all).rows.len(), o.count);
+    }
+}

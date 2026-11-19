@@ -492,6 +492,11 @@ pub const LAST_LINE: &str = "(its last line)";
 /// What every name a script gives a value holds at the end: its outputs first (a script without `out` ending
 /// with a value: that value, named [`LAST_LINE`]), then the others.
 pub fn every_name(v: &Vector, inputs: &BTreeMap<String, Value>, script: &Script) -> Result<Vec<(String, Column)>> {
+    run(v, inputs, &with_every_name(script))
+}
+
+/// The script with every name it gives a value an output (see [`every_name`]).
+pub fn with_every_name(script: &Script) -> Script {
     let mut s = script.clone();
     if script.outputs().is_empty()
         && let Some((line, Stmt::Value(e))) = s.statements.last().cloned()
@@ -510,7 +515,7 @@ pub fn every_name(v: &Vector, inputs: &BTreeMap<String, Value>, script: &Script)
     }
     let outs = s.outputs();
     s.statements.extend(given.into_iter().filter(|g| !outs.contains(g)).map(|g| (line, Stmt::Out(g))));
-    run(v, inputs, &s)
+    s
 }
 
 #[cfg(test)]

@@ -35,7 +35,7 @@ and table.write nodes write files too. inspect_file tells what a file holds befo
     },
     Guide {
         name: "calc",
-        title: "Calculators: raster.calc, vector.calc, vector.filter and every expression",
+        title: "Calculators: raster.calc, vector.calc, vector.filter, objects.calc and every expression",
         text: "\
 - raster.calc (and every expression: value.calc, table.filter, agents.update's rules...) takes Python's syntax, \
 the only one: one statement a line (`#` a comment), `name = value`, `name[where] = value` (the cells where it \
@@ -46,8 +46,12 @@ holds), `a if c else b`, `**`, `and or not`, `None` (no value), chained comparis
 `classes[elev >= 700] = 2`, `classes[elev >= 1000] = 3`, `out classes` (a line each).
 - write_calc writes a calculator's script: of maps (raster.calc), of features' attributes (vector.calc: \
 `out name = value` for each attribute, texts compared as uso == \"forest\", the geometry as geometry.area) or of \
-the features kept (vector.filter: the script ends with the condition); checked, and tried on a sample of its \
-inputs' cells or features, before anything changes: read what each output gives in its reply.
+the features kept (vector.filter: the script ends with the condition) or of objects' attributes (objects.calc: \
+as vector.calc, over the objects' attributes and `cls`, the class name; `nb.mean(x)`, `nb.count(cond)` and \
+`border_to(\"water\")` read the neighbours, `parent.x` the level above, `children.count(cond)` the level \
+beneath (the input `below`); `above`, `below`, `between` and `about` give a fuzzy membership from 0 to 1, \
+and there `and` is the smaller, `or` the larger and `not` one minus); checked, and tried on a sample of its \
+inputs' cells, features or objects, before anything changes: read what each output gives in its reply.
 - explain_calc takes a script apart: what each input is and what each name holds on a sample. Use write_calc and \
 explain_calc, not add_node or edit_node, for a calculator's script.
 - describe_operator raster.calc lists its functions.",
