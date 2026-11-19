@@ -165,6 +165,14 @@ silhouette from 2 to 10); outputs: clusters (a map, 1 to k, NaN where a variable
 cluster in the variables' own units, with its size), choice (inertia, silhouette and Calinski-Harabasz per k) and a \
 model for ml.predict. Variables are standardised by default; the clusters are numbered by the first principal \
 component of their centres, so the colours do not change between runs.
+9. Types of records or cells that follow a gradient, with their neighbourhoods kept (a map of the landscape's \
+types, an unsupervised classification whose groups are ordered): ml.som trains a self-organizing map (Kohonen) of a \
+stack or the columns of a table. Without `rows` and `cols` the grid has about 5 sqrt(n) nodes (Vesanto's rule); \
+`clusters` k groups the nodes in k groups (Ward's method, or `grouping` = \"kmeans\"). Outputs: nodes (a map of each \
+cell's node, row by row from 1) and groups (a map, 1 to k), codebook (a row per node: row, column, count, group, \
+umatrix, and its weights in the variables' own units), quality (quantisation and topographic error) and a model for \
+ml.predict. `topology` is rectangular or hexagonal; `training` batch (the default) or online; variables are \
+standardised by default.
 Templates: \"Drivers of land change\", \"Cleaning a map of classes: filter, sieve, label and grow\", \"Terrain of a \
 surface\".",
     },

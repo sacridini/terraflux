@@ -4642,6 +4642,31 @@ Os três projetos são GPL-3.0, do mesmo autor; o Terraflux é GPL-3.0-or-later:
   os pesos nas unidades originais, o número de células e o grupo), `quality` (erro de quantização e topográfico) e
   `model` (`Model::Som { rows, columns, topology, weights, mean, scale, groups }`). A U-matrix calculada do codebook.
   Testes: os do Zeit; hexagonal contra o MiniSom com `topology='hexagonal'`; o mapa dos grupos reproduzível.
+  **Feito**: `multivar/som.rs` (o motor do Zeit copiado com a nota da origem; o `parallel` do Zeit trocado pelo rayon do
+  chamador: a época em lote passa por três laços paralelos, os vencedores em pedaços de 512 registros, as somas por
+  blocos fixos de 8 nós, cada um na ordem das amostras, e a atualização em série; os mesmos bits com 1 ou 8 threads;
+  `Grid::minisom` com as coordenadas do MiniSom, hexagonal incluída: as linhas contadas da última, uma sim e uma não
+  deslocada meio nó, e o espaço entre linhas (3/2)/raiz de 3; `predict_two`, os dois nós mais próximos) e
+  `multivar/codebook.rs` (`Som`: nomes, linhas, colunas, topologia, média, escala, pesos e grupos; `assign` por pedaços
+  de 8192 registros; `quality` (erro de quantização e topográfico); `umatrix`; `fit`, `vesanto` e `group_nodes`). O
+  operador está em `ml/som.rs`. **Decisões**: o nó 1 é o da linha 1, coluna 1, e os números seguem linha por linha (o
+  motor do MiniSom numera por coluna e depois por linha: a conversão fica em `fit`); a grade `rows` x `cols` (e não
+  `columns`, que já é a escolha das variáveis de tabela nos três operadores); o tamanho de Vesanto é 5 raiz de n nós,
+  no máximo 2500, os lados na razão das raízes dos dois maiores autovalores da correlação (ou da covariância, sem
+  padronizar), a linha mais comprida como `rows`, e é dito num `ctx.warn`; a partida é a de Kohonen (o plano dos dois
+  primeiros componentes, de -2 a 2 desvios, o lado mais comprido no primeiro; `init` = random sorteia registros),
+  `learning_rate` 1 em lote e 0,5 em online, `sigma` a metade do lado maior, `iterations` 50 em lote e 5 passadas em
+  online (um passo por registro, a ordem sorteada pela semente; no máximo 50 milhões de passos); `decay` escolhe o par
+  (taxa, sigma) do MiniSom; `clusters` agrupa os pesos dos nós (não ponderados) pelo Ward (ou k-means) e numera os
+  grupos pelo primeiro componente dos centros, como o `ml.kmeans`. O Janus não agrupa os nós: usa cada nó como grupo
+  (até 12), então o dois níveis é só o de Vesanto & Alhoniemi. A U-matrix é a distância média de cada nó aos vizinhos
+  (os 8 em volta, ou os de distância 1 nas coordenadas hexagonais), na unidade do ajuste, e vai como coluna `umatrix` do
+  `codebook` (sem tabela à parte). O `ml.predict` ganhou a porta `groups`. No `python_script`, `ml.som` é "sem
+  equivalente" (a partida e o agrupamento não são do MiniSom). **Achado**: a `distance_map` hexagonal do MiniSom
+  desloca as linhas pelo outro lado que as suas coordenadas, e por isso a U-matrix hexagonal é conferida contra as
+  coordenadas do MiniSom e a retangular contra a `distance_map`. Referência: `tools/make_som_reference.py` e
+  `tests/data/reference/som.json` (cada número como os 64 bits: 13 casos, os 8 do Zeit e 5 hexagonais; os pesos treinados
+  iguais aos bits do MiniSom no Windows, onde o `exp` do NumPy é o da biblioteca C, e a 1e-12 nos outros sistemas).
 - **E. Os gráficos e o Viewer.** Em `charts.rs`: o cotovelo do PCA, a escolha do k (inércia e silhueta por k) e o
   **SOM**: a grade dos nós com a U-matrix, os planos de componentes (uma grade por variável), o mapa de contagens e os
   grupos; um clique num nó (ou num grupo) acende as suas células no mapa do Viewer, e uma célula no mapa mostra o seu

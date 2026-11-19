@@ -738,6 +738,11 @@ const PHRASES: &[(&str, &str)] = &[
          standardised][; seed {seed}].",
     ),
     (
+        "ml.som",
+        "A self-organizing map of the variables[ of <table>][ of the maps <predictors>][, {rows} rows of {cols} nodes][, \
+         {topology}][, {training} training][, the nodes in {clusters} groups][; seed {seed}].",
+    ),
+    (
         "ml.potential",
         "The potential of each class of <landscape>[ ({target})] from the drivers <drivers>[ and the later map \
          <later>][, a {method} model][; seed {seed}].",

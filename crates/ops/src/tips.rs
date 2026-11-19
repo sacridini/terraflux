@@ -832,6 +832,21 @@ pub const TIPS: &[(&str, &str)] = &[
          another image or date the nearest centre of this fit, not of the new data. A fit on very many cells uses \
          a sample of a million (`sample` and `seed` to choose); every cell then has its cluster.",
     ),
+    (
+        "ml.som",
+        "Keep `standardise` on when the variables are in different units or ranges, or the one with the largest \
+         numbers decides the map alone. The grid is about 5 sqrt(n) nodes (Vesanto's rule, said in the note): with \
+         fewer than a few records per node (the `count` of the `codebook`, the `empty_nodes` of `quality`) the \
+         nodes are filled by the neighbours and not by data, so give `rows` and `cols` for a smaller grid, or more \
+         records. A `topographic_error` high (above 0.3) says the map is folded: more `iterations`, or a larger \
+         `sigma`; the `quantisation_error` falls as the grid grows, so it only compares maps of the same size. \
+         The `umatrix` column of the `codebook` is large across the gap between two types of records, and small \
+         inside one: `clusters` k groups the nodes (Ward's method) and the groups are numbered by the first \
+         principal component of their centres, so the colours do not change between runs. `training` online \
+         takes a record at a time and is slow for very many cells: batch (the default) uses all the threads. \
+         `ml.predict` with the model gives another image or date the nearest node of this fit, not of the new \
+         data.",
+    ),
 ];
 
 #[cfg(test)]

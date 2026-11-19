@@ -89,6 +89,9 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     // machine learning
     ("ml.fit", &["table", "predictors", "target", "column", "task", "method", "sample", "n_estimators", "max_iter"]),
     ("ml.potential", &["landscape", "later", "drivers", "target", "classes", "method", "sample", "n_estimators"]),
+    ("ml.som", &["table", "predictors", "cells", "rows", "cols", "topology", "training", "clusters"]),
+    // objects
+    ("segment.sam", &["image", "weights", "bands", "points", "iou", "min_size", "fill"]),
     // species distributions and biodiversity
     ("sdm.fit", &["predictors", "categorical", "model", "classes", "regmult", "cv"]),
     ("sdm.migrate", &["initial", "suitability", "barriers", "steps", "kernel", "ldd_frequency", "seed"]),

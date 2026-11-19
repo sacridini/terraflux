@@ -428,6 +428,45 @@ pub const REFERENCES: &[Reference] = &[
         report: "",
     },
     Reference {
+        key: "kohonen1982",
+        authors: &["Kohonen, T."],
+        more: false,
+        year: 1982,
+        title: "Self-organized formation of topologically correct feature maps",
+        journal: "Biological Cybernetics",
+        volume: "43",
+        issue: "1",
+        pages: "59–69",
+        doi: "10.1007/BF00337288",
+        report: "",
+    },
+    Reference {
+        key: "kohonen2001",
+        authors: &["Kohonen, T."],
+        more: false,
+        year: 2001,
+        title: "Self-Organizing Maps (3rd ed.)",
+        journal: "",
+        volume: "",
+        issue: "",
+        pages: "",
+        doi: "",
+        report: "Springer Series in Information Sciences 30. Springer, Berlin.",
+    },
+    Reference {
+        key: "vesanto2000",
+        authors: &["Vesanto, J.", "Alhoniemi, E."],
+        more: false,
+        year: 2000,
+        title: "Clustering of the self-organizing map",
+        journal: "IEEE Transactions on Neural Networks",
+        volume: "11",
+        issue: "3",
+        pages: "586–600",
+        doi: "10.1109/72.846731",
+        report: "",
+    },
+    Reference {
         key: "momsen2012",
         authors: &["Momsen, E.", "Metz, M."],
         more: false,
@@ -1123,6 +1162,13 @@ pub const METHODS: &[Method] = &[
         software_refs: &[],
     },
     Method {
+        ops: &["ml.som"],
+        name: "self-organizing map",
+        refs: &["kohonen1982", "kohonen2001", "vesanto2000"],
+        software: "",
+        software_refs: &[],
+    },
+    Method {
         ops: &["segment.multiresolution"],
         name: "multiresolution segmentation into objects",
         refs: &["baatz2000"],
@@ -1695,6 +1741,7 @@ mod tests {
         assert_eq!(method_of("segment.optimize").unwrap().refs, &["espindola2006", "johnson2011"]);
         assert_eq!(method_of("ml.pca").unwrap().refs, &["pearson1901", "hotelling1933"]);
         assert_eq!(method_of("ml.kmeans").unwrap().refs, &["lloyd1982", "arthur2007", "rousseeuw1987"]);
+        assert_eq!(method_of("ml.som").unwrap().refs, &["kohonen1982", "kohonen2001", "vesanto2000"]);
         assert!(method_of("raster.reclassify").is_none());
     }
 

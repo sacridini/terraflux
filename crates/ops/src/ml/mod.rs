@@ -4,13 +4,14 @@
 //! (`ml.potential`): where each class is, or where it appeared between two maps (PLUS's land expansion analysis,
 //! LEAS), for the allocations. Also the principal components of a stack or a table (`ml.pca`), whose model scores
 //! other data with the fit's means and scales, and its clusters by k-means (`ml.kmeans`), whose model gives other data
-//! the nearest centre.
+//! the nearest centre, and its self-organizing map (`ml.som`), whose model gives other data the nearest node.
 
 pub mod boosting;
 pub mod forest;
 pub mod inspect;
 mod kmeans;
 mod pca;
+mod som;
 
 use std::sync::Arc;
 
@@ -18,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 
 use crate::multivar::clusters::Clusters;
+use crate::multivar::codebook::Som;
 use crate::multivar::pca::Pca;
 use crate::sdm::extrapolation::Frame;
 use crate::signatures::NumpyRng;
@@ -32,12 +34,14 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Potential));
     r.add(Arc::new(pca::Components));
     r.add(Arc::new(kmeans::Groups));
+    r.add(Arc::new(som::Organise));
     inspect::register(r);
 }
 
 /// A fitted model: one forest or boosting of classes or values (`ml.fit`), or one per class, each of the class
 /// against the other cells (`ml.potential`: `target` presence or expansion; its forests or its boostings), or the
-/// principal components of some variables (`ml.pca`), or the centres of clusters of them (`ml.kmeans`).
+/// principal components of some variables (`ml.pca`), or the centres of clusters of them (`ml.kmeans`), or the nodes of
+/// a self-organizing map of them (`ml.som`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Model {
@@ -54,6 +58,7 @@ pub enum Model {
     Pca(Pca),
     #[serde(rename = "kmeans")]
     KMeans(Clusters),
+    Som(Som),
 }
 
 /// One fitted model of classes or values.
@@ -89,6 +94,7 @@ impl Model {
             }
             Model::Pca(p) => &p.predictors,
             Model::KMeans(c) => &c.predictors,
+            Model::Som(s) => &s.predictors,
         }
     }
 
@@ -98,7 +104,7 @@ impl Model {
             Model::Forest(f) => &f.classes,
             Model::Boosting(b) => &b.classes,
             Model::PerClass { classes, .. } => classes,
-            Model::Pca(_) | Model::KMeans(_) => &[],
+            Model::Pca(_) | Model::KMeans(_) | Model::Som(_) => &[],
         }
     }
 
@@ -119,6 +125,9 @@ impl Model {
             Model::KMeans(c) => c
                 .assign(&x.columns.iter().map(Vec::as_slice).collect::<Vec<_>>(), None)
                 .map(|a| vec![a.labels]),
+            Model::Som(s) => {
+                s.assign(&x.columns.iter().map(Vec::as_slice).collect::<Vec<_>>(), None).map(|a| vec![a.nodes])
+            }
         }
     }
 }
@@ -484,8 +493,9 @@ impl Operator for Predict {
             "A fitted model (ml.fit, ml.potential) on maps or on the rows of a table: the value, or the class of \
              the largest probability (the first on ties, as scikit-learn's predict) and the probability of each \
              class (a forest's predict_proba, or each class's potential). A PCA model (ml.pca) gives the scores of \
-             its components, from the means and scales of its fit, and a k-means model (ml.kmeans) the cluster of the nearest \
-             centre (1 to k), by the same. No value where a predictor has none.",
+             its components, from the means and scales of its fit, a k-means model (ml.kmeans) the cluster of the \
+             nearest centre (1 to k), and a map model (ml.som) the node of the nearest weights (row by row, from 1) \
+             and its group, by the same. No value where a predictor has none.",
             Access::Global,
         )
         .input(PortSpec::new("model", Type::MlModel, "the fitted model"))
@@ -494,8 +504,10 @@ impl Operator for Predict {
         .output(PortSpec::optional(
             "map",
             Type::Map,
-            "with maps: the value, or the class of the largest probability, or a k-means model's cluster",
+            "with maps: the value, or the class of the largest probability, or a k-means model's cluster, or a map \
+             model's node",
         ))
+        .output(PortSpec::optional("groups", Type::Map, "with maps: a map model's group of each cell's node"))
         .output(PortSpec::optional(
             "scores",
             Type::Stack,
@@ -506,7 +518,7 @@ impl Operator for Predict {
             "table",
             Type::Table,
             "with a table: its columns, then prediction and the probability of each class (p_<class>), or a PCA's \
-             scores (pc1, pc2...), or a k-means model's cluster",
+             scores (pc1, pc2...), or a k-means model's cluster, or a map model's node (and group)",
         ))
     }
 
@@ -517,6 +529,9 @@ impl Operator for Predict {
         }
         if let Model::KMeans(c) = &**model {
             return kmeans::apply(args, c);
+        }
+        if let Model::Som(s) = &**model {
+            return som::apply(args, s);
         }
         let names = model.predictors().to_vec();
         let classes = model.classes().to_vec();

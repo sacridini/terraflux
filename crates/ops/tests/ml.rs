@@ -1204,3 +1204,611 @@ fn kmeans_tells_what_is_wrong() {
     .unwrap_err();
     assert!(e.contains("no column \"c\""), "{e}");
 }
+
+// -- ml.som -------------------------------------------------------------------------------------------------------
+// (MiniSom's trainings, tools/make_som_reference.py: tests/data/reference/som.json; the records of kmeans.json)
+
+fn som_reference() -> serde_json::Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference/som.json");
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// The floats a list of their 64 bits stands for.
+fn from_bits(v: &serde_json::Value) -> Vec<f64> {
+    v.as_array().unwrap().iter().map(|x| f64::from_bits(x.as_u64().unwrap())).collect()
+}
+
+fn pool(threads: usize) -> rayon::ThreadPool {
+    rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap()
+}
+
+/// `got` against `want` to MiniSom's tolerance where the C runtime's exp and NumPy's may differ by a unit in the last
+/// place (a relative 1e-12 and an absolute 1e-10, as Zeit's tests), else to the bit.
+fn same_weights(what: &str, got: &[f64], want: &[f64], exp: bool) {
+    assert_eq!(got.len(), want.len(), "{what}: length");
+    if !exp {
+        check(what, got, want);
+        return;
+    }
+    for (k, (a, b)) in got.iter().zip(want).enumerate() {
+        assert!((a - b).abs() <= 1e-10 + 1e-12 * b.abs(), "{what} at {k}: {a} {b}");
+    }
+}
+
+/// A map of the weights MiniSom trained (its `x` by `y` nodes, `i * y + j`), as the rows and columns of a `Som`: `y`
+/// rows of `x` columns.
+fn som_of(trained: &[f64], x: usize, y: usize, d: usize, hex: bool) -> terraflux_ops::multivar::codebook::Som {
+    use terraflux_ops::multivar::som::Topology;
+    let weights = (0..y * x)
+        .map(|k| {
+            let (r, col) = (k / x, k % x);
+            let at = (col * y + r) * d;
+            trained[at..at + d].to_vec()
+        })
+        .collect();
+    terraflux_ops::multivar::codebook::Som {
+        predictors: (0..d).map(|j| format!("v{j}")).collect(),
+        rows: y,
+        columns: x,
+        topology: if hex { Topology::Hexagonal } else { Topology::Rectangular },
+        mean: vec![0.0; d],
+        scale: vec![1.0; d],
+        weights,
+        groups: vec![],
+    }
+}
+
+#[test]
+fn the_som_engine_is_minisoms() {
+    use terraflux_ops::multivar::som::{Grid, Schedule, Topology, predict_bmus, train_batch, train_online};
+    let z = som_reference();
+    let cases = z["cases"].as_object().unwrap();
+    assert!(cases.len() >= 12);
+    let usize_of = |v: &serde_json::Value| v.as_u64().unwrap() as usize;
+    for (name, c) in cases {
+        let k = &c["som"];
+        let (x, y, d) = (usize_of(&k["x"]), usize_of(&k["y"]), usize_of(&k["input_len"]));
+        let hex = k["topology"].as_str() == Some("hexagonal");
+        let name_of = |key: &str| k[key].as_str().unwrap_or("").to_string();
+        let (lr_decay, sigma_decay, neighbourhood) =
+            (name_of("decay_function"), name_of("sigma_decay_function"), name_of("neighborhood_function"));
+        let code = |n: &str| match n {
+            s if s.starts_with("inverse") => 1,
+            s if s.starts_with("linear") => 2,
+            _ => 0,
+        };
+        let s = Schedule {
+            learning_rate: k["learning_rate"].as_f64().unwrap(),
+            sigma: k["sigma"].as_f64().unwrap(),
+            lr_decay: code(&lr_decay),
+            sigma_decay: code(&sigma_decay),
+            neighborhood: match neighbourhood.as_str() {
+                "mexican_hat" => 1,
+                "bubble" => 2,
+                "triangle" => 3,
+                _ => 0,
+            },
+        };
+        // MiniSom's coordinates of the nodes, and ours
+        let (xx, yy) = (from_bits(&c["xx"]), from_bits(&c["yy"]));
+        let topology = if hex { Topology::Hexagonal } else { Topology::Rectangular };
+        let mine = Grid::minisom(x, y, topology);
+        check(&format!("{name}: xx"), mine.coordinates().0, &xx);
+        check(&format!("{name}: yy"), mine.coordinates().1, &yy);
+        let grid = Grid::new(x, y, &xx, &yy).unwrap();
+        let data = from_bits(&c["data"]);
+        let start = from_bits(&c["init"]);
+        let want = from_bits(&c["weights"]);
+        // (the reference was made on Windows, where NumPy's exp is the C runtime's: the same bits there; elsewhere the
+        // exp may differ in the last place)
+        let exp = !cfg!(windows) && !matches!(neighbourhood.as_str(), "bubble" | "triangle");
+        let iterations = usize_of(&c["train"]["num_iteration"]);
+        if c["method"] == "train" {
+            let order: Vec<usize> = c["order"].as_array().unwrap().iter().map(usize_of).collect();
+            let epochs = c["train"]["use_epochs"].as_bool().unwrap_or(false);
+            let mut w = start.clone();
+            train_online(&mut w, &data, d, &order, iterations, epochs, &s, &grid);
+            same_weights(&format!("{name}: online"), &w, &want, exp);
+        } else {
+            // the batch on one, two and eight threads: the same bits as each other, and as MiniSom's
+            let on = |threads: usize| {
+                let mut w = start.clone();
+                pool(threads).install(|| train_batch(&mut w, &data, d, iterations, &s, &grid));
+                w
+            };
+            let w = on(1);
+            same_weights(&format!("{name}: batch"), &w, &want, exp);
+            for threads in [2, 8] {
+                check(&format!("{name}: {threads} threads"), &on(threads), &w);
+            }
+        }
+        // the winners of the trained map: MiniSom's (the index i * y + j)
+        let want_bmus: Vec<usize> = c["winners"].as_array().unwrap().iter().map(usize_of).collect();
+        assert_eq!(predict_bmus(&data, d, &want, x * y), want_bmus, "{name}: winners");
+        // the errors and the U-matrix of the map MiniSom trained, from its weights
+        let som = som_of(&want, x, y, d, hex);
+        let (qe, te) = som.quality(&data);
+        near(&format!("{name}: quantization error"), qe, c["quantization_error"].as_f64().unwrap(), 1e-9);
+        // (MiniSom's is 1 - mean of the neighbours: off by the last bits)
+        near(&format!("{name}: topographic error"), te, c["topographic_error"].as_f64().unwrap(), 1e-9);
+        // the U-matrix: MiniSom's distance map for a rectangular map (its hexagonal one counts the neighbours of
+        // the other way of shifting the rows than its own coordinates do), and for any from MiniSom's coordinates:
+        // the nodes at the distance 1 (hexagonal) or at most 1.42 (rectangular, as its topographic error)
+        let u = som.umatrix();
+        let top = u.iter().fold(0.0f64, |m, v| m.max(*v));
+        let dm: Vec<f64> = c["distance_map"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+        for r in 0..y {
+            for col in 0..x {
+                if !hex {
+                    near(&format!("{name}: umatrix at {r} {col}"), u[r * x + col] / top, dm[col * y + r], 1e-9);
+                }
+                let e = col * y + r;
+                let dists: Vec<f64> = (0..x * y)
+                    .filter(|&f| {
+                        let d = ((xx[e] - xx[f]).powi(2) + (yy[e] - yy[f]).powi(2)).sqrt();
+                        f != e && if hex { (d - 1.0).abs() <= 1e-8 + 1e-5 } else { d <= 1.42 }
+                    })
+                    .map(|f| (0..d).map(|j| (want[e * d + j] - want[f * d + j]).powi(2)).sum::<f64>().sqrt())
+                    .collect();
+                near(
+                    &format!("{name}: umatrix at {r} {col} by coordinates"),
+                    u[r * x + col],
+                    dists.iter().sum::<f64>() / dists.len() as f64,
+                    1e-9,
+                );
+            }
+        }
+    }
+}
+
+/// The three variables of the records of kmeans.json as a stack of a grid `nx` across (the records of four groups).
+fn som_records() -> (Vec<Vec<f64>>, Vec<f64>) {
+    let z = km_reference();
+    (z["x"].as_array().unwrap().iter().map(numbers).collect(), numbers(&z["truth"]))
+}
+
+#[test]
+fn a_map_of_four_groups_groups_its_nodes_into_them() {
+    let (x, truth) = som_records();
+    let truth: Vec<f64> = truth.iter().map(|t| t + 1.0).collect();
+    for (grouping, topology) in [("ward", "rectangular"), ("kmeans", "hexagonal"), ("ward", "hexagonal")] {
+        let mut ctx = Ctx::default();
+        let fit = try_run(
+            "ml.som",
+            vec![("predictors", Value::Stack(km_stack(&x, 30)))],
+            serde_json::json!({"rows": 7, "cols": 6, "clusters": 4, "grouping": grouping, "topology": topology}),
+            &mut ctx,
+        )
+        .unwrap();
+        // the size is given: no note of it
+        assert!(ctx.warnings.is_empty(), "{:?}", ctx.warnings);
+        let nodes = map_data(&fit["nodes"]);
+        let groups = map_data(&fit["groups"]);
+        assert!(nodes.iter().all(|v| (1.0..=42.0).contains(v)));
+        assert!(agreement(&groups, &truth) > 0.93, "{grouping} {topology}: {}", agreement(&groups, &truth));
+        assert!(agreement(&truth, &groups) > 0.93, "{grouping} {topology}");
+        // the codebook: 42 nodes in row-major order, the counts adding to the cells, the groups from 1 to 4
+        let book = table(&fit["codebook"]);
+        assert_eq!(book.columns[..6], ["node", "row", "column", "count", "group", "umatrix"].map(String::from));
+        assert_eq!(&book.columns[6..], &["a", "b", "c"].map(String::from));
+        assert_eq!(book.rows.len(), 42);
+        for (k, r) in book.rows.iter().enumerate() {
+            assert_eq!((r[0], r[1], r[2]), ((k + 1) as f64, (k / 6 + 1) as f64, (k % 6 + 1) as f64));
+            assert!((1.0..=4.0).contains(&r[4]) && r[5] > 0.0, "{r:?}");
+        }
+        assert_eq!(book.rows.iter().map(|r| r[3]).sum::<f64>(), 600.0);
+        // a cell's group is its node's group
+        for (n, g) in nodes.iter().zip(&groups) {
+            assert_eq!(book.rows[*n as usize - 1][4], *g);
+        }
+        // the weights are in the variables' own units: the nodes of the cells near the origin of a (about 100)
+        let a_range = book.rows.iter().fold((f64::MAX, f64::MIN), |m, r| (m.0.min(r[6]), m.1.max(r[6])));
+        assert!(a_range.0 > -50.0 && a_range.1 < 300.0 && a_range.1 - a_range.0 > 50.0, "{a_range:?}");
+        // the quality: 600 records, a small error, the topology mostly kept
+        let q = table(&fit["quality"]);
+        assert_eq!(q.columns, ["records", "rows", "columns", "quantisation_error", "topographic_error", "empty_nodes"]);
+        assert_eq!(q.rows[0][..3], [600.0, 7.0, 6.0]);
+        assert!(q.rows[0][3] > 0.0 && q.rows[0][3] < 1.5, "{:?}", q.rows[0]);
+        assert!((0.0..=0.6).contains(&q.rows[0][4]), "{:?}", q.rows[0]);
+    }
+}
+
+#[test]
+fn without_a_size_the_map_has_vesantos() {
+    let (x, _) = som_records();
+    let mut ctx = Ctx::default();
+    let fit =
+        try_run("ml.som", vec![("table", Value::Table(km_table(&x)))], serde_json::json!({"iterations": 5}), &mut ctx)
+            .unwrap();
+    // 5 sqrt(600) = 122.5, 123 nodes in a roughly square map
+    assert_eq!(ctx.warnings.len(), 1, "{:?}", ctx.warnings);
+    assert!(
+        ctx.warnings[0].contains("Vesanto's rule") && ctx.warnings[0].contains("= 123 nodes"),
+        "{}",
+        ctx.warnings[0]
+    );
+    let q = &table(&fit["quality"]).rows[0];
+    let (rows, cols) = (q[1], q[2]);
+    assert!(rows >= cols && rows * cols >= 100.0 && rows * cols <= 140.0, "{rows} x {cols}");
+    assert_eq!(table(&fit["codebook"]).rows.len() as f64, rows * cols);
+    // with a table: the node as a column, and no groups without clusters
+    let t = table(&fit["table"]);
+    assert_eq!(&t.columns[3..], &["node".to_string()]);
+    assert_eq!(t.rows.len(), 600);
+    assert!(!fit.contains_key("groups"));
+    // a size given says nothing
+    let mut ctx = Ctx::default();
+    try_run(
+        "ml.som",
+        vec![("table", Value::Table(km_table(&x)))],
+        serde_json::json!({"rows": 3, "cols": 3, "iterations": 2}),
+        &mut ctx,
+    )
+    .unwrap();
+    assert!(ctx.warnings.is_empty(), "{:?}", ctx.warnings);
+}
+
+#[test]
+fn som_is_the_same_on_one_thread_or_eight() {
+    // more cells than a piece of the assignment and a chunk of winners, four groups in a 3-D space and a few NaN
+    let n: usize = 20_000;
+    let rows: Vec<Vec<f64>> = (0..n)
+        .map(|i| {
+            let g = (i * 7919) % 4;
+            let f = ((i * 104729) % 1009) as f64 / 1009.0;
+            let h = ((i * 31) % 997) as f64 / 997.0;
+            let v = vec![g as f64 * 10.0 + f * 3.0, (g % 2) as f64 * 40.0 + h * 5.0, 100.0 - g as f64 * 7.0 + (f - h)];
+            if i % 61 == 0 {
+                v.into_iter().enumerate().map(|(j, x)| if j == 1 { f64::NAN } else { x }).collect()
+            } else {
+                v
+            }
+        })
+        .collect();
+    let stack = km_stack(&rows, 200);
+    let on = |threads: usize, params: serde_json::Value| {
+        pool(threads).install(|| {
+            let fit = run("ml.som", vec![("predictors", Value::Stack(stack.clone()))], params.clone());
+            let again = run(
+                "ml.predict",
+                vec![("model", fit["model"].clone()), ("predictors", Value::Stack(stack.clone()))],
+                serde_json::json!({}),
+            );
+            (fit, again)
+        })
+    };
+    for params in [
+        serde_json::json!({"rows": 6, "cols": 5, "iterations": 3, "clusters": 4}),
+        serde_json::json!({"rows": 5, "cols": 5, "iterations": 1, "training": "online", "topology": "hexagonal", "init": "random", "clusters": 3, "grouping": "kmeans", "sample": 3000}),
+    ] {
+        let ((a, a2), (b, b2)) = (on(1, params.clone()), on(8, params));
+        check("nodes", &map_data(&a["nodes"]), &map_data(&b["nodes"]));
+        check("groups", &map_data(&a["groups"]), &map_data(&b["groups"]));
+        check("applied", &map_data(&a2["map"]), &map_data(&b2["map"]));
+        check("applied groups", &map_data(&a2["groups"]), &map_data(&b2["groups"]));
+        check("applied as fitted", &map_data(&a["nodes"]), &map_data(&a2["map"]));
+        for name in ["codebook", "quality"] {
+            check(name, &table(&a[name]).rows.concat(), &table(&b[name]).rows.concat());
+        }
+        let nodes = map_data(&a["nodes"]);
+        assert!(nodes.iter().enumerate().all(|(i, l)| l.is_nan() == (i % 61 == 0)));
+    }
+}
+
+#[test]
+fn the_same_seed_gives_the_same_map_and_the_groups_are_reproducible() {
+    let (x, truth) = som_records();
+    let go = |seed: u64, training: &str, init: &str| {
+        run(
+            "ml.som",
+            vec![("table", Value::Table(km_table(&x)))],
+            serde_json::json!({"rows": 5, "cols": 5, "iterations": 4, "clusters": 4, "seed": seed, "training": training, "init": init}),
+        )
+    };
+    for (training, init) in [("batch", "random"), ("online", "random"), ("online", "pca")] {
+        let (a, b) = (go(3, training, init), go(3, training, init));
+        check("nodes", &table(&a["table"]).rows.concat(), &table(&b["table"]).rows.concat());
+        check("codebook", &table(&a["codebook"]).rows.concat(), &table(&b["codebook"]).rows.concat());
+        let groups = |t: &Value| -> Vec<f64> { table(t).rows.iter().map(|r| r[4]).collect() };
+        assert_eq!(groups(&a["table"]), groups(&b["table"]), "{training} {init}");
+        if init == "random" {
+            // another seed starts elsewhere
+            let c = go(4, training, init);
+            assert_ne!(table(&a["codebook"]).rows.concat(), table(&c["codebook"]).rows.concat(), "{training}");
+        }
+    }
+    // the groups are numbered by the first principal component of their centres: the same records in another order
+    // get the same numbers (a batch's weights do not depend on the order but in the last bits)
+    let reversed: Vec<Vec<f64>> = x.iter().rev().cloned().collect();
+    let a = run(
+        "ml.som",
+        vec![("table", Value::Table(km_table(&x)))],
+        serde_json::json!({"rows": 5, "cols": 5, "iterations": 20, "clusters": 4}),
+    );
+    let b = run(
+        "ml.som",
+        vec![("table", Value::Table(km_table(&reversed)))],
+        serde_json::json!({"rows": 5, "cols": 5, "iterations": 20, "clusters": 4}),
+    );
+    let groups = |t: &Value| -> Vec<f64> { table(t).rows.iter().map(|r| r[4]).collect() };
+    let mut back = groups(&b["table"]);
+    back.reverse();
+    assert_eq!(groups(&a["table"]), back);
+    assert!(agreement(&groups(&a["table"]), &truth.iter().map(|t| t + 1.0).collect::<Vec<_>>()) > 0.95);
+}
+
+/// By hand: four records of two variables on a line, two near the origin and two near (10, 10), on a map of one row of
+/// two nodes with a neighbourhood too narrow to share: the nodes end at the means of the pairs, (0.1, 0.1) and
+/// (10.1, 10.1), the distance of each record to its node is sqrt(0.02), the two nodes are next to each other
+/// (topographic error 0). A map of one node is the mean: the distances 4, 2, 0 and 6 of 0, 2, 4 and 10 to their
+/// mean 4, mean 3 (and no topographic error).
+#[test]
+fn the_quality_by_hand() {
+    let mut t = Table::new(["u", "v"].map(String::from).to_vec());
+    t.rows = vec![vec![0.0, 0.0], vec![0.2, 0.2], vec![10.0, 10.0], vec![10.2, 10.2]];
+    let fit = run(
+        "ml.som",
+        vec![("table", Value::Table(t))],
+        serde_json::json!({"rows": 1, "cols": 2, "sigma": 0.1, "standardise": false, "iterations": 40}),
+    );
+    let book = table(&fit["codebook"]);
+    // node, row, column, count, umatrix, u, v
+    assert_eq!(book.columns[3..], ["count", "umatrix", "u", "v"].map(String::from));
+    for (r, mean) in book.rows.iter().zip([0.1, 10.1]) {
+        assert_eq!(r[3], 2.0);
+        near("u", r[5], mean, 1e-9);
+        near("v", r[6], mean, 1e-9);
+    }
+    // the U-matrix of two nodes: each one's distance to the other, sqrt(2) * 10
+    near("umatrix", book.rows[0][4], 200.0f64.sqrt(), 1e-9);
+    let q = &table(&fit["quality"]).rows[0];
+    near("quantisation error", q[3], 0.02f64.sqrt(), 1e-9);
+    assert_eq!((q[4], q[5]), (0.0, 0.0));
+    // one node
+    let mut one = Table::new(vec!["u".to_string()]);
+    one.rows = vec![vec![0.0], vec![2.0], vec![4.0], vec![10.0]];
+    let fit = run(
+        "ml.som",
+        vec![("table", Value::Table(one))],
+        serde_json::json!({"rows": 1, "cols": 1, "standardise": false, "iterations": 3, "init": "random"}),
+    );
+    let q = &table(&fit["quality"]).rows[0];
+    near("one node's error", q[3], 3.0, 1e-9);
+    assert!(q[4].is_nan());
+    assert!(table(&fit["codebook"]).rows[0][4].is_nan());
+}
+
+#[test]
+fn som_on_a_sample_says_so() {
+    let (x, truth) = som_records();
+    let stack = km_stack(&x, 30);
+    let mut ctx = Ctx::default();
+    let out = try_run(
+        "ml.som",
+        vec![("predictors", Value::Stack(stack))],
+        serde_json::json!({"rows": 5, "cols": 5, "sample": 300, "seed": 2, "clusters": 4}),
+        &mut ctx,
+    )
+    .unwrap();
+    assert_eq!(ctx.warnings.len(), 1, "{:?}", ctx.warnings);
+    assert!(ctx.warnings[0].contains("sample of 300 of the 600 records"), "{}", ctx.warnings[0]);
+    // every cell has its node, from a fit on the sample; the records fitted are 300
+    assert!(map_data(&out["nodes"]).iter().all(|v| v.is_finite()));
+    assert_eq!(table(&out["quality"]).rows[0][0], 300.0);
+    assert_eq!(table(&out["codebook"]).rows.iter().map(|r| r[3]).sum::<f64>(), 600.0);
+    assert!(agreement(&map_data(&out["groups"]), &truth.iter().map(|t| t + 1.0).collect::<Vec<_>>()) > 0.9);
+}
+
+#[test]
+fn som_leaves_out_nan_and_the_cells_not_asked_for() {
+    let (x, _) = som_records();
+    let mut stack = km_stack(&x, 30);
+    let mut b = stack.layers[1].to_vec();
+    b[7] = f64::NAN;
+    stack.layers[1] = Arc::new(b);
+    let g = stack.grid.clone();
+    let mut cells = vec![1.0; 600];
+    cells[0] = 0.0;
+    cells[1] = f64::NAN;
+    let fit = run(
+        "ml.som",
+        vec![("predictors", Value::Stack(stack)), ("cells", Value::Map(Map::new(g, cells)))],
+        serde_json::json!({"rows": 4, "cols": 4, "iterations": 3, "clusters": 3}),
+    );
+    for name in ["nodes", "groups"] {
+        let labels = map_data(&fit[name]);
+        for i in [0, 1, 7] {
+            assert!(labels[i].is_nan(), "{name}: cell {i}");
+        }
+        assert_eq!(labels.iter().filter(|l| l.is_finite()).count(), 597);
+    }
+    assert_eq!(table(&fit["codebook"]).rows.iter().map(|r| r[3]).sum::<f64>(), 597.0);
+    assert_eq!(table(&fit["quality"]).rows[0][0], 597.0);
+    // a table: the row with a NaN has no node, nor group
+    let mut rows = x.clone();
+    rows[2][0] = f64::NAN;
+    let fit = run(
+        "ml.som",
+        vec![("table", Value::Table(km_table(&rows)))],
+        serde_json::json!({"rows": 4, "cols": 4, "iterations": 3, "clusters": 3}),
+    );
+    let t = table(&fit["table"]);
+    assert_eq!(&t.columns[3..], &["node".to_string(), "group".to_string()]);
+    assert!(t.rows[2][3].is_nan() && t.rows[2][4].is_nan());
+    assert_eq!(t.rows.iter().filter(|r| r[3].is_nan()).count(), 1);
+}
+
+#[test]
+fn a_som_model_is_saved_as_json_and_gives_the_nearest_node_and_group() {
+    let (x, _) = som_records();
+    for topology in ["rectangular", "hexagonal"] {
+        let fit = run(
+            "ml.som",
+            vec![("table", Value::Table(km_table(&x)))],
+            serde_json::json!({"rows": 5, "cols": 4, "iterations": 5, "clusters": 3, "topology": topology}),
+        );
+        let Value::MlModel(model) = &fit["model"] else { panic!() };
+        let json = serde_json::to_string(&**model).unwrap();
+        assert!(json.starts_with("{\"kind\":\"som\""), "{}", &json[..40]);
+        assert!(json.contains(&format!("\"topology\":\"{topology}\"")));
+        let back: terraflux_ops::ml::Model = serde_json::from_str(&json).unwrap();
+        // to the bit: the same JSON again
+        assert_eq!(serde_json::to_string(&back).unwrap(), json);
+        let apply = |m: Value, rows: &[Vec<f64>]| {
+            let out =
+                run("ml.predict", vec![("model", m), ("table", Value::Table(km_table(rows)))], serde_json::json!({}));
+            table(&out["table"]).clone()
+        };
+        let as_fitted = table(&fit["table"]).clone();
+        assert_eq!(apply(fit["model"].clone(), &x), as_fitted);
+        assert_eq!(apply(Value::MlModel(Arc::new(back)), &x), as_fitted);
+        // a record at a node's weights has that node, and its group; the weights are the codebook's, own units
+        let book = table(&fit["codebook"]);
+        let at_nodes: Vec<Vec<f64>> = book.rows.iter().map(|r| r[6..].to_vec()).collect();
+        let t = apply(fit["model"].clone(), &at_nodes);
+        for (k, r) in t.rows.iter().enumerate() {
+            assert_eq!((r[3], r[4]), ((k + 1) as f64, book.rows[k][4]), "node {k}");
+        }
+        // maps: `map` and `groups`
+        let out = run(
+            "ml.predict",
+            vec![("model", fit["model"].clone()), ("predictors", Value::Stack(km_stack(&x, 30)))],
+            serde_json::json!({}),
+        );
+        assert_eq!(map_data(&out["map"]), as_fitted.rows.iter().map(|r| r[3]).collect::<Vec<_>>());
+        assert_eq!(map_data(&out["groups"]), as_fitted.rows.iter().map(|r| r[4]).collect::<Vec<_>>());
+        // it is not a forest
+        let mut tt = km_table(&x);
+        tt.columns[2] = "target".into();
+        let e = try_run(
+            "ml.importance",
+            vec![("model", fit["model"].clone()), ("table", Value::Table(tt))],
+            serde_json::json!({}),
+            &mut Ctx::default(),
+        )
+        .unwrap_err();
+        assert!(e.contains("a model of ml.fit"), "{e}");
+    }
+    // without groups, no groups output nor column
+    let fit = run(
+        "ml.som",
+        vec![("predictors", Value::Stack(km_stack(&x, 30)))],
+        serde_json::json!({"rows": 3, "cols": 3, "iterations": 2}),
+    );
+    assert!(!fit.contains_key("groups"));
+    let out = run(
+        "ml.predict",
+        vec![("model", fit["model"].clone()), ("predictors", Value::Stack(km_stack(&x, 30)))],
+        serde_json::json!({}),
+    );
+    assert!(!out.contains_key("groups"));
+    assert_eq!(map_data(&out["map"]), map_data(&fit["nodes"]));
+}
+
+#[test]
+fn som_tells_what_is_wrong() {
+    let (x, _) = som_records();
+    let table_in = || vec![("table", Value::Table(km_table(&x)))];
+    let fails = |inputs: Vec<(&str, Value)>, params: serde_json::Value, want: &str| {
+        let e = try_run("ml.som", inputs, params, &mut Ctx::default()).unwrap_err();
+        assert!(e.contains(want), "{want}: {e}");
+    };
+    fails(table_in(), serde_json::json!({"rows": 3}), "rows and cols go together");
+    fails(table_in(), serde_json::json!({"cols": 3}), "rows and cols go together");
+    fails(table_in(), serde_json::json!({"rows": 0, "cols": 3}), "1 or more");
+    fails(table_in(), serde_json::json!({"rows": -2, "cols": 3}), "rows");
+    fails(table_in(), serde_json::json!({"rows": 70, "cols": 70}), "at most 4096");
+    fails(table_in(), serde_json::json!({"topology": "square"}), "topology \"square\": one of rectangular, hexagonal");
+    fails(table_in(), serde_json::json!({"neighbourhood": "mexican_hat"}), "neighbourhood");
+    fails(table_in(), serde_json::json!({"decay": "fast"}), "decay");
+    fails(table_in(), serde_json::json!({"training": "slow"}), "training");
+    fails(table_in(), serde_json::json!({"init": "zero"}), "init");
+    fails(table_in(), serde_json::json!({"grouping": "average"}), "grouping");
+    fails(table_in(), serde_json::json!({"iterations": 0}), "iterations");
+    fails(table_in(), serde_json::json!({"iterations": -1}), "iterations");
+    fails(table_in(), serde_json::json!({"learning_rate": 0}), "learning_rate");
+    fails(table_in(), serde_json::json!({"learning_rate": 1.5}), "learning_rate");
+    fails(table_in(), serde_json::json!({"sigma": 0}), "sigma");
+    fails(table_in(), serde_json::json!({"sigma": -1}), "sigma");
+    fails(table_in(), serde_json::json!({"sigma": "wide"}), "sigma");
+    fails(table_in(), serde_json::json!({"rows": 2, "cols": 2, "clusters": 5}), "more than the 4 nodes");
+    fails(table_in(), serde_json::json!({"clusters": -1}), "clusters");
+    fails(table_in(), serde_json::json!({"standardise": "yes"}), "standardise");
+    fails(table_in(), serde_json::json!({"columns": ["a", "zz"]}), "no column \"zz\"");
+    fails(table_in(), serde_json::json!({"columns": ["a", "a"]}), "twice");
+    fails(table_in(), serde_json::json!({"sample": 0}), "sample");
+    fails(vec![], serde_json::json!({}), "connect the records");
+    let stack = km_stack(&x, 30);
+    fails(
+        vec![("table", Value::Table(km_table(&x))), ("predictors", Value::Stack(stack.clone()))],
+        serde_json::json!({}),
+        "not both",
+    );
+    let g = stack.grid.clone();
+    fails(
+        vec![("table", Value::Table(km_table(&x))), ("cells", Value::Map(Map::new(g.clone(), vec![1.0; 600])))],
+        serde_json::json!({}),
+        "cells goes with maps",
+    );
+    fails(
+        vec![("predictors", Value::Stack(stack.clone())), ("cells", Value::Map(Map::new(g, vec![0.0; 600])))],
+        serde_json::json!({}),
+        "no record has every variable",
+    );
+    // a constant variable: standardising cannot divide by its deviation
+    let mut flat = x.clone();
+    flat.iter_mut().for_each(|r| r[1] = 4.0);
+    fails(vec![("table", Value::Table(km_table(&flat)))], serde_json::json!({}), "\"b\" is constant");
+    run(
+        "ml.som",
+        vec![("table", Value::Table(km_table(&flat)))],
+        serde_json::json!({"standardise": false, "rows": 3, "cols": 3, "iterations": 2}),
+    );
+    // a table with a column node already
+    let mut t = km_table(&x);
+    t.columns.push("node".into());
+    t.rows.iter_mut().for_each(|r| r.push(0.0));
+    fails(
+        vec![("table", Value::Table(t))],
+        serde_json::json!({"columns": ["a", "b", "c"]}),
+        "already has a column \"node\"",
+    );
+    // one variable: a note that the pca start is not possible
+    let mut one = Table::new(vec!["u".to_string()]);
+    one.rows = (0..50).map(|i| vec![i as f64]).collect();
+    let mut ctx = Ctx::default();
+    try_run(
+        "ml.som",
+        vec![("table", Value::Table(one))],
+        serde_json::json!({"rows": 3, "cols": 3, "iterations": 2}),
+        &mut ctx,
+    )
+    .unwrap();
+    assert!(ctx.warnings.iter().any(|w| w.contains("init pca needs two variables")), "{:?}", ctx.warnings);
+    // ml.predict: a layer or a column the model reads is missing
+    let fit = run("ml.som", table_in(), serde_json::json!({"rows": 3, "cols": 3, "iterations": 2}));
+    let mut few = km_stack(&x, 30);
+    few.keys.pop();
+    few.layers.pop();
+    let e = try_run(
+        "ml.predict",
+        vec![("model", fit["model"].clone()), ("predictors", Value::Stack(few))],
+        serde_json::json!({}),
+        &mut Ctx::default(),
+    )
+    .unwrap_err();
+    assert!(e.contains("no layer \"c\""), "{e}");
+    let mut narrow = km_table(&x);
+    narrow.columns.pop();
+    narrow.rows.iter_mut().for_each(|r| {
+        r.pop();
+    });
+    let e = try_run(
+        "ml.predict",
+        vec![("model", fit["model"].clone()), ("table", Value::Table(narrow))],
+        serde_json::json!({}),
+        &mut Ctx::default(),
+    )
+    .unwrap_err();
+    assert!(e.contains("no column \"c\""), "{e}");
+}

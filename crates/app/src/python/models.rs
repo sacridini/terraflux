@@ -13,7 +13,9 @@
 //! library does not have), `crafty.allocate` (CRAFTY is not in the library), `ml.pca` (scikit-learn's PCA gives the
 //! same numbers, but the script has no stack of scores nor model to hand on to `ml.predict` yet), `ml.kmeans`
 //! (scikit-learn's KMeans is the same algorithm, but its random starts are not Terraflux's, so the clusters would be
-//! other ones, and the script has no map of clusters nor model to hand on either).
+//! other ones, and the script has no map of clusters nor model to hand on either), `ml.som` (minisom.MiniSom is the
+//! algorithm Terraflux's engine ports to the bit, but the starting weights are not the same, and the script has no map
+//! of nodes, grouping of the nodes nor model to hand on).
 
 #![allow(unused_imports)]
 
@@ -73,6 +75,13 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
              from the same seed, and the script has no map of clusters (numbered by the first principal component of \
              the centres) nor model to hand on to ml.predict, nor the choice of k by the silhouette: no equivalent \
              in the script"
+            .into()),
+        "ml.som" => Err("minisom.MiniSom trains the same map (Terraflux's engine is a port of it that gives the \
+             same bits), but the weights it starts from are other ones (Terraflux's principal-component start spans \
+             two standard deviations, its random one draws with numpy's new generator, MiniSom's with RandomState), \
+             the batch takes MiniSom's train_batch_offline with a learning rate of 1, and the script has no map of \
+             nodes, grouping of the nodes (Ward's method) nor model to hand on to ml.predict: no equivalent in the \
+             script"
             .into()),
         "nlm.image" => Err("a synthetic multispectral image of a map of classes, with the truth known (for templates \
              and tests): the Python library has no function for it, so there is no equivalent in the script"
