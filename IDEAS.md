@@ -4741,6 +4741,67 @@ US7801361 e US8319793, até 2029 e 2031).
 6. O *find enclosed by class* fica na documentação, sem operador.
 7. A fusão pelo resultado é um operador novo, `objects.fuse`, não um modo do `objects.merge` (que fica simples).
 
+### Os tutoriais de OBIA, do básico ao complexo (pedido de 2026-11-19)
+
+Hoje são três páginas: *Your first map by objects* (o template com a imagem sintética), e os guias de quem vem do
+eCognition e do InterIMAGE; nenhuma tem figura. Falta uma série que ensine o método de verdade, com imagens reais e
+figuras de execuções reais (`website/figures/object-based-image-analysis/<slug>.py`, como manda o
+`website/AUTHORING.md`).
+
+**Os dados.** Duas áreas, as mesmas na série inteira, para o leitor reconhecer a paisagem de uma página para a outra:
+- **Sentinel-2** (10 m, as bandas azul, verde, vermelho, NIR e SWIR) de uma área com cidade, cerrado ou floresta,
+  agricultura e água (a borda do Lago Paranoá, em Brasília, numa cena seca e sem nuvens de julho ou agosto), pelo
+  `data.stac` do Earth Search (sem chave). A licença do Copernicus deixa redistribuir com atribuição.
+- **NAIP** (0,6 m, RGB e NIR) de um bairro dos Estados Unidos, com casas, árvores, gramados, ruas e água, pelo
+  `data.stac` do Planetary Computer (`sign = planetary_computer`). Domínio público.
+- Um módulo comum, `website/figures/object-based-image-analysis/obia_data.py`, baixa e guarda os recortes (no
+  `website/.cache`), e cada página traz o modelo com o nó `data.stac` (o leitor roda igual) e um recorte pequeno
+  para baixar (em `website/static/data/tutorials/object-based-image-analysis/`, poucos MB), para quem estiver sem
+  rede.
+
+**A série** (`series: Object-based image analysis`, as partes em ordem), cada página no esboço do AUTHORING (a ideia,
+quando usar, o que precisa, o modelo passo a passo, ler os resultados, os ajustes que mudam a resposta com um
+`tfslider`, armadilhas, ir além, referências verificadas):
+1. *Your first map by objects* (fica, iniciante): ganha figuras e aponta para a série.
+2. **O que é um objeto: a segmentação** (iniciante): o que os segmentadores fazem, lado a lado na mesma imagem
+   (multiresolution, SLIC, Felzenszwalb, watershed, threshold); a escala, a forma e a compacidade do multiresolution
+   num `tfslider`; a segmentação ao vivo e a comparação no Viewer.
+3. **A escala certa** (intermediário): a sub e a super-segmentação; o ESP (`segment.scale`) e o
+   `segment.optimize` (a variância, o I de Moran, o gráfico e o *Apply*); a escala de cada classe.
+4. **Descrever os objetos** (intermediário): os atributos espectrais, os índices (NDVI, NDWI), a forma, a textura
+   (GLCM) e o contexto; o espaço de atributos no Viewer e a separabilidade.
+5. **Classificar por amostras** (intermediário): `objects.samples` por clique, o vizinho mais próximo e a floresta
+   aleatória, `objects.accuracy` (a matriz de erros, as áreas ajustadas); amostras autocorrelacionadas.
+6. **Classificar por regras e por uma árvore de classes** (intermediário): `objects.rules` com pertinências fuzzy,
+   a herança das classes, `objects.calc`; água, vegetação e área construída pelos índices.
+7. **A água por limiares** (iniciante): `segment.threshold` (Otsu) no NDWI, `segment.spectral_difference`, os
+   polígonos da margem; o template *Water by Otsu on the NDWI*.
+8. **Níveis: de objetos finos a talhões e paisagens** (avançado): vários níveis (`from`), os atributos de pai e
+   filhos, `objects.merge`, `objects.grow`, `objects.remove_small`, refinar por classe.
+9. **Classes sem amostras: k-means e SOM** (intermediário): `ml.kmeans` e `ml.som` na tabela dos objetos,
+   `objects.classify` sem amostras, dar nome aos grupos.
+10. **Corrigir à mão** (intermediário): `objects.edit` pelo inspetor (juntar, cortar, apagar), as edições que
+    sobrevivem a outra segmentação.
+11. **A mudança por objetos** (avançado): duas datas do Sentinel-2, `objects.temporal` e
+    `objects.transition_matrix` (o desmatamento ou a expansão urbana por objeto).
+12. **Imagens grandes** (avançado): os tiles do multiresolution e do region growing, a estimativa do tempo e *Use
+    tiles*, o cluster.
+13. **Segmentação profunda: SAM e embeddings** (avançado): `segment.sam` (os pesos, os pontos) e `objects.embed`;
+    quando valem a pena.
+14. **Estudo de caso: a cobertura urbana pelo NAIP** (avançado): telhados, árvores, gramados, ruas e água, com
+    níveis, regras e a acurácia; o mapa e os polígonos prontos para um relatório.
+15. **Estudo de caso: o uso do solo de uma área protegida pelo Sentinel-2** (avançado): do dado ao mapa com a
+    acurácia e as áreas, como num artigo.
+
+Depois, com o bloco do eCognition: as camadas temáticas (classes por lote), as copas separadas (`objects.split`), a
+morfologia (`objects.resize`), as estradas e os rios pelo esqueleto, os extremos locais e a fusão pelo resultado,
+cada um com a sua página quando o operador sair.
+
+**Como fazer.** Uma base primeiro (`obia_data.py`, os recortes, a parte 2), revisada; depois as outras em lotes de
+duas a três páginas por agente, dois agentes por vez (as figuras rodam o `terraflux.exe` de release com no máximo 4
+threads cada), cada um só nos seus arquivos (as regras de trabalho em paralelo do AUTHORING). Cada página: o build sem
+avisos, o `--check` sem erros de grafo, as capturas lidas. Um commit por lote (`docs(tutorials): ...`).
+
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
 
 Pedido de 2026-11-19: operadores de componentes principais (PCA), k-means e mapas auto-organizáveis (SOM), com o
