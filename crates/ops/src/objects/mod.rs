@@ -11,6 +11,7 @@ use crate::{Args, Error, Registry, Result, Table, Value};
 
 mod convert;
 mod esp;
+mod features;
 mod meanshift;
 mod multiresolution;
 mod segment;
@@ -21,6 +22,7 @@ mod watershed;
 pub fn register(r: &mut Registry) {
     segment::register(r);
     convert::register(r);
+    r.add(Arc::new(features::Features));
 }
 
 /// The region of a cell that is in none ([`Objects::from_regions`]).

@@ -1209,3 +1209,682 @@ fn scale_timing_on_a_million_cells() {
         t.elapsed()
     );
 }
+
+// ---------------------------------------------------------------------------
+// objects.features: spectral and shape
+
+fn feats(
+    o: &Arc<Objects>,
+    image: Value,
+    more: Option<Value>,
+    params: serde_json::Value,
+) -> terraflux_ops::Result<(Arc<Objects>, Table)> {
+    let mut inputs = vec![("objects", Value::Objects(o.clone())), ("image", image)];
+    inputs.extend(more.map(|m| ("more", m)));
+    let out = run("objects.features", inputs, params)?;
+    let (Value::Objects(o), Value::Table(t)) = (&out["objects"], &out["table"]) else { panic!("types") };
+    assert_eq!(o.table.columns, t.columns);
+    assert!(o.table.rows.iter().zip(&t.rows).all(|(a, b)| same(a, b)), "the objects' table is the table");
+    Ok((o.clone(), t.clone()))
+}
+
+fn col(t: &Table, name: &str) -> Vec<f64> {
+    t.column(name).unwrap_or_else(|| panic!("no column {name}: {:?}", t.columns))
+}
+
+fn near(a: f64, b: f64, tol: f64, what: &str) {
+    assert!((a - b).abs() <= tol, "{what}: {a} against {b}");
+}
+
+/// One object of the cells (row, column) in a w x h grid, the rest no data (8 neighbours: one object even when the
+/// cells touch by a corner).
+fn blob(w: usize, h: usize, cells: &[(usize, usize)]) -> Arc<Objects> {
+    let mut data = vec![NAN; w * h];
+    for &(r, c) in cells {
+        data[r * w + c] = 1.0;
+    }
+    let (o, _) = segment(&map(w, h, data), 8);
+    assert_eq!(o.count, 1);
+    o
+}
+
+fn shape_table(o: &Arc<Objects>) -> Table {
+    let (w, h) = (o.grid.width, o.grid.height);
+    feats(o, Value::Map(map(w, h, vec![1.0; w * h])), None, serde_json::json!({ "features": ["shape"] })).unwrap().1
+}
+
+fn block(r: std::ops::Range<usize>, c: std::ops::Range<usize>) -> Vec<(usize, usize)> {
+    r.flat_map(|r| c.clone().map(move |c| (r, c))).collect()
+}
+
+#[test]
+fn shape_of_a_rectangle_by_hand() {
+    // 2 rows x 3 columns at rows 1-2, columns 2-4 of a 6 x 8 grid
+    let t = shape_table(&blob(8, 6, &block(1..3, 2..5)));
+    let g = |n: &str| col(&t, n)[0];
+    let tol = 1e-9;
+    near(g("area"), 6.0, tol, "area");
+    near(g("perimeter"), 10.0, tol, "perimeter");
+    near(g("length"), 3.0, tol, "length");
+    near(g("width"), 2.0, tol, "width");
+    near(g("length_width"), 1.5, tol, "length_width");
+    near(g("compactness"), 1.0, tol, "compactness");
+    near(g("shape_index"), 10.0 / (4.0 * 6f64.sqrt()), tol, "shape_index");
+    near(g("border_index"), 1.0, tol, "border_index");
+    // axes of the area: variances 9/12 and 4/12, so minor / major = 2 / 3
+    near(g("asymmetry"), 1.0 - 2.0 / 3.0, tol, "asymmetry");
+    near(g("direction"), 0.0, tol, "direction");
+    near(g("rectangular_fit"), 1.0, tol, "rectangular_fit");
+    near(g("elliptic_fit"), 1.0, tol, "elliptic_fit");
+    // the centres' variances are 2/3 (x) and 1/4 (y)
+    near(g("density"), 6f64.sqrt() / (1.0 + (2.0f64 / 3.0 + 0.25).sqrt()), tol, "density");
+    // x east: the columns' mean 3 + 0.5; y north: the rows' mean 1.5 + 0.5 down from the top (y = 0)
+    near(g("centroid_x"), 3.5, tol, "centroid_x");
+    near(g("centroid_y"), -2.0, tol, "centroid_y");
+}
+
+#[test]
+fn shape_of_a_tall_rectangle_points_up() {
+    // 4 rows x 1 column: the major axis is vertical, 90 degrees
+    let t = shape_table(&blob(5, 6, &block(1..5, 2..3)));
+    near(col(&t, "direction")[0], 90.0, 1e-9, "direction");
+    near(col(&t, "length")[0], 4.0, 1e-9, "length");
+    near(col(&t, "width")[0], 1.0, 1e-9, "width");
+    // variances 16/12 and 1/12: minor / major = 1 / 4
+    near(col(&t, "asymmetry")[0], 0.75, 1e-9, "asymmetry");
+}
+
+#[test]
+fn shape_of_an_l_by_hand() {
+    // column 0 rows 0-2 and the cell (2, 1), in the corner of the image: the image's edge is border
+    let t = shape_table(&blob(4, 4, &[(0, 0), (1, 0), (2, 0), (2, 1)]));
+    let g = |n: &str| col(&t, n)[0];
+    near(g("area"), 4.0, 1e-9, "area");
+    near(g("perimeter"), 10.0, 1e-9, "perimeter");
+    // the smallest rectangle is the 3 x 2 around it (the one along the slanted side of the hull is 8)
+    near(g("length"), 3.0, 1e-9, "length");
+    near(g("width"), 2.0, 1e-9, "width");
+    near(g("compactness"), 6.0 / 4.0, 1e-9, "compactness");
+    near(g("border_index"), 1.0, 1e-9, "border_index");
+    // the cells' covariance (columns x, rows down so y = -row), as an area (+ 1/12)
+    let (vx, vy, cxy) = (0.1875 + 1.0 / 12.0, 0.6875 + 1.0 / 12.0, -0.1875);
+    let half = (((vx - vy) / 2.0f64).powi(2) + cxy * cxy).sqrt();
+    let (l1, l2) = ((vx + vy) / 2.0 + half, (vx + vy) / 2.0 - half);
+    near(g("asymmetry"), 1.0 - (l2 / l1).sqrt(), 1e-9, "asymmetry");
+    near(g("asymmetry"), 0.5, 1e-9, "asymmetry by hand");
+    let theta = 0.5 * (2.0 * cxy).atan2(vx - vy);
+    near(g("direction"), theta.to_degrees().rem_euclid(180.0), 1e-9, "direction");
+    near(g("direction"), 108.43494882292201, 1e-9, "direction by hand");
+    let fit = g("rectangular_fit");
+    assert!(fit > 0.3 && fit <= 1.0, "rectangular_fit {fit}");
+    let fit = g("elliptic_fit");
+    assert!(fit > 0.3 && fit <= 1.0, "elliptic_fit {fit}");
+}
+
+#[test]
+fn shape_of_a_single_cell() {
+    let t = shape_table(&blob(3, 3, &[(1, 1)]));
+    let g = |n: &str| col(&t, n)[0];
+    for (name, want) in [
+        ("area", 1.0),
+        ("perimeter", 4.0),
+        ("length", 1.0),
+        ("width", 1.0),
+        ("length_width", 1.0),
+        ("compactness", 1.0),
+        ("border_index", 1.0),
+        ("asymmetry", 0.0),
+        ("direction", 0.0),
+        ("rectangular_fit", 1.0),
+        ("elliptic_fit", 1.0),
+        ("density", 1.0),
+        ("centroid_x", 1.5),
+        ("centroid_y", -1.5),
+    ] {
+        near(g(name), want, 1e-9, name);
+    }
+}
+
+#[test]
+fn shape_is_in_map_units() {
+    // cells 10 wide and 5 tall, origin (1000, 2000): a 2 x 3 rectangle is 30 x 10 map units
+    let mut grid = Grid::new(8, 6);
+    grid.transform = [1000.0, 10.0, 0.0, 2000.0, 0.0, -5.0];
+    let grid = Arc::new(grid);
+    let mut data = vec![NAN; 48];
+    for (r, c) in block(1..3, 2..5) {
+        data[r * 8 + c] = 1.0;
+    }
+    let (o, _) = segment(&Map::new(grid.clone(), data), 4);
+    let image = Value::Map(Map::new(grid, vec![1.0; 48]));
+    let (_, t) = feats(&o, image, None, serde_json::json!({ "features": ["shape"] })).unwrap();
+    let g = |n: &str| col(&t, n)[0];
+    near(g("area"), 6.0 * 50.0, 1e-9, "area");
+    near(g("perimeter"), 2.0 * (3.0 * 10.0 + 2.0 * 5.0), 1e-9, "perimeter");
+    near(g("length"), 30.0, 1e-9, "length");
+    near(g("width"), 10.0, 1e-9, "width");
+    near(g("direction"), 0.0, 1e-9, "direction");
+    near(g("rectangular_fit"), 1.0, 1e-9, "rectangular_fit");
+    near(g("centroid_x"), 1000.0 + 10.0 * 3.5, 1e-9, "centroid_x");
+    near(g("centroid_y"), 2000.0 - 5.0 * 2.0, 1e-9, "centroid_y");
+}
+
+#[test]
+fn shape_of_a_diagonal_rectangle() {
+    // 40 x 12 cells long along the north-east diagonal (x east, y north): direction 45
+    let (w, h) = (90, 90);
+    let mut cells = Vec::new();
+    for r in 0..h {
+        for c in 0..w {
+            let (x, y) = (c as f64 - 45.0, -(r as f64 - 45.0));
+            let (u, v) = ((x + y) / 2f64.sqrt(), (y - x) / 2f64.sqrt());
+            if u.abs() <= 20.0 && v.abs() <= 6.0 {
+                cells.push((r, c));
+            }
+        }
+    }
+    let t = shape_table(&blob(w, h, &cells));
+    let g = |n: &str| col(&t, n)[0];
+    println!("diagonal: length {} width {} direction {}", g("length"), g("width"), g("direction"));
+    near(g("direction"), 45.0, 5.0, "direction");
+    // the corners of the cells add up to 1.4 cells to each side
+    near(g("length"), 40.0, 2.0, "length");
+    near(g("width"), 12.0, 2.0, "width");
+    near(g("length_width"), 40.0 / 12.0, 0.6, "length_width");
+    // the mirror image (north-west) is 135
+    let mirrored: Vec<(usize, usize)> = cells.iter().map(|&(r, c)| (r, w - 1 - c)).collect();
+    near(col(&shape_table(&blob(w, h, &mirrored)), "direction")[0], 135.0, 5.0, "mirrored direction");
+}
+
+fn named_stack(w: usize, h: usize, bands: Vec<(&str, Vec<f64>)>) -> Value {
+    let keys = bands.iter().map(|(n, _)| terraflux_ops::Key::Name(n.to_string())).collect();
+    let layers = bands.into_iter().map(|(_, d)| Arc::new(d)).collect();
+    Value::Stack(terraflux_ops::Stack { grid: Arc::new(Grid::new(w, h)), keys, layers })
+}
+
+/// One object of 5 cells in a row; the first band has 4 values and a cell without one.
+fn five(names: [&str; 3]) -> (Arc<Objects>, Value) {
+    let (o, _) = segment(&map(5, 1, vec![1.0; 5]), 4);
+    let image = named_stack(
+        5,
+        1,
+        vec![
+            (names[0], vec![1.0, 2.0, NAN, 6.0, 7.0]),
+            (names[1], vec![5.0, 7.0, 8.0, 9.0, 11.0]),
+            (names[2], vec![2.0, 2.0, 3.0, 4.0, 4.0]),
+        ],
+    );
+    (o, image)
+}
+
+#[test]
+fn spectral_of_an_object_by_hand() {
+    let (o, image) = five(["B4", "B8", "B3"]);
+    let (_, t) = feats(&o, image, None, serde_json::json!({ "features": "spectral" })).unwrap();
+    let g = |n: &str| col(&t, n)[0];
+    let tol = 1e-12;
+    // B4 1 2 6 7: the population sd, and the median of an even count is the mean of the two in the middle
+    near(g("mean_B4"), 4.0, tol, "mean_B4");
+    near(g("sd_B4"), 6.5f64.sqrt(), tol, "sd_B4");
+    near(g("min_B4"), 1.0, tol, "min_B4");
+    near(g("max_B4"), 7.0, tol, "max_B4");
+    near(g("median_B4"), 4.0, tol, "median_B4");
+    // B8 5 7 8 9 11
+    near(g("mean_B8"), 8.0, tol, "mean_B8");
+    near(g("median_B8"), 8.0, tol, "median_B8");
+    near(g("sd_B8"), (20.0f64 / 5.0).sqrt(), tol, "sd_B8");
+    // B3 2 2 3 4 4
+    near(g("mean_B3"), 3.0, tol, "mean_B3");
+    near(g("median_B3"), 3.0, tol, "median_B3");
+    // the means 4, 8, 3
+    near(g("brightness"), 5.0, tol, "brightness");
+    near(g("max_diff"), (8.0 - 3.0) / 5.0, tol, "max_diff");
+    near(g("ratio_B4"), 4.0 / 15.0, tol, "ratio_B4");
+    near(g("ratio_B8"), 8.0 / 15.0, tol, "ratio_B8");
+    near(g("ratio_B3"), 3.0 / 15.0, tol, "ratio_B3");
+    // Sentinel-2's names: red B4, nir B8, green B3
+    near(g("ndvi"), (8.0 - 4.0) / (8.0 + 4.0), tol, "ndvi");
+    near(g("ndwi"), (3.0 - 8.0) / (3.0 + 8.0), tol, "ndwi");
+    // (no short-wave infrared band: no ndmi from a group)
+    assert!(t.column("ndmi").is_none());
+}
+
+#[test]
+fn bands_are_found_by_their_names() {
+    let ndvi = |names: [&str; 3], params: serde_json::Value| {
+        let (o, image) = five(names);
+        feats(&o, image, None, params).map(|(_, t)| t.column("ndvi").map(|c| c[0]))
+    };
+    let basic = serde_json::json!({});
+    // Landsat 8/9: red SR_B4 (the second band, mean 8), nir SR_B5 (the first, mean 4)
+    near(ndvi(["SR_B5", "SR_B4", "SR_B3"], basic.clone()).unwrap().unwrap(), (4.0 - 8.0) / (4.0 + 8.0), 1e-12, "l8");
+    // the words red and nir
+    near(ndvi(["NIR", "Red", "b3"], basic.clone()).unwrap().unwrap(), (4.0 - 8.0) / (4.0 + 8.0), 1e-12, "words");
+    // not found: basic leaves ndvi out, naming it is an error that says what to do
+    assert_eq!(ndvi(["x", "y", "z"], basic).unwrap(), None);
+    let e = ndvi(["x", "y", "z"], serde_json::json!({ "features": ["ndvi"] })).unwrap_err().to_string();
+    assert!(e.contains("red") && e.contains("nir"), "{e}");
+    // given by the settings, any case: red y (mean 8), nir X (mean 4)
+    let given = serde_json::json!({ "features": ["ndvi"], "red": "y", "nir": "X" });
+    near(ndvi(["x", "y", "z"], given).unwrap().unwrap(), (4.0 - 8.0) / (4.0 + 8.0), 1e-12, "given");
+    let e = ndvi(["x", "y", "z"], serde_json::json!({ "red": "nope" })).unwrap_err().to_string();
+    assert!(e.contains("nope") && e.contains("x, y, z"), "{e}");
+}
+
+#[test]
+fn features_basic_and_all_and_names() {
+    let (o, image) = five(["B4", "B8", "B3"]);
+    let before: Vec<String> = o.table.columns.clone();
+    let (o2, t) = feats(&o, image.clone(), None, serde_json::json!({})).unwrap();
+    let new: Vec<&str> = t.columns.iter().map(String::as_str).filter(|c| !before.iter().any(|b| b == c)).collect();
+    assert_eq!(
+        new,
+        ["mean_B4", "mean_B8", "mean_B3", "sd_B4", "sd_B8", "sd_B3", "ndvi", "compactness", "glcm_homogeneity"]
+    );
+    assert_eq!(o2.table.columns, t.columns);
+    // the old columns come first and are kept
+    assert_eq!(&t.columns[..before.len()], &before[..]);
+    // all: every spectral and shape column
+    let (_, all) = feats(&o, image.clone(), None, serde_json::json!({ "features": "all" })).unwrap();
+    for c in [
+        "median_B8",
+        "brightness",
+        "ratio_B3",
+        "ndwi",
+        "perimeter",
+        "centroid_y",
+        "rectangular_fit",
+        "glcm_contrast",
+        "glcm_entropy_B4",
+        "glcm_asm_B3",
+        "nb_diff_B8",
+        "nb_count",
+        "border_image",
+    ] {
+        assert!(all.column(c).is_some(), "{c}");
+    }
+    // a group: its columns and the old ones (area was one of them)
+    let (_, t) = feats(&o, image.clone(), None, serde_json::json!({ "features": ["shape"] })).unwrap();
+    assert_eq!(t.columns.len(), before.len() + 15 - 1, "{:?}", t.columns);
+    assert!(t.columns.iter().all(|c| !c.contains("B4")));
+    let (_, t) = feats(&o, image.clone(), None, serde_json::json!({ "features": ["brightness", "length"] })).unwrap();
+    assert!(t.column("brightness").is_some() && t.column("length").is_some() && t.column("mean_B4").is_none());
+    // an unknown name lists the groups and the features
+    let e = feats(&o, image, None, serde_json::json!({ "features": ["shape", "nope"] })).unwrap_err().to_string();
+    assert!(
+        e.contains("nope") && e.contains("spectral") && e.contains("shape") && e.contains("rectangular_fit"),
+        "{e}"
+    );
+}
+
+#[test]
+fn a_recomputed_column_replaces_the_old_one() {
+    let (o, image) = five(["B4", "B8", "B3"]);
+    let (o1, t1) = feats(&o, image.clone(), None, serde_json::json!({ "features": ["mean", "area"] })).unwrap();
+    // area was a column of the segmenter's table: replaced in place, not repeated
+    assert_eq!(t1.columns.iter().filter(|c| *c == "area").count(), 1);
+    let pos = t1.columns.iter().position(|c| c == "area").unwrap();
+    assert_eq!(pos, o.table.columns.iter().position(|c| c == "area").unwrap());
+    // a second run keeps the first's columns and does not repeat the ones it gives again
+    let (_, t2) = feats(&o1, image, None, serde_json::json!({ "features": ["sd", "mean"] })).unwrap();
+    assert_eq!(t2.columns.iter().filter(|c| *c == "mean_B4").count(), 1);
+    assert!(t2.column("sd_B4").is_some());
+    assert_eq!(t2.columns.len(), t1.columns.len() + 3);
+}
+
+#[test]
+fn more_layers_keep_their_names_and_a_clash_gets_a_suffix() {
+    let (o, image) = five(["B4", "B8", "B3"]);
+    let dem = named_stack(5, 1, vec![("B4", vec![10.0; 5]), ("dem", vec![0.0, 1.0, 2.0, 3.0, 4.0])]);
+    let p = serde_json::json!({ "features": ["mean", "brightness"] });
+    let (_, t) = feats(&o, image.clone(), Some(dem), p).unwrap();
+    near(col(&t, "mean_B4")[0], 4.0, 1e-12, "image's B4");
+    near(col(&t, "mean_B4_2")[0], 10.0, 1e-12, "more's B4");
+    near(col(&t, "mean_dem")[0], 2.0, 1e-12, "dem");
+    // the brightness is the image's bands only
+    near(col(&t, "brightness")[0], 5.0, 1e-12, "brightness");
+    // a single map is named by its port
+    let one = Value::Map(map(5, 1, vec![1.0; 5]));
+    let (_, t) = feats(&o, image, Some(one), serde_json::json!({ "features": ["mean"] })).unwrap();
+    near(col(&t, "mean_more")[0], 1.0, 1e-12, "a map");
+}
+
+#[test]
+fn features_on_another_grid_say_to_use_raster_match() {
+    let (o, image) = five(["B4", "B8", "B3"]);
+    let small = Value::Map(map(4, 1, vec![1.0; 4]));
+    for (image, more) in [(small.clone(), None), (image, Some(small))] {
+        let e = feats(&o, image, more, serde_json::json!({})).unwrap_err().to_string();
+        assert!(e.contains("raster.match") && e.contains("\"n\""), "{e}");
+    }
+}
+
+/// Objects over noise, and a three-band image with a cell now and then missing.
+fn noisy_scene(w: usize, h: usize) -> (Arc<Objects>, Value) {
+    let (o, _) = segment(&noisy(w, h), 4);
+    let mut s = 4321u64;
+    let bands = (0..3)
+        .map(|b| {
+            let data = (0..w * h)
+                .map(|_| if lcg(&mut s) < 0.02 { NAN } else { 100.0 * (b + 1) as f64 + 50.0 * lcg(&mut s) })
+                .collect();
+            (["B2", "B3", "B4"][b], data)
+        })
+        .collect();
+    (o, named_stack(w, h, bands))
+}
+
+#[test]
+fn means_equal_the_zonal_means() {
+    let (o, image) = noisy_scene(40, 30);
+    assert!(o.count > 30);
+    let (_, t) = feats(&o, image.clone(), None, serde_json::json!({ "features": ["mean"] })).unwrap();
+    let ids = run("objects.to_map", vec![("objects", Value::Objects(o.clone()))], serde_json::json!({})).unwrap();
+    let inputs = vec![("map", image), ("zones", ids["map"].clone())];
+    let zonal = run("raster.zonal", inputs, serde_json::json!({ "stats": ["mean"] })).unwrap();
+    let Value::Table(z) = &zonal["table"] else { panic!("table") };
+    assert_eq!(z.rows.len(), o.count);
+    for b in ["B2", "B3", "B4"] {
+        let (mine, theirs) = (col(&t, &format!("mean_{b}")), col(z, &format!("{b}_mean")));
+        for (k, (a, b)) in mine.iter().zip(&theirs).enumerate() {
+            assert!((a - b).abs() <= 1e-12 || (a.is_nan() && b.is_nan()), "object {}: {a} against {b}", k + 1);
+        }
+    }
+}
+
+#[test]
+fn features_are_the_same_on_one_thread_and_four() {
+    let (o, image) = noisy_scene(60, 40);
+    let more = Value::Map(map(60, 40, (0..2400).map(|i| (i % 17) as f64).collect()));
+    let run_in = |threads: usize| {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        pool.install(|| {
+            feats(&o, image.clone(), Some(more.clone()), serde_json::json!({ "features": "all" })).unwrap().1
+        })
+    };
+    let (one, four) = (run_in(1), run_in(4));
+    assert_eq!(one.columns, four.columns);
+    assert!(one.columns.len() > 40);
+    for (a, b) in one.rows.iter().zip(&four.rows) {
+        assert!(same(a, b), "{a:?} against {b:?}");
+    }
+}
+
+/// 1000 x 1000 cells, 4 bands, 10 000 objects, features = all (spectral and shape): the time
+/// (cargo test --release ... --ignored --nocapture).
+#[test]
+#[ignore]
+fn features_timing_on_a_million_cells() {
+    let (w, h) = (1000, 1000);
+    let mut s = 7u64;
+    let bands = (0..4).map(|b| (["B2", "B3", "B4", "B8"][b], (0..w * h).map(|_| lcg(&mut s)).collect())).collect();
+    let image = named_stack(w, h, bands);
+    let out = run("segment.chessboard", vec![("image", image.clone())], serde_json::json!({ "size": 10 })).unwrap();
+    let o = objects_of(&out);
+    let t = std::time::Instant::now();
+    let (_, table) = feats(&o, image, None, serde_json::json!({ "features": "all" })).unwrap();
+    println!(
+        "objects.features all, 1000 x 1000 x 4, {} objects, {} columns: {:.2?}",
+        o.count,
+        table.columns.len(),
+        t.elapsed()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// objects.features: texture and context
+
+/// The texture columns of one object over a single band (the brightness), from `levels` grey levels.
+fn glcm_of(o: &Arc<Objects>, values: Vec<f64>, levels: u32) -> Table {
+    let (w, h) = (o.grid.width, o.grid.height);
+    let p = serde_json::json!({ "features": ["texture"], "texture_bands": ["brightness"], "levels": levels });
+    feats(o, Value::Map(map(w, h, values)), None, p).unwrap().1
+}
+
+#[test]
+fn glcm_of_a_2x2_object_by_hand() {
+    let (o, _) = segment(&map(2, 2, vec![1.0; 4]), 4);
+    // grey levels [[0, 1], [1, 0]]: the pairs {0,1} four times, {0,0} and {1,1} once each, 6 in all, so the
+    // symmetric matrix over 12 is p00 = 1/6, p01 = p10 = 1/3, p11 = 1/6
+    let t = glcm_of(&o, vec![0.0, 1.0, 1.0, 0.0], 2);
+    let g = |n: &str| col(&t, n)[0];
+    let tol = 1e-12;
+    near(g("glcm_homogeneity"), 2.0 / 3.0, tol, "homogeneity");
+    near(g("glcm_contrast"), 2.0 / 3.0, tol, "contrast");
+    near(g("glcm_entropy"), 6f64.ln() / 3.0 + 2.0 * 3f64.ln() / 3.0, tol, "entropy");
+    near(g("glcm_asm"), 5.0 / 18.0, tol, "asm");
+    // mean 1/2, variance 1/4, covariance -1/12
+    near(g("glcm_correlation"), -1.0 / 3.0, tol, "correlation");
+}
+
+#[test]
+fn glcm_levels_cut_between_the_percentiles_and_a_constant_object_is_smooth() {
+    // 3 levels over 0 to 1: 0.5 is level 1, 1 is the last level
+    let (o, _) = segment(&map(3, 1, vec![1.0; 3]), 4);
+    let t = glcm_of(&o, vec![0.0, 0.5, 1.0], 3);
+    // pairs {0,1} and {1,2}: p01 = p10 = p12 = p21 = 1/4
+    near(col(&t, "glcm_contrast")[0], 1.0, 1e-12, "contrast");
+    near(col(&t, "glcm_homogeneity")[0], 0.5, 1e-12, "homogeneity");
+    // a constant object: one level, homogeneity and asm 1, contrast and entropy 0, correlation taken as 1
+    let (o, _) = segment(&map(3, 3, vec![1.0; 9]), 4);
+    let t = glcm_of(&o, vec![5.0; 9], 8);
+    let g = |n: &str| col(&t, n)[0];
+    near(g("glcm_homogeneity"), 1.0, 1e-12, "homogeneity");
+    near(g("glcm_contrast"), 0.0, 1e-12, "contrast");
+    near(g("glcm_asm"), 1.0, 1e-12, "asm");
+    near(g("glcm_entropy"), 0.0, 1e-12, "entropy");
+    near(g("glcm_correlation"), 1.0, 1e-12, "correlation");
+}
+
+#[test]
+fn glcm_of_one_cell_is_nan_and_pairs_stay_inside_the_object() {
+    let t = glcm_of(&blob(3, 3, &[(1, 1)]), (0..9).map(f64::from).collect(), 4);
+    for n in ["homogeneity", "contrast", "entropy", "correlation", "asm"] {
+        assert!(col(&t, &format!("glcm_{n}"))[0].is_nan(), "{n}");
+    }
+    // two objects side by side: no pair crosses the border, so each is constant
+    let (o, _) = segment(&map(4, 1, vec![1.0, 1.0, 2.0, 2.0]), 4);
+    let t = glcm_of(&o, vec![0.0, 0.0, 9.0, 9.0], 4);
+    assert_eq!(col(&t, "glcm_contrast"), [0.0, 0.0]);
+}
+
+#[test]
+fn texture_bands_and_basic() {
+    let (o, image) = five(["B4", "B8", "B3"]);
+    // basic: the brightness only
+    let (_, t) = feats(&o, image.clone(), None, serde_json::json!({})).unwrap();
+    assert!(t.column("glcm_homogeneity").is_some());
+    assert!(t.columns.iter().all(|c| !c.starts_with("glcm_") || c == "glcm_homogeneity"));
+    // the group: five statistics of the brightness and of each band
+    let (_, t) = feats(&o, image.clone(), None, serde_json::json!({ "features": "texture" })).unwrap();
+    let glcm: Vec<&String> = t.columns.iter().filter(|c| c.starts_with("glcm_")).collect();
+    assert_eq!(glcm.len(), 5 * 4, "{glcm:?}");
+    assert!(t.column("glcm_asm").is_some() && t.column("glcm_asm_B8").is_some());
+    // a list of layers, one named, and an unknown one
+    let p = serde_json::json!({ "features": ["contrast"], "texture_bands": ["B3", "brightness"] });
+    let (_, t) = feats(&o, image.clone(), None, p).unwrap();
+    assert!(t.column("glcm_contrast_B3").is_some() && t.column("glcm_contrast").is_some());
+    assert!(t.column("glcm_contrast_B4").is_none());
+    let p = serde_json::json!({ "features": ["contrast"], "texture_bands": ["nope"] });
+    assert!(feats(&o, image.clone(), None, p).unwrap_err().to_string().contains("nope"));
+    let e = feats(&o, image, None, serde_json::json!({ "levels": 1 })).unwrap_err().to_string();
+    assert!(e.contains("levels"), "{e}");
+}
+
+/// Three objects in a row, A | B | C (one cell each), over two bands.
+fn row3() -> (Arc<Objects>, Value) {
+    let (o, _) = segment(&map(3, 1, vec![1.0, 5.0, 9.0]), 4);
+    assert_eq!(o.count, 3);
+    let image = named_stack(3, 1, vec![("B4", vec![2.0, 6.0, 12.0]), ("B8", vec![10.0, 10.0, 40.0])]);
+    (o, image)
+}
+
+fn classed_row() -> (Arc<Objects>, Value) {
+    let (o, image) = row3();
+    let classes = vec![
+        ObjectClass { name: "Wood land".into(), colour: None },
+        ObjectClass { name: "field".into(), colour: None },
+    ];
+    (Arc::new((*o).clone().with_classes(classes, vec![1, 2, 1], vec![]).unwrap()), image)
+}
+
+fn features_run(
+    o: &Arc<Objects>,
+    image: Value,
+    below: Option<&Arc<Objects>>,
+    features: &[&str],
+) -> terraflux_ops::Result<Table> {
+    let mut inputs = vec![("objects", Value::Objects(o.clone())), ("image", image)];
+    inputs.extend(below.map(|b| ("below", Value::Objects(b.clone()))));
+    run("objects.features", inputs, serde_json::json!({ "features": features })).map(|out| table_of(&out))
+}
+
+fn context_of(o: &Arc<Objects>, image: Value, below: Option<&Arc<Objects>>, features: &[&str]) -> Table {
+    features_run(o, image, below, features).unwrap()
+}
+
+#[test]
+fn context_neighbours_by_hand() {
+    let (o, image) = row3();
+    let t = context_of(&o, image, None, &["context"]);
+    let tol = 1e-12;
+    // B4 means 2, 6, 12: A (2 - 6) / 1, B ((6 - 2) + (6 - 12)) / 2, C (12 - 6) / 1
+    for (a, b) in col(&t, "nb_diff_B4").iter().zip([-4.0, -1.0, 6.0]) {
+        near(*a, b, tol, "nb_diff_B4");
+    }
+    // B8 means 10, 10, 40
+    for (a, b) in col(&t, "nb_diff_B8").iter().zip([0.0, -15.0, 30.0]) {
+        near(*a, b, tol, "nb_diff_B8");
+    }
+    assert_eq!(col(&t, "nb_count"), [1.0, 2.0, 1.0]);
+    // each object is one cell: 4 edges; A and C have one shared, B has two
+    for (a, b) in col(&t, "border_image").iter().zip([0.75, 0.5, 0.75]) {
+        near(*a, b, tol, "border_image");
+    }
+    // no classes, no parent, no below: nothing else came with the group
+    assert!(t.columns.iter().all(|c| !c.starts_with("rel_border") && !c.starts_with("parent") && c != "children"));
+}
+
+#[test]
+fn context_of_the_classes_by_hand() {
+    let (o, image) = classed_row();
+    let t = context_of(&o, image, None, &["context"]);
+    let tol = 1e-12;
+    let eq = |name: &str, want: [f64; 3]| {
+        let got = col(&t, name);
+        for (a, b) in got.iter().zip(want) {
+            assert!((a.is_nan() && b.is_nan()) || (a - b).abs() <= tol, "{name}: {got:?} against {want:?}");
+        }
+    };
+    // (the class names made safe for a column: Wood land is Wood_land)
+    eq("rel_border_Wood_land", [0.0, 0.5, 0.0]);
+    eq("rel_border_field", [0.25, 0.0, 0.25]);
+    eq("nb_Wood_land", [0.0, 2.0, 0.0]);
+    eq("nb_field", [1.0, 0.0, 1.0]);
+    // the centroids are one cell apart: the nearest of the class other than itself
+    eq("dist_Wood_land", [2.0, 1.0, 2.0]);
+    eq("dist_field", [1.0, NAN, 1.0]);
+    // naming one of them without classes is an error
+    let (o, image) = row3();
+    let e = features_run(&o, image, None, &["dist"]).unwrap_err().to_string();
+    assert!(e.contains("dist") && e.contains("classes"), "{e}");
+}
+
+#[test]
+fn nearest_class_centroid_agrees_with_brute_force() {
+    // 5 x 5 squares in 12 columns and 8 rows, a class by chance: the grid search against all pairs
+    let (w, h) = (60, 40);
+    let image = Value::Map(map(w, h, vec![1.0; w * h]));
+    let out = run("segment.chessboard", vec![("image", image.clone())], serde_json::json!({ "size": 5 })).unwrap();
+    let o = objects_of(&out);
+    assert_eq!(o.count, 96);
+    let mut s = 3u64;
+    let class_of: Vec<u32> = (0..o.count).map(|_| if lcg(&mut s) < 0.1 { 1 } else { 2 }).collect();
+    let classes =
+        vec![ObjectClass { name: "rare".into(), colour: None }, ObjectClass { name: "common".into(), colour: None }];
+    let o = Arc::new((*o).clone().with_classes(classes, class_of.clone(), vec![]).unwrap());
+    let t = context_of(&o, image, None, &["dist"]);
+    let at = |k: usize| ((k % 12) as f64 * 5.0, (k / 12) as f64 * 5.0);
+    for (c, name) in [(1u32, "rare"), (2, "common")] {
+        let got = col(&t, &format!("dist_{name}"));
+        for (k, &g) in got.iter().enumerate() {
+            let best = (0..o.count)
+                .filter(|&j| j != k && class_of[j] == c)
+                .map(|j| (at(j).0 - at(k).0).hypot(at(j).1 - at(k).1))
+                .fold(f64::INFINITY, f64::min);
+            if best.is_finite() {
+                near(g, best, 1e-9, &format!("{name} {k}"));
+            } else {
+                assert!(g.is_nan());
+            }
+        }
+    }
+}
+
+#[test]
+fn context_of_the_level_above_and_beneath() {
+    // six cells in a row: objects of two cells (o), and above them two objects of four and two cells
+    let (o, _) = segment(&map(6, 1, vec![1.0, 1.0, 2.0, 2.0, 3.0, 3.0]), 4);
+    let image = named_stack(6, 1, vec![("B4", vec![1.0; 6])]);
+    let (above, _) = segment(&map(6, 1, vec![1.0, 1.0, 1.0, 1.0, 2.0, 2.0]), 4);
+    let nested = Arc::new((*o).clone().with_parent(above, vec![1, 1, 2]).unwrap());
+    let t = context_of(&nested, image.clone(), None, &["parent"]);
+    assert_eq!(col(&t, "parent_id"), [1.0, 1.0, 2.0]);
+    assert_eq!(col(&t, "parent_cells"), [4.0, 4.0, 2.0]);
+    assert_eq!(col(&t, "parent_value"), [1.0, 1.0, 2.0]);
+    assert!(t.column("parent_id").is_some() && t.column("parent_parent_id").is_none());
+    // without a level above: left out by the group, an error when named
+    let t = context_of(&o, image.clone(), None, &["context"]);
+    assert!(t.column("parent_id").is_none());
+    let e = features_run(&o, image.clone(), None, &["parent"]).unwrap_err().to_string();
+    assert!(e.contains("parent"), "{e}");
+    // beneath: the six cells, in classes tree, shrub, none
+    let (cells, _) = segment(&map(6, 1, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]), 4);
+    let classes =
+        vec![ObjectClass { name: "tree".into(), colour: None }, ObjectClass { name: "shrub".into(), colour: None }];
+    let below = (*cells).clone().with_parent(o.clone(), vec![1, 1, 2, 2, 3, 3]).unwrap();
+    let below = Arc::new(below.with_classes(classes, vec![1, 2, 1, 1, 2, 0], vec![]).unwrap());
+    let t = context_of(&o, image.clone(), Some(&below), &["children"]);
+    assert_eq!(col(&t, "children"), [2.0, 2.0, 2.0]);
+    assert_eq!(col(&t, "children_tree"), [1.0, 2.0, 0.0]);
+    assert_eq!(col(&t, "children_shrub"), [1.0, 0.0, 1.0]);
+    assert_eq!(col(&t, "children_area_tree"), [0.5, 1.0, 0.0]);
+    assert_eq!(col(&t, "children_area_shrub"), [0.5, 0.0, 0.5]);
+    // naming children without below is an error; a below of other objects is refused
+    let e = features_run(&o, image.clone(), None, &["children"]).unwrap_err().to_string();
+    assert!(e.contains("below"), "{e}");
+    let e = features_run(&nested, image, Some(&cells), &["children"]).unwrap_err().to_string();
+    assert!(e.contains("below"), "{e}");
+}
+
+/// 1000 x 1000 cells, 4 bands, about 10 000 irregular objects (SLIC) in three classes, features = all: the time
+/// (cargo test --release ... --ignored --nocapture).
+#[test]
+#[ignore]
+fn features_all_timing_on_irregular_objects() {
+    let (w, h) = (1000, 1000);
+    let mut s = 1u64;
+    let layers = (0..4)
+        .map(|b| {
+            (0..w * h)
+                .map(|i| {
+                    let block = (i / w / 50 + 3 * ((i % w) / 50)) % 7;
+                    0.05 + 0.1 * block as f64 + 0.01 * b as f64 + gauss(&mut s, 0.02)
+                })
+                .collect()
+        })
+        .collect();
+    let image = stack(w, h, layers);
+    let o = objects_of(&superpixels("segment.slic", image.clone(), serde_json::json!({ "count": 10000 })));
+    let class_of: Vec<u32> = (0..o.count).map(|_| 1 + (lcg(&mut s) * 3.0) as u32).collect();
+    let classes = ["a", "b", "c"].iter().map(|n| ObjectClass { name: n.to_string(), colour: None }).collect();
+    let o = Arc::new((*o).clone().with_classes(classes, class_of, vec![]).unwrap());
+    let t = std::time::Instant::now();
+    let (_, table) = feats(&o, image, None, serde_json::json!({ "features": "all" })).unwrap();
+    println!(
+        "objects.features all, 1000 x 1000 x 4, {} objects, {} columns: {:.2?}",
+        o.count,
+        table.columns.len(),
+        t.elapsed()
+    );
+}

@@ -4087,6 +4087,10 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   desvio, NDVI quando há vermelho e infravermelho, área, compacidade, homogeneidade) e `all`. Uma passada pelos pixels,
   em paralelo por faixas de linhas. Testes: cada atributo contra a conta à mão num objeto pequeno; as médias contra
   `raster.zonal` com os rótulos.
+  **Feito** (Unreleased). `objects/features.rs`: os grupos em `GROUPS` (spectral, shape, texture, context), em paralelo
+  por objeto (o mesmo resultado com qualquer número de threads); retângulo mínimo por casco convexo e rotating calipers;
+  a GLCM quantizada entre os percentis 1 e 99 da imagem; `dist_<classe>` por uma grade de baldes; `below` dá os filhos.
+  `all` em 10 000 objetos de 1000×1000×4: 112 ms (83 colunas). A mais: `ndmi` quando há SWIR.
 - **D. Classificar.** Três caminhos, que se combinam:
   - **Por amostras com ML.** `objects.samples`: as amostras de pontos ou polígonos (`vector.read`, um desenho do
     `draw.rs`, ou os cliques do Viewer, etapa I) viram a tabela de treino (o objeto sob cada amostra, a classe, os

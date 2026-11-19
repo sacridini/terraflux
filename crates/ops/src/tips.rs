@@ -635,6 +635,15 @@ pub const TIPS: &[(&str, &str)] = &[
          to look closer at a range of scales.",
     ),
     (
+        "objects.features",
+        "`basic` (the default) is the usual start: the mean and standard deviation of each band, NDVI when the \
+         red and near infrared bands are found, the area and the compactness. Ask for more by name, or `all` for \
+         every group: it computes many columns, so on a large image with many objects name what you will use \
+         (texture, when it comes, is the expensive group). Give `red`, `nir`, `green` and `swir` when the bands' \
+         names do not say which they are. Put a DEM, a height model or another date in `more` (on the same grid: \
+         raster.match first).",
+    ),
+    (
         "objects.to_vector",
         "The polygons follow the cell edges exactly (stairs); `smooth` cuts their corners that many times (1 to 3 \
          is enough to look natural) and shrinks them a little at each corner, so keep 0 when the polygons are \

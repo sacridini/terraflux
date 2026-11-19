@@ -892,6 +892,10 @@ const PHRASES: &[(&str, &str)] = &[
         "segment.scale",
         "The scales worth trying in a multiresolution segmentation of <image>, by ESP[ from {start}][ in steps of {step}].",
     ),
+    (
+        "objects.features",
+        "The attributes {features} of the objects of <objects>, from <image>[ and the layers of <more>].",
+    ),
     ("objects.to_map", "The objects of <objects> as a map[ of their {what}]."),
     ("objects.to_vector", "The objects of <objects> as polygons[, their corners cut {smooth} times]."),
     (
