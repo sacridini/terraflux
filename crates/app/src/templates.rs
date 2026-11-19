@@ -474,7 +474,7 @@ fn swat_from_rasters() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 62] = [
+pub const TEMPLATES: [Template; 67] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -4861,6 +4861,323 @@ inputs = { value = "rules.map" }
 params = { title = "Trees, buildings and ground" }
 "##,
     },
+    Template {
+        name: "Unsupervised classes of objects",
+        group: OBJECTS,
+        toml: "",
+        build: Some(obia_clusters),
+        about: "an image cut into objects and the objects grouped by k-means on their attributes, without samples: \
+                the number of clusters chosen by the silhouette, each object given its cluster (the polygons, and \
+                the map of the clusters)",
+    },
+    Template {
+        name: "Principal components of an image",
+        group: SURFACES,
+        build: None,
+        about: "the principal components of a multispectral image (PCA, from the correlation of its bands): the \
+                scores as a map of three layers shown as a colour composite, the loadings (what each component \
+                reads) and the variance each explains",
+        toml: r#"
+format = "terraflux/1"
+name = "Principal components of an image"
+description = "The principal components of an image: the bands of a multispectral image are strongly correlated, and PCA turns them into a few uncorrelated layers (the components), the first holding the most of the variance (the brightness, usually), the next ones what differs between the bands. The bands are standardised first (each divided by its standard deviation), so a band of large values does not count more. The scores are a map of three layers (pc1, pc2, pc3) that the Viewer shows as an RGB composite (the Layers box, principal components); `loadings` says which bands each component is made of and `explained` how much of the variance each holds, with the elbow chart. Replace the image with yours (Use my data)."
+
+[[nodes]]
+id = "land"
+op = "nlm.mosaic_gibbs"
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+note = "A map of five classes drawn by chance: only the ground truth of the image below."
+
+[[nodes]]
+id = "image"
+op = "nlm.image"
+inputs = { classes = "land.map" }
+params = { seed = 1 }
+note = "A synthetic image of six bands (blue, green, red, nir, swir1, swir2) of the classes, with noise and a blur at the edges. In its place, a raster.read of your image as a stack of its bands."
+data = { what = "a multispectral image, a layer per band (any number of bands: the components are as many)", kind = "stack" }
+
+[[nodes]]
+id = "pca"
+op = "ml.pca"
+inputs = { predictors = "image.image" }
+params = { components = 3, standardise = true }
+note = "The first three components of the bands, from their correlations (standardise = true). Their scores are the layers pc1, pc2 and pc3; the model keeps the means and scales of this fit, so ml.predict gives another image of the same bands its scores."
+why = "Standardising is the right default when the bands are in different units; for bands of one unit (reflectance) both are common. Ask for a share of the variance (components = 0.95) instead of a number to keep as many components as it takes."
+refs = ["Pearson 1901", "Hotelling 1933"]
+
+[[nodes]]
+id = "scores"
+op = "view.plot"
+inputs = { value = "pca.scores" }
+params = { title = "Principal components (RGB: pc1 pc2 pc3)" }
+
+[[nodes]]
+id = "loadings"
+op = "view.plot"
+inputs = { table = "pca.loadings" }
+params = { title = "What each component reads (loadings)" }
+
+[[nodes]]
+id = "elbow"
+op = "view.plot"
+inputs = { table = "pca.explained" }
+params = { title = "The variance each component explains" }
+"#,
+    },
+    Template {
+        name: "Unsupervised classification of an image (k-means)",
+        group: SURFACES,
+        build: None,
+        about: "the cells of a multispectral image grouped by k-means in as many clusters as the silhouette says (2 \
+                to 10), without a single sample: the map of the clusters and the chart that chose their number",
+        toml: r#"
+format = "terraflux/1"
+name = "Unsupervised classification of an image (k-means)"
+description = "An image classified without samples: k-means (Lloyd 1982, from the k-means++ start of Arthur and Vassilvitskii 2007) groups the cells whose bands are alike. The number of clusters is not given: with k = auto the best of 2 to 10 by the silhouette (Rousseeuw 1987) is kept, and `choice` and its chart show the others. The clusters are numbered by the first principal component of their centres, so the same numbers come out of every run; they are groups of alike cells, not classes: look at what each is (the centres table, the spectrum of each) and name them. Replace the image with yours (Use my data)."
+
+[[nodes]]
+id = "land"
+op = "nlm.mosaic_gibbs"
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+note = "A map of five classes drawn by chance: only the ground truth of the image below."
+
+[[nodes]]
+id = "image"
+op = "nlm.image"
+inputs = { classes = "land.map" }
+params = { seed = 1 }
+note = "A synthetic image of six bands (blue, green, red, nir, swir1, swir2) of the classes, with noise and a blur at the edges. In its place, a raster.read of your image as a stack of its bands."
+data = { what = "a multispectral image, a layer per band", kind = "stack" }
+
+[[nodes]]
+id = "kmeans"
+op = "ml.kmeans"
+inputs = { predictors = "image.image" }
+params = { k = "auto", sample = 4000, seed = 1 }
+note = "k-means fitted on 4000 cells drawn at random (a sample is enough for the centres and keeps a large image quick; leave out `sample` to fit on all), every cell then given its nearest centre; k is chosen from 2 to 10 by the best silhouette (the node's warning says which). Give k = 6 to choose it yourself, or a list (k = [4, 5, 6, 7]) to choose among them."
+why = "The silhouette says how well separated the clusters are, not how many classes you want: a number that suits the question is often better than the silhouette's."
+refs = ["Lloyd 1982", "Arthur and Vassilvitskii 2007", "Rousseeuw 1987"]
+
+[[nodes]]
+id = "clusters"
+op = "view.plot"
+inputs = { value = "kmeans.clusters" }
+params = { title = "The clusters" }
+
+[[nodes]]
+id = "choice"
+op = "view.plot"
+inputs = { table = "kmeans.choice" }
+params = { title = "The choice of k (inertia and silhouette)" }
+
+[[nodes]]
+id = "centres"
+op = "view.plot"
+inputs = { table = "kmeans.centres" }
+params = { title = "The centres of the clusters" }
+"#,
+    },
+    Template {
+        name: "Types of landscape by a self-organizing map",
+        group: SURFACES,
+        build: None,
+        about: "a stack of environmental variables (elevation, rain, temperature, wetness) taught to a \
+                self-organizing map whose nodes are grouped in five landscape types: the map of the types, and the \
+                map's own views (U-matrix, component planes, hits) linked with it",
+        toml: r#"
+format = "terraflux/1"
+name = "Types of landscape by a self-organizing map"
+description = "Types of landscape from some environmental variables, by a self-organizing map (Kohonen 1982): a grid of nodes, each with a typical value of every variable, taught so that cells alike fall on nodes next to each other. The nodes are then grouped in five groups by Ward's method (the two levels of Vesanto and Alhoniemi 2000), and each cell takes its node's group: the map `groups` is the landscape types. The codebook table opens as the map's own chart (U-matrix, a plane of each variable, the cells each node holds, the groups), and a click on a node lights its cells on the map. The variables are standardised first. Replace the four variables with yours (Use my data): any number of them, on one grid."
+
+[[nodes]]
+id = "relief"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 25, seed = 31 }
+note = "A smooth field that is the relief and, through it, the climate."
+
+[[nodes]]
+id = "noise"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 10, seed = 32 }
+note = "A second field, finer, that the rain and the temperature do not take from the relief."
+
+[[nodes]]
+id = "elevation"
+op = "raster.calc"
+inputs = { e = "relief.map" }
+params = { expression = "100 + 1400 * e" }
+note = "The elevation, metres. In its place, a raster.read of your own."
+data = { what = "an elevation map", kind = "values", expect = "metres above the sea" }
+
+[[nodes]]
+id = "rain"
+op = "raster.calc"
+inputs = { e = "relief.map", n = "noise.map" }
+params = { expression = "600 + 700 * e + 300 * n" }
+note = "The annual rain, mm: more on the heights. In its place, your own."
+data = { what = "the annual rain map", kind = "values", expect = "mm a year" }
+
+[[nodes]]
+id = "temperature"
+op = "raster.calc"
+inputs = { e = "relief.map", n = "noise.map" }
+params = { expression = "26 - 12 * e + 2 * n" }
+note = "The annual mean temperature, degrees: colder on the heights. In its place, your own."
+data = { what = "the annual mean temperature map", kind = "values", expect = "degrees" }
+
+[[nodes]]
+id = "wetness"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 15, seed = 33 }
+note = "How wet the soil is, from 0 to 1, unrelated to the others. In its place, your own (a topographic wetness index, say)."
+data = { what = "a soil wetness map (or any fourth variable)", kind = "values" }
+
+[[nodes]]
+id = "variables"
+op = "stack.of"
+inputs = { elevation = "elevation.map", rain = "rain.map", temperature = "temperature.map", wetness = "wetness.map" }
+note = "The variables as a stack, a layer each, named as the maps."
+
+[[nodes]]
+id = "som"
+op = "ml.som"
+inputs = { predictors = "variables.stack" }
+params = { rows = 8, cols = 8, clusters = 5, seed = 1 }
+note = "An 8 by 8 map of the cells, standardised, taught in batch; its 64 nodes grouped in 5 types by Ward's method. Leave out rows and cols for the size Vesanto's rule gives (5 times the square root of the cells, a node each for a few cells), and give clusters = 0 to see the nodes alone."
+why = "Few nodes read like a classification, many like a map of the data's shape: the groups are what the first is, the U-matrix what the second shows."
+refs = ["Kohonen 1982", "Kohonen 2001", "Vesanto and Alhoniemi 2000"]
+
+[[nodes]]
+id = "types"
+op = "view.plot"
+inputs = { value = "som.groups" }
+params = { title = "The types of landscape" }
+
+[[nodes]]
+id = "codebook"
+op = "view.plot"
+inputs = { table = "som.codebook" }
+params = { title = "The map's nodes (codebook)" }
+"#,
+    },
+    Template {
+        name: "Change between two dates by principal components",
+        group: LAND_CHANGE,
+        build: None,
+        about: "the red and near infrared bands of two dates of an image analysed together by PCA: what stays the \
+                same is in the first components, what changed in the last, shown as a map of change",
+        toml: r#"
+format = "terraflux/1"
+name = "Change between two dates by principal components"
+description = "Change detection by principal components (Byrne et al. 1980; Richards 1984): the same bands of two dates are taken as one set of variables and rotated by PCA. What the dates share (the brightness, the vegetation) is in the first components; what changed between them is in a minor one, which holds the little that the first do not. Here the red and near infrared bands of two dates are four variables: the first two components are what the dates share and the third, `minor` (its `layer`), is the change; the fourth is only noise. The map `change` is that component's absolute value (a cell that changed is far from zero, in either direction), and `loadings` says which bands of which date make it up (the change component has the two dates' loadings of opposite sign). Which component is the change depends on the image and the bands taken: look at the loadings and at the maps of every component. Replace the two images with yours (Use my data): the same bands, on one grid."
+
+[[nodes]]
+id = "land_2000"
+op = "nlm.mosaic_gibbs"
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+note = "The first date's classes drawn by chance (1 water, 2 forest, 3 grassland, 4 cropland, 5 urban): only the truth of the image below."
+
+[[nodes]]
+id = "patches"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 25, seed = 9 }
+note = "Where the land changes: the highest of the field."
+
+[[nodes]]
+id = "land_2020"
+op = "raster.calc"
+inputs = { t = "land_2000.map", f = "patches.map" }
+params = { expression = "5 if t == 2 and f > 0.5 else (4 if t == 3 and f > 0.5 else t)" }
+note = "Twenty years later: forest cleared to urban land and grassland ploughed to cropland where the field is high."
+
+[[nodes]]
+id = "image_2000"
+op = "nlm.image"
+inputs = { classes = "land_2000.map" }
+params = { seed = 1 }
+note = "The first date's image, six bands. In its place, a raster.read of your image as a stack of named bands (blue, green, red, nir, swir1, swir2)."
+data = { what = "the first date's multispectral image, a layer per band (named blue, green, red, nir...)", kind = "stack" }
+
+[[nodes]]
+id = "image_2020"
+op = "nlm.image"
+inputs = { classes = "land_2020.map" }
+params = { seed = 2 }
+note = "The second date's image, on the same grid and with the same bands."
+data = { what = "the second date's multispectral image, on the first's grid, the same bands", kind = "stack" }
+
+[[nodes]]
+id = "red_2000"
+op = "stack.extract_layer"
+inputs = { stack = "image_2000.image" }
+params = { layer = "red" }
+
+[[nodes]]
+id = "nir_2000"
+op = "stack.extract_layer"
+inputs = { stack = "image_2000.image" }
+params = { layer = "nir" }
+
+[[nodes]]
+id = "red_2020"
+op = "stack.extract_layer"
+inputs = { stack = "image_2020.image" }
+params = { layer = "red" }
+
+[[nodes]]
+id = "nir_2020"
+op = "stack.extract_layer"
+inputs = { stack = "image_2020.image" }
+params = { layer = "nir" }
+
+[[nodes]]
+id = "dates"
+op = "stack.of"
+inputs = { red_2000 = "red_2000.map", nir_2000 = "nir_2000.map", red_2020 = "red_2020.map", nir_2020 = "nir_2020.map" }
+note = "Two bands of each date as the variables of one analysis (add the others: the more bands, the more components). The same cells on both dates must be the same place: register the images first."
+
+[[nodes]]
+id = "pca"
+op = "ml.pca"
+inputs = { predictors = "dates.stack" }
+params = { components = 4, standardise = true }
+note = "The four components of the two dates' bands. The first two hold what the dates share, the third where they differ, the fourth the noise."
+why = "No change would make the second date a copy of the first, and the bands of the two dates one set of correlated pairs: the first components take the pairs, the change is what is left."
+refs = ["Byrne et al. 1980", "Richards 1984"]
+
+[[nodes]]
+id = "minor"
+op = "stack.extract_layer"
+inputs = { stack = "pca.scores" }
+params = { layer = "pc3" }
+note = "The minor component that carries the change: pc3 of these four variables (the two dates' red and nir). Which one it is depends on the images and the bands: look at the loadings, whose change component has the dates' signs opposed, and at the maps of the components."
+
+[[nodes]]
+id = "change"
+op = "raster.calc"
+inputs = { c = "minor.map" }
+params = { expression = "abs(c)" }
+note = "The size of the change: a cell far from the component's zero, in either direction."
+
+[[nodes]]
+id = "change_map"
+op = "view.plot"
+inputs = { value = "change.map" }
+params = { title = "Change (the minor component, pc3)" }
+
+[[nodes]]
+id = "scores"
+op = "view.plot"
+inputs = { value = "pca.scores" }
+params = { title = "The components of the two dates" }
+
+[[nodes]]
+id = "loadings"
+op = "view.plot"
+inputs = { table = "pca.loadings" }
+params = { title = "What each component reads (loadings)" }
+"#,
+    },
 ];
 
 /// The scene of the object templates: a map of five classes drawn by chance (1 water, 2 forest, 3 grassland,
@@ -4969,6 +5286,71 @@ params = { title = "The classes of the objects" }
 "#,
     );
     Model::from_toml(&text.replace("SAMPLE_ROWS", OBIA_SAMPLE_ROWS)).expect("a template is a model")
+}
+
+/// "Unsupervised classes of objects".
+fn obia_clusters() -> Model {
+    let mut text = String::from(
+        r#"
+format = "terraflux/1"
+name = "Unsupervised classes of objects"
+description = "Objects classified without samples: the image is cut into objects (multiresolution segmentation at the scale ESP suggests), their attributes are measured, and k-means groups the objects whose attributes are alike (the table of the objects is the table k-means reads; the number of clusters is the best silhouette from 2 to 10). objects.classify gives every object its cluster, 'cluster 1' and on, numbered by the first principal component of their centres, the same from one run to the next. The clusters are groups of alike objects, not classes: look at their centres and at the map, and name them. Replace the image with yours (Use my data); a self-organizing map (ml.som with clusters) takes the place of k-means as it is."
+"#,
+    );
+    text.push_str(OBIA_SCENE);
+    text.push_str(
+        r#"
+[[nodes]]
+id = "features"
+op = "objects.features"
+inputs = { objects = "segments.objects", image = "image.image" }
+params = { features = ["mean", "ndvi"] }
+note = "The attributes the clusters are made of: the mean of each band and NDVI (found from the bands' names)."
+why = "Few attributes that say different things cluster better than many that repeat each other; ml.pca on this table would reduce them first."
+
+[[nodes]]
+id = "kmeans"
+op = "ml.kmeans"
+inputs = { table = "features.table" }
+params = { columns = ["mean_blue", "mean_green", "mean_red", "mean_nir", "mean_swir1", "mean_swir2", "ndvi"], k = "auto", seed = 1 }
+note = "k-means on the objects' attributes (`columns` names them: the table also has the id, the cells and the area, which are not attributes of the ground). k is the best silhouette from 2 to 10; give a number to choose it. For an image whose bands are not named so, name the columns of yours."
+why = "Each attribute is divided by its standard deviation first, so the NDVI, which is small, counts as much as the bands."
+refs = ["Lloyd 1982", "Arthur and Vassilvitskii 2007", "Rousseeuw 1987"]
+
+[[nodes]]
+id = "classify"
+op = "objects.classify"
+inputs = { objects = "features.objects", model = "kmeans.model" }
+note = "Every object takes the cluster of its attributes: the model from ml.kmeans needs no samples. The classes are named cluster 1 and on; the memberships are 1 for the cluster and 0 for the others."
+
+[[nodes]]
+id = "polygons"
+op = "objects.to_vector"
+inputs = { objects = "classify.objects" }
+params = { smooth = 1 }
+note = "A polygon for each object with its cluster and its attributes."
+
+[[nodes]]
+id = "write"
+op = "vector.write"
+inputs = { vector = "polygons.vector" }
+params = { path = "objects_clusters.gpkg" }
+note = "The polygons, in a file beside the model."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "classify.map" }
+params = { title = "The clusters of the objects" }
+
+[[nodes]]
+id = "choice"
+op = "view.plot"
+inputs = { table = "kmeans.choice" }
+params = { title = "The choice of k (inertia and silhouette)" }
+"#,
+    );
+    Model::from_toml(&text).expect("a template is a model")
 }
 
 /// The class hierarchy of the rules template: water, vegetation (forest, grassland) and the rest (cropland, urban),
@@ -5425,6 +5807,27 @@ mod tests {
         assert_eq!(parents.len(), 3);
         assert!(o.class_of.iter().all(|&k| k == 0 || !parents.contains(&(k as usize - 1))));
 
+        // unsupervised: k-means on the objects' attributes gives the classes of the drawn image, named cluster 1...
+        let out = run("Unsupervised classes of objects");
+        let (m, o, truth) = (map(&out, "classify.map"), objects(&out, "classify.objects"), map(&out, "land.map"));
+        let mut count = std::collections::BTreeMap::<(u32, u32), usize>::new();
+        for (p, t) in m.data.iter().zip(truth.data.iter()) {
+            if !p.is_nan() && !t.is_nan() {
+                *count.entry((*p as u32, *t as u32)).or_default() += 1;
+            }
+        }
+        let mut best = std::collections::BTreeMap::<u32, usize>::new();
+        for (&(p, _), &n) in &count {
+            let b = best.entry(p).or_default();
+            *b = (*b).max(n);
+        }
+        let purity = best.values().sum::<usize>() as f64 / truth.data.len() as f64;
+        println!("clusters: {} objects, {} clusters, purity {purity:.4}", o.count, o.classes.len());
+        assert!((4..=10).contains(&o.classes.len()), "{} clusters", o.classes.len());
+        assert!(o.classes.iter().enumerate().all(|(k, c)| c.name == format!("cluster {}", k + 1)));
+        assert!(o.class_of.iter().all(|&k| k > 0));
+        assert!(purity >= 0.85, "purity {purity}");
+
         // segmentation: a polygon per object
         let out = run("Segment an image into polygons");
         let o = objects(&out, "features.objects");
@@ -5507,6 +5910,99 @@ mod tests {
                 ("Water", None)
             ]
         );
+    }
+
+    /// The multivariate templates run and do what they say: the components of an image are as many as asked and the
+    /// first holds most of the variance, the k-means clusters of the image are its classes, the map's groups are
+    /// five and split the landscape, the minor component of two dates is large where the land changed.
+    #[test]
+    fn the_multivariate_templates_run() {
+        use terraflux_ops::Value;
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let run = |name: &str| {
+            let m = TEMPLATES.iter().find(|t| t.name == name).unwrap().model();
+            terraflux_exec::Engine::default()
+                .run(&m, &Default::default(), &mut Quiet)
+                .unwrap_or_else(|e| panic!("{name}: {e}"))
+        };
+        let map = |out: &terraflux_exec::Results, port: &str| match out.get(port) {
+            Some(Value::Map(m)) => m.clone(),
+            _ => panic!("no map {port}"),
+        };
+        let table = |out: &terraflux_exec::Results, port: &str| match out.get(port) {
+            Some(Value::Table(t)) => t.clone(),
+            _ => panic!("no table {port}"),
+        };
+        // the share of the cells whose cluster is the commonest class of its cells in the truth
+        let purity = |m: &terraflux_ops::Map, truth: &terraflux_ops::Map| {
+            let mut count = std::collections::BTreeMap::<(u32, u32), usize>::new();
+            for (p, t) in m.data.iter().zip(truth.data.iter()) {
+                if !p.is_nan() && !t.is_nan() {
+                    *count.entry((*p as u32, *t as u32)).or_default() += 1;
+                }
+            }
+            let mut best = std::collections::BTreeMap::<u32, usize>::new();
+            for (&(p, _), &n) in &count {
+                let b = best.entry(p).or_default();
+                *b = (*b).max(n);
+            }
+            best.values().sum::<usize>() as f64 / truth.data.len() as f64
+        };
+
+        // principal components: three layers pc1..pc3, the first the largest, all variance explained in the table
+        let out = run("Principal components of an image");
+        let Some(Value::Stack(s)) = out.get("pca.scores") else { panic!("no scores") };
+        assert_eq!(s.layers.len(), 3);
+        let explained = table(&out, "pca.explained");
+        let ratio = explained.column("ratio").unwrap();
+        println!("pca: the explained shares {ratio:.3?}");
+        assert_eq!(ratio.len(), 6);
+        assert!(ratio[0] > 0.5 && ratio.windows(2).all(|w| w[0] >= w[1]));
+        assert!((ratio.iter().sum::<f64>() - 1.0).abs() < 1e-9);
+        assert_eq!(table(&out, "pca.loadings").rows.len(), 3);
+
+        // k-means: the clusters of the image are its classes
+        let out = run("Unsupervised classification of an image (k-means)");
+        let (clusters, truth) = (map(&out, "kmeans.clusters"), map(&out, "land.map"));
+        let choice = table(&out, "kmeans.choice");
+        let k = choice.column("k").unwrap();
+        println!("kmeans: k tried {k:?}, purity {:.4}", purity(&clusters, &truth));
+        assert_eq!(k.len(), 9);
+        assert!(purity(&clusters, &truth) >= 0.9);
+        let top = clusters.data.iter().cloned().filter(|v| !v.is_nan()).fold(0.0, f64::max);
+        assert!((4.0..=7.0).contains(&top), "{top} clusters");
+
+        // the self-organizing map: five groups, each a share of the landscape, and the codebook of the nodes
+        let out = run("Types of landscape by a self-organizing map");
+        let groups = map(&out, "som.groups");
+        let mut seen = [0usize; 5];
+        for v in groups.data.iter().filter(|v| !v.is_nan()) {
+            seen[*v as usize - 1] += 1;
+        }
+        println!("som: cells of each group {seen:?}");
+        assert!(seen.iter().all(|&n| n > 100), "{seen:?}");
+        assert_eq!(table(&out, "som.codebook").rows.len(), 64);
+        assert_eq!(table(&out, "som.quality").rows.len(), 1);
+
+        // the change: the minor component is larger where the land changed
+        let out = run("Change between two dates by principal components");
+        let (change, before, after) = (map(&out, "change.map"), map(&out, "land_2000.map"), map(&out, "land_2020.map"));
+        let (mut moved, mut kept) = ((0.0, 0usize), (0.0, 0usize));
+        for ((c, a), b) in change.data.iter().zip(before.data.iter()).zip(after.data.iter()) {
+            let side = if a == b { &mut kept } else { &mut moved };
+            side.0 += c;
+            side.1 += 1;
+        }
+        let (moved, kept) = (moved.0 / moved.1.max(1) as f64, kept.0 / kept.1.max(1) as f64);
+        // (the change component sets one date's bands against the other's)
+        let loadings = table(&out, "pca.loadings");
+        let third = loadings.rows[2].clone();
+        let (a, b) = (loadings.column("nir_2000").unwrap()[2], loadings.column("nir_2020").unwrap()[2]);
+        println!("change: loadings of pc3 {third:.3?}");
+        assert!(a * b < 0.0, "nir_2000 {a}, nir_2020 {b}");
+        println!("change: the mean of the minor component {moved:.3} where the land changed, {kept:.3} where not");
+        assert!(moved > 2.0 * kept, "{moved} against {kept}");
     }
 
     #[test]

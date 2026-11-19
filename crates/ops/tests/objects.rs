@@ -2158,6 +2158,98 @@ fn classify_min_leaves_the_unsure_unclassified_and_missing_attributes_are_named(
     assert!(e.contains("objects.features"), "{e}");
 }
 
+/// The share of the cells whose cluster is the commonest truth class of the cluster.
+fn purity(out: &Outputs, truth: &Map) -> f64 {
+    let Value::Map(m) = &out["map"] else { panic!("map") };
+    let mut count = std::collections::BTreeMap::<(u32, u32), usize>::new();
+    for (p, t) in m.data.iter().zip(truth.data.iter()) {
+        if !p.is_nan() && !t.is_nan() {
+            *count.entry((*p as u32, *t as u32)).or_default() += 1;
+        }
+    }
+    let mut best = std::collections::BTreeMap::<u32, usize>::new();
+    for (&(p, _), &n) in &count {
+        let b = best.entry(p).or_default();
+        *b = (*b).max(n);
+    }
+    best.values().sum::<usize>() as f64 / truth.data.len() as f64
+}
+
+#[test]
+fn classify_by_an_unsupervised_model_gives_the_objects_their_clusters() {
+    let (o, truth) = obia_case("segment.slic", serde_json::json!({}));
+    let table = Value::Table(o.table.clone());
+    let columns: Vec<&String> = o.table.columns.iter().filter(|c| c.starts_with("mean_")).collect();
+    assert!(columns.len() >= 4, "{columns:?}");
+    let classify = |model: &Value| {
+        run(
+            "objects.classify",
+            vec![("objects", Value::Objects(o.clone())), ("model", model.clone())],
+            serde_json::json!({}),
+        )
+        .unwrap()
+    };
+
+    // k-means: k clusters named "cluster 1"..., a one-hot membership, the cells' map
+    let fit =
+        run("ml.kmeans", vec![("table", table.clone())], serde_json::json!({ "k": 5, "columns": columns })).unwrap();
+    let out = classify(&fit["model"]);
+    let c = objects_of(&out);
+    let names: Vec<&str> = c.classes.iter().map(|k| k.name.as_str()).collect();
+    assert_eq!(names, ["cluster 1", "cluster 2", "cluster 3", "cluster 4", "cluster 5"]);
+    assert!(c.class_of.iter().all(|&k| (1..=5).contains(&k)));
+    assert_eq!(c.membership.len(), 5);
+    let t = table_of(&out);
+    assert_eq!(t.rows.len(), o.count);
+    assert!(t.rows.iter().all(|r| r[2..r.len() - 1].iter().sum::<f64>() == 1.0));
+    // (the objects' clusters are the table's: the same model on the same rows)
+    let cluster = fit_table_clusters(&fit, &o);
+    assert_eq!(c.class_of.iter().map(|&k| k as f64).collect::<Vec<_>>(), cluster);
+    let p = purity(&out, &truth);
+    println!("k-means on the objects: purity {p:.4}");
+    assert!(p >= 0.9, "purity {p}");
+
+    // a map with groups: the groups are the classes; without them, the nodes
+    let som = |clusters: usize| {
+        run(
+            "ml.som",
+            vec![("table", table.clone())],
+            serde_json::json!({ "columns": columns, "rows": 4, "cols": 4, "clusters": clusters, "seed": 1 }),
+        )
+        .unwrap()
+    };
+    let out = classify(&som(5)["model"]);
+    let c = objects_of(&out);
+    assert_eq!(c.classes.len(), 5);
+    assert_eq!(c.classes[0].name, "group 1");
+    assert!(c.class_of.iter().all(|&k| (1..=5).contains(&k)));
+    let p = purity(&out, &truth);
+    println!("SOM groups on the objects: purity {p:.4}");
+    assert!(p >= 0.75, "purity {p}");
+    let c = objects_of(&classify(&som(0)["model"]));
+    assert_eq!(c.classes.len(), 16);
+    assert_eq!(c.classes[15].name, "node 16");
+
+    // the attributes the model reads are named when the objects lack them
+    let mut bare = o.as_ref().clone();
+    bare.table = Table { rows: bare.table.rows.iter().map(|r| vec![r[0]]).collect(), ..Table::new(vec!["id".into()]) };
+    let e = run(
+        "objects.classify",
+        vec![("objects", Value::Objects(Arc::new(bare))), ("model", fit["model"].clone())],
+        serde_json::json!({}),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("mean_") && e.contains("columns"), "{e}");
+}
+
+/// The cluster of each object in the table `ml.kmeans` gave (its rows are the objects').
+fn fit_table_clusters(fit: &Outputs, o: &Objects) -> Vec<f64> {
+    let t = table_of(fit);
+    assert_eq!(t.rows.len(), o.count);
+    t.column("cluster").unwrap()
+}
+
 #[test]
 fn samples_table_fits_without_the_id_as_a_predictor() {
     let (o, truth) = obia_case("segment.slic", serde_json::json!({}));

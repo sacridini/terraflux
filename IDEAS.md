@@ -4694,9 +4694,47 @@ Os três projetos são GPL-3.0, do mesmo autor; o Terraflux é GPL-3.0-or-later:
   Lloyd 1982, Arthur & Vassilvitskii 2007, Kohonen 1982 e 2001, Vesanto & Alhoniemi 2000), e o `python_script`:
   `sklearn.decomposition.PCA`, `sklearn.cluster.KMeans` e `minisom.MiniSom` (este dando os mesmos bits pelo port do
   Zeit).
+  **Feito** (as dicas, as frases e as citações dos métodos já vinham das etapas B a E, o `python_script` também): os
+  quatro templates em `templates.rs`, no grupo "Surfaces and uncertainty" (PCA, k-means e SOM) e no "Land change" (a
+  mudança), todos rodando como estão e com `data` nos nós do usuário: "Principal components of an image" (`nlm.image`
+  -> `ml.pca` com 3 componentes, os scores para o composto RGB, `loadings` e `explained` com o cotovelo),
+  "Unsupervised classification of an image (k-means)" (`ml.kmeans` com k `auto` e `sample = 4000`: o ajuste numa
+  amostra mantém o template rápido mesmo no build de depuração, e a imagem inteira recebe o seu grupo; o mapa, a
+  escolha do k e os centros), "Types of landscape by a self-organizing map" (relevo, chuva, temperatura e umidade de
+  nlm.gaussian_field como pilha -> `ml.som` 8 x 8 com `clusters = 5`: o mapa `groups` e o `codebook`, que abre como o
+  gráfico do SOM; cada variável é `data` de tipo `values`) e "Change between two dates by principal components".
+  **Decisão da mudança**: o componente menor não é o último. Com duas bandas (red e nir) em duas datas são quatro
+  variáveis, e medido no template o `pc3` é o da mudança (média de |pc3| 1,12 onde a terra mudou e 0,26 onde não; o
+  `pc4` é só ruído, 0,13 contra 0,11), com as cargas do nir das duas datas de sinais opostos (o teste confere os
+  dois). O template usa `pc3` e diz no `note` e na descrição que o componente da mudança depende das imagens e das
+  bandas, e que as cargas o mostram; a segunda data é a de "Land cover change by objects" (nlm.image da mesma
+  classificação com uma mudança sorteada: floresta para urbano e pasto para lavoura). O PCA de duas datas como opção
+  do `ml.pca` e a MNF continuam em aberto. O guia do MCP ganhou o tópico `multivariate` em `guide.rs` (quando usar
+  cada um, padronizar, as escolhas automáticas, ler os resultados, a mudança entre datas, os objetos), com um
+  ponteiro nos itens 7 a 9 do `data-preparation`. O `python_script`: os três ficam em "sem equivalente", com as razões
+  de `python/models.rs` relidas (a ordem dos números, o modelo e o mapa que o script não tem): estão claras e ficam
+  como estão. **Achado**: o `memory.rs` estimava mal o que as pilhas e o `nlm.image` seguram (o `nlm.image` sem
+  `like` caía na grade 256 x 256, e uma camada tirada de uma pilha contava todas as camadas); o teste que compara a
+  estimativa com o que os templates seguram (`the_estimate_stays_near_what_templates_hold_when_they_run`) acusou o
+  template da mudança, e a estimativa agora toma a grade das `classes` e conta seis bandas para o `nlm.image`, e uma
+  camada para o `stack.extract_layer`. Testes: `the_multivariate_templates_run` (a variância explicada, a pureza dos
+  grupos contra a verdade desenhada, os cinco grupos do SOM, a mudança) e o da classificação dos objetos em
+  `the_object_templates_run`.
 - **G. Com os objetos.** A tabela de atributos dos objetos (plano dos objetos, etapa C) é uma tabela: `ml.kmeans` e
   `ml.som` sobre ela são a classificação não supervisionada de objetos, e `ml.pca` reduz os atributos antes do
   `ml.fit`. Um exemplo no template dos objetos e um teste.
+  **Feito**: o `objects.classify` (`objects/classify.rs`) aceita o `Model::KMeans` e o `Model::Som`, sem amostras: lê as
+  colunas do modelo na tabela dos objetos pelo nome (a mesma checagem de antes, com uma mensagem que manda nomear os
+  atributos em `columns`) e dá a cada objeto o seu grupo; as classes são "cluster 1"... para o k-means, "group 1"... para
+  o SOM com `clusters` (o grupo do nó) e "node 1"... para o SOM sem grupos; a "probabilidade" é 1 para a classe e 0 para
+  as outras (a margem sai 1; o `min` não filtra nada), um objeto com atributo NaN fica sem classe; sem cores (a paleta
+  das classes decide). O que o `ml.kmeans` e o `ml.som` dão sobre a tabela dos objetos precisa de `columns` com os
+  atributos: a tabela traz também `id`, `cells` e `area`, que entrariam como variáveis. Um teste em `tests/objects.rs`
+  (`classify_by_an_unsupervised_model_gives_the_objects_their_clusters`: k = 5 acerta 99,8% das células contra a
+  verdade, o SOM de 4 x 4 com 5 grupos 81%, e sem grupos 16 classes) e o template "Unsupervised classes of objects" (k
+  `auto` com os atributos `mean` e `ndvi`; o silhouette escolhe 9 grupos, mais que as cinco classes desenhadas, e o
+  teste exige entre 4 e 10 e pureza de 85%). O plano B (`ml.predict` mais uma junção) não foi preciso. Em aberto: o
+  `ml.pca` sobre os atributos antes do `ml.fit` funciona (os scores vão como preditores) mas não tem exemplo.
 
 **Decisões tomadas** (2026-11-19, as propostas):
 - `metrics.pca` e `metrics.cluster` ficam como estão, finos sobre o módulo comum.

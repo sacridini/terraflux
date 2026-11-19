@@ -1,6 +1,7 @@
 //! `objects.samples` and `objects.classify`: classes of objects by examples. The samples (points or polygons with a
 //! class) pick the objects under them and make a training table; any model of `ml.fit` learns it; the model then
-//! gives every object a class, a probability of each class and a margin.
+//! gives every object a class, a probability of each class and a margin. A model without labels (`ml.kmeans`,
+//! `ml.som`, fitted on the objects' table) classes them too: the cluster, or the group of the map's nodes, or the node.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -9,6 +10,7 @@ use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_raster::vector::{Column, Geometry, Vector};
 
 use super::{ObjectClass, Objects, objects_in};
+use crate::ml::Model;
 use crate::sdm::extrapolation::Frame;
 use crate::{Args, Ctx, Error, Map, Operator, Outputs, Registry, Result, Table, Value, outputs};
 
@@ -258,6 +260,41 @@ fn sample_classes_sized(
     Ok((names, class_of))
 }
 
+/// The names of the classes and the probability of each, a vector a class.
+type Groups = (Vec<String>, Vec<Vec<f64>>);
+
+/// The classes of an unsupervised model (`ml.kmeans`, `ml.som`) on the objects' attributes, and the one-hot
+/// "probabilities" of each: the clusters ("cluster 1"...), or the groups of a map's nodes ("group 1"...), or its nodes
+/// ("node 1"...). None for a model of labels. An object with an attribute none has NaN in every one.
+fn unsupervised(node: &str, model: &Model, o: &Objects) -> Result<Option<Groups>> {
+    if !matches!(model, Model::KMeans(_) | Model::Som(_)) {
+        return Ok(None);
+    }
+    let mut columns: Vec<Vec<f64>> = Vec::new();
+    for p in model.predictors() {
+        columns.push(o.table.column(p).ok_or_else(|| {
+            Error::msg(format!(
+                "node {node:?}: the objects have no attribute {p:?} that the model reads: fit the model on a table of \
+                 the objects' attributes, with `columns` naming them (attributes: {})",
+                o.table.columns.join(", ")
+            ))
+        })?);
+    }
+    let slices: Vec<&[f64]> = columns.iter().map(Vec::as_slice).collect();
+    let (label, count, word) = match model {
+        Model::KMeans(c) => (c.assign(&slices, None).map(|a| a.labels), c.k(), "cluster"),
+        Model::Som(s) if s.group_count() > 0 => (s.assign(&slices, None).map(|a| a.groups), s.group_count(), "group"),
+        Model::Som(s) => (s.assign(&slices, None).map(|a| a.nodes), s.len(), "node"),
+        _ => unreachable!(),
+    };
+    let label = label.map_err(|e| Error::msg(format!("node {node:?}: {e}")))?;
+    let names: Vec<String> = (1..=count).map(|i| format!("{word} {i}")).collect();
+    let probs = (1..=count)
+        .map(|c| label.iter().map(|&l| if l.is_nan() { f64::NAN } else { f64::from(l == c as f64) }).collect())
+        .collect();
+    Ok(Some((names, probs)))
+}
+
 /// `objects.classify`.
 struct Classify;
 
@@ -270,7 +307,11 @@ impl Operator for Classify {
              the probability of each class; the object takes the class of the largest probability (the first on \
              ties), or stays unclassified when that is under `min`. The probabilities are the objects' memberships; \
              the margin (the largest minus the second largest) tells the objects the model is least sure of. The \
-             attributes must be those of the training: run objects.features with the same settings.",
+             attributes must be those of the training: run objects.features with the same settings. A model \
+             without labels, from ml.kmeans or ml.som fitted on the objects' table (`columns` naming the \
+             attributes, not id, cells or area), classes the objects without samples: each takes its cluster \
+             (\"cluster 1\"...), or the group of its attributes' node in a map with `clusters` (\"group 1\"...), or \
+             the node (\"node 1\"...); the probabilities are 1 for its class and 0 for the others.",
             Access::Global,
         )
         .input(PortSpec::new("objects", Type::Objects, "the objects, with the attributes the model was fitted on"))
@@ -300,41 +341,51 @@ impl Operator for Classify {
         if !(0.0..=1.0).contains(&min) {
             return Err(Error::msg(format!("node {node:?}: min {min}: 0 to 1")));
         }
-        let codes = model.classes().to_vec();
-        if codes.is_empty() {
-            return Err(Error::msg(format!("node {node:?}: the model is of values, not classes")));
-        }
-        let samples = match args.get("samples") {
-            None => None,
-            Some(Value::Table(t)) => Some(t),
-            Some(v) => return Err(Error::msg(format!("node {node:?}: samples: a table, not a {:?}", v.ty()))),
+        let (names, probs) = if let Some(u) = unsupervised(node, model, o)? {
+            u
+        } else {
+            let codes = model.classes().to_vec();
+            if codes.is_empty() {
+                return Err(Error::msg(format!("node {node:?}: the model is of values, not classes")));
+            }
+            let samples = match args.get("samples") {
+                None => None,
+                Some(Value::Table(t)) => Some(t),
+                Some(v) => return Err(Error::msg(format!("node {node:?}: samples: a table, not a {:?}", v.ty()))),
+            };
+            let names: Vec<String> = codes
+                .iter()
+                .map(|&c| {
+                    samples.and_then(|t| t.label("class", c)).map_or_else(|| format!("class {c}"), str::to_string)
+                })
+                .collect();
+            let predictors = model.predictors().to_vec();
+            let mut columns = Vec::new();
+            for p in &predictors {
+                columns.push(o.table.column(p).ok_or_else(|| {
+                    Error::msg(format!(
+                        "node {node:?}: the objects have no attribute {p:?} that the model reads: run objects.features \
+                         with the same settings as for the samples (attributes: {})",
+                        o.table.columns.join(", ")
+                    ))
+                })?);
+            }
+            if let Some(t) = samples
+                && let Some(rows) = t.column("class")
+            {
+                let per: Vec<(String, usize)> = codes
+                    .iter()
+                    .zip(&names)
+                    .map(|(&c, n)| (n.clone(), rows.iter().filter(|&&x| x == c).count()))
+                    .collect();
+                super::warnings::counts(ctx, "objects.classify", node, &per);
+            }
+            super::warnings::correlated(ctx, "objects.classify", node, &predictors, &columns);
+            let probs = model
+                .outputs(&Frame { names: predictors, columns })
+                .map_err(|e| Error::msg(format!("node {node:?}: {e}")))?;
+            (names, probs)
         };
-        let names: Vec<String> = codes
-            .iter()
-            .map(|&c| samples.and_then(|t| t.label("class", c)).map_or_else(|| format!("class {c}"), str::to_string))
-            .collect();
-        let predictors = model.predictors().to_vec();
-        let mut columns = Vec::new();
-        for p in &predictors {
-            columns.push(o.table.column(p).ok_or_else(|| {
-                Error::msg(format!(
-                    "node {node:?}: the objects have no attribute {p:?} that the model reads: run objects.features \
-                     with the same settings as for the samples (attributes: {})",
-                    o.table.columns.join(", ")
-                ))
-            })?);
-        }
-        if let Some(t) = samples
-            && let Some(rows) = t.column("class")
-        {
-            let per: Vec<(String, usize)> =
-                codes.iter().zip(&names).map(|(&c, n)| (n.clone(), rows.iter().filter(|&&x| x == c).count())).collect();
-            super::warnings::counts(ctx, "objects.classify", node, &per);
-        }
-        super::warnings::correlated(ctx, "objects.classify", node, &predictors, &columns);
-        let probs = model
-            .outputs(&Frame { names: predictors, columns })
-            .map_err(|e| Error::msg(format!("node {node:?}: {e}")))?;
         let n = o.count;
         let mut class_of = vec![0u32; n];
         let mut margin = vec![f64::NAN; n];

@@ -172,9 +172,57 @@ stack or the columns of a table. Without `rows` and `cols` the grid has about 5 
 cell's node, row by row from 1) and groups (a map, 1 to k), codebook (a row per node: row, column, count, group, \
 umatrix, topology, and its weights in the variables' own units), quality (quantisation and topographic error) and a model for \
 ml.predict. `topology` is rectangular or hexagonal; `training` batch (the default) or online; variables are \
-standardised by default.
+standardised by default. Guide multivariate: which one, standardising, the automatic choices, change between \
+dates, objects.
 Templates: \"Drivers of land change\", \"Cleaning a map of classes: filter, sieve, label and grow\", \"Terrain of a \
 surface\".",
+    },
+    Guide {
+        name: "multivariate",
+        title: "Principal components, k-means and self-organizing maps: images, stacks, tables and objects",
+        text: "\
+1. Which one. ml.pca when the variables repeat each other (the bands of an image, drivers that follow the relief): \
+it turns them into a few uncorrelated layers, the first holding the most variance, to look at (the scores as an \
+RGB composite), to feed another model with fewer inputs or to find change between two dates. ml.kmeans when you \
+want groups and no classes are given (an unsupervised classification of an image, types of records or of \
+objects): every cell or row takes the nearest of k centres. ml.som when the groups should keep their \
+neighbourhoods, ordered along a gradient (types of landscape from environmental variables): a grid of nodes taught \
+by the cells, the nodes then grouped in a few groups. K-means is the plain choice; the map shows more (U-matrix, a \
+plane of each variable, the cells of each node) and is slower to read.
+2. The input is a stack (`predictors`, a layer per variable: stack.of; `cells` is a map of the cells to use) or a \
+table (`table`, with `columns` naming the variables, by default every numeric one: name them when the table also \
+has an id, an area or a class). A cell or row with a variable none stays out of the fit and has no result. \
+Maps give a map, a table gives the table with the new columns (pc1..., cluster, node and group).
+3. Standardise (`standardise`, the default) when the variables are in different units or scales (rain in mm with a \
+slope in degrees, an NDVI with a band of reflectance); a variable of large values would otherwise decide \
+everything. Leave it off only for variables of one unit whose differences in scale are meant (bands of one \
+sensor, when the bright bands should weigh more). The fit's means and scales stay in the model: ml.predict gives \
+another image or date its scores, cluster or node by those, not by the new data's.
+4. The choices left out are made, and said in the node's note. ml.pca keeps the components that add up to 95% of \
+the variance (`components` is a number, or a share). ml.kmeans takes k = \"auto\": the best silhouette from 2 to \
+10 (the choice output and its chart show every k; a list of numbers chooses among those). ml.som takes a grid of \
+about 5 sqrt(n) nodes (Vesanto's rule) and, with `clusters` k, groups them by Ward's method. Above a million \
+records the fit uses a sample (`sample` sets it, and the whole image is then given its results, by blocks): a \
+sample is enough for centres and components, and keeps a large image quick. The same `seed` gives the same \
+results, on any number of threads.
+5. Read the results before using them. The loadings say what each component is made of (a component whose \
+loadings are all one sign is a brightness); `explained` and the elbow chart say how many are worth keeping, and \
+a few that add up to little variance are noise. Clusters are groups of alike cells, not classes: look at the \
+centres (in the variables' own units) and at the map, and name them; the silhouette's k is a statistical \
+answer, a k that suits the question may be better. A map with many nodes reads as the shape of the data, with \
+few as a classification: look at its quantisation and topographic errors (quality) and at its empty nodes.
+6. Change between two dates: the same bands of both dates as the variables of one ml.pca (stack.of with a layer \
+per band and date, on one grid, registered): what the dates share is in the first components and what changed is \
+in a minor one, found by its loadings (the dates' opposite signs). Its absolute value is a map of the size of the \
+change. It tells where, not what became what: classify the dates for that.
+7. Objects: the table of objects.features is a table. ml.kmeans or ml.som on it (`columns` naming the \
+attributes, not id, cells or area) and objects.classify with the model (no samples) give every object its cluster \
+(\"cluster 1\"...), or the group of its node, or its node: unsupervised classes of objects, as polygons and as a \
+map. ml.pca reduces the attributes first when they are many and alike; the scores go to ml.fit as the \
+predictors.
+Templates: \"Principal components of an image\", \"Unsupervised classification of an image (k-means)\", \"Types of \
+landscape by a self-organizing map\", \"Change between two dates by principal components\", \"Unsupervised \
+classes of objects\".",
     },
     Guide {
         name: "land-change",
@@ -483,6 +531,12 @@ mod tests {
         assert_eq!(find("land-change").map(|g| g.name), Some("land-change"));
         assert_eq!(find("Land change").map(|g| g.name), Some("land-change"));
         assert_eq!(find("species").map(|g| g.name), Some("species-distribution"));
+        assert_eq!(find("multivariate").map(|g| g.name), Some("multivariate"));
+        // (PCA, k-means and SOM: the guide says when to use each and the standardising)
+        let text = find("multivariate").unwrap().text;
+        for word in ["ml.pca", "ml.kmeans", "ml.som", "standardise", "silhouette", "Vesanto", "objects.classify"] {
+            assert!(text.contains(word), "{word}");
+        }
         assert!(find("").is_none());
         assert!(guide(Some("nothing")).unwrap_err().contains("land-change"));
         assert!(guide(None).unwrap().contains("connectivity"));

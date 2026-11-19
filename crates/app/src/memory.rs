@@ -297,8 +297,13 @@ impl Walk<'_> {
                 }?;
                 Some(if n.params.contains_key("band") { G { layers: 1, ..g } } else { g })
             }
-            op if op.starts_with("nlm.") => match n.inputs.get("like") {
-                Some(s) => of(s),
+            // (a layer taken out of a stack is a map of one)
+            "stack.extract_layer" => {
+                ["stack", "map"].iter().find_map(|k| n.inputs.get(*k).and_then(of)).map(|g| G { layers: 1, ..g })
+            }
+            op if op.starts_with("nlm.") => match n.inputs.get("like").or_else(|| n.inputs.get("classes")) {
+                // (nlm.image: the six bands of the classes' grid)
+                Some(s) => of(s).map(|g| if op == "nlm.image" { G { layers: 6, ..g } } else { g }),
                 None => {
                     let rows = crate::disk::number(n, "rows").unwrap_or(256);
                     Some(G { cells: rows * crate::disk::number(n, "columns").unwrap_or(256), layers: 1 })
