@@ -75,6 +75,8 @@ pub struct ObjectsUi {
     pub most: usize,
     /// The values of the rules of an `objects.rules` node (by class), and what they were made from.
     rules: Option<(u64, Vec<Option<Vec<f64>>>)>,
+    /// The feature space window (see [`crate::feature_space`]).
+    pub space: crate::feature_space::Space,
 }
 
 /// What a key pressed over the objects asks of what is drawn.

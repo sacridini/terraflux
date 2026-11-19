@@ -9,6 +9,7 @@ mod charts;
 mod class_tree;
 mod cloud_public;
 mod my_nodes;
+mod objects_space;
 mod objects_view;
 mod objects_viewer;
 mod prepare;

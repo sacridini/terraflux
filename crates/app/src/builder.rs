@@ -5828,6 +5828,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         sh.objects = Default::default();
     }
     let mut apply_samples = false;
+    let mut space_action = crate::feature_space::SpaceAction::default();
     // (the panels beside the map narrower in a narrow Viewer: the map keeps room)
     egui::Panel::right(egui::Id::new(("output side", salt)))
         .resizable(true)
@@ -5857,7 +5858,9 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     ui.separator();
                     let below = (a.level > 0).then(|| crate::objects_view::at_level(&a.base, a.level - 1));
                     apply_samples = sh.objects.samples_ui(ui, s, &a.o);
+                    sh.objects.space_button(ui);
                     sh.objects.inspector(ui, s, &a.o, below.as_deref());
+                    space_action = sh.objects.space_window(ui.ctx(), s, &a.o);
                 }
                 // the map as a figure for a paper (alone, with the one compared, or every layer of it), or as the
                 // picture the Viewer shows (a file for QGIS or a slide)
@@ -6555,6 +6558,19 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 Ok(m) => s.notice = Some((m, std::time::Instant::now())),
                 Err(e) => sh.objects.message = Some(e),
             }
+        }
+        // the feature space: a rule made from a range, an object gone to
+        if let Some((class, text)) = space_action.rule.take() {
+            match crate::feature_space::make_rule(s, r, &a.key, &class, &text) {
+                Ok(m) => {
+                    sh.objects.space.message = None;
+                    s.notice = Some((m, std::time::Instant::now()));
+                }
+                Err(e) => sh.objects.space.message = Some(e),
+            }
+        }
+        if let Some(e) = space_action.go.and_then(|id| crate::feature_space::extent_of_object(&a.o, id, 30.0)) {
+            sh.view.go_extent(e);
         }
     }
     // a feature clicked on the map selects its row (a click with no table open only picks the cell); so does one

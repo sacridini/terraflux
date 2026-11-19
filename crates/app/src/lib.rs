@@ -36,6 +36,7 @@ pub mod editor_view;
 pub mod eta;
 pub mod eval;
 pub mod export_view;
+pub mod feature_space;
 pub mod fixes;
 pub mod figure;
 pub mod graph_figure;
