@@ -2679,3 +2679,294 @@ fn nearest_on_nlm_image_by_samples_is_accurate() {
         assert_eq!(table_of(&all).rows.len(), o.count);
     }
 }
+
+// segment.threshold, segment.spectral_difference
+
+fn threshold(image: Value, params: serde_json::Value) -> terraflux_ops::Result<Outputs> {
+    run("segment.threshold", vec![("image", image)], params)
+}
+
+fn column(t: &Table, name: &str) -> Vec<f64> {
+    let k = t.columns.iter().position(|c| c == name).unwrap_or_else(|| panic!("no column {name}"));
+    t.rows.iter().map(|r| r[k]).collect()
+}
+
+/// The same operator on a pool of `threads`.
+fn run_on(threads: usize, op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value) -> Outputs {
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+    pool.install(|| run(op, inputs, params).unwrap())
+}
+
+#[test]
+fn threshold_cuts_a_band_into_classes_and_their_pieces() {
+    #[rustfmt::skip]
+    let data = vec![
+        5.0,  5.0,  15.0, 15.0, 25.0, 5.0,
+        5.0,  NAN,  15.0, 25.0, 25.0, 5.0,
+        5.0,  5.0,  15.0, 15.0, 15.0, 5.0,
+    ];
+    let m = Value::Map(map(6, 3, data.clone()));
+    let out = threshold(m.clone(), serde_json::json!({ "thresholds": [10, 20] })).unwrap();
+    let (o, t) = (objects_of(&out), table_of(&out));
+    assert_eq!(t.columns, ["id", "cells", "area", "class", "mean_image", "sd_image"]);
+    assert_eq!(o.count, 4);
+    assert_eq!(column(&t, "cells"), [5.0, 6.0, 3.0, 3.0]);
+    assert_eq!(column(&t, "class"), [1.0, 2.0, 3.0, 1.0]);
+    for (got, want) in column(&t, "mean_image").iter().zip([5.0, 15.0, 25.0, 5.0]) {
+        assert!((got - want).abs() < 1e-9, "{got} against {want}");
+    }
+    assert!(column(&t, "sd_image").iter().all(|&x| x < 1e-6));
+    assert_eq!(o.labels[7], 0, "a cell without a value is no object");
+    connected(&o);
+    let Value::Table(th) = &out["thresholds"] else { panic!("thresholds") };
+    assert_eq!(column(th, "threshold"), [10.0, 20.0]);
+    // a value at a threshold is in the class above it
+    let edge = Value::Map(map(3, 1, vec![9.0, 10.0, 11.0]));
+    let o = objects_of(&threshold(edge, serde_json::json!({ "thresholds": 10 })).unwrap());
+    assert_eq!(o.count, 2);
+    assert_eq!(o.cells, [1, 2]);
+    // the same with a single number or with a list of one
+    let one = Value::Map(map(3, 1, vec![9.0, 10.0, 11.0]));
+    let o2 = objects_of(&threshold(one, serde_json::json!({ "thresholds": [10] })).unwrap());
+    assert_eq!(o2.labels, o.labels);
+}
+
+#[test]
+fn threshold_neighbours_join_classes_by_a_corner_with_8() {
+    let m = Value::Map(map(2, 2, vec![1.0, 0.0, 0.0, 1.0]));
+    for (n, count) in [(4, 4), (8, 2)] {
+        let o = objects_of(&threshold(m.clone(), serde_json::json!({ "thresholds": [0.5], "neighbours": n })).unwrap());
+        assert_eq!(o.count, count, "{n} neighbours");
+    }
+}
+
+#[test]
+fn threshold_takes_the_band_chosen() {
+    let (w, h) = (4, 1);
+    let s = stack(w, h, vec![vec![0.0, 0.0, 1.0, 1.0], vec![0.0, 1.0, 1.0, 0.0]]);
+    let cells = |p: serde_json::Value| objects_of(&threshold(s.clone(), p).unwrap()).cells.clone();
+    let base = serde_json::json!({ "thresholds": [0.5] });
+    assert_eq!(cells(base.clone()), [2, 2]);
+    assert_eq!(cells(serde_json::json!({ "thresholds": [0.5], "band": "b1" })), [2, 2]);
+    assert_eq!(cells(serde_json::json!({ "thresholds": [0.5], "band": "b2" })), [1, 2, 1]);
+    assert_eq!(cells(serde_json::json!({ "thresholds": [0.5], "band": 2 })), [1, 2, 1]);
+    let t = table_of(&threshold(s.clone(), serde_json::json!({ "thresholds": [0.5], "band": "b2" })).unwrap());
+    assert_eq!(t.columns, ["id", "cells", "area", "class", "mean_b2", "sd_b2"]);
+    for bad in [serde_json::json!(0), serde_json::json!(3), serde_json::json!("nir"), serde_json::json!(1.5)] {
+        assert!(threshold(s.clone(), serde_json::json!({ "thresholds": [0.5], "band": bad })).is_err());
+    }
+}
+
+#[test]
+fn otsu_splits_a_bimodal_image_in_the_gap() {
+    let (w, h) = (40, 20);
+    let image = step_image(w, h);
+    let out = threshold(image, serde_json::json!({ "classes": 2 })).unwrap();
+    let (o, t) = (objects_of(&out), table_of(&out));
+    assert_eq!(o.count, 2);
+    assert_eq!(column(&t, "class"), [1.0, 2.0]);
+    assert_eq!(o.cells, [400, 400]);
+    let Value::Table(th) = &out["thresholds"] else { panic!("thresholds") };
+    let cut = column(th, "threshold");
+    assert_eq!(cut.len(), 1);
+    // the modes are at 10 and 90: the gap's middle
+    assert!((cut[0] - 50.0).abs() < 5.0, "{cut:?}");
+    // classes 2 is the default without thresholds
+    let again = objects_of(&threshold(step_image(w, h), serde_json::json!({})).unwrap());
+    assert_eq!(again.labels, o.labels);
+}
+
+#[test]
+fn otsu_finds_the_levels_of_four_quadrants() {
+    let image = quadrants(60, 40, 1, 2.0, 5);
+    let out = threshold(image.clone(), serde_json::json!({ "classes": 4 })).unwrap();
+    let o = objects_of(&out);
+    assert_eq!(o.count, 4);
+    assert_eq!(column(&table_of(&out), "class"), [1.0, 2.0, 3.0, 4.0]);
+    let Value::Table(th) = &out["thresholds"] else { panic!("thresholds") };
+    let cut = column(th, "threshold");
+    for (c, want) in cut.iter().zip([25.0, 55.0, 85.0]) {
+        assert!((c - want).abs() < 8.0, "{cut:?}");
+    }
+    // more bins, the same classes here
+    let fine = objects_of(&threshold(image, serde_json::json!({ "classes": 4, "bins": 1024 })).unwrap());
+    assert_eq!(fine.labels, o.labels);
+}
+
+#[test]
+fn threshold_skips_cells_without_a_value() {
+    let (w, h) = (40, 20);
+    let Value::Stack(mut s) = step_image(w, h) else { panic!("stack") };
+    let mut v = (*s.layers[0]).clone();
+    for r in 0..h {
+        v[r * w + 5] = NAN;
+    }
+    v[3 * w + 30] = NAN;
+    s.layers[0] = Arc::new(v.clone());
+    let o = objects_of(&threshold(Value::Stack(s), serde_json::json!({ "classes": 2 })).unwrap());
+    for (i, x) in v.iter().enumerate() {
+        assert_eq!(o.labels[i] == 0, x.is_nan(), "cell {i}");
+    }
+    // the column without a value cuts the left class in two; the one cell in the right class is a hole
+    assert_eq!(o.count, 3);
+}
+
+#[test]
+fn threshold_is_the_same_on_one_thread_and_eight() {
+    let image = quadrants(130, 90, 2, 9.0, 3);
+    for p in [serde_json::json!({ "classes": 3, "bins": 600 }), serde_json::json!({ "thresholds": [30, 60, 90] })] {
+        let a = run_on(1, "segment.threshold", vec![("image", image.clone())], p.clone());
+        let b = run_on(8, "segment.threshold", vec![("image", image.clone())], p.clone());
+        assert_eq!(objects_of(&a).labels, objects_of(&b).labels);
+        assert_eq!(table_of(&a).rows, table_of(&b).rows);
+        let (Value::Table(ta), Value::Table(tb)) = (&a["thresholds"], &b["thresholds"]) else { panic!("thresholds") };
+        assert_eq!(ta.rows, tb.rows);
+    }
+}
+
+#[test]
+fn threshold_checks_its_settings() {
+    let image = || stack(4, 1, vec![vec![1.0, 2.0, 3.0, 4.0]]);
+    for p in [
+        serde_json::json!({ "thresholds": [] }),
+        serde_json::json!({ "thresholds": [3, 2] }),
+        serde_json::json!({ "thresholds": [2, 2] }),
+        serde_json::json!({ "thresholds": ["a"] }),
+        serde_json::json!({ "thresholds": [2], "classes": 3 }),
+        serde_json::json!({ "classes": 1 }),
+        serde_json::json!({ "classes": 9 }),
+        serde_json::json!({ "bins": 4 }),
+        serde_json::json!({ "bins": 100000 }),
+        serde_json::json!({ "neighbours": 6 }),
+        // more classes than levels
+        serde_json::json!({ "classes": 5 }),
+    ] {
+        assert!(threshold(image(), p.clone()).is_err(), "{p}");
+    }
+    // Otsu on a constant band has nothing to cut
+    let flat = Value::Map(map(3, 3, vec![2.0; 9]));
+    assert!(threshold(flat.clone(), serde_json::json!({})).is_err());
+    // given thresholds need no range
+    assert_eq!(objects_of(&threshold(flat, serde_json::json!({ "thresholds": [1] })).unwrap()).count, 1);
+}
+
+fn spectral(
+    labels: &Map,
+    image: Value,
+    params: serde_json::Value,
+) -> terraflux_ops::Result<Outputs> {
+    let (o, _) = segment(labels, 4);
+    run("segment.spectral_difference", vec![("objects", Value::Objects(o)), ("image", image)], params)
+}
+
+/// A row of objects 1..=n, one cell each.
+fn row_objects(n: usize) -> Map {
+    map(n, 1, (1..=n).map(|k| k as f64).collect())
+}
+
+#[test]
+fn spectral_difference_merges_the_closest_pairs_with_updated_means() {
+    // 10 12 | 20 21 | 40: (3,4) goes first (1), then (1,2) (2); 11 against 20.5 is 9.5, too far
+    let image = Value::Map(map(5, 1, vec![10.0, 12.0, 20.0, 21.0, 40.0]));
+    let out = spectral(&row_objects(5), image, serde_json::json!({ "max_difference": 3 })).unwrap();
+    let (o, t) = (objects_of(&out), table_of(&out));
+    assert_eq!(o.count, 3);
+    assert_eq!(o.cells, [2, 2, 1]);
+    assert_eq!(column(&t, "mean_image"), [11.0, 20.5, 40.0]);
+    assert_eq!(t.columns, ["id", "cells", "area", "mean_image", "sd_image"]);
+    assert_eq!((0..5).map(|i| o.labels[i]).collect::<Vec<_>>(), [1, 1, 2, 2, 3]);
+    // each step is 2: all the pairs tie, the lower ids go first (1, 2 -> mean 11), and the mean of the
+    // merged object is then 3 from the next, so a chain of 2s does not run through
+    let image = Value::Map(map(4, 1, vec![10.0, 12.0, 14.0, 16.0]));
+    let o = objects_of(&spectral(&row_objects(4), image, serde_json::json!({ "max_difference": 2.5 })).unwrap());
+    assert_eq!((0..4).map(|i| o.labels[i]).collect::<Vec<_>>(), [1, 1, 2, 2]);
+}
+
+#[test]
+fn spectral_difference_merges_only_below_the_limit() {
+    let image = Value::Map(map(2, 1, vec![10.0, 12.0]));
+    let count = |limit: f64| {
+        objects_of(&spectral(&row_objects(2), image.clone(), serde_json::json!({ "max_difference": limit })).unwrap())
+            .count
+    };
+    assert_eq!(count(2.0), 2);
+    assert_eq!(count(2.0001), 1);
+}
+
+#[test]
+fn spectral_difference_weights_the_bands() {
+    // the bands differ by 10 and 0: the weighted mean of the differences
+    let image = stack(2, 1, vec![vec![0.0, 10.0], vec![0.0, 0.0]]);
+    let count = |w: serde_json::Value, limit: f64| {
+        let p = serde_json::json!({ "max_difference": limit, "weights": w });
+        objects_of(&spectral(&row_objects(2), image.clone(), p).unwrap()).count
+    };
+    assert_eq!(count(serde_json::json!([1, 1]), 6.0), 1);
+    assert_eq!(count(serde_json::json!([1, 1]), 5.0), 2);
+    assert_eq!(count(serde_json::json!([1, 0]), 6.0), 2);
+    assert_eq!(count(serde_json::json!([0, 1]), 1.0), 1);
+}
+
+#[test]
+fn spectral_difference_never_merges_an_object_without_a_value() {
+    let image = Value::Map(map(3, 1, vec![10.0, NAN, 10.0]));
+    let o = objects_of(&spectral(&row_objects(3), image, serde_json::json!({ "max_difference": 100 })).unwrap());
+    assert_eq!(o.count, 3);
+}
+
+#[test]
+fn spectral_difference_joins_the_squares_of_a_chessboard_into_the_areas() {
+    let (w, h) = (64, 64);
+    let image = quadrants(w, h, 2, 3.0, 11);
+    let squares = run("segment.chessboard", vec![("image", image.clone())], serde_json::json!({ "size": 4 })).unwrap();
+    let before = objects_of(&squares);
+    assert_eq!(before.count, 256);
+    let inputs = || vec![("objects", Value::Objects(before.clone())), ("image", image.clone())];
+    let out = run("segment.spectral_difference", inputs(), serde_json::json!({ "max_difference": 15 })).unwrap();
+    let o = objects_of(&out);
+    assert_eq!(o.count, 4);
+    assert_eq!(table_of(&out).rows.len(), 4);
+    connected(&o);
+    // every object of the start is inside one of the result
+    let mut parent = vec![0u32; before.count];
+    for (&a, &b) in before.labels.iter().zip(o.labels.iter()) {
+        let p = &mut parent[a as usize - 1];
+        assert!(*p == 0 || *p == b, "object {a} split");
+        *p = b;
+    }
+    // the same on one thread and on eight
+    let (a, b) = (
+        run_on(1, "segment.spectral_difference", inputs(), serde_json::json!({ "max_difference": 15 })),
+        run_on(8, "segment.spectral_difference", inputs(), serde_json::json!({ "max_difference": 15 })),
+    );
+    assert_eq!(objects_of(&a).labels, objects_of(&b).labels);
+    assert_eq!(table_of(&a).rows, table_of(&b).rows);
+    // nothing under the limit: the objects stay
+    let tiny = run("segment.spectral_difference", inputs(), serde_json::json!({ "max_difference": 0.001 })).unwrap();
+    assert_eq!(objects_of(&tiny).labels, before.labels);
+}
+
+#[test]
+fn spectral_difference_checks_its_inputs_and_settings() {
+    let image = Value::Map(map(3, 1, vec![1.0, 2.0, 3.0]));
+    for p in [
+        serde_json::json!({}),
+        serde_json::json!({ "max_difference": 0 }),
+        serde_json::json!({ "max_difference": -1 }),
+        serde_json::json!({ "max_difference": 1, "weights": [1, 1] }),
+        serde_json::json!({ "max_difference": 1, "weights": [-1] }),
+        serde_json::json!({ "max_difference": 1, "weights": [0] }),
+    ] {
+        assert!(spectral(&row_objects(3), image.clone(), p.clone()).is_err(), "{p}");
+    }
+    // objects of another grid
+    let other = Value::Map(map(4, 1, vec![1.0, 2.0, 3.0, 4.0]));
+    assert!(spectral(&row_objects(3), other, serde_json::json!({ "max_difference": 1 })).is_err());
+    // something other than objects
+    let e = run(
+        "segment.spectral_difference",
+        vec![("objects", image.clone()), ("image", image)],
+        serde_json::json!({ "max_difference": 1 }),
+    );
+    assert!(e.is_err());
+}

@@ -30,7 +30,8 @@ before it gives.
 | Process tree, rule set | The model (the graph); a group (`control.group`) to fold a part; `control.repeat` for a loop |
 | Multiresolution segmentation | [[segment.multiresolution]] (`scale`, `shape`, `compactness`, band `weights`) |
 | Chessboard, quadtree segmentation | [[segment.chessboard]], [[segment.quadtree]] |
-| Spectral difference segmentation | [[objects.merge]] with `by = "condition"` (a condition on the two neighbours' means) |
+| Spectral difference segmentation | [[segment.spectral_difference]] (`max_difference`, band `weights`) on the objects of a first segmentation; or [[objects.merge]] with `by = "condition"` (a condition on the two neighbours' means) |
+| Multi-threshold segmentation | [[segment.threshold]] (`thresholds`, or `classes` for multi-level Otsu; `band`) |
 | Other segmentations | [[segment.slic]], [[segment.snic]], [[segment.felzenszwalb]], [[segment.watershed]], [[segment.meanshift]]; objects made elsewhere: [[segment.from_vector]], [[segment.from_map]] |
 | ESP tool (estimation of scale parameter) | [[segment.scale]]; and [[segment.multiresolution]] with no `scale` takes its first suggestion |
 | Image object level | Objects that have a **parent**: [[segment.multiresolution]] with `from` (the level below becomes the start regions) and [[objects.merge]] with `level` make a level above; `below` outputs hold the level beneath |

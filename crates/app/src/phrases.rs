@@ -881,6 +881,14 @@ const PHRASES: &[(&str, &str)] = &[
         "<image> segmented by Felzenszwalb and Huttenlocher's graph method[ with k {k}][, segments of at least {min_size} cells].",
     ),
     (
+        "segment.threshold",
+        "<image> cut into classes by thresholds[ in band {band}][ at {thresholds}][, or into {classes} classes by multi-level Otsu]; each connected piece of a class is an object.",
+    ),
+    (
+        "segment.spectral_difference",
+        "The neighbouring objects of <objects> whose means in <image> differ by less than {max_difference} merged[, the bands weighted {weights}].",
+    ),
+    (
         "segment.watershed",
         "<image> cut into the watershed basins of its gradient[, from the markers of <markers>][, smoothed by {sigma} cells].",
     ),

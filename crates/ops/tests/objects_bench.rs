@@ -1,7 +1,7 @@
 //! A benchmark battery of the segmenters on fixed synthetic images (ignored: run it by hand, in release):
 //! `cargo test -p terraflux-ops --release --test ops objects_bench -- --ignored --nocapture --test-threads=1`
 //! It prints a table: segmenter, image, threads, seconds, objects, and a hash of the labels (a change that must not alter the objects keeps it). `BENCH_SKIP=meanshift,watershed` leaves some out,
-//! `BENCH_ONLY=multiresolution` keeps only those, `BENCH_SIDES=1000` the sides of the images, `BENCH_THREADS=1`.
+//! `BENCH_ONLY=multiresolution` keeps only those (`segment.threshold`, `segment.spectral_difference`: `from` names the segmenter that makes the objects first), `BENCH_SIDES=1000` the sides of the images, `BENCH_THREADS=1`.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -63,9 +63,18 @@ fn hash(o: &Objects) -> u64 {
 
 fn run(op: &str, img: &Value, params: serde_json::Value, threads: usize) -> (f64, usize, u64) {
     let r = Registry::standard();
-    let params = params.as_object().cloned().unwrap_or_default();
-    let args = Args { node: "n", inputs: [("image".to_string(), img.clone())].into_iter().collect(), params: &params };
+    let mut params = params.as_object().cloned().unwrap_or_default();
+    let mut inputs: std::collections::BTreeMap<String, Value> = [("image".to_string(), img.clone())].into_iter().collect();
     let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+    // `from`: the objects a merging segmenter starts from, made first by another segmenter (not timed)
+    if let Some(serde_json::Value::String(from)) = params.remove("from") {
+        let (p, size) = (serde_json::Map::new(), serde_json::json!({ "size": 4 }).as_object().cloned().unwrap());
+        let p = if from == "chessboard" { size } else { p };
+        let first = Args { node: "n", inputs: inputs.clone(), params: &p };
+        let out = pool.install(|| r.get(&format!("segment.{from}")).unwrap().run(&mut Ctx::default(), &first).unwrap());
+        inputs.insert("objects".to_string(), out["objects"].clone());
+    }
+    let args = Args { node: "n", inputs, params: &params };
     let t = Instant::now();
     let out = pool.install(|| r.get(op).unwrap().run(&mut Ctx::default(), &args).unwrap());
     let secs = t.elapsed().as_secs_f64();
@@ -91,6 +100,11 @@ fn objects_bench() {
         ("segment.felzenszwalb", "default", serde_json::json!({})),
         ("segment.watershed", "default", serde_json::json!({})),
         ("segment.meanshift", "default", serde_json::json!({})),
+        ("segment.threshold", "otsu-3", serde_json::json!({ "classes": 3 })),
+        ("segment.threshold", "otsu-5-1024", serde_json::json!({ "classes": 5, "bins": 1024 })),
+        ("segment.threshold", "given-4", serde_json::json!({ "thresholds": [40, 80, 120, 160] })),
+        ("segment.spectral_difference", "chess4-d8", serde_json::json!({ "from": "chessboard", "max_difference": 8 })),
+        ("segment.spectral_difference", "slic-d8", serde_json::json!({ "from": "slic", "max_difference": 8 })),
     ];
     println!("\n{:<26} {:<16} {:<10} {:>7} {:>10} {:>9} {:>18}", "segmenter", "variant", "image", "threads", "seconds", "objects", "hash");
     let list = |k: &str, d: &str| -> Vec<usize> {

@@ -614,6 +614,23 @@ pub const TIPS: &[(&str, &str)] = &[
          control, use segment.multiresolution.",
     ),
     (
+        "segment.threshold",
+        "The multi-threshold segmentation of eCognition: it cuts one band (`band`, the first by default) into \
+         classes of values and makes an object of each connected piece of a class, so it suits what one band \
+         separates (water against land in an index, burnt against unburnt). Give the `thresholds`, or `classes` \
+         and multi-level Otsu finds them in the gap between the modes of the histogram (the thresholds are an \
+         output and are noted in the run's warnings). It cuts at the values alone: noise in the band makes many \
+         small objects, so smooth the band first, or merge the small ones afterwards (objects.remove_small).",
+    ),
+    (
+        "segment.spectral_difference",
+        "It merges the neighbours of objects you have (a chessboard, superpixels, a multiresolution level) whose \
+         mean values differ by less than `max_difference`, in the image's units, and repeats with the means of the \
+         merged objects, so a gradual change can chain into one object: keep the limit small against the contrast \
+         you want kept. It joins by the tone alone, with no shape, which is the reason to run it after a \
+         segmenter that keeps the edges, not on single cells. Use `weights` to make a band count more or less.",
+    ),
+    (
         "segment.watershed",
         "Without markers the basins are the minima of the gradient, so many on a noisy image: raise `sigma` (the \
          smoothing) or `h` until they are about the objects you want. With markers (a map of seeds, the centres of \

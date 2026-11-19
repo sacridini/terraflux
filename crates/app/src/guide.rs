@@ -290,7 +290,9 @@ the first scale segment.scale suggests (ESP, Dragut et al.); look at the objects
 for larger objects, lower it for smaller ones. The scale is in the image's units: reflectance 0 to 1 and 0 to \
 10000 need other scales. shape 0.1 and compactness 0.5 are the usual start. The others: segment.slic and \
 segment.snic (superpixels: regular, small, many), segment.felzenszwalb, segment.watershed (markers optional), \
-segment.meanshift, segment.chessboard and segment.quadtree (the simplest); segment.from_map and \
+segment.meanshift, segment.chessboard and segment.quadtree (the simplest), segment.threshold (a band cut at \
+thresholds, or by multi-level Otsu); segment.spectral_difference merges the neighbours of an over-segmentation \
+whose means are close; segment.from_map and \
 segment.from_vector bring objects made elsewhere (a map of classes or labels, polygons).
 3. Describe: objects.features with the image (and `more`: a height model, another date, a class map). `basic` (the \
 default) is the mean and the standard deviation of each band, NDVI, the area, the compactness and the texture's \

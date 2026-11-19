@@ -16,6 +16,8 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(super::multiresolution::Multiresolution));
     super::superpixels::register(r);
     super::watershed::register(r);
+    super::threshold::register(r);
+    super::spectral::register(r);
     super::meanshift::register(r);
     r.add(Arc::new(super::esp::Scale));
 }

@@ -4324,6 +4324,13 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    *spectral difference*, a *multi-threshold* e a *contrast split* do eCognition, o crescimento de regiões do
    `i.segment` do GRASS e a otimização não supervisionada dos parâmetros do `i.segment.uspo`, os perfis morfológicos do
    OTB).
+   **Feito, a primeira parte**: `segment.threshold` (o *multi-threshold*: uma banda cortada em limiares dados, ou nos
+   de Otsu multinível, O(k·bins²) por programação dinâmica; cada peça conexa de uma classe é um objeto; a tabela com a
+   classe e o output `thresholds`) e `segment.spectral_difference` (funde os vizinhos de uma sobressegmentação cuja
+   diferença média ponderada das bandas fica abaixo de `max_difference`, sempre o par mais próximo primeiro, as médias
+   refeitas a cada fusão; cada objeto na fila com o seu melhor par). Em 2000² × 4 bandas, 1 / 8 threads: o threshold
+   com Otsu de 3 classes 0,10 / 0,06 s; o spectral difference sobre o SLIC 0,33 / 0,20 s, sobre um xadrez de 4 (250 mil
+   objetos) 2,7 s. A *contrast split* fica de fora (a patente US7801361, até cerca de 2029).
 7. ~~Tudo no terraflux-py~~: desistido (2026-11-19, o usuário: o OBIA fica só no aplicativo). O `python_script`
    continua avisando que esses nós não têm equivalente no terraflux-py.
 8. **A segmentação o mais rápida possível, num núcleo e em paralelo** (pedido de 2026-11-19: um dos objetivos
