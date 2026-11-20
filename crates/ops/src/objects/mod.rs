@@ -18,6 +18,7 @@ mod convert;
 pub mod deep;
 mod each;
 mod edit;
+mod extrema;
 mod esp;
 mod features;
 mod fuse;
@@ -73,6 +74,7 @@ pub fn register(r: &mut Registry) {
     split::register(r);
     fuse::register(r);
     resize::register(r);
+    extrema::register(r);
     r.add(Arc::new(features::Features));
     resolve::register(r);
     temporal::register(r);

@@ -971,6 +971,10 @@ const PHRASES: &[(&str, &str)] = &[
         "The objects of <objects>[ of the classes {seeds}] joined to a neighbour[ of the classes {candidates}] when the joined object has the best {fitting}[ ({goal} is better)][, only if not worse than the seed's own][, reaching {threshold}][, in at most {max_passes} passes][, with <image> for the bands' means].",
     ),
     (
+        "objects.extrema",
+        "The local extrema of {attribute} among the objects of <objects>[ of the classes {among}][ ({kind})][, within {radius} map units][, within {steps} steps of neighbours][, given the class {class}].",
+    ),
+    (
         "objects.nearest",
         "The objects of <objects> classed by their nearest samples in <samples>[, a class only above a membership of {min}].",
     ),

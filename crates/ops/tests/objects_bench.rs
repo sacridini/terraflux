@@ -389,3 +389,47 @@ fn objects_fuse_bench() {
         }
     }
 }
+
+/// `objects.extrema` over the objects of many blobs grown until they touch (a value of the cells as the attribute):
+/// the neighbours, three steps and a radius, on 1 and N threads (the same hash on both).
+#[test]
+#[ignore]
+fn objects_extrema_bench() {
+    let r = Registry::standard();
+    let list = |k: &str, d: &str| -> Vec<usize> {
+        std::env::var(k).unwrap_or(d.into()).split(',').filter_map(|x| x.parse().ok()).collect()
+    };
+    println!("
+{:<26} {:<16} {:<10} {:>7} {:>10} {:>9} {:>18}", "operator", "variant", "image", "threads", "seconds", "objects", "hash");
+    for side in list("BENCH_SIDES", "1000,2000") {
+        // (the cells of a Voronoi image, as many objects as the segmenters' bench: about a hundred cells across)
+        let p = serde_json::json!({ "mode": "grow", "distance": 6.0 }).as_object().cloned().unwrap();
+        let inputs = [("objects".to_string(), Value::Objects(blobs(side)))].into_iter().collect();
+        let touching = match r.get("objects.resize").unwrap().run(&mut Ctx::default(), &Args { node: "n", inputs, params: &p }).unwrap().remove("objects") {
+            Some(Value::Objects(t)) => t,
+            _ => panic!("objects"),
+        };
+        let cases = [
+            ("steps 1", serde_json::json!({ "attribute": "cells" })),
+            ("steps 3", serde_json::json!({ "attribute": "cells", "steps": 3, "kind": "min" })),
+            ("radius 40", serde_json::json!({ "attribute": "cells", "radius": 40.0 })),
+        ];
+        for (variant, params) in cases {
+            for threads in list("BENCH_THREADS", "1,8") {
+                let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+                let inputs = [("objects".to_string(), Value::Objects(touching.clone()))].into_iter().collect();
+                let p = params.as_object().cloned().unwrap();
+                let args = Args { node: "n", inputs, params: &p };
+                let t = Instant::now();
+                let out = pool.install(|| r.get("objects.extrema").unwrap().run(&mut Ctx::default(), &args).unwrap());
+                let secs = t.elapsed().as_secs_f64();
+                let Value::Objects(s) = &out["objects"] else { panic!("objects") };
+                let mut h = hash(s);
+                for &k in &s.class_of {
+                    h = (h ^ k as u64).wrapping_mul(0x100000001b3);
+                }
+                println!("{:<26} {variant:<16} {:<10} {threads:>7} {secs:>10.2} {:>9} {:>18x}", "objects.extrema", format!("{side}x{side}"), s.count, h);
+            }
+        }
+    }
+}

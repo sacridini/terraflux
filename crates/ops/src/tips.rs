@@ -784,6 +784,21 @@ pub const TIPS: &[(&str, &str)] = &[
          width. The level above and the other attributes are dropped, so run objects.features after it.",
     ),
     (
+        "objects.extrema",
+        "For the tops of the crowns, the brightest roofs, the wettest spots: kind max (or min) marks the objects whose \
+         attribute is larger (smaller) than that of every other object near them. The attribute is a column of the \
+         table or an expression as objects.calc's (nb.mean(ndvi) first smooths a noisy one over the neighbours). Near \
+         is the adjacent objects (`steps` 1, the default; more steps reach further across the neighbours) or all \
+         within `radius` map units between centroids: use the radius when the objects are small and many (after \
+         objects.split) and the steps when they differ in size. `among` limits the classes compared, so a maximum is \
+         searched among the trees only. strict (the default) leaves a tie out, so a flat top gives none; switch it off \
+         to keep one of a plateau (all of them, since each is as high as the highest). The extrema take the class \
+         `class`, the other objects keep theirs; the table has the column extremum. To find the objects enclosed by a \
+         class (eCognition's find enclosed by class) no operator is needed: the context column `rel_border_<class>` of \
+         objects.features (or `border_to('<class>')` in objects.calc) equal to 1 means the whole border is shared with \
+         that class; for several classes add the borders (`border_to('a') + border_to('b') > 0.999`).",
+    ),
+    (
         "objects.nearest",
         "A few attributes, chosen with the feature space (objects.features), work better than many: every \
          attribute adds to the distance, and size and shape attributes can swamp the spectral ones, so name the \
