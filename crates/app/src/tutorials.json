@@ -1001,8 +1001,8 @@
       "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/model.toml"
      ],
      "files": [
-      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/accuracy.csv",
       "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/ATTRIBUTION.txt",
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/accuracy.csv",
       "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/map_areas.csv",
       "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/matrix.csv",
       "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/model.toml",
@@ -1025,8 +1025,8 @@
       "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/model.toml"
      ],
      "files": [
-      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/accuracy.csv",
       "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/ATTRIBUTION.txt",
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/accuracy.csv",
       "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/esec_dry.tif",
       "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/esec_jardim_botanico.gpkg",
       "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/esec_wet.tif",

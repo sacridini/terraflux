@@ -44,8 +44,8 @@ def index() -> dict:
         tutorials = []
         for _, title, slug, template in pages:
             folder = models / c["slug"] / slug
-            found = sorted(folder.glob("*.toml"))
-            files = sorted(f for f in folder.glob("*") if f.is_file())
+            found = sorted(folder.glob("*.toml"), key=lambda f: f.name)
+            files = sorted((f for f in folder.glob("*") if f.is_file()), key=lambda f: f.name)
             tutorials.append(
                 {
                     "slug": slug,
