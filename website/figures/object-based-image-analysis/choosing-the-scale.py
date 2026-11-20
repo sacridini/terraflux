@@ -56,9 +56,7 @@ def build():
     m = od.sentinel2_model()
     m += node("ndwi", "raster.calc", '{ s = "refl.image" }', '{ expression = "(s.green - s.nir) / (s.green + s.nir)" }')
     m += node("th", "segment.threshold", '{ image = "ndwi.map" }', "{ classes = 2 }")
-    m += node("wl", "objects.rules", '{ objects = "th.objects" }',
-              '{ classes = [{ name = "water", rule = "above(class, 1, 2)" }, { name = "land", rule = "below(class, 1, 2)" }] }')
-    writes = {"wl.map": "water.tif", "th.thresholds": "thresholds.csv"}
+    writes = {"ndwi.map": "ndwi.tif", "th.thresholds": "thresholds.csv"}
     # ESP and USPO on the whole clip
     m += node("esp", "segment.scale", '{ image = "refl.image" }', "{ }")
     values = ", ".join(str(v) for v in SL)
@@ -123,7 +121,11 @@ def main():
     out = work / "output"
     rgb = od.rgb("sentinel2")
     lab = {s: labels(work, sid(s)) for s in SL + [ESP_SCALE]}
-    water = labels(work, "water")
+    # the Otsu water mask of the NDWI: 1 above the cut, 0 below, -1 without data
+    cut = float((out / "thresholds.csv").read_text().split()[-1])
+    with rasterio.open(work / "ndwi.tif") as ds:
+        nd = ds.read(1, masked=True).astype("float64")
+    water = np.where(np.ma.getmaskarray(nd), -1, (np.ma.filled(nd, 0) >= cut).astype("int64"))
     n = {s: len(np.unique(lab[s][lab[s] >= 0])) for s in lab}
     print("objects", n)
 
@@ -135,7 +137,8 @@ def main():
     bands = [c for c in esp[0] if c.startswith("lv_")]
     rows = [
         {"level": k + 1, "scale": round(x["scale"], 3), "objects": int(x["objects"]),
-         "lv": round(float(np.mean([x[b] for b in bands])), 5), "roc_mean": round(x["roc_mean"], 2)}
+         "lv": round(float(np.mean([x[b] for b in bands])), 5), "roc_mean": round(x["roc_mean"], 2),
+         "suggested": int(x["suggested"])}
         for k, x in enumerate(esp) if k >= 5
     ]
     figs.write_csv(DATA / "esp.csv", rows)
@@ -143,6 +146,7 @@ def main():
 
     # --- the scores on the whole clip (the slider's chart)
     sc = table(out / "scores.csv")
+    scf = {x["value"]: x["objective"] for x in table(out / "scores_f.csv")}
     v, i = scaled([x["variance"] for x in sc]), scaled([x["moran"] for x in sc])
     best = max(sc, key=lambda x: x["objective"])
     print("USPO best", best["value"], best["objects"], "objective", round(best["objective"], 4))
@@ -153,13 +157,16 @@ def main():
         rows.append({"scale": s, "objects": int(x["objects"]), "variance": round(x["variance"], 6),
                      "moran": round(x["moran"], 4), "objective": round(x["objective"], 4),
                      "variance_scaled": round(v[k], 4), "moran_scaled": round(i[k], 4),
-                     "mean_ha": round((lab[s] >= 0).sum() / x["objects"] * CELL_HA, 2), "wrong_pct": round(wr, 2)})
+                     "mean_ha": round((lab[s] >= 0).sum() / x["objects"] * CELL_HA, 2), "wrong_pct": round(wr, 2),
+                     "objective_f": round(scf[s], 4)})
     figs.write_csv(DATA / "scores.csv", rows)
     for row in rows:
         print(row)
     print("ESP scale wrong share", round(wrong_share(lab[ESP_SCALE], water), 2))
     narrow = table(out / "scores_narrow.csv")
     bn = max(narrow, key=lambda x: x["objective"])
+    figs.write_csv(DATA / "narrow.csv", [{"scale": x["value"], "objects": int(x["objects"]), "objective": round(x["objective"], 4)}
+                                         for x in narrow])
     print("narrow best", bn["value"], bn["objects"], [round(x["objective"], 3) for x in narrow])
     bf = max(table(out / "scores_f.csv"), key=lambda x: x["objective"])
     print("f best", bf["value"], bf["objects"])
