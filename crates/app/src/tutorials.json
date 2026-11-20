@@ -818,11 +818,64 @@
      ]
     },
     {
+     "slug": "choosing-the-scale",
+     "title": "Choosing the scale",
+     "template": "The scale chosen by itself",
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/choosing-the-scale/esp.csv",
+      "/data/tutorials/object-based-image-analysis/choosing-the-scale/narrow.csv",
+      "/data/tutorials/object-based-image-analysis/choosing-the-scale/scores.csv",
+      "/data/tutorials/object-based-image-analysis/choosing-the-scale/windows.csv"
+     ]
+    },
+    {
      "slug": "from-interimage",
      "title": "Coming from InterIMAGE",
      "template": "Each class its own way",
      "models": [],
      "files": []
+    },
+    {
+     "slug": "describing-objects",
+     "title": "Describing objects: colour, shape, texture and context",
+     "template": null,
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/describing-objects/class_means.csv",
+      "/data/tutorials/object-based-image-analysis/describing-objects/levels.csv",
+      "/data/tutorials/object-based-image-analysis/describing-objects/separability.csv"
+     ]
+    },
+    {
+     "slug": "classifying-by-samples",
+     "title": "Classifying by samples: nearest neighbour, random forest and accuracy",
+     "template": "Classify an image by clicking samples",
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/classifying-by-samples/accuracy_nn.csv",
+      "/data/tutorials/object-based-image-analysis/classifying-by-samples/accuracy_rf.csv",
+      "/data/tutorials/object-based-image-analysis/classifying-by-samples/attribute_sets.csv",
+      "/data/tutorials/object-based-image-analysis/classifying-by-samples/autocorrelation.csv",
+      "/data/tutorials/object-based-image-analysis/classifying-by-samples/counts.csv",
+      "/data/tutorials/object-based-image-analysis/classifying-by-samples/draw.csv",
+      "/data/tutorials/object-based-image-analysis/classifying-by-samples/matrix_nn.csv",
+      "/data/tutorials/object-based-image-analysis/classifying-by-samples/matrix_rf.csv",
+      "/data/tutorials/object-based-image-analysis/classifying-by-samples/nn_settings.csv",
+      "/data/tutorials/object-based-image-analysis/classifying-by-samples/reference_samples.csv",
+      "/data/tutorials/object-based-image-analysis/classifying-by-samples/samples_per_class.csv",
+      "/data/tutorials/object-based-image-analysis/classifying-by-samples/training_samples.csv"
+     ]
+    },
+    {
+     "slug": "water-by-thresholds",
+     "title": "Water by thresholds",
+     "template": "Water by Otsu on the NDWI",
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/water-by-thresholds/spectral_difference.csv",
+      "/data/tutorials/object-based-image-analysis/water-by-thresholds/sweep.csv"
+     ]
     }
    ]
   },

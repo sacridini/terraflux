@@ -1,0 +1,7 @@
+split,training_objects,neighbours,elsewhere
+split 1,60,0.871,0.824
+split 2,60,0.855,0.77
+split 3,60,0.871,0.77
+split 4,60,0.871,0.73
+split 5,60,0.806,0.689
+split 6,60,0.823,0.797
