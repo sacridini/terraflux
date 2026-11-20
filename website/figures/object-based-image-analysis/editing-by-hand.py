@@ -129,7 +129,7 @@ def frozen(src="edit"):
     m = node("feat_a", "objects.features", f'{{ objects = "{src}.objects", image = "refl.image" }}',
              f'{{ features = {tl(FEATURES)}, texture_bands = ["brightness"], swir = "swir16" }}')
     m += node("rf_a", "objects.classify", '{ objects = "feat_a.objects", model = "fit.model", samples = "samples.table" }')
-    m += node("acc_a", "objects.accuracy", '{ objects = "rf_a.objects", samples = "ref.vector" }')
+    m += node("acc_a", "objects.accuracy", '{ objects = "rf_a.objects", samples = "ref.vector" }', '{ design = "objects" }')
     m += node("idmap_a", "objects.to_map", '{ objects = "rf_a.objects" }', '{ what = "id" }')
     return m + node("clsmap_a", "objects.to_map", '{ objects = "rf_a.objects" }', '{ what = "class" }')
 
@@ -141,7 +141,7 @@ def maps(src="feat"):
 
 
 def acc(ref="ref"):
-    return node("acc", "objects.accuracy", f'{{ objects = "rf.objects", samples = "{ref}.vector" }}')
+    return node("acc", "objects.accuracy", f'{{ objects = "rf.objects", samples = "{ref}.vector" }}', '{ design = "objects" }')
 
 
 def run(model, name, writes, log=False):

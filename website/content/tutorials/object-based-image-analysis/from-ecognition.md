@@ -58,7 +58,7 @@ before it gives.
 | Grow region | [[objects.grow]] (`class` and a `condition` on the candidate neighbour) |
 | Remove objects, find small objects | [[objects.remove_small]] (`min_cells` or `min_area`, `into` the most similar neighbour or the longest border) |
 | Assign class, classification | [[objects.rules]], [[objects.nearest]], [[objects.classify]] (the class and its membership are attributes of the objects); [[objects.reclassify]] renames, recolours and merges classes |
-| Accuracy assessment, error matrix | [[objects.sample]] (the stratified sample to label) and [[objects.accuracy]]: confusion matrix, user's and producer's accuracy, kappa, and the area of each class with its confidence interval |
+| Accuracy assessment, error matrix | [[objects.sample]] (the stratified sample to label) and [[objects.accuracy]]: confusion matrix, user's and producer's accuracy, kappa, and the area of each class with its confidence interval (`design` says how the sample was drawn: `objects`, as [[objects.sample]] does, or `area`, points at random over the map) |
 | Export vector layer, export raster | [[objects.to_vector]] and [[vector.write]]; [[objects.to_map]] and [[raster.write]] |
 | Loop while something changes | `control.repeat` with `until` set to the `done` output of [[objects.merge]], [[objects.grow]] or [[objects.remove_small]] |
 

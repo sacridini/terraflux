@@ -222,7 +222,7 @@ def main():
     m += som_nodes(5, ", rows = 8, cols = 8") + named("clsom", SOM_NAMES, "named_som")
     m += train_nodes + ref_nodes + rf
     for a in ("named", "named_som", "rf"):
-        m += node("acc_" + a, "objects.accuracy", f'{{ objects = "{a}.objects", samples = "ref.vector" }}')
+        m += node("acc_" + a, "objects.accuracy", f'{{ objects = "{a}.objects", samples = "ref.vector" }}', '{ design = "objects" }')
     m += node("named_map", "objects.to_map", '{ objects = "named.objects" }', '{ what = "class" }')
     writes = {"cl.map": "km5.tif", "clsom.map": "som8.tif", "rf.map": "rf.tif", "named_map.map": "named_class.tif",
               "km.centres": "centres.csv", "km.choice": "choice1.csv", "som.codebook": "codebook8.csv",
@@ -343,7 +343,7 @@ def main():
 
     # the slider over k
     def acc(src):
-        return node("acc", "objects.accuracy", f'{{ objects = "{src}.objects", samples = "ref.vector" }}')
+        return node("acc", "objects.accuracy", f'{{ objects = "{src}.objects", samples = "ref.vector" }}', '{ design = "objects" }')
 
     frames = []
     for k in range(2, 9):

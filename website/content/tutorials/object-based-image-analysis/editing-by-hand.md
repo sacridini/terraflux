@@ -289,6 +289,7 @@ note = "The class of every object."
 id = "acc"
 op = "objects.accuracy"
 inputs = { objects = "rf.objects", samples = "ref.vector" }
+params = { design = "objects" }
 note = "The accuracy against the reference points."
 ```
 

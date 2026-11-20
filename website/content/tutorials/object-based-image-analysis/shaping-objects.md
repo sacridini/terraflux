@@ -404,7 +404,7 @@ block of the figure is the last of the gallery above.
 Two things to know when you read the result.
 
 - The objects the chain gives have **no attributes**: `objects.resize` makes new objects out of old cells, so the table of
-  means is not the old one, and the level above, if there was one, is dropped (with a warning). The model ends with
+  means is not the old one, and the level above, if there was one, is dropped (with a warning). The page's script ends the chain with
   [[objects.features]] on the shaped objects, to rebuild the attributes. The area-weighted *compactness* of the built-up
   patches (length times width over area, 1 for a rectangle) goes from **2.31 to 1.90**.
 - A shaped class **is not the class the rules gave**. The chain added 9,958 built-up cells (99.6 ha): read it as an

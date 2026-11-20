@@ -290,7 +290,7 @@ caption: "Outlines of five segmenters over the same part of the clip. Multiresol
 images:
   - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/seg_mr.png, caption: "Multiresolution, 3,035 objects" }
   - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/seg_slic.png, caption: "SLIC, 2,270 objects" }
-  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/seg_fz.png, caption: "Felzenszwalb, 4,063 objects" }
+  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/seg_fz.png, caption: "Felzenszwalb, 1,643 objects" }
   - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/seg_ws.png, caption: "Watershed, 747 objects" }
   - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/seg_th.png, caption: "Threshold (NDWI), 12 objects" }
 ```
@@ -368,7 +368,7 @@ csv: |
   segmenter,objects,mean_ha,good_at
   Multiresolution,3035,1.11,Objects whose size follows the local variation
   SLIC,2270,1.48,"Even, compact tiles; a fast first cut"
-  Felzenszwalb,4063,0.83,"Thin and long things (streams, roads) kept whole"
+  Felzenszwalb,1643,2.05,"Thin and long things (streams, roads) kept whole"
   Watershed,747,4.50,Objects bounded by strong edges
   Threshold,12,280.33,One band cut at its own natural gap (water)
 ```
@@ -403,7 +403,7 @@ an edge weighted with the difference of their bands. Taking the edges from the l
 when the edge is not heavier than the largest difference **inside** either of them plus `k` divided by its size, so a
 small component joins easily and a large one needs a closer match. Segments under `min_size` cells (20 by default)
 are then merged into a neighbour. Because the rule looks at the heaviest edge inside, a thin line of similar cells,
-such as a stream or a road, can stay whole, and the sizes vary a lot. The outlines are ragged, with many tiny objects, as
+such as a stream or a road, can stay whole, and the sizes vary a lot. The outlines are ragged, as
 the figure shows in the neighbourhoods.
 
 ### Watershed

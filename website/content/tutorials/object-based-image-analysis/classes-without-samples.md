@@ -289,12 +289,14 @@ params = { crs = "EPSG:31983" }
 id = "acc_km"
 op = "objects.accuracy"
 inputs = { objects = "named.objects", samples = "ref.vector" }
+params = { design = "objects" }
 note = "Error matrix of the named k-means."
 
 [[nodes]]
 id = "acc_som"
 op = "objects.accuracy"
 inputs = { objects = "named_som.objects", samples = "ref.vector" }
+params = { design = "objects" }
 ```
 
 === "Application"
@@ -429,8 +431,8 @@ align: { "Map \\ reference": left }
 caption: "Named k-means (k = 5): the 80 reference objects by the class the map gave (rows) and their true class (columns). 63 are on the diagonal. Bare soil has no row of its own: no cluster was named after it."
 ```
 
-The overall accuracy by objects is **78.8 %** (63 of 80), kappa 0.72, and 75.3 % after the area adjustment of
-part 5. Water is right in all 16 objects, cerrado in 18 of 25 (the 7 forest objects that went to cerrado), and the 6 reference
+The overall accuracy by objects is **78.8 %** (63 of 80), kappa 0.72, and 80.9 % after the area adjustment of
+part 5 (`design = "objects"`: the reference has one object per point, each weighted by its area). Water is right in all 16 objects, cerrado in 18 of 25 (the 7 forest objects that went to cerrado), and the 6 reference
 bare soil objects are all called urban, since no cluster is named after them.
 
 Now the same with the self-organizing map and for part 5's forest, on the same reference:
@@ -523,7 +525,7 @@ fell from 1.73 (3 by 3) to 1.43 (8 by 8) and rose again for the bigger grids (1.
 it measures how close the nodes are to the objects, not whether the groups are classes. The topographic error stays at 0.6 % or less
 in all of them, so none of the maps is folded.
 
-The named SOM (8 by 8) gives 80.0 % by objects, kappa 0.74, 77.5 % adjusted: about the same as the k-means and the forest. What
+The named SOM (8 by 8) gives 80.0 % by objects, kappa 0.74, 84.6 % adjusted: the same by objects as the forest, and a few points higher than the k-means (80.9 %) and the forest (81.1 %) once each object counts by its area; with only 80 reference objects it is not a difference to rely on. What
 the SOM adds is the *picture*: the map of the feature space, in which you see how the classes lie to each other, the gaps
 between them and the nodes between two types, which k-means does not show.
 

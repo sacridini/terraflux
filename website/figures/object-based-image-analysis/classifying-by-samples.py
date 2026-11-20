@@ -110,7 +110,7 @@ def nn_node(i="nn", columns=None, extra=""):
 
 
 def acc_node(i, objs, ref="ref"):
-    return node(i, "objects.accuracy", f'{{ objects = "{objs}.objects", samples = "{ref}.vector" }}')
+    return node(i, "objects.accuracy", f'{{ objects = "{objs}.objects", samples = "{ref}.vector" }}', '{ design = "objects" }')
 
 
 def run(model, name, writes, log=False):

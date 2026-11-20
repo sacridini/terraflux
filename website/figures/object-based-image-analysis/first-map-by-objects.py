@@ -129,7 +129,7 @@ params = { path = "check_points_labelled.gpkg" }
 id = "accuracy"
 op = "objects.accuracy"
 inputs = { objects = "classify.objects", samples = "labelled.vector" }
-params = { class = "reference" }
+params = { class = "reference", design = "objects" }
 """
 
 

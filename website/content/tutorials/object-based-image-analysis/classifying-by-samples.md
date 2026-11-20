@@ -207,7 +207,10 @@ eCognition's default, a rule that looks at colour. Two more settings, `slope` an
 
 [[objects.accuracy]] compares a classified set of objects with the reference. The reference is `samples` (points or
 polygons with the class, resolved to objects as [[objects.samples]] does) or `reference` (a table with the columns `id`
-and `class`). It gives:
+and `class`). Its setting `design` says how the reference was drawn: `objects` (each object of a class had the same chance,
+as [[objects.sample]] draws them, or one point in each of a set of such objects: the adjusted estimates weight each sampled
+object by its area) or `area` (points thrown at random over the map: each counts once). Set it: the page's model says
+`design = "objects"`. It gives:
 
 - `matrix`: the error matrix by objects, a row per class of the map and a column per reference class;
 - `table`: a row per class, with the user's and producer's accuracies (adjusted, with confidence intervals) and the class's
@@ -310,12 +313,14 @@ note = "Nearest samples."
 id = "acc_rf"
 op = "objects.accuracy"
 inputs = { objects = "rf.objects", samples = "ref.vector" }
+params = { design = "objects" }
 note = "Error matrix, accuracies and areas."
 
 [[nodes]]
 id = "acc_nn"
 op = "objects.accuracy"
 inputs = { objects = "nn.objects", samples = "ref.vector" }
+params = { design = "objects" }
 ```
 
 === "Application"
@@ -416,19 +421,20 @@ caption: "Random forest: the area-adjusted user's and producer's accuracies of e
 
 Read the table by class.
 
-- **Cerrado**: user's accuracy 0.90 ± 0.14 and producer's 1.00. The map is reliable for cerrado, and finds all of it. The map has 753 ha of it;
-  the adjusted estimate is 678 ± 102 ha.
-- **Forest**: the user's accuracy is only 0.58 ± 0.20, the producer's 0.90 ± 0.13. The map finds the forest but also calls
-  many other things forest, so its area, **1,117 ha, is too large: the adjusted estimate is 727 ± 247 ha**. That is the
+- **Cerrado**: user's accuracy 0.94 ± 0.14 and producer's 1.00. The map is reliable for cerrado, and finds all of it. The map has 753 ha of it;
+  the adjusted estimate is 705 ± 107 ha.
+- **Forest**: the user's accuracy is only 0.61 ± 0.31, the producer's 0.93 ± 0.14. The map finds the forest but also calls
+  many other things forest, so its area, **1,117 ha, is too large: the adjusted estimate is 735 ± 361 ha**. That is the
   kind of correction the adjusted areas are for.
-- **Urban**: 0.82 and 0.78, the map's 1,229 ha against an estimate of 1,285 ± 283 ha.
+- **Urban**: 0.88 and 0.79, the map's 1,229 ha against an estimate of 1,373 ± 379 ha.
 - **Water**: all the objects the map calls water are water (1.00), but a few real water objects are
-  called forest, so the producer's accuracy is 0.67 ± 0.30 and the estimate, 284 ± 126 ha, is larger than the 191 ha of the map.
-- **Bare soil**: mapped as 74 ha; the estimate is 317 ± 239 ha. The interval says the map knows almost nothing about this class.
+  called forest, so the producer's accuracy is 0.74 ± 0.41 and the estimate, 259 ± 142 ha, is larger than the 191 ha of the map.
+- **Bare soil**: mapped as 74 ha; the estimate is 218 ± 268 ha. The interval says the map knows almost nothing about this class.
 
-The **overall** accuracy by objects is 80.0 %; the area-adjusted one is **76.8 % ± 9.7** (95 %). The two differ because the
-adjusted one weighs each class by how much of the map it covers, and the poorly mapped forest covers a lot. For
-the nearest neighbour, the same reference gives an overall accuracy of 52.5 % (adjusted 49.4 ± 10.6 %, kappa 0.40).
+The **overall** accuracy by objects is 80.0 %; the area-adjusted one is **81.1 % ± 12.6** (95 %). The adjusted one weighs each sampled object by its area and each class
+by how much of the map it covers (`design = "objects"`: every object of a class had the same chance of being drawn); here it
+ends close to the share of objects, with a wider interval. For
+the nearest neighbour, the same reference gives an overall accuracy of 52.5 % (adjusted 50.7 ± 14.4 %, kappa 0.40).
 
 !!! tip "What to report"
     In a paper: the error matrix by objects (the counts), the user's and producer's accuracies with their intervals, the

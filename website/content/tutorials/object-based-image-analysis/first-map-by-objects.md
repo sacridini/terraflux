@@ -214,7 +214,7 @@ params = { path = "check_points_labelled.gpkg" }
 id = "accuracy"
 op = "objects.accuracy"
 inputs = { objects = "classify.objects", samples = "labelled.vector" }
-params = { class = "reference" }
+params = { class = "reference", design = "objects" }
 ```
 
 <div class="steps" markdown>
@@ -258,7 +258,11 @@ are right more often than the rest of the map.
 
 The matrix is read row by row: of the 32 objects the map called grassland, 20 are grassland, 5 are cropland, 3 forest,
 3 water and 1 urban. Those objects are mostly on the borders, which the margin map showed. The other tables hold the user's and
-producer's accuracies and the areas with their confidence intervals. To report an accuracy, give the overall number
+producer's accuracies and the areas with their confidence intervals. `design = "objects"` tells [[objects.accuracy]] how the
+sample was drawn (every object of a class had the same chance, as [[objects.sample]] does it), so that the area estimates
+weight each sampled object by its area. Here the sample is **every** object, so the area estimates have no sampling error:
+the intervals are 0, and the area-weighted overall accuracy is 96.4 %, against 81.9 % by objects, because the large
+objects are the ones the forest gets right. With a real sample the intervals are not 0. To report an accuracy, give the overall number
 with its interval, the matrix, and how the sample was drawn.
 
 ## Take the polygons
