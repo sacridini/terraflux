@@ -416,7 +416,17 @@ impl Operator for Grow {
             if !changed {
                 break;
             }
-            cur = regroup(&cur, &group)?.0;
+            // each merged object keeps the class (and the memberships) of the grown object, the root of its group:
+            // `regroup` alone would give it the class of its biggest part, and a large neighbour would eat the class
+            let (next, new_of) = regroup(&cur, &group)?;
+            let mut head = vec![0usize; next.count];
+            for (k, &m) in new_of.iter().enumerate() {
+                head[m as usize - 1] = group[k] as usize;
+            }
+            let class_of: Vec<u32> = head.iter().map(|&h| cur.class_of[h]).collect();
+            let membership: Vec<Vec<f64>> =
+                cur.membership.iter().map(|m| head.iter().map(|&h| m[h]).collect()).collect();
+            cur = next.with_classes(cur.classes.clone(), class_of, membership)?;
         }
         Ok(done_outputs(o.count, cur))
     }

@@ -163,6 +163,18 @@ fn grow_along_a_chain() {
     assert!(done_of(&again));
 }
 
+#[test]
+fn grow_keeps_the_class_when_the_neighbour_is_bigger() {
+    // a forest of one cell beside an unclassified object of three: the forest takes it and stays forest
+    let o = objs(4, 1, vec![1, 2, 2, 2], "mean_nir", &[0.9, 0.6], &["forest"], vec![1, 0]);
+    let cond = "mean_nir > 0.5 and cls == \"unclassified\"";
+    let out = run("objects.grow", o, serde_json::json!({ "class": "forest", "condition": cond })).unwrap();
+    let g = objects_of(&out, "objects");
+    assert_eq!(g.count, 1);
+    assert_eq!(g.class_of, vec![1]);
+    assert_eq!(g.cells, vec![4]);
+}
+
 /// Two rows of four cells: object 1 (3 cells), 2 (4 cells) and 3 (1 cell, at (1, 1)).
 ///   1 1 2 2
 ///   1 3 2 2
