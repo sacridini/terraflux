@@ -1,0 +1,112 @@
+format = "terraflux/1"
+
+[[nodes]]
+id = "dry"
+op = "data.stac"
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16", "swir22"], datetime = "2024-07-15/2024-09-15", mask = "auto", crs = "EPSG:31983", extent = [190300, 8234900, 198200, 8244800], cellsize = 10 }
+note = "The dry season, 15 July to 15 September 2024: the median of the clear cells."
+
+[[nodes]]
+id = "wet"
+op = "data.stac"
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["red", "nir"], datetime = "2024-02-01/2024-03-31", mask = "auto", crs = "EPSG:31983", extent = [190300, 8234900, 198200, 8244800], cellsize = 10 }
+note = "The wet season, February and March 2024."
+
+[[nodes]]
+id = "area"
+op = "vector.read"
+params = { path = "esec_jb.gpkg" }
+note = "The official boundary (CNUC)."
+
+[[nodes]]
+id = "inside"
+op = "vector.rasterize"
+inputs = { vector = "area.vector", like = "dry.raster" }
+params = { value = 1, fill = 0 }
+note = "1 inside the boundary, 0 outside."
+
+[[nodes]]
+id = "refl"
+op = "raster.calc"
+inputs = { d = "dry.raster", w = "wet.raster", m = "inside.map" }
+params = { expression = "image = d / 10000\nimage.ndvi_wet = (w.nir - w.red) / (w.nir + w.red)\nimage[m != 1] = None\nout image" }
+note = "Reflectance 0 to 1, the wet-season NDVI as a layer, nothing outside the boundary."
+
+[[nodes]]
+id = "seg"
+op = "segment.multiresolution"
+inputs = { image = "refl.image" }
+params = { scale = 1.5 }
+note = "The objects."
+
+[[nodes]]
+id = "feat"
+op = "objects.features"
+inputs = { objects = "seg.objects", image = "refl.image" }
+params = { features = ["mean", "sd", "ndvi", "ndwi", "ndmi", "compactness"], swir = "swir16" }
+note = "Means, spread, indices and compactness."
+
+[[nodes]]
+id = "train_table"
+op = "table.read"
+params = { path = "training_points.csv" }
+note = "The training points: x, y and class."
+
+[[nodes]]
+id = "train"
+op = "vector.from_table"
+inputs = { table = "train_table.table" }
+params = { crs = "EPSG:31983" }
+
+[[nodes]]
+id = "samples"
+op = "objects.samples"
+inputs = { objects = "feat.objects", samples = "train.vector" }
+params = {}
+note = "The objects under the points, with their attributes."
+
+[[nodes]]
+id = "fit"
+op = "ml.fit"
+inputs = { table = "samples.table" }
+params = { column = "class", columns = ["mean_blue", "mean_green", "mean_red", "mean_nir", "mean_swir16", "mean_swir22", "mean_ndvi_wet", "ndvi", "ndwi", "ndmi", "sd_nir", "sd_ndvi_wet", "compactness"], n_estimators = 300 }
+note = "A random forest."
+
+[[nodes]]
+id = "rf"
+op = "objects.classify"
+inputs = { objects = "feat.objects", model = "fit.model", samples = "samples.table" }
+params = {}
+note = "Class and probabilities of every object."
+
+[[nodes]]
+id = "map"
+op = "objects.to_map"
+inputs = { objects = "rf.objects" }
+params = { what = "class" }
+
+[[nodes]]
+id = "map_file"
+op = "raster.write"
+inputs = { value = "map.map" }
+params = { path = "land_use.tif" }
+note = "The land-use map, a GeoTIFF."
+
+[[nodes]]
+id = "ref_table"
+op = "table.read"
+params = { path = "reference_points.csv" }
+note = "The reference: x, y and the class read from the image."
+
+[[nodes]]
+id = "ref"
+op = "vector.from_table"
+inputs = { table = "ref_table.table" }
+params = { crs = "EPSG:31983" }
+
+[[nodes]]
+id = "acc"
+op = "objects.accuracy"
+inputs = { objects = "rf.objects", samples = "ref.vector" }
+params = { design = "objects" }
+note = "Error matrix, accuracies and adjusted areas."

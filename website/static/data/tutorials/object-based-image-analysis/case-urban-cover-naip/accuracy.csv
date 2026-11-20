@@ -1,0 +1,6 @@
+class,mapped_objects,reference_objects,users,users_ci,producers,producers_ci,map_ha,area_ha,area_ha_ci
+water,6,19,0.966,0.0,0.505,0.143,0.7,1.4,0.4
+tree,50,64,0.752,0.146,0.907,0.04,17.1,14.2,2.6
+lawn,50,29,0.522,0.204,0.422,0.174,3.2,4.0,1.5
+street,50,41,0.582,0.176,0.393,0.181,4.3,6.4,2.8
+roof,50,53,0.773,0.124,0.817,0.069,10.6,10.1,1.5

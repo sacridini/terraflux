@@ -964,6 +964,54 @@
      ]
     },
     {
+     "slug": "case-urban-cover-naip",
+     "title": "Case study: urban cover of a neighbourhood from NAIP imagery",
+     "template": null,
+     "models": [
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/model.toml"
+     ],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/accuracy.csv",
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/ATTRIBUTION.txt",
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/map_areas.csv",
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/matrix.csv",
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/model.toml",
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/naip_plano_2020.tif",
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/reference_points.csv",
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/scales.csv",
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/smooth.csv",
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/tuning.csv",
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/tuning_pieces.csv",
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/tuning_points.csv",
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/urban_cover.gpkg",
+      "/data/tutorials/object-based-image-analysis/case-urban-cover-naip/urban_cover.tif"
+     ]
+    },
+    {
+     "slug": "case-protected-area-sentinel2",
+     "title": "Case study: land use of a protected area from Sentinel-2",
+     "template": null,
+     "models": [
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/model.toml"
+     ],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/accuracy.csv",
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/ATTRIBUTION.txt",
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/esec_dry.tif",
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/esec_jardim_botanico.gpkg",
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/esec_wet.tif",
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/importance.csv",
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/land_use.tif",
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/map_areas.csv",
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/matrix.csv",
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/methods.txt",
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/model.toml",
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/reference_points.csv",
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/scales.csv",
+      "/data/tutorials/object-based-image-analysis/case-protected-area-sentinel2/training_points.csv"
+     ]
+    },
+    {
      "slug": "classes-by-parcel",
      "title": "Classes by parcel: objects that stay inside boundaries",
      "template": "Classes by parcel",

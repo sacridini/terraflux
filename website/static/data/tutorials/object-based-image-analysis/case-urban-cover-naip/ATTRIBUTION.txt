@@ -1,0 +1,5 @@
+naip_plano_2020.tif: NAIP (National Agriculture Imagery Program), Texas, acquired 14 October 2020, from the Microsoft Planetary Computer (collection naip). Bands red, green, blue, nir, 8 bit, EPSG:26914, 0.6 m, a window of 600 x 600 m in Plano, Texas. Imagery by USDA Farm Production and Conservation, Business Center, Geospatial Enterprise Operations; US Government work, in the public domain.
+
+urban_cover.tif, urban_cover.gpkg: the map and polygons of the tutorial (classes 1 water, 2 tree, 3 lawn, 4 street, 5 roof), made with Terraflux from that image.
+
+reference_points.csv, tuning_points.csv: points labelled by eye from the image (see the tutorial); not field data.

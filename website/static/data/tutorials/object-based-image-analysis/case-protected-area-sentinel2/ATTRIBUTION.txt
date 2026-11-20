@@ -1,0 +1,5 @@
+esec_jardim_botanico.gpkg: boundary of the Estacao Ecologica do Jardim Botanico de Brasilia (uc_id 1654), from the Cadastro Nacional de Unidades de Conservacao (CNUC), polygons of 2025_08, Ministerio do Meio Ambiente e Mudanca do Clima, https://dados.mma.gov.br (licence Creative Commons Attribution, CC BY). One feature, in SIRGAS 2000 (EPSG:4674).
+
+esec_dry.tif, esec_wet.tif: Sentinel-2 L2A (Earth Search), the median of the clear cells of 15 July to 15 September 2024 (blue, green, red, nir, swir16, swir22) and of February and March 2024 (red, nir), reflectance x 10000, Int16, EPSG:31983, 10 m. Contains modified Copernicus Sentinel data 2024.
+
+training_points.csv, reference_points.csv: points labelled by eye from the image (see the tutorial); not field data.

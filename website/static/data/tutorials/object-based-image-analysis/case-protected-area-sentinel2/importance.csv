@@ -1,0 +1,14 @@
+attribute,importance
+sd_nir,0.125
+ndvi,0.1137
+mean_red,0.1046
+mean_blue,0.1006
+ndwi,0.0995
+mean_green,0.0956
+mean_swir22,0.0825
+mean_nir,0.0775
+ndmi,0.0537
+mean_ndvi_wet,0.0416
+sd_ndvi_wet,0.0406
+mean_swir16,0.0403
+compactness,0.0247

@@ -1,0 +1,149 @@
+format = "terraflux/1"
+
+[[nodes]]
+id = "naip"
+op = "data.stac"
+params = { url = "https://planetarycomputer.microsoft.com/api/stac/v1", collection = "naip", assets = ["image"], datetime = "2020-10-14", sign = "planetary_computer", crs = "EPSG:26914", extent = [705030.6, 3658458.0, 705630.6, 3659058.0], cellsize = 0.6 }
+note = "NAIP of 14 October 2020: red, green, blue and nir layers, 0.6 m."
+
+[[nodes]]
+id = "refl"
+op = "raster.calc"
+inputs = { s = "naip.raster" }
+params = { expression = "out image = s / 255\nout nir = s.nir / 255" }
+note = "Reflectance 0 to 1: the four layers, and the near infrared alone."
+
+[[nodes]]
+id = "seg"
+op = "segment.multiresolution"
+inputs = { image = "refl.image" }
+params = { scale = 3 }
+note = "The fine objects."
+
+[[nodes]]
+id = "feat"
+op = "objects.features"
+inputs = { objects = "seg.objects", image = "refl.image" }
+params = { features = ["spectral", "texture"], texture_bands = ["brightness"] }
+note = "Colour, indices and texture."
+
+[[nodes]]
+id = "calc"
+op = "objects.calc"
+inputs = { objects = "feat.objects" }
+params = { expression = "out vis = (mean_red + mean_green + mean_blue) / 3" }
+note = "Visible brightness."
+
+[[nodes]]
+id = "rules"
+op = "objects.rules"
+inputs = { objects = "calc.objects" }
+params = { classes = [
+  { name = "water", rule = "max(above(ndwi, 0.35, 0.45), min(above(ndwi, 0.15, 0.25), above(glcm_homogeneity, 0.55, 0.75)))" },
+  { name = "land", rule = "1 - max(above(ndwi, 0.35, 0.45), min(above(ndwi, 0.15, 0.25), above(glcm_homogeneity, 0.55, 0.75)))" },
+  { name = "veg", rule = "above(ndvi, 0.12, 0.2)", parent = "land" },
+  { name = "tree", rule = "max(below(glcm_homogeneity, 0.45, 0.6), below(vis, 0.15, 0.2))", parent = "veg" },
+  { name = "lawn", rule = "min(above(glcm_homogeneity, 0.45, 0.6), above(vis, 0.15, 0.2))", parent = "veg" },
+  { name = "pavement", rule = "below(ndvi, 0.12, 0.2)", parent = "land" },
+] }
+note = "First pass: water, tree, lawn, pavement."
+
+[[nodes]]
+id = "patch"
+op = "objects.merge"
+inputs = { objects = "rules.objects" }
+params = { by = "class" }
+note = "Neighbours of a class become one patch."
+
+[[nodes]]
+id = "pieces"
+op = "objects.split"
+inputs = { objects = "patch.objects" }
+params = { classes = ["pavement"], h = 1.5, min_size = 30 }
+note = "Cut the pavement at its necks."
+
+[[nodes]]
+id = "crowns"
+op = "objects.split"
+inputs = { objects = "pieces.objects", surface = "refl.nir" }
+params = { classes = ["tree"], by = "surface", sigma = 3, h = 0.03, min_size = 30 }
+note = "Canopy pieces from the near infrared."
+
+[[nodes]]
+id = "pfeat"
+op = "objects.features"
+inputs = { objects = "crowns.objects", image = "refl.image" }
+params = { features = ["spectral", "shape", "skeleton"] }
+note = "Shape and skeleton of the pieces."
+
+[[nodes]]
+id = "calc2"
+op = "objects.calc"
+inputs = { objects = "pfeat.objects" }
+params = { expression = "out bmr = mean_blue - mean_red" }
+note = "Blue minus red: roofs are cooler than streets."
+
+[[nodes]]
+id = "final"
+op = "objects.rules"
+inputs = { objects = "calc2.objects" }
+params = { classes = [
+  { name = "water", rule = 'cls == "water" and above(area, 100, 300)', colour = "#2b6cb0" },
+  { name = "tree", rule = 'cls == "tree"', colour = "#2f7d3b" },
+  { name = "lawn", rule = 'cls == "lawn"', colour = "#a7d676" },
+  { name = "street", rule = 'cls == "pavement" and min(below(skel_width, 11, 14), below(bmr, 0.02, 0.05))', colour = "#8c8c8c" },
+  { name = "roof", rule = '(cls == "pavement" and (1 - min(below(skel_width, 11, 14), below(bmr, 0.02, 0.05)))) or (cls == "water" and below(area, 100, 300))', colour = "#c0504d" },
+] }
+note = "Second pass: roof or street, small water to roof."
+
+[[nodes]]
+id = "clean"
+op = "objects.resize"
+inputs = { objects = "final.objects" }
+params = { mode = "smooth", distance = 1.2 }
+note = "Smooth the outlines."
+
+[[nodes]]
+id = "map"
+op = "objects.to_map"
+inputs = { objects = "clean.objects" }
+params = { what = "class" }
+
+[[nodes]]
+id = "map_file"
+op = "raster.write"
+inputs = { value = "map.map" }
+params = { path = "urban_cover.tif" }
+note = "The map, a GeoTIFF."
+
+[[nodes]]
+id = "polygons"
+op = "objects.to_vector"
+inputs = { objects = "clean.objects" }
+params = { smooth = 1 }
+note = "One polygon per object: its number, class, cells and area."
+
+[[nodes]]
+id = "polygons_file"
+op = "vector.write"
+inputs = { vector = "polygons.vector" }
+params = { path = "urban_cover.gpkg" }
+
+[[nodes]]
+id = "ref_table"
+op = "table.read"
+params = { path = "reference_points.csv" }
+note = "The reference: x, y and the class read from the image."
+
+[[nodes]]
+id = "ref"
+op = "vector.from_table"
+inputs = { table = "ref_table.table" }
+params = { crs = "EPSG:26914" }
+
+[[nodes]]
+id = "acc"
+op = "objects.accuracy"
+inputs = { objects = "clean.objects", samples = "ref.vector" }
+params = { design = "objects" }
+note = "Error matrix, accuracies and adjusted areas."

@@ -1,0 +1,32 @@
+Methods
+
+The analysis was run in Terraflux 1.58.0 (Lacerda, 2026), as a model of 17 steps (page_model.toml); the model's file, with every setting, is given with this paper. We computed multiresolution segmentation into objects (Baatz & Schäpe, 2000), random forest learning (Breiman, 2001) and the accuracy of a classification of objects and the sample to assess it (Olofsson et al., 2014; Radoux & Bogaert, 2017; Stehman, 2014) with Terraflux.
+
+The model, step by step
+
+1. dry (data.stac): The scenes of sentinel-2-l2a from a STAC catalogue (blue, green, red, nir, swir16, swir22) of 2024-07-15/2024-09-15. The dry season, 15 July to 15 September 2024: the median of the clear cells.
+2. wet (data.stac): The scenes of sentinel-2-l2a from a STAC catalogue (red, nir) of 2024-02-01/2024-03-31. The wet season, February and March 2024.
+3. area (vector.read): Reads the features of esec_jb.gpkg. The official boundary (CNUC).
+4. train_table (table.read): Reads the table training_points.csv. The training points: x, y and class.
+5. ref_table (table.read): Reads the table reference_points.csv. The reference: x, y and the class read from the image.
+6. inside (vector.rasterize): The features of area burnt into the grid of dry, the value 1. 1 inside the boundary, 0 outside.
+7. train (vector.from_table): Points from the columns x and y of train_table in EPSG:31983.
+8. ref (vector.from_table): Points from the columns x and y of ref_table in EPSG:31983.
+9. refl (raster.calc): Maps computed cell by cell from its inputs by a script. Reflectance 0 to 1, the wet-season NDVI as a layer, nothing outside the boundary.
+10. seg (segment.multiresolution): Refl merged into objects by multiresolution segmentation at scale 1.5. The objects.
+11. feat (objects.features): The attributes mean, sd, ndvi, ndwi, ndmi, compactness of the objects of seg, from refl. Means, spread, indices and compactness.
+12. samples (objects.samples): The objects under the samples of train (the class in class), as a training table. The objects under the points, with their attributes.
+13. fit (ml.fit): A random forest or gradient boosting fitted to the records of samples. A random forest.
+14. rf (objects.classify): The objects of feat classed by fit. Class and probabilities of every object.
+15. map (objects.to_map): The objects of rf as a map of their class.
+16. acc (objects.accuracy): The accuracy of a classification of objects against objects of known class: Design objects. Error matrix, accuracies and adjusted areas.
+17. map_file (raster.write): Writes map to land_use.tif. The land-use map, a GeoTIFF.
+
+References
+
+Baatz, M., & Schäpe, A. (2000). Multiresolution segmentation: an optimization approach for high quality multi-scale image segmentation. In J. Strobl, T. Blaschke & G. Griesebner (Eds.), Angewandte Geographische Informationsverarbeitung XII (pp. 12–23). Wichmann.
+Breiman, L. (2001). Random forests. Machine Learning, 45(1), 5–32. https://doi.org/10.1023/A:1010933404324
+Lacerda, E. (2026). Terraflux: landscape ecology and land change modelling from a laptop to a cluster (Version 1.58.0) [Computer software]. https://github.com/sacridini/terraflux
+Olofsson, P., Foody, G. M., Herold, M., Stehman, S. V., Woodcock, C. E., & Wulder, M. A. (2014). Good practices for estimating area and assessing accuracy of land change. Remote Sensing of Environment, 148, 42–57. https://doi.org/10.1016/j.rse.2014.02.015
+Radoux, J., & Bogaert, P. (2017). Good practices for object-based accuracy assessment. Remote Sensing, 9(7), 646. https://doi.org/10.3390/rs9070646
+Stehman, S. V. (2014). Estimating area and map accuracy for stratified random sampling when the strata are different from the map classes. International Journal of Remote Sensing, 35(13), 4923–4939. https://doi.org/10.1080/01431161.2014.930207

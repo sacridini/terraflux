@@ -1,0 +1,6 @@
+map,water,tree,lawn,street,roof,total
+water,5,0,0,0,1,6
+tree,1,29,12,5,3,50
+lawn,1,24,13,9,3,50
+street,2,8,3,25,12,50
+roof,10,3,1,2,34,50

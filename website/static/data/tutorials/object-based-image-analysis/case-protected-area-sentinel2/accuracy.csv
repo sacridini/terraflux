@@ -1,0 +1,5 @@
+class,mapped_objects,reference_objects,users,users_ci,producers,producers_ci,map_ha,area_ha,area_ha_ci
+bare soil,50,66,0.91,0.044,0.209,0.075,34.2,149.4,53.6
+built-up,50,34,0.536,0.141,0.803,0.21,156.8,104.7,34.7
+cerrado,50,63,0.991,0.012,0.971,0.016,3702.4,3780.2,77.7
+forest,50,37,0.771,0.114,0.999,0.001,615.9,475.0,70.3
