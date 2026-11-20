@@ -53,6 +53,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import shutil
 import sys
 import urllib.parse
 import urllib.request
@@ -166,7 +167,16 @@ def naip() -> pathlib.Path:
     from rasterio.windows import Window
 
     CACHE.mkdir(parents=True, exist_ok=True)
-    item = _get(f"{PC}/collections/naip/items/{NAIP_ITEM}")
+    try:
+        item = _get(f"{PC}/collections/naip/items/{NAIP_ITEM}")
+    except Exception:
+        # the item left the Planetary Computer (2026-11: the collection ends in 2023); the published clip is the
+        # same cut of it
+        published = DOWNLOADS / "naip_plano.tif"
+        if not published.exists():
+            raise
+        shutil.copyfile(published, tif)
+        return tif
     href = item["assets"]["image"]["href"]
     signed = _get("https://planetarycomputer.microsoft.com/api/sas/v1/sign?href=" + urllib.parse.quote(href, safe=""))["href"]
     with rasterio.open(signed) as ds:
