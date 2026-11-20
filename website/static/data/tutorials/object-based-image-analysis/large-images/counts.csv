@@ -1,0 +1,6 @@
+method,size,whole,tiles,difference_pct
+multiresolution,1000,7345,7310,-0.5
+multiresolution,2000,30066,29757,-1.0
+multiresolution,3000,66962,65843,-1.7
+region_growing,1000,748,787,5.2
+region_growing,2000,908,1000,10.1

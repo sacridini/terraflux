@@ -1,0 +1,6 @@
+method,objects,mean_cells,inside_variance
+"SAM, 8 points",17,5294,0.951
+"SAM, 16 points",128,703,0.812
+"SAM, 24 points",171,526,0.758
+"Multiresolution, scale 8",159,566,0.308
+"SLIC, size 26",151,596,0.312

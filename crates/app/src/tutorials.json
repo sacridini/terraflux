@@ -964,6 +964,36 @@
      ]
     },
     {
+     "slug": "large-images",
+     "title": "Large images: tiles, time, memory and the cluster",
+     "template": null,
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/large-images/counts.csv",
+      "/data/tutorials/object-based-image-analysis/large-images/layouts.csv",
+      "/data/tutorials/object-based-image-analysis/large-images/margin.csv",
+      "/data/tutorials/object-based-image-analysis/large-images/scale.csv",
+      "/data/tutorials/object-based-image-analysis/large-images/seams_mr.csv",
+      "/data/tutorials/object-based-image-analysis/large-images/seams_rg.csv",
+      "/data/tutorials/object-based-image-analysis/large-images/tile_size.csv",
+      "/data/tutorials/object-based-image-analysis/large-images/time_multiresolution.csv",
+      "/data/tutorials/object-based-image-analysis/large-images/time_region_growing.csv",
+      "/data/tutorials/object-based-image-analysis/large-images/timings.csv"
+     ]
+    },
+    {
+     "slug": "deep-segmentation",
+     "title": "Deep segmentation: SAM and embeddings",
+     "template": null,
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/deep-segmentation/compare_naip.csv",
+      "/data/tutorials/object-based-image-analysis/deep-segmentation/compare_s2.csv",
+      "/data/tutorials/object-based-image-analysis/deep-segmentation/embed_accuracy.csv",
+      "/data/tutorials/object-based-image-analysis/deep-segmentation/sam_runs.csv"
+     ]
+    },
+    {
      "slug": "case-urban-cover-naip",
      "title": "Case study: urban cover of a neighbourhood from NAIP imagery",
      "template": null,

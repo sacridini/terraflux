@@ -1,0 +1,4 @@
+method,objects,mean_ha,inside_variance,shore_error_pct
+"SAM, 16 points",155,21.7,0.736,0.35
+"Multiresolution, scale 9",125,26.91,0.44,0.52
+"SLIC, size 46",148,22.73,0.39,0.49

@@ -1,0 +1,7 @@
+layout,threads,seconds,peak_mb
+striped GeoTIFF,1,25.758,242
+striped GeoTIFF,2,13.455,323
+tiled GeoTIFF,1,30.071,242
+tiled GeoTIFF,2,13.659,323
+in memory,1,12.43,552
+in memory,2,5.595,662

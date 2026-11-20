@@ -1,0 +1,6 @@
+grouping,patch,distinct_vectors,constant_columns,groups_with_a_point,accuracy
+mean bands (5 columns),,,,4,0.637
+"embeddings, patch 8",8,2599,295,5,0.762
+"embeddings, patch 16",16,2576,200,4,0.8
+"embeddings, patch 32",32,1877,205,4,0.725
+"embeddings, patch 64",64,953,102,2,0.438
