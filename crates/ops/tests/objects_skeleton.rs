@@ -78,6 +78,38 @@ fn an_l_turns_by_a_right_angle() {
 }
 
 #[test]
+fn a_straight_bar_has_no_curvature_at_any_slant() {
+    // (the raster staircase of a slanted line is not turning)
+    for deg in [0.0f64, 25.0, 45.0, 63.0] {
+        let (sn, cs) = deg.to_radians().sin_cos();
+        let o = shape(160, 160, 1.0, |r, c| {
+            let (x, y) = (c as f64 - 40.0, r as f64 - 40.0);
+            let (along, across) = (x * cs + y * sn, -x * sn + y * cs);
+            (0.0..=90.0).contains(&along) && across.abs() <= 2.5
+        });
+        let t = skel(&o);
+        assert!(get(&t, "skel_main_length") > 60.0, "{deg} degrees: length {}", get(&t, "skel_main_length"));
+        assert!(get(&t, "skel_curvature") < 0.005, "{deg} degrees: curvature {}", get(&t, "skel_curvature"));
+        assert!(get(&t, "skel_curvature_sd") < 0.01, "{deg} degrees: sd {}", get(&t, "skel_curvature_sd"));
+    }
+}
+
+#[test]
+fn an_arc_has_the_curvature_of_its_radius() {
+    for r in [20.0f64, 40.0, 64.0] {
+        let side = (r as usize + 12) * 2;
+        let o = shape(side, side, 1.0, |row, c| {
+            let (x, y) = (c as f64 - 6.0, row as f64 - 6.0);
+            let d = x.hypot(y);
+            // a quarter of a ring, 5 cells wide, centred on the radius
+            x >= 0.0 && y >= 0.0 && (d - r).abs() <= 2.5
+        });
+        let k = get(&skel(&o), "skel_curvature");
+        assert!((k * r - 1.0).abs() < 0.15, "radius {r}: curvature {k} against {}", 1.0 / r);
+    }
+}
+
+#[test]
 fn a_cross_has_four_branches_and_a_junction() {
     for thick in [1usize, 5] {
         let o = shape(61, 61, 1.0, |r, c| {
@@ -100,6 +132,8 @@ fn a_ring_is_one_branch_with_no_ends() {
     });
     let t = skel(&o);
     assert_eq!(counts(&t), (1.0, 0.0, 0.0));
+    // and it bends as a circle of radius 16 does
+    near(get(&t, "skel_curvature") * 16.0, 1.0, 0.2, "curvature");
     // the longest shortest path of a circle of radius 16 is half of it
     near(get(&t, "skel_main_length"), std::f64::consts::PI * 16.0, 6.0, "length");
 }

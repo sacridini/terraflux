@@ -35,8 +35,8 @@ pub(super) const SKELETON: &[&str] = &[
 /// The default `spur`: branches that end in a junction after fewer cells than this are cut.
 pub(super) const SPUR: usize = 3;
 
-/// The half width, in cells, of the window that smooths the main line before its turning is measured.
-const SMOOTH: usize = 2;
+/// The turn (radians) under which the first or last vertex of the simplified main line is a bend that goes on, not a corner.
+const BEND: f64 = 0.5;
 
 const N: usize = SKELETON.len();
 
@@ -361,8 +361,8 @@ fn of(s: &mut Scratch, inp: &Input, id: u32, fr: &Frame) -> [f64; N] {
             }
             at = s.pred[at] as usize;
         }
-        let (sum, sd) = curve(&pts);
-        out[7] = sum / length;
+        let (curv, sd) = curve(&pts, rw.max(rh));
+        out[7] = curv;
         out[8] = sd;
     }
     out
@@ -478,34 +478,64 @@ fn prune(s: &mut Scratch, w: usize, offs: &[isize; 8], spur: usize) {
     cells.retain(|&i| img[i as usize] & 1 == 1);
 }
 
-/// The total turning (radians) of the line after smoothing, and the standard deviation of the turning per unit length
-/// at its vertices.
-fn curve(pts: &[(f64, f64)]) -> (f64, f64) {
+/// The curvature of the main line (radians per map unit) and the standard deviation of the turning per map unit along
+/// it. The line is simplified first (Douglas and Peucker's algorithm, at one cell), so that the raster staircase of a
+/// straight slanted line is one segment and turns nowhere; the turning is then the sum of the angles at the vertices
+/// of what is left, over its length. A gentle bend (under `BEND`) at the first or last vertex is taken to go on past
+/// the end, so each end gets half of that turn (the polyline loses half of its end segments, a sharp corner does not
+/// continue).
+fn curve(pts: &[(f64, f64)], tol: f64) -> (f64, f64) {
     let n = pts.len();
     if n < 3 {
         return (0.0, 0.0);
     }
-    let sm: Vec<(f64, f64)> = (0..n)
-        .map(|i| {
-            let m = SMOOTH.min(i).min(n - 1 - i);
-            let k = (2 * m + 1) as f64;
-            let (x, y) = pts[i - m..=i + m].iter().fold((0.0, 0.0), |a, p| (a.0 + p.0, a.1 + p.1));
-            (x / k, y / k)
+    let mut keep = vec![false; n];
+    keep[0] = true;
+    keep[n - 1] = true;
+    let mut stack = vec![(0usize, n - 1)];
+    while let Some((a, b)) = stack.pop() {
+        let (pa, pb) = (pts[a], pts[b]);
+        let (dx, dy) = (pb.0 - pa.0, pb.1 - pa.1);
+        let len = dx.hypot(dy);
+        let mut far = (0.0, 0usize);
+        for (k, p) in pts.iter().enumerate().take(b).skip(a + 1) {
+            let d = if len == 0.0 {
+                (p.0 - pa.0).hypot(p.1 - pa.1)
+            } else {
+                ((p.0 - pa.0) * dy - (p.1 - pa.1) * dx).abs() / len
+            };
+            if d > far.0 {
+                far = (d, k);
+            }
+        }
+        if far.0 > tol {
+            keep[far.1] = true;
+            stack.push((a, far.1));
+            stack.push((far.1, b));
+        }
+    }
+    let poly: Vec<(f64, f64)> = pts.iter().zip(&keep).filter(|(_, k)| **k).map(|(p, _)| *p).collect();
+    let m = poly.len();
+    let seg: Vec<(f64, f64)> = poly.windows(2).map(|w| (w[1].0 - w[0].0, w[1].1 - w[0].1)).collect();
+    let l: Vec<f64> = seg.iter().map(|v| v.0.hypot(v.1)).collect();
+    let length: f64 = l.iter().sum();
+    if m < 3 || length == 0.0 || l.contains(&0.0) {
+        return (0.0, 0.0);
+    }
+    let t: Vec<f64> = (1..m - 1)
+        .map(|k| {
+            (seg[k - 1].0 * seg[k].1 - seg[k - 1].1 * seg[k].0)
+                .atan2(seg[k - 1].0 * seg[k].0 + seg[k - 1].1 * seg[k].1)
+                .abs()
         })
         .collect();
-    let (mut total, mut local) = (0.0f64, Vec::with_capacity(n));
-    for k in 1..n - 1 {
-        let (v1, v2) = ((sm[k].0 - sm[k - 1].0, sm[k].1 - sm[k - 1].1), (sm[k + 1].0 - sm[k].0, sm[k + 1].1 - sm[k].1));
-        let (l1, l2) = (v1.0.hypot(v1.1), v2.0.hypot(v2.1));
-        if l1 == 0.0 || l2 == 0.0 {
-            local.push(0.0);
-            continue;
-        }
-        let turn = (v1.0 * v2.1 - v1.1 * v2.0).atan2(v1.0 * v2.0 + v1.1 * v2.1).abs();
-        total += turn;
-        local.push(turn / ((l1 + l2) / 2.0));
-    }
-    let mean = local.iter().sum::<f64>() / local.len() as f64;
-    let var = local.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / local.len() as f64;
-    (total, var.sqrt())
+    // the pieces of the line: (length, turning), the half of each end segment and the span of each vertex
+    let end = |t: f64| if t < BEND { t / 2.0 } else { 0.0 };
+    let mut pieces = vec![(l[0] / 2.0, end(t[0]))];
+    pieces.extend(t.iter().enumerate().map(|(k, &t)| ((l[k] + l[k + 1]) / 2.0, t)));
+    pieces.push((l[m - 2] / 2.0, end(t[m - 3])));
+    let total: f64 = pieces.iter().map(|p| p.1).sum();
+    let mean = total / length;
+    let var = pieces.iter().map(|p| p.0 * (p.1 / p.0 - mean).powi(2)).sum::<f64>() / length;
+    (mean, var.sqrt())
 }

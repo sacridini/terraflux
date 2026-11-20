@@ -333,10 +333,14 @@ impl Operator for Features {
              object's cells (the smallest on a tie), and th_share, the share of ALL the object's cells that have it \
              (cells with no value in the layer count as none: when none is the most common, both are missing). The skeleton group (not in `basic`; Zhang and Suen's thinning of each object's raster, so the \
              values differ a little from eCognition's polygon skeleton): skel_main_length, the longest path of the \
-             skeleton in map units (a diagonal step is sqrt 2 cells), skel_width = area / main length, \
-             skel_length_width, skel_branches, skel_ends, skel_junctions, skel_branch_length (mean) and \
-             skel_curvature, the turning of the main line (radians, smoothed over a few cells) per map unit of its \
-             length, with skel_curvature_sd. \
+             skeleton in map units (a diagonal step is sqrt 2 cells), skel_width = area / main length (a \
+             branching network gets a width inflated by its branches), skel_length_width (skel_width and \
+             skel_length_width are missing for an object of one cell or of main length 0), skel_branches, \
+             skel_ends, skel_junctions, skel_branch_length (mean) and skel_curvature, the turning of the main \
+             line (radians) per map unit of its length: the line is simplified to a polyline within one cell \
+             (Douglas and Peucker, 1973, Cartographica 10(2):112-122, 10.3138/FM57-6770-U75U-7727), so the \
+             staircase of a slanted straight line does not count, and the angles at the vertices are summed; \
+             skel_curvature_sd is the standard deviation, along the line, of the turning per map unit. \
              The attributes join the objects' table: a column of an old name is replaced, the others kept.",
             Access::Global,
         )

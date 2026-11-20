@@ -706,7 +706,12 @@ pub const TIPS: &[(&str, &str)] = &[
          as any column. The `skeleton` group (not in `basic`) is for long thin things, roads, rivers, fields, \
          crowns: skel_main_length and skel_width, a high skel_length_width with a low skel_width picks the \
          linear ones, skel_branches and skel_junctions tell a network from a line, skel_curvature a winding \
-         river from a straight road. It thins the raster of each object, so the values differ a little from \
+         river from a straight road (about 1 / radius for an arc, near 0 for a straight line at any slant). \
+         skel_width is the area over the main length, so a branching network gets a width inflated by its \
+         branches. skel_width and skel_length_width are missing (NaN) for an object of one cell and for main \
+         length 0, and a rule reads missing as 0: a compact object can then pass below(skel_length_width, ...) \
+         by mistake; guard it with a test on skel_main_length (above(skel_main_length, 5, 10) and \
+         below(skel_length_width, ...)). It thins the raster of each object, so the values differ a little from \
          eCognition's polygon skeleton; `spur` (default 3 cells) cuts the small branches thinning leaves at \
          ragged edges.",
     ),
