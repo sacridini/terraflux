@@ -5122,7 +5122,7 @@ Do amt 0.3.1 (fase 5), **entra**: `hr_mcp`, `hr_kde` com as larguras de banda `h
   como no `data.rs`) ou os ajustes `res`, `dim_size`, `ext_factor`; a grade cresce sozinha quando as pontes não cabem,
   como no R, com um `ctx.warn`.
 - Um commit por fase em cada repositório (o do terraflux-py primeiro, depois o do Terraflux com o submódulo
-  atualizado), nesta ordem: 0, 1, 2, 3, 4, 5, 6, 7. Sem push nem release até o usuário pedir; no release, o
+  atualizado), nesta ordem: 0, 1, 1b, 2, 3, 4, 5, 6, 7. Sem push nem release até o usuário pedir; no release, o
   `website/data/ops.json` atualizado (os `move.*` novos).
 
 - **0. Harness e leitura (S).** Instalar o move2utils 0.4.6 (fixar o sha do commit) na biblioteca
@@ -5141,6 +5141,13 @@ Do amt 0.3.1 (fase 5), **entra**: `hr_mcp`, `hr_kde` com as larguras de banda `h
   `dop_max`, `hacc_max`, as colunas pelos nomes do Movebank e por ajuste); `move.thin_time` e `move.thin_distance`
   (a programação dinâmica em C++, linear, para trajetórias de 1e5+ pontos; a coluna `thin_selected` ou só os
   escolhidos). Testes contra o R nos fishers e na trajetória sintética.
+- **1b. Os valores ao longo do passo (S).** O `extract_covariates_along` do amt que faltou da fase 3: as células que
+  cada passo atravessa (a linha do início ao fim, na ordem do amt: conferir no R se é o `terra::extract` sobre a
+  linha e em que ordem vêm as células) e os seus valores. O amt devolve a lista de valores por passo; o `tf.move`
+  devolve igual (`extract_covariates_along`, bit a bit) e, a mais, os resumos por passo que a iSSF usa
+  (`along_summary`: média, mínimo, máximo, a subida e a descida acumuladas, o desnível |fim − início|), como colunas
+  `<covariável>_along_<resumo>`. No Terraflux, o ajuste `where = "along"` do `move.extract_covariates` com a lista dos
+  resumos. É o que mede se um passo corta o morro ou segue a curva de nível (o bloco seguinte).
 - **2. Áreas de vida do amt (M).** `hr_mcp` (o `chull` do R e os níveis pela distância ao centroide), `hr_kde` (as
   quatro larguras de banda; a soma dos núcleos por tiras da grade), `hr_locoh` (os três tipos, as uniões de
   polígonos pelo GEOS que o Terraflux já usa; conferir a ordem das uniões do `sf`), `hr_isopleths`, `hr_area`,
@@ -5189,6 +5196,53 @@ Do amt 0.3.1 (fase 5), **entra**: `hr_mcp`, `hr_kde` com as larguras de banda `h
    colunas (sem elas, calcula com os mesmos ajustes, como o `mt_dbbmm_ud.move2`).
 2. Várias trajetórias: uma banda por trajetória; somar ou ponderar as bandas fica para o `raster.calc`.
 3. O UD volta no CRS da entrada como no R (ou sempre no projetado, se o reamostrador do `terra` não der para portar
-   bit a bit).
-4. O harness com o move2utils no R 4.4.2 de `Depends` relaxado antes de instalar o R 4.5.
-5. O `emd` exato só se a licença do `emdist` permitir.
+   bit a bit). **Resolvido na leitura dos núcleos (2026-11-20):** a volta a lon/lat é o `terra::project` (GDAL e
+   PROJ escolhem a grade e reamostram, depois zera os negativos e renormaliza): não é portável bit a bit. O UD sai no
+   CRS projetado (o AEQD corrigido da trajetória), com uma nota; a reprojeção para lon/lat, quando pedida
+   (`crs = "input"`), pelo `raster.reproject` bilinear com a mesma limpeza e renormalização, testada por tolerância.
+4. O harness com o move2utils no R 4.4.2 de `Depends` relaxado antes de instalar o R 4.5. **Feito:** instalado
+   (commit b3304d6 do move2utils, `%LOCALAPPDATA%/R/move2utils-install.R`); o exemplo do README roda.
+5. O `emd` exato só se a licença do `emdist` permitir. **Resolvido:** o `emdist` 0.3-3 é MIT; o exato entra.
+
+**Notas da leitura dos núcleos** (2026-11-20; as manhas que valem para as fases 3 a 5):
+- A referência bit a bit é o próprio move2utils (ele não é bit a bit com o `move`: os seus testes de paridade usam
+  1e-6 a 1e-2); o `move` só confere por tolerância. As referências do R rodam com `OMP_NUM_THREADS=1` (a soma por
+  ponto da variância usa `omp atomic`: com mais threads nem o R se repete); no C++, a soma por janela em ordem crescente.
+- Tempo em minutos desde 1970; o otimizador é um Brent próprio do C (`[0, 1e15]`, `tol = 1e-8`, o `golden =
+  0.3819660` truncado, 500 iterações); o BIC `2f + log(ws)` contra `2(f_b + f_a) + 2 log(ws)`, só quebra se menor; o
+  `break_list` não é deduplicado (apesar do comentário). O R chama o `dbbmm2_omp`, que paraleliza as células de cada
+  passo de tempo: tiras de linhas com cada thread percorrendo todos os passos na ordem dá o mesmo resultado bit a bit.
+  `time_step` = `min(time_lag)/15` no dBBMM e `min(diff(t))/20.1` no dBGB; a normalização pelo `sum` em long double.
+- O dBGB precisa de um `acos` como o do mingw (x87), que o `rmath.hpp` não tem; o `cumsum` em long double também falta.
+- O `mt_corridor` usa o `st_buffer` do sf (30 segmentos por quadrante) com raio de meio segmento e o `st_intersects`
+  com os pontos médios de todas as trajetórias juntas: para bit a bit, o mesmo buffer do GEOS, não um círculo exato.
+  Os limites padrão são o `quantile` tipo 7 (0,75 da velocidade, 0,25 da variância circular).
+- O Sinkhorn passa pelo `dgemv` do BLAS de referência: tolerância de 1e-12, como previsto.
+
+### O bloco seguinte: o movimento no relevo (pedido de 2026-11-20)
+
+A pergunta do usuário: um animal como a cabra-da-montanha anda ao longo dos morros em vez de subir e descer em linha
+reta; os modelos consideram a topografia? Os deste bloco não: o dBBMM, o dBGB, o KDE e o MCP descrevem onde o animal
+esteve, e a ponte entre duas posições é browniana no plano (com posições espaçadas, o UD põe probabilidade por cima do
+vale). A topografia entra pela **seleção de passos** (iSSF; Avgar et al. 2016, Signer et al. 2019) e pelo **custo
+energético** (enerscape; Berti et al. 2022, Pontzer 2016). Depois deste bloco, na ordem:
+
+1. **iSSF** (a fase 4 do plano do `tf.move`, em `extern/terraflux-py/IDEAS.md`): `fit_issf` / `fit_clogit` (o
+   `clogit` do survival portado, Newton-Raphson, bit a bit), `log_rss`, `issf` (uma chamada), `simulate_path` (o
+   núcleo de redistribuição), `resistance` (a seleção relativa virando resistência, Zeller et al. 2012, Keeley et al.
+   2016). As covariáveis de relevo que fazem a diferença, todas já possíveis com o `surface.metrics` (declividade,
+   orientação, TPI, TRI, VRM) e o 1b deste bloco: no fim do passo (a declividade, a rugosidade, a distância ao terreno
+   de fuga, por exemplo vertentes acima de ~40° para cabras), ao longo do passo (o desnível e a subida acumulada: um
+   coeficiente negativo quer dizer que o animal segue as curvas de nível) e as interações com o movimento
+   (`log_sl × declividade`, `cos_ta × rugosidade`: passos mais curtos e mais voltas no íngreme). As trajetórias
+   simuladas pelo modelo contornam os morros como o animal e viram um mapa de conectividade (Signer et al. 2024).
+   Operadores `move.fit_issf`, `move.log_rss`, `move.simulate_path`, `move.resistance`.
+2. **enerscape** como `cost.energy_landscape` (o custo de transporte pela declividade e a massa do animal, Pontzer
+   2016; bit a bit com o enerscape 1.2.0 no R): como covariável da iSSF e como resistência do caminho de menor custo,
+   do Circuitscape e do Omniscape, cujo ótimo segue a curva de nível.
+3. **Distância sobre o relevo** (pequeno): o comprimento do passo na superfície (com o DEM ao longo da linha), ao
+   lado do planar, para as velocidades em terreno íngreme.
+4. **Um template "movimento no relevo"**: DEM → declividade, TRI e custo energético → passos e passos aleatórios →
+   covariáveis no fim e ao longo → iSSF → trajetórias simuladas e resistência → corrente; com uma trajetória simulada e
+   um DEM do `nlm.*` para rodar como está, pronto para o "Use my data". Mais o tópico `movement` do guia do MCP
+   estendido com o relevo e uma parte nova da série de tutoriais de movimento.
