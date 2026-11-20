@@ -788,8 +788,9 @@ pub const TIPS: &[(&str, &str)] = &[
          class names (`unclassified` counts), the result has the seed's class. mode best gives each seed its best \
          candidate, best pairs first; all lets a seed whose best was taken fall back to the next in the same pass. \
          It repeats until nothing joins (`max_passes`), so a control.repeat is not needed. Texture, skeleton and \
-         context features cannot be derived for the joined object and are refused; the box stands for length and \
-         width. The level above and the other attributes are dropped, so run objects.features after it.",
+         context features cannot be derived for the joined object and are refused; length and width are those of \
+         the rotated minimum-area rectangle, as objects.features gives them. improve false with no threshold \
+         joins every pair (a warning says so). The level above and the other attributes are dropped, so run objects.features after it.",
     ),
     (
         "objects.extrema",

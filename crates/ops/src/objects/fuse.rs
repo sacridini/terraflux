@@ -4,11 +4,12 @@
 //! (`objects.merge`) looks at the two objects; this looks at the result.
 //!
 //! The joined object's attributes are not computed again from its cells. Each group keeps what adds up: its cells,
-//! its perimeter in cell edges (the sum of the two less twice the border they share, from the neighbour lists), its
-//! box, and per band the count, the sum and the sum of squares (of the values less the band's mean, as
-//! `stats_table`), so the cells, area, perimeter, length and width (the sides of the box, an approximation of the
-//! rotated rectangle `objects.features` uses), compactness, shape_index, border_index, and the means and deviations
-//! of the bands come in constant time. What cannot be derived this way (texture, skeleton, context, anything over
+//! its perimeter in cell edges (the sum of the two less twice the border they share, from the neighbour lists), the
+//! convex hull of its cells' corners, and per band the count, the sum and the sum of squares (of the values less the
+//! band's mean, as `stats_table`), so the cells, area, perimeter, and the means and deviations of the bands come in
+//! constant time, and the length and width (the sides of the minimum-area rectangle, by rotating calipers on the hull
+//! of the two groups' hulls, the code and so the numbers of `objects.features`), compactness, shape_index and
+//! border_index in the time of the hulls' points. What cannot be derived this way (texture, skeleton, context, anything over
 //! the neighbours) is refused with the list of what can.
 //!
 //! A pass: the expression is evaluated in batch over a table with a row per pair of neighbours (and, for `improve`,
@@ -31,6 +32,7 @@ use smallvec::SmallVec;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_raster::vector::Column;
 
+use super::features::{hull, hull_rect, merge_hulls};
 use super::levels::{class_numbers, regroup};
 use super::{Objects, band_names, big, find, objects_in, stats_table};
 use crate::algebra::{Expr, Script, Stmt, parse_script_objects};
@@ -55,6 +57,44 @@ enum Feat {
     BorderIndex,
     Mean(usize),
     Sd(usize),
+}
+
+impl Feat {
+    /// Whether the attribute comes from the rotated rectangle (the hull).
+    fn needs_rect(self) -> bool {
+        matches!(self, Feat::Length | Feat::Width | Feat::LengthWidth | Feat::Compactness | Feat::BorderIndex)
+    }
+}
+
+/// The convex hull of the cells' corners of each object, as `objects.features` takes it: from the runs of each row.
+fn hulls_of(o: &Objects) -> Vec<Vec<(i64, i64)>> {
+    let (w, h) = (o.grid.width, o.grid.height);
+    // (the runs of each row: object, row, first and last column)
+    let rows: Vec<Vec<(u32, u32, u32, u32)>> = (0..h)
+        .into_par_iter()
+        .map(|r| {
+            let mut v: Vec<(u32, u32, u32, u32)> = Vec::new();
+            let mut c = 0;
+            while c < w {
+                let l = o.labels[r * w + c];
+                let a = c;
+                while c + 1 < w && o.labels[r * w + c + 1] == l {
+                    c += 1;
+                }
+                if l != 0 {
+                    v.push((l, r as u32, a as u32, c as u32));
+                }
+                c += 1;
+            }
+            v
+        })
+        .collect();
+    let mut pts: Vec<Vec<(i64, i64)>> = vec![Vec::new(); o.count];
+    for &(l, r, a, b) in rows.iter().flatten() {
+        let (r, a, b) = (r as i64, a as i64, b as i64 + 1);
+        pts[l as usize - 1].extend([(a, r), (a, r + 1), (b, r), (b, r + 1)]);
+    }
+    pts.into_par_iter().map(hull).collect()
 }
 
 const SHAPES: [(&str, Feat); 9] = [
@@ -178,7 +218,8 @@ struct State {
     cells: Vec<f64>,
     /// The perimeter in cell edges: those that face another group, no object or the image's edge.
     edges: Vec<f64>,
-    bbox: Vec<[u32; 4]>,
+    /// The convex hull of each group's cell corners, counter-clockwise (the joined object's is the hull of two).
+    hulls: Vec<Vec<(i64, i64)>>,
     /// Per group and band: the count, the sum and the sum of squares of the values less the band's centre.
     bands: Vec<f64>,
     nb: usize,
@@ -197,7 +238,8 @@ struct State {
 }
 
 impl State {
-    fn new(o: &Objects, data: &[Arc<Vec<f64>>]) -> State {
+    /// `shapes`: whether the length and width are needed (the hulls are kept only then).
+    fn new(o: &Objects, data: &[Arc<Vec<f64>>], shapes: bool) -> State {
         let n = o.count;
         let (w, h) = (o.grid.width, o.grid.height);
         let (rw, rh) = o.grid.resolution();
@@ -261,11 +303,12 @@ impl State {
                 bands[(g * nb + k) * 3..(g * nb + k) * 3 + 3].copy_from_slice(&st[g * 3..g * 3 + 3]);
             }
         }
+        let hulls = if shapes { hulls_of(o) } else { Vec::new() };
         State {
             live: vec![true; n],
             cells: o.cells.iter().map(|&c| c as f64).collect(),
             edges,
-            bbox: o.boxes.clone(),
+            hulls,
             bands,
             nb,
             centre: per.iter().map(|p| p.0).collect(),
@@ -279,7 +322,9 @@ impl State {
     }
 
     /// One attribute of a group (`b` none) or of the group joined to another (with the edges they share).
-    fn feat(&self, f: Feat, a: usize, b: Option<(usize, u32)>) -> f64 {
+    ///
+    /// `rect` is the (length, width) of the minimum-area rectangle around it (see [`State::rect`]).
+    fn feat(&self, f: Feat, a: usize, b: Option<(usize, u32)>, rect: (f64, f64)) -> f64 {
         if let Feat::Mean(k) | Feat::Sd(k) = f {
             let add = |j: usize| {
                 let at = |g: usize| self.bands[(g * self.nb + k) * 3 + j];
@@ -296,13 +341,7 @@ impl State {
         let area = cells * self.rw * self.rh;
         let edges = self.edges[a] + b.map_or(0.0, |(x, s)| self.edges[x] - 2.0 * s as f64);
         let perimeter = edges * (self.rw + self.rh) / 2.0;
-        let mut bx = self.bbox[a];
-        if let Some((x, _)) = b {
-            let y = self.bbox[x];
-            bx = [bx[0].min(y[0]), bx[1].min(y[1]), bx[2].max(y[2]), bx[3].max(y[3])];
-        }
-        let (bh, bw) = ((bx[2] - bx[0] + 1) as f64 * self.rh, (bx[3] - bx[1] + 1) as f64 * self.rw);
-        let (length, width) = (bh.max(bw), bh.min(bw));
+        let (length, width) = rect;
         match f {
             Feat::Cells => cells,
             Feat::Area => area,
@@ -317,15 +356,36 @@ impl State {
         }
     }
 
+    /// The length and the width of a group or of two joined, as `objects.features` measures them: the sides of the
+    /// minimum-area rectangle around the hull of the cells' corners.
+    fn rect(&self, a: usize, b: Option<(usize, u32)>) -> (f64, f64) {
+        match b {
+            None => hull_rect(&self.hulls[a], self.rw, self.rh),
+            Some((x, _)) => hull_rect(&merge_hulls(&self.hulls[a], &self.hulls[x]), self.rw, self.rh),
+        }
+    }
+
     /// The expression over the items, in batch: a value per item.
     fn evaluate(&self, script: &Script, used: &[(String, Feat)], items: &[Item]) -> Result<Vec<f64>> {
         if items.is_empty() {
             return Ok(Vec::new());
         }
+        // (the rectangles once per item, when an attribute needs them)
+        let needs = used.iter().any(|(_, f)| f.needs_rect());
+        let rects: Vec<(f64, f64)> = if needs {
+            items.par_iter().with_min_len(512).map(|&(a, b)| self.rect(a, b)).collect()
+        } else {
+            vec![(f64::NAN, f64::NAN); items.len()]
+        };
         let cols: Vec<(String, Column)> = used
             .iter()
             .map(|(n, f)| {
-                let x: Vec<f64> = items.par_iter().with_min_len(2048).map(|&(a, b)| self.feat(*f, a, b)).collect();
+                let x: Vec<f64> = items
+                    .par_iter()
+                    .zip(rects.par_iter())
+                    .with_min_len(2048)
+                    .map(|(&(a, b), &r)| self.feat(*f, a, b, r))
+                    .collect();
                 (n.clone(), Column::Numbers(x))
             })
             .collect();
@@ -350,8 +410,10 @@ impl State {
         self.class[to] = self.class[seed];
         self.edges[to] += self.edges[from] - 2.0 * shared as f64;
         self.cells[to] += self.cells[from];
-        let (p, q) = (self.bbox[to], self.bbox[from]);
-        self.bbox[to] = [p[0].min(q[0]), p[1].min(q[1]), p[2].max(q[2]), p[3].max(q[3])];
+        if !self.hulls.is_empty() {
+            let gone = std::mem::take(&mut self.hulls[from]);
+            self.hulls[to] = merge_hulls(&self.hulls[to], &gone);
+        }
         let w = self.nb * 3;
         for j in 0..w {
             self.bands[to * w + j] += self.bands[from * w + j];
@@ -616,9 +678,9 @@ impl Operator for Fuse {
              width over area: 1 for a rectangle, higher is less compact, so goal min), shape_index, border_index, \
              length, width, length_width, area, cells, perimeter, and with the image mean_<band> and sd_<band> \
              (mean_nir > 0.3, sd_red, compactness * 2 + sd_nir). Its attributes are derived from sums the groups keep, \
-             not computed again from the cells: the box's sides stand for the length and the width (a close \
-             approximation of the rotated rectangle objects.features measures), and anything that needs the cells or \
-             the neighbours (texture, skeleton, context) is refused with the list of what works. `seeds` are the \
+             not computed again from the cells: the length and the width are the sides of the rotated \
+             minimum-area rectangle, from the convex hull the groups keep (the numbers objects.features gives for \
+             the result), and anything that needs the cells or the neighbours (texture, skeleton, context) is refused with the list of what works. `seeds` are the \
              classes that take (default all), `candidates` the classes they take from (default all, `unclassified` \
              counts as a class); the joined object has the seed's class. `goal` max (the default) or min says which \
              is better; `improve` (the default) joins only when the joined object is at least as good as the seed's \
@@ -711,6 +773,15 @@ impl Operator for Fuse {
         if threshold.is_some_and(f64::is_nan) {
             return Err(bad("threshold is not a number".into()));
         }
+        let improve: bool = args.param("improve", true)?;
+        if !improve && threshold.is_none() {
+            // (a warning, not a refusal: joining every pair is what some want, to rebuild the clumps of a class)
+            ctx.warn(format!(
+                "node {node:?}: improve is false and there is no threshold, so nothing limits the joins: every pair \
+                 of neighbours qualifies and the objects are joined into the clumps of their neighbours (of the \
+                 candidates' classes); give a threshold, or leave improve true"
+            ));
+        }
         let max_passes: i64 = args.param("max_passes", 100)?;
         if max_passes < 1 {
             return Err(bad(format!("max_passes {max_passes}: 1 or more")));
@@ -719,14 +790,15 @@ impl Operator for Fuse {
             seed_ok: class_flags(o, args.opt_param("seeds")?).map_err(|e| bad(format!("seeds: {}", e.0)))?,
             cand_ok: class_flags(o, args.opt_param("candidates")?).map_err(|e| bad(format!("candidates: {}", e.0)))?,
             sign,
-            improve: args.param("improve", true)?,
+            improve,
             threshold,
             all,
             max_passes: max_passes as usize,
             full: false,
         };
         let data: &[Arc<Vec<f64>>] = image.as_ref().map_or(&[], |l| l.data.as_slice());
-        let mut st = State::new(o, data);
+        let needs = used.iter().any(|(_, f)| f.needs_rect());
+        let mut st = State::new(o, data, needs);
         let (mut parent, joined) = passes(&mut st, &script, &used, &plan).map_err(|e| bad(e.0))?;
         let table_of = |x: &Objects| match &image {
             Some(l) => stats_table(x, &l.names, &l.data),
@@ -832,7 +904,7 @@ mod tests {
             let script = parse_script_objects(text).unwrap();
             let used = names_of(&script, &bands).unwrap();
             let run = |full: bool| {
-                let mut st = State::new(&o, &data);
+                let mut st = State::new(&o, &data, true);
                 let plan = Plan {
                     seed_ok: vec![true; 3],
                     cand_ok: vec![true, true, false],
@@ -850,5 +922,64 @@ mod tests {
             assert!(a.1 > 0, "{text}: nothing joined, the case tests nothing");
             assert!(a == b, "{text}: the incremental passes differ from the full ones");
         }
+    }
+
+    /// The length, width and compactness of the joined objects against `objects.features` on the result.
+    #[test]
+    fn the_joined_rectangle_is_the_one_objects_features_measures() {
+        let (w, h) = (64, 48);
+        let mut s = 11u64;
+        // 40 Voronoi cells of random seeds: convex, so their unions are ragged
+        let seeds: Vec<(f64, f64)> = (0..40).map(|_| (lcg(&mut s) * w as f64, lcg(&mut s) * h as f64)).collect();
+        let region: Vec<u64> = (0..w * h)
+            .map(|i| {
+                let (x, y) = ((i % w) as f64, (i / w) as f64);
+                let d = |p: &(f64, f64)| (p.0 - x).powi(2) + (p.1 - y).powi(2);
+                let best = (0..seeds.len()).min_by(|&a, &b| d(&seeds[a]).total_cmp(&d(&seeds[b]))).unwrap();
+                best as u64 + 1
+            })
+            .collect();
+        let mut g = Grid::new(w, h);
+        g.transform = [0.0, 30.0, 0.0, 0.0, 0.0, -20.0];
+        let o = Objects::from_regions(Arc::new(g), &region, 4);
+        let script = parse_script_objects("compactness").unwrap();
+        let used = names_of(&script, &[]).unwrap();
+        let mut st = State::new(&o, &[], true);
+        let plan = Plan {
+            seed_ok: vec![true],
+            cand_ok: vec![true],
+            sign: -1.0,
+            improve: false,
+            threshold: Some(1.4),
+            all: false,
+            max_passes: 2,
+            full: false,
+        };
+        let (mut parent, joined) = passes(&mut st, &script, &used, &plan).unwrap();
+        assert!(joined > 5, "{joined} joins");
+        let groups: Vec<u32> = (0..o.count as u32).map(|k| find(&mut parent, k)).collect();
+        let (cut, new_of) = regroup(&o, &groups).unwrap();
+        assert!(cut.count < o.count && cut.count > 1);
+        let image = Value::Map(crate::Map::new(cut.grid.clone(), vec![1.0; cut.grid.cells()]));
+        let inputs = [("objects".to_string(), Value::Objects(Arc::new(cut))), ("image".to_string(), image)];
+        let params = serde_json::json!({ "features": ["length", "width", "compactness"] });
+        let params = params.as_object().cloned().unwrap();
+        let args = Args { node: "n", inputs: inputs.into_iter().collect(), params: &params };
+        let reg = Registry::standard();
+        let out = reg.get("objects.features").unwrap().run(&mut Ctx::default(), &args).unwrap();
+        let Value::Table(t) = &out["table"] else { panic!("table") };
+        let col = |n: &str| t.column(n).unwrap().to_vec();
+        let (len, wid, comp) = (col("length"), col("width"), col("compactness"));
+        let mut multi = 0;
+        for g in (0..o.count).filter(|&g| st.live[g]) {
+            let at = new_of[g] as usize - 1;
+            let (l, wd) = st.rect(g, None);
+            let c = st.feat(Feat::Compactness, g, None, (l, wd));
+            for (a, b, what) in [(l, len[at], "length"), (wd, wid[at], "width"), (c, comp[at], "compactness")] {
+                assert!((a - b).abs() <= 1e-9 * b.abs().max(1.0), "group {g}, {what}: {a} against {b}");
+            }
+            multi += groups.iter().filter(|&&r| r as usize == g).count().min(2) - 1;
+        }
+        assert!(multi > 5, "{multi} joined objects checked");
     }
 }

@@ -958,7 +958,7 @@ const SHAPE: &[&str] = &[
 ];
 
 /// The convex hull of integer points, counter-clockwise, without collinear points (Andrew's monotone chain).
-fn hull(mut p: Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+pub(super) fn hull(mut p: Vec<(i64, i64)>) -> Vec<(i64, i64)> {
     p.sort_unstable();
     p.dedup();
     if p.len() < 3 {
@@ -1020,6 +1020,18 @@ fn min_rect(h: &[(f64, f64)]) -> (f64, f64) {
         }
     }
     (best.1.max(best.2), best.1.min(best.2))
+}
+
+/// The hull of two hulls joined: the hull of the points of both (the hull of a union is that of the hulls' corners).
+pub(super) fn merge_hulls(a: &[(i64, i64)], b: &[(i64, i64)]) -> Vec<(i64, i64)> {
+    hull([a, b].concat())
+}
+
+/// The sides (long, short) of the minimum-area rectangle around a hull of cell corners, in map units (the cell's
+/// sides `rw` and `rh`): the length and width of `shape_of`.
+pub(super) fn hull_rect(h: &[(i64, i64)], rw: f64, rh: f64) -> (f64, f64) {
+    let h: Vec<(f64, f64)> = h.iter().map(|&(c, r)| (c as f64 * rw, r as f64 * rh)).collect();
+    min_rect(&h)
 }
 
 fn shape(inp: &Input, want: Want) -> Result<Columns> {

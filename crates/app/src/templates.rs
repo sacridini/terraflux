@@ -4994,7 +4994,7 @@ id = "joined"
 op = "objects.fuse"
 inputs = { objects = "crowns.objects" }
 params = { seeds = ["canopy"], candidates = ["canopy"], fitting = "compactness", goal = "min", threshold = 1.5, improve = false }
-note = "The pieces that the small h over-split are joined back while the union stays compact (at most 1.5; `improve` off, so the threshold alone decides) (compactness, the bounding rectangle's area over the object's: 1 for a rectangle, about 1.27 for a disc, more for a ragged outline)."
+note = "The pieces that the small h over-split are joined back while the union stays compact (at most 1.5; `improve` off, so the threshold alone decides) (compactness, the area of the smallest rotated rectangle around the object over its own: 1 for a rectangle, about 1.27 for a disc, more for a ragged outline)."
 why = "Fusion by the result, as eCognition's: the shape of the whole decides, not the pieces."
 
 [[nodes]]

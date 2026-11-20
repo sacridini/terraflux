@@ -279,7 +279,7 @@ fn the_class_of_the_seed_is_kept_and_the_level_above_dropped() {
     let (out, warnings) = fuse_with(
         &o,
         Some(img),
-        serde_json::json!({ "fitting": "mean_b1", "improve": false, "seeds": ["seed"], "candidates": ["cand"] }),
+        serde_json::json!({ "fitting": "mean_b1", "improve": false, "threshold": -1e9, "seeds": ["seed"], "candidates": ["cand"] }),
     );
     let f = objects_of(&out.unwrap());
     assert!(f.parent.is_none());
@@ -330,5 +330,21 @@ fn the_same_objects_on_one_and_eight_threads() {
         let eight = run(8, params.clone());
         assert!(one.1 < 1600, "{params}: nothing joined");
         assert_eq!(one, eight, "{params}");
+    }
+}
+
+#[test]
+fn improve_off_without_a_threshold_warns_that_nothing_limits_the_joins() {
+    let o = building();
+    let (out, warnings) =
+        fuse_with(&o, None, serde_json::json!({ "fitting": "compactness", "goal": "min", "improve": false }));
+    assert_eq!(objects_of(&out.unwrap()).count, 1);
+    assert!(warnings.iter().any(|w| w.contains("nothing limits the joins")), "{warnings:?}");
+    // with a threshold, or with improve on, no warning
+    for p in [
+        serde_json::json!({ "fitting": "compactness", "goal": "min", "improve": false, "threshold": 2.0 }),
+        serde_json::json!({ "fitting": "compactness", "goal": "min" }),
+    ] {
+        assert!(fuse_with(&o, None, p).1.is_empty());
     }
 }
