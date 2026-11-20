@@ -1,0 +1,11 @@
+class,objects,measure,median,q1,q3
+linear,11,area,878.8,662.6,1071.9
+linear,11,main length,122.3,118.1,130.4
+linear,11,width,7.4,6.1,8.4
+linear,11,length / width,17.1,13.3,20.7
+linear,11,branches,38.0,25.0,58.0
+compact,10,area,583.0,545.2,757.9
+compact,10,main length,67.1,63.3,78.4
+compact,10,width,8.8,8.5,10.7
+compact,10,length / width,7.8,7.0,8.9
+compact,10,branches,41.0,25.0,46.5

@@ -1,0 +1,6 @@
+setting,objects,joined,largest_m2
+"improve, no threshold",1611,383,2106.0
+"improve, threshold 1.5",2282,154,679.3
+"no improve, threshold 1.5 (the page)",2242,168,751.0
+"improve and threshold 1.5, mode all",2282,154,679.3
+"no improve, no threshold",735,121,63572.0

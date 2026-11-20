@@ -983,6 +983,44 @@
       "/data/tutorials/object-based-image-analysis/shaping-objects/water_before.csv",
       "/data/tutorials/object-based-image-analysis/shaping-objects/water_report.csv"
      ]
+    },
+    {
+     "slug": "tree-crowns",
+     "title": "Separate tree crowns: split, fuse and find the tops",
+     "template": "Separate tree crowns",
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/tree-crowns/distance.csv",
+      "/data/tutorials/object-based-image-analysis/tree-crowns/fuse.csv",
+      "/data/tutorials/object-based-image-analysis/tree-crowns/fuse_check.csv",
+      "/data/tutorials/object-based-image-analysis/tree-crowns/fuse_fitting.csv",
+      "/data/tutorials/object-based-image-analysis/tree-crowns/fuse_modes.csv",
+      "/data/tutorials/object-based-image-analysis/tree-crowns/fuse_report.csv",
+      "/data/tutorials/object-based-image-analysis/tree-crowns/h.csv",
+      "/data/tutorials/object-based-image-analysis/tree-crowns/min.csv",
+      "/data/tutorials/object-based-image-analysis/tree-crowns/neck.csv",
+      "/data/tutorials/object-based-image-analysis/tree-crowns/radius.csv",
+      "/data/tutorials/object-based-image-analysis/tree-crowns/sigma.csv",
+      "/data/tutorials/object-based-image-analysis/tree-crowns/split_report.csv",
+      "/data/tutorials/object-based-image-analysis/tree-crowns/stages.csv"
+     ]
+    },
+    {
+     "slug": "roads-and-rivers-by-the-skeleton",
+     "title": "Roads and rivers by the skeleton: long thin objects",
+     "template": "Roads and rivers by the skeleton",
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/roads-and-rivers-by-the-skeleton/classes.csv",
+      "/data/tutorials/object-based-image-analysis/roads-and-rivers-by-the-skeleton/linear_top.csv",
+      "/data/tutorials/object-based-image-analysis/roads-and-rivers-by-the-skeleton/s2_classes.csv",
+      "/data/tutorials/object-based-image-analysis/roads-and-rivers-by-the-skeleton/s2_top.csv",
+      "/data/tutorials/object-based-image-analysis/roads-and-rivers-by-the-skeleton/same_area.csv",
+      "/data/tutorials/object-based-image-analysis/roads-and-rivers-by-the-skeleton/shapes.tif",
+      "/data/tutorials/object-based-image-analysis/roads-and-rivers-by-the-skeleton/spur.csv",
+      "/data/tutorials/object-based-image-analysis/roads-and-rivers-by-the-skeleton/toy.csv",
+      "/data/tutorials/object-based-image-analysis/roads-and-rivers-by-the-skeleton/toy_spur.csv"
+     ]
     }
    ]
   },

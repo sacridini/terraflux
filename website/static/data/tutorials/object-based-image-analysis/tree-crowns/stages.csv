@@ -1,0 +1,5 @@
+stage,objects
+Canopy clumps (segment.threshold),726
+Crowns after objects.split,2549
+After objects.fuse,2242
+Tops (objects.extrema),471
