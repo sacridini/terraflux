@@ -926,6 +926,24 @@
      ]
     },
     {
+     "slug": "editing-by-hand",
+     "title": "Editing by hand: merge, cut and delete",
+     "template": null,
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/editing-by-hand/accuracy.csv",
+      "/data/tutorials/object-based-image-analysis/editing-by-hand/alternatives.csv",
+      "/data/tutorials/object-based-image-analysis/editing-by-hand/changes.csv",
+      "/data/tutorials/object-based-image-analysis/editing-by-hand/matrix_after.csv",
+      "/data/tutorials/object-based-image-analysis/editing-by-hand/matrix_before.csv",
+      "/data/tutorials/object-based-image-analysis/editing-by-hand/other_segmentations.csv",
+      "/data/tutorials/object-based-image-analysis/editing-by-hand/reference_samples.csv",
+      "/data/tutorials/object-based-image-analysis/editing-by-hand/report.csv",
+      "/data/tutorials/object-based-image-analysis/editing-by-hand/training_counts.csv",
+      "/data/tutorials/object-based-image-analysis/editing-by-hand/training_samples.csv"
+     ]
+    },
+    {
      "slug": "change-by-objects",
      "title": "Change by objects: two dates and a fuzzy transition matrix",
      "template": "Land cover change by objects",

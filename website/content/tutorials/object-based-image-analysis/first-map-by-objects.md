@@ -16,7 +16,8 @@ made of many pixels that look alike. **Object-based image analysis** (OBIA) star
 **objects**, patches of neighbouring pixels with similar colours, and then classifies the objects instead of the
 pixels. In this tutorial you will do it from start to end on an example image that comes with a template: look at the
 objects, tell the program what a few of them are by clicking on them, read the map it makes, check how good the map
-is, and take the polygons to a GIS. At the end, you will do the same with an image of your own.
+is, and take the polygons to a GIS. At the end, you will do the same with an image of your own. This is the first part of a series: each later part takes
+one of these steps and goes deeper (the list is at the end).
 
 ## The idea
 
@@ -42,6 +43,12 @@ The flow of this tutorial has five steps, and each is a node of the model:
 Nothing but Terraflux: the template draws its own image, a synthetic scene of six bands (blue, green, red, near
 infrared and two short-wave infrared) with five classes, so the answers are known. The last section shows how to
 replace it with an image of yours: a file with a layer per band.
+
+The scene is 120 by 120 cells. The first picture below shows it in true colour and in false colour (near
+infrared, red and green, in which living vegetation is red), and the map of classes it was drawn from. That map is
+the truth, which a real image never gives you: here it lets us tell how good the result is.
+
+![The synthetic image and its classes](/img/tutorials/object-based-image-analysis/first-map-by-objects/image.png "The scene of the template: true colour, false colour, and the five classes it was drawn from. The edges between classes are blurred and every band has noise, as in a real image.")
 
 ## Open the template and run it
 
@@ -91,9 +98,12 @@ nodes it needs run, and the Viewer shows the map of classes.
 
 ## Look at the objects
 
-Click the node `segments`. The Viewer shows the objects, each outlined, and says how many there are. In the controls
+Click the node `segments`. The Viewer shows the objects, each outlined, and says how many there are: 116 in this
+scene. In the controls
 beside the map, **Fill** chooses how they are coloured (*no fill*, *by class* once they have classes, or *a colour
 each*), and **Outline** and *width* the lines.
+
+![The objects over the image](/img/tutorials/object-based-image-analysis/first-map-by-objects/objects.png "The 116 objects of the template, outlined over the image in true colour. An object stops where the colour changes; a big uniform area (the town in the middle) is cut into a few large objects.")
 
 - Move the pointer over the map: the object under it is told and outlined.
 - Click an object to select it. Below the map the attribute table has a row per object, and the selected object's
@@ -101,10 +111,32 @@ each*), and **Outline** and *width* the lines.
   to let go.
 - Click `features` and look at the table: the columns are what the classifier will read.
 
+![One object and its neighbours](/img/tutorials/object-based-image-analysis/first-map-by-objects/selected.png "An object selected (orange) and, after N, its neighbours (blue), drawn here as the Viewer draws them. The inspector lists the attributes of the selected object.")
+
 The size of the objects comes from the **scale** of the segmentation. The template gives none, so
 [[segment.multiresolution]] takes the first scale that [[segment.scale]] suggests for the image (the `scale` output
-says which one). Select `segments`, set `scale` in the Node pane to a larger value, run again, and the objects are
-larger and fewer; to a smaller one, and they are smaller and more numerous.
+says which one: 1.92 here). Select `segments`, set `scale` in the Node pane to a larger value, run again, and the
+objects are larger and fewer; to a smaller one, and they are smaller and more numerous. Move the slider to see it
+on this scene, with the scale from half to four times the suggestion.
+
+```tfslider
+label: Scale (times the suggested 1.92)
+caption: "The same image segmented with the scale set to 0.5, 1, 2 and 4 times the one that segment.scale suggests (shape 0.1 and compactness 0.5, the node's defaults). Each is a run of segment.multiresolution."
+frames:
+  - { value: 0.5, src: /img/tutorials/object-based-image-analysis/first-map-by-objects/scale_0.5.png, caption: "Scale 0.96", stats: { Objects: "401" } }
+  - { value: 1, src: /img/tutorials/object-based-image-analysis/first-map-by-objects/scale_1.png, caption: "Scale 1.92 (the suggestion)", stats: { Objects: "116" } }
+  - { value: 2, src: /img/tutorials/object-based-image-analysis/first-map-by-objects/scale_2.png, caption: "Scale 3.85", stats: { Objects: "30" } }
+  - { value: 4, src: /img/tutorials/object-based-image-analysis/first-map-by-objects/scale_4.png, caption: "Scale 7.7", stats: { Objects: "17" } }
+chart:
+  type: line
+  data: /data/tutorials/object-based-image-analysis/first-map-by-objects/scales.csv
+  x: factor
+  y: [objects]
+  ylabel: Objects
+```
+
+At half the scale the town is broken into pieces; at four times it, the image has 17 objects and some of them hold
+two classes. The suggestion sits between.
 
 !!! tip
     Objects should be about the size of the things you want to map: smaller than a forest stand, a few times larger
@@ -132,11 +164,24 @@ The template comes with 38 example points. Replace them with yours, by clicking 
 
 </div>
 
+![The template's samples on the objects](/img/tutorials/object-based-image-analysis/first-map-by-objects/samples.png "The template's 38 example points, a coloured dot on an object each, over the objects: eight per class, six of grassland. The palette would mark each class *few*.")
+
 Apply adds two nodes to the model, a table of your points and the points made from it, and connects them to the node
 `training`, in place of the template's own points. Run to `plot` again: the map has changed with your examples.
 Click `classify` and set the **Fill** to *by class*: each object has the colour of its class, and the inspector tells
 the probability of each class and the **margin** (the largest probability minus the next). Where the margin is low,
 the forest hesitates: those are the objects where one more sample helps most.
+
+![The map of classes](/img/tutorials/object-based-image-analysis/first-map-by-objects/classes.png "Left: the classes the forest gave the objects, from the template's 38 points. Right: the classes the scene was drawn from. 93.8 % of the cells have the right class; the mistakes are along the borders and in a few small objects.")
+
+Here the forest knows the truth, so it can be counted: 93.8 % of the 14,400 cells of the map have the class the
+scene was drawn from. In your own image you will not have that number, which is why the next section exists.
+
+![The margin of each object](/img/tutorials/object-based-image-analysis/first-map-by-objects/margin.png "The margin of every object: yellow where one class is far ahead, dark where two are close. The dark objects are slivers along the borders between classes, where the blur of the image mixes two classes.")
+
+The margin map says where to look. The thin dark objects follow the borders between two classes: their colours
+are a mix of both, and neither class owns them. They are the first place to add samples, or to ask whether a
+smaller scale would give them cleaner neighbours.
 
 ## Check the map
 
@@ -186,6 +231,21 @@ params = { class = "reference" }
 
 </div>
 
+With the template's 116 objects, no class has 50 of them, so [[objects.sample]] gives every object of each class: the
+sample is the whole map. That is a limit of this small example, and it has a cost: the 38 objects the forest learned
+from are in it too. Labelled from the scene's truth, the sample gives the matrix below; leave the 38 training objects
+out and the forest is right on 61 of the other 78 objects (78 %), a little worse than the matrix says. On a real image,
+with hundreds of objects per class, a sample of 50 holds few of the objects you clicked.
+
+```tftable
+data: /data/tutorials/object-based-image-analysis/first-map-by-objects/matrix.csv
+labels: { map: "Map \\ reference" }
+heat: true
+digits: 0
+align: { map: left }
+caption: "The confusion matrix of the 116 objects of the template (every object, since no class has 50), labelled from the scene's truth: the class the map gave (rows) against the true class (columns). 95 are on the diagonal, 81.9 %; kappa 0.77."
+```
+
 The outputs are tables: the **confusion matrix** (the map's classes in rows, the reference's in columns), the user's
 and producer's accuracies of each class, the overall accuracy and kappa, and, with the area estimates of Olofsson et
 al. (2014), the area of each class with its confidence interval. Fifty objects per class is the least they advise
@@ -195,6 +255,11 @@ are right more often than the rest of the map.
 !!! note
     The example image is drawn from a map of classes, the node `land`, so there the truth is known. With an image of
     yours it is not, and the sample of objects labelled by you is the way to know.
+
+The matrix is read row by row: of the 32 objects the map called grassland, 20 are grassland, 5 are cropland, 3 forest,
+3 water and 1 urban. Those objects are mostly on the borders, which the margin map showed. The other tables hold the user's and
+producer's accuracies and the areas with their confidence intervals. To report an accuracy, give the overall number
+with its interval, the matrix, and how the sample was drawn.
 
 ## Take the polygons
 
@@ -234,8 +299,23 @@ Things to watch with real images:
 
 ## Going further
 
-- What the objects are and how they are made, on a real image: [What an object is: segmentation](/tutorials/object-based-image-analysis/what-is-an-object/).
-- Classes by rules instead of examples: [Coming from eCognition](/tutorials/object-based-image-analysis/from-ecognition/).
+This is part 1 of the series *Object-based image analysis*. The next parts take each step of this tutorial on a real
+Sentinel-2 image of the edge of Lago Paranoá, Brasília:
+
+- **Part 2**, what the objects are and how they are made, with five segmenters: [What an object is: segmentation](/tutorials/object-based-image-analysis/what-is-an-object/).
+- **Part 3**, how many objects: [Choosing the scale](/tutorials/object-based-image-analysis/choosing-the-scale/).
+- **Part 4**, the attributes the classifier reads: [Describing objects](/tutorials/object-based-image-analysis/describing-objects/).
+- **Part 5**, your clicked samples, the nearest neighbour and the accuracy in depth: [Classifying by samples](/tutorials/object-based-image-analysis/classifying-by-samples/).
+- **Part 6**, classes by rules instead of examples: [Rules and class trees](/tutorials/object-based-image-analysis/rules-and-class-trees/).
+- **Part 7**, water with no samples: [Water by thresholds](/tutorials/object-based-image-analysis/water-by-thresholds/).
+- **Part 8**, several levels of objects: [Levels](/tutorials/object-based-image-analysis/levels/).
+- **Part 9**, classes with no samples at all: [Classes without samples](/tutorials/object-based-image-analysis/classes-without-samples/).
+- **Part 10**, correcting objects by hand: [Editing by hand](/tutorials/object-based-image-analysis/editing-by-hand/).
+- **Part 11**, change between two dates: [Change by objects](/tutorials/object-based-image-analysis/change-by-objects/).
+
+And, outside the series:
+
+- Classes by rules, for those who know eCognition: [Coming from eCognition](/tutorials/object-based-image-analysis/from-ecognition/).
 - A different method for each class: [Coming from InterIMAGE](/tutorials/object-based-image-analysis/from-interimage/).
 - Other segmentations ([[segment.slic]], [[segment.watershed]], [[segment.meanshift]], [[segment.region_growing]], [[segment.quickshift]]), and the guide `objects` of the
   MCP server, which an assistant can follow to build the model with you.

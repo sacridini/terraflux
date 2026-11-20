@@ -1,0 +1,6 @@
+segmentation,objects,objects_after,merge_status,cut_status,delete_status,merge_cells,cut_cells,delete_cells
+scale 3,1338,1337,partly,done,done,972,19,35
+scale 4,739,733,done,done,done,2962,183,35
+scale 6,313,309,done,done,done,3113,3,153
+scale 8,187,184,done,done,done,3291,3,153
+SLIC,508,502,done,done,done,3570,493,999
