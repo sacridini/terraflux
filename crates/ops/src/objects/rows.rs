@@ -126,6 +126,7 @@ impl FeatureJob {
                     roles: Roles { red, nir, green, swir },
                     levels: self.levels,
                     texture_bands: task.band.clone().map(|b| vec![b]),
+                    spur: super::skeleton::SPUR,
                     below: None,
                 };
                 (group.run)(&input, &want)
@@ -207,7 +208,7 @@ pub(super) fn offload(
             tasks.push(FeatureTask { group: g, band: None });
         }
     }
-    let mut out: Vec<Option<FeatureColumns>> = vec![None; 4];
+    let mut out: Vec<Option<FeatureColumns>> = vec![None; GROUPS.len()];
     if tasks.is_empty() {
         return Ok(Some(out));
     }

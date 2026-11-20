@@ -15,6 +15,7 @@ use rayon::prelude::*;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 
 use super::big::{self, Layered, Part, strips};
+use super::skeleton::{SKELETON, SPUR, skeleton};
 use super::{Objects, band_names, objects_in};
 use crate::{Args, Ctx, Error, Operator, Outputs, Result, Value, outputs};
 
@@ -39,7 +40,7 @@ pub(super) struct Group {
     pub run: fn(&Input, Want) -> Result<Columns>,
 }
 
-pub(super) const GROUPS: [Group; 4] = [
+pub(super) const GROUPS: [Group; 5] = [
     Group {
         name: "spectral",
         features: &["mean", "sd", "min", "max", "median", "brightness", "max_diff", "ratio", "ndvi", "ndwi", "ndmi"],
@@ -49,6 +50,7 @@ pub(super) const GROUPS: [Group; 4] = [
     Group { name: "shape", features: SHAPE, basic: &["area", "compactness"], run: shape },
     Group { name: "texture", features: GLCM, basic: &["homogeneity"], run: texture },
     Group { name: "context", features: CONTEXT, basic: &[], run: context },
+    Group { name: "skeleton", features: SKELETON, basic: &[], run: skeleton },
 ];
 
 /// The bands the indices read: positions among the layers.
@@ -79,6 +81,8 @@ pub(super) struct Input<'a> {
     /// Grey levels of the texture, and the layers it reads (names, or `brightness`), when the user gave them.
     pub levels: usize,
     pub texture_bands: Option<Vec<String>>,
+    /// The skeleton's spur: the branches that end in a junction in fewer cells are cut.
+    pub spur: usize,
     /// The level beneath these objects (its parent is these objects), when given.
     pub below: Option<&'a Objects>,
 }
@@ -266,6 +270,9 @@ fn feature_of(column: &str) -> Option<(&'static str, &'static str)> {
     if let Some(f) = SHAPE.iter().find(|f| **f == column) {
         return Some(("shape", f));
     }
+    if let Some(f) = SKELETON.iter().find(|f| **f == column) {
+        return Some(("skeleton", f));
+    }
     if matches!(column, "th_mode" | "th_share") {
         return Some(("thematic", "th"));
     }
@@ -324,7 +331,12 @@ impl Operator for Features {
              parent level: parent_id and parent_<column>; with `below`: children and per class of below \
              children_<c> and children_area_<c>). With a `thematic` layer: th_mode, its most common value among the \
              object's cells (the smallest on a tie), and th_share, the share of the object's cells with a value that \
-             have it. \
+             have it. The skeleton group (not in `basic`; Zhang and Suen's thinning of each object's raster, so the \
+             values differ a little from eCognition's polygon skeleton): skel_main_length, the longest path of the \
+             skeleton in map units (a diagonal step is sqrt 2 cells), skel_width = area / main length, \
+             skel_length_width, skel_branches, skel_ends, skel_junctions, skel_branch_length (mean) and \
+             skel_curvature, the turning of the main line (radians, smoothed over a few cells) per map unit of its \
+             length, with skel_curvature_sd. \
              The attributes join the objects' table: a column of an old name is replaced, the others kept.",
             Access::Global,
         )
@@ -365,7 +377,7 @@ impl Operator for Features {
             "features",
             Type::Any,
             "basic (the default: mean, sd and ndvi per band, area, compactness, glcm_homogeneity of the \
-             brightness), all, or a list of groups (spectral, shape, texture, context) and feature names",
+             brightness), all, or a list of groups (spectral, shape, texture, context, skeleton) and feature names",
         ))
         .param(PortSpec::optional("levels", Type::Integer, "the grey levels of the texture, 2 to 256 (default 32)"))
         .param(PortSpec::optional(
@@ -373,6 +385,11 @@ impl Operator for Features {
             Type::Any,
             "the layers the texture reads, a list of names or brightness (default: brightness for basic, \
              brightness and every image band otherwise)",
+        ))
+        .param(PortSpec::optional(
+            "spur",
+            Type::Integer,
+            "the skeleton group: branches that end in a junction after fewer cells than this are cut off (default 3, 0 keeps them all)",
         ))
         .param(PortSpec::optional("red", Type::Text, "the red band's name (default: found by the names)"))
         .param(PortSpec::optional("nir", Type::Text, "the near infrared band's name (default: found)"))
@@ -467,6 +484,7 @@ impl Operator for Features {
             return Err(bad(format!("levels: from 2 to 256, not {levels}")));
         }
         let texture_bands = args.opt_param::<Vec<String>>("texture_bands")?;
+        let spur = args.param::<usize>("spur", SPUR)?;
         let below = match args.get("below") {
             None => None,
             Some(Value::Objects(b)) => {
@@ -492,7 +510,8 @@ impl Operator for Features {
             ));
         }
         let index = Default::default();
-        let input = Input { node, o, index, names, data, strips, image: img_n, roles, levels, texture_bands, below };
+        let input =
+            Input { node, o, index, names, data, strips, image: img_n, roles, levels, texture_bands, spur, below };
         // spectral, shape and texture on the cluster's workers when there is one (else, or if it fails, here)
         let mut offloaded: Vec<Option<Columns>> = vec![None; GROUPS.len()];
         if let Some(r) = &remote {

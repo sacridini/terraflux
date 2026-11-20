@@ -4688,7 +4688,7 @@ US7801361 e US8319793, até 2029 e 2031).
     empate determinístico; a `mask` segura; o `open` corta uma ponte de uma célula; o `close` fecha um vão; o `fill`
     pelo tamanho; o `refine` leva uma borda errada à borda verdadeira numa imagem de duas regiões; 1 e 8 threads;
     NaN.
-- **4. A forma pelo esqueleto (M).**
+- **4. A forma pelo esqueleto (M). Feito (2026-11-20).** `skeleton.rs`, o grupo `skeleton` do `objects.features` (fora do `basic`; o `all` o inclui), e o parâmetro novo `spur` (padrão 3, 0 não poda); `features_give` e o `feature_of` conhecem o prefixo `skel_`. Por objeto, na caixa com borda (`each`), com os buffers de cada thread reaproveitados (`thread_local`). O Zhang e Suen roda sobre uma lista de células de borda (o custo segue o contorno, não a área; o resultado não depende da ordem); depois saem as células que não mudam a topologia (os degraus e as diagonais de duas células que o Zhang e Suen deixa; as pontas ficam), e um quadrado 2×2, que o afinamento apaga inteiro, guarda a célula mais perto do meio. A poda corta, a partir de cada ponta, as células até uma junção quando são menos de `spur`. Ponta = uma só corrida de vizinhas em volta da célula (número de cruzamento 1), junção = 3 ou mais; células de junção que se tocam são uma junção só; os ramos são os componentes sem as células de junção, ligados só pelos passos do grafo (um passo diagonal some quando uma das duas células vizinhas dos dois está no esqueleto; sem isso os braços de uma cruz se juntariam pelo canto). O anel conta 1 ramo, 0 pontas, 0 junções, e a linha principal dele é o caminho mais curto mais longo (meia volta). A linha principal é o diâmetro do grafo (duas buscas de Dijkstra, passos de largura, altura e diagonal da célula em unidades do mapa, então célula não quadrada vale). A curvatura: a linha principal suavizada por média móvel de janela 5 (as pontas fixas), a soma dos ângulos de giro em radianos dividida pelo comprimento principal; `skel_curvature_sd` é o desvio do giro por unidade de comprimento nos vértices. Objeto de uma só célula ou comprimento 0: `skel_width` e `skel_length_width` NaN. Zhang e Suen (DOI conferido no Crossref: 10.1145/357994.358023) ficam na descrição do operador e não no `methods.rs`: ele casa os métodos pelo operador, e todo `methods` de um modelo com `objects.features` citaria o artigo mesmo sem o esqueleto. Bateria `objects_skeleton_bench` (blobs que se tocam; 1 e 8 threads, o mesmo hash): 1000² em 0,01 s e menos de 0,01 s, 2000² em 0,05 s e 0,01 s. Testes: `crates/ops/tests/objects_skeleton.rs`.
   - Um grupo novo `skeleton` em `features.rs` (`Group { name: "skeleton", ... }`), fora do padrão (pedido em
     `features`), com as colunas `skel_main_length` (o caminho mais longo, em unidades do mapa, a diagonal √2),
     `skel_width` (área / comprimento principal), `skel_length_width`, `skel_branches` (os segmentos entre pontas e
@@ -4747,8 +4747,8 @@ US7801361 e US8319793, até 2029 e 2031).
 6. O *find enclosed by class* fica na documentação, sem operador.
 7. A fusão pelo resultado é um operador novo, `objects.fuse`, não um modo do `objects.merge` (que fica simples).
 
-**Onde parou (2026-11-19, à noite).** Feitos os itens 1 (as camadas temáticas: `065e46b`, `ec58391`), 2
-(`objects.split`, `a2365f7`) e 3 (`objects.resize`, `e175e9f`). Faltam o 4 (o esqueleto; não começou), o 5
+**Onde parou (2026-11-20).** Feitos os itens 1 (as camadas temáticas: `065e46b`, `ec58391`), 2
+(`objects.split`, `a2365f7`), 3 (`objects.resize`, `e175e9f`) e 4 (o esqueleto, no commit seguinte). Faltam o 5
 (`objects.extrema`), o 6 (`objects.fuse`) e o 7 (os templates e o tutorial). O `website/data/ops.json` ainda não
 tem `objects.split` e `objects.resize` (o build avisa no `from-ecognition.md` até o próximo release, que o atualiza).
 

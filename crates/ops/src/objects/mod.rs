@@ -34,6 +34,7 @@ mod resolve;
 mod rows;
 mod rules;
 mod segment;
+mod skeleton;
 mod spectral;
 mod split;
 mod store;

@@ -369,8 +369,8 @@ Moran's I (USPO), the table of scores beside it.
    Objects grown, shrunk and smoothed cell by cell (eCognition's pixel-based resizing, morphology and border optimization) are objects.resize: `mode` grow, shrink, open, close, fill, smooth or refine, by `distance` (map units) or `steps` (cells); a `mask` (from raster.calc) or `into` (classes whose cells may be taken) makes growth geodesic, `max_hole` limits fill, refine needs the `image`. An object cut in two by shrink or open becomes two objects of its class.
 3. Describe: objects.features with the image (and `more`: a height model, another date, a class map). `basic` (the \
 default) is the mean and the standard deviation of each band, NDVI, the area, the compactness and the texture's \
-homogeneity; ask for groups (spectral, shape, texture, context) or `all` when the rules need them. A layer given \
-in `more` is named mean_more (a map has its port's name).
+homogeneity; ask for groups (spectral, shape, texture, context, skeleton) or `all` when the rules need them. A layer given \
+in `more` is named mean_more (a map has its port's name). The `skeleton` group (skel_main_length, skel_width, skel_length_width, skel_branches, skel_ends, skel_junctions, skel_branch_length, skel_curvature, skel_curvature_sd) is of the raster, so its values differ a little from eCognition's polygon skeleton: a high skel_length_width with a low skel_width picks roads and rivers; `spur` cuts the small branches.
 4. Classify, by one of these paths, which combine:
    - by samples: points or polygons with a class column (vector.from_table of x, y and class, a drawing, or \
 vector.read) go to objects.samples (the object under a point; a polygon picks every object it covers by half), \

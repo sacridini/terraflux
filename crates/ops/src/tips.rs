@@ -699,7 +699,12 @@ pub const TIPS: &[(&str, &str)] = &[
          raster.match first). Give a map or vectors (lots, a land-use layer) as `thematic` and each object gets \
          th_mode, the most common value under it, and th_share, its share of the cells that have a value; with \
          vectors, `field` names the attribute (text too: its codes are named in the table). Rules read th_mode \
-         as any column.",
+         as any column. The `skeleton` group (not in `basic`) is for long thin things, roads, rivers, fields, \
+         crowns: skel_main_length and skel_width, a high skel_length_width with a low skel_width picks the \
+         linear ones, skel_branches and skel_junctions tell a network from a line, skel_curvature a winding \
+         river from a straight road. It thins the raster of each object, so the values differ a little from \
+         eCognition's polygon skeleton; `spur` (default 3 cells) cuts the small branches thinning leaves at \
+         ragged edges.",
     ),
     (
         "segment.sam",
