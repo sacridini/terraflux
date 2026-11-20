@@ -892,6 +892,29 @@ fn felzenszwalb(p: &Prep, eight: bool, k: f64, min_size: usize, zone: &[u64]) ->
             set[big as usize].inner = wt;
         }
     }
+    // the objects are 4-connected, so with 8 neighbours the sets are cut into their 4-connected pieces first (else a
+    // set linked only by corners would split after the size check, into pieces under min_size), and the second pass
+    // joins them along the 4-neighbour edges only (a corner link would split again)
+    if eight {
+        let mut cut: Vec<Set> = (0..n as u32).map(|i| Set { parent: i, size: 1, inner: 0.0 }).collect();
+        for i in 0..n {
+            if !p.valid[i] {
+                continue;
+            }
+            let ri = set_find(&mut set, i as u32);
+            for j in [if i % w + 1 < w { i + 1 } else { n }, i + w] {
+                if j < n && p.valid[j] && set_find(&mut set, j as u32) == ri {
+                    let (a, b) = (set_find(&mut cut, i as u32), set_find(&mut cut, j as u32));
+                    if a != b {
+                        let (big, little) = if cut[a as usize].size >= cut[b as usize].size { (a, b) } else { (b, a) };
+                        cut[little as usize].parent = big;
+                        cut[big as usize].size += cut[little as usize].size;
+                    }
+                }
+            }
+        }
+        set = cut;
+    }
     // the second pass joins only sets under min_size, and a set that has reached it only grows: the cells already in
     // sets that large are left out of it
     let small: Vec<bool> = (0..n as u32)
@@ -901,6 +924,9 @@ fn felzenszwalb(p: &Prep, eight: bool, k: f64, min_size: usize, zone: &[u64]) ->
         })
         .collect();
     for (at, &e) in edges.iter().enumerate() {
+        if e as u64 & 3 >= 2 {
+            continue;
+        }
         let (a, b) = other(e);
         if !small[a as usize] && !small[b as usize] {
             continue;
@@ -950,7 +976,9 @@ impl Operator for Felzenszwalb {
              join when the edge is no heavier than the least of their inner weight (the heaviest edge in them) plus \
              k / size: a small component is easy to join, a large one needs a closer match. Then components under \
              min_size cells join, in the order of the edges. A constant area is one object. The objects are \
-             4-connected: a link only by a corner splits. {STANDARD}"
+             4-connected: a component linked only by corners is cut first, then its pieces under min_size join along \
+             4-neighbour edges. No object has fewer than min_size cells, unless the whole image, or a zone of \
+             `bounds` (or an area of valid cells cut off by the missing ones), is smaller. {STANDARD}"
         );
         signature("segment.felzenszwalb", &about)
             .param(PortSpec::optional(

@@ -831,6 +831,42 @@ fn no_superpixel_straddles_a_step() {
 }
 
 #[test]
+fn felzenszwalb_enforces_min_size_except_in_cut_off_areas() {
+    let (w, h) = (90, 70);
+    let image = quadrants(w, h, 3, 8.0, 4);
+    for nb in [4, 8] {
+        for min_size in [20, 60] {
+            let p = serde_json::json!({ "k": 2, "min_size": min_size, "neighbours": nb });
+            let a = run_on(1, "segment.felzenszwalb", vec![("image", image.clone())], p.clone());
+            let b = run_on(8, "segment.felzenszwalb", vec![("image", image.clone())], p);
+            let o = objects_of(&a);
+            assert_eq!(o.labels, objects_of(&b).labels, "threads, {nb} neighbours");
+            connected(&o);
+            assert!(o.count > 1);
+            assert!(
+                o.cells.iter().all(|&c| c as usize >= min_size),
+                "{nb} nb, min {min_size}: {:?}",
+                o.cells.iter().min()
+            );
+        }
+    }
+    // zones of 17 columns: the last, 5 columns of 70 cells, is above min_size 20; zones of 3 columns (210 cells) too,
+    // and a zone of 1 column x 8 rows (8 cells) stays one object under it
+    let zones =
+        map(w, h, (0..w * h).map(|i| if i % w == 0 && i / w < 8 { 9.0 } else { ((i % w) / 17) as f64 }).collect());
+    let out = run(
+        "segment.felzenszwalb",
+        vec![("image", image), ("bounds", Value::Map(zones))],
+        serde_json::json!({ "k": 2 }),
+    )
+    .unwrap();
+    let o = objects_of(&out);
+    connected(&o);
+    let small: Vec<u32> = o.cells.iter().copied().filter(|&c| c < 20).collect();
+    assert_eq!(small, [8], "only the cut-off zone is under min_size");
+}
+
+#[test]
 fn superpixels_check_their_settings() {
     let image = || Value::Map(map(8, 8, vec![1.0; 64]));
     for (op, p) in [
