@@ -1314,10 +1314,11 @@ def picture(text: str, out_dir: pathlib.Path) -> str:
 
 
 def check_graphs():
-    exe = None
+    # TERRAFLUX_BIN names another build (a worktree's, while the MCP servers hold target/release)
+    exe = pathlib.Path(os.environ["TERRAFLUX_BIN"]) if os.environ.get("TERRAFLUX_BIN") else None
     for n in ("terraflux.exe", "terraflux"):
         p = ROOT / "target" / "release" / n
-        if p.exists():
+        if p.exists() and exe is None:
             exe = p
     exe = exe or shutil.which("terraflux")
     if not exe:

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -90,6 +91,9 @@ plt.rcParams.update({
 
 
 def binary() -> pathlib.Path:
+    # TERRAFLUX_BIN names another build (a worktree's, while the MCP servers hold target/release)
+    if os.environ.get("TERRAFLUX_BIN"):
+        return pathlib.Path(os.environ["TERRAFLUX_BIN"])
     for n in ("terraflux.exe", "terraflux"):
         p = ROOT / "target" / "release" / n
         if p.exists():
