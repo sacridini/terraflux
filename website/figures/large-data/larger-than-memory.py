@@ -6,6 +6,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 import psutil
@@ -107,17 +108,20 @@ def measured(model_text, name):
     f = work / f"{name}.toml"
     f.write_text(model_text, encoding="utf-8")
     t0 = time.time()
-    p = subprocess.Popen([str(figs.binary()), "run", str(f), "--out", str(work / name)], cwd=work,
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    proc = psutil.Process(p.pid)
-    peak = 0
-    while p.poll() is None:
-        try:
-            peak = max(peak, proc.memory_info().rss)
-        except psutil.Error:
-            pass
-        time.sleep(0.02)
-    outp = p.communicate()
+    # the log goes to files: a pipe read only at the end fills (4 KB on Windows) and stops the run
+    with tempfile.TemporaryFile() as log:
+        p = subprocess.Popen([str(figs.binary()), "run", str(f), "--out", str(work / name)], cwd=work,
+                             stdout=log, stderr=subprocess.STDOUT)
+        proc = psutil.Process(p.pid)
+        peak = 0
+        while p.poll() is None:
+            try:
+                peak = max(peak, proc.memory_info().rss)
+            except psutil.Error:
+                pass
+            time.sleep(0.02)
+        log.seek(0)
+        outp = log.read().decode("utf-8", "replace")
     if p.returncode:
         raise SystemExit(outp)
     return time.time() - t0, peak / 2**20
