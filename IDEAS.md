@@ -4825,12 +4825,16 @@ duas a três páginas por agente, dois agentes por vez (as figuras rodam o `terr
 threads cada), cada um só nos seus arquivos (as regras de trabalho em paralelo do AUTHORING). Cada página: o build sem
 avisos, o `--check` sem erros de grafo, as capturas lidas. Um commit por lote (`docs(tutorials): ...`).
 
-**Onde parou (2026-11-19, à noite).** Feitas: a base (`obia_data.py`, os recortes em UTM, os downloads) e a parte 2
-(`what-is-an-object.md`); a parte 1 entrou na série. Da parte 3 (`choosing-the-scale`) só o script das figuras e as
-figuras (`375fb7f`, e o commit seguinte); falta a página. As partes 4 e 5 (`describing-objects`,
-`classifying-by-samples`) e 7 (`water-by-thresholds`) não começaram. Ao retomar: a página da parte 3 sobre as figuras
-já feitas, depois 4, 5 e 7, dois agentes por vez, e regenerar o índice do app (`python website/tools/tutorial_index.py`,
-que escreve `crates/app/src/tutorials.json`) a cada página nova.
+**Onde parou (2026-11-20).** Feita a série inteira, 19 partes: as 15 acima e, do bloco do eCognition, 16 *Classes by
+parcel*, 17 *Shaping objects* (`objects.resize`), 18 *Tree crowns* (`objects.split`, `objects.fuse`,
+`objects.extrema`) e 19 *Roads and rivers by the skeleton*; todas no índice do app. Os tutoriais acharam e
+corrigiram: `objects.grow` (a classe), os threads do ONNX, a coluna constante do `ml.*`, o estimador de área do
+`objects.accuracy` (`design`), o `min_size` do `segment.felzenszwalb`, o `th_share`, a curvatura do esqueleto, o
+retângulo do `objects.fuse` e as costuras dos tiles; as páginas foram refeitas depois das correções. Ressalvas: os
+pontos de referência e de treino das partes 14 e 15 foram rotulados a olho, por um agente, sobre a própria imagem
+(as páginas dizem isso): uma revisão humana antes de publicar. O item NAIP da série saiu do Planetary Computer
+(`obia_data.naip()` usa a cópia publicada). Os avisos de operador desconhecido (`objects.fuse`, `objects.extrema`)
+somem com o `ops.json` do próximo release.
 
 **O que a base da série achou no `data.stac`** (2026-11-19), para um release próximo:
 - **Feito (2026-11-20).** Ele lê só a banda 1 de cada asset (`-srcband 1`, `stac.rs` ~643). O NAIP tem RGB e NIR num asset só (`image`), e
