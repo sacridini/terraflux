@@ -6,7 +6,7 @@ order: 20
 level: intermediate
 time: 30 min
 template: Classify an image by rules
-ops: [segment.multiresolution, segment.scale, segment.optimize, objects.features, objects.calc, objects.rules, objects.nearest, objects.merge, objects.grow, objects.remove_small, objects.sample, objects.accuracy, objects.to_vector]
+ops: [segment.multiresolution, segment.scale, segment.optimize, objects.features, objects.calc, objects.rules, objects.nearest, objects.merge, objects.grow, objects.remove_small, objects.split, objects.resize, objects.extrema, objects.fuse, objects.sample, objects.accuracy, objects.to_vector]
 ---
 
 If you have built rule sets in Trimble eCognition, you already know object-based image analysis: segment an image,
@@ -169,6 +169,12 @@ attributes you choose, in standard deviations, turned into a membership by `slop
   samples path from start to end.
 - [Coming from InterIMAGE](/tutorials/object-based-image-analysis/from-interimage/): a class tree with a method per
   class.
+- Templates for what the table above adds, each running as it is on a synthetic scene (Use my data swaps in yours):
+  **Classes by parcel** (a segmentation held to a vector of parcels with `bounds`, each object told its parcel by
+  `thematic`), **Separate tree crowns** ([[objects.split]] by the surface of a height model, [[objects.fuse]] by
+  compactness, [[objects.extrema]] for the tops) and **Roads and rivers by the skeleton** (the `skeleton` group of
+  [[objects.features]] tells a river from a lake and a road from a building). [[objects.resize]] has no template of
+  its own: it is the cleaning step after any of them.
 
 ## References
 

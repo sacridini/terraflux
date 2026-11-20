@@ -474,7 +474,7 @@ fn swat_from_rasters() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 69] = [
+pub const TEMPLATES: [Template; 72] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -4862,6 +4862,245 @@ params = { title = "Trees, buildings and ground" }
 "##,
     },
     Template {
+        name: "Classes by parcel",
+        group: OBJECTS,
+        build: None,
+        about: "objects that never cross a parcel's boundary: a multiresolution segmentation held to a vector of \
+                parcels (bounds), each object told its parcel (thematic) and classed by rules",
+        toml: r##"
+format = "terraflux/1"
+name = "Classes by parcel"
+description = "Objects held to the parcels: the segmentation takes the parcels as `bounds` (a vector, each feature a zone; the cells in none are one zone), so no object is made across a parcel's boundary, the way eCognition's thematic layer does in a segmentation. objects.features reads the same parcels as `thematic` and gives each object th_mode, the parcel it lies in (the feature's number from 1, or the attribute `field` names), and th_share, the share of its cells in it (1 when the object is wholly inside). The objects are then classed by rules on the spectra. Replace the parcels with a vector.read of yours (a cadastre, fields, management units) and the image with yours (Use my data)."
+
+[[nodes]]
+id = "land"
+op = "nlm.mosaic_gibbs"
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+note = "A map of five classes drawn by chance (1 water, 2 forest, 3 grassland, 4 cropland, 5 urban): only the ground truth of the image below."
+
+[[nodes]]
+id = "image"
+op = "nlm.image"
+inputs = { classes = "land.map" }
+params = { seed = 1 }
+note = "A synthetic image of six bands (blue, green, red, nir, swir1, swir2) of the classes. In its place, a raster.read of your image as a stack of its bands, each named for the band it is."
+data = { what = "a multispectral image, a layer per band (named blue, green, red, nir, swir1, swir2 where there are such bands)", kind = "stack" }
+
+[[nodes]]
+id = "parcels"
+op = "vector.grid_zones"
+inputs = { map = "land.map" }
+params = { size = 40 }
+note = "Nine square parcels over the image, numbered from 1 (in their place, a vector.read of your parcels: a file of polygons, in the image's coordinates)."
+
+[[nodes]]
+id = "segments"
+op = "segment.multiresolution"
+inputs = { image = "image.image", bounds = "parcels.zones" }
+note = "Objects by multiresolution segmentation, kept inside the parcels: an object that would grow over a boundary stops at it."
+why = "A parcel is a unit of management: an object that spans two of them has the spectra of both and belongs to neither."
+
+[[nodes]]
+id = "features"
+op = "objects.features"
+inputs = { objects = "segments.objects", image = "image.image", thematic = "parcels.zones" }
+params = { features = ["mean", "ndvi", "ndwi", "area"] }
+note = "The bands' means and the indices the rules read, and th_mode, the parcel of each object, with th_share, 1 where the object is wholly inside it. A th_share below 1 would mean an object crossed a boundary."
+
+[[nodes]]
+id = "rules"
+op = "objects.rules"
+inputs = { objects = "features.objects" }
+note = "The class of each object by its own spectra: water by its NDWI, vegetation by its NDVI (forest and grassland by the short-wave infrared), the rest by its NDVI (cropland and urban). Several objects of a parcel may differ: they are not forced to one class."
+why = "The parcels hold the objects' outlines; the classes still come from what the objects are."
+refs = ["Baatz and Schape 2000", "Definiens eCognition Developer, Reference Book"]
+
+[nodes.params]
+classes = [
+  { name = "wet", rule = "above(ndwi, 0, 0.2)" },
+  { name = "water", parent = "wet", colour = "#2b6cb0" },
+  { name = "vegetation", rule = "above(ndvi, 0.45, 0.55)" },
+  { name = "forest", rule = "below(mean_swir1, 0.18, 0.22)", parent = "vegetation", colour = "#2f7d32" },
+  { name = "grassland", rule = "above(mean_swir1, 0.18, 0.22)", parent = "vegetation", colour = "#9bc53d" },
+  { name = "other", rule = "below(ndwi, 0, 0.2) and below(ndvi, 0.45, 0.55)" },
+  { name = "cropland", rule = "between(ndvi, 0.2, 0.28, 0.45, 0.5)", parent = "other", colour = "#e8c547" },
+  { name = "urban", rule = "below(ndvi, 0.2, 0.28)", parent = "other", colour = "#8d8d8d" },
+]
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "rules.map" }
+params = { title = "The classes inside the parcels" }
+"##,
+    },
+    Template {
+        name: "Separate tree crowns",
+        group: OBJECTS,
+        build: None,
+        about: "the crowns of a canopy height model: the canopy cut at a height, the clumps of touching crowns \
+                split at the saddles of the surface (a watershed), over-split pieces joined back by compactness, \
+                and the tallest crown of each neighbourhood marked",
+        toml: r##"
+format = "terraflux/1"
+name = "Separate tree crowns"
+description = "Single tree crowns from a canopy height model (nDSM): the canopy is what stands above a height (segment.threshold), where crowns touch it is one object, and objects.split cuts it by the surface (`by` surface: a watershed on the heights, a centre for each peak that stands `h` metres over its saddle). A small h over-splits, so objects.fuse joins back the neighbouring pieces whose union stays compact (a round crown) and objects.extrema marks the tallest crown among its neighbours, the tops of the stand. Replace the height model with yours (Use my data): a lidar nDSM, DSM minus DTM, in metres."
+
+[[nodes]]
+id = "relief"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 9, nugget = 0, seed = 12 }
+note = "A smooth field of bumps: where it is high there are crowns."
+
+[[nodes]]
+id = "ndsm"
+op = "raster.calc"
+inputs = { f = "relief.map" }
+params = { expression = "30 * (f - 0.3) / 0.7 if f > 0.3 else 0" }
+note = "The height above the ground, metres: 0 on the open ground, up to 30 m on the crowns. In its place, a normalised digital surface model on your grid."
+data = { what = "a canopy height model, the height above the ground on the grid", kind = "values", expect = "metres above the ground" }
+
+[[nodes]]
+id = "canopy"
+op = "segment.threshold"
+inputs = { image = "ndsm.map" }
+params = { thresholds = [3] }
+note = "The cells above 3 m are canopy and the rest ground: the objects are the connected pieces, so touching crowns are one."
+why = "A height threshold keeps the shrubs and the grass out; 2 to 5 m is the usual range."
+
+[[nodes]]
+id = "classes"
+op = "objects.rules"
+inputs = { objects = "canopy.objects" }
+note = "The high class is canopy, the low one ground."
+
+[nodes.params]
+classes = [
+  { name = "canopy", rule = "above(class, 1, 2)", colour = "#2f7d32" },
+  { name = "ground", rule = "below(class, 1, 2)", colour = "#c8b88a" },
+]
+
+[[nodes]]
+id = "crowns"
+op = "objects.split"
+inputs = { objects = "classes.objects", surface = "ndsm.map" }
+params = { by = "surface", classes = ["canopy"], h = 0.3, sigma = 1 }
+note = "Each clump of canopy cut at the saddles of the height model: every peak that stands 0.3 m above its saddle makes a crown. `sigma` smooths the surface first so a rough crown has one peak."
+why = "The height model, not the shape, tells where one crown ends: two crowns joined by a wide neck have a saddle between their tops."
+refs = ["Vincent and Soille 1991, Watersheds in digital spaces"]
+
+[[nodes]]
+id = "joined"
+op = "objects.fuse"
+inputs = { objects = "crowns.objects" }
+params = { seeds = ["canopy"], candidates = ["canopy"], fitting = "compactness", goal = "min", threshold = 1.5, improve = false }
+note = "The pieces that the small h over-split are joined back while the union stays compact (at most 1.5; `improve` off, so the threshold alone decides) (compactness, the bounding rectangle's area over the object's: 1 for a rectangle, about 1.27 for a disc, more for a ragged outline)."
+why = "Fusion by the result, as eCognition's: the shape of the whole decides, not the pieces."
+
+[[nodes]]
+id = "features"
+op = "objects.features"
+inputs = { objects = "joined.objects", image = "ndsm.map" }
+params = { features = ["mean", "max", "area"] }
+note = "The attributes of each crown: its mean and tallest height and its area."
+
+[[nodes]]
+id = "tops"
+op = "objects.extrema"
+inputs = { objects = "features.objects" }
+params = { attribute = "max_image", kind = "max", among = ["canopy"], steps = 1, class = "top" }
+note = "The crowns taller than every neighbouring crown, marked as `top`. Use `radius` (map units, between centroids) instead of `steps` to compare within a distance."
+why = "The tallest crown of a neighbourhood is the tree that sets its height; steps 1 compares each crown with the ones it touches."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "tops.objects" }
+params = { title = "The crowns and their tops" }
+"##,
+    },
+    Template {
+        name: "Roads and rivers by the skeleton",
+        group: OBJECTS,
+        build: None,
+        about: "long thin objects told from compact ones by their skeleton: the main line's length over the width,                 so a river is told from a lake and a road from a building though both are water or built land",
+        toml: r##"
+format = "terraflux/1"
+name = "Roads and rivers by the skeleton"
+description = "Water that is a river or a lake, built land that is a road or a building: the class is the same, the shape is not. The objects are the connected pieces of each class of a land cover map (segment.threshold); objects.features' skeleton group thins each to its skeleton (Zhang and Suen; the raster's, so the values differ a little from eCognition's polygon skeleton) and gives skel_main_length, the length of the main line, and skel_width, the area over that length. A river or a road has a high skel_length_width and a low skel_width, a lake or a building the opposite; objects.rules says which. Replace the land cover with yours (Use my data): water as 1, vegetation as 2 and built land as 3, or move the codes in the rules."
+
+[[nodes]]
+id = "relief"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 20, nugget = 0, seed = 3 }
+note = "A smooth field that bends the river."
+
+[[nodes]]
+id = "slope"
+op = "nlm.planar_gradient"
+params = { rows = 120, columns = 120, direction = 90 }
+note = "A ramp across the map: where the bent ramp is 0.5 there is the river."
+
+[[nodes]]
+id = "slope2"
+op = "nlm.planar_gradient"
+params = { rows = 120, columns = 120, direction = 0 }
+note = "Another ramp, at a right angle: a straight road where it is 0.25."
+
+[[nodes]]
+id = "blobs"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 6, nugget = 0, seed = 9 }
+note = "Smooth bumps: the lakes where high, the buildings where low."
+
+[[nodes]]
+id = "cover"
+op = "raster.calc"
+inputs = { s = "slope.map", t = "slope2.map", f = "relief.map", b = "blobs.map" }
+params = { expression = "1 if abs(s + 0.3 * (f - 0.5) - 0.5) < 0.03 else (3 if abs(t - 0.25) < 0.025 else (1 if b > 0.7 else (3 if b < 0.2 else 2)))" }
+note = "A land cover: a river and lakes (1, water), a road and buildings (3, built), the rest vegetation (2). Water is both thin and compact, and so is built land. In its place, a land cover map of yours."
+data = { what = "a land cover map with water and built land (the other classes are whatever else)", kind = "classes", classes = { 1 = "water", 2 = "vegetation", 3 = "built" } }
+
+[[nodes]]
+id = "pieces"
+op = "segment.threshold"
+inputs = { image = "cover.map" }
+params = { thresholds = [1.5, 2.5], neighbours = 8 }
+note = "The connected pieces of each class are the objects: a river is one object, each lake and each building another."
+why = "The class alone does not tell a river from a lake: both are water. The shape of the pieces does."
+
+[[nodes]]
+id = "features"
+op = "objects.features"
+inputs = { objects = "pieces.objects", image = "cover.map" }
+params = { features = ["mean", "area", "skeleton"] }
+note = "The class of each object (mean_image, the code of the cover), the area and the skeleton group: skel_main_length, skel_width, skel_length_width and the branches."
+
+[[nodes]]
+id = "rules"
+op = "objects.rules"
+inputs = { objects = "features.objects" }
+note = "Water or built land by the class, then by the shape: long and thin (skel_length_width high, skel_width low) a river or a road, otherwise a lake or a building. Move the limits for wider rivers."
+why = "The skeleton's length over its width does not depend on the size of the object, so one limit tells a long thin object from a compact one whatever its area."
+refs = ["Zhang and Suen 1984, A fast parallel algorithm for thinning digital patterns"]
+
+[nodes.params]
+classes = [
+  { name = "river", rule = "below(mean_image, 1.2, 1.8) and above(skel_length_width, 5, 8) and below(skel_width, 14, 18)", colour = "#2b6cb0" },
+  { name = "lake", rule = "below(mean_image, 1.2, 1.8) and below(skel_length_width, 5, 8)", colour = "#7fb2e5" },
+  { name = "road", rule = "above(mean_image, 2.2, 2.8) and above(skel_length_width, 5, 8) and below(skel_width, 14, 18)", colour = "#6b6b6b" },
+  { name = "building", rule = "above(mean_image, 2.2, 2.8) and below(skel_length_width, 5, 8)", colour = "#b33a3a" },
+  { name = "vegetation", rule = "between(mean_image, 1.2, 1.8, 2.2, 2.8)", colour = "#9bc53d" },
+]
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "rules.map" }
+params = { title = "Rivers, lakes, roads and buildings" }
+"##,
+    },
+    Template {
         name: "Unsupervised classes of objects",
         group: OBJECTS,
         toml: "",
@@ -6003,6 +6242,70 @@ mod tests {
         println!("trees {trees:.3}, buildings {buildings:.3}");
         assert!(trees >= 0.8, "trees {trees}");
         assert!(buildings >= 0.5, "buildings {buildings}");
+
+        // classes by parcel: no object crosses a parcel, each is told its parcel
+        let out = run("Classes by parcel");
+        let o = objects(&out, "rules.objects");
+        let Some(Value::Table(t)) = out.get("features.table") else { panic!("no features table") };
+        let (share, parcel) = (t.column("th_share").unwrap(), t.column("th_mode").unwrap());
+        println!("parcels: {} objects, parcels {:?}", o.count, parcel.iter().fold(0u32, |a, p| a | 1 << *p as u32));
+        assert_eq!(share.len(), o.count);
+        assert!(share.iter().all(|&s| s == 1.0), "an object crosses a parcel");
+        // (nine parcels of 40 cells, the objects of each take its number)
+        assert!((1..=9).all(|p| parcel.contains(&(p as f64))) && parcel.iter().all(|&q| (1.0..=9.0).contains(&q)));
+        assert!(o.count > 9 && o.classes.len() == 8, "{} objects", o.count);
+
+        // separate tree crowns: the clumps split into crowns, and one maximum each
+        let out = run("Separate tree crowns");
+        let count = |o: &terraflux_ops::objects::Objects, name: &str| {
+            o.classes
+                .iter()
+                .position(|c| c.name == name)
+                .map_or(0, |k| o.class_of.iter().filter(|&&c| c as usize == k + 1).count())
+        };
+        let (clumps, crowns, joined, tops) = (
+            objects(&out, "classes.objects"),
+            objects(&out, "crowns.objects"),
+            objects(&out, "joined.objects"),
+            objects(&out, "tops.objects"),
+        );
+        let n = (count(&clumps, "canopy"), count(&crowns, "canopy"), count(&joined, "canopy"), count(&tops, "top"));
+        println!("crowns: clumps {}, split {}, joined {}, tops {}", n.0, n.1, n.2, n.3);
+        assert!(n.0 >= 3 && n.1 > 2 * n.0, "the clumps did not split: {n:?}");
+        assert!(n.2 < n.1 && n.2 > n.0, "the fusion: {n:?}");
+        assert!(n.3 >= 3 && n.3 < n.2, "{n:?}");
+        let Some(Value::Table(e)) = out.get("tops.table") else { panic!("no table of the tops") };
+        let (ext, top) = (e.column("extremum").unwrap(), e.column("max_image").unwrap());
+        // (no two crowns that touch are both marked: a top is taller than its neighbours)
+        assert_eq!(ext.iter().filter(|&&x| x == 1.0).count(), n.3);
+        let tallest = top.iter().zip(ext.iter()).filter(|(_, x)| **x == 1.0).map(|(h, _)| *h).fold(f64::MIN, f64::max);
+        assert!(top.iter().all(|&h| h.is_nan() || h <= tallest + 1e-9));
+
+        // roads and rivers by the skeleton
+        let out = run("Roads and rivers by the skeleton");
+        let (m, o) = (map(&out, "rules.map"), objects(&out, "rules.objects"));
+        let (s, t, f) = (map(&out, "slope.map"), map(&out, "slope2.map"), map(&out, "relief.map"));
+        let class = |name: &str| o.classes.iter().position(|c| c.name == name).unwrap() as f64 + 1.0;
+        let recall = |name: &str, truth: &dyn Fn(usize) -> bool| {
+            let (mut hit, mut all) = (0usize, 0usize);
+            for k in 0..m.data.len() {
+                if truth(k) {
+                    all += 1;
+                    hit += (m.data[k] == class(name)) as usize;
+                }
+            }
+            hit as f64 / all.max(1) as f64
+        };
+        let river = |k: usize| (s.data[k] + 0.3 * (f.data[k] - 0.5) - 0.5).abs() < 0.03;
+        let road = |k: usize| !river(k) && (t.data[k] - 0.25).abs() < 0.025;
+        let (r, d) = (recall("river", &river), recall("road", &road));
+        println!("skeleton: river {r:.3}, road {d:.3}");
+        assert!(r >= 0.7 && d >= 0.7, "river {r}, road {d}");
+        // the compact objects are lakes and buildings, not rivers and roads
+        assert!(
+            o.classes.iter().all(|c| ["river", "lake", "road", "building", "vegetation"].contains(&c.name.as_str()))
+        );
+        assert!(["lake", "building"].iter().all(|c| m.data.iter().any(|&v| v == class(c))));
 
         // the class tree: the leaf map against the truth (water 4, forest 2, grassland 3, cropland and urban 1)
         let out = run("Each class its own way");

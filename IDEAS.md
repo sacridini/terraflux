@@ -4729,7 +4729,7 @@ US7801361 e US8319793, até 2029 e 2031).
     e de novo. Uma feature que não sai assim (textura, esqueleto, contexto) é recusada com a lista das que podem.
   - Testes: um prédio em L partido em três pedaços se junta pela compacidade; o `threshold` numa média; o mútuo; a
     recusa da textura; as passadas; 1 e 8 threads.
-- **7. Templates e documentação (P).** No grupo dos objetos de `templates.rs`, com `data` nas entradas: "Classes por
+- **7. Templates e documentação (P). Feito (2026-11-20).** Os três templates em `templates.rs` (grupo dos objetos), cada um roda como está e tem teste em `the_object_templates_run`: "Classes by parcel" (`bounds` do multiresolution e `thematic` do `features`; o teste exige `th_share` 1 em todo objeto e os nove lotes), "Separate tree crowns" (limiar, `objects.split` por `surface` com `h` 0,3, `objects.fuse` por compacidade, `objects.extrema` do `max_image`; o teste exige mais cortes que manchas, menos objetos depois da fusão e topos que não são todos os objetos) e "Roads and rivers by the skeleton" (um mapa de cobertura, pedaços por classe com `segment.threshold`, `skeleton` e regras em `skel_length_width` e `skel_width`; o teste exige recall de 0,7 no rio e na estrada). O `objects.resize` não tem template próprio (a tabela do tutorial o cobre). O `from-ecognition.md` ganhou os `ops` e um item em "Going further". Plano original: No grupo dos objetos de `templates.rs`, com `data` nas entradas: "Classes por
   lote" (um vetor de lotes desenhado e uma imagem → multiresolution com `bounds` → features com `thematic` →
   classificação), "Copas de árvores separadas" (um nDSM de manchas do `nlm.*` → limiar → `objects.split` pelo
   `surface` → `objects.extrema` dos topos) e "Estradas e rios pelo esqueleto" (segmentar → `skeleton` →
@@ -4747,10 +4747,7 @@ US7801361 e US8319793, até 2029 e 2031).
 6. O *find enclosed by class* fica na documentação, sem operador.
 7. A fusão pelo resultado é um operador novo, `objects.fuse`, não um modo do `objects.merge` (que fica simples).
 
-**Onde parou (2026-11-20).** Feitos os itens 1 (as camadas temáticas: `065e46b`, `ec58391`), 2
-(`objects.split`, `a2365f7`), 3 (`objects.resize`, `e175e9f`) e 4 (o esqueleto, no commit seguinte). Faltam o 5
-(`objects.extrema`), o 6 (`objects.fuse`) e o 7 (os templates e o tutorial). O `website/data/ops.json` ainda não
-tem `objects.split` e `objects.resize` (o build avisa no `from-ecognition.md` até o próximo release, que o atualiza).
+**Onde parou (2026-11-20).** Feitos os sete itens: 1 (as camadas temáticas: `065e46b`, `ec58391`), 2 (`objects.split`, `a2365f7`), 3 (`objects.resize`, `e175e9f`), 4 (o esqueleto), 5 (`objects.extrema`), 6 (`objects.fuse`) e 7 (os três templates, com o `from-ecognition.md`). Resta o `website/data/ops.json`, que ainda não tem `objects.split`, `objects.resize`, `objects.extrema` e `objects.fuse` (o build avisa no `from-ecognition.md` até o próximo release, que o atualiza).
 
 ### Os tutoriais de OBIA, do básico ao complexo (pedido de 2026-11-19)
 

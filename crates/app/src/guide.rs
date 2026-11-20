@@ -403,7 +403,7 @@ where the model hesitates: put samples there). A map of the objects' classes is 
 counted or measured), then vector.write.
 Templates: \"Classify an image by clicking samples\" (the main one), \"Classify an image by rules\", \
 \"Segment an image into polygons\", \"Land cover change by objects\", \
-\"Trees and buildings from a height model\", \"Unsupervised classes of objects\", \"Water by Otsu on the NDWI\", \
+\"Trees and buildings from a height model\", \"Classes by parcel\", \"Separate tree crowns\", \"Roads and rivers by the skeleton\", \"Unsupervised classes of objects\", \"Water by Otsu on the NDWI\", \
 \"The scale chosen by itself\". Each draws its image (nlm.image): put the user's in its place with \
 Use my data (the node marked as data).
 The prompt \"classify this image into water, forest and city\": new_model from the samples template; replace the \
