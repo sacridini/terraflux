@@ -799,7 +799,12 @@
      "title": "Your first map by objects in 10 minutes",
      "template": "Classify an image by clicking samples",
      "models": [],
-     "files": []
+     "files": [
+      "/data/tutorials/object-based-image-analysis/first-map-by-objects/classes.csv",
+      "/data/tutorials/object-based-image-analysis/first-map-by-objects/matrix.csv",
+      "/data/tutorials/object-based-image-analysis/first-map-by-objects/overall.csv",
+      "/data/tutorials/object-based-image-analysis/first-map-by-objects/scales.csv"
+     ]
     },
     {
      "slug": "from-ecognition",
@@ -885,6 +890,17 @@
      "files": [
       "/data/tutorials/object-based-image-analysis/water-by-thresholds/spectral_difference.csv",
       "/data/tutorials/object-based-image-analysis/water-by-thresholds/sweep.csv"
+     ]
+    },
+    {
+     "slug": "levels",
+     "title": "Levels: from fine objects to blocks and landscape units",
+     "template": null,
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/levels/patches.csv",
+      "/data/tutorials/object-based-image-analysis/levels/remove_small.csv",
+      "/data/tutorials/object-based-image-analysis/levels/scales.csv"
      ]
     },
     {

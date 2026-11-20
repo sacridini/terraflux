@@ -1,0 +1,5 @@
+class,patches,hectares,mean_ha,median_ha,largest_ha,fine_objects
+water,2,215.7,107.84,107.84,208.9,140
+forest,100,873.2,8.73,1.01,413.4,697
+built-up,43,1007.7,23.44,1.21,275.7,1132
+cerrado,156,1267.4,8.12,1.13,619.6,1066
