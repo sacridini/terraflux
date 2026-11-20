@@ -1,0 +1,4 @@
+Blocks of the tutorial 'Classes by parcel' (Terraflux, https://terraflux.org)
+
+blocks.geojson: 33 city blocks of Lago Sul, Brasilia, Brazil, made by closing the streets of OpenStreetMap (highway = residential, tertiary, secondary, primary and their links) inside the Sentinel-2 clip of the series, with the data of 2026-11-20 (Overpass API). Attributes: block (1 to 33), faces (the kind of street along most of the block's boundary) and area_ha. EPSG:31983.
+(c) OpenStreetMap contributors, Open Database License (ODbL) 1.0, https://www.openstreetmap.org/copyright. This derived database is shared under the same licence.

@@ -1,0 +1,5 @@
+segmenter,setting,bounds_work,objects_free,cross_free,objects_bound,cross_bound,tiny_free,tiny_bound
+segment.multiresolution,scale 2,inside the segmenter,3035,420,3107,0,0,27
+segment.felzenszwalb,k = 2,inside the segmenter,1643,192,1769,0,0,27
+segment.slic,size 12,cut afterwards,2270,300,2911,0,0,276
+segment.watershed,defaults,cut afterwards,747,64,1006,0,6,115

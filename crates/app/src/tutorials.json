@@ -964,6 +964,24 @@
      ]
     },
     {
+     "slug": "classes-by-parcel",
+     "title": "Classes by parcel: objects that stay inside boundaries",
+     "template": "Classes by parcel",
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/classes-by-parcel/ATTRIBUTION.txt",
+      "/data/tutorials/object-based-image-analysis/classes-by-parcel/blocks.geojson",
+      "/data/tutorials/object-based-image-analysis/classes-by-parcel/blocks_classes.csv",
+      "/data/tutorials/object-based-image-analysis/classes-by-parcel/by_block.csv",
+      "/data/tutorials/object-based-image-analysis/classes-by-parcel/by_faces.csv",
+      "/data/tutorials/object-based-image-analysis/classes-by-parcel/faces_classes.csv",
+      "/data/tutorials/object-based-image-analysis/classes-by-parcel/features_head.csv",
+      "/data/tutorials/object-based-image-analysis/classes-by-parcel/scales.csv",
+      "/data/tutorials/object-based-image-analysis/classes-by-parcel/segmenters.csv",
+      "/data/tutorials/object-based-image-analysis/classes-by-parcel/th_share.csv"
+     ]
+    },
+    {
      "slug": "shaping-objects",
      "title": "Shaping objects: grow, shrink, open, close, fill, smooth and refine",
      "template": null,
