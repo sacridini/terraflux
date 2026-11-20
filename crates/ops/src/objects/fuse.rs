@@ -17,11 +17,17 @@
 //! (disjoint pairs, as the merging of `objects.merge`); the groups' neighbour lists are updated; and again, until
 //! nothing joins or `max_passes`. Every step runs in the order of the ids, so the result is the same on any number of
 //! threads (the batch evaluation and the band sums run in parallel and give the same numbers).
+//!
+//! A pass only looks again at what the last one changed. A pair's value is kept in the neighbour lists, a seed's own
+//! value and proposals beside them; a join leaves stale the pairs of the group it makes (and the proposals of that
+//! group and of its neighbours), and only those are evaluated and proposed again. The values are those a full
+//! evaluation gives (the expression is evaluated row by row), so the joins are the same, in the same order.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use rayon::prelude::*;
+use smallvec::SmallVec;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_raster::vector::Column;
 
@@ -163,6 +169,9 @@ fn names_of(script: &Script, bands: &[String]) -> Result<Vec<(String, Feat)>> {
 /// A group alone, or two groups joined (the second with the edges they share with the first).
 type Item = (usize, Option<(usize, u32)>);
 
+/// A neighbour: its id, the edges shared, and the value of the pair joined (NaN when not known yet).
+type Nb = (u32, u32, f64);
+
 /// The groups of objects (the index of a group is the smallest object in it) and what adds up over them.
 struct State {
     live: Vec<bool>,
@@ -174,10 +183,14 @@ struct State {
     bands: Vec<f64>,
     nb: usize,
     centre: Vec<f64>,
-    /// The neighbours (0-based id, edges shared), sorted by id.
-    adj: Vec<Vec<(u32, u32)>>,
+    /// The neighbours (0-based id, edges shared, value of the pair), sorted by id.
+    adj: Vec<Vec<Nb>>,
     /// The original object whose class and memberships the group has: that of its seed.
     head: Vec<u32>,
+    /// The class number of each group (that of its head).
+    class: Vec<u32>,
+    /// A list kept to make the next group's neighbours in.
+    spare: Vec<Nb>,
     /// The cell's sides in map units.
     rw: f64,
     rh: f64,
@@ -218,10 +231,10 @@ impl State {
         for a in rows.iter().flatten() {
             edges[*a as usize - 1] += 1.0;
         }
-        let adj: Vec<Vec<(u32, u32)>> =
-            o.adjacency.iter().map(|l| l.iter().map(|&(b, len)| (b - 1, len)).collect()).collect();
+        let adj: Vec<Vec<Nb>> =
+            o.adjacency.iter().map(|l| l.iter().map(|&(b, len)| (b - 1, len, f64::NAN)).collect()).collect();
         for (k, l) in adj.iter().enumerate() {
-            edges[k] += l.iter().map(|&(_, len)| len as f64).sum::<f64>();
+            edges[k] += l.iter().map(|&(_, len, _)| len as f64).sum::<f64>();
         }
         // the bands: a centre, then the sums, a band on each thread (each in the order of the cells)
         let nb = data.len();
@@ -258,6 +271,8 @@ impl State {
             centre: per.iter().map(|p| p.0).collect(),
             adj,
             head: (0..n as u32).collect(),
+            class: o.class_of.clone(),
+            spare: Vec::new(),
             rw,
             rh,
         }
@@ -330,8 +345,9 @@ impl State {
     /// The group `seed` joined to `cand`: the smaller index stays the group. Returns (kept, gone).
     fn join(&mut self, seed: usize, cand: usize) -> (usize, usize) {
         let (to, from) = (seed.min(cand), seed.max(cand));
-        let shared = self.adj[seed].iter().find(|&&(x, _)| x as usize == cand).map_or(0, |p| p.1);
+        let shared = self.adj[seed].iter().find(|&&(x, ..)| x as usize == cand).map_or(0, |p| p.1);
         self.head[to] = self.head[seed];
+        self.class[to] = self.class[seed];
         self.edges[to] += self.edges[from] - 2.0 * shared as f64;
         self.cells[to] += self.cells[from];
         let (p, q) = (self.bbox[to], self.bbox[from]);
@@ -341,9 +357,9 @@ impl State {
             self.bands[to * w + j] += self.bands[from * w + j];
         }
         // the neighbours of both, the shared borders added; each neighbour's list now names `to`
-        let (a, b) = (std::mem::take(&mut self.adj[to]), std::mem::take(&mut self.adj[from]));
+        let (mut a, b) = (std::mem::take(&mut self.adj[to]), std::mem::take(&mut self.adj[from]));
         let skip = |x: u32| x as usize == to || x as usize == from;
-        let mut merged: Vec<(u32, u32)> = Vec::with_capacity(a.len() + b.len());
+        let mut merged = std::mem::take(&mut self.spare);
         let (mut i, mut j) = (0, 0);
         loop {
             while i < a.len() && skip(a[i].0) {
@@ -371,23 +387,30 @@ impl State {
                     j += 1;
                 }
                 (Some(&x), Some(&y)) => {
-                    merged.push((x.0, x.1 + y.1));
+                    merged.push((x.0, x.1 + y.1, f64::NAN));
                     i += 1;
                     j += 1;
                 }
             }
         }
-        for &(n, len) in &merged {
-            let l = &mut self.adj[n as usize];
-            l.retain(|&(x, _)| x as usize != from && x as usize != to);
-            let at = l.partition_point(|&(x, _)| x < to as u32);
-            l.insert(at, (to as u32, len));
+        // (the pairs of the group made are stale: their values are not known until evaluated again)
+        for m in &mut merged {
+            m.2 = f64::NAN;
+            let l = &mut self.adj[m.0 as usize];
+            l.retain(|&(x, ..)| x as usize != from && x as usize != to);
+            let at = l.partition_point(|&(x, ..)| x < to as u32);
+            l.insert(at, (to as u32, m.1, f64::NAN));
         }
+        a.clear();
+        self.spare = a;
         self.adj[to] = merged;
         self.live[from] = false;
         (to, from)
     }
 }
+
+/// A seed's proposals: (score, candidate), one in `best` mode.
+type Proposals = SmallVec<[(f64, u32); 1]>;
 
 /// What the settings ask.
 struct Plan {
@@ -399,114 +422,167 @@ struct Plan {
     threshold: Option<f64>,
     all: bool,
     max_passes: usize,
+    /// Evaluate everything again in each pass (the passes must give the same: for the tests).
+    full: bool,
 }
 
 /// A seed's wish to take a candidate, the better the higher its score.
 struct Prop {
     score: f64,
+    /// The seed's cells (the bigger seed goes first on a tie).
+    cells: f64,
     seed: u32,
     cand: u32,
 }
 
 /// The passes: the parent of each group (a group joined to a smaller one points to it) and the joins made.
-fn passes(
-    st: &mut State,
-    o: &Objects,
-    script: &Script,
-    used: &[(String, Feat)],
-    plan: &Plan,
-) -> Result<(Vec<u32>, usize)> {
+fn passes(st: &mut State, script: &Script, used: &[(String, Feat)], plan: &Plan) -> Result<(Vec<u32>, usize)> {
     let n = st.live.len();
     let mut parent: Vec<u32> = (0..n as u32).collect();
     let mut joined = 0;
-    for _ in 0..plan.max_passes {
-        let class = |st: &State, g: usize| o.class_of[st.head[g] as usize] as usize;
-        // the neighbours where a seed meets a candidate
-        let mut pairs: Vec<(usize, usize, u32)> = Vec::new();
-        let mut want = vec![false; n];
-        for a in (0..n).filter(|&a| st.live[a]) {
-            let ca = class(st, a);
-            for &(b, len) in &st.adj[a] {
-                let (b, cb) = (b as usize, class(st, b as usize));
-                if b <= a {
-                    continue;
-                }
-                let (ab, ba) = (plan.seed_ok[ca] && plan.cand_ok[cb], plan.seed_ok[cb] && plan.cand_ok[ca]);
-                if ab || ba {
-                    pairs.push((a, b, len));
-                    want[a] |= ab;
-                    want[b] |= ba;
-                }
+    // a seed's wish for a candidate, whatever their values
+    let may = |st: &State, s: usize, c: usize| plan.seed_ok[st.class[s] as usize] && plan.cand_ok[st.class[c] as usize];
+    // the seeds' own values (the bar a joined object has to clear) and each seed's proposals (score, candidate)
+    let mut own = vec![f64::NAN; n];
+    let mut cache: Vec<Proposals> = vec![Proposals::new(); n];
+    // the groups whose pairs, own value or neighbours changed in the last pass: all at first
+    let mut dirty: Vec<usize> = (0..n).collect();
+    let mut is_dirty = vec![true; n];
+    // the seeds that have a proposal (maybe stale: the ones that lost it or joined are dropped when read)
+    let mut active: Vec<usize> = Vec::new();
+    let mut has = vec![false; n];
+    let mut taken = vec![0usize; n];
+    for pass in 1..=plan.max_passes {
+        if plan.full {
+            for l in st.adj.iter_mut().flatten() {
+                l.2 = f64::NAN;
             }
+            own.fill(f64::NAN);
+            dirty = (0..n).collect();
+            is_dirty.fill(true);
         }
-        if pairs.is_empty() {
-            break;
-        }
+        dirty.retain(|&g| st.live[g]);
+        dirty.sort_unstable();
+        // the pairs left stale by the last joins (each once: from the smaller id, or from the only dirty side)
+        let pairs: Vec<(usize, usize, u32)> = dirty
+            .par_iter()
+            .with_min_len(1024)
+            .flat_map_iter(|&a| {
+                let (is_dirty, st) = (&is_dirty, &*st);
+                st.adj[a].iter().filter_map(move |&(b, len, v)| {
+                    let b = b as usize;
+                    let (x, y) = (a.min(b), a.max(b));
+                    (v.is_nan() && (b > a || !is_dirty[b]) && (may(st, x, y) || may(st, y, x))).then_some((x, y, len))
+                })
+            })
+            .collect();
         let items: Vec<Item> = pairs.iter().map(|&(a, b, l)| (a, Some((b, l)))).collect();
-        let vals = st.evaluate(script, used, &items)?;
-        // the seeds' own values, the bar a joined object has to clear
-        let mut own = vec![f64::NAN; n];
-        if plan.improve {
-            let ids: Vec<usize> = (0..n).filter(|&g| want[g]).collect();
-            let items: Vec<Item> = ids.iter().map(|&g| (g, None)).collect();
-            for (g, v) in ids.iter().zip(st.evaluate(script, used, &items)?) {
-                own[*g] = v;
+        for (&(a, b, _), v) in pairs.iter().zip(st.evaluate(script, used, &items)?) {
+            for (x, y) in [(a, b), (b, a)] {
+                let at = st.adj[x].partition_point(|&(z, ..)| (z as usize) < y);
+                st.adj[x][at].2 = v;
             }
         }
-        let mut props: Vec<Prop> = Vec::new();
-        for (&(a, b, _), &v) in pairs.iter().zip(&vals) {
-            if !v.is_finite()
-                || plan.threshold.is_some_and(|t| (plan.sign > 0.0 && v < t) || (plan.sign < 0.0 && v > t))
-            {
-                continue;
+        if plan.improve {
+            let ids: Vec<usize> = dirty
+                .iter()
+                .copied()
+                .filter(|&g| own[g].is_nan() && st.adj[g].iter().any(|&(c, ..)| may(st, g, c as usize)))
+                .collect();
+            let items: Vec<Item> = ids.iter().map(|&g| (g, None)).collect();
+            for (&g, v) in ids.iter().zip(st.evaluate(script, used, &items)?) {
+                own[g] = v;
             }
-            let score = plan.sign * v;
-            for (s, c) in [(a, b), (b, a)] {
-                if !(plan.seed_ok[class(st, s)] && plan.cand_ok[class(st, c)]) {
-                    continue;
-                }
-                if plan.improve {
-                    // (as good as the seed: a tie joins, so that pieces of a rectangle make the rectangle)
-                    let bar = plan.sign * own[s];
-                    if !bar.is_finite() || score < bar - 1e-12 * bar.abs().max(1.0) {
+        }
+        // each dirty seed proposes again: its best candidate (the lower id on a tie) or all that qualify
+        let proposals: Vec<Proposals> = dirty
+            .par_iter()
+            .with_min_len(1024)
+            .map(|&s| {
+                let mut best = Proposals::new();
+                for &(c, _, v) in &st.adj[s] {
+                    if !may(st, s, c as usize) {
                         continue;
                     }
+                    if !v.is_finite()
+                        || plan.threshold.is_some_and(|t| (plan.sign > 0.0 && v < t) || (plan.sign < 0.0 && v > t))
+                    {
+                        continue;
+                    }
+                    let score = plan.sign * v;
+                    if plan.improve {
+                        // (as good as the seed: a tie joins, so that pieces of a rectangle make the rectangle)
+                        let bar = plan.sign * own[s];
+                        if !bar.is_finite() || score < bar - 1e-12 * bar.abs().max(1.0) {
+                            continue;
+                        }
+                    }
+                    // (ascending candidates: a tie keeps the lower id)
+                    match best.first_mut() {
+                        Some(b) if !plan.all => {
+                            if score.total_cmp(&b.0).is_gt() {
+                                *b = (score, c);
+                            }
+                        }
+                        _ => best.push((score, c)),
+                    }
                 }
-                props.push(Prop { score, seed: s as u32, cand: c as u32 });
+                best
+            })
+            .collect();
+        for (&s, best) in dirty.iter().zip(proposals) {
+            cache[s] = best;
+            is_dirty[s] = false;
+            if !cache[s].is_empty() && !has[s] {
+                has[s] = true;
+                active.push(s);
             }
         }
-        if !plan.all {
-            // each seed with its best candidate (the lower id on a tie)
-            props.par_sort_unstable_by(|x, y| {
-                x.seed.cmp(&y.seed).then(y.score.total_cmp(&x.score)).then(x.cand.cmp(&y.cand))
-            });
-            props.dedup_by_key(|p| p.seed);
+        dirty.clear();
+        active.retain(|&s| {
+            has[s] = st.live[s] && !cache[s].is_empty();
+            has[s]
+        });
+        let mut props: Vec<Prop> = Vec::new();
+        for &s in &active {
+            let cells = st.cells[s];
+            props.extend(cache[s].iter().map(|&(score, c)| Prop { score, cells, seed: s as u32, cand: c }));
         }
         // the best first, the bigger seed then the lower ids on a tie; a pair only when both are free
         props.par_sort_unstable_by(|x, y| {
             y.score
                 .total_cmp(&x.score)
-                .then(st.cells[y.seed as usize].total_cmp(&st.cells[x.seed as usize]))
+                .then(y.cells.total_cmp(&x.cells))
                 .then(x.seed.cmp(&y.seed))
                 .then(x.cand.cmp(&y.cand))
         });
-        let mut taken = vec![false; n];
         let mut accepted: Vec<(usize, usize)> = Vec::new();
         for p in &props {
             let (s, c) = (p.seed as usize, p.cand as usize);
-            if !taken[s] && !taken[c] {
-                taken[s] = true;
-                taken[c] = true;
+            if taken[s] != pass && taken[c] != pass {
+                taken[s] = pass;
+                taken[c] = pass;
                 accepted.push((s, c));
             }
         }
         if accepted.is_empty() {
             break;
         }
+        // (the pairs are disjoint, so the joins give the same in any order: by id they touch memory nearby)
+        accepted.sort_unstable_by_key(|&(s, c)| s.min(c));
         for (s, c) in accepted {
             let (to, from) = st.join(s, c);
             parent[from] = to as u32;
             joined += 1;
+            cache[from] = Proposals::new();
+            own[to] = f64::NAN;
+            // the group made and its neighbours: their pairs and proposals change
+            for g in std::iter::once(to).chain(st.adj[to].iter().map(|&(g, ..)| g as usize)) {
+                if !is_dirty[g] {
+                    is_dirty[g] = true;
+                    dirty.push(g);
+                }
+            }
         }
     }
     Ok((parent, joined))
@@ -647,10 +723,11 @@ impl Operator for Fuse {
             threshold,
             all,
             max_passes: max_passes as usize,
+            full: false,
         };
         let data: &[Arc<Vec<f64>>] = image.as_ref().map_or(&[], |l| l.data.as_slice());
         let mut st = State::new(o, data);
-        let (mut parent, joined) = passes(&mut st, o, &script, &used, &plan).map_err(|e| bad(e.0))?;
+        let (mut parent, joined) = passes(&mut st, &script, &used, &plan).map_err(|e| bad(e.0))?;
         let table_of = |x: &Objects| match &image {
             Some(l) => stats_table(x, &l.names, &l.data),
             None => x.table.clone(),
@@ -712,5 +789,66 @@ impl Operator for Fuse {
         ]);
         out.insert("objects".into(), Value::Objects(Arc::new(cut)));
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::objects::ObjectClass;
+    use terraflux_raster::Grid;
+
+    fn lcg(s: &mut u64) -> f64 {
+        *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((*s >> 11) as f64) / (1u64 << 53) as f64
+    }
+
+    /// The incremental passes against passes that evaluate every pair and seed again each time, on a random image.
+    #[test]
+    fn the_incremental_passes_join_as_a_full_evaluation_does() {
+        let (w, h) = (48, 40);
+        let mut s = 7u64;
+        // blocks of 3 x 2 cells, each its own region, and two bands of noise over a trend
+        let region: Vec<u64> = (0..w * h).map(|i| ((i / w / 2) * (w / 3) + (i % w) / 3 + 1) as u64).collect();
+        let o = Objects::from_regions(Arc::new(Grid::new(w, h)), &region, 4);
+        let of: Vec<u32> = (0..o.count as u32).map(|k| k % 3).collect();
+        let list = ["a", "b"].iter().map(|n| ObjectClass { name: n.to_string(), colour: None }).collect();
+        let o = o.with_classes(list, of, Vec::new()).unwrap();
+        let data: Vec<Arc<Vec<f64>>> = (0..2)
+            .map(|b| {
+                Arc::new((0..w * h).map(|i| (i % w) as f64 * 0.5 + b as f64 * 10.0 + lcg(&mut s) * 20.0).collect())
+            })
+            .collect();
+        let bands = vec!["b1".to_string(), "b2".to_string()];
+        let cases = [
+            ("sd_b1 + sd_b2", -1.0, true, None, false),
+            ("sd_b1 + sd_b2", -1.0, false, Some(9.0), false),
+            ("compactness", -1.0, true, None, false),
+            ("compactness", -1.0, false, Some(1.5), true),
+            ("mean_b1 - mean_b2 + cells * 0.01", 1.0, true, None, true),
+            ("shape_index + border_index", -1.0, false, Some(2.3), false),
+        ];
+        for (text, sign, improve, threshold, all) in cases {
+            let script = parse_script_objects(text).unwrap();
+            let used = names_of(&script, &bands).unwrap();
+            let run = |full: bool| {
+                let mut st = State::new(&o, &data);
+                let plan = Plan {
+                    seed_ok: vec![true; 3],
+                    cand_ok: vec![true, true, false],
+                    sign,
+                    improve,
+                    threshold,
+                    all,
+                    max_passes: 100,
+                    full,
+                };
+                let (parent, joined) = passes(&mut st, &script, &used, &plan).unwrap();
+                (parent, joined, st.live, st.head)
+            };
+            let (a, b) = (run(false), run(true));
+            assert!(a.1 > 0, "{text}: nothing joined, the case tests nothing");
+            assert!(a == b, "{text}: the incremental passes differ from the full ones");
+        }
     }
 }

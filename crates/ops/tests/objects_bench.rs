@@ -351,7 +351,7 @@ fn objects_skeleton_bench() {
 }
 
 /// `objects.fuse` over a chessboard of 4 x 4 blocks of the benchmark image: the blocks join while their bands stay
-/// alike (the deviations) and while the joined object stays compact, on 1 and N threads (the same hash on both).
+/// alike (the deviations) and while the joined object stays compact and not too big, on 1 and N threads (the same hash on both).
 #[test]
 #[ignore]
 fn objects_fuse_bench() {
@@ -371,7 +371,8 @@ fn objects_fuse_bench() {
         };
         let cases = [
             ("alike", serde_json::json!({ "fitting": "sd_b1 + sd_b2", "goal": "min", "improve": false, "threshold": 20.0 })),
-            ("compact", serde_json::json!({ "fitting": "compactness", "goal": "min", "improve": false, "threshold": 1.5, "mode": "all" })),
+            // a size cap in the fitting (cells / 20000) keeps the objects from fusing into one: 127 and 491 objects instead
+            ("compact", serde_json::json!({ "fitting": "compactness + cells / 20000", "goal": "min", "improve": false, "threshold": 1.5 })),
         ];
         for (variant, params) in cases {
             for threads in list("BENCH_THREADS", "1,8") {
