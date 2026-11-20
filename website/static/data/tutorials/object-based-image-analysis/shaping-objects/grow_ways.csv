@@ -1,0 +1,6 @@
+way,setting,speck_cells,lake_cells
+"exact, distance 40 m","grow, distance = 40",49,23752
+"ring by ring, 8 neighbours","grow, steps = 4, mask of ones",81,24837
+"ring by ring, 4 neighbours","grow, steps = 4, neighbours = 4, mask of ones",41,23601
+ring by ring under a condition,"grow, steps = 8, mask NDWI > -0.3",25,21489
+"exact, steps = 4","grow, steps = 4",49,23752

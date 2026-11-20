@@ -962,6 +962,27 @@
       "/data/tutorials/object-based-image-analysis/change-by-objects/transitions_naive.csv",
       "/data/tutorials/object-based-image-analysis/change-by-objects/variants.csv"
      ]
+    },
+    {
+     "slug": "shaping-objects",
+     "title": "Shaping objects: grow, shrink, open, close, fill, smooth and refine",
+     "template": null,
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/shaping-objects/compactness.csv",
+      "/data/tutorials/object-based-image-analysis/shaping-objects/grow_ways.csv",
+      "/data/tutorials/object-based-image-analysis/shaping-objects/modes.csv",
+      "/data/tutorials/object-based-image-analysis/shaping-objects/open_sweep.csv",
+      "/data/tutorials/object-based-image-analysis/shaping-objects/refine.csv",
+      "/data/tutorials/object-based-image-analysis/shaping-objects/refine_clean.csv",
+      "/data/tutorials/object-based-image-analysis/shaping-objects/report_close.csv",
+      "/data/tutorials/object-based-image-analysis/shaping-objects/report_fill.csv",
+      "/data/tutorials/object-based-image-analysis/shaping-objects/report_open.csv",
+      "/data/tutorials/object-based-image-analysis/shaping-objects/report_smooth.csv",
+      "/data/tutorials/object-based-image-analysis/shaping-objects/smooth_sweep.csv",
+      "/data/tutorials/object-based-image-analysis/shaping-objects/water_before.csv",
+      "/data/tutorials/object-based-image-analysis/shaping-objects/water_report.csv"
+     ]
     }
    ]
   },
