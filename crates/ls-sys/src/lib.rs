@@ -1315,6 +1315,15 @@ pub mod ffi {
         loglr: Vec<f64>,
     }
 
+    /// The cells each step crosses (amt's extract_covariates_along, terra's extract of the line): step i has the
+    /// cells [offsets[i], offsets[i + 1]) of `cell` (terra's 0-based numbers in terra's order, -1: the one NA row of a
+    /// step outside the raster); `rank` is the position of each cell along the step.
+    struct MoveAlong {
+        offsets: Vec<i64>,
+        cell: Vec<i64>,
+        rank: Vec<i64>,
+    }
+
     /// suncalc's sunrise, sunset, dawn and dusk (seconds since 1970, NaN when the sun does not reach them).
     struct MoveSun {
         sunrise: Vec<f64>,
@@ -3308,6 +3317,32 @@ pub mod ffi {
             closest: bool,
             threads: i32,
         ) -> Result<Vec<u8>>;
+        /// The cells of each step (x1, y1) -> (x2, y2) on the raster with the extent xmin..xmax, ymin..ymax and
+        /// nx x ny cells; round15: the coordinates go through R's 15 significant digits first (amt's paste0).
+        #[allow(clippy::too_many_arguments)]
+        fn move_along_cells(
+            x1: &[f64],
+            y1: &[f64],
+            x2: &[f64],
+            y2: &[f64],
+            xmin: f64,
+            xmax: f64,
+            ymin: f64,
+            ymax: f64,
+            nx: i64,
+            ny: i64,
+            round15: bool,
+            threads: i32,
+        ) -> Result<MoveAlong>;
+        /// Mean, min, max, ascent, descent and delta of a raster's values (row-major, as many as the cells) along
+        /// each step: six numbers a step, one step after the other.
+        fn move_along_stats(
+            offsets: &[i64],
+            cell: &[i64],
+            rank: &[i64],
+            values: &[f64],
+            threads: i32,
+        ) -> Result<Vec<f64>>;
     }
 }
 

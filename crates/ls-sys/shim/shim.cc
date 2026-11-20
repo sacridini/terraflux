@@ -54,6 +54,7 @@
 #include "gtb/mspa.hpp"
 #include "gtb/spa.hpp"
 #include "lsm/landscape.hpp"
+#include "move/along.hpp"
 #include "move/amt.hpp"
 #include "move/clean.hpp"
 #include "move/distr.hpp"
@@ -5326,6 +5327,41 @@ rust::Vec<std::uint8_t> move_thin_distance(rust::Slice<const double> step, rust:
     for (std::size_t i = 0; i < step.size(); ++i) out.push_back(0);
     move::thin_distance(step.data(), track.data(), static_cast<std::int64_t>(step.size()), method, distance, tolerance,
                         closest, threads, out.data());
+    return out;
+}
+
+MoveAlong move_along_cells(rust::Slice<const double> x1, rust::Slice<const double> y1, rust::Slice<const double> x2,
+                           rust::Slice<const double> y2, double xmin, double xmax, double ymin, double ymax,
+                           std::int64_t nx, std::int64_t ny, bool round15, std::int32_t threads) {
+    check(y1.size() == x1.size() && x2.size() == x1.size() && y2.size() == x1.size(),
+          "x1, y1, x2 and y2: the same length");
+    check(nx >= 1 && ny >= 1 && xmax > xmin && ymax > ymin, "the raster needs cells and an extent");
+    const move::AlongCells r =
+        move::along_cells(x1.data(), y1.data(), x2.data(), y2.data(), static_cast<std::int64_t>(x1.size()), xmin, xmax,
+                          ymin, ymax, nx, ny, round15, threads);
+    MoveAlong out;
+    out.offsets = to_rust<std::int64_t>(r.offsets);
+    out.cell = to_rust<std::int64_t>(r.cell);
+    out.rank = to_rust<std::int64_t>(r.rank);
+    return out;
+}
+
+rust::Vec<double> move_along_stats(rust::Slice<const std::int64_t> offsets, rust::Slice<const std::int64_t> cell,
+                                   rust::Slice<const std::int64_t> rank, rust::Slice<const double> values,
+                                   std::int32_t threads) {
+    check(!offsets.empty() && cell.size() == rank.size() &&
+              offsets[offsets.size() - 1] == static_cast<std::int64_t>(cell.size()),
+          "offsets, cell and rank do not fit");
+    move::AlongCells c;
+    c.offsets.assign(offsets.begin(), offsets.end());
+    c.cell.assign(cell.begin(), cell.end());
+    c.rank.assign(rank.begin(), rank.end());
+    // cells past the raster would be read outside the values
+    for (const std::int64_t k : c.cell)
+        check(k < static_cast<std::int64_t>(values.size()), "a cell is outside the values");
+    const std::size_t n = offsets.size() - 1;
+    rust::Vec<double> out = move_vec(6 * n);
+    move::along_stats(c, values.data(), static_cast<std::int64_t>(values.size()), threads, out.data());
     return out;
 }
 // end movement ecology

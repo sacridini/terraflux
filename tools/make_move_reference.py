@@ -31,10 +31,12 @@ ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
 LS = Path(tf.__file__).resolve().parents[2]
 sys.path.insert(0, str(LS / "tests"))
-from move_cases import (EXTRACT_RASTER, M2U_SYNTHETIC, SPEED, SPEED_MASS, SPEED_MODE, THIN_DISTANCE,  # noqa: E402
-                        THIN_TIME, m2u_track_sets, track_sets)
+from move_cases import (ALONG_CASES, ALONG_LAYERS, ALONG_RASTERS, EXTRACT_RASTER, M2U_SYNTHETIC, SPEED,  # noqa: E402
+                        SPEED_MASS, SPEED_MODE, THIN_DISTANCE, THIN_TIME, along_raster, along_track_sets,
+                        m2u_track_sets, track_sets)
 
 M = tf.move
+ALONG_STATS = ("mean", "min", "max", "ascent", "descent", "delta")
 
 
 def frame(s: dict) -> gpd.GeoDataFrame:
@@ -143,6 +145,50 @@ def clean_reference(out: dict, meta: dict, fishers_src: Path, synth_src: Path) -
                 kw = {"sat_min": 8, "dop_max": 3}
             put(f"clean/{case}/{key}", M.gps_quality(tracks[data], **kw))
             cases["gps"].setdefault(case, {"data": data, "calls": {}})["calls"][key] = kw
+
+
+def along_reference(out: dict, meta: dict, fishers_src: Path) -> None:
+    """The values along the steps (extract_covariates_along) and their summaries (along_summary) of the library's
+    cases (tests/move_cases.py: along_track_sets, ALONG_RASTERS, along_raster) and of the fishers' steps, on the rasters
+    of ALONG_RASTERS (three layers made of integers). New keys only: `in/along/<case>/{x1,y1,x2,y2}` the steps,
+    `along/<case>/off` the cells per step (n + 1 offsets), `along/<case>/v<k>` the values of layer k (cover, lvl,
+    hill) of every cell in terra's order and `along/<case>/<layer>_<stat>` the summaries per step; the rasters and
+    the cases are in the json (`along`)."""
+    sets = along_track_sets()
+    f = tf.load_tracks(fishers_src, sort=False)
+    fs = M.steps(f[~f.geometry.is_empty])
+    steps = {name: pd.DataFrame({"x1_": s["x"], "y1_": s["y"], "x2_": s["x2"], "y2_": s["y2"]})
+             for name, s in sets.items()}
+    steps["along_fishers"] = fs[["x1_", "y1_", "x2_", "y2_"]].reset_index(drop=True)
+    cases = dict(ALONG_CASES, along_fishers="fishers")
+    crs = {name: sets[name]["crs"] for name in sets}
+    crs["along_fishers"] = ALONG_RASTERS["fishers"]["crs"]
+    meta["along"] = {"rasters": {k: dict(v) for k, v in ALONG_RASTERS.items()}, "layers": list(ALONG_LAYERS),
+                     "stats": list(ALONG_STATS), "cases": {}}
+    for case, name in cases.items():
+        r = along_raster(name)
+        layers = {}
+        for k in ALONG_LAYERS:
+            da = xr.DataArray(r["values"][k], dims=("y", "x"), name=k,
+                              coords={"y": r["ymax"] - r["yres"] * (np.arange(r["nrows"]) + 0.5),
+                                      "x": r["xmin"] + r["xres"] * (np.arange(r["ncols"]) + 0.5)})
+            if r["crs"]:
+                da = da.rio.write_crs(r["crs"])
+            # the transform the library reads back exactly (its _grid), not the one rioxarray derives from the coordinates
+            layers[k] = da.rio.write_transform(Affine(r["xres"], 0, r["xmin"], 0, -r["yres"], r["ymax"]))
+        s = steps[case]
+        for c in ("x1_", "y1_", "x2_", "y2_"):
+            out[f"in/along/{case}/{c[:2]}"] = s[c].to_numpy(np.float64)
+        got = M.extract_covariates_along(s, layers)
+        out[f"along/{case}/off"] = np.r_[0, np.cumsum([len(g) for g in got])].astype(np.float64)
+        table = np.concatenate([g.to_numpy() for g in got])
+        for j, k in enumerate(ALONG_LAYERS):
+            out[f"along/{case}/v{j + 1}"] = table[:, j]
+        summary = M.along_summary(s, layers)
+        for k in ALONG_LAYERS:
+            for st in ALONG_STATS:
+                out[f"along/{case}/{k}_{st}"] = summary[f"{k}_along_{st}"].to_numpy(np.float64)
+        meta["along"]["cases"][case] = {"raster": name, "crs": crs[case], "n": len(s)}
 
 
 def main() -> None:
@@ -317,6 +363,7 @@ def main() -> None:
     put("extract/random", M.extract_covariates(r, {"cover": cover})["cover"])
 
     clean_reference(out, meta, fishers_src, LS / M2U_SYNTHETIC)
+    along_reference(out, meta, fishers_src)
 
     np.savez_compressed(REF / "move.npz", **out)
     (REF / "move.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")

@@ -5141,7 +5141,7 @@ Do amt 0.3.1 (fase 5), **entra**: `hr_mcp`, `hr_kde` com as larguras de banda `h
   `dop_max`, `hacc_max`, as colunas pelos nomes do Movebank e por ajuste); `move.thin_time` e `move.thin_distance`
   (a programação dinâmica em C++, linear, para trajetórias de 1e5+ pontos; a coluna `thin_selected` ou só os
   escolhidos). Testes contra o R nos fishers e na trajetória sintética.
-- **1b. Os valores ao longo do passo (S).** O `extract_covariates_along` do amt que faltou da fase 3: as células que
+- **1b. Os valores ao longo do passo (S). Feito (2026-11-21):** terraflux-py 402a483 (`extract_covariates_along`, bit a bit com o amt e o terra 1.9-50: a grade recortada e o queimador `ALL_TOUCHED` do GDAL 3.9.3 portados; `along_summary`), Terraflux (`where = "along"` e `stats` no `move.extract_covariates`, a saída `along`). Ressalva: o texto de 15 dígitos do `paste0` do R sai do `formatReal` em long double; o `%.15g` difere dele em ~1 % dos números aleatórios de 15-16 dígitos (1e-14 relativo), o que só muda as células de uma coordenada exatamente numa aresta; emular o `formatReal` se isso importar. O `extract_covariates_along` do amt que faltou da fase 3: as células que
   cada passo atravessa (a linha do início ao fim, na ordem do amt: conferir no R se é o `terra::extract` sobre a
   linha e em que ordem vêm as células) e os seus valores. O amt devolve a lista de valores por passo; o `tf.move`
   devolve igual (`extract_covariates_along`, bit a bit) e, a mais, os resumos por passo que a iSSF usa

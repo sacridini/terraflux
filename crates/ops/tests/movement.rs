@@ -1111,3 +1111,222 @@ fn one_and_four_threads_give_the_same_cleaning() {
         }
     }
 }
+
+// the values along the steps (tf.move.extract_covariates_along and along_summary): keys `in/along/...` and `along/...`,
+// the rasters and cases in move.json (`along`)
+
+fn along_meta() -> &'static serde_json::Value {
+    &reference().1["along"]
+}
+
+/// The rasters of the library's ALONG_RASTERS, three layers of integers (cover, lvl, hill), on the exact geotransform
+/// the library gave them: (name, map) of each layer.
+fn along_layers(raster: &str) -> Vec<(String, Value)> {
+    let r = &along_meta()["rasters"][raster];
+    let f = |k: &str| r[k].as_f64().unwrap();
+    let (nr, nc) = (r["nrows"].as_u64().unwrap() as usize, r["ncols"].as_u64().unwrap() as usize);
+    let mut g = Grid::new(nc, nr);
+    g.transform = [f("xmin"), f("xres"), 0.0, f("ymax"), 0.0, -f("yres")];
+    g.geo.wkt = r["crs"].as_str().map(str::to_string);
+    let g = Arc::new(g);
+    let (mut cover, mut lvl, mut hill) = (vec![], vec![], vec![]);
+    for cell in 0..nr * nc {
+        let (row, col) = ((cell / nc) as i64, (cell % nc) as i64);
+        cover.push(if (cell + 1) % 13 == 0 { f64::NAN } else { (cell + 1) as f64 });
+        lvl.push(if (row + col) % 11 == 0 { f64::NAN } else { ((row * 31 + col * 17) % 101) as f64 });
+        let (dr, dc) = (row - (nr / 2) as i64, col - (nc / 2) as i64);
+        hill.push((dr * dr + dc * dc) as f64);
+    }
+    [("cover", cover), ("lvl", lvl), ("hill", hill)]
+        .into_iter()
+        .map(|(k, d)| (k.to_string(), Value::Map(Map::new(g.clone(), d))))
+        .collect()
+}
+
+/// The steps of a case of the library, as move.steps gives them (the ends in x1_, y1_, x2_, y2_).
+fn along_steps(case: &str) -> Value {
+    let z = &reference().0;
+    let col = |c: &str| z[&format!("in/along/{case}/{c}")].data.clone();
+    let (x1, y1, x2, y2) = (col("x1"), col("y1"), col("x2"), col("y2"));
+    let geometries = (0..x1.len()).map(|i| Geometry::LineString(vec![[x1[i], y1[i]], [x2[i], y2[i]]])).collect();
+    let attributes = [("x1_", x1), ("y1_", y1), ("x2_", x2), ("y2_", y2)]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), Column::Numbers(v)))
+        .collect();
+    let crs = along_meta()["cases"][case]["crs"].as_str().map(str::to_string);
+    Value::Vector(Arc::new(Vector { geometries, attributes, crs }))
+}
+
+fn along_run(steps: &Value, layers: &[(String, Value)], params: serde_json::Value) -> terraflux_ops::Result<Outputs> {
+    let mut ins = vec![("tracks", steps.clone())];
+    ins.extend(layers.iter().map(|(k, v)| (k.as_str(), v.clone())));
+    run("move.extract_covariates", ins, params)
+}
+
+fn table(o: &Outputs, port: &str) -> Table {
+    match &o[port] {
+        Value::Table(t) => t.clone(),
+        v => panic!("{port}: {:?}", v.ty()),
+    }
+}
+
+#[test]
+fn values_along_the_steps_are_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let meta = along_meta();
+    let stats: Vec<&str> = meta["stats"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()).collect();
+    let names: Vec<&str> = meta["layers"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()).collect();
+    let cases: Vec<String> = meta["cases"].as_object().unwrap().keys().cloned().collect();
+    assert!(cases.len() >= 11);
+    for case in cases {
+        let raster = meta["cases"][&case]["raster"].as_str().unwrap();
+        let steps = along_steps(&case);
+        let o = along_run(&steps, &along_layers(raster), serde_json::json!({"where": "along"}))
+            .unwrap_or_else(|e| panic!("{case}: {e}"));
+        let v = vector(&o, "tracks");
+        for name in &names {
+            for s in &stats {
+                same(
+                    &format!("{case} {name}_along_{s}"),
+                    &num(&v, &format!("{name}_along_{s}")),
+                    want(&format!("along/{case}/{name}_{s}")),
+                );
+            }
+        }
+        // the table of the values: step (1-based), a column per layer, a row per cell in terra's order
+        let t = table(&o, "along");
+        // the inputs come in the order of their names
+        assert_eq!(t.columns, ["step", "cover", "hill", "lvl"], "{case}");
+        let off = want(&format!("along/{case}/off"));
+        let n = *off.last().unwrap() as usize;
+        assert_eq!(t.rows.len(), n, "{case}");
+        let step: Vec<f64> =
+            (0..off.len() - 1).flat_map(|i| vec![(i + 1) as f64; (off[i + 1] - off[i]) as usize]).collect();
+        same(&format!("{case} step"), &t.rows.iter().map(|r| r[0]).collect::<Vec<_>>(), &step);
+        for (k, name) in names.iter().enumerate() {
+            let j = t.columns.iter().position(|c| c == name).unwrap();
+            same(
+                &format!("{case} {name}"),
+                &t.rows.iter().map(|r| r[j]).collect::<Vec<_>>(),
+                want(&format!("along/{case}/v{}", k + 1)),
+            );
+        }
+        // the steps keep their columns
+        assert_eq!(v.len(), off.len() - 1, "{case}");
+        assert_eq!(num(&v, "x1_").len(), v.len());
+    }
+}
+
+#[test]
+fn the_stats_setting_picks_and_orders_the_columns() {
+    if !gdal() {
+        return;
+    }
+    let steps = along_steps("along_edges");
+    let layers = along_layers("edges");
+    let columns = |p: serde_json::Value| -> Vec<String> {
+        let v = vector(&along_run(&steps, &layers, p).unwrap(), "tracks");
+        v.attributes.iter().map(|(n, _)| n.clone()).filter(|n| n.contains("_along_")).collect()
+    };
+    let both = columns(serde_json::json!({"where": "along", "stats": "ascent, mean"}));
+    assert_eq!(
+        both,
+        [
+            "cover_along_ascent",
+            "cover_along_mean",
+            "hill_along_ascent",
+            "hill_along_mean",
+            "lvl_along_ascent",
+            "lvl_along_mean"
+        ]
+    );
+    let delta = columns(serde_json::json!({"where": "along", "stats": ["delta"]}));
+    assert_eq!(delta, ["cover_along_delta", "hill_along_delta", "lvl_along_delta"]);
+    assert_eq!(columns(serde_json::json!({"where": "along"})).len(), 18);
+    let p = serde_json::json!({"where": "along", "stats": ["max", "descent"]});
+    let v = vector(&along_run(&steps, &layers, p).unwrap(), "tracks");
+    same("max", &num(&v, "hill_along_max"), want("along/along_edges/hill_max"));
+    same("descent", &num(&v, "lvl_along_descent"), want("along/along_edges/lvl_descent"));
+    // one layer: the table has the one column
+    let one = along_run(&steps, &layers[..1], serde_json::json!({"where": "along", "stats": "mean"})).unwrap();
+    assert_eq!(table(&one, "along").columns, ["step", "cover"]);
+}
+
+#[test]
+fn one_and_four_threads_give_the_same_values_along() {
+    if !gdal() {
+        return;
+    }
+    for case in ["along_edges", "along_big", "along_fishers"] {
+        let raster = along_meta()["cases"][case]["raster"].as_str().unwrap();
+        let (steps, layers) = (along_steps(case), along_layers(raster));
+        let by = |n: usize| {
+            terraflux_ops::threads::set_kernel_threads(n);
+            let o = along_run(&steps, &layers, serde_json::json!({"where": "along"})).unwrap();
+            terraflux_ops::threads::set_kernel_threads(4);
+            o
+        };
+        let (a, b) = (by(1), by(4));
+        let (va, vb) = (vector(&a, "tracks"), vector(&b, "tracks"));
+        let mut checked = 0;
+        for (name, c) in &va.attributes {
+            if name.contains("_along_") {
+                same(&format!("{case} {name}"), &c.numbers(), &num(&vb, name));
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 18, "{case}");
+        let (ta, tb) = (table(&a, "along"), table(&b, "along"));
+        assert_eq!(ta.rows.len(), tb.rows.len());
+        for (k, (ra, rb)) in ta.rows.iter().zip(&tb.rows).enumerate() {
+            same(&format!("{case} row {k}"), ra, rb);
+        }
+    }
+}
+
+#[test]
+fn values_along_errors() {
+    if !gdal() {
+        return;
+    }
+    let steps = along_steps("along_edges");
+    let layers = along_layers("edges");
+    let err = |s: &Value, l: &[(String, Value)], p: serde_json::Value| {
+        along_run(s, l, p).map(|_| ()).unwrap_err().to_string()
+    };
+    let along = serde_json::json!({"where": "along"});
+    // stats: a name that is not one, none at all
+    let e = err(&steps, &layers, serde_json::json!({"where": "along", "stats": ["mean", "median"]}));
+    assert!(e.contains("stats") && e.contains("median"), "{e}");
+    assert!(err(&steps, &layers, serde_json::json!({"where": "along", "stats": []})).contains("stats"));
+    assert!(err(&steps, &layers, serde_json::json!({"where": "somewhere"})).contains("along"));
+    // points are not steps
+    let points = set("utm");
+    assert!(err(&points, &layers, along.clone()).contains("steps"));
+    // infinite coordinates (terra's extract fails on them)
+    let Value::Vector(v) = &steps else { panic!() };
+    let mut inf = (**v).clone();
+    if let Some((_, Column::Numbers(x))) = inf.attributes.iter_mut().find(|(n, _)| n == "x2_") {
+        x[3] = f64::INFINITY;
+    }
+    assert!(err(&Value::Vector(Arc::new(inf)), &layers, along.clone()).contains("infinite"));
+    // layers on two grids; a rotated raster; a raster south up
+    let other = along_layers("origin");
+    let mixed = vec![layers[0].clone(), ("other".to_string(), other[0].1.clone())];
+    assert!(err(&steps, &mixed, along.clone()).contains("share one grid"));
+    let tweak = |f: &dyn Fn(&mut Grid)| -> Vec<(String, Value)> {
+        layers
+            .iter()
+            .map(|(k, m)| {
+                let Value::Map(m) = m else { panic!() };
+                let mut g = (*m.grid).clone();
+                f(&mut g);
+                (k.clone(), Value::Map(Map::new(Arc::new(g), (*m.data).clone())))
+            })
+            .collect()
+    };
+    assert!(err(&steps, &tweak(&|g| g.transform[2] = 0.1), along.clone()).contains("rotated"));
+    assert!(err(&steps, &tweak(&|g| g.transform[5] = 1.0), along.clone()).contains("north up"));
+}

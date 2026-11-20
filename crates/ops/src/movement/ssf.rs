@@ -522,6 +522,9 @@ impl Operator for RandomSteps {
     }
 }
 
+/// A raster layer of `move.extract_covariates`: its column's name, its grid and its values.
+type Layer = (String, Arc<terraflux_raster::Grid>, Arc<Vec<f64>>);
+
 /// `move.extract_covariates`.
 struct Covariates;
 
@@ -533,20 +536,40 @@ impl Operator for Covariates {
              value of the cell holding each point (terra's extract: a point on the edge between two cells takes the \
              cell to its right / below), none outside the raster or on no data. Connect the rasters as inputs of \
              any names (forest, elev...): a column each, named by its input (a stack's layers input_layer). The \
-             points are taken to each raster's coordinate system.",
+             points are taken to each raster's coordinate system. With where = along (steps) the values are those \
+             of the cells each step crosses, from its start to its end (amt's extract_covariates_along: terra's \
+             extract of the line with its defaults, every cell the line touches, the coordinates rounded to 15 \
+             significant digits as amt's paste0 does; a step that touches no cell takes the cells of its two ends, \
+             one outside the raster gives one missing value): the summaries in stats become the columns \
+             <layer>_along_<stat> (mean, min, max of the cells with data; ascent and descent: the sum of the rises \
+             and of the falls between successive cells along the step, as a positive number; delta: |last - first|), \
+             and the values themselves come out as the table `along`. The rasters must share one grid, north up.",
             Access::Global,
         )
         .input(PortSpec::new("tracks", Type::Vector, "tracks, their steps (move.steps) or random steps"))
         .output(PortSpec::new("tracks", Type::Vector, "the features with a column per raster (or layer)"))
         .output(PortSpec::new("table", Type::Table, "their attributes that are numbers"))
+        .output(PortSpec::optional(
+            "along",
+            Type::Table,
+            "with where = along: the values of the cells each step crosses, one row per cell in terra's order (cell \
+             number, not along the step): step (1-based, as amt's ID) and a column per raster (or layer)",
+        ))
         .param(
             PortSpec::optional(
                 "where",
                 Type::Text,
-                "steps: at their end (default), start or both (columns suffixed _start and _end)",
+                "steps: at their end (default), start or both (columns suffixed _start and _end), or along (the \
+                 cells the step crosses)",
             )
-            .choices(["end", "start", "both"]),
+            .choices(["end", "start", "both", "along"]),
         )
+        .param(PortSpec::optional(
+            "stats",
+            Type::Any,
+            "with where = along: the summaries to add, a list or a comma text of mean, min, max, ascent, descent, \
+             delta (default: all six)",
+        ))
         .extra(Type::Any)
     }
 
@@ -554,7 +577,7 @@ impl Operator for Covariates {
         let node = args.node;
         let v = tracks_of(args, "tracks")?;
         // (name, grid, values) of each layer
-        let mut layers: Vec<(String, Arc<terraflux_raster::Grid>, Arc<Vec<f64>>)> = Vec::new();
+        let mut layers: Vec<Layer> = Vec::new();
         for (port, value) in &args.inputs {
             if port == "tracks" {
                 continue;
@@ -580,8 +603,11 @@ impl Operator for Covariates {
         }
         let points: Vec<(Vec<f64>, Vec<f64>, &str)> = if is_steps(v) {
             let w: String = args.param("where", "end".to_string())?;
-            if !["end", "start", "both"].contains(&w.as_str()) {
-                return Err(fail(node, "where: end, start or both"));
+            if !["end", "start", "both", "along"].contains(&w.as_str()) {
+                return Err(fail(node, "where: end, start, both or along"));
+            }
+            if w == "along" {
+                return along(args, v, &layers);
             }
             let num = |c: &str| numbers(v, c).map_err(|e| fail(node, e));
             let mut p = Vec::new();
@@ -593,6 +619,9 @@ impl Operator for Covariates {
             }
             p
         } else {
+            if args.param("where", "end".to_string())? == "along" {
+                return Err(fail(node, "where = along: the steps of move.steps or move.random_steps"));
+            }
             let (mut x, mut y) = (Vec::with_capacity(v.len()), Vec::with_capacity(v.len()));
             for g in &v.geometries {
                 match g {
@@ -622,4 +651,82 @@ impl Operator for Covariates {
         }
         Ok(give("tracks", out))
     }
+}
+
+/// The summaries of `where = along`, in the order the library's kernel gives them.
+const ALONG_STATS: [&str; 6] = ["mean", "min", "max", "ascent", "descent", "delta"];
+
+/// The `stats` setting: a list or a comma text of the summaries (default: all six).
+fn along_stats_of(args: &Args) -> Result<Vec<usize>> {
+    let names: Vec<String> = match args.params.get("stats") {
+        None | Some(serde_json::Value::Null) => ALONG_STATS.iter().map(|s| s.to_string()).collect(),
+        Some(serde_json::Value::String(s)) => s.split(',').map(|p| p.trim().to_string()).collect(),
+        Some(_) => args.param("stats", Vec::<String>::new())?,
+    };
+    let names: Vec<String> = names.into_iter().filter(|s| !s.is_empty()).collect();
+    if names.is_empty() {
+        return Err(fail(args.node, format!("stats: at least one of {}", ALONG_STATS.join(", "))));
+    }
+    let bad: Vec<String> =
+        names.iter().filter(|s| !ALONG_STATS.contains(&s.as_str())).map(|s| format!("{s:?}")).collect();
+    if !bad.is_empty() {
+        return Err(fail(args.node, format!("stats: {}; not {}", ALONG_STATS.join(", "), bad.join(", "))));
+    }
+    Ok(names.iter().map(|s| ALONG_STATS.iter().position(|a| a == s).unwrap()).collect())
+}
+
+/// `where = along` of `move.extract_covariates`: the library's along_summary (the columns) and
+/// extract_covariates_along (the table of the values).
+fn along(args: &Args, v: &Arc<Vector>, layers: &[Layer]) -> Result<Outputs> {
+    use terraflux_ls_sys::ffi;
+    let node = args.node;
+    let stats = along_stats_of(args)?;
+    let grid = &layers[0].1;
+    // the layers share one grid, the raster's own geotransform (not one derived from cell centres)
+    if layers.iter().any(|(_, g, _)| !g.same_as(grid)) {
+        return Err(fail(node, "the layers must share one grid (the same extent and cell size)"));
+    }
+    let t = grid.transform;
+    if t[2] != 0.0 || t[4] != 0.0 {
+        return Err(fail(node, "rotated rasters are not supported"));
+    }
+    if !(t[1] > 0.0 && t[5] < 0.0) {
+        return Err(fail(node, "rasters with north up (cells growing eastwards and southwards) are expected"));
+    }
+    let (nx, ny) = (grid.width, grid.height);
+    let (xmin, ymax) = (t[0], t[3]);
+    let (xmax, ymin) = (xmin + nx as f64 * t[1], ymax + ny as f64 * t[5]);
+    let num = |c: &str| numbers(v, c).map_err(|e| fail(node, e));
+    let (mut x1, mut y1, mut x2, mut y2) = (num("x1_")?, num("y1_")?, num("x2_")?, num("y2_")?);
+    let crs = crate::prepare::crs_of(grid);
+    for (x, y) in [(&mut x1, &mut y1), (&mut x2, &mut y2)] {
+        to_crs(x, y, v.crs.as_deref(), crs.as_deref()).map_err(|e| Error::msg(format!("node {node:?}: {e}")))?;
+    }
+    if [&x1, &y1, &x2, &y2].iter().any(|c| c.iter().any(|x| x.is_infinite())) {
+        return Err(fail(node, "steps: infinite coordinates (terra's extract fails on them)"));
+    }
+    let threads = super::threads();
+    let w = ffi::move_along_cells(&x1, &y1, &x2, &y2, xmin, xmax, ymin, ymax, nx as i64, ny as i64, true, threads)?;
+    let mut out = (**v).clone();
+    for (name, _, values) in layers {
+        let table = ffi::move_along_stats(&w.offsets, &w.cell, &w.rank, values, threads)?;
+        for &s in &stats {
+            let col = (0..v.len()).map(|i| table[6 * i + s]).collect();
+            super::set_column(&mut out, &format!("{name}_along_{}", ALONG_STATS[s]), Column::Numbers(col));
+        }
+    }
+    // the values: a row per cell, in terra's order, with the step (1-based, as amt's ID)
+    let mut along = Table::new(std::iter::once("step".to_string()).chain(layers.iter().map(|l| l.0.clone())).collect());
+    along.rows.reserve(w.cell.len());
+    for i in 0..v.len() {
+        for k in w.offsets[i] as usize..w.offsets[i + 1] as usize {
+            let c = w.cell[k];
+            let mut row = vec![(i + 1) as f64];
+            row.extend(layers.iter().map(|(_, _, d)| if c >= 0 { d[c as usize] } else { f64::NAN }));
+            along.rows.push(row);
+        }
+    }
+    let mut o = give("tracks", out);
+    o.insert("along".into(), Value::Table(along));
+    Ok(o)
 }

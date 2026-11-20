@@ -759,7 +759,11 @@ const PHRASES: &[(&str, &str)] = &[
     ("move.azimuth", "The direction of each step of <tracks>, clockwise from north, in {units}."),
     ("move.distance", "The distance from each location of <tracks> to the next[, in {units}]."),
     ("move.distribution", "A {name} distribution of step lengths or turn angles."),
-    ("move.extract_covariates", "The values of the rasters connected at the locations of <tracks> (steps: {where})."),
+    (
+        "move.extract_covariates",
+        "The values of the rasters connected at the locations of <tracks> (steps: {where})[, summarised along the \
+         steps: {stats}].",
+    ),
     ("move.filter_gps_quality", "<tracks> without the locations of an unreliable GPS geometry."),
     ("move.filter_min_n_burst", "The bursts of <tracks> of at least {min_n} locations."),
     ("move.filter_movebank_visible", "The tracks <tracks> without the locations Movebank hides."),

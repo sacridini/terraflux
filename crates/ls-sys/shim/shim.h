@@ -891,6 +891,7 @@ struct MoveAmtSteps;
 struct MoveGammaFit;
 struct MoveSun;
 struct MoveSpeedCap;
+struct MoveAlong;
 rust::Vec<double> move_distances(rust::Slice<const double> x, rust::Slice<const double> y,
                                  rust::Slice<const std::int64_t> track, bool lonlat, std::int32_t threads);
 rust::Vec<double> move_azimuths(rust::Slice<const double> x, rust::Slice<const double> y,
@@ -930,6 +931,12 @@ rust::Vec<std::uint8_t> move_thin_time(rust::Slice<const double> t, rust::Slice<
 rust::Vec<std::uint8_t> move_thin_distance(rust::Slice<const double> step, rust::Slice<const std::int64_t> track,
                                            std::int32_t method, double distance, double tolerance, bool closest,
                                            std::int32_t threads);
+MoveAlong move_along_cells(rust::Slice<const double> x1, rust::Slice<const double> y1, rust::Slice<const double> x2,
+                           rust::Slice<const double> y2, double xmin, double xmax, double ymin, double ymax,
+                           std::int64_t nx, std::int64_t ny, bool round15, std::int32_t threads);
+rust::Vec<double> move_along_stats(rust::Slice<const std::int64_t> offsets, rust::Slice<const std::int64_t> cell,
+                                   rust::Slice<const std::int64_t> rank, rust::Slice<const double> values,
+                                   std::int32_t threads);
 // end movement ecology
 
 }  // namespace tfx

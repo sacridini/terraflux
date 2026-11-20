@@ -439,12 +439,52 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             if layers.is_empty() {
                 return Err("connect the rasters (inputs of any names: forest, elev...)".into());
             }
-            let mut args = vec![tracks, format!("{{{}}}", layers.join(", "))];
-            if let Some(w) = opt(n, "where", sc)? {
+            let dict = format!("{{{}}}", layers.join(", "));
+            let mut args = vec![tracks.clone(), dict.clone()];
+            let where_ = opt(n, "where", sc)?;
+            if let Some(w) = &where_ {
                 args.push(format!("where={w}"));
             }
-            let code = format!("{var} = {}({})\n", py.call, args.join(", "));
-            (code, out(&[("tracks", var.to_string()), ("table", frame_table(var))]), Need::Nothing)
+            let plain = format!("{}({})", py.call, args.join(", "));
+            // where = along: the library's along_summary (the summaries as columns); a reference to a setting
+            // chooses when the script runs
+            let by = n.params.get("where").and_then(Value::as_str);
+            let mut along_args = vec![tracks.clone(), dict.clone()];
+            match n.params.get("stats") {
+                Some(Value::String(s)) if s.starts_with('$') => {
+                    let v = opt(n, "stats", sc)?.ok_or("its stats are not given")?;
+                    along_args
+                        .push(format!("stats=[p.strip() for p in {v}.split(\",\")] if isinstance({v}, str) else {v}"));
+                }
+                Some(Value::String(s)) => {
+                    let list: Vec<String> = s.split(',').map(str::trim).filter(|p| !p.is_empty()).map(text).collect();
+                    if !list.is_empty() {
+                        along_args.push(format!("stats=[{}]", list.join(", ")));
+                    }
+                }
+                _ => {
+                    if let Some(v) = opt(n, "stats", sc)? {
+                        along_args.push(format!("stats={v}"));
+                    }
+                }
+            }
+            let summary = format!("tf.move.along_summary({})", along_args.join(", "));
+            let call = match (by, &where_) {
+                (Some("along"), _) => summary,
+                (Some(w), Some(expr)) if w.starts_with('$') => format!("{summary} if {expr} == \"along\" else {plain}"),
+                _ => plain,
+            };
+            let code = format!("{var} = {call}\n");
+            // the values themselves (amt's extract_covariates_along): a row per cell in terra's order, the step
+            // (1-based) first, then a column per raster
+            let first = n.inputs.keys().find(|k| k.as_str() != "tracks").map(|k| text(k)).unwrap_or_default();
+            let values = format!(
+                "_pd.concat([(g if isinstance(g, _pd.DataFrame) else _pd.DataFrame({{{first}: g}})).assign(step=i + 1) \
+                 for i, g in enumerate(tf.move.extract_covariates_along({tracks}, {dict}))], ignore_index=True)\
+                 .pipe(lambda d: d[[\"step\", *d.columns[:-1]]])"
+            );
+            let outs = out(&[("tracks", var.to_string()), ("table", frame_table(var)), ("along", values)]);
+            (code, outs, Need::Nothing)
         }
         "move.max_speed" => {
             let py = entry(op)?;
@@ -803,6 +843,107 @@ params = { distance = 300, output = "flag" }
             t.contains("marked_distance = hourly.copy()\nmarked_distance[\"thin_selected\"] = tf.move.thin_distance(hourly, distance=300)\n"),
             "{t}"
         );
+        parses(t);
+    }
+
+    /// The values along the steps: where = along is the library's along_summary with the stats, a reference to a
+    /// setting chooses at run time, and the `along` output is extract_covariates_along as a long table.
+    #[test]
+    fn values_along_the_steps_as_the_library() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[inputs.w]
+kind = "value"
+value = "along"
+
+[inputs.s]
+kind = "value"
+value = "mean, delta"
+
+[[nodes]]
+id = "tracks"
+op = "move.read_tracks"
+params = { path = "fishers.csv" }
+
+[[nodes]]
+id = "steps"
+op = "move.steps"
+inputs = { tracks = "tracks.tracks" }
+
+[[nodes]]
+id = "dem"
+op = "raster.read"
+params = { path = "dem.tif" }
+
+[[nodes]]
+id = "slope"
+op = "raster.read"
+params = { path = "slope.tif" }
+
+[[nodes]]
+id = "all"
+op = "move.extract_covariates"
+inputs = { tracks = "steps.steps", dem = "dem.raster" }
+params = { where = "along" }
+
+[[nodes]]
+id = "text"
+op = "move.extract_covariates"
+inputs = { tracks = "steps.steps", dem = "dem.raster", slope = "slope.raster" }
+params = { where = "along", stats = "ascent, descent" }
+
+[[nodes]]
+id = "listed"
+op = "move.extract_covariates"
+inputs = { tracks = "steps.steps", dem = "dem.raster" }
+params = { where = "along", stats = ["mean", "max"] }
+
+[[nodes]]
+id = "later"
+op = "move.extract_covariates"
+inputs = { tracks = "steps.steps", dem = "dem.raster" }
+params = { where = "$w", stats = "$s" }
+
+[[nodes]]
+id = "end"
+op = "move.extract_covariates"
+inputs = { tracks = "steps.steps", dem = "dem.raster" }
+
+[[nodes]]
+id = "fit"
+op = "move.fit_distribution"
+inputs = { values = "text.along" }
+params = { name = "gamma", column = "dem" }
+"#,
+        )
+        .unwrap();
+        let s = super::super::script(&m, &r, None);
+        let t = &s.text;
+        assert!(s.left.is_empty(), "{:?}\n{t}", s.left);
+        assert!(t.contains("all_ = tf.move.along_summary(steps, {\"dem\": dem})\n"), "{t}");
+        assert!(
+            t.contains("text = tf.move.along_summary(steps, {\"dem\": dem, \"slope\": slope}, stats=[\"ascent\", \"descent\"])\n"),
+            "{t}"
+        );
+        assert!(
+            t.contains("listed = tf.move.along_summary(steps, {\"dem\": dem}, stats=[\"mean\", \"max\"])\n"),
+            "{t}"
+        );
+        assert!(t.contains("later = tf.move.along_summary(steps, {\"dem\": dem}, stats="), "{t}");
+        assert!(
+            t.contains(
+                "stats=[p.strip() for p in s.split(\",\")] if isinstance(s, str) else s) if w == \"along\" else \
+                 tf.move.extract_covariates(steps, {\"dem\": dem}, where=w)\n"
+            ),
+            "{t}"
+        );
+        assert!(t.contains("end = tf.move.extract_covariates(steps, {\"dem\": dem})\n"), "{t}");
+        // the values: extract_covariates_along, a row per cell with the step first
+        assert!(t.contains("tf.move.extract_covariates_along(steps, {\"dem\": dem, \"slope\": slope})"), "{t}");
+        assert!(t.contains(".assign(step=i + 1)"), "{t}");
         parses(t);
     }
 }

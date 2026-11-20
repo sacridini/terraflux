@@ -931,6 +931,18 @@ pub const TIPS: &[(&str, &str)] = &[
     ),
     // movement ecology
     (
+        "move.extract_covariates",
+        "where = along reads the cells the straight line of each step touches (all of them, as amt's \
+         extract_covariates_along), not only its ends: on a DEM, the ascent and descent are the sums of the rises and \
+         falls between successive cells along the step and delta is |last - first|. A step that follows a contour \
+         line has a small ascent and descent, one that climbs straight up has ascent = delta; in an iSSF a negative \
+         coefficient on ascent means the animal follows the contour lines (avoids climbing), a negative one on \
+         descent the same going down. The cells are those the line touches, so the cells beside a long step count \
+         as much as the cells under it; mean, min and max leave the cells without data out, and a step wholly \
+         outside the raster has missing values. All the rasters must share one grid; the table `along` gives the \
+         values themselves (the step is its 1-based number), in terra's order (by cell number), not along the step.",
+    ),
+    (
         "move.max_speed",
         "A ceiling for speeds that cannot be real, not a cruising speed: the scaling law of Hirt et al. (2017) is for \
          horizontal bursts, and its interval is the uncertainty of the fit, not the scatter between species (about a \
