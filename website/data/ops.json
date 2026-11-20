@@ -7016,7 +7016,7 @@
  },
  {
   "name": "data.stac",
-  "doc": "The scenes of a STAC catalogue over a grid, the data of Earth Search, the Planetary Computer and the like (Sentinel-2, Landsat, elevation, land cover...): the catalogue's search gives the items of a collection over the grid's box (and the dates, and a query on their properties: eo:cloud_cover below 20); every asset asked for of every item is read from the server (only the part the grid covers), warped onto the grid, and the items combined cell by cell (the median of the cells with values, the mean, the minimum, the maximum, or the first item with a value). A layer per asset, kept in the cache (Terraflux's, TERRAFLUX_CACHE), made once. The values are the files' (Sentinel-2's reflectances as integers: scale and offset are the catalogue's raster:bands). The Planetary Computer's files need a token: sign = planetary_computer asks it, without a key. mask = auto drops the clouds, shadows and cirrus pixel by pixel (the scene classification of Sentinel-2, QA_PIXEL of Landsat, Fmask of HLS) before the items are combined.",
+  "doc": "The scenes of a STAC catalogue over a grid, the data of Earth Search, the Planetary Computer and the like (Sentinel-2, Landsat, elevation, land cover...): the catalogue's search gives the items of a collection over the grid's box (and the dates, and a query on their properties: eo:cloud_cover below 20); every asset asked for of every item is read from the server (only the part the grid covers), warped onto the grid, and the items combined cell by cell (the median of the cells with values, the mean, the minimum, the maximum, or the first item with a value). A layer per asset, or per band of an asset with several (NAIP's image: red, green, blue, nir, named by the item's eo:bands; `bands` chooses), kept in the cache (Terraflux's, TERRAFLUX_CACHE), made once. A grid in a projected system: `crs` with extent and cellsize in its units (UTM metres), warped straight onto it. The values are the files' (Sentinel-2's reflectances as integers: scale and offset are the catalogue's raster:bands). The Planetary Computer's files need a token: sign = planetary_computer asks it, without a key. mask = auto drops the clouds, shadows and cirrus pixel by pixel (the scene classification of Sentinel-2, QA_PIXEL of Landsat, Fmask of HLS) before the items are combined.",
   "inputs": [
    {
     "name": "like",
@@ -7050,7 +7050,7 @@
     "name": "assets",
     "type": "any",
     "required": true,
-    "doc": "the assets' names (red, nir, SCL...), one or a list: a layer each, named by the asset"
+    "doc": "the assets' names (red, nir, SCL...), one or a list: a layer each, named by the asset (an asset of several bands: a layer per band, see bands)"
    },
    {
     "name": "datetime",
@@ -7131,21 +7131,33 @@
     "doc": "cells to grow the mask by in every direction, on the grid (default 0)"
    },
    {
+    "name": "bands",
+    "type": "any",
+    "required": false,
+    "doc": "of an asset with several bands (NAIP's image: red, green, blue, nir): which to read, names (the item's eo:bands: red, nir; or image_1, image_2) or numbers from 1, a list or a comma-separated text (default all); a layer each. An asset of one band is one layer, whatever this says"
+   },
+   {
     "name": "extent",
     "type": "any",
     "required": false,
-    "doc": "without like: [west, south, east, north], degrees"
+    "doc": "without like: [west, south, east, north], degrees (or the crs's units)"
    },
    {
     "name": "cellsize",
     "type": "number",
     "required": false,
-    "doc": "with extent: the cells' side, degrees"
+    "doc": "with extent: the cells' side, degrees (or the crs's units)"
+   },
+   {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "without like: the grid's coordinate system (EPSG:32631, a WKT, a PROJ string): extent and cellsize are in its units (metres for UTM) and the scenes are warped straight onto it, one resampling. Default: longitudes and latitudes (EPSG:4326)"
    }
   ],
   "access": "global",
   "container": false,
-  "advice": "Keep the grid small and the cells as coarse as the question allows: every scene of the search is read and warped (a Sentinel-2 summer over a few tens of kilometres at 10 m is many scenes). Ask for few scenes with `datetime`, `limit` and `query` (`{\"eo:cloud_cover\": {\"lt\": 20}}`); the median of the scenes drops clouds and shadows that move, the `first` composite takes a scene as it is (classes, a DEM's tiles: set `classes` for the most common cell). The Planetary Computer's files need `sign = planetary_computer`. The values are the files' integers: scale and offset (reflectance / 10000) are the catalogue's, not applied. A median of scenes left as they are keeps the clouds where they persist (the tropics): `mask = auto` drops them pixel by pixel before the scenes are combined (Sentinel-2's SCL, Landsat's QA_PIXEL, HLS's Fmask; `mask_classes`, `mask_buffer` to grow it), and `first` then takes the first clear value."
+  "advice": "Keep the grid small and the cells as coarse as the question allows: every scene of the search is read and warped (a Sentinel-2 summer over a few tens of kilometres at 10 m is many scenes). Ask for few scenes with `datetime`, `limit` and `query` (`{\"eo:cloud_cover\": {\"lt\": 20}}`); the median of the scenes drops clouds and shadows that move, the `first` composite takes a scene as it is (classes, a DEM's tiles: set `classes` for the most common cell). The Planetary Computer's files need `sign = planetary_computer`. The values are the files' integers: scale and offset (reflectance / 10000) are the catalogue's, not applied. A median of scenes left as they are keeps the clouds where they persist (the tropics): `mask = auto` drops them pixel by pixel before the scenes are combined (Sentinel-2's SCL, Landsat's QA_PIXEL, HLS's Fmask; `mask_classes`, `mask_buffer` to grow it), and `first` then takes the first clear value. An asset of several bands (NAIP's `image`) gives a layer per band, named by the item's eo:bands (`bands` chooses); `crs` gives `extent` and `cellsize` in a projected system (EPSG:32631, metres) and warps the scenes straight onto it, one resampling and no raster.reproject after."
  },
  {
   "name": "demand.from_maps",
@@ -13883,7 +13895,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Keep `standardise` on when the variables are in different units or ranges, or the one with the largest numbers decides the map alone. The grid is about 5 sqrt(n) nodes (Vesanto's rule, said in the note): with fewer than a few records per node (the `count` of the `codebook`, the `empty_nodes` of `quality`) the nodes are filled by the neighbours and not by data, so give `rows` and `cols` for a smaller grid, or more records. A `topographic_error` high (above 0.3) says the map is folded: more `iterations`, or a larger `sigma`; the `quantisation_error` falls as the grid grows, so it only compares maps of the same size. The `umatrix` column of the `codebook` is large across the gap between two types of records, and small inside one: `clusters` k groups the nodes (Ward's method) and the groups are numbered by the first principal component of their centres, so the colours do not change between runs. `training` online takes a record at a time and is slow for very many cells: batch (the default) uses all the threads. `ml.predict` with the model gives another image or date the nearest node of this fit, not of the new data."
+  "advice": "Keep `standardise` on when the variables are in different units or ranges, or the one with the largest numbers decides the map alone. The grid is about 5 sqrt(n) nodes (Vesanto's rule, said in the note): with fewer than a few records per node (the `count` of the `codebook`, the `empty_nodes` of `quality`) the nodes are filled by the neighbours and not by data, so give `rows` and `cols` for a smaller grid, or more records. A `topographic_error` high (above 0.3) says the map is folded: more `iterations`, or a larger `sigma`; the `quantisation_error` falls as the grid grows, so it only compares maps of the same size. The `umatrix` column of the `codebook` is large across the gap between two types of records, and small inside one: `clusters` k groups the nodes (Ward's method) and the groups are numbered by the first principal component of their centres, so the colours do not change between runs. Each node weighs the same in the grouping, however many records it holds: on a large grid of thinly filled nodes a small, distinct type (a lake among objects) can share a group with another, and a smaller grid keeps it apart. `training` online takes a record at a time and is slow for very many cells: batch (the default) uses all the threads. `ml.predict` with the model gives another image or date the nearest node of this fit, not of the new data."
  },
  {
   "name": "molusce.step",
@@ -16942,7 +16954,7 @@
  },
  {
   "name": "objects.accuracy",
-  "doc": "The accuracy of a classification of objects against objects of known class (apart from those the classifier was trained on). The reference is `samples` (points or polygons with the class, resolved to objects as objects.samples does) or `reference` (a table with the columns id, the object, and class: e.g. the points of objects.sample, filled in). The confusion matrix, the user's and producer's accuracies and the overall accuracy and kappa are by objects (a sampled object counts one). The area-adjusted estimates (Olofsson et al. 2014: the user's, producer's and overall accuracy, and each class's area with its confidence interval) take the classes of the map as strata, with the cells of the objects mapped to each as its area, so they hold for samples drawn with the same chance in every object of a class (objects.sample draws them so). An object left unclassified is a stratum only when sampled; a class with no sampled object is left out, with a warning.",
+  "doc": "The accuracy of a classification of objects against objects of known class (apart from those the classifier was trained on). The reference is `samples` (points or polygons with the class, resolved to objects as objects.samples does) or `reference` (a table with the columns id, the object, and class: e.g. the points of objects.sample, filled in). The confusion matrix, the user's and producer's accuracies and the overall accuracy and kappa are by objects (a sampled object counts one). The area-adjusted estimates (Olofsson et al. 2014: the user's, producer's and overall accuracy, and each class's area with its confidence interval) take the classes of the map as strata, with the cells of the objects mapped to each as its area. `design` says how the sample was drawn: `objects` (each object of a class had the same chance, as objects.sample draws them, or a table or polygons of such objects: each sampled object is weighted by its area, the ratio estimator of Radoux and Bogaert 2017 and Stehman 2014) or `area` (the chance of an object is proportional to its area, as points thrown at random over the map: each sampled object counts once). Without `design`, a table or polygons are `objects`, and points are `area` when an object holds several of them and `objects` otherwise (with a warning: set it). An object left unclassified is a stratum only when sampled; a class with no sampled object is left out, with a warning.",
   "inputs": [
    {
     "name": "objects",
@@ -17003,6 +17015,12 @@
     "doc": "the level of the confidence intervals (default 0.95)"
    },
    {
+    "name": "design",
+    "type": "text",
+    "required": false,
+    "doc": "how the sample was drawn: objects (the same chance for each object of a class: the area-adjusted estimates weight each sampled object by its area) or area (the chance proportional to the area, as points at random over the map: each counts once). Default: from the reference (see above)"
+   },
+   {
     "name": "cell_area",
     "type": "number",
     "required": false,
@@ -17011,11 +17029,11 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Judge the classification on objects that were not used to train it: draw the reference apart from the training samples (objects.sample draws them stratified, with the same chance in every object of a class). The area-adjusted estimates are the ones to report (Olofsson et al. 2014): the counts of the confusion matrix by objects ignore how large each class is. Aim at 50 objects or more per class; a class with none sampled is left out. The errors table lists the misclassified objects to look at."
+  "advice": "Judge the classification on objects that were not used to train it: draw the reference apart from the training samples (objects.sample draws them stratified, with the same chance in every object of a class). The area-adjusted estimates are the ones to report (Olofsson et al. 2014): the counts of the confusion matrix by objects ignore how large each class is. Say how the sample was drawn with `design`: `objects` (the default for a table or polygons, and for points one to an object, as objects.sample gives) weights each sampled object by its area, since objects differ in size (Radoux and Bogaert 2017, Stehman 2014); points thrown at random over the map need `area`, where an object's chance already is its area and each counts once. Aim at 50 objects or more per class; a class with none sampled is left out. The errors table lists the misclassified objects to look at."
  },
  {
   "name": "objects.calc",
-  "doc": "Attributes of objects computed from a script over the others, in map algebra's language (Python's syntax, as vector.calc): each attribute of the objects by its name, cls (the class name, \"unclassified\" when it has none), id, cells and area, numbers and texts (\"wet\" if ndwi > 0 else \"dry\"; cls == \"water\"). Of the context: nb.mean(x) (over the neighbours, weighted by the shared border, as eCognition's), nb.min(x), nb.max(x), nb.sum(x), nb.count(cond), border_to(\"water\") (the share of the perimeter shared with objects of that class), distance_to(\"road\") (centroid to the nearest centroid of that class, map units; NaN when there is none), parent.x (an attribute of the parent: a level above is needed) and, with `below`, children.count(cond), children.area(cond) (the share of the object's area in children where it holds) and children.mean(x). Fuzzy membership: above(x, a, b), below(x, a, b), between(x, a, b, c, d) and about(x, m, w), from 0 to 1; and, always, `and` is the smaller of two values, `or` the larger and `not x` is 1 - x (with 0 and 1, logic as usual). One statement a line (# a comment): name = value, name[where] = value, and out name = value (or out name) for each attribute given; without out, the last value is the attribute `column`. An attribute of the same name is replaced, else it is added.",
+  "doc": "Attributes of objects computed from a script over the others, in map algebra's language (Python's syntax, as vector.calc): each attribute of the objects by its name, cls (the class name, \"unclassified\" when it has none), id, cells and area, numbers and texts (\"wet\" if ndwi > 0 else \"dry\"; cls == \"water\"). Of the context: nb.mean(x) (over the neighbours, weighted by the shared border, as eCognition's), nb.min(x), nb.max(x), nb.sum(x), nb.count(cond), border_to(\"water\") (the share of the perimeter shared with objects of that class), distance_to(\"road\") (centroid to the nearest centroid of that class, map units; NaN when there is none), parent.x (an attribute of the parent: a level above is needed) and, with `below`, children.count(cond), children.area(cond) (the share of the object's area in children where it holds) and children.mean(x). Fuzzy membership: above(x, a, b), below(x, a, b), between(x, a, b, c, d) and about(x, m, w), from 0 to 1; and, always, `and` is the smaller of two values, `or` the larger and `not x` is 1 - x (with 0 and 1, logic as usual). A comparison or arithmetic with a missing value gives missing (an objects.rules rule reads missing as 0): isnull(x) tests it and coalesce(x, y) gives x, and y where x is missing. One statement a line (# a comment): name = value, name[where] = value, and out name = value (or out name) for each attribute given; without out, the last value is the attribute `column`. An attribute of the same name is replaced, else it is added.",
   "inputs": [
    {
     "name": "objects",
@@ -17060,7 +17078,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Write a rule as a script: nb.mean(x) and border_to(\"water\") read the neighbours, parent.x and children.count(cond) the levels (children need the input `below`). above(x, a, b), below, between and about give a membership from 0 to 1, and in this calculator `and` is the smaller, `or` the larger and `not` is one minus. A class name in `cls == \"water\"` compares as text; an unclassified object has no cls, so the comparison is missing for it, not false."
+  "advice": "Write a rule as a script: nb.mean(x) and border_to(\"water\") read the neighbours, parent.x and children.count(cond) the levels (children need the input `below`). above(x, a, b), below, between and about give a membership from 0 to 1, and in this calculator `and` is the smaller, `or` the larger and `not` is one minus. A class name in `cls == \"water\"` compares as text; an unclassified object has no cls, so the comparison is missing for it, not false. A comparison or arithmetic with a missing value gives missing (not false, not 0): test it with isnull(x) or fill it with coalesce(x, 0) (x, and 0 where x is missing). A rule (objects.rules) then reads a missing value as 0."
  },
  {
   "name": "objects.classify",
@@ -17234,8 +17252,85 @@
   "advice": "Optional: it needs ONNX Runtime (pip install onnxruntime, then set ORT_DYLIB_PATH) and the ONNX encoder of a foundation model, which do not come with Terraflux. `patch` and `bands` must be what the model takes (its input is 1 x bands x patch x patch). The emb_ columns are for a classifier or a clustering of the objects, alone or with the objects.features columns."
  },
  {
+  "name": "objects.extrema",
+  "doc": "The local extrema of an attribute among neighbouring objects, as eCognition's find local extrema: an object is a maximum (kind max) or a minimum (kind min) when no other object near it has a larger or smaller value of the attribute (a column of the table, or an expression as objects.calc's: mean_nir, nb.mean(ndvi)). Near is within radius map units between centroids, or within steps objects across the neighbours (default 1 step: the adjacent objects). among limits the classes compared and marked (default all); the others are neither. strict (the default; eCognition's exclude equal) makes a tie no extremum, so two equal neighbours are both left out; with strict off, an object tied with the highest is one too. An object whose value is missing is none and is not compared. The extrema get the class given by class (default maximum or minimum, made when the objects have none of the name), the others keep theirs. The table has the column extremum: 1 for an extremum, 0 for a candidate that is not, missing for an object not compared. The same result on any number of threads.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects, with their attributes (objects.features)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects, the extrema with the class"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the attributes and the column extremum"
+   }
+  ],
+  "params": [
+   {
+    "name": "attribute",
+    "type": "text",
+    "required": true,
+    "doc": "a column of the table (mean_nir) or an expression as objects.calc's (nb.mean(ndvi))"
+   },
+   {
+    "name": "kind",
+    "type": "text",
+    "required": false,
+    "doc": "max (the default) or min",
+    "choices": [
+     "max",
+     "min"
+    ]
+   },
+   {
+    "name": "radius",
+    "type": "number",
+    "required": false,
+    "doc": "the distance between centroids, in map units, within which objects are compared"
+   },
+   {
+    "name": "steps",
+    "type": "integer",
+    "required": false,
+    "doc": "how many objects across the neighbours are compared (default 1)"
+   },
+   {
+    "name": "among",
+    "type": "any",
+    "required": false,
+    "doc": "the class names of the objects compared and marked (default: all)"
+   },
+   {
+    "name": "class",
+    "type": "text",
+    "required": false,
+    "doc": "the class given to the extrema (default maximum or minimum)"
+   },
+   {
+    "name": "strict",
+    "type": "bool",
+    "required": false,
+    "doc": "a tie is no extremum (the default); false lets an object tied with the highest be one"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "For the tops of the crowns, the brightest roofs, the wettest spots: kind max (or min) marks the objects whose attribute is larger (smaller) than that of every other object near them. The attribute is a column of the table or an expression as objects.calc's (nb.mean(ndvi) first smooths a noisy one over the neighbours). Near is the adjacent objects (`steps` 1, the default; more steps reach further across the neighbours) or all within `radius` map units between centroids: use the radius when the objects are small and many (after objects.split) and the steps when they differ in size. `among` limits the classes compared, so a maximum is searched among the trees only. strict (the default) leaves a tie out, so a flat top gives none; switch it off to keep one of a plateau (all of them, since each is as high as the highest). The extrema take the class `class`, the other objects keep theirs; the table has the column extremum. To find the objects enclosed by a class (eCognition's find enclosed by class) no operator is needed: the context column `rel_border_<class>` of objects.features (or `border_to('<class>')` in objects.calc) equal to 1 means the whole border is shared with that class; for several classes add the borders (`border_to('a') + border_to('b') > 0.999`)."
+ },
+ {
   "name": "objects.features",
-  "doc": "The attributes of each object, from the image under it: spectral (per band the mean, standard deviation (population), min, max and median over the object's cells with a value; brightness, the mean of the image bands' means; max_diff, (greatest mean - least) / brightness; ratio, a band's mean over the sum of the means; and, from the objects' mean bands, NDVI = (nir - red) / (nir + red), NDWI = (green - nir) / (green + nir) and NDMI = (nir - swir) / (nir + swir), as eCognition's customised features on the mean layers) and shape (cells turned into map units: area, perimeter = the cell edges that touch another object, no object or the image's edge, compactness = length x width / area of the minimum bounding rectangle, shape_index = perimeter / (4 sqrt(area)), length and width = the sides of the minimum-area rectangle around the cells' corners (convex hull and rotating calipers), length_width, asymmetry = 1 - minor / major axis of the cells' spread, direction = degrees from the x axis counter-clockwise, 0 to 180, of the major axis, elliptic_fit and rectangular_fit = the share of the cells inside the ellipse and the rectangle of the object's area and axes centred on it, border_index = perimeter / the rectangle's, density, centroid_x and centroid_y in map coordinates), texture (Haralick's grey-level co-occurrence matrix of the pairs of cells both in the object at distance 1 in the four directions, symmetric, summed and normalised, as eCognition's GLCM all directions: glcm_homogeneity, glcm_contrast, glcm_entropy, glcm_correlation (1 for a constant object) and glcm_asm, of the brightness and of each image band, grey levels cut linearly between the band's 1st and 99th percentile; NaN for an object with no pair) and context (nb_diff_<band> = the mean difference to neighbours weighted by border length, nb_count, border_image = the share of the perimeter on the image's edge or no object; with classes per class c: rel_border_<c>, dist_<c> = map distance from the centroid to the nearest centroid of an object of the class, nb_<c>; with a parent level: parent_id and parent_<column>; with `below`: children and per class of below children_<c> and children_area_<c>). With a `thematic` layer: th_mode, its most common value among the object's cells (the smallest on a tie), and th_share, the share of the object's cells with a value that have it. The attributes join the objects' table: a column of an old name is replaced, the others kept.",
+  "doc": "The attributes of each object, from the image under it: spectral (per band the mean, standard deviation (population), min, max and median over the object's cells with a value; brightness, the mean of the image bands' means; max_diff, (greatest mean - least) / brightness; ratio, a band's mean over the sum of the means; and, from the objects' mean bands, NDVI = (nir - red) / (nir + red), NDWI = (green - nir) / (green + nir) and NDMI = (nir - swir) / (nir + swir), as eCognition's customised features on the mean layers) and shape (cells turned into map units: area, perimeter = the cell edges that touch another object, no object or the image's edge, compactness = length x width / area of the minimum bounding rectangle, shape_index = perimeter / (4 sqrt(area)), length and width = the sides of the minimum-area rectangle around the cells' corners (convex hull and rotating calipers), length_width, asymmetry = 1 - minor / major axis of the cells' spread, direction = degrees from the x axis counter-clockwise, 0 to 180, of the major axis, elliptic_fit and rectangular_fit = the share of the cells inside the ellipse and the rectangle of the object's area and axes centred on it, border_index = perimeter / the rectangle's, density, centroid_x and centroid_y in map coordinates), texture (Haralick's grey-level co-occurrence matrix of the pairs of cells both in the object at distance 1 in the four directions, symmetric, summed and normalised, as eCognition's GLCM all directions: glcm_homogeneity, glcm_contrast, glcm_entropy, glcm_correlation (1 for a constant object) and glcm_asm, of the brightness and of each image band, grey levels cut linearly between the band's 1st and 99th percentile; NaN for an object with no pair) and context (nb_diff_<band> = the mean difference to neighbours weighted by border length, nb_count, border_image = the share of the perimeter on the image's edge or no object; with classes per class c: rel_border_<c>, dist_<c> = map distance from the centroid to the nearest centroid of an object of the class, nb_<c>; with a parent level: parent_id and parent_<column>; with `below`: children and per class of below children_<c> and children_area_<c>). With a `thematic` layer: th_mode, its most common value among the object's cells (the smallest on a tie), and th_share, the share of ALL the object's cells that have it (cells with no value in the layer count as none: when none is the most common, both are missing). The skeleton group (not in `basic`; Zhang and Suen's thinning of each object's raster, so the values differ a little from eCognition's polygon skeleton): skel_main_length, the longest path of the skeleton in map units (a diagonal step is sqrt 2 cells), skel_width = area / main length (a branching network gets a width inflated by its branches), skel_length_width (skel_width and skel_length_width are missing for an object of one cell or of main length 0), skel_branches, skel_ends, skel_junctions, skel_branch_length (mean) and skel_curvature, the turning of the main line (radians) per map unit of its length: the line is simplified to a polyline within one cell (Douglas and Peucker, 1973, Cartographica 10(2):112-122, 10.3138/FM57-6770-U75U-7727), so the staircase of a slanted straight line does not count, and the angles at the vertices are summed; skel_curvature_sd is the standard deviation, along the line, of the turning per map unit. The attributes join the objects' table: a column of an old name is replaced, the others kept.",
   "inputs": [
    {
     "name": "objects",
@@ -17293,7 +17388,7 @@
     "name": "features",
     "type": "any",
     "required": false,
-    "doc": "basic (the default: mean, sd and ndvi per band, area, compactness, glcm_homogeneity of the brightness), all, or a list of groups (spectral, shape, texture, context) and feature names"
+    "doc": "basic (the default: mean, sd and ndvi per band, area, compactness, glcm_homogeneity of the brightness), all, or a list of groups (spectral, shape, texture, context, skeleton) and feature names"
    },
    {
     "name": "levels",
@@ -17306,6 +17401,12 @@
     "type": "any",
     "required": false,
     "doc": "the layers the texture reads, a list of names or brightness (default: brightness for basic, brightness and every image band otherwise)"
+   },
+   {
+    "name": "spur",
+    "type": "integer",
+    "required": false,
+    "doc": "the skeleton group: branches that end in a junction after fewer cells than this are cut off (default 3, 0 keeps them all)"
    },
    {
     "name": "red",
@@ -17334,7 +17435,118 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "`basic` (the default) is the usual start: the mean and standard deviation of each band, NDVI when the red and near infrared bands are found, the area and the compactness. Ask for more by name, or `all` for every group: it computes many columns, so on a large image with many objects name what you will use (texture, when it comes, is the expensive group). Give `red`, `nir`, `green` and `swir` when the bands' names do not say which they are. Put a DEM, a height model or another date in `more` (on the same grid: raster.match first). Give a map or vectors (lots, a land-use layer) as `thematic` and each object gets th_mode, the most common value under it, and th_share, its share of the cells that have a value; with vectors, `field` names the attribute (text too: its codes are named in the table). Rules read th_mode as any column."
+  "advice": "`basic` (the default) is the usual start: the mean and standard deviation of each band, NDVI when the red and near infrared bands are found, the area and the compactness. Ask for more by name, or `all` for every group: it computes many columns, so on a large image with many objects name what you will use (texture, when it comes, is the expensive group). Give `red`, `nir`, `green` and `swir` when the bands' names do not say which they are. Put a DEM, a height model or another date in `more` (on the same grid: raster.match first). Give a map or vectors (lots, a land-use layer) as `thematic` and each object gets th_mode, the most common value under it, and th_share, its share of all the object's cells (cells outside every feature count as none; an object mostly outside has both missing); with vectors, `field` names the attribute (text too: its codes are named in the table). Rules read th_mode as any column. The `skeleton` group (not in `basic`) is for long thin things, roads, rivers, fields, crowns: skel_main_length and skel_width, a high skel_length_width with a low skel_width picks the linear ones, skel_branches and skel_junctions tell a network from a line, skel_curvature a winding river from a straight road (about 1 / radius for an arc, near 0 for a straight line at any slant). skel_width is the area over the main length, so a branching network gets a width inflated by its branches. skel_width and skel_length_width are missing (NaN) for an object of one cell and for main length 0, and a rule reads missing as 0: a compact object can then pass below(skel_length_width, ...) by mistake; guard it with a test on skel_main_length (above(skel_main_length, 5, 10) and below(skel_length_width, ...)). It thins the raster of each object, so the values differ a little from eCognition's polygon skeleton; `spur` (default 3 cells) cuts the small branches thinning leaves at ragged edges."
+ },
+ {
+  "name": "objects.fuse",
+  "doc": "Joins an object to a neighbour only when the object they make is better by a measure, as eCognition's image object fusion (objects.merge by condition looks at the two objects; this looks at the result). `fitting` is an expression over the joined object, written as objects.calc's: compactness (length x width over area: 1 for a rectangle, higher is less compact, so goal min), shape_index, border_index, length, width, length_width, area, cells, perimeter, and with the image mean_<band> and sd_<band> (mean_nir > 0.3, sd_red, compactness * 2 + sd_nir). Its attributes are derived from sums the groups keep, not computed again from the cells: the length and the width are the sides of the rotated minimum-area rectangle, from the convex hull the groups keep (the numbers objects.features gives for the result), and anything that needs the cells or the neighbours (texture, skeleton, context) is refused with the list of what works. `seeds` are the classes that take (default all), `candidates` the classes they take from (default all, `unclassified` counts as a class); the joined object has the seed's class. `goal` max (the default) or min says which is better; `improve` (the default) joins only when the joined object is at least as good as the seed's own value (a tie joins: two rectangles make a rectangle); `threshold` is the value the joined object must reach (at least for max, at most for min). Per pass each seed takes its best candidate (`mode` best, the default) or any that qualify (`all`), best first, a pair only when neither object has joined in this pass; it repeats until nothing joins or `max_passes`. An object may be seed and candidate (all classes): the pair's value is the same both ways and the bigger one gives the class. The level above is dropped (with a warning), as are the other attributes: the table is made again from the `image`, else the attributes are the means of the parts weighted by cells (objects.features again). `count` is the number of objects, `done` is true when nothing joined, `report` has a row per joined object: its id and its parts. The same result on every run, on any number of threads.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects, with their classes"
+   },
+   {
+    "name": "image",
+    "type": "raster",
+    "required": false,
+    "doc": "the image of the objects: the bands' means and deviations"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects after the fusion"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "id, cells, area (and the band means and deviations with an image)"
+   },
+   {
+    "name": "report",
+    "type": "table",
+    "required": true,
+    "doc": "a row per joined object: its id and the objects it joined"
+   },
+   {
+    "name": "count",
+    "type": "integer",
+    "required": true,
+    "doc": "the number of objects after"
+   },
+   {
+    "name": "done",
+    "type": "bool",
+    "required": true,
+    "doc": "true when nothing joined"
+   }
+  ],
+  "params": [
+   {
+    "name": "fitting",
+    "type": "text",
+    "required": true,
+    "doc": "an objects.calc expression over the joined object (compactness, mean_nir, sd_red)"
+   },
+   {
+    "name": "goal",
+    "type": "text",
+    "required": false,
+    "doc": "max (the default: a higher value is better) or min",
+    "choices": [
+     "max",
+     "min"
+    ]
+   },
+   {
+    "name": "seeds",
+    "type": "any",
+    "required": false,
+    "doc": "the class names whose objects take a neighbour (default: all)"
+   },
+   {
+    "name": "candidates",
+    "type": "any",
+    "required": false,
+    "doc": "the class names that may be taken (default: all)"
+   },
+   {
+    "name": "improve",
+    "type": "bool",
+    "required": false,
+    "doc": "join only when the joined object is at least as good as the seed's (default true)"
+   },
+   {
+    "name": "threshold",
+    "type": "number",
+    "required": false,
+    "doc": "the value the joined object must reach (at least for max, at most for min)"
+   },
+   {
+    "name": "mode",
+    "type": "text",
+    "required": false,
+    "doc": "best (the default: each seed its best candidate) or all",
+    "choices": [
+     "best",
+     "all"
+    ]
+   },
+   {
+    "name": "max_passes",
+    "type": "integer",
+    "required": false,
+    "doc": "the most passes (default 100)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "For objects segmented too finely (a building in pieces, a field in strips): a seed joins a neighbour only when the object they make is good by the `fitting`, an expression over the joined object (compactness, which is 1 for a rectangle and grows as the shape gets ragged, so goal min; shape_index; mean_<band> and sd_<band> with the image; length, width, area). `improve` (the default) asks the joined object to be as good as the seed's own value, `threshold` that it reach a value (a compactness of at most 1.3, a mean_nir of at least 0.3), and both can be used: improve false with a threshold joins whatever reaches it. `seeds` and `candidates` are class names (`unclassified` counts), the result has the seed's class. mode best gives each seed its best candidate, best pairs first; all lets a seed whose best was taken fall back to the next in the same pass. It repeats until nothing joins (`max_passes`), so a control.repeat is not needed. Texture, skeleton and context features cannot be derived for the joined object and are refused; length and width are those of the rotated minimum-area rectangle, as objects.features gives them. improve false with no threshold joins every pair (a warning says so). The level above and the other attributes are dropped, so run objects.features after it."
  },
  {
   "name": "objects.grow",
@@ -17637,7 +17849,7 @@
  },
  {
   "name": "objects.resize",
-  "doc": "Objects grown, shrunk and smoothed cell by cell, as eCognition's pixel-based object resizing, its morphology, its filling of holes and its border optimization (Serra 1982, Soille 2003). mode grow takes the free cells within distance (map units) or steps (cells) of the chosen objects, each to the nearest; shrink removes the cells of the chosen objects that lie within that distance of a cell that is not their object's (another object, no object; the image's edge is not a border); open is shrink and then grow back over the cells the object had (it cuts thin necks and drops specks); close is grow and then shrink only the cells that were added (it fills slits and gaps inside an object; the image's edge is outside, so what grew              up to it goes back); fill gives the holes of free cells that one object encloses, not touching the image's edge, to it (max_hole limits their cells); smooth gives each cell the most common label in a disc of that radius (spikes and notches go, corners round; nothing is added to the outside); refine is the border optimization: a border cell goes to the adjacent object whose band means are closest (z-scores of the whole image), in steps passes that read the means of the pass before. Without a mask or into, grow and shrink are exact Euclidean (Felzenszwalb & Huttenlocher) in one pass. A mask (a map: cells that are not 0 may be taken, say ndvi > 0.3 from raster.calc) or into (class names whose cells grow may take, eCognition's candidates) makes the growth geodesic, ring by ring: a cell takes the object with most cells around it, a tie the lower id. classes limits the objects that change. An object cut in two becomes two objects of its class; the level above is dropped (with a warning), as are the other attributes (objects.features again, or connect the image). report has a row per chosen object: its cells before and after and the objects it ended in. The same result on every run, on any number of threads.",
+  "doc": "Objects grown, shrunk and smoothed cell by cell, as eCognition's pixel-based object resizing, its morphology, its filling of holes and its border optimization (Serra 1982, Soille 2004). mode grow takes the free cells within distance (map units) or steps (cells) of the chosen objects, each to the nearest; shrink removes the cells of the chosen objects that lie within that distance of a cell that is not their object's (another object, no object; the image's edge is not a border); open is shrink and then grow back over the cells the object had (it cuts thin necks and drops specks); close is grow and then shrink only the cells that were added (it fills slits and gaps inside an object; the image's edge is outside, so what grew              up to it goes back); fill gives the holes of free cells that one object encloses, not touching the image's edge, to it (max_hole limits their cells); smooth gives each cell the most common label in a disc of that radius (spikes and notches go, corners round; nothing is added to the outside); refine is the border optimization: a border cell goes to the adjacent object whose band means are closest (z-scores of the whole image), in steps passes that read the means of the pass before. Without a mask or into, grow and shrink are exact Euclidean (Felzenszwalb & Huttenlocher) in one pass. A mask (a map: cells that are not 0 may be taken, say ndvi > 0.3 from raster.calc) or into (class names whose cells grow may take, eCognition's candidates) makes the growth geodesic, ring by ring: a cell takes the object with most cells around it, a tie the lower id. classes limits the objects that change. An object cut in two becomes two objects of its class; the level above is dropped (with a warning), as are the other attributes (objects.features again, or connect the image). report has a row per chosen object: its cells before and after and the objects it ended in. The same result on every run, on any number of threads.",
   "inputs": [
    {
     "name": "objects",
@@ -17820,7 +18032,7 @@
  },
  {
   "name": "objects.rules",
-  "doc": "Objects classed by a hierarchy of fuzzy rules, as eCognition's class hierarchy. `classes` lists the classes, each { name, rule, parent, colour }: the rule is an objects.calc expression, a membership from 0 to 1 (above(ndwi, 0, 0.2), below(ndvi, 0.2, 0.4) and not border_to(\"urban\") > 0.5; a value out of 0 to 1 is cut, a missing one is 0; several lines are allowed, the last is the value); a class with a parent inherits its membership: the membership of a class is the smaller of its own rule and its parent's (a class without a rule is its parent's, or 1 at the root). Only the leaves (the classes that are no one's parent) are what an object becomes: the leaf of the largest membership, the first of the list on ties, unclassified when it is under `min`; the parents only narrow what their daughters may take. All the classes are in the output, in the list's order, with the membership of each (a parent's region is its descendants'). A rule that reads classes (border_to(\"water\"), nb.count(cls == \"water\")) reads the classes the objects have before this node: chain two objects.rules for a second pass.",
+  "doc": "Objects classed by a hierarchy of fuzzy rules, as eCognition's class hierarchy. `classes` lists the classes, each { name, rule, parent, colour }: the rule is an objects.calc expression, a membership from 0 to 1 (above(ndwi, 0, 0.2), below(ndvi, 0.2, 0.4) and not border_to(\"urban\") > 0.5; a value out of 0 to 1 is cut, a missing one is 0: a comparison or arithmetic with a missing attribute gives missing, so coalesce(x, y) fills it and isnull(x) tests it; several lines are allowed, the last is the value); a class with a parent inherits its membership: the membership of a class is the smaller of its own rule and its parent's (a class without a rule is its parent's, or 1 at the root). Only the leaves (the classes that are no one's parent) are what an object becomes: the leaf of the largest membership, the first of the list on ties, unclassified when it is under `min`; the parents only narrow what their daughters may take. All the classes are in the output, in the list's order, with the membership of each (a parent's region is its descendants'). A rule that reads classes (border_to(\"water\"), nb.count(cls == \"water\")) reads the classes the objects have before this node: chain two objects.rules for a second pass.",
   "inputs": [
    {
     "name": "objects",
@@ -17871,7 +18083,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "A leaf class (one that is no one's parent) is what an object becomes; the parents only narrow what their daughters may take, as they inherit the mother's rule. An object whose best membership is under `min` (0.1, as eCognition's minimum membership value) stays unclassified: lower it, or widen the rules' ramps. A rule that reads classes (border_to, nb.count(cls == \"water\")) reads those the objects have before this node: chain a second objects.rules for a second pass. The margin shows where two classes are close."
+  "advice": "A leaf class (one that is no one's parent) is what an object becomes; the parents only narrow what their daughters may take, as they inherit the mother's rule. An object whose best membership is under `min` (0.1, as eCognition's minimum membership value) stays unclassified: lower it, or widen the rules' ramps. A rule that reads classes (border_to, nb.count(cls == \"water\")) reads those the objects have before this node: chain a second objects.rules for a second pass. The margin shows where two classes are close. A rule whose value is missing (a comparison or arithmetic with a missing attribute gives missing) counts as 0 membership: coalesce(x, y) fills a missing attribute in the rule, isnull(x) tests it."
  },
  {
   "name": "objects.sample",
@@ -18112,7 +18324,7 @@
     "name": "change",
     "type": "table",
     "required": true,
-    "doc": "from, to, objects, cells, area: the transitions found"
+    "doc": "from, to, objects, cells, area: the transitions found; `from` is the first date's class (its highest membership) while the adjustment used all its memberships, so a transition of possibility 0 can appear when the object also belonged in part to an origin that allows its class"
    },
    {
     "name": "map",
@@ -26656,7 +26868,7 @@
  },
  {
   "name": "segment.felzenszwalb",
-  "doc": "Objects as graph-based segments (Felzenszwalb & Huttenlocher 2004, as skimage's felzenszwalb): the cells are nodes, each joined to its 4 or 8 neighbours by an edge weighted with the distance of their bands (after a Gaussian smoothing of sigma cells). The edges are taken from the lowest weight up, and two components join when the edge is no heavier than the least of their inner weight (the heaviest edge in them) plus k / size: a small component is easy to join, a large one needs a closer match. Then components under min_size cells join, in the order of the edges. A constant area is one object. The objects are 4-connected: a link only by a corner splits. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges (reflectance 0-1 beside 0-10000) weigh alike in the distance; standardise: false uses the raw values. A cell without a value in every band is no object. The same result on every run, on any number of threads.",
+  "doc": "Objects as graph-based segments (Felzenszwalb & Huttenlocher 2004, as skimage's felzenszwalb): the cells are nodes, each joined to its 4 or 8 neighbours by an edge weighted with the distance of their bands (after a Gaussian smoothing of sigma cells). The edges are taken from the lowest weight up, and two components join when the edge is no heavier than the least of their inner weight (the heaviest edge in them) plus k / size: a small component is easy to join, a large one needs a closer match. Then components under min_size cells join, in the order of the edges. A constant area is one object. The objects are 4-connected: a component linked only by corners is cut first, then its pieces under min_size join along 4-neighbour edges. No object has fewer than min_size cells, unless the whole image, or a zone of `bounds` (or an area of valid cells cut off by the missing ones), is smaller. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges (reflectance 0-1 beside 0-10000) weigh alike in the distance; standardise: false uses the raw values. A cell without a value in every band is no object. The same result on every run, on any number of threads.",
   "inputs": [
    {
     "name": "image",
@@ -26981,7 +27193,7 @@
     "name": "tile",
     "type": "integer",
     "required": false,
-    "doc": "cells, the side of the tiles segmented in parallel and stitched at their borders (Happ et al. 2010); 0 (default) is automatic: the whole image at once up to 4 million cells, tiles of 1024 above; a number forces tiles of that side. Ignored with `from`. The tiles change the objects a little (not the criterion); the result is the same for a seed at any number of threads"
+    "doc": "cells, the side of the tiles segmented in parallel and stitched at their borders (Happ et al. 2010); 0 (default) is automatic: the whole image at once up to 4 million cells, tiles of 1024 above; a number forces tiles of that side. Ignored with `from`. No seam shows at the borders (the pieces that touch one are merged again from single cells across it); the objects differ from the untiled run's only as another seed's do; the result is the same for a seed at any number of threads"
    },
    {
     "name": "margin",
@@ -27315,7 +27527,7 @@
     "name": "tile",
     "type": "integer",
     "required": false,
-    "doc": "cells, the side of the tiles the image is cut into, grown in parallel and stitched at their borders (8 or more; default 0: the whole image at once, one thread). The objects at a tile border can differ a little from the run without tiles"
+    "doc": "cells, the side of the tiles the image is cut into, grown in parallel and stitched at their borders (8 or more; default 0: the whole image at once, one thread). No seam shows at the borders (the pieces that touch one are grown again from single cells across it); the objects differ from the run without tiles only as another seed's do"
    },
    {
     "name": "margin",
