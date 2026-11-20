@@ -349,3 +349,43 @@ fn objects_skeleton_bench() {
         }
     }
 }
+
+/// `objects.fuse` over a chessboard of 4 x 4 blocks of the benchmark image: the blocks join while their bands stay
+/// alike (the deviations) and while the joined object stays compact, on 1 and N threads (the same hash on both).
+#[test]
+#[ignore]
+fn objects_fuse_bench() {
+    let r = Registry::standard();
+    let list = |k: &str, d: &str| -> Vec<usize> {
+        std::env::var(k).unwrap_or(d.into()).split(',').filter_map(|x| x.parse().ok()).collect()
+    };
+    println!("
+{:<26} {:<16} {:<10} {:>7} {:>10} {:>9} {:>18}", "operator", "variant", "image", "threads", "seconds", "objects", "hash");
+    for side in list("BENCH_SIDES", "1000,2000") {
+        let img = image(side, side, 2, 5);
+        let p = serde_json::json!({ "size": 4 }).as_object().cloned().unwrap();
+        let inputs = [("image".to_string(), img.clone())].into_iter().collect();
+        let blocks = match r.get("segment.chessboard").unwrap().run(&mut Ctx::default(), &Args { node: "n", inputs, params: &p }).unwrap().remove("objects") {
+            Some(Value::Objects(t)) => t,
+            _ => panic!("objects"),
+        };
+        let cases = [
+            ("alike", serde_json::json!({ "fitting": "sd_b1 + sd_b2", "goal": "min", "improve": false, "threshold": 20.0 })),
+            ("compact", serde_json::json!({ "fitting": "compactness", "goal": "min", "improve": false, "threshold": 1.5, "mode": "all" })),
+        ];
+        for (variant, params) in cases {
+            for threads in list("BENCH_THREADS", "1,8") {
+                let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+                let inputs: std::collections::BTreeMap<String, Value> =
+                    [("objects".to_string(), Value::Objects(blocks.clone())), ("image".to_string(), img.clone())].into_iter().collect();
+                let p = params.as_object().cloned().unwrap();
+                let args = Args { node: "n", inputs, params: &p };
+                let t = Instant::now();
+                let out = pool.install(|| r.get("objects.fuse").unwrap().run(&mut Ctx::default(), &args).unwrap());
+                let secs = t.elapsed().as_secs_f64();
+                let Value::Objects(s) = &out["objects"] else { panic!("objects") };
+                println!("{:<26} {variant:<16} {:<10} {threads:>7} {secs:>10.2} {:>9} {:>18x}", "objects.fuse", format!("{side}x{side}"), s.count, hash(s));
+            }
+        }
+    }
+}

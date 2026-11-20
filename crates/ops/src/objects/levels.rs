@@ -53,7 +53,7 @@ impl Sets {
 
 /// The objects with each group of `group` (a root per object) made one object, ids by the first cell; and the new
 /// id (1-based) of every old object.
-fn regroup(o: &Objects, group: &[u32]) -> Result<(Objects, Vec<u32>)> {
+pub(super) fn regroup(o: &Objects, group: &[u32]) -> Result<(Objects, Vec<u32>)> {
     let mut id_of_root = vec![0u32; o.count];
     let mut next = 0u32;
     let mut labels = Vec::with_capacity(o.labels.len());

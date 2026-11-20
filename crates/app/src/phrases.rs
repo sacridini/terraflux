@@ -967,6 +967,10 @@ const PHRASES: &[(&str, &str)] = &[
         "The objects of <objects>[ of the classes {classes}] resized by {mode}[ over {distance} map units][ in {steps} steps][, taking the cells of {into}][, limited by <mask>][, holes up to {max_hole} cells][, with <image> for the border optimization].",
     ),
     (
+        "objects.fuse",
+        "The objects of <objects>[ of the classes {seeds}] joined to a neighbour[ of the classes {candidates}] when the joined object has the best {fitting}[ ({goal} is better)][, only if not worse than the seed's own][, reaching {threshold}][, in at most {max_passes} passes][, with <image> for the bands' means].",
+    ),
+    (
         "objects.nearest",
         "The objects of <objects> classed by their nearest samples in <samples>[, a class only above a membership of {min}].",
     ),

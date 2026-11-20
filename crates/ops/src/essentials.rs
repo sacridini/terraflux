@@ -97,6 +97,7 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     ("segment.sam", &["image", "weights", "bands", "points", "iou", "min_size", "fill"]),
     ("objects.split", &["surface", "by", "classes", "h", "min_size", "max_neck"]),
     ("objects.resize", &["mask", "image", "mode", "classes", "distance", "steps", "into"]),
+    ("objects.fuse", &["image", "fitting", "goal", "seeds", "candidates", "improve", "threshold"]),
     ("segment.region_growing", &["threshold", "minsize", "similarity", "bounds", "seeds", "tile"]),
     // species distributions and biodiversity
     ("sdm.fit", &["predictors", "categorical", "model", "classes", "regmult", "cv"]),

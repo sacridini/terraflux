@@ -770,6 +770,20 @@ pub const TIPS: &[(&str, &str)] = &[
         "mode grow takes the free cells within `distance` (map units; or `steps` cells) of the objects, each to the          nearest, and shrink gives them back; open (shrink, then grow back over what the object had) cuts thin necks          and drops specks, close (grow, then shrink the cells added) fills slits and small gaps, fill closes the holes          one object encloses (`max_hole` limits their size), smooth rounds spikes and notches. A `mask` (raster.calc,          say ndvi > 0.3) or `into` (class names whose cells grow may take, eCognition's candidates) makes the growth          geodesic, ring by ring, so it follows the condition and cannot jump over a barrier. refine, the border          optimization, needs the image: each border cell goes to the adjacent object of the closest band means,          `steps` times. `classes` limits the objects that change. Pieces cut off by shrink or open become objects of          the same class; the level above and the other attributes are dropped, so run objects.features after it.",
     ),
     (
+        "objects.fuse",
+        "For objects segmented too finely (a building in pieces, a field in strips): a seed joins a neighbour only when \
+         the object they make is good by the `fitting`, an expression over the joined object (compactness, which is 1 \
+         for a rectangle and grows as the shape gets ragged, so goal min; shape_index; mean_<band> and sd_<band> with \
+         the image; length, width, area). `improve` (the default) asks the joined object to be as good as the seed's \
+         own value, `threshold` that it reach a value (a compactness of at most 1.3, a mean_nir of at least 0.3), and \
+         both can be used: improve false with a threshold joins whatever reaches it. `seeds` and `candidates` are \
+         class names (`unclassified` counts), the result has the seed's class. mode best gives each seed its best \
+         candidate, best pairs first; all lets a seed whose best was taken fall back to the next in the same pass. \
+         It repeats until nothing joins (`max_passes`), so a control.repeat is not needed. Texture, skeleton and \
+         context features cannot be derived for the joined object and are refused; the box stands for length and \
+         width. The level above and the other attributes are dropped, so run objects.features after it.",
+    ),
+    (
         "objects.nearest",
         "A few attributes, chosen with the feature space (objects.features), work better than many: every \
          attribute adds to the distance, and size and shape attributes can swamp the spectral ones, so name the \

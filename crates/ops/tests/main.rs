@@ -44,6 +44,7 @@ mod objects_bench;
 mod objects_big;
 mod objects_dl;
 mod objects_edit;
+mod objects_fuse;
 mod objects_levels;
 mod objects_resize;
 mod objects_resolve;

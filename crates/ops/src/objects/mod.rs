@@ -20,6 +20,7 @@ mod each;
 mod edit;
 mod esp;
 mod features;
+mod fuse;
 mod growing;
 mod labels;
 mod levels;
@@ -70,6 +71,7 @@ pub fn register(r: &mut Registry) {
     rules::register(r);
     edit::register(r);
     split::register(r);
+    fuse::register(r);
     resize::register(r);
     r.add(Arc::new(features::Features));
     resolve::register(r);
