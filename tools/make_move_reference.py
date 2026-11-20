@@ -31,9 +31,9 @@ ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
 LS = Path(tf.__file__).resolve().parents[2]
 sys.path.insert(0, str(LS / "tests"))
-from move_cases import (ALONG_CASES, ALONG_LAYERS, ALONG_RASTERS, EXTRACT_RASTER, M2U_SYNTHETIC, SPEED,  # noqa: E402
-                        SPEED_MASS, SPEED_MODE, THIN_DISTANCE, THIN_TIME, along_raster, along_track_sets,
-                        m2u_track_sets, track_sets)
+from move_cases import (ALONG_CASES, ALONG_LAYERS, ALONG_RASTERS, CORRIDOR, EXTRACT_RASTER, M2U_SYNTHETIC,  # noqa: E402
+                        SPEED, SPEED_MASS, SPEED_MODE, THIN_DISTANCE, THIN_TIME, along_raster, along_track_sets,
+                        corridor_track_sets, m2u_track_sets, track_sets)
 
 M = tf.move
 ALONG_STATS = ("mean", "min", "max", "ascent", "descent", "delta")
@@ -189,6 +189,92 @@ def along_reference(out: dict, meta: dict, fishers_src: Path) -> None:
             for st in ALONG_STATS:
                 out[f"along/{case}/{k}_{st}"] = summary[f"{k}_along_{st}"].to_numpy(np.float64)
         meta["along"]["cases"][case] = {"raster": name, "crs": crs[case], "n": len(s)}
+
+
+COR_SETS = ("cor_grid", "cor_lattice", "cor_zero")
+# the distance between UDs: the coarse UDs of three fishers (the library's emd_fishers case, 30 x 20 cells) and blobs on a
+# longitude / latitude grid (emd_lonlat), in the library's own move2utils reference (tests/data/reference/move)
+EMD_UDS = {"fishers_c": ("emd_fishers", "_c", ("F1", "F2", "M1"), None),
+           "lonlat": ("emd_lonlat", "", ("a", "b", "c"), "EPSG:4326")}
+EMD_CASES = {  # key -> (data, arguments of ud_distance)
+    "sink": ("fishers_c", {}), "mask09": ("fishers_c", {"mask_quantile": 0.9}),
+    "mask05": ("fishers_c", {"mask_quantile": 0.5}), "mask1": ("fishers_c", {"mask_quantile": 1}),
+    "reg01": ("fishers_c", {"reg": 0.1}), "reg002": ("fishers_c", {"reg": 0.02, "max_iter": 2000}),
+    "tol13": ("fishers_c", {"tol": 1e-13}), "thr": ("fishers_c", {"threshold": 1500}),
+    "iter3": ("fishers_c", {"max_iter": 3}),
+    "exact": ("fishers_c", {"method": "exact"}),
+    "exact_q": ("fishers_c", {"method": "exact", "mask_quantile": 0.9}),
+    "exact_iter3": ("fishers_c", {"method": "exact", "exact_max_iter": 3}),
+    "gc": ("lonlat", {"gc": True}), "gc_q": ("lonlat", {"gc": True, "mask_quantile": 0.9}),
+    "gc_thr": ("lonlat", {"gc": True, "threshold": 20000}),
+    "gc_reg": ("lonlat", {"gc": True, "reg": 0.02, "max_iter": 1500}),
+    "deg": ("lonlat", {}), "deg_thr": ("lonlat", {"threshold": 0.1}),
+}
+
+
+def corridor_reference(out: dict, meta: dict, tr: dict, fishers_src: Path) -> None:
+    """LaPoint's corridors (move2utils' mt_corridor) of the library and the earth mover's distance between UDs
+    (emd), on the cases of the library's tests (tests/move_cases.py: CORRIDOR, corridor_track_sets) except the whole
+    of the fishers (47 thousand locations: the track M1 stays). New keys only: `in/cor/<set>/{x,y,t}` the lattices
+    and the dwelling animals, `corridor/<case>/{flag,speed,azimuth,circvar,nb,thr}` per location (`thr`: the
+    thresholds used), `in/emd/<data>/ud` the UDs (band, row, column) and `emd/<data>/<key>` the distances of the pairs
+    (1, 2), (1, 3), (2, 3); the cases, the lattices' tracks and the UDs' grids are in the json (`corridor`, `emd`)."""
+    sets = corridor_track_sets()
+    meta["corridor"] = {"sets": {}, "cases": {}}
+    frames = {"utm": tr["utm"], "ll": tr["ll"]}
+    for name in COR_SETS:
+        s = sets[name]
+        frames[name] = m2u_frame(s)
+        for k in ("x", "y", "t"):
+            out[f"in/cor/{name}/{k}"] = np.asarray(s[k], np.float64)
+        meta["corridor"]["sets"][name] = {"track": [str(v) for v in s["track"]], "crs": s["crs"]}
+    frames["cl_ft"] = m2u_frame(m2u_track_sets()["cl_ft"])
+    fishers = tf.load_tracks(fishers_src, sort=False)
+    frames["fishers"] = fishers[fishers[M._tracks.columns(fishers)[1]] == "M1"]
+    for case, (data, one, args, _) in CORRIDOR.items():
+        if data == "fishers" and one is None:
+            continue
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            r = M.corridor(frames[data], **args)
+        used = r.attrs["corridor"]
+        out[f"corridor/{case}/flag"] = (r["corridor"] == "corridor").to_numpy().astype(np.float64)
+        out[f"corridor/{case}/speed"] = r["corridor_speed"].to_numpy(np.float64)
+        out[f"corridor/{case}/azimuth"] = r["corridor_azimuth"].to_numpy(np.float64)
+        out[f"corridor/{case}/circvar"] = r["corridor_circvar"].to_numpy(np.float64)
+        out[f"corridor/{case}/nb"] = r["corridor_n_neighbours"].astype("Float64").to_numpy(np.float64, na_value=np.nan)
+        out[f"corridor/{case}/thr"] = np.array([used["speed_threshold"], used["circvar_threshold"]], np.float64)
+        meta["corridor"]["cases"][case] = {"data": data, "track": one, "args": args}
+
+    ref = np.load(LS / "tests" / "data" / "reference" / "move" / "move2utils_corridor.npz")
+    meta["emd"] = {"uds": {}, "cases": {}}
+    stacks = {}
+    for data, (case, suffix, names, crs) in EMD_UDS.items():
+        ny, nx, nl = (int(v) for v in ref[f"{case}/dim{suffix}"])
+        xs, ys = ref[f"{case}/xs{suffix}"], ref[f"{case}/ys{suffix}"]
+        xres, yres = (xs[-1] - xs[0]) / (nx - 1), (ys[0] - ys[-1]) / (ny - 1)
+        # the grid Terraflux rebuilds: cell centres from the corner and the size, as its operator computes them
+        xmin, ymax = float(xs[0] - xres / 2), float(ys[0] + yres / 2)
+        x = xmin + (np.arange(nx) + 0.5) * xres
+        y = ymax + (np.arange(ny) + 0.5) * -yres
+        ud = np.asarray(ref[f"{case}/ud{suffix}"], np.float64).reshape(nl, ny, nx)
+        out[f"in/emd/{data}/ud"] = ud.ravel()
+        meta["emd"]["uds"][data] = {"nx": nx, "ny": ny, "bands": list(names), "xmin": xmin, "xres": float(xres),
+                                    "ymax": ymax, "yres": float(yres), "crs": crs}
+        da = xr.DataArray(ud, coords={"band": list(names), "y": y, "x": x}, dims=("band", "y", "x"))
+        stacks[data] = da.rio.write_crs(crs) if crs else da
+    for key, (data, args) in EMD_CASES.items():
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            table = M.ud_distance(stacks[data], **args)
+        out[f"emd/{data}/{key}"] = table["distance"].to_numpy(np.float64)
+        meta["emd"]["cases"][key] = {"data": data, "args": args}
+    # one UD against the other (a number), and a UD against itself
+    f = stacks["fishers_c"]
+    out["emd/fishers_c/pair"] = np.array([M.ud_distance(f.sel(band="F1"), f.sel(band="M1"))], np.float64)
+    out["emd/fishers_c/same"] = np.array([M.ud_distance(f.sel(band="F1"), f.sel(band="F1"))], np.float64)
+    out["emd/fishers_c/same_exact"] = np.array(
+        [M.ud_distance(f.sel(band="F1"), f.sel(band="F1"), method="exact")], np.float64)
 
 
 def main() -> None:
@@ -364,6 +450,7 @@ def main() -> None:
 
     clean_reference(out, meta, fishers_src, LS / M2U_SYNTHETIC)
     along_reference(out, meta, fishers_src)
+    corridor_reference(out, meta, tr, fishers_src)
 
     np.savez_compressed(REF / "move.npz", **out)
     (REF / "move.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")

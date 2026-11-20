@@ -15,6 +15,7 @@
 
 mod amt;
 mod clean;
+mod corridor;
 mod filters;
 mod geometry;
 mod ssf;
@@ -39,6 +40,7 @@ pub fn register(r: &mut Registry) {
     amt::register(r);
     ssf::register(r);
     clean::register(r);
+    corridor::register(r);
 }
 
 const TIME_NAMES: [&str; 5] = ["timestamp", "time", "datetime", "date_time", "t"];

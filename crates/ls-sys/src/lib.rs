@@ -1324,6 +1324,28 @@ pub mod ffi {
         rank: Vec<i64>,
     }
 
+    /// The neighbourhoods of the segments of mt_corridor: each segment's azimuth (radians) and circular variance
+    /// (NaN with fewer than two neighbours), and the neighbours of segment i in `index[offset[i]..offset[i + 1]]`
+    /// (segments, ascending, itself included).
+    struct MoveNeighbours {
+        azimuth: Vec<f64>,
+        circvar: Vec<f64>,
+        offset: Vec<i64>,
+        index: Vec<i32>,
+    }
+
+    /// The cells of a UD inside its volume contour (ascending, 0-based, row-major) and their weights (sum 1).
+    struct MoveUdCells {
+        cells: Vec<i64>,
+        weights: Vec<f64>,
+    }
+
+    /// emdist's exact distance and whether the solver stopped at its iteration limit.
+    struct MoveEmdExact {
+        distance: f64,
+        hit_max_iter: bool,
+    }
+
     /// suncalc's sunrise, sunset, dawn and dusk (seconds since 1970, NaN when the sun does not reach them).
     struct MoveSun {
         sunrise: Vec<f64>,
@@ -3343,6 +3365,52 @@ pub mod ffi {
             values: &[f64],
             threads: i32,
         ) -> Result<Vec<f64>>;
+        /// The neighbours of segments (x0, y0) -> (x1, y1) in the working CRS: those whose midpoints lie in GEOS'
+        /// 120-gon buffer of each midpoint at `radius` (half the length), their azimuths and circular variances.
+        fn move_corridor_neighbourhoods(
+            x0: &[f64],
+            y0: &[f64],
+            x1: &[f64],
+            y1: &[f64],
+            radius: &[f64],
+            threads: i32,
+        ) -> Result<MoveNeighbours>;
+        /// is_corridor: enough neighbours and a strict majority of candidates (0 / 1 each) among them.
+        fn move_corridor_flags(
+            offset: &[i64],
+            index: &[i32],
+            candidate: &[u8],
+            min_segments: f64,
+            threads: i32,
+        ) -> Result<Vec<u8>>;
+        /// move2utils' .emd_prep_ud: the cells of a UD (NaN: no data) inside the `mask_quantile` volume contour.
+        fn move_ud_prepare(values: &[f64], mask_quantile: f64) -> Result<MoveUdCells>;
+        /// .emd_sinkhorn between two sets of weighted cell centres (threshold NaN: none; gc: haversine).
+        #[allow(clippy::too_many_arguments)]
+        fn move_emd_sinkhorn(
+            ax: &[f64],
+            ay: &[f64],
+            p: &[f64],
+            bx: &[f64],
+            by: &[f64],
+            q: &[f64],
+            gc: bool,
+            threshold: f64,
+            reg: f64,
+            max_iter: i32,
+            tol: f64,
+            threads: i32,
+        ) -> Result<f64>;
+        /// emdist::emd (Rubner's exact solver) between two sets of weighted cell centres.
+        fn move_emd_exact(
+            ax: &[f64],
+            ay: &[f64],
+            p: &[f64],
+            bx: &[f64],
+            by: &[f64],
+            q: &[f64],
+            max_iter: i32,
+        ) -> Result<MoveEmdExact>;
     }
 }
 

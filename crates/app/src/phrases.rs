@@ -757,6 +757,12 @@ const PHRASES: &[(&str, &str)] = &[
     ("move.aeqd_crs", "<tracks> in an azimuthal equidistant projection centred on their {center}, in {units}."),
     ("move.as_tracks", "Tracks from the locations[ of <vector>][ of <table>][ (columns {x} and {y})][ in {crs}]."),
     ("move.azimuth", "The direction of each step of <tracks>, clockwise from north, in {units}."),
+    (
+        "move.corridor",
+        "The segments of <tracks> that run along a corridor: faster than [{speed_threshold} m/s][the upper quartile \
+         of the speeds], with the directions of their neighbours in agreement[ (circular variance up to \
+         {circvar_threshold})].",
+    ),
     ("move.distance", "The distance from each location of <tracks> to the next[, in {units}]."),
     ("move.distribution", "A {name} distribution of step lengths or turn angles."),
     (
@@ -805,6 +811,10 @@ const PHRASES: &[(&str, &str)] = &[
     ("move.track_lines", "Each track of <tracks> as a line through its locations."),
     ("move.track_summary", "The distance, straightness and sinuosity of each track of <tracks>."),
     ("move.turn_angle", "The change of direction at each location of <tracks>, in {units}."),
+    (
+        "move.ud_distance",
+        "The earth mover's distance between the utilisation distributions of <ud>[ and <ud_b>] (method {method}).",
+    ),
     ("networks.conefor", "The habitat network of the MSPA map <map> as Conefor's inputs."),
     (
         "networks.gtn_importance",

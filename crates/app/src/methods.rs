@@ -640,6 +640,19 @@ pub const REFERENCES: &[Reference] = &[
         "1509–1518",
         "10.1016/j.envsoft.2006.10.004"
     ),
+    Reference {
+        key: "cuturi2013",
+        authors: &["Cuturi, M."],
+        more: false,
+        year: 2013,
+        title: "Sinkhorn distances: lightspeed computation of optimal transport",
+        journal: "",
+        volume: "",
+        issue: "",
+        pages: "",
+        doi: "",
+        report: "Advances in Neural Information Processing Systems, 26, 2292–2300. https://arxiv.org/abs/1306.0895",
+    },
     paper!(
         "hanson2025",
         [
@@ -766,6 +779,18 @@ pub const REFERENCES: &[Reference] = &[
         "57",
         "2829",
         "10.21105/joss.02829"
+    ),
+    paper!(
+        "lapoint2013",
+        ["LaPoint, S.", "Gallery, P.", "Wikelski, M.", "Kays, R."],
+        false,
+        2013,
+        "Animal behavior, cost-based corridor models, and real corridors",
+        "Landscape Ecology",
+        "28",
+        "8",
+        "1615–1630",
+        "10.1007/s10980-013-9910-0"
     ),
     paper!(
         "liang2021",
@@ -898,6 +923,18 @@ pub const REFERENCES: &[Reference] = &[
         "7",
         "887–893",
         "10.1111/ecog.03049"
+    ),
+    paper!(
+        "rubner2000",
+        ["Rubner, Y.", "Tomasi, C.", "Guibas, L. J."],
+        false,
+        2000,
+        "The earth mover's distance as a metric for image retrieval",
+        "International Journal of Computer Vision",
+        "40",
+        "2",
+        "99–121",
+        "10.1023/A:1026543900054"
     ),
     paper!(
         "salgadorojas2020",
@@ -1457,6 +1494,20 @@ pub const METHODS: &[Method] = &[
         ops: &["move.filter_gps_quality", "move.thin_time", "move.thin_distance"],
         name: "the cleaning and thinning of tracks ({ops})",
         refs: &[],
+        software: "move2utils",
+        software_refs: &["kranstauber2026"],
+    },
+    Method {
+        ops: &["move.corridor"],
+        name: "the detection of corridor segments in animal tracks",
+        refs: &["lapoint2013"],
+        software: "move2utils",
+        software_refs: &["kranstauber2026"],
+    },
+    Method {
+        ops: &["move.ud_distance"],
+        name: "the earth mover's distance between utilisation distributions",
+        refs: &["rubner2000", "cuturi2013"],
         software: "move2utils",
         software_refs: &["kranstauber2026"],
     },

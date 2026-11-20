@@ -5165,7 +5165,7 @@ Do amt 0.3.1 (fase 5), **entra**: `hr_mcp`, `hr_kde` com as larguras de banda `h
   de 2000², 1 e 8 threads, contra o R.
 - **4. dBGB (M).** `bgb_var_window_c.c` (as variâncias paralela e ortogonal, `.delta_para_orth`) e o UD direcional
   pelo mesmo núcleo do passo 3. Mesmos testes.
-- **5. Corredores e distância entre UDs (M).** `mt_corridor`: a velocidade e a variância circular dos segmentos
+- **5. Corredores e distância entre UDs (M). Feito (2026-11-21):** terraflux-py b2ecab8 (`corridor`, `corridor_lines`, `ud_distance`; o buffer de 120 vértices do GEOS 3.12 e o ponto no anel portados bit a bit, Sinkhorn bit a bit no BLAS de referência, o exato do emdist 0.3-3 vendorizado; dois erros do `mt_corridor` testados contra o código corrigido: o raio em metros num CRS em pés e o EPSG:4236), Terraflux (`move.corridor` com as saídas `lines` e os limiares, `move.ud_distance`). Ressalvas: de lon/lat o azimute e a variância circular da biblioteca diferem do R em ~1e-7 (PROJ 9.5.1 do pyproj contra 9.4.1 do R; o resultado do corredor é o mesmo); a velocidade usa o intervalo exato em ns, como o `speed`, e não a conversão de minutos do difftime (1 ulp). O manual diz que `min_segments` conta os vizinhos que qualificam; o código conta todos, como aqui. `mt_corridor`: a velocidade e a variância circular dos segmentos
   vizinhos (o R-tree do `sf` vira o índice espacial que o Terraflux já tem), os limites (`speed_threshold`,
   `circvar_threshold`, `min_segments`) com os padrões do R, a coluna `corridor` por segmento e as linhas dos
   segmentos de corredor. `emd` pelo Sinkhorn (`reg`, `max_iter`, `tol`, `mask_quantile`, o custo euclidiano ou o de

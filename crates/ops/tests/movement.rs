@@ -1330,3 +1330,365 @@ fn values_along_errors() {
     assert!(err(&steps, &tweak(&|g| g.transform[2] = 0.1), along.clone()).contains("rotated"));
     assert!(err(&steps, &tweak(&|g| g.transform[5] = 1.0), along.clone()).contains("north up"));
 }
+
+// corridors and the distance between UDs (move2utils' mt_corridor and emd): keys `in/cor/...`, `corridor/...`,
+// `in/emd/...` and `emd/...`, the cases in move.json (`corridor`, `emd`)
+
+fn corridor_meta() -> &'static serde_json::Value {
+    &reference().1["corridor"]
+}
+
+fn emd_meta() -> &'static serde_json::Value {
+    &reference().1["emd"]
+}
+
+/// The tracks of a case's data: a set of the reference, or the track M1 of the fishers.
+fn corridor_set(data: &str, track: Option<&str>) -> Value {
+    if let Some(m) = corridor_meta()["sets"].get(data) {
+        let z = &reference().0;
+        let get = |k: &str| &z[&format!("in/cor/{data}/{k}")].data;
+        let (x, y, t) = (get("x"), get("y"), get("t"));
+        let tracks: Vec<String> =
+            m["track"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+        let time = Column::Texts(t.iter().map(|&s| time::format((s * 1e9).round() as i64)).collect());
+        let geometries = x.iter().zip(y).map(|(&a, &b)| Geometry::Point([a, b])).collect();
+        return Value::Vector(Arc::new(Vector {
+            geometries,
+            attributes: vec![("time".to_string(), time), ("track".to_string(), Column::Texts(tracks))],
+            crs: m["crs"].as_str().map(str::to_string),
+        }));
+    }
+    match (data, track) {
+        ("fishers", Some(one)) => {
+            let Value::Vector(v) = clean_set("fishers") else { panic!() };
+            let Some(Column::Texts(ids)) = v.column("individual-local-identifier") else { panic!("no track column") };
+            let rows: Vec<usize> = (0..v.len()).filter(|&i| ids[i] == one).collect();
+            Value::Vector(Arc::new(v.select(&rows)))
+        }
+        ("utm" | "ll", _) => set(data),
+        _ => clean_set(data),
+    }
+}
+
+fn corridor_run(tracks: &Value, args: &serde_json::Value) -> (Outputs, Vec<String>) {
+    let params = args.as_object().cloned().unwrap_or_default();
+    let a = Args { node: "n", inputs: [("tracks".to_string(), tracks.clone())].into(), params: &params };
+    let mut ctx = Ctx::default();
+    let o = registry().get("move.corridor").unwrap().run(&mut ctx, &a).unwrap_or_else(|e| panic!("{args}: {e}"));
+    (o, ctx.warnings)
+}
+
+fn flag_of(v: &Vector) -> Vec<f64> {
+    let Some(Column::Texts(t)) = v.column("corridor") else { panic!("no corridor column") };
+    t.iter().map(|s| f64::from(u8::from(s == "corridor"))).collect()
+}
+
+#[test]
+fn corridors_are_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let cases = corridor_meta()["cases"].as_object().unwrap();
+    assert!(cases.len() >= 20);
+    let mut flagged = 0.0;
+    for (case, c) in cases {
+        let tracks = corridor_set(c["data"].as_str().unwrap(), c["track"].as_str());
+        let (o, warnings) = corridor_run(&tracks, &c["args"]);
+        let v = vector(&o, "tracks");
+        let flag = flag_of(&v);
+        same(&format!("{case} corridor"), &flag, want(&format!("corridor/{case}/flag")));
+        same(&format!("{case} speed"), &num(&v, "corridor_speed"), want(&format!("corridor/{case}/speed")));
+        same(&format!("{case} azimuth"), &num(&v, "corridor_azimuth"), want(&format!("corridor/{case}/azimuth")));
+        same(&format!("{case} circvar"), &num(&v, "corridor_circvar"), want(&format!("corridor/{case}/circvar")));
+        same(&format!("{case} n"), &num(&v, "corridor_n_neighbours"), want(&format!("corridor/{case}/nb")));
+        let thr = want(&format!("corridor/{case}/thr"));
+        same(&format!("{case} speed threshold"), &[number_of(&o, "speed_threshold")], &thr[..1]);
+        same(&format!("{case} circvar threshold"), &[number_of(&o, "circvar_threshold")], &thr[1..]);
+        let t = table(&o, "thresholds");
+        assert_eq!(t.columns, ["speed_threshold", "circvar_threshold", "min_segments"], "{case}");
+        same(&format!("{case} thresholds"), &t.rows[0][..2], thr);
+        // a warning for each threshold left out
+        let given = c["args"].as_object().unwrap();
+        for name in ["speed_threshold", "circvar_threshold"] {
+            let said = warnings.iter().any(|w| w.contains(&format!("`{name}` not supplied")));
+            assert_eq!(said, !given.contains_key(name), "{case} {name}: {warnings:?}");
+        }
+        // the lines are the corridor segments, from a location to the next of its track
+        let lines = vector(&o, "lines");
+        let n_flag = flag.iter().sum::<f64>();
+        assert_eq!(lines.len() as f64, n_flag, "{case}");
+        let (rows, speed) = (num(&v, "corridor_speed"), num(&lines, "speed"));
+        let at: Vec<usize> = (0..v.len()).filter(|&i| flag[i] == 1.0).collect();
+        for (k, &i) in at.iter().enumerate() {
+            let next = (i + 1..v.len()).find(|&j| !matches!(v.geometries[j], Geometry::Empty)).unwrap();
+            let (Geometry::Point(a), Geometry::Point(b)) = (&v.geometries[i], &v.geometries[next]) else { panic!() };
+            assert!(matches!(&lines.geometries[k], Geometry::LineString(p) if p == &vec![*a, *b]), "{case} line {k}");
+            assert_eq!(speed[k].to_bits(), rows[i].to_bits(), "{case} line speed {k}");
+        }
+        for col in ["speed", "azimuth", "circvar", "n_neighbours"] {
+            assert!(lines.column(col).is_some(), "{case}: no column {col} in the lines");
+        }
+        assert_eq!(lines.attributes.len(), 6, "{case}: the track, the time and four columns");
+        assert_eq!(lines.crs, v.crs, "{case}");
+        flagged += n_flag;
+    }
+    assert!(flagged > 200.0, "{flagged} corridor segments in all");
+}
+
+/// Tracks of one animal (a) with the given positions, a time lag of `step` seconds, in `crs`.
+fn walk(geometries: Vec<Geometry>, crs: Option<&str>, step: i64) -> Value {
+    let n = geometries.len();
+    let time = (0..n as i64).map(|i| time::format((1_700_000_000 + i * step) * 1_000_000_000)).collect();
+    Value::Vector(Arc::new(Vector {
+        geometries,
+        attributes: vec![
+            ("time".into(), Column::Texts(time)),
+            ("track".into(), Column::Texts(vec!["a".to_string(); n])),
+        ],
+        crs: crs.map(str::to_string),
+    }))
+}
+
+#[test]
+fn corridors_leave_empty_locations_alone_and_warn() {
+    if !gdal() {
+        return;
+    }
+    let n = 30;
+    let crs = Some("EPSG:32723");
+    let points: Vec<Geometry> = (0..n)
+        .map(|i| if i == 5 { Geometry::Empty } else { Geometry::Point([10.0 * i as f64, 0.5 * (i % 2) as f64]) })
+        .collect();
+    let (o, warnings) = corridor_run(&walk(points, crs, 60), &serde_json::json!({}));
+    let v = vector(&o, "tracks");
+    let Some(Column::Texts(label)) = v.column("corridor") else { panic!() };
+    assert_eq!(label[5], "not corridor");
+    assert!(num(&v, "corridor_speed")[5].is_nan() && num(&v, "corridor_n_neighbours")[5].is_nan());
+    // the segment before the empty location runs to the one after it
+    let s = num(&v, "corridor_speed")[4];
+    assert!((s - 20.0 / 120.0).abs() < 1e-12 * s, "{s}");
+    assert!(num(&v, "corridor_speed")[n - 1].is_nan(), "no segment leaves the last location");
+    assert!(warnings.iter().any(|w| w.contains("`speed_threshold` not supplied")), "{warnings:?}");
+    assert!(warnings.iter().any(|w| w.contains("`circvar_threshold` not supplied")), "{warnings:?}");
+    // an irregular sampling interval
+    let mut t = 1_700_000_000i64;
+    let times: Vec<String> = (0..n)
+        .map(|i| {
+            t += [30, 60, 20000, 3600, 30, 20000, 60][i % 7];
+            time::format(t * 1_000_000_000)
+        })
+        .collect();
+    let mut irregular = walk((0..n).map(|i| Geometry::Point([10.0 * i as f64, 0.0])).collect(), crs, 60);
+    if let Value::Vector(v) = &mut irregular {
+        Arc::make_mut(v).attributes[0].1 = Column::Texts(times);
+    }
+    let (_, w) = corridor_run(&irregular, &serde_json::json!({"speed_threshold": 0.0, "circvar_threshold": 1.0}));
+    assert!(w.iter().any(|w| w.contains("highly irregular")), "{w:?}");
+}
+
+#[test]
+fn corridors_check_their_input() {
+    if !gdal() {
+        return;
+    }
+    let crs = Some("EPSG:32723");
+    let straight: Vec<Geometry> = (0..30).map(|i| Geometry::Point([10.0 * i as f64, 0.0])).collect();
+    let err = |t: &Value, p: serde_json::Value| {
+        run("move.corridor", vec![("tracks", t.clone())], p).map(|_| ()).unwrap_err().to_string()
+    };
+    let given = serde_json::json!({"speed_threshold": 0.1, "circvar_threshold": 0.1});
+    assert!(err(&walk(straight.clone(), None, 60), given.clone()).contains("no CRS"));
+    assert!(err(&walk(straight[..1].to_vec(), crs, 60), given.clone()).contains("at least 2"));
+    let ok = walk(straight.clone(), crs, 60);
+    assert!(err(&ok, serde_json::json!({"speed_threshold": "fast"})).contains("speed_threshold"));
+    let lines = vec![Geometry::LineString(vec![[0.0, 0.0], [1.0, 1.0]]); 3];
+    assert!(err(&walk(lines, crs, 60), given.clone()).contains("points"));
+    // a track that is not consecutive
+    let Value::Vector(v) = &ok else { panic!() };
+    let mut mixed = (**v).clone();
+    if let Some((_, Column::Texts(t))) = mixed.attributes.iter_mut().find(|(n, _)| n == "track") {
+        t[3] = "b".into();
+    }
+    assert!(err(&Value::Vector(Arc::new(mixed)), given.clone()).contains("consecutive"));
+    // a variance threshold missing: two segments of which only one has two neighbours (a 20 m segment holding the
+    // midpoint of a 4 m one 5 m off), and a fast segment with a variance
+    let pts = [[0.0, 0.0], [20.0, 0.0], [13.0, 0.0], [17.0, 0.0]];
+    let Value::Vector(base) = walk(pts.iter().map(|&p| Geometry::Point(p)).collect(), crs, 60) else { panic!() };
+    let mut two = (*base).clone();
+    two.attributes[1].1 = Column::Texts(["a", "a", "b", "b"].map(String::from).to_vec());
+    two.attributes[0].1 =
+        Column::Texts([0, 60, 0, 60].iter().map(|s| time::format((1_700_000_000 + s) * 1_000_000_000)).collect());
+    let two = Value::Vector(Arc::new(two));
+    let (o, _) = corridor_run(&two, &serde_json::json!({"speed_threshold": 100.0}));
+    let v = vector(&o, "tracks");
+    assert_eq!(flag_of(&v).iter().sum::<f64>(), 0.0);
+    let counts: Vec<f64> =
+        num(&v, "corridor_n_neighbours").iter().map(|x| if x.is_nan() { -1.0 } else { *x }).collect();
+    assert_eq!(counts, [2.0, -1.0, 1.0, -1.0]);
+    assert!(number_of(&o, "circvar_threshold").is_nan());
+    assert!(err(&two, serde_json::json!({"speed_threshold": 0.0})).contains("circular variance threshold is missing"));
+}
+
+#[test]
+fn one_and_four_threads_give_the_same_corridors() {
+    if !gdal() {
+        return;
+    }
+    for lonlat in [false, true] {
+        let t = big_tracks(lonlat);
+        let by = |n: usize| {
+            terraflux_ops::threads::set_kernel_threads(n);
+            let (o, _) = corridor_run(&t, &serde_json::json!({}));
+            terraflux_ops::threads::set_kernel_threads(4);
+            o
+        };
+        let (a, b) = (by(1), by(4));
+        let (va, vb) = (vector(&a, "tracks"), vector(&b, "tracks"));
+        for c in ["corridor_speed", "corridor_azimuth", "corridor_circvar", "corridor_n_neighbours"] {
+            same(&format!("{lonlat} {c}"), &num(&va, c), &num(&vb, c));
+        }
+        let (fa, fb) = (flag_of(&va), flag_of(&vb));
+        same(&format!("{lonlat} corridor"), &fa, &fb);
+        let on = fa.iter().sum::<f64>();
+        assert!(on > 10.0 && (on as usize) < fa.len(), "{lonlat}: {on} corridor segments of {}", fa.len());
+        same("speed threshold", &[number_of(&a, "speed_threshold")], &[number_of(&b, "speed_threshold")]);
+    }
+}
+
+/// The UDs of a case as a stack on the grid the reference built (cell centres from the corner and the size).
+fn ud_stack(data: &str) -> Value {
+    let m = &emd_meta()["uds"][data];
+    let f = |k: &str| m[k].as_f64().unwrap();
+    let (nx, ny) = (m["nx"].as_u64().unwrap() as usize, m["ny"].as_u64().unwrap() as usize);
+    let mut g = Grid::new(nx, ny);
+    g.transform = [f("xmin"), f("xres"), 0.0, f("ymax"), 0.0, -f("yres")];
+    g.geo.wkt = m["crs"].as_str().map(str::to_string);
+    let values = &reference().0[&format!("in/emd/{data}/ud")].data;
+    let names: Vec<String> = m["bands"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+    assert_eq!(values.len(), names.len() * nx * ny);
+    Value::Stack(terraflux_ops::Stack {
+        grid: Arc::new(g),
+        keys: names.iter().map(|n| terraflux_ops::Key::Name(n.clone())).collect(),
+        layers: values.chunks(nx * ny).map(|c| Arc::new(c.to_vec())).collect(),
+    })
+}
+
+/// One band of the stack as a map.
+fn ud_map(stack: &Value, band: usize) -> Value {
+    let Value::Stack(s) = stack else { panic!() };
+    Value::Map(Map { grid: s.grid.clone(), data: s.layers[band].clone() })
+}
+
+fn ud_run(ins: Vec<(&str, Value)>, args: &serde_json::Value) -> terraflux_ops::Result<(Outputs, Vec<String>)> {
+    let params = args.as_object().cloned().unwrap_or_default();
+    let a = Args { node: "n", inputs: ins.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), params: &params };
+    let mut ctx = Ctx::default();
+    let o = registry().get("move.ud_distance").unwrap().run(&mut ctx, &a)?;
+    Ok((o, ctx.warnings))
+}
+
+#[test]
+fn ud_distances_are_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let cases = emd_meta()["cases"].as_object().unwrap();
+    assert!(cases.len() >= 18);
+    for (key, c) in cases {
+        let data = c["data"].as_str().unwrap();
+        let (o, warnings) = ud_run(vec![("ud", ud_stack(data))], &c["args"]).unwrap_or_else(|e| panic!("{key}: {e}"));
+        let t = table(&o, "table");
+        assert_eq!(t.columns, ["a", "b", "distance"], "{key}");
+        same(key, &t.rows.iter().map(|r| r[2]).collect::<Vec<_>>(), want(&format!("emd/{data}/{key}")));
+        // the pairs (1, 2), (1, 3), (2, 3), with the names of the bands
+        let names = emd_meta()["uds"][data]["bands"].as_array().unwrap();
+        let pairs: Vec<(&str, &str)> =
+            t.rows.iter().map(|r| (t.label("a", r[0]).unwrap(), t.label("b", r[1]).unwrap())).collect();
+        let name = |i: usize| names[i].as_str().unwrap();
+        assert_eq!(pairs, [(name(0), name(1)), (name(0), name(2)), (name(1), name(2))], "{key}");
+        assert!(!o.contains_key("distance"), "{key}: a number for three UDs");
+        // a warning where the exact solver stops, and for degrees without gc
+        let hit = warnings.iter().any(|w| w.contains("Maximum number of iterations"));
+        assert_eq!(hit, key == "exact_iter3", "{key}: {warnings:?}");
+        let degrees = warnings.iter().any(|w| w.contains("longitude/latitude grid"));
+        assert_eq!(degrees, key.starts_with("deg"), "{key}: {warnings:?}");
+    }
+}
+
+#[test]
+fn ud_distance_between_two_uds_is_a_number() {
+    if !gdal() {
+        return;
+    }
+    let stack = ud_stack("fishers_c");
+    let none = serde_json::json!({});
+    let (o, _) = ud_run(vec![("ud", ud_map(&stack, 0)), ("ud_b", ud_map(&stack, 2))], &none).unwrap();
+    same("pair", &[number_of(&o, "distance")], want("emd/fishers_c/pair"));
+    assert_eq!(table(&o, "table").rows.len(), 1);
+    // two bands of one stack, in their order
+    let Value::Stack(s) = &stack else { panic!() };
+    let two = Value::Stack(terraflux_ops::Stack {
+        grid: s.grid.clone(),
+        keys: s.keys[1..].to_vec(),
+        layers: s.layers[1..].to_vec(),
+    });
+    let (o, _) = ud_run(vec![("ud", two)], &none).unwrap();
+    same("two bands", &[number_of(&o, "distance")], &[want("emd/fishers_c/sink")[2]]);
+    // a UD against itself: Sinkhorn's entropic distance is small, not 0; the exact one is 0
+    let (o, _) = ud_run(vec![("ud", ud_map(&stack, 0)), ("ud_b", ud_map(&stack, 0))], &none).unwrap();
+    same("same", &[number_of(&o, "distance")], want("emd/fishers_c/same"));
+    let exact = serde_json::json!({"method": "exact"});
+    let (o, _) = ud_run(vec![("ud", ud_map(&stack, 0)), ("ud_b", ud_map(&stack, 0))], &exact).unwrap();
+    same("same exact", &[number_of(&o, "distance")], want("emd/fishers_c/same_exact"));
+    // the maps are ud_1 and ud_2
+    let (o, _) = ud_run(vec![("ud", ud_map(&stack, 0)), ("ud_b", ud_map(&stack, 1))], &none).unwrap();
+    let t = table(&o, "table");
+    assert_eq!((t.label("a", 1.0), t.label("b", 2.0)), (Some("ud_1"), Some("ud_2")));
+}
+
+#[test]
+fn one_and_four_threads_give_the_same_ud_distances() {
+    if !gdal() {
+        return;
+    }
+    let stack = ud_stack("fishers_c");
+    let by = |n: usize| {
+        terraflux_ops::threads::set_kernel_threads(n);
+        let (o, _) = ud_run(vec![("ud", stack.clone())], &serde_json::json!({"mask_quantile": 1})).unwrap();
+        terraflux_ops::threads::set_kernel_threads(4);
+        table(&o, "table").rows.iter().map(|r| r[2]).collect::<Vec<_>>()
+    };
+    same("threads", &by(1), &by(4));
+}
+
+#[test]
+fn ud_distance_errors() {
+    if !gdal() {
+        return;
+    }
+    let stack = ud_stack("fishers_c");
+    let (f1, m1) = (ud_map(&stack, 0), ud_map(&stack, 2));
+    let err = |ins: Vec<(&str, Value)>, p: serde_json::Value| ud_run(ins, &p).map(|_| ()).unwrap_err().to_string();
+    let pair = || vec![("ud", f1.clone()), ("ud_b", m1.clone())];
+    assert!(err(pair(), serde_json::json!({"method": "lp"})).contains("method"));
+    assert!(err(pair(), serde_json::json!({"mask_quantile": 0})).contains("mask_quantile"));
+    assert!(err(pair(), serde_json::json!({"mask_quantile": 1.5})).contains("mask_quantile"));
+    assert!(err(pair(), serde_json::json!({"reg": -1})).contains("reg"));
+    assert!(err(pair(), serde_json::json!({"max_iter": 0})).contains("max_iter"));
+    assert!(err(pair(), serde_json::json!({"threshold": 0})).contains("threshold"));
+    assert!(err(pair(), serde_json::json!({"method": "exact", "gc": true})).contains("gc"));
+    assert!(err(pair(), serde_json::json!({"method": "exact", "threshold": 100})).contains("threshold"));
+    assert!(err(vec![("ud", f1.clone())], serde_json::json!({})).contains("at least two"));
+    assert!(err(vec![("ud", stack.clone()), ("ud_b", m1.clone())], serde_json::json!({})).contains("one UD each"));
+    assert!(err(vec![("ud", Value::Number(1.0)), ("ud_b", m1.clone())], serde_json::json!({})).contains("raster"));
+    // another grid
+    let Value::Map(m) = &m1 else { panic!() };
+    let mut g = (*m.grid).clone();
+    g.transform[0] += 1.0;
+    let moved = Value::Map(Map::new(Arc::new(g), (*m.data).clone()));
+    assert!(err(vec![("ud", f1.clone()), ("ud_b", moved)], serde_json::json!({})).contains("same raster geometry"));
+    // a UD without mass
+    let Value::Map(m) = &f1 else { panic!() };
+    let empty = Value::Map(Map::new(m.grid.clone(), vec![0.0; m.data.len()]));
+    assert!(err(vec![("ud", empty), ("ud_b", m1.clone())], serde_json::json!({})).contains("mass"));
+}

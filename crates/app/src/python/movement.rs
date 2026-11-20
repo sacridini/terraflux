@@ -226,6 +226,27 @@ pub(super) const MAPPED: &[Py] = &[
         [],
         "tracks"
     ),
+    mv!(
+        "move.corridor",
+        "tf.move.corridor",
+        [
+            "tracks" => "", "speed_threshold" => "speed_threshold", "circvar_threshold" => "circvar_threshold",
+            "min_segments" => "min_segments", "time" => "time", "track" => "track"
+        ],
+        [],
+        "tracks"
+    ),
+    mv!(
+        "move.ud_distance",
+        "tf.move.ud_distance",
+        [
+            "ud" => "", "ud_b" => "ud_b", "method" => "method", "mask_quantile" => "mask_quantile", "reg" => "reg",
+            "max_iter" => "max_iter", "tol" => "tol", "gc" => "gc", "threshold" => "threshold",
+            "exact_max_iter" => "exact_max_iter"
+        ],
+        [],
+        "table"
+    ),
 ];
 
 /// An input or setting as a Python expression; none when absent or an empty text (the usual names, no units).
@@ -553,6 +574,41 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             };
             (code, out(&[("tracks", var.to_string()), ("table", frame_table(var))]), Need::Nothing)
         }
+        "move.corridor" => {
+            let py = entry(op)?;
+            let (args, said) = arguments(n, py, sc, None, &[])?;
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            // the corridor segments as lines (the columns of the tracks are named as the tracks'); the thresholds the
+            // library used are in the attributes of the result
+            let mut by = String::new();
+            for k in ["time", "track"] {
+                if let Some(v) = opt(n, k, sc)? {
+                    by.push_str(&format!(", {k}={v}"));
+                }
+            }
+            let used = format!("{var}.attrs[\"corridor\"]");
+            let outs = out(&[
+                ("tracks", var.to_string()),
+                ("table", frame_table(var)),
+                ("lines", format!("tf.move.corridor_lines({var}{by})")),
+                ("speed_threshold", format!("{used}[\"speed_threshold\"]")),
+                ("circvar_threshold", format!("{used}[\"circvar_threshold\"]")),
+                ("thresholds", format!("_pd.DataFrame([{used}])")),
+            ]);
+            (code, outs, Need::Flow)
+        }
+        "move.ud_distance" => {
+            let py = entry(op)?;
+            opt(n, "ud", sc)?.ok_or("its ud is not connected")?;
+            let (args, said) = arguments(n, py, sc, None, &[])?;
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            // a number for two UDs, a table of the pairs for more
+            let table = format!(
+                "({var} if isinstance({var}, _pd.DataFrame) else \
+                 _pd.DataFrame({{\"a\": [\"ud_1\"], \"b\": [\"ud_2\"], \"distance\": [{var}]}}))"
+            );
+            (code, out(&[("distance", var.to_string()), ("table", table)]), Need::Flow)
+        }
         _ => return Ok(None),
     };
     Ok(Some(code))
@@ -843,6 +899,62 @@ params = { distance = 300, output = "flag" }
             t.contains("marked_distance = hourly.copy()\nmarked_distance[\"thin_selected\"] = tf.move.thin_distance(hourly, distance=300)\n"),
             "{t}"
         );
+        parses(t);
+    }
+
+    /// Corridors and the distance between UDs: the library's calls, the segments as lines, the thresholds used.
+    #[test]
+    fn corridors_and_ud_distances_as_the_library() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "tracks"
+op = "move.read_tracks"
+params = { path = "fishers.csv" }
+
+[[nodes]]
+id = "local"
+op = "move.aeqd_crs"
+inputs = { tracks = "tracks.tracks" }
+
+[[nodes]]
+id = "paths"
+op = "move.corridor"
+inputs = { tracks = "local.tracks" }
+params = { speed_threshold = 0.3, circvar_threshold = 0.25, min_segments = 3, time = "t" }
+
+[[nodes]]
+id = "uds"
+op = "raster.read"
+params = { path = "uds.tif" }
+
+[[nodes]]
+id = "apart"
+op = "move.ud_distance"
+inputs = { ud = "uds.raster" }
+params = { method = "exact", mask_quantile = 0.9 }
+
+[[nodes]]
+id = "gap"
+op = "move.ud_distance"
+inputs = { ud = "uds.raster", ud_b = "uds.raster" }
+params = { gc = true, reg = 0.02, max_iter = 1500 }
+"#,
+        )
+        .unwrap();
+        let s = super::super::script(&m, &r, None);
+        let t = &s.text;
+        assert!(
+            t.contains(
+                "paths = tf.move.corridor(local, speed_threshold=0.3, circvar_threshold=0.25, min_segments=3, time=\"t\")\n"
+            ),
+            "{t}"
+        );
+        assert!(t.contains("apart = tf.move.ud_distance(uds, method=\"exact\", mask_quantile=0.9)\n"), "{t}");
+        assert!(t.contains("gap = tf.move.ud_distance(uds, ud_b=uds, reg=0.02, max_iter=1500, gc=True)\n"), "{t}");
         parses(t);
     }
 

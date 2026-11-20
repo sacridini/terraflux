@@ -979,6 +979,32 @@ pub const TIPS: &[(&str, &str)] = &[
          a step crossed it); interval keeps the longest chain within distance +/- tolerance, and a single step longer \
          than distance + tolerance splits the track. Drop the empty locations first (move.filter_gps_quality).",
     ),
+    (
+        "move.corridor",
+        "A corridor segment is fast and has neighbours going the same way: a property of the movement, not a route. A \
+         threshold left out is a quantile of these tracks (the upper quartile of the speeds, the lower quartile of the \
+         circular variances; a warning says so), so about a quarter of the segments pass the speed whatever the \
+         animals do and the flag is relative to the data: to compare animals, seasons or sites, give both thresholds, \
+         computed once on all of them. min_segments counts every neighbour, the segment itself included, not only \
+         the qualifying ones (as move2utils does). The neighbours are the segments, of all the tracks together, \
+         whose midpoints lie within half the segment's length of its midpoint, so the sampling interval should be \
+         regular (a warning when it is very irregular): thin to one interval first (move.thin_time). Longitude / \
+         latitude is projected to a local azimuthal equidistant projection and the speeds are m/s; the tracks need \
+         a coordinate system. lines gives the corridor segments as two-point lines.",
+    ),
+    (
+        "move.ud_distance",
+        "The UDs must be on one grid (the bands of one raster, as the UDs of several animals come; no resampling is \
+         done). Each UD is first cut to the cells holding mask_quantile of its probability, and the work grows with \
+         the product of the cells of the two UDs: for large UDs lower mask_quantile or coarsen the grid. Sinkhorn's \
+         distance depends on reg (smaller is closer to the exact one and needs more iterations; below 0.01 it may \
+         underflow) and is small, not zero, between a UD and itself; the distances of a table are comparable only \
+         with the same settings. exact is Rubner's solver as R's emdist has it: Euclidean cost in single precision, \
+         memory that grows with the square of the cells of both UDs together, so a coarse grid (a few thousand \
+         cells); it takes no gc and no threshold, and a warning says when it stopped at exact_max_iter. On a \
+         longitude / latitude grid set gc (great-circle distances, in metres): without it the distance is in \
+         degrees, which mixes north-south and east-west, and a warning says so.",
+    ),
 ];
 
 #[cfg(test)]

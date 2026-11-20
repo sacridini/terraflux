@@ -892,6 +892,9 @@ struct MoveGammaFit;
 struct MoveSun;
 struct MoveSpeedCap;
 struct MoveAlong;
+struct MoveNeighbours;
+struct MoveUdCells;
+struct MoveEmdExact;
 rust::Vec<double> move_distances(rust::Slice<const double> x, rust::Slice<const double> y,
                                  rust::Slice<const std::int64_t> track, bool lonlat, std::int32_t threads);
 rust::Vec<double> move_azimuths(rust::Slice<const double> x, rust::Slice<const double> y,
@@ -937,6 +940,19 @@ MoveAlong move_along_cells(rust::Slice<const double> x1, rust::Slice<const doubl
 rust::Vec<double> move_along_stats(rust::Slice<const std::int64_t> offsets, rust::Slice<const std::int64_t> cell,
                                    rust::Slice<const std::int64_t> rank, rust::Slice<const double> values,
                                    std::int32_t threads);
+MoveNeighbours move_corridor_neighbourhoods(rust::Slice<const double> x0, rust::Slice<const double> y0,
+                                            rust::Slice<const double> x1, rust::Slice<const double> y1,
+                                            rust::Slice<const double> radius, std::int32_t threads);
+rust::Vec<std::uint8_t> move_corridor_flags(rust::Slice<const std::int64_t> offset, rust::Slice<const std::int32_t> index,
+                                            rust::Slice<const std::uint8_t> candidate, double min_segments,
+                                            std::int32_t threads);
+MoveUdCells move_ud_prepare(rust::Slice<const double> values, double mask_quantile);
+double move_emd_sinkhorn(rust::Slice<const double> ax, rust::Slice<const double> ay, rust::Slice<const double> p,
+                         rust::Slice<const double> bx, rust::Slice<const double> by, rust::Slice<const double> q,
+                         bool gc, double threshold, double reg, std::int32_t max_iter, double tol, std::int32_t threads);
+MoveEmdExact move_emd_exact(rust::Slice<const double> ax, rust::Slice<const double> ay, rust::Slice<const double> p,
+                            rust::Slice<const double> bx, rust::Slice<const double> by, rust::Slice<const double> q,
+                            std::int32_t max_iter);
 // end movement ecology
 
 }  // namespace tfx

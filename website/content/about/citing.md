@@ -55,6 +55,8 @@ against. In a methods section, a sentence such as *"MSPA (Soille & Vogt, 2009) w
 | Cleaning occurrence records (CoordinateCleaner) | `sdm.clean_occurrences` | Zizka et al. (2019) |
 | Allometric maximum speed of animals | `move.max_speed`, `move.flag_speed` | Hirt et al. (2017) |
 | Cleaning and thinning animal tracks (move2utils) | `move.flag_speed`, `move.filter_gps_quality`, `move.thin_time`, `move.thin_distance` | Kranstauber et al. (2026) |
+| Corridor segments of animal tracks (LaPoint et al.'s criterion, as move2utils computes it) | `move.corridor` | LaPoint et al. (2013); Kranstauber et al. (2026) |
+| Distance between utilisation distributions (earth mover's distance, Sinkhorn or exact) | `move.ud_distance` | Rubner et al. (2000); Cuturi (2013); Kranstauber et al. (2026) |
 | Biodiverse's analyses | `bio.*` | Laffan et al. (2010) |
 | Dinamica EGO's model (weights of evidence, Expander, Patcher) | `woe.*`, `patches.*`, `dinamica.*` | Soares-Filho et al. (2002) |
 | CLUE-S and the lulcc framework | `glm.*`, `lulcc.*`, `demand.*` | Verburg et al. (2002); Moulds et al. (2015) |
@@ -103,6 +105,7 @@ the same bits.
 ## References
 
 - Campolongo, F., Cariboni, J., & Saltelli, A. (2007). An effective screening design for sensitivity analysis of large models. *Environmental Modelling & Software*, 22(10), 1509–1518. https://doi.org/10.1016/j.envsoft.2006.10.004
+- Cuturi, M. (2013). Sinkhorn distances: lightspeed computation of optimal transport. *Advances in Neural Information Processing Systems*, 26, 2292–2300. https://arxiv.org/abs/1306.0895
 - Hanson, J. O., Schuster, R., Strimas-Mackey, M., Morrell, N., Edwards, B. P. M., Arcese, P., Bennett, J. R., & Possingham, H. P. (2025). Systematic conservation prioritization with the prioritizr R package. *Conservation Biology*, 39(1), e14376. https://doi.org/10.1111/cobi.14376
 - Herman, J., & Usher, W. (2017). SALib: An open-source Python library for sensitivity analysis. *Journal of Open Source Software*, 2(9), 97. https://doi.org/10.21105/joss.00097
 - Hesselbarth, M. H. K., Sciaini, M., With, K. A., Wiegand, K., & Nowosad, J. (2019). landscapemetrics: an open-source R tool to calculate landscape metrics. *Ecography*, 42(10), 1648–1657. https://doi.org/10.1111/ecog.04617
@@ -112,6 +115,7 @@ the same bits.
 - Kranstauber, B., Safi, K., & Scharf, A. K. (2026). move2utils: a utility toolkit for the move2 ecosystem. *bioRxiv*. https://doi.org/10.64898/2026.07.07.736908
 - Laffan, S. W., Lubarsky, E., & Rosauer, D. F. (2010). Biodiverse, a tool for the spatial analysis of biological and related diversity. *Ecography*, 33(4), 643–647. https://doi.org/10.1111/j.1600-0587.2010.06237.x
 - Landau, V. A., Shah, V. B., Anantharaman, R., & Hall, K. R. (2021). Omniscape.jl: Software to compute omnidirectional landscape connectivity. *Journal of Open Source Software*, 6(57), 2829. https://doi.org/10.21105/joss.02829
+- LaPoint, S., Gallery, P., Wikelski, M., & Kays, R. (2013). Animal behavior, cost-based corridor models, and real corridors. *Landscape Ecology*, 28(8), 1615–1630. https://doi.org/10.1007/s10980-013-9910-0
 - Liang, X., Guan, Q., Clarke, K. C., Liu, S., Wang, B., & Yao, Y. (2021). Understanding the drivers of sustainable land expansion using a patch-generating land use simulation (PLUS) model: A case study in Wuhan, China. *Computers, Environment and Urban Systems*, 85, 101569. https://doi.org/10.1016/j.compenvurbsys.2020.101569
 - McGarigal, K., & Marks, B. J. (1995). *FRAGSTATS: spatial pattern analysis program for quantifying landscape structure*. General Technical Report PNW-GTR-351. USDA Forest Service, Pacific Northwest Research Station.
 - McRae, B. H., Dickson, B. G., Keitt, T. H., & Shah, V. B. (2008). Using circuit theory to model connectivity in ecology, evolution, and conservation. *Ecology*, 89(10), 2712–2724. https://doi.org/10.1890/07-1861.1
@@ -121,6 +125,7 @@ the same bits.
 - Moulds, S., Buytaert, W., & Mijic, A. (2015). An open and extensible framework for spatially explicit land use change modelling: the lulcc R package. *Geoscientific Model Development*, 8(10), 3215–3229. https://doi.org/10.5194/gmd-8-3215-2015
 - Murray-Rust, D., Brown, C., van Vliet, J., Alam, S. J., Robinson, D. T., Verburg, P. H., & Rounsevell, M. (2014). Combining agent functional types, capitals and services to model land use dynamics. *Environmental Modelling & Software*, 59, 187–201. https://doi.org/10.1016/j.envsoft.2014.05.019
 - Phillips, S. J., Anderson, R. P., Dudík, M., Schapire, R. E., & Blair, M. E. (2017). Opening the black box: an open-source release of Maxent. *Ecography*, 40(7), 887–893. https://doi.org/10.1111/ecog.03049
+- Rubner, Y., Tomasi, C., & Guibas, L. J. (2000). The earth mover's distance as a metric for image retrieval. *International Journal of Computer Vision*, 40(2), 99–121. https://doi.org/10.1023/A:1026543900054
 - Salgado-Rojas, J., Álvarez-Miranda, E., Hermoso, V., Garcia-Gonzalo, J., & Weintraub, A. (2020). A mixed integer programming approach for multi-action planning for threat management. *Ecological Modelling*, 418, 108901. https://doi.org/10.1016/j.ecolmodel.2019.108901
 - Saltelli, A. (2002). Making best use of model evaluations to compute sensitivity indices. *Computer Physics Communications*, 145(2), 280–297. https://doi.org/10.1016/S0010-4655(02)00280-1
 - Saltelli, A., Annoni, P., Azzini, I., Campolongo, F., Ratto, M., & Tarantola, S. (2010). Variance based sensitivity analysis of model output. Design and estimator for the total sensitivity index. *Computer Physics Communications*, 181(2), 259–270. https://doi.org/10.1016/j.cpc.2009.09.018

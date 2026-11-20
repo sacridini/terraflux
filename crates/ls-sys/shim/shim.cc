@@ -57,7 +57,9 @@
 #include "move/along.hpp"
 #include "move/amt.hpp"
 #include "move/clean.hpp"
+#include "move/corridor.hpp"
 #include "move/distr.hpp"
+#include "move/emd.hpp"
 #include "move/geo.hpp"
 #include "move/track.hpp"
 #include "opt/actions.hpp"
@@ -5362,6 +5364,72 @@ rust::Vec<double> move_along_stats(rust::Slice<const std::int64_t> offsets, rust
     const std::size_t n = offsets.size() - 1;
     rust::Vec<double> out = move_vec(6 * n);
     move::along_stats(c, values.data(), static_cast<std::int64_t>(values.size()), threads, out.data());
+    return out;
+}
+
+MoveNeighbours move_corridor_neighbourhoods(rust::Slice<const double> x0, rust::Slice<const double> y0,
+                                            rust::Slice<const double> x1, rust::Slice<const double> y1,
+                                            rust::Slice<const double> radius, std::int32_t threads) {
+    const std::size_t n = x0.size();
+    check(y0.size() == n && x1.size() == n && y1.size() == n && radius.size() == n,
+          "x0, y0, x1, y1 and radius: the same length");
+    const move::Neighbourhoods r = move::corridor_neighbourhoods(x0.data(), y0.data(), x1.data(), y1.data(),
+                                                                 radius.data(), static_cast<std::int64_t>(n), threads);
+    MoveNeighbours out;
+    out.azimuth = to_rust<double>(r.azimuth);
+    out.circvar = to_rust<double>(r.circvar);
+    out.offset = to_rust<std::int64_t>(r.offset);
+    out.index = to_rust<std::int32_t>(r.index);
+    return out;
+}
+
+rust::Vec<std::uint8_t> move_corridor_flags(rust::Slice<const std::int64_t> offset, rust::Slice<const std::int32_t> index,
+                                            rust::Slice<const std::uint8_t> candidate, double min_segments,
+                                            std::int32_t threads) {
+    const std::size_t n = candidate.size();
+    check(offset.size() == n + 1 && offset[n] == static_cast<std::int64_t>(index.size()),
+          "offset and index do not fit the candidates");
+    // the neighbours are segments of the candidates' list
+    for (const std::int32_t k : index) check(k >= 0 && static_cast<std::size_t>(k) < n, "a neighbour is not a segment");
+    rust::Vec<std::uint8_t> out;
+    out.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) out.push_back(0);
+    move::corridor_flags(offset.data(), index.data(), candidate.data(), static_cast<std::int64_t>(n), min_segments,
+                         threads, out.data());
+    return out;
+}
+
+MoveUdCells move_ud_prepare(rust::Slice<const double> values, double mask_quantile) {
+    std::vector<std::int64_t> cells;
+    std::vector<double> w;
+    move::emd_prepare(values.data(), static_cast<std::int64_t>(values.size()), mask_quantile, cells, w);
+    MoveUdCells out;
+    out.cells = to_rust<std::int64_t>(cells);
+    out.weights = to_rust<double>(w);
+    return out;
+}
+
+double move_emd_sinkhorn(rust::Slice<const double> ax, rust::Slice<const double> ay, rust::Slice<const double> p,
+                         rust::Slice<const double> bx, rust::Slice<const double> by, rust::Slice<const double> q,
+                         bool gc, double threshold, double reg, std::int32_t max_iter, double tol, std::int32_t threads) {
+    check(ay.size() == ax.size() && p.size() == ax.size(), "ax, ay and p: the same length");
+    check(by.size() == bx.size() && q.size() == bx.size(), "bx, by and q: the same length");
+    int iterations = 0;
+    return move::emd_sinkhorn(ax.data(), ay.data(), p.data(), static_cast<std::int64_t>(ax.size()), bx.data(), by.data(),
+                              q.data(), static_cast<std::int64_t>(bx.size()), gc, threshold, reg, max_iter, tol, threads,
+                              &iterations);
+}
+
+MoveEmdExact move_emd_exact(rust::Slice<const double> ax, rust::Slice<const double> ay, rust::Slice<const double> p,
+                            rust::Slice<const double> bx, rust::Slice<const double> by, rust::Slice<const double> q,
+                            std::int32_t max_iter) {
+    check(ay.size() == ax.size() && p.size() == ax.size(), "ax, ay and p: the same length");
+    check(by.size() == bx.size() && q.size() == bx.size(), "bx, by and q: the same length");
+    MoveEmdExact out;
+    bool hit = false;
+    out.distance = move::emd_exact(ax.data(), ay.data(), p.data(), static_cast<std::int64_t>(ax.size()), bx.data(),
+                                   by.data(), q.data(), static_cast<std::int64_t>(bx.size()), max_iter, &hit);
+    out.hit_max_iter = hit;
     return out;
 }
 // end movement ecology

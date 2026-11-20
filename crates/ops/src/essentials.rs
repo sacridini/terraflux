@@ -124,6 +124,7 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     // movement ecology
     ("move.distribution", &["shape", "scale", "rate", "kappa"]),
     ("move.flag_speed", &["v_max", "mass", "mode", "jitter", "remove"]),
+    ("move.ud_distance", &["method", "mask_quantile", "gc", "threshold"]),
     // neutral landscape models
     ("nlm.mosaic_field", &["rows", "columns", "resolution", "seed", "n", "mean", "sd"]),
     ("nlm.neigh", &["rows", "columns", "resolution", "seed", "categories", "proportions"]),
