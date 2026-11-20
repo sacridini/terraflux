@@ -454,7 +454,7 @@ impl Operator for Resize {
         OpSignature::new(
             "objects.resize",
             "Objects grown, shrunk and smoothed cell by cell, as eCognition's pixel-based object resizing, its \
-             morphology, its filling of holes and its border optimization (Serra 1982, Soille 2003). mode grow takes \
+             morphology, its filling of holes and its border optimization (Serra 1982, Soille 2004). mode grow takes \
              the free cells within distance (map units) or steps (cells) of the chosen objects, each to the nearest; \
              shrink removes the cells of the chosen objects that lie within that distance of a cell that is not their \
              object's (another object, no object; the image's edge is not a border); open is shrink and then grow back \

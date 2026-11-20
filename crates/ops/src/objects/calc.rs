@@ -472,7 +472,9 @@ impl Operator for Calc {
              above is needed) and, with `below`, children.count(cond), children.area(cond) (the share of the \
              object's area in children where it holds) and children.mean(x). Fuzzy membership: above(x, a, b), \
              below(x, a, b), between(x, a, b, c, d) and about(x, m, w), from 0 to 1; and, always, `and` is the \
-             smaller of two values, `or` the larger and `not x` is 1 - x (with 0 and 1, logic as usual). One \
+             smaller of two values, `or` the larger and `not x` is 1 - x (with 0 and 1, logic as usual). A \
+             comparison or arithmetic with a missing value gives missing (an objects.rules rule reads missing as \
+             0): isnull(x) tests it and coalesce(x, y) gives x, and y where x is missing. One \
              statement a line (# a comment): name = value, name[where] = value, and out name = value (or out name) \
              for each attribute given; without out, the last value is the attribute `column`. An attribute of the \
              same name is replaced, else it is added.",

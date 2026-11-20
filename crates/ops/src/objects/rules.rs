@@ -236,7 +236,8 @@ impl Operator for Rules {
             "Objects classed by a hierarchy of fuzzy rules, as eCognition's class hierarchy. `classes` lists the \
              classes, each { name, rule, parent, colour }: the rule is an objects.calc expression, a membership from \
              0 to 1 (above(ndwi, 0, 0.2), below(ndvi, 0.2, 0.4) and not border_to(\"urban\") > 0.5; a value out of 0 \
-             to 1 is cut, a missing one is 0; several lines are allowed, the last is the value); a class with a parent \
+             to 1 is cut, a missing one is 0: a comparison or arithmetic with a missing attribute gives missing, so \
+             coalesce(x, y) fills it and isnull(x) tests it; several lines are allowed, the last is the value); a class with a parent \
              inherits its membership: the membership of a class is the smaller of its own rule and its parent's (a \
              class without a rule is its parent's, or 1 at the root). Only the leaves (the classes that are no one's \
              parent) are what an object becomes: the leaf of the largest membership, the first of the list on ties, \

@@ -52,6 +52,10 @@ as vector.calc, over the objects' attributes and `cls`, the class name; `nb.mean
 beneath (the input `below`); `above`, `below`, `between` and `about` give a fuzzy membership from 0 to 1, \
 and there `and` is the smaller, `or` the larger and `not` one minus); checked, and tried on a sample of its \
 inputs' cells, features or objects, before anything changes: read what each output gives in its reply.
+- A missing value spreads: a comparison or arithmetic with one gives missing (not false, not 0), `isnull(x)` tests \
+it and `coalesce(x, y)` gives x, and y where x is missing (`coalesce(area, 0)`). The same holds in objects.calc, \
+and a rule of objects.rules reads a missing value as 0 (membership 0): fill it with coalesce when that is not \
+what you mean.
 - explain_calc takes a script apart: what each input is and what each name holds on a sample. Use write_calc and \
 explain_calc, not add_node or edit_node, for a calculator's script.
 - describe_operator raster.calc lists its functions.",

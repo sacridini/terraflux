@@ -700,7 +700,8 @@ pub const TIPS: &[(&str, &str)] = &[
          (texture, when it comes, is the expensive group). Give `red`, `nir`, `green` and `swir` when the bands' \
          names do not say which they are. Put a DEM, a height model or another date in `more` (on the same grid: \
          raster.match first). Give a map or vectors (lots, a land-use layer) as `thematic` and each object gets \
-         th_mode, the most common value under it, and th_share, its share of the cells that have a value; with \
+         th_mode, the most common value under it, and th_share, its share of all the object's cells (cells outside \
+         every feature count as none; an object mostly outside has both missing); with \
          vectors, `field` names the attribute (text too: its codes are named in the table). Rules read th_mode \
          as any column. The `skeleton` group (not in `basic`) is for long thin things, roads, rivers, fields, \
          crowns: skel_main_length and skel_width, a high skel_length_width with a low skel_width picks the \
@@ -751,7 +752,9 @@ pub const TIPS: &[(&str, &str)] = &[
          daughters may take, as they inherit the mother's rule. An object whose best membership is under `min` \
          (0.1, as eCognition's minimum membership value) stays unclassified: lower it, or widen the rules' ramps. \
          A rule that reads classes (border_to, nb.count(cls == \"water\")) reads those the objects have before this \
-         node: chain a second objects.rules for a second pass. The margin shows where two classes are close.",
+         node: chain a second objects.rules for a second pass. The margin shows where two classes are close. A rule \
+         whose value is missing (a comparison or arithmetic with a missing attribute gives missing) counts as 0 \
+         membership: coalesce(x, y) fills a missing attribute in the rule, isnull(x) tests it.",
     ),
     (
         "objects.edit",
@@ -854,7 +857,9 @@ pub const TIPS: &[(&str, &str)] = &[
          children.count(cond) the levels (children need the input `below`). above(x, a, b), below, between and \
          about give a membership from 0 to 1, and in this calculator `and` is the smaller, `or` the larger and \
          `not` is one minus. A class name in `cls == \"water\"` compares as text; an unclassified object has no cls, \
-         so the comparison is missing for it, not false.",
+         so the comparison is missing for it, not false. A comparison or arithmetic with a missing value gives \
+         missing (not false, not 0): test it with isnull(x) or fill it with coalesce(x, 0) (x, and 0 where x is \
+         missing). A rule (objects.rules) then reads a missing value as 0.",
     ),
     (
         "objects.merge",
