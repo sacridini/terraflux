@@ -299,7 +299,7 @@ impl Ort {
         Err(format!("ONNX Runtime {what}: {msg}"))
     }
 
-    /// A model loaded from a file, its session's intra-op threads within Terraflux's cap.
+    /// A model loaded from a file, its session's intra-op threads those of the run (within Terraflux's cap).
     pub fn session(self: &Arc<Self>, model: &Path) -> Result<Session> {
         if !model.is_file() {
             return Err(Error::msg(format!("the model {} is not a file", model.display())));
@@ -308,7 +308,7 @@ impl Ort {
         let mut opts: Ptr = std::ptr::null_mut();
         let st = unsafe { (self.f.create_session_options)(&mut opts) };
         self.check(st, "CreateSessionOptions").map_err(e)?;
-        let threads = terraflux_ls_sys::threads::most().max(1) as c_int;
+        let threads = session_threads() as c_int;
         let st = unsafe { (self.f.set_intra_op_num_threads)(opts, threads) };
         let made = self.check(st, "SetIntraOpNumThreads").and_then(|_| {
             #[cfg(windows)]
@@ -494,4 +494,27 @@ impl Session {
 /// A model from a path given as a setting, loading the runtime first.
 pub fn open(ort: &Arc<Ort>, node: &str, what: &str, path: &str) -> Result<Session> {
     ort.session(Path::new(path)).map_err(|e| Error::msg(format!("node {node:?}: {what}: {e}")))
+}
+
+/// The threads of a session's pools: those of the run (the rayon pool the caller is in, the process's by default),
+/// never more than Terraflux's cap. Intra-op only: the inter-op pool is not used (sequential execution).
+fn session_threads() -> usize {
+    if rayon::current_thread_index().is_none() {
+        // outside any pool: the process's, set by the run's --threads / TERRAFLUX_THREADS
+        terraflux_ls_sys::threads::ensure();
+    }
+    terraflux_ls_sys::threads::capped(rayon::current_num_threads())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_threads_follow_the_pool() {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(2).build().unwrap();
+        let want = 2.min(terraflux_ls_sys::threads::most());
+        assert_eq!(pool.install(session_threads), want);
+        assert!(session_threads() <= terraflux_ls_sys::threads::most());
+    }
 }
