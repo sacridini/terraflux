@@ -4762,7 +4762,7 @@ US7801361 e US8319793, até 2029 e 2031).
 6. O *find enclosed by class* fica na documentação, sem operador.
 7. A fusão pelo resultado é um operador novo, `objects.fuse`, não um modo do `objects.merge` (que fica simples).
 
-**Onde parou (2026-11-20).** Feitos os sete itens: 1 (as camadas temáticas: `065e46b`, `ec58391`), 2 (`objects.split`, `a2365f7`), 3 (`objects.resize`, `e175e9f`), 4 (o esqueleto), 5 (`objects.extrema`), 6 (`objects.fuse`) e 7 (os três templates, com o `from-ecognition.md`). Resta o `website/data/ops.json`, que ainda não tem `objects.split`, `objects.resize`, `objects.extrema` e `objects.fuse` (o build avisa no `from-ecognition.md` até o próximo release, que o atualiza).
+**Onde parou (2026-11-20).** Feitos os sete itens: 1 (as camadas temáticas: `065e46b`, `ec58391`), 2 (`objects.split`, `a2365f7`), 3 (`objects.resize`, `e175e9f`), 4 (o esqueleto), 5 (`objects.extrema`), 6 (`objects.fuse`) e 7 (os três templates, com o `from-ecognition.md`). O `website/data/ops.json` já os tem desde os dados do 1.59.0 (b29dae4); o build do site não avisa mais.
 
 ### Os tutoriais de OBIA, do básico ao complexo (pedido de 2026-11-19)
 

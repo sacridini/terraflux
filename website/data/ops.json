@@ -14391,6 +14391,61 @@
   "extra": "any"
  },
  {
+  "name": "move.filter_gps_quality",
+  "doc": "The tracks without the locations of an unreliable GPS geometry (move2utils' mt_filter_gps_quality): too few satellites (a fix needs four, five is the usual floor), a high dilution of precision or a large horizontal-accuracy estimate. The columns are Movebank's, found as gps:satellite-count, gps:dop and eobs:horizontal-accuracy-estimate (also with underscores, gps_dop, or dashes, gps-dop); a missing column skips its criterion, and so does none (null in JSON). Values that are missing or not numbers do not drop a location. Also drops the locations without a position (drop_empty), which no detector can score.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the locations kept"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "sat_min",
+    "type": "any",
+    "required": false,
+    "doc": "keep at least this many satellites (5; none: no limit)"
+   },
+   {
+    "name": "dop_max",
+    "type": "any",
+    "required": false,
+    "doc": "keep a dilution of precision of at most this (10; none)"
+   },
+   {
+    "name": "hacc_max",
+    "type": "any",
+    "required": false,
+    "doc": "keep an accuracy estimate (m) of at most this (100; none)"
+   },
+   {
+    "name": "drop_empty",
+    "type": "bool",
+    "required": false,
+    "doc": "drop the locations without a position (true)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The columns are Movebank's (gps:satellite-count, gps:dop, eobs:horizontal-accuracy-estimate, also with underscores or dashes); a column the tracks lack skips its criterion without a word, so check which were applied: a file with none of them only loses its empty locations."
+ },
+ {
   "name": "move.filter_min_n_burst",
   "doc": "The bursts (move.resample) of at least min_n locations (amt's filter_min_n_burst).",
   "inputs": [
@@ -14644,6 +14699,90 @@
   "container": false
  },
  {
+  "name": "move.flag_speed",
+  "doc": "Flag the locations next to a step faster than a speed limit (move2utils' mt_flag_speed_cap with a hard cap). The speed of a step is its length over its time lag (metres per second: haversine on a sphere of 6 371 008.8 m in longitude / latitude, the CRS's units per second otherwise). A location is flagged when the step leaving it or the step arriving at it is faster than the limit (the data cannot tell which end is wrong); locations without a time are left out of the track for this, steps with a zero or negative lag have no speed. The limit is v_max (m/s), or the allometric maximum of mass (kg) and mode (move.max_speed), with no margin added. jitter also flags the locations next to a step shorter than it (the noise floor of the device). Columns added: is_outlier (any flag), step_speed (of the step leaving the location, NaN at the last), is_speed_above_cap, is_step_below_jitter (with jitter), flagged_by_speed and loglr_speed (log(speed / the least flagged speed), one-sided); the flags are 1, 0 or NaN (no time). Empty locations must be dropped first (move.filter_gps_quality).",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points, each track's rows consecutive in time"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks with the columns of the flags"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   },
+   {
+    "name": "v_max",
+    "type": "number",
+    "required": true,
+    "doc": "the limit used, m/s"
+   }
+  ],
+  "params": [
+   {
+    "name": "v_max",
+    "type": "number",
+    "required": false,
+    "doc": "the limit, m/s (or the CRS's units per second)"
+   },
+   {
+    "name": "mass",
+    "type": "number",
+    "required": false,
+    "doc": "instead of v_max: the body mass (kg) of the limit"
+   },
+   {
+    "name": "mode",
+    "type": "text",
+    "required": false,
+    "doc": "with mass: flying, running or swimming (no default)",
+    "choices": [
+     "flying",
+     "running",
+     "swimming"
+    ]
+   },
+   {
+    "name": "jitter",
+    "type": "number",
+    "required": false,
+    "doc": "also flag steps shorter than this (metres)"
+   },
+   {
+    "name": "remove",
+    "type": "bool",
+    "required": false,
+    "doc": "give only the locations not flagged (false)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Both ends of a step faster than the limit are flagged: the data cannot tell which fix is wrong. Drop the locations without a position first (move.filter_gps_quality), and filter the GPS quality before the speeds, since poor fixes make the false jumps. jitter is the noise floor of the device (metres): steps shorter than it are flagged too. This is only the hard cap of move2utils: no automatic limit, no cascade of detectors; a species with long bursts of real speed (a pigeon racing) needs a limit from its own biology (mass and mode, or v_max)."
+ },
+ {
   "name": "move.interpolate",
   "doc": "Locations at given times between the recorded ones (move2's mt_interpolate). Without times, the records without a location (empty points) get one between the locations before and after them. With times (a list, or a unit such as 1 hour or 15 mins for a regular sequence from the first to the last time), a record is added for each time within the span of each track that the track does not have, and located. A location is placed on the great circle between its neighbours in proportion to the time (in longitude / latitude, and through it in a projected system, as move2 does with s2), on the straight line without a coordinate system. Gaps longer than max_time_lag are left empty. Ordered by track and time.",
   "inputs": [
@@ -14702,6 +14841,71 @@
   ],
   "access": "none",
   "container": false
+ },
+ {
+  "name": "move.max_speed",
+  "doc": "The allometric maximum speed of an animal from its body mass (move2utils' v_phys_estimate): the scaling law of Hirt et al. (2017), v = a M^b (1 - exp(-h M^i)) with the parameters of its Supplementary Table 4 for each locomotion mode, and the interval of the parameter uncertainty (delta method) at ci_level. A ceiling for speeds that cannot be real (move.flag_speed), not a cruising speed; specialists (cheetah, pronghorn) can exceed it. A warning outside the data of Hirt et al. (3e-8 to 1.084e5 kg).",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "v_max",
+    "type": "number",
+    "required": true,
+    "doc": "the maximum speed, m/s"
+   },
+   {
+    "name": "lower",
+    "type": "number",
+    "required": true,
+    "doc": "the lower bound of the interval, m/s"
+   },
+   {
+    "name": "upper",
+    "type": "number",
+    "required": true,
+    "doc": "the upper bound of the interval, m/s"
+   },
+   {
+    "name": "kmh",
+    "type": "number",
+    "required": true,
+    "doc": "the maximum speed, km/h (Hirt et al.'s unit)"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row: mass, v_max, lower, upper, kmh"
+   }
+  ],
+  "params": [
+   {
+    "name": "mass",
+    "type": "number",
+    "required": true,
+    "doc": "the body mass, kg"
+   },
+   {
+    "name": "mode",
+    "type": "text",
+    "required": false,
+    "doc": "the locomotion: flying (default), running or swimming",
+    "choices": [
+     "flying",
+     "running",
+     "swimming"
+    ]
+   },
+   {
+    "name": "ci_level",
+    "type": "number",
+    "required": false,
+    "doc": "the level of the interval, in (0, 1) (0.95)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "A ceiling for speeds that cannot be real, not a cruising speed: the scaling law of Hirt et al. (2017) is for horizontal bursts, and its interval is the uncertainty of the fit, not the scatter between species (about a factor of 2 more). Specialists (cheetah, pronghorn) can exceed it: give the published speed of the species to move.flag_speed (v_max) when there is one, and about 25 % above the maximum when sprints are real."
  },
  {
   "name": "move.nsd",
@@ -15168,6 +15372,160 @@
   ],
   "access": "none",
   "container": false
+ },
+ {
+  "name": "move.thin_distance",
+  "doc": "Thin each track so that the kept locations are about distance metres of travel apart (move2utils' mt_thin_distance). The distance of each step is move.distance's, in metres whatever the CRS's unit, added along the track in the order of the rows. method step (default): the first location, then each one at which the travel since the last kept one reaches distance; interval: the longest chain whose successive travel is within distance +/- tolerance, by the dynamic programme of move.thin_time over the cumulative distance (a single step longer than distance + tolerance splits the track). Empty locations must be dropped first (move.filter_gps_quality).",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the locations kept (output flag: all)"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "distance",
+    "type": "number",
+    "required": true,
+    "doc": "the travel between kept locations, metres"
+   },
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "step (default) or interval",
+    "choices": [
+     "step",
+     "interval"
+    ]
+   },
+   {
+    "name": "tolerance",
+    "type": "number",
+    "required": false,
+    "doc": "interval: half-width of the accepted travel, metres (a tenth of the distance; at most the distance)"
+   },
+   {
+    "name": "criterion",
+    "type": "text",
+    "required": false,
+    "doc": "interval: closest (default) or first",
+    "choices": [
+     "closest",
+     "first"
+    ]
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   },
+   {
+    "name": "output",
+    "type": "text",
+    "required": false,
+    "doc": "selected (default): only the locations kept; flag: all, with the column thin_selected (1 kept, 0 not)",
+    "choices": [
+     "selected",
+     "flag"
+    ]
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The travel is counted along the track in metres whatever the coordinate system. step keeps a location when the travel since the last kept one reaches the distance (so the kept ones are at least that far, more where a step crossed it); interval keeps the longest chain within distance +/- tolerance, and a single step longer than distance + tolerance splits the track. Drop the empty locations first (move.filter_gps_quality)."
+ },
+ {
+  "name": "move.thin_time",
+  "doc": "Thin each track so that the kept locations are about interval apart (move2utils' mt_thin_time, the move2 version of move::thinTrackTime): the longest chain of locations whose successive time lags are within interval +/- tolerance, by a dynamic programme over the locations sorted by time. A gap longer than interval + tolerance splits the track and is never bridged. It is not move.filter_per_interval: the interval is a lag between kept locations, not a clock bucket. criterion closest (default): of chains of the same length the least total deviation from interval; first: the one ending first. The geometry is not read; a track need not be sorted; locations without a time are never kept.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the locations kept (output flag: all)"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "interval",
+    "type": "any",
+    "required": true,
+    "doc": "the lag: seconds, or a text such as 45 mins or 2 hours"
+   },
+   {
+    "name": "tolerance",
+    "type": "any",
+    "required": false,
+    "doc": "half-width of the accepted lags, in the same form (a tenth of the interval; at most the interval)"
+   },
+   {
+    "name": "criterion",
+    "type": "text",
+    "required": false,
+    "doc": "closest (default) or first",
+    "choices": [
+     "closest",
+     "first"
+    ]
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   },
+   {
+    "name": "output",
+    "type": "text",
+    "required": false,
+    "doc": "selected (default): only the locations kept; flag: all, with the column thin_selected (1 kept, 0 not)",
+    "choices": [
+     "selected",
+     "flag"
+    ]
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Not move.filter_per_interval: the lag between kept locations is about the interval (within the tolerance), not one per clock hour, and a gap longer than interval + tolerance splits the track (it is crossed as it was, never filled). The tolerance defaults to a tenth of the interval: widen it for irregular fixes, or the chain breaks into few locations. closest minimises the total deviation from the interval, first takes the chain that ends first."
  },
  {
   "name": "move.time_lags",
