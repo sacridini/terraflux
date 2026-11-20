@@ -4967,7 +4967,7 @@ op = "segment.optimize"
 inputs = { image = "image.image" }
 params = { segmenter = "segment.multiresolution", parameter = "scale", from = 2, to = 20, step = 2, params = { shape = 0.1, compactness = 0.5 } }
 note = "Multiresolution segmentation at the scales 2, 4... 20, each scored. The range is in the image's units: widen it, or take segment.scale's suggestion as the middle of it. `params` holds the settings that stay fixed."
-why = "Too small a scale gives objects that are all alike (the variance is low, but Moran's I is high: the neighbours are alike too), too large mixes the classes (the variance rises): the sum of the two scaled scores is lowest between."
+why = "Too small a scale gives objects that are all alike (the variance is low, but Moran's I is high: the neighbours are alike too), too large mixes the classes (the variance rises): each score is scaled to 1 at its best, and the run with the highest sum of the two is kept."
 refs = ["Espindola et al. 2006", "Johnson and Xie 2011"]
 
 [[nodes]]
