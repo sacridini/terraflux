@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use terraflux_ops::accuracy::olofsson;
+use terraflux_ops::accuracy::{olofsson, olofsson_objects};
 use terraflux_ops::objects::{ObjectClass, Objects};
 use terraflux_ops::{Args, Ctx, Outputs, Registry, Table, Value};
 use terraflux_raster::Grid;
@@ -109,7 +109,13 @@ fn the_matrix_and_accuracies_by_objects() {
 
 #[test]
 fn the_adjusted_estimates_are_olofssons() {
-    let out = accuracy(vec![("objects", Value::Objects(objects(MAPPED))), ("samples", points(&REFERENCE))]);
+    // `area`: each sampled object counts once, as Olofsson's pixels
+    let out = run(
+        "objects.accuracy",
+        vec![("objects", Value::Objects(objects(MAPPED))), ("samples", points(&REFERENCE))],
+        serde_json::json!({ "design": "area" }),
+    )
+    .unwrap();
     let e = olofsson(
         &[1.0, 1.0, 1.0, 2.0, 2.0, 3.0],
         &[1.0, 1.0, 2.0, 2.0, 3.0, 3.0],
@@ -275,4 +281,150 @@ fn a_point_is_the_object_cell_nearest_its_centroid() {
         )
         .is_err()
     );
+}
+
+/// 600 objects of one cell and 400 of nine on a row of 4200 cells, all mapped A; the reference is water for the small
+/// objects of even id and the big ones of id divisible by 10: 300 + 360 = 660 of 4200 cells, 340 of 1000 objects.
+fn mixed() -> (Arc<Objects>, Vec<usize>, Vec<bool>) {
+    let mut labels = Vec::new();
+    let mut size = Vec::new();
+    for id in 1..=1000u32 {
+        let n = if id <= 600 { 1 } else { 9 };
+        labels.extend(std::iter::repeat_n(id, n));
+        size.push(n);
+    }
+    let o = Objects::from_labels(Arc::new(Grid::new(4200, 1)), labels, 1000).unwrap();
+    let classes = vec![ObjectClass { name: "A".into(), colour: None }];
+    let o = Arc::new(o.with_classes(classes, vec![1; 1000], Vec::new()).unwrap());
+    let water = (1..=1000).map(|id| if id <= 600 { id % 2 == 0 } else { id % 10 == 0 }).collect();
+    (o, size, water)
+}
+
+const TRUE_WATER: f64 = 660.0 / 4200.0;
+
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545F4914F6CDD1D)
+    }
+    fn below(&mut self, n: usize) -> usize {
+        (self.next() >> 11) as usize % n
+    }
+}
+
+/// The reference table of the objects of `ids` (1-based), with their true class.
+fn reference_of(ids: &[usize], water: &[bool]) -> Value {
+    let mut r = Table::new(vec!["id".into(), "class".into()]);
+    r.rows = ids.iter().map(|&i| vec![i as f64, if water[i - 1] { 2.0 } else { 1.0 }]).collect();
+    r.labels.insert("class".into(), ["land", "water"].map(String::from).to_vec());
+    Value::Table(r)
+}
+
+/// The estimated share of water (`area_share`) and the half-width of its interval, by `design`.
+fn water_share(o: &Arc<Objects>, reference: Value, design: &str) -> (f64, f64) {
+    let out = run(
+        "objects.accuracy",
+        vec![("objects", Value::Objects(o.clone())), ("reference", reference)],
+        serde_json::json!({ "design": design }),
+    )
+    .unwrap();
+    let t = table_of(&out, "table");
+    let k = t.rows.iter().position(|r| t.cell(0, r[0]) == "water").unwrap();
+    (t.column("area_share").unwrap()[k], t.column("area_cells_ci").unwrap()[k] / 4200.0)
+}
+
+#[test]
+fn objects_drawn_with_the_same_chance_need_the_design_objects() {
+    let (o, _, water) = mixed();
+    let (mut by_objects, mut by_area, mut covered) = (0.0, 0.0, 0);
+    let runs = 300;
+    for seed in 0..runs {
+        let mut rng = Rng(seed as u64 * 7919 + 12345);
+        // 60 distinct objects, each with the same chance
+        let mut ids: Vec<usize> = (1..=1000).collect();
+        for k in 0..60 {
+            let j = k + rng.below(1000 - k);
+            ids.swap(k, j);
+        }
+        let (a, ci) = water_share(&o, reference_of(&ids[..60], &water), "objects");
+        by_objects += a;
+        covered += usize::from((a - TRUE_WATER).abs() <= ci);
+        by_area += water_share(&o, reference_of(&ids[..60], &water), "area").0;
+    }
+    let runs = runs as f64;
+    assert!((by_objects / runs - TRUE_WATER).abs() < 0.01, "objects: {}", by_objects / runs);
+    // each object counted once says about a third of the area is water (340 of 1000 objects)
+    assert!((by_area / runs - 0.34).abs() < 0.02 && by_area / runs - TRUE_WATER > 0.1, "area: {}", by_area / runs);
+    let cover = covered as f64 / runs;
+    assert!((0.89..=0.995).contains(&cover), "the 95% interval covers the truth {cover} of the time");
+}
+
+#[test]
+fn objects_drawn_by_area_need_the_design_area() {
+    let (o, size, water) = mixed();
+    let (mut by_objects, mut by_area) = (0.0, 0.0);
+    let runs = 300;
+    for seed in 0..runs {
+        let mut rng = Rng(seed as u64 * 104729 + 99);
+        // points at random over the cells until 60 distinct objects are hit: a chance proportional to the area
+        let mut ids: Vec<usize> = Vec::new();
+        while ids.len() < 60 {
+            let cell = rng.below(4200);
+            let id = if cell < 600 { cell + 1 } else { 601 + (cell - 600) / 9 };
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        assert!(ids.iter().all(|&i| size[i - 1] > 0));
+        by_objects += water_share(&o, reference_of(&ids, &water), "objects").0;
+        by_area += water_share(&o, reference_of(&ids, &water), "area").0;
+    }
+    let runs = runs as f64;
+    assert!((by_area / runs - TRUE_WATER).abs() < 0.02, "area: {}", by_area / runs);
+    assert!((by_objects / runs - TRUE_WATER).abs() > 0.03, "objects: {}", by_objects / runs);
+}
+
+#[test]
+fn the_design_objects_is_olofsson_for_equal_units_and_zero_for_all_of_them() {
+    let (map, reference) = ([1.0, 1.0, 1.0, 2.0, 2.0, 2.0], [1.0, 1.0, 2.0, 2.0, 2.0, 1.0]);
+    let a = olofsson(&map, &reference, &[1.0, 2.0], &[3e12, 1e12]).unwrap();
+    // equal units of area 1, strata of trillions of them: no finite population correction to speak of
+    let b = olofsson_objects(&map, &reference, &[1.0; 6], &[1.0, 2.0], &[3e12, 1e12], &[3e12, 1e12]).unwrap();
+    for j in 0..2 {
+        assert!(near(a.area[j], b.area[j]) && near(a.user[j], b.user[j]) && near(a.producer[j], b.producer[j]));
+        assert!((a.area_se[j] - b.area_se[j]).abs() < 1e-9, "area se {j}");
+        assert!((a.user_se[j] - b.user_se[j]).abs() < 1e-9, "user se {j}");
+        assert!((a.producer_se[j] - b.producer_se[j]).abs() < 1e-9, "producer se {j}");
+    }
+    assert!((a.overall_se - b.overall_se).abs() < 1e-9);
+    // all the objects of both strata sampled: nothing left to estimate
+    let c = olofsson_objects(&map, &reference, &[1.0; 6], &[1.0, 2.0], &[3.0, 3.0], &[3.0, 3.0]).unwrap();
+    assert_eq!((c.overall_se, c.area_se[0], c.producer_se[0]), (0.0, 0.0, 0.0));
+}
+
+#[test]
+fn the_design_is_checked_and_points_are_guessed() {
+    let objs = || ("objects", Value::Objects(objects(MAPPED)));
+    assert!(
+        run(
+            "objects.accuracy",
+            vec![objs(), ("samples", points(&REFERENCE))],
+            serde_json::json!({ "design": "pixels" })
+        )
+        .is_err()
+    );
+    // one point per object: taken as objects, with a warning
+    let mut ctx = Ctx::default();
+    let params = serde_json::Map::new();
+    let args = Args {
+        node: "n",
+        inputs: vec![objs(), ("samples", points(&REFERENCE))].into_iter().map(|(k, v)| (k.to_string(), v)).collect(),
+        params: &params,
+    };
+    Registry::standard().get("objects.accuracy").unwrap().run(&mut ctx, &args).unwrap();
+    assert!(ctx.warnings.iter().any(|w| w.contains("design not set")));
 }

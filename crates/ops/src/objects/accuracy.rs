@@ -8,7 +8,7 @@ use terraflux_raster::vector::{Column, Geometry, Vector};
 
 use super::classify::sample_classes;
 use super::{Objects, objects_in};
-use crate::accuracy::{apportion, olofsson, qnorm};
+use crate::accuracy::{apportion, olofsson, olofsson_objects, qnorm};
 use crate::signatures::NumpyRng;
 use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Table, Value, outputs};
 
@@ -92,9 +92,14 @@ impl Operator for Accuracy {
              accuracies and the overall accuracy and kappa are by objects (a sampled object counts one). The \
              area-adjusted estimates (Olofsson et al. 2014: the user's, producer's and overall accuracy, and each \
              class's area with its confidence interval) take the classes of the map as strata, with the cells of \
-             the objects mapped to each as its area, so they hold for samples drawn with the same chance in every \
-             object of a class (objects.sample draws them so). An object left unclassified is a stratum only when \
-             sampled; a class with no sampled object is left out, with a warning.",
+             the objects mapped to each as its area. `design` says how the sample was drawn: `objects` (each object \
+             of a class had the same chance, as objects.sample draws them, or a table or polygons of such objects: \
+             each sampled object is weighted by its area, the ratio estimator of Radoux and Bogaert 2017 and \
+             Stehman 2014) or `area` (the chance of an object is proportional to its area, as points thrown at \
+             random over the map: each sampled object counts once). Without `design`, a table or polygons are \
+             `objects`, and points are `area` when an object holds several of them and `objects` otherwise (with a \
+             warning: set it). An object left unclassified is a stratum only when sampled; a class with no \
+             sampled object is left out, with a warning.",
             Access::Global,
         )
         .input(PortSpec::new("objects", Type::Objects, "the classified objects"))
@@ -139,6 +144,13 @@ impl Operator for Accuracy {
         ))
         .param(PortSpec::optional("confidence", Type::Number, "the level of the confidence intervals (default 0.95)"))
         .param(PortSpec::optional(
+            "design",
+            Type::Text,
+            "how the sample was drawn: objects (the same chance for each object of a class: the area-adjusted \
+             estimates weight each sampled object by its area) or area (the chance proportional to the area, as \
+             points at random over the map: each counts once). Default: from the reference (see above)",
+        ))
+        .param(PortSpec::optional(
             "cell_area",
             Type::Number,
             "a cell's area in m2 for the hectares (default: the cells' sides)",
@@ -158,12 +170,33 @@ impl Operator for Accuracy {
         if o.class_of.iter().all(|&k| k == 0) {
             return Err(Error::msg(format!("node {node:?}: the objects have no class (classify them first)")));
         }
+        let design: Option<String> = match args.params.get("design") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(serde_json::Value::String(s)) if s == "objects" || s == "area" => Some(s.clone()),
+            Some(v) => {
+                return Err(Error::msg(format!("node {node:?}: design: objects or area, not {v}")));
+            }
+        };
+        // by objects unless said or seen otherwise
+        let mut by_objects = design.as_deref() != Some("area");
         let (ref_names, ref_of) = match (args.get("samples"), args.get("reference")) {
             (Some(_), Some(_)) => {
                 return Err(Error::msg(format!("node {node:?}: the samples or the reference table, not both")));
             }
             (Some(_), None) => {
                 let v = crate::vector::on_grid(crate::vector::vector_of(args, "samples")?, &o.grid)?;
+                if design.is_none() && v.geometries.iter().any(|g| matches!(g, Geometry::Point(_))) {
+                    by_objects = !points_share_objects(o, &v);
+                    ctx.warn(format!(
+                        "objects.accuracy: design not set: the points are taken as {}; set design to objects (one \
+                         chance per object, as objects.sample) or area (points at random over the map)",
+                        if by_objects {
+                            "a sample with the same chance per object (objects)"
+                        } else {
+                            "random over the area (area)"
+                        }
+                    ));
+                }
                 sample_classes(ctx, node, o, &v, &attr)?
             }
             (None, Some(Value::Table(t))) => table_classes(ctx, node, o, t, &attr)?,
@@ -214,8 +247,18 @@ impl Operator for Accuracy {
         }
         let map_s: Vec<f64> = sampled.iter().map(|&i| map_code[i]).collect();
         let ref_s: Vec<f64> = sampled.iter().map(|&i| ref_code[i]).collect();
-        let e =
-            olofsson(&map_s, &ref_s, &strata, &stratum_cells).map_err(|m| Error::msg(format!("node {node:?}: {m}")))?;
+        let e = if by_objects {
+            let size: Vec<f64> = sampled.iter().map(|&i| o.cells[i] as f64).collect();
+            let mut objs = vec![0.0; names.len()];
+            for i in 0..o.count {
+                objs[map_code[i] as usize - 1] += 1.0;
+            }
+            let objs: Vec<f64> = strata.iter().map(|&c| objs[c as usize - 1]).collect();
+            olofsson_objects(&map_s, &ref_s, &size, &strata, &stratum_cells, &objs)
+        } else {
+            olofsson(&map_s, &ref_s, &strata, &stratum_cells)
+        }
+        .map_err(|m| Error::msg(format!("node {node:?}: {m}")))?;
         let mut idx: Vec<usize> = (0..e.classes.len()).collect();
         idx.sort_by(|&a, &b| e.classes[a].total_cmp(&e.classes[b]));
         // the confusion matrix by objects (rows: map, columns: reference), in the order of idx
@@ -319,6 +362,26 @@ impl Operator for Accuracy {
             ("errors", Value::Table(errors)),
         ]))
     }
+}
+
+/// Whether some object holds two or more of the points (a sample of one object each never does).
+fn points_share_objects(o: &Objects, v: &Vector) -> bool {
+    let (g, t) = (&o.grid, o.grid.transform);
+    let mut hits = vec![0u32; o.count];
+    for geom in &v.geometries {
+        let Geometry::Point(xy) = geom else { continue };
+        let (c, r) = (((xy[0] - t[0]) / t[1]).floor(), ((xy[1] - t[3]) / t[5]).floor());
+        if c >= 0.0 && r >= 0.0 && (c as usize) < g.width && (r as usize) < g.height {
+            let l = o.labels[r as usize * g.width + c as usize];
+            if l > 0 {
+                hits[l as usize - 1] += 1;
+                if hits[l as usize - 1] > 1 {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// `objects.sample`.

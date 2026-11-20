@@ -397,7 +397,9 @@ what changed to what.
 5. Check: objects.sample draws a stratified random sample of the classified objects (at least 50 per class, \
 Olofsson et al.) with an empty column `reference`; fill it with the true class and take it to objects.accuracy: the \
 confusion matrix, the user's and producer's accuracies, kappa and the area of each class with its confidence \
-interval. Never check with the samples the model learned from: keep others apart. Look at the margin too (low \
+interval (`design` objects, the default for the objects.sample points or a table of them, weights each sampled \
+object by its area; points thrown at random over the map need `design` area). Never check with the samples the \
+model learned from: keep others apart. Look at the margin too (low \
 where the model hesitates: put samples there). A map of the objects' classes is objects.to_map.
 6. Polygons: objects.to_vector (`smooth` 1 to 3 cuts the corners; 0 keeps the cell edges when the polygons are \
 counted or measured), then vector.write.

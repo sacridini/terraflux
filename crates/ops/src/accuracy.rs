@@ -281,6 +281,93 @@ pub fn olofsson(map: &[f64], reference: &[f64], classes: &[f64], cells: &[f64]) 
     })
 }
 
+/// [`olofsson`] for sample units of unequal size drawn with the same chance within a stratum (objects drawn by
+/// `objects.sample`): `size` is the area of each sample unit, `cells` the area of each of `classes` and `objects`
+/// their number of units (objects). Within a stratum h the share of reference class j is the ratio estimator
+/// R_hj = Σ a_u·1[ref_u = j] / Σ a_u over the n_h sampled units (the ratio estimator for units of unequal size:
+/// Radoux & Bogaert 2017, Remote Sensing 9(7):646, doi 10.3390/rs9070646; Stehman 2014, Int. J. Remote Sensing
+/// 35(13):4923-4939, doi 10.1080/01431161.2014.930207), and the area of j is Σ_h W_h R_hj, W_h the stratum's share
+/// of the area (known). For a simple random sample of n_h of the N_h units of the stratum, the linearised variance
+/// of a ratio (Cochran 1977, Sampling Techniques, ch. 6) is
+///   V(R_hj) = (1 − n_h/N_h) / (n_h · ā_h²) · Σ_u e_u² / (n_h − 1),  e_u = a_u (1[ref_u = j] − R_hj),
+/// ā_h the mean unit area of the stratum (its cells over N_h, known). The strata are independent, so
+///   V(area_j) = Σ_h W_h² V(R_hj),  V(overall) = Σ_h W_h² V(R_hh),  V(user_j) = V(R_jj),
+/// and for the producer's accuracy P_j = W_j R_jj / C_j, C_j = Σ_h W_h R_hj, by the delta method
+///   V(P_j) = [W_j² (1 − P_j)² V(R_jj) + P_j² Σ_{h≠j} W_h² V(R_hj)] / C_j²
+/// (the form of Olofsson et al. 2014, eq. 9, with the ratio's variance). With all `size` equal this is `olofsson`
+/// but for the finite population correction. A stratum of fewer than two units has variance 0.
+pub fn olofsson_objects(
+    map: &[f64],
+    reference: &[f64],
+    size: &[f64],
+    classes: &[f64],
+    cells: &[f64],
+    objects: &[f64],
+) -> Result<Estimates> {
+    let mut cls = classes.to_vec();
+    if let Some(m) = map.iter().find(|m| !classes.contains(m)) {
+        return Err(Error::msg(format!("the map's class {} of a sample has no cells in the map", class_label(*m))));
+    }
+    for &r in reference {
+        if !cls.contains(&r) {
+            cls.push(r);
+        }
+    }
+    let extra = classes.len();
+    let q = cls.len();
+    let total: f64 = cells.iter().sum();
+    let w: Vec<f64> = (0..q).map(|i| if i < extra { cells[i] / total } else { 0.0 }).collect();
+    // the ratio estimates and their variances, [stratum][class]
+    let mut r = vec![vec![0.0; q]; q];
+    let mut v = vec![vec![0.0; q]; q];
+    let mut seen = vec![vec![false; q]; q];
+    for i in 0..extra {
+        let units: Vec<usize> = (0..map.len()).filter(|&u| map[u] == cls[i]).collect();
+        let n = units.len() as f64;
+        let x: f64 = units.iter().map(|&u| size[u]).sum();
+        let mean_a = cells[i] / objects[i];
+        for j in 0..q {
+            let y = |u: usize| if reference[u] == cls[j] { size[u] } else { 0.0 };
+            r[i][j] = units.iter().map(|&u| y(u)).sum::<f64>() / x;
+            seen[i][j] = units.iter().any(|&u| reference[u] == cls[j]);
+            if n >= 2.0 {
+                let s2 = units.iter().map(|&u| sq(y(u) - r[i][j] * size[u])).sum::<f64>() / (n - 1.0);
+                v[i][j] = (1.0 - n / objects[i]).max(0.0) / (n * sq(mean_a)) * s2;
+            }
+        }
+    }
+    let props: Vec<Vec<f64>> = (0..q).map(|i| (0..q).map(|j| w[i] * r[i][j]).collect()).collect();
+    let col = |j: usize| sum_na(props.iter().map(|row| row[j]));
+    let overall = sum_na((0..q).map(|j| props[j][j]));
+    let user: Vec<f64> = (0..q).map(|j| if j < extra { r[j][j] } else { f64::NAN }).collect();
+    let user_se: Vec<f64> = (0..q).map(|j| if j < extra { v[j][j].sqrt() } else { f64::NAN }).collect();
+    let producer: Vec<f64> = (0..q).map(|j| props[j][j] / col(j)).collect();
+    let producer_se: Vec<f64> = (0..q)
+        .map(|j| {
+            let t1 = sq(w[j]) * sq(1.0 - producer[j]) * v[j][j];
+            let t2: f64 = (0..q).filter(|&i| i != j).map(|i| sq(w[i]) * v[i][j]).sum();
+            ((t1 + sq(producer[j]) * t2) / sq(col(j))).sqrt()
+        })
+        .collect();
+    let area: Vec<f64> = (0..q).map(col).collect();
+    let area_se: Vec<f64> = (0..q).map(|j| (0..q).map(|i| sq(w[i]) * v[i][j]).sum::<f64>().sqrt()).collect();
+    let overall_se = (0..q).map(|j| sq(w[j]) * v[j][j]).sum::<f64>().sqrt();
+    let matrix = (0..q).map(|i| (0..q).map(|j| if seen[i][j] { props[i][j] } else { f64::NAN }).collect()).collect();
+    Ok(Estimates {
+        classes: cls,
+        overall,
+        overall_se,
+        user,
+        user_se,
+        producer,
+        producer_se,
+        area,
+        area_se,
+        matrix,
+        total,
+    })
+}
+
 /// The mean and the sample variances and covariance (n − 1) of two variables; NaN variances of fewer than two
 /// values as 0 (mapaccuracy's `tvar[is.na(tvar)] <- 0`).
 fn moments(y: &[f64], x: &[f64]) -> (f64, f64, f64, f64, f64) {

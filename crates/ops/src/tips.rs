@@ -833,8 +833,12 @@ pub const TIPS: &[(&str, &str)] = &[
         "Judge the classification on objects that were not used to train it: draw the reference apart from the \
          training samples (objects.sample draws them stratified, with the same chance in every object of a \
          class). The area-adjusted estimates are the ones to report (Olofsson et al. 2014): the counts of the \
-         confusion matrix by objects ignore how large each class is. Aim at 50 objects or more per class; a class \
-         with none sampled is left out. The errors table lists the misclassified objects to look at.",
+         confusion matrix by objects ignore how large each class is. Say how the sample was drawn with `design`: \
+         `objects` (the default for a table or polygons, and for points one to an object, as objects.sample \
+         gives) weights each sampled object by its area, since objects differ in size (Radoux and Bogaert 2017, \
+         Stehman 2014); points thrown at random over the map need `area`, where an object's chance already is \
+         its area and each counts once. Aim at 50 objects or more per class; a class with none sampled is left \
+         out. The errors table lists the misclassified objects to look at.",
     ),
     (
         "objects.sample",
