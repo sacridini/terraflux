@@ -369,16 +369,26 @@ fn objects_fuse_bench() {
             Some(Value::Objects(t)) => t,
             _ => panic!("objects"),
         };
+        // (the blobs of a Voronoi image grown until they touch: ragged, not aligned to the axes, so the rotated
+        // rectangle of the joined object differs from its box)
+        let grow = serde_json::json!({ "mode": "grow", "distance": 6.0 }).as_object().cloned().unwrap();
+        let inputs = [("objects".to_string(), Value::Objects(blobs(side)))].into_iter().collect();
+        let touching = match r.get("objects.resize").unwrap().run(&mut Ctx::default(), &Args { node: "n", inputs, params: &grow }).unwrap().remove("objects") {
+            Some(Value::Objects(t)) => t,
+            _ => panic!("objects"),
+        };
+        let compact = serde_json::json!({ "fitting": "compactness + cells / 20000", "goal": "min", "improve": false, "threshold": 1.5 });
         let cases = [
-            ("alike", serde_json::json!({ "fitting": "sd_b1 + sd_b2", "goal": "min", "improve": false, "threshold": 20.0 })),
+            ("alike", blocks.clone(), serde_json::json!({ "fitting": "sd_b1 + sd_b2", "goal": "min", "improve": false, "threshold": 20.0 })),
             // a size cap in the fitting (cells / 20000) keeps the objects from fusing into one: 127 and 491 objects instead
-            ("compact", serde_json::json!({ "fitting": "compactness + cells / 20000", "goal": "min", "improve": false, "threshold": 1.5 })),
+            ("compact", blocks.clone(), compact.clone()),
+            ("compact-blobs", touching.clone(), compact),
         ];
-        for (variant, params) in cases {
+        for (variant, objects, params) in cases {
             for threads in list("BENCH_THREADS", "1,8") {
                 let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
                 let inputs: std::collections::BTreeMap<String, Value> =
-                    [("objects".to_string(), Value::Objects(blocks.clone())), ("image".to_string(), img.clone())].into_iter().collect();
+                    [("objects".to_string(), Value::Objects(objects.clone())), ("image".to_string(), img.clone())].into_iter().collect();
                 let p = params.as_object().cloned().unwrap();
                 let args = Args { node: "n", inputs, params: &p };
                 let t = Instant::now();

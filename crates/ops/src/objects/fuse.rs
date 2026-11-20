@@ -32,7 +32,7 @@ use smallvec::SmallVec;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_raster::vector::Column;
 
-use super::features::{hull, hull_rect, merge_hulls};
+use super::features::{HullScratch, hull_rect, merge_hulls, sorted_hull};
 use super::levels::{class_numbers, regroup};
 use super::{Objects, band_names, big, find, objects_in, stats_table};
 use crate::algebra::{Expr, Script, Stmt, parse_script_objects};
@@ -66,7 +66,19 @@ impl Feat {
     }
 }
 
-/// The convex hull of the cells' corners of each object, as `objects.features` takes it: from the runs of each row.
+/// Whether a group of `cells` cells fills its box (row and column of the first and last cell).
+fn fills(cells: f64, bx: [u32; 4]) -> bool {
+    cells == (bx[2] - bx[0] + 1) as f64 * (bx[3] - bx[1] + 1) as f64
+}
+
+/// The corners of a box, sorted: the hull of a group that fills it (such a group keeps no hull).
+fn corners(bx: [u32; 4]) -> [(i64, i64); 4] {
+    let (r0, c0, r1, c1) = (bx[0] as i64, bx[1] as i64, bx[2] as i64 + 1, bx[3] as i64 + 1);
+    [(c0, r0), (c0, r1), (c1, r0), (c1, r1)]
+}
+
+/// The convex hull of the cells' corners of each object (but those that fill their box, which have none, see
+/// [`State::hull`]), as `objects.features` takes it: from the runs of each row.
 fn hulls_of(o: &Objects) -> Vec<Vec<(i64, i64)>> {
     let (w, h) = (o.grid.width, o.grid.height);
     // (the runs of each row: object, row, first and last column)
@@ -81,7 +93,7 @@ fn hulls_of(o: &Objects) -> Vec<Vec<(i64, i64)>> {
                 while c + 1 < w && o.labels[r * w + c + 1] == l {
                     c += 1;
                 }
-                if l != 0 {
+                if l != 0 && !fills(o.cells[l as usize - 1] as f64, o.boxes[l as usize - 1]) {
                     v.push((l, r as u32, a as u32, c as u32));
                 }
                 c += 1;
@@ -94,7 +106,7 @@ fn hulls_of(o: &Objects) -> Vec<Vec<(i64, i64)>> {
         let (r, a, b) = (r as i64, a as i64, b as i64 + 1);
         pts[l as usize - 1].extend([(a, r), (a, r + 1), (b, r), (b, r + 1)]);
     }
-    pts.into_par_iter().map(hull).collect()
+    pts.into_par_iter().map(sorted_hull).collect()
 }
 
 const SHAPES: [(&str, Feat); 9] = [
@@ -220,6 +232,8 @@ struct State {
     edges: Vec<f64>,
     /// The convex hull of each group's cell corners, counter-clockwise (the joined object's is the hull of two).
     hulls: Vec<Vec<(i64, i64)>>,
+    /// The box of each group (row and column of the first cell, then of the last), kept with the hulls.
+    bbox: Vec<[u32; 4]>,
     /// Per group and band: the count, the sum and the sum of squares of the values less the band's centre.
     bands: Vec<f64>,
     nb: usize,
@@ -309,6 +323,7 @@ impl State {
             cells: o.cells.iter().map(|&c| c as f64).collect(),
             edges,
             hulls,
+            bbox: if shapes { o.boxes.clone() } else { Vec::new() },
             bands,
             nb,
             centre: per.iter().map(|p| p.0).collect(),
@@ -356,12 +371,37 @@ impl State {
         }
     }
 
+    /// The sorted hull of a group: the one kept, or the corners of its box (put in `buf`) when it fills it.
+    fn hull<'a>(&'a self, g: usize, buf: &'a mut [(i64, i64); 4]) -> &'a [(i64, i64)] {
+        if fills(self.cells[g], self.bbox[g]) {
+            *buf = corners(self.bbox[g]);
+            buf
+        } else {
+            &self.hulls[g]
+        }
+    }
+
     /// The length and the width of a group or of two joined, as `objects.features` measures them: the sides of the
     /// minimum-area rectangle around the hull of the cells' corners.
-    fn rect(&self, a: usize, b: Option<(usize, u32)>) -> (f64, f64) {
+    fn rect(&self, a: usize, b: Option<(usize, u32)>, sc: &mut HullScratch) -> (f64, f64) {
+        // (a group that fills its box is that rectangle: the calipers would give the same sides, to the bit)
+        let (cells, mut bx) = (self.cells[a], self.bbox[a]);
+        let (mut ca, mut cb) = ([(0, 0); 4], [(0, 0); 4]);
+        if let Some((x, _)) = b {
+            let y = self.bbox[x];
+            bx = [bx[0].min(y[0]), bx[1].min(y[1]), bx[2].max(y[2]), bx[3].max(y[3])];
+        }
+        let cells = cells + b.map_or(0.0, |(x, _)| self.cells[x]);
+        let (rows, cols) = ((bx[2] - bx[0] + 1) as f64, (bx[3] - bx[1] + 1) as f64);
+        if cells == rows * cols {
+            let side = |lo: u32, n: f64, d: f64| ((lo as f64 + n) * d) - (lo as f64 * d);
+            let (h, w) = (side(bx[0], rows, self.rh), side(bx[1], cols, self.rw));
+            return (h.max(w), h.min(w));
+        }
+        let ha = self.hull(a, &mut ca);
         match b {
-            None => hull_rect(&self.hulls[a], self.rw, self.rh),
-            Some((x, _)) => hull_rect(&merge_hulls(&self.hulls[a], &self.hulls[x]), self.rw, self.rh),
+            None => hull_rect(ha, None, self.rw, self.rh, sc),
+            Some((x, _)) => hull_rect(ha, Some(self.hull(x, &mut cb)), self.rw, self.rh, sc),
         }
     }
 
@@ -373,7 +413,11 @@ impl State {
         // (the rectangles once per item, when an attribute needs them)
         let needs = used.iter().any(|(_, f)| f.needs_rect());
         let rects: Vec<(f64, f64)> = if needs {
-            items.par_iter().with_min_len(512).map(|&(a, b)| self.rect(a, b)).collect()
+            items
+                .par_iter()
+                .with_min_len(512)
+                .map_init(HullScratch::default, |sc, &(a, b)| self.rect(a, b, sc))
+                .collect()
         } else {
             vec![(f64::NAN, f64::NAN); items.len()]
         };
@@ -409,11 +453,17 @@ impl State {
         self.head[to] = self.head[seed];
         self.class[to] = self.class[seed];
         self.edges[to] += self.edges[from] - 2.0 * shared as f64;
-        self.cells[to] += self.cells[from];
         if !self.hulls.is_empty() {
-            let gone = std::mem::take(&mut self.hulls[from]);
-            self.hulls[to] = merge_hulls(&self.hulls[to], &gone);
+            let (mut ca, mut cb) = ([(0, 0); 4], [(0, 0); 4]);
+            let merged = merge_hulls(self.hull(to, &mut ca), self.hull(from, &mut cb), &mut HullScratch::default());
+            let (p, q) = (self.bbox[to], self.bbox[from]);
+            self.bbox[to] = [p[0].min(q[0]), p[1].min(q[1]), p[2].max(q[2]), p[3].max(q[3])];
+            self.hulls[from] = Vec::new();
+            // (a group that fills its box keeps no hull)
+            let full = fills(self.cells[to] + self.cells[from], self.bbox[to]);
+            self.hulls[to] = if full { Vec::new() } else { merged };
         }
+        self.cells[to] += self.cells[from];
         let w = self.nb * 3;
         for j in 0..w {
             self.bands[to * w + j] += self.bands[from * w + j];
@@ -973,7 +1023,7 @@ mod tests {
         let mut multi = 0;
         for g in (0..o.count).filter(|&g| st.live[g]) {
             let at = new_of[g] as usize - 1;
-            let (l, wd) = st.rect(g, None);
+            let (l, wd) = st.rect(g, None, &mut HullScratch::default());
             let c = st.feat(Feat::Compactness, g, None, (l, wd));
             for (a, b, what) in [(l, len[at], "length"), (wd, wid[at], "width"), (c, comp[at], "compactness")] {
                 assert!((a - b).abs() <= 1e-9 * b.abs().max(1.0), "group {g}, {what}: {a} against {b}");

@@ -964,9 +964,17 @@ pub(super) fn hull(mut p: Vec<(i64, i64)>) -> Vec<(i64, i64)> {
     if p.len() < 3 {
         return p;
     }
+    let mut h = Vec::with_capacity(p.len() * 2);
+    chain(&p, &mut h);
+    h
+}
+
+/// The chain of Andrew's algorithm over points sorted and without repeats (3 or more): the hull in `h` (cleared),
+/// counter-clockwise from the smallest point.
+fn chain(p: &[(i64, i64)], h: &mut Vec<(i64, i64)>) {
+    h.clear();
     let cross = |o: (i64, i64), a: (i64, i64), b: (i64, i64)| (a.0 - o.0) * (b.1 - o.1) - (a.1 - o.1) * (b.0 - o.0);
-    let mut h: Vec<(i64, i64)> = Vec::with_capacity(p.len() * 2);
-    for &q in &p {
+    for &q in p {
         while h.len() >= 2 && cross(h[h.len() - 2], h[h.len() - 1], q) <= 0 {
             h.pop();
         }
@@ -980,7 +988,6 @@ pub(super) fn hull(mut p: Vec<(i64, i64)>) -> Vec<(i64, i64)> {
         h.push(q);
     }
     h.pop();
-    h
 }
 
 /// The sides (long, short) of the minimum-area rectangle around a convex polygon (counter-clockwise, 3 points or
@@ -1022,16 +1029,83 @@ fn min_rect(h: &[(f64, f64)]) -> (f64, f64) {
     (best.1.max(best.2), best.1.min(best.2))
 }
 
-/// The hull of two hulls joined: the hull of the points of both (the hull of a union is that of the hulls' corners).
-pub(super) fn merge_hulls(a: &[(i64, i64)], b: &[(i64, i64)]) -> Vec<(i64, i64)> {
-    hull([a, b].concat())
+/// Buffers for the hulls of one thread: the merged points, the hull and its corners in map units.
+#[derive(Default)]
+pub(super) struct HullScratch {
+    sorted: Vec<(i64, i64)>,
+    hull: Vec<(i64, i64)>,
+    pts: Vec<(f64, f64)>,
 }
 
-/// The sides (long, short) of the minimum-area rectangle around a hull of cell corners, in map units (the cell's
-/// sides `rw` and `rh`): the length and width of `shape_of`.
-pub(super) fn hull_rect(h: &[(i64, i64)], rw: f64, rh: f64) -> (f64, f64) {
-    let h: Vec<(f64, f64)> = h.iter().map(|&(c, r)| (c as f64 * rw, r as f64 * rh)).collect();
-    min_rect(&h)
+/// `a` and `b` (sorted) merged into `out` (cleared), without repeats.
+fn merge_sorted(a: &[(i64, i64)], b: &[(i64, i64)], out: &mut Vec<(i64, i64)>) {
+    out.clear();
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() || j < b.len() {
+        let next = match (a.get(i), b.get(j)) {
+            (Some(&x), Some(&y)) if x < y => {
+                i += 1;
+                x
+            }
+            (Some(&x), Some(&y)) if y < x => {
+                j += 1;
+                y
+            }
+            (Some(&x), Some(_)) => {
+                i += 1;
+                j += 1;
+                x
+            }
+            (Some(&x), None) => {
+                i += 1;
+                x
+            }
+            (None, Some(&y)) => {
+                j += 1;
+                y
+            }
+            (None, None) => unreachable!(),
+        };
+        out.push(next);
+    }
+}
+
+/// The hull of the points of two hulls (each sorted, as [`sorted_hull`] gives them), sorted too.
+pub(super) fn merge_hulls(a: &[(i64, i64)], b: &[(i64, i64)], sc: &mut HullScratch) -> Vec<(i64, i64)> {
+    merge_sorted(a, b, &mut sc.sorted);
+    chain(&sc.sorted, &mut sc.hull);
+    let mut h = sc.hull.clone();
+    h.sort_unstable();
+    h
+}
+
+/// A hull as the fusion keeps it: the vertices sorted (so that two merge in a pass).
+pub(super) fn sorted_hull(p: Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+    let mut h = hull(p);
+    h.sort_unstable();
+    h
+}
+
+/// The sides (long, short) of the minimum-area rectangle around the hull of the points of `a` and, when given, `b`
+/// (sorted hulls), in map units (the cell's sides `rw` and `rh`): the length and width of `shape_of`.
+pub(super) fn hull_rect(
+    a: &[(i64, i64)],
+    b: Option<&[(i64, i64)]>,
+    rw: f64,
+    rh: f64,
+    sc: &mut HullScratch,
+) -> (f64, f64) {
+    match b {
+        Some(b) => merge_sorted(a, b, &mut sc.sorted),
+        None => {
+            sc.sorted.clear();
+            sc.sorted.extend_from_slice(a);
+        }
+    }
+    chain(&sc.sorted, &mut sc.hull);
+    sc.pts.clear();
+    sc.pts.extend(sc.hull.iter().map(|&(c, r)| (c as f64 * rw, r as f64 * rh)));
+    min_rect(&sc.pts)
 }
 
 fn shape(inp: &Input, want: Want) -> Result<Columns> {
