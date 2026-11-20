@@ -6,11 +6,17 @@
 //!    near the border the context they would have in the whole image.
 //! 2. Only the core of each tile is kept: the cells of the objects of the window that lie in the core, each piece in
 //!    its connected parts, are the regions of the second pass.
-//! 3. The second pass is the ordinary merging over the whole image that starts from those pieces (the `from` of
-//!    [`merge_level`]) with the same criterion and scale (and the zones of the whole image, when there are `bounds`:
-//!    each tile gets those of its window). A piece far from a tile border is at a fixpoint already (its
-//!    neighbours are in its tile), so only the pieces along the borders merge, across them: an object cut by a border
-//!    is one again whenever the criterion allows. The cost of this pass is linear in the cells, one thread.
+//! 3. The pieces that touch a tile border are taken apart into single cells ([`dissolve_at_borders`]): each window
+//!    segmented the area around a border on its own, so two pieces across it are two unrelated partitions cut by a
+//!    straight line, and big pieces do not merge across it (the cost of merging two grows with their size, however
+//!    alike they are): the border would stay an object edge (36-44 % of the cells' pairs across it in different
+//!    objects against 22-27 % elsewhere; 71 % on a Sentinel-2 clip).
+//! 4. The second pass is the ordinary merging over the whole image that starts from the pieces away from the borders
+//!    and those cells (the `from` of [`merge_level`]) with the same criterion and scale (and the zones of the whole
+//!    image, when there are `bounds`: each tile gets those of its window). The cells grow across the border as they do
+//!    anywhere, so no line cuts the objects: the share of cut pairs on the borders is the share elsewhere. A piece far
+//!    from a border is at a fixpoint already (its neighbours are in its tile). The cost of this pass is linear in the
+//!    cells it has (about 5 % of them, a tile's borders), one thread.
 //!
 //! Nothing depends on the order the tiles finish in: the result is the same for a seed at any number of threads.
 //!
@@ -418,5 +424,47 @@ pub(crate) fn merge_tiled_with(
     }
     let pieces = Objects::from_fn(grid.clone(), |i| lab[i], 0u32, conn);
     drop(lab);
+    let pieces = dissolve_at_borders(grid, pieces, t, conn);
     stitch(pieces)
+}
+
+/// The pieces that touch a tile border, in single cells again. Each window segmented the area around the border on its
+/// own, so the pieces on the two sides of it are two unrelated partitions cut by a straight line, and pieces that big
+/// do not merge across it (the merge cost of two big pieces grows with their size, however alike): the border stays an
+/// object edge. The whole image's objects grew from cells, so no line cut them. With those pieces as cells the
+/// stitching grows them across the border as the merging does anywhere. The pieces away from the borders are kept
+/// (they are the speed of the tiles).
+fn dissolve_at_borders(grid: &Arc<Grid>, pieces: Objects, t: usize, conn: usize) -> Objects {
+    let (w, h) = (grid.width, grid.height);
+    let mut touch = vec![false; pieces.count + 1];
+    let mut any = false;
+    let mut mark = |i: usize| {
+        let l = pieces.labels[i] as usize;
+        any |= l != 0;
+        touch[l] = true;
+    };
+    // the cells beside a border line, on both sides of it: the whole rows next to a border row, the columns beside the
+    // border columns in the others
+    for r in 0..h {
+        let row = (r % t == 0 && r > 0) || ((r + 1) % t == 0 && r + 1 < h);
+        for c in 0..w {
+            if row || (c % t == 0 && c > 0) || ((c + 1) % t == 0 && c + 1 < w) {
+                mark(r * w + c);
+            }
+        }
+    }
+    touch[0] = false;
+    if !any {
+        return pieces;
+    }
+    // (a cell's number is above every piece's: u64 holds both)
+    Objects::from_fn(
+        grid.clone(),
+        |i| {
+            let l = pieces.labels[i];
+            if l != 0 && touch[l as usize] { (1u64 << 32) + i as u64 } else { l as u64 }
+        },
+        0u64,
+        conn,
+    )
 }

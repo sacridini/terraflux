@@ -768,8 +768,9 @@ impl Operator for Multiresolution {
             Type::Integer,
             "cells, the side of the tiles segmented in parallel and stitched at their borders (Happ et al. 2010); \
              0 (default) is automatic: the whole image at once up to 4 million cells, tiles of 1024 above; a number \
-             forces tiles of that side. Ignored with `from`. The tiles change the objects a little (not the \
-             criterion); the result is the same for a seed at any number of threads",
+             forces tiles of that side. Ignored with `from`. No seam shows at the borders (the pieces that \
+             touch one are merged again from single cells across it); the objects differ from the untiled run's only \
+             as another seed's do; the result is the same for a seed at any number of threads",
         ))
         .param(PortSpec::optional(
             "margin",

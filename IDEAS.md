@@ -4255,8 +4255,23 @@ tiles), visto pelo MCP (`show_model`, `inspect_file`).
   uma ortofoto de 50 cm de um município.
   **Feito em parte** (Unreleased): `objects/tiles.rs`, `segment.multiresolution` com `tile` e `margin` (automático
   acima de 4 M células): cada tile com a sua margem em paralelo, só o núcleo guardado, e uma segunda fusão dos pedaços
-  sobre a imagem inteira junta os objetos cortados pela borda. 4000 × 4000 × 4: 74 s → 30 s com 3 threads, 0,98 das
-  bordas iguais às sem tiles.
+  sobre a imagem inteira junta os objetos cortados pela borda. 4000 × 4000 × 4: 74 s → 30 s com 3 threads. (O "0,98 das
+  bordas iguais" era a fração de células com o mesmo estado de borda/não borda, que numa imagem de objetos grandes é
+  quase 1 por qualquer motivo: não media a costura. A medida certa, a fração dos pares de células vizinhas em objetos
+  diferentes, mostrou a costura: 71 % dos pares sobre a borda de um tile contra 10 % nas outras linhas num recorte
+  Sentinel-2 de 580 × 580, e 22 % no crescimento de regiões; na imagem sintética de `objects_tiles.rs`, 0,438 contra
+  0,268. A causa: cada janela segmentava a sua sobreposição sozinha e a segunda fusão só juntava pedaços cujo custo de
+  fusão ficasse abaixo de scale², mas o custo de dois pedaços grandes cresce com o tamanho, por mais parecidos que
+  sejam: o objeto cortado ficava cortado, e um `margin` maior não ajudava.) **Corrigido** (Unreleased): os pedaços que
+  tocam uma borda de tile voltam a células soltas antes da segunda fusão (`dissolve_at_borders`, `tiles.rs`), que as
+  faz crescer através da borda como em qualquer outro lugar; são cerca de 5 % das células. Agora a fração cortada na
+  borda é a das outras linhas (multiresolution 0,273 contra 0,267, 2000 × 2000 × 4, tiles de 512), e o número de
+  objetos e o F dos contornos contra a imagem inteira ficam dentro do que outra semente dá
+  (`tiled_multiresolution_has_no_seam`, `tiled_region_growing_has_no_seam`). É a ideia de Lassalle et al. 2015 (IEEE
+  TGRS, "A scalable tile-based framework for region-merging segmentation"): o que toca a borda é instável e é refeito
+  junto com o vizinho; aqui refeito a partir das células, com o critério da imagem inteira. Custo: a segunda fusão
+  (uma thread) tem ~5 % de regiões a mais, +19 % no tempo total com 4 threads em 2000 × 2000 (3,7 → 4,4 s), e o pico de
+  memória de uma thread sobe de 353 para 480 MB.
   Os rasters em disco por janelas (`objects/big.rs`): os tiles leem só a sua janela, a costura e a tabela releem por
   faixas, e `objects.features` por faixas (a mediana e o GLCM exatos); a imagem nunca inteira na memória. 4000 × 4000
   × 4 do disco: 66 s e 1,2 GB de pico. Um limite de memória (metade da física) recusa ler inteira o que não cabe. O

@@ -305,7 +305,7 @@ fn the_grey_levels_cut_by_strips_are_the_percentiles_of_the_whole() {
 }
 
 #[cfg(windows)]
-fn peak_bytes() -> Option<u64> {
+pub(super) fn peak_bytes() -> Option<u64> {
     #[repr(C)]
     struct Counters {
         cb: u32,
@@ -327,14 +327,14 @@ fn peak_bytes() -> Option<u64> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn peak_bytes() -> Option<u64> {
+pub(super) fn peak_bytes() -> Option<u64> {
     let text = std::fs::read_to_string("/proc/self/status").ok()?;
     let line = text.lines().find(|l| l.starts_with("VmHWM:"))?;
     line.split_whitespace().nth(1)?.parse::<u64>().ok().map(|k| k * 1024)
 }
 
 #[cfg(not(any(windows, all(unix, not(target_os = "macos")))))]
-fn peak_bytes() -> Option<u64> {
+pub(super) fn peak_bytes() -> Option<u64> {
     None
 }
 

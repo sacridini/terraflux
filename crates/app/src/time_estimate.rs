@@ -127,7 +127,7 @@ pub fn line(ui: &mut Ui, s: &mut Session, n: &Node, path: &[String]) {
     if offers_tiles(&e)
         && ui
             .button("Use tiles")
-            .on_hover_text(format!("tile = {SUGGESTED_TILE}: the image is cut in tiles segmented in parallel and stitched at their borders; the objects at the borders can differ a little"))
+            .on_hover_text(format!("tile = {SUGGESTED_TILE}: the image is cut in tiles segmented in parallel and stitched at their borders; no seam shows at the borders"))
             .clicked()
         && let Err(m) = use_tiles(s, &n.id)
     {

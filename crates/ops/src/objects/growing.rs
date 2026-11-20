@@ -24,7 +24,8 @@
 //! With `tile` the image is cut into tiles (the machinery of `tiles.rs`, as multiresolution does): each tile, with a
 //! margin around it, is grown on its own, all tiles in parallel, with the scaling of the whole image and `minsize` 1;
 //! the cores of the tiles are the pieces, and the ordinary merging over the whole image starts from them (the path of
-//! `seeds`), joins the pieces of one seed, and applies `minsize`. Only the pieces along the tile borders merge there.
+//! `seeds`), joins the pieces of one seed, and applies `minsize`. The pieces that touch a tile border start as single
+//! cells (see `tiles.rs`), so they grow across it and no seam is left.
 
 use std::sync::Arc;
 
@@ -795,8 +796,9 @@ impl Operator for RegionGrowing {
             "tile",
             Type::Integer,
             "cells, the side of the tiles the image is cut into, grown in parallel and stitched at their borders (8 or \
-             more; default 0: the whole image at once, one thread). The objects at a tile border can differ a little \
-             from the run without tiles",
+             more; default 0: the whole image at once, one thread). No seam shows at the borders (the \
+             pieces that touch one are grown again from single cells across it); the objects differ from the run \
+             without tiles only as another seed's do",
         ))
         .param(PortSpec::optional(
             "margin",
