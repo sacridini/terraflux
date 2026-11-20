@@ -868,6 +868,16 @@
      ]
     },
     {
+     "slug": "rules-and-class-trees",
+     "title": "Rules and class trees",
+     "template": "Classify an image by rules",
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/rules-and-class-trees/areas.csv",
+      "/data/tutorials/object-based-image-analysis/rules-and-class-trees/forest_sweep.csv"
+     ]
+    },
+    {
      "slug": "water-by-thresholds",
      "title": "Water by thresholds",
      "template": "Water by Otsu on the NDWI",
