@@ -20,6 +20,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -382,8 +383,10 @@ def timed(op, n, tile, threads, table=False):
     model = timing_model(op, n, tile, table)
     (work / "model.toml").write_text(model, encoding="utf-8")
     t0 = time.time()
+    # the log goes to a file: a pipe nobody reads fills (4 KB on Windows) and stops the run at its next write
+    log = tempfile.TemporaryFile("w+", encoding="utf-8")
     p = subprocess.Popen([str(figs.binary()), "run", "model.toml", "--out", "out", "--threads", str(threads), "--no-journal",
-                          "--profile"], cwd=work, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8")
+                          "--profile"], cwd=work, stdout=log, stderr=subprocess.STDOUT, text=True, encoding="utf-8")
     ps = psutil.Process(p.pid)
     peak = 0
     while p.poll() is None:
@@ -393,7 +396,9 @@ def timed(op, n, tile, threads, table=False):
         except psutil.Error:
             pass
         time.sleep(0.05)
-    out = p.stdout.read()
+    log.seek(0)
+    out = log.read()
+    log.close()
     wall = time.time() - t0
     if p.returncode != 0:
         raise SystemExit(f"{tag} failed:\n{out}")

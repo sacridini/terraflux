@@ -24,6 +24,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -79,8 +80,10 @@ def run(model: str, work: pathlib.Path, name="model.toml", limit: float | None =
     (work / name).write_text(model, encoding="utf-8")
     env = os.environ | {"ORT_DYLIB_PATH": str(ort_library())}
     t0 = time.time()
+    # the log goes to a file: a pipe nobody reads fills (4 KB on Windows) and stops the run at its next write
+    log = tempfile.TemporaryFile("w+", encoding="utf-8")
     p = subprocess.Popen([str(figs.binary()), "run", name, "--out", "out", "--threads", "2", "--no-journal", "--profile"],
-                         cwd=work, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8")
+                         cwd=work, env=env, stdout=log, stderr=subprocess.STDOUT, text=True, encoding="utf-8")
     ps = psutil.Process(p.pid)
     try:
         ps.cpu_affinity(CORES)
@@ -97,7 +100,9 @@ def run(model: str, work: pathlib.Path, name="model.toml", limit: float | None =
         except psutil.Error:
             pass
         time.sleep(0.1)
-    out = p.stdout.read()
+    log.seek(0)
+    out = log.read()
+    log.close()
     if p.returncode != 0:
         raise SystemExit(f"terraflux run failed in {work}:\n{out}")
     nodes = {}
@@ -291,8 +296,8 @@ PATCHES = [8, 16, 32, 64]
 
 
 def run_retry(model: str, work: pathlib.Path, tries: int = 4, limit: float = 150) -> dict:
-    """`run`, started again when it does not end in `limit` seconds: with the build of 5022b27 a model with several
-    branches next to an objects.embed stopped now and then (see the report), and none of these runs takes 30 s."""
+    """`run`, started again when it does not end in `limit` seconds (a safety net: the stops seen with the build of
+    5022b27 were this script's unread pipe, fixed in `run`, not the build)."""
     for k in range(tries):
         try:
             return run(model, work, limit=limit)
