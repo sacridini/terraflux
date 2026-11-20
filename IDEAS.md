@@ -5055,3 +5055,140 @@ Os três projetos são GPL-3.0, do mesmo autor; o Terraflux é GPL-3.0-or-later:
 **Decisões tomadas** (2026-11-19, as propostas):
 - `metrics.pca` e `metrics.cluster` ficam como estão, finos sobre o módulo comum.
 - Acima de 1 milhão de células o ajuste usa uma amostra, dito numa nota do nó (não um aviso).
+
+## Áreas de vida, UDs, corredores e limpeza de trajetórias (amt e move2utils, pedido de 2026-11-20)
+
+Hoje o Terraflux e o terraflux-py (`tf.move`) têm a base do move2 e a parte de trajetórias e passos do amt (fases 1
+e 3 do plano de `extern/terraflux-py/IDEAS.md`, "Ecologia do movimento"; 27 operadores `move.*`, bit a bit com o R).
+Este bloco faz a fase 5 daquele plano (as áreas de vida do amt) e a fase 6 (dBBMM e `corridor`), com uma mudança:
+**a referência da fase 6 passa a ser o move2utils** (github.com/move2universe/move2utils, 0.4.6, GPL >= 3; Kranstauber,
+Safi, Scharf, o grupo do move2), em vez do `move` v1. O move2utils mantém os mesmos núcleos em C do `move`, sobre o
+`sf` e o `terra`, e acrescenta o dBGB (a ponte direcional), o `emd` entre UDs e a escolha da janela. Junta a parte
+simples da limpeza de trajetórias do move2utils.
+
+Do move2utils, **entra**:
+
+| Grupo | Funções do R | No Terraflux / `tf.move` |
+|---|---|---|
+| Variância e UD do dBBMM | `mt_dbbmm_variance`, `mt_dbbmm_ud`, `mt_motion_variance`, `mt_suggest_dbbmm_window`, `mt_mask_segments`, o erro de localização (`location_error.R`: número, coluna, Argos LC, `location_error_na`) | `move.dbbmm_variance`, `move.dbbmm_ud`, `move.suggest_window`, `move.mask_segments` |
+| Variância e UD do dBGB | `mt_dbgb_variance`, `mt_dbgb_ud` | `move.dbgb_variance`, `move.dbgb_ud` |
+| Volume e comparação de UDs | `ud_volume`, `ud_outer_probability`, `emd` (Sinkhorn) | `move.ud_volume`, `move.ud_outer_probability`, `move.ud_distance` |
+| Corredores observados | `mt_corridor` (LaPoint et al. 2013) | `move.corridor` |
+| Limpeza simples | `v_phys_estimate` (Hirt et al. 2017), `mt_flag_speed_cap` só com `threshold_type = "hard"` (o `v_max` dado ou vindo da massa e do modo), `mt_filter_gps_quality` | `move.max_speed`, `move.flag_speed`, `move.filter_gps_quality` |
+| Desbaste | `mt_thin_time` (programação dinâmica com tolerância: não é o `filter_per_interval`), `mt_thin_distance` (`step` e `interval`) | `move.thin_time`, `move.thin_distance` |
+
+**Fica de fora** (decidido com o usuário em 2026-11-20): a cascata de outliers (`mt_clean_track`, os primitivos
+bridge / detour / probabilístico, `mt_flag_outliers_dbgb/_dbbmm`, `mt_peel_speed`, `mt_sequential_outliers`,
+`mt_combined_outliers`, `mt_flag_consensus`, `mt_persistence_score`, `mt_diagnose_clean_track`), os limites
+automáticos de velocidade (`threshold_type` `auto` / `entropy` / `gap`, o teste do dip, `mt_suggest_speed_cap`) e o
+`pool_by`. É ciência nova, descrita num preprint (Safi 2026, bioRxiv 10.64898/2026.07.11.737894) ainda em revisão,
+com a API mudando (o padrão do `consensus` mudou na 0.4.x) e com dois modos de falha documentados no próprio README
+(marca como outliers os pontos de um estado minoritário, como os 12,7 % de voo de corrida do pombo; deixa passar os
+blocos de pontos falsos sem `mass` e `mode`). Rever quando o artigo for publicado e a versão estabilizar. O `hr_akde`
+e o `hr_od` do amt continuam na fase do ctmm.
+
+Do amt 0.3.1 (fase 5), **entra**: `hr_mcp`, `hr_kde` com as larguras de banda `hr_kde_ref`, `hr_kde_ref_scaled`,
+`hr_kde_pi` (o `dpik` do KernSmooth) e `hr_kde_lscv`, `hr_locoh` (`k`, `a`, `r`; o FNN), `hr_isopleths`, `hr_area`,
+`hr_ud` / `hr_cud`, `hr_overlap` (`hr`, `phr`, `vi`, `ba`, `udoi`, `hd`) e o `intensity_use` que faltou da fase 3.
+
+**Plano de implementação** (levantado no código em 2026-11-20). Valem para todos:
+- **Como sempre, primeiro o terraflux-py, depois o Terraflux.** Em `extern/terraflux-py`: o C++ em `src/cpp/move/`
+  (o `movecore`, com o pybind em `python.cpp`), o Python em `src/terraflux/move/` (um arquivo por grupo:
+  `_homerange.py`, `_ud.py`, `_corridor.py`, `_clean.py`), os casos em `tests/move_cases.py`, o R em
+  `tools/move_reference.R` (mais `tools/move2utils_fixed.R` para os erros achados), as referências gravadas por
+  `tools/make_reference_move.py` (`tests/data/reference/move/amt_hr.npz`, `move2utils.npz`), os testes em
+  `tests/test_move_hr.py`, `test_move_ud.py`, `test_move_clean.py`, a página `docs/api/move.md` e o CHANGELOG. No
+  Terraflux: as funções do `movecore` no `crates/ls-sys` (`src/lib.rs`, `shim/shim.cc`, `shim.h`), os operadores em
+  `crates/ops/src/movement/` (arquivos novos `homerange.rs`, `ud.rs`, `corridor.rs`, `clean.rs`, registrados no
+  `mod.rs`), os testes em `crates/ops/tests/movement.rs` contra as referências do terraflux-py
+  (`tools/make_move_reference.py`), o mapeamento do `python_script` em `crates/app/src/python/movement.rs`, as
+  entradas em `tips.rs` e `phrases.rs`, o `essentials.rs` para os de mais de seis parâmetros, as referências no
+  `methods.rs`, os conselhos no `advice.rs`.
+- **Paridade**: bit a bit com o R onde a conta é determinística (todas deste bloco menos o Sinkhorn, por tolerância
+  de 1e-12 relativa). O dBBMM também é conferido contra o `move` v1 (já na biblioteca R), como o move2utils faz nos
+  seus `test-move-parity-*`. Erros das referências: só a forma correta, testada contra a referência corrigida.
+- **Núcleos**: o C++ recebe `threads` (o teto central do Terraflux, `threads::for_this_thread`; no terraflux-py,
+  `n_workers` e `TERRAFLUX_THREADS`); o `bgb_bbmm_omp.c` do R não é copiado como está: o paralelo é por tiras de
+  linhas da grade, cada célula somando os segmentos na ordem da trajetória, para o mesmo resultado com 1 e 8 threads
+  (testado). As trajetórias rodam em paralelo entre si, montadas na ordem dos ids.
+- **CRS**: como o move2utils, lon/lat é projetado por dentro (o `aeqd_crs` corrigido, de cada trajetória) e o UD
+  volta no CRS da entrada quando ela era lon/lat, pelo mesmo reamostrador do `terra` usado lá (`.warp_ud_to_target`:
+  conferir na fase 0 qual método e portar; senão, UD sempre no CRS projetado com uma nota).
+- **Tipos, nenhum novo**: a variância vai como colunas das trajetórias (`motion_variance`, `in_windows`,
+  `interest` e, no dBGB, `para_sd`, `orth_sd`), e o UD é um raster (uma banda por trajetória, com os nomes das
+  trajetórias; probabilidade por célula somando 1). As isopletas e as áreas de vida saem como vetor de polígonos
+  (`track`, `level`, `area`).
+- **Grade do UD** (`utils.R::.ud_grid_args`, `ud_grid_probe.c`): uma entrada opcional `like` (o mapa cuja grade usar,
+  como no `data.rs`) ou os ajustes `res`, `dim_size`, `ext_factor`; a grade cresce sozinha quando as pontes não cabem,
+  como no R, com um `ctx.warn`.
+- Um commit por fase em cada repositório (o do terraflux-py primeiro, depois o do Terraflux com o submódulo
+  atualizado), nesta ordem: 0, 1, 2, 3, 4, 5, 6, 7. Sem push nem release até o usuário pedir; no release, o
+  `website/data/ops.json` atualizado (os `move.*` novos).
+
+- **0. Harness e leitura (S).** Instalar o move2utils 0.4.6 (fixar o sha do commit) na biblioteca
+  `%LOCALAPPDATA%/R/landschaft-move-lib`. Ele pede R >= 4.5 e a máquina tem o R 4.4.2 com o Rtools44: primeiro
+  instalar do fonte com o `Depends` relaxado numa cópia (o código não parece usar nada do 4.5); se falhar, o R 4.5 e o
+  Rtools45 na pasta do usuário (sem admin). Mais o `emdist` e o que faltar do amt (FNN já está; KernSmooth vem com
+  o R). Dados: os fishers (já em `tests/data/move/fishers.csv.gz`) e o `synthetic_tracks.csv.gz` do move2utils (com
+  os outliers conhecidos, para a velocidade e o desbaste); o `Leo-65545` e o `Pettstadt1-14053` só se a licença do
+  estudo do Movebank permitir (conferir). Ler os núcleos em C (`bm_variance_c.c`, `bgb_var_window_c.c`, `bgb_bbmm.c`,
+  `bgbVar.c`, `ud_grid_probe.c`) e anotar as manhas: tempo em minutos, o BIC dos pontos de quebra, a expansão do erro
+  de localização, o passo de tempo da integração (`time_step`), a ordem das somas.
+- **1. Limpeza e desbaste (S).** `v_phys_estimate` (a fórmula de Hirt et al. 2017 com os parâmetros da Tabela S4, o
+  intervalo pelo método delta) como `move.max_speed` (massa em kg e modo → m/s, com o intervalo) e como ajuste
+  `mass` / `mode` do `move.flag_speed`; `move.flag_speed` (o `hard` do `mt_flag_speed_cap`: a coluna `speed_flag`,
+  ou remove, com `v_max` ou `mass` + `mode` e o fator 1,25 do README); `move.filter_gps_quality` (`sat_min`,
+  `dop_max`, `hacc_max`, as colunas pelos nomes do Movebank e por ajuste); `move.thin_time` e `move.thin_distance`
+  (a programação dinâmica em C++, linear, para trajetórias de 1e5+ pontos; a coluna `thin_selected` ou só os
+  escolhidos). Testes contra o R nos fishers e na trajetória sintética.
+- **2. Áreas de vida do amt (M).** `hr_mcp` (o `chull` do R e os níveis pela distância ao centroide), `hr_kde` (as
+  quatro larguras de banda; a soma dos núcleos por tiras da grade), `hr_locoh` (os três tipos, as uniões de
+  polígonos pelo GEOS que o Terraflux já usa; conferir a ordem das uniões do `sf`), `hr_isopleths`, `hr_area`,
+  `hr_ud`, `hr_overlap` (os seis tipos, `conditional`) e `intensity_use`. Operadores: `move.home_range`
+  (`method` = `mcp` / `kde` / `locoh`, `levels`; saídas `polygons` e, no `kde`, `ud`), `move.home_range_overlap`
+  (tabela por par) e `move.intensity_use`. No `tf.move`: as funções do amt com os mesmos nomes (`hr_mcp`...) e o atalho
+  `home_range(method=...)` do plano original.
+- **3. dBBMM (L).** A variância por janela móvel (`bm_variance_c.c`, os pontos de quebra pelo BIC, `window_size`
+  ímpar, `margin`), o UD (`bgb_bbmm.c` no modo isotrópico: a ponte browniana integrada no tempo com o erro de
+  localização), `mt_motion_variance`, `mt_suggest_dbbmm_window` (a sugestão pelo intervalo típico e `target_hours`),
+  `mt_mask_segments` (zerar a variância de segmentos escolhidos, por exemplo as lacunas longas: o UD que respeita as
+  lacunas da vinheta `UD_gap_aware_ud`), `ud_volume` (o volume cumulativo, para as isopletas do dBBMM como polígonos
+  pelo mesmo caminho do `hr_isopleths`) e `ud_outer_probability`. Por burst como na vinheta `UD_bursted_uds`, pelos
+  bursts que o `move.resample` já dá. Teste de desempenho: os fishers e uma trajetória de 100 mil pontos numa grade
+  de 2000², 1 e 8 threads, contra o R.
+- **4. dBGB (M).** `bgb_var_window_c.c` (as variâncias paralela e ortogonal, `.delta_para_orth`) e o UD direcional
+  pelo mesmo núcleo do passo 3. Mesmos testes.
+- **5. Corredores e distância entre UDs (M).** `mt_corridor`: a velocidade e a variância circular dos segmentos
+  vizinhos (o R-tree do `sf` vira o índice espacial que o Terraflux já tem), os limites (`speed_threshold`,
+  `circvar_threshold`, `min_segments`) com os padrões do R, a coluna `corridor` por segmento e as linhas dos
+  segmentos de corredor. `emd` pelo Sinkhorn (`reg`, `max_iter`, `tol`, `mask_quantile`, o custo euclidiano ou o de
+  grande círculo `gc`) como `move.ud_distance` (tabela por par de bandas); o método exato (o `emdist`, código de
+  Rubner) só se a licença dele permitir portar, senão fica de fora.
+- **6. Do movimento para a paisagem (M).** `move.validate`: o UD (ou os pontos, ou os segmentos de corredor) contra
+  uma superfície de conectividade (a corrente do Circuitscape / Omniscape, a resistência, um corredor de menor
+  custo): a correlação de postos de Spearman entre o uso e a superfície, a fração do UD dentro dos corredores e a
+  razão de uso entre dentro e fora (Zeller et al. 2018), numa tabela e numa nota. As áreas de vida e as isopletas
+  entram como zonas nas métricas de paisagem e como feições na priorização (conferir que as portas aceitam o vetor
+  como sai; ajustar o que não aceitar). Templates novos (com dados do `nlm.*` e uma trajetória simulada pelo
+  `move.simulate_brownian`, prontos para o "Use my data"): área de vida de uma trajetória (MCP + KDE + dBBMM, áreas
+  num gráfico), corredores observados contra a corrente (dBBMM, `move.corridor`, Omniscape, `move.validate`) e
+  limpeza de trajetória (GPS, velocidade, desbaste). Um tópico novo `movement` no guia do MCP (não existe: o método
+  do Movebank à validação, com os operadores e os templates) e os conselhos do `check_model` (o `location_error`
+  obrigatório no dBBMM, a janela ímpar e maior que a margem, o intervalo de amostragem irregular, a grade grande
+  demais, a velocidade máxima sem massa nem modo).
+- **7. Documentação (M).** Três partes novas da série `website/content/tutorials/animal-movement/` (áreas de vida e
+  UDs; corredores observados e a validação da conectividade; limpeza e desbaste), com as figuras pelo `movefig.py`;
+  a página da API do Python (`website/content/python/api/move.md`), as linhas do `accuracy_tools.csv` e do
+  benchmark de acurácia (contra o amt, o move2utils e o move), os tempos contra o R, as referências (Horne et al.
+  2007, Kranstauber et al. 2012 e 2014, LaPoint et al. 2013, Hirt et al. 2017, Rubner et al. 2000, Cuturi 2013,
+  Zeller et al. 2018, Signer et al. 2019, Kranstauber et al. 2026 bioRxiv 10.64898/2026.07.07.736908) e os
+  CHANGELOGs dos dois repositórios.
+
+**Decisões tomadas** (2026-11-20, as propostas):
+1. A variância como colunas das trajetórias, sem tipo novo; `move.dbbmm_ud` aceita trajetórias com ou sem essas
+   colunas (sem elas, calcula com os mesmos ajustes, como o `mt_dbbmm_ud.move2`).
+2. Várias trajetórias: uma banda por trajetória; somar ou ponderar as bandas fica para o `raster.calc`.
+3. O UD volta no CRS da entrada como no R (ou sempre no projetado, se o reamostrador do `terra` não der para portar
+   bit a bit).
+4. O harness com o move2utils no R 4.4.2 de `Depends` relaxado antes de instalar o R 4.5.
+5. O `emd` exato só se a licença do `emdist` permitir.
