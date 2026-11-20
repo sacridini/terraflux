@@ -4870,7 +4870,7 @@ params = { title = "Trees, buildings and ground" }
         toml: r##"
 format = "terraflux/1"
 name = "Classes by parcel"
-description = "Objects held to the parcels: the segmentation takes the parcels as `bounds` (a vector, each feature a zone; the cells in none are one zone), so no object is made across a parcel's boundary, the way eCognition's thematic layer does in a segmentation. objects.features reads the same parcels as `thematic` and gives each object th_mode, the parcel it lies in (the feature's number from 1, or the attribute `field` names), and th_share, the share of its cells in it (1 when the object is wholly inside). The objects are then classed by rules on the spectra. Replace the parcels with a vector.read of yours (a cadastre, fields, management units) and the image with yours (Use my data)."
+description = "Objects held to the parcels: the segmentation takes the parcels as `bounds` (a vector, each feature a zone; the cells in none are one zone), so no object is made across a parcel's boundary, the way eCognition's thematic layer does in a segmentation. objects.features reads the same parcels as `thematic` and gives each object th_mode, the parcel it lies in (the feature's number from 1, or the attribute `field` names), and th_share, the share of all its cells in it (1 when the object is wholly inside; less where part of it is outside every parcel). The objects are then classed by rules on the spectra. Replace the parcels with a vector.read of yours (a cadastre, fields, management units) and the image with yours (Use my data)."
 
 [[nodes]]
 id = "land"
@@ -4905,7 +4905,7 @@ id = "features"
 op = "objects.features"
 inputs = { objects = "segments.objects", image = "image.image", thematic = "parcels.zones" }
 params = { features = ["mean", "ndvi", "ndwi", "area"] }
-note = "The bands' means and the indices the rules read, and th_mode, the parcel of each object, with th_share, 1 where the object is wholly inside it. A th_share below 1 would mean an object crossed a boundary."
+note = "The bands' means and the indices the rules read, and th_mode, the parcel of each object, with th_share, 1 where the object is wholly inside it. A th_share below 1 would mean an object crossed a boundary, or lay partly outside every parcel (the nine parcels here cover the image)."
 
 [[nodes]]
 id = "rules"

@@ -330,8 +330,8 @@ impl Operator for Features {
              = map distance from the centroid to the nearest centroid of an object of the class, nb_<c>; with a \
              parent level: parent_id and parent_<column>; with `below`: children and per class of below \
              children_<c> and children_area_<c>). With a `thematic` layer: th_mode, its most common value among the \
-             object's cells (the smallest on a tie), and th_share, the share of the object's cells with a value that \
-             have it. The skeleton group (not in `basic`; Zhang and Suen's thinning of each object's raster, so the \
+             object's cells (the smallest on a tie), and th_share, the share of ALL the object's cells that have it \
+             (cells with no value in the layer count as none: when none is the most common, both are missing). The skeleton group (not in `basic`; Zhang and Suen's thinning of each object's raster, so the \
              values differ a little from eCognition's polygon skeleton): skel_main_length, the longest path of the \
              skeleton in map units (a diagonal step is sqrt 2 cells), skel_width = area / main length, \
              skel_length_width, skel_branches, skel_ends, skel_junctions, skel_branch_length (mean) and \
@@ -629,12 +629,15 @@ fn thematic_cells(args: &Args, grid: &terraflux_raster::Grid) -> Result<(Vec<f64
 }
 
 /// Per object the most common value of `cells` among its cells (the smallest on a tie, NaN when no cell has a value)
-/// and its share of the cells that have a value. The objects in parallel, each from its own cells in order.
+/// and its share of ALL the object's cells (those without a value count for none: when none is more common than any
+/// value, th_mode and th_share are NaN; a tie goes to the value). The objects in parallel, each from its own cells in
+/// order.
 fn thematic_of(o: &Objects, cells: &[f64]) -> (Vec<f64>, Vec<f64>) {
     let (offsets, at) = index(o);
     let pairs: Vec<(f64, f64)> = (0..o.count)
         .into_par_iter()
         .map(|k| {
+            let total = offsets[k + 1] - offsets[k];
             // (+ 0.0 makes -0 a 0)
             let mut v: Vec<f64> = at[offsets[k]..offsets[k + 1]]
                 .iter()
@@ -653,7 +656,10 @@ fn thematic_of(o: &Objects, cells: &[f64]) -> (Vec<f64>, Vec<f64>) {
                     (best, best_n) = (x, run);
                 }
             }
-            (best, best_n as f64 / v.len() as f64)
+            if total - v.len() > best_n {
+                return (f64::NAN, f64::NAN);
+            }
+            (best, best_n as f64 / total as f64)
         })
         .collect();
     pairs.into_iter().unzip()

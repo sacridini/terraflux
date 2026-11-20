@@ -155,14 +155,18 @@ fn with_thematic(s: &Squares, thematic: Value, field: Option<&str>) -> terraflux
     )
 }
 
-/// The mode (the smallest on a tie) and its share, over the cells that have a value, of each object, the long way.
+/// The mode (the smallest on a tie) and its share of ALL the object's cells, each the long way. Cells without a value
+/// are none: when none is more common than every value, both are NaN (a tie goes to the value).
 fn expected(o: &Objects, value: &[f64]) -> Vec<(f64, f64)> {
     (1..=o.count as u32)
         .map(|id| {
             let mut counts: Vec<(f64, usize)> = Vec::new();
+            let (mut total, mut none) = (0usize, 0usize);
             for (i, _) in o.labels.iter().enumerate().filter(|(_, l)| **l == id) {
                 let v = value[i];
+                total += 1;
                 if v.is_nan() {
+                    none += 1;
                     continue;
                 }
                 match counts.iter_mut().find(|c| c.0 == v) {
@@ -170,11 +174,10 @@ fn expected(o: &Objects, value: &[f64]) -> Vec<(f64, f64)> {
                     None => counts.push((v, 1)),
                 }
             }
-            let total: usize = counts.iter().map(|c| c.1).sum();
-            if total == 0 {
+            counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.total_cmp(&b.0)));
+            if counts.is_empty() || none > counts[0].1 {
                 return (f64::NAN, f64::NAN);
             }
-            counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.total_cmp(&b.0)));
             (counts[0].0, counts[0].1 as f64 / total as f64)
         })
         .collect()
@@ -244,6 +247,34 @@ fn the_smallest_value_wins_a_tie() {
     let at = s.2.id_at(0, 24) as usize - 1;
     assert_eq!(t.column("th_mode").unwrap()[at], 3.0);
     assert_eq!(t.column("th_share").unwrap()[at], 0.5);
+}
+
+#[test]
+fn cells_outside_the_layer_count_as_none_in_th_share() {
+    let s = squares();
+    // the squares are 12 cells wide: the one at columns 24..36 has 6 cells valued (a tie with none: the value wins,
+    // share 0.5), the one at 36..48 has 2 (none is the mode: missing)
+    let value: Vec<f64> = (0..W * H)
+        .map(|i| {
+            if i % W < 30 {
+                5.0
+            } else if i % W < 46 {
+                f64::NAN
+            } else {
+                7.0
+            }
+        })
+        .collect();
+    let out = with_thematic(&s, map(W, H, value.clone()), None).unwrap();
+    let Value::Table(t) = &out["table"] else { panic!("table") };
+    let (mode, share) = (t.column("th_mode").unwrap(), t.column("th_share").unwrap());
+    let at = s.2.id_at(0, 24) as usize - 1;
+    assert_eq!((mode[at], share[at]), (5.0, 0.5));
+    let at = s.2.id_at(0, 36) as usize - 1;
+    assert!(mode[at].is_nan() && share[at].is_nan(), "{} {}", mode[at], share[at]);
+    for (k, w) in expected(&s.2, &value).iter().enumerate() {
+        assert!(same(mode[k], w.0) && same(share[k], w.1), "object {}", k + 1);
+    }
 }
 
 #[test]
