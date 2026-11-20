@@ -5134,7 +5134,7 @@ Do amt 0.3.1 (fase 5), **entra**: `hr_mcp`, `hr_kde` com as larguras de banda `h
   estudo do Movebank permitir (conferir). Ler os núcleos em C (`bm_variance_c.c`, `bgb_var_window_c.c`, `bgb_bbmm.c`,
   `bgbVar.c`, `ud_grid_probe.c`) e anotar as manhas: tempo em minutos, o BIC dos pontos de quebra, a expansão do erro
   de localização, o passo de tempo da integração (`time_step`), a ordem das somas.
-- **1. Limpeza e desbaste (S).** `v_phys_estimate` (a fórmula de Hirt et al. 2017 com os parâmetros da Tabela S4, o
+- **1. Limpeza e desbaste (S). Feito (2026-11-20):** terraflux-py b74c9ad, Terraflux a0716f5 (`move.max_speed`, `move.flag_speed` com `mass` e `mode` obrigatórios juntos, `move.filter_gps_quality`, `move.thin_time`, `move.thin_distance`; dois erros do move2utils testados contra `tools/move2utils_fixed.R`). Achado no caminho: os sorteios da gama não eram seguros entre threads (o `current_rng` global e os `static` do `rgamma.c` do R), o que derrubava os testes em paralelo e podia derrubar dois modelos rodando juntos; corrigido com `thread_local` (terraflux-py 51acd76) e um teste de regressão. `v_phys_estimate` (a fórmula de Hirt et al. 2017 com os parâmetros da Tabela S4, o
   intervalo pelo método delta) como `move.max_speed` (massa em kg e modo → m/s, com o intervalo) e como ajuste
   `mass` / `mode` do `move.flag_speed`; `move.flag_speed` (o `hard` do `mt_flag_speed_cap`: a coluna `speed_flag`,
   ou remove, com `v_max` ou `mass` + `mode` e o fator 1,25 do README); `move.filter_gps_quality` (`sat_min`,

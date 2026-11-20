@@ -459,6 +459,34 @@ fn fits_and_random_numbers_are_amts() {
     same("random numbers", &draws, want("random_numbers"));
 }
 
+/// Gamma draws on several threads at once are those drawn one after another: R's rgamma() keeps a cache of its
+/// constants and the library pointed it to the caller's generator through one global (two draws at once used each
+/// other's generator and crashed, about one parallel run of these tests in twenty).
+#[test]
+fn gamma_draws_on_several_threads_are_the_serial_ones() {
+    let draw = |shape: f64, seed: i64| {
+        let distr = go("move.distribution", vec![], serde_json::json!({"name": "gamma", "shape": shape, "scale": 3}));
+        let o = go(
+            "move.random_numbers",
+            vec![("distribution", distr["distribution"].clone())],
+            serde_json::json!({"n": 2000, "seed": seed}),
+        );
+        params(&o).rows.iter().map(|r| r[0]).collect::<Vec<f64>>()
+    };
+    // shapes below and above 1 take rgamma()'s two branches, each with its own cached constants
+    let cases: Vec<(f64, i64)> = (0..16).map(|k| ([0.4, 0.9, 1.7, 6.0][k % 4], 100 + k as i64)).collect();
+    let serial: Vec<Vec<f64>> = cases.iter().map(|&(s, seed)| draw(s, seed)).collect();
+    for _round in 0..5 {
+        let parallel: Vec<Vec<f64>> = std::thread::scope(|sc| {
+            let hs: Vec<_> = cases.iter().map(|&(s, seed)| sc.spawn(move || draw(s, seed))).collect();
+            hs.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        for (k, (p, s)) in parallel.iter().zip(&serial).enumerate() {
+            same(&format!("gamma draws, case {k}"), p, s);
+        }
+    }
+}
+
 #[test]
 fn random_steps_are_amts() {
     if !gdal() {
