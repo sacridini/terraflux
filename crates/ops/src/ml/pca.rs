@@ -95,6 +95,19 @@ fn keep_of(args: &Args) -> Result<Keep> {
     }
 }
 
+/// Tell the constant columns of a standardised fit: they are centred and not divided, and weigh nothing.
+pub(super) fn warn_constant(ctx: &mut Ctx, args: &Args, names: &[String], constant: &[usize]) {
+    if constant.is_empty() {
+        return;
+    }
+    let list: Vec<String> = constant.iter().map(|&j| format!("{:?}", names[j])).collect();
+    ctx.warn(format!(
+        "node {:?}: {} constant: they weigh nothing when standardising (scale 1, as scikit-learn's StandardScaler)",
+        args.node,
+        list.join(", ")
+    ));
+}
+
 /// The records a fit reads: the variables' names and values (a table's columns, or a stack's named layers), and the
 /// indices of the records the fit uses, those with every variable (and, with maps, in `cells`), all of them up to a
 /// million or a sample (`sample`, `seed`; said in a note).
@@ -254,7 +267,8 @@ impl Operator for Components {
         let keep = keep_of(args)?;
         let Records { names, columns, idx } = records(ctx, args)?;
         let used: Vec<Vec<f64>> = columns.iter().map(|c| idx.iter().map(|&i| c[i]).collect()).collect();
-        let p = pca::fit(names.clone(), &used, standardise, keep).map_err(|e| fail(args, e))?;
+        let (p, constant) = pca::fit_noting(names.clone(), &used, standardise, keep).map_err(|e| fail(args, e))?;
+        warn_constant(ctx, args, &names, &constant);
         // the tables
         let mut cols = vec!["component".to_string(), "explained".to_string()];
         cols.extend(names);

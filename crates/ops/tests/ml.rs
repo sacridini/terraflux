@@ -651,10 +651,9 @@ fn pca_tells_what_is_wrong() {
         serde_json::json!({}),
         "differs in size",
     );
-    // a constant variable: the correlation cannot standardise it, the covariance can
+    // a constant variable: standardised or not, it fits
     let mut flat = x.clone();
     flat.iter_mut().for_each(|r| r[3] = 4.0);
-    fails(vec![("table", Value::Table(pca_table(&flat)))], serde_json::json!({}), "\"d\" is constant");
     run("ml.pca", vec![("table", Value::Table(pca_table(&flat)))], serde_json::json!({"standardise": false}));
     // a table with a column pc1 already
     let mut t = pca_table(&x);
@@ -1166,7 +1165,6 @@ fn kmeans_tells_what_is_wrong() {
     // a constant variable: standardising cannot divide by its deviation, in its own units it is only a null direction
     let mut flat = x.clone();
     flat.iter_mut().for_each(|r| r[1] = 4.0);
-    fails(vec![("table", Value::Table(km_table(&flat)))], serde_json::json!({}), "\"b\" is constant");
     run("ml.kmeans", vec![("table", Value::Table(km_table(&flat)))], serde_json::json!({"standardise": false, "k": 3}));
     // a table with a column cluster already
     let mut t = km_table(&x);
@@ -1764,7 +1762,6 @@ fn som_tells_what_is_wrong() {
     // a constant variable: standardising cannot divide by its deviation
     let mut flat = x.clone();
     flat.iter_mut().for_each(|r| r[1] = 4.0);
-    fails(vec![("table", Value::Table(km_table(&flat)))], serde_json::json!({}), "\"b\" is constant");
     run(
         "ml.som",
         vec![("table", Value::Table(km_table(&flat)))],
@@ -1817,4 +1814,84 @@ fn som_tells_what_is_wrong() {
     )
     .unwrap_err();
     assert!(e.contains("no column \"c\""), "{e}");
+}
+
+/// The records without their second column, a variable of its own kept constant in `flat`.
+fn without_b(rows: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    rows.iter().map(|r| vec![r[0], r[2]]).collect()
+}
+
+fn two_table(rows: &[Vec<f64>]) -> Table {
+    let mut t = Table::new(["a", "c"].map(String::from).to_vec());
+    t.rows = rows.to_vec();
+    t
+}
+
+fn constant_b(x: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    let mut flat = x.to_vec();
+    flat.iter_mut().for_each(|r| r[1] = 4.0);
+    flat
+}
+
+fn two_stack(rows: &[Vec<f64>], nx: usize) -> Stack {
+    Stack {
+        grid: Arc::new(Grid::new(nx, rows.len() / nx)),
+        keys: ["a", "c"].iter().map(|n| Key::Name(n.to_string())).collect(),
+        layers: (0..2).map(|j| Arc::new(rows.iter().map(|r| r[j]).collect())).collect(),
+    }
+}
+
+fn says_constant(ctx: &Ctx) {
+    let w = ctx.warnings.iter().filter(|w| w.contains("\"b\" constant: they weigh nothing")).count();
+    assert_eq!(w, 1, "{:?}", ctx.warnings);
+}
+
+#[test]
+fn kmeans_standardises_a_constant_column_as_scale_one_and_says_it() {
+    let x = som_records().0;
+    let (flat, params) = (constant_b(&x), serde_json::json!({"k": 3}));
+    let mut ctx = Ctx::default();
+    let a = try_run("ml.kmeans", vec![("table", Value::Table(km_table(&flat)))], params.clone(), &mut ctx).unwrap();
+    says_constant(&ctx);
+    let mut ctx = Ctx::default();
+    let b =
+        try_run("ml.kmeans", vec![("table", Value::Table(two_table(&without_b(&flat))))], params, &mut ctx).unwrap();
+    assert!(ctx.warnings.is_empty(), "{:?}", ctx.warnings);
+    assert!(same_partition(&cluster_column(table(&a["table"])), &cluster_column(table(&b["table"]))));
+}
+
+#[test]
+fn som_standardises_a_constant_column_as_scale_one_and_says_it() {
+    let x = som_records().0;
+    let flat = constant_b(&x);
+    let params = serde_json::json!({"rows": 4, "cols": 4, "clusters": 3, "iterations": 2});
+    let mut ctx = Ctx::default();
+    let a =
+        try_run("ml.som", vec![("predictors", Value::Stack(km_stack(&flat, 30)))], params.clone(), &mut ctx).unwrap();
+    says_constant(&ctx);
+    let mut ctx = Ctx::default();
+    let b = try_run("ml.som", vec![("predictors", Value::Stack(two_stack(&without_b(&flat), 30)))], params, &mut ctx)
+        .unwrap();
+    assert!(ctx.warnings.is_empty(), "{:?}", ctx.warnings);
+    assert_eq!(map_data(&a["nodes"]), map_data(&b["nodes"]));
+    assert_eq!(map_data(&a["groups"]), map_data(&b["groups"]));
+}
+
+#[test]
+fn pca_standardises_a_constant_column_as_scale_one_and_says_it() {
+    let x = som_records().0;
+    let flat = constant_b(&x);
+    let params = serde_json::json!({"components": 2});
+    let mut ctx = Ctx::default();
+    let a = try_run("ml.pca", vec![("table", Value::Table(km_table(&flat)))], params.clone(), &mut ctx).unwrap();
+    says_constant(&ctx);
+    let b = run("ml.pca", vec![("table", Value::Table(two_table(&without_b(&flat))))], params);
+    let (la, lb) = (table(&a["loadings"]), table(&b["loadings"]));
+    for (ra, rb) in la.rows.iter().zip(&lb.rows) {
+        // component, explained, then a, b, c: the constant b loads nothing
+        assert_eq!(ra[3], 0.0);
+        near("explained", ra[1], rb[1], 1e-12);
+        near("a", ra[2].abs(), rb[2].abs(), 1e-9);
+        near("c", ra[4].abs(), rb[3].abs(), 1e-9);
+    }
 }

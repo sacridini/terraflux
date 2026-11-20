@@ -91,6 +91,24 @@ pub struct Moments {
 }
 
 impl Moments {
+    /// What standardising takes, as scikit-learn's StandardScaler does: each variable's standard deviation (1 for a
+    /// constant one: centred, not divided), the correlation (a constant variable a zero row and column, it weighs
+    /// nothing) and the constant variables. The same numbers as `sd` and `correlation` without a constant one.
+    pub fn standardising(&self) -> (Vec<f64>, Vec<f64>, Vec<usize>) {
+        let d = self.mean.len();
+        let mut scale = self.sd();
+        let constant: Vec<usize> = (0..d).filter(|&j| scale[j].is_nan() || scale[j] <= 0.0).collect();
+        let mut r = self.correlation();
+        for &j in &constant {
+            scale[j] = 1.0;
+            for i in 0..d {
+                r[i * d + j] = 0.0;
+                r[j * d + i] = 0.0;
+            }
+        }
+        (scale, r, constant)
+    }
+
     /// The standard deviation of each variable.
     pub fn sd(&self) -> Vec<f64> {
         let d = self.mean.len();

@@ -80,20 +80,28 @@ impl Pca {
 /// The PCA of the records (a vector of values per variable, none NaN, all the same length): of the correlation
 /// (`standardise`: each variable by its standard deviation) or of the covariance, keeping some components.
 pub fn fit(names: Vec<String>, columns: &[Vec<f64>], standardise: bool, keep: Keep) -> Result<Pca, String> {
+    fit_noting(names, columns, standardise, keep).map(|(p, _)| p)
+}
+
+/// [`fit`], and the constant variables too: standardising, as scikit-learn's StandardScaler does, one is centred and
+/// not divided (scale 1) and weighs nothing (a zero loading in every component).
+pub fn fit_noting(
+    names: Vec<String>,
+    columns: &[Vec<f64>],
+    standardise: bool,
+    keep: Keep,
+) -> Result<(Pca, Vec<usize>), String> {
     let d = names.len();
     if d == 0 || columns.len() != d {
         return Err("no variables".into());
     }
     let slices: Vec<&[f64]> = columns.iter().map(Vec::as_slice).collect();
     let m = moments(&slices, 1).ok_or("a PCA needs two records with every variable at least")?;
-    let sd = m.sd();
-    let (matrix, scale) = if standardise {
-        if let Some(j) = sd.iter().position(|s| s.is_nan() || *s <= 0.0) {
-            return Err(format!("{:?} is constant: leave it out, or set standardise to false", names[j]));
-        }
-        (m.correlation(), sd)
+    let (matrix, scale, constant) = if standardise {
+        let (scale, corr, constant) = m.standardising();
+        (corr, scale, constant)
     } else {
-        (m.cov.clone(), vec![1.0; d])
+        (m.cov.clone(), vec![1.0; d], Vec::new())
     };
     let (values, vectors) = eigen(&matrix, d);
     // (rounding can leave a null eigenvalue a little below zero)
@@ -128,7 +136,7 @@ pub fn fit(names: Vec<String>, columns: &[Vec<f64>], standardise: bool, keep: Ke
             v.iter().map(|x| x * sign).collect()
         })
         .collect();
-    Ok(Pca { predictors: names, mean: m.mean, scale, components, variance, explained })
+    Ok((Pca { predictors: names, mean: m.mean, scale, components, variance, explained }, constant))
 }
 
 #[cfg(test)]
@@ -184,7 +192,13 @@ mod tests {
         assert!(fit(names(), &cols, true, Keep::Count(4)).unwrap_err().contains("1 to 3"));
         assert!(fit(names(), &cols, true, Keep::Count(0)).is_err());
         cols[2] = vec![1.0; 6];
-        assert!(fit(names(), &cols, true, Keep::Share(0.9)).unwrap_err().contains("\"c\" is constant"));
+        // standardised, a constant variable is centred and not divided: scale 1, no weight
+        let (p, constant) = fit_noting(names(), &cols, true, Keep::Count(2)).unwrap();
+        assert_eq!((constant, p.scale[2]), (vec![2], 1.0));
+        assert!(p.components.iter().all(|c| c[2] == 0.0));
+        let two = fit(names()[..2].to_vec(), &cols[..2], true, Keep::Count(2)).unwrap();
+        assert_eq!(p.variance[..2], two.variance[..]);
+        assert_eq!(p.variance[2], 0.0);
         // by covariance a constant variable is only a null direction
         assert!(fit(names(), &cols, false, Keep::Share(0.9)).is_ok());
         assert!(fit(names(), &[vec![1.0], vec![2.0], vec![3.0]], false, Keep::Count(1)).is_err());

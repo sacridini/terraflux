@@ -16,6 +16,8 @@ version.
 
 ### Fixed
 - **`objects.grow` keeps the class that grows**: a neighbour merged in took the merged object to the class of its biggest part (`regroup`), so an unclassified neighbour larger than the grown object ate the class; now each merged object keeps the class and the memberships of the grown object, as the operator says. Test: `grow_keeps_the_class_when_the_neighbour_is_bigger`.
+- **`segment.sam` and `objects.embed` use the run's threads**: the ONNX Runtime session took `threads::most()` (15 on 20 cores) intra-op threads whatever `--threads`, `TERRAFLUX_THREADS` or the app's setting said; now `session_threads` in `crates/ops/src/objects/onnx.rs` gives the size of the rayon pool the run is in (the process's, set by the central cap, outside any pool), never more than the cap. Test: `session_threads_follow_the_pool`.
+- **`ml.kmeans`, `ml.som` and `ml.pca` accept a constant column when standardising**, as scikit-learn's StandardScaler: it is centred, not divided (scale 1), weighs nothing (a zero row and column in the correlation, a zero loading) and a warning names the columns; before, the run was refused (the embeddings of `objects.embed` often have all-zero columns). Inputs without a constant column give the same numbers bit for bit; the results equal those without the column. `metrics.pca` is another code path and is untouched. Tests: `*_standardises_a_constant_column_as_scale_one_and_says_it` in `crates/ops/tests/ml.rs`.
 
 ## [1.58.0] - 2026-11-20
 

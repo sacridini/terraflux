@@ -9,7 +9,7 @@ use std::sync::Arc;
 use rayon::prelude::*;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 
-use super::pca::{Records, records};
+use super::pca::{Records, records, warn_constant};
 use super::{Model, fail};
 use crate::multivar::codebook::{
     self, Decay, Grouping, MAX_AUTO_NODES, MAX_NODES, Neighbourhood, Params, Som, Start, Training, group_nodes,
@@ -323,20 +323,14 @@ impl Operator for Organise {
         let used: Vec<Vec<f64>> = columns.iter().map(|c| idx.iter().map(|&i| c[i]).collect()).collect();
         let slices: Vec<&[f64]> = used.iter().map(Vec::as_slice).collect();
         let m = moments(&slices, 0).ok_or_else(|| fail(args, "no record has every variable"))?;
-        let sd = m.sd();
-        let scale = if standardise {
-            if let Some(j) = sd.iter().position(|s| s.is_nan() || *s <= 0.0) {
-                return Err(fail(
-                    args,
-                    format!("{:?} is constant: leave it out, or set standardise to false", names[j]),
-                ));
-            }
-            sd
-        } else {
-            vec![1.0; d]
-        };
         // the covariance of the fit's units: the correlation when standardised
-        let cov = if standardise { m.correlation() } else { m.cov.clone() };
+        let (scale, cov) = if standardise {
+            let (scale, corr, constant) = m.standardising();
+            warn_constant(ctx, args, &names, &constant);
+            (scale, corr)
+        } else {
+            (vec![1.0; d], m.cov.clone())
+        };
         let mean = m.mean;
         let mut x = vec![0.0; n * d];
         x.par_chunks_mut(d).enumerate().for_each(|(i, row)| {
