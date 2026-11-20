@@ -580,3 +580,16 @@ fn the_same_objects_on_1_and_8_threads() {
         assert!(cells_of(&a) > 0);
     }
 }
+
+#[test]
+fn resize_without_an_image_has_the_basic_table() {
+    let o = shape(20, 20, |r, c| (8..12).contains(&r) && (8..12).contains(&c));
+    let o = Arc::new(o.as_ref().clone().with_classes(names(&["crown"]), vec![1], Vec::new()).unwrap());
+    let out = resize_with(&o, None, None, serde_json::json!({ "steps": 2 })).0.unwrap();
+    let g = objects_of(&out);
+    assert!(g.cells[0] > 16);
+    let Value::Table(t) = &out["table"] else { panic!("table") };
+    assert_eq!(t.columns, ["id", "cells", "area"]);
+    assert_eq!(t.rows, [vec![1.0, g.cells[0] as f64, g.cells[0] as f64 * g.cell_area()]]);
+    assert_eq!(g.table.rows, t.rows);
+}

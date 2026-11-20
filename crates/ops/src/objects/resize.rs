@@ -437,6 +437,15 @@ fn apply(lab: &mut [u32], j: &Job) {
     }
 }
 
+/// The table of objects without an image: id, cells and area (the class is the objects', which objects.to_vector
+/// writes as an attribute of its own).
+fn basic_table(o: &Objects) -> Table {
+    let area = o.cell_area();
+    let mut t = Table::new(["id", "cells", "area"].map(String::from).to_vec());
+    t.rows = (0..o.count).map(|k| vec![(k + 1) as f64, o.cells[k] as f64, o.cells[k] as f64 * area]).collect();
+    t
+}
+
 /// `objects.resize`.
 struct Resize;
 
@@ -680,10 +689,9 @@ impl Operator for Resize {
                  with level makes one again)"
             ));
         }
-        if image.is_some() {
-            let t = table_of(&cut);
-            cut = cut.with_table(t)?;
-        }
+        // the band statistics with an image, else the plain table of the new objects (id, cells, area)
+        let t = if image.is_some() { table_of(&cut) } else { basic_table(&cut) };
+        cut = cut.with_table(t)?;
         let table = cut.table.clone();
         let mut out = outputs([("table", Value::Table(table)), ("report", Value::Table(report))]);
         out.insert("objects".into(), Value::Objects(Arc::new(cut)));
