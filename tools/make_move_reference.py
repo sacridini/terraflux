@@ -31,7 +31,8 @@ ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
 LS = Path(tf.__file__).resolve().parents[2]
 sys.path.insert(0, str(LS / "tests"))
-from move_cases import EXTRACT_RASTER, track_sets  # noqa: E402
+from move_cases import (EXTRACT_RASTER, M2U_SYNTHETIC, SPEED, SPEED_MASS, SPEED_MODE, THIN_DISTANCE,  # noqa: E402
+                        THIN_TIME, m2u_track_sets, track_sets)
 
 M = tf.move
 
@@ -44,6 +45,104 @@ def frame(s: dict) -> gpd.GeoDataFrame:
         if k in s:
             cols[k] = s[k]
     return M.as_tracks(gpd.GeoDataFrame(cols, geometry=geom, crs=s["crs"]), "time", "track")
+
+
+def m2u_frame(s: dict) -> gpd.GeoDataFrame:
+    """A set of the cleaning cases: a missing time is NaT, a missing coordinate an empty point."""
+    t = np.asarray(s["t"], np.float64)
+    geom = [Point() if (np.isnan(a) or np.isnan(b)) else Point(a, b) for a, b in zip(s["x"], s["y"])]
+    time = pd.Series(pd.to_datetime((np.nan_to_num(t) * 1e9).astype(np.int64), utc=True)).where(~np.isnan(t))
+    cols = {"time": time, "track": s["track"]}
+    for k in s:
+        if k not in ("x", "y", "t", "track", "crs"):
+            cols[k] = s[k]
+    return M.as_tracks(gpd.GeoDataFrame(cols, geometry=geom, crs=s["crs"]), "time", "track", sort=False)
+
+
+# the GPS quality calls of the library's tests (tests/test_move_clean.py)
+QUALITY = {"default": {}, "nosat": {"sat_min": None}, "strict": {"sat_min": 8, "dop_max": 3, "hacc_max": 40},
+           "keepempty": {"drop_empty": False}, "nodop": {"dop_max": None, "hacc_max": 60},
+           "none": {"sat_min": None, "dop_max": None, "hacc_max": None, "drop_empty": False}}
+GPS = [("gps_cl_q", "cl_q"), ("gps_cl_qd", "cl_qd"), ("gps_synth", "m2u_synthetic"), ("gps_fishers", "fishers")]
+
+
+def clean_reference(out: dict, meta: dict, fishers_src: Path, synth_src: Path) -> None:
+    """The cleaning and thinning of the library (move2utils' v_phys_estimate, mt_flag_speed_cap with a hard cap,
+    mt_filter_gps_quality, mt_thin_time and mt_thin_distance): the sets of tests/move_cases.py's m2u_track_sets, move2's
+    fishers and move2utils' synthetic tracks (tests/data/move/m2u_synthetic.csv.gz, GPL-3.0-or-later). Everything is
+    new keys (`in/m2u/...`, `clean/...`); the cases' arguments are in the json (`clean`)."""
+    shutil.copyfile(synth_src, ROOT / "tests" / "data" / "move" / "m2u_synthetic.csv.gz")
+    sets = m2u_track_sets()
+    tracks = {}
+    meta["m2u_sets"] = {}
+    for name, s in sets.items():
+        tracks[name] = m2u_frame(s)
+        for k in s:
+            if k not in ("track", "crs"):
+                out[f"in/m2u/{name}/{k}"] = np.asarray(s[k], np.float64)
+        meta["m2u_sets"][name] = {"track": [str(v) for v in s["track"]], "crs": s["crs"]}
+    tracks["fishers"] = tf.load_tracks(fishers_src, sort=False)
+    tracks["m2u_synthetic"] = tf.load_tracks(synth_src, sort=False)
+
+    def put(key, v):
+        out[key] = np.asarray(v, dtype=np.float64)
+
+    def as_float(flags):
+        return pd.Series(flags).astype("Float64").to_numpy(np.float64, na_value=np.nan)
+
+    cases = meta["clean"] = {"speed": {}, "thin_time": {}, "thin_distance": {}, "gps": {}}
+    # v_phys_estimate
+    masses = [1e-9, 3e-8, 0.001, 0.02, 0.5, 1, 2, 5, 6, 70, 250, 1000, 25000, 1.084e5, 2e5]
+    cases["v_phys"] = {"masses": masses, "levels": [0.95, 0.9, 0.99], "modes": ["flying", "running", "swimming"]}
+    got = {"v": [], "lo": [], "hi": [], "kmh": []}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for lv in (0.95, 0.9, 0.99):
+            for mode in ("flying", "running", "swimming"):
+                r = M.v_phys_estimate(masses, mode, ci_level=lv)
+                got["v"] += list(r.v_max)
+                got["lo"] += list(r.lower)
+                got["hi"] += list(r.upper)
+                got["kmh"] += list(r.kmh)
+    for k, v in got.items():
+        put(f"clean/v_phys/{k}", v)
+    # the hard speed cap
+    for case, (data, v_max, jitter, _) in SPEED.items():
+        tr = tracks[data]
+        if data == "fishers":
+            tr = tr[~tr.geometry.is_empty]
+        kw = {"jitter": jitter}
+        kw.update({"mass": SPEED_MASS, "mode": SPEED_MODE} if v_max is None else {"v_max": v_max})
+        r = M.flag_speed(tr, **kw)
+        put(f"clean/{case}/outlier", r["is_outlier"])
+        put(f"clean/{case}/speed", r["step_speed"])
+        put(f"clean/{case}/above", as_float(r["is_speed_above_cap"]))
+        if jitter is not None:
+            put(f"clean/{case}/below", as_float(r["is_step_below_jitter"]))
+        put(f"clean/{case}/flagged", r["flagged_by_speed"])
+        put(f"clean/{case}/loglr", r["loglr_speed"])
+        put(f"clean/{case}/vmax", [r.attrs["v_max_used"]])
+        cases["speed"][case] = {"data": data, "v_max": v_max, "jitter": jitter,
+                                "mass": SPEED_MASS if v_max is None else None, "mode": SPEED_MODE}
+    # thinning in time and in distance
+    for case, (data, interval, tolerance, criterion) in THIN_TIME.items():
+        put(f"clean/{case}/selected", M.thin_time(tracks[data], interval, tolerance, criterion))
+        cases["thin_time"][case] = {"data": data, "interval": interval, "tolerance": tolerance, "criterion": criterion}
+    for case, (data, distance, tolerance, criterion, method) in THIN_DISTANCE.items():
+        tr = tracks[data]
+        if data == "fishers":
+            tr = tr[~tr.geometry.is_empty]
+        tol = tolerance if method == "interval" else None
+        put(f"clean/{case}/selected", M.thin_distance(tr, distance, method, tol, criterion))
+        cases["thin_distance"][case] = {"data": data, "distance": distance, "tolerance": tol, "criterion": criterion,
+                                        "method": method}
+    # GPS quality
+    for case, data in GPS:
+        for key, kw in QUALITY.items():
+            if data == "m2u_synthetic" and key == "strict":
+                kw = {"sat_min": 8, "dop_max": 3}
+            put(f"clean/{case}/{key}", M.gps_quality(tracks[data], **kw))
+            cases["gps"].setdefault(case, {"data": data, "calls": {}})["calls"][key] = kw
 
 
 def main() -> None:
@@ -216,6 +315,8 @@ def main() -> None:
     put("extract/both_end", both["cover_end"])
     put("extract/start", M.extract_covariates(su, {"cover": cover}, where="start")["cover"])
     put("extract/random", M.extract_covariates(r, {"cover": cover})["cover"])
+
+    clean_reference(out, meta, fishers_src, LS / M2U_SYNTHETIC)
 
     np.savez_compressed(REF / "move.npz", **out)
     (REF / "move.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")

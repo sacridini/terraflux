@@ -53,6 +53,8 @@ against. In a methods section, a sentence such as *"MSPA (Soille & Vogt, 2009) w
 | Maxent (MaxNet) species distribution models | `sdm.*` | Phillips et al. (2017) |
 | Model tuning and evaluation (ENMeval) | `sdm.*` | Kass et al. (2021) |
 | Cleaning occurrence records (CoordinateCleaner) | `sdm.clean_occurrences` | Zizka et al. (2019) |
+| Allometric maximum speed of animals | `move.max_speed`, `move.flag_speed` | Hirt et al. (2017) |
+| Cleaning and thinning animal tracks (move2utils) | `move.flag_speed`, `move.filter_gps_quality`, `move.thin_time`, `move.thin_distance` | Kranstauber et al. (2026) |
 | Biodiverse's analyses | `bio.*` | Laffan et al. (2010) |
 | Dinamica EGO's model (weights of evidence, Expander, Patcher) | `woe.*`, `patches.*`, `dinamica.*` | Soares-Filho et al. (2002) |
 | CLUE-S and the lulcc framework | `glm.*`, `lulcc.*`, `demand.*` | Verburg et al. (2002); Moulds et al. (2015) |
@@ -104,8 +106,10 @@ the same bits.
 - Hanson, J. O., Schuster, R., Strimas-Mackey, M., Morrell, N., Edwards, B. P. M., Arcese, P., Bennett, J. R., & Possingham, H. P. (2025). Systematic conservation prioritization with the prioritizr R package. *Conservation Biology*, 39(1), e14376. https://doi.org/10.1111/cobi.14376
 - Herman, J., & Usher, W. (2017). SALib: An open-source Python library for sensitivity analysis. *Journal of Open Source Software*, 2(9), 97. https://doi.org/10.21105/joss.00097
 - Hesselbarth, M. H. K., Sciaini, M., With, K. A., Wiegand, K., & Nowosad, J. (2019). landscapemetrics: an open-source R tool to calculate landscape metrics. *Ecography*, 42(10), 1648–1657. https://doi.org/10.1111/ecog.04617
+- Hirt, M. R., Jetz, W., Rall, B. C., & Brose, U. (2017). A general scaling law reveals why the largest animals are not the fastest. *Nature Ecology & Evolution*, 1(8), 1116–1122. https://doi.org/10.1038/s41559-017-0241-4
 - Iwanaga, T., Usher, W., & Herman, J. (2022). Toward SALib 2.0: Advancing the accessibility and interpretability of global sensitivity analyses. *Socio-Environmental Systems Modelling*, 4, 18155. https://doi.org/10.18174/sesmo.18155
 - Kass, J. M., Muscarella, R., Galante, P. J., Bohl, C. L., Pinilla-Buitrago, G. E., Boria, R. A., Soley-Guardia, M., & Anderson, R. P. (2021). ENMeval 2.0: Redesigned for customizable and reproducible modeling of species' niches and distributions. *Methods in Ecology and Evolution*, 12(9), 1602–1608. https://doi.org/10.1111/2041-210X.13628
+- Kranstauber, B., Safi, K., & Scharf, A. K. (2026). move2utils: a utility toolkit for the move2 ecosystem. *bioRxiv*. https://doi.org/10.64898/2026.07.07.736908
 - Laffan, S. W., Lubarsky, E., & Rosauer, D. F. (2010). Biodiverse, a tool for the spatial analysis of biological and related diversity. *Ecography*, 33(4), 643–647. https://doi.org/10.1111/j.1600-0587.2010.06237.x
 - Landau, V. A., Shah, V. B., Anantharaman, R., & Hall, K. R. (2021). Omniscape.jl: Software to compute omnidirectional landscape connectivity. *Journal of Open Source Software*, 6(57), 2829. https://doi.org/10.21105/joss.02829
 - Liang, X., Guan, Q., Clarke, K. C., Liu, S., Wang, B., & Yao, Y. (2021). Understanding the drivers of sustainable land expansion using a patch-generating land use simulation (PLUS) model: A case study in Wuhan, China. *Computers, Environment and Urban Systems*, 85, 101569. https://doi.org/10.1016/j.compenvurbsys.2020.101569

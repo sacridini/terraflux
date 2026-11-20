@@ -929,6 +929,44 @@ pub const TIPS: &[(&str, &str)] = &[
          `ml.predict` with the model gives another image or date the nearest node of this fit, not of the new \
          data.",
     ),
+    // movement ecology
+    (
+        "move.max_speed",
+        "A ceiling for speeds that cannot be real, not a cruising speed: the scaling law of Hirt et al. (2017) is for \
+         horizontal bursts, and its interval is the uncertainty of the fit, not the scatter between species (about a \
+         factor of 2 more). Specialists (cheetah, pronghorn) can exceed it: give the published speed of the species \
+         to move.flag_speed (v_max) when there is one, and about 25 % above the maximum when sprints are real.",
+    ),
+    (
+        "move.flag_speed",
+        "Both ends of a step faster than the limit are flagged: the data cannot tell which fix is wrong. Drop the \
+         locations without a position first (move.filter_gps_quality), and filter the GPS quality before the \
+         speeds, since poor fixes make the false jumps. jitter is the noise floor of the device (metres): steps \
+         shorter than it are flagged too. This is only the hard cap of move2utils: no automatic limit, no \
+         cascade of detectors; a species with long bursts of real speed (a pigeon racing) needs a limit from its \
+         own biology (mass and mode, or v_max).",
+    ),
+    (
+        "move.filter_gps_quality",
+        "The columns are Movebank's (gps:satellite-count, gps:dop, eobs:horizontal-accuracy-estimate, also with \
+         underscores or dashes); a column the tracks lack skips its criterion without a word, so check which were \
+         applied: a file with none of them only loses its empty locations.",
+    ),
+    (
+        "move.thin_time",
+        "Not move.filter_per_interval: the lag between kept locations is about the interval (within the tolerance), \
+         not one per clock hour, and a gap longer than interval + tolerance splits the track (it is crossed as it \
+         was, never filled). The tolerance defaults to a tenth of the interval: widen it for irregular fixes, or \
+         the chain breaks into few locations. closest minimises the total deviation from the interval, first takes \
+         the chain that ends first.",
+    ),
+    (
+        "move.thin_distance",
+        "The travel is counted along the track in metres whatever the coordinate system. step keeps a location when \
+         the travel since the last kept one reaches the distance (so the kept ones are at least that far, more where \
+         a step crossed it); interval keeps the longest chain within distance +/- tolerance, and a single step longer \
+         than distance + tolerance splits the track. Drop the empty locations first (move.filter_gps_quality).",
+    ),
 ];
 
 #[cfg(test)]

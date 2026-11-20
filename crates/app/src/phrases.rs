@@ -760,6 +760,7 @@ const PHRASES: &[(&str, &str)] = &[
     ("move.distance", "The distance from each location of <tracks> to the next[, in {units}]."),
     ("move.distribution", "A {name} distribution of step lengths or turn angles."),
     ("move.extract_covariates", "The values of the rasters connected at the locations of <tracks> (steps: {where})."),
+    ("move.filter_gps_quality", "<tracks> without the locations of an unreliable GPS geometry."),
     ("move.filter_min_n_burst", "The bursts of <tracks> of at least {min_n} locations."),
     ("move.filter_movebank_visible", "The tracks <tracks> without the locations Movebank hides."),
     ("move.filter_per_interval", "One location of <tracks> per {unit} (criterion {criterion})."),
@@ -768,6 +769,12 @@ const PHRASES: &[(&str, &str)] = &[
         "move.interpolate",
         "Locations of <tracks> interpolated[ at the times {times}][, gaps of more than {max_time_lag} s left empty].",
     ),
+    (
+        "move.flag_speed",
+        "The locations of <tracks> next to a step faster than [{v_max} m/s][the maximum speed of a {mass} kg animal] \
+         flagged.",
+    ),
+    ("move.max_speed", "The maximum speed of a {mass} kg animal ({mode}), from Hirt et al.'s scaling law."),
     ("move.nsd", "The net squared displacement of each location of <tracks> from the first of its track."),
     ("move.random_numbers", "{n} draws of the distribution <distribution>; seed {seed}."),
     (
@@ -780,6 +787,14 @@ const PHRASES: &[(&str, &str)] = &[
     ("move.simulate_brownian", "{tracks} tracks of Brownian motion, diffusion {sigma}; seed {seed}."),
     ("move.speed", "The speed of each step of <tracks>[, in {units}]."),
     ("move.steps", "The steps between consecutive locations of <tracks>: their length, direction and turn angle."),
+    (
+        "move.thin_distance",
+        "<tracks> thinned to locations about {distance} m of travel apart (method {method}[, tolerance {tolerance} m]).",
+    ),
+    (
+        "move.thin_time",
+        "<tracks> thinned to locations about {interval} apart[, within {tolerance}] (criterion {criterion}).",
+    ),
     ("move.time_lags", "The time from each location of <tracks> to the next, in {units}."),
     ("move.time_of_day", "Day or night at each location of <tracks>."),
     ("move.track_data", "A row per track of <tracks> with the columns that do not change within it."),

@@ -55,6 +55,7 @@
 #include "gtb/spa.hpp"
 #include "lsm/landscape.hpp"
 #include "move/amt.hpp"
+#include "move/clean.hpp"
 #include "move/distr.hpp"
 #include "move/geo.hpp"
 #include "move/track.hpp"
@@ -5274,6 +5275,57 @@ MoveSun move_sun_times(rust::Slice<const double> lon, rust::Slice<const double> 
     out.dusk = move_vec(n);
     for (std::size_t i = 0; i < n; ++i)
         move::sun_times(lon[i], lat[i], noon[i], &out.sunrise[i], &out.sunset[i], &out.dawn[i], &out.dusk[i]);
+    return out;
+}
+
+rust::Vec<double> move_v_phys(rust::Slice<const double> mass, std::int32_t mode, double ci_level) {
+    check(mode >= 0 && mode <= 2, "mode: 0 flying, 1 running, 2 swimming");
+    const std::size_t n = mass.size();
+    // the speed (m/s), the interval's bounds (m/s) and the speed in km/h, each for every mass, one after the other
+    rust::Vec<double> out = move_vec(4 * n);
+    move::v_phys(mass.data(), static_cast<std::int64_t>(n), mode, ci_level, out.data(), out.data() + n,
+                 out.data() + 2 * n, out.data() + 3 * n);
+    return out;
+}
+
+MoveSpeedCap move_speed_cap(rust::Slice<const double> x, rust::Slice<const double> y, rust::Slice<const double> t,
+                            rust::Slice<const std::int64_t> track, bool lonlat, double v_max, double jitter,
+                            std::int32_t threads) {
+    const std::int64_t n = move_check(x, y, track);
+    check(t.size() == x.size(), "t: the same length as x");
+    MoveSpeedCap out;
+    out.speed = move_vec(x.size());
+    out.loglr = move_vec(x.size());
+    for (std::size_t i = 0; i < x.size(); ++i) {
+        out.above.push_back(0);
+        out.below.push_back(0);
+    }
+    move::speed_cap_hard(x.data(), y.data(), t.data(), track.data(), n, lonlat, v_max, jitter, threads,
+                         out.speed.data(), out.above.data(), out.below.data(), out.loglr.data());
+    return out;
+}
+
+rust::Vec<std::uint8_t> move_thin_time(rust::Slice<const double> t, rust::Slice<const std::int64_t> track,
+                                       double interval, double tolerance, bool closest, std::int32_t threads) {
+    check(track.size() == t.size(), "t and track: the same length");
+    rust::Vec<std::uint8_t> out;
+    out.reserve(t.size());
+    for (std::size_t i = 0; i < t.size(); ++i) out.push_back(0);
+    move::thin_time(t.data(), track.data(), static_cast<std::int64_t>(t.size()), interval, tolerance, closest, threads,
+                    out.data());
+    return out;
+}
+
+rust::Vec<std::uint8_t> move_thin_distance(rust::Slice<const double> step, rust::Slice<const std::int64_t> track,
+                                           std::int32_t method, double distance, double tolerance, bool closest,
+                                           std::int32_t threads) {
+    check(track.size() == step.size(), "step and track: the same length");
+    check(method == 0 || method == 1, "method: 0 step, 1 interval");
+    rust::Vec<std::uint8_t> out;
+    out.reserve(step.size());
+    for (std::size_t i = 0; i < step.size(); ++i) out.push_back(0);
+    move::thin_distance(step.data(), track.data(), static_cast<std::int64_t>(step.size()), method, distance, tolerance,
+                        closest, threads, out.data());
     return out;
 }
 // end movement ecology

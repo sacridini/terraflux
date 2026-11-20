@@ -686,6 +686,18 @@ pub const REFERENCES: &[Reference] = &[
         "10.1111/ecog.04617"
     ),
     paper!(
+        "hirt2017",
+        ["Hirt, M. R.", "Jetz, W.", "Rall, B. C.", "Brose, U."],
+        false,
+        2017,
+        "A general scaling law reveals why the largest animals are not the fastest",
+        "Nature Ecology & Evolution",
+        "1",
+        "8",
+        "1116–1122",
+        "10.1038/s41559-017-0241-4"
+    ),
+    paper!(
         "iwanaga2022",
         ["Iwanaga, T.", "Usher, W.", "Herman, J."],
         false,
@@ -718,6 +730,19 @@ pub const REFERENCES: &[Reference] = &[
         "1602–1608",
         "10.1111/2041-210X.13628"
     ),
+    Reference {
+        key: "kranstauber2026",
+        authors: &["Kranstauber, B.", "Safi, K.", "Scharf, A. K."],
+        more: false,
+        year: 2026,
+        title: "move2utils: a utility toolkit for the move2 ecosystem",
+        journal: "",
+        volume: "",
+        issue: "",
+        pages: "",
+        doi: "10.64898/2026.07.07.736908",
+        report: "bioRxiv preprint, https://doi.org/10.64898/2026.07.07.736908",
+    },
     paper!(
         "laffan2010",
         ["Laffan, S. W.", "Lubarsky, E.", "Rosauer, D. F."],
@@ -1413,6 +1438,27 @@ pub const METHODS: &[Method] = &[
         refs: &["olofsson2014", "radoux2017", "stehman2014"],
         software: "",
         software_refs: &[],
+    },
+    Method {
+        ops: &["move.max_speed"],
+        name: "the allometric maximum speed of an animal",
+        refs: &["hirt2017"],
+        software: "move2utils",
+        software_refs: &["kranstauber2026"],
+    },
+    Method {
+        ops: &["move.flag_speed"],
+        name: "the speed cap on the steps of tracks",
+        refs: &[],
+        software: "move2utils",
+        software_refs: &["kranstauber2026"],
+    },
+    Method {
+        ops: &["move.filter_gps_quality", "move.thin_time", "move.thin_distance"],
+        name: "the cleaning and thinning of tracks ({ops})",
+        refs: &[],
+        software: "move2utils",
+        software_refs: &["kranstauber2026"],
     },
     Method {
         ops: &["sensitivity.design", "sensitivity.analyze"],

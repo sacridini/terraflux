@@ -1306,6 +1306,15 @@ pub mod ffi {
         loglik: f64,
     }
 
+    /// The hard speed cap: each location's step speed, the flags of the fixes next to a step above the cap and
+    /// below the jitter (1, 0; -1 for a fix left out) and the log-LR.
+    struct MoveSpeedCap {
+        speed: Vec<f64>,
+        above: Vec<i8>,
+        below: Vec<i8>,
+        loglr: Vec<f64>,
+    }
+
     /// suncalc's sunrise, sunset, dawn and dusk (seconds since 1970, NaN when the sun does not reach them).
     struct MoveSun {
         sunrise: Vec<f64>,
@@ -3265,6 +3274,40 @@ pub mod ffi {
         ) -> Result<MoveAmtSteps>;
         /// suncalc's sun times at (lon, lat) on the day of `noon` (seconds since 1970).
         fn move_sun_times(lon: &[f64], lat: &[f64], noon: &[f64]) -> Result<MoveSun>;
+        /// move2utils' v_phys_estimate of each mass (kg; mode 0 flying, 1 running, 2 swimming): the speeds (m/s),
+        /// the interval's lower and upper bounds (m/s) and the speeds in km/h, each for all masses one after the other.
+        fn move_v_phys(mass: &[f64], mode: i32, ci_level: f64) -> Result<Vec<f64>>;
+        /// mt_flag_speed_cap with a hard cap (t in seconds, NaN: left out; jitter NaN: none).
+        #[allow(clippy::too_many_arguments)]
+        fn move_speed_cap(
+            x: &[f64],
+            y: &[f64],
+            t: &[f64],
+            track: &[i64],
+            lonlat: bool,
+            v_max: f64,
+            jitter: f64,
+            threads: i32,
+        ) -> Result<MoveSpeedCap>;
+        /// mt_thin_time on locations sorted by track and time (NaN last): 1 where kept.
+        fn move_thin_time(
+            t: &[f64],
+            track: &[i64],
+            interval: f64,
+            tolerance: f64,
+            closest: bool,
+            threads: i32,
+        ) -> Result<Vec<u8>>;
+        /// mt_thin_distance from the step lengths (metres) in the order of the tracks: method 0 step, 1 interval.
+        fn move_thin_distance(
+            step: &[f64],
+            track: &[i64],
+            method: i32,
+            distance: f64,
+            tolerance: f64,
+            closest: bool,
+            threads: i32,
+        ) -> Result<Vec<u8>>;
     }
 }
 

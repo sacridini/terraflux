@@ -179,6 +179,53 @@ pub(super) const MAPPED: &[Py] = &[
         "steps"
     ),
     mv!("move.extract_covariates", "tf.move.extract_covariates", ["tracks" => "", "where" => "where"], [], "tracks"),
+    mv!(
+        "move.max_speed",
+        "tf.move.v_phys_estimate",
+        ["mass" => "mass", "mode" => "mode", "ci_level" => "ci_level"],
+        [],
+        "v_max"
+    ),
+    mv!(
+        "move.flag_speed",
+        "tf.move.flag_speed",
+        [
+            "tracks" => "", "v_max" => "v_max", "mass" => "mass", "mode" => "mode", "jitter" => "jitter",
+            "remove" => "remove", "time" => "time", "track" => "track"
+        ],
+        [],
+        "tracks"
+    ),
+    mv!(
+        "move.filter_gps_quality",
+        "tf.move.filter_gps_quality",
+        [
+            "tracks" => "", "sat_min" => "sat_min", "dop_max" => "dop_max", "hacc_max" => "hacc_max",
+            "drop_empty" => "drop_empty"
+        ],
+        [],
+        "tracks"
+    ),
+    mv!(
+        "move.thin_time",
+        "tf.move.thin_time",
+        [
+            "tracks" => "", "interval" => "interval", "tolerance" => "tolerance", "criterion" => "criterion",
+            "time" => "time", "track" => "track"
+        ],
+        [],
+        "tracks"
+    ),
+    mv!(
+        "move.thin_distance",
+        "tf.move.thin_distance",
+        [
+            "tracks" => "", "distance" => "distance", "method" => "method", "tolerance" => "tolerance",
+            "criterion" => "criterion", "track" => "track"
+        ],
+        [],
+        "tracks"
+    ),
 ];
 
 /// An input or setting as a Python expression; none when absent or an empty text (the usual names, no units).
@@ -399,6 +446,73 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             let code = format!("{var} = {}({})\n", py.call, args.join(", "));
             (code, out(&[("tracks", var.to_string()), ("table", frame_table(var))]), Need::Nothing)
         }
+        "move.max_speed" => {
+            let py = entry(op)?;
+            opt(n, "mass", sc)?.ok_or("its mass is not given")?;
+            let (args, said) = arguments(n, py, sc, None, &[])?;
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            let table = format!(
+                "_pd.DataFrame([{{\"mass\": {var}.mass, \"v_max\": {var}.v_max, \"lower\": {var}.lower, \
+                 \"upper\": {var}.upper, \"kmh\": {var}.kmh}}])"
+            );
+            let outs = out(&[
+                ("v_max", format!("{var}.v_max")),
+                ("lower", format!("{var}.lower")),
+                ("upper", format!("{var}.upper")),
+                ("kmh", format!("{var}.kmh")),
+                ("table", table),
+            ]);
+            (code, outs, Need::Flow)
+        }
+        "move.flag_speed" => {
+            let py = entry(op)?;
+            let (args, said) = arguments(n, py, sc, None, &[])?;
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            let outs = out(&[
+                ("tracks", var.to_string()),
+                ("table", frame_table(var)),
+                ("v_max", format!("{var}.attrs[\"v_max_used\"]")),
+            ]);
+            (code, outs, Need::Nothing)
+        }
+        "move.filter_gps_quality" => {
+            let py = entry(op)?;
+            let (mut args, said) = arguments(n, py, sc, None, &[])?;
+            // the library's None is Terraflux's "none": no limit
+            for a in args.iter_mut() {
+                if let Some((k, v)) = a.split_once('=')
+                    && ["sat_min", "dop_max", "hacc_max"].contains(&k)
+                    && v.trim_matches('"').eq_ignore_ascii_case("none")
+                {
+                    *a = format!("{k}=None");
+                }
+            }
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            (code, out(&[("tracks", var.to_string()), ("table", frame_table(var))]), Need::Nothing)
+        }
+        "move.thin_time" | "move.thin_distance" => {
+            let py = entry(op)?;
+            let tracks = value_of(n, "tracks", sc)?.ok_or("its tracks are not connected")?;
+            let (args, said) = arguments(n, py, sc, None, &["output"])?;
+            // the selected locations (the library's filter_thin_*), or all with the column thin_selected
+            let code = match n.params.get("output").and_then(Value::as_str).unwrap_or("selected") {
+                "selected" => format!(
+                    "{said}{var} = {}({})\n",
+                    py.call.replacen("tf.move.", "tf.move.filter_", 1),
+                    args.join(", ")
+                ),
+                "flag" => format!(
+                    "{said}{var} = {tracks}.copy()\n{var}[\"thin_selected\"] = {}({})\n",
+                    py.call,
+                    args.join(", ")
+                ),
+                o if o.starts_with('$') => {
+                    return Err("write its output (selected or flag) in the node, not as a reference".into());
+                }
+                o => return Err(format!("its output {o:?}: selected or flag")),
+            };
+            (code, out(&[("tracks", var.to_string()), ("table", frame_table(var))]), Need::Nothing)
+        }
         _ => return Ok(None),
     };
     Ok(Some(code))
@@ -595,6 +709,98 @@ params = { time = "t", track = "id", crs = "EPSG:32722" }
             t.contains(
                 "located = tf.move.as_tracks(coords, time=\"t\", track=\"id\", crs=\"EPSG:32722\", x=\"x\", y=\"y\")\n"
             ),
+            "{t}"
+        );
+        parses(t);
+    }
+
+    /// Cleaning and thinning: the speed limit of a mass, the cap, the GPS filter and the thinning of tracks.
+    #[test]
+    fn cleaning_and_thinning_as_the_library() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "tracks"
+op = "move.read_tracks"
+params = { path = "fishers.csv" }
+
+[[nodes]]
+id = "limit"
+op = "move.max_speed"
+params = { mass = 5, mode = "running", ci_level = 0.9 }
+
+[[nodes]]
+id = "good"
+op = "move.filter_gps_quality"
+inputs = { tracks = "tracks.tracks" }
+params = { sat_min = 6, dop_max = "none" }
+
+[[nodes]]
+id = "flagged"
+op = "move.flag_speed"
+inputs = { tracks = "good.tracks" }
+params = { v_max = 12.5, jitter = 3, remove = true }
+
+[[nodes]]
+id = "by_mass"
+op = "move.flag_speed"
+inputs = { tracks = "good.tracks" }
+params = { mass = 2, mode = "flying" }
+
+[[nodes]]
+id = "hourly"
+op = "move.thin_time"
+inputs = { tracks = "flagged.tracks" }
+params = { interval = "1 hour", tolerance = "10 mins", criterion = "first" }
+
+[[nodes]]
+id = "marked"
+op = "move.thin_time"
+inputs = { tracks = "flagged.tracks" }
+params = { interval = 3600, output = "flag" }
+
+[[nodes]]
+id = "spaced"
+op = "move.thin_distance"
+inputs = { tracks = "hourly.tracks" }
+params = { distance = 300, method = "interval", tolerance = 60 }
+
+[[nodes]]
+id = "marked_distance"
+op = "move.thin_distance"
+inputs = { tracks = "hourly.tracks" }
+params = { distance = 300, output = "flag" }
+"#,
+        )
+        .unwrap();
+        let s = super::super::script(&m, &r, None);
+        let t = &s.text;
+        assert!(s.left.is_empty(), "{:?}\n{t}", s.left);
+        assert!(t.contains("limit = tf.move.v_phys_estimate(mass=5, mode=\"running\", ci_level=0.9)\n"), "{t}");
+        assert!(t.contains("good = tf.move.filter_gps_quality(tracks, sat_min=6, dop_max=None)\n"), "{t}");
+        assert!(t.contains("flagged = tf.move.flag_speed(good, v_max=12.5, jitter=3, remove=True)\n"), "{t}");
+        assert!(t.contains("by_mass = tf.move.flag_speed(good, mass=2, mode=\"flying\")\n"), "{t}");
+        assert!(
+            t.contains("hourly = tf.move.filter_thin_time(flagged, interval=\"1 hour\", tolerance=\"10 mins\", criterion=\"first\")\n"),
+            "{t}"
+        );
+        assert!(
+            t.contains(
+                "marked = flagged.copy()\nmarked[\"thin_selected\"] = tf.move.thin_time(flagged, interval=3600)\n"
+            ),
+            "{t}"
+        );
+        assert!(
+            t.contains(
+                "spaced = tf.move.filter_thin_distance(hourly, distance=300, method=\"interval\", tolerance=60)\n"
+            ),
+            "{t}"
+        );
+        assert!(
+            t.contains("marked_distance = hourly.copy()\nmarked_distance[\"thin_selected\"] = tf.move.thin_distance(hourly, distance=300)\n"),
             "{t}"
         );
         parses(t);

@@ -890,6 +890,7 @@ struct MovePoints;
 struct MoveAmtSteps;
 struct MoveGammaFit;
 struct MoveSun;
+struct MoveSpeedCap;
 rust::Vec<double> move_distances(rust::Slice<const double> x, rust::Slice<const double> y,
                                  rust::Slice<const std::int64_t> track, bool lonlat, std::int32_t threads);
 rust::Vec<double> move_azimuths(rust::Slice<const double> x, rust::Slice<const double> y,
@@ -920,6 +921,15 @@ MoveAmtSteps move_amt_controls(rust::Slice<const double> x1, rust::Slice<const d
                                rust::Slice<const double> angle, rust::Slice<const double> sl,
                                rust::Slice<const double> ta);
 MoveSun move_sun_times(rust::Slice<const double> lon, rust::Slice<const double> lat, rust::Slice<const double> noon);
+rust::Vec<double> move_v_phys(rust::Slice<const double> mass, std::int32_t mode, double ci_level);
+MoveSpeedCap move_speed_cap(rust::Slice<const double> x, rust::Slice<const double> y, rust::Slice<const double> t,
+                            rust::Slice<const std::int64_t> track, bool lonlat, double v_max, double jitter,
+                            std::int32_t threads);
+rust::Vec<std::uint8_t> move_thin_time(rust::Slice<const double> t, rust::Slice<const std::int64_t> track,
+                                       double interval, double tolerance, bool closest, std::int32_t threads);
+rust::Vec<std::uint8_t> move_thin_distance(rust::Slice<const double> step, rust::Slice<const std::int64_t> track,
+                                           std::int32_t method, double distance, double tolerance, bool closest,
+                                           std::int32_t threads);
 // end movement ecology
 
 }  // namespace tfx
