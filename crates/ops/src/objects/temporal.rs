@@ -176,7 +176,13 @@ impl Operator for Temporal {
         ))
         .output(PortSpec::new("objects", Type::Objects, "the second date, classified with the adjusted memberships"))
         .output(PortSpec::new("before", Type::Objects, "the first date: adjusted with `both`, else as given"))
-        .output(PortSpec::new("change", Type::Table, "from, to, objects, cells, area: the transitions found"))
+        .output(PortSpec::new(
+            "change",
+            Type::Table,
+            "from, to, objects, cells, area: the transitions found; `from` is the first date's class (its highest \
+             membership) while the adjustment used all its memberships, so a transition of possibility 0 can \
+             appear when the object also belonged in part to an origin that allows its class",
+        ))
         .output(PortSpec::new("map", Type::Map, "the class number of the second date in each cell"))
         .param(PortSpec::optional("both", Type::Bool, "also adjust the first date from the second (default false)"))
         .param(PortSpec::optional(

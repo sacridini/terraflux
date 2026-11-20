@@ -906,7 +906,10 @@ pub const TIPS: &[(&str, &str)] = &[
          `sigma`; the `quantisation_error` falls as the grid grows, so it only compares maps of the same size. \
          The `umatrix` column of the `codebook` is large across the gap between two types of records, and small \
          inside one: `clusters` k groups the nodes (Ward's method) and the groups are numbered by the first \
-         principal component of their centres, so the colours do not change between runs. `training` online \
+         principal component of their centres, so the colours do not change between runs. Each node weighs the \
+         same in the grouping, however many records it holds: on a large grid of thinly filled nodes a small, \
+         distinct type (a lake among objects) can share a group with another, and a smaller grid keeps it apart. \
+         `training` online \
          takes a record at a time and is slow for very many cells: batch (the default) uses all the threads. \
          `ml.predict` with the model gives another image or date the nearest node of this fit, not of the new \
          data.",
