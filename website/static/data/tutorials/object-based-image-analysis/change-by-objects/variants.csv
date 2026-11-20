@@ -1,0 +1,6 @@
+variant,changed_ha,changed_share,became_urban_ha,left_urban_ha,none_ha
+Compared as they are (all transitions possible),776,0.231,214,226,0
+"Matrix written by hand, min 0.1",692,0.206,239,143,0
+"The same, with both = true",655,0.195,259,89,0
+Matrix estimated from the transitions found,636,0.189,217,152,0
+Matrix estimated from stable places and verified changes,623,0.185,220,145,0

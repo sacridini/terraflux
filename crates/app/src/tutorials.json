@@ -886,6 +886,48 @@
       "/data/tutorials/object-based-image-analysis/water-by-thresholds/spectral_difference.csv",
       "/data/tutorials/object-based-image-analysis/water-by-thresholds/sweep.csv"
      ]
+    },
+    {
+     "slug": "classes-without-samples",
+     "title": "Classes without samples: k-means and self-organizing maps",
+     "template": "Unsupervised classification of an image (k-means)",
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/classes-without-samples/accuracy.csv",
+      "/data/tutorials/object-based-image-analysis/classes-without-samples/centres.csv",
+      "/data/tutorials/object-based-image-analysis/classes-without-samples/centres_nocolumns.csv",
+      "/data/tutorials/object-based-image-analysis/classes-without-samples/choice.csv",
+      "/data/tutorials/object-based-image-analysis/classes-without-samples/codebook8.csv",
+      "/data/tutorials/object-based-image-analysis/classes-without-samples/columns.csv",
+      "/data/tutorials/object-based-image-analysis/classes-without-samples/grids.csv",
+      "/data/tutorials/object-based-image-analysis/classes-without-samples/k_slider.csv",
+      "/data/tutorials/object-based-image-analysis/classes-without-samples/mat_named.csv",
+      "/data/tutorials/object-based-image-analysis/classes-without-samples/mat_som.csv",
+      "/data/tutorials/object-based-image-analysis/classes-without-samples/reference_samples.csv",
+      "/data/tutorials/object-based-image-analysis/classes-without-samples/seeds.csv",
+      "/data/tutorials/object-based-image-analysis/classes-without-samples/training_samples.csv",
+      "/data/tutorials/object-based-image-analysis/classes-without-samples/vs_forest.csv"
+     ]
+    },
+    {
+     "slug": "change-by-objects",
+     "title": "Change by objects: two dates and a fuzzy transition matrix",
+     "template": "Land cover change by objects",
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/change-by-objects/ATTRIBUTION.txt",
+      "/data/tutorials/object-based-image-analysis/change-by-objects/class_areas.csv",
+      "/data/tutorials/object-based-image-analysis/change-by-objects/matrix_from_samples.csv",
+      "/data/tutorials/object-based-image-analysis/change-by-objects/matrix_from_transitions.csv",
+      "/data/tutorials/object-based-image-analysis/change-by-objects/matrix_hand.csv",
+      "/data/tutorials/object-based-image-analysis/change-by-objects/min.csv",
+      "/data/tutorials/object-based-image-analysis/change-by-objects/patch_samples.csv",
+      "/data/tutorials/object-based-image-analysis/change-by-objects/sentinel2_brasilia_2019.tif",
+      "/data/tutorials/object-based-image-analysis/change-by-objects/training_samples.csv",
+      "/data/tutorials/object-based-image-analysis/change-by-objects/transitions_hand.csv",
+      "/data/tutorials/object-based-image-analysis/change-by-objects/transitions_naive.csv",
+      "/data/tutorials/object-based-image-analysis/change-by-objects/variants.csv"
+     ]
     }
    ]
   },

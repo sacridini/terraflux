@@ -1,0 +1,6 @@
+Map \ reference,bare soil,cerrado,forest,urban,water
+bare soil,0,0,0,0,0
+cerrado,0,18,7,0,0
+forest,0,0,8,3,0
+urban,6,0,1,21,0
+water,0,0,0,0,16

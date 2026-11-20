@@ -1,0 +1,7 @@
+sentinel2_brasilia_2019.tif
+  Sentinel-2 L2A, scene S2A_22LHH_20190813_0_L2A (13 August 2019), from Earth Search
+  (https://earth-search.aws.element84.com/v1). Bands blue, green, red, nir (10 m) and swir16 (20 m, resampled to
+  the grid), reflectance x 10000, Int16, EPSG:31983 (SIRGAS 2000 / UTM 23S), square 10 m cells, 580 x 580, the
+  same grid as sentinel2_brasilia.tif (9 August 2024) of the series. The area is the edge of Lago Paranoa,
+  Brasilia, Brazil.
+  Contains modified Copernicus Sentinel data 2019.

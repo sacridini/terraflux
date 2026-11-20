@@ -1,0 +1,4 @@
+map,variables,overall,adjusted,kappa
+"Random forest (part 5, 93 samples)",12 attributes,0.8,0.768,0.739
+"k-means, k = 5, named","12 attributes, no sample",0.787,0.753,0.719
+"SOM 8 x 8, 5 groups, named","12 attributes, no sample",0.8,0.775,0.737
