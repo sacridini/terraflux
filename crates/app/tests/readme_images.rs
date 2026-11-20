@@ -449,7 +449,7 @@ fn tour_images() {
     std::fs::create_dir_all(&out).unwrap();
     use egui_kittest::kittest::{NodeT, Queryable};
     let marks = Marks::default();
-    // (wide enough for the bar's tools on it, not in its Tools menu)
+    // (at this width the bar's tools are in its Tools menu)
     let mut h = harness_marked((1280.0, 760.0), 1.0, marks.clone());
     // where a part is: the first widget whose words have these (its rectangle, points); the panes' tabs are not
     // widgets, so they are found from the widgets of their panes
@@ -470,11 +470,25 @@ fn tour_images() {
     // the Templates menu, its group Patterns open (the window's top left corner, as far as the menus reach)
     h.get_by_label("Templates").click();
     h.run_steps(3);
-    h.get_by_label_contains("Patterns").click();
+    // (the group's whole name: the template "Patterns and objects" has the word too)
+    h.get_by_label_contains("Patterns (GuidosToolbox)").click();
     h.run_steps(3);
+    // (the menu's right edge: its rows are a button as wide as its words and, beside one with a tutorial, a link
+    // "tutorial" on the same line, so the widest of them, links included)
     let (yours, item) = (rect(&h, "Yours"), rect(&h, "MSPA of a forest"));
+    let mut right = item.right();
+    for t in terraflux_app::templates::TEMPLATES.iter().filter(|t| t.group == "Patterns (GuidosToolbox)") {
+        right = right.max(rect(&h, t.name).right());
+    }
+    for n in h.query_all_by_label("tutorial") {
+        if let Some(b) = n.accesskit_node().bounding_box() {
+            if b.x0 as f32 > item.left() && (b.y1 as f32) > item.top() && (b.y0 as f32) < yours.bottom() {
+                right = right.max(b.x1 as f32);
+            }
+        }
+    }
     let img = h.render().expect("the window drawn by wgpu");
-    let (w, ht) = ((item.right() + 20.0) as u32, (yours.bottom() + 18.0) as u32);
+    let (w, ht) = ((right + 20.0) as u32, (yours.bottom() + 18.0) as u32);
     image::imageops::crop_imm(&img, 0, 0, w.min(img.width()), ht.min(img.height()))
         .to_image()
         .save(out.join("templates-menu.png"))
@@ -523,14 +537,15 @@ fn tour_images() {
     let before = |r: egui::Rect| egui::pos2(r.left() - 16.0, r.center().y);
     let mspa = h.state().session.as_ref().unwrap().editor.drawn_rect_of("mspa").expect("the box of mspa");
     let places = [
-        ("1", before(rect(&h, "Use my data"))),
+        // (the toolbar: its menus, and at its right the Tools menu)
+        ("1", before(rect(&h, "Tools"))),
         ("2", beside(rect(&h, "done in"))),
         // (the box of mspa, selected: its settings are its rows, its gear opens the panel beside it)
         ("3", mspa.left_top() + egui::vec2(-8.0, 8.0)),
         // (the drawers' tabs at the window's left edge)
         ("4", egui::pos2(46.0, 305.0)),
         ("5", egui::pos2(whole.left() + 90.0, whole.bottom() + 40.0)),
-        ("6", beside(rect(&h, "Text"))),
+        ("6", beside(rect(&h, "Classes"))),
         ("7", egui::pos2(whole.left() + 81.0, save.top() - 26.0)),
         ("8", egui::pos2(save.center().x, save.top() - 12.0)),
         ("9", before(rect(&h, "Background")) - egui::vec2(18.0, 0.0)),

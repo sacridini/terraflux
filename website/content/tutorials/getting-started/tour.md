@@ -57,21 +57,26 @@ so they run without any file.
 ## The window
 
 Open Terraflux (from the Start menu on Windows, Applications on macOS, the menu of your desktop on Linux, or by
-typing `terraflux app` in a terminal). The window starts empty, with a message in the middle of the canvas:
-*Open a raster, click an operator of the library or press / to start; or begin from a template (Templates)*.
+typing `terraflux app` in a terminal). While the model is empty, the canvas holds the **Start a model** page:
+*Start from your data* (open a raster or vectors, *Use my data* for a land change model or a template, open a
+model), *Learn* (links to the tutorials) and *Start from a task*, the templates by group, with a *tutorial* link
+beside those that have one. *Close* hides it; *Show this page when the model is empty* turns it off for good.
 
-![The empty window of Terraflux](/img/tutorials/getting-started/tour/empty.png "Terraflux as it opens: the toolbar at the top, the Model pane (an empty canvas) in the whole window, the Operators and Files drawers at its left edge, and a line of keyboard hints at the bottom. The other panes come when they have something to show. Screenshot of Terraflux 1.51 on Windows (the theme Slate).")
+![The empty window of Terraflux](/img/tutorials/getting-started/tour/empty.png "Terraflux as it opens: the toolbar at the top, the Model pane in the whole window, its canvas holding the Start a model page, the Operators and Files drawers at its left edge, and a line of keyboard hints at the bottom. The other panes come when they have something to show. Screenshot of Terraflux 1.59 on Windows (the theme Slate).")
 
 Here is the same window after a template has run, with its parts numbered. The template brings the Document and
 the Viewer as tabs behind the Model's, and the **Prepare** drawer at the window's left edge, with the Operators
 and Files drawers; here the Viewer's tab was dragged below the Model, to see both:
 
-![The parts of the window](/img/tutorials/getting-started/tour/window.png "The window with the template 'MSPA of a forest' run, the Viewer dragged below the Model. Numbers are explained below. Screenshot of Terraflux 1.51 on Windows (the theme Slate).")
+![The parts of the window](/img/tutorials/getting-started/tour/window.png "The window with the template 'MSPA of a forest' run, the Viewer dragged below the Model. Numbers are explained below. Screenshot of Terraflux 1.59 on Windows (the theme Slate).")
 
 1. **The toolbar.** The **File** menu (*New model*, *Open...*, *Open recent*, *Save*, *Save as...*, *Open a raster
    or vectors...*, *Compare* and *Export report*), *Templates* (models to start from), *Operators* (the library
-   as a menu) and *View* (panes on and off); at the right, *Use my data...* (a land change model from your maps: the
-   model first, then your files), *Many runs...*, *Computers...*, *Assistant...* and **⚙**, the settings.
+   as a menu), *Edit* (*Find and replace...*), *View* (panes on and off) and *Help* (the tutorials, the start
+   page); at the right, **Tools** (*Use my data...*, a land change model from your maps: the model first, then
+   your files; *Many runs...*, *Computers...* and *Assistant...*; on a wide window they are buttons on the bar
+   itself) and **⚙**, the settings. A template run on drawn data says so above the canvas, with its own *Use my
+   data...*.
 2. **Run and Stop**, then the model's name and how long the last run took (*done in 0.04 s*). **Run** (++f5++) runs
    the whole model. Beside them, **Step** pauses a run after each step of a loop, until *Next* or *Continue* (see
    [Loops](../../building-models/loops/#step-5-run-it-step-by-step)).
@@ -97,7 +102,8 @@ and Files drawers; here the Viewer's tab was dragged below the Model, to see bot
    double-click the edge to bring it back to the width its names need.
 6. **The Model pane's bar**: where you are in the model (*Whole model*, or inside a loop), **Run to here** (run the
    node selected and what it needs, ++ctrl+enter++), **Arrange** (tidy the nodes, ++ctrl+l++), **Undo** and **Redo**, **update after
-   every edit** (run again by itself after every change) and **Text** (the model as text).
+   every edit** (run again by itself after every change), **Times** (after a run, the boxes coloured by their
+   share of its time), **Text** (the model as text) and **Classes** (the model as the tree of its classes).
 7. **The Viewer.** It shows what the node selected gives, refreshed at every run; a double click on a node
    brings it to the front with that node's output, and keeps it there as a layer. The **Layers** at the map's
    left list the maps and vectors drawn together (shown or hidden, dragged over or under each other, their
