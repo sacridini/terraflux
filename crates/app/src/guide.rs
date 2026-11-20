@@ -152,7 +152,10 @@ categories. Not constant, with values wherever the land has a class, not colline
 5. Vectors: vector.read, vector.reproject to the reference's system, vector.rasterize onto its grid.
 6. Sentinel-2 or Landsat scenes (data.stac): set `mask = \"auto\"` (and `mask_buffer = 1`) to take each scene's \
 clouds, shadows and cirrus out per pixel before the composite; a median without it keeps the clouds where they \
-persist (the humid tropics), whatever the cloud cover asked for.
+persist (the humid tropics), whatever the cloud cover asked for. An asset of several bands (NAIP's `image`) gives a \
+layer per band, named by the item's eo:bands (`bands` chooses: [\"red\", \"nir\"]); `crs` (EPSG:32631) gives \
+extent and cellsize in that system, in metres, and warps the scenes straight onto it, without a raster.reproject \
+afterwards.
 7. Many correlated bands or drivers: ml.pca gives their principal components, from a stack (a layer per variable) \
 or the columns of a table: scores (a stack pc1, pc2... or the table with the columns added), loadings (as \
 metrics.pca's, for the circle of correlations), explained (the variance of each component, for an elbow) and a \

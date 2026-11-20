@@ -36,7 +36,10 @@ pub const TIPS: &[(&str, &str)] = &[
          values are the files' integers: scale and offset (reflectance / 10000) are the catalogue's, not applied. A \
          median of scenes left as they are keeps the clouds where they persist (the tropics): `mask = auto` drops \
          them pixel by pixel before the scenes are combined (Sentinel-2's SCL, Landsat's QA_PIXEL, HLS's Fmask; \
-         `mask_classes`, `mask_buffer` to grow it), and `first` then takes the first clear value.",
+         `mask_classes`, `mask_buffer` to grow it), and `first` then takes the first clear value. An asset of several bands (NAIP's `image`) \
+         gives a layer per band, named by the item's eo:bands (`bands` chooses); `crs` gives `extent` and `cellsize` in \
+         a projected system (EPSG:32631, metres) and warps the scenes straight onto it, one resampling and no \
+         raster.reproject after.",
     ),
     (
         "markov.fit",

@@ -7,6 +7,9 @@ version.
 
 ## [Unreleased]
 
+### Added
+- **`data.stac` reads every band of a multi-band asset, and gives the grid in a chosen CRS** (`crates/ops/src/stac.rs`). An asset of several bands (NAIP's `image`: red, green, blue, nir; orthophotos; Planet) is a layer per band, named by the item's `eo:bands` (else `raster:bands`) as the common name, else the name, else `<asset>_<number>` (`image_1`...); the new setting `bands` (names, any case, or numbers from 1, a list or a comma-separated text) chooses which, in the order asked. An asset of one band is as it always was (one layer named by the asset, the same values, the same cache), and `bands` does not touch it. The new setting `crs` (EPSG code, WKT or PROJ string) gives `extent` and `cellsize` in that CRS (metres for UTM) and the scenes are warped straight onto the grid, one resampling instead of `data.stac` and `raster.reproject`; the search box is still made in longitudes and latitudes. Without `crs` (and with `like`) nothing changes. Tests read local files, no network.
+
 ## [1.58.0] - 2026-11-20
 
 ### Added

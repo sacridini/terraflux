@@ -4821,13 +4821,14 @@ já feitas, depois 4, 5 e 7, dois agentes por vez, e regenerar o índice do app 
 que escreve `crates/app/src/tutorials.json`) a cada página nova.
 
 **O que a base da série achou no `data.stac`** (2026-11-19), para um release próximo:
-- Ele lê só a banda 1 de cada asset (`-srcband 1`, `stac.rs` ~643). O NAIP tem RGB e NIR num asset só (`image`), e
+- **Feito (2026-11-20).** Ele lê só a banda 1 de cada asset (`-srcband 1`, `stac.rs` ~643). O NAIP tem RGB e NIR num asset só (`image`), e
   outros (as ortofotos, o Planet) também: um asset de várias bandas deve dar uma camada por banda, nomeadas pelos
   `eo:bands` do item (ou `image_1`...), ou um `bands` para escolher. Até lá, o NAIP da série é recortado pelo script
   e lido com `raster.read`.
-- A grade só vem em graus (`extent` e `cellsize` em graus) ou de um `like`. Um `crs` (o `extent` e o `cellsize` nesse
+- **Feito (2026-11-20).** A grade só vem em graus (`extent` e `cellsize` em graus) ou de um `like`. Um `crs` (o `extent` e o `cellsize` nesse
   CRS) daria a grade UTM direto, sem o `raster.reproject` depois (uma reamostragem a menos). Quando sair, os
   modelos da série passam a usá-lo.
+  **Decisões (2026-11-20).** Camadas por banda: o nome é o `common_name` do `eo:bands` (ou do `raster:bands`), senão o `name`, senão `<asset>_<n>`; um asset de uma banda continua com o nome do asset e o mesmo cache (a chave só ganha `bands` quando ele é dado). O `bands` aceita nomes (qualquer caixa, `name` ou `common_name`), números a partir de 1 e `<asset>_<n>`, na ordem pedida, e só vale para os assets de várias bandas (uma banda que o asset não tem é erro, com a lista das que tem). O número de bandas vem do `eo:bands`/`raster:bands` do item; sem eles o arquivo é aberto (uma ida à rede por asset). Se dois assets dariam o mesmo nome de camada, as do asset de várias bandas ganham o nome do asset na frente. `crs` é validado pelo GDAL (`crs_wkt`), guardado como veio (`EPSG:32631`, sem o WKT, para não trocar a ordem dos eixos) e vale sem `like` (com `like` a grade é a do mapa: erro); o `cellsize` passa a ser obrigatório com `crs`. A busca no catálogo continua em graus (a caixa da grade reprojetada). Falta: usar o `crs` e o `bands` nos modelos da série (o NAIP e a grade UTM direto) Conferido ao vivo: NAIP do Planetary Computer em UTM 14N a 10 m dá `red`, `green`, `blue`, `nir` (teste `planetary_computer_gives_the_bands_of_naip_in_utm`, `--ignored`).
 
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
 

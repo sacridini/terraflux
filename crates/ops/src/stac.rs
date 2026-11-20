@@ -407,6 +407,8 @@ fn folder(rq: &Request, ids: &[&str], g: &Grid) -> PathBuf {
         Some(m) => format!("{key}|mask:{m:?}|{:?}|{}", rq.mask_classes, rq.mask_buffer),
         None => key,
     };
+    // (the bands chosen of the multi-band assets; none leaves the key as it was)
+    let key = if rq.bands.is_empty() { key } else { format!("{key}|bands:{:?}", rq.bands) };
     let hash: String = Sha256::digest(key.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
     crate::sdm::refdata::cache_dir().join("data").join(hash)
 }
@@ -460,6 +462,40 @@ struct Request {
     mask: Option<Mask>,
     mask_classes: Vec<String>,
     mask_buffer: usize,
+    /// The bands of the multi-band assets to read (names or 1-based numbers); none: all.
+    bands: Vec<String>,
+    /// The CRS of `extent` and `cellsize` (and of the layers), as GDAL reads it; none: degrees.
+    crs: Option<String>,
+}
+
+/// The bands asked for: a name or a number, a list of them, or a comma-separated text.
+fn bands_of(args: &Args) -> Result<Vec<String>> {
+    let fail = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
+    let one = |v: &Json| -> Option<String> {
+        match v {
+            Json::String(s) => Some(s.trim().to_string()),
+            Json::Number(n) => Some(n.to_string()),
+            _ => None,
+        }
+    };
+    let mut v: Vec<String> = match args.params.get("bands") {
+        Some(Json::Null) | None => vec![],
+        Some(Json::String(s)) => s.split(',').map(|b| b.trim().to_string()).collect(),
+        Some(Json::Number(n)) => vec![n.to_string()],
+        Some(Json::Array(a)) => a
+            .iter()
+            .map(|b| one(b).ok_or_else(|| fail("bands: names or numbers, e.g. [\"red\", \"nir\"] or [1, 4]".into())))
+            .collect::<Result<_>>()?,
+        Some(_) => return Err(fail("bands: names or numbers, e.g. [\"red\", \"nir\"] or [1, 4]".into())),
+    };
+    v.retain(|b| !b.is_empty());
+    let mut seen: Vec<String> = Vec::new();
+    v.retain(|b| {
+        let new = !seen.iter().any(|x| x.eq_ignore_ascii_case(b));
+        seen.push(b.clone());
+        new
+    });
+    Ok(v)
 }
 
 fn request(args: &Args) -> Result<Request> {
@@ -496,6 +532,10 @@ fn request(args: &Args) -> Result<Request> {
     if mask_buffer < 0 {
         return Err(fail("mask_buffer: the cells to grow the mask by, 0 or more".into()));
     }
+    let crs = args.opt_param::<String>("crs")?.map(|c| c.trim().to_string()).filter(|c| !c.is_empty());
+    if let Some(c) = &crs {
+        terraflux_gdal::crs_wkt(c).map_err(|e| fail(format!("crs: {c:?} is not a coordinate system ({e})")))?;
+    }
     let classes: bool = args.param("classes", false)?;
     let resampling: String = args.param("resampling", "auto".to_string())?;
     method(&resampling, classes).map_err(fail)?;
@@ -528,10 +568,116 @@ fn request(args: &Args) -> Result<Request> {
         mask,
         mask_classes,
         mask_buffer: mask_buffer as usize,
+        bands: bands_of(args)?,
+        crs,
     })
 }
 
-/// The assets of the scenes warped onto the grid and combined, a file per asset in `dir` (kept: one that exists is
+/// The layers of an asset: a name each, and the band of the file it is read from (1-based).
+#[derive(Clone, Debug, PartialEq)]
+struct Plan {
+    names: Vec<String>,
+    bands: Vec<usize>,
+    /// One band, a layer named by the asset (as it always was).
+    single: bool,
+}
+
+/// What an asset says of its bands: for each, the names it goes by (`common_name`, then `name`), from the item's
+/// `eo:bands` or else `raster:bands`; none when it lists no band.
+fn declared_bands(asset: &Json) -> Option<Vec<Vec<String>>> {
+    ["eo:bands", "raster:bands"].iter().find_map(|k| {
+        let a = asset[*k].as_array().filter(|a| !a.is_empty())?;
+        Some(
+            a.iter()
+                .map(|b| ["common_name", "name"].iter().filter_map(|n| b[*n].as_str().map(str::to_string)).collect())
+                .collect(),
+        )
+    })
+}
+
+/// The layers of an asset of `n` bands whose names are `declared` (when it says them): the band's common name, else
+/// its name, else `<asset>_<number>`; `want` (names, or numbers from 1) chooses which, in its order. An asset of one
+/// band is a layer named by the asset, whatever `want` says.
+fn plan_of(
+    asset: &str,
+    n: usize,
+    declared: Option<&[Vec<String>]>,
+    want: &[String],
+) -> std::result::Result<Plan, String> {
+    if n == 1 {
+        return Ok(Plan { names: vec![asset.to_string()], bands: vec![1], single: true });
+    }
+    let said = |i: usize| declared.filter(|d| d.len() == n).and_then(|d| d.get(i));
+    let names: Vec<String> = (0..n)
+        .map(|i| said(i).and_then(|v| v.first().cloned()).unwrap_or_else(|| format!("{asset}_{}", i + 1)))
+        .collect();
+    if want.is_empty() {
+        return Ok(Plan { names, bands: (1..=n).collect(), single: false });
+    }
+    let mut bands = Vec::new();
+    for w in want {
+        let found = (0..n).find(|&i| {
+            names[i].eq_ignore_ascii_case(w)
+                || format!("{asset}_{}", i + 1).eq_ignore_ascii_case(w)
+                || said(i).is_some_and(|v| v.iter().any(|x| x.eq_ignore_ascii_case(w)))
+                || w.parse::<usize>().is_ok_and(|k| k == i + 1)
+        });
+        match found {
+            Some(i) if !bands.contains(&(i + 1)) => bands.push(i + 1),
+            Some(_) => {}
+            None => {
+                return Err(format!(
+                    "bands: {w:?} is not a band of {asset:?} (its {n} bands: {}; or the numbers 1 to {n})",
+                    names.join(", ")
+                ));
+            }
+        }
+    }
+    Ok(Plan { names: bands.iter().map(|b| names[b - 1].clone()).collect(), bands, single: false })
+}
+
+/// The layers of every asset asked for, from the first item that has it: the bands its metadata lists, else the
+/// file's own (opened). Layers of two assets with the same name get the asset's name before it.
+fn plans(rq: &Request, items: &[Json], tokens: &mut Vec<(String, String)>) -> std::result::Result<Vec<Plan>, String> {
+    let mut all: Vec<Plan> = Vec::new();
+    for asset in &rq.assets {
+        let Some(it) = items.iter().find(|it| it["assets"][asset.as_str()]["href"].is_string()) else {
+            // (no item has it: the run says so when it reads)
+            all.push(Plan { names: vec![asset.clone()], bands: vec![1], single: true });
+            continue;
+        };
+        let a = &it["assets"][asset.as_str()];
+        let declared = declared_bands(a);
+        let n = match &declared {
+            Some(d) => d.len(),
+            None => {
+                let href = a["href"].as_str().unwrap_or("");
+                let href = sign_href(href, &rq.sign, tokens, &crate::data::sas_token)?;
+                let path = if href.starts_with("http://") || href.starts_with("https://") {
+                    format!("/vsicurl/{href}")
+                } else {
+                    href
+                };
+                terraflux_gdal::Dataset::open(&path).map_err(|e| format!("{asset}: {e}"))?.meta.bands.len()
+            }
+        };
+        all.push(plan_of(asset, n, declared.as_deref(), &rq.bands)?);
+    }
+    // (a name taken by two assets: the multi-band one's layers say their asset)
+    let taken: Vec<String> = all.iter().flat_map(|p| p.names.clone()).collect();
+    for (p, asset) in all.iter_mut().zip(&rq.assets) {
+        if !p.single {
+            for n in &mut p.names {
+                if taken.iter().filter(|t| t.eq_ignore_ascii_case(n)).count() > 1 && !n.starts_with(asset.as_str()) {
+                    *n = format!("{asset}_{n}");
+                }
+            }
+        }
+    }
+    Ok(all)
+}
+
+/// The assets of the scenes warped onto the grid and combined, a file per layer in `dir` (kept: one that exists is
 /// not made again). With a mask, each item's mask is read once (`mask-<item>.tif`), the cells it marks are NaN in
 /// every asset of the item, and an item without the mask asset is left out.
 fn compose(
@@ -555,10 +701,13 @@ fn compose(
     }
     let threads = crate::threads::for_this_thread();
     let mut tokens: Vec<(String, String)> = Vec::new();
-    let files: Vec<PathBuf> = rq.assets.iter().map(|a| dir.join(format!("{}.tif", file_stem(a)))).collect();
+    let plans = plans(rq, items, &mut tokens).map_err(fail)?;
+    // (a file a layer: named by the asset for one band, else by the band)
+    let files: Vec<Vec<PathBuf>> =
+        plans.iter().map(|p| p.names.iter().map(|n| dir.join(format!("{}.tif", file_stem(n)))).collect()).collect();
     // the masks of the items (None: the item has no mask asset), only when some layer is still to be made
     let mut masks: Vec<Option<Vec<bool>>> = vec![None; items.len()];
-    if let Some(kind) = rq.mask.filter(|_| files.iter().any(|f| !f.is_file())) {
+    if let Some(kind) = rq.mask.filter(|_| files.iter().flatten().any(|f| !f.is_file())) {
         for (k, it) in items.iter().enumerate() {
             let Some(href) = find_asset(it, kind.asset()) else { continue };
             if !ctx.progress(None, format!("reading the {} mask of {}", kind.asset(), ids[k])) {
@@ -570,7 +719,7 @@ fn compose(
                     .map_err(|e| fail(format!("the mask of {}: {e}", ids[k])))?;
                 let tmp = dir.join(format!(".mask-{}-{k}.tif", std::process::id()));
                 // (codes: the nearest cell always)
-                let r = warp_grid(&href, &tmp, "near", "Float32", g, threads)
+                let r = warp_grid(&href, &tmp, "near", "Float32", &[1], g, threads)
                     .and_then(|()| std::fs::rename(&tmp, &file).map_err(|e| format!("{}: {e}", file.display())));
                 let _ = std::fs::remove_file(&tmp);
                 r.map_err(|e| fail(format!("the mask of {}: {e}", ids[k])))?;
@@ -589,11 +738,12 @@ fn compose(
         }
     }
     for (a, asset) in rq.assets.iter().enumerate() {
-        let out = &files[a];
-        if out.is_file() {
+        let (plan, outs) = (&plans[a], &files[a]);
+        if outs.iter().all(|f| f.is_file()) {
             continue;
         }
-        let mut scenes: Vec<Vec<f64>> = Vec::new();
+        // (the scenes of each band)
+        let mut scenes: Vec<Vec<Vec<f64>>> = vec![Vec::new(); plan.bands.len()];
         for (k, it) in items.iter().enumerate() {
             let Some(href) = it["assets"][asset.as_str()]["href"].as_str() else { continue };
             if rq.mask.is_some() && masks[k].is_none() {
@@ -606,30 +756,45 @@ fn compose(
             let href = sign_href(href, &rq.sign, &mut tokens, &crate::data::sas_token)
                 .map_err(|e| fail(format!("{asset} of {}: {e}", ids[k])))?;
             let tmp = dir.join(format!(".{}-{}-{k}.tif", file_stem(asset), std::process::id()));
-            let read = warp_grid(&href, &tmp, how, ot, g, threads).and_then(|()| {
+            let read = warp_grid(&href, &tmp, how, ot, &plan.bands, g, threads).and_then(|()| {
                 let d = terraflux_gdal::Dataset::open(&tmp)?;
-                d.read(0, 0, 0, g.width, g.height, g.width, g.height)
+                (0..plan.bands.len())
+                    .map(|b| d.read(b, 0, 0, g.width, g.height, g.width, g.height))
+                    .collect::<std::result::Result<Vec<_>, _>>()
             });
             let _ = std::fs::remove_file(&tmp);
-            let mut v = read.map_err(|e| fail(format!("{asset} of {}: {e}", ids[k])))?;
-            if let Some(m) = &masks[k] {
-                for (x, _) in v.iter_mut().zip(m).filter(|(_, m)| **m) {
-                    *x = f64::NAN;
+            let read = read.map_err(|e| fail(format!("{asset} of {}: {e}", ids[k])))?;
+            for (b, mut v) in read.into_iter().enumerate() {
+                if let Some(m) = &masks[k] {
+                    for (x, _) in v.iter_mut().zip(m).filter(|(_, m)| **m) {
+                        *x = f64::NAN;
+                    }
                 }
+                scenes[b].push(v);
             }
-            scenes.push(v);
         }
-        if scenes.is_empty() {
+        if scenes[0].is_empty() {
             return Err(fail(format!("no item has the asset {asset:?}")));
         }
-        let data = combine(&scenes, &rq.composite, !rq.classes);
-        write_layer(out, g, data, rq.classes).map_err(fail)?;
+        for (b, out) in outs.iter().enumerate() {
+            let data = combine(&scenes[b], &rq.composite, !rq.classes);
+            write_layer(out, g, data, rq.classes).map_err(fail)?;
+        }
     }
-    Ok(files)
+    Ok(files.into_iter().flatten().collect())
 }
 
-/// A file (a url on a server, a path) warped onto the grid, its first band, `how` resampled, NaN for no data.
-fn warp_grid(href: &str, out: &Path, how: &str, ot: &str, g: &Grid, threads: usize) -> std::result::Result<(), String> {
+/// A file (a url on a server, a path) warped onto the grid, the `bands` asked (from 1), `how` resampled, NaN for no
+/// data.
+fn warp_grid(
+    href: &str,
+    out: &Path,
+    how: &str,
+    ot: &str,
+    bands: &[usize],
+    g: &Grid,
+    threads: usize,
+) -> std::result::Result<(), String> {
     let path = if href.starts_with("http://") || href.starts_with("https://") {
         format!("/vsicurl/{href}")
     } else {
@@ -638,11 +803,12 @@ fn warp_grid(href: &str, out: &Path, how: &str, ot: &str, g: &Grid, threads: usi
     let t = g.transform;
     let (xmin, xmax) = (t[0], t[0] + t[1] * g.width as f64);
     let (ymax, ymin) = (t[3], t[3] + t[5] * g.height as f64);
-    // (the first band; no overview of the file: the library's reproject reads the full resolution)
+    // (the bands asked; no overview of the file: the library's reproject reads the full resolution)
     let mut w: Vec<String> =
-        ["-r", how, "-of", "GTiff", "-srcband", "1", "-ovr", "NONE", "-ot", ot, "-dstnodata", "nan"]
-            .map(String::from)
-            .to_vec();
+        ["-r", how, "-of", "GTiff", "-ovr", "NONE", "-ot", ot, "-dstnodata", "nan"].map(String::from).to_vec();
+    for b in bands {
+        w.extend(["-srcband".into(), b.to_string()]);
+    }
     w.extend([
         "-te".into(),
         xmin.to_string(),
@@ -661,6 +827,23 @@ fn warp_grid(href: &str, out: &Path, how: &str, ot: &str, g: &Grid, threads: usi
     terraflux_gdal::warp(&[Path::new(&path)], out, &w)
 }
 
+/// The grid to fill: a map's (`like`), or `extent` at `cellsize` in the `crs` (default: longitudes and latitudes).
+fn stac_grid(args: &Args, rq: &Request) -> Result<Grid> {
+    let fail = |m: &str| Error::msg(format!("node {:?}: {m}", args.node));
+    let Some(crs) = &rq.crs else { return crate::data::grid_of(args) };
+    if args.get("like").is_some() {
+        return Err(fail("crs: with like the grid is the map's: leave crs out (or reproject the map first)"));
+    }
+    let cell: f64 = args.param("cellsize", f64::NAN)?;
+    if !(cell.is_finite() && cell > 0.0) {
+        return Err(fail("cellsize: the cells' side in the crs's units (metres for UTM), above 0"));
+    }
+    // (the extent's numbers are the crs's coordinates: [xmin, ymin, xmax, ymax])
+    let mut g = crate::data::grid_of(args)?;
+    g.geo.wkt = Some(crs.clone());
+    Ok(g)
+}
+
 struct Stac;
 
 impl Operator for Stac {
@@ -672,8 +855,10 @@ impl Operator for Stac {
              collection over the grid's box (and the dates, and a query on their properties: eo:cloud_cover below \
              20); every asset asked for of every item is read from the server (only the part the grid covers), \
              warped onto the grid, and the items combined cell by cell (the median of the cells with values, the \
-             mean, the minimum, the maximum, or the first item with a value). A layer per asset, kept in the \
-             cache (Terraflux's, TERRAFLUX_CACHE), made once. The values are the files' (Sentinel-2's \
+             mean, the minimum, the maximum, or the first item with a value). A layer per asset, or per band of an \
+             asset with several (NAIP's image: red, green, blue, nir, named by the item's eo:bands; `bands` \
+             chooses), kept in the cache (Terraflux's, TERRAFLUX_CACHE), made once. A grid in a projected system: \
+             `crs` with extent and cellsize in its units (UTM metres), warped straight onto it. The values are the files' (Sentinel-2's \
              reflectances as integers: scale and offset are the catalogue's raster:bands). The Planetary \
              Computer's files need a token: sign = planetary_computer asks it, without a key. mask = auto drops the \
              clouds, shadows and cirrus pixel by pixel (the scene classification of Sentinel-2, QA_PIXEL of Landsat, \
@@ -692,7 +877,8 @@ impl Operator for Stac {
         .param(PortSpec::new(
             "assets",
             Type::Any,
-            "the assets' names (red, nir, SCL...), one or a list: a layer each, named by the asset",
+            "the assets' names (red, nir, SCL...), one or a list: a layer each, named by the asset (an asset of several \
+             bands: a layer per band, see bands)",
         ))
         .param(PortSpec::optional(
             "datetime",
@@ -745,8 +931,30 @@ impl Operator for Stac {
             Type::Integer,
             "cells to grow the mask by in every direction, on the grid (default 0)",
         ))
-        .param(PortSpec::optional("extent", Type::Any, "without like: [west, south, east, north], degrees"))
-        .param(PortSpec::optional("cellsize", Type::Number, "with extent: the cells' side, degrees"))
+        .param(PortSpec::optional(
+            "bands",
+            Type::Any,
+            "of an asset with several bands (NAIP's image: red, green, blue, nir): which to read, names (the item's \
+             eo:bands: red, nir; or image_1, image_2) or numbers from 1, a list or a comma-separated text (default \
+             all); a layer each. An asset of one band is one layer, whatever this says",
+        ))
+        .param(PortSpec::optional(
+            "extent",
+            Type::Any,
+            "without like: [west, south, east, north], degrees (or the crs's units)",
+        ))
+        .param(PortSpec::optional(
+            "cellsize",
+            Type::Number,
+            "with extent: the cells' side, degrees (or the crs's units)",
+        ))
+        .param(PortSpec::optional(
+            "crs",
+            Type::Text,
+            "without like: the grid's coordinate system (EPSG:32631, a WKT, a PROJ string): extent and cellsize are \
+             in its units (metres for UTM) and the scenes are warped straight onto it, one resampling. Default: \
+             longitudes and latitudes (EPSG:4326)",
+        ))
     }
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -756,7 +964,7 @@ impl Operator for Stac {
         if args.get("like").is_none() && args.params.get("extent").is_none_or(Json::is_null) {
             return Err(fail("connect a map whose grid to fill (like), or give extent and cellsize".into()));
         }
-        let g = crate::data::grid_of(args)?;
+        let g = stac_grid(args, &rq)?;
         let (lon, lat) = crate::data::lonlat_box(&g)?;
         let body = search_body(&rq.collection, lon, lat, rq.datetime.as_deref(), rq.query.as_ref(), rq.limit);
         if !ctx.progress(None, format!("searching {}", rq.url)) {
@@ -1121,6 +1329,197 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// NAIP's `image` as the Planetary Computer lists it: four bands, named by `eo:bands`.
+    fn naip_bands() -> Json {
+        json!([
+            {"name": "Red", "common_name": "red"}, {"name": "Green", "common_name": "green"},
+            {"name": "Blue", "common_name": "blue"}, {"name": "NIR", "common_name": "nir"}
+        ])
+    }
+
+    #[test]
+    fn the_bands_of_an_asset_are_named_and_chosen() {
+        let named = declared_bands(&json!({"eo:bands": naip_bands()})).unwrap();
+        assert_eq!(named.len(), 4);
+        assert_eq!(named[3], ["nir", "NIR"]);
+        let all = plan_of("image", 4, Some(&named), &[]).unwrap();
+        assert_eq!(
+            (all.names.clone(), all.bands.clone(), all.single),
+            (classes(&["red", "green", "blue", "nir"]), vec![1, 2, 3, 4], false)
+        );
+        // without names: the asset's, numbered
+        let p = plan_of("image", 3, None, &[]).unwrap();
+        assert_eq!(p.names, ["image_1", "image_2", "image_3"]);
+        // raster:bands is read when eo:bands is not there; a list of another length is not trusted
+        assert_eq!(declared_bands(&json!({"raster:bands": [{"name": "b1"}]})).unwrap(), [["b1"]]);
+        assert!(declared_bands(&json!({"eo:bands": []})).is_none());
+        assert_eq!(plan_of("image", 2, Some(&named), &[]).unwrap().names, ["image_1", "image_2"]);
+        // chosen by name (either name, any case), by number or by the numbered name, in the order asked
+        let want = |w: &[&str]| plan_of("image", 4, Some(&named), &classes(w)).unwrap();
+        let p = want(&["NIR", "Red"]);
+        assert_eq!((p.names, p.bands), (classes(&["nir", "red"]), vec![4, 1]));
+        let p = want(&["2", "image_3", "green"]);
+        assert_eq!((p.names, p.bands), (classes(&["green", "blue"]), vec![2, 3]));
+        let e = plan_of("image", 4, Some(&named), &classes(&["swir"])).unwrap_err();
+        assert!(e.contains("swir") && e.contains("red, green, blue, nir"), "{e}");
+        assert!(plan_of("image", 4, Some(&named), &classes(&["5"])).is_err());
+        // one band: a layer named by the asset, `bands` or not
+        let p = plan_of("red", 1, Some(&[vec!["B04".to_string()]]), &classes(&["nir"])).unwrap();
+        assert_eq!((p.names, p.bands, p.single), (classes(&["red"]), vec![1], true));
+        // the setting: a list, numbers or a text
+        let b = |v: Json| rq_with(json!({"bands": v})).bands;
+        assert_eq!(b(json!(["red", "NIR", "red"])), ["red", "NIR"]);
+        assert_eq!(b(json!([1, 4])), ["1", "4"]);
+        assert_eq!(b(json!("red, nir")), ["red", "nir"]);
+        assert!(rq_with(json!({})).bands.is_empty());
+        // part of the cache key, and not when it is not set
+        let g = Grid::new(4, 4);
+        let at = |extra: Json| folder(&rq_with(extra), &["a"], &g);
+        assert_ne!(at(json!({})), at(json!({"bands": ["red"]})));
+        assert_eq!(at(json!({})), at(json!({"bands": []})));
+    }
+
+    #[test]
+    fn a_multi_band_asset_gives_a_layer_per_band() {
+        if terraflux_gdal::gdal().is_err() {
+            return;
+        }
+        let root = std::env::temp_dir().join(format!("terraflux-stac-bands-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut g = Grid::new(4, 2);
+        g.transform = [10.0, 1.0, 0.0, 20.0, 0.0, -1.0];
+        // two scenes of a 4-band image (a band's cells are its number times 10, the second scene 10 more), and a
+        // single-band asset beside it
+        let mut items = Vec::new();
+        for (id, add) in [("a", 0.0), ("b", 10.0)] {
+            let bands = (0..4)
+                .map(|b| terraflux_raster::Band { name: None, data: vec![(b + 1) as f64 * 10.0 + add; 8] })
+                .collect();
+            let r = Raster { grid: g.clone(), bands, dtype: DataType::F32, nodata: None };
+            let (img, one) = (root.join(format!("{id}-image.tif")), root.join(format!("{id}-lidar.tif")));
+            terraflux_raster::tiff::write(&r, &img, &Default::default()).unwrap();
+            tif(&one, &g, &[5.0 + add; 8]);
+            items.push(json!({"id": id, "assets": {
+                "image": {"href": img, "eo:bands": naip_bands()},
+                "lidar": {"href": one, "eo:bands": [{"name": "height"}]},
+            }}));
+        }
+        let run = |name: &str, extra: Json| -> Vec<(String, Vec<f64>)> {
+            let mut m = json!({"assets": ["image", "lidar"], "composite": "mean"});
+            m.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            let rq = rq_with(m);
+            let dir = root.join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            let ids = ["a", "b"];
+            let files =
+                compose(&mut Ctx::default(), "n", &rq, &items, &ids, &g, &dir).unwrap_or_else(|e| panic!("{e}"));
+            files.iter().map(|f| (f.file_stem().unwrap().to_string_lossy().into_owned(), layer(f, &g))).collect()
+        };
+        // all the bands, named by eo:bands, then the single-band asset as it always was: named by the asset
+        let all = run("all", json!({}));
+        let names: Vec<&str> = all.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["red", "green", "blue", "nir", "lidar"]);
+        for (i, (_, v)) in all.iter().enumerate() {
+            let want = if i < 4 { (i + 1) as f64 * 10.0 + 5.0 } else { 10.0 };
+            assert_eq!(&v[..8], &[want; 8], "layer {i}");
+        }
+        // the choice: by name and by number, in the order asked; the single-band asset stays
+        let some = run("some", json!({"bands": ["nir", 1]}));
+        let names: Vec<&str> = some.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["nir", "red", "lidar"]);
+        assert_eq!(some[0].1[0], 45.0);
+        assert_eq!(some[1].1[0], 15.0);
+        // a band the asset does not have is refused, saying the bands it has
+        let m = json!({"assets": "image", "bands": ["swir"]});
+        let e = compose(&mut Ctx::default(), "n", &rq_with(m), &items, &["a", "b"], &g, &root.join("bad"))
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(e.contains("swir") && e.contains("red, green, blue, nir"), "{e}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_grid_is_given_in_the_crs() {
+        if terraflux_gdal::gdal().is_err() {
+            return;
+        }
+        let grid_of = |extra: Json| -> Result<Grid> {
+            let mut m = json!({"url": "https://es.test/v1", "collection": "c", "assets": "red"});
+            m.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            let m = m.as_object().cloned().unwrap();
+            let args = Args { node: "n", inputs: Default::default(), params: &m };
+            stac_grid(&args, &request(&args)?)
+        };
+        // metres: 20 x 10 cells of 100 m, in UTM 31N
+        let g = grid_of(
+            json!({"crs": "EPSG:32631", "extent": [499000.0, 4538000.0, 501000.0, 4539000.0], "cellsize": 100.0}),
+        )
+        .unwrap();
+        assert_eq!((g.width, g.height), (20, 10));
+        assert_eq!(g.transform, [499000.0, 100.0, 0.0, 4539000.0, 0.0, -100.0]);
+        assert_eq!(crate::prepare::crs_of(&g).as_deref(), Some("EPSG:32631"));
+        // the search box is in longitudes and latitudes, near 3 E 41 N
+        let (lon, lat) = crate::data::lonlat_box(&g).unwrap();
+        assert!(lon[0] > 2.98 && lon[1] < 3.03 && lat[0] > 40.98 && lat[1] < 41.03, "{lon:?} {lat:?}");
+        // without crs: degrees, as before
+        let d = grid_of(json!({"extent": [2.0, 41.0, 2.5, 41.5], "cellsize": 0.05})).unwrap();
+        assert_eq!((d.width, d.height, crate::prepare::crs_of(&d).as_deref()), (10, 10, Some("EPSG:4326")));
+        // asked wrong
+        let says = |extra: Json, word: &str| {
+            let e = grid_of(extra).err().unwrap().to_string();
+            assert!(e.contains(word), "{e}");
+        };
+        says(json!({"crs": "EPSG:32631", "extent": [0.0, 0.0, 1.0, 1.0]}), "cellsize");
+        says(json!({"crs": "nowhere", "extent": [0.0, 0.0, 1.0, 1.0], "cellsize": 0.1}), "crs");
+        // the folder of the cache tells a crs from another
+        let key = |c: &str| {
+            let g = grid_of(json!({"crs": c, "extent": [499000.0, 4538000.0, 501000.0, 4539000.0], "cellsize": 100.0}))
+                .unwrap();
+            folder(&rq_with(json!({})), &["a"], &g)
+        };
+        assert_ne!(key("EPSG:32631"), key("EPSG:25831"));
+    }
+
+    #[test]
+    fn the_scenes_are_warped_straight_to_the_crs() {
+        if terraflux_gdal::gdal().is_err() {
+            return;
+        }
+        let root = std::env::temp_dir().join(format!("terraflux-stac-crs-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        // a scene in longitudes and latitudes around 3 E 41 N: a gradient west to east
+        let mut s = Grid::new(40, 40);
+        s.transform = [2.98, 0.001, 0.0, 41.02, 0.0, -0.001];
+        s.geo.wkt = Some("EPSG:4326".into());
+        let v: Vec<f64> = (0..1600).map(|i| (i % 40) as f64).collect();
+        let src = root.join("scene.tif");
+        write_layer(&src, &s, v, false).unwrap();
+        let items = [json!({"id": "a", "assets": {"red": {"href": src}}})];
+        // the grid: 10 x 10 cells of 100 m in UTM 31N
+        let mut g = Grid::new(10, 10);
+        g.transform = [499500.0, 100.0, 0.0, 4538500.0, 0.0, -100.0];
+        g.geo.wkt = Some("EPSG:32631".into());
+        let rq = rq_with(json!({"crs": "EPSG:32631", "resampling": "near"}));
+        let dir = root.join("out");
+        std::fs::create_dir_all(&dir).unwrap();
+        let files = compose(&mut Ctx::default(), "n", &rq, &items, &["a"], &g, &dir).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(files.len(), 1);
+        // the layer is on the grid asked: the UTM zone, the cells of 100 m
+        let d = terraflux_gdal::Dataset::open(&files[0]).unwrap();
+        let m = &d.meta.grid;
+        assert_eq!((m.width, m.height), (10, 10));
+        assert_eq!(m.transform, g.transform);
+        let wkt = m.geo.wkt.clone().unwrap_or_default();
+        assert!(wkt.contains("32631") || wkt.contains("UTM zone 31N"), "{wkt}");
+        // values from the scene (columns 0 to 39, around 3 E in the middle: column 20), all there
+        let v = layer(&files[0], &g);
+        assert!(v.iter().all(|x| x.is_finite() && (10.0..=30.0).contains(x)), "{v:?}");
+        // east is larger than west
+        assert!(v[9] > v[0], "{v:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn the_mask_is_part_of_the_cache_key() {
         let g = Grid::new(4, 4);
@@ -1177,6 +1576,32 @@ mod tests {
         }
         // (where the layers are, to compare them with the library's)
         println!("cache: {}", crate::sdm::refdata::cache_dir().join("data").display());
+    }
+
+    /// NAIP of the Planetary Computer (one asset of four bands) on a UTM grid of 10 m: `cargo test -p terraflux-ops
+    /// --lib stac:: -- --ignored naip`.
+    #[test]
+    #[ignore = "searches the Planetary Computer and reads NAIP from Azure"]
+    fn planetary_computer_gives_the_bands_of_naip_in_utm() {
+        let reg = Registry::standard();
+        let params = json!({
+            "url": "https://planetarycomputer.microsoft.com/api/stac/v1", "collection": "naip", "assets": "image",
+            "sign": "planetary_computer", "limit": 2, "crs": "EPSG:32614",
+            "extent": [621000.0, 3349000.0, 621400.0, 3349400.0], "cellsize": 10.0, "composite": "first",
+        });
+        let params = params.as_object().cloned().unwrap();
+        let args = Args { node: "n", inputs: Default::default(), params: &params };
+        let out = reg.get("data.stac").unwrap().run(&mut Ctx::default(), &args).unwrap_or_else(|e| panic!("{e}"));
+        let Value::Raster(r) = &out["raster"] else { panic!() };
+        let s = r.stack().unwrap();
+        let keys: Vec<String> = s.keys.iter().map(|k| k.to_string()).collect();
+        println!("layers: {keys:?}");
+        assert_eq!(keys, ["red", "green", "blue", "nir"]);
+        assert_eq!((s.grid.width, s.grid.height), (40, 40));
+        assert_eq!(s.grid.transform[1], 10.0);
+        for l in &s.layers {
+            assert!(l.iter().filter(|x| x.is_finite()).count() > 1000);
+        }
     }
 
     /// The same window with `mask = auto`, on a catalogue and a collection: the layer is read and the clouds are out.
