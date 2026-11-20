@@ -214,6 +214,54 @@ pub const REFERENCES: &[Reference] = &[
         "42–57",
         "10.1016/j.rse.2014.02.015"
     ),
+    paper!(
+        "radoux2017",
+        ["Radoux, J.", "Bogaert, P."],
+        false,
+        2017,
+        "Good practices for object-based accuracy assessment",
+        "Remote Sensing",
+        "9",
+        "7",
+        "646",
+        "10.3390/rs9070646"
+    ),
+    paper!(
+        "stehman2014",
+        ["Stehman, S. V."],
+        false,
+        2014,
+        "Estimating area and map accuracy for stratified random sampling when the strata are different from the map classes",
+        "International Journal of Remote Sensing",
+        "35",
+        "13",
+        "4923–4939",
+        "10.1080/01431161.2014.930207"
+    ),
+    paper!(
+        "breiman2001",
+        ["Breiman, L."],
+        false,
+        2001,
+        "Random forests",
+        "Machine Learning",
+        "45",
+        "1",
+        "5–32",
+        "10.1023/A:1010933404324"
+    ),
+    paper!(
+        "friedman2001",
+        ["Friedman, J. H."],
+        false,
+        2001,
+        "Greedy function approximation: a gradient boosting machine",
+        "The Annals of Statistics",
+        "29",
+        "5",
+        "1189–1232",
+        "10.1214/aos/1013203451"
+    ),
     Reference {
         key: "achanta2017",
         authors: &["Achanta, R.", "Süsstrunk, S."],
@@ -1218,6 +1266,14 @@ pub const METHODS: &[Method] = &[
         software: "",
         software_refs: &[],
     },
+    // ml.fit fits a random forest unless its method is gradient_boosting (see `method_for`)
+    Method {
+        ops: &["ml.fit"],
+        name: "random forest learning",
+        refs: &["breiman2001"],
+        software: "",
+        software_refs: &[],
+    },
     Method {
         ops: &["segment.multiresolution"],
         name: "multiresolution segmentation into objects",
@@ -1354,7 +1410,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["objects.accuracy", "objects.sample"],
         name: "the accuracy of a classification of objects and the sample to assess it",
-        refs: &["olofsson2014"],
+        refs: &["olofsson2014", "radoux2017", "stehman2014"],
         software: "",
         software_refs: &[],
     },
@@ -1390,6 +1446,31 @@ const URL: &str = "https://github.com/sacridini/terraflux";
 
 pub(crate) fn reference(key: &str) -> Option<&'static Reference> {
     REFERENCES.iter().find(|r| r.key == key)
+}
+
+/// What `ml.fit` fits when its method is gradient_boosting.
+static BOOSTING: Method =
+    Method { ops: &[], name: "gradient boosting of trees", refs: &["friedman2001"], software: "", software_refs: &[] };
+
+/// What `ml.fit` fits when its method is a model input ($name), unknown until the run: no paper is cited.
+static TREES: Method = Method {
+    ops: &[],
+    name: "tree ensemble learning (random forest or gradient boosting)",
+    refs: &[],
+    software: "",
+    software_refs: &[],
+};
+
+/// The method a node is part of: [`method_of`], but `ml.fit` by its `method` setting (the forest by default).
+fn method_for(n: &Node) -> Option<&'static Method> {
+    if n.op == "ml.fit" {
+        match n.params.get("method").and_then(|v| v.as_str()) {
+            Some("gradient_boosting") => return Some(&BOOSTING),
+            Some(s) if s.starts_with('$') || s.starts_with('@') => return Some(&TREES),
+            _ => {}
+        }
+    }
+    method_of(&n.op)
 }
 
 /// The method an operator is part of.
@@ -1476,11 +1557,12 @@ type Group<'a> = (&'static str, &'static [&'static str], Vec<(&'static Method, V
 pub fn of(m: &Model, r: &Registry, version: &str, file: Option<&str>) -> Methods {
     let mut nodes = Vec::new();
     all_nodes(&m.nodes, 0, &mut nodes);
-    let ops: Vec<&str> = nodes.iter().filter(|(_, n)| !n.bypass).map(|(_, n)| n.op.as_str()).collect();
+    let ops: Vec<(&str, Option<&'static Method>)> =
+        nodes.iter().filter(|(_, n)| !n.bypass).map(|(_, n)| (n.op.as_str(), method_for(n))).collect();
     // the methods used, grouped by the software reproduced, in the order they come
     let mut groups: Vec<Group> = Vec::new();
-    for op in &ops {
-        let Some(me) = method_of(op) else { continue };
+    for &(op, me) in &ops {
+        let Some(me) = me else { continue };
         let g = match groups.iter().position(|(s, sr, _)| *s == me.software && *sr == me.software_refs) {
             Some(g) => g,
             None => {
@@ -1490,7 +1572,7 @@ pub fn of(m: &Model, r: &Registry, version: &str, file: Option<&str>) -> Methods
         };
         let used = &mut groups[g].2;
         match used.iter_mut().find(|(x, _)| std::ptr::eq(*x, me)) {
-            Some((_, o)) if !o.contains(op) => o.push(op),
+            Some((_, o)) if !o.contains(&op) => o.push(op),
             Some(_) => {}
             None => used.push((me, vec![op])),
         }
@@ -1808,7 +1890,39 @@ mod tests {
         assert_eq!(method_of("ml.pca").unwrap().refs, &["pearson1901", "hotelling1933"]);
         assert_eq!(method_of("ml.kmeans").unwrap().refs, &["lloyd1982", "arthur2007", "rousseeuw1987"]);
         assert_eq!(method_of("ml.som").unwrap().refs, &["kohonen1982", "kohonen2001", "vesanto2000"]);
+        assert_eq!(method_of("ml.fit").unwrap().refs, &["breiman2001"]);
         assert!(method_of("raster.reclassify").is_none());
+    }
+
+    #[test]
+    fn ml_fit_cites_the_algorithm_it_fits() {
+        let r = Registry::standard();
+        let paragraph = |params: &str| {
+            let m = Model::from_toml(&format!(
+                "format = \"terraflux/1\"
+
+[[nodes]]
+id = \"fit\"
+op = \"ml.fit\"
+params = {{ {params} }}
+"
+            ))
+            .unwrap();
+            of(&m, &r, "1.0.0", None).paragraph
+        };
+        let forest = paragraph("");
+        assert!(forest.contains("random forest learning (Breiman, 2001)"), "{forest}");
+        assert_eq!(paragraph("method = \"random_forest\""), forest);
+        let boosting = paragraph("method = \"gradient_boosting\"");
+        assert!(
+            boosting.contains("gradient boosting of trees (Friedman, 2001)") && !boosting.contains("Breiman"),
+            "{boosting}"
+        );
+        let open = paragraph("method = \"$m\"");
+        assert!(
+            open.contains("tree ensemble learning") && !open.contains("Breiman") && !open.contains("Friedman"),
+            "{open}"
+        );
     }
 
     #[test]
