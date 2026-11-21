@@ -25,9 +25,9 @@ pub fn register(r: &mut Registry) {
 }
 
 /// The settings (and the string) of an error inside the helpers, which the operators tag with their node.
-type Res<T> = std::result::Result<T, String>;
+pub(super) type Res<T> = std::result::Result<T, String>;
 
-fn ffi_err(e: cxx::Exception) -> String {
+pub(super) fn ffi_err(e: cxx::Exception) -> String {
     e.what().to_string()
 }
 
@@ -46,7 +46,7 @@ struct Tracks {
     column: Option<Column>,
 }
 
-fn number_label(v: f64) -> String {
+pub(super) fn number_label(v: f64) -> String {
     if v.is_finite() && v.fract() == 0.0 && v.abs() < 1e15 { format!("{}", v as i64) } else { format!("{v}") }
 }
 
@@ -178,7 +178,7 @@ fn poly_area(p: &Poly) -> f64 {
     a
 }
 
-fn shape_area(ps: &[Poly]) -> f64 {
+pub(super) fn shape_area(ps: &[Poly]) -> f64 {
     let mut s = 0.0;
     for p in ps {
         s += poly_area(p);
@@ -187,7 +187,7 @@ fn shape_area(ps: &[Poly]) -> f64 {
 }
 
 /// The polygons as a feature: a polygon, a multipolygon (`multi`, or for several polygons), none: empty.
-fn geometry_of(shape: &[Poly], multi: bool) -> Geometry {
+pub(super) fn geometry_of(shape: &[Poly], multi: bool) -> Geometry {
     match shape {
         [] => Geometry::Empty,
         [p] if !multi => Geometry::Polygon(p.clone()),
@@ -203,7 +203,7 @@ fn polys_of(g: &Geometry) -> Vec<Poly> {
     }
 }
 
-fn geos() -> Res<&'static Geos> {
+pub(super) fn geos() -> Res<&'static Geos> {
     terraflux_gdal::geos::geos().map_err(|e| format!("GEOS is needed for the polygons ({e})"))
 }
 
@@ -338,7 +338,7 @@ fn lscv_one(x: &[f64], y: &[f64], rescale: Rescale, local: bool, threads: i32) -
 
 /// The cells of a template: the exact extent and the number of columns and rows.
 #[derive(Clone, Copy)]
-struct Spec {
+pub(super) struct Spec {
     xmin: f64,
     xmax: f64,
     ymin: f64,
@@ -377,7 +377,7 @@ impl Spec {
     }
 }
 
-fn spec_of(g: &Grid) -> Res<Spec> {
+pub(super) fn spec_of(g: &Grid) -> Res<Spec> {
     let t = g.transform;
     if t[2] != 0.0 || t[4] != 0.0 || !t[1].is_finite() || t[1] <= 0.0 || !t[5].is_finite() || t[5] >= 0.0 {
         return Err("the template raster must be north up: x increasing, y decreasing and not rotated".into());
@@ -447,7 +447,7 @@ fn kde_values(x: &[f64], y: &[f64], h: (f64, f64), s: &Spec) -> Res<(Vec<f64>, b
 }
 
 /// The union of the closed contour lines of the cumulative distribution at each level, as polygons (amt's isopleths).
-fn isopleths(cud: &[f64], s: &Spec, levels: &[f64], geos: &Geos) -> Res<Vec<Vec<Poly>>> {
+pub(super) fn isopleths(cud: &[f64], s: &Spec, levels: &[f64], geos: &Geos) -> Res<Vec<Vec<Poly>>> {
     let (xmin, ymax, dx, dy) = s.cell();
     let mut out = Vec::with_capacity(levels.len());
     for &lv in levels {
@@ -605,7 +605,7 @@ fn sort_rows(rows: &mut [Row]) {
     rows.sort_by(|a, b| a.track.cmp(&b.track).then(b.level.partial_cmp(&a.level).unwrap_or(std::cmp::Ordering::Equal)));
 }
 
-fn labels_table(columns: &[&str], names: &[String]) -> Table {
+pub(super) fn labels_table(columns: &[&str], names: &[String]) -> Table {
     let mut t = Table::new(columns.iter().map(|c| c.to_string()).collect());
     t.labels.insert(columns[0].to_string(), names.to_vec());
     t
@@ -653,7 +653,7 @@ fn rescale_of(args: &Args) -> Result<Rescale> {
 }
 
 /// The grid cells of the `like` input: one map or stack, or the first band of a raster.
-fn like_grid(args: &Args) -> Result<Option<Arc<Grid>>> {
+pub(super) fn like_grid(args: &Args) -> Result<Option<Arc<Grid>>> {
     Ok(match args.get("like") {
         None => None,
         Some(Value::Raster(r)) => Some(Arc::new(r.grid_of(r.chosen).clone())),

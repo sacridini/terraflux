@@ -1367,6 +1367,29 @@ pub mod ffi {
         xy: Vec<f64>,
     }
 
+    /// The dBBMM motion variance of a track: per location (NaN where no window covers it), the windows that cover
+    /// each, and the 1-based position of the break of each window that has one.
+    struct MoveDbbmmVariance {
+        variance: Vec<f64>,
+        n_estim: Vec<i32>,
+        break_pos: Vec<i32>,
+    }
+
+    /// The dBGB's standard deviations along and across the bridge per location (NaN where no window covers it) and
+    /// the windows that cover each.
+    struct MoveDbgbVariance {
+        para_sd: Vec<f64>,
+        orth_sd: Vec<f64>,
+        n_estim: Vec<i32>,
+    }
+
+    /// A location error with its missing values filled; `status` 0 filled (or none missing), 1 every value missing,
+    /// 2 `approx` with fewer than two known values (the values are then as given).
+    struct MoveImputed {
+        values: Vec<f64>,
+        status: i32,
+    }
+
     /// suncalc's sunrise, sunset, dawn and dusk (seconds since 1970, NaN when the sun does not reach them).
     struct MoveSun {
         sunrise: Vec<f64>,
@@ -3502,6 +3525,66 @@ pub mod ffi {
             dy: f64,
             level: f64,
         ) -> Result<MoveContour>;
+        // the dynamic Brownian bridge (move2utils): the variances, the location error and the UD
+        /// bm_variance_track_c: the motion variance (time_lag = diff of the minutes with a 0 at the end).
+        fn move_dbbmm_variance(
+            x: &[f64],
+            y: &[f64],
+            time_lag: &[f64],
+            loc_err: &[f64],
+            window_size: i32,
+            margin: i32,
+            threads: i32,
+        ) -> Result<MoveDbbmmVariance>;
+        /// bgb_var_break_track_c: the directional bridge's standard deviations (time_mins: the times in minutes).
+        fn move_dbgb_variance(
+            x: &[f64],
+            y: &[f64],
+            time_mins: &[f64],
+            loc_err: &[f64],
+            window_size: i32,
+            margin: i32,
+            threads: i32,
+        ) -> Result<MoveDbgbVariance>;
+        /// The missing values of a location error filled (how 0 median, 1 mean, 2 zero, 3 approx).
+        fn move_impute_loc_err(e: &[f64], how: i32) -> MoveImputed;
+        /// ud_grid_probe: 8 numbers, the envelope of the kernel windows (min x, max x, min y, max y) and the extreme
+        /// cell indices they reach (min xStart, max xEnd, max yEnd, min yStart). model 0 dBBMM (s1 the variance), 1
+        /// dBGB (s1, s2 the standard deviations); the grid vectors are the cell centres, ascending.
+        #[allow(clippy::too_many_arguments)]
+        fn move_ud_probe(
+            model: i32,
+            x: &[f64],
+            y: &[f64],
+            s1: &[f64],
+            s2: &[f64],
+            t: &[f64],
+            le: &[f64],
+            interest: &[u8],
+            xgrid: &[f64],
+            ygrid: &[f64],
+            time_step: f64,
+            ext: f64,
+        ) -> Result<Vec<f64>>;
+        /// The UD of one track (dbbmm2_omp or bgb_omp, then R's normalisation): rows from the top, summing to 1.
+        #[allow(clippy::too_many_arguments)]
+        fn move_ud_cells(
+            model: i32,
+            x: &[f64],
+            y: &[f64],
+            s1: &[f64],
+            s2: &[f64],
+            t: &[f64],
+            le: &[f64],
+            interest: &[u8],
+            xgrid: &[f64],
+            ygrid: &[f64],
+            time_step: f64,
+            ext: f64,
+            threads: i32,
+        ) -> Result<Vec<f64>>;
+        /// ud_volume of one layer in raster order: the cumulative probability from the largest cell down.
+        fn move_ud_volume(v: &[f64]) -> Vec<f64>;
     }
 }
 

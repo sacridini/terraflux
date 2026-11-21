@@ -122,6 +122,8 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     ("futures.calibrate", &["compactness_means", "compactness_ranges", "discount_factors", "repeat", "seed"]),
     ("woe.fit", &["markov", "increment", "ranges", "categorical", "transitions"]),
     // movement ecology
+    ("move.dbbmm_ud", &["location_error", "dim_size", "res", "window_size", "margin", "time_step"]),
+    ("move.dbgb_ud", &["location_error", "dim_size", "res", "window_size", "margin", "time_step"]),
     ("move.distribution", &["shape", "scale", "rate", "kappa"]),
     ("move.flag_speed", &["v_max", "mass", "mode", "jitter", "remove"]),
     ("move.home_range", &["method", "levels", "bandwidth", "type", "n"]),

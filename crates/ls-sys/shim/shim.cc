@@ -56,13 +56,16 @@
 #include "lsm/landscape.hpp"
 #include "move/along.hpp"
 #include "move/amt.hpp"
+#include "move/bridge.hpp"
 #include "move/clean.hpp"
 #include "move/corridor.hpp"
 #include "move/distr.hpp"
 #include "move/emd.hpp"
 #include "move/geo.hpp"
 #include "move/homerange.hpp"
+#include "move/locerr.hpp"
 #include "move/track.hpp"
+#include "move/ud.hpp"
 #include "opt/actions.hpp"
 #include "opt/closure.hpp"
 #include "opt/connect.hpp"
@@ -5541,6 +5544,101 @@ MoveContour move_hr_contour_lines(rust::Slice<const double> v, std::int64_t nr, 
         out.start.push_back(at);
     }
     return out;
+}
+
+MoveDbbmmVariance move_dbbmm_variance(rust::Slice<const double> x, rust::Slice<const double> y,
+                                      rust::Slice<const double> time_lag, rust::Slice<const double> loc_err,
+                                      std::int32_t window_size, std::int32_t margin, std::int32_t threads) {
+    check(y.size() == x.size() && time_lag.size() == x.size() && loc_err.size() == x.size(),
+          "x, y, time_lag and loc_err: the same length");
+    const auto r = move::dbbmm_variance(x.data(), y.data(), time_lag.data(), loc_err.data(),
+                                        static_cast<std::int64_t>(x.size()), window_size, margin, threads);
+    MoveDbbmmVariance out;
+    out.variance = to_rust<double>(r.variance);
+    out.n_estim = to_rust<std::int32_t>(r.n_estim);
+    out.break_pos = to_rust<std::int32_t>(r.break_pos);
+    return out;
+}
+
+MoveDbgbVariance move_dbgb_variance(rust::Slice<const double> x, rust::Slice<const double> y,
+                                    rust::Slice<const double> time_mins, rust::Slice<const double> loc_err,
+                                    std::int32_t window_size, std::int32_t margin, std::int32_t threads) {
+    check(y.size() == x.size() && time_mins.size() == x.size() && loc_err.size() == x.size(),
+          "x, y, time_mins and loc_err: the same length");
+    const auto r = move::dbgb_variance(x.data(), y.data(), time_mins.data(), loc_err.data(),
+                                       static_cast<std::int64_t>(x.size()), window_size, margin, threads);
+    MoveDbgbVariance out;
+    out.para_sd = to_rust<double>(r.para_sd);
+    out.orth_sd = to_rust<double>(r.orth_sd);
+    out.n_estim = to_rust<std::int32_t>(r.n_estim);
+    return out;
+}
+
+MoveImputed move_impute_loc_err(rust::Slice<const double> e, std::int32_t how) {
+    std::vector<double> v(e.begin(), e.end());
+    MoveImputed out;
+    out.status = move::impute_loc_err(v.data(), static_cast<std::int64_t>(v.size()), static_cast<move::ImputeHow>(how));
+    out.values = to_rust<double>(v);
+    return out;
+}
+
+namespace {
+
+move::UdInput move_ud_input(std::int32_t model, rust::Slice<const double> x, rust::Slice<const double> y,
+                            rust::Slice<const double> s1, rust::Slice<const double> s2, rust::Slice<const double> t,
+                            rust::Slice<const double> le, rust::Slice<const std::uint8_t> interest, double time_step,
+                            double ext) {
+    const auto n = x.size();
+    check(y.size() == n && s1.size() == n && s2.size() == n && t.size() == n && le.size() == n &&
+              interest.size() == n,
+          "x, y, the variances, t, the location errors and interest: the same length");
+    check(model == 0 || model == 1, "model: 0 dBBMM or 1 dBGB");
+    move::UdInput in{x.data(),  y.data(),        s1.data(), s2.data(), t.data(), le.data(),
+                     interest.data(), static_cast<std::int64_t>(n), time_step, ext};
+    in.model = model == 1 ? move::UdModel::Dbgb : move::UdModel::Dbbmm;
+    return in;
+}
+
+}  // namespace
+
+rust::Vec<double> move_ud_probe(std::int32_t model, rust::Slice<const double> x, rust::Slice<const double> y,
+                                rust::Slice<const double> s1, rust::Slice<const double> s2,
+                                rust::Slice<const double> t, rust::Slice<const double> le,
+                                rust::Slice<const std::uint8_t> interest, rust::Slice<const double> xgrid,
+                                rust::Slice<const double> ygrid, double time_step, double ext) {
+    const auto in = move_ud_input(model, x, y, s1, s2, t, le, interest, time_step, ext);
+    const auto p = move::ud_probe(in, xgrid.data(), static_cast<std::int64_t>(xgrid.size()), ygrid.data(),
+                                  static_cast<std::int64_t>(ygrid.size()));
+    std::vector<double> out(8);
+    for (int i = 0; i < 4; ++i) {
+        out[i] = p.env[i];
+        out[4 + i] = p.idx[i];
+    }
+    return to_rust<double>(out);
+}
+
+rust::Vec<double> move_ud_cells(std::int32_t model, rust::Slice<const double> x, rust::Slice<const double> y,
+                                rust::Slice<const double> s1, rust::Slice<const double> s2,
+                                rust::Slice<const double> t, rust::Slice<const double> le,
+                                rust::Slice<const std::uint8_t> interest, rust::Slice<const double> xgrid,
+                                rust::Slice<const double> ygrid, double time_step, double ext, std::int32_t threads) {
+    const auto in = move_ud_input(model, x, y, s1, s2, t, le, interest, time_step, ext);
+    const auto nx = static_cast<std::int64_t>(xgrid.size());
+    const auto ny = static_cast<std::int64_t>(ygrid.size());
+    std::vector<double> ud(static_cast<std::size_t>(nx * ny)), rows(static_cast<std::size_t>(nx * ny));
+    if (model == 1)
+        move::dbgb_ud(in, xgrid.data(), nx, ygrid.data(), ny, threads, ud.data());
+    else
+        move::dbbmm_ud(in, xgrid.data(), nx, ygrid.data(), ny, threads, ud.data());
+    move::ud_normalise(ud.data(), nx * ny);
+    move::ud_to_rows(ud.data(), nx, ny, rows.data());
+    return to_rust<double>(rows);
+}
+
+rust::Vec<double> move_ud_volume(rust::Slice<const double> v) {
+    std::vector<double> out(v.size());
+    move::ud_volume(v.data(), static_cast<std::int64_t>(v.size()), out.data());
+    return to_rust<double>(out);
 }
 // end movement ecology
 

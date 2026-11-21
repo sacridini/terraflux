@@ -763,6 +763,26 @@ const PHRASES: &[(&str, &str)] = &[
          of the speeds], with the directions of their neighbours in agreement[ (circular variance up to \
          {circvar_threshold})].",
     ),
+    (
+        "move.dbbmm_ud",
+        "The utilisation distribution of the dynamic Brownian bridge of <tracks>, a band for each track[ on the grid of \
+         <like>][ (location error {location_error})].",
+    ),
+    (
+        "move.dbbmm_variance",
+        "The motion variance of the dynamic Brownian bridge along each track of <tracks>, in windows of {window_size} \
+         locations[ (location error {location_error})].",
+    ),
+    (
+        "move.dbgb_ud",
+        "The utilisation distribution of the directional Brownian bridge of <tracks>, a band for each track[ on the \
+         grid of <like>][ (location error {location_error})].",
+    ),
+    (
+        "move.dbgb_variance",
+        "The variances along and across the movement of the directional Brownian bridge of <tracks>, in windows of \
+         {window_size} locations[ (location error {location_error})].",
+    ),
     ("move.distance", "The distance from each location of <tracks> to the next[, in {units}]."),
     ("move.distribution", "A {name} distribution of step lengths or turn angles."),
     (
@@ -799,6 +819,10 @@ const PHRASES: &[(&str, &str)] = &[
         "The locations of <tracks> next to a step faster than [{v_max} m/s][the maximum speed of a {mass} kg animal] \
          flagged.",
     ),
+    (
+        "move.mask_segments",
+        "The bridges of <tracks> left out of the distribution[ ({gap} hours of gap or more)][ (those in {column})].",
+    ),
     ("move.max_speed", "The maximum speed of a {mass} kg animal ({mode}), from Hirt et al.'s scaling law."),
     ("move.nsd", "The net squared displacement of each location of <tracks> from the first of its track."),
     ("move.random_numbers", "{n} draws of the distribution <distribution>; seed {seed}."),
@@ -813,6 +837,10 @@ const PHRASES: &[(&str, &str)] = &[
     ("move.speed", "The speed of each step of <tracks>[, in {units}]."),
     ("move.steps", "The steps between consecutive locations of <tracks>: their length, direction and turn angle."),
     (
+        "move.suggest_window",
+        "A window size and margin for the motion variance of <tracks>, covering about {target_hours} hours.",
+    ),
+    (
         "move.thin_distance",
         "<tracks> thinned to locations about {distance} m of travel apart (method {method}[, tolerance {tolerance} m]).",
     ),
@@ -826,6 +854,16 @@ const PHRASES: &[(&str, &str)] = &[
     ("move.track_lines", "Each track of <tracks> as a line through its locations."),
     ("move.track_summary", "The distance, straightness and sinuosity of each track of <tracks>."),
     ("move.turn_angle", "The change of direction at each location of <tracks>, in {units}."),
+    (
+        "move.ud_outer_probability",
+        "The probability of the cells at least as likely as the one of each location of <points>, under the \
+         distribution <ud>.",
+    ),
+    (
+        "move.ud_volume",
+        "The volume of the distribution <ud>: each cell's cumulative probability from the largest down[, with the \
+         contours at {levels}].",
+    ),
     (
         "move.ud_distance",
         "The earth mover's distance between the utilisation distributions of <ud>[ and <ud_b>] (method {method}).",

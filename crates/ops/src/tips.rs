@@ -1006,6 +1006,71 @@ pub const TIPS: &[(&str, &str)] = &[
          degrees, which mixes north-south and east-west, and a warning says so.",
     ),
     (
+        "move.dbbmm_variance",
+        "Choose the window by the animal's behaviour, not by the table: window_size locations should span a few \
+         changes of behaviour (several hours to days for most GPS tracks) and margin, odd and at most (window_size - \
+         1) / 2, is how many locations at the ends of the track are left without a variance; move.suggest_window \
+         proposes both from the sampling interval (target_hours). A short window finds more changes and is noisier. \
+         The location error is what makes the distribution honest: an error taken for movement inflates the \
+         variance, so give the receiver's (a number in metres, a column, or auto for e-obs and Argos data) and fill \
+         missing values on purpose (location_error_na). A long gap makes a wide bridge that puts probability on the \
+         straight line across it: leave such bridges out of the distribution (move.mask_segments, gap) or thin the \
+         track first (move.thin_time). The columns it adds go on to move.dbbmm_ud, which uses them as they are.",
+    ),
+    (
+        "move.dbbmm_ud",
+        "Start coarse: the cost grows with the cells times the steps of the bridges (the shortest time lag over \
+         time_step), so try dim_size 50 to 100 or a res of a few GPS errors, look at the result, then refine. The \
+         grid reaches ext_factor of the box of the locations beyond them and is enlarged, silently unless verbose, \
+         so that the bridges fit; a template (like) is never enlarged and an error says how large it has to be. \
+         The distribution of each track (or burst: move.resample, a band named track__burst) sums to 1 and the \
+         tracks share one grid, so the bands compare directly (move.ud_distance, move.home_range_overlap). It is in \
+         the CRS the tracks are in when that is projected in metres, else in a local projection (move.aeqd_crs) \
+         in metres; crs = input warps it back (bilinear: the numbers change a little). The 0.95 and 0.5 contours \
+         of move.ud_volume (levels) are the usual home range and core area. A track shorter than window_size gets \
+         no band (a warning).",
+    ),
+    (
+        "move.dbgb_variance",
+        "The directional bridge splits the variance along and across the direction the animal is heading, so it \
+         suits a persistent walk (migration, patrolling) and needs a long track: each of its two variances may \
+         have its own break point, so give windows of at least 31 locations and a margin of 15. The columns it adds \
+         go on to move.dbgb_ud. For tracks without a clear direction the dBBMM (move.dbbmm_variance) is the \
+         safer model.",
+    ),
+    (
+        "move.dbgb_ud",
+        "Only the core of each track counts (the locations every window of the variance covers), and the bridges \
+         reach five standard deviations of the larger variance: a template (like) must be larger than the dBBMM's, \
+         which an error says how much, or leave like out and give res or dim_size. The advice of move.dbbmm_ud \
+         applies: start with a coarse grid.",
+    ),
+    (
+        "move.suggest_window",
+        "It reads the median time lag, so it is a starting point for regular sampling; with an irregular one the \
+         window covers more or less time than target_hours. Tracks with fewer than 11 locations have no suggestion. \
+         Check the result against the behaviour of the animal and the length of the track (at least a few windows).",
+    ),
+    (
+        "move.mask_segments",
+        "Use it for the bridges that cross a gap in the tracking (gap: hours), which would put probability on a \
+         straight line through places the animal may not have visited. The masked bridges leave no mass in the \
+         distribution and the rest is normalised to 1, so the distribution describes the time actually followed. \
+         The segment i is the bridge from location i to location i + 1, counted from 0.",
+    ),
+    (
+        "move.ud_volume",
+        "The volume of a cell is the probability in the cells at least as likely as it: the contour at 0.95 \
+         bounds the smallest area that holds 95 % of the use (the home range), the one at 0.5 the core. The \
+         polygons (levels) come from the contour lines of the whole grid, so a contour that reaches the edge of the \
+         raster is an error: use a larger grid (ext_factor) for a track near the edge.",
+    ),
+    (
+        "move.ud_outer_probability",
+        "A location with a probability near 1 lies where the animal's own distribution gives it hardly any use: \
+         the locations to look at as outliers or excursions. A location outside the raster has no value.",
+    ),
+    (
         "move.home_range",
         "A home range is a summary of where the animal was, not of where it can go: it depends on how many locations \
          there are and how they are spaced in time, so compare animals only with similar samples. mcp is the hull of \

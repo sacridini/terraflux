@@ -976,6 +976,27 @@ MoveLocohNeighbours move_hr_locoh_neighbours(rust::Slice<const double> x, rust::
                                              std::int32_t kind, double d, std::int32_t threads);
 MoveContour move_hr_contour_lines(rust::Slice<const double> v, std::int64_t nr, std::int64_t nc, double xmin,
                                   double ymax, double dx, double dy, double level);
+struct MoveDbbmmVariance;
+struct MoveDbgbVariance;
+struct MoveImputed;
+MoveDbbmmVariance move_dbbmm_variance(rust::Slice<const double> x, rust::Slice<const double> y,
+                                      rust::Slice<const double> time_lag, rust::Slice<const double> loc_err,
+                                      std::int32_t window_size, std::int32_t margin, std::int32_t threads);
+MoveDbgbVariance move_dbgb_variance(rust::Slice<const double> x, rust::Slice<const double> y,
+                                    rust::Slice<const double> time_mins, rust::Slice<const double> loc_err,
+                                    std::int32_t window_size, std::int32_t margin, std::int32_t threads);
+MoveImputed move_impute_loc_err(rust::Slice<const double> e, std::int32_t how);
+rust::Vec<double> move_ud_probe(std::int32_t model, rust::Slice<const double> x, rust::Slice<const double> y,
+                                rust::Slice<const double> s1, rust::Slice<const double> s2,
+                                rust::Slice<const double> t, rust::Slice<const double> le,
+                                rust::Slice<const std::uint8_t> interest, rust::Slice<const double> xgrid,
+                                rust::Slice<const double> ygrid, double time_step, double ext);
+rust::Vec<double> move_ud_cells(std::int32_t model, rust::Slice<const double> x, rust::Slice<const double> y,
+                                rust::Slice<const double> s1, rust::Slice<const double> s2,
+                                rust::Slice<const double> t, rust::Slice<const double> le,
+                                rust::Slice<const std::uint8_t> interest, rust::Slice<const double> xgrid,
+                                rust::Slice<const double> ygrid, double time_step, double ext, std::int32_t threads);
+rust::Vec<double> move_ud_volume(rust::Slice<const double> v);
 // end movement ecology
 
 }  // namespace tfx

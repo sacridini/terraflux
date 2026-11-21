@@ -262,7 +262,78 @@ pub(super) const MAPPED: &[Py] = &[
         [],
         "table"
     ),
-    mv!("move.intensity_use", "tf.move.intensity_use", ["tracks" => "", "track" => "track"], [], "table"),
+    mv!("move.intensity_use", "tf.move.intensity_use", ["tracks" => "", "track" => "track"], [], "table"), // the dynamic Brownian bridges (their code: `special`)
+    mv!(
+        "move.dbbmm_variance",
+        "tf.move.dbbmm_variance",
+        [
+            "tracks" => "", "location_error" => "location_error", "window_size" => "window_size", "margin" => "margin",
+            "location_error_na" => "location_error_na", "burst" => "burst", "time" => "time", "track" => "track"
+        ],
+        ["location_error" = "None"],
+        "tracks"
+    ),
+    mv!(
+        "move.dbgb_variance",
+        "tf.move.dbgb_variance",
+        [
+            "tracks" => "", "location_error" => "location_error", "window_size" => "window_size", "margin" => "margin",
+            "location_error_na" => "location_error_na", "burst" => "burst", "time" => "time", "track" => "track"
+        ],
+        ["location_error" = "None"],
+        "tracks"
+    ),
+    mv!(
+        "move.dbbmm_ud",
+        "tf.move.dbbmm_ud",
+        [
+            "tracks" => "", "like" => "like", "res" => "res", "dim_size" => "dim_size", "ext_factor" => "ext_factor",
+            "time_step" => "time_step", "window_size" => "window_size", "margin" => "margin",
+            "location_error" => "location_error", "location_error_na" => "location_error_na", "crs" => "crs",
+            "max_cells" => "max_cells", "verbose" => "verbose", "burst" => "burst", "time" => "time",
+            "track" => "track"
+        ],
+        [],
+        "ud"
+    ),
+    mv!(
+        "move.dbgb_ud",
+        "tf.move.dbgb_ud",
+        [
+            "tracks" => "", "like" => "like", "res" => "res", "dim_size" => "dim_size", "ext_factor" => "ext_factor",
+            "time_step" => "time_step", "window_size" => "window_size", "margin" => "margin",
+            "location_error" => "location_error", "location_error_na" => "location_error_na", "crs" => "crs",
+            "max_cells" => "max_cells", "verbose" => "verbose", "burst" => "burst", "time" => "time",
+            "track" => "track"
+        ],
+        [],
+        "ud"
+    ),
+    mv!(
+        "move.suggest_window",
+        "tf.move.suggest_dbbmm_window",
+        ["tracks" => "", "target_hours" => "target_hours", "time" => "time", "track" => "track"],
+        [],
+        "table"
+    ),
+    mv!(
+        "move.mask_segments",
+        "tf.move.mask_segments",
+        [
+            "tracks" => "", "segments" => "segments", "model" => "model", "burst" => "burst", "time" => "time",
+            "track" => "track"
+        ],
+        [],
+        "tracks"
+    ),
+    mv!("move.ud_volume", "tf.move.ud_volume", ["ud" => ""], [], "volume"),
+    mv!(
+        "move.ud_outer_probability",
+        "tf.move.ud_outer_probability",
+        ["points" => "", "ud" => "ud", "band" => "band"],
+        [],
+        "points"
+    ),
 ];
 
 /// An input or setting as a Python expression; none when absent or an empty text (the usual names, no units).
@@ -749,6 +820,86 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             let code = format!("{said}{var} = {}({}).reset_index()\n", py.call, args.join(", "));
             (code, out(&[("table", var.to_string())]), Need::Nothing)
         }
+        "move.dbbmm_variance" | "move.dbgb_variance" | "move.dbbmm_ud" | "move.dbgb_ud" => {
+            let py = entry(op)?;
+            let (mut args, said) = arguments(n, py, sc, None, &[])?;
+            // the library's None is Terraflux's "none"
+            for a in args.iter_mut() {
+                if let Some((k, v)) = a.split_once('=')
+                    && ["burst", "location_error"].contains(&k)
+                    && v.trim_matches('"').eq_ignore_ascii_case("none")
+                {
+                    *a = format!("{k}=None");
+                }
+            }
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            if op.ends_with("_ud") {
+                (code, out(&[("ud", var.to_string())]), Need::Nothing)
+            } else {
+                (code, out(&[("tracks", var.to_string()), ("table", frame_table(var))]), Need::Nothing)
+            }
+        }
+        "move.suggest_window" => {
+            let py = entry(op)?;
+            let (args, said) = arguments(n, py, sc, None, &[])?;
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            // one suggestion for a track, a dict by track for several, none for a track too short
+            let table = format!(
+                "_pd.DataFrame([{{\"track\": k, **(v._asdict() if v is not None else {{}})}} for k, v in \
+                 ({var} if isinstance({var}, dict) else {{1: {var}}}).items()])"
+            );
+            (code, out(&[("table", table)]), Need::Flow)
+        }
+        "move.mask_segments" => {
+            let py = entry(op)?;
+            let tracks = value_of(n, "tracks", sc)?.ok_or("its tracks are not connected")?;
+            let given = |k: &str| n.params.get(k).is_some_and(|v| !v.is_null());
+            if given("gap") {
+                return Err("its gap: the library's mask_segments takes the segments themselves (segments)".into());
+            }
+            if given("column") && given("segments") {
+                return Err("its segments and its column together: use one node for each".into());
+            }
+            let (mut args, said) = arguments(n, py, sc, None, &["column", "gap"])?;
+            // a column of the tracks: the library takes one flag for each location
+            if let Some(c) = opt(n, "column", sc)? {
+                args.insert(1, format!("segments={tracks}[{c}].fillna(0).to_numpy(bool)"));
+            }
+            for a in args.iter_mut() {
+                if let Some((k, v)) = a.split_once('=')
+                    && k == "burst"
+                    && v.trim_matches('"').eq_ignore_ascii_case("none")
+                {
+                    *a = "burst=None".to_string();
+                }
+            }
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            (code, out(&[("tracks", var.to_string()), ("table", frame_table(var))]), Need::Nothing)
+        }
+        "move.ud_volume" => {
+            let py = entry(op)?;
+            let (args, said) = arguments(n, py, sc, None, &[])?;
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            (code, out(&[("volume", var.to_string())]), Need::Nothing)
+        }
+        "move.ud_outer_probability" => {
+            let py = entry(op)?;
+            let points = value_of(n, "points", sc)?.ok_or("its points are not connected")?;
+            let ud = value_of(n, "ud", sc)?.ok_or("its ud is not connected")?;
+            let (_, said) = arguments(n, py, sc, None, &[])?;
+            // the node's band is a name or a position from 1, the library's a label or a position from 0
+            let band = match n.params.get("band") {
+                None | Some(Value::Null) => String::new(),
+                Some(Value::Number(x)) if x.as_i64().is_some() => format!(", band={}", x.as_i64().unwrap() - 1),
+                Some(Value::String(s)) if !s.starts_with('$') => format!(", band={}", text(s)),
+                Some(_) => return Err("its band: write a name or a position in the node, not as a reference".into()),
+            };
+            let code = format!(
+                "{said}{var} = {points}.copy()\n{var}[\"outer_probability\"] = {}({points}, {ud}{band})\n",
+                py.call
+            );
+            (code, out(&[("points", var.to_string()), ("table", frame_table(var))]), Need::Nothing)
+        }
         _ => return Ok(None),
     };
     Ok(Some(code))
@@ -1201,6 +1352,127 @@ params = { track = "id" }
         assert!(t.contains("areas = tf.move.hr_overlap(box, which=\"all\")\n"), "{t}");
         assert!(t.contains("shared = tf.move.hr_overlap(kernel, type=\"ba\", conditional=True)\n"), "{t}");
         assert!(t.contains("back = tf.move.intensity_use(local, track=\"id\").reset_index()\n"), "{t}");
+        parses(t);
+    }
+
+    /// The dynamic Brownian bridges: the library's variance and distribution of either model, the masks, the volume,
+    /// the outer probability and the window suggestion.
+    #[test]
+    fn bridges_as_the_library() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "tracks"
+op = "move.read_tracks"
+params = { path = "fishers.csv" }
+
+[[nodes]]
+id = "local"
+op = "move.aeqd_crs"
+inputs = { tracks = "tracks.tracks" }
+
+[[nodes]]
+id = "window"
+op = "move.suggest_window"
+inputs = { tracks = "local.tracks" }
+params = { target_hours = 6 }
+
+[[nodes]]
+id = "var"
+op = "move.dbbmm_variance"
+inputs = { tracks = "local.tracks" }
+params = { location_error = 25, window_size = 21, margin = 5, location_error_na = "approx", burst = "none" }
+
+[[nodes]]
+id = "plain"
+op = "move.dbbmm_variance"
+inputs = { tracks = "local.tracks" }
+
+[[nodes]]
+id = "gvar"
+op = "move.dbgb_variance"
+inputs = { tracks = "local.tracks" }
+params = { location_error = "auto", margin = 7 }
+
+[[nodes]]
+id = "gaps"
+op = "move.mask_segments"
+inputs = { tracks = "var.tracks" }
+params = { segments = [3, 4, 5], model = "dbbmm" }
+
+[[nodes]]
+id = "flags"
+op = "move.mask_segments"
+inputs = { tracks = "var.tracks" }
+params = { column = "bad" }
+
+[[nodes]]
+id = "grid"
+op = "raster.read"
+params = { path = "grid.tif" }
+
+[[nodes]]
+id = "ud"
+op = "move.dbbmm_ud"
+inputs = { tracks = "gaps.tracks", like = "grid.raster" }
+params = { time_step = 2, crs = "projected" }
+
+[[nodes]]
+id = "gud"
+op = "move.dbgb_ud"
+inputs = { tracks = "local.tracks" }
+params = { location_error = 25, dim_size = 80, ext_factor = 0.3, verbose = true }
+
+[[nodes]]
+id = "vol"
+op = "move.ud_volume"
+inputs = { ud = "ud.ud" }
+params = { levels = [0.5, 0.95] }
+
+[[nodes]]
+id = "outer"
+op = "move.ud_outer_probability"
+inputs = { points = "local.tracks", ud = "ud.ud" }
+params = { band = 1 }
+
+[[nodes]]
+id = "outer_name"
+op = "move.ud_outer_probability"
+inputs = { points = "local.tracks", ud = "gud.ud" }
+params = { band = "M1" }
+"#,
+        )
+        .unwrap();
+        let s = super::super::script(&m, &r, None);
+        let t = &s.text;
+        assert!(t.contains("window = tf.move.suggest_dbbmm_window(local, target_hours=6)\n"), "{t}");
+        assert!(
+            t.contains("var = tf.move.dbbmm_variance(local, location_error=25, window_size=21, margin=5, location_error_na=\"approx\", burst=None)\n"),
+            "{t}"
+        );
+        assert!(t.contains("plain = tf.move.dbbmm_variance(local, location_error=None)\n"), "{t}");
+        assert!(t.contains("gvar = tf.move.dbgb_variance(local, location_error=\"auto\", margin=7)\n"), "{t}");
+        assert!(t.contains("gaps = tf.move.mask_segments(var, segments=[3, 4, 5], model=\"dbbmm\")\n"), "{t}");
+        assert!(
+            t.contains("flags = tf.move.mask_segments(var, segments=var[\"bad\"].fillna(0).to_numpy(bool))\n"),
+            "{t}"
+        );
+        assert!(t.contains("ud = tf.move.dbbmm_ud(gaps, like=grid, time_step=2, crs=\"projected\")\n"), "{t}");
+        assert!(
+            t.contains("gud = tf.move.dbgb_ud(local, dim_size=80, ext_factor=0.3, location_error=25, verbose=True)\n"),
+            "{t}"
+        );
+        assert!(t.contains("# (not passed: levels = [0.5, 0.95])\nvol = tf.move.ud_volume(ud)\n"), "{t}");
+        assert!(
+            t.contains(
+                "outer = local.copy()\nouter[\"outer_probability\"] = tf.move.ud_outer_probability(local, ud, band=0)\n"
+            ),
+            "{t}"
+        );
+        assert!(t.contains("tf.move.ud_outer_probability(local, gud, band=\"M1\")\n"), "{t}");
         parses(t);
     }
 

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use terraflux_ops::movement::time;
-use terraflux_ops::{Args, Ctx, Map, Outputs, Registry, Table, Value};
+use terraflux_ops::{Args, Ctx, Map, Outputs, Registry, Stack, Table, Value};
 use terraflux_raster::Grid;
 use terraflux_raster::npy::Array;
 use terraflux_raster::vector::{Column, Geometry, Vector};
@@ -2163,4 +2163,675 @@ fn one_and_four_threads_give_the_same_home_ranges() {
     ] {
         same(&format!("{method} {p}"), &by(1, method, p.clone()), &by(4, method, p));
     }
+}
+
+// ------------------------------------------------------------------------------ the dynamic Brownian bridge
+
+fn ud_meta() -> &'static serde_json::Value {
+    &reference().1["ud"]
+}
+
+fn ud_crs(set: &str) -> Option<String> {
+    ud_meta()["sets"][set]["crs"].as_str().map(str::to_string)
+}
+
+fn is_lonlat_set(set: &str) -> bool {
+    ud_crs(set).as_deref() == Some("EPSG:4326")
+}
+
+/// A set of the bridge's cases: the locations with their columns, the library's `prep` applied (the bursts' column
+/// named as move.resample names it, the Argos classes as text instead of the e-obs estimate).
+fn ud_set(name: &str, prep: Option<&str>) -> Value {
+    let (z, _) = reference();
+    let m = &ud_meta()["sets"][name];
+    let (x, y, t) =
+        (&z[&format!("in/ud/{name}/x")].data, &z[&format!("in/ud/{name}/y")].data, &z[&format!("in/ud/{name}/t")].data);
+    let track: Vec<String> = m["track"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+    let mut attributes = vec![
+        ("time".to_string(), Column::Texts(t.iter().map(|&s| time::format((s * 1e9).round() as i64)).collect())),
+        ("track".to_string(), Column::Texts(track)),
+    ];
+    for c in m["columns"].as_array().unwrap() {
+        let c = c.as_str().unwrap();
+        let data = z[&format!("in/ud/{name}/{c}")].data.clone();
+        match (c, prep) {
+            ("burst", Some("burst")) => attributes.push(("burst_".into(), Column::Numbers(data))),
+            ("eobs_horizontal_accuracy_estimate", Some("argos")) => {}
+            _ => attributes.push((c.to_string(), Column::Numbers(data))),
+        }
+    }
+    if prep == Some("argos") {
+        let lc = &z[&format!("in/ud/{name}/lc")].data;
+        let classes = ["3", "2", "1", "0", "A", "B", "Z"];
+        attributes.push((
+            "argos_lc".into(),
+            Column::Texts(lc.iter().map(|&v| classes[v as usize - 1].to_string()).collect()),
+        ));
+    }
+    let geometries = x.iter().zip(y).map(|(&a, &b)| Geometry::Point([a, b])).collect();
+    Value::Vector(Arc::new(Vector { geometries, attributes, crs: ud_crs(name) }))
+}
+
+/// The rows of one track of a set of tracks.
+fn only(v: &Value, track: &str) -> Value {
+    let Value::Vector(v) = v else { panic!() };
+    let Some(Column::Texts(t)) = v.column("track") else { panic!() };
+    let keep: Vec<usize> = (0..v.len()).filter(|&i| t[i] == track).collect();
+    Value::Vector(Arc::new(v.select(&keep)))
+}
+
+fn ud_settings(p: &serde_json::Value) -> serde_json::Value {
+    let mut p = p.as_object().cloned().unwrap_or_default();
+    p.remove("like");
+    serde_json::Value::Object(p)
+}
+
+fn bridge_ud(o: &Outputs) -> Stack {
+    match &o["ud"] {
+        Value::Stack(s) => s.clone(),
+        v => panic!("ud: {:?}", v.ty()),
+    }
+}
+
+fn ud_cases_run(
+    model: &str,
+    set: &str,
+    prep: Option<&str>,
+    p: &serde_json::Value,
+) -> terraflux_ops::Result<(Outputs, Vec<String>)> {
+    let mut ins = vec![("tracks", ud_set(set, prep))];
+    if let Some(spec) = p.get("like") {
+        ins.push(("like", hr_like(spec, ud_crs(set).as_deref())));
+    }
+    run_warn(&format!("move.{model}_ud"), ins, &ud_settings(p))
+}
+
+/// The distribution of a case against the library's: its grid, its bands and every cell (to the bit, or within a
+/// relative tolerance of the largest cell).
+fn ud_same(key: &str, s: &Stack, tolerance: Option<f64>) {
+    let m = &ud_meta()["cases"][key];
+    let shape: Vec<usize> = m["shape"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as usize).collect();
+    let bands: Vec<String> = m["bands"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+    let names: Vec<String> = s
+        .keys
+        .iter()
+        .map(|k| match k {
+            terraflux_ops::Key::Name(n) => n.clone(),
+            _ => panic!(),
+        })
+        .collect();
+    assert_eq!(names, bands, "{key}: bands");
+    assert_eq!((s.layers.len(), s.grid.height, s.grid.width), (shape[0], shape[1], shape[2]), "{key}: shape");
+    let t: Vec<f64> = m["transform"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    let g = s.grid.transform;
+    match tolerance {
+        None => same(&format!("{key} transform"), &g, &t),
+        Some(rtol) => close(&format!("{key} transform"), &g, &t, rtol),
+    }
+    let got: Vec<f64> = s.layers.iter().flat_map(|l| l.iter().copied()).collect();
+    let w = want(&format!("ud/{key}/ud"));
+    match tolerance {
+        None => same(key, &got, w),
+        Some(_) => {
+            let top = w.iter().copied().fold(0.0, f64::max);
+            let worst = got.iter().zip(w).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+            eprintln!("{key}: largest difference {:e} of {:e} (relative {:e})", worst, top, worst / top);
+            assert!(worst <= tolerance.unwrap() * top, "{key}: {worst:e} off of {top:e}");
+        }
+    }
+    for (k, l) in s.layers.iter().enumerate() {
+        let total: f64 = l.iter().sum();
+        assert!((total - 1.0).abs() < 1e-9, "{key} band {k} sums to {total}");
+    }
+}
+
+#[test]
+fn bridge_variances_are_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let cases = ud_meta()["var"].as_object().unwrap();
+    assert!(cases.len() >= 19);
+    for (key, c) in cases {
+        let (model, set) = (c["model"].as_str().unwrap(), c["set"].as_str().unwrap());
+        let prep = c["prep"].as_str();
+        let (o, _) = run_warn(&format!("move.{model}_variance"), vec![("tracks", ud_set(set, prep))], &c["params"])
+            .unwrap_or_else(|e| panic!("{key}: {e}"));
+        let v = vector(&o, "tracks");
+        let columns: &[&str] = match model {
+            "dbbmm" => &["motion_variance", "in_windows", "interest", "location_error"],
+            _ => &["para_sd", "orth_sd", "n_estim", "seg_interest", "dbgb_location_error"],
+        };
+        for col in columns {
+            let w = want(&format!("ud/var/{key}/{col}"));
+            if is_lonlat_set(set) {
+                // PROJ's versions differ in the last bits of the projected coordinates
+                close(&format!("{key} {col}"), &num(&v, col), w, 1e-6);
+            } else {
+                same(&format!("{key} {col}"), &num(&v, col), w);
+            }
+        }
+    }
+}
+
+#[test]
+fn the_local_projection_is_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let mut bits = (0, 0);
+    let mut worst = 0.0f64;
+    for set in ["ud_ll", "ud_m1_ll"] {
+        for how in ["centroid", "center"] {
+            let o = go("move.aeqd_crs", vec![("tracks", ud_set(set, None))], serde_json::json!({"center": how}));
+            let Value::Text(crs) = &o["crs"] else { panic!() };
+            let lib = ud_meta()["aeqd"][format!("{set}/{how}")].as_str().unwrap();
+            assert_eq!(crs, lib.trim_end_matches(" +type=crs"), "{set} {how}");
+            let v = vector(&o, "tracks");
+            let (wx, wy) = (want(&format!("ud/proj/{set}/{how}_x")), want(&format!("ud/proj/{set}/{how}_y")));
+            for (i, g) in v.geometries.iter().enumerate() {
+                let Geometry::Point(p) = g else { panic!() };
+                for (a, b) in [(p[0], wx[i]), (p[1], wy[i])] {
+                    bits.0 += usize::from(a.to_bits() == b.to_bits());
+                    bits.1 += 1;
+                    worst = worst.max((a - b).abs());
+                }
+            }
+        }
+    }
+    eprintln!("projected coordinates: {} of {} bit for bit, the largest difference {worst:e} m", bits.0, bits.1);
+    assert!(worst < 1e-6, "the projected coordinates differ by {worst:e} m");
+}
+
+#[test]
+fn bridge_distributions_are_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let cases = ud_meta()["cases"].as_object().unwrap();
+    for (key, c) in cases {
+        let Some(set) = c["set"].as_str() else { continue };
+        let (model, prep) = (c["model"].as_str().unwrap(), c["prep"].as_str());
+        let (o, _) = ud_cases_run(model, set, prep, &c["params"]).unwrap_or_else(|e| panic!("{key}: {e}"));
+        let tolerance = if is_lonlat_set(set) { Some(1e-4) } else { None };
+        let s = bridge_ud(&o);
+        if key.ends_with("_input") {
+            // GDAL's warp picks the grid and PROJ differs: the same grid size, the same distribution within a tolerance
+            let want_shape: Vec<usize> =
+                c["shape"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as usize).collect();
+            assert_eq!(
+                (s.layers.len(), s.grid.height, s.grid.width),
+                (want_shape[0], want_shape[1], want_shape[2]),
+                "{key}"
+            );
+            for l in &s.layers {
+                assert!((l.iter().sum::<f64>() - 1.0).abs() < 1e-9 && l.iter().all(|v| *v >= 0.0), "{key}");
+            }
+            let w = want(&format!("ud/{key}/ud"));
+            let got: Vec<f64> = s.layers.iter().flat_map(|l| l.iter().copied()).collect();
+            let top = w.iter().copied().fold(0.0, f64::max);
+            let worst = got.iter().zip(w).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+            eprintln!("{key}: largest difference {worst:e} of {top:e}");
+            assert!(worst < 1e-2 * top, "{key}: {worst:e} off of {top:e}");
+            continue;
+        }
+        ud_same(key, &s, tolerance);
+    }
+}
+
+#[test]
+fn a_distribution_from_the_variance_columns_is_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let u1 = only(&ud_set("ud_utm", None), "u1");
+    let masks = &ud_meta()["masks"];
+    for (model, pre) in [("dbbmm", ""), ("dbgb", "g")] {
+        let field = if model == "dbbmm" { "interest" } else { "seg_interest" };
+        let vars = serde_json::json!({"location_error": 10, "window_size": 21, "margin": 7});
+        let o = go(&format!("move.{model}_variance"), vec![("tracks", u1.clone())], vars);
+        let v = o["tracks"].clone();
+        same(&format!("{model} before"), &num(&vector(&o, "tracks"), field), want(&format!("ud/mask/{model}/before")));
+        // the columns as they are
+        let (o, _) =
+            run_warn(&format!("move.{model}_ud"), vec![("tracks", v.clone())], &serde_json::json!({"dim_size": 40}))
+                .unwrap();
+        ud_same(&format!("{pre}ud_columns"), &bridge_ud(&o), None);
+        // another error given to the distribution
+        let (o, _) = run_warn(
+            &format!("move.{model}_ud"),
+            vec![("tracks", v.clone())],
+            &serde_json::json!({"dim_size": 40, "location_error": 12.0}),
+        )
+        .unwrap();
+        ud_same(&format!("{pre}ud_override"), &bridge_ud(&o), None);
+        // masked
+        let o = go("move.mask_segments", vec![("tracks", v)], serde_json::json!({"segments": masks["segments"]}));
+        same(&format!("{model} after"), &num(&vector(&o, "tracks"), field), want(&format!("ud/mask/{model}/after")));
+        let (o2, _) = run_warn(
+            &format!("move.{model}_ud"),
+            vec![("tracks", o["tracks"].clone())],
+            &serde_json::json!({"dim_size": 40}),
+        )
+        .unwrap();
+        ud_same(&format!("{pre}ud_masked"), &bridge_ud(&o2), None);
+        // the gaps: the segments whose lag is over three hours
+        let u2 = only(&ud_set("ud_utm", None), "u2");
+        let vars = serde_json::json!({"location_error": 10, "window_size": 21, "margin": 7});
+        let o = go(&format!("move.{model}_variance"), vec![("tracks", u2)], vars.clone());
+        same(
+            &format!("{model} gap before"),
+            &num(&vector(&o, "tracks"), field),
+            want(&format!("ud/mask/{model}/gap_before")),
+        );
+        let gap = go(
+            "move.mask_segments",
+            vec![("tracks", o["tracks"].clone())],
+            serde_json::json!({"gap": masks["gap_hours"]}),
+        );
+        same(&format!("{model} gap"), &num(&vector(&gap, "tracks"), field), want(&format!("ud/mask/{model}/gap")));
+        assert!(!want(&format!("ud/mask/{model}/gap_idx")).is_empty());
+        // a list of numbers by track
+        let all = go(&format!("move.{model}_variance"), vec![("tracks", ud_set("ud_utm", None))], vars);
+        let by = go(
+            "move.mask_segments",
+            vec![("tracks", all["tracks"].clone())],
+            serde_json::json!({"segments": masks["by_track"]}),
+        );
+        same(
+            &format!("{model} by track"),
+            &num(&vector(&by, "tracks"), field),
+            want(&format!("ud/mask/{model}/by_track")),
+        );
+        // a column of the tracks
+        let mut t = (*vector(&all, "tracks")).clone();
+        let before = num(&t, field);
+        let mut mark = vec![0.0; t.len()];
+        let ones: Vec<usize> = before.iter().enumerate().filter(|(_, v)| **v != 0.0).map(|(i, _)| i).take(3).collect();
+        for &i in &ones {
+            mark[i] = 1.0;
+        }
+        t.attributes.push(("skip".into(), Column::Numbers(mark)));
+        let c = go(
+            "move.mask_segments",
+            vec![("tracks", Value::Vector(Arc::new(t)))],
+            serde_json::json!({"column": "skip"}),
+        );
+        let after = num(&vector(&c, "tracks"), field);
+        for (i, (a, b)) in before.iter().zip(&after).enumerate() {
+            assert_eq!(*b, if ones.contains(&i) { 0.0 } else { *a }, "{model} column row {i}");
+        }
+    }
+}
+
+#[test]
+fn volumes_and_outer_probabilities_are_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let m1 = ud_cases_run("dbbmm", "ud_m1", None, &ud_meta()["cases"]["ud_m1_dim"]["params"]).unwrap().0;
+    let o = go("move.ud_volume", vec![("ud", m1["ud"].clone())], serde_json::json!({}));
+    let Value::Stack(vol) = &o["volume"] else { panic!() };
+    same("volume ud_m1_dim", &vol.layers[0], want("ud/volume/ud_m1_dim"));
+    let pts = |x: &str, y: &str, crs: Option<String>| {
+        let (x, y) = (want(x), want(y));
+        Value::Vector(Arc::new(Vector {
+            geometries: x.iter().zip(y).map(|(&a, &b)| Geometry::Point([a, b])).collect(),
+            attributes: vec![("id".into(), Column::Numbers((0..x.len()).map(|i| i as f64).collect()))],
+            crs,
+        }))
+    };
+    let p = pts("ud/outer/ud_m1_dim/x", "ud/outer/ud_m1_dim/y", ud_crs("ud_m1"));
+    let o = go("move.ud_outer_probability", vec![("points", p), ("ud", m1["ud"].clone())], serde_json::json!({}));
+    same("outer ud_m1_dim", &num(&vector(&o, "points"), "outer_probability"), want("ud/outer/ud_m1_dim"));
+    // several bands: by name and by position
+    let utm = ud_cases_run("dbbmm", "ud_utm", None, &ud_meta()["cases"]["ud_utm"]["params"]).unwrap().0;
+    let o = go("move.ud_volume", vec![("ud", utm["ud"].clone())], serde_json::json!({}));
+    let Value::Stack(vol) = &o["volume"] else { panic!() };
+    let all: Vec<f64> = vol.layers.iter().flat_map(|l| l.iter().copied()).collect();
+    same("volume ud_utm", &all, want("ud/volume/ud_utm"));
+    for band in [serde_json::json!("u2"), serde_json::json!(2)] {
+        let p = pts("ud/outer/ud_utm/x", "ud/outer/ud_utm/y", ud_crs("ud_utm"));
+        let o = go(
+            "move.ud_outer_probability",
+            vec![("points", p), ("ud", utm["ud"].clone())],
+            serde_json::json!({"band": band}),
+        );
+        same("outer ud_utm", &num(&vector(&o, "points"), "outer_probability"), want("ud/outer/ud_utm"));
+    }
+    // contours of the volume: nested, the core inside the home range
+    let o = go("move.ud_volume", vec![("ud", m1["ud"].clone())], serde_json::json!({"levels": [0.95, 0.5]}));
+    let poly = vector(&o, "polygons");
+    assert_eq!(poly.len(), 2);
+    let (level, area) = (num(&poly, "level"), num(&poly, "area"));
+    assert_eq!(level, [0.95, 0.5]);
+    assert!(area[0] > area[1] && area[1] > 0.0, "{area:?}");
+    let t = table(&o, "table");
+    assert_eq!(t.columns, ["band", "level", "area"]);
+}
+
+#[test]
+fn suggested_windows_are_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let fishers = without_empty(&fishers());
+    for (key, hours) in ud_meta()["suggest"].as_object().unwrap() {
+        let tracks = if key.starts_with("fishers") { fishers.clone() } else { ud_set("ud_utm", None) };
+        let (o, _) =
+            run_warn("move.suggest_window", vec![("tracks", tracks)], &serde_json::json!({"target_hours": hours}))
+                .unwrap();
+        let t = table(&o, "table");
+        assert_eq!(t.columns, ["track", "window_size", "margin", "median_dt_secs", "window_hours", "n", "n_windows"]);
+        let w = want(&format!("ud/suggest/{key}"));
+        assert_eq!(w.len(), 6 * t.rows.len(), "{key}");
+        for (i, row) in t.rows.iter().enumerate() {
+            for (j, got) in row[1..].iter().enumerate() {
+                let b = w[6 * i + j];
+                // a track with no suggestion has its count of locations only
+                assert!(
+                    got.to_bits() == b.to_bits() || (got.is_nan() && b.is_nan()) || (j == 4 && b.is_nan()),
+                    "{key} row {i} col {j}: {got} != {b}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn bridge_results_do_not_depend_on_the_threads() {
+    if !gdal() {
+        return;
+    }
+    let by = |n: usize, model: &str, set: &str, prep: Option<&str>, p: &serde_json::Value| {
+        terraflux_ops::threads::set_kernel_threads(n);
+        let var = run_warn(&format!("move.{model}_variance"), vec![("tracks", ud_set(set, prep))], &ud_settings(p));
+        let ud = ud_cases_run(model, set, prep, p);
+        terraflux_ops::threads::set_kernel_threads(4);
+        let mut all = Vec::new();
+        let v = vector(&var.unwrap().0, "tracks");
+        for c in v.attributes.iter().skip(2) {
+            all.extend(c.1.numbers());
+        }
+        all.extend(bridge_ud(&ud.unwrap().0).layers.iter().flat_map(|l| l.iter().copied()));
+        all
+    };
+    for key in ["ud_burst", "gud_burst", "ud_utm", "gud_utm", "ud_m1_dim", "gud_m1_dim"] {
+        let c = &ud_meta()["cases"][key];
+        let (model, set, prep) = (c["model"].as_str().unwrap(), c["set"].as_str().unwrap(), c["prep"].as_str());
+        same(key, &by(1, model, set, prep, &c["params"]), &by(4, model, set, prep, &c["params"]));
+    }
+}
+
+#[test]
+fn bridge_errors_and_warnings() {
+    if !gdal() {
+        return;
+    }
+    let utm = ud_set("ud_utm", None);
+    let m1 = ud_set("ud_m1", None);
+    let err = |op: &str, ins: Vec<(&str, Value)>, p: serde_json::Value| -> String {
+        match run_warn(op, ins, &p) {
+            Ok(_) => panic!("{op} {p}: no error"),
+            Err(e) => e.to_string(),
+        }
+    };
+    let vars = |extra: serde_json::Value| {
+        let mut p = serde_json::json!({"location_error": 10, "window_size": 21, "margin": 7});
+        for (k, v) in extra.as_object().unwrap() {
+            p[k] = v.clone();
+        }
+        p
+    };
+    // a track with fewer locations than the window: a warning with other tracks, an error alone
+    let (o, w) = run_warn("move.dbbmm_variance", vec![("tracks", utm.clone())], &vars(serde_json::json!({}))).unwrap();
+    assert!(w.iter().any(|m| m.contains("u3") && m.contains("skipped")), "{w:?}");
+    let mv = num(&vector(&o, "tracks"), "motion_variance");
+    assert!(mv[mv.len() - 9..].iter().all(|v| v.is_nan()));
+    let e = err("move.dbbmm_variance", vec![("tracks", only(&utm, "u3"))], vars(serde_json::json!({})));
+    assert!(e.contains("cannot be larger than the number of locations (9)"), "{e}");
+    assert!(err("move.dbgb_variance", vec![("tracks", only(&utm, "u3"))], vars(serde_json::json!({}))).contains("(9)"));
+    // the window and the margin
+    for (p, what) in [
+        (serde_json::json!({"window_size": 30}), "odd"),
+        (serde_json::json!({"window_size": 21, "margin": 11}), "2 * margin + 1"),
+        (serde_json::json!({"margin": 0}), "odd"),
+    ] {
+        let e = err("move.dbbmm_variance", vec![("tracks", utm.clone())], vars(p.clone()));
+        assert!(e.contains(what), "{p}: {e}");
+    }
+    // the location error
+    let e = err(
+        "move.dbbmm_variance",
+        vec![("tracks", utm.clone())],
+        vars(serde_json::json!({"location_error": "nothing"})),
+    );
+    assert!(e.contains("names a column"), "{e}");
+    let e =
+        err("move.dbbmm_variance", vec![("tracks", utm.clone())], vars(serde_json::json!({"location_error": -1.0})));
+    assert!(e.contains("non-negative"), "{e}");
+    let e = err(
+        "move.dbbmm_variance",
+        vec![("tracks", utm.clone())],
+        vars(serde_json::json!({"location_na": "x", "location_error_na": "mode"})),
+    );
+    assert!(e.contains("location_error_na"), "{e}");
+    let mut bad = (*vector(
+        &go("move.dbbmm_variance", vec![("tracks", only(&utm, "u1"))], vars(serde_json::json!({}))),
+        "tracks",
+    ))
+    .clone();
+    bad.attributes.push(("sigma".into(), Column::Numbers(vec![f64::NAN; bad.len()])));
+    let e = err(
+        "move.dbbmm_variance",
+        vec![("tracks", Value::Vector(Arc::new(bad.clone())))],
+        vars(serde_json::json!({"location_error": "sigma"})),
+    );
+    assert!(e.contains("entirely missing"), "{e}");
+    let e = err(
+        "move.dbbmm_variance",
+        vec![("tracks", Value::Vector(Arc::new(bad)))],
+        vars(serde_json::json!({"location_error": "sigma", "location_error_na": "approx"})),
+    );
+    assert!(e.contains("entirely missing") || e.contains("two known"), "{e}");
+    let (_, w) = run_warn(
+        "move.dbbmm_variance",
+        vec![("tracks", utm.clone())],
+        &vars(serde_json::json!({"location_error": "auto"})),
+    )
+    .unwrap();
+    assert!(w.iter().any(|m| m.contains("no recognised quality column")), "{w:?}");
+    // the same time twice, an empty location, no time
+    let mut twice = (*vector(
+        &go("move.dbbmm_variance", vec![("tracks", only(&utm, "u1"))], vars(serde_json::json!({}))),
+        "tracks",
+    ))
+    .clone();
+    if let Some((_, Column::Texts(t))) = twice.attributes.iter_mut().find(|(n, _)| n == "time") {
+        t[5] = t[4].clone();
+    }
+    let e = err("move.dbbmm_variance", vec![("tracks", Value::Vector(Arc::new(twice)))], vars(serde_json::json!({})));
+    assert!(e.contains("share their time"), "{e}");
+    let mut empty = (*vector(
+        &go("move.dbbmm_variance", vec![("tracks", only(&utm, "u1"))], vars(serde_json::json!({}))),
+        "tracks",
+    ))
+    .clone();
+    empty.geometries[3] = Geometry::Empty;
+    let e = err("move.dbbmm_variance", vec![("tracks", Value::Vector(Arc::new(empty)))], vars(serde_json::json!({})));
+    assert!(e.contains("empty"), "{e}");
+    // the grid
+    let ud = |p: serde_json::Value, like: Option<Value>| {
+        let mut ins = vec![("tracks", m1.clone())];
+        if let Some(l) = like {
+            ins.push(("like", l));
+        }
+        run_warn("move.dbbmm_ud", ins, &p).map(|r| r.0).map_err(|e| e.to_string())
+    };
+    let e = ud(serde_json::json!({"location_error": 25, "res": 300, "dim_size": 50}), None).unwrap_err();
+    assert!(e.contains("give only one of"), "{e}");
+    let small = hr_like(
+        &serde_json::json!({"xmin": -500.0, "ymax": 500.0, "res": 100.0, "ncol": 10, "nrow": 10}),
+        ud_crs("ud_m1").as_deref(),
+    );
+    let e = ud(serde_json::json!({"location_error": 25}), Some(small.clone())).unwrap_err();
+    assert!(e.contains("like is too small") && e.contains("A template is never enlarged"), "{e}");
+    let e = ud(serde_json::json!({"location_error": 25, "res": 300, "max_cells": 100}), None).unwrap_err();
+    assert!(e.contains("above the limit"), "{e}");
+    for (p, what) in [
+        (serde_json::json!({"dim_size": 1}), "dim_size"),
+        (serde_json::json!({"res": -5.0}), "res"),
+        (serde_json::json!({"ext_factor": -1.0}), "ext_factor"),
+        (serde_json::json!({"crs": "native"}), "crs"),
+        (serde_json::json!({"time_step": -2.0}), "time_step"),
+    ] {
+        let e = ud(p.clone(), None).unwrap_err();
+        assert!(e.contains(what), "{p}: {e}");
+    }
+    // a template in another coordinate system
+    let wgs = hr_like(
+        &serde_json::json!({"xmin": -80.0, "ymax": 43.0, "res": 0.01, "ncol": 50, "nrow": 50}),
+        Some("EPSG:4326"),
+    );
+    let e = ud(serde_json::json!({"location_error": 25}), Some(wgs)).unwrap_err();
+    assert!(e.contains("projected in metres"), "{e}");
+    // the dBGB needs a template as large as its windows
+    let e = run_warn(
+        "move.dbgb_ud",
+        vec![("tracks", m1.clone()), ("like", small)],
+        &serde_json::json!({"location_error": 25}),
+    )
+    .map(|_| ())
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("like is too small"), "{e}");
+    // the enlarged grid is told with verbose only
+    let p = serde_json::json!({"location_error": 25, "dim_size": 40, "ext_factor": 0});
+    let (_, w) = run_warn("move.dbbmm_ud", vec![("tracks", m1.clone())], &p).unwrap();
+    assert!(w.iter().all(|m| !m.contains("enlarged")), "{w:?}");
+    let p = serde_json::json!({"location_error": 25, "dim_size": 40, "ext_factor": 0, "verbose": true});
+    let (_, w) = run_warn("move.dbbmm_ud", vec![("tracks", m1.clone())], &p).unwrap();
+    assert!(w.iter().any(|m| m.contains("enlarged")), "{w:?}");
+    // a track the variance skipped has no band
+    let (o, w) = run_warn(
+        "move.dbbmm_ud",
+        vec![("tracks", utm.clone())],
+        &serde_json::json!({"location_error": 10, "window_size": 21, "margin": 7, "dim_size": 30}),
+    )
+    .unwrap();
+    assert_eq!(bridge_ud(&o).layers.len(), 2);
+    assert!(w.iter().any(|m| m.contains("u3")), "{w:?}");
+    // the masks
+    let v = go("move.dbbmm_variance", vec![("tracks", only(&utm, "u1"))], vars(serde_json::json!({})));
+    let t = v["tracks"].clone();
+    let mask = |p: serde_json::Value| err("move.mask_segments", vec![("tracks", t.clone())], p);
+    assert!(mask(serde_json::json!({})).contains("segments, gap or column"));
+    assert!(mask(serde_json::json!({"segments": [5000]})).contains("integers in 0.."));
+    assert!(mask(serde_json::json!({"segments": [-1]})).contains("integers in 0.."));
+    assert!(mask(serde_json::json!({"segments": {"nobody": [1]}})).contains("names no track"));
+    assert!(mask(serde_json::json!({"segments": [1], "model": "dbgb"})).contains("no seg_interest column"));
+    assert!(mask(serde_json::json!({"column": "nothing"})).contains("not found"));
+    assert!(mask(serde_json::json!({"gap": -1.0})).contains("gap"));
+    let e = err("move.mask_segments", vec![("tracks", only(&utm, "u1"))], serde_json::json!({"segments": [1]}));
+    assert!(e.contains("no interest column"), "{e}");
+    // the outer probability and the volume
+    let two = go(
+        "move.dbbmm_ud",
+        vec![("tracks", utm.clone())],
+        serde_json::json!({"location_error": 10, "window_size": 21, "margin": 7, "dim_size": 30}),
+    );
+    let pts = Value::Vector(Arc::new(Vector {
+        geometries: vec![Geometry::Point([0.0, 0.0])],
+        attributes: vec![],
+        crs: None,
+    }));
+    let e = err(
+        "move.ud_outer_probability",
+        vec![("points", pts.clone()), ("ud", two["ud"].clone())],
+        serde_json::json!({}),
+    );
+    assert!(e.contains("several bands"), "{e}");
+    let e = err(
+        "move.ud_outer_probability",
+        vec![("points", pts.clone()), ("ud", two["ud"].clone())],
+        serde_json::json!({"band": "zz"}),
+    );
+    assert!(e.contains("is not one of"), "{e}");
+    let e = err(
+        "move.ud_outer_probability",
+        vec![("points", pts), ("ud", two["ud"].clone())],
+        serde_json::json!({"band": 3}),
+    );
+    assert!(e.contains("position from 1 to 2"), "{e}");
+    let e = err("move.ud_volume", vec![("ud", two["ud"].clone())], serde_json::json!({"levels": [1.5]}));
+    assert!(e.contains("levels"), "{e}");
+    // the window suggestion: a track too short
+    let (o, w) = run_warn("move.suggest_window", vec![("tracks", only(&utm, "u3"))], &serde_json::json!({})).unwrap();
+    assert!(w.iter().any(|m| m.contains("too few locations")), "{w:?}");
+    assert!(table(&o, "table").rows[0][1].is_nan());
+    let e = err("move.suggest_window", vec![("tracks", utm)], serde_json::json!({"target_hours": 0}));
+    assert!(e.contains("target_hours"), "{e}");
+}
+
+#[test]
+fn bursts_make_bands_and_a_burst_column_can_be_named() {
+    if !gdal() {
+        return;
+    }
+    let b = ud_set("ud_burst", Some("burst"));
+    let p = serde_json::json!({"location_error": 5, "window_size": 21, "margin": 7, "dim_size": 30});
+    let (o, _) = run_warn("move.dbbmm_ud", vec![("tracks", b.clone())], &p).unwrap();
+    let names: Vec<String> = bridge_ud(&o)
+        .keys
+        .iter()
+        .map(|k| match k {
+            terraflux_ops::Key::Name(n) => n.clone(),
+            _ => panic!(),
+        })
+        .collect();
+    assert_eq!(names, ["b1__1", "b1__2", "b2__1", "b2__2"]);
+    // no bursts: a band for each track
+    let mut q = p.clone();
+    q["burst"] = "none".into();
+    let (o, _) = run_warn("move.dbbmm_ud", vec![("tracks", b.clone())], &q).unwrap();
+    assert_eq!(bridge_ud(&o).layers.len(), 2);
+    // a column named by its name
+    let Value::Vector(v) = &b else { panic!() };
+    let mut v = (**v).clone();
+    let col = v.column("burst_").unwrap().clone();
+    v.attributes.retain(|(n, _)| n != "burst_");
+    v.attributes.push(("part".into(), col));
+    let mut q = p.clone();
+    q["burst"] = "part".into();
+    let (o2, _) = run_warn("move.dbbmm_ud", vec![("tracks", Value::Vector(Arc::new(v.clone())))], &q).unwrap();
+    let a = bridge_ud(&o2);
+    assert_eq!(a.layers.len(), 4);
+    let (o1, _) = run_warn("move.dbbmm_ud", vec![("tracks", b)], &p).unwrap();
+    for (x, y) in a.layers.iter().zip(&bridge_ud(&o1).layers) {
+        same("named burst column", x, y);
+    }
+    q["burst"] = "missing".into();
+    assert!(run_warn("move.dbbmm_ud", vec![("tracks", Value::Vector(Arc::new(v)))], &q).is_err());
+}
+
+#[test]
+fn a_distribution_from_the_columns_of_longitude_latitude_tracks_stays_in_their_projection() {
+    if !gdal() {
+        return;
+    }
+    let ll = ud_set("ud_ll", None);
+    let v = go("move.dbbmm_variance", vec![("tracks", ll.clone())], serde_json::json!({"location_error": 5}));
+    let (o, _) =
+        run_warn("move.dbbmm_ud", vec![("tracks", v["tracks"].clone())], &serde_json::json!({"dim_size": 40})).unwrap();
+    let s = bridge_ud(&o);
+    assert_eq!(s.layers.len(), 2);
+    for l in &s.layers {
+        assert!((l.iter().sum::<f64>() - 1.0).abs() < 1e-9);
+    }
+    // the grid is in the projection of the centroid, in metres, and the bands are those of the tracks
+    let wkt = s.grid.geo.wkt.clone().unwrap();
+    assert!(wkt.contains("Azimuthal_Equidistant") || wkt.contains("Azimuthal Equidistant"), "{wkt}");
+    let centroid = go("move.aeqd_crs", vec![("tracks", ll)], serde_json::json!({"center": "centroid"}));
+    let Value::Text(crs) = &centroid["crs"] else { panic!() };
+    assert!(terraflux_gdal::same_crs(&wkt, crs).unwrap(), "{wkt} vs {crs}");
 }

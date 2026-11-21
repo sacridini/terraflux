@@ -57,6 +57,10 @@ against. In a methods section, a sentence such as *"MSPA (Soille & Vogt, 2009) w
 | Cleaning and thinning animal tracks (move2utils) | `move.flag_speed`, `move.filter_gps_quality`, `move.thin_time`, `move.thin_distance` | Kranstauber et al. (2026) |
 | Corridor segments of animal tracks (LaPoint et al.'s criterion, as move2utils computes it) | `move.corridor` | LaPoint et al. (2013); Kranstauber et al. (2026) |
 | Distance between utilisation distributions (earth mover's distance, Sinkhorn or exact) | `move.ud_distance` | Rubner et al. (2000); Cuturi (2013); Kranstauber et al. (2026) |
+| Utilisation distribution of the dynamic Brownian bridge movement model (as move2utils computes it) | `move.dbbmm_variance`, `move.dbbmm_ud` | Kranstauber et al. (2012); Horne et al. (2007); Kranstauber et al. (2026) |
+| Utilisation distribution of the dynamic bivariate Gaussian bridge (as move2utils computes it) | `move.dbgb_variance`, `move.dbgb_ud` | Kranstauber et al. (2014); Kranstauber et al. (2012); Kranstauber et al. (2026) |
+| Window and masked segments of a Brownian bridge (as move2utils computes them) | `move.suggest_window`, `move.mask_segments` | Kranstauber et al. (2012); Kranstauber et al. (2026) |
+| Volume of a utilisation distribution and outer probability of locations (as move2utils computes them) | `move.ud_volume`, `move.ud_outer_probability` | Kranstauber et al. (2026) |
 | Home ranges of animal tracks (minimum convex polygon, kernel density estimate, LoCoH; as amt computes them) | `move.home_range` | Worton (1989); Getz et al. (2007); Sheather & Jones (1991); Wand & Jones (1995); Signer et al. (2019) |
 | Overlap between home ranges (polygons and utilisation distributions) | `move.home_range_overlap` | Fieberg & Kochanny (2005); Signer et al. (2019) |
 | Intensity of use of a track | `move.intensity_use` | Signer et al. (2019) |
@@ -115,8 +119,11 @@ the same bits.
 - Herman, J., & Usher, W. (2017). SALib: An open-source Python library for sensitivity analysis. *Journal of Open Source Software*, 2(9), 97. https://doi.org/10.21105/joss.00097
 - Hesselbarth, M. H. K., Sciaini, M., With, K. A., Wiegand, K., & Nowosad, J. (2019). landscapemetrics: an open-source R tool to calculate landscape metrics. *Ecography*, 42(10), 1648–1657. https://doi.org/10.1111/ecog.04617
 - Hirt, M. R., Jetz, W., Rall, B. C., & Brose, U. (2017). A general scaling law reveals why the largest animals are not the fastest. *Nature Ecology & Evolution*, 1(8), 1116–1122. https://doi.org/10.1038/s41559-017-0241-4
+- Horne, J. S., Garton, E. O., Krone, S. M., & Lewis, J. S. (2007). Analyzing animal movements using Brownian bridges. *Ecology*, 88(9), 2354–2363. https://doi.org/10.1890/06-0957.1
 - Iwanaga, T., Usher, W., & Herman, J. (2022). Toward SALib 2.0: Advancing the accessibility and interpretability of global sensitivity analyses. *Socio-Environmental Systems Modelling*, 4, 18155. https://doi.org/10.18174/sesmo.18155
 - Kass, J. M., Muscarella, R., Galante, P. J., Bohl, C. L., Pinilla-Buitrago, G. E., Boria, R. A., Soley-Guardia, M., & Anderson, R. P. (2021). ENMeval 2.0: Redesigned for customizable and reproducible modeling of species' niches and distributions. *Methods in Ecology and Evolution*, 12(9), 1602–1608. https://doi.org/10.1111/2041-210X.13628
+- Kranstauber, B., Kays, R., LaPoint, S. D., Wikelski, M., & Safi, K. (2012). A dynamic Brownian bridge movement model to estimate utilization distributions for heterogeneous animal movement. *Journal of Animal Ecology*, 81(4), 738–746. https://doi.org/10.1111/j.1365-2656.2012.01955.x
+- Kranstauber, B., Safi, K., & Bartumeus, F. (2014). Bivariate Gaussian bridges: directional factorization of diffusion in Brownian bridge models. *Movement Ecology*, 2(1), 5. https://doi.org/10.1186/2051-3933-2-5
 - Kranstauber, B., Safi, K., & Scharf, A. K. (2026). move2utils: a utility toolkit for the move2 ecosystem. *bioRxiv*. https://doi.org/10.64898/2026.07.07.736908
 - Laffan, S. W., Lubarsky, E., & Rosauer, D. F. (2010). Biodiverse, a tool for the spatial analysis of biological and related diversity. *Ecography*, 33(4), 643–647. https://doi.org/10.1111/j.1600-0587.2010.06237.x
 - Landau, V. A., Shah, V. B., Anantharaman, R., & Hall, K. R. (2021). Omniscape.jl: Software to compute omnidirectional landscape connectivity. *Journal of Open Source Software*, 6(57), 2829. https://doi.org/10.21105/joss.02829

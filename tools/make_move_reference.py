@@ -8,7 +8,8 @@ millimetre to continental steps, the antimeridian, near a pole; UTM; no CRS; dup
 locations) and move2's fishers (tests/data/move/fishers.csv.gz, copied here): move2's steps, filters,
 interpolation, projection and Brownian tracks, amt's steps, bursts, summaries, fits, random numbers and steps, time
 of day and covariates, the cleaning and thinning, the values along the steps, the corridors and the distances between
-UDs, and amt's home ranges (MCP, KDE with its bandwidths, LoCoH, isopleths, UDs, overlaps).
+UDs, amt's home ranges (MCP, KDE with its bandwidths, LoCoH, isopleths, UDs, overlaps) and the dynamic Brownian
+bridges (the dBBMM and the dBGB: variances, distributions, volumes, outer probabilities, window suggestions, masks).
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ LS = Path(tf.__file__).resolve().parents[2]
 sys.path.insert(0, str(LS / "tests"))
 from move_cases import (ALONG_CASES, ALONG_LAYERS, ALONG_RASTERS, CORRIDOR, EXTRACT_RASTER, M2U_SYNTHETIC,  # noqa: E402
                         SPEED, SPEED_MASS, SPEED_MODE, THIN_DISTANCE, THIN_TIME, along_raster, along_track_sets,
-                        corridor_track_sets, hr_track_sets, m2u_track_sets, track_sets)
+                        corridor_track_sets, hr_track_sets, m2u_track_sets, track_sets, ud_track_sets)
 
 M = tf.move
 ALONG_STATS = ("mean", "min", "max", "ascent", "descent", "delta")
@@ -470,6 +471,208 @@ def hr_reference(out: dict, meta: dict) -> None:
                 print("edge", method, label, "->", type(e).__name__, str(e)[:100])
 
 
+# the dynamic Brownian bridges (group "move2utils_ud" of the library's cases): the sets are the library's own
+# (tests/move_cases.py: ud_track_sets) and the fishers' M1, on a coarse grid so that the reference stays small. The
+# settings are those of the operators (the library's names): a case is (model, set, prep, settings).
+UD_SETS = ("ud_m1", "ud_m1_ll", "ud_utm", "ud_ll", "ud_err", "ud_burst")
+UD_LIKE = {"xmin": -9000.0, "ymax": 8700.0, "res": 300.0, "ncol": 60, "nrow": 58}
+UD_LIKE_G = {"xmin": -12000.0, "ymax": 11700.0, "res": 400.0, "ncol": 60, "nrow": 59}
+UD_VAR_CASES = {
+    "var_m1": ("dbbmm", "ud_m1", None, {"location_error": 25}),
+    "var_m1_w21": ("dbbmm", "ud_m1", None, {"location_error": 15, "window_size": 21, "margin": 5}),
+    "var_utm": ("dbbmm", "ud_utm", None, {"location_error": 10, "window_size": 21, "margin": 7}),
+    "var_noerr": ("dbbmm", "ud_utm", None, {"location_error": None, "window_size": 21, "margin": 7}),
+    "var_ll": ("dbbmm", "ud_ll", None, {"location_error": 5}),
+    "var_m1_ll": ("dbbmm", "ud_m1_ll", None, {"location_error": 25}),
+    "var_burst_err": ("dbbmm", "ud_burst", "burst", {"location_error": "le", "window_size": 21, "margin": 7,
+                                                      "location_error_na": "approx"}),
+    "var_err_median": ("dbbmm", "ud_err", None, {"location_error": "le", "location_error_na": "median"}),
+    "var_err_mean": ("dbbmm", "ud_err", None, {"location_error": "le", "location_error_na": "mean"}),
+    "var_err_zero": ("dbbmm", "ud_err", None, {"location_error": "le", "location_error_na": "zero"}),
+    "var_err_approx": ("dbbmm", "ud_err", None, {"location_error": "le", "location_error_na": "approx"}),
+    "var_argos": ("dbbmm", "ud_err", "argos", {"location_error": "auto"}),
+    "var_eobs": ("dbbmm", "ud_err", None, {"location_error": "auto"}),
+    "gvar_m1": ("dbgb", "ud_m1", None, {"location_error": 25}),
+    "gvar_m1_w21": ("dbgb", "ud_m1", None, {"location_error": 15, "window_size": 21, "margin": 5}),
+    "gvar_utm": ("dbgb", "ud_utm", None, {"location_error": 10, "window_size": 21, "margin": 7}),
+    "gvar_noerr": ("dbgb", "ud_utm", None, {"location_error": None, "window_size": 21, "margin": 7}),
+    "gvar_burst": ("dbgb", "ud_burst", "burst", {"location_error": "le", "window_size": 21, "margin": 7,
+                                                  "location_error_na": "approx"}),
+    "gvar_err_median": ("dbgb", "ud_err", None, {"location_error": "le", "location_error_na": "median"}),
+    "gvar_argos": ("dbgb", "ud_err", "argos", {"location_error": "auto"}),
+}
+UD_CASES = {
+    "ud_m1_dim": ("dbbmm", "ud_m1", None, {"location_error": 25, "dim_size": 50}),
+    "ud_m1_enlarge_dim": ("dbbmm", "ud_m1", None, {"location_error": 25, "dim_size": 40, "ext_factor": 0}),
+    "ud_m1_enlarge_res": ("dbbmm", "ud_m1", None, {"location_error": 25, "res": 400.0, "ext_factor": 0}),
+    "ud_m1_step": ("dbbmm", "ud_m1", None, {"location_error": 25, "res": 300.0, "time_step": 3}),
+    "ud_m1_like": ("dbbmm", "ud_m1", None, {"location_error": 25, "like": UD_LIKE}),
+    "ud_utm": ("dbbmm", "ud_utm", None, {"location_error": 10, "dim_size": 50, "window_size": 21, "margin": 7}),
+    "ud_burst": ("dbbmm", "ud_burst", "burst", {"location_error": 5, "window_size": 21, "margin": 7, "dim_size": 40}),
+    "ud_argos": ("dbbmm", "ud_err", "argos", {"location_error": "auto", "dim_size": 50}),
+    "ud_eobs": ("dbbmm", "ud_err", None, {"location_error": "auto", "dim_size": 50}),
+    "ud_err_approx": ("dbbmm", "ud_err", None, {"location_error": "le", "location_error_na": "approx", "dim_size": 50}),
+    "ud_ll": ("dbbmm", "ud_ll", None, {"location_error": 5, "dim_size": 50}),
+    "ud_ll_input": ("dbbmm", "ud_ll", None, {"location_error": 5, "dim_size": 50, "crs": "input"}),
+    "ud_m1_ll": ("dbbmm", "ud_m1_ll", None, {"location_error": 25, "dim_size": 50}),
+    "gud_m1_dim": ("dbgb", "ud_m1", None, {"location_error": 25, "dim_size": 50}),
+    "gud_m1_enlarge_dim": ("dbgb", "ud_m1", None, {"location_error": 25, "dim_size": 40, "ext_factor": 0}),
+    "gud_m1_like": ("dbgb", "ud_m1", None, {"location_error": 25, "like": UD_LIKE_G}),
+    "gud_m1_step": ("dbgb", "ud_m1", None, {"location_error": 25, "res": 400.0, "time_step": 3}),
+    "gud_utm": ("dbgb", "ud_utm", None, {"location_error": 10, "dim_size": 50, "window_size": 21, "margin": 7}),
+    "gud_burst": ("dbgb", "ud_burst", "burst", {"location_error": 5, "window_size": 21, "margin": 7, "dim_size": 40}),
+    "gud_err_approx": ("dbgb", "ud_err", None, {"location_error": "le", "location_error_na": "approx",
+                                                "dim_size": 50}),
+}
+UD_MASK = [*range(30, 41), 90, 150]
+UD_BY_TRACK = {"u1": [5, 6, 7], "u2": [50, 51]}
+UD_COLUMNS = ("le", "lc", "eobs_horizontal_accuracy_estimate", "burst")
+
+
+def ud_frame(s: dict, prep=None) -> gpd.GeoDataFrame:
+    """The tracks of a set of the dBBMM cases, as the library's tests make them."""
+    t = pd.to_datetime(np.round(np.asarray(s["t"]) * 1e9).astype(np.int64), utc=True)
+    cols = {"time": t, "track": s["track"]}
+    for k in UD_COLUMNS:
+        if k in s:
+            cols[k] = s[k]
+    df = gpd.GeoDataFrame(cols, geometry=gpd.points_from_xy(s["x"], s["y"]), crs=s["crs"])
+    tr = M.as_tracks(df, "time", "track", sort=False)
+    if prep == "burst":
+        tr = tr.copy()
+        tr["burst_"] = tr.pop("burst").astype(int)
+    elif prep == "argos":
+        tr = tr.drop(columns="eobs_horizontal_accuracy_estimate").copy()
+        tr["argos_lc"] = np.array(["3", "2", "1", "0", "A", "B", "Z"])[tr["lc"].to_numpy().astype(int) - 1]
+    return tr
+
+
+def ud_run(kind: str, model: str, tr, p: dict):
+    kw = dict(p)
+    if "like" in kw:
+        kw["like"] = hr_like(kw["like"], tr.crs.to_wkt())
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return getattr(M, f"{model}_{kind}")(tr, **kw)
+
+
+def ud_reference(out: dict, meta: dict, fishers_ok) -> None:
+    """The dBBMM and the dBGB of the library on its sets and the fishers' M1: `in/ud/<set>/{x,y,t,...}` the
+    locations, `ud/var/<case>/<column>` the variances' columns, `ud/<case>/ud` the distributions (the bands one after
+    the other, rows from the top) with their grids and bands in the json (`ud`), the projected coordinates of the
+    longitude / latitude sets (`ud/proj/<set>/...`), the masks, the volume and the outer probability, the window
+    suggestions."""
+    from pyproj import CRS  # noqa: F401
+    from terraflux.move._clean import _seconds
+    from terraflux.move._ud import _transform_xy
+
+    sets = ud_track_sets()
+    m1 = fishers_ok[fishers_ok["individual-local-identifier"].astype(str) == "M1"]
+    aeqd = M.aeqd_crs(m1, "center")
+    g = m1.to_crs(aeqd)
+    t = _seconds(m1["timestamp"])
+    track = np.array(["M1"] * len(m1))
+    sets["ud_m1"] = {"x": g.geometry.x.to_numpy(), "y": g.geometry.y.to_numpy(), "t": t, "track": track,
+                     "crs": aeqd.srs}
+    sets["ud_m1_ll"] = {"x": m1.geometry.x.to_numpy(), "y": m1.geometry.y.to_numpy(), "t": t, "track": track,
+                        "crs": "EPSG:4326"}
+    meta["ud"] = {"sets": {}, "var": {}, "cases": {}, "masks": {}, "suggest": {}, "aeqd": {}}
+    frames = {}
+    for name in UD_SETS:
+        s = sets[name]
+        for k in ("x", "y", "t", *UD_COLUMNS):
+            if k in s:
+                out[f"in/ud/{name}/{k}"] = np.asarray(s[k], np.float64)
+        meta["ud"]["sets"][name] = {"track": [str(v) for v in s["track"]], "crs": s["crs"],
+                                    "columns": [k for k in UD_COLUMNS if k in s]}
+        frames[name, None] = ud_frame(s)
+    frames["ud_burst", "burst"] = ud_frame(sets["ud_burst"], "burst")
+    frames["ud_err", "argos"] = ud_frame(sets["ud_err"], "argos")
+    # the coordinates the library computes in, for the longitude / latitude sets
+    for name in ("ud_ll", "ud_m1_ll"):
+        tr = frames[name, None]
+        x, y = tr.geometry.x.to_numpy(np.float64), tr.geometry.y.to_numpy(np.float64)
+        for how in ("centroid", "center"):
+            px, py = _transform_xy(x, y, tr.crs, M.aeqd_crs(tr, how))
+            out[f"ud/proj/{name}/{how}_x"] = px
+            out[f"ud/proj/{name}/{how}_y"] = py
+            meta["ud"]["aeqd"][f"{name}/{how}"] = M.aeqd_crs(tr, how).srs
+
+    cols = {"dbbmm": ("motion_variance", "in_windows", "interest", "location_error"),
+            "dbgb": ("para_sd", "orth_sd", "n_estim", "seg_interest", "dbgb_location_error")}
+    for key, (model, name, prep, p) in UD_VAR_CASES.items():
+        v = ud_run("variance", model, frames[name, prep], p)
+        for c in cols[model]:
+            out[f"ud/var/{key}/{c}"] = v[c].to_numpy(np.float64)
+        meta["ud"]["var"][key] = {"model": model, "set": name, "prep": prep, "params": p}
+
+    def put_ud(key, ud, **extra):
+        out[f"ud/{key}/ud"] = np.asarray(ud.values, np.float64).reshape(-1)
+        tr_ = ud.rio.transform()
+        meta["ud"]["cases"].setdefault(key, {}).update({
+            "shape": [int(v) for v in ud.shape], "bands": [str(v) for v in ud["band"].values],
+            "extent": [float(v) for v in ud.attrs["extent"]], "transform": [tr_.c, tr_.a, tr_.b, tr_.f, tr_.d, tr_.e],
+            "time_step": [float(v) for v in ud.attrs["time_step"]], **extra})
+
+    uds = {}
+    for key, (model, name, prep, p) in UD_CASES.items():
+        ud = ud_run("ud", model, frames[name, prep], p)
+        uds[key] = ud
+        put_ud(key, ud, model=model, set=name, prep=prep, params=p)
+
+    # the same bridge from the variance's columns, masked, with another error given to the distribution
+    utm = frames["ud_utm", None]
+    u1 = utm[utm["track"] == "u1"]
+    u2 = utm[utm["track"] == "u2"]
+    for model in ("dbbmm", "dbgb"):
+        pre = "" if model == "dbbmm" else "g"
+        field = "interest" if model == "dbbmm" else "seg_interest"
+        v = ud_run("variance", model, u1, {"location_error": 10, "window_size": 21, "margin": 7})
+        out[f"ud/mask/{model}/before"] = v[field].to_numpy(np.float64)
+        vm = M.mask_segments(v, UD_MASK)
+        out[f"ud/mask/{model}/after"] = vm[field].to_numpy(np.float64)
+        put_ud(f"{pre}ud_masked", ud_run("ud", model, vm, {"dim_size": 40}), model=model, kind="masked")
+        put_ud(f"{pre}ud_columns", ud_run("ud", model, v, {"dim_size": 40}), model=model, kind="columns")
+        put_ud(f"{pre}ud_override", ud_run("ud", model, v, {"dim_size": 40, "location_error": 12.0}), model=model,
+               kind="override")
+        v2 = ud_run("variance", model, u2, {"location_error": 10, "window_size": 21, "margin": 7})
+        lag = np.diff(_seconds(u2["time"]))
+        idx = np.flatnonzero(lag > 3 * 3600)
+        out[f"ud/mask/{model}/gap_idx"] = idx.astype(np.float64)
+        out[f"ud/mask/{model}/gap"] = M.mask_segments(v2, idx)[field].to_numpy(np.float64)
+        out[f"ud/mask/{model}/gap_before"] = v2[field].to_numpy(np.float64)
+        vall = ud_run("variance", model, utm, {"location_error": 10, "window_size": 21, "margin": 7})
+        out[f"ud/mask/{model}/by_track"] = M.mask_segments(vall, UD_BY_TRACK, model=model)[field].to_numpy(np.float64)
+    meta["ud"]["masks"] = {"segments": UD_MASK, "gap_hours": 3.0, "by_track": UD_BY_TRACK}
+
+    # the volume and the outer probability
+    m1_xy = np.vstack([np.c_[sets["ud_m1"]["x"][::7], sets["ud_m1"]["y"][::7]], [[1e7, 1e7]]])
+    out["ud/volume/ud_m1_dim"] = np.asarray(M.ud_volume(uds["ud_m1_dim"]).values, np.float64).reshape(-1)
+    out["ud/outer/ud_m1_dim"] = M.ud_outer_probability(m1_xy, uds["ud_m1_dim"])
+    out["ud/outer/ud_m1_dim/x"] = m1_xy[:, 0]
+    out["ud/outer/ud_m1_dim/y"] = m1_xy[:, 1]
+    out["ud/volume/ud_utm"] = np.asarray(M.ud_volume(uds["ud_utm"]).values, np.float64).reshape(-1)
+    own = np.asarray(sets["ud_utm"]["track"]) == "u2"
+    u_xy = np.vstack([np.c_[np.asarray(sets["ud_utm"]["x"])[own][::5], np.asarray(sets["ud_utm"]["y"])[own][::5]],
+                      [[1e7, 1e7]]])
+    out["ud/outer/ud_utm/x"] = u_xy[:, 0]
+    out["ud/outer/ud_utm/y"] = u_xy[:, 1]
+    out["ud/outer/ud_utm"] = M.ud_outer_probability(u_xy, uds["ud_utm"], band="u2")
+    assert list(uds["ud_utm"]["band"].values) == ["u1", "u2"]
+
+    # the window of the sampling
+    for key, tr_, hours in [("fishers_h1", fishers_ok, 1), ("fishers_h4", fishers_ok, 4), ("fishers_h12", fishers_ok, 12),
+                            ("utm_h1", utm, 1), ("utm_h5", utm, 5)]:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sg = M.suggest_dbbmm_window(tr_, hours)
+        sg = sg if isinstance(sg, dict) else {"one": sg}
+        rows = [[np.nan] * 6 if v is None else [v.window_size, v.margin, v.median_dt_secs, v.window_hours, v.n,
+                                                v.n_windows] for v in sg.values()]
+        out[f"ud/suggest/{key}"] = np.array(rows, np.float64).reshape(-1)
+        meta["ud"]["suggest"][key] = hours
+
+
 def main() -> None:
     sets = track_sets()
     fishers_src = LS / "tests" / "data" / "move" / "fishers.csv.gz"
@@ -645,6 +848,7 @@ def main() -> None:
     along_reference(out, meta, fishers_src)
     corridor_reference(out, meta, tr, fishers_src)
     hr_reference(out, meta)
+    ud_reference(out, meta, fishers_ok)
 
     np.savez_compressed(REF / "move.npz", **out)
     (REF / "move.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")

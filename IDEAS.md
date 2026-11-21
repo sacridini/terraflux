@@ -5155,7 +5155,30 @@ Do amt 0.3.1 (fase 5), **entra**: `hr_mcp`, `hr_kde` com as larguras de banda `h
   (`method` = `mcp` / `kde` / `locoh`, `levels`; saídas `polygons` e, no `kde`, `ud`), `move.home_range_overlap`
   (tabela por par) e `move.intensity_use`. No `tf.move`: as funções do amt com os mesmos nomes (`hr_mcp`...) e o atalho
   `home_range(method=...)` do plano original.
-- **3. dBBMM (L).** A variância por janela móvel (`bm_variance_c.c`, os pontos de quebra pelo BIC, `window_size`
+- **3. dBBMM (L). Feito (2026-11-21):** terraflux-py 87e78a1, Terraflux (`move.dbbmm_variance`, `move.dbbmm_ud`,
+  `move.suggest_window`, `move.mask_segments`, `move.ud_volume` e `move.ud_outer_probability`, em `movement/ud.rs`;
+  quatro operadores, não um `model`: a margem padrão (11 e 15), as colunas e os conselhos são de cada modelo, e as
+  oito coisas do plano ficaram em oito operadores pequenos). A variância vai como colunas das trajetórias, o UD é
+  um `Stack` com uma banda por trajetória (ou burst, `trilha__burst`), a soma 1 por banda, na grade do `like` ou na
+  de `res` / `dim_size` / `ext_factor`, que cresce sozinha quando as pontes não cabem (só avisa com `verbose`, como o
+  R). Bit a bit com a biblioteca em todos os casos (20 de variância e 26 de UD: res, dim_size, a grade ampliada,
+  `like`, `time_step`, bursts, erros Argos e e-obs, `location_error_na`, máscaras), a partir das coordenadas
+  projetadas. De lon/lat: as coordenadas AEQD do Rust (`geometry::aeqd`, a corrigida, a mesma de `tf.move.aeqd_crs`
+  na biblioteca) saem idênticas bit a bit às da biblioteca nos 4716 números dos conjuntos de teste (o PROJ do GDAL
+  daqui e o do pyproj coincidem); contra o R a diferença vem do PROJ (9.5.1 do pyproj contra 9.4.1 do R: ~1e-7 na
+  variância), então os testes de lon/lat aceitam tolerância. `crs = "input"` volta ao CRS das trajetórias pelo
+  `gdalwarp` bilinear (zera os negativos e renormaliza; aqui deu os mesmos bits da biblioteca, o teste aceita
+  tolerância). Com as colunas da variância e lon/lat, a projeção do centroide é recalculada a partir das trajetórias
+  recebidas (o Rust não tem `attrs` para guardá-la): se o usuário filtrar linhas entre a variância e o UD, o centro
+  muda um pouco. Tempos (da biblioteca, com o mesmo C++; no Terraflux não medi): os fishers, variância de todos
+  21,9 s numa thread e 3,3 s em 8 (R: 24,1 s); UD do M1 em res 100: 1,14 s e 0,25 s (R: 1,47 s); trajetória de 100 mil
+  pontos, variância 64 s e 10 s (R: 62 s), UD numa grade 2000x1669 41,5 s e 19,6 s (R: 45,9 s). Erros do move2utils
+  achados no caminho (a biblioteca faz o certo): o `mt_aeqd_crs` do move2 centra a projeção num ponto movido ao
+  EPSG:4236 (~1 km), o `location_error = "auto"` e os nomes de coluna não acham o `eobs:horizontal-accuracy-estimate`
+  do Movebank, e o laço do núcleo que chega a `xEnd == nX` lê uma célula além da grade (aqui é uma janela que não
+  cabe). As isopletas do dBBMM como polígonos existem como `levels` do `move.ud_volume` (o caminho do
+  `hr_isopleths`; sem referência na biblioteca, testadas por propriedades); falta medir os 100 mil pontos no
+  Terraflux. O plano era: A variância por janela móvel (`bm_variance_c.c`, os pontos de quebra pelo BIC, `window_size`
   ímpar, `margin`), o UD (`bgb_bbmm.c` no modo isotrópico: a ponte browniana integrada no tempo com o erro de
   localização), `mt_motion_variance`, `mt_suggest_dbbmm_window` (a sugestão pelo intervalo típico e `target_hours`),
   `mt_mask_segments` (zerar a variância de segmentos escolhidos, por exemplo as lacunas longas: o UD que respeita as
@@ -5163,7 +5186,13 @@ Do amt 0.3.1 (fase 5), **entra**: `hr_mcp`, `hr_kde` com as larguras de banda `h
   pelo mesmo caminho do `hr_isopleths`) e `ud_outer_probability`. Por burst como na vinheta `UD_bursted_uds`, pelos
   bursts que o `move.resample` já dá. Teste de desempenho: os fishers e uma trajetória de 100 mil pontos numa grade
   de 2000², 1 e 8 threads, contra o R.
-- **4. dBGB (M).** `bgb_var_window_c.c` (as variâncias paralela e ortogonal, `.delta_para_orth`) e o UD direcional
+- **4. dBGB (M). Feito (2026-11-21):** terraflux-py 97b9593, Terraflux (`move.dbgb_variance`, `move.dbgb_ud`: as
+  colunas `para_sd`, `orth_sd`, `n_estim`, `seg_interest` e `dbgb_location_error`, o UD só do núcleo de cada
+  trajetória, janelas de cinco desvios padrão, `time_step` padrão `min(diff(t)) / 20.1`). Bit a bit com a biblioteca
+  nos casos de variância e de UD (a célula que difere 1 ulp do R no `gud_m1_like` é da biblioteca contra o R, com o
+  `acos` da UCRT; contra a biblioteca o teste do Terraflux dá os mesmos bits, inclusive nesse caso); o dBGB pede
+  modelos maiores que o dBBMM (o erro diz o tamanho do `like`) e trajetórias longas. Testes iguais aos da fase 3
+  (casos de variância e de UD, bursts, máscaras, 1 e 4 threads, erros). O plano era: `bgb_var_window_c.c` (as variâncias paralela e ortogonal, `.delta_para_orth`) e o UD direcional
   pelo mesmo núcleo do passo 3. Mesmos testes.
 - **5. Corredores e distância entre UDs (M). Feito (2026-11-21):** terraflux-py b2ecab8 (`corridor`, `corridor_lines`, `ud_distance`; o buffer de 120 vértices do GEOS 3.12 e o ponto no anel portados bit a bit, Sinkhorn bit a bit no BLAS de referência, o exato do emdist 0.3-3 vendorizado; dois erros do `mt_corridor` testados contra o código corrigido: o raio em metros num CRS em pés e o EPSG:4236), Terraflux (`move.corridor` com as saídas `lines` e os limiares, `move.ud_distance`). Ressalvas: de lon/lat o azimute e a variância circular da biblioteca diferem do R em ~1e-7 (PROJ 9.5.1 do pyproj contra 9.4.1 do R; o resultado do corredor é o mesmo); a velocidade usa o intervalo exato em ns, como o `speed`, e não a conversão de minutos do difftime (1 ulp). O manual diz que `min_segments` conta os vizinhos que qualificam; o código conta todos, como aqui. `mt_corridor`: a velocidade e a variância circular dos segmentos
   vizinhos (o R-tree do `sf` vira o índice espacial que o Terraflux já tem), os limites (`speed_threshold`,

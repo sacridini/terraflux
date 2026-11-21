@@ -735,6 +735,18 @@ pub const REFERENCES: &[Reference] = &[
         "10.1038/s41559-017-0241-4"
     ),
     paper!(
+        "horne2007",
+        ["Horne, J. S.", "Garton, E. O.", "Krone, S. M.", "Lewis, J. S."],
+        false,
+        2007,
+        "Analyzing animal movements using Brownian bridges",
+        "Ecology",
+        "88",
+        "9",
+        "2354–2363",
+        "10.1890/06-0957.1"
+    ),
+    paper!(
         "iwanaga2022",
         ["Iwanaga, T.", "Usher, W.", "Herman, J."],
         false,
@@ -766,6 +778,31 @@ pub const REFERENCES: &[Reference] = &[
         "9",
         "1602–1608",
         "10.1111/2041-210X.13628"
+    ),
+    paper!(
+        "kranstauber2012",
+        ["Kranstauber, B.", "Kays, R.", "LaPoint, S. D.", "Wikelski, M.", "Safi, K."],
+        false,
+        2012,
+        "A dynamic Brownian bridge movement model to estimate utilization distributions for heterogeneous animal \
+         movement",
+        "Journal of Animal Ecology",
+        "81",
+        "4",
+        "738–746",
+        "10.1111/j.1365-2656.2012.01955.x"
+    ),
+    paper!(
+        "kranstauber2014",
+        ["Kranstauber, B.", "Safi, K.", "Bartumeus, F."],
+        false,
+        2014,
+        "Bivariate Gaussian bridges: directional factorization of diffusion in Brownian bridge models",
+        "Movement Ecology",
+        "2",
+        "1",
+        "5",
+        "10.1186/2051-3933-2-5"
     ),
     Reference {
         key: "kranstauber2026",
@@ -1581,6 +1618,34 @@ pub const METHODS: &[Method] = &[
         ops: &["move.ud_distance"],
         name: "the earth mover's distance between utilisation distributions",
         refs: &["rubner2000", "cuturi2013"],
+        software: "move2utils",
+        software_refs: &["kranstauber2026"],
+    },
+    Method {
+        ops: &["move.dbbmm_variance", "move.dbbmm_ud"],
+        name: "the utilization distribution of the dynamic Brownian bridge movement model ({ops})",
+        refs: &["kranstauber2012", "horne2007"],
+        software: "move2utils",
+        software_refs: &["kranstauber2026"],
+    },
+    Method {
+        ops: &["move.dbgb_variance", "move.dbgb_ud"],
+        name: "the utilization distribution of the dynamic bivariate Gaussian bridge ({ops})",
+        refs: &["kranstauber2014", "kranstauber2012"],
+        software: "move2utils",
+        software_refs: &["kranstauber2026"],
+    },
+    Method {
+        ops: &["move.suggest_window", "move.mask_segments"],
+        name: "the window of the motion variance of a Brownian bridge and the masking of its segments ({ops})",
+        refs: &["kranstauber2012"],
+        software: "move2utils",
+        software_refs: &["kranstauber2026"],
+    },
+    Method {
+        ops: &["move.ud_volume", "move.ud_outer_probability"],
+        name: "the volume of a utilization distribution and the outer probability of locations ({ops})",
+        refs: &[],
         software: "move2utils",
         software_refs: &["kranstauber2026"],
     },
