@@ -955,8 +955,3 @@ Movebank file (project the tracks first), and set the location error of your col
 - Wand, M. P., & Jones, M. C. (1995). *Kernel smoothing*. Chapman & Hall/CRC. https://doi.org/10.1201/b14876
 - Worton, B. J. (1989). Kernel methods for estimating the utilization distribution in home-range studies. *Ecology*, 70(1),
   164-168. https://doi.org/10.2307/1938423
-
-In Python: [Animal movement in Python](/tutorials/animal-movement/animal-movement-in-python/).
-
-
-

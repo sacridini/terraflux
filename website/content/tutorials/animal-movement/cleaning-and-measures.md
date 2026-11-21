@@ -277,6 +277,131 @@ params = { unit = "30 mins", criterion = "first" }
 from Sunday. The result is a track with at most one location per interval, but not a regular one: an interval
 without a fix gives none. For steps of a regular interval, see [[move.resample]] in part 4.
 
+### In Python
+
+The same nodes, in the same order, on the library's copy of the fishers. Every filter has a function that keeps the
+records ([`tf.move.filter_movebank_visible`][terraflux.move.filter_movebank_visible],
+[`tf.move.filter_unique`][terraflux.move.filter_unique],
+[`tf.move.filter_per_interval`][terraflux.move.filter_per_interval]) and one that gives the True / False of each
+(`tf.move.movebank_visible`, `unique`, `per_interval`).
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+pd.set_option("display.width", 160, "display.max_columns", 10)
+ID = "individual-local-identifier"
+tracks = tf.load_tracks(tf.move.example_data("fishers"))
+print(len(tracks), int(tracks.geometry.is_empty.sum()), "records without a location")
+
+tracks = tf.move.filter_movebank_visible(tracks)             # Movebank's own flags (no outliers flagged in this study)
+tracks = tracks[~tracks.geometry.is_empty]                   # the located records
+tracks = tf.move.filter_unique(tracks).reset_index(drop=True)  # one record per animal and time
+print(len(tracks))
+print(tracks[ID].value_counts().sort_index().to_dict())
+```
+
+```text
+47347 14443 records without a location
+32904
+{'F1': 1349, 'F2': 3004, 'F3': 1501, 'M1': 919, 'M2': 1638, 'M3': 2436, 'M4': 8958, 'M5': 13099}
+```
+
+`filter_unique` takes the `criterion` of the node (`subsets`, the default, `first`, `last` or `sample` with a `seed`,
+as R's `set.seed`) and `columns_also`. On the fishers nothing is dropped beyond the 14,443 records without a
+location, as the part says.
+
+The five measures are functions that give one value per location, in the order of the tracks, that is, the
+step that leaves it (NaN at the last location of each animal; the turn angle is NaN at the first as well). They take
+the node's `units`: `"s"`, `"min"`, `"h"` or `"d"` for the time lag, `"m"` or `"km"` for the distance, `"m/s"`,
+`"km/h"`, `"m/h"` or `"km/d"` for the speed, `"rad"` (the default, as move2) or `"deg"` for the two angles.
+
+```python
+tracks["time_lag"] = tf.move.time_lags(tracks, "min")
+tracks["distance"] = tf.move.distance(tracks)                # metres, on the sphere (in the CRS's units if projected)
+tracks["speed"] = tf.move.speed(tracks, "km/h")
+tracks["azimuth"] = tf.move.azimuth(tracks, "deg")           # clockwise from north
+tracks["turn_angle"] = tf.move.turn_angle(tracks, "deg")     # positive to the right
+print(tracks[[ID, "time_lag", "distance", "speed", "azimuth", "turn_angle"]].head(3).round(2))
+
+short = tracks["time_lag"] < 1
+fast = tracks["speed"] > 10
+print(int(short.sum()), "steps under a minute;", int(fast.sum()), "faster than 10 km/h,", int((fast & short).sum()),
+      "of them under a minute")
+turns = tracks["turn_angle"].abs()
+print(f"{(turns < 45).mean():.1%} of the turns are under 45 degrees, {(turns > 135).mean():.1%} over 135")
+```
+
+```text
+  individual-local-identifier  time_lag  distance  speed  azimuth  turn_angle
+0                          F1      3.92     13.23   0.20    60.48         NaN
+1                          F1     10.83     12.16   0.07  -124.52      175.00
+2                          F1     20.53     50.00   0.15   179.16      -56.32
+933 steps under a minute; 19 faster than 10 km/h, 14 of them under a minute
+32.8% of the turns are under 45 degrees, 27.8% over 135
+```
+
+The table of each animal at its own rate and at a common one, with one location per 10 minutes:
+
+```python
+thin = tf.move.filter_per_interval(tracks, "10 mins")        # unit, criterion "first" (also "last", "random" with a seed)
+thin["distance"] = tf.move.distance(thin)
+by = tracks.groupby(ID)
+days = by["timestamp"].agg(lambda t: (t.max() - t.min()).total_seconds() / 86400)
+animals = pd.DataFrame({
+    "median lag (min)": by["time_lag"].median(),
+    "median speed (km/h)": by["speed"].median(),
+    "99th percentile (km/h)": by["speed"].quantile(0.99),
+    "km per day": by["distance"].sum() / 1000 / days,
+    "km per day at 10 min": thin.groupby(ID)["distance"].sum() / 1000 / days,
+})
+print(animals.round(2))
+```
+
+```text
+                             median lag (min)  median speed (km/h)  99th percentile (km/h)  km per day  km per day at 10 min
+individual-local-identifier                                                                                                
+F1                                      10.02                 0.14                    2.90        5.98                  5.98
+F2                                       2.03                 0.99                    4.74        9.84                  7.45
+F3                                       2.07                 0.82                    4.61        4.80                  3.40
+M1                                      15.03                 0.10                    3.08        8.22                  8.22
+M2                                      10.02                 0.17                    3.71        7.49                  7.49
+M3                                       2.17                 0.99                    4.89        7.51                  6.11
+M4                                       2.03                 0.69                    4.77        7.51                  5.26
+M5                                       2.02                 0.88                    4.64        9.03                  6.27
+```
+
+[`tf.move.segments`][terraflux.move.segments] is the node of the steps as lines: a GeoSeries aligned with the
+tracks, a two-point line from each location to the next and the location itself (a point) at the end of each animal.
+The last block repeats the slider's thinning for M4's night (noon on 5 March 2010, local time, is 17:00 UTC):
+
+```python
+steps = tf.move.segments(tracks)
+print(steps.geom_type.value_counts().to_dict())
+
+start, end = pd.Timestamp("2010-03-05 17:00", tz="UTC"), pd.Timestamp("2010-03-06 17:00", tz="UTC")
+for unit in ["2 mins", "10 mins", "30 mins", "hour", "2 hours"]:
+    kept = tf.move.filter_per_interval(tracks, unit)
+    kept["distance"] = tf.move.distance(kept)
+    night = kept[(kept[ID] == "M4") & (kept["timestamp"] >= start) & (kept["timestamp"] < end)]
+    print(f"{unit:8s} {len(night):4d} locations {night['distance'].iloc[:-1].sum() / 1000:6.2f} km")
+```
+
+```text
+{'LineString': 32896, 'Point': 8}
+2 mins    248 locations  12.65 km
+10 mins    83 locations   9.04 km
+30 mins    35 locations   6.56 km
+hour       21 locations   5.49 km
+2 hours    13 locations   4.50 km
+```
+
+The distance of the night falls with the interval, as in the slider. The functions take the tracks as a GeoDataFrame
+of points ordered by animal and time, as [`tf.load_tracks`][terraflux.move.load_tracks] and
+[`tf.move.as_tracks`][terraflux.move.as_tracks] give them. A duplicated time gives a time lag of zero and an infinite
+speed: run `filter_unique` before measuring.
+
 ## Read the results
 
 ### The sampling schedules
@@ -408,5 +533,3 @@ interval; `random` with a different `seed` gives a different track).
 - Rowcliffe, J. M., Carbone, C., Kays, R., Kranstauber, B., & Jansen, P. A. (2012). Bias in estimating animal
   travel distance: the effect of sampling frequency. *Methods in Ecology and Evolution*, 3(4), 653-662.
   https://doi.org/10.1111/j.2041-210X.2012.00197.x
-
-In Python: [Animal movement in Python](/tutorials/animal-movement/animal-movement-in-python/).

@@ -683,5 +683,3 @@ the rank correlations. The resistance is marked as the data of **Use my data**: 
 - Zeller, K. A., Jennings, M. K., Vickers, T. W., Ernest, H. B., Cushman, S. A., & Boyce, W. M. (2018). Are all data types and
   connectivity models created equal? Validating common connectivity approaches with dispersal data. *Diversity and
   Distributions*, 24(7), 868-879. https://doi.org/10.1111/ddi.12742
-
-In Python: [Animal movement in Python](/tutorials/animal-movement/animal-movement-in-python/).

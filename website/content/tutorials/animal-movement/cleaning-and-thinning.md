@@ -428,5 +428,3 @@ your own file; the mass and the mode of the template (a 5 kg flying animal) are 
   fastest. *Nature Ecology & Evolution*, 1(8), 1116-1122. https://doi.org/10.1038/s41559-017-0241-4
 - Kranstauber, B., Safi, K., & Scharf, A. K. (2026). move2utils: a utility toolkit for the move2 ecosystem. *bioRxiv*.
   https://doi.org/10.64898/2026.07.07.736908
-
-In Python: [Animal movement in Python](/tutorials/animal-movement/animal-movement-in-python/).

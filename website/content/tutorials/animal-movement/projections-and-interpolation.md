@@ -280,6 +280,165 @@ figures below use 0 to 1000), the same for every track or a list per track; `sig
 or one per step; `tracks` how many (named 1, 2...) or their names; `start` the first location. The tracks have
 no coordinate system: x and y are in the units of `sigma`.
 
+### In Python
+
+The four nodes, on the cleaned tracks of part 2. [`tf.move.aeqd_crs`][terraflux.move.aeqd_crs] gives the projection
+as a `pyproj.CRS` (its `.srs` is the PROJ string); `center` is `"centroid"` (the default), `"center"` or a
+`(longitude, latitude)` pair, and `units` `"m"` or `"km"`.
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+pd.set_option("display.width", 120, "display.max_columns", 10)
+ID = "individual-local-identifier"
+tracks = tf.load_tracks(tf.move.example_data("fishers"))
+tracks = tf.move.filter_unique(tf.move.filter_movebank_visible(tracks))
+tracks = tracks[~tracks.geometry.is_empty].reset_index(drop=True)
+
+crs = tf.move.aeqd_crs(tracks)                               # node 5, centred on the centroid of the locations
+print(crs.srs)
+local = tracks.to_crs(crs)                                   # the tracks in metres from the centre
+lines = tf.move.track_lines(tracks).set_index(ID)
+print((lines.to_crs(crs).length / 1000).round(1).to_dict(), "km")
+```
+
+```text
++proj=aeqd +lat_0=42.807093 +lon_0=-73.693649 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs +type=crs
+{'F1': 115.9, 'F2': 183.4, 'F3': 78.4, 'M1': 171.6, 'M2': 185.2, 'M3': 168.3, 'M4': 375.9, 'M5': 608.8} km
+```
+
+Every function of `tf.move` measures on the projected tracks as well, in the CRS's units. The distance of each step
+in the projection, on the Earth ([`tf.move.distance`][terraflux.move.distance] on longitude and latitude) and with
+degrees taken as flat, against the direction of the step (the figure's comparison):
+
+```python
+sphere = tf.move.distance(tracks)                            # on the sphere of radius 6,371 km
+plane = tf.move.distance(local)                              # a straight line in the projection
+x, y = tracks.geometry.x.to_numpy(), tracks.geometry.y.to_numpy()
+flat = np.hypot(np.diff(x, append=np.nan), np.diff(y, append=np.nan)) * 111_320   # degrees as flat coordinates
+azimuth = np.radians(tf.move.azimuth(tracks, "deg"))
+same_track = np.r_[tracks[ID].to_numpy()[1:] == tracks[ID].to_numpy()[:-1], False]
+ok = same_track & np.isfinite(sphere) & (sphere > 50)
+
+proj_err = np.abs(plane[ok] / sphere[ok] - 1) * 100
+flat_err = (flat[ok] / sphere[ok] - 1) * 100
+east_west = np.abs(np.sin(azimuth[ok])) > 0.95
+north_south = np.abs(np.cos(azimuth[ok])) > 0.95
+print(f"projection: {np.median(proj_err):.2f} % in the median, {proj_err.max():.2f} % at most")
+print(f"flat degrees: east-west steps {np.median(flat_err[east_west]):+.1f} %, "
+      f"north-south steps {np.median(flat_err[north_south]):+.1f} %")
+```
+
+```text
+projection: 0.09 % in the median, 0.27 % at most
+flat degrees: east-west steps +35.6 %, north-south steps +1.2 %
+```
+
+A raster goes to the same projection with [`tf.reproject`][terraflux.reproject] (the `crs` and `resolution` of
+[[raster.reproject]]; `like=` takes the grid of another raster, and it reprojects vectors as well). The library's
+example elevation stands in for the graph's download:
+
+```python
+elevation = tf.load_raster(tf.move.example_data("elevation"))   # EPSG:5070, ASTER, around the fishers
+local_elevation = tf.reproject(elevation, crs, res=30)           # 30 m cells in the metres of the tracks
+print(elevation.shape, local_elevation.shape)
+```
+
+```text
+(272, 294) (630, 550)
+```
+
+[`tf.move.interpolate`][terraflux.move.interpolate] takes `times` as a unit (a regular sequence from the first to the
+last time of each track) or a list of datetimes, `max_time_lag` in seconds (or a `Timedelta`) and `omit`. The records
+at the chosen times come back with an empty point where a gap is too long:
+
+```python
+m4 = tracks[tracks[ID] == "M4"]
+every10 = tf.move.interpolate(m4, "10 mins", max_time_lag=3600, omit=True)   # node 6
+every10_all = tf.move.interpolate(m4, "10 mins", omit=True)                   # without the limit
+empty = every10.geometry.is_empty | every10.geometry.isna()
+print(len(every10), len(every10_all), int(empty.sum()), "times in gaps over an hour")
+
+start, end = pd.Timestamp("2010-03-05 22:30", tz="UTC"), pd.Timestamp("2010-03-06 03:00", tz="UTC")
+night = every10[(every10["timestamp"] >= start) & (every10["timestamp"] < end)]
+print(len(night), "times in the figure's window,", int((night.geometry.is_empty | night.geometry.isna()).sum()),
+      "left empty")
+```
+
+```text
+7203 7203 3367 times in gaps over an hour
+27 times in the figure's window, 7 left empty
+```
+
+Without `times`, the function does the other thing of the node: it gives a location to each record that has a time and
+no location, between the locations before and after it. The records of a track before its first location and after its
+last stay empty:
+
+```python
+raw = tf.load_tracks(tf.move.example_data("fishers"))
+raw = tf.move.filter_unique(tf.move.filter_movebank_visible(raw))      # the records without a location stay
+filled = tf.move.interpolate(raw)
+before, after = int(raw.geometry.is_empty.sum()), int(filled.geometry.is_empty.sum())
+
+found = raw[~raw.geometry.is_empty].groupby(ID)["timestamp"].agg(["min", "max"])
+left = filled[filled.geometry.is_empty]
+outside = (left["timestamp"] < left[ID].map(found["min"])) | (left["timestamp"] > left[ID].map(found["max"]))
+print(before, "records without a location,", after, "after interpolating;", int(outside.sum()), "of them outside the track")
+```
+
+```text
+14443 records without a location, 208 after interpolating; 208 of them outside the track
+```
+
+[`tf.move.as_tracks`][terraflux.move.as_tracks] makes tracks of a table, here the first 200 locations of F2 in UTM
+zone 18 with the time in seconds and the animal as a number, as in the graph. `x`, `y` and `crs` say where the
+coordinates are; the columns of the time and of the track are recorded on the result, and a table with text times
+is read as UTC:
+
+```python
+f2 = local[local[ID] == "F2"].head(200).to_crs(32618)
+table = pd.DataFrame({"easting": f2.geometry.x.to_numpy(), "northing": f2.geometry.y.to_numpy(),
+                      "seconds": (f2["timestamp"] - f2["timestamp"].iloc[0]).dt.total_seconds().to_numpy(),
+                      "animal": 1})
+mine = tf.move.as_tracks(table, time="seconds", track="animal", x="easting", y="northing", crs="EPSG:32618")
+print(mine.crs.to_epsg(), mine.attrs["terraflux.move"])
+print(round(float(tf.move.cum_dist(mine).iloc[0]), 1), "m;", round(float(tf.move.cum_dist(f2).iloc[0]), 1), "m of the original")
+```
+
+```text
+32618 {'time': 'seconds', 'track': 'animal'}
+12738.6 m; 12738.6 m of the original
+```
+
+[`tf.move.simulate_brownian`][terraflux.move.simulate_brownian] draws the tracks with R's generator: the same `seed`
+gives the tracks of move2. `t` is the list of times (one for all, or one per track), `sigma` the diffusion (a number or
+one per step), `tracks` how many (or their names) and `start` the first location; the tracks have no CRS.
+
+```python
+brown = tf.move.simulate_brownian(list(range(0, 1001)), sigma=1, tracks=4, seed=1)
+brown["r"] = np.hypot(brown.geometry.x, brown.geometry.y)
+print(brown.groupby("track")["r"].max().round(1).to_dict(), "furthest from the start")
+
+fishers = tracks[tracks[ID].isin(["F2", "F3", "M3", "M4", "M5"])]       # the 2-minute collars
+fishers = tf.move.filter_per_interval(fishers, "10 mins")
+for name, t in [("Brownian", brown), ("fishers", fishers)]:
+    a = np.abs(tf.move.turn_angle(t, "deg"))
+    a = a[~np.isnan(a)]
+    print(f"{name:9s}{len(a):5d} turns: {(a < 45).mean():.1%} under 45 degrees, {(a > 135).mean():.1%} over 135")
+```
+
+```text
+{1: 27.0, 2: 54.5, 3: 29.0, 4: 27.3} furthest from the start
+Brownian  3996 turns: 25.0% under 45 degrees, 24.2% over 135
+fishers   9735 turns: 30.9% under 45 degrees, 27.7% over 135
+```
+
+Uniform turns would give 25 % in each of the two classes, which the Brownian tracks do; the fishers go straight on
+more often and straight back more often than chance, and turn sideways less. A test against the null model compares such shares with those of
+many Brownian tracks drawn with other seeds.
+
 ## Read the results
 
 ### The tracks in metres

@@ -209,6 +209,124 @@ here, square degrees on tracks in longitude and latitude (as amt), which is one 
 locations and its constant columns) with the columns `cum_dist`, `tot_dist`, `straightness`, `msd`, `sinuosity`
 and `tac`.
 
+### In Python
+
+The model's nodes, one function each, on the projected tracks of part 3. [`tf.move.resample`][terraflux.move.resample]
+takes `rate` and `tolerance` as seconds, as text (`"10min"`, `"2h"`, `"30s"`) or as timedeltas, and `start`; it adds the
+column `burst_`. [`tf.move.steps`][terraflux.move.steps] works in longitude and latitude too (`lonlat=True` is the
+default for a geographic CRS), and `keep_cols` copies the tracks' other columns onto the steps.
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+pd.set_option("display.width", 120, "display.max_columns", 10)
+ID = "individual-local-identifier"
+tracks = tf.load_tracks(tf.move.example_data("fishers"))
+tracks = tf.move.filter_unique(tf.move.filter_movebank_visible(tracks))
+tracks = tracks[~tracks.geometry.is_empty].reset_index(drop=True)
+local = tracks.to_crs(tf.move.aeqd_crs(tracks))                 # metres, so that the steps have lengths in metres
+
+resampled = tf.move.resample(local, "10min", "1min")            # node 6
+bursts = tf.move.filter_min_n_burst(resampled, 3)               # node 7: min_n = 3
+steps = tf.move.steps(bursts)                                   # node 8
+print(len(resampled), len(bursts), len(steps), "steps of", steps[ID].nunique(), "animals")
+print(steps.columns.tolist())
+print(steps[["sl_", "ta_", "direction_p", "dt_"]].head(3))
+```
+
+```text
+12833 8641 7480 steps of 7 animals
+['individual-local-identifier', 'burst_', 'x1_', 'x2_', 'y1_', 'y2_', 'sl_', 'direction_p', 'ta_', 't1_', 't2_', 'dt_']
+         sl_       ta_  direction_p                    dt_
+0  13.708823       NaN     0.497441 0 days 00:09:47.003000
+1  83.809351  2.793589    -2.992155 0 days 00:10:14.997000
+2  11.817641       NaN    -1.514482 0 days 00:09:16.002000
+```
+
+`direction_p` is anticlockwise from east, in radians, and `ta_` positive to the left (amt's conventions, unlike
+`tf.move.azimuth` and `tf.move.turn_angle`). The first step of each burst has no turn angle. The rate decides which
+animals have steps and which hours of the track they come from:
+
+```python
+rows = []
+for rate, tol in [("2min", "20s"), ("10min", "1min"), ("30min", "3min"), ("1h", "6min"), ("2h", "12min")]:
+    res = tf.move.resample(local, rate, tol)
+    st = tf.move.steps(tf.move.filter_min_n_burst(res, 3))
+    rows.append({"rate": rate, "tolerance": tol, "locations": len(res),
+                 "bursts": int(res.groupby(ID)["burst_"].nunique().sum()), "steps": len(st),
+                 "animals": st[ID].nunique(), "M4's median step (m)": st.loc[st[ID] == "M4", "sl_"].median()})
+print(pd.DataFrame(rows).round(1).to_string(index=False))
+```
+
+```text
+ rate tolerance  locations  bursts  steps  animals  M4's median step (m)
+ 2min       20s      30179   14504  14686        5                  28.4
+10min      1min      12833    4783   7480        7                  76.8
+30min      3min       5838    2096   3577        8                 166.6
+   1h      6min       3678     694   2877        8                  80.7
+   2h     12min       1991     457   1466        8                 144.9
+```
+
+[`tf.move.time_of_day`][terraflux.move.time_of_day] labels locations or steps (`where="end"`, as amt, or `"start"`)
+from the sun's position, with the sunrise of the location's date in UTC; `include_crepuscule=True` adds dawn and dusk.
+It returns a categorical, one label per step.
+
+```python
+steps["tod"] = tf.move.time_of_day(steps, include_crepuscule=True)
+by = steps.groupby("tod", observed=True)["sl_"]
+table = pd.DataFrame({"steps": by.size(), "share (%)": 100 * by.size() / len(steps),
+                      "median step (m)": by.median(), "mean step (m)": by.mean()})
+print(table.loc[["day", "dusk", "night", "dawn"]].round(1))
+```
+
+```text
+       steps  share (%)  median step (m)  mean step (m)
+tod                                                    
+day     1553       20.8             22.6           55.8
+dusk      46        0.6             24.7           62.0
+night   5661       75.7             85.0          123.6
+dawn     220        2.9             65.3          117.5
+```
+
+The summaries and the NSD are one function each, by animal ([`tf.move.nsd`][terraflux.move.nsd] gives one value per
+location; the others a Series by track). The node [[move.track_summary]] is these six on the same tracks, so they take
+the resampled tracks, with `burst_` and all:
+
+```python
+nsd = pd.Series(tf.move.nsd(local), index=local.index)           # node 10: squared units of the CRS
+print((nsd.groupby(local[ID]).max() / 1e6).round(1).to_dict(), "km2 at most")
+
+summary = pd.DataFrame({                                         # node 11
+    "locations": bursts.groupby(ID).size(),
+    "cum_dist (km)": tf.move.cum_dist(bursts) / 1000,
+    "tot_dist (km)": tf.move.tot_dist(bursts) / 1000,
+    "straightness": tf.move.straightness(bursts),
+    "msd (km2)": tf.move.msd(bursts) / 1e6,
+    "sinuosity": tf.move.sinuosity(bursts),
+    "tac": tf.move.tac(bursts),
+})
+print(summary.round(3))
+```
+
+```text
+{'F1': 4.8, 'F2': 7.2, 'F3': 2.7, 'M1': 33.1, 'M2': 69.4, 'M3': 13.4, 'M4': 12.1, 'M5': 11.8} km2 at most
+                             locations  cum_dist (km)  tot_dist (km)  straightness  msd (km2)  sinuosity    tac
+individual-local-identifier                                                                                    
+F1                                1300        114.220          0.716         0.006      0.954      0.106  1.763
+F2                                 575        109.580          1.408         0.013      1.285      0.096  1.806
+F3                                 300         41.696          0.379         0.009      0.214      0.112  1.944
+M2                                1520        173.790          4.461         0.026      3.937      0.089  1.795
+M3                                 385         89.666          0.895         0.010      1.177      0.077  1.832
+M4                                1801        225.495          1.461         0.006      1.806      0.111  1.880
+M5                                2760        371.118          1.301         0.004      1.496      0.107  1.757
+```
+
+M1 has no bursts at 10 minutes and so no row, as in the table. On tracks in longitude and latitude `tf.move.nsd` gives
+squared degrees, as amt does: project first, as above. The same functions on the raw tracks (every fix, no
+resampling) give other, more tortuous numbers.
+
 ## Read the results
 
 ### Bursts

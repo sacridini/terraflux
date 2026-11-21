@@ -26,8 +26,8 @@ and the earth mover's distance between distributions. From amt, the values of a
 raster along each step and the home ranges (MCP, kernel density with four
 bandwidths, LoCoH, isopleths, overlaps). Last, the use of the animals against a
 connectivity surface (`validate`). C++ with OpenMP; the same with any number of
-threads. The `tf.move` module; the [tutorial](/tutorials/animal-movement/animal-movement-in-python/) walks
-through it on the tracks of fishers.
+threads. The `tf.move` module; the [tutorials](/tutorials/animal-movement/) walk
+through it on the tracks of fishers, with the Python in each part.
 
 <!-- no-run -->
 ```python

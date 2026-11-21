@@ -146,8 +146,9 @@ such as:
   steps the animal could have taken (part 5).
 - **Where do they cross a barrier, a road or a river?** The steps that cross it, drawn as lines (part 2).
 
-Terraflux does not yet estimate home ranges (minimum convex polygons, kernel densities, autocorrelated kernel
-densities) or behavioural states (hidden Markov models); for those, R's amt, ctmm and moveHMM read the same files.
+Terraflux estimates home ranges (minimum convex polygons, kernel densities, LoCoH, dynamic Brownian bridges; see
+[home ranges](../home-ranges/)) but not behavioural states (hidden Markov models) or autocorrelated kernel densities;
+for those, R's moveHMM and ctmm read the same files.
 If your question is about *where a species can live* rather than *how individuals move*, see the
 [species distribution models](../../species-distributions/ideas/); if it is about how the landscape resists
 movement, see [circuit connectivity](../../circuit-connectivity/) and [grid distances](../../grid-distances/),
@@ -250,6 +251,97 @@ Vectors are written as GeoPackage files (`results/lines.gpkg`), which QGIS, R's 
     style. Hover over a
     location to read its attributes (its `timestamp`, its animal, the collar's columns): the quickest way to check
     that the time and the animal are the columns you expect.
+
+### In Python
+
+The model is four calls of `tf.move` (move2's `mt_*` and amt's functions under their own names), on the file of this
+page. [`tf.load_tracks`][terraflux.move.load_tracks] reads Movebank's CSV (also `.csv.gz` and the `.zip`) into a
+GeoDataFrame of points in longitude and latitude, one row per record, ordered by animal and time; the library's own
+copy of the same fishers is `tf.move.example_data("fishers")`.
+
+```python
+import pandas as pd
+import terraflux as tf
+
+pd.set_option("display.width", 120, "display.max_columns", 10)
+ID = "individual-local-identifier"
+tracks = tf.load_tracks("fishers.csv.gz")                    # node 1
+print(len(tracks), tracks.crs)
+print(tracks[[ID, "timestamp"]].head(3))
+```
+
+```text
+47347 EPSG:4326
+  individual-local-identifier                 timestamp
+0                          F1 2011-02-11 17:30:00+00:00
+1                          F1 2011-02-11 17:40:00+00:00
+2                          F1 2011-02-11 17:50:00+00:00
+```
+
+The records without a location come in as empty points, as in the graph. Dropping them is a filter on the geometry,
+and [`tf.move.track_data`][terraflux.move.track_data] and [`tf.move.track_lines`][terraflux.move.track_lines] are the
+other two nodes:
+
+```python
+located = tracks[~tracks.geometry.is_empty]                  # node 2
+print(len(located), f"{len(located) / len(tracks):.1%} of the attempts gave a location")
+
+animals = tf.move.track_data(tracks)                         # node 4: one row per animal, no geometry
+print(animals[["tag-local-identifier", "sensor-type"]].head(3))
+
+lag = pd.Series(tf.move.time_lags(located, "min"), index=located.index)
+table = pd.DataFrame({
+    "records": tracks.groupby(ID).size(),
+    "locations": located.groupby(ID).size(),
+    "first": located.groupby(ID)["timestamp"].min().dt.date,
+    "last": located.groupby(ID)["timestamp"].max().dt.date,
+    "median interval (min)": lag.groupby(located[ID]).median(),
+})
+table["share located (%)"] = 100 * table["locations"] / table["records"]
+print(table.round(1))
+
+lines = tf.move.track_lines(located)                         # node 3: a line per animal, n_locations
+print(lines[[ID, "n_locations"]].head(3))
+tf.write_vector(lines, "fishers-lines.gpkg")                 # a GeoPackage, as the graph's output
+```
+
+```text
+32904 69.5% of the attempts gave a location
+                            tag-local-identifier sensor-type
+individual-local-identifier                                 
+F1                                          1072         gps
+F2                                          1465         gps
+F3                                          1466         gps
+                             records  locations       first        last  median interval (min)  share located (%)
+individual-local-identifier                                                                                      
+F1                              2795       1349  2011-02-11  2011-03-03                   10.0               48.3
+F2                              4689       3004  2010-12-16  2011-01-04                    2.0               64.1
+F3                              3383       1501  2011-01-21  2011-02-07                    2.1               44.4
+M1                              1990        919  2009-02-11  2009-03-04                   15.0               46.2
+M2                              3573       1638  2011-02-10  2011-03-07                   10.0               45.8
+M3                              5013       2436  2011-01-19  2011-02-11                    2.2               48.6
+M4                             10846       8958  2010-02-09  2010-03-31                    2.0               82.6
+M5                             15058      13099  2011-03-22  2011-05-28                    2.0               87.0
+  individual-local-identifier  n_locations
+0                          F1         1349
+1                          F2         3004
+2                          F3         1501
+```
+
+The tracks of a table of your own (a spreadsheet of VHF locations, a simulation) enter through
+[`tf.move.as_tracks`][terraflux.move.as_tracks]: `tf.move.as_tracks(table, time="t", track="id", x="east",
+y="north", crs="EPSG:32618")`, or a GeoDataFrame of points with only `time` and `track`. It reads text times as UTC
+and sorts by animal and time (`sort=False` keeps the order). Every other function of `tf.move` finds the time and the
+animal in Movebank's usual names (`timestamp`, `individual-local-identifier`; `individual-tag-local-identifier` when an
+animal carried more than one tag) and takes `time=` and `track=` for others, so a track by tag instead of by animal
+is `track="tag-local-identifier"`. `tf.load_tracks(path, sort=False)` keeps the file's order.
+
+The numbers are those of the R packages. The steps, filters, interpolation, lines and projection are move2 0.5.0 bit
+for bit, and the resampling, steps, summaries, fitted distributions, random steps (with the same seed) and covariates
+are amt 0.3.1's, tested on random tracks and on these fishers. Where they err, the library does what they intend:
+move2's local projection is centred with the wrong datum code (EPSG:4236 instead of 4326, about 900 m off here), and
+amt measures directions in longitude and latitude from the east and converts sinuosity's radians as if they were
+degrees. See [benchmarks & accuracy](/benchmarks/accuracy/).
 
 ## Read the results
 

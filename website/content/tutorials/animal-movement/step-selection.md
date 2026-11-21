@@ -259,6 +259,174 @@ you give (amt's `make_distribution`), [[move.random_numbers]] draws from either.
 `ta_distr`, they replace the per-track fits of [[move.random_steps]]: one distribution for all the animals,
 or a distribution taken from another study.
 
+### In Python
+
+The data are the same calls, and the model is a few lines of numpy; the library has no conditional logistic
+regression of its own. The steps are those of part 4 (10 minutes, tolerance 1 minute, projected), and the random
+steps, their number and the seed are the page's:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+pd.set_option("display.width", 120, "display.max_columns", 10)
+ID = "individual-local-identifier"
+tracks = tf.load_tracks(tf.move.example_data("fishers"))
+tracks = tf.move.filter_unique(tf.move.filter_movebank_visible(tracks))
+tracks = tracks[~tracks.geometry.is_empty].reset_index(drop=True)
+local = tracks.to_crs(tf.move.aeqd_crs(tracks))                 # random_steps refuses longitude and latitude
+steps = tf.move.steps(tf.move.filter_min_n_burst(tf.move.resample(local, "10min", "1min"), 3))
+
+sl = tf.move.fit_distr(steps["sl_"], "gamma")                   # move.fit_distribution: also exp, lnorm, hnorm
+ta = tf.move.fit_distr(steps["ta_"], "vonmises")                # or unif
+print(sl)
+print(ta)
+draws = tf.move.random_numbers(sl, n=20000, seed=1)             # move.random_numbers
+print(len(draws), round(float(draws.mean()), 1), "m on average")
+```
+
+```text
+Distribution(name='gamma', params={'shape': 0.7940565253577497, 'scale': 137.2285731348917})
+Distribution(name='vonmises', params={'kappa': 0.08284384664726341, 'mu': 0.0})
+20000 109.4 m on average
+```
+
+The pooled distributions are those of the page (shape 0.794, scale 137.2, kappa 0.083). [`tf.move.random_steps`][terraflux.move.random_steps]
+fits them to each animal itself; the fits are in the result's `attrs`:
+
+```python
+ssf = tf.move.random_steps(steps, n_control=10, seed=1)         # node 9
+print(len(ssf), int(ssf["case_"].sum()), "strata of", ssf[ID].nunique(), "animals")
+meta = ssf.attrs["terraflux.move"]
+fits = pd.DataFrame({a: {"gamma shape": d.params["shape"], "gamma scale (m)": d.params["scale"],
+                         "von Mises kappa": meta["ta_distr"][a].params["kappa"]}
+                     for a, d in meta["sl_distr"].items()}).T
+print(fits.round(3))
+print(ssf[[ID, "step_id_", "case_", "sl_", "ta_"]].head(4))
+```
+
+```text
+66286 6026 strata of 7 animals
+    gamma shape  gamma scale (m)  von Mises kappa
+F1        0.647          115.464            0.349
+F2        1.048          152.138            0.328
+F3        1.007          103.129            0.374
+M2        0.622          143.861            0.266
+M3        1.062          151.033            0.436
+M4        0.974          114.381            0.266
+M5        0.955          126.857            0.367
+  individual-local-identifier  step_id_  case_         sl_       ta_
+0                          F1         3   True   15.945515  3.106502
+1                          F1         3  False   18.927724 -0.894106
+2                          F1         3  False   90.432637  0.415735
+3                          F1         3  False  118.993832 -1.111006
+```
+
+The observed steps have `case_` True and `step_id_` numbers the strata **within each animal**. Distributions you give
+(`tf.move.make_distribution`, amt's `make_distribution`) replace the per-animal fits, one for all the animals or taken
+from another study:
+
+```python
+slow = tf.move.make_distribution("gamma", shape=0.8, scale=100)
+straight = tf.move.make_distribution("vonmises", kappa=0.5)
+given = tf.move.random_steps(steps, n_control=10, sl_distr=slow, ta_distr=straight, seed=1)
+print(given.groupby("case_")["sl_"].median().round(1).to_dict())
+```
+
+```text
+{False: 50.0, True: 55.8}
+```
+
+The page's landscape is downloaded (ESA WorldCover and the Copernicus DEM). The library carries another one, in the
+projection of the United States, that covers four of the fishers (F1, F2, M1 and M4): the ASTER elevation and the
+GlobCover land use. [`tf.move.extract_covariates`][terraflux.move.extract_covariates] reads rasters at the end of each
+step (`where="start"` or `"both"` too), whatever their resolution and CRS; a dict names the columns. M1 has no steps at
+10 minutes, so the model below is of F1, F2 and M4, and its numbers are not the page's (another landscape, another
+resolution, three animals), though the method is the same:
+
+```python
+elevation = tf.load_raster(tf.move.example_data("elevation"))
+landuse = tf.load_raster(tf.move.example_data("landuse"))
+inside = ssf[ssf[ID].isin(["F1", "F2", "M4"])]
+data = tf.move.extract_covariates(inside, {"elevation": elevation, "landuse": landuse})
+data = data.dropna(subset=["elevation", "landuse"]).copy()
+data["forest"] = data["landuse"].isin([50, 70, 100]).astype(int)    # GlobCover's closed-canopy forest classes
+data["tod"] = tf.move.time_of_day(data)                             # at the end of each step
+print(len(data), "steps;", elevation.rio.resolution()[0], "m cells of elevation,", landuse.rio.resolution()[0], "m of land use")
+print(data.groupby("case_")[["forest", "elevation"]].mean().round(3))
+```
+
+```text
+28270 steps; 44.0 m cells of elevation, 220.0 m of land use
+       forest  elevation
+case_                   
+False   0.899     94.322
+True    0.909     94.866
+```
+
+The conditional logistic regression, one case per stratum, by Newton-Raphson on the likelihood of the part (the same to
+every digit as R's `clogit` on the page's data). The stratum is the animal and the step, because `step_id_` restarts
+in every animal; `log_sl` and `cos_ta` correct the movement (the *integrated* analysis), with the lengths clipped at
+1 m before the logarithm:
+
+```python
+def clogit(df, terms, strata="stratum"):
+    """Coefficients, standard errors and exp(coef) of case_ ~ terms + strata(strata)."""
+    X = df[terms].to_numpy(float)
+    y = df["case_"].to_numpy(float)
+    g = pd.factorize(df[strata])[0]
+    beta = np.zeros(len(terms))
+    for _ in range(50):
+        eta = X @ beta
+        w = np.exp(eta - pd.Series(eta).groupby(g).transform("max").to_numpy())
+        p = w / np.bincount(g, weights=w)[g]                    # the probability of each step in its stratum
+        xbar = np.column_stack([np.bincount(g, weights=p * X[:, j]) for j in range(X.shape[1])])
+        grad = (X[y == 1] - xbar[g[y == 1]]).sum(axis=0)
+        xc = X - xbar[g]
+        hess = (xc * p[:, None]).T @ xc
+        step = np.linalg.solve(hess, grad)
+        beta += step
+        if np.abs(step).max() < 1e-10:
+            break
+    se = np.sqrt(np.diag(np.linalg.inv(hess)))
+    return pd.DataFrame({"coef": beta, "se": se, "exp(coef)": np.exp(beta)}, index=terms)
+
+data["stratum"] = data[ID].astype(str) + "_" + data["step_id_"].astype(int).astype(str)
+data["elevation_100m"] = data["elevation"] / 100
+data["log_sl"] = np.log(data["sl_"].clip(lower=1))
+data["cos_ta"] = np.cos(data["ta_"])
+terms = ["forest", "elevation_100m", "log_sl", "cos_ta"]
+print(data["stratum"].nunique(), "strata")
+print(clogit(data, terms).round(3))
+
+data["forest_night"] = data["forest"] * (data["tod"] == "night")      # time of day enters through an interaction
+print(clogit(data, ["forest", "forest_night"] + terms[1:]).round(3))
+```
+
+```text
+2570 strata
+                 coef     se  exp(coef)
+forest          0.167  0.103      1.182
+elevation_100m  1.376  0.344      3.958
+log_sl         -0.002  0.015      0.998
+cos_ta         -0.319  0.029      0.727
+                 coef     se  exp(coef)
+forest          0.048  0.249      1.049
+forest_night    0.144  0.273      1.155
+elevation_100m  1.386  0.344      4.000
+log_sl         -0.002  0.015      0.998
+cos_ta         -0.319  0.029      0.727
+```
+
+On these three animals forest is selected little (the coefficient is 0.17, a relative selection strength of 1.2, and
+its interval includes 1), where the page's seven animals in the WorldCover map select it strongly. The land use cells
+are 220 m wide, four times the median step (56 m): the forest at the end of a step barely differs from the one at its
+start, the pitfall of covariates that do not vary within strata. The elevation coefficient (1.4 per 100 m) rests on
+differences of a few metres within strata, on 44 m cells: read it with the page's caution. The coefficient of `cos_ta`
+is negative here too: the observed steps go straight on less often than the random ones, drawn around 0. For the
+model in other tools, the page's R code fits it with `survival`, and `statsmodels`' `ConditionalLogit` in Python.
+
 ## Read the results
 
 ### The tentative distributions
@@ -458,5 +626,3 @@ and the day's 1,300 strata give the day's coefficient its wider interval.
   https://doi.org/10.1002/ece3.4823
 - Thurfjell, H., Ciuti, S., & Boyce, M. S. (2014). Applications of step-selection functions in ecology and
   conservation. *Movement Ecology*, 2, 4. https://doi.org/10.1186/2051-3933-2-4
-
-In Python: [Animal movement in Python](/tutorials/animal-movement/animal-movement-in-python/).
