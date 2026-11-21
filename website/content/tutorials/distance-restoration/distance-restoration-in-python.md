@@ -84,7 +84,7 @@ one derived from land cover as in the
 ## Cheapest routes between two habitat areas
 
 Mark the two areas to connect. Here we take the two largest forest objects
-found by [accounting](/tutorials/habitat-patterns/patterns-in-python/#objects-by-size-accounting):
+found by [accounting](/tutorials/habitat-patterns/spa-and-objects/#accounting-in-python):
 
 ```python
 objects = tf.accounting(forest)

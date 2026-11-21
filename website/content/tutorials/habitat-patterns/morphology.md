@@ -300,6 +300,45 @@ images:
     (`"forest.map"`: the output `map` of node `forest`) and `params` the settings. The application saves and opens
     the same file; the "Model file (TOML)" toggle under each graph on this site shows it.
 
+### The model in Python
+
+The three nodes are three calls: [`tf.nlm.random_cluster`][terraflux.nlm.random_cluster] draws the landscape (the
+operator's `rows`, `columns` and `weights` are the arguments `nrow`, `ncol` and `ai`; with the same `seed` the
+landscape is the template's), [`tf.reclassify`][terraflux.reclassify] makes the binary map and
+[`tf.mspa`][terraflux.mspa] runs MSPA:
+
+```python
+import terraflux as tf
+
+CLASSES = ["Core", "Edge", "Perforation", "Bridge", "Loop", "Branch", "Islet"]
+
+# node 1: 300 x 300 cells, three classes (1 farming, 2 water, 3 forest); rescale=False keeps the class numbers
+land = tf.nlm.random_cluster(300, 300, p=0.55, ai=[0.3, 0.15, 0.55], seed=7, rescale=False)
+forest = tf.reclassify(land, foreground=3)    # node 2: 3 -> 2 (habitat), every other class -> 1
+morph = tf.mspa(forest, edge_width=1, connectivity=8)   # node 3
+print(f"forest: {float((forest == 2).mean()):.1%}")
+print(tf.mspa_stats(morph).loc[CLASSES, "pct_foreground"].round(1).to_string())
+```
+
+```text
+forest: 53.9%
+class
+Core           68.4
+Edge           16.2
+Perforation     9.2
+Bridge          0.6
+Loop            1.3
+Branch          2.8
+Islet           1.6
+```
+
+These are the template's numbers (54% forest, mostly core, few bridges). `rescale=False` matters: by default the
+model returns values rescaled to 0 to 1, and the class numbers would be lost. MSPA's own arguments are the settings
+of node 3: `edge_width` (1 to 255), `connectivity` (8 or 4) and `internal`. The operator's `foreground` setting has
+no argument in [`tf.mspa`][terraflux.mspa]: the habitat map is what [`tf.reclassify`][terraflux.reclassify] makes with
+`foreground=` (a class, a list of classes, or a function of the values; `missing=` and `background=` decide the
+other classes). `tf.plot(morph)` draws the map in GuidosToolbox's colours.
+
 ## Read the results
 
 On the drawn forest Terraflux gives these shares of the forest (the foreground) for three edge widths:
@@ -336,6 +375,65 @@ How to read an MSPA map, as a habit:
    fragments.
 3. **Then the exposure.** Edge and perforation: a forest with a lot of perforation is pierced by clearings,
    settlements or water bodies.
+
+### The drawn forest in Python
+
+The table is the MSPA of a small grid drawn cell by cell, and a numpy array is a map for [`tf.mspa`][terraflux.mspa]
+as it is, so the reader can rebuild it and move the edge width:
+
+```python
+import numpy as np
+import pandas as pd
+
+toy = np.ones((26, 44), dtype="uint8")       # 1 background
+toy[3:14, 3:14] = 2                          # block A
+toy[5:21, 23:36] = 2                         # block B
+toy[8:10, 14:23] = 2                         # a strip joining A and B
+toy[9:16, 27:33] = 1                         # a clearing inside B
+toy[12, 29:31] = 2                           # a few trees in the clearing
+toy[7:19, 38] = 2                            # a strip leaving B ...
+toy[7, 36:38] = 2
+toy[18, 36:38] = 2                           # ... and coming back to it
+toy[14:22, 8] = 2                            # a dead-end strip from A
+toy[21:23, 3:5] = 2                          # a small fragment
+toy[2, 18:32] = 2                            # a long thin strip
+toy[21, 24] = toy[22, 25] = toy[23, 26] = 2  # a spur from B, cells touching by their corners
+toy[22:24, 14:17] = 2                        # a fragment ...
+toy[21, 13] = toy[20, 12] = 2                # ... with a diagonal tail
+
+shares = {ew: tf.mspa_stats(tf.mspa(toy, edge_width=ew)).loc[CLASSES, "pct_foreground"] for ew in (1, 2, 3)}
+print(pd.DataFrame(shares).round(1).T.rename_axis("edge_width").to_string())
+```
+
+```text
+class       Core  Edge  Perforation  Bridge  Loop  Branch  Islet
+edge_width                                                      
+1           45.3  24.4          8.3     6.1   4.4     3.6    7.8
+2           16.1  26.9          0.0    44.4   0.0     4.7    7.8
+3            6.9  20.6          0.0     0.0  59.4     5.3    7.8
+```
+
+The same table as above. `tf.mspa(toy, edge_width=2)` is the map itself, an array with the same shape and MSPA's
+codes (17 core, 3 edge, 33 bridge, 1 branch, 9 islet; `tf.MSPA_CLASSES` has them all), so `morph[8, 15]` reads the
+class of one cell. A plain numpy array has no georeferencing and `tf.mspa` returns an array; with a raster from
+[`tf.load_raster`][terraflux.load_raster] it returns a raster of the same georeferencing.
+
+The coding is checked. A mask coded 0 and 1, as many forest products are, has no foreground for MSPA, and
+[`tf.mspa`][terraflux.mspa] raises an `InvalidInputError` (a `ValueError`) saying so, instead of returning nothing:
+
+```python
+mask = (np.arange(2500).reshape(50, 50) % 3 == 0).astype("uint8")   # 0 and 1
+try:
+    tf.mspa(mask)
+except ValueError as err:
+    print(err)
+print(tf.mspa(tf.reclassify(mask, foreground=1)).shape)    # 1 becomes habitat, 0 background
+```
+
+```text
+MSPA-compliant map required: map has no foreground (value 2).
+(50, 50)
+```
 
 ## Settings that change the answer
 

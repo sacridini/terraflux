@@ -6,7 +6,7 @@ order: 30
 
 Structural classes of habitat pixels (MSPA, SPA), objects by size,
 parcellation and boundary contortion. Tutorial:
-[habitat patterns](/tutorials/habitat-patterns/patterns-in-python/).
+[habitat patterns](/tutorials/habitat-patterns/).
 
 ## MSPA
 

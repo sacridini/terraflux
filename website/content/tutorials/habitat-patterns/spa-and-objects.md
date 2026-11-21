@@ -177,6 +177,37 @@ the forest's interior, here 1.4% (SPA5 and SPA6). A forest pierced by clearings 
 The `objects` table of SPA counts the objects of each class as GuidosToolbox does: here 2,850 forest objects, of
 which 2,443 islets.
 
+### SPA in Python
+
+[`tf.spa`][terraflux.spa] takes the map and the variant (2, 3, 5 or 6; the default is 5). The map is the part's
+`input.tif`, shipped as example data:
+
+```python
+import terraflux as tf
+
+forest = tf.load_raster(tf.example_data("input"))   # 0 missing, 1 background, 2 forest
+spa = tf.spa(forest, variant=6)
+print(spa.stats[["class", "code", "area", "pct_fg"]].round(1).to_string(index=False))
+print(f"porosity {spa.porosity:.1f}%")
+print(spa.counts)
+```
+
+```text
+      class  code   area  pct_fg
+       Core    17 321767    75.1
+      Islet     9  14062     3.3
+       Edge     3  58008    13.5
+Perforation     5   9124     2.1
+     Margin     1  25529     6.0
+porosity 1.4%
+{'foreground': 2850, 'core': 1196, 'margin': 4396, 'core_opening': 707, 'edge': 870, 'perforation': 422, 'islet': 2443, 'contiguous': 847}
+```
+
+`spa.map` is the class map (`tf.SPA_CLASSES` names its codes), `spa.stats` the areas, `spa.porosity` the
+porosity, `spa.counts` the number of objects of each class (2,850 forest objects, 2,443 of them islets) and
+`spa.areas` the areas in cells, with the openings. `print(spa.summary())` is a full printable report;
+`tf.spa(forest, variant=2).stats` has the two classes of SPA2 (90.8% contiguous, 9.2% small linear features).
+
 ## Accounting: the forest's objects by size
 
 [[landscape.accounting]] labels every object of the forest, measures it in cells and puts it in one of up to six
@@ -223,6 +254,31 @@ scattered the forest outside the blocks is. Report both columns.
     with cells of 100 m (1 ha) the thresholds are the hectares themselves; with cells of 30 m (0.09 ha), 100 ha is
     1,111 cells.
 
+### Accounting in Python
+
+```python
+acc = tf.accounting(forest, thresholds=(50, 250, 1000, 5000, 20000), highlight_largest=True)
+print(acc.stats[["size_class", "range", "objects", "area", "pct_objects", "pct_area"]].round(1).to_string(index=False))
+```
+
+```text
+ size_class        range  objects   area  pct_objects  pct_area
+          1       1 - 50     2668  19953         93.6       4.7
+          2     51 - 250      129  13094          4.5       3.1
+          3   251 - 1000       30  13867          1.1       3.2
+          4  1001 - 5000       13  30322          0.5       7.1
+          5 5001 - 20000        7  76569          0.2      17.9
+          6    20001 ->         3 274685          0.1      64.1
+```
+
+This is the part's table. The thresholds are the upper bounds of the classes in cells (one to five of them);
+`thresholds="auto"` proposes them from the range of the objects' areas, as GuidosToolbox does. `connectivity` is 8
+(4 for the FAO report of the paragraph above), and `pixel_resolution` (metres) sets the hectares of the report.
+The result also holds the maps `acc.classes` (the size class of each cell, with the colours of
+`tf.accounting_colormap()`), `acc.ids` (the object numbers) and `acc.area` (the area of the object under each
+cell), `acc.object_area` (the area of every object), `acc.largest` (the three largest) and `acc.summary()`, a
+printable report in hectares. `tf.plot(acc)` draws the size classes, their chart and the numbers.
+
 ## Parcellation: how divided is the landscape?
 
 [[landscape.parcellation]] works on every class of the map: each connected region of one value is a *parcel*.
@@ -252,6 +308,27 @@ How to read it:
 Parcellation is most useful to compare: two dates, two regions, two classes. The effective mesh size and the
 division of the forest are also among the class metrics of the [landscape metrics](/tutorials/landscape-metrics/).
 
+### Parcellation in Python
+
+```python
+parcels = tf.parcellation(forest)
+print(parcels.stats.to_string(index=False))
+print({k: round(v, 3) for k, v in parcels.global_stats.items()})
+```
+
+```text
+ Class  Count  Area[pixels]    APS     AWAPS  AWAPS/data  DIVISION  PARC[%]
+     1   1170        571240 488.24 458001.44   261699.40    0.1982     1.60
+     2   2850        428490 150.35 114286.18    48983.71    0.7333     9.57
+{'total_parcels': 4020, 'data_area': 999730, 'aps': 248.689, 'awaps': 310683.114, 'division': 0.689, 'parc': 8.459}
+```
+
+`Class` 2 is the forest and 1 the background, as in the part's table (`AWAPS/data` is the area-weighted size over
+the area with data: the effective mesh size). `parcels.global_stats` holds the values of the whole map, and
+`tf.parcellation(forest, return_labels=True).parcel_labels` is a map of the parcels. `connectivity` is 8 by
+default (4: only by a side). The map must be coded 1 and up, with 0 missing: a forest coded 0 and 1 loses its
+background (see the pitfalls), so [`tf.reclassify`][terraflux.reclassify] it first.
+
 ## Contortion: how convoluted are the outlines?
 
 [[landscape.contortion]] measures how much the outline of each patch turns, relative to its size, for the patches
@@ -263,6 +340,23 @@ GuidosToolbox's values (0 missing, 1 background, 2 forest left out, from 3 the c
 
 Contortion depends on the resolution (a finer map draws a more ragged outline) and on the size of the patch; compare
 patches of similar size, and maps of the same resolution.
+
+### Contortion in Python
+
+```python
+contortion = tf.contortion(forest, min_area=100)
+print(int(contortion.max()), int((contortion == 2).sum()))
+shown = tf.contortion(forest, min_area=100, return_display=True)   # 3-255, to draw
+```
+
+```text
+42 25318
+```
+
+[`tf.contortion`][terraflux.contortion] returns the map with GuidosToolbox's values: 0 missing, 1 background, 2
+forest left out (under `min_area` cells, or without a core: here 25,318 cells) and from 3 the contortion plus one,
+so 42 is the most contorted patch. `return_display=True` scales the values to 3 to 255, the byte scale of
+`tf.contortion_colormap()`.
 
 ## The distance to the forest's edge
 
@@ -293,6 +387,35 @@ caption: "The core of the forest for every edge width from 0 to 30 cells, read f
 This is a good figure for a paper: it shows how the amount of interior habitat depends on the depth of edge
 effects, without committing to one depth.
 
+### The distance in Python
+
+```python
+dist = tf.euclidean_distance(forest, pixel_size=1)   # distances in cells
+print(dist.stats[["class", "pixel_count", "mean_distance_units", "max_distance_units"]].to_string(index=False))
+
+# the core of every edge width, from the one distance map: forest cells at least w + 1 from the background
+inside = forest.values == 2
+for w in (1, 2, 6):
+    core = ((dist.signed_distance.values >= w + 1) & inside).sum() / inside.sum() * 100
+    print(f"edge_width={w}: {core:.1f}% of the forest")
+```
+
+```text
+              class  pixel_count  mean_distance_units  max_distance_units
+Foreground (Forest)       428490                 6.01               37.00
+Background (Matrix)       571240                 5.03               33.54
+edge_width=1: 75.1% of the forest
+edge_width=2: 61.8% of the forest
+edge_width=6: 33.7% of the forest
+```
+
+[`tf.euclidean_distance`][terraflux.euclidean_distance] gives `dist.signed_distance` (positive inside the forest,
+negative outside, in cells; `pixel_size` makes the table's `_units` columns metres), `dist.byte_map` (the byte
+version, 130 plus the distance inside and 130 minus it outside) and the means and maxima as attributes
+(`dist.mean_fg_distance`, `dist.max_bg_distance`...). The last lines are the claim of the chart above in four
+lines: these are MSPA's core shares for the same edge widths (75.1, 61.8 and 33.7% in [part 2](/tutorials/habitat-patterns/mspa/#the-settings-in-python)) to
+within 0.1 point, so one distance map holds the whole curve.
+
 ## Zones of influence and proximity
 
 [[distance.influence_zones]] takes the large objects of the forest (8-connected, holes filled, of `min_area` cells
@@ -313,6 +436,37 @@ restore a link, before the more detailed tools of the
     Influence zones and proximity are marked experimental in terraflux-py, the library Terraflux uses: GuidosToolbox's
     distance transform is not yet reproduced exactly, so lines may differ from GuidosToolbox's by a cell here and
     there.
+
+### Zones of influence and proximity in Python
+
+```python
+zones = tf.influence_zones(forest, min_area=5000)
+print(zones.n_objects, zones.object_area)
+
+prox = tf.proximity(forest, min_area=5000)
+lines = prox.lines.sort_values("clength")      # one row per cell of the lines between the zones
+two = lines[lines["nbr"] == 2]                  # nbr: how many objects meet in the cell
+print(len(lines), "cells on the lines,", len({tuple(i) for i in two["ids"]}), "pairs of objects")
+print(lines.head(3).to_string())
+```
+
+```text
+10 [214811   7927   7398  13850  33508  13303  26366  14983   6471  12637]
+1426 cells on the lines, 18 pairs of objects
+         x    y  nbr  clength    cag      ids           areas
+1343  1000   77    2        2  25814  [7, 10]  [26366, 12637]
+1342   999   77    2        2  25814  [7, 10]  [26366, 12637]
+344    851  549    2        4  22266   [3, 5]   [7398, 33508]
+```
+
+[`tf.influence_zones`][terraflux.influence_zones] gives `zones.zones` (every cell in the zone of its nearest object,
+the lines between the zones apart), `zones.ids` and `zones.object_area`: the ten objects of 5,000 cells or more of the
+part (the other, smaller forest is not an object). [`tf.proximity`][terraflux.proximity] gives the same and the
+`lines` table: for every cell of a line, the two objects (`ids`) and their areas, the connector length `clength`
+and the connected area gain `cag`; sorted by `clength` the narrowest gaps come first, here two cells wide between
+objects 7 and 10. `core_buffer` reduces the objects to their cores first, `buffer` draws a background buffer around
+them, and `prox_max` marks the lines of a proximity up to that value. Both are experimental, as the warning above
+says.
 
 ## Settings that change the answer
 
@@ -355,5 +509,3 @@ restore a link, before the more detailed tools of the
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
 - Vogt, P., Riitters, K. H., Caudullo, G., & Eckhardt, B. (2019). *FAO – State of the World's Forests: Forest fragmentation* (EUR 29972 EN). Publications Office of the European Union. https://doi.org/10.2760/145325
 - Vogt, P., Riitters, K., Rambaud, P., d'Annunzio, R., Lindquist, E., & Pekkarinen, A. (2022). GuidosToolbox Workbench: spatial analysis of raster maps for ecological applications. *Ecography*, 2022(3), e05864. https://doi.org/10.1111/ecog.05864
-
-In Python: [Habitat patterns in Python](/tutorials/habitat-patterns/patterns-in-python/).

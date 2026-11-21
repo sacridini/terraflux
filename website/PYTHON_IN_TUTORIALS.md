@@ -241,10 +241,10 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `morphology.md` | — | full | `patterns-in-python.md` | |
-| `mspa.md` | — | full | `patterns-in-python.md` | |
-| `networks-and-change.md` | — | full | `patterns-in-python.md` | |
-| `spa-and-objects.md` | — | full | `patterns-in-python.md` | |
+| `morphology.md` | — | full | merged, redirected | done |
+| `mspa.md` | — | full | merged, redirected | done |
+| `networks-and-change.md` | — | full | merged, redirected | done |
+| `spa-and-objects.md` | — | full | merged, redirected | done |
 
 `patterns-in-python.md`:
 - ## Morphological Spatial Pattern Analysis (MSPA) → mspa, morphology ?

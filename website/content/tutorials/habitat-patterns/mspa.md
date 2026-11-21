@@ -272,6 +272,74 @@ How to read it:
     interest. Wickham et al. (2010) is a good model of a national report; Saura et al. (2011) of a study that goes
     on from MSPA to the importance of each connector.
 
+### Models 1 and 2 in Python
+
+Model 1 is [`tf.reclassify`][terraflux.reclassify] and [`tf.mspa`][terraflux.mspa]; the CORINE map is the part's
+`clc.tif`. `foreground=[23, 24, 25]` is the rule `23 24 25 -> 2`, `* -> 1`: the three forest classes become habitat
+(2), every other value background (1), and cells without a value (NaN, or the file's nodata) missing (0).
+
+```python
+import terraflux as tf
+
+CLASSES = ["Core", "Edge", "Branch", "Islet", "Bridge", "Perforation", "Loop"]
+
+land = tf.load_raster("clc.tif")                        # CORINE Land Cover, 25 m cells
+forest = tf.reclassify(land, foreground=[23, 24, 25])   # 2 forest, 1 everything else
+corine = tf.mspa(forest, edge_width=4)                  # 4 cells of 25 m: 100 m
+print(tf.mspa_stats(corine).loc[CLASSES, ["pct_foreground"]].round(1).T.to_string())
+```
+
+```text
+class           Core  Edge  Branch  Islet  Bridge  Perforation  Loop
+pct_foreground  70.4  22.9     4.7    0.1     2.0          0.0   0.0
+```
+
+Model 2 reads GuidosToolbox's sample map, which the library ships as example data (it is the part's `input.tif`), a
+[habitat map](/python/getting-started/concepts/#habitat-maps) coded 0 missing, 1 background, 2 forest, and keeps
+GuidosToolbox's defaults:
+
+```python
+sample = tf.load_raster(tf.example_data("input"))   # 0 missing, 1 background, 2 forest
+morph = tf.mspa(sample)                             # edge_width=1, connectivity=8, internal=True
+stats = tf.mspa_stats(morph)
+print(stats.loc[CLASSES, ["pixels", "pct_foreground", "pct_data"]].round(1).to_string())
+print(stats.loc[["Core-Opening", "Border-Opening"], "pixels"].to_string())
+```
+
+```text
+             pixels  pct_foreground  pct_data
+class                                        
+Core         321764            75.1      32.2
+Edge          52904            12.3       5.3
+Branch        16834             3.9       1.7
+Islet         13956             3.3       1.4
+Bridge         9509             2.2       1.0
+Perforation   8628             2.0       0.9
+Loop          4895             1.1       0.5
+class
+Core-Opening      5927
+Border-Opening   51189
+```
+
+These are the numbers above (the table shows the edge as 12.4%: the same 52,904 cells, rounded up by the figure
+script). `morph` has the input's shape and georeferencing, with MSPA's codes in every cell: background stays 0 and
+missing data becomes 129. [`tf.mspa_stats`][terraflux.mspa_stats] gives the area of every class: `pixels`, `pct_data`
+(of the mapped area) and `pct_foreground` (of the habitat). Classes inside core-openings count with their class, and
+the two openings are rows of their own. `tf.MSPA_CLASSES` maps every code to its name (101 is *Branch (internal)*,
+220 *Border-Opening*).
+
+Show it and keep it:
+
+```python
+tf.plot(morph)                              # GuidosToolbox's colours and class names
+tf.write_raster(morph, "sample_mspa.tif")   # a GeoTIFF with the MSPA colour table
+tf.save(stats, "sample_mspa_stats.csv")     # the table
+```
+
+`tf.plot` draws the result on an interactive map (in a notebook, or a window of its own from a script): see
+[plotting](/python/getting-started/plotting/). To draw the classes with their colours yourself, use the
+`show_classes` helper of [core concepts](/python/getting-started/concepts/#plotting-maps) with `tf.mspa_colormap()`.
+
 ## Settings that change the answer
 
 ### The edge width
@@ -343,6 +411,56 @@ Internal features do not change the foreground's classes, only their codes (+100
 naming of the enclosed background. Keep them on for maps, where a clearing inside a forest and a field outside it
 mean different things; turn them off when a later step expects the plain codes.
 
+### The settings in Python
+
+The three settings are the arguments of [`tf.mspa`][terraflux.mspa]: `edge_width` (1 to 255, in cells), `connectivity`
+(8 or 4) and `internal` (True or False); `transition` (default True) only changes the colour table that
+[`tf.write_raster`][terraflux.write_raster] writes, never the values. The edge width of the slider, 1 to 6 cells:
+
+```python
+import pandas as pd
+
+widths = {ew: tf.mspa_stats(tf.mspa(sample, edge_width=ew)).loc[CLASSES, "pct_foreground"] for ew in range(1, 7)}
+print(pd.DataFrame(widths).round(1).T.rename_axis("edge_width").to_string())
+```
+
+```text
+class       Core  Edge  Branch  Islet  Bridge  Perforation  Loop
+edge_width                                                      
+1           75.1  12.3     3.9    3.3     2.2          2.0   1.1
+2           61.8  13.9     4.8    6.1     6.5          2.2   4.7
+3           53.4  14.2     5.3    7.2    10.2          2.3   7.4
+4           46.6  14.0     5.3    8.3    15.0          2.0   8.8
+5           38.8  12.8     5.4    9.0    21.4          1.7  10.9
+6           33.7  11.5     5.0   10.3    28.5          1.7   9.2
+```
+
+It is the slider's table; two of its numbers differ by 0.1 (33.8% core at 6 cells and 8.2% islets at 4: the figure
+script rounds a little differently). Say the edge width in metres whenever you report it: the pixel size is in
+`sample.rio.resolution()` (0.0003 degrees here, see the pitfalls) or, for CORINE, 25 m, so `edge_width=4` is 100 m.
+
+8 and 4 neighbours, and the internal features off:
+
+```python
+c4 = tf.mspa_stats(tf.mspa(sample, connectivity=4))
+both = pd.DataFrame({"8": stats["pct_foreground"], "4": c4["pct_foreground"]})
+print(both.loc[CLASSES].round(1).T.rename_axis("neighbours").to_string())
+
+plain = tf.mspa(sample, internal=False)
+print(sorted(int(v) for v in set(plain.values.ravel())))
+```
+
+```text
+class       Core  Edge  Branch  Islet  Bridge  Perforation  Loop
+neighbours                                                      
+8           75.1  12.3     3.9    3.3     2.2          2.0   1.1
+4           75.1  12.1     3.7    4.3     2.1          1.9   0.8
+[0, 1, 3, 5, 9, 17, 33, 35, 37, 65, 67, 69, 129]
+```
+
+Without the internal features no code is above 129: the openings are plain background (0), and a class inside a
+core-opening keeps its plain code.
+
 ## Common pitfalls
 
 - **A map in degrees.** GuidosToolbox's sample map is in longitude and latitude: its cells are about 21 m wide and
@@ -369,7 +487,8 @@ mean different things; turn them off when a later step expects the plain codes.
 - [Part 4](/tutorials/habitat-patterns/networks-and-change/): MSPA's cores and bridges as a network, the change
   between two dates, maps larger than memory.
 - [Measuring fragmentation](/tutorials/fragmentation/): the density of forest around every cell, at several scales.
-- The operator reference: [[landscape.mspa]], [[raster.reclassify]], [[raster.write]].
+- The operator reference: [[landscape.mspa]], [[raster.reclassify]], [[raster.write]]; the library's functions
+  of this part and the next ones: the [habitat patterns API reference](/python/api/patterns/).
 
 ## References
 
@@ -383,5 +502,3 @@ mean different things; turn them off when a later step expects the plain codes.
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
 - Wickham, J. D., Riitters, K. H., Wade, T. G., & Vogt, P. (2010). A national assessment of green infrastructure and change for the conterminous United States using morphological image processing. *Landscape and Urban Planning*, 94(3–4), 186–195. https://doi.org/10.1016/j.landurbplan.2009.10.003
 - Wickham, J., & Riitters, K. H. (2019). Influence of high-resolution data on the assessment of forest fragmentation. *Landscape Ecology*, 34(9), 2169–2182. https://doi.org/10.1007/s10980-019-00820-z
-
-In Python: [Habitat patterns in Python](/tutorials/habitat-patterns/patterns-in-python/).

@@ -253,6 +253,83 @@ to every core it touches. Here, 678 nodes (420 cores and 258 bridges) and 625 li
 indices of Conefor (IIC, the fractions of dPC); the [habitat networks](/tutorials/habitat-networks/) tutorials do
 those inside Terraflux, on distances between patches rather than on the bridges.
 
+### The network in Python
+
+The network nodes are three functions that take MSPA's map: [`tf.gtn_components`][terraflux.gtn_components],
+[`tf.gtn_importance`][terraflux.gtn_importance] and [`tf.conefor_inputs`][terraflux.conefor_inputs]. The map is the
+part's `input.tif`, shipped as example data, and the edge width of the MSPA decides the network:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+forest = tf.load_raster(tf.example_data("input"))   # 0 missing, 1 background, 2 forest
+morph = tf.mspa(forest, edge_width=2)               # cores are the nodes, bridges the links
+
+net = tf.gtn_components(morph)
+print(f"components {net.num_components}, networks {net.num_connected_components}, isolated cores {net.num_isolated_cores}")
+print(f"nodes {net.num_nodes}, links {net.num_links}")
+print(f"ECA {net.eca_pixels:,.0f} of {net.eca_max_pixels:,} cells, coherence {net.doc:.1f}%")
+print(net.stats.sort_values("core_pixels", ascending=False).head(3).to_string(index=False))
+```
+
+```text
+components 112, networks 49, isolated cores 63
+nodes 420, links 258
+ECA 155,517 of 264,641 cells, coherence 58.8%
+ component_id  core_pixels  bridge_pixels  total_pixels  has_bridge
+           62       150804          14952        165756        True
+           52        26091            981         27072        True
+           27        18422           2194         20616        True
+```
+
+These are the numbers of the part's table. `net.components` is the map of component numbers, `net.colored_map` the one
+for display (every network in a colour of its own, the isolated cores in grey), `net.stats` has a row for every
+component and `net.eca` the ECA in hectares: the map in this example is in degrees, so only `eca_pixels` has a value;
+give `pixel_size` (a number, or a pair) for hectares, or use a map in metres.
+
+```python
+imp = tf.gtn_importance(morph, components=net)    # the components, so that they are not found twice
+print(imp.links.sort_values("dpc", ascending=False).head(5)[["link_id", "pixels", "dpc", "normalized_importance"]]
+      .round(1).to_string(index=False))
+print(imp.nodes.sort_values("dpc", ascending=False).head(5)[["node_id", "pixels", "degree", "dpc", "normalized_importance"]]
+      .round(1).to_string(index=False))
+```
+
+```text
+ link_id  pixels  dpc  normalized_importance
+     161    1152 23.1                  100.0
+     138     601 19.8                   85.7
+     123      84 18.7                   80.8
+     105     144  4.0                   17.2
+     143     125  2.6                   11.4
+ node_id  pixels  degree  dpc  normalized_importance
+     304     101      10 19.8                  100.0
+     366   20690      32 19.7                   99.4
+     230    1197       2 18.5                   93.4
+     176   12933       5  4.4                   22.0
+     257       3       2  2.6                   13.3
+```
+
+The two tables are the part's rankings of links and stepping stones. `imp.importance_map` holds the dPC on the pixels
+of every link (positive) and stepping stone (negative), `imp.node_link_ids` their numbers and `imp.colored_map` the
+classes within 1, 5 and 10% of the most important one (relative to the largest dPC, as above); `imp.max_link_dpc`
+and `imp.max_node_dpc` are the largest values.
+
+```python
+nodes, links = tf.conefor_inputs(morph)                    # tables; output_dir= writes Conefor's files
+print(len(nodes), "nodes,", len(links), "links")
+nodes, links = tf.conefor_inputs(morph, output_dir=".", prefix="forest")   # forest_nodes_mspa.txt, forest_links_mspa.txt
+```
+
+```text
+678 nodes, 625 links
+```
+
+`nodes` has `id` (cores negative, bridges positive with area 0) and `pixels`; `links` has `link_id`, `node_id` and the
+topological `distance` of 1. The two files written are what Conefor Sensinode reads.
+
 ## Change between two dates
 
 ### The second date
@@ -328,6 +405,38 @@ after: { src: /img/tutorials/habitat-patterns/networks-and-change/after.png, lab
 
 The forest goes from 428,490 cells to 354,172: a net loss of 74,318 cells, 17.3% of the forest.
 
+### The second date in Python
+
+The second date is rebuilt in numpy, as the part makes it: [`tf.nlm.gaussian_field`][terraflux.nlm.gaussian_field]
+draws the pressure (the operator's `range` is `autocorr_range`; the default `rescale=True` is the 0 to 1 the operator
+gives), and the three conditions are the `raster.calc` expression. Its `nbsum` is a window sum, which
+`scipy.ndimage.uniform_filter` gives times the cells of the window:
+
+```python
+from scipy.ndimage import uniform_filter
+
+pressure = tf.nlm.gaussian_field(1000, 1000, autocorr_range=60, seed=28).values   # 0 to 1
+f = forest.values
+background = (f == 1).astype(float)
+habitat = (f == 2).astype(float)
+bg_within_3 = np.rint(uniform_filter(background, 7, mode="constant") * 49)        # nbsum(f == 1, 3)
+fg_around = np.rint(uniform_filter(habitat, 3, mode="constant") * 9) - habitat    # nbsum(f == 2, 1)
+
+cleared = (f == 2) & ((pressure > 0.8) | ((pressure > 0.55) & (bg_within_3 >= 1)))
+regrown = (f == 1) & (pressure < 0.15) & (fg_around >= 4)
+after = forest.copy(data=np.where(cleared, 1, np.where(regrown, 2, f)).astype("uint8"))
+before_cells, after_cells = int((forest == 2).sum()), int((after == 2).sum())
+print(f"forest: {before_cells:,} -> {after_cells:,} cells, "
+      f"net loss {before_cells - after_cells:,} ({(before_cells - after_cells) / before_cells:.1%})")
+```
+
+```text
+forest: 428,490 -> 354,172 cells, net loss 74,318 (17.3%)
+```
+
+The part's numbers. With maps of your own, `after = tf.load_raster("second_date.tif")` on the same grid as `forest`
+and coded in the same way.
+
 ### Simple change
 
 [[change.simple]] compares the two maps cell by cell, in GuidosToolbox's codes: 11 stable background, 12 gain, 21
@@ -379,6 +488,32 @@ How to read it:
 - **Elasticity 1.23**: the interior of the forest shrank 1.23 times faster than the forest, about 21% against 17%.
   Both kinds of loss are here: the blocks cleared pierced the interior, and the edges that retreated took mostly
   forest that was not interior, which keeps the elasticity near 1.
+
+### Simple and morphological change in Python
+
+[`tf.simple_change`][terraflux.simple_change] and [`tf.morphological_change`][terraflux.morphological_change] take
+the two dates in order (`t1`, then `t2`: swapped, loss becomes gain) as rasters, arrays or paths:
+
+```python
+simple = tf.simple_change(forest, after)
+print(f"stable forest {simple.stable_fg:,}, loss {simple.loss:,}, gain {simple.gain:,}, "
+      f"stable background {simple.stable_bg:,}, missing {simple.missing:,}")
+
+mcd = tf.morphological_change(forest, after)
+print(f"net change {mcd.net_change:,}: structural loss {mcd.mcd_loss:,}, gain {mcd.mcd_gain:,}, spurious {mcd.spurious:,}")
+print(f"stable forest {mcd.stable_fg:,}, stable background {mcd.stable_bg:,}, elasticity {mcd.elasticity:.2f}")
+```
+
+```text
+stable forest 354,098, loss 74,392, gain 74, stable background 571,166, missing 270
+net change -74,318: structural loss 45,552, gain 0, spurious 36,187
+stable forest 351,200, stable background 566,791, elasticity 1.23
+```
+
+The two tables of the part. `simple.change_map` and `mcd.change_map` hold the codes of the part (11, 12, 21, 22, 255,
+and 176 spurious in the morphological one); `tf.change_colormap()` is their colour table, and `tf.plot(simple)`
+draws the map. The morphological change takes no settings: its 3-cell cores and 3 × 3 closing are
+GuidosToolbox's.
 
 ### MSPA and the network at both dates
 
@@ -443,6 +578,66 @@ change should give a measure of connectivity beside the area: the area alone hid
     (and the share of the morphological change that is spurious, as a check of how comparable the maps are); MSPA's
     shares at both dates with the same edge width; and ECA and the coherence at both dates. A figure of the
     morphological change and a pair of MSPA maps of a zoom show where it happened.
+
+### MSPA and the network at both dates in Python
+
+The same MSPA and network at both dates:
+
+```python
+CLASSES = ["Core", "Edge", "Perforation", "Bridge", "Loop", "Branch", "Islet"]
+mspa_a = tf.mspa(forest, edge_width=2)
+mspa_b = tf.mspa(after, edge_width=2)
+shares = pd.DataFrame({"A": tf.mspa_stats(mspa_a).loc[CLASSES, "pct_foreground"],
+                       "B": tf.mspa_stats(mspa_b).loc[CLASSES, "pct_foreground"]})
+print(shares.round(1).T.to_string())
+
+for name, m in (("A", mspa_a), ("B", mspa_b)):
+    n = tf.gtn_components(m)
+    print(f"{name}: components {n.num_components}, networks {n.num_connected_components}, isolated cores "
+          f"{n.num_isolated_cores}, nodes {n.num_nodes}, links {n.num_links}, ECA {n.eca_pixels:,.0f}, "
+          f"ECA_max {n.eca_max_pixels:,}, coherence {n.doc:.1f}%")
+```
+
+```text
+class  Core  Edge  Perforation  Bridge  Loop  Branch  Islet
+A      61.8  13.9          2.2     6.5   4.7     4.8    6.1
+B      57.6  12.8          1.9     7.7   8.4     4.4    7.1
+A: components 112, networks 49, isolated cores 63, nodes 420, links 258, ECA 155,517, ECA_max 264,641, coherence 58.8%
+B: components 110, networks 55, isolated cores 55, nodes 370, links 188, ECA 62,645, ECA_max 204,135, coherence 30.7%
+```
+
+These are the chart and the table of the part: the ECA falls from 155,517 to 62,645 cells (60%) while the forest
+loses 17%. The path of the cells from a class at A to a class at B is a cross-tabulation of the two maps; with the
+plain codes of MSPA (`internal=False`, so that no code is above 129) the classes with variants (bridge in edge...)
+are folded by their code:
+
+```python
+fold = {33: "Bridge", 35: "Bridge", 37: "Bridge", 65: "Loop", 67: "Loop", 69: "Loop",
+        17: "Core", 3: "Edge", 5: "Perforation", 1: "Branch", 9: "Islet", 0: "Lost"}
+a = tf.mspa(forest, edge_width=2, internal=False).values
+b = tf.mspa(after, edge_width=2, internal=False).values
+at_a = (a != 0) & (a != 129)                      # the forest of date A
+table = pd.crosstab(pd.Series(a[at_a]).map(fold).rename("class at A"),
+                    pd.Series(b[at_a]).map(fold).rename("class at B"), normalize="index") * 100
+out = pd.DataFrame({"same class": [table.loc[c, c] for c in CLASSES], "bridge": table["Bridge"], "lost": table["Lost"]},
+                   index=CLASSES)
+print(out.round(1).to_string())
+```
+
+```text
+             same class  bridge  lost
+Core               77.1     3.2   6.2
+Edge               44.7     6.8  33.4
+Perforation        29.6     4.6  38.2
+Bridge             44.5    44.5  40.9
+Loop               45.6     8.4  37.0
+Branch             48.0     1.5  34.4
+Islet              67.1     0.0  32.9
+```
+
+Each row is a class at A and each column the share of its cells that is, at B, the same class, a bridge, or lost
+(background): the columns of the part's table (for the bridges the first two columns are the same). `table` itself
+has every class at B, as `mspa-transitions.csv` does.
 
 ## MSPA of large maps
 
@@ -511,6 +706,49 @@ at 30 m; with them, maps of a few billion cells run in a few gigabytes of memory
     Rasters on disk flow through Terraflux without being loaded when the operators read them in blocks; MSPA cannot
     (a cell's class depends on the whole object), which is why it has a tiled variant. The
     [large data](/tutorials/large-data/) tutorials cover the other ways: blocks, windows, batches over many files.
+
+### Tiled MSPA in Python
+
+[`tf.mspa_tiled`][terraflux.mspa_tiled] is the operator's counterpart. Given the path of a GeoTIFF it works out of
+core, tile by tile, and writes `output` (without one, a GuidosToolbox name next to the input); given an array or a
+raster it works in memory and returns the map. Its arguments are MSPA's (`connectivity`, `edge_width`, `transition`,
+`internal`) and `tile_size`, `overlap`, `n_workers` (tiles at once; each needs about 32 bytes per cell of its tile)
+and `overwrite`:
+
+```python
+tf.write_raster(forest, "forest.tif")
+path = tf.mspa_tiled("forest.tif", "mspa_tiled.tif", edge_width=2, tile_size=300, overlap=60, overwrite=True)
+print(path)
+```
+
+```text
+mspa_tiled.tif
+```
+
+Compared with MSPA of the whole map, with overlaps of 20 and 60 cells as in the part:
+
+```python
+whole = mspa_a.values
+forest_cells = ~np.isin(whole, [0, 100, 129, 220])    # not background, core-opening, border-opening or missing
+for overlap in (20, 60):
+    tiled = np.asarray(tf.mspa_tiled(forest, edge_width=2, tile_size=300, overlap=overlap))
+    print(f"overlap {overlap}: {int(((tiled != whole) & forest_cells).sum()):,} forest cells differ, "
+          f"{int(((tiled != whole) & (whole == 220)).sum()):,} border-opening cells are lost")
+```
+
+```text
+overlap 20: 1,328 forest cells differ, 22,426 border-opening cells are lost
+overlap 60: 700 forest cells differ, 23,444 border-opening cells are lost
+```
+
+The first number is the part's (1,312 and 700 forest cells) once the codes of a class's internal variants (101, 103...)
+and of the bridges and loops in edges are folded into their classes, as the figures do; counted code by code, as here,
+it is 1,328 at an overlap of 20 and the same 700 at 60. The second is the orange of the figures: the fields
+enclosed by forest strips (border-openings, 220) that no tile sees whole come out as plain background.
+
+Many maps, or maps larger than memory with every tile in its own worker, are in
+[large data & batch](/tutorials/large-data/large-data-in-python/): `tf.mspa_batch` runs MSPA
+over a list or a folder of maps.
 
 ## Settings that change the answer
 

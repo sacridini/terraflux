@@ -24,7 +24,7 @@ and follow along.
     a graph of operators; the library's pages sit at the end of their category there, named "... in Python", and the
     two on several computers and on a cluster are in [Parallel computing](/parallel/).
 
-- **[Habitat patterns](/tutorials/habitat-patterns/patterns-in-python/)**: Cores, edges, bridges and islets; objects by size; parcels and the shape of habitat boundaries.
+- **[Habitat patterns](/tutorials/habitat-patterns/)**: Cores, edges, bridges and islets; objects by size; parcels and the shape of habitat boundaries; the network of cores and bridges and change between dates. The Python is in each part.
 - **[Fragmentation](/tutorials/fragmentation/)**: Habitat density at one or many scales, fragmentation classes, landscape mosaics, contagion and entropy, and their change between dates. The Python is in each part.
 - **[Landscape metrics](/tutorials/landscape-metrics/landscape-metrics-in-python/)**: Patch, class and landscape metrics, sample plots, moving windows, time series and spatial signatures.
 - **[Habitat networks](/tutorials/habitat-networks/habitat-networks-in-python/)**: Patches and distances as a graph: connectivity indices, the importance of every patch and link, protected-area connectivity.

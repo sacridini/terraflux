@@ -307,4 +307,4 @@ lc.write_metrics("metrics.parquet", level="patch", metric=["area", "shape"])
 ## Next steps
 
 - Connectivity between the patches: [habitat networks](/tutorials/habitat-networks/habitat-networks-in-python/).
-- Patterns of a single habitat: [habitat patterns](/tutorials/habitat-patterns/patterns-in-python/).
+- Patterns of a single habitat: [habitat patterns](/tutorials/habitat-patterns/).

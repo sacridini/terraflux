@@ -40,7 +40,7 @@ Where to go:
 
 ## What you can do
 
-- **[Habitat patterns](/tutorials/habitat-patterns/patterns-in-python/)**: split habitat into cores, edges,
+- **[Habitat patterns](/tutorials/habitat-patterns/)**: split habitat into cores, edges,
   bridges, loops and islets; classify objects by size; describe the shape and texture of every patch.
 - **[Fragmentation](/tutorials/fragmentation/)**: habitat density at many observation
   scales, fragmentation classes, landscape mosaics, contagion and spatial entropy, as maps and statistics.
