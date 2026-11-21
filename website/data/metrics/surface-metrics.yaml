@@ -215,8 +215,6 @@ metrics:
       'p_x': the derivative along the row, from the cells 3, 2 and 1 steps to the right (\(z_{+k}\)) and to the left (\(z_{-k}\)) of the cell
       'p_y': the same along the column
       'M': the number of cells at least 3 cells away from every edge
-    refs:
-      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
 
   # impl: extern/terraflux-py/src/cpp/surf/hybrid.cpp:167
   - id: surface_sdr
@@ -259,7 +257,7 @@ metrics:
       'n_{\mathrm{peaks}}': the number of peaks, cells off the edge with all 8 neighbours present that are higher than each of them and higher than 0
       'R, C': the number of rows and columns
     refs:
-      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+      - "McGarigal, K., Tagil, S., & Cushman, S. A. (2009). Surface metrics: an alternative to patch metrics for the quantification of landscape structure. Landscape Ecology, 24, 433-450. https://doi.org/10.1007/s10980-009-9327-y"
 
   # impl: extern/terraflux-py/src/cpp/surf/features.cpp:69
   - id: surface_ssc
@@ -282,8 +280,6 @@ metrics:
       'z': the value of the peak
       'z_{x \pm 1}, z_{y \pm 1}': its neighbours along the row and the column
       '\Delta x, \Delta y': the cell width (1) and the ratio of the cell height to its width, as in geodiv
-    refs:
-      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
 
   # impl: extern/terraflux-py/src/cpp/surf/features.cpp:115
   - id: surface_s10z
@@ -327,7 +323,7 @@ metrics:
       '\mathrm{Sq}': the root mean square roughness
       'h(0.05)': the value at bearing 0.05, the 95th percentile of the values (the bearing is the share of cells at or above a value; type-7 quantile)
     refs:
-      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+      - "McGarigal, K., Tagil, S., & Cushman, S. A. (2009). Surface metrics: an alternative to patch metrics for the quantification of landscape structure. Landscape Ecology, 24, 433-450. https://doi.org/10.1007/s10980-009-9327-y"
 
   # impl: extern/terraflux-py/src/cpp/surf/bearing.cpp:210
   - id: surface_sci
@@ -350,7 +346,7 @@ metrics:
       '\mathrm{Svi}': the valley fluid retention index
       'integral': Simpson's rule on 1000 intervals; the bracket is the void volume from 5 % to 100 % bearing, and subtracting Svi leaves the core zone
     refs:
-      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+      - "McGarigal, K., Tagil, S., & Cushman, S. A. (2009). Surface metrics: an alternative to patch metrics for the quantification of landscape structure. Landscape Ecology, 24, 433-450. https://doi.org/10.1007/s10980-009-9327-y"
 
   # impl: extern/terraflux-py/src/cpp/surf/bearing.cpp:209
   - id: surface_svi
@@ -372,7 +368,7 @@ metrics:
       'h(t)': the value at bearing \(t\), the share of cells at or above it
       'integral': Simpson's rule on 500 intervals; the first term is the rectangle up to the highest point of the zone, \(h(0.8)\)
     refs:
-      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+      - "McGarigal, K., Tagil, S., & Cushman, S. A. (2009). Surface metrics: an alternative to patch metrics for the quantification of landscape structure. Landscape Ecology, 24, 433-450. https://doi.org/10.1007/s10980-009-9327-y"
 
   # impl: extern/terraflux-py/src/cpp/surf/bearing.cpp:134
   - id: surface_sk
@@ -553,7 +549,7 @@ metrics:
       'r_{\max}': the largest distance in the zero row of the spectrum
       '\delta': half the ring spacing, \(r_{\max} / (2(K-1))\)
     refs:
-      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+      - "McGarigal, K., Tagil, S., & Cushman, S. A. (2009). Surface metrics: an alternative to patch metrics for the quantification of landscape structure. Landscape Ecology, 24, 433-450. https://doi.org/10.1007/s10980-009-9327-y"
 
   # impl: extern/terraflux-py/src/cpp/surf/spatial.cpp:491
   - id: surface_srwi

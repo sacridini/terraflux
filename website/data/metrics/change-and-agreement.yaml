@@ -366,7 +366,7 @@ metrics:
     python: 'tf.simulate.changes(lu).change_count()[1]'
     operator: change.count
     refs:
-      - "Exavier & Zeilhofer (2020). OpenLand: software for quantitative analysis and visualization of land use and cover change. The R Journal 12(2): 359-371 (function acc_changes). doi:10.32614/RJ-2021-021"
+      - "Exavier & Zeilhofer (2021). OpenLand: software for quantitative analysis and visualization of land use and cover change. The R Journal 12(2): 359-371 (function acc_changes). doi:10.32614/RJ-2021-021"
 
   # impl: _change.py:272-278
   - id: chg_interval_change
@@ -390,7 +390,7 @@ metrics:
     operator: change.intensity
     refs:
       - "Aldwaik & Pontius (2012). Intensity analysis to unify measurements of size and stationarity of land changes by interval, category, and transition. Landscape and Urban Planning 106: 103-114."
-      - "Exavier & Zeilhofer (2020). OpenLand: software for quantitative analysis and visualization of land use and cover change. The R Journal 12(2): 359-371. doi:10.32614/RJ-2021-021"
+      - "Exavier & Zeilhofer (2021). OpenLand: software for quantitative analysis and visualization of land use and cover change. The R Journal 12(2): 359-371. doi:10.32614/RJ-2021-021"
 
   # impl: _change.py:276
   - id: chg_u

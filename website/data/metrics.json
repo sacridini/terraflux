@@ -4583,9 +4583,6 @@
       "M": "the number of cells at least 3 cells away from every edge"
      },
      "use": "Per cell, not per metre, like Sdq. The stencil of geodiv repeats the term for +2 in place of the one for -2 and takes\nthe root of the sum, not of the mean; Terraflux corrects both, so its value differs from geodiv's.\n",
-     "refs": [
-      "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
-     ],
      "aliases": [
       "Sdq6",
       "seven-point slope"
@@ -4636,7 +4633,7 @@
      },
      "use": "Peaks are compared with 0, so remove the mean or the trend first. A high value means a fine, busy texture, but the\ncount also grows with noise. Per cell, not per square metre: divide by the cell area for a density.\n",
      "refs": [
-      "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+      "McGarigal, K., Tagil, S., & Cushman, S. A. (2009). Surface metrics: an alternative to patch metrics for the quantification of landscape structure. Landscape Ecology, 24, 433-450. https://doi.org/10.1007/s10980-009-9327-y"
      ],
      "aliases": [
       "Sds",
@@ -4665,9 +4662,6 @@
       "\\Delta x, \\Delta y": "the cell width (1) and the ratio of the cell height to its width, as in geodiv"
      },
      "use": "The sign follows ISO 25178 (positive for rounded-up peaks); geodiv has the opposite sign and uses first differences.\nThe value depends on the range of the surface because of the rescaling. NA when there are no peaks.\n",
-     "refs": [
-      "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
-     ],
      "aliases": [
       "Ssc",
       "summit curvature",
@@ -4721,7 +4715,7 @@
      },
      "use": "Sensitive to the zero level: it assumes values with the mean removed (a negative \\(h(0.05)\\) gives a negative index).\nUse it on a surface without its trend.\n",
      "refs": [
-      "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+      "McGarigal, K., Tagil, S., & Cushman, S. A. (2009). Surface metrics: an alternative to patch metrics for the quantification of landscape structure. Landscape Ecology, 24, 433-450. https://doi.org/10.1007/s10980-009-9327-y"
      ],
      "aliases": [
       "Sbi",
@@ -4749,7 +4743,7 @@
      },
      "use": "Defined on the values as they are, with the area measured up to the highest point of the interval; the unit is the\nsurface's. The areas of geodiv change when the bearing curve dips below 0; Terraflux's do not.\n",
      "refs": [
-      "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+      "McGarigal, K., Tagil, S., & Cushman, S. A. (2009). Surface metrics: an alternative to patch metrics for the quantification of landscape structure. Landscape Ecology, 24, 433-450. https://doi.org/10.1007/s10980-009-9327-y"
      ],
      "aliases": [
       "Sci",
@@ -4776,7 +4770,7 @@
      },
      "use": "The version of geodiv gives negative values on positive surfaces and its Simpson's rule drops the last point;\nTerraflux corrects both, so its value is not comparable with geodiv's.\n",
      "refs": [
-      "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+      "McGarigal, K., Tagil, S., & Cushman, S. A. (2009). Surface metrics: an alternative to patch metrics for the quantification of landscape structure. Landscape Ecology, 24, 433-450. https://doi.org/10.1007/s10980-009-9327-y"
      ],
      "aliases": [
       "Svi",
@@ -5001,7 +4995,7 @@
      },
      "use": "The number is a radius in the spectrum, not a ground distance. A texture that repeats \\(k\\) times across a raster of\n\\(n\\) cells has its peak at \\(k\\) cell sizes, so its wavelength is \\(n/k\\) cells: convert before comparing it with a\nscale of interest. NA when two rings tie for the maximum.\n",
      "refs": [
-      "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+      "McGarigal, K., Tagil, S., & Cushman, S. A. (2009). Surface metrics: an alternative to patch metrics for the quantification of landscape structure. Landscape Ecology, 24, 433-450. https://doi.org/10.1007/s10980-009-9327-y"
      ],
      "aliases": [
       "Srw",
@@ -10844,7 +10838,7 @@
      },
      "use": "Highlights cells that flicker (map errors or shifting cultivation) versus stable change.\n",
      "refs": [
-      "Exavier & Zeilhofer (2020). OpenLand: software for quantitative analysis and visualization of land use and cover change. The R Journal 12(2): 359-371 (function acc_changes). doi:10.32614/RJ-2021-021"
+      "Exavier & Zeilhofer (2021). OpenLand: software for quantitative analysis and visualization of land use and cover change. The R Journal 12(2): 359-371 (function acc_changes). doi:10.32614/RJ-2021-021"
      ],
      "python": "tf.simulate.changes(lu).change_count()[1]",
      "operator": "change.count",
@@ -10868,7 +10862,7 @@
      "use": "The interval level of the intensity analysis; compare \\( S_t \\) between periods and with the uniform intensity\nU.\n",
      "refs": [
       "Aldwaik & Pontius (2012). Intensity analysis to unify measurements of size and stationarity of land changes by interval, category, and transition. Landscape and Urban Planning 106: 103-114.",
-      "Exavier & Zeilhofer (2020). OpenLand: software for quantitative analysis and visualization of land use and cover change. The R Journal 12(2): 359-371. doi:10.32614/RJ-2021-021"
+      "Exavier & Zeilhofer (2021). OpenLand: software for quantitative analysis and visualization of land use and cover change. The R Journal 12(2): 359-371. doi:10.32614/RJ-2021-021"
      ],
      "python": "tf.simulate.changes(lu).intensity(gain=2, loss=1).interval",
      "operator": "change.intensity",
