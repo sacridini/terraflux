@@ -654,6 +654,30 @@ pub const REFERENCES: &[Reference] = &[
         report: "Advances in Neural Information Processing Systems, 26, 2292–2300. https://arxiv.org/abs/1306.0895",
     },
     paper!(
+        "fieberg2005",
+        ["Fieberg, J.", "Kochanny, C. O."],
+        false,
+        2005,
+        "Quantifying home-range overlap: the importance of the utilization distribution",
+        "Journal of Wildlife Management",
+        "69",
+        "4",
+        "1346–1359",
+        "10.2193/0022-541X(2005)69[1346:QHOTIO]2.0.CO;2"
+    ),
+    paper!(
+        "getz2007",
+        ["Getz, W. M.", "Fortmann-Roe, S.", "Cross, P. C.", "Lyons, A. J.", "Ryan, S. J.", "Wilmers, C. C."],
+        false,
+        2007,
+        "LoCoH: nonparameteric kernel methods for constructing home ranges and utilization distributions",
+        "PLoS ONE",
+        "2",
+        "2",
+        "e207",
+        "10.1371/journal.pone.0000207"
+    ),
+    paper!(
         "hanson2025",
         [
             "Hanson, J. O.",
@@ -999,6 +1023,30 @@ pub const REFERENCES: &[Reference] = &[
         "10.1016/j.envsoft.2008.05.005"
     ),
     paper!(
+        "sheather1991",
+        ["Sheather, S. J.", "Jones, M. C."],
+        false,
+        1991,
+        "A reliable data-based bandwidth selection method for kernel density estimation",
+        "Journal of the Royal Statistical Society: Series B (Methodological)",
+        "53",
+        "3",
+        "683–690",
+        "10.1111/j.2517-6161.1991.tb01857.x"
+    ),
+    paper!(
+        "signer2019",
+        ["Signer, J.", "Fieberg, J.", "Avgar, T."],
+        false,
+        2019,
+        "Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses",
+        "Ecology and Evolution",
+        "9",
+        "2",
+        "880–890",
+        "10.1002/ece3.4823"
+    ),
+    paper!(
         "soaresfilho2002",
         ["Soares-Filho, B. S.", "Coutinho Cerqueira, G.", "Lopes Pennachin, C."],
         false,
@@ -1089,6 +1137,31 @@ pub const REFERENCES: &[Reference] = &[
         "1",
         "352–361",
         "10.1080/22797254.2017.1330650"
+    ),
+    Reference {
+        key: "wand1995",
+        authors: &["Wand, M. P.", "Jones, M. C."],
+        more: false,
+        year: 1995,
+        title: "Kernel smoothing",
+        journal: "",
+        volume: "",
+        issue: "",
+        pages: "",
+        doi: "",
+        report: "Chapman & Hall/CRC. https://doi.org/10.1201/b14876",
+    },
+    paper!(
+        "worton1989",
+        ["Worton, B. J."],
+        false,
+        1989,
+        "Kernel methods for estimating the utilization distribution in home-range studies",
+        "Ecology",
+        "70",
+        "1",
+        "164–168",
+        "10.2307/1938423"
     ),
     paper!(
         "zizka2019",
@@ -1510,6 +1583,27 @@ pub const METHODS: &[Method] = &[
         refs: &["rubner2000", "cuturi2013"],
         software: "move2utils",
         software_refs: &["kranstauber2026"],
+    },
+    Method {
+        ops: &["move.home_range"],
+        name: "the home range of animal tracks (minimum convex polygons, kernel density estimates and local convex hulls)",
+        refs: &["worton1989", "getz2007", "sheather1991", "wand1995"],
+        software: "amt",
+        software_refs: &["signer2019"],
+    },
+    Method {
+        ops: &["move.home_range_overlap"],
+        name: "the overlap between home ranges",
+        refs: &["fieberg2005"],
+        software: "amt",
+        software_refs: &["signer2019"],
+    },
+    Method {
+        ops: &["move.intensity_use"],
+        name: "the intensity of use of a track",
+        refs: &[],
+        software: "amt",
+        software_refs: &["signer2019"],
     },
     Method {
         ops: &["sensitivity.design", "sensitivity.analyze"],

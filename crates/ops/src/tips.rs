@@ -1005,6 +1005,47 @@ pub const TIPS: &[(&str, &str)] = &[
          longitude / latitude grid set gc (great-circle distances, in metres): without it the distance is in \
          degrees, which mixes north-south and east-west, and a warning says so.",
     ),
+    (
+        "move.home_range",
+        "A home range is a summary of where the animal was, not of where it can go: it depends on how many locations \
+         there are and how they are spaced in time, so compare animals only with similar samples. mcp is the hull of \
+         the locations nearest to the centre (level 0.95 drops the farthest 5 %): one outlying location moves the 100 % \
+         polygon a long way, which is why levels below 1 are used, and the polygon includes all the empty ground \
+         between the locations. kde is a smooth estimate with a UD: the bandwidth decides everything. ref (the \
+         default) oversmooths when the animal has several centres of use (one big blob over them all); ref_scaled \
+         shrinks it until the isopleth has at most num_parts polygons; pi (a plug-in estimate) is usually better for \
+         such tracks; lscv undersmooths (a polygon round each cluster) and may not converge (its choice is an end of \
+         its range: a warning); a number gives it in the CRS's units. The template (like, or res and factor) must \
+         hold every isopleth: a contour that reaches its edge is an error, so make it larger (factor) or lower the \
+         level; and with several tracks one template holds them all, which is what makes their UDs and overlaps \
+         comparable (give the same like to every node that is compared). Cells much larger than the bandwidth warn \
+         that the grid is too coarse. A kernel's isopleths are the contours of the cumulative distribution, united: \
+         a hole inside one (a place the animal avoids) is filled. locoh builds a hull round each location and its \
+         k nearest neighbours (k about the square root of the number of locations is the usual start; type r and a \
+         take a distance instead) and takes the smallest first: it follows barriers (rivers, coasts) that mcp and kde \
+         cross, and the level reached is the share of locations actually held, as near the level asked as the hulls \
+         allow. Areas are in the CRS's unit squared: project longitude / latitude first (move.aeqd_crs), which is \
+         refused here.",
+    ),
+    (
+        "move.home_range_overlap",
+        "type hr compares the polygons (the share of the first animal's polygon that the second covers: not \
+         symmetric, and not a measure of how much they use the shared ground); the others compare the UDs of kernel \
+         estimates made on the same template: vi (the shared volume, 0 to 1 and symmetric), ba (Bhattacharyya's \
+         affinity), udoi (above 1 when both concentrate their use in the same few cells), hd (a distance, 0 for equal \
+         UDs) and phr (the probability that the second animal is in the first's home range). conditional cuts the UDs to the isopleth of each level first, so \
+         the overlap of the cores (0.5) is not drowned by the tails: it gives a row for each level. Overlap of \
+         home ranges is not interaction: the animals can use the same ground in different seasons. The levels of \
+         all the polygons must be the same, and the UDs must be the bands of one raster.",
+    ),
+    (
+        "move.intensity_use",
+        "The length of the track over the square root of the area of its 100 % minimum convex polygon, a number \
+         without a unit: the larger it is, the more the animal went over the same ground again; a track whose \
+         locations lie on a line has no area and gives infinity. It grows with the sampling rate (more locations, \
+         a longer track), so compare tracks sampled at the same interval (move.thin_time). Locations are taken in \
+         the order given.",
+    ),
 ];
 
 #[cfg(test)]

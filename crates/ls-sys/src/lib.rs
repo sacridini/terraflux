@@ -1346,6 +1346,27 @@ pub mod ffi {
         hit_max_iter: bool,
     }
 
+    /// KernSmooth's bkde2D estimate on m1 x m2 points (the first index fastest) and whether R warns that the
+    /// binning grid is too coarse for the bandwidth.
+    struct MoveBkde {
+        fhat: Vec<f64>,
+        coarse: bool,
+    }
+
+    /// hr_locoh's neighbours: those of point i (0-based) are `ids[offset[i]..offset[i + 1]]`.
+    struct MoveLocohNeighbours {
+        offset: Vec<i64>,
+        ids: Vec<i64>,
+    }
+
+    /// The lines of R's contourLines at one level: `ok` is false when all the values are equal; line k holds the
+    /// vertices `start[k]..start[k + 1]` of `xy` (x, y pairs).
+    struct MoveContour {
+        ok: bool,
+        start: Vec<i64>,
+        xy: Vec<f64>,
+    }
+
     /// suncalc's sunrise, sunset, dawn and dusk (seconds since 1970, NaN when the sun does not reach them).
     struct MoveSun {
         sunrise: Vec<f64>,
@@ -3411,6 +3432,76 @@ pub mod ffi {
             q: &[f64],
             max_iter: i32,
         ) -> Result<MoveEmdExact>;
+        // amt's home ranges: the numbers of R's chull, quantile, var, KernSmooth and the contour lines
+        /// grDevices::chull: the 0-based indices of the hull's vertices in R's order.
+        fn move_hr_chull(x: &[f64], y: &[f64]) -> Result<Vec<i64>>;
+        /// R's quantile(x, probs), type 7.
+        fn move_hr_quantile7(x: &[f64], probs: &[f64]) -> Result<Vec<f64>>;
+        /// R's var() of a vector.
+        fn move_hr_var(x: &[f64]) -> f64;
+        /// R's colMeans() of one column.
+        fn move_hr_colmean(x: &[f64]) -> f64;
+        /// R's mean() of a vector.
+        fn move_hr_mean(x: &[f64]) -> f64;
+        /// R's x^y.
+        fn move_hr_pow(x: f64, y: f64) -> f64;
+        /// R's seq(a, b, length.out = m).
+        fn move_hr_seq(a: f64, b: f64, m: i64) -> Result<Vec<f64>>;
+        /// KernSmooth::bkde2D's fhat on m1 x m2 points over a1..b1 and a2..b2.
+        #[allow(clippy::too_many_arguments)]
+        fn move_hr_bkde2d(
+            x: &[f64],
+            y: &[f64],
+            h1: f64,
+            h2: f64,
+            a1: f64,
+            b1: f64,
+            a2: f64,
+            b2: f64,
+            m1: i64,
+            m2: i64,
+        ) -> Result<MoveBkde>;
+        /// KernSmooth::dpik (scalest 0 minim, 1 stdev, 2 iqr; kernel 0 normal, 1 box, 2 epanech, 3 biweight, 4 triweight).
+        #[allow(clippy::too_many_arguments)]
+        fn move_hr_dpik(
+            x: &[f64],
+            a: f64,
+            b: f64,
+            scalest: i32,
+            level: i32,
+            kernel: i32,
+            canonical: bool,
+            gridsize: i64,
+            truncate: bool,
+        ) -> Result<f64>;
+        /// amt's lscv: the criterion at each bandwidth.
+        fn move_hr_lscv(x: &[f64], y: &[f64], hs: &[f64], threads: i32) -> Result<Vec<f64>>;
+        /// The area of a closed ring (x, y pairs) as GDAL's OGR gives it (sf::st_area).
+        fn move_hr_ring_area(xy: &[f64]) -> f64;
+        /// amt's hr_cud of the cells v.
+        fn move_hr_cud(v: &[f64]) -> Vec<f64>;
+        /// amt's vol_base of two UDs on one grid: 0 phr, 1 vi, 2 ba, 3 udoi, 4 hd.
+        fn move_hr_vol_base(ui: &[f64], uj: &[f64], kind: i32) -> Result<f64>;
+        /// hr_locoh's neighbours: type 0 k (nearest by FNN), 1 r (radius), 2 a (cumulative distance).
+        fn move_hr_locoh_neighbours(
+            x: &[f64],
+            y: &[f64],
+            kind: i32,
+            d: f64,
+            threads: i32,
+        ) -> Result<MoveLocohNeighbours>;
+        /// terra::as.contour at one level (R's contourLines) of nr x nc cells (rows from the top).
+        #[allow(clippy::too_many_arguments)]
+        fn move_hr_contour_lines(
+            v: &[f64],
+            nr: i64,
+            nc: i64,
+            xmin: f64,
+            ymax: f64,
+            dx: f64,
+            dy: f64,
+            level: f64,
+        ) -> Result<MoveContour>;
     }
 }
 

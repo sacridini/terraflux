@@ -57,6 +57,9 @@ against. In a methods section, a sentence such as *"MSPA (Soille & Vogt, 2009) w
 | Cleaning and thinning animal tracks (move2utils) | `move.flag_speed`, `move.filter_gps_quality`, `move.thin_time`, `move.thin_distance` | Kranstauber et al. (2026) |
 | Corridor segments of animal tracks (LaPoint et al.'s criterion, as move2utils computes it) | `move.corridor` | LaPoint et al. (2013); Kranstauber et al. (2026) |
 | Distance between utilisation distributions (earth mover's distance, Sinkhorn or exact) | `move.ud_distance` | Rubner et al. (2000); Cuturi (2013); Kranstauber et al. (2026) |
+| Home ranges of animal tracks (minimum convex polygon, kernel density estimate, LoCoH; as amt computes them) | `move.home_range` | Worton (1989); Getz et al. (2007); Sheather & Jones (1991); Wand & Jones (1995); Signer et al. (2019) |
+| Overlap between home ranges (polygons and utilisation distributions) | `move.home_range_overlap` | Fieberg & Kochanny (2005); Signer et al. (2019) |
+| Intensity of use of a track | `move.intensity_use` | Signer et al. (2019) |
 | Biodiverse's analyses | `bio.*` | Laffan et al. (2010) |
 | Dinamica EGO's model (weights of evidence, Expander, Patcher) | `woe.*`, `patches.*`, `dinamica.*` | Soares-Filho et al. (2002) |
 | CLUE-S and the lulcc framework | `glm.*`, `lulcc.*`, `demand.*` | Verburg et al. (2002); Moulds et al. (2015) |
@@ -106,6 +109,8 @@ the same bits.
 
 - Campolongo, F., Cariboni, J., & Saltelli, A. (2007). An effective screening design for sensitivity analysis of large models. *Environmental Modelling & Software*, 22(10), 1509–1518. https://doi.org/10.1016/j.envsoft.2006.10.004
 - Cuturi, M. (2013). Sinkhorn distances: lightspeed computation of optimal transport. *Advances in Neural Information Processing Systems*, 26, 2292–2300. https://arxiv.org/abs/1306.0895
+- Fieberg, J., & Kochanny, C. O. (2005). Quantifying home-range overlap: the importance of the utilization distribution. *Journal of Wildlife Management*, 69(4), 1346–1359. https://doi.org/10.2193/0022-541X(2005)69[1346:QHOTIO]2.0.CO;2
+- Getz, W. M., Fortmann-Roe, S., Cross, P. C., Lyons, A. J., Ryan, S. J., & Wilmers, C. C. (2007). LoCoH: nonparameteric kernel methods for constructing home ranges and utilization distributions. *PLoS ONE*, 2(2), e207. https://doi.org/10.1371/journal.pone.0000207
 - Hanson, J. O., Schuster, R., Strimas-Mackey, M., Morrell, N., Edwards, B. P. M., Arcese, P., Bennett, J. R., & Possingham, H. P. (2025). Systematic conservation prioritization with the prioritizr R package. *Conservation Biology*, 39(1), e14376. https://doi.org/10.1111/cobi.14376
 - Herman, J., & Usher, W. (2017). SALib: An open-source Python library for sensitivity analysis. *Journal of Open Source Software*, 2(9), 97. https://doi.org/10.21105/joss.00097
 - Hesselbarth, M. H. K., Sciaini, M., With, K. A., Wiegand, K., & Nowosad, J. (2019). landscapemetrics: an open-source R tool to calculate landscape metrics. *Ecography*, 42(10), 1648–1657. https://doi.org/10.1111/ecog.04617
@@ -131,6 +136,8 @@ the same bits.
 - Saltelli, A., Annoni, P., Azzini, I., Campolongo, F., Ratto, M., & Tarantola, S. (2010). Variance based sensitivity analysis of model output. Design and estimator for the total sensitivity index. *Computer Physics Communications*, 181(2), 259–270. https://doi.org/10.1016/j.cpc.2009.09.018
 - Saura, S., & Pascual-Hortal, L. (2007). A new habitat availability index to integrate connectivity in landscape conservation planning: Comparison with existing indices and application to a case study. *Landscape and Urban Planning*, 83(2–3), 91–103. https://doi.org/10.1016/j.landurbplan.2007.03.005
 - Saura, S., & Torné, J. (2009). Conefor Sensinode 2.2: A software package for quantifying the importance of habitat patches for landscape connectivity. *Environmental Modelling & Software*, 24(1), 135–139. https://doi.org/10.1016/j.envsoft.2008.05.005
+- Sheather, S. J., & Jones, M. C. (1991). A reliable data-based bandwidth selection method for kernel density estimation. *Journal of the Royal Statistical Society: Series B (Methodological)*, 53(3), 683–690. https://doi.org/10.1111/j.2517-6161.1991.tb01857.x
+- Signer, J., Fieberg, J., & Avgar, T. (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. *Ecology and Evolution*, 9(2), 880–890. https://doi.org/10.1002/ece3.4823
 - Soares-Filho, B. S., Coutinho Cerqueira, G., & Lopes Pennachin, C. (2002). DINAMICA: a stochastic cellular automata model designed to simulate the landscape dynamics in an Amazonian colonization frontier. *Ecological Modelling*, 154(3), 217–235. https://doi.org/10.1016/S0304-3800(02)00059-5
 - Sobol', I. M. (2001). Global sensitivity indices for nonlinear mathematical models and their Monte Carlo estimates. *Mathematics and Computers in Simulation*, 55(1–3), 271–280. https://doi.org/10.1016/S0378-4754(00)00270-6
 - Soille, P., & Vogt, P. (2009). Morphological segmentation of binary patterns. *Pattern Recognition Letters*, 30(4), 456–459. https://doi.org/10.1016/j.patrec.2008.10.015
@@ -138,4 +145,6 @@ the same bits.
 - van Etten, J. (2017). R package gdistance: Distances and routes on geographical grids. *Journal of Statistical Software*, 76(13), 1–21. https://doi.org/10.18637/jss.v076.i13
 - Verburg, P. H., Soepboer, W., Veldkamp, A., Limpiada, R., Espaldon, V., & Mastura, S. S. A. (2002). Modeling the spatial dynamics of regional land use: the CLUE-S model. *Environmental Management*, 30(3), 391–405. https://doi.org/10.1007/s00267-002-2630-x
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
+- Wand, M. P., & Jones, M. C. (1995). *Kernel smoothing*. Chapman & Hall/CRC. https://doi.org/10.1201/b14876
+- Worton, B. J. (1989). Kernel methods for estimating the utilization distribution in home-range studies. *Ecology*, 70(1), 164–168. https://doi.org/10.2307/1938423
 - Zizka, A., Silvestro, D., Andermann, T., Azevedo, J., Duarte Ritter, C., Edler, D., et al. (2019). CoordinateCleaner: Standardized cleaning of occurrence records from biological collection databases. *Methods in Ecology and Evolution*, 10(5), 744–751. https://doi.org/10.1111/2041-210X.13152

@@ -61,6 +61,7 @@
 #include "move/distr.hpp"
 #include "move/emd.hpp"
 #include "move/geo.hpp"
+#include "move/homerange.hpp"
 #include "move/track.hpp"
 #include "opt/actions.hpp"
 #include "opt/closure.hpp"
@@ -5430,6 +5431,115 @@ MoveEmdExact move_emd_exact(rust::Slice<const double> ax, rust::Slice<const doub
     out.distance = move::emd_exact(ax.data(), ay.data(), p.data(), static_cast<std::int64_t>(ax.size()), bx.data(),
                                    by.data(), q.data(), static_cast<std::int64_t>(bx.size()), max_iter, &hit);
     out.hit_max_iter = hit;
+    return out;
+}
+
+rust::Vec<std::int64_t> move_hr_chull(rust::Slice<const double> x, rust::Slice<const double> y) {
+    check(y.size() == x.size(), "x and y: the same length");
+    const auto n = static_cast<std::int64_t>(x.size());
+    std::vector<std::int64_t> out(static_cast<std::size_t>(n) + 1);
+    const std::int64_t nh = move::r_chull(x.data(), y.data(), n, out.data());
+    out.resize(static_cast<std::size_t>(nh));
+    return to_rust<std::int64_t>(out);
+}
+
+rust::Vec<double> move_hr_quantile7(rust::Slice<const double> x, rust::Slice<const double> probs) {
+    check(x.size() >= 1, "x: at least one value");
+    std::vector<double> out(probs.size());
+    move::r_quantile7(x.data(), static_cast<std::int64_t>(x.size()), probs.data(),
+                      static_cast<std::int64_t>(probs.size()), out.data());
+    return to_rust<double>(out);
+}
+
+double move_hr_var(rust::Slice<const double> x) { return move::r_var_of(x.data(), static_cast<std::int64_t>(x.size())); }
+
+double move_hr_colmean(rust::Slice<const double> x) {
+    return move::r_colmean_of(x.data(), static_cast<std::int64_t>(x.size()));
+}
+
+double move_hr_mean(rust::Slice<const double> x) { return lsm::r_mean(x.data(), static_cast<std::int64_t>(x.size())); }
+
+double move_hr_pow(double x, double y) { return lsm::r_pow(x, y); }
+
+rust::Vec<double> move_hr_seq(double a, double b, std::int64_t m) {
+    check(m >= 0, "m: not negative");
+    std::vector<double> out(static_cast<std::size_t>(m));
+    move::r_seq_len(a, b, m, out.data());
+    return to_rust<double>(out);
+}
+
+MoveBkde move_hr_bkde2d(rust::Slice<const double> x, rust::Slice<const double> y, double h1, double h2, double a1,
+                        double b1, double a2, double b2, std::int64_t m1, std::int64_t m2) {
+    check(x.size() == y.size() && m1 >= 2 && m2 >= 2, "x, y: the same length; gridsize >= 2");
+    std::vector<double> buf(static_cast<std::size_t>(m1 * m2));
+    const int warn = move::kern_bkde2d(x.data(), y.data(), static_cast<std::int64_t>(x.size()), h1, h2, a1, b1, a2, b2,
+                                       m1, m2, buf.data());
+    MoveBkde out;
+    out.fhat = to_rust<double>(buf);
+    out.coarse = warn != 0;
+    return out;
+}
+
+double move_hr_dpik(rust::Slice<const double> x, double a, double b, std::int32_t scalest, std::int32_t level,
+                    std::int32_t kernel, bool canonical, std::int64_t gridsize, bool truncate) {
+    int err = 0;
+    const double h = move::kern_dpik(x.data(), static_cast<std::int64_t>(x.size()), scalest, level, kernel, canonical,
+                                     gridsize, a, b, truncate, &err);
+    check(err != 1, "Level should be between 0 and 5");
+    check(err != 2, "scale estimate is zero for input data");
+    return h;
+}
+
+rust::Vec<double> move_hr_lscv(rust::Slice<const double> x, rust::Slice<const double> y, rust::Slice<const double> hs,
+                               std::int32_t threads) {
+    check(x.size() == y.size(), "x and y: the same length");
+    std::vector<double> out(hs.size());
+    move::amt_lscv(x.data(), y.data(), static_cast<std::int64_t>(x.size()), hs.data(),
+                   static_cast<std::int64_t>(hs.size()), threads, out.data());
+    return to_rust<double>(out);
+}
+
+double move_hr_ring_area(rust::Slice<const double> xy) {
+    return move::ogr_ring_area(xy.data(), static_cast<std::int64_t>(xy.size() / 2));
+}
+
+rust::Vec<double> move_hr_cud(rust::Slice<const double> v) {
+    std::vector<double> out(v.size());
+    move::amt_cud(v.data(), static_cast<std::int64_t>(v.size()), out.data());
+    return to_rust<double>(out);
+}
+
+double move_hr_vol_base(rust::Slice<const double> ui, rust::Slice<const double> uj, std::int32_t kind) {
+    check(ui.size() == uj.size(), "ud_i and ud_j: the same length");
+    check(kind >= 0 && kind <= 4, "type: 0 phr, 1 vi, 2 ba, 3 udoi, 4 hd");
+    return move::amt_vol_base(ui.data(), uj.data(), static_cast<std::int64_t>(ui.size()), kind);
+}
+
+MoveLocohNeighbours move_hr_locoh_neighbours(rust::Slice<const double> x, rust::Slice<const double> y,
+                                             std::int32_t kind, double d, std::int32_t threads) {
+    check(x.size() == y.size(), "x and y: the same length");
+    check(kind >= 0 && kind <= 2, "type: 0 k, 1 r, 2 a");
+    std::vector<std::int64_t> off, ids;
+    move::amt_locoh_neighbours(x.data(), y.data(), static_cast<std::int64_t>(x.size()), kind, d, threads, off, ids);
+    MoveLocohNeighbours out;
+    out.offset = to_rust<std::int64_t>(off);
+    out.ids = to_rust<std::int64_t>(ids);
+    return out;
+}
+
+MoveContour move_hr_contour_lines(rust::Slice<const double> v, std::int64_t nr, std::int64_t nc, double xmin,
+                                  double ymax, double dx, double dy, double level) {
+    check(nr >= 1 && nc >= 1 && static_cast<std::int64_t>(v.size()) == nr * nc, "v: nr x nc values");
+    std::vector<std::vector<double>> lines;
+    MoveContour out;
+    out.ok = move::r_contour_lines(v.data(), nr, nc, xmin, ymax, dx, dy, level, lines);
+    std::int64_t at = 0;
+    out.start.push_back(0);
+    for (const auto& l : lines) {
+        for (const double c : l) out.xy.push_back(c);
+        at += static_cast<std::int64_t>(l.size() / 2);
+        out.start.push_back(at);
+    }
     return out;
 }
 // end movement ecology

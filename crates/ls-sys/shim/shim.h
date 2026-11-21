@@ -895,6 +895,9 @@ struct MoveAlong;
 struct MoveNeighbours;
 struct MoveUdCells;
 struct MoveEmdExact;
+struct MoveBkde;
+struct MoveLocohNeighbours;
+struct MoveContour;
 rust::Vec<double> move_distances(rust::Slice<const double> x, rust::Slice<const double> y,
                                  rust::Slice<const std::int64_t> track, bool lonlat, std::int32_t threads);
 rust::Vec<double> move_azimuths(rust::Slice<const double> x, rust::Slice<const double> y,
@@ -953,6 +956,26 @@ double move_emd_sinkhorn(rust::Slice<const double> ax, rust::Slice<const double>
 MoveEmdExact move_emd_exact(rust::Slice<const double> ax, rust::Slice<const double> ay, rust::Slice<const double> p,
                             rust::Slice<const double> bx, rust::Slice<const double> by, rust::Slice<const double> q,
                             std::int32_t max_iter);
+rust::Vec<std::int64_t> move_hr_chull(rust::Slice<const double> x, rust::Slice<const double> y);
+rust::Vec<double> move_hr_quantile7(rust::Slice<const double> x, rust::Slice<const double> probs);
+double move_hr_var(rust::Slice<const double> x);
+double move_hr_colmean(rust::Slice<const double> x);
+double move_hr_mean(rust::Slice<const double> x);
+double move_hr_pow(double x, double y);
+rust::Vec<double> move_hr_seq(double a, double b, std::int64_t m);
+MoveBkde move_hr_bkde2d(rust::Slice<const double> x, rust::Slice<const double> y, double h1, double h2, double a1,
+                        double b1, double a2, double b2, std::int64_t m1, std::int64_t m2);
+double move_hr_dpik(rust::Slice<const double> x, double a, double b, std::int32_t scalest, std::int32_t level,
+                    std::int32_t kernel, bool canonical, std::int64_t gridsize, bool truncate);
+rust::Vec<double> move_hr_lscv(rust::Slice<const double> x, rust::Slice<const double> y, rust::Slice<const double> hs,
+                               std::int32_t threads);
+double move_hr_ring_area(rust::Slice<const double> xy);
+rust::Vec<double> move_hr_cud(rust::Slice<const double> v);
+double move_hr_vol_base(rust::Slice<const double> ui, rust::Slice<const double> uj, std::int32_t kind);
+MoveLocohNeighbours move_hr_locoh_neighbours(rust::Slice<const double> x, rust::Slice<const double> y,
+                                             std::int32_t kind, double d, std::int32_t threads);
+MoveContour move_hr_contour_lines(rust::Slice<const double> v, std::int64_t nr, std::int64_t nc, double xmin,
+                                  double ymax, double dx, double dy, double level);
 // end movement ecology
 
 }  // namespace tfx

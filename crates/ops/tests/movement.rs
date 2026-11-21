@@ -1692,3 +1692,475 @@ fn ud_distance_errors() {
     let empty = Value::Map(Map::new(m.grid.clone(), vec![0.0; m.data.len()]));
     assert!(err(vec![("ud", empty), ("ud_b", m1.clone())], serde_json::json!({})).contains("mass"));
 }
+
+// ------------------------------------------------------------------------------------------ home ranges
+
+fn hr_meta() -> &'static serde_json::Value {
+    &reference().1["hr"]
+}
+
+/// A set of the home-range cases: points with their track in a column.
+fn hr_set(name: &str) -> Value {
+    let (z, _) = reference();
+    let m = &hr_meta()["sets"][name];
+    let (x, y) = (&z[&format!("in/hr/{name}/x")].data, &z[&format!("in/hr/{name}/y")].data);
+    let track: Vec<String> = m["track"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+    Value::Vector(Arc::new(Vector {
+        geometries: x.iter().zip(y).map(|(&a, &b)| Geometry::Point([a, b])).collect(),
+        attributes: vec![("track".to_string(), Column::Texts(track))],
+        crs: m["crs"].as_str().map(str::to_string),
+    }))
+}
+
+fn run_warn(
+    op: &str,
+    ins: Vec<(&str, Value)>,
+    params: &serde_json::Value,
+) -> terraflux_ops::Result<(Outputs, Vec<String>)> {
+    let params = params.as_object().cloned().unwrap_or_default();
+    let a = Args { node: "n", inputs: ins.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), params: &params };
+    let mut ctx = Ctx::default();
+    let o = registry().get(op).unwrap().run(&mut ctx, &a)?;
+    Ok((o, ctx.warnings))
+}
+
+/// The settings of a case for the operator: the library's, without the ones that say what to compare.
+fn hr_params(method: &str, p: &serde_json::Value) -> serde_json::Value {
+    let mut p = p.as_object().cloned().unwrap_or_default();
+    for k in ["ud", "ud_track", "like"] {
+        p.remove(k);
+    }
+    p.insert("method".into(), method.into());
+    serde_json::Value::Object(p)
+}
+
+/// The template of a case, as a map on the grid the reference built.
+fn hr_like(spec: &serde_json::Value, crs: Option<&str>) -> Value {
+    let f = |k: &str| spec[k].as_f64().unwrap();
+    let (nx, ny) = (spec["ncol"].as_u64().unwrap() as usize, spec["nrow"].as_u64().unwrap() as usize);
+    let mut g = Grid::new(nx, ny);
+    g.transform = [f("xmin"), f("res"), 0.0, f("ymax"), 0.0, -f("res")];
+    g.geo.wkt = crs.map(str::to_string);
+    Value::Map(Map::new(Arc::new(g), vec![0.0; nx * ny]))
+}
+
+fn hr_home_range(set: &str, method: &str, p: &serde_json::Value) -> terraflux_ops::Result<(Outputs, Vec<String>)> {
+    let mut ins = vec![("tracks", hr_set(set))];
+    if let Some(spec) = p.get("like") {
+        ins.push(("like", hr_like(spec, hr_meta()["sets"][set]["crs"].as_str())));
+    }
+    run_warn("move.home_range", ins, &hr_params(method, p))
+}
+
+/// A feature's polygons as the library's hr_enc lists them: the polygons, their rings, the vertices.
+fn hr_enc(g: &Geometry) -> Vec<f64> {
+    let polys: Vec<&Vec<Vec<[f64; 2]>>> = match g {
+        Geometry::Polygon(p) => vec![p],
+        Geometry::MultiPolygon(ps) => ps.iter().collect(),
+        Geometry::Empty => vec![],
+        g => panic!("{g:?}"),
+    };
+    let mut out = vec![polys.len() as f64];
+    for p in polys {
+        out.push(p.len() as f64);
+        for r in p {
+            out.push(r.len() as f64);
+            out.extend(r.iter().flat_map(|c| *c));
+        }
+    }
+    out
+}
+
+/// Within a relative tolerance, NaN where NaN.
+fn close(what: &str, got: &[f64], want: &[f64], rtol: f64) {
+    assert_eq!(got.len(), want.len(), "{what}: {} values, {} wanted", got.len(), want.len());
+    for (k, (a, b)) in got.iter().zip(want).enumerate() {
+        let ok = (a.is_nan() && b.is_nan()) || a == b || (a - b).abs() <= rtol * a.abs().max(b.abs());
+        assert!(ok, "{what}[{k}]: {a:e} != {b:e} (rtol {rtol:e})");
+    }
+}
+
+/// The polygons of a home range against the library's, to the bit.
+fn hr_same_polygons(key: &str, v: &Vector, tolerance: Option<f64>) {
+    let (level, area) = (num(v, "level"), num(v, "area"));
+    same(&format!("{key} level"), &level, want(&format!("hr/{key}/level")));
+    let geoms: Vec<Vec<f64>> = v.geometries.iter().map(hr_enc).collect();
+    let glen: Vec<f64> = geoms.iter().map(|g| g.len() as f64).collect();
+    let flat: Vec<f64> = geoms.concat();
+    match tolerance {
+        None => {
+            same(&format!("{key} area"), &area, want(&format!("hr/{key}/area")));
+            same(&format!("{key} vertices per polygon"), &glen, want(&format!("hr/{key}/glen")));
+            same(&format!("{key} vertices"), &flat, want(&format!("hr/{key}/geom")));
+        }
+        Some(rtol) => {
+            close(&format!("{key} area"), &area, want(&format!("hr/{key}/area")), rtol);
+            // the same polygons: as many vertices where GEOS's output agrees
+            assert_eq!(glen.len(), want(&format!("hr/{key}/glen")).len(), "{key}");
+        }
+    }
+}
+
+#[test]
+fn home_ranges_are_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let cases = hr_meta()["cases"].as_object().unwrap();
+    assert!(cases.len() >= 25);
+    for (key, c) in cases {
+        let (set, method, p) = (c["set"].as_str().unwrap(), c["method"].as_str().unwrap(), &c["params"]);
+        let (o, warnings) = hr_home_range(set, method, p).unwrap_or_else(|e| panic!("{key}: {e}"));
+        let v = vector(&o, "polygons");
+        // MCP and KDE to the bit; LoCoH too where the GEOS of the library's shapely and GDAL's agree
+        hr_same_polygons(key, &v, None);
+        assert_eq!(v.crs, hr_set_crs(set), "{key}");
+        let areas = table(&o, "table");
+        assert_eq!(areas.columns, ["track", "level", "area"], "{key}");
+        same(&format!("{key} table area"), &areas.column("area").unwrap(), &num(&v, "area"));
+        assert_eq!(v.attributes.iter().map(|a| a.0.as_str()).collect::<Vec<_>>(), ["track", "level", "what", "area"]);
+        if let Column::Texts(w) = v.column("what").unwrap() {
+            assert!(w.iter().all(|w| w == "estimate"), "{key}");
+        }
+        if method == "kde" {
+            let h = table(&o, "bandwidths");
+            let flat: Vec<f64> = h.rows.iter().flat_map(|r| [r[1], r[2]]).collect();
+            same(&format!("{key} h"), &flat, want(&format!("hr/{key}/h")));
+            let Value::Stack(ud) = &o["ud"] else { panic!("{key}: no ud") };
+            if let Some(track) = p.get("ud_track").and_then(|t| t.as_str()) {
+                let at = ud.keys.iter().position(|k| matches!(k, terraflux_ops::Key::Name(n) if n == track)).unwrap();
+                same(&format!("{key} ud"), &ud.layers[at], want(&format!("hr/{key}/ud")));
+            } else if p.get("ud").is_some() {
+                let all: Vec<f64> = ud.layers.iter().flat_map(|l| l.iter().copied()).collect();
+                same(&format!("{key} ud"), &all, want(&format!("hr/{key}/ud")));
+            }
+            let g = &hr_meta()["cases"][key]["grid"];
+            assert_eq!(
+                (ud.grid.width as u64, ud.grid.height as u64),
+                (g[0].as_u64().unwrap(), g[1].as_u64().unwrap()),
+                "{key}"
+            );
+            for l in &ud.layers {
+                let total: f64 = l.iter().sum();
+                assert!((total - 1.0).abs() < 1e-12, "{key}: the UD sums to {total}");
+            }
+            // one band for each track, named by it
+            let names: Vec<String> = ud
+                .keys
+                .iter()
+                .map(|k| match k {
+                    terraflux_ops::Key::Name(n) => n.clone(),
+                    _ => panic!(),
+                })
+                .collect();
+            let mut tracks: Vec<String> = hr_meta()["sets"][set]["track"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect();
+            tracks.dedup();
+            assert_eq!(names, tracks, "{key}");
+            assert!(
+                warnings.iter().all(|w| !w.contains("did not converge"))
+                    || key.contains("lscv")
+                    || key.contains("scaled")
+            );
+        } else {
+            assert!(!o.contains_key("ud") && !o.contains_key("bandwidths"), "{key}");
+        }
+    }
+}
+
+fn hr_set_crs(set: &str) -> Option<String> {
+    hr_meta()["sets"][set]["crs"].as_str().map(str::to_string)
+}
+
+#[test]
+fn intensity_of_use_is_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    for set in ["hr_utm", "hr_plain", "hr_small", "hr_fishers_s"] {
+        let o = go("move.intensity_use", vec![("tracks", hr_set(set))], serde_json::json!({}));
+        let t = table(&o, "table");
+        assert_eq!(t.columns, ["track", "intensity_use"]);
+        same(set, &t.column("intensity_use").unwrap(), want(&format!("hr/iu/{set}")));
+    }
+}
+
+#[test]
+fn overlaps_of_home_ranges_are_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let cases = hr_meta()["overlaps"].as_object().unwrap();
+    assert!(cases.len() >= 19);
+    for (key, c) in cases {
+        let (set, method, p) = (c["set"].as_str().unwrap(), c["method"].as_str().unwrap(), &c["params"]);
+        let (home, _) = hr_home_range(set, method, p).unwrap_or_else(|e| panic!("{key}: {e}"));
+        let kind = c["type"].as_str().unwrap();
+        let mut ins = vec![("polygons", home["polygons"].clone())];
+        if let Some(ud) = home.get("ud") {
+            ins.push(("ud", ud.clone()));
+        }
+        let params = serde_json::json!({"type": kind, "conditional": c["conditional"], "which": c["which"]});
+        let (o, _) = run_warn("move.home_range_overlap", ins, &params).unwrap_or_else(|e| panic!("{key}: {e}"));
+        let t = table(&o, "table");
+        assert_eq!(t.columns, ["from", "to", "level", "overlap"], "{key}");
+        let col = |c: &str| t.column(c).unwrap();
+        let w = |f: &str| want(&format!("hr/overlap/{key}/{f}"));
+        same(&format!("{key} from"), &col("from"), w("from"));
+        same(&format!("{key} to"), &col("to"), w("to"));
+        same(&format!("{key} level"), &col("level"), w("level"));
+        if kind == "hr" {
+            same(&format!("{key} overlap"), &col("overlap"), w("overlap"));
+        } else {
+            // the UD is normalised again here, from the normalised one the operator gave: the last digits differ
+            close(&format!("{key} overlap"), &col("overlap"), w("overlap"), 1e-12);
+        }
+        // the tracks' names
+        let name = |v: f64| t.label("from", v).unwrap().to_string();
+        let tracks = hr_meta()["sets"][set]["track"].as_array().unwrap();
+        assert!(tracks.iter().any(|x| x.as_str().unwrap() == name(t.rows[0][0])), "{key}");
+    }
+}
+
+#[test]
+fn degenerate_tracks_succeed_or_fail_as_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let edge = &hr_meta()["edge"];
+    let Value::Vector(all) = hr_set("hr_edge") else { panic!() };
+    let labels: Vec<String> =
+        edge["tracks"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+    let Some(Column::Texts(track)) = all.column("track") else { panic!() };
+    let (mut refused, mut accepted) = (0, 0);
+    for label in &labels {
+        let rows: Vec<usize> = (0..all.len()).filter(|&i| &track[i] == label).collect();
+        let one = Value::Vector(Arc::new(all.select(&rows)));
+        for (method, p) in edge["cases"].as_object().unwrap() {
+            let r = run_warn("move.home_range", vec![("tracks", one.clone())], &hr_params(method, p));
+            let w = want(&format!("hr/edge/{method}/{label}"));
+            let what = format!("{method} of {label}");
+            if w[0] == 0.0 {
+                assert!(r.is_err(), "{what}: the library refuses it");
+                refused += 1;
+            } else {
+                let (o, _) = r.unwrap_or_else(|e| panic!("{what}: {e}"));
+                let v = vector(&o, "polygons");
+                let n = (w.len() - 1) / 2;
+                same(&format!("{what} area"), &num(&v, "area"), &w[1..=n]);
+                same(&format!("{what} level"), &num(&v, "level"), &w[n + 1..]);
+                accepted += 1;
+            }
+        }
+    }
+    assert!(refused >= 1 && accepted >= 10, "{refused} refused, {accepted} accepted");
+}
+
+fn lonlat_points() -> Value {
+    let pts: Vec<(f64, f64)> = (0..20).map(|i| (10.0 + 0.01 * i as f64, 50.0 + 0.02 * ((i * 7) % 11) as f64)).collect();
+    Value::Vector(Arc::new(Vector {
+        geometries: pts.iter().map(|&(x, y)| Geometry::Point([x, y])).collect(),
+        attributes: vec![("track".to_string(), Column::Texts(vec!["a".to_string(); 20]))],
+        crs: Some("EPSG:4326".into()),
+    }))
+}
+
+#[test]
+fn home_range_errors() {
+    if !gdal() {
+        return;
+    }
+    let err =
+        |op: &str, ins: Vec<(&str, Value)>, p: serde_json::Value| run(op, ins, p).map(|_| ()).unwrap_err().to_string();
+    let utm = hr_set("hr_utm");
+    let hr = |p: serde_json::Value| err("move.home_range", vec![("tracks", utm.clone())], p);
+    // longitude / latitude is refused, for all three
+    for op in ["move.home_range", "move.intensity_use"] {
+        assert!(err(op, vec![("tracks", lonlat_points())], serde_json::json!({})).contains("longitude / latitude"));
+    }
+    // settings
+    assert!(hr(serde_json::json!({"method": "grid"})).contains("method"));
+    assert!(hr(serde_json::json!({"levels": 1.5})).contains("levels"));
+    assert!(hr(serde_json::json!({"levels": []})).contains("levels"));
+    assert!(hr(serde_json::json!({"levels": "high"})).contains("levels"));
+    assert!(hr(serde_json::json!({"track": "nope"})).contains("not found"));
+    assert!(hr(serde_json::json!({"method": "kde", "bandwidth": "fast"})).contains("bandwidth"));
+    assert!(hr(serde_json::json!({"method": "kde", "bandwidth": [1, 2, 3]})).contains("bandwidth"));
+    assert!(hr(serde_json::json!({"method": "kde", "bandwidth": -4})).contains("strictly positive"));
+    assert!(hr(serde_json::json!({"method": "kde", "rescale": "z"})).contains("rescale"));
+    assert!(hr(serde_json::json!({"method": "kde", "which_min": "any", "bandwidth": "lscv"})).contains("which_min"));
+    assert!(hr(serde_json::json!({"method": "kde", "factor": 0.5})).contains("factor"));
+    assert!(hr(serde_json::json!({"method": "kde", "res": 0})).contains("res"));
+    assert!(hr(serde_json::json!({"method": "kde", "res": 1e-8})).contains("cells"));
+    assert!(hr(serde_json::json!({"method": "kde", "levels": 1.0, "bandwidth": "ref_scaled"})).contains("ref_scaled"));
+    assert!(hr(serde_json::json!({"method": "locoh", "type": "x"})).contains("type"));
+    assert!(hr(serde_json::json!({"method": "locoh", "n": 0})).contains("n:"));
+    assert!(hr(serde_json::json!({"method": "locoh", "n": 2.5})).contains("n:"));
+    // too few locations: the fewest track has 40 locations here
+    assert!(hr(serde_json::json!({"method": "locoh", "n": 40})).contains("less than the number"));
+    let Value::Vector(all) = hr_set("hr_edge") else { panic!() };
+    let Some(Column::Texts(track)) = all.column("track") else { panic!() };
+    let rows: Vec<usize> = (0..all.len()).filter(|&i| track[i] == "e1").collect();
+    let single = Value::Vector(Arc::new(all.select(&rows)));
+    assert!(
+        err("move.home_range", vec![("tracks", single.clone())], serde_json::json!({"method": "kde"}))
+            .contains("template")
+    );
+    assert!(
+        err("move.home_range", vec![("tracks", single)], serde_json::json!({"method": "locoh", "n": 1}))
+            .contains("less than")
+    );
+    // a template too small: the contour reaches its edge (or no contour at all)
+    let small = serde_json::json!({"xmin": 190000.0, "ymax": 8250000.0, "res": 2.0, "ncol": 10, "nrow": 10});
+    let e = err(
+        "move.home_range",
+        vec![("tracks", utm.clone()), ("like", hr_like(&small, Some("EPSG:32723")))],
+        serde_json::json!({"method": "kde"}),
+    );
+    assert!(e.contains("template") || e.contains("contour"), "{e}");
+    let mut g = Grid::new(10, 10);
+    g.transform = [0.0, 1.0, 0.0, 10.0, 0.0, 1.0];
+    let flipped = Value::Map(Map::new(Arc::new(g), vec![0.0; 100]));
+    let e =
+        err("move.home_range", vec![("tracks", utm.clone()), ("like", flipped)], serde_json::json!({"method": "kde"}));
+    assert!(e.contains("north up"), "{e}");
+    let e = err(
+        "move.home_range",
+        vec![("tracks", utm.clone()), ("like", Value::Number(1.0))],
+        serde_json::json!({"method": "kde"}),
+    );
+    assert!(e.contains("like"), "{e}");
+    // empty and other geometries
+    let Value::Vector(u) = &utm else { panic!() };
+    let mut with_empty = (**u).clone();
+    with_empty.geometries[3] = Geometry::Empty;
+    let e = err("move.home_range", vec![("tracks", Value::Vector(Arc::new(with_empty)))], serde_json::json!({}));
+    assert!(e.contains("empty"), "{e}");
+    let mut line = (**u).clone();
+    line.geometries[3] = Geometry::LineString(vec![[0.0, 0.0], [1.0, 1.0]]);
+    let e = err("move.home_range", vec![("tracks", Value::Vector(Arc::new(line)))], serde_json::json!({}));
+    assert!(e.contains("points"), "{e}");
+    let mut nan = (**u).clone();
+    nan.geometries[3] = Geometry::Point([f64::NAN, 1.0]);
+    let e = err("move.intensity_use", vec![("tracks", Value::Vector(Arc::new(nan)))], serde_json::json!({}));
+    assert!(e.contains("non-finite"), "{e}");
+    let e = err("move.home_range", vec![("tracks", Value::Vector(Arc::new(u.select(&[]))))], serde_json::json!({}));
+    assert!(e.contains("no locations"), "{e}");
+    assert!(err("move.home_range", vec![], serde_json::json!({})).contains("connect"));
+}
+
+#[test]
+fn a_track_column_is_optional_and_named_by_the_setting() {
+    if !gdal() {
+        return;
+    }
+    let Value::Vector(u) = hr_set("hr_utm") else { panic!() };
+    // no column: one track of everything, named 1
+    let mut bare = (*u).clone();
+    bare.attributes.clear();
+    let o = go("move.home_range", vec![("tracks", Value::Vector(Arc::new(bare.clone())))], serde_json::json!({}));
+    let v = vector(&o, "polygons");
+    assert_eq!(v.len(), 1);
+    assert_eq!(num(&v, "track"), [1.0]);
+    // the same locations as one track by a column of its own name
+    let mut named = bare;
+    named.attributes.push(("animal".into(), Column::Numbers(vec![7.0; u.len()])));
+    let o2 = go("move.home_range", vec![("tracks", Value::Vector(Arc::new(named.clone())))], serde_json::json!({}));
+    let v2 = vector(&o2, "polygons");
+    assert_eq!(num(&v2, "animal"), [7.0]);
+    same("area", &num(&v, "area"), &num(&v2, "area"));
+    let t = table(&o2, "table");
+    assert_eq!(t.label("animal", 1.0), Some("7"), "a number label is written as the number");
+    // a column given by its name
+    named.attributes.push(("who".into(), Column::Texts((0..u.len()).map(|i| format!("w{}", i % 2)).collect())));
+    let o3 =
+        go("move.home_range", vec![("tracks", Value::Vector(Arc::new(named)))], serde_json::json!({"track": "who"}));
+    let v3 = vector(&o3, "polygons");
+    assert_eq!(v3.len(), 2);
+    assert!(matches!(v3.column("who"), Some(Column::Texts(t)) if t == &["w0", "w1"]));
+}
+
+#[test]
+fn overlap_errors() {
+    if !gdal() {
+        return;
+    }
+    let (home, _) = hr_home_range("hr_utm", "kde", &serde_json::json!({"levels": [0.5, 0.9]})).unwrap();
+    let (mcp, _) = hr_home_range("hr_utm", "mcp", &serde_json::json!({"levels": [0.5, 0.9]})).unwrap();
+    let (mcp1, _) = hr_home_range("hr_utm", "mcp", &serde_json::json!({"levels": 0.5})).unwrap();
+    let err = |ins: Vec<(&str, Value)>, p: serde_json::Value| {
+        run_warn("move.home_range_overlap", ins, &p).map(|_| ()).unwrap_err().to_string()
+    };
+    let (poly, ud) = (home["polygons"].clone(), home["ud"].clone());
+    assert!(err(vec![("ud", ud.clone())], serde_json::json!({"type": "hr"})).contains("polygons"));
+    assert!(err(vec![("polygons", poly.clone())], serde_json::json!({"type": "vi"})).contains("ud"));
+    assert!(err(vec![("polygons", poly.clone())], serde_json::json!({"type": "jaccard"})).contains("type"));
+    assert!(err(vec![("polygons", poly.clone())], serde_json::json!({"which": "some"})).contains("which"));
+    assert!(
+        err(vec![("ud", ud.clone())], serde_json::json!({"type": "vi", "conditional": true, "levels": [2]}))
+            .contains("levels")
+    );
+    // the levels of the tracks must agree: one track with fewer
+    let (Value::Vector(a), Value::Vector(b)) = (&mcp["polygons"], &mcp1["polygons"]) else { panic!() };
+    let mut mixed = (**a).clone();
+    mixed.geometries.truncate(a.len() - 1);
+    for (_, c) in &mut mixed.attributes {
+        match c {
+            Column::Numbers(x) => {
+                x.pop();
+            }
+            Column::Texts(x) => {
+                x.pop();
+            }
+        }
+    }
+    assert!(err(vec![("polygons", Value::Vector(Arc::new(mixed)))], serde_json::json!({})).contains("levels"));
+    // one track alone, a raster that is not a stack, a polygons input that is not features
+    let rows: Vec<usize> = (0..b.len()).filter(|&i| i == 0).collect();
+    assert!(err(vec![("polygons", Value::Vector(Arc::new(b.select(&rows))))], serde_json::json!({})).contains("two"));
+    let Value::Stack(s) = &ud else { panic!() };
+    let one = Value::Map(Map { grid: s.grid.clone(), data: s.layers[0].clone() });
+    assert!(err(vec![("ud", one)], serde_json::json!({"type": "ba"})).contains("raster with a band"));
+    assert!(err(vec![("polygons", Value::Number(1.0))], serde_json::json!({})).contains("features"));
+    // the same name twice
+    let Value::Vector(p) = &poly else { panic!() };
+    let mut dup = (**p).clone();
+    if let Some((_, Column::Texts(t))) = dup.attributes.first_mut() {
+        for n in t.iter_mut() {
+            *n = "same".into();
+        }
+    }
+    assert!(err(vec![("polygons", Value::Vector(Arc::new(dup)))], serde_json::json!({})).contains("two"));
+}
+
+#[test]
+fn one_and_four_threads_give_the_same_home_ranges() {
+    if !gdal() {
+        return;
+    }
+    let by = |n: usize, method: &str, p: serde_json::Value| {
+        terraflux_ops::threads::set_kernel_threads(n);
+        let r = hr_home_range("hr_small", method, &p);
+        terraflux_ops::threads::set_kernel_threads(4);
+        let (o, _) = r.unwrap();
+        let v = vector(&o, "polygons");
+        let mut all = num(&v, "area");
+        all.extend(v.geometries.iter().flat_map(hr_enc));
+        if let Some(Value::Table(t)) = o.get("bandwidths") {
+            all.extend(t.rows.iter().flat_map(|r| r[1..].to_vec()));
+        }
+        all
+    };
+    for (method, p) in [
+        ("kde", serde_json::json!({"bandwidth": "lscv", "levels": [0.5, 0.95], "res": 6})),
+        ("locoh", serde_json::json!({"n": 5, "levels": [0.5, 0.9]})),
+        ("locoh", serde_json::json!({"n": 60.0, "type": "a", "levels": [0.5, 0.9]})),
+        ("locoh", serde_json::json!({"n": 60.0, "type": "r", "levels": 0.9})),
+    ] {
+        same(&format!("{method} {p}"), &by(1, method, p.clone()), &by(4, method, p));
+    }
+}

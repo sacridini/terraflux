@@ -247,6 +247,22 @@ pub(super) const MAPPED: &[Py] = &[
         [],
         "table"
     ),
+    // the home range by method (its code: `special`, which calls hr_mcp, hr_kde or hr_locoh and the bandwidths)
+    mv!(
+        "move.home_range",
+        "tf.move.home_range",
+        ["tracks" => "", "method" => "method", "levels" => "levels"],
+        [],
+        "polygons"
+    ),
+    mv!(
+        "move.home_range_overlap",
+        "tf.move.hr_overlap",
+        ["polygons" => "", "type" => "type", "conditional" => "conditional", "which" => "which"],
+        [],
+        "table"
+    ),
+    mv!("move.intensity_use", "tf.move.intensity_use", ["tracks" => "", "track" => "track"], [], "table"),
 ];
 
 /// An input or setting as a Python expression; none when absent or an empty text (the usual names, no units).
@@ -609,6 +625,130 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             );
             (code, out(&[("distance", var.to_string()), ("table", table)]), Need::Flow)
         }
+        "move.home_range" => {
+            entry(op)?;
+            let tracks = value_of(n, "tracks", sc)?.ok_or("its tracks are not connected")?;
+            let method = match n.params.get("method") {
+                None => "mcp",
+                Some(Value::String(m)) if ["mcp", "kde", "locoh"].contains(&m.as_str()) => m.as_str(),
+                Some(_) => return Err("its method: write mcp, kde or locoh in the node, not as a reference".into()),
+            };
+            let used: &[&str] = match method {
+                "mcp" => &["method", "levels", "track"],
+                "locoh" => &["method", "levels", "track", "type", "n", "rand_buffer"],
+                _ => &["method", "levels", "track", "bandwidth", "rescale", "which_min", "num_parts", "res", "factor"],
+            };
+            let mut said = String::new();
+            for (k, v) in &n.params {
+                if !used.contains(&k.as_str()) {
+                    said.push_str(&format!("# (not passed: {k} = {})\n", literal(v)));
+                }
+            }
+            for k in n.inputs.keys().filter(|k| k.as_str() != "tracks" && !(k.as_str() == "like" && method == "kde")) {
+                said.push_str(&format!("# (not passed: the input {k})\n"));
+            }
+            // the arguments of the settings given, as ", name=value"
+            let kw = |names: &[&str]| -> Result<String, String> {
+                let mut s = String::new();
+                for k in names {
+                    if let Some(v) = opt(n, k, sc)? {
+                        s.push_str(&format!(", {k}={v}"));
+                    }
+                }
+                Ok(s)
+            };
+            let mut outs = vec![
+                ("polygons", format!("tf.move.hr_isopleths({var})")),
+                ("table", format!("tf.move.hr_area({var}).drop(columns=\"what\")")),
+            ];
+            let code = match method {
+                "mcp" => format!("{said}{var} = tf.move.hr_mcp({tracks}{})\n", kw(&["levels", "track"])?),
+                "locoh" => format!(
+                    "{said}{var} = tf.move.hr_locoh({tracks}{})\n",
+                    kw(&["n", "type", "levels", "rand_buffer", "track"])?
+                ),
+                _ => {
+                    let mut code = said;
+                    let like = value_of(n, "like", sc)?;
+                    let by_size = kw(&["factor", "res", "track"])?;
+                    let trast = match like {
+                        Some(l) => Some(l),
+                        None if by_size.contains("factor=") || by_size.contains("res=") => {
+                            code.push_str(&format!("{var}_trast = tf.move.make_trast({tracks}{by_size})\n"));
+                            Some(format!("{var}_trast"))
+                        }
+                        None => None,
+                    };
+                    let (rescale, track) = (kw(&["rescale"])?, kw(&["track"])?);
+                    let trast_kw = trast.as_ref().map(|t| format!(", trast={t}")).unwrap_or_default();
+                    let h = match n.params.get("bandwidth") {
+                        None | Some(Value::Null) => None,
+                        Some(Value::String(s)) if s.is_empty() || s == "ref" => None,
+                        Some(Value::String(s)) if s == "pi" => {
+                            Some(format!("tf.move.hr_kde_pi({tracks}{rescale}{track})"))
+                        }
+                        Some(Value::String(s)) if s == "lscv" => {
+                            Some(format!("tf.move.hr_kde_lscv({tracks}{}{rescale}{track}).h", kw(&["which_min"])?))
+                        }
+                        Some(Value::String(s)) if s == "ref_scaled" => {
+                            // the isopleth searched is the highest level
+                            let top = match n.params.get("levels") {
+                                Some(Value::Array(a)) => {
+                                    a.iter().filter_map(Value::as_f64).fold(f64::MIN, f64::max).to_string()
+                                }
+                                Some(Value::Number(x)) => x.to_string(),
+                                Some(_) => {
+                                    let l = opt(n, "levels", sc)?.ok_or("its levels are not given")?;
+                                    format!("(max({l}) if isinstance({l}, (list, tuple)) else {l})")
+                                }
+                                None => "0.95".to_string(),
+                            };
+                            Some(format!(
+                                "tf.move.hr_kde_ref_scaled({tracks}{trast_kw}, levels={top}{}{track})[\"h\"].to_dict()",
+                                kw(&["num_parts"])?
+                            ))
+                        }
+                        Some(Value::String(s)) if s.starts_with('$') => opt(n, "bandwidth", sc)?,
+                        Some(Value::String(s)) => {
+                            return Err(format!("its bandwidth {s:?}: ref, ref_scaled, pi or lscv"));
+                        }
+                        Some(v) => Some(literal(v)),
+                    };
+                    let h = match h {
+                        None if !rescale.is_empty() => Some(format!("tf.move.hr_kde_ref({tracks}{rescale}{track})")),
+                        h => h,
+                    };
+                    let h_kw = h.map(|h| format!(", h={h}")).unwrap_or_default();
+                    code.push_str(&format!(
+                        "{var} = tf.move.hr_kde({tracks}{h_kw}{trast_kw}{}{track})\n",
+                        kw(&["levels"])?
+                    ));
+                    outs.push(("ud", format!("tf.move.hr_ud({var})")));
+                    outs.push(("bandwidths", format!("{var}.h")));
+                    code
+                }
+            };
+            (code, out(&outs), Need::Nothing)
+        }
+        "move.home_range_overlap" => {
+            let py = entry(op)?;
+            // the library's overlap takes the estimates themselves: the one the polygons or the UD come from
+            let from = opt(n, "polygons", sc)?.or(opt(n, "ud", sc)?).ok_or("connect the polygons or the ud")?;
+            let hr = ["tf.move.hr_isopleths(", "tf.move.hr_ud("]
+                .iter()
+                .find_map(|p| from.strip_prefix(p).and_then(|r| r.strip_suffix(')')))
+                .ok_or("its polygons or ud are not those of move.home_range: the script cannot rebuild the overlap")?;
+            let (args, said) = arguments(n, py, sc, Some(hr.to_string()), &["ud"])?;
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            (code, out(&[("table", var.to_string())]), Need::Nothing)
+        }
+        "move.intensity_use" => {
+            let py = entry(op)?;
+            let (args, said) = arguments(n, py, sc, None, &[])?;
+            // a Series by track: the track as a column
+            let code = format!("{said}{var} = {}({}).reset_index()\n", py.call, args.join(", "));
+            (code, out(&[("table", var.to_string())]), Need::Nothing)
+        }
         _ => return Ok(None),
     };
     Ok(Some(code))
@@ -955,6 +1095,112 @@ params = { gc = true, reg = 0.02, max_iter = 1500 }
         );
         assert!(t.contains("apart = tf.move.ud_distance(uds, method=\"exact\", mask_quantile=0.9)\n"), "{t}");
         assert!(t.contains("gap = tf.move.ud_distance(uds, ud_b=uds, reg=0.02, max_iter=1500, gc=True)\n"), "{t}");
+        parses(t);
+    }
+
+    /// Home ranges: the library's hr_mcp, hr_kde (with the bandwidth chosen, the template), hr_locoh, the isopleths and
+    /// the areas as outputs, the overlaps by the estimates they came from, and the intensity of use.
+    #[test]
+    fn home_ranges_as_the_library() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "tracks"
+op = "move.read_tracks"
+params = { path = "fishers.csv" }
+
+[[nodes]]
+id = "local"
+op = "move.aeqd_crs"
+inputs = { tracks = "tracks.tracks" }
+
+[[nodes]]
+id = "box"
+op = "move.home_range"
+inputs = { tracks = "local.tracks" }
+params = { levels = [0.5, 0.95] }
+
+[[nodes]]
+id = "kernel"
+op = "move.home_range"
+inputs = { tracks = "local.tracks" }
+params = { method = "kde", levels = [0.5, 0.9], bandwidth = "pi", rescale = "unitvar", res = 50 }
+
+[[nodes]]
+id = "scaled"
+op = "move.home_range"
+inputs = { tracks = "local.tracks" }
+params = { method = "kde", levels = 0.9, bandwidth = "ref_scaled", num_parts = 2, factor = 2, track = "id" }
+
+[[nodes]]
+id = "cv"
+op = "move.home_range"
+inputs = { tracks = "local.tracks" }
+params = { method = "kde", bandwidth = "lscv", which_min = "local" }
+
+[[nodes]]
+id = "given"
+op = "move.home_range"
+inputs = { tracks = "local.tracks", like = "grid.raster" }
+params = { method = "kde", bandwidth = [30, 45], levels = 0.9 }
+
+[[nodes]]
+id = "hulls"
+op = "move.home_range"
+inputs = { tracks = "local.tracks" }
+params = { method = "locoh", type = "a", n = 900, levels = 0.5, rand_buffer = 0.001 }
+
+[[nodes]]
+id = "grid"
+op = "raster.read"
+params = { path = "grid.tif" }
+
+[[nodes]]
+id = "areas"
+op = "move.home_range_overlap"
+inputs = { polygons = "box.polygons" }
+params = { which = "all" }
+
+[[nodes]]
+id = "shared"
+op = "move.home_range_overlap"
+inputs = { ud = "kernel.ud" }
+params = { type = "ba", conditional = true }
+
+[[nodes]]
+id = "back"
+op = "move.intensity_use"
+inputs = { tracks = "local.tracks" }
+params = { track = "id" }
+"#,
+        )
+        .unwrap();
+        let s = super::super::script(&m, &r, None);
+        let t = &s.text;
+        assert!(t.contains("box = tf.move.hr_mcp(local, levels=[0.5, 0.95])\n"), "{t}");
+        assert!(
+            t.contains("kernel_trast = tf.move.make_trast(local, res=50)\nkernel = tf.move.hr_kde(local, h=tf.move.hr_kde_pi(local, rescale=\"unitvar\"), trast=kernel_trast, levels=[0.5, 0.9])\n"),
+            "{t}"
+        );
+        assert!(t.contains("scaled_trast = tf.move.make_trast(local, factor=2, track=\"id\")\n"), "{t}");
+        assert!(
+            t.contains(
+                "scaled = tf.move.hr_kde(local, h=tf.move.hr_kde_ref_scaled(local, trast=scaled_trast, levels=0.9, num_parts=2, track=\"id\")[\"h\"].to_dict(), trast=scaled_trast, levels=0.9, track=\"id\")\n"
+            ),
+            "{t}"
+        );
+        assert!(t.contains("cv = tf.move.hr_kde(local, h=tf.move.hr_kde_lscv(local, which_min=\"local\").h)\n"), "{t}");
+        assert!(t.contains("given = tf.move.hr_kde(local, h=[30, 45], trast=grid, levels=0.9)\n"), "{t}");
+        assert!(
+            t.contains("hulls = tf.move.hr_locoh(local, n=900, type=\"a\", levels=0.5, rand_buffer=0.001)\n"),
+            "{t}"
+        );
+        assert!(t.contains("areas = tf.move.hr_overlap(box, which=\"all\")\n"), "{t}");
+        assert!(t.contains("shared = tf.move.hr_overlap(kernel, type=\"ba\", conditional=True)\n"), "{t}");
+        assert!(t.contains("back = tf.move.intensity_use(local, track=\"id\").reset_index()\n"), "{t}");
         parses(t);
     }
 

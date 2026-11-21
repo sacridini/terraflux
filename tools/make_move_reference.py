@@ -7,7 +7,8 @@ The track sets of the library's own tests (tests/move_cases.py of its checkout: 
 millimetre to continental steps, the antimeridian, near a pole; UTM; no CRS; duplicated times; gaps with empty
 locations) and move2's fishers (tests/data/move/fishers.csv.gz, copied here): move2's steps, filters,
 interpolation, projection and Brownian tracks, amt's steps, bursts, summaries, fits, random numbers and steps, time
-of day and covariates.
+of day and covariates, the cleaning and thinning, the values along the steps, the corridors and the distances between
+UDs, and amt's home ranges (MCP, KDE with its bandwidths, LoCoH, isopleths, UDs, overlaps).
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ LS = Path(tf.__file__).resolve().parents[2]
 sys.path.insert(0, str(LS / "tests"))
 from move_cases import (ALONG_CASES, ALONG_LAYERS, ALONG_RASTERS, CORRIDOR, EXTRACT_RASTER, M2U_SYNTHETIC,  # noqa: E402
                         SPEED, SPEED_MASS, SPEED_MODE, THIN_DISTANCE, THIN_TIME, along_raster, along_track_sets,
-                        corridor_track_sets, m2u_track_sets, track_sets)
+                        corridor_track_sets, hr_track_sets, m2u_track_sets, track_sets)
 
 M = tf.move
 ALONG_STATS = ("mean", "min", "max", "ascent", "descent", "delta")
@@ -276,6 +277,198 @@ def corridor_reference(out: dict, meta: dict, tr: dict, fishers_src: Path) -> No
     out["emd/fishers_c/same_exact"] = np.array(
         [M.ud_distance(f.sel(band="F1"), f.sel(band="F1"), method="exact")], np.float64)
 
+# amt's home ranges (the library's tests/move_cases.py: hr_track_sets) on its track sets: UTM (three tracks of
+# different shapes), the same without a CRS, three small tracks, the fishers' first 150 locations each, and a set of
+# degenerate tracks. Each case is (set, method, settings of Terraflux's move.home_range); the library is called with the
+# same.
+HR_LV5 = [0.1, 0.5, 0.75, 0.95, 1.0]
+HR_SETS = ("hr_utm", "hr_plain", "hr_small", "hr_fishers_s", "hr_edge")
+HR_CASES = {
+    "mcp_utm": ("hr_utm", "mcp", {"levels": HR_LV5}),
+    "mcp_plain": ("hr_plain", "mcp", {"levels": HR_LV5}),
+    "mcp_small": ("hr_small", "mcp", {"levels": HR_LV5}),
+    "mcp_fishers": ("hr_fishers_s", "mcp", {"levels": HR_LV5}),
+    "kde_small": ("hr_small", "kde", {"levels": [0.5, 0.9, 0.95], "res": 6.0, "ud": True}),
+    "kde_small_h": ("hr_small", "kde", {"levels": [0.5, 0.95], "res": 6.0, "bandwidth": [25.0, 40.0], "ud": True}),
+    "kde_small_pi": ("hr_small", "kde", {"levels": [0.5, 0.95], "res": 6.0, "bandwidth": "pi"}),
+    "kde_small_piu": ("hr_small", "kde", {"levels": [0.9], "res": 6.0, "bandwidth": "pi", "rescale": "unitvar"}),
+    "kde_small_lscv": ("hr_small", "kde", {"levels": [0.5, 0.95], "res": 6.0, "bandwidth": "lscv"}),
+    "kde_small_lscv_local": ("hr_small", "kde", {"levels": [0.9], "res": 6.0, "bandwidth": "lscv",
+                                                 "which_min": "local"}),
+    "kde_small_lscv_unit": ("hr_small", "kde", {"levels": [0.5], "res": 6.0, "bandwidth": "lscv",
+                                                "rescale": "unitvar"}),
+    "kde_small_refu": ("hr_small", "kde", {"levels": [0.9], "res": 6.0, "bandwidth": "ref", "rescale": "unitvar"}),
+    "kde_small_refx": ("hr_small", "kde", {"levels": [0.9], "res": 6.0, "bandwidth": "ref", "rescale": "xvar"}),
+    "kde_utm": ("hr_utm", "kde", {"levels": [0.5, 0.9, 0.95], "ud_track": "b"}),
+    "kde_utm_scaled": ("hr_utm", "kde", {"levels": [0.95], "bandwidth": "ref_scaled"}),
+    "kde_utm_scaled2": ("hr_utm", "kde", {"levels": [0.9], "bandwidth": "ref_scaled", "num_parts": 2}),
+    "kde_utm_pi": ("hr_utm", "kde", {"levels": [0.5, 0.95], "bandwidth": "pi"}),
+    "kde_plain": ("hr_plain", "kde", {"levels": [0.5, 0.9, 0.95]}),
+    "kde_fishers": ("hr_fishers_s", "kde", {"levels": [0.5, 0.95]}),
+    "kde_like": ("hr_small", "kde", {"levels": [0.5, 0.9], "like": {"xmin": 189800.0, "ymax": 8250200.0, "res": 4.0,
+                                                                     "ncol": 100, "nrow": 120}, "ud": True}),
+    "locoh_k_utm": ("hr_utm", "locoh", {"n": 8, "type": "k", "levels": [0.5, 0.9, 0.95]}),
+    "locoh_k_small": ("hr_small", "locoh", {"n": 4, "type": "k", "levels": [0.3, 0.8, 1.0]}),
+    "locoh_k_fishers": ("hr_fishers_s", "locoh", {"n": 10, "type": "k", "levels": [0.5, 0.95]}),
+    "locoh_r_utm": ("hr_utm", "locoh", {"n": 60.0, "type": "r", "levels": [0.5, 0.9, 0.95]}),
+    "locoh_a_utm": ("hr_utm", "locoh", {"n": 400.0, "type": "a", "levels": [0.5, 0.9, 0.95]}),
+    "locoh_plain": ("hr_plain", "locoh", {"n": 6, "type": "k", "levels": [0.95]}),
+}
+# the overlaps: (set, the home ranges (method and settings of move.home_range), overlap type, conditional, which)
+HR_OVERLAPS = {
+    "hr_kde": ("hr_utm", ("kde", {"levels": [0.5, 0.9]}), "hr", False, "all"),
+    "hr_mcp": ("hr_utm", ("mcp", {"levels": [0.5, 0.9]}), "hr", False, "all"),
+    "hr_locoh": ("hr_utm", ("locoh", {"levels": [0.5, 0.9], "n": 6, "type": "k"}), "hr", False, "all"),
+    "hr_cons": ("hr_utm", ("mcp", {"levels": [0.5, 0.9]}), "hr", False, "consecutive"),
+    "hr_one": ("hr_utm", ("mcp", {"levels": [0.5, 0.9]}), "hr", False, "one_to_all"),
+    "hr_fishers": ("hr_fishers_s", ("mcp", {"levels": [0.5, 0.9]}), "hr", False, "all"),
+    **{t: ("hr_utm", ("kde", {"levels": [0.5, 0.9]}), t, False, "all") for t in ("phr", "vi", "ba", "udoi", "hd")},
+    **{"c" + t: ("hr_utm", ("kde", {"levels": [0.5, 0.9]}), t, True, "all") for t in ("phr", "vi", "ba", "udoi", "hd")},
+    "cons": ("hr_utm", ("kde", {"levels": [0.5, 0.9]}), "vi", False, "consecutive"),
+    "one": ("hr_utm", ("kde", {"levels": [0.5, 0.9]}), "udoi", False, "one_to_all"),
+    "fishers_vi": ("hr_fishers_s", ("kde", {"levels": [0.5, 0.95]}), "vi", True, "consecutive"),
+}
+
+
+def hr_enc(g) -> list:
+    """A Polygon or MultiPolygon as numbers: the polygons, their rings, the vertices (x, y pairs)."""
+    polys = list(g.geoms) if g.geom_type in ("MultiPolygon", "GeometryCollection") else [g]
+    polys = [p for p in polys if p.geom_type == "Polygon" and not p.is_empty]
+    out = [len(polys)]
+    for p in polys:
+        rings = [p.exterior, *p.interiors]
+        out.append(len(rings))
+        for r in rings:
+            c = np.asarray(r.coords, np.float64)
+            out.append(len(c))
+            out.extend(c.reshape(-1).tolist())
+    return out
+
+
+def hr_frame(s: dict) -> gpd.GeoDataFrame:
+    t = pd.to_datetime((np.asarray(s["t"]) * 1e9).astype(np.int64), utc=True)
+    geom = [Point(a, b) for a, b in zip(s["x"], s["y"])]
+    df = gpd.GeoDataFrame({"time": t, "track": s["track"]}, geometry=geom, crs=s["crs"])
+    return M.as_tracks(df, "time", "track", sort=False)
+
+
+def hr_like(spec: dict, crs):
+    """The template of a case: cells of a given size from a corner (all the numbers exact in binary)."""
+    xs = spec["xmin"] + (np.arange(spec["ncol"]) + 0.5) * spec["res"]
+    ys = spec["ymax"] - (np.arange(spec["nrow"]) + 0.5) * spec["res"]
+    da = xr.DataArray(np.zeros((spec["nrow"], spec["ncol"])), dims=("y", "x"), coords={"y": ys, "x": xs})
+    return da.rio.write_crs(crs) if crs else da
+
+
+def hr_library(tr, method: str, p: dict, crs=None):
+    """The library's home range for the settings of Terraflux's operator."""
+    levels = p.get("levels", [0.95])
+    if method == "mcp":
+        return M.hr_mcp(tr, levels=levels)
+    if method == "locoh":
+        return M.hr_locoh(tr, n=p.get("n", 10), type=p.get("type", "k"), levels=levels)
+    trast = None
+    if "like" in p:
+        trast = hr_like(p["like"], crs)
+    elif "res" in p or "factor" in p:
+        trast = M.make_trast(tr, factor=p.get("factor", 1.5), res=p.get("res"))
+    bw = p.get("bandwidth", "ref")
+    rescale = p.get("rescale", "none")
+    h = None
+    if isinstance(bw, list):
+        h = bw
+    elif bw == "ref" and rescale != "none":
+        h = M.hr_kde_ref(tr, rescale=rescale)
+    elif bw == "pi":
+        h = M.hr_kde_pi(tr, rescale=rescale)
+    elif bw == "lscv":
+        h = M.hr_kde_lscv(tr, which_min=p.get("which_min", "global"), rescale=rescale).h
+    elif bw == "ref_scaled":
+        sc = M.hr_kde_ref_scaled(tr, trast=trast, levels=max(levels), num_parts=p.get("num_parts", 1))
+        h = {k: float(v) for k, v in sc["h"].items()}
+    return M.hr_kde(tr, h=h, trast=trast, levels=levels)
+
+
+def hr_reference(out: dict, meta: dict) -> None:
+    """amt's home ranges of the library (hr_mcp, hr_kde with its bandwidths, hr_locoh, hr_isopleths, hr_area, hr_ud,
+    hr_overlap, intensity_use) on the sets of its tests (tests/move_cases.py: hr_track_sets; the fishers' whole set is
+    left out, its first 150 locations each stay). New keys only: `in/hr/<set>/{x,y}` the locations,
+    `hr/<case>/{level,area,glen,geom}` the polygons as hr_isopleths lists them (`geom`: each one's vertices as hr_enc,
+    `glen` their lengths), `hr/<case>/h` (hx, hy of each track), `hr/<case>/ud` the UD of each track (hr_ud),
+    `hr/overlap/<case>/{from,to,level,overlap}`, `hr/iu/<set>` the intensity of use and `hr/edge/...` the degenerate
+    tracks one by one; the cases and the sets' tracks are in the json (`hr`)."""
+    sets = hr_track_sets()
+    meta["hr"] = {"sets": {}, "cases": {}, "overlaps": {}, "edge": {}}
+    frames = {}
+    for name in HR_SETS:
+        s = sets[name]
+        frames[name] = hr_frame(s)
+        out[f"in/hr/{name}/x"] = np.asarray(s["x"], np.float64)
+        out[f"in/hr/{name}/y"] = np.asarray(s["y"], np.float64)
+        meta["hr"]["sets"][name] = {"track": [str(v) for v in s["track"]], "crs": s["crs"]}
+    for name in ("hr_utm", "hr_plain", "hr_small", "hr_fishers_s"):
+        out[f"hr/iu/{name}"] = M.intensity_use(frames[name]).to_numpy(np.float64)
+
+    def polygons(key, iso):
+        geoms = [hr_enc(g) for g in iso.geometry]
+        out[f"hr/{key}/level"] = iso["level"].to_numpy(np.float64)
+        out[f"hr/{key}/area"] = iso["area"].to_numpy(np.float64)
+        out[f"hr/{key}/glen"] = np.array([len(g) for g in geoms], np.float64)
+        out[f"hr/{key}/geom"] = np.concatenate([np.asarray(g, np.float64) for g in geoms])
+
+    for key, (name, method, p) in HR_CASES.items():
+        tr = frames[name]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            hr = hr_library(tr, method, p, sets[name]["crs"])
+            try:
+                polygons(key, M.hr_isopleths(hr))
+            except ValueError as e:
+                raise ValueError(f"{key}: {e}") from e
+        if method == "kde":
+            out[f"hr/{key}/h"] = hr.h[["hx", "hy"]].to_numpy(np.float64).reshape(-1)
+            ud = M.hr_ud(hr)
+            if p.get("ud"):
+                out[f"hr/{key}/ud"] = ud.values.reshape(-1)
+            if p.get("ud_track"):
+                out[f"hr/{key}/ud"] = ud.sel(track=p["ud_track"]).values.reshape(-1)
+            meta["hr"]["cases"].setdefault(key, {})["grid"] = [int(ud.sizes["x"]), int(ud.sizes["y"])]
+        meta["hr"]["cases"].setdefault(key, {}).update({"set": name, "method": method, "params": p})
+    # the bandwidths by themselves (hr_kde_ref, hr_kde_pi and hr_kde_lscv are compared through the kde cases above;
+    # here the reference bandwidths of the fishers, pooled template or not)
+    for key, (name, p) in {"ref_fishers": ("hr_fishers_s", {"levels": [0.5, 0.95]})}.items():
+        out[f"hr/{key}"] = M.hr_kde_ref(frames[name]).to_numpy(np.float64).reshape(-1)
+    # the overlaps
+    for key, (name, (method, p), kind, cond, which) in HR_OVERLAPS.items():
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            hr = hr_library(frames[name], method, p, sets[name]["crs"])
+            ov = M.hr_overlap(hr, type=kind, conditional=cond, which=which)
+        labels = list(hr.tracks)
+        out[f"hr/overlap/{key}/from"] = np.array([labels.index(v) + 1 for v in ov["from"]], np.float64)
+        out[f"hr/overlap/{key}/to"] = np.array([labels.index(v) + 1 for v in ov["to"]], np.float64)
+        out[f"hr/overlap/{key}/level"] = ov["level"].to_numpy(np.float64)
+        out[f"hr/overlap/{key}/overlap"] = ov["overlap"].to_numpy(np.float64)
+        meta["hr"]["overlaps"][key] = {"set": name, "method": method, "params": p, "type": kind, "conditional": cond,
+                                        "which": which}
+    # degenerate tracks, one at a time: whether each estimate succeeds and its areas
+    tr = frames["hr_edge"]
+    meta["hr"]["edge"] = {"tracks": [str(v) for v in pd.unique(tr["track"])],
+                          "cases": {"mcp": {"levels": [0.5, 1.0]}, "kde": {"levels": [0.9]},
+                                    "locoh": {"n": 2, "type": "k", "levels": [0.5, 0.9]}}}
+    for label in pd.unique(tr["track"]):
+        one = tr[tr["track"] == label]
+        for method, p in meta["hr"]["edge"]["cases"].items():
+            key = f"hr/edge/{method}/{label}"
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    iso = M.hr_isopleths(hr_library(one, method, p, sets["hr_edge"]["crs"]))
+                out[key] = np.concatenate([[1.0], iso["area"].to_numpy(np.float64), iso["level"].to_numpy(np.float64)])
+            except Exception as e:   # noqa: BLE001 - the library refuses it; Terraflux must too
+                out[key] = np.array([0.0])
+                print("edge", method, label, "->", type(e).__name__, str(e)[:100])
+
 
 def main() -> None:
     sets = track_sets()
@@ -451,6 +644,7 @@ def main() -> None:
     clean_reference(out, meta, fishers_src, LS / M2U_SYNTHETIC)
     along_reference(out, meta, fishers_src)
     corridor_reference(out, meta, tr, fishers_src)
+    hr_reference(out, meta)
 
     np.savez_compressed(REF / "move.npz", **out)
     (REF / "move.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")

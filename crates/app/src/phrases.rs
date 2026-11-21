@@ -776,6 +776,21 @@ const PHRASES: &[(&str, &str)] = &[
     ("move.filter_per_interval", "One location of <tracks> per {unit} (criterion {criterion})."),
     ("move.fit_distribution", "A {name} distribution fitted to <values>."),
     (
+        "move.home_range",
+        "The {method} home range of each track of <tracks>, levels {levels}[, kernel bandwidth {bandwidth}][ ({type} \
+         neighbourhoods of {n})][ on the cells of <like>].",
+    ),
+    (
+        "move.home_range_overlap",
+        "The {type} overlap between the home ranges[ of <polygons>][ of <ud>], {which} pairs[, conditional: \
+         {conditional}].",
+    ),
+    (
+        "move.intensity_use",
+        "The intensity of use of each track of <tracks>: its length over the square root of the area of its minimum \
+         convex polygon.",
+    ),
+    (
         "move.interpolate",
         "Locations of <tracks> interpolated[ at the times {times}][, gaps of more than {max_time_lag} s left empty].",
     ),
