@@ -213,6 +213,94 @@ From the command line, add `[outputs.summary]` with `from = "fit.summary"` (and 
 `curves.curves` and `importance.importance`) and run `terraflux run sloth-fit.toml --out results`: each table is
 written as a CSV file.
 
+### Prepare, fit and predict in Python
+
+The preparation of the graph is one call, [`tf.sdm.prepare`][terraflux.sdm.prepare] ([part 7](../prepare-in-one-node/#in-python)
+explains its arguments); [`tf.sdm.fit`][terraflux.sdm.fit] fits MaxNet when no model is given, once per fold and once
+on all the records, with `regmult=1` and maxnet's default classes (the node's defaults):
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+occ = tf.load_table(tf.sdm.example_data("bradypus"))
+env = tf.load_raster(tf.sdm.example_data("bioclim"))
+data = tf.sdm.prepare(occ, env, thin=50_000, area=500_000, background=2000,
+                      folds={"size": 500_000, "k": 5}, seed=1)
+print(data)
+res = tf.sdm.fit(data)                      # MaxNet; the same as {"maxnet": tf.sdm.MaxNet(regmult=1)}
+cols = ["n_test", "auc_train", "auc_test", "tss", "boyce", "or_10p"]
+print(res.metrics.set_index("fold")[cols].round(2))
+print(res.summary.xs("mean", axis=1, level=1)[cols[1:]].round(2))
+print(round(res.thresholds["maxnet"], 2))
+```
+
+```text
+SDMData(83 presences, 2000 background, 4 predictors: bio5, bio7, bio16, bio17; folds: 5)
+      n_test  auc_train  auc_test   tss  boyce  or_10p
+fold
+1         20       0.73      0.69  0.32   0.64    0.15
+2         17       0.72      0.77  0.44   0.78    0.06
+3         16       0.76      0.58  0.22   0.23    0.19
+4         14       0.72      0.79  0.51   0.75    0.00
+5         16       0.77      0.61  0.25   0.18    0.31
+        auc_train  auc_test   tss  boyce  or_10p
+model
+maxnet       0.74      0.69  0.35   0.52    0.14
+0.48
+```
+
+The table of the folds is the one of the part, row for row; `res.summary` has the mean and the standard deviation of
+each score, and `res.thresholds` the suitability that maximises sensitivity plus specificity on all the records (the
+node's `threshold` output). The scores are the training and test AUC and their difference, the largest TSS, the Boyce
+index and the omission rates of the test presences at the minimum and the 10th percentile of the training ones
+(`or_mtp`, `or_10p`). Mapping and explaining the model:
+
+```python
+suit = tf.sdm.predict(res, env)             # the predictors are found by name; a band per model (and the ensemble)
+print([str(b) for b in suit.band.values], round(float(suit.sel(band="maxnet").mean()), 3))
+curves = tf.sdm.response_curves(res)        # fixed="median" holds the others at their median instead of the mean
+print(curves.query("predictor == 'bio7'").iloc[::25].round(3).to_string(index=False))
+imp = tf.sdm.importance(res)                # n_repeats=5 shuffles, seed=1
+print(imp.pivot(index="predictor", columns="model", values="importance").round(3))
+```
+
+```text
+['maxnet'] 0.221
+ model predictor   value  suitability
+maxnet      bio7  64.000        0.337
+maxnet      bio7 123.596        0.589
+maxnet      bio7 183.192        0.138
+maxnet      bio7 242.788        0.011
+model      maxnet
+predictor
+bio16       0.031
+bio17       0.005
+bio5        0.023
+bio7        0.160
+```
+
+The response curves are a long table (`model`, `predictor`, `value`, `suitability`; `predictors=` picks some, `n` sets
+the points of each), to draw as the figure does; `importance` is the drop of the AUC when a predictor is shuffled.
+`predict` works block by block, so rasters larger than memory work, on dask-backed rasters too
+(`tf.load_raster(..., chunks="auto")`); the predictors are clamped to their range in the data (`clamp=True`). Maps go
+to GeoTIFF with `tf.write_raster` (one band per layer, with their names), and the data and the results save into
+folders of CSV tables and a JSON summary:
+
+```python
+tf.write_raster(suit, "sloth_suitability.tif")
+print(sorted(p.name for p in data.save("sloth_data").iterdir()))
+print(sorted(p.name for p in res.save("sloth_models").iterdir()))
+```
+
+```text
+['area.gpkg', 'data.csv', 'report.csv', 'summary.json']
+['metrics.csv', 'predictions.csv', 'ranges.csv', 'summary.csv', 'summary.json']
+```
+
+The fitted estimators are ordinary objects in `res.models` (`joblib.dump` keeps them).
+
 ### The other algorithms
 
 The same node, other settings. The **GLM**:
@@ -241,6 +329,67 @@ params = { model = "random_forest", n_estimators = 500, max_depth = 3 }
 `n_estimators` is the number of trees (100 by default); `min_samples_leaf`, `max_depth` and `min_samples_split`
 limit how finely each tree may split the records; `max_features` how many predictors a split tries (the square root
 of their number by default); `random_state` the seed. The forest is scikit-learn's, tree for tree.
+
+### The other algorithms in Python
+
+`tf.sdm.fit` takes a dictionary of any scikit-learn estimators (anything with `fit` and `predict_proba`), fits each on
+every training set of the folds, scores it on the test fold and fits it once more to all the data. Every model gets
+`data.sample_weight` (in a pipeline, its last step), so that the presences weigh as much as the background. The part's
+GLM (a logistic regression with a ridge penalty `C=1` on standardised predictors) and forest of trees of depth 3, with
+the forest of default settings beside them and two more that limit it:
+
+```python
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+
+models = {
+    "glm": make_pipeline(StandardScaler(), LogisticRegression(C=1, max_iter=5000)),
+    "rf default": RandomForestClassifier(n_estimators=500, random_state=1),
+    "rf depth 3": RandomForestClassifier(n_estimators=500, max_depth=3, random_state=1),
+    "rf small": RandomForestClassifier(n_estimators=500, max_samples=0.1, min_samples_leaf=5, random_state=1),
+    "brt": HistGradientBoostingClassifier(learning_rate=0.02, max_iter=200, max_depth=2, min_samples_leaf=20,
+                                          random_state=1),
+}
+other = tf.sdm.fit(data, models)
+cols = ["auc_train", "auc_test", "auc_diff", "tss", "boyce", "or_mtp", "or_10p"]
+print(other.summary.xs("mean", axis=1, level=1)[cols].round(2))
+```
+
+```text
+            auc_train  auc_test  auc_diff   tss  boyce  or_mtp  or_10p
+model
+brt              0.86      0.69      0.17  0.35   0.46    0.24    0.42
+glm              0.72      0.71      0.09  0.39   0.63    0.02    0.14
+rf default       1.00      0.67      0.33  0.32   0.50    1.00    1.00
+rf depth 3       0.85      0.68      0.17  0.37   0.38    0.13    0.37
+rf small         0.71      0.69      0.12  0.37   0.57    0.01    0.10
+```
+
+The forest of default settings is the overfitting of the text: a training AUC of 1, a test AUC well below it and omission
+rates far above 10 %, because trees grown to the end memorise every training record. Its test AUC alone would hide it:
+look at `auc_diff` and the omission rates. Smaller samples per tree (a crude form of the down-sampling Valavi et al.
+2021 recommend for presence-background data), larger leaves, shallower trees and a slower learning rate fix it. The GLM
+and the forest of depth 3 are the part's (test AUC 0.71 and 0.68). MaxNet is an estimator of the same kind, so it mixes
+with the others, and `predict` combines every model into an ensemble weighted by its cross-validated AUC above 0.5, with
+the standard deviation between the models:
+
+```python
+mixed = tf.sdm.fit(data, {"maxnet": tf.sdm.MaxNet(), "glm": models["glm"], "rf depth 3": models["rf depth 3"]})
+suit3 = tf.sdm.predict(mixed, env)
+print([str(b) for b in suit3.band.values])
+print({k: round(v, 3) for k, v in mixed.weights().items()})
+```
+
+```text
+['ensemble', 'sd', 'maxnet', 'glm', 'rf depth 3']
+{'maxnet': 0.185, 'glm': 0.207, 'rf depth 3': 0.184}
+```
+
+`predict(..., ensemble=None)` gives the models only, `models=[...]` picks some and `metric="tss"` weights by another
+score. Where the models disagree (the `sd` band) they extrapolate differently, which
+[part 6](../projection-and-extrapolation/#in-python) checks.
 
 ### Other folds
 
@@ -278,6 +427,61 @@ inputs = { records = "clusters.records" }
 [[sdm.spatial_blocks]] (`size` in metres on longitude and latitude records, `k`, hexagons or squares),
 [[sdm.quadrant_folds]], [[sdm.checkerboard_folds]] (which also needs the predictors on `env`, for their grid) and
 [[sdm.jackknife_folds]] (a fold per presence, for very few records) work the same way.
+
+### Other folds in Python
+
+The folds are in `data.folds` (0 is no test fold); each fold holds whole blocks, presences and background together:
+
+```python
+kind = np.where(data.y == 1, "presences", "background")
+print(pd.crosstab(data.folds, kind, rownames=["fold"], colnames=[None]))
+```
+
+```text
+      background  presences
+fold
+1            382         20
+2            423         17
+3            371         16
+4            419         14
+5            405         16
+```
+
+[`tf.sdm.spatial_blocks`][terraflux.sdm.spatial_blocks] makes them from a data set (`size` in metres on longitude and
+latitude records, `rows_cols` as another way, `k`, hexagons or squares, `selection="random"` keeping the best of 100
+tries: the most even numbers of presences and background). The other designs take the data and return it with new
+folds: [`tf.sdm.random_folds`][terraflux.sdm.random_folds], [`tf.sdm.spatial_clusters`][terraflux.sdm.spatial_clusters]
+(k-means of the coordinates, or of the environment with `env=`), [`tf.sdm.quadrant_folds`][terraflux.sdm.quadrant_folds],
+[`tf.sdm.checkerboard_folds`][terraflux.sdm.checkerboard_folds] (which needs the predictors for their grid),
+[`tf.sdm.buffer_folds`][terraflux.sdm.buffer_folds] and [`tf.sdm.jackknife_folds`][terraflux.sdm.jackknife_folds]
+(a fold per presence, for very few records). The table of the part:
+
+```python
+designs = {
+    "blocks of 500 km": data,
+    "random": tf.sdm.random_folds(data, k=5, seed=1),
+    "quadrants": tf.sdm.quadrant_folds(data),
+    "checkerboard (x10)": tf.sdm.checkerboard_folds(data, env, aggregation=10),
+    "k-means clusters": tf.sdm.spatial_clusters(data, k=5, seed=1),
+}
+rows = {}
+for name, d in designs.items():
+    s = tf.sdm.fit(d).summary.xs("mean", axis=1, level=1).loc["maxnet"]
+    rows[name] = {"folds": int(d.folds.max()), **s[["auc_test", "tss", "boyce", "or_10p"]]}
+print(pd.DataFrame(rows).T.astype({"folds": int}).round(2))
+```
+
+```text
+                    folds  auc_test   tss  boyce  or_10p
+blocks of 500 km        5      0.69  0.35   0.52    0.14
+random                  5      0.69  0.34   0.56    0.16
+quadrants               4      0.66  0.32   0.58    0.17
+checkerboard (x10)      2      0.68  0.30   0.62    0.13
+k-means clusters        5      0.69  0.46   0.44    0.32
+```
+
+Blocks should be larger than the range of autocorrelation of the predictors, and the design should follow the use of the
+model: blocks for mapping within the region, clusters or quadrants to test a transfer to regions the model has not seen.
 
 ## Read the results
 
@@ -451,6 +655,62 @@ holds a whole region (Central America, the Atlantic forest), and omits a third o
 **transfer** to regions the model has not seen. Choose the design for the use of the model: blocks for mapping
 within the region, clusters or quadrants when the model will be projected elsewhere.
 
+### Tuning in Python
+
+The feature classes and the regularisation multiplier are arguments of `tf.sdm.MaxNet` (`classes="lqh"` or `"default"`,
+`regmult`, `type`, `clamp`). The slider's sweep, with the number of features each model keeps in `betas_`:
+
+```python
+rows = {}
+for rm in (0.25, 0.5, 1, 2, 4, 8):
+    r = tf.sdm.fit(data, {"maxnet": tf.sdm.MaxNet(regmult=rm)})
+    s = r.summary.xs("mean", axis=1, level=1).loc["maxnet"]
+    rows[rm] = {"features": len(r.models["maxnet"].betas_), **s[["auc_test", "auc_diff", "boyce", "or_10p"]]}
+print(pd.DataFrame(rows).T.astype({"features": int}).rename_axis("regmult").round(3))
+rows = {}
+for cl in ("l", "lq", "lqh", "lqph", "lqpht"):
+    s = tf.sdm.fit(data, {"maxnet": tf.sdm.MaxNet(classes=cl)}).summary.xs("mean", axis=1, level=1).loc["maxnet"]
+    rows[cl] = s[["auc_train", "auc_test", "auc_diff", "boyce", "or_10p"]]
+print(pd.DataFrame(rows).T.round(2))
+```
+
+```text
+         features  auc_test  auc_diff  boyce  or_10p
+regmult
+0.25           32     0.675     0.141  0.432   0.274
+0.50           23     0.680     0.119  0.445   0.192
+1.00           16     0.685     0.099  0.518   0.142
+2.00            9     0.705     0.085  0.545   0.108
+4.00            5     0.714     0.092  0.577   0.119
+8.00            4     0.710     0.096  0.468   0.097
+       auc_train  auc_test  auc_diff  boyce  or_10p
+l           0.72      0.71      0.09   0.60    0.13
+lq          0.72      0.71      0.09   0.58    0.12
+lqh         0.74      0.69      0.10   0.52    0.14
+lqph        0.74      0.69      0.10   0.52    0.15
+lqpht       0.75      0.69      0.11   0.50    0.16
+```
+
+Choose on the test scores, never on the map you like best. With the default classes the folds are fitted on fewer
+presences than the final model and may use other classes (maxnet's rule counts the presences of each fit), so name the
+`classes` when the folds and the final model must match. `data.cv` is a list of (train, test) indices, the form
+scikit-learn's `cv=` takes, so `GridSearchCV` tunes any estimator on the spatial folds, as ENMeval tunes Maxent:
+
+```python
+from sklearn.model_selection import GridSearchCV
+
+grid = GridSearchCV(tf.sdm.MaxNet(classes="lqh"), {"regmult": [0.5, 1, 2, 4]}, cv=data.cv, scoring="roc_auc")
+grid.fit(data.X, data.y)
+print(grid.best_params_, round(grid.best_score_, 3))
+```
+
+```text
+{'regmult': 4} 0.714
+```
+
+`res.predictions` holds every model's out-of-fold predictions, for stacked models and calibration
+([part 5](../evaluation-and-thresholds/#in-python)).
+
 ## Common pitfalls
 
 - **Judging a model by its training AUC.** The model always fits its own records; only the test scores mean
@@ -495,5 +755,3 @@ within the region, clusters or quadrants when the model will be projected elsewh
 - Valavi, R., Guillera-Arroita, G., Lahoz-Monfort, J. J., & Elith, J. (2022). Predictive performance of presence-only species distribution models: a benchmark study with reproducible code. *Ecological Monographs*, 92(1), e01486. https://doi.org/10.1002/ecm.1486
 - Warton, D. I., & Shepherd, L. C. (2010). Poisson point process models solve the "pseudo-absence problem" for presence-only data in ecology. *The Annals of Applied Statistics*, 4(3), 1383–1402. https://doi.org/10.1214/10-AOAS331
 - Zurell, D., Franklin, J., König, C., Bouchet, P. J., Dormann, C. F., Elith, J., et al. (2020). A standard protocol for reporting species distribution models. *Ecography*, 43(9), 1261–1277. https://doi.org/10.1111/ecog.04960
-
-In Python: [Species distributions in Python](/tutorials/species-distributions/species-distributions-in-python/).

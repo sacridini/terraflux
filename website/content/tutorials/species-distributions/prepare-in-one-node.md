@@ -187,6 +187,135 @@ CoordinateCleaner's tests (capitals, seas, institutions), 21 duplicated a cell o
 at 50 km, leaving 83. Background points (2 000) were drawn within 500 km of the records; four predictors with VIF
 below 10 were kept (bio5, bio7, bio16, bio17); the records were split into five folds of spatial blocks of 500 km."
 
+### In Python
+
+[`tf.sdm.prepare`][terraflux.sdm.prepare] is the node: its arguments are the settings of the table, with the same names.
+The careful preparation of the graph:
+
+```python
+import json
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+occ = tf.load_table(tf.sdm.example_data("bradypus"))
+env = tf.load_raster(tf.sdm.example_data("bioclim"))
+data = tf.sdm.prepare(occ, env, clean=True, one_per_cell=True, thin=50_000, area=500_000, predictors=10,
+                      background=2000, folds={"size": 500_000, "k": 5}, seed=1)
+print(data)
+print(data.report)
+print(json.dumps(data.settings, indent=1, default=str))
+```
+
+```text
+SDMData(83 presences, 2000 background, 4 predictors: bio5, bio7, bio16, bio17; folds: 5)
+               step  presences  removed                                 detail
+0             input        116        0
+1             clean        113        3     capitals 1, seas 1, institutions 1
+2      one per cell         92       21
+3              thin         83        9                                50000 m
+4              area         83        0
+5        predictors         83        0  dropped bio1, bio6, bio8, bio9, bio12
+6        background         83        0                            2000 points
+7  predictor values         83        0
+8             folds         83        0                                5 folds
+{
+ "seed": 1,
+ "clean": true,
+ "thin": {
+  "distance": 50000,
+  "seed": 1
+ },
+ "area": {
+  "distance": 500000
+ },
+ "predictors": {
+  "vif": 10,
+  "seed": 1
+ },
+ "background": {
+  "n": 2000,
+  "seed": 1
+ },
+ "folds": {
+  "blocks": "hexagons",
+  "size": 500000,
+  "method": "spatial_blocks",
+  "k": 5,
+  "selection": "random",
+  "seed": 1,
+  "blocks_used": 75
+ },
+ "weights": "balanced",
+ "n_presences": 83,
+ "n_background": 2000,
+ "predictors_used": [
+  "bio5",
+  "bio7",
+  "bio16",
+  "bio17"
+ ]
+}
+```
+
+`data.report` is the `report` output, and `data.settings` the `settings` one (here as a dictionary; the methods of a paper
+can be written from the two). Every argument takes `False` to skip its step, a number for its main setting, a dictionary
+of the step's arguments (`clean={"urban": True, "outliers": True}`, `predictors={"vif": 10, "keep": ["bio12"]}`,
+`area={"method": "regions", ...}`) or a function of yours; `species=` keeps one species of a table of many, and `x`, `y`
+and `crs` name the coordinates of a table. `data` is ready for scikit-learn: `data.X` (the predictor values), `data.y`
+(1 presence, 0 background), `data.sample_weight` (presences and background weigh the same in total), `data.folds` and
+`data.cv`; the outputs of the node are `data.coords`, `data.area` and `data.predictors`, and `data.save(folder)` writes
+the tables, the settings and the area to a folder.
+
+Each step is a function of its own, and every random one takes the seed of `prepare`, so the steps by hand draw the same
+records, cells and folds as the one call:
+
+```python
+occ2 = tf.sdm.thin(tf.sdm.one_per_cell(tf.sdm.clean_occurrences(occ), env), 50_000, seed=1)
+area = tf.sdm.accessible_area(occ2, distance=500_000)
+env2 = tf.sdm.select_predictors(env, vif=10, area=area, seed=1)
+bg = tf.sdm.background(env2, 2000, occ=occ2, area=area, seed=1)
+by_hand = tf.sdm.spatial_blocks(tf.sdm.dataset(occ2, bg, env2), size=500_000, k=5, seed=1)
+print(by_hand.X.equals(data.X), np.array_equal(by_hand.folds, data.folds))
+```
+
+```text
+True True
+```
+
+That is the series' parts 2 and 3 in Python. `data.redo(...)` repeats the preparation with some arguments changed, which
+is how the table of the part is made: the same model (MaxNet, `classes="lqh"`, `regmult=2`) after five preparations,
+each adding one choice:
+
+```python
+steps = {
+    "Defaults (background 5 000)": tf.sdm.prepare(occ, env, background=5000),
+}
+steps["Thinned at 50 km"] = steps["Defaults (background 5 000)"].redo(thin=50_000)
+steps["Area of 500 km, 2 000 points"] = steps["Thinned at 50 km"].redo(area=500_000, background=2000)
+steps["Blocks of 500 km"] = steps["Area of 500 km, 2 000 points"].redo(folds={"size": 500_000, "k": 5})
+steps["Random folds"] = steps["Blocks of 500 km"].redo(folds={"method": "random", "k": 5})
+rows = {}
+for name, d in steps.items():
+    s = tf.sdm.fit(d, {"maxnet": tf.sdm.MaxNet(regmult=2, classes="lqh")}).summary.xs("mean", axis=1, level=1).loc["maxnet"]
+    rows[name] = {"presences": d.n_presences, **s[["auc_test", "tss", "boyce", "or_10p"]]}
+print(pd.DataFrame(rows).T.astype({"presences": int}).round(2))
+```
+
+```text
+                              presences  auc_test   tss  boyce  or_10p
+Defaults (background 5 000)          92      0.87  0.66   0.68    0.19
+Thinned at 50 km                     83      0.87  0.67   0.60    0.19
+Area of 500 km, 2 000 points         83      0.69  0.34   0.45    0.14
+Blocks of 500 km                     83      0.70  0.37   0.55    0.11
+Random folds                         83      0.69  0.34   0.63    0.11
+```
+
+The accessible area moves the scores most. A `background` larger than the cells available is cut with a warning (with
+the default 10 000 and an area of 500 km, the 3 230 cells of the area, all of them), so read the warnings and the
+report's `background` row; and `folds={"size": "auto"}` sizes the blocks by the predictors' range of autocorrelation,
+which on a continent can run away ([part 3](../predictors-and-background/#the-range-of-autocorrelation-in-python)).
+
 ## Settings that change the answer
 
 The same model (MaxNet, `classes = "lqh"`, `regmult = 2`) after five preparations of the same records, each adding
@@ -256,5 +385,3 @@ Other settings worth knowing:
 - Araújo, M. B., Anderson, R. P., Barbosa, A. M., Beale, C. M., Dormann, C. F., Early, R., et al. (2019). Standards for distribution models in biodiversity assessments. *Science Advances*, 5(1), eaat4858. https://doi.org/10.1126/sciadv.aat4858
 - Valavi, R., Elith, J., Lahoz-Monfort, J. J., & Guillera-Arroita, G. (2019). blockCV: an R package for generating spatially or environmentally separated folds for k-fold cross-validation of species distribution models. *Methods in Ecology and Evolution*, 10(2), 225–232. https://doi.org/10.1111/2041-210X.13107
 - Zizka, A., Silvestro, D., Andermann, T., Azevedo, J., Duarte Ritter, C., Edler, D., et al. (2019). CoordinateCleaner: standardized cleaning of occurrence records from biological collection databases. *Methods in Ecology and Evolution*, 10(5), 744–751. https://doi.org/10.1111/2041-210X.13152
-
-In Python: [Species distributions in Python](/tutorials/species-distributions/species-distributions-in-python/).

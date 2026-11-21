@@ -225,6 +225,71 @@ The selection drops bio1, bio6, bio9, bio12 and bio8, one at a time, and keeps f
 A threshold of 5 keeps the same four. They make ecological sense for a sloth: a slow mammal with a low and
 variable body temperature, sensitive to cold and to seasonality, that feeds on the leaves of evergreen trees.
 
+### Area and collinearity in Python
+
+The same steps with the same seed, on the cleaned records of part 2 (the graph above thins the raw records for brevity;
+here they are cleaned and one per cell first, as in the figures, which is why the area and the VIFs are the ones of the
+text). [`tf.sdm.accessible_area`][terraflux.sdm.accessible_area] takes a `distance` in metres (a buffer, the default
+`method`), or `method="convex_hull"` or `"regions"` (with `regions=` polygons), and `within=` cuts it to polygons.
+[`tf.sdm.vif`][terraflux.sdm.vif] measures the collinearity of the bands in a sample of the cells inside `area`:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+occ = tf.load_table(tf.sdm.example_data("bradypus"))
+env = tf.load_raster(tf.sdm.example_data("bioclim"))
+occ1 = tf.sdm.one_per_cell(tf.sdm.clean_occurrences(occ), env)
+occ2 = tf.sdm.thin(occ1, 50_000, seed=1)
+area = tf.sdm.accessible_area(occ2, distance=500_000)
+print(len(occ2), round(float(area.to_crs("EPSG:6933").area.iloc[0]) / 1e12, 1), "million km2")
+vifs = tf.sdm.vif(env, seed=1).merge(tf.sdm.vif(env, area=area, seed=1), on="variable", suffixes=("_map", "_area"))
+print(vifs.round(1).to_string(index=False))
+```
+
+```text
+83 12.6 million km2
+variable  vif_map  vif_area
+    bio1      inf       inf
+    bio5   9952.0    5812.8
+    bio6  40802.8   14622.1
+    bio7  33680.0    5452.5
+    bio8      5.4      39.0
+    bio9      inf       inf
+   bio12     58.3      36.9
+   bio16     35.3      18.7
+   bio17      9.8       9.0
+```
+
+The table of the part: bio1 and bio9 are infinite, bio7 is bio5 minus bio6, and bio8 is nearly independent over the
+continent but collinear inside the tropical area, hence the `area` argument.
+[`tf.sdm.select_predictors`][terraflux.sdm.select_predictors] drops the variable with the largest VIF, measures again
+and repeats until all are below `vif`; `cor=0.7` first removes the most correlated pairs, and `keep=["bio12"]` keeps a
+variable whatever its VIF. The result is the stack of the variables kept, with the choice in `attrs["selection"]`:
+
+```python
+env2 = tf.sdm.select_predictors(env, vif=10, area=area, seed=1)
+print(env2.attrs["selection"]["excluded"], env2.attrs["selection"]["kept"])
+print(tf.sdm.vif(env2, area=area, seed=1).round(2).to_string(index=False))
+print(tf.sdm.select_predictors(env, vif=5, area=area, seed=1).attrs["selection"]["kept"])
+print(tf.sdm.select_predictors(env, vif=10, keep=["bio12"], area=area, seed=1).attrs["selection"]["kept"])
+```
+
+```text
+['bio1', 'bio6', 'bio9', 'bio12', 'bio8'] ['bio5', 'bio7', 'bio16', 'bio17']
+variable  vif
+    bio5 1.25
+    bio7 1.65
+   bio16 1.67
+   bio17 1.57
+['bio5', 'bio7', 'bio16', 'bio17']
+['bio5', 'bio7', 'bio12', 'bio17']
+```
+
+Four predictors with VIFs from 1.25 to 1.67, and the same four at a threshold of 5. With `keep=["bio12"]` the variable
+stays and the others give way.
+
 ### The range of autocorrelation
 
 Add [[sdm.autocorrelation_range]] and connect the predictors kept (`select.env`). Its outputs: `range`, the
@@ -250,6 +315,32 @@ unequal sizes. We use **500 km**, a common order of magnitude for climate at thi
 !!! tip
     [[sdm.prepare]] takes `folds = { size = "auto" }` to size its blocks by the range of autocorrelation. Read the
     `layers` table first: with runaway ranges like these, give a size yourself.
+
+### The range of autocorrelation in Python
+
+[`tf.sdm.autocorrelation_range`][terraflux.sdm.autocorrelation_range] returns a dictionary: `range` (the median, in
+metres), `block_size` (the same in the grid's units, degrees here) and `layers`, a table with the range, sill, nugget,
+model and smoothness of each predictor's variogram. The sample of cells is random: give a `seed` to repeat it (the
+graph does not, so its ranges differ a little).
+
+```python
+ac = tf.sdm.autocorrelation_range(env2, seed=1)
+print(ac["layers"][["layer", "model", "range"]].assign(range=lambda d: (d["range"] / 1000).round()).to_string(index=False))
+print(round(ac["range"] / 1000), "km median;", round(ac["block_size"], 1), "degrees")
+```
+
+```text
+layer model     range
+ bio5   Ste    1329.0
+ bio7   Ste 2687147.0
+bio16   Ste 1480286.0
+bio17   Exp    1192.0
+740808 km median; 6654.5 degrees
+```
+
+Two predictors have finite ranges of about 1 200 to 1 300 km and two have runaway ones, as in the text above, so the
+median (740 808 km) is no guide: give your own block size (500 km here) or, in `tf.sdm.prepare`, `folds={"size": "auto"}`
+to take the median anyway.
 
 ### Draw the background
 
@@ -296,6 +387,57 @@ caption: Background points drawn from the accessible area (left of the handle) a
 before: { src: /img/tutorials/species-distributions/predictors-and-background/background_area.png, label: Accessible area }
 after: { src: /img/tutorials/species-distributions/predictors-and-background/background_all.png, label: Whole map }
 ```
+
+### Background in Python
+
+[`tf.sdm.background`][terraflux.sdm.background] takes the predictors kept (only cells with a value in all of them are
+drawn), the records (their cells are left out), the `area` and a `seed`. Beyond those: `distance` (the farthest, or a
+band `(from, to)`), `envelope` (only cells outside the records' range of every predictor), `bias` (the target-group
+surface of [part 2](../occurrence-data/#target-group-background-in-python), with `tryf=1`).
+[`tf.sdm.dataset`][terraflux.sdm.dataset] reads the predictors at the presences and the background points, and
+[`tf.sdm.spatial_blocks`][terraflux.sdm.spatial_blocks] adds the folds ([part 4](../fitting-models/#other-folds-in-python)):
+
+```python
+bg = tf.sdm.background(env2, 2000, occ=occ2, area=area, seed=1)
+bg_all = tf.sdm.background(env2, 2000, occ=occ2, seed=1)       # no area: the whole map
+data = tf.sdm.dataset(occ2, bg, env2)
+print(len(bg), len(bg_all), data)
+print(data.X.head(3).round(1).to_string())
+```
+
+```text
+2000 2000 SDMData(83 presences, 2000 background, 4 predictors: bio5, bio7, bio16, bio17; folds: none)
+    bio5   bio7   bio16  bio17
+0  338.0  147.0   724.0   62.0
+1  329.0  179.0  1547.0  373.0
+2  318.0  168.0   775.0  186.0
+```
+
+`data` is an `SDMData` (`X`, `y`, `sample_weight`, `coords`, and `folds` once there are any). The records without a value
+in some predictor are left out. The accessible area moves the scores more than almost any other choice; the slider's
+sweep is a loop over `tf.sdm.prepare`, the same MaxNet fitted to each:
+
+```python
+rows = {}
+for d in (250, 500, 1000, 2000, None):
+    prep = tf.sdm.prepare(occ, env, thin=50_000, area=d and d * 1000, background=2000,
+                          folds={"size": 500_000, "k": 5})
+    s = tf.sdm.fit(prep).summary.xs("mean", axis=1, level=1).loc["maxnet"]
+    rows[f"{d} km" if d else "whole map"] = s[["auc_test", "tss", "boyce"]]
+print(pd.DataFrame(rows).T.round(2))
+```
+
+```text
+           auc_test   tss  boyce
+250 km         0.57  0.25   0.23
+500 km         0.69  0.35   0.52
+1000 km        0.77  0.47   0.48
+2000 km        0.81  0.58   0.52
+whole map      0.87  0.69   0.57
+```
+
+The test AUC rises from 0.57 to 0.87 as the background spreads out, while the model is no better: the Boyce index
+hardly moves. Compare scores only between models with the same background and folds.
 
 ## Read the results
 

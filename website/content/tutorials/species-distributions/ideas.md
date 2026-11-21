@@ -392,6 +392,77 @@ this inflates the scores and how to draw a fairer background.
     area), which algorithm and settings, how it was evaluated (the folds) and with which scores, and which output
     the map shows. The `settings` output of [[sdm.prepare]] lists every choice, seeds included.
 
+### In Python
+
+The library ships the sloth's records and the climate as example data (the two files of the downloads above), so
+the model of this part is five lines. [`tf.sdm.prepare`][terraflux.sdm.prepare] does the preparation of node 3,
+[`tf.sdm.fit`][terraflux.sdm.fit] fits MaxNet over the folds (its default model, the node's default too) and
+[`tf.sdm.predict`][terraflux.sdm.predict] maps it:
+
+```python
+import terraflux as tf
+
+occ = tf.load_table(tf.sdm.example_data("bradypus"))     # a table with lon and lat: the records
+env = tf.load_raster(tf.sdm.example_data("bioclim"))     # the nine bands of bioclim.tif
+data = tf.sdm.prepare(occ, env, background=5000)         # 5000 points: the coarse map has fewer cells than 10 000
+print(data)
+print(data.report)
+```
+
+```text
+SDMData(92 presences, 5000 background, 5 predictors: bio5, bio7, bio8, bio16, bio17; folds: 5)
+               step  presences  removed                              detail
+0             input        116        0
+1             clean        113        3  capitals 1, seas 1, institutions 1
+2      one per cell         92       21
+3              area         92        0      whole extent of the predictors
+4        predictors         92        0     dropped bio1, bio6, bio9, bio12
+5        background         92        0                         5000 points
+6  predictor values         92        0
+7             folds         92        0                             5 folds
+```
+
+`data.report` is the table of the `report` output above, step for step. The folds are in the data, so the fit
+needs nothing else:
+
+```python
+res = tf.sdm.fit(data)                                   # no models given: MaxNet, maxnet's defaults
+print(res.summary.xs("mean", axis=1, level=1)[["auc_test", "boyce"]].round(2))
+suit = tf.sdm.predict(res, env)
+print([str(b) for b in suit.band.values], round(float(suit.sel(band="maxnet").mean()), 3))
+```
+
+```text
+        auc_test  boyce
+model
+maxnet      0.85   0.62
+['maxnet'] 0.186
+```
+
+The test AUC of 0.85 and the Boyce index of 0.62 are the ones in the text above. `res.summary` holds the mean and
+the standard deviation of every score over the folds, and `res.metrics` a row per fold ([part 4](../fitting-models/)).
+The map is a stack with a band per model (`maxnet`) and, when there are several models, their `ensemble` and `sd`;
+`suit.sel(band="maxnet")` is the cloglog map of the figure above. `tf.sdm.predict` takes the whole climate and
+finds the predictors the model kept (five here) by name. The `settings` output is `data.settings`, a dictionary with every
+choice, seeds included, and `data.X`, `data.y`, `data.sample_weight` and `data.cv` hand the same data to any
+scikit-learn estimator:
+
+```python
+print(data.predictors, data.settings["n_presences"], data.settings["folds"]["blocks_used"])
+```
+
+```text
+['bio5', 'bio7', 'bio8', 'bio16', 'bio17'] 92 72
+```
+
+The steps reproduce the R packages the field relies on (CoordinateCleaner, spThin, usdm, blockCV, ENMeval, ecospat,
+predicts, mop, dsmextra), value for value and with the same random draws for the same seed where they are right; each
+function's notes say what is corrected where they err. The [API reference](/python/api/sdm/) documents every option.
+
+The virtual species of the template has no counterpart here: it is made of the application's own random surfaces
+and a calculator; to try a model on a species whose answer you know, draw your own with
+[`tf.nlm`][terraflux.nlm.gaussian_field] surfaces and [`tf.sdm.background`][terraflux.sdm.background] with a `bias`.
+
 ## Settings that change the answer
 
 The number of records is the first thing that limits a model. The virtual species lets us see how: the same
@@ -446,5 +517,3 @@ scores at once ([part 5](../evaluation-and-thresholds/)).
 - Phillips, S. J., Dudík, M., Elith, J., Graham, C. H., Lehmann, A., Leathwick, J., & Ferrier, S. (2009). Sample selection bias and presence-only distribution models: implications for background and pseudo-absence data. *Ecological Applications*, 19(1), 181–197. https://doi.org/10.1890/07-2153.1
 - Soberón, J., & Peterson, A. T. (2005). Interpretation of models of fundamental ecological niches and species' distributional areas. *Biodiversity Informatics*, 2, 1–10. https://doi.org/10.17161/bi.v2i0.4
 - Ward, G., Hastie, T., Barry, S., Elith, J., & Leathwick, J. R. (2009). Presence-only data and the EM algorithm. *Biometrics*, 65(2), 554–563. https://doi.org/10.1111/j.1541-0420.2008.01116.x
-
-In Python: [Species distributions in Python](/tutorials/species-distributions/species-distributions-in-python/).

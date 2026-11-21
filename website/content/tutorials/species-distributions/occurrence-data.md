@@ -170,6 +170,27 @@ height: 300
 caption: The GBIF records of the sloth by decade and basis of record. Before 1980 they are museum specimens; since 2000, observations (mostly photographs shared through iNaturalist), 8 452 of them in the 2020s alone. Recent records match recent climate layers better, but they are also the most clustered around towns and parks.
 ```
 
+### Download in Python
+
+[`tf.sdm.download_gbif`][terraflux.sdm.download_gbif] is the same search and takes the same filters: `country` (a code
+or a list), `year` (a year or `(1990, 2020)`), `basis_of_record`, `max_uncertainty` (metres), `limit` and
+`has_geospatial_issue`; `area` keeps the records in the bounding box of a geometry. It returns a table with
+Darwin Core columns, and what GBIF answered (the taxon it matched, the number of records, whether the list was cut) in
+`attrs["gbif"]`, the `query` output above. It needs the network, so the example does not run here:
+
+<!-- no-run -->
+```python
+import terraflux as tf
+
+gbif = tf.sdm.download_gbif("Bradypus variegatus")            # no account needed; up to 100 000 records
+print(len(gbif), gbif.attrs["gbif"]["match"], gbif.attrs["gbif"]["truncated"])
+flags = tf.sdm.clean_occurrences(gbif, action="flag")         # one column per test, as in the graph
+```
+
+A GBIF download requested on gbif.org (the one with a DOI to cite) is read with
+[`tf.bio.read_occurrences`][terraflux.bio.read_occurrences] and goes through the same steps. A table of many species
+goes to [`tf.sdm.prepare`][terraflux.sdm.prepare] with `species="Bradypus variegatus"` to keep one.
+
 ## Clean the records
 
 [[sdm.clean_occurrences]] runs the tests and either drops the records that fail any of them (`action = drop`,
@@ -282,6 +303,83 @@ precise photographs of today.
     returns any of the reference data sets (capitals and centroids, institutions, Natural Earth's land, urban
     areas and countries) as features, to draw them over your records and see what the tests compare against.
 
+### Cleaning in Python
+
+The potato's records ship with the library as example data, in the file of the downloads above. The names are unified
+first, because the outlier test compares the records of each species and twelve spellings would make twelve small
+species. [`tf.sdm.clean_occurrences`][terraflux.sdm.clean_occurrences] with `action="flag"` keeps every record and adds
+a column per test:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+records = tf.load_table(tf.sdm.example_data("acaule"))
+print(len(records), records["species"].nunique())
+records["species"] = "Solanum acaule"          # one species, spelled 12 ways
+flags = tf.sdm.clean_occurrences(records, action="flag", countries={"column": "ISO2"})
+print(flags.filter(like="flag").sum())
+```
+
+```text
+1366 12
+flag_invalid         284
+flag_equal             2
+flag_zeros             6
+flag_capitals          5
+flag_centroids         0
+flag_seas             15
+flag_countries        28
+flag_outliers         24
+flag_gbif              0
+flag_institutions      0
+flagged              324
+dtype: int64
+```
+
+The counts are the chart's. The tests are arguments of the function, with the defaults of the table: `False` skips a
+test, `True` takes its defaults, a number is its main option (`capitals=5_000`, in metres) and a dict gives all of them
+(`countries={"column": "ISO2"}`: the test of countries runs only when the column is named). The reference data of the
+tests (capitals, centroids, institutions, coastlines) are downloaded once and cached;
+[`tf.sdm.reference_data`][terraflux.sdm.reference_data] returns any of them as a table to draw. The suspects, and why:
+
+```python
+tests = [c for c in flags.columns if c.startswith("flag_")]
+why = flags[tests].apply(lambda row: ", ".join(c[5:] for c in tests if row[c]), axis=1)
+suspicious = flags.assign(why=why)[flags["flagged"] & ~flags["flag_invalid"]]
+print(suspicious[["country", "lon", "lat", "why"]].head(10))
+```
+
+```text
+        country       lon       lat                  why
+95    Argentina -66.03333 -21.88333            countries
+97      Bolivia -46.08333 -21.43333  countries, outliers
+107        Peru -76.61667  -7.46667             outliers
+123     Bolivia -68.15000 -16.50000             capitals
+129   Argentina -66.03333 -21.88333            countries
+145   Argentina -66.03333 -21.88333            countries
+281        Peru -77.65520  -7.99020             outliers
+302  Antarctica -76.30000 -76.30000      equal, outliers
+330     Bolivia -69.35000 -15.01000            countries
+375     Bolivia -68.15000 -16.50000             capitals
+```
+
+The rows of the part's table are among them. The default `action="drop"` returns the records that pass every test, the
+1 042 of the text; tests tuned to the data are arguments too (the finer coastline, no test of capitals, which then has no column):
+
+```python
+kept = records[~flags["flagged"]]
+print(len(kept), len(tf.sdm.clean_occurrences(records, countries={"column": "ISO2"})))
+fine = tf.sdm.clean_occurrences(records, action="flag", countries={"column": "ISO2"}, seas=10, capitals=False)
+print(int(fine["flag_seas"].sum()), "flag_capitals" in fine.columns, int(fine["flagged"].sum()))
+```
+
+```text
+1042 1042
+15 False 319
+```
+
 ## One record per cell
 
 [[sdm.one_per_cell]] keeps the first record in each cell of a raster's grid and drops those outside it
@@ -366,6 +464,34 @@ How to choose the distance? There is no rule, but three guides:
 
 Thinning is random: another `seed` may keep different records (the same number or nearly). Report the distance
 and the seed.
+
+### One record per cell and thinning in Python
+
+[`tf.sdm.one_per_cell`][terraflux.sdm.one_per_cell] takes the grid of the climate, and
+[`tf.sdm.thin`][terraflux.sdm.thin] a distance in metres (`reps` repetitions, 10 by default, and a `seed`). The
+sloth's records through the three steps, and the thinning of the slider:
+
+```python
+occ = tf.load_table(tf.sdm.example_data("bradypus"))
+env = tf.load_raster(tf.sdm.example_data("bioclim"))
+clean = tf.sdm.clean_occurrences(occ)
+cells = tf.sdm.one_per_cell(clean, env)                 # drop_missing=True also drops the cells without a value
+print(len(occ), len(clean), len(cells))
+for d in (25, 50, 100, 200, 400):
+    print(f"at least {d:3d} km apart: {len(tf.sdm.thin(cells, d * 1000, seed=1))} records")
+```
+
+```text
+116 113 92
+at least  25 km apart: 88 records
+at least  50 km apart: 83 records
+at least 100 km apart: 63 records
+at least 200 km apart: 42 records
+at least 400 km apart: 22 records
+```
+
+116, 113, 92 and, at 50 km, 83: the numbers of the text and of the slider. `tf.sdm.prepare` runs these steps with its
+`clean`, `one_per_cell` and `thin` arguments ([part 7](../prepare-in-one-node/#in-python)).
 
 ## Sampling bias and the background
 
@@ -554,6 +680,59 @@ share their bias; what the model learns from it is part 4's subject.
 The template [Species distribution model](../ideas/#a-virtual-species-first) uses the same input the other way
 round: it draws the *presences* of its virtual species with the suitability as the bias. [Part
 3](../predictors-and-background/) covers the background in full: how many points, from which area.
+
+### Target-group background in Python
+
+[`tf.sdm.bias_surface`][terraflux.sdm.bias_surface] takes the records of the group and the grid, and returns the
+effort as a raster (`bandwidth` a number, a pair or `"nrd"`, `isotropic`, `limits`, `weights`, `rescale`, `mask`);
+[`tf.sdm.background`][terraflux.sdm.background] takes it as `bias`. The part's group (5 056 specimens of sloths,
+anteaters and armadillos, `xenarthra.gpkg`) is a GBIF download made in October 2026 that is not published, so the
+example uses the sloth's own cleaned records as a stand-in: with your group, read it with `tf.load_table` or
+`tf.load_vector` and give it the same cleaning. The numbers are therefore not the part's.
+
+```python
+group = clean                                            # stands for the records of the whole group
+bias = tf.sdm.bias_surface(group, env)                   # bandwidth "nrd": R's bw.nrd in x and in y
+print([round(b, 2) for b in bias.attrs["bandwidth"]], bias.attrs["n"])
+for h in (1, 2, "nrd"):
+    b = tf.sdm.bias_surface(group, env, bandwidth=h)
+    rel = b / b.mean()                                   # the effort relative to the average cell
+    print(f"{h!s:>4}: busiest cell {float(rel.max()):6.1f} x the average, "
+          f"{float((rel < 0.1).where(b.notnull()).mean()):.1%} of the cells below 0.1")
+```
+
+```text
+[3.98, 3.31] 113
+   1: busiest cell   40.0 x the average, 78.0% of the cells below 0.1
+   2: busiest cell   21.8 x the average, 65.6% of the cells below 0.1
+ nrd: busiest cell   12.8 x the average, 53.0% of the cells below 0.1
+```
+
+The draws: `tryf=1` lets the bias act fully, because the default 3 draws three times the points as candidates and then
+keeps `n` of them at random, which dilutes it. The share of the points in the busiest quarter of the cells shows it:
+
+```python
+thin50 = tf.sdm.thin(cells, 50_000, seed=1)
+top = float(np.nanquantile(bias.values, 0.75))           # the busiest quarter of the cells
+draws = {
+    "random": tf.sdm.background(env, 2000, occ=thin50, seed=1),
+    "bias, tryf 3": tf.sdm.background(env, 2000, occ=thin50, bias=bias, seed=1),
+    "bias, tryf 1": tf.sdm.background(env, 2000, occ=thin50, bias=bias, tryf=1, seed=1),
+}
+for name, bg in draws.items():
+    effort = bias.values.ravel()[bg["cell"].to_numpy()]
+    print(f"{name:13s} {len(bg)} points, {np.mean(effort >= top):.1%} in the busiest quarter")
+```
+
+```text
+random        2000 points, 24.7% in the busiest quarter
+bias, tryf 3  2000 points, 41.6% in the busiest quarter
+bias, tryf 1  1928 points, 79.9% in the busiest quarter
+```
+
+With `tryf=1` the candidates that fall on a record's cell are dropped and not replaced, so there are fewer than 2 000
+points (the function warns). `rescale=(0.05, 0.95)` in `bias_surface` gives the emptiest cells some chance of being
+drawn.
 
 ## Read the results
 

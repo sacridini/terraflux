@@ -66,7 +66,7 @@ Where to go:
   richness, endemism, phylogenetic diversity and endemism, randomisations and regions.
 - **[Conservation priorities](/tutorials/spatial-prioritization/prioritization-in-python/)**: rank whole
   landscapes for many species: performance curves, costs, reserves, connectivity and impact assessment.
-- **[Species distributions](/tutorials/species-distributions/species-distributions-in-python/)**: clean occurrence
+- **[Species distributions](/tutorials/species-distributions/)**: clean occurrence
   records, choose predictors and background points, fit and evaluate models with spatial folds, and project them
   to new climates.
 - **[Land change simulation](/tutorials/land-change/land-change-simulation-in-python/)**: project land use from

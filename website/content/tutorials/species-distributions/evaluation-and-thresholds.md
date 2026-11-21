@@ -492,6 +492,129 @@ background and the folds they depend on: AUC, TSS, Boyce and the omission rates 
 binary map, give the method and the value of the threshold, the sensitivity it keeps, and the suitable area, and
 say why that method suits the use.
 
+### In Python
+
+[`tf.sdm.evaluate`][terraflux.sdm.evaluate], [`tf.sdm.threshold`][terraflux.sdm.threshold],
+[`tf.sdm.boyce`][terraflux.sdm.boyce] and [`tf.sdm.omission_rate`][terraflux.sdm.omission_rate] take any predictions
+(arrays of the values at the presences and at the background), so they score models from any software. The model is the
+part's: the preparation of part 4 and MaxNet with `regmult=2` and `classes="lqh"`. Its predictions at the records it was
+fitted to are the node 5 and 6 of the graph, and the evaluation is node 7:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+occ = tf.load_table(tf.sdm.example_data("bradypus"))
+env = tf.load_raster(tf.sdm.example_data("bioclim"))
+data = tf.sdm.prepare(occ, env, thin=50_000, area=500_000, background=2000,
+                      folds={"size": 500_000, "k": 5}, seed=1)
+res = tf.sdm.fit(data, {"maxnet": tf.sdm.MaxNet(regmult=2, classes="lqh")})
+model = res.models["maxnet"]                       # fitted on every record
+p = model.predict_proba(data.X)[:, 1]              # cloglog suitability at every record
+pres, back = p[data.y == 1], p[data.y == 0]
+ev = tf.sdm.evaluate(pres, back)
+print({k: round(float(v), 2) for k, v in ev.stats.items() if k in ("auc", "max_tss", "boyce")})
+print(res.summary.xs("mean", axis=1, level=1)[["auc_test", "tss", "boyce", "or_mtp", "or_10p"]].round(2).to_string())
+```
+
+```text
+{'auc': 0.72, 'max_tss': 0.31, 'boyce': 0.92}
+        auc_test   tss  boyce  or_mtp  or_10p
+model
+maxnet       0.7  0.37   0.55    0.04    0.11
+```
+
+The scores on all the records are the training scores of the table (AUC 0.72, TSS 0.31, Boyce 0.92); the fold scores
+beside them are the ones to report. `ev.stats` also holds the point-biserial correlation (`cor`, `pcor`) and the
+prevalence; `ev.table` is the confusion table at every threshold (the four counts, `kappa`, sensitivity `tpr`,
+specificity `tnr`, `tss`...: the ROC curve is `fpr` against `tpr`), `ev.thresholds` the threshold of each method and
+`ev.boyce` the windows of the Boyce curve (`hs` and `f_ratio`). Boyce alone, with the window or the classes of your
+choice: `tf.sdm.boyce(pres, np.concatenate([back, pres]), nclass=0, window=None)`.
+
+The eight methods of `tf.sdm.threshold` on the same predictions, with what each keeps (the last column counts the cells
+of the whole map, not only the accessible area of the part's table):
+
+```python
+suit = tf.sdm.predict(res, env).sel(band="maxnet")
+rows = {}
+for m in ("equal_prevalence", "no_omission", "mtp", "sensitivity", "p10", "equal_sens_spec", "max_spec_sens", "max_kappa"):
+    t = tf.sdm.threshold(pres, back, m, sensitivity=0.95)       # sensitivity= is used by "sensitivity" only
+    sens, spec = float((pres >= t).mean()), float((back < t).mean())
+    rows[m] = {"threshold": t, "sensitivity": sens, "specificity": spec, "tss": sens + spec - 1,
+               "map suitable": float((suit >= t).where(suit.notnull()).mean())}
+print(pd.DataFrame(rows).T.round(2))
+```
+
+```text
+                  threshold  sensitivity  specificity   tss  map suitable
+equal_prevalence       0.04         1.00         0.04  0.04          0.62
+no_omission            0.18         1.00         0.18  0.18          0.44
+mtp                    0.18         1.00         0.18  0.18          0.44
+sensitivity            0.30         0.95         0.30  0.26          0.34
+p10                    0.33         0.90         0.33  0.24          0.32
+equal_sens_spec        0.60         0.64         0.64  0.28          0.17
+max_spec_sens          0.66         0.53         0.78  0.31          0.11
+max_kappa              0.81         0.24         0.96  0.20          0.03
+```
+
+The suitable area changes many times over between the methods from the same model: choose the method for the use of the
+map (`p10` for a range, `max_spec_sens` for the core, never `max_kappa` or `equal_prevalence` with background points,
+whose prevalence is your choice). The binary map of node 3 is a comparison with the number:
+
+```python
+t = tf.sdm.threshold(pres, back, "max_spec_sens")
+binary = suit >= t                                  # True where suitable, as raster.calc's "1 if s >= t else 0"
+print(round(t, 2), f"{float(binary.where(suit.notnull()).mean()):.0%} of the map")
+```
+
+```text
+0.66 11% of the map
+```
+
+The out-of-fold predictions are in `res.predictions`, a column per model: for every record, the suitability given by the
+model fitted without its fold (NaN for a record in no test fold). Split into presences and background, they give test
+scores on all the records at once and thresholds that do not come from records the model has seen:
+
+```python
+oof = res.predictions["maxnet"].to_numpy()
+ok = ~np.isnan(oof)
+o_pres, o_back = oof[ok & (data.y == 1)], oof[ok & (data.y == 0)]
+oe = tf.sdm.evaluate(o_pres, o_back)
+print({k: round(float(v), 2) for k, v in oe.stats.items() if k in ("auc", "max_tss", "boyce")})
+print({m: round(tf.sdm.threshold(o_pres, o_back, m), 2) for m in ("p10", "max_spec_sens")})
+print(pd.DataFrame({"presence": data.y, "fold": data.folds, "prediction": oof}).head(5).round(3).to_string())
+```
+
+```text
+{'auc': 0.7, 'max_tss': 0.29, 'boyce': 0.93}
+{'p10': 0.29, 'max_spec_sens': 0.65}
+   presence  fold  prediction
+0         1     5       0.245
+1         1     5       0.251
+2         1     5       0.152
+3         1     5       0.165
+4         1     5       0.124
+```
+
+The pooled scores are the part's second table (a pooled Boyce index far above the mean of the folds, which each hold 14 to
+20 presences). A presence with a low out-of-fold suitability is one the model would have missed had it not seen its
+block; the part maps them:
+
+```python
+low = o_pres < tf.sdm.threshold(o_pres, o_back, "p10")          # below the out-of-fold 10th percentile
+print(int(low.sum()), "presences; folds", np.bincount(data.folds[ok & (data.y == 1)][low]).tolist()[1:])
+```
+
+```text
+8 presences; folds [0, 0, 3, 0, 5]
+```
+
+The same calls evaluate independent test data: give `evaluate` the predictions of the model at the test records (any
+estimator's `predict_proba` on the same predictors) and at the background of the test region. `tf.sdm.omission_rate(train,
+test, "p10")` is the share of the test predictions below the 10th percentile of the training ones (`"mtp"`: below their
+minimum), the omission columns of `res.metrics`.
+
 ## Settings that change the answer
 
 - **The data you evaluate on.** Training scores flatter the model; random folds may too (part 4). The same model

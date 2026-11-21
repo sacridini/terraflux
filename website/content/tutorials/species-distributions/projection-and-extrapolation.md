@@ -310,6 +310,118 @@ one assumption (the response continues) with another (it stops). Neither is data
 - Whether the model clamps, and the assumptions (no dispersal limits, no adaptation, the same accessible area).
 - With several climate models, the agreement between them (in how many is a cell suitable).
 
+### In Python
+
+The model is the one of parts 4 and 5: the sloth prepared with the part's settings and MaxNet with `regmult=2` and
+`classes="lqh"`. The new conditions are today's with two changes, built as the graph builds them: 20 added to `bio5`
+(WorldClim's temperatures are in tenths of a degree, so +2 °C) and `bio17` times 0.8. A raster stack is an xarray array
+with a `band` dimension named after the predictors, so a layer is replaced by name:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+occ = tf.load_table(tf.sdm.example_data("bradypus"))
+env = tf.load_raster(tf.sdm.example_data("bioclim"))
+data = tf.sdm.prepare(occ, env, thin=50_000, area=500_000, background=2000,
+                      folds={"size": 500_000, "k": 5}, seed=1)
+res = tf.sdm.fit(data, {"maxnet": tf.sdm.MaxNet(regmult=2, classes="lqh")})
+
+future = env.copy()
+future.loc[{"band": "bio5"}] = env.sel(band="bio5") + 20          # +2 degrees: a hotter warmest month
+future.loc[{"band": "bio17"}] = env.sel(band="bio17") * 0.8       # and a drier driest quarter
+today = tf.sdm.predict(res, env).sel(band="maxnet")
+tomorrow = tf.sdm.predict(res, future).sel(band="maxnet")         # the predictors are found by name
+shift = tomorrow - today
+print(f"mean change {float(shift.mean()):.3f}; suitability falls in {float((shift < 0).where(shift.notnull()).mean()):.0%} of the cells")
+```
+
+```text
+mean change -0.019; suitability falls in 99% of the cells
+```
+
+`tf.sdm.predict` finds the predictors by name, so a layer named `bio5_2070` would not be `bio5`: rename the bands of a
+scenario first. With a model that used `bio1` or `bio8` you would add 20 to those too (`bio7`, a range, does not change).
+The gains and losses at the threshold of maximum TSS of part 5, counted inside the accessible area (`data.area`), which
+the model knows and the map does not:
+
+```python
+p = res.models["maxnet"].predict_proba(data.X)[:, 1]
+t = tf.sdm.threshold(p[data.y == 1], p[data.y == 0])             # max_spec_sens
+inside = tf.rasterize(data.area, today).astype(bool)
+now, later = (today >= t) & inside, (tomorrow >= t) & inside
+print(round(t, 2), int(now.sum()), int((now & later).sum()), int((now & ~later).sum()), int((~now & later & inside).sum()))
+```
+
+```text
+0.66 810 483 327 0
+```
+
+The threshold, the cells suitable today, those that stay, those lost and those gained: 810, 483 and 327 in the text of
+the part, none gained. The extrapolation is the next step. [`tf.sdm.mess`][terraflux.sdm.mess] takes the reference (the
+`SDMData`: the conditions of the presences and the background) and the new conditions with the same predictors; with
+`full=True` it adds a band per predictor:
+
+```python
+new = future.sel(band=data.predictors)
+mess = tf.sdm.mess(data, new, full=True)
+novel = mess.sel(band="mess") < 0
+print(int(novel.sum()), int((tf.sdm.mess(data, env.sel(band=data.predictors)).sel(band="mess") < 0).sum()))
+print({str(b): int((mess.sel(band=b) < 0).sum()) for b in mess.band.values[:-1]}, int((novel & inside).sum()))
+```
+
+```text
+2912 2063
+{'bio5_mess': 1428, 'bio7_mess': 1980, 'bio16_mess': 6, 'bio17_mess': 0} 225
+```
+
+The cells with a MESS below 0 in the scenario and today, the novel ones through each predictor, and those inside the
+accessible area: the table of the part. The other two measures:
+[`tf.sdm.mop`][terraflux.sdm.mop] (`type="basic"`, `"simple"` or `"detailed"`; `distance="euclidean"` or `"mahalanobis"`;
+`percentage`, the share of the nearest reference conditions averaged, 1 % by default; `scale` and `center` standardise the
+predictors first, which matters when their units differ) and [`tf.sdm.exdet`][terraflux.sdm.exdet]:
+
+```python
+mop = tf.sdm.mop(data, new, type="detailed")
+print([str(b) for b in mop.band.values], int(mop.sel(band="basic").sum()))
+ex = tf.sdm.exdet(data, new)
+print([str(b) for b in ex.band.values], int((ex.sel(band="exdet") < 0).sum()), round(float(ex.sel(band="exdet").max()), 2))
+mic = ex.sel(band="mic").values
+print({name: int((mic == i + 1).sum()) for i, name in enumerate(data.predictors)})
+```
+
+```text
+['mop', 'basic', 'simple', 'low_combined', 'high_combined'] 2912
+['exdet', 'mic'] 2912 0.74
+{'bio5': 1002, 'bio7': 1904, 'bio16': 6, 'bio17': 0}
+```
+
+All three flag the same 2 912 cells outside the ranges. `exdet`'s `mic` band is the most influential covariate of each
+cell, counted from 1 in the order of `data.predictors` (0: no novelty), and its largest value shows that inside the
+ranges the scenario makes no combination of predictors the reference lacks (NT2 stays below 1). `mop`'s distance
+adds a gradient inside the ranges.
+
+Last, clamping. `predict` holds every predictor within its range in the data (`clamp=True`) and MaxNet clamps its features
+to their training ranges (`MaxNet(clamp=True)`, the default); both off lets the responses run on:
+
+```python
+model = res.models["maxnet"]
+model.set_params(clamp=False)                                   # MaxNet's own clamp of the features...
+free = tf.sdm.predict(res, future, clamp=False).sel(band="maxnet")   # ...and predict's clamp of the predictors
+model.set_params(clamp=True)
+diff = abs(free - tomorrow)
+print(round(float(diff.max()), 2), int((diff > 0.05).sum()))
+```
+
+```text
+0.06 5
+```
+
+Clamping changes this model's map very little, because the responses are flat at their edges; it is not a cure for
+extrapolation, only another assumption. For a map that shows where to trust the projection, mask the novel cells
+(`tomorrow.where(~novel)`), and with several climate models count in how many each cell is suitable.
+
 ## Settings that change the answer
 
 - **The reference data.** MESS against the records and background (the conditions the model was fitted on) asks

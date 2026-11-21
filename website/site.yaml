@@ -94,6 +94,7 @@ redirects:
   /tutorials/animal-movement/animal-movement-in-python/: /tutorials/animal-movement/ideas/#in-python
   /tutorials/terrain-hydrology/terrain-hydrology-in-python/: /tutorials/terrain-hydrology/depressions-and-flow/#read-reproject-and-fill-in-python
   /tutorials/terrain-hydrology/watershed-model-in-python/: /tutorials/terrain-hydrology/swat-plus-from-rasters/#divide-the-watershed-in-python
+  /tutorials/species-distributions/species-distributions-in-python/: /tutorials/species-distributions/prepare-in-one-node/#in-python
 
 # The tutorials' categories, in this order: a folder of content/tutorials/ each. `prefixes` are the operators
 # they cover (the subjects of the application's library); `cells` draws the category's small icon (3x3 cells:

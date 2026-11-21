@@ -413,13 +413,13 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `evaluation-and-thresholds.md` | — | full | `species-distributions-in-python.md` | |
-| `fitting-models.md` | — | full | `species-distributions-in-python.md` | |
-| `ideas.md` | — | full | `species-distributions-in-python.md` | |
-| `occurrence-data.md` | — | full | `species-distributions-in-python.md` | |
-| `predictors-and-background.md` | — | full | `species-distributions-in-python.md` | |
-| `prepare-in-one-node.md` | — | full | `species-distributions-in-python.md` | |
-| `projection-and-extrapolation.md` | — | full | `species-distributions-in-python.md` | |
+| `evaluation-and-thresholds.md` | — | full | merged, redirected | done |
+| `fitting-models.md` | — | full | merged, redirected | done |
+| `ideas.md` | — | full | merged, redirected | done |
+| `occurrence-data.md` | — | full | merged, redirected | done |
+| `predictors-and-background.md` | — | full | merged, redirected | done |
+| `prepare-in-one-node.md` | — | full | merged, redirected | done |
+| `projection-and-extrapolation.md` | — | full | merged, redirected | done |
 
 `species-distributions-in-python.md`:
 - ## Cleaning occurrence records → occurrence-data
@@ -648,3 +648,4 @@ No `*-in-python.md` page in this category.
 - `raster.fill` (getting-started/reclassify-calculate-save): no counterpart of gdal_fillnodata.
 - `move.fit_issf` / conditional logistic regression (animal-movement/step-selection): `tf.move` prepares the data (`random_steps`, `extract_covariates`) but has no clogit; the part's In Python fits it with a short numpy Newton-Raphson (statsmodels' ConditionalLogit is the alternative).
 - `swat.set` (terrain-hydrology/swat-plus, swat-plus-from-rasters): no library function; calibration.cal is edited as text (shown in swat-plus-from-rasters, Change a parameter in Python).
+- `species-distributions/fitting-models`: the part says the node's `threshold` output is 0.61; the library gives 0.48 for that model (0.66 with regmult=2, classes="lqh", as in evaluation-and-thresholds). Check in the app and correct the text (or the figure script).
