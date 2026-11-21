@@ -125,6 +125,7 @@ files, from the files' headers before anything runs.
 
 Type the script below line by line; the sections that follow explain it.
 
+<!-- no-run -->
 ```python
 # lu: the land use of 1997 and 2011 (a stack); d: the drivers (a stack)
 forest = lu == 1                        # a stack: the forest of each year

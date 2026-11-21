@@ -111,6 +111,7 @@ what LEAS does: for each class, the cells that gained it between the two maps ar
 could have gained it and did not are the absences; a sample of both (5 % of the cells, drawn from each group
 separately, as in the paper) trains a random forest of 50 trees.
 
+<!-- no-run -->
 ```python
 import terraflux as tf
 import numpy as np, rasterio

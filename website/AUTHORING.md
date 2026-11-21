@@ -368,8 +368,25 @@ block gives the top-level help).
 ## The Python library's pages (`python` section)
 
 The library (`extern/terraflux-py`, a submodule; `git submodule update --init extern/terraflux-py`) has its docs in
-the `python` section: `content/python/` (getting started, tutorials, API reference, algorithms, changelog), plus the
-`*-in-python.md` pages beside the GUI tutorials.
+the `python` section: `content/python/` (getting started, API reference, algorithms, changelog). The tutorials teach
+the application and the library together: the Python of an analysis is in the tutorial's own part, not in a page of
+its own (the `*-in-python.md` pages are being merged into the parts and will go).
+
+**`### In Python` in a tutorial's part.** Every part whose analysis the library has ends with a section
+`### In Python` (in a long part, one may follow the step it repeats instead, as `### <step> in Python`):
+
+- The same data and the same settings as the graph, so the numbers printed are the ones the part shows; a
+  sentence says where they differ and why (a default, a sample, a seed).
+- Short and direct: the calls that do the analysis, with a comment where a value is chosen, then a ```` ```text ````
+  block with what it prints (copied from a real run). The theory is not repeated: it is in the part above.
+- The library's names in prose link to the API reference (`[`tf.mspa`][terraflux.mspa]`); a line names the other
+  options of the call that matter.
+- The blocks of a page run in order and share their names: a later section may use what an earlier one made.
+  Every block runs (`check_python_blocks.py`, below); one that cannot is preceded by `<!-- no-run -->`.
+- A part the library does not cover (OBIA, the parts on building graphs, an operator the library lacks) has no
+  section, and nothing is invented: a gap goes to the list of the library's missing pieces.
+- A topic that only the library has (dask and very large tables, several computers, prioritizr's API) is a part of
+  its own in its category, all in Python.
 
 **Sidebar groups.** A section whose pages live in subfolders (`python/getting-started/x.md`, `python/api/x.md`,
 `python/api/x.md`) shows a heading for each subfolder, with a fold that opens
@@ -417,10 +434,13 @@ repository stays the source of `content/python/changelog.md`. Without the submod
 the `CI` variable is set).
 
 **Checking the examples.** `python website/tools/check_python_blocks.py [pages]` runs every ```` ```python ````
-block of `content/python/**` and `content/**/*-in-python.md` in page order, the blocks of a page
+block of `content/python/**` and of every page of `content/tutorials/**` that has one, in page order, the blocks of a page
 sharing a namespace, in a temporary folder, a process per page with a time limit (`--timeout`, 600 s), and reports
-the page and the block that fails. A block that cannot run (a file the reader has, a long job) is preceded by a
-line `<!-- no-run -->`. `--list` shows the pages and their blocks; `--python` names the interpreter with the library
+the page and the block that fails. A tutorial's part starts in a folder holding its downloads
+(`static/data/tutorials/<category>/<part>/`) and what its graphs wrote (`.cache/work/<category>/<part>/`, made by its
+figure script), so a block reads them by their bare names, as the reader does. A block that cannot run (a long job,
+a file nobody has) is preceded by a line `<!-- no-run -->`. Without an installed library, the submodule's build
+serves: `PYTHONPATH=extern/terraflux-py/src` (its `_core` built for that Python). `--list` shows the pages and their blocks; `--python` names the interpreter with the library
 installed. At most 4 threads in all (`--jobs` pages at once, default 2; the rest of the 4 goes to each page's
 OpenMP, Rayon and dask). It is not in the CI.
 
