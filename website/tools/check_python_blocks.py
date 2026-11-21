@@ -14,7 +14,8 @@ files the reader has: the part's downloads (static/data/tutorials/<category>/<pa
 the work folder of its figure script (.cache/work/<category>/<part>/, made by website/figures/<category>/<part>.py),
 and every file under static/data/ that the page links as a download, `(/data/...)`. A block preceded by a line `<!-- no-run -->` is skipped; blocks inside tabs (indented)
 run like the others. With `--outputs`, what a block prints must be the ```text block right after it (trailing spaces aside): a
-difference is shown and counts as a failure, the page going on. A page stops at its first failing block (the next ones depend on it). Each page runs in a
+difference is shown and counts as a failure, the page going on. A ```text block preceded by a line `<!-- varies -->`
+(timings, memory) is not compared. A page stops at its first failing block (the next ones depend on it). Each page runs in a
 process of its own with a time limit (`--timeout`, 600 s), so one that hangs does not stop the others.
 
 The interpreter must have the library installed (`pip install terraflux-py`, or an editable install of

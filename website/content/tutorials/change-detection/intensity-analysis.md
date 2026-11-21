@@ -378,12 +378,12 @@ print(ia.category_loss.round(3).to_string(index=False))
 1991-1999   2         8  32.430 0.934 0.523
 1991-1999   3         8   5.563 0.282 0.523
    Period  From  Interval  GL_km2   Lti    St
-1985-1991   1         6  23.381 0.796 0.598
-1985-1991   2         6   0.370 0.017 0.598
-1985-1991   3         6  16.959 1.032 0.598
-1991-1999   1         8  26.028 0.693 0.523
-1991-1999   2         8   1.418 0.044 0.523
-1991-1999   3         8  20.055 0.959 0.523
+1985-1991     1         6  23.381 0.796 0.598
+1985-1991     2         6   0.370 0.017 0.598
+1985-1991     3         6  16.959 1.032 0.598
+1991-1999     1         8  26.028 0.693 0.523
+1991-1999     2         8   1.418 0.044 0.523
+1991-1999     3         8  20.055 0.959 0.523
 ```
 
 These are the numbers of the part's charts: `interval` has the period's change (`PercentChange`), its annual rate `St`
@@ -426,7 +426,7 @@ print(ia.transition_loss_stationarity.to_string(index=False))
     3     1  2  avoided by 2    N
  To  Gain  N Stationarity Test
   2     2  2   targeted 1    Y
-  3     2  2   avoided 1    Y
+  3     2  2    avoided 1    Y
 ```
 
 In the transition tables `Rtin` and `Qtmj` are the observed intensities and `Wtn` and `Vtm` the uniform ones they are
@@ -458,16 +458,16 @@ for g in (2, 3, 4):                                              # the gains of 
 1997-2011   3        14  21.562 2.261 0.734
 1997-2011   4        14   8.250 3.274 0.734
 1997-2011   5        14   0.125 0.050 0.734
-   Period  From  Interval   GL_km2   Lti    St
+   Period  From  Interval  GL_km2   Lti    St
 1997-2011     1        14  35.188 0.851 0.734
 1997-2011     2        14   1.125 0.111 0.734
 1997-2011     3        14   5.875 0.800 0.734
 1997-2011     4        14   4.250 2.168 0.734
    Period  To  From  Interval  T_m2j_km2  Qtmj   Vtm
-1997-2011   2        14      7.875 0.641 1.312
-1997-2011   3        14     20.000 2.097 1.312
-1997-2011   4        14      7.250 2.877 1.312
-1997-2011   5        14      0.062 0.025 1.312
+1997-2011   2     1        14      7.875 0.641 1.312
+1997-2011   3     1        14     20.000 2.097 1.312
+1997-2011   4     1        14      7.250 2.877 1.312
+1997-2011   5     1        14      0.062 0.025 1.312
    Period  From  To  Interval  T_i2n_km2  Rtin   Wtn
 1997-2011     1   2        14      7.875 0.191 0.311
 1997-2011     3   2        14      4.812 0.656 0.311
@@ -477,8 +477,8 @@ for g in (2, 3, 4):                                              # the gains of 
 1997-2011     2   3        14      1.125 0.111 0.386
 1997-2011     4   3        14      0.438 0.223 0.386
    Period  From  To  Interval  T_i2n_km2  Rtin   Wtn
-1997-2011     1   4        14      7.25 0.175 0.135
-1997-2011     3   4        14      1.00 0.136 0.135
+1997-2011     1   4        14       7.25 0.175 0.135
+1997-2011     3   4        14       1.00 0.136 0.135
 ```
 
 They are the numbers of the part's Sibuyan charts and slider (the rates in % of the class a year): rice gains at 3.27 and

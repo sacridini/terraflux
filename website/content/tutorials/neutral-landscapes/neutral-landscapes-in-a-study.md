@@ -271,12 +271,12 @@ print(at20["np"].agg(["min", "max"]).loc[list(levels)])
 ```text
 270 landscapes
                   np    ai     ed
-level                            
+level
 fragmented    1278.5  46.1  143.8
 intermediate   679.9  62.6  100.3
-aggregated    276.8  78.2   59.2
+aggregated     276.8  78.2   59.2
                  min     max
-level                       
+level
 fragmented    1193.0  1368.0
 intermediate   608.0   774.0
 aggregated     214.0   346.0

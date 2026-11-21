@@ -478,14 +478,14 @@ print(ch.areas)
 
 ```text
 to         Forest  Coconut  Grassland  Rice  Other
-from                                              
+from
 Forest       4160      126        320   116      1
 Coconut         0     1140         18     0      0
 Grassland       0       77        745    16      1
 Rice            0       61          7   156      0
 Other           0        0          0     0    282
       Forest  Coconut  Grassland  Rice  Other
-time                                         
+time
 1997    4723     1158        839   224    282
 2011    4160     1404       1090   288    284
 ```
@@ -531,7 +531,7 @@ print(S.overall_difference(m))
 
 ```text
            Gain  Persistence  Loss  Quantity  Exchange  Shift
-Category                                                     
+Category
 Forest        0         4160   563       563         0      0
 Coconut     264         1140    18       246        36      0
 Grassland   345          745    94       251        50    138
@@ -539,10 +539,10 @@ Rice        132          156    68        64        14    122
 Other         2          282     0         2         0      0
 Overall     743         6483   743       563        50    130
             gain   loss    net   swap  total
-Category                                    
+Category
 Forest      0.00  35.19 -35.19   0.00  35.19
-Coconut     16.50   1.12  15.38   2.25  17.62
-Grassland   21.56   5.88  15.69  11.75  27.44
+Coconut    16.50   1.12  15.38   2.25  17.62
+Grassland  21.56   5.88  15.69  11.75  27.44
 Rice        8.25   4.25   4.00   8.50  12.50
 Other       0.12   0.00   0.12   0.00   0.12
 {'quantity': 563.0, 'exchange': 50.0, 'shift': 130.0, 'allocation': 180.0, 'overall': 743.0}

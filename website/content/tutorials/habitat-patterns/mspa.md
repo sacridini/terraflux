@@ -308,17 +308,17 @@ print(stats.loc[["Core-Opening", "Border-Opening"], "pixels"].to_string())
 
 ```text
              pixels  pct_foreground  pct_data
-class                                        
+class
 Core         321764            75.1      32.2
 Edge          52904            12.3       5.3
 Branch        16834             3.9       1.7
 Islet         13956             3.3       1.4
 Bridge         9509             2.2       1.0
-Perforation   8628             2.0       0.9
-Loop          4895             1.1       0.5
+Perforation    8628             2.0       0.9
+Loop           4895             1.1       0.5
 class
-Core-Opening      5927
-Border-Opening   51189
+Core-Opening       5927
+Border-Opening    51189
 ```
 
 These are the numbers above (the table shows the edge as 12.4%: the same 52,904 cells, rounded up by the figure
@@ -426,7 +426,7 @@ print(pd.DataFrame(widths).round(1).T.rename_axis("edge_width").to_string())
 
 ```text
 class       Core  Edge  Branch  Islet  Bridge  Perforation  Loop
-edge_width                                                      
+edge_width
 1           75.1  12.3     3.9    3.3     2.2          2.0   1.1
 2           61.8  13.9     4.8    6.1     6.5          2.2   4.7
 3           53.4  14.2     5.3    7.2    10.2          2.3   7.4
@@ -452,7 +452,7 @@ print(sorted(int(v) for v in set(plain.values.ravel())))
 
 ```text
 class       Core  Edge  Branch  Islet  Bridge  Perforation  Loop
-neighbours                                                      
+neighbours
 8           75.1  12.3     3.9    3.3     2.2          2.0   1.1
 4           75.1  12.1     3.7    4.3     2.1          1.9   0.8
 [0, 1, 3, 5, 9, 17, 33, 35, 37, 65, 67, 69, 129]

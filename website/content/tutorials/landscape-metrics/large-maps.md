@@ -229,6 +229,7 @@ for name in ("512 rows", "128 rows"):
 print(res["whole"].round(2).T.to_string(header=False))
 ```
 
+<!-- varies -->
 ```text
 whole     0.08 s
 512 rows  0.17 s
