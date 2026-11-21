@@ -18,6 +18,7 @@ The interpreter must have the library installed (`pip install terraflux-py`, or 
 extern/terraflux-py): `--python`, else the environment variable TERRAFLUX_CHECK_PYTHON, else the one running this
 script. Threads: at most 4 in all. `--jobs` pages run at once (default 2, TERRAFLUX_CHECK_JOBS; never above 4) and the
 threads of each (OMP_NUM_THREADS, RAYON_NUM_THREADS, TERRAFLUX_THREADS...) are 4 divided among them.
+The run holds website/.cache/run.lock (tools/one_at_a_time.py): two checks started at once take turns.
 Exit status 1 if a block fails or a page times out. Not part of the CI (it needs the library built and runs for a while).
 """
 
@@ -163,6 +164,14 @@ def main() -> None:
         for p in todo:
             print(f"{sum(1 for _ in blocks(p.read_text(encoding='utf-8'))):4d}  {p.relative_to(CONTENT).as_posix()}")
         return
+    sys.path.insert(0, str(HERE))
+    from one_at_a_time import held  # heavy runs take turns (website/.cache/run.lock)
+
+    with held():
+        run_all(todo, a)
+
+
+def run_all(todo: list[pathlib.Path], a) -> None:
     jobs = max(1, min(a.jobs, MAX_THREADS, len(todo) or 1))
     threads = max(1, MAX_THREADS // jobs)
     failed = 0
