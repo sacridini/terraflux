@@ -13,7 +13,7 @@ the `tf.cost` module.
 The results are those of the R package gdistance, value for value: the
 connections are built with R's arithmetic, and on longitude/latitude grids the
 distances between cells are the ellipsoidal ones of the R package raster, to
-the last bit. Tutorial: [routes on grids](/tutorials/grid-distances/grid-routes-in-python/).
+the last bit. Tutorial: [routes on grids](/tutorials/grid-distances/).
 
 <!-- no-run -->
 ```python

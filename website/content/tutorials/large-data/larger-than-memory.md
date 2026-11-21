@@ -149,6 +149,82 @@ gigabyte in memory. A map of 1.6 billion cells would need some 30 GB whole, and 
     maps: their `map` output is made only for a map in memory, with `show`. [[metrics.landscape]] gives the whole
     landscape's metrics the same way.
 
+### Landscape metrics by strips in Python
+
+The library reads by strips too, with the same `block_rows`: [`tf.Landscape`][terraflux.Landscape] (and
+[`tf.landscape_metrics`][terraflux.landscape_metrics]) given a **file path** and `block_rows` never reads the whole
+raster. The part's `big.tif` is made here in numpy, the same way as the figure script (the CORINE excerpt of the
+example data repeated 4 x 4 times, mirrored every other time), and written once:
+
+```python
+import numpy as np
+import xarray as xr
+import terraflux as tf
+
+clc = tf.load_raster(tf.example_data("clc"))          # 2000 x 2000 cells of 25 m
+a = clc.values
+rows = [np.hstack([a if (i + j) % 2 == 0 else a[:, ::-1] for j in range(4)]) for i in range(4)]
+cells = np.vstack(rows)                                # 8000 x 8000
+y = clc.y[0].item() - 25 * np.arange(cells.shape[0])   # the same corner and cell size, a bigger grid
+x = clc.x[0].item() + 25 * np.arange(cells.shape[1])
+big = xr.DataArray(cells, dims=("y", "x"), coords={"y": y, "x": x}).rio.write_crs(clc.rio.crs)
+tf.write_raster(big, "big.tif")                        # 64 million cells, tiled and compressed
+del big, rows, cells
+```
+
+```python
+keys = ["ta", "np", "lpi", "ed", "area_mn", "shdi", "contag", "ai"]   # the graph's metrics
+strips = tf.Landscape("big.tif", block_rows=512)       # a path and block_rows: read by strips of 512 rows
+print(strips.out_of_core)
+metrics512 = strips.landscape_metrics(keys)
+metrics128 = tf.Landscape("big.tif", block_rows=128).landscape_metrics(keys)
+print(metrics512.round(4).to_string(index=False))
+print("identical with strips of 128 rows:", metrics512.equals(metrics128))
+```
+
+```text
+True
+       ta      np     lpi      ed  area_mn   shdi  contag      ai
+4000000.0 14798.0 10.6296 23.3269 270.3068 1.8096 69.4497 97.1111
+identical with strips of 128 rows: True
+```
+
+These are the part's numbers. Strips of 128 rows give the same values to the last digit, with less memory (the memory
+is the figure script's measure of the `terraflux` program, not of this block). `block_rows` is a number of rows, a
+multiple of 64 for the landscape metrics; `block_rows="auto"` reads blocks of 64 rows and works on one per thread, so
+about 64 rows per thread are in memory. A file with more than 250 million cells is not read whole by the application
+without `block_rows`; the library never guesses, so give it. A few features still need the whole raster (`patches`,
+`centroids` and the FRAGSTATS `prox`, `simi`, `econ`, `connect`); the library refuses them with *not available for an
+out-of-core landscape*, as the application does, and everything else works.
+
+The maps of patch ids (`labels()`) and of metrics come out lazy, as dask arrays: each block is read and labelled again
+when it is computed, and with `path=` the map is written to its file block by block, never whole in memory:
+
+```python
+ids = strips.labels()                                         # patch ids, lazy
+print(type(ids.data).__name__, ids.shape)
+print(strips.to_raster("area", path="patch_area.tif").name)   # the area of each cell's patch, written by blocks
+```
+
+```text
+Array (8000, 8000)
+patch_area.tif
+```
+
+For tables with millions of patches, write them in chunks instead of building them in memory (a `.parquet` file needs
+pyarrow; `.csv` and `.csv.gz` also work):
+
+```python
+print(strips.write_patch_metrics("patches.csv", ["area", "perim", "shape"], chunk_rows=500_000).name)
+```
+
+```text
+patches.csv
+```
+
+The library has no out-of-core moving window: [`tf.window_metrics`][terraflux.window_metrics] works in memory, so the
+strips with a halo of the section below are an application feature.
+
 ## Moving windows by strips with a halo
 
 [[metrics.window]] computes landscape metrics in a window around every cell (see the
@@ -205,6 +281,63 @@ The overlap needed is about the size of the largest objects whose classes span a
 kilometres with an opening inside it. GuidosToolbox's defaults, tiles of 6,500 cells overlapping by 2,000 (the
 defaults of `tile_size` and `overlap`), are generous for most maps. Check on a part of your map that fits in memory,
 as here: run both and count the cells that differ.
+
+### MSPA by tiles in Python
+
+[`tf.mspa_tiled`][terraflux.mspa_tiled] is the same operator: a GeoTIFF path in, a GeoTIFF written tile by tile, so
+memory depends on the tile size, not on the map size. Here is the part's comparison, on the forest of the CORINE
+excerpt (`forest.tif`, 2 for CORINE 23-25 and 1 for the rest), with tiles whose inner part is 500 cells
+(`tile_size` includes the overlap, so `500 + overlap`) against MSPA of the whole map:
+
+```python
+forest = ((clc >= 23) & (clc <= 25)).astype("uint8") + 1
+tf.write_raster(forest, "forest.tif")
+whole = tf.mspa(forest, edge_width=2).values                 # the reference, in memory
+for overlap in (0, 100, 200):
+    path = tf.mspa_tiled("forest.tif", f"tiled_{overlap}.tif", edge_width=2,
+                         tile_size=500 + overlap, overlap=overlap)
+    differ = int((tf.load_raster(path).values != whole).sum())
+    print(f"overlap {overlap:3d}: {differ:5d} cells differ ({100 * differ / whole.size:.3f}%)")
+```
+
+```text
+overlap   0:  4676 cells differ (0.117%)
+overlap 100:   794 cells differ (0.020%)
+overlap 200:     0 cells differ (0.000%)
+```
+
+Those are the part's slider values for 0, 100 and 200 cells. Tiles are `tile_size` pixels wide including the
+`overlap` shared with their neighbours; the defaults (6,500 and 2,000, GuidosToolbox's) suit most machines, and
+`n_workers` processes several tiles at once. Features larger than the overlap can come out differently near the seams:
+check on a part that fits in memory, as here. Given an array instead of a path, `tf.mspa_tiled` works in memory, tile
+by tile, which is how to test a choice without a big file.
+
+### Time stacks with dask
+
+Rasters that share the same grid (the same region at several dates) form a lazy stack with one dask chunk per file, and
+[`tf.mspa`][terraflux.mspa] runs on the slices in parallel when the result is computed. Two dates of the forest map:
+
+```python
+from pathlib import Path
+
+Path("years").mkdir(exist_ok=True)
+tf.write_raster(forest, "years/forest_2010.tif")
+tf.write_raster(forest, "years/forest_2020.tif")
+stack = tf.load_raster("years/*.tif", stack=True)            # (file, y, x), lazy
+morph_stack = tf.mspa(stack, edge_width=2)                   # still lazy
+print(stack.dims, morph_stack.shape)
+first = morph_stack.isel(file=0).compute()                   # computing one slice reads and runs only that file
+print(len(np.unique(first.values)), "MSPA codes in the first file")
+```
+
+```text
+('file', 'y', 'x') (2, 2000, 2000)
+13 MSPA codes in the first file
+```
+
+`morph_stack.compute()` runs every slice; `.to_netcdf(...)` writes the stack. The same applies to any function that
+accepts a dask array. For a folder of unrelated maps, as in [Batch processing](../batch-processing/), a collection and
+`tf.batch` are the better tool.
 
 ## Simulations by tiles: the tiled engine
 
@@ -280,5 +413,3 @@ tiling.
 - Gorelick, N., Hancher, M., Dixon, M., Ilyushchenko, S., Thau, D., & Moore, R. (2017). Google Earth Engine: Planetary-scale geospatial analysis for everyone. *Remote Sensing of Environment*, 202, 18–27. https://doi.org/10.1016/j.rse.2017.06.031
 - Soares-Filho, B. S., Coutinho Cerqueira, G., & Lopes Pennachin, C. (2002). DINAMICA: a stochastic cellular automata model designed to simulate the landscape dynamics in an Amazonian colonization frontier. *Ecological Modelling*, 154(3), 217–235. https://doi.org/10.1016/S0304-3800(02)00059-5
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
-
-In Python: [Large data & batch in Python](/tutorials/large-data/large-data-in-python/).

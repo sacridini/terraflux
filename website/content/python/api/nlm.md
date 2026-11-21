@@ -8,7 +8,7 @@ Simulated landscapes that follow a known rule (complete randomness, a
 gradient, clustering, fractal roughness) and nothing else: the null models of
 landscape ecology, to test whether a pattern or a process differs from what
 chance alone would give. They live in the `tf.nlm` module. Tutorial:
-[neutral landscapes](/tutorials/neutral-landscapes/neutral-landscapes-in-python/).
+[neutral landscapes](/tutorials/neutral-landscapes/).
 
 With the same `seed` every model gives the same landscape as the R package
 NLMR, value for value: the random number generators of R and of the C++

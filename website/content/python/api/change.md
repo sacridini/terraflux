@@ -7,7 +7,7 @@ order: 130
 Differences between two dates of a habitat map: pixel transitions,
 structural change without edge noise, and the change of fragmentation and of
 landscape mosaics. Tutorial:
-[change detection](/tutorials/change-detection/change-detection-in-python/).
+[change detection](/tutorials/change-detection/).
 
 All functions take the two dates on the same grid. The change of
 connectivity indices over time is in

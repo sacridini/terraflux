@@ -77,10 +77,10 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `comparing-maps.md` | — | full | `change-detection-in-python.md` | |
-| `forest-gain-and-loss.md` | `change.fad` | partial | `change-detection-in-python.md` | |
-| `intensity-analysis.md` | — | full | `change-detection-in-python.md` | |
-| `transitions.md` | `change.suggest` | partial | `change-detection-in-python.md` | |
+| `comparing-maps.md` | — | full | merged, redirected | done |
+| `forest-gain-and-loss.md` | `change.fad` (the script generator only: the library has `tf.fad_multiscale_change`, used) | full | merged, redirected | done |
+| `intensity-analysis.md` | — | full | merged, redirected | done |
+| `transitions.md` | `change.suggest` | partial | merged, redirected | done |
 
 `change-detection-in-python.md`:
 - ## Gains and losses → transitions ?
@@ -202,8 +202,8 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `cost-distance.md` | — | full | `grid-routes-in-python.md` | |
-| `random-walks.md` | — | full | `grid-routes-in-python.md` | |
+| `cost-distance.md` | — | full | merged, redirected | done |
+| `random-walks.md` | — | full | merged, redirected | done |
 
 `grid-routes-in-python.md`:
 - ## A transition: the raster as a graph → cost-distance
@@ -336,8 +336,8 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `batch-processing.md` | — | full | `large-data-in-python.md` | |
-| `larger-than-memory.md` | — | full | `large-data-in-python.md` | |
+| `batch-processing.md` | — | full | merged, redirected | done |
+| `larger-than-memory.md` | — | full | merged, redirected | done |
 
 `large-data-in-python.md`:
 - ## Collections → batch-processing ?
@@ -353,8 +353,8 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `neutral-landscape-models.md` | — | full | `neutral-landscapes-in-python.md` | |
-| `neutral-landscapes-in-a-study.md` | — | full | `neutral-landscapes-in-python.md` | |
+| `neutral-landscape-models.md` | — | full | merged, redirected | done |
+| `neutral-landscapes-in-a-study.md` | — | full | merged, redirected | done |
 
 `neutral-landscapes-in-python.md`:
 - ## A gallery of models → neutral-landscape-models
@@ -629,3 +629,8 @@ No `*-in-python.md` page in this category.
 - Reason: its input polygons: not in the script yet
 - Parts: `spatial-prioritization/spatial-design`
 
+## Library gaps found
+- `change.suggest` (change-detection/transitions): no function; the part gives its table in pandas on `Changes.table`.
+- `raster.resample` by mode (change-detection/transitions, the slider of coarser cells): `tf.reproject` needs a georeferenced raster and Sibuyan's has no CRS; no Python counterpart given.
+- `metrics.window` out of core (large-data/larger-than-memory): no moving window by strips with a halo; `tf.window_metrics` works in memory only.
+- `terraflux run --tiled` (large-data/larger-than-memory): no tiled land-change engine in the library.

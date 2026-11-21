@@ -5,7 +5,7 @@ order: 140
 ---
 
 Many rasters at once, maps larger than memory, and tiled MSPA. Tutorial:
-[large data and batch processing](/tutorials/large-data/large-data-in-python/).
+[large data and batch processing](/tutorials/large-data/batch-processing/#in-python).
 
 Most tools also accept a [`RasterCollection`](/python/api/data/#terraflux.RasterCollection)
 or a lazy stack directly (e.g. `tf.mspa(tf.load_raster("tiles/*.tif"),

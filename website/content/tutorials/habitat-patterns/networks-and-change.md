@@ -747,7 +747,7 @@ it is 1,328 at an overlap of 20 and the same 700 at 60. The second is the orange
 enclosed by forest strips (border-openings, 220) that no tile sees whole come out as plain background.
 
 Many maps, or maps larger than memory with every tile in its own worker, are in
-[large data & batch](/tutorials/large-data/large-data-in-python/): `tf.mspa_batch` runs MSPA
+[large data & batch](/tutorials/large-data/batch-processing/#in-python): `tf.mspa_batch` runs MSPA
 over a list or a folder of maps.
 
 ## Settings that change the answer

@@ -29,7 +29,7 @@ On a cluster, the nodes of an allocation can be helpers too; see
 
 This helps when there are **many independent tasks**. One large map is better
 served by the threads of one computer (every tool already uses them) or by
-[tiles](/tutorials/large-data/large-data-in-python/#mspa-of-maps-larger-than-memory).
+[tiles](/tutorials/large-data/larger-than-memory/#mspa-by-tiles-in-python).
 
 ## Bring computers into a group
 
@@ -202,4 +202,4 @@ skipped.
 ## Next steps
 
 - The [API reference](/python/api/batch/#several-computers) lists every option.
-- [Large data & batch](/tutorials/large-data/large-data-in-python/) covers the work of one computer.
+- [Large data & batch](/tutorials/large-data/) covers the work of one computer.

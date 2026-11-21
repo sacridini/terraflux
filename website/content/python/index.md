@@ -53,14 +53,14 @@ Where to go:
   habitat areas and omnidirectional connectivity across whole landscapes, on rasters and on networks.
 - **[Distance and restoration](/tutorials/distance-restoration/distance-restoration-in-python/)**: distance maps,
   cost surfaces, least-cost paths and corridors, restoration priorities and travel-time (isochrone) maps.
-- **[Routes on grids](/tutorials/grid-distances/grid-routes-in-python/)**: travel-time surfaces, least-cost and
+- **[Routes on grids](/tutorials/grid-distances/)**: travel-time surfaces, least-cost and
   random-walk distances, randomised shortest paths and the overlap of dispersal routes.
-- **[Change detection](/tutorials/change-detection/change-detection-in-python/)**: compare two dates: simple and
+- **[Change detection](/tutorials/change-detection/)**: compare two dates: simple and
   morphological change, shifts between fragmentation classes and heat maps of landscape change.
 - **[Surface texture](/tutorials/surface-metrics/surface-texture-in-python/)**: roughness, height distribution and
   texture of continuous rasters (ISO 25178) such as NDVI or elevation, terrain indices of DEMs and protected
   hilltops.
-- **[Neutral landscapes](/tutorials/neutral-landscapes/neutral-landscapes-in-python/)**: simulated landscapes as
+- **[Neutral landscapes](/tutorials/neutral-landscapes/)**: simulated landscapes as
   null models: random maps, gradients, fractal surfaces, Gaussian fields, clusters and mosaics.
 - **[Biodiversity analysis](/tutorials/biodiversity/biodiversity-in-python/)**: species records in grid cells:
   richness, endemism, phylogenetic diversity and endemism, randomisations and regions.
@@ -74,7 +74,7 @@ Where to go:
   scenarios with replicates, and roads and stocks that change with the model.
 - **[Watershed simulation](/tutorials/terrain-hydrology/watershed-model-in-python/)**: the SWAT+ model from a DEM,
   land use and soils: daily water balance, streamflow, soil loss on the map and land use scenarios.
-- **[Large data and batch](/tutorials/large-data/large-data-in-python/)**: folders of rasters in parallel, tiles
+- **[Large data and batch](/tutorials/large-data/)**: folders of rasters in parallel, tiles
   for maps larger than memory, streaming tables with millions of rows.
 
 ## What it covers, and what it reproduces

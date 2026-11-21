@@ -281,6 +281,144 @@ results by GuidosToolbox's naming. It still runs. In the application, select it 
 nodes** in the Node pane: it becomes the three nodes above, with its folder, operator, settings and output folder,
 its maps seen in the Viewer as any node's.
 
+### In Python
+
+The library has the same batch, and more of it: [`tf.load_raster`][terraflux.load_raster] given a folder, a pattern or
+a list returns a **collection** (only the headers are read; the pixels when each file is processed), and
+[`tf.mspa`][terraflux.mspa], [`tf.landscape_metrics`][terraflux.landscape_metrics] and
+[`tf.batch`][terraflux.batch] run on it, several files at a time. The 16 tiles are the same: the CORINE excerpt of the
+library's example data cut in 500 x 500 cells. [`tf.mspa`][terraflux.mspa] takes a map coded 0, 1 and 2, so the forest
+tiles (CORINE 23, 24 and 25 as 2, the rest 1) are written to a second folder:
+
+```python
+from pathlib import Path
+import terraflux as tf
+
+clc = tf.load_raster(tf.example_data("clc"))              # CORINE excerpt, 2000 x 2000 cells of 25 m
+Path("tiles").mkdir(exist_ok=True)
+Path("forest").mkdir(exist_ok=True)
+for i in range(4):
+    for j in range(4):
+        tile = clc[i * 500:(i + 1) * 500, j * 500:(j + 1) * 500]
+        tf.write_raster(tile, f"tiles/clc_r{i}c{j}.tif")
+        forest = ((tile >= 23) & (tile <= 25)).astype("uint8") + 1
+        tf.write_raster(forest, f"forest/forest_r{i}c{j}.tif")
+
+maps = tf.load_raster("forest/*.tif")                      # a collection: the headers only
+print(maps)
+```
+
+```text
+<RasterCollection: 16 rasters, different grids, 4.0 Mpx>
+```
+
+Every file is checked on the way in; `errors="skip"` leaves unusable files out (listed in `maps.skipped`) instead of
+stopping. MSPA of a collection runs one file per worker thread; with `output_dir` each result is written as soon as it
+is ready, so memory stays bounded, and a `BatchResult` per file records the output, the run time and any error:
+
+```python
+results = tf.mspa(maps, edge_width=2, output_dir="mspa")   # the part's foreground and edge width
+print(len(results), results[0].output.name, results[0].ok)
+print(sorted(p.name for p in Path("mspa").glob("*.tif"))[:3])
+```
+
+```text
+16 forest_r0c0_8_2_1_1.tif True
+['forest_r0c0_8_2_1_1.tif', 'forest_r0c1_8_2_1_1.tif', 'forest_r0c2_8_2_1_1.tif']
+```
+
+Without `output_dir` the maps come back in a list. The files are named after the input and the settings (here
+connectivity 8, edge width 2, transition and internal on). Put back in their places, they differ from MSPA of the whole
+map in the cells the part counted:
+
+```python
+whole = tf.mspa(((clc >= 23) & (clc <= 25)).astype("uint8") + 1, edge_width=2)
+mosaic = whole.values.copy()
+for i in range(4):
+    for j in range(4):
+        tile_mspa = tf.load_raster(f"mspa/forest_r{i}c{j}_8_2_1_1.tif")
+        mosaic[i * 500:(i + 1) * 500, j * 500:(j + 1) * 500] = tile_mspa.values
+print((mosaic != whole.values).sum(), "cells differ from the whole map")
+```
+
+```text
+4676 cells differ from the whole map
+```
+
+That is the 4,676 cells of the figure. One table of all the files, as the graph's [[metrics.class]] gives it, is
+[`tf.landscape_metrics`][terraflux.landscape_metrics] of the collection: a long table (`layer`, `level`, `class`,
+`metric`, `value`) in which `layer` numbers the files in the order of the collection (1 is `clc_r0c0`, 2 is `clc_r0c1`).
+`metric=` picks the metrics by name, as `metrics=` does in the node:
+
+```python
+table = tf.landscape_metrics(tf.load_raster("tiles/*.tif"), level="class", metric=["pland", "np", "ed"])
+wide = table.pivot_table(index=["layer", "class"], columns="metric", values="value")
+print(wide.head(3).round(4).to_string())
+print(len(wide), "rows: a row per class of each tile")
+```
+
+```text
+metric           ed   np   pland
+layer class                     
+1     1      0.1760  1.0  0.1916
+      2      4.8448  9.0  7.1476
+      3      0.3200  1.0  0.1744
+195 rows: a row per class of each tile
+```
+
+The part's csv has the same rows and the same values for the first tile (0.1916, 1 and 0.176 for class 1).
+
+[`tf.batch`][terraflux.batch] is the way to run **any** tool on many files and keep a file for each result, which is
+what the older [[batch.run]] node did. It runs the tool on every raster of a folder, pattern, list or collection and
+writes everything it returns, named after the input:
+
+```python
+runs = tf.batch("fad", "forest", "fad_out", window_size=27)
+print([run.output.name for run in runs][:3], all(run.ok for run in runs))
+print(sorted(p.name for p in Path("fad_out").iterdir())[:4])
+```
+
+```text
+['forest_r0c0_fad_density.tif', 'forest_r0c1_fad_density.tif', 'forest_r0c2_fad_density.tif'] True
+['forest_r0c0_fad.json', 'forest_r0c0_fad.txt', 'forest_r0c0_fad_classes.tif', 'forest_r0c0_fad_density.tif']
+```
+
+| Output | File |
+|---|---|
+| maps | `<name>_<tool>_<field>.tif` (with the colour table where there is one) |
+| tables | `<name>_<tool>_<field>.csv`, or `.parquet` with `table_format="parquet"` |
+| report | `<name>_<tool>.txt` (the result's `summary()`) |
+| record | `<name>_<tool>.json`: parameters, outputs, scalar results, run time |
+
+The tools are listed in `tf.BATCH_TOOLS` (MSPA, fragmentation, accounting, distance, landscape metrics...) and any
+function that takes a raster as its first argument works too; tool options follow as keywords. As in the application,
+**an input whose record exists is not run again**: an interrupted run resumes where it stopped, and `overwrite=True`
+recomputes. A second call takes no time:
+
+```python
+again = tf.batch("fad", "forest", "fad_out", window_size=27)
+print(round(sum(run.seconds for run in again), 2), "seconds the second time")
+```
+
+```text
+0.0 seconds the second time
+```
+
+The options that decide how it runs, the library's counterparts of the node's `workers`:
+
+| Option | Default | Meaning |
+|---|---|---|
+| `n_workers` | the cores less a quarter | rasters in flight |
+| `threads_per_worker` | 1 | threads inside each raster: best throughput for many small rasters; raise it for a few large ones |
+| `max_memory` | none | e.g. `"16GB"`: a raster starts only when its estimated memory fits |
+| `raise_errors` | False | stop at the first error instead of recording it (the default is the part's: a file that fails does not stop the others) |
+
+Every parallel function of the library uses the cores less a quarter unless told otherwise (see
+[configuration](/python/getting-started/configuration/#threads)); a collection or a batch uses `n_workers` x
+`threads_per_worker` threads, and Omniscape's `memory_limit=` caps the memory of its windows. `tf.batch` and `tf.mspa_batch` also run on the computers of a lab with `on=tf.helpers()`:
+see [several computers](/parallel/many-computers-in-python/). The [API reference](/python/api/batch/) lists every
+option, and the [benchmarks](/benchmarks/speed/) show the speed to expect.
+
 ## Settings that change the answer
 
 The answer is the operator's, so its settings are what matter: see its tutorial. [[raster.read]]'s `workers` and
@@ -314,5 +452,3 @@ in memory: see them in the files.
 ## References
 
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
-
-In Python: [Large data & batch in Python](/tutorials/large-data/large-data-in-python/).

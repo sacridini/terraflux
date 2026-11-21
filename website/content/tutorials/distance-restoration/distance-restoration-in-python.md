@@ -153,4 +153,4 @@ neighbouring objects are along those lines.
 
 - Current flow instead of a single best route:
   [circuit connectivity](/tutorials/circuit-connectivity/circuit-connectivity-in-python/).
-- Change between two dates: [change detection](/tutorials/change-detection/change-detection-in-python/).
+- Change between two dates: [change detection](/tutorials/change-detection/forest-gain-and-loss/#in-python).
