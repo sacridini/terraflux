@@ -208,7 +208,9 @@ def generic_value(r) -> str:
         return str(r)
     if isinstance(r, (int, float, np.integer, np.floating)):
         return num(r)
-    if isinstance(r, pd.Series):
+    if isinstance(r, pd.Series) and len(r) > 12 and pd.api.types.is_numeric_dtype(r):
+        r = r.to_numpy()  # a long column: its summary below, not one line per row
+    elif isinstance(r, pd.Series):
         return "\n".join(f"{k}  {num(v) if isinstance(v, (int, float, np.number)) else v}" for k, v in r.items())
     if isinstance(r, pd.DataFrame):
         return r.round(4).to_string(index=False)
@@ -230,11 +232,12 @@ def generic_value(r) -> str:
             return ", ".join(num(v) for v in a.ravel())
         f = a.astype("float64", copy=False)
         ok = np.isfinite(f)
+        what, gap = ("a map", "cells without a value") if a.ndim >= 2 else (f"{a.size} values", "missing")
         if not ok.any():
-            return f"a map of {a.size} cells, none with a value"
-        text = (f"a map: mean {num(f[ok].mean())}, from {num(f[ok].min())} to {num(f[ok].max())}")
+            return f"{what}, none with a value"
+        text = f"{what}: mean {num(f[ok].mean())}, from {num(f[ok].min())} to {num(f[ok].max())}"
         missing = int(a.size - ok.sum())
-        return text + (f"; {missing} cells without a value" if missing else "")
+        return text + (f"; {missing} {gap}" if missing else "")
     return str(r)
 
 

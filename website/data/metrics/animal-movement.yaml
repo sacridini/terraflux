@@ -1,0 +1,1146 @@
+family: animal-movement
+title: Animal movement
+order: 120
+source: "move2 and move2utils (R), amt (R)"
+intro: |
+  The measures of animal tracks: steps, whole tracks, home ranges and their bandwidths, the overlap of two home ranges,
+  utilisation distributions from Brownian bridges and the validation of a connectivity surface with the animals' use.
+  They are ported from the R packages move2, move2utils and amt and give the same numbers. They are the measures of the
+  [animal movement tutorials](../../tutorials/animal-movement/home-ranges/).
+
+  The cards show their values on the fisher M4 of `tf.move.example_data("fishers")` (a male fisher tracked by GPS near
+  Albany, New York, in 2010), cleaned (records Movebank shows, one per time, with a location), projected to its own
+  azimuthal equidistant projection (metres from the centre of its locations) and thinned to one location per about
+  10 minutes: `m4`, 2 228 locations, as in the tutorial "Home ranges". `first` and `second` are its locations before and
+  after 6 March 2010 (951 and 1 277), so that the overlap and validation cards compare two real periods of one animal, not
+  an estimate with itself: `kde_a` and `kde_b` are their kernel estimates on one template, `ud_a` and `ud_b` their dynamic
+  Brownian bridges on one grid.
+
+  Step measures give one value per location, for the step that leaves it (no value at the last location of a track), and
+  the cards summarise them; track measures give one value per track. In longitude / latitude, lengths are great-circle
+  distances on a sphere (radius 6 371 010 m); in a projected CRS they are straight lines in its units, and areas are in its
+  unit squared.
+example: |
+  import numpy as np
+  import pandas as pd
+  import terraflux as tf
+
+  ID = "individual-local-identifier"
+  tracks = tf.load_tracks(tf.move.example_data("fishers"))
+  tracks = tf.move.filter_unique(tf.move.filter_movebank_visible(tracks))
+  tracks = tracks[~tracks.geometry.is_empty]
+
+  # the fisher M4 in metres from its centre, one location per about 10 minutes
+  m4 = tracks[tracks[ID] == "M4"].reset_index(drop=True)
+  m4 = m4.to_crs(tf.move.aeqd_crs(m4))
+  m4 = m4[tf.move.thin_time(m4, "10 mins")].reset_index(drop=True)
+
+  # its first and second half (before and after 6 March 2010): kernel estimates on one template, bridges on one grid
+  half = m4["timestamp"] < pd.Timestamp("2010-03-06", tz="UTC")
+  first, second = m4[half], m4[~half]
+  trast = tf.move.make_trast(m4, factor=1.25, res=25)
+  kde_a = tf.move.hr_kde(first, trast=trast, levels=[0.5, 0.95])
+  kde_b = tf.move.hr_kde(second, trast=trast, levels=[0.5, 0.95])
+  halves = m4.assign(half=np.where(half, "first", "second"))
+  uds = tf.move.dbbmm_ud(halves, location_error=20, window_size=25, margin=7, res=50, track="half")
+  ud_a, ud_b = uds.isel(band=0), uds.isel(band=1)
+metrics:
+  # impl: extern/terraflux-py/src/terraflux/move/_measures.py:15-47
+  - id: step_length
+    name: Step length
+    level: step
+    theme: steps
+    unit: m (the CRS units)
+    range: "0 or more"
+    aliases: [distance, move length, sl_]
+    what: |
+      The distance from a location to the next location of the same track: a straight line in a projected CRS, the
+      great-circle distance in longitude / latitude.
+    use: |
+      A step's length depends on the time between the fixes: compare steps only at one sampling interval (thin or
+      resample the tracks first, [[move.filter_per_interval]]).
+    formula: 'd_i = \lVert \mathbf{p}_{i+1} - \mathbf{p}_i \rVert'
+    symbols:
+      '\mathbf{p}_i': 'the position of location \(i\)'
+      'd_i': 'the length of the step that leaves location \(i\)'
+    python: 'tf.move.distance(m4)'
+    operator: move.distance
+    api: terraflux.move.distance
+    refs:
+      - "Kranstauber, Safi & Scharf (2024). move2: R package for processing movement data. Methods in Ecology and Evolution 15: 1561-1567. doi:10.1111/2041-210X.14383"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_measures.py:50-66
+  - id: time_lag
+    name: Time lag
+    level: step
+    theme: steps
+    unit: s (or min, h, d)
+    range: "0 or more"
+    aliases: [sampling interval, time difference]
+    what: |
+      The time from a location to the next one of its track.
+    use: |
+      Use it to find the gaps and the real sampling interval of a track. The speed needs it to be positive: two fixes at
+      the same time are removed with [[move.filter_unique]] first.
+    formula: '\Delta t_i = t_{i+1} - t_i'
+    symbols:
+      't_i': 'the time of location \(i\)'
+    python: 'tf.move.time_lags(m4)'
+    operator: move.time_lags
+    api: terraflux.move.time_lags
+    refs:
+      - "Kranstauber, Safi & Scharf (2024). move2: R package for processing movement data. Methods in Ecology and Evolution 15: 1561-1567. doi:10.1111/2041-210X.14383"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_measures.py:69-90
+  - id: step_speed
+    name: Speed of a step
+    level: step
+    theme: steps
+    unit: m/s (or km/h, m/h, km/d)
+    range: "0 or more"
+    aliases: [velocity, ground speed]
+    what: |
+      The step's length divided by its time lag: the mean speed between two fixes.
+    use: |
+      An average over the interval, so it is below the real speed when the sampling is coarse. Steps faster than the
+      animal can move ([the allometric maximum speed](#v_phys)) are probably location errors.
+    formula: 'v_i = \frac{d_i}{\Delta t_i}'
+    symbols:
+      'd_i': 'the step length'
+      '\Delta t_i': 'the time lag, in seconds'
+    python: 'tf.move.speed(m4)'
+    operator: move.speed
+    api: terraflux.move.speed
+    refs:
+      - "Kranstauber, Safi & Scharf (2024). move2: R package for processing movement data. Methods in Ecology and Evolution 15: 1561-1567. doi:10.1111/2041-210X.14383"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_measures.py:93-120
+  - id: step_azimuth
+    name: Azimuth of a step
+    level: step
+    theme: steps
+    unit: rad (or degrees)
+    range: "from -π (exclusive) to π"
+    aliases: [heading, bearing, direction]
+    what: |
+      The compass direction of a step, clockwise from north. In longitude / latitude it is the geodesic azimuth on the
+      CRS's ellipsoid; it has no value where a location repeats the one before.
+    use: |
+      A compass direction, not one relative to the step before (that is the turn angle). amt's direction (in
+      [[move.steps]]) is measured anticlockwise from east instead.
+    formula: '\theta_i = \operatorname{atan2}(\Delta x_i, \Delta y_i)'
+    symbols:
+      '\Delta x_i, \Delta y_i': 'the differences of easting and northing from location \(i\) to \(i+1\)'
+    python: 'tf.move.azimuth(m4, "deg")'
+    operator: move.azimuth
+    api: terraflux.move.azimuth
+    refs:
+      - "Kranstauber, Safi & Scharf (2024). move2: R package for processing movement data. Methods in Ecology and Evolution 15: 1561-1567. doi:10.1111/2041-210X.14383"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_measures.py:123-148
+  - id: step_turn_angle
+    name: Turn angle
+    level: step
+    theme: steps
+    unit: rad (or degrees)
+    range: "from -π to π (exclusive)"
+    aliases: [turning angle, relative angle, ta_]
+    what: |
+      The change of direction at a location: the azimuth of the step that leaves it minus the azimuth of the step that
+      arrives at it, positive to the right. It has no value at the first and the last location of a track.
+    use: |
+      Near 0 for persistent movement, near ±180° for turning back. Like the step length it changes with the sampling
+      interval: at a coarse one the turns look almost uniform.
+    formula: '\phi_i = \theta_i - \theta_{i-1}, \quad \text{wrapped to } [-\pi, \pi)'
+    symbols:
+      '\theta_i': 'the azimuth of the step that leaves location \(i\)'
+      '\theta_{i-1}': 'the azimuth of the step that arrives at it'
+    python: 'tf.move.turn_angle(m4, "deg")'
+    operator: move.turn_angle
+    api: terraflux.move.turn_angle
+    refs:
+      - "Kranstauber, Safi & Scharf (2024). move2: R package for processing movement data. Methods in Ecology and Evolution 15: 1561-1567. doi:10.1111/2041-210X.14383"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_steps.py:126-205
+  - id: step_amt
+    name: Steps as amt makes them (length, direction, turn)
+    level: step
+    theme: steps
+    unit: m and rad
+    range: "sl_ 0 or more; direction_p and ta_ from -π (exclusive) to π"
+    aliases: [step selection steps, sl_, ta_, direction_p]
+    what: |
+      amt's table of steps: for each step its length `sl_`, its direction `direction_p` (anticlockwise from east, as
+      mathematics measures angles) and its turn angle `ta_` from the step before. In longitude / latitude the direction is
+      the geodesic bearing turned into an angle from east.
+    use: |
+      The input of a step-selection analysis. The first step of each track (or burst) has no turn angle.
+    formula: 'sl_i = d_i, \quad \alpha_i = \operatorname{atan2}(\Delta y_i, \Delta x_i), \quad ta_i = \alpha_i - \alpha_{i-1} \text{ wrapped}'
+    symbols:
+      '\Delta x_i, \Delta y_i': 'the differences of the coordinates along step \(i\)'
+      'd_i': 'its length'
+      '\alpha_i': 'its direction, anticlockwise from east'
+    python: 'tf.move.steps(m4)[["sl_", "direction_p", "ta_"]].head(4)'
+    operator: move.steps
+    api: terraflux.move.steps
+    refs:
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_steps.py:220-236
+  - id: nsd
+    name: Net squared displacement (NSD)
+    level: location
+    theme: steps
+    unit: m² (the coordinates' unit squared)
+    range: "0 or more"
+    aliases: [net squared displacement, NSD]
+    what: |
+      The squared distance of each location from the first location of its track. Over time it shows dispersal (it keeps
+      growing), migration (it rises to a plateau and comes back) and a home range (it stays level).
+    use: |
+      Plot it against time. In longitude / latitude it is in squared degrees, as amt computes it: project the tracks first.
+    formula: 'NSD_i = (x_i - x_1)^2 + (y_i - y_1)^2'
+    symbols:
+      '(x_i, y_i)': 'the coordinates of location \(i\)'
+      '(x_1, y_1)': 'the first location of the track'
+    python: 'tf.move.nsd(m4)'
+    operator: move.nsd
+    api: terraflux.move.nsd
+    refs:
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_steps.py:356-410
+  - id: time_of_day
+    name: Time of day (day, night, dawn, dusk)
+    level: location
+    theme: steps
+    unit: category
+    range: "day, night (and dawn, dusk)"
+    aliases: [day or night, diel period, crepuscule]
+    what: |
+      Whether each location (or the start or end of each step) falls between sunrise and sunset of its date, or at night;
+      with `include_crepuscule` also dawn and dusk. The sun is computed as the R package suncalc does, from the location
+      and the date in UTC.
+    use: |
+      Use it to split the movement by period of activity. Near the poles the sun does not rise or set on some dates, and
+      those locations get no value.
+    formula: '\text{day} \iff t_{rise} \le t \le t_{set}; \quad \text{dawn} \iff t_{dawn} \le t < t_{rise}; \quad \text{dusk} \iff t_{set} < t \le t_{dusk}'
+    symbols:
+      't': 'the time of the location'
+      't_{rise}, t_{set}': 'sunrise and sunset (the upper edge of the sun at -0.833°)'
+      't_{dawn}, t_{dusk}': 'the start and end of civil twilight (the sun at -6°)'
+    python: 'pd.Series(tf.move.time_of_day(m4)).value_counts()'
+    operator: move.time_of_day
+    api: terraflux.move.time_of_day
+    refs:
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_clean.py:50-103
+  - id: v_phys
+    name: Allometric maximum speed
+    level: species
+    theme: steps
+    unit: m/s
+    range: "more than 0"
+    aliases: [maximum speed, physiological maximum speed, v_max]
+    what: |
+      A ceiling for the speed an animal can reach, from its body mass and its way of moving (flying, running or swimming),
+      by the scaling law of Hirt et al. (2017). Steps faster than it are probably location errors. The card's call is for
+      an animal of 5 kg (within what an adult male fisher weighs), running.
+    use: |
+      A burst speed over a horizontal path, not a travelling speed, and specialists can exceed it: use it as a generous
+      limit to flag errors, not as a filter on its own.
+    formula: 'v = a\, M^{b}\left(1 - e^{-h M^{i}}\right)'
+    symbols:
+      'M': 'the body mass, in kg'
+      'v': 'the speed, in km/h (returned in m/s)'
+      'a, b, h, i': 'the parameters of Hirt et al.''s supplementary table for each way of moving; the interval of the estimate comes from their standard errors (delta method)'
+    python: 'tf.move.v_phys_estimate(5.0, "running").v_max'
+    operator: move.max_speed
+    setting: 'mode = "running"'
+    api: terraflux.move.v_phys_estimate
+    refs:
+      - "Hirt, Jetz, Rall & Brose (2017). A general scaling law reveals why the largest animals are not the fastest. Nature Ecology & Evolution 1: 1116-1122."
+
+  # impl: extern/terraflux-py/src/terraflux/move/_steps.py:239-255
+  - id: cum_dist
+    name: Track length (cumulative distance)
+    level: track
+    theme: tracks
+    unit: m
+    range: "0 or more"
+    aliases: [path length, total distance travelled, cum_dist]
+    what: |
+      The length of a track: the sum of its step lengths.
+    use: |
+      It grows with the sampling rate, since more fixes follow more of the animal's wiggles: compare tracks at one interval.
+    formula: 'L = \sum_{i=1}^{n-1} d_i'
+    symbols:
+      'd_i': 'the length of step \(i\)'
+      'n': 'the number of locations of the track'
+    python: 'tf.move.cum_dist(m4)'
+    operator: move.track_summary
+    api: terraflux.move.cum_dist
+    refs:
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_steps.py:258-274
+  - id: tot_dist
+    name: Net displacement (total distance)
+    level: track
+    theme: tracks
+    unit: m
+    range: "0 or more"
+    aliases: [net displacement, beeline distance, tot_dist]
+    what: |
+      The straight-line distance from the first to the last location of a track.
+    use: |
+      Small for an animal that comes back to where it started, however long its track.
+    formula: 'D = \lVert \mathbf{p}_n - \mathbf{p}_1 \rVert'
+    symbols:
+      '\mathbf{p}_1, \mathbf{p}_n': 'the first and the last location of the track'
+    python: 'tf.move.tot_dist(m4)'
+    operator: move.track_summary
+    api: terraflux.move.tot_dist
+    refs:
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_steps.py:277-290
+  - id: straightness
+    name: Straightness index
+    level: track
+    theme: tracks
+    unit: none
+    range: "0 to 1; 1 for a straight path"
+    aliases: [directness index, path straightness]
+    what: |
+      The net displacement divided by the track length: 1 for a straight path, near 0 for a tortuous one.
+    use: |
+      Meant for short paths towards a goal. For an animal that stays in a home range it falls towards 0 as the track
+      gets longer (as on the example fisher), and says little.
+    formula: 'S = \frac{D}{L}'
+    symbols:
+      'D': 'the net displacement (`tot_dist`)'
+      'L': 'the track length (`cum_dist`)'
+    python: 'tf.move.straightness(m4)'
+    operator: move.track_summary
+    api: terraflux.move.straightness
+    refs:
+      - "Benhamou (2004). How to reliably estimate the tortuosity of an animal's path: straightness, sinuosity, or fractal dimension? Journal of Theoretical Biology 229: 209-220. doi:10.1016/j.jtbi.2004.03.016"
+
+  # impl: extern/terraflux-py/src/cpp/move/amt.cpp:185-195
+  - id: msd
+    name: Mean squared distance from the centre
+    level: track
+    theme: tracks
+    unit: m²
+    range: "0 or more"
+    aliases: [mean squared distance, MSD, radius of gyration]
+    what: |
+      The mean squared distance of the locations of a track from their mean location: how widely the track spreads.
+    use: |
+      Its square root is a radius of the area used. A few long excursions raise it a lot.
+    formula: 'MSD = \frac{1}{n}\sum_{i=1}^{n} \left[(x_i - \bar{x})^2 + (y_i - \bar{y})^2\right]'
+    symbols:
+      '(x_i, y_i)': 'the coordinates of location \(i\)'
+      '(\bar{x}, \bar{y})': 'their means'
+      'n': 'the number of locations'
+    python: 'tf.move.msd(m4)'
+    operator: move.track_summary
+    api: terraflux.move.msd
+    refs:
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/cpp/move/amt.cpp:170-183
+  - id: sinuosity
+    name: Sinuosity (Benhamou)
+    level: track
+    theme: tracks
+    unit: 1 / √m
+    range: "more than 0"
+    aliases: [tortuosity, path sinuosity]
+    what: |
+      Benhamou's estimator of the tortuosity of a random search path, from the mean step length, the variation of the
+      step lengths and the mean cosine and sine of the turn angles. It is meant for tracks sampled at a regular interval.
+    use: |
+      The lower, the more tortuous. Its unit is the inverse square root of a length, so compare tracks at the same
+      sampling. amt reads the turn angles as if they were degrees; this library takes them in radians, as the formula needs.
+    formula: 'S = \frac{2}{\sqrt{p \left[ \dfrac{1 - c^2 - s^2}{(1-c)^2 + s^2} + b^2 \right]}}'
+    symbols:
+      'p': 'the mean step length'
+      'b': 'the coefficient of variation of the step lengths (sample standard deviation / mean)'
+      'c, s': 'the means of the cosines and of the sines of the turn angles'
+    python: 'tf.move.sinuosity(m4)'
+    operator: move.track_summary
+    api: terraflux.move.sinuosity
+    refs:
+      - "Benhamou (2004). How to reliably estimate the tortuosity of an animal's path: straightness, sinuosity, or fractal dimension? Journal of Theoretical Biology 229: 209-220. doi:10.1016/j.jtbi.2004.03.016"
+
+  # impl: extern/terraflux-py/src/cpp/move/amt.cpp:157-168
+  - id: tac
+    name: Turn angle correlation (TAC)
+    level: track
+    theme: tracks
+    unit: none
+    range: "0 to 4"
+    aliases: [turn angle correlation, TAC, angular autocorrelation]
+    what: |
+      How much the turn angle changes from one step to the next, from the squared differences of the cosines and sines
+      of consecutive turn angles.
+    use: |
+      Near 0 when consecutive turns are alike (persistent turning, as in circling), up to 4 when each turn is the
+      opposite of the one before. The sum is divided by the number of steps, not of pairs, as in amt.
+    formula: 'TAC = \frac{1}{m} \sum_{i=2}^{m} \left[(\cos\phi_i - \cos\phi_{i-1})^2 + (\sin\phi_i - \sin\phi_{i-1})^2\right]'
+    symbols:
+      '\phi_i': 'the turn angle of step \(i\), in radians'
+      'm': 'the number of steps of the track'
+    python: 'tf.move.tac(m4)'
+    operator: move.track_summary
+    api: terraflux.move.tac
+    refs:
+      - "Dray, Royer-Carenzi & Calenge (2010). The exploratory analysis of autocorrelation in animal-movement studies. Ecological Research 25: 673-681. doi:10.1007/s11284-010-0701-7"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_homerange.py:1341-1375
+  - id: intensity_use
+    name: Intensity of use
+    level: track
+    theme: tracks
+    unit: none
+    range: "more than 0"
+    aliases: [intensity of use]
+    what: |
+      The track length divided by the square root of the area of the minimum convex polygon of all its locations: how
+      many times, roughly, the animal crossed the ground of its range.
+    use: |
+      High when the animal went back and forth over a small range. It depends on the sampling interval, like the track
+      length. The tracks must be projected.
+    formula: 'IU = \frac{L}{\sqrt{A_{100}}}'
+    symbols:
+      'L': 'the track length (the sum of the step lengths)'
+      'A_{100}': 'the area of the minimum convex polygon of all the locations'
+    python: 'tf.move.intensity_use(m4)'
+    operator: move.intensity_use
+    api: terraflux.move.intensity_use
+    refs:
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_corridor.py:51-245
+  - id: corridor_segment
+    name: Corridor segments (speed and agreement of direction)
+    level: segment
+    theme: corridors
+    unit: "a flag per segment (with its speed and circular variance)"
+    range: "circular variance 0 to 1"
+    aliases: [movement corridor, LaPoint corridors, corridor use]
+    what: |
+      Marks the steps that run along a corridor: fast steps whose neighbours in space go the same way. The agreement of
+      direction is the circular variance of the doubled azimuths of the neighbouring segments of all tracks, so that the two
+      directions of travel on one path agree.
+    use: |
+      Give both thresholds to compare animals: left out they are the 0.75 quantile of the speeds and the 0.25 quantile
+      of the circular variances, which mark a share of every track whatever it does. The search radius assumes a regular
+      sampling (the library warns when it is not, as on the example).
+    formula: 'CV = 1 - \sqrt{\bar{C}^2 + \bar{S}^2}, \quad \bar{C} = \frac{1}{k}\sum_j \cos\psi_j, \quad \bar{S} = \frac{1}{k}\sum_j \sin\psi_j, \quad \psi_j = 2\theta_j \bmod 2\pi'
+    symbols:
+      '\theta_j': 'the azimuth of neighbouring segment \(j\): a segment whose midpoint lies within half the segment''s length of its midpoint'
+      'k': 'the number of neighbours; a corridor segment has at least `min_segments` of them, a speed of at least `speed_threshold`, \(CV\) at most `circvar_threshold`, and more neighbours that qualify than not'
+    python: 'tf.move.corridor(m4, speed_threshold=0.12, circvar_threshold=0.38)["corridor"].value_counts()'
+    operator: move.corridor
+    setting: 'speed_threshold = 0.12'
+    api: terraflux.move.corridor
+    refs:
+      - "LaPoint, Gallery, Wikelski & Kays (2013). Animal behavior, cost-based corridor models, and real corridors. Landscape Ecology 28: 1615-1630. doi:10.1007/s10980-013-9910-0"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_homerange.py:287-364
+  - id: hr_mcp
+    name: Minimum convex polygon (MCP) home range
+    level: track
+    theme: home ranges
+    unit: m² (from tf.move.hr_area)
+    range: "more than 0"
+    aliases: [MCP, minimum convex polygon, convex hull home range]
+    what: |
+      The convex hull of the locations nearest to their mean location: the polygon around a share of the locations (95 %,
+      say), with the farthest fixes left out.
+    use: |
+      Simple and comparable between studies, but it grows with the number of fixes and takes in ground the animal never
+      used. Use projected coordinates.
+    formula: 'A_p = \operatorname{area}\left(\operatorname{hull}\{i : r_i^2 \le Q_p\}\right), \quad r_i^2 = (x_i-\bar{x})^2 + (y_i-\bar{y})^2'
+    symbols:
+      '(\bar{x}, \bar{y})': 'the mean location'
+      'r_i^2': 'the squared distance of location \(i\) from it'
+      'Q_p': 'the quantile (R''s type 7) of the \(r_i^2\) at level \(p\); level 1 is the hull of all the locations'
+    python: 'tf.move.hr_area(tf.move.hr_mcp(m4, levels=[0.5, 0.95]))'
+    operator: move.home_range
+    setting: 'method = "mcp"'
+    api: terraflux.move.hr_mcp
+    refs:
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_homerange.py:634-696
+  - id: hr_kde
+    name: Kernel density (KDE) home range
+    level: track
+    theme: home ranges
+    unit: m² (from tf.move.hr_area)
+    range: "more than 0"
+    aliases: [kernel density estimate, KDE, kernel home range]
+    what: |
+      A smooth density of use, a bivariate normal kernel placed on every location; the home range at level \(p\) is the
+      smallest area that holds the share \(p\) of that density. The density is computed on the cells of a template raster
+      ([`tf.move.make_trast`][terraflux.move.make_trast]) as KernSmooth's `bkde2D` does, and the isopleth is the contour
+      of its cumulative distribution, its holes filled.
+    use: |
+      The result depends strongly on the bandwidth (the reference one by default, see the bandwidth cards) and on the
+      template: make the template large enough that the contours close inside it.
+    formula: '\hat{f}(x, y) = \frac{1}{n h_x h_y} \sum_{i=1}^{n} \phi\!\left(\frac{x - x_i}{h_x}\right)\phi\!\left(\frac{y - y_i}{h_y}\right)'
+    symbols:
+      '\phi': 'the standard normal density'
+      'h_x, h_y': 'the bandwidths'
+      '(x_i, y_i)': 'the locations; \(n\) of them'
+    python: 'tf.move.hr_area(tf.move.hr_kde(m4, trast=trast, levels=[0.5, 0.95]))'
+    operator: move.home_range
+    setting: 'method = "kde"'
+    api: terraflux.move.hr_kde
+    refs:
+      - "Worton (1989). Kernel methods for estimating the utilization distribution in home-range studies. Ecology 70: 164-168."
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_homerange.py:955-1080
+  - id: hr_locoh
+    name: Local convex hull (LoCoH) home range
+    level: track
+    theme: home ranges
+    unit: m² (from tf.move.hr_area)
+    range: "more than 0"
+    aliases: [LoCoH, k-LoCoH, a-LoCoH, r-LoCoH]
+    what: |
+      A union of local convex hulls: a hull around every location and its neighbours (the `n` nearest, those within a
+      radius, or the nearest ones whose distances add up to a limit), joined from the smallest hull up until they hold the
+      share of the locations of the level.
+    use: |
+      Better than a convex polygon when the range has holes or hard edges (a lake, a road). As a first choice of `n`
+      with the k method, try the square root of the number of locations (47 on the example).
+    formula: 'H_i = \operatorname{buffer}\left(\operatorname{hull}(\{\mathbf{p}_i\} \cup N(i)),\; \epsilon\right), \quad A_p = \operatorname{area}\left(\bigcup_{r \le w} H_{(r)}\right)'
+    symbols:
+      'N(i)': 'the neighbours of location \(i\), by `type`: k, the `n` nearest; r, those within the radius `n`; a, the nearest ones whose summed distance is at most `n`'
+      'H_{(r)}': 'the hulls in order of increasing area'
+      'w': 'the number of hulls whose share of the locations is nearest to the level \(p\) (the level reported is the share reached, to 2 digits)'
+      '\epsilon': '`rand_buffer` (0.00001), so that the hull of points on a line has an area'
+    python: 'tf.move.hr_area(tf.move.hr_locoh(m4, n=47, levels=[0.5, 0.95]))'
+    operator: move.home_range
+    setting: 'method = "locoh"'
+    api: terraflux.move.hr_locoh
+    refs:
+      - "Getz et al. (2007). LoCoH: nonparameteric kernel methods for constructing home ranges and utilization distributions. PLoS ONE 2: e207."
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_homerange.py:816-855
+  - id: hr_area
+    name: Home-range area
+    level: track
+    theme: home ranges
+    unit: m² (the CRS unit squared)
+    range: "more than 0"
+    aliases: [home range size, isopleth area]
+    what: |
+      The area of each polygon of a home-range estimate, by track and level: the polygon made by MCP and LoCoH, the
+      isopleth of a kernel estimate. `units=True` adds the unit.
+    use: |
+      In longitude / latitude the area is in square degrees: project the tracks first.
+    formula: 'A_p = \operatorname{area}(P_p)'
+    symbols:
+      'P_p': 'the polygon at level \(p\); its area by the shoelace formula, in the CRS''s units squared'
+    python: 'tf.move.hr_area(tf.move.hr_mcp(m4), units=True)'
+    operator: move.home_range
+    api: terraflux.move.hr_area
+    refs:
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_homerange.py:381-427
+  - id: hr_kde_ref
+    name: Reference bandwidth
+    level: track
+    theme: bandwidths
+    unit: m
+    range: "more than 0"
+    aliases: [href, reference bandwidth, rule of thumb]
+    what: |
+      The rule-of-thumb kernel bandwidth from the spread of the coordinates and the number of locations, the default of
+      the kernel estimate. `rescale="unitvar"` scales each coordinate to unit variance first (the bandwidths come back in
+      the original units) and `"xvar"` scales y to the variance of x.
+    use: |
+      Optimal when the use is one normal distribution; it over-smooths a use with several centres, giving too large a
+      home range.
+    formula: 'h_{ref} = \sqrt{\tfrac{1}{2}\left(\operatorname{var}(x) + \operatorname{var}(y)\right)}\; n^{-1/6}'
+    symbols:
+      '\operatorname{var}(x), \operatorname{var}(y)': 'the sample variances of the coordinates'
+      'n': 'the number of locations'
+    python: 'tf.move.hr_kde_ref(m4)'
+    operator: move.home_range
+    setting: 'bandwidth = "ref"'
+    api: terraflux.move.hr_kde_ref
+    refs:
+      - "Worton (1989). Kernel methods for estimating the utilization distribution in home-range studies. Ecology 70: 164-168."
+
+  # impl: extern/terraflux-py/src/terraflux/move/_homerange.py:429-481
+  - id: hr_kde_pi
+    name: Plug-in bandwidth
+    level: track
+    theme: bandwidths
+    unit: m
+    range: "more than 0"
+    aliases: [plug-in bandwidth, hpi, Sheather-Jones]
+    what: |
+      The bandwidth of Sheather and Jones's plug-in rule, found for each coordinate apart with KernSmooth's `dpik`, then
+      raised to the power 5/6 as amt does, since the rule is for a density of one variable (`correct=False` leaves the
+      power out).
+    use: |
+      Usually much smaller than the reference bandwidth, so the estimate follows the data more closely and gives a smaller
+      home range.
+    formula: 'h_x = \hat{h}_{dpik}(x)^{5/6}, \qquad h_y = \hat{h}_{dpik}(y)^{5/6}'
+    symbols:
+      '\hat{h}_{dpik}': 'the direct plug-in bandwidth of one coordinate (its options `scalest`, `level`, `kernel`)'
+    python: 'tf.move.hr_kde_pi(m4)'
+    operator: move.home_range
+    setting: 'bandwidth = "pi"'
+    api: terraflux.move.hr_kde_pi
+    refs:
+      - "Sheather & Jones (1991). A reliable data-based bandwidth selection method for kernel density estimation. Journal of the Royal Statistical Society B 53: 683-690."
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/cpp/move/homerange.cpp:1024-1050
+  - id: hr_kde_lscv
+    name: Least-squares cross-validation bandwidth
+    level: track
+    theme: bandwidths
+    unit: m
+    range: "more than 0"
+    aliases: [LSCV, hlscv, cross-validation bandwidth]
+    what: |
+      The bandwidth, among the values tried, that minimises the least-squares cross-validation criterion: the lowest one
+      (`which_min="global"`) or the largest local minimum (`"local"`). `converged` says whether the minimum lies inside the
+      values tried, not at one of their ends.
+    use: |
+      It often fails on GPS data: on the example, with the default 100 values from 0.1 to 2 times the reference bandwidth,
+      the criterion keeps falling to the smallest one (it did not converge). The fisher rests at the same sites, and
+      repeated nearby fixes pull the criterion towards a tiny bandwidth. The card tries values from 2 to 30 m, where the
+      minimum is inside (6 m): a bandwidth that follows each resting site, not a home range. Look at the criterion's curve
+      (`fits`) before using it.
+    formula: 'LSCV(h) = \frac{1}{\pi h^2 n} + \frac{2\sum_{i<j}\left(e^{-d_{ij}^2/4h^2} - 4 e^{-d_{ij}^2/2h^2}\right) - 3n}{4\pi h^2 n^2}'
+    symbols:
+      'd_{ij}': 'the distance between locations \(i\) and \(j\)'
+      'n': 'the number of locations'
+      'h': 'the bandwidth tried'
+    python: 'tf.move.hr_kde_lscv(m4, range=np.linspace(2, 30, 15)).h'
+    operator: move.home_range
+    setting: 'bandwidth = "lscv"'
+    api: terraflux.move.hr_kde_lscv
+    refs:
+      - "Silverman (1986). Density Estimation for Statistics and Data Analysis. Chapman & Hall, London."
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_homerange.py:1247-1335
+  - id: hr_kde_ref_scaled
+    name: Scaled reference bandwidth
+    level: track
+    theme: bandwidths
+    unit: m
+    range: "from 0.01 to 1 times the reference bandwidth (by default)"
+    aliases: [scaled reference bandwidth, href scaled]
+    what: |
+      The largest bandwidth, below the reference one, at which the isopleth of a level has no more than a chosen number of
+      polygons (`num_parts`), so that a use in one piece stays one polygon while the bandwidth shrinks towards the data.
+      It is found by bisection between the ends of `range`, until the change is below `tol`.
+    use: |
+      A heuristic, and its value depends on the template raster. On the example the 95 % isopleth is one polygon almost
+      up to the reference bandwidth.
+    formula: 'h^{*} \approx \max\{h \in [0.01\,h_{ref},\, h_{ref}] : N_{poly}(h) \le k\}'
+    symbols:
+      'N_{poly}(h)': 'the number of polygons of the isopleth at the level with bandwidth \(h\)'
+      'k': '`num_parts`'
+      'h_{ref}': 'the reference bandwidth'
+    python: 'tf.move.hr_kde_ref_scaled(m4, trast=trast, num_parts=1)'
+    operator: move.home_range
+    setting: 'bandwidth = "ref_scaled"'
+    api: terraflux.move.hr_kde_ref_scaled
+    refs:
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_homerange.py:1102-1114
+  - id: hr_overlap_hr
+    name: Home-range overlap (share of the polygon, HR)
+    level: track
+    theme: overlap
+    unit: proportion
+    range: "0 to 1"
+    aliases: [home range overlap, HR]
+    what: |
+      The share of the area of the first estimate's polygon that the second's covers, level by level. It is not
+      symmetric. On the example, the share of the first half's home range that the second half's covers.
+    use: |
+      Quick, but it ignores how intensely each estimate uses the shared area: the distribution indices below take that
+      into account.
+    formula: 'HR_{xy} = \frac{A(P_x \cap P_y)}{A(P_x)}'
+    symbols:
+      'P_x, P_y': 'the polygons of the first and the second estimate at the same level (0 when they do not meet)'
+    python: 'tf.move.hr_overlap(kde_a, kde_b, type="hr")'
+    operator: move.home_range_overlap
+    setting: 'type = "hr"'
+    api: terraflux.move.hr_overlap
+    refs:
+      - "Fieberg & Kochanny (2005). Quantifying home-range overlap: the importance of the utilization distribution. Journal of Wildlife Management 69: 1346-1359."
+
+  # impl: extern/terraflux-py/src/cpp/move/homerange.cpp:1083-1089
+  - id: hr_overlap_phr
+    name: Overlap, probability in the home range (PHR)
+    level: track
+    theme: overlap
+    unit: probability
+    range: "0 to 1"
+    aliases: [PHR]
+    what: |
+      The probability, under the second estimate's distribution, of being in the cells that the first uses. A kernel is
+      positive everywhere, so without a limit it is 1: `conditional=True` limits each distribution to its isopleth at each
+      level.
+    use: |
+      Needs two kernel estimates on the same template raster ([`tf.move.make_trast`][terraflux.move.make_trast]).
+    formula: 'PHR_{xy} = \sum_{c\,:\,u_x(c) > 0} u_y(c)'
+    symbols:
+      'u_x, u_y': 'the utilisation distributions of the two estimates on the same grid, each summing to 1'
+      'c': 'a cell'
+    python: 'tf.move.hr_overlap(kde_a, kde_b, type="phr", conditional=True)'
+    operator: move.home_range_overlap
+    setting: 'type = "phr"'
+    api: terraflux.move.hr_overlap
+    refs:
+      - "Fieberg & Kochanny (2005). Quantifying home-range overlap: the importance of the utilization distribution. Journal of Wildlife Management 69: 1346-1359."
+
+  # impl: extern/terraflux-py/src/cpp/move/homerange.cpp:1090-1092
+  - id: hr_overlap_vi
+    name: Overlap, volume of intersection (VI)
+    level: track
+    theme: overlap
+    unit: proportion
+    range: "0 to 1"
+    aliases: [volume of intersection, VI]
+    what: |
+      The volume the two distributions share: the sum over the cells of the smaller of the two. 1 for identical
+      distributions, 0 for disjoint ones, and symmetric.
+    use: |
+      The easiest to read of the distribution indices: the share of use in common.
+    formula: 'VI = \sum_{c} \min\left(u_x(c),\, u_y(c)\right)'
+    symbols:
+      'u_x, u_y': 'the utilisation distributions on the same grid, each summing to 1'
+    python: 'tf.move.hr_overlap(kde_a, kde_b, type="vi")'
+    operator: move.home_range_overlap
+    setting: 'type = "vi"'
+    api: terraflux.move.hr_overlap
+    refs:
+      - "Fieberg & Kochanny (2005). Quantifying home-range overlap: the importance of the utilization distribution. Journal of Wildlife Management 69: 1346-1359."
+
+  # impl: extern/terraflux-py/src/cpp/move/homerange.cpp:1094-1097
+  - id: hr_overlap_ba
+    name: Overlap, Bhattacharyya's affinity (BA)
+    level: track
+    theme: overlap
+    unit: proportion
+    range: "0 to 1"
+    aliases: [Bhattacharyya affinity, BA]
+    what: |
+      The sum over the cells of the geometric mean of the two distributions: 1 for identical distributions, 0 for
+      disjoint ones.
+    use: |
+      A similarity of the two distributions as a whole; the tails, where both are small, weigh more than in VI.
+    formula: 'BA = \sum_{c} \sqrt{u_x(c)\, u_y(c)}'
+    symbols:
+      'u_x, u_y': 'the utilisation distributions on the same grid, each summing to 1'
+    python: 'tf.move.hr_overlap(kde_a, kde_b, type="ba")'
+    operator: move.home_range_overlap
+    setting: 'type = "ba"'
+    api: terraflux.move.hr_overlap
+    refs:
+      - "Fieberg & Kochanny (2005). Quantifying home-range overlap: the importance of the utilization distribution. Journal of Wildlife Management 69: 1346-1359."
+
+  # impl: extern/terraflux-py/src/cpp/move/homerange.cpp:1098-1103
+  - id: hr_overlap_udoi
+    name: Overlap, utilisation distribution overlap index (UDOI)
+    level: track
+    theme: overlap
+    unit: none
+    range: "0 or more; 1 for two identical uniform distributions"
+    aliases: [UDOI]
+    what: |
+      The overlap weighted by how intensely both estimates use the shared cells. It exceeds 1 when both concentrate their
+      use in the area they share.
+    use: |
+      Values above 1 are expected when the use is concentrated (as on the example); read it with VI, which says how much
+      of the use is shared.
+    formula: 'UDOI = a_{xy} \sum_{c} u_x(c)\, u_y(c)'
+    symbols:
+      'a_{xy}': 'the number of cells where both distributions are positive (the cell area cancels out)'
+      'u_x, u_y': 'the utilisation distributions on the same grid, each summing to 1'
+    python: 'tf.move.hr_overlap(kde_a, kde_b, type="udoi")'
+    operator: move.home_range_overlap
+    setting: 'type = "udoi"'
+    api: terraflux.move.hr_overlap
+    refs:
+      - "Fieberg & Kochanny (2005). Quantifying home-range overlap: the importance of the utilization distribution. Journal of Wildlife Management 69: 1346-1359."
+
+  # impl: extern/terraflux-py/src/cpp/move/homerange.cpp:1094-1097
+  - id: hr_overlap_hd
+    name: Overlap, Hellinger distance (HD)
+    level: track
+    theme: overlap
+    unit: none
+    range: "0 to 2; 0 for identical distributions"
+    aliases: [Hellinger distance, HD]
+    what: |
+      A distance between the two distributions from their Bhattacharyya affinity: 0 for identical ones, 2 for disjoint
+      ones.
+    use: |
+      The larger, the less alike the use. The library returns \(2(1 - BA)\), the squared Hellinger distance in the form
+      amt uses, not its square root.
+    formula: 'HD = 2\,(1 - BA) = 2\left(1 - \sum_c \sqrt{u_x(c)\,u_y(c)}\right)'
+    symbols:
+      'u_x, u_y': 'the utilisation distributions on the same grid, each summing to 1'
+      'BA': 'Bhattacharyya''s affinity (the card above)'
+    python: 'tf.move.hr_overlap(kde_a, kde_b, type="hd")'
+    operator: move.home_range_overlap
+    setting: 'type = "hd"'
+    api: terraflux.move.hr_overlap
+    refs:
+      - "Fieberg & Kochanny (2005). Quantifying home-range overlap: the importance of the utilization distribution. Journal of Wildlife Management 69: 1346-1359."
+
+  # impl: extern/terraflux-py/src/terraflux/move/_emd.py:60-199
+  - id: ud_distance
+    name: Earth mover's distance between utilisation distributions
+    level: track
+    theme: overlap
+    unit: m (the grid's units)
+    range: "0 or more"
+    aliases: [EMD, Wasserstein distance, earth mover distance]
+    what: |
+      How much probability has to be moved, and how far, to turn one distribution into the other (the Wasserstein-1
+      distance). It is in the units of the grid, so it reads as a typical shift of the use: on the example, how far the
+      fisher's use moved from the first half of the track to the second.
+    use: |
+      Both distributions must be on one grid. Each is first cut to its `mask_quantile` volume contour. `method="sinkhorn"`
+      (the default, Cuturi's entropic regularisation) is close to the exact value and fast; `"exact"` (Rubner's solver, as
+      the R package emdist) is practical on coarse grids only.
+    formula: 'EMD(u, w) = \min_{F \ge 0} \sum_{i,j} F_{ij}\, d_{ij} \quad \text{subject to} \quad \sum_j F_{ij} = u_i,\; \sum_i F_{ij} = w_j'
+    symbols:
+      'u_i, w_j': 'the probabilities of the two distributions in their cells (each renormalised to 1)'
+      'd_{ij}': 'the distance between the centres of cells \(i\) and \(j\)'
+      'F_{ij}': 'the probability moved from cell \(i\) to cell \(j\)'
+    python: 'tf.move.ud_distance(ud_a, ud_b)'
+    operator: move.ud_distance
+    setting: 'method = "sinkhorn"'
+    api: terraflux.move.ud_distance
+    refs:
+      - "Kranstauber, Smolla & Safi (2017). Similarity in spatial utilization distributions measured by the earth mover's distance. Methods in Ecology and Evolution 8: 155-160. doi:10.1111/2041-210X.12649"
+      - "Rubner, Tomasi & Guibas (2000). The earth mover's distance as a metric for image retrieval. International Journal of Computer Vision 40: 99-121."
+      - "Cuturi (2013). Sinkhorn distances: lightspeed computation of optimal transport. Advances in Neural Information Processing Systems 26."
+
+  # impl: extern/terraflux-py/src/terraflux/move/_ud.py:290-365; cpp/move/bridge.cpp
+  - id: dbbmm_variance
+    name: Motion variance of the dynamic Brownian bridge
+    level: location
+    theme: utilisation distributions
+    unit: m² / min
+    range: "0 or more"
+    aliases: [dBBMM variance, motion variance, Brownian motion variance]
+    what: |
+      The variance of the animal's Brownian motion at each location, fitted by maximum likelihood in a sliding window of
+      locations, with a break point inside the window kept when it lowers the BIC. It says how erratic the movement is:
+      low while the animal rests or travels straight, high while it searches.
+    use: |
+      Choose the window to cover a few hours ([`tf.move.suggest_dbbmm_window`][terraflux.move.suggest_dbbmm_window]
+      suggests about 4); a window much longer than a phase of movement mixes the phases. `window_size` and `margin` are
+      odd, with `window_size` at least `2 * margin + 1`; the locations outside the windows' margins get no value.
+    formula: '\hat{\sigma}_m^2 = \arg\max_{\sigma^2} \sum_{i} \log \mathcal{N}\!\left(z_i;\, 0,\; T_i \alpha_i (1-\alpha_i)\sigma^2 + (1-\alpha_i)^2\delta_{i-1}^2 + \alpha_i^2 \delta_{i+1}^2\right)'
+    symbols:
+      'z_i': 'the leave-one-out residual of location \(i\): its position minus the point of the bridge between its two neighbours'
+      'T_i': 'the time between those neighbours'
+      '\alpha_i': 'the share of that time before location \(i\)'
+      '\delta': 'the location error (a standard deviation, in metres)'
+    python: 'tf.move.dbbmm_variance(m4, location_error=20, window_size=25, margin=7)["motion_variance"].describe()'
+    operator: move.dbbmm_variance
+    setting: 'window_size = 25'
+    api: terraflux.move.dbbmm_variance
+    refs:
+      - "Kranstauber, Kays, LaPoint, Wikelski & Safi (2012). A dynamic Brownian bridge movement model to estimate utilization distributions for heterogeneous animal movement. Journal of Animal Ecology 81: 738-746."
+      - "Horne, Garton, Krone & Lewis (2007). Analyzing animal movements using Brownian bridges. Ecology 88: 2354-2363."
+
+  # impl: extern/terraflux-py/src/cpp/move/ud.cpp:23-90, 140-205
+  - id: dbbmm_ud
+    name: Dynamic Brownian bridge utilisation distribution (dBBMM)
+    level: cell
+    theme: utilisation distributions
+    unit: probability per cell
+    range: "0 to 1; sums to 1 per track"
+    aliases: [dBBMM, dynamic Brownian bridge movement model, utilization distribution]
+    what: |
+      The probability of the animal being in each cell, from Brownian bridges between consecutive locations whose spread
+      follows the motion variance and the location errors. A band per track, each summing to 1.
+    use: |
+      Give the grid (`like`, `res` or `dim_size`) and make it hold the bridges; all the tracks share one grid, so their
+      bands compare directly. Leave out the bridges across long gaps with
+      [`tf.move.mask_segments`][terraflux.move.mask_segments].
+    formula: 'u(c) = \frac{1}{Z}\sum_{k}\sum_{t} \Delta t\; \mathcal{N}\!\left(c;\, \boldsymbol{\mu}_k(t),\, \sigma_k^2(t)\mathbf{I}\right) A_c, \quad \sigma_k^2(t) = T \alpha(1-\alpha)\sigma_m^2 + (1-\alpha)^2\delta_k^2 + \alpha^2\delta_{k+1}^2'
+    symbols:
+      'k': 'the bridge from location \(k\) to \(k+1\), of duration \(T\)'
+      't': 'the time steps of the bridge, of length \(\Delta t\) (`time_step`, by default a fifteenth of the shortest time lag), with \(\alpha = t / T\)'
+      '\boldsymbol{\mu}_k(t)': 'the position on the straight line between the two locations at time \(t\); each time step spreads over the cells within four standard deviations'
+      'A_c': 'the area of cell \(c\)'
+      'Z': 'the sum over the cells, so that \(\sum_c u(c) = 1\)'
+    python: 'tf.move.dbbmm_ud(tf.move.dbbmm_variance(m4, 20, 25, 7), res=50)'
+    operator: move.dbbmm_ud
+    api: terraflux.move.dbbmm_ud
+    refs:
+      - "Kranstauber, Kays, LaPoint, Wikelski & Safi (2012). A dynamic Brownian bridge movement model to estimate utilization distributions for heterogeneous animal movement. Journal of Animal Ecology 81: 738-746."
+      - "Horne, Garton, Krone & Lewis (2007). Analyzing animal movements using Brownian bridges. Ecology 88: 2354-2363."
+
+  # impl: extern/terraflux-py/src/terraflux/move/_ud.py:395-470
+  - id: dbgb_variance
+    name: Directional Brownian bridge variances (along and across)
+    level: location
+    theme: utilisation distributions
+    unit: m (standard deviations)
+    range: "0 or more"
+    aliases: [dBGB variance, bivariate Gaussian bridge variance]
+    what: |
+      The standard deviations of the movement along and across the direction of travel at each location (`para_sd`,
+      `orth_sd`), each with its own break point by the BIC. They are the inputs of the directional bridge.
+    use: |
+      For animals that keep their direction, whose spread along the path is larger than across it. The windows are
+      longer than the dynamic bridge's (margin 15 by default, `window_size` at least `2 * margin + 1`).
+    formula: 'sd_{\parallel} = \sqrt{\overline{\sigma^2_{\parallel}}}, \quad sd_{\perp} = \sqrt{\overline{\sigma^2_{\perp}}}'
+    symbols:
+      '\overline{\sigma^2_{\parallel}}, \overline{\sigma^2_{\perp}}': 'the means, over the windows that cover the location, of the variances fitted to the parts of the residual along and across the direction from the expected position to the next location'
+    python: 'tf.move.dbgb_variance(m4, location_error=20, window_size=31, margin=15)[["para_sd", "orth_sd"]].median()'
+    operator: move.dbgb_variance
+    setting: 'window_size = 31'
+    api: terraflux.move.dbgb_variance
+    refs:
+      - "Kranstauber, Safi & Bartumeus (2014). Bivariate Gaussian bridges: directional factorization of diffusion in Brownian bridge models. Movement Ecology 2: 5. doi:10.1186/2051-3933-2-5"
+
+  # impl: extern/terraflux-py/src/cpp/move/ud.cpp:140-205
+  - id: dbgb_ud
+    name: Directional Brownian bridge utilisation distribution (dBGB)
+    level: cell
+    theme: utilisation distributions
+    unit: probability per cell
+    range: "0 to 1; sums to 1 per track"
+    aliases: [dBGB, directional Brownian bridge, bivariate Gaussian bridge]
+    what: |
+      As the dynamic Brownian bridge, but each time step of a bridge spreads a bivariate normal with two standard
+      deviations, along and across the direction of travel, so the distribution stretches along the paths.
+    use: |
+      Slower than the dynamic bridge, because each step spreads further (the card uses 100 m cells to stay quick). Only
+      the core of each track and its bridges of interest count.
+    formula: 'u(c) = \frac{1}{Z}\sum_{k}\sum_{t} \Delta t\; \frac{1}{2\pi s_{\parallel} s_{\perp}} \exp\!\left(-\tfrac{1}{2}\left[\tfrac{\delta_{\parallel}^2}{s_{\parallel}^2} + \tfrac{\delta_{\perp}^2}{s_{\perp}^2}\right]\right) A_c'
+    symbols:
+      's_{\parallel}^2': '\(T\alpha(1-\alpha)\sigma_{\parallel}^2 + (1-\alpha)^2\delta_k^2 + \alpha^2\delta_{k+1}^2\), and \(s_{\perp}^2\) likewise with the variance across'
+      '\delta_{\parallel}, \delta_{\perp}': 'the offset of the cell''s centre from the bridge''s position, along and across the direction to the next location; each step covers the cells within five of the larger standard deviation'
+      'Z': 'the sum over the cells, so that the distribution sums to 1'
+    python: 'tf.move.dbgb_ud(tf.move.dbgb_variance(m4, 20, 31, 15), res=100)'
+    operator: move.dbgb_ud
+    api: terraflux.move.dbgb_ud
+    refs:
+      - "Kranstauber, Safi & Bartumeus (2014). Bivariate Gaussian bridges: directional factorization of diffusion in Brownian bridge models. Movement Ecology 2: 5. doi:10.1186/2051-3933-2-5"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_homerange.py:903-937
+  - id: hr_cud
+    name: Cumulative utilisation distribution of a kernel estimate
+    level: cell
+    theme: utilisation distributions
+    unit: probability
+    range: "more than 0, up to 1"
+    aliases: [volume contour, cumulative distribution of the UD, hr_cud]
+    what: |
+      For each cell, the share of a kernel estimate's distribution in the cells at least as dense as it: the cells up to
+      0.95 are the smallest area that holds 95 % of the use.
+    use: |
+      Use it to draw the isopleths of a kernel home range. It first normalises the distribution to sum 1
+      ([`tf.move.hr_ud`][terraflux.move.hr_ud]); for the bridges' distributions the same is `ud_volume` (the next card).
+    formula: 'v(c) = \sum_{c^{\prime}\,:\,u(c^{\prime}) \ge u(c)} u(c^{\prime}), \quad \sum_c u(c) = 1'
+    symbols:
+      'u(c)': 'the normalised utilisation of cell \(c\)'
+    python: 'tf.move.hr_cud(kde_a)'
+    api: terraflux.move.hr_cud
+    refs:
+      - "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_ud.py:1232-1248
+  - id: ud_volume
+    name: Volume of a utilisation distribution
+    level: cell
+    theme: utilisation distributions
+    unit: probability
+    range: "more than 0, up to 1"
+    aliases: [UD volume, volume contour]
+    what: |
+      Each cell's cumulative probability when the cells are added from the largest value down, band by band: its 0.95
+      contour bounds the smallest area with 95 % of the probability. Cells of equal value are taken in cell order; cells
+      without a value stay without one, and a band whose total is not positive is left as it is.
+    use: |
+      The contours of the volume are the isopleths of a distribution
+      ([`tf.move.hr_isopleths`][terraflux.move.hr_isopleths]).
+    formula: 'V(c) = \sum_{c^{\prime}\,:\,u(c^{\prime}) \ge u(c)} u(c^{\prime})'
+    symbols:
+      'u': 'the utilisation distribution (a band per track)'
+    python: 'tf.move.ud_volume(ud_a)'
+    operator: move.ud_volume
+    api: terraflux.move.ud_volume
+    refs:
+      - "Kranstauber, Kays, LaPoint, Wikelski & Safi (2012). A dynamic Brownian bridge movement model to estimate utilization distributions for heterogeneous animal movement. Journal of Animal Ecology 81: 738-746."
+
+  # impl: extern/terraflux-py/src/terraflux/move/_ud.py:1251-1303
+  - id: ud_outer_probability
+    name: Outer probability of a location
+    level: location
+    theme: utilisation distributions
+    unit: probability
+    range: "more than 0, up to 1"
+    aliases: [outer probability]
+    what: |
+      The volume of a distribution at each location: small in the core of the use, near 1 far out. On the example, where
+      the locations of the second half fall in the distribution of the first.
+    use: |
+      Compare the locations of one period with the distribution of another to find excursions and shifts. It is not a
+      test. Locations outside the raster get no value.
+    formula: 'p_j = V(c(j))'
+    symbols:
+      'V': 'the volume of the distribution (the card above)'
+      'c(j)': 'the cell that holds location \(j\)'
+    python: 'tf.move.ud_outer_probability(second, ud_a)'
+    operator: move.ud_outer_probability
+    api: terraflux.move.ud_outer_probability
+
+  # impl: extern/terraflux-py/src/terraflux/move/_validate.py:234-250
+  - id: validate_rho
+    name: Validation, Spearman's rho between use and surface
+    level: track
+    theme: validation
+    unit: none
+    range: "-1 to 1"
+    aliases: [rank correlation, surface validation, connectivity validation]
+    what: |
+      The rank correlation, over cells, between how much the animal used them and the score of a connectivity surface
+      (higher where the surface says movement is better). Positive always means that the better cells were used more,
+      for a resistance surface too. On the example the "surface" is the first half's distribution and the use is the
+      second half's locations: does where the fisher went before predict where it went next?
+    use: |
+      The definitions are the library's, after what Zeller et al. (2018) measure, not a copy of their method. There is no
+      p-value: neighbouring cells are not independent. With points most cells hold none, so the ranks have many ties; a
+      distribution as the use compares the cells inside its `support` contour.
+    formula: '\rho = \operatorname{Spearman}\left(u_c,\; s_c\right)'
+    symbols:
+      'u_c': 'the use of cell \(c\): its probability in a distribution, its number of points or its length of line'
+      's_c': 'its score: the surface (a current, a probability), or minus the surface for a resistance'
+    python: 'tf.move.validate(second, ud_a).table[["track", "n_cells", "rho"]]'
+    operator: move.validate
+    setting: 'kind = "current"'
+    api: terraflux.move.validate
+    refs:
+      - "Zeller, Jennings, Vickers, Ernest, Cushman & Boyce (2018). Are all data types and connectivity models created equal? Validating common connectivity approaches with dispersal data. Diversity and Distributions 24: 868-879. doi:10.1111/ddi.12742"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_validate.py:234-250
+  - id: validate_use_fraction
+    name: Validation, share of the use in the corridors
+    level: track
+    theme: validation
+    unit: proportion
+    range: "0 to 1"
+    aliases: [use fraction, captured use]
+    what: |
+      The share of the animal's use (probability, points or length of line) that falls in the corridor cells of the
+      surface, of all its use on cells with a value.
+    use: |
+      Read it against the area fraction (the next card): if 10 % of the cells hold 10 % of the use, the surface does no
+      better than chance.
+    formula: 'f_{use} = \frac{\sum_{c \in K} u_c}{\sum_c u_c}'
+    symbols:
+      'K': 'the corridor cells: those with a score at or above `threshold`, or else the `quantile` (0.9) of the scores; a binary surface is its own corridor'
+      'u_c': 'the use of cell \(c\)'
+    python: 'tf.move.validate(second, ud_a).table[["track", "use_fraction"]]'
+    operator: move.validate
+    setting: 'quantile = 0.9'
+    api: terraflux.move.validate
+    refs:
+      - "Zeller, Jennings, Vickers, Ernest, Cushman & Boyce (2018). Are all data types and connectivity models created equal? Validating common connectivity approaches with dispersal data. Diversity and Distributions 24: 868-879. doi:10.1111/ddi.12742"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_validate.py:234-250
+  - id: validate_area_fraction
+    name: Validation, share of the area in the corridors
+    level: track
+    theme: validation
+    unit: proportion
+    range: "more than 0, up to 1"
+    aliases: [area fraction, available share]
+    what: |
+      The share of the compared cells that are corridors: the share of the use a surface-blind animal would put in them.
+      For points the compared cells are those with a value inside the bounding box of the points.
+    use: |
+      The baseline of the use fraction. With the default quantile the corridors are 10 % of the surface's cells, but the
+      compared cells can hold a larger share of them: on the example the second half's locations stay around the core of
+      the first half's distribution, so their bounding box is mostly corridor.
+    formula: 'f_{area} = \frac{|K|}{N}'
+    symbols:
+      '|K|': 'the number of corridor cells'
+      'N': 'the number of compared cells'
+    python: 'tf.move.validate(second, ud_a).table[["track", "area_fraction"]]'
+    operator: move.validate
+    api: terraflux.move.validate
+    refs:
+      - "Zeller, Jennings, Vickers, Ernest, Cushman & Boyce (2018). Are all data types and connectivity models created equal? Validating common connectivity approaches with dispersal data. Diversity and Distributions 24: 868-879. doi:10.1111/ddi.12742"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_validate.py:234-250
+  - id: validate_use_ratio
+    name: Validation, use ratio (used against available)
+    level: track
+    theme: validation
+    unit: none
+    range: "0 or more; 1 is chance"
+    aliases: [used vs available, use ratio]
+    what: |
+      The use fraction divided by the area fraction: how many times more of the use falls in the corridors than their
+      area would give.
+    use: |
+      The headline number of a validation: above 1 the corridors catch more use than their area, 1 is chance. It has no
+      value when no cell is a corridor, and it depends on where the corridors are cut (`threshold` or `quantile`).
+    formula: 'R = \frac{f_{use}}{f_{area}}'
+    symbols:
+      'f_{use}': 'the share of the use in the corridors'
+      'f_{area}': 'the share of the area in the corridors'
+    python: 'tf.move.validate(second, ud_a).table[["track", "use_ratio"]]'
+    operator: move.validate
+    api: terraflux.move.validate
+    refs:
+      - "Zeller, Jennings, Vickers, Ernest, Cushman & Boyce (2018). Are all data types and connectivity models created equal? Validating common connectivity approaches with dispersal data. Diversity and Distributions 24: 868-879. doi:10.1111/ddi.12742"
+
+  # impl: extern/terraflux-py/src/terraflux/move/_validate.py:234-250
+  - id: validate_surface_used
+    name: Validation, mean surface used and available
+    level: track
+    theme: validation
+    unit: the surface's unit
+    range: "any"
+    aliases: [surface used, surface available]
+    what: |
+      The mean value of the surface weighted by the use (`surface_used`) and over all the compared cells
+      (`surface_available`): how much better the surface is where the animal went than on average.
+    use: |
+      Compare the two; their ratio is a simple effect size. They are in the surface's own unit (the surface, not the
+      score, also for a resistance).
+    formula: 'S_{used} = \frac{\sum_c u_c\, s_c}{\sum_c u_c}, \qquad S_{avail} = \frac{1}{N}\sum_c s_c'
+    symbols:
+      's_c': 'the value of the surface in cell \(c\)'
+      'u_c': 'the use of the cell'
+      'N': 'the number of compared cells'
+    python: 'tf.move.validate(second, ud_a).table[["track", "surface_used", "surface_available"]]'
+    operator: move.validate
+    api: terraflux.move.validate
+    refs:
+      - "Zeller, Jennings, Vickers, Ernest, Cushman & Boyce (2018). Are all data types and connectivity models created equal? Validating common connectivity approaches with dispersal data. Diversity and Distributions 24: 868-879. doi:10.1111/ddi.12742"

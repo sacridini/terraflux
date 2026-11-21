@@ -7351,7 +7351,7 @@
      "python": "at(tf.bio.spatial_analysis(bn, C, \"numeric_label_quantiles\"))",
      "operator": "bio.spatial",
      "setting": "calculations = numeric_label_quantiles",
-     "value": "NUM_Q005  3197\nNUM_Q010  3369\nNUM_Q015  4581\nNUM_Q020  4750\nNUM_Q025  4848\nNUM_Q030  4872\nNUM_Q035  4969\nNUM_Q040  5083\nNUM_Q045  5229\nNUM_Q050  5566\nNUM_Q055  5583\nNUM_Q060  5685\nNUM_Q065  5730\nNUM_Q070  5804\nNUM_Q075  5848\nNUM_Q080  5879\nNUM_Q085  5906\nNUM_Q090  5976\nNUM_Q095  6267"
+     "value": "19 values: mean 5218, from 3197 to 6267"
     },
     {
      "id": "NUM_GISTAR",
@@ -7466,7 +7466,7 @@
      "python": "at(tf.bio.spatial_analysis(bd, C, \"matrix_stats\", matrix=mx))",
      "operator": "bio.spatial",
      "setting": "calculations = matrix_stats",
-     "value": "MX_KURT  -1.132\nMX_MAXVALUE  0.9629\nMX_MEAN  0.5106\nMX_MEDIAN  0.4896\nMX_MINVALUE  0.06228\nMX_N  136\nMX_PCT05  0.1647\nMX_PCT25  0.3306\nMX_PCT75  0.7131\nMX_PCT95  0.872\nMX_RANGE  0.9006\nMX_SD  0.2386\nMX_SKEW  -0.005303"
+     "value": "13 values: mean 10.78, from -1.132 to 136"
     },
     {
      "id": "MXD_MEAN",
@@ -12560,7 +12560,7 @@
      "operator": "fragmentation.landscape_mosaic",
      "setting": "classes = 19",
      "api": "terraflux.mosaic.landscape_mosaic",
-     "value": "Agriculture (>60%)  12.33\nAgriculture-Developed  9.427\nAgriculture-Forest  8.829\nAgriculture-Forest-Developed  0.2935\nDeveloped (>60%)  1.631\nDeveloped-Agriculture  3.834\nDeveloped-Agriculture-Forest  0.1042\nDeveloped-Forest  0.4788\nForest (>60%)  3.519\nForest-Agriculture  6.095\nForest-Agriculture-Developed  0.1637\nForest-Developed  0.6111\nMosaic Agriculture-Developed  3.821\nMosaic Agriculture-Developed-Forest  1.484\nMosaic Agriculture-Forest  4.782\nMosaic Developed-Forest  0.3759\nPure Agriculture (100%)  28.65\nPure Developed (100%)  4.952\nPure Forest (100%)  8.618"
+     "value": "19 values: mean 5.263, from 0.1042 to 28.65"
     },
     {
      "id": "frag_mosaic_103",
@@ -13268,6 +13268,2376 @@
      "setting": "min_area = 100",
      "api": "terraflux.morphology.contortion",
      "value": "a map: mean 9.32, from 2 to 41; 596828 cells without a value"
+    }
+   ]
+  },
+  {
+   "family": "animal-movement",
+   "title": "Animal movement",
+   "order": 120,
+   "source": "move2 and move2utils (R), amt (R)",
+   "intro": "The measures of animal tracks: steps, whole tracks, home ranges and their bandwidths, the overlap of two home ranges,\nutilisation distributions from Brownian bridges and the validation of a connectivity surface with the animals' use.\nThey are ported from the R packages move2, move2utils and amt and give the same numbers. They are the measures of the\n[animal movement tutorials](../../tutorials/animal-movement/home-ranges/).\n\nThe cards show their values on the fisher M4 of `tf.move.example_data(\"fishers\")` (a male fisher tracked by GPS near\nAlbany, New York, in 2010), cleaned (records Movebank shows, one per time, with a location), projected to its own\nazimuthal equidistant projection (metres from the centre of its locations) and thinned to one location per about\n10 minutes: `m4`, 2 228 locations, as in the tutorial \"Home ranges\". `first` and `second` are its locations before and\nafter 6 March 2010 (951 and 1 277), so that the overlap and validation cards compare two real periods of one animal, not\nan estimate with itself: `kde_a` and `kde_b` are their kernel estimates on one template, `ud_a` and `ud_b` their dynamic\nBrownian bridges on one grid.\n\nStep measures give one value per location, for the step that leaves it (no value at the last location of a track), and\nthe cards summarise them; track measures give one value per track. In longitude / latitude, lengths are great-circle\ndistances on a sphere (radius 6 371 010 m); in a projected CRS they are straight lines in its units, and areas are in its\nunit squared.\n",
+   "example": "import numpy as np\nimport pandas as pd\nimport terraflux as tf\n\nID = \"individual-local-identifier\"\ntracks = tf.load_tracks(tf.move.example_data(\"fishers\"))\ntracks = tf.move.filter_unique(tf.move.filter_movebank_visible(tracks))\ntracks = tracks[~tracks.geometry.is_empty]\n\n# the fisher M4 in metres from its centre, one location per about 10 minutes\nm4 = tracks[tracks[ID] == \"M4\"].reset_index(drop=True)\nm4 = m4.to_crs(tf.move.aeqd_crs(m4))\nm4 = m4[tf.move.thin_time(m4, \"10 mins\")].reset_index(drop=True)\n\n# its first and second half (before and after 6 March 2010): kernel estimates on one template, bridges on one grid\nhalf = m4[\"timestamp\"] < pd.Timestamp(\"2010-03-06\", tz=\"UTC\")\nfirst, second = m4[half], m4[~half]\ntrast = tf.move.make_trast(m4, factor=1.25, res=25)\nkde_a = tf.move.hr_kde(first, trast=trast, levels=[0.5, 0.95])\nkde_b = tf.move.hr_kde(second, trast=trast, levels=[0.5, 0.95])\nhalves = m4.assign(half=np.where(half, \"first\", \"second\"))\nuds = tf.move.dbbmm_ud(halves, location_error=20, window_size=25, margin=7, res=50, track=\"half\")\nud_a, ud_b = uds.isel(band=0), uds.isel(band=1)\n",
+   "data": "landscape",
+   "metrics": [
+    {
+     "id": "step_length",
+     "name": "Step length",
+     "level": "step",
+     "theme": "steps",
+     "unit": "m (the CRS units)",
+     "range": "0 or more",
+     "what": "The distance from a location to the next location of the same track: a straight line in a projected CRS, the\ngreat-circle distance in longitude / latitude.\n",
+     "formula": "d_i = \\lVert \\mathbf{p}_{i+1} - \\mathbf{p}_i \\rVert",
+     "symbols": {
+      "\\mathbf{p}_i": "the position of location \\(i\\)",
+      "d_i": "the length of the step that leaves location \\(i\\)"
+     },
+     "use": "A step's length depends on the time between the fixes: compare steps only at one sampling interval (thin or\nresample the tracks first, [[move.filter_per_interval]]).\n",
+     "refs": [
+      "Kranstauber, Safi & Scharf (2024). move2: R package for processing movement data. Methods in Ecology and Evolution 15: 1561-1567. doi:10.1111/2041-210X.14383"
+     ],
+     "aliases": [
+      "distance",
+      "move length",
+      "sl_"
+     ],
+     "python": "tf.move.distance(m4)",
+     "operator": "move.distance",
+     "setting": null,
+     "api": "terraflux.move.distance",
+     "value": "2228 values: mean 104.3, from 0.2527 to 2129; 1 missing"
+    },
+    {
+     "id": "time_lag",
+     "name": "Time lag",
+     "level": "step",
+     "theme": "steps",
+     "unit": "s (or min, h, d)",
+     "range": "0 or more",
+     "what": "The time from a location to the next one of its track.\n",
+     "formula": "\\Delta t_i = t_{i+1} - t_i",
+     "symbols": {
+      "t_i": "the time of location \\(i\\)"
+     },
+     "use": "Use it to find the gaps and the real sampling interval of a track. The speed needs it to be positive: two fixes at\nthe same time are removed with [[move.filter_unique]] first.\n",
+     "refs": [
+      "Kranstauber, Safi & Scharf (2024). move2: R package for processing movement data. Methods in Ecology and Evolution 15: 1561-1567. doi:10.1111/2041-210X.14383"
+     ],
+     "aliases": [
+      "sampling interval",
+      "time difference"
+     ],
+     "python": "tf.move.time_lags(m4)",
+     "operator": "move.time_lags",
+     "setting": null,
+     "api": "terraflux.move.time_lags",
+     "value": "2228 values: mean 1941, from 540 to 83864; 1 missing"
+    },
+    {
+     "id": "step_speed",
+     "name": "Speed of a step",
+     "level": "step",
+     "theme": "steps",
+     "unit": "m/s (or km/h, m/h, km/d)",
+     "range": "0 or more",
+     "what": "The step's length divided by its time lag: the mean speed between two fixes.\n",
+     "formula": "v_i = \\frac{d_i}{\\Delta t_i}",
+     "symbols": {
+      "d_i": "the step length",
+      "\\Delta t_i": "the time lag, in seconds"
+     },
+     "use": "An average over the interval, so it is below the real speed when the sampling is coarse. Steps faster than the\nanimal can move ([the allometric maximum speed](#v_phys)) are probably location errors.\n",
+     "refs": [
+      "Kranstauber, Safi & Scharf (2024). move2: R package for processing movement data. Methods in Ecology and Evolution 15: 1561-1567. doi:10.1111/2041-210X.14383"
+     ],
+     "aliases": [
+      "velocity",
+      "ground speed"
+     ],
+     "python": "tf.move.speed(m4)",
+     "operator": "move.speed",
+     "setting": null,
+     "api": "terraflux.move.speed",
+     "value": "2228 values: mean 0.1327, from 0.00007028 to 1.247; 1 missing"
+    },
+    {
+     "id": "step_azimuth",
+     "name": "Azimuth of a step",
+     "level": "step",
+     "theme": "steps",
+     "unit": "rad (or degrees)",
+     "range": "from -π (exclusive) to π",
+     "what": "The compass direction of a step, clockwise from north. In longitude / latitude it is the geodesic azimuth on the\nCRS's ellipsoid; it has no value where a location repeats the one before.\n",
+     "formula": "\\theta_i = \\operatorname{atan2}(\\Delta x_i, \\Delta y_i)",
+     "symbols": {
+      "\\Delta x_i, \\Delta y_i": "the differences of easting and northing from location \\(i\\) to \\(i+1\\)"
+     },
+     "use": "A compass direction, not one relative to the step before (that is the turn angle). amt's direction (in\n[[move.steps]]) is measured anticlockwise from east instead.\n",
+     "refs": [
+      "Kranstauber, Safi & Scharf (2024). move2: R package for processing movement data. Methods in Ecology and Evolution 15: 1561-1567. doi:10.1111/2041-210X.14383"
+     ],
+     "aliases": [
+      "heading",
+      "bearing",
+      "direction"
+     ],
+     "python": "tf.move.azimuth(m4, \"deg\")",
+     "operator": "move.azimuth",
+     "setting": null,
+     "api": "terraflux.move.azimuth",
+     "value": "2228 values: mean -2.754, from -179.9 to 179.9; 1 missing"
+    },
+    {
+     "id": "step_turn_angle",
+     "name": "Turn angle",
+     "level": "step",
+     "theme": "steps",
+     "unit": "rad (or degrees)",
+     "range": "from -π to π (exclusive)",
+     "what": "The change of direction at a location: the azimuth of the step that leaves it minus the azimuth of the step that\narrives at it, positive to the right. It has no value at the first and the last location of a track.\n",
+     "formula": "\\phi_i = \\theta_i - \\theta_{i-1}, \\quad \\text{wrapped to } [-\\pi, \\pi)",
+     "symbols": {
+      "\\theta_i": "the azimuth of the step that leaves location \\(i\\)",
+      "\\theta_{i-1}": "the azimuth of the step that arrives at it"
+     },
+     "use": "Near 0 for persistent movement, near ±180° for turning back. Like the step length it changes with the sampling\ninterval: at a coarse one the turns look almost uniform.\n",
+     "refs": [
+      "Kranstauber, Safi & Scharf (2024). move2: R package for processing movement data. Methods in Ecology and Evolution 15: 1561-1567. doi:10.1111/2041-210X.14383"
+     ],
+     "aliases": [
+      "turning angle",
+      "relative angle",
+      "ta_"
+     ],
+     "python": "tf.move.turn_angle(m4, \"deg\")",
+     "operator": "move.turn_angle",
+     "setting": null,
+     "api": "terraflux.move.turn_angle",
+     "value": "2228 values: mean -0.9442, from -180 to 180; 2 missing"
+    },
+    {
+     "id": "step_amt",
+     "name": "Steps as amt makes them (length, direction, turn)",
+     "level": "step",
+     "theme": "steps",
+     "unit": "m and rad",
+     "range": "sl_ 0 or more; direction_p and ta_ from -π (exclusive) to π",
+     "what": "amt's table of steps: for each step its length `sl_`, its direction `direction_p` (anticlockwise from east, as\nmathematics measures angles) and its turn angle `ta_` from the step before. In longitude / latitude the direction is\nthe geodesic bearing turned into an angle from east.\n",
+     "formula": "sl_i = d_i, \\quad \\alpha_i = \\operatorname{atan2}(\\Delta y_i, \\Delta x_i), \\quad ta_i = \\alpha_i - \\alpha_{i-1} \\text{ wrapped}",
+     "symbols": {
+      "\\Delta x_i, \\Delta y_i": "the differences of the coordinates along step \\(i\\)",
+      "d_i": "its length",
+      "\\alpha_i": "its direction, anticlockwise from east"
+     },
+     "use": "The input of a step-selection analysis. The first step of each track (or burst) has no turn angle.\n",
+     "refs": [
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "step selection steps",
+      "sl_",
+      "ta_",
+      "direction_p"
+     ],
+     "python": "tf.move.steps(m4)[[\"sl_\", \"direction_p\", \"ta_\"]].head(4)",
+     "operator": "move.steps",
+     "setting": null,
+     "api": "terraflux.move.steps",
+     "value": "     sl_  direction_p    ta_\n157.4565      -0.3563    NaN\n 35.8492       1.9943 2.3506\n 32.5690      -1.3719 2.9170\n 13.6845       0.1090 1.4809"
+    },
+    {
+     "id": "nsd",
+     "name": "Net squared displacement (NSD)",
+     "level": "location",
+     "theme": "steps",
+     "unit": "m² (the coordinates' unit squared)",
+     "range": "0 or more",
+     "what": "The squared distance of each location from the first location of its track. Over time it shows dispersal (it keeps\ngrowing), migration (it rises to a plateau and comes back) and a home range (it stays level).\n",
+     "formula": "NSD_i = (x_i - x_1)^2 + (y_i - y_1)^2",
+     "symbols": {
+      "(x_i, y_i)": "the coordinates of location \\(i\\)",
+      "(x_1, y_1)": "the first location of the track"
+     },
+     "use": "Plot it against time. In longitude / latitude it is in squared degrees, as amt computes it: project the tracks first.\n",
+     "refs": [
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "net squared displacement",
+      "NSD"
+     ],
+     "python": "tf.move.nsd(m4)",
+     "operator": "move.nsd",
+     "setting": null,
+     "api": "terraflux.move.nsd",
+     "value": "2228 values: mean 1842000, from 0 to 12000000"
+    },
+    {
+     "id": "time_of_day",
+     "name": "Time of day (day, night, dawn, dusk)",
+     "level": "location",
+     "theme": "steps",
+     "unit": "category",
+     "range": "day, night (and dawn, dusk)",
+     "what": "Whether each location (or the start or end of each step) falls between sunrise and sunset of its date, or at night;\nwith `include_crepuscule` also dawn and dusk. The sun is computed as the R package suncalc does, from the location\nand the date in UTC.\n",
+     "formula": "\\text{day} \\iff t_{rise} \\le t \\le t_{set}; \\quad \\text{dawn} \\iff t_{dawn} \\le t < t_{rise}; \\quad \\text{dusk} \\iff t_{set} < t \\le t_{dusk}",
+     "symbols": {
+      "t": "the time of the location",
+      "t_{rise}, t_{set}": "sunrise and sunset (the upper edge of the sun at -0.833°)",
+      "t_{dawn}, t_{dusk}": "the start and end of civil twilight (the sun at -6°)"
+     },
+     "use": "Use it to split the movement by period of activity. Near the poles the sun does not rise or set on some dates, and\nthose locations get no value.\n",
+     "refs": [
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "day or night",
+      "diel period",
+      "crepuscule"
+     ],
+     "python": "pd.Series(tf.move.time_of_day(m4)).value_counts()",
+     "operator": "move.time_of_day",
+     "setting": null,
+     "api": "terraflux.move.time_of_day",
+     "value": "night  1652\nday  576"
+    },
+    {
+     "id": "v_phys",
+     "name": "Allometric maximum speed",
+     "level": "species",
+     "theme": "steps",
+     "unit": "m/s",
+     "range": "more than 0",
+     "what": "A ceiling for the speed an animal can reach, from its body mass and its way of moving (flying, running or swimming),\nby the scaling law of Hirt et al. (2017). Steps faster than it are probably location errors. The card's call is for\nan animal of 5 kg (within what an adult male fisher weighs), running.\n",
+     "formula": "v = a\\, M^{b}\\left(1 - e^{-h M^{i}}\\right)",
+     "symbols": {
+      "M": "the body mass, in kg",
+      "v": "the speed, in km/h (returned in m/s)",
+      "a, b, h, i": "the parameters of Hirt et al.'s supplementary table for each way of moving; the interval of the estimate comes from their standard errors (delta method)"
+     },
+     "use": "A burst speed over a horizontal path, not a travelling speed, and specialists can exceed it: use it as a generous\nlimit to flag errors, not as a filter on its own.\n",
+     "refs": [
+      "Hirt, Jetz, Rall & Brose (2017). A general scaling law reveals why the largest animals are not the fastest. Nature Ecology & Evolution 1: 1116-1122."
+     ],
+     "aliases": [
+      "maximum speed",
+      "physiological maximum speed",
+      "v_max"
+     ],
+     "python": "tf.move.v_phys_estimate(5.0, \"running\").v_max",
+     "operator": "move.max_speed",
+     "setting": "mode = \"running\"",
+     "api": "terraflux.move.v_phys_estimate",
+     "value": "10.76"
+    },
+    {
+     "id": "cum_dist",
+     "name": "Track length (cumulative distance)",
+     "level": "track",
+     "theme": "tracks",
+     "unit": "m",
+     "range": "0 or more",
+     "what": "The length of a track: the sum of its step lengths.\n",
+     "formula": "L = \\sum_{i=1}^{n-1} d_i",
+     "symbols": {
+      "d_i": "the length of step \\(i\\)",
+      "n": "the number of locations of the track"
+     },
+     "use": "It grows with the sampling rate, since more fixes follow more of the animal's wiggles: compare tracks at one interval.\n",
+     "refs": [
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "path length",
+      "total distance travelled",
+      "cum_dist"
+     ],
+     "python": "tf.move.cum_dist(m4)",
+     "operator": "move.track_summary",
+     "setting": null,
+     "api": "terraflux.move.cum_dist",
+     "value": "M4  232300"
+    },
+    {
+     "id": "tot_dist",
+     "name": "Net displacement (total distance)",
+     "level": "track",
+     "theme": "tracks",
+     "unit": "m",
+     "range": "0 or more",
+     "what": "The straight-line distance from the first to the last location of a track.\n",
+     "formula": "D = \\lVert \\mathbf{p}_n - \\mathbf{p}_1 \\rVert",
+     "symbols": {
+      "\\mathbf{p}_1, \\mathbf{p}_n": "the first and the last location of the track"
+     },
+     "use": "Small for an animal that comes back to where it started, however long its track.\n",
+     "refs": [
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "net displacement",
+      "beeline distance",
+      "tot_dist"
+     ],
+     "python": "tf.move.tot_dist(m4)",
+     "operator": "move.track_summary",
+     "setting": null,
+     "api": "terraflux.move.tot_dist",
+     "value": "M4  760"
+    },
+    {
+     "id": "straightness",
+     "name": "Straightness index",
+     "level": "track",
+     "theme": "tracks",
+     "unit": "none",
+     "range": "0 to 1; 1 for a straight path",
+     "what": "The net displacement divided by the track length: 1 for a straight path, near 0 for a tortuous one.\n",
+     "formula": "S = \\frac{D}{L}",
+     "symbols": {
+      "D": "the net displacement (`tot_dist`)",
+      "L": "the track length (`cum_dist`)"
+     },
+     "use": "Meant for short paths towards a goal. For an animal that stays in a home range it falls towards 0 as the track\ngets longer (as on the example fisher), and says little.\n",
+     "refs": [
+      "Benhamou (2004). How to reliably estimate the tortuosity of an animal's path: straightness, sinuosity, or fractal dimension? Journal of Theoretical Biology 229: 209-220. doi:10.1016/j.jtbi.2004.03.016"
+     ],
+     "aliases": [
+      "directness index",
+      "path straightness"
+     ],
+     "python": "tf.move.straightness(m4)",
+     "operator": "move.track_summary",
+     "setting": null,
+     "api": "terraflux.move.straightness",
+     "value": "M4  0.003271"
+    },
+    {
+     "id": "msd",
+     "name": "Mean squared distance from the centre",
+     "level": "track",
+     "theme": "tracks",
+     "unit": "m²",
+     "range": "0 or more",
+     "what": "The mean squared distance of the locations of a track from their mean location: how widely the track spreads.\n",
+     "formula": "MSD = \\frac{1}{n}\\sum_{i=1}^{n} \\left[(x_i - \\bar{x})^2 + (y_i - \\bar{y})^2\\right]",
+     "symbols": {
+      "(x_i, y_i)": "the coordinates of location \\(i\\)",
+      "(\\bar{x}, \\bar{y})": "their means",
+      "n": "the number of locations"
+     },
+     "use": "Its square root is a radius of the area used. A few long excursions raise it a lot.\n",
+     "refs": [
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "mean squared distance",
+      "MSD",
+      "radius of gyration"
+     ],
+     "python": "tf.move.msd(m4)",
+     "operator": "move.track_summary",
+     "setting": null,
+     "api": "terraflux.move.msd",
+     "value": "M4  1780000"
+    },
+    {
+     "id": "sinuosity",
+     "name": "Sinuosity (Benhamou)",
+     "level": "track",
+     "theme": "tracks",
+     "unit": "1 / √m",
+     "range": "more than 0",
+     "what": "Benhamou's estimator of the tortuosity of a random search path, from the mean step length, the variation of the\nstep lengths and the mean cosine and sine of the turn angles. It is meant for tracks sampled at a regular interval.\n",
+     "formula": "S = \\frac{2}{\\sqrt{p \\left[ \\dfrac{1 - c^2 - s^2}{(1-c)^2 + s^2} + b^2 \\right]}}",
+     "symbols": {
+      "p": "the mean step length",
+      "b": "the coefficient of variation of the step lengths (sample standard deviation / mean)",
+      "c, s": "the means of the cosines and of the sines of the turn angles"
+     },
+     "use": "The lower, the more tortuous. Its unit is the inverse square root of a length, so compare tracks at the same\nsampling. amt reads the turn angles as if they were degrees; this library takes them in radians, as the formula needs.\n",
+     "refs": [
+      "Benhamou (2004). How to reliably estimate the tortuosity of an animal's path: straightness, sinuosity, or fractal dimension? Journal of Theoretical Biology 229: 209-220. doi:10.1016/j.jtbi.2004.03.016"
+     ],
+     "aliases": [
+      "tortuosity",
+      "path sinuosity"
+     ],
+     "python": "tf.move.sinuosity(m4)",
+     "operator": "move.track_summary",
+     "setting": null,
+     "api": "terraflux.move.sinuosity",
+     "value": "M4  0.1136"
+    },
+    {
+     "id": "tac",
+     "name": "Turn angle correlation (TAC)",
+     "level": "track",
+     "theme": "tracks",
+     "unit": "none",
+     "range": "0 to 4",
+     "what": "How much the turn angle changes from one step to the next, from the squared differences of the cosines and sines\nof consecutive turn angles.\n",
+     "formula": "TAC = \\frac{1}{m} \\sum_{i=2}^{m} \\left[(\\cos\\phi_i - \\cos\\phi_{i-1})^2 + (\\sin\\phi_i - \\sin\\phi_{i-1})^2\\right]",
+     "symbols": {
+      "\\phi_i": "the turn angle of step \\(i\\), in radians",
+      "m": "the number of steps of the track"
+     },
+     "use": "Near 0 when consecutive turns are alike (persistent turning, as in circling), up to 4 when each turn is the\nopposite of the one before. The sum is divided by the number of steps, not of pairs, as in amt.\n",
+     "refs": [
+      "Dray, Royer-Carenzi & Calenge (2010). The exploratory analysis of autocorrelation in animal-movement studies. Ecological Research 25: 673-681. doi:10.1007/s11284-010-0701-7"
+     ],
+     "aliases": [
+      "turn angle correlation",
+      "TAC",
+      "angular autocorrelation"
+     ],
+     "python": "tf.move.tac(m4)",
+     "operator": "move.track_summary",
+     "setting": null,
+     "api": "terraflux.move.tac",
+     "value": "M4  1.858"
+    },
+    {
+     "id": "intensity_use",
+     "name": "Intensity of use",
+     "level": "track",
+     "theme": "tracks",
+     "unit": "none",
+     "range": "more than 0",
+     "what": "The track length divided by the square root of the area of the minimum convex polygon of all its locations: how\nmany times, roughly, the animal crossed the ground of its range.\n",
+     "formula": "IU = \\frac{L}{\\sqrt{A_{100}}}",
+     "symbols": {
+      "L": "the track length (the sum of the step lengths)",
+      "A_{100}": "the area of the minimum convex polygon of all the locations"
+     },
+     "use": "High when the animal went back and forth over a small range. It depends on the sampling interval, like the track\nlength. The tracks must be projected.\n",
+     "refs": [
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "intensity of use"
+     ],
+     "python": "tf.move.intensity_use(m4)",
+     "operator": "move.intensity_use",
+     "setting": null,
+     "api": "terraflux.move.intensity_use",
+     "value": "M4  70.73"
+    },
+    {
+     "id": "corridor_segment",
+     "name": "Corridor segments (speed and agreement of direction)",
+     "level": "segment",
+     "theme": "corridors",
+     "unit": "a flag per segment (with its speed and circular variance)",
+     "range": "circular variance 0 to 1",
+     "what": "Marks the steps that run along a corridor: fast steps whose neighbours in space go the same way. The agreement of\ndirection is the circular variance of the doubled azimuths of the neighbouring segments of all tracks, so that the two\ndirections of travel on one path agree.\n",
+     "formula": "CV = 1 - \\sqrt{\\bar{C}^2 + \\bar{S}^2}, \\quad \\bar{C} = \\frac{1}{k}\\sum_j \\cos\\psi_j, \\quad \\bar{S} = \\frac{1}{k}\\sum_j \\sin\\psi_j, \\quad \\psi_j = 2\\theta_j \\bmod 2\\pi",
+     "symbols": {
+      "\\theta_j": "the azimuth of neighbouring segment \\(j\\): a segment whose midpoint lies within half the segment's length of its midpoint",
+      "k": "the number of neighbours; a corridor segment has at least `min_segments` of them, a speed of at least `speed_threshold`, \\(CV\\) at most `circvar_threshold`, and more neighbours that qualify than not"
+     },
+     "use": "Give both thresholds to compare animals: left out they are the 0.75 quantile of the speeds and the 0.25 quantile\nof the circular variances, which mark a share of every track whatever it does. The search radius assumes a regular\nsampling (the library warns when it is not, as on the example).\n",
+     "refs": [
+      "LaPoint, Gallery, Wikelski & Kays (2013). Animal behavior, cost-based corridor models, and real corridors. Landscape Ecology 28: 1615-1630. doi:10.1007/s10980-013-9910-0"
+     ],
+     "aliases": [
+      "movement corridor",
+      "LaPoint corridors",
+      "corridor use"
+     ],
+     "python": "tf.move.corridor(m4, speed_threshold=0.12, circvar_threshold=0.38)[\"corridor\"].value_counts()",
+     "operator": "move.corridor",
+     "setting": "speed_threshold = 0.12",
+     "api": "terraflux.move.corridor",
+     "value": "not corridor  2191\ncorridor  37"
+    },
+    {
+     "id": "hr_mcp",
+     "name": "Minimum convex polygon (MCP) home range",
+     "level": "track",
+     "theme": "home ranges",
+     "unit": "m² (from tf.move.hr_area)",
+     "range": "more than 0",
+     "what": "The convex hull of the locations nearest to their mean location: the polygon around a share of the locations (95 %,\nsay), with the farthest fixes left out.\n",
+     "formula": "A_p = \\operatorname{area}\\left(\\operatorname{hull}\\{i : r_i^2 \\le Q_p\\}\\right), \\quad r_i^2 = (x_i-\\bar{x})^2 + (y_i-\\bar{y})^2",
+     "symbols": {
+      "(\\bar{x}, \\bar{y})": "the mean location",
+      "r_i^2": "the squared distance of location \\(i\\) from it",
+      "Q_p": "the quantile (R's type 7) of the \\(r_i^2\\) at level \\(p\\); level 1 is the hull of all the locations"
+     },
+     "use": "Simple and comparable between studies, but it grows with the number of fixes and takes in ground the animal never\nused. Use projected coordinates.\n",
+     "refs": [
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "MCP",
+      "minimum convex polygon",
+      "convex hull home range"
+     ],
+     "python": "tf.move.hr_area(tf.move.hr_mcp(m4, levels=[0.5, 0.95]))",
+     "operator": "move.home_range",
+     "setting": "method = \"mcp\"",
+     "api": "terraflux.move.hr_mcp",
+     "value": "individual-local-identifier  level     what         area\n                         M4   0.95 estimate 8076526.3949\n                         M4   0.50 estimate 1768429.9688"
+    },
+    {
+     "id": "hr_kde",
+     "name": "Kernel density (KDE) home range",
+     "level": "track",
+     "theme": "home ranges",
+     "unit": "m² (from tf.move.hr_area)",
+     "range": "more than 0",
+     "what": "A smooth density of use, a bivariate normal kernel placed on every location; the home range at level \\(p\\) is the\nsmallest area that holds the share \\(p\\) of that density. The density is computed on the cells of a template raster\n([`tf.move.make_trast`][terraflux.move.make_trast]) as KernSmooth's `bkde2D` does, and the isopleth is the contour\nof its cumulative distribution, its holes filled.\n",
+     "formula": "\\hat{f}(x, y) = \\frac{1}{n h_x h_y} \\sum_{i=1}^{n} \\phi\\!\\left(\\frac{x - x_i}{h_x}\\right)\\phi\\!\\left(\\frac{y - y_i}{h_y}\\right)",
+     "symbols": {
+      "\\phi": "the standard normal density",
+      "h_x, h_y": "the bandwidths",
+      "(x_i, y_i)": "the locations; \\(n\\) of them"
+     },
+     "use": "The result depends strongly on the bandwidth (the reference one by default, see the bandwidth cards) and on the\ntemplate: make the template large enough that the contours close inside it.\n",
+     "refs": [
+      "Worton (1989). Kernel methods for estimating the utilization distribution in home-range studies. Ecology 70: 164-168.",
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "kernel density estimate",
+      "KDE",
+      "kernel home range"
+     ],
+     "python": "tf.move.hr_area(tf.move.hr_kde(m4, trast=trast, levels=[0.5, 0.95]))",
+     "operator": "move.home_range",
+     "setting": "method = \"kde\"",
+     "api": "terraflux.move.hr_kde",
+     "value": "individual-local-identifier  level     what         area\n                         M4   0.95 estimate 9989586.2247\n                         M4   0.50 estimate 2381350.7191"
+    },
+    {
+     "id": "hr_locoh",
+     "name": "Local convex hull (LoCoH) home range",
+     "level": "track",
+     "theme": "home ranges",
+     "unit": "m² (from tf.move.hr_area)",
+     "range": "more than 0",
+     "what": "A union of local convex hulls: a hull around every location and its neighbours (the `n` nearest, those within a\nradius, or the nearest ones whose distances add up to a limit), joined from the smallest hull up until they hold the\nshare of the locations of the level.\n",
+     "formula": "H_i = \\operatorname{buffer}\\left(\\operatorname{hull}(\\{\\mathbf{p}_i\\} \\cup N(i)),\\; \\epsilon\\right), \\quad A_p = \\operatorname{area}\\left(\\bigcup_{r \\le w} H_{(r)}\\right)",
+     "symbols": {
+      "N(i)": "the neighbours of location \\(i\\), by `type`: k, the `n` nearest; r, those within the radius `n`; a, the nearest ones whose summed distance is at most `n`",
+      "H_{(r)}": "the hulls in order of increasing area",
+      "w": "the number of hulls whose share of the locations is nearest to the level \\(p\\) (the level reported is the share reached, to 2 digits)",
+      "\\epsilon": "`rand_buffer` (0.00001), so that the hull of points on a line has an area"
+     },
+     "use": "Better than a convex polygon when the range has holes or hard edges (a lake, a road). As a first choice of `n`\nwith the k method, try the square root of the number of locations (47 on the example).\n",
+     "refs": [
+      "Getz et al. (2007). LoCoH: nonparameteric kernel methods for constructing home ranges and utilization distributions. PLoS ONE 2: e207.",
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "LoCoH",
+      "k-LoCoH",
+      "a-LoCoH",
+      "r-LoCoH"
+     ],
+     "python": "tf.move.hr_area(tf.move.hr_locoh(m4, n=47, levels=[0.5, 0.95]))",
+     "operator": "move.home_range",
+     "setting": "method = \"locoh\"",
+     "api": "terraflux.move.hr_locoh",
+     "value": "individual-local-identifier  level     what         area\n                         M4   0.95 estimate 3414238.5641\n                         M4   0.50 estimate  323743.3851"
+    },
+    {
+     "id": "hr_area",
+     "name": "Home-range area",
+     "level": "track",
+     "theme": "home ranges",
+     "unit": "m² (the CRS unit squared)",
+     "range": "more than 0",
+     "what": "The area of each polygon of a home-range estimate, by track and level: the polygon made by MCP and LoCoH, the\nisopleth of a kernel estimate. `units=True` adds the unit.\n",
+     "formula": "A_p = \\operatorname{area}(P_p)",
+     "symbols": {
+      "P_p": "the polygon at level \\(p\\); its area by the shoelace formula, in the CRS's units squared"
+     },
+     "use": "In longitude / latitude the area is in square degrees: project the tracks first.\n",
+     "refs": [
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "home range size",
+      "isopleth area"
+     ],
+     "python": "tf.move.hr_area(tf.move.hr_mcp(m4), units=True)",
+     "operator": "move.home_range",
+     "setting": null,
+     "api": "terraflux.move.hr_area",
+     "value": "individual-local-identifier  level     what         area unit\n                         M4   0.95 estimate 8076526.3949  m^2"
+    },
+    {
+     "id": "hr_kde_ref",
+     "name": "Reference bandwidth",
+     "level": "track",
+     "theme": "bandwidths",
+     "unit": "m",
+     "range": "more than 0",
+     "what": "The rule-of-thumb kernel bandwidth from the spread of the coordinates and the number of locations, the default of\nthe kernel estimate. `rescale=\"unitvar\"` scales each coordinate to unit variance first (the bandwidths come back in\nthe original units) and `\"xvar\"` scales y to the variance of x.\n",
+     "formula": "h_{ref} = \\sqrt{\\tfrac{1}{2}\\left(\\operatorname{var}(x) + \\operatorname{var}(y)\\right)}\\; n^{-1/6}",
+     "symbols": {
+      "\\operatorname{var}(x), \\operatorname{var}(y)": "the sample variances of the coordinates",
+      "n": "the number of locations"
+     },
+     "use": "Optimal when the use is one normal distribution; it over-smooths a use with several centres, giving too large a\nhome range.\n",
+     "refs": [
+      "Worton (1989). Kernel methods for estimating the utilization distribution in home-range studies. Ecology 70: 164-168."
+     ],
+     "aliases": [
+      "href",
+      "reference bandwidth",
+      "rule of thumb"
+     ],
+     "python": "tf.move.hr_kde_ref(m4)",
+     "operator": "move.home_range",
+     "setting": "bandwidth = \"ref\"",
+     "api": "terraflux.move.hr_kde_ref",
+     "value": "      hx       hy\n261.0863 261.0863"
+    },
+    {
+     "id": "hr_kde_pi",
+     "name": "Plug-in bandwidth",
+     "level": "track",
+     "theme": "bandwidths",
+     "unit": "m",
+     "range": "more than 0",
+     "what": "The bandwidth of Sheather and Jones's plug-in rule, found for each coordinate apart with KernSmooth's `dpik`, then\nraised to the power 5/6 as amt does, since the rule is for a density of one variable (`correct=False` leaves the\npower out).\n",
+     "formula": "h_x = \\hat{h}_{dpik}(x)^{5/6}, \\qquad h_y = \\hat{h}_{dpik}(y)^{5/6}",
+     "symbols": {
+      "\\hat{h}_{dpik}": "the direct plug-in bandwidth of one coordinate (its options `scalest`, `level`, `kernel`)"
+     },
+     "use": "Usually much smaller than the reference bandwidth, so the estimate follows the data more closely and gives a smaller\nhome range.\n",
+     "refs": [
+      "Sheather & Jones (1991). A reliable data-based bandwidth selection method for kernel density estimation. Journal of the Royal Statistical Society B 53: 683-690.",
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "plug-in bandwidth",
+      "hpi",
+      "Sheather-Jones"
+     ],
+     "python": "tf.move.hr_kde_pi(m4)",
+     "operator": "move.home_range",
+     "setting": "bandwidth = \"pi\"",
+     "api": "terraflux.move.hr_kde_pi",
+     "value": "     hx      hy\n34.5299 36.0644"
+    },
+    {
+     "id": "hr_kde_lscv",
+     "name": "Least-squares cross-validation bandwidth",
+     "level": "track",
+     "theme": "bandwidths",
+     "unit": "m",
+     "range": "more than 0",
+     "what": "The bandwidth, among the values tried, that minimises the least-squares cross-validation criterion: the lowest one\n(`which_min=\"global\"`) or the largest local minimum (`\"local\"`). `converged` says whether the minimum lies inside the\nvalues tried, not at one of their ends.\n",
+     "formula": "LSCV(h) = \\frac{1}{\\pi h^2 n} + \\frac{2\\sum_{i<j}\\left(e^{-d_{ij}^2/4h^2} - 4 e^{-d_{ij}^2/2h^2}\\right) - 3n}{4\\pi h^2 n^2}",
+     "symbols": {
+      "d_{ij}": "the distance between locations \\(i\\) and \\(j\\)",
+      "n": "the number of locations",
+      "h": "the bandwidth tried"
+     },
+     "use": "It often fails on GPS data: on the example, with the default 100 values from 0.1 to 2 times the reference bandwidth,\nthe criterion keeps falling to the smallest one (it did not converge). The fisher rests at the same sites, and\nrepeated nearby fixes pull the criterion towards a tiny bandwidth. The card tries values from 2 to 30 m, where the\nminimum is inside (6 m): a bandwidth that follows each resting site, not a home range. Look at the criterion's curve\n(`fits`) before using it.\n",
+     "refs": [
+      "Silverman (1986). Density Estimation for Statistics and Data Analysis. Chapman & Hall, London.",
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "LSCV",
+      "hlscv",
+      "cross-validation bandwidth"
+     ],
+     "python": "tf.move.hr_kde_lscv(m4, range=np.linspace(2, 30, 15)).h",
+     "operator": "move.home_range",
+     "setting": "bandwidth = \"lscv\"",
+     "api": "terraflux.move.hr_kde_lscv",
+     "value": " hx  hy\n6.0 6.0"
+    },
+    {
+     "id": "hr_kde_ref_scaled",
+     "name": "Scaled reference bandwidth",
+     "level": "track",
+     "theme": "bandwidths",
+     "unit": "m",
+     "range": "from 0.01 to 1 times the reference bandwidth (by default)",
+     "what": "The largest bandwidth, below the reference one, at which the isopleth of a level has no more than a chosen number of\npolygons (`num_parts`), so that a use in one piece stays one polygon while the bandwidth shrinks towards the data.\nIt is found by bisection between the ends of `range`, until the change is below `tol`.\n",
+     "formula": "h^{*} \\approx \\max\\{h \\in [0.01\\,h_{ref},\\, h_{ref}] : N_{poly}(h) \\le k\\}",
+     "symbols": {
+      "N_{poly}(h)": "the number of polygons of the isopleth at the level with bandwidth \\(h\\)",
+      "k": "`num_parts`",
+      "h_{ref}": "the reference bandwidth"
+     },
+     "use": "A heuristic, and its value depends on the template raster. On the example the 95 % isopleth is one polygon almost\nup to the reference bandwidth.\n",
+     "refs": [
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "scaled reference bandwidth",
+      "href scaled"
+     ],
+     "python": "tf.move.hr_kde_ref_scaled(m4, trast=trast, num_parts=1)",
+     "operator": "move.home_range",
+     "setting": "bandwidth = \"ref_scaled\"",
+     "api": "terraflux.move.hr_kde_ref_scaled",
+     "value": "       h  n_iter  success\n257.9941      12     True"
+    },
+    {
+     "id": "hr_overlap_hr",
+     "name": "Home-range overlap (share of the polygon, HR)",
+     "level": "track",
+     "theme": "overlap",
+     "unit": "proportion",
+     "range": "0 to 1",
+     "what": "The share of the area of the first estimate's polygon that the second's covers, level by level. It is not\nsymmetric. On the example, the share of the first half's home range that the second half's covers.\n",
+     "formula": "HR_{xy} = \\frac{A(P_x \\cap P_y)}{A(P_x)}",
+     "symbols": {
+      "P_x, P_y": "the polygons of the first and the second estimate at the same level (0 when they do not meet)"
+     },
+     "use": "Quick, but it ignores how intensely each estimate uses the shared area: the distribution indices below take that\ninto account.\n",
+     "refs": [
+      "Fieberg & Kochanny (2005). Quantifying home-range overlap: the importance of the utilization distribution. Journal of Wildlife Management 69: 1346-1359."
+     ],
+     "aliases": [
+      "home range overlap",
+      "HR"
+     ],
+     "python": "tf.move.hr_overlap(kde_a, kde_b, type=\"hr\")",
+     "operator": "move.home_range_overlap",
+     "setting": "type = \"hr\"",
+     "api": "terraflux.move.hr_overlap",
+     "value": "track  level  overlap\n   M4   0.95   0.3484\n   M4   0.50   0.1463"
+    },
+    {
+     "id": "hr_overlap_phr",
+     "name": "Overlap, probability in the home range (PHR)",
+     "level": "track",
+     "theme": "overlap",
+     "unit": "probability",
+     "range": "0 to 1",
+     "what": "The probability, under the second estimate's distribution, of being in the cells that the first uses. A kernel is\npositive everywhere, so without a limit it is 1: `conditional=True` limits each distribution to its isopleth at each\nlevel.\n",
+     "formula": "PHR_{xy} = \\sum_{c\\,:\\,u_x(c) > 0} u_y(c)",
+     "symbols": {
+      "u_x, u_y": "the utilisation distributions of the two estimates on the same grid, each summing to 1",
+      "c": "a cell"
+     },
+     "use": "Needs two kernel estimates on the same template raster ([`tf.move.make_trast`][terraflux.move.make_trast]).\n",
+     "refs": [
+      "Fieberg & Kochanny (2005). Quantifying home-range overlap: the importance of the utilization distribution. Journal of Wildlife Management 69: 1346-1359."
+     ],
+     "aliases": [
+      "PHR"
+     ],
+     "python": "tf.move.hr_overlap(kde_a, kde_b, type=\"phr\", conditional=True)",
+     "operator": "move.home_range_overlap",
+     "setting": "type = \"phr\"",
+     "api": "terraflux.move.hr_overlap",
+     "value": "track  level  overlap\n   M4   0.50   0.5478\n   M4   0.95   0.9913"
+    },
+    {
+     "id": "hr_overlap_vi",
+     "name": "Overlap, volume of intersection (VI)",
+     "level": "track",
+     "theme": "overlap",
+     "unit": "proportion",
+     "range": "0 to 1",
+     "what": "The volume the two distributions share: the sum over the cells of the smaller of the two. 1 for identical\ndistributions, 0 for disjoint ones, and symmetric.\n",
+     "formula": "VI = \\sum_{c} \\min\\left(u_x(c),\\, u_y(c)\\right)",
+     "symbols": {
+      "u_x, u_y": "the utilisation distributions on the same grid, each summing to 1"
+     },
+     "use": "The easiest to read of the distribution indices: the share of use in common.\n",
+     "refs": [
+      "Fieberg & Kochanny (2005). Quantifying home-range overlap: the importance of the utilization distribution. Journal of Wildlife Management 69: 1346-1359."
+     ],
+     "aliases": [
+      "volume of intersection",
+      "VI"
+     ],
+     "python": "tf.move.hr_overlap(kde_a, kde_b, type=\"vi\")",
+     "operator": "move.home_range_overlap",
+     "setting": "type = \"vi\"",
+     "api": "terraflux.move.hr_overlap",
+     "value": "track  level  overlap\n   M4    1.0   0.4267"
+    },
+    {
+     "id": "hr_overlap_ba",
+     "name": "Overlap, Bhattacharyya's affinity (BA)",
+     "level": "track",
+     "theme": "overlap",
+     "unit": "proportion",
+     "range": "0 to 1",
+     "what": "The sum over the cells of the geometric mean of the two distributions: 1 for identical distributions, 0 for\ndisjoint ones.\n",
+     "formula": "BA = \\sum_{c} \\sqrt{u_x(c)\\, u_y(c)}",
+     "symbols": {
+      "u_x, u_y": "the utilisation distributions on the same grid, each summing to 1"
+     },
+     "use": "A similarity of the two distributions as a whole; the tails, where both are small, weigh more than in VI.\n",
+     "refs": [
+      "Fieberg & Kochanny (2005). Quantifying home-range overlap: the importance of the utilization distribution. Journal of Wildlife Management 69: 1346-1359."
+     ],
+     "aliases": [
+      "Bhattacharyya affinity",
+      "BA"
+     ],
+     "python": "tf.move.hr_overlap(kde_a, kde_b, type=\"ba\")",
+     "operator": "move.home_range_overlap",
+     "setting": "type = \"ba\"",
+     "api": "terraflux.move.hr_overlap",
+     "value": "track  level  overlap\n   M4    1.0   0.6831"
+    },
+    {
+     "id": "hr_overlap_udoi",
+     "name": "Overlap, utilisation distribution overlap index (UDOI)",
+     "level": "track",
+     "theme": "overlap",
+     "unit": "none",
+     "range": "0 or more; 1 for two identical uniform distributions",
+     "what": "The overlap weighted by how intensely both estimates use the shared cells. It exceeds 1 when both concentrate their\nuse in the area they share.\n",
+     "formula": "UDOI = a_{xy} \\sum_{c} u_x(c)\\, u_y(c)",
+     "symbols": {
+      "a_{xy}": "the number of cells where both distributions are positive (the cell area cancels out)",
+      "u_x, u_y": "the utilisation distributions on the same grid, each summing to 1"
+     },
+     "use": "Values above 1 are expected when the use is concentrated (as on the example); read it with VI, which says how much\nof the use is shared.\n",
+     "refs": [
+      "Fieberg & Kochanny (2005). Quantifying home-range overlap: the importance of the utilization distribution. Journal of Wildlife Management 69: 1346-1359."
+     ],
+     "aliases": [
+      "UDOI"
+     ],
+     "python": "tf.move.hr_overlap(kde_a, kde_b, type=\"udoi\")",
+     "operator": "move.home_range_overlap",
+     "setting": "type = \"udoi\"",
+     "api": "terraflux.move.hr_overlap",
+     "value": "track  level  overlap\n   M4    1.0   2.3109"
+    },
+    {
+     "id": "hr_overlap_hd",
+     "name": "Overlap, Hellinger distance (HD)",
+     "level": "track",
+     "theme": "overlap",
+     "unit": "none",
+     "range": "0 to 2; 0 for identical distributions",
+     "what": "A distance between the two distributions from their Bhattacharyya affinity: 0 for identical ones, 2 for disjoint\nones.\n",
+     "formula": "HD = 2\\,(1 - BA) = 2\\left(1 - \\sum_c \\sqrt{u_x(c)\\,u_y(c)}\\right)",
+     "symbols": {
+      "u_x, u_y": "the utilisation distributions on the same grid, each summing to 1",
+      "BA": "Bhattacharyya's affinity (the card above)"
+     },
+     "use": "The larger, the less alike the use. The library returns \\(2(1 - BA)\\), the squared Hellinger distance in the form\namt uses, not its square root.\n",
+     "refs": [
+      "Fieberg & Kochanny (2005). Quantifying home-range overlap: the importance of the utilization distribution. Journal of Wildlife Management 69: 1346-1359."
+     ],
+     "aliases": [
+      "Hellinger distance",
+      "HD"
+     ],
+     "python": "tf.move.hr_overlap(kde_a, kde_b, type=\"hd\")",
+     "operator": "move.home_range_overlap",
+     "setting": "type = \"hd\"",
+     "api": "terraflux.move.hr_overlap",
+     "value": "track  level  overlap\n   M4    1.0   0.6338"
+    },
+    {
+     "id": "ud_distance",
+     "name": "Earth mover's distance between utilisation distributions",
+     "level": "track",
+     "theme": "overlap",
+     "unit": "m (the grid's units)",
+     "range": "0 or more",
+     "what": "How much probability has to be moved, and how far, to turn one distribution into the other (the Wasserstein-1\ndistance). It is in the units of the grid, so it reads as a typical shift of the use: on the example, how far the\nfisher's use moved from the first half of the track to the second.\n",
+     "formula": "EMD(u, w) = \\min_{F \\ge 0} \\sum_{i,j} F_{ij}\\, d_{ij} \\quad \\text{subject to} \\quad \\sum_j F_{ij} = u_i,\\; \\sum_i F_{ij} = w_j",
+     "symbols": {
+      "u_i, w_j": "the probabilities of the two distributions in their cells (each renormalised to 1)",
+      "d_{ij}": "the distance between the centres of cells \\(i\\) and \\(j\\)",
+      "F_{ij}": "the probability moved from cell \\(i\\) to cell \\(j\\)"
+     },
+     "use": "Both distributions must be on one grid. Each is first cut to its `mask_quantile` volume contour. `method=\"sinkhorn\"`\n(the default, Cuturi's entropic regularisation) is close to the exact value and fast; `\"exact\"` (Rubner's solver, as\nthe R package emdist) is practical on coarse grids only.\n",
+     "refs": [
+      "Kranstauber, Smolla & Safi (2017). Similarity in spatial utilization distributions measured by the earth mover's distance. Methods in Ecology and Evolution 8: 155-160. doi:10.1111/2041-210X.12649",
+      "Rubner, Tomasi & Guibas (2000). The earth mover's distance as a metric for image retrieval. International Journal of Computer Vision 40: 99-121.",
+      "Cuturi (2013). Sinkhorn distances: lightspeed computation of optimal transport. Advances in Neural Information Processing Systems 26."
+     ],
+     "aliases": [
+      "EMD",
+      "Wasserstein distance",
+      "earth mover distance"
+     ],
+     "python": "tf.move.ud_distance(ud_a, ud_b)",
+     "operator": "move.ud_distance",
+     "setting": "method = \"sinkhorn\"",
+     "api": "terraflux.move.ud_distance",
+     "value": "1332"
+    },
+    {
+     "id": "dbbmm_variance",
+     "name": "Motion variance of the dynamic Brownian bridge",
+     "level": "location",
+     "theme": "utilisation distributions",
+     "unit": "m² / min",
+     "range": "0 or more",
+     "what": "The variance of the animal's Brownian motion at each location, fitted by maximum likelihood in a sliding window of\nlocations, with a break point inside the window kept when it lowers the BIC. It says how erratic the movement is:\nlow while the animal rests or travels straight, high while it searches.\n",
+     "formula": "\\hat{\\sigma}_m^2 = \\arg\\max_{\\sigma^2} \\sum_{i} \\log \\mathcal{N}\\!\\left(z_i;\\, 0,\\; T_i \\alpha_i (1-\\alpha_i)\\sigma^2 + (1-\\alpha_i)^2\\delta_{i-1}^2 + \\alpha_i^2 \\delta_{i+1}^2\\right)",
+     "symbols": {
+      "z_i": "the leave-one-out residual of location \\(i\\): its position minus the point of the bridge between its two neighbours",
+      "T_i": "the time between those neighbours",
+      "\\alpha_i": "the share of that time before location \\(i\\)",
+      "\\delta": "the location error (a standard deviation, in metres)"
+     },
+     "use": "Choose the window to cover a few hours ([`tf.move.suggest_dbbmm_window`][terraflux.move.suggest_dbbmm_window]\nsuggests about 4); a window much longer than a phase of movement mixes the phases. `window_size` and `margin` are\nodd, with `window_size` at least `2 * margin + 1`; the locations outside the windows' margins get no value.\n",
+     "refs": [
+      "Kranstauber, Kays, LaPoint, Wikelski & Safi (2012). A dynamic Brownian bridge movement model to estimate utilization distributions for heterogeneous animal movement. Journal of Animal Ecology 81: 738-746.",
+      "Horne, Garton, Krone & Lewis (2007). Analyzing animal movements using Brownian bridges. Ecology 88: 2354-2363."
+     ],
+     "aliases": [
+      "dBBMM variance",
+      "motion variance",
+      "Brownian motion variance"
+     ],
+     "python": "tf.move.dbbmm_variance(m4, location_error=20, window_size=25, margin=7)[\"motion_variance\"].describe()",
+     "operator": "move.dbbmm_variance",
+     "setting": "window_size = 25",
+     "api": "terraflux.move.dbbmm_variance",
+     "value": "count  2215\nmean  557.4\nstd  647.6\nmin  0.0000000001\n25%  114.1\n50%  362.4\n75%  753.9\nmax  5335"
+    },
+    {
+     "id": "dbbmm_ud",
+     "name": "Dynamic Brownian bridge utilisation distribution (dBBMM)",
+     "level": "cell",
+     "theme": "utilisation distributions",
+     "unit": "probability per cell",
+     "range": "0 to 1; sums to 1 per track",
+     "what": "The probability of the animal being in each cell, from Brownian bridges between consecutive locations whose spread\nfollows the motion variance and the location errors. A band per track, each summing to 1.\n",
+     "formula": "u(c) = \\frac{1}{Z}\\sum_{k}\\sum_{t} \\Delta t\\; \\mathcal{N}\\!\\left(c;\\, \\boldsymbol{\\mu}_k(t),\\, \\sigma_k^2(t)\\mathbf{I}\\right) A_c, \\quad \\sigma_k^2(t) = T \\alpha(1-\\alpha)\\sigma_m^2 + (1-\\alpha)^2\\delta_k^2 + \\alpha^2\\delta_{k+1}^2",
+     "symbols": {
+      "k": "the bridge from location \\(k\\) to \\(k+1\\), of duration \\(T\\)",
+      "t": "the time steps of the bridge, of length \\(\\Delta t\\) (`time_step`, by default a fifteenth of the shortest time lag), with \\(\\alpha = t / T\\)",
+      "\\boldsymbol{\\mu}_k(t)": "the position on the straight line between the two locations at time \\(t\\); each time step spreads over the cells within four standard deviations",
+      "A_c": "the area of cell \\(c\\)",
+      "Z": "the sum over the cells, so that \\(\\sum_c u(c) = 1\\)"
+     },
+     "use": "Give the grid (`like`, `res` or `dim_size`) and make it hold the bridges; all the tracks share one grid, so their\nbands compare directly. Leave out the bridges across long gaps with\n[`tf.move.mask_segments`][terraflux.move.mask_segments].\n",
+     "refs": [
+      "Kranstauber, Kays, LaPoint, Wikelski & Safi (2012). A dynamic Brownian bridge movement model to estimate utilization distributions for heterogeneous animal movement. Journal of Animal Ecology 81: 738-746.",
+      "Horne, Garton, Krone & Lewis (2007). Analyzing animal movements using Brownian bridges. Ecology 88: 2354-2363."
+     ],
+     "aliases": [
+      "dBBMM",
+      "dynamic Brownian bridge movement model",
+      "utilization distribution"
+     ],
+     "python": "tf.move.dbbmm_ud(tf.move.dbbmm_variance(m4, 20, 25, 7), res=50)",
+     "operator": "move.dbbmm_ud",
+     "setting": null,
+     "api": "terraflux.move.dbbmm_ud",
+     "value": "a map: mean 0.000028, from 0 to 0.01385"
+    },
+    {
+     "id": "dbgb_variance",
+     "name": "Directional Brownian bridge variances (along and across)",
+     "level": "location",
+     "theme": "utilisation distributions",
+     "unit": "m (standard deviations)",
+     "range": "0 or more",
+     "what": "The standard deviations of the movement along and across the direction of travel at each location (`para_sd`,\n`orth_sd`), each with its own break point by the BIC. They are the inputs of the directional bridge.\n",
+     "formula": "sd_{\\parallel} = \\sqrt{\\overline{\\sigma^2_{\\parallel}}}, \\quad sd_{\\perp} = \\sqrt{\\overline{\\sigma^2_{\\perp}}}",
+     "symbols": {
+      "\\overline{\\sigma^2_{\\parallel}}, \\overline{\\sigma^2_{\\perp}}": "the means, over the windows that cover the location, of the variances fitted to the parts of the residual along and across the direction from the expected position to the next location"
+     },
+     "use": "For animals that keep their direction, whose spread along the path is larger than across it. The windows are\nlonger than the dynamic bridge's (margin 15 by default, `window_size` at least `2 * margin + 1`).\n",
+     "refs": [
+      "Kranstauber, Safi & Bartumeus (2014). Bivariate Gaussian bridges: directional factorization of diffusion in Brownian bridge models. Movement Ecology 2: 5. doi:10.1186/2051-3933-2-5"
+     ],
+     "aliases": [
+      "dBGB variance",
+      "bivariate Gaussian bridge variance"
+     ],
+     "python": "tf.move.dbgb_variance(m4, location_error=20, window_size=31, margin=15)[[\"para_sd\", \"orth_sd\"]].median()",
+     "operator": "move.dbgb_variance",
+     "setting": "window_size = 31",
+     "api": "terraflux.move.dbgb_variance",
+     "value": "para_sd  22.02\north_sd  12.89"
+    },
+    {
+     "id": "dbgb_ud",
+     "name": "Directional Brownian bridge utilisation distribution (dBGB)",
+     "level": "cell",
+     "theme": "utilisation distributions",
+     "unit": "probability per cell",
+     "range": "0 to 1; sums to 1 per track",
+     "what": "As the dynamic Brownian bridge, but each time step of a bridge spreads a bivariate normal with two standard\ndeviations, along and across the direction of travel, so the distribution stretches along the paths.\n",
+     "formula": "u(c) = \\frac{1}{Z}\\sum_{k}\\sum_{t} \\Delta t\\; \\frac{1}{2\\pi s_{\\parallel} s_{\\perp}} \\exp\\!\\left(-\\tfrac{1}{2}\\left[\\tfrac{\\delta_{\\parallel}^2}{s_{\\parallel}^2} + \\tfrac{\\delta_{\\perp}^2}{s_{\\perp}^2}\\right]\\right) A_c",
+     "symbols": {
+      "s_{\\parallel}^2": "\\(T\\alpha(1-\\alpha)\\sigma_{\\parallel}^2 + (1-\\alpha)^2\\delta_k^2 + \\alpha^2\\delta_{k+1}^2\\), and \\(s_{\\perp}^2\\) likewise with the variance across",
+      "\\delta_{\\parallel}, \\delta_{\\perp}": "the offset of the cell's centre from the bridge's position, along and across the direction to the next location; each step covers the cells within five of the larger standard deviation",
+      "Z": "the sum over the cells, so that the distribution sums to 1"
+     },
+     "use": "Slower than the dynamic bridge, because each step spreads further (the card uses 100 m cells to stay quick). Only\nthe core of each track and its bridges of interest count.\n",
+     "refs": [
+      "Kranstauber, Safi & Bartumeus (2014). Bivariate Gaussian bridges: directional factorization of diffusion in Brownian bridge models. Movement Ecology 2: 5. doi:10.1186/2051-3933-2-5"
+     ],
+     "aliases": [
+      "dBGB",
+      "directional Brownian bridge",
+      "bivariate Gaussian bridge"
+     ],
+     "python": "tf.move.dbgb_ud(tf.move.dbgb_variance(m4, 20, 31, 15), res=100)",
+     "operator": "move.dbgb_ud",
+     "setting": null,
+     "api": "terraflux.move.dbgb_ud",
+     "value": "a map: mean 0.00009522, from 0 to 0.04523"
+    },
+    {
+     "id": "hr_cud",
+     "name": "Cumulative utilisation distribution of a kernel estimate",
+     "level": "cell",
+     "theme": "utilisation distributions",
+     "unit": "probability",
+     "range": "more than 0, up to 1",
+     "what": "For each cell, the share of a kernel estimate's distribution in the cells at least as dense as it: the cells up to\n0.95 are the smallest area that holds 95 % of the use.\n",
+     "formula": "v(c) = \\sum_{c^{\\prime}\\,:\\,u(c^{\\prime}) \\ge u(c)} u(c^{\\prime}), \\quad \\sum_c u(c) = 1",
+     "symbols": {
+      "u(c)": "the normalised utilisation of cell \\(c\\)"
+     },
+     "use": "Use it to draw the isopleths of a kernel home range. It first normalises the distribution to sum 1\n([`tf.move.hr_ud`][terraflux.move.hr_ud]); for the bridges' distributions the same is `ud_volume` (the next card).\n",
+     "refs": [
+      "Signer, Fieberg & Avgar (2019). Animal movement tools (amt): R package for managing tracking data and conducting habitat selection analyses. Ecology and Evolution 9: 880-890. doi:10.1002/ece3.4823"
+     ],
+     "aliases": [
+      "volume contour",
+      "cumulative distribution of the UD",
+      "hr_cud"
+     ],
+     "python": "tf.move.hr_cud(kde_a)",
+     "api": "terraflux.move.hr_cud",
+     "value": "a map: mean 0.904, from 0.0001148 to 1"
+    },
+    {
+     "id": "ud_volume",
+     "name": "Volume of a utilisation distribution",
+     "level": "cell",
+     "theme": "utilisation distributions",
+     "unit": "probability",
+     "range": "more than 0, up to 1",
+     "what": "Each cell's cumulative probability when the cells are added from the largest value down, band by band: its 0.95\ncontour bounds the smallest area with 95 % of the probability. Cells of equal value are taken in cell order; cells\nwithout a value stay without one, and a band whose total is not positive is left as it is.\n",
+     "formula": "V(c) = \\sum_{c^{\\prime}\\,:\\,u(c^{\\prime}) \\ge u(c)} u(c^{\\prime})",
+     "symbols": {
+      "u": "the utilisation distribution (a band per track)"
+     },
+     "use": "The contours of the volume are the isopleths of a distribution\n([`tf.move.hr_isopleths`][terraflux.move.hr_isopleths]).\n",
+     "refs": [
+      "Kranstauber, Kays, LaPoint, Wikelski & Safi (2012). A dynamic Brownian bridge movement model to estimate utilization distributions for heterogeneous animal movement. Journal of Animal Ecology 81: 738-746."
+     ],
+     "aliases": [
+      "UD volume",
+      "volume contour"
+     ],
+     "python": "tf.move.ud_volume(ud_a)",
+     "operator": "move.ud_volume",
+     "setting": null,
+     "api": "terraflux.move.ud_volume",
+     "value": "a map: mean 0.9756, from 0.01419 to 1"
+    },
+    {
+     "id": "ud_outer_probability",
+     "name": "Outer probability of a location",
+     "level": "location",
+     "theme": "utilisation distributions",
+     "unit": "probability",
+     "range": "more than 0, up to 1",
+     "what": "The volume of a distribution at each location: small in the core of the use, near 1 far out. On the example, where\nthe locations of the second half fall in the distribution of the first.\n",
+     "formula": "p_j = V(c(j))",
+     "symbols": {
+      "V": "the volume of the distribution (the card above)",
+      "c(j)": "the cell that holds location \\(j\\)"
+     },
+     "use": "Compare the locations of one period with the distribution of another to find excursions and shifts. It is not a\ntest. Locations outside the raster get no value.\n",
+     "aliases": [
+      "outer probability"
+     ],
+     "python": "tf.move.ud_outer_probability(second, ud_a)",
+     "operator": "move.ud_outer_probability",
+     "setting": null,
+     "api": "terraflux.move.ud_outer_probability",
+     "value": "1277 values: mean 0.6017, from 0.01419 to 0.9859"
+    },
+    {
+     "id": "validate_rho",
+     "name": "Validation, Spearman's rho between use and surface",
+     "level": "track",
+     "theme": "validation",
+     "unit": "none",
+     "range": "-1 to 1",
+     "what": "The rank correlation, over cells, between how much the animal used them and the score of a connectivity surface\n(higher where the surface says movement is better). Positive always means that the better cells were used more,\nfor a resistance surface too. On the example the \"surface\" is the first half's distribution and the use is the\nsecond half's locations: does where the fisher went before predict where it went next?\n",
+     "formula": "\\rho = \\operatorname{Spearman}\\left(u_c,\\; s_c\\right)",
+     "symbols": {
+      "u_c": "the use of cell \\(c\\): its probability in a distribution, its number of points or its length of line",
+      "s_c": "its score: the surface (a current, a probability), or minus the surface for a resistance"
+     },
+     "use": "The definitions are the library's, after what Zeller et al. (2018) measure, not a copy of their method. There is no\np-value: neighbouring cells are not independent. With points most cells hold none, so the ranks have many ties; a\ndistribution as the use compares the cells inside its `support` contour.\n",
+     "refs": [
+      "Zeller, Jennings, Vickers, Ernest, Cushman & Boyce (2018). Are all data types and connectivity models created equal? Validating common connectivity approaches with dispersal data. Diversity and Distributions 24: 868-879. doi:10.1111/ddi.12742"
+     ],
+     "aliases": [
+      "rank correlation",
+      "surface validation",
+      "connectivity validation"
+     ],
+     "python": "tf.move.validate(second, ud_a).table[[\"track\", \"n_cells\", \"rho\"]]",
+     "operator": "move.validate",
+     "setting": "kind = \"current\"",
+     "api": "terraflux.move.validate",
+     "value": "track  n_cells    rho\n   M4     3675 0.3118"
+    },
+    {
+     "id": "validate_use_fraction",
+     "name": "Validation, share of the use in the corridors",
+     "level": "track",
+     "theme": "validation",
+     "unit": "proportion",
+     "range": "0 to 1",
+     "what": "The share of the animal's use (probability, points or length of line) that falls in the corridor cells of the\nsurface, of all its use on cells with a value.\n",
+     "formula": "f_{use} = \\frac{\\sum_{c \\in K} u_c}{\\sum_c u_c}",
+     "symbols": {
+      "K": "the corridor cells: those with a score at or above `threshold`, or else the `quantile` (0.9) of the scores; a binary surface is its own corridor",
+      "u_c": "the use of cell \\(c\\)"
+     },
+     "use": "Read it against the area fraction (the next card): if 10 % of the cells hold 10 % of the use, the surface does no\nbetter than chance.\n",
+     "refs": [
+      "Zeller, Jennings, Vickers, Ernest, Cushman & Boyce (2018). Are all data types and connectivity models created equal? Validating common connectivity approaches with dispersal data. Diversity and Distributions 24: 868-879. doi:10.1111/ddi.12742"
+     ],
+     "aliases": [
+      "use fraction",
+      "captured use"
+     ],
+     "python": "tf.move.validate(second, ud_a).table[[\"track\", \"use_fraction\"]]",
+     "operator": "move.validate",
+     "setting": "quantile = 0.9",
+     "api": "terraflux.move.validate",
+     "value": "track  use_fraction\n   M4        0.9397"
+    },
+    {
+     "id": "validate_area_fraction",
+     "name": "Validation, share of the area in the corridors",
+     "level": "track",
+     "theme": "validation",
+     "unit": "proportion",
+     "range": "more than 0, up to 1",
+     "what": "The share of the compared cells that are corridors: the share of the use a surface-blind animal would put in them.\nFor points the compared cells are those with a value inside the bounding box of the points.\n",
+     "formula": "f_{area} = \\frac{|K|}{N}",
+     "symbols": {
+      "|K|": "the number of corridor cells",
+      "N": "the number of compared cells"
+     },
+     "use": "The baseline of the use fraction. With the default quantile the corridors are 10 % of the surface's cells, but the\ncompared cells can hold a larger share of them: on the example the second half's locations stay around the core of\nthe first half's distribution, so their bounding box is mostly corridor.\n",
+     "refs": [
+      "Zeller, Jennings, Vickers, Ernest, Cushman & Boyce (2018). Are all data types and connectivity models created equal? Validating common connectivity approaches with dispersal data. Diversity and Distributions 24: 868-879. doi:10.1111/ddi.12742"
+     ],
+     "aliases": [
+      "area fraction",
+      "available share"
+     ],
+     "python": "tf.move.validate(second, ud_a).table[[\"track\", \"area_fraction\"]]",
+     "operator": "move.validate",
+     "setting": null,
+     "api": "terraflux.move.validate",
+     "value": "track  area_fraction\n   M4         0.6444"
+    },
+    {
+     "id": "validate_use_ratio",
+     "name": "Validation, use ratio (used against available)",
+     "level": "track",
+     "theme": "validation",
+     "unit": "none",
+     "range": "0 or more; 1 is chance",
+     "what": "The use fraction divided by the area fraction: how many times more of the use falls in the corridors than their\narea would give.\n",
+     "formula": "R = \\frac{f_{use}}{f_{area}}",
+     "symbols": {
+      "f_{use}": "the share of the use in the corridors",
+      "f_{area}": "the share of the area in the corridors"
+     },
+     "use": "The headline number of a validation: above 1 the corridors catch more use than their area, 1 is chance. It has no\nvalue when no cell is a corridor, and it depends on where the corridors are cut (`threshold` or `quantile`).\n",
+     "refs": [
+      "Zeller, Jennings, Vickers, Ernest, Cushman & Boyce (2018). Are all data types and connectivity models created equal? Validating common connectivity approaches with dispersal data. Diversity and Distributions 24: 868-879. doi:10.1111/ddi.12742"
+     ],
+     "aliases": [
+      "used vs available",
+      "use ratio"
+     ],
+     "python": "tf.move.validate(second, ud_a).table[[\"track\", \"use_ratio\"]]",
+     "operator": "move.validate",
+     "setting": null,
+     "api": "terraflux.move.validate",
+     "value": "track  use_ratio\n   M4     1.4584"
+    },
+    {
+     "id": "validate_surface_used",
+     "name": "Validation, mean surface used and available",
+     "level": "track",
+     "theme": "validation",
+     "unit": "the surface's unit",
+     "range": "any",
+     "what": "The mean value of the surface weighted by the use (`surface_used`) and over all the compared cells\n(`surface_available`): how much better the surface is where the animal went than on average.\n",
+     "formula": "S_{used} = \\frac{\\sum_c u_c\\, s_c}{\\sum_c u_c}, \\qquad S_{avail} = \\frac{1}{N}\\sum_c s_c",
+     "symbols": {
+      "s_c": "the value of the surface in cell \\(c\\)",
+      "u_c": "the use of the cell",
+      "N": "the number of compared cells"
+     },
+     "use": "Compare the two; their ratio is a simple effect size. They are in the surface's own unit (the surface, not the\nscore, also for a resistance).\n",
+     "refs": [
+      "Zeller, Jennings, Vickers, Ernest, Cushman & Boyce (2018). Are all data types and connectivity models created equal? Validating common connectivity approaches with dispersal data. Diversity and Distributions 24: 868-879. doi:10.1111/ddi.12742"
+     ],
+     "aliases": [
+      "surface used",
+      "surface available"
+     ],
+     "python": "tf.move.validate(second, ud_a).table[[\"track\", \"surface_used\", \"surface_available\"]]",
+     "operator": "move.validate",
+     "setting": null,
+     "api": "terraflux.move.validate",
+     "value": "track  surface_used  surface_available\n   M4         0.001             0.0002"
+    }
+   ]
+  },
+  {
+   "family": "spatial-statistics",
+   "title": "Spatial autocorrelation",
+   "order": 130,
+   "source": "PySAL esda (Moran, Moran_Local, G_Local) / ArcGIS hot spot analysis",
+   "intro": "How much the neighbouring cells of a map are alike: the global Moran's I of the whole map, its local version (LISA) for\nevery cell, and the Getis-Ord Gi* hot and cold spots. They give the same numbers as PySAL's esda, to rounding. The\nneighbours of a cell are the cells that touch it, queen contiguity (8 neighbours) by default or rook (4), and the\nweights are row-standardised (each cell's weights sum to 1). Cells without a value (NaN or `nodata`) are left out, as if\nthe map stopped there.\n\nThe cards show their values on the elevation of a part of south-western Oregon that ships with the library\n(`tf.example_data(\"orelevation\")`, 371 x 371 cells, every one with a value): a smooth surface, so strongly\nautocorrelated. Random permutations use `seed` (1 by default), so a run gives the same p values with any number of\nthreads.\n",
+   "example": "import numpy as np\nimport pandas as pd\nimport terraflux as tf\n\n# elevation of a part of south-western Oregon (371 x 371 cells), every cell with a value\nelev = tf.load_raster(tf.example_data(\"orelevation\"))\n",
+   "data": "landscape",
+   "metrics": [
+    {
+     "id": "moran_i",
+     "name": "Moran's I (global)",
+     "level": "map",
+     "theme": "global autocorrelation",
+     "unit": "none",
+     "range": "about -1 to 1",
+     "what": "How much neighbouring cells of a map are alike, over the whole map: positive when similar values sit together,\nnear its expectation (about 0) when they are arranged at random, negative when high values sit next to low ones.\n",
+     "formula": "I = \\frac{\\sum_i \\sum_j w_{ij} z_i z_j}{\\sum_i z_i^2}, \\quad z_i = x_i - \\bar{x}",
+     "symbols": {
+      "x_i": "the value of cell \\(i\\)",
+      "\\bar{x}": "the mean over the cells with a value",
+      "w_{ij}": "the row-standardised contiguity weights (queen or rook), so that their sum \\(S_0\\) is \\(n\\)"
+     },
+     "use": "Close to 1 on smooth surfaces such as elevation. It depends on the contiguity and on the cell size, so compare maps\nonly at the same resolution; read its size, not only its significance.\n",
+     "refs": [
+      "Moran (1950). Notes on continuous stochastic phenomena. Biometrika 37: 17-23."
+     ],
+     "aliases": [
+      "Moran I",
+      "spatial autocorrelation",
+      "global Moran"
+     ],
+     "python": "tf.stats.moran(elev, permutations=99).i",
+     "operator": "stats.moran",
+     "setting": "contiguity = \"queen\"",
+     "api": "terraflux.stats.moran",
+     "value": "0.999"
+    },
+    {
+     "id": "moran_ei",
+     "name": "Expected Moran's I",
+     "level": "map",
+     "theme": "global autocorrelation",
+     "unit": "none",
+     "range": "-1/(n - 1)",
+     "what": "The value Moran's I has on average when the values are arranged at random.\n",
+     "formula": "E[I] = -\\frac{1}{n-1}",
+     "symbols": {
+      "n": "the number of cells with a value"
+     },
+     "use": "Close to 0 on a large map. On a small one compare I with it, not with 0.\n",
+     "refs": [
+      "Moran (1950). Notes on continuous stochastic phenomena. Biometrika 37: 17-23."
+     ],
+     "aliases": [
+      "expectation of Moran I"
+     ],
+     "python": "tf.stats.moran(elev, permutations=0).ei",
+     "operator": "stats.moran",
+     "setting": null,
+     "api": "terraflux.stats.moran",
+     "value": "-0.000007265"
+    },
+    {
+     "id": "moran_significance",
+     "name": "Moran's I, z score and p (normality and randomisation)",
+     "level": "map",
+     "theme": "global autocorrelation",
+     "unit": "none",
+     "range": "z any; p 0 to 1",
+     "what": "The standardised score of Moran's I and its two-sided p, under the assumption that the values are normal\n(`z_norm`, `p_norm`) or that they are one random arrangement of the values observed (`z_rand`, `p_rand`).\n",
+     "formula": [
+      "z = \\frac{I - E[I]}{\\sqrt{\\operatorname{Var}(I)}}, \\quad p = 2\\left[1 - \\Phi(|z|)\\right]",
+      "\\operatorname{Var}_N(I) = \\frac{n^2 S_1 - n S_2 + 3 S_0^2}{(n^2-1) S_0^2} - E[I]^2",
+      "\\operatorname{Var}_R(I) = \\frac{n\\left[(n^2-3n+3)S_1 - nS_2 + 3S_0^2\\right] - k\\left[(n^2-n)S_1 - 2nS_2 + 6S_0^2\\right]}{(n-1)(n-2)(n-3)S_0^2} - E[I]^2"
+     ],
+     "symbols": {
+      "S_0": "the sum of the weights",
+      "S_1": "\\(\\tfrac12\\sum_{i,j}(w_{ij}+w_{ji})^2\\)",
+      "S_2": "\\(\\sum_i (w_{i\\cdot} + w_{\\cdot i})^2\\), with \\(w_{i\\cdot}\\) and \\(w_{\\cdot i}\\) the sums of row and column \\(i\\)",
+      "k": "the kurtosis of the values",
+      "\\Phi": "the standard normal distribution function"
+     },
+     "use": "The cells of a raster are not independent, so very large z scores are expected at any resolution: on a map of\n137 641 cells almost any pattern is significant. Read the size of I as well.\n",
+     "refs": [
+      "Moran (1950). Notes on continuous stochastic phenomena. Biometrika 37: 17-23."
+     ],
+     "aliases": [
+      "z_norm",
+      "z_rand",
+      "p_norm",
+      "p_rand",
+      "significance of Moran I"
+     ],
+     "python": "m = tf.stats.moran(elev, permutations=0)\npd.Series({\"z_norm\": m.z_norm, \"p_norm\": m.p_norm, \"z_rand\": m.z_rand, \"p_rand\": m.p_rand})\n",
+     "operator": "stats.moran",
+     "setting": null,
+     "api": "terraflux.stats.moran",
+     "value": "z_norm  739.1\np_norm  0\nz_rand  739.1\np_rand  0"
+    },
+    {
+     "id": "moran_p_sim",
+     "name": "Moran's I, pseudo p of permutations",
+     "level": "map",
+     "theme": "global autocorrelation",
+     "unit": "none",
+     "range": "1/(P + 1) to 1",
+     "what": "A p value from random permutations of the cell values: how often a shuffled map has a Moran's I at least as far out\nas the one observed. It makes no assumption about the distribution of the values.\n",
+     "formula": "p_{sim} = \\frac{\\min(m,\\; P - m) + 1}{P + 1}",
+     "symbols": {
+      "P": "the number of permutations (`permutations`)",
+      "m": "the number of permuted maps whose \\(I\\) is at least the one observed"
+     },
+     "use": "Its smallest possible value is 1/(P + 1): 0.01 with 99 permutations, 0.001 with the default 999. It has no value\nwith `permutations=0`.\n",
+     "refs": [
+      "Moran (1950). Notes on continuous stochastic phenomena. Biometrika 37: 17-23."
+     ],
+     "aliases": [
+      "permutation test",
+      "pseudo p-value",
+      "p_sim"
+     ],
+     "python": "tf.stats.moran(elev, permutations=99).p_sim",
+     "operator": "stats.moran",
+     "setting": "permutations = 99",
+     "api": "terraflux.stats.moran",
+     "value": "0.01"
+    },
+    {
+     "id": "lisa_i",
+     "name": "Local Moran's I (LISA)",
+     "level": "cell",
+     "theme": "local autocorrelation",
+     "unit": "none",
+     "range": "any; expectation -1/(n - 1)",
+     "what": "Each cell's part of the global autocorrelation: positive where the cell and its neighbours are alike (both above\nthe mean or both below), negative where the cell differs from them. With row-standardised weights the mean of the\nlocal values is the global I.\n",
+     "formula": "I_i = \\frac{z_i \\sum_j w_{ij} z_j}{m_2}, \\quad m_2 = \\frac{1}{n}\\sum_k z_k^2",
+     "symbols": {
+      "z_i": "the deviation of cell \\(i\\) from the mean, \\(x_i - \\bar{x}\\)",
+      "w_{ij}": "the row-standardised queen or rook weights",
+      "n": "the number of cells with a value"
+     },
+     "use": "Its z score (`z`, Anselin's variance under randomisation) and pseudo p (`p`, conditional permutations) say which\ncells stand out; with as many tests as cells, some will by chance (see the clusters card).\n",
+     "refs": [
+      "Anselin (1995). Local indicators of spatial association - LISA. Geographical Analysis 27: 93-115."
+     ],
+     "aliases": [
+      "LISA",
+      "local Moran",
+      "local indicator of spatial association"
+     ],
+     "python": "tf.stats.lisa(elev, permutations=99).i",
+     "operator": "stats.lisa",
+     "setting": null,
+     "api": "terraflux.stats.lisa",
+     "value": "a map: mean 0.9989, from -0.0009649 to 6.147"
+    },
+    {
+     "id": "lisa_quadrant",
+     "name": "LISA quadrant",
+     "level": "cell",
+     "theme": "local autocorrelation",
+     "unit": "class",
+     "range": "1, 2, 3, 4",
+     "what": "Where each cell falls on the Moran scatter plot, from the sign of its deviation and of the weighted mean deviation\nof its neighbours: 1 high among high (HH), 2 low among high (LH), 3 low among low (LL), 4 high among low (HL).\n",
+     "formula": "q_i = \\begin{cases} 1 & z_i > 0,\\; \\bar{z}^{nb}_i > 0 \\\\ 2 & z_i < 0,\\; \\bar{z}^{nb}_i > 0 \\\\ 3 & z_i < 0,\\; \\bar{z}^{nb}_i < 0 \\\\ 4 & z_i > 0,\\; \\bar{z}^{nb}_i < 0 \\end{cases}",
+     "symbols": {
+      "z_i": "the deviation of the cell from the mean",
+      "\\bar{z}^{nb}_i": "the weighted mean deviation of its neighbours, \\(\\sum_j w_{ij} z_j\\)"
+     },
+     "use": "Classes 2 and 4 are spatial outliers. The quadrant alone does not say whether the cell is significant: the\nclusters card keeps only those that are.\n",
+     "refs": [
+      "Anselin (1995). Local indicators of spatial association - LISA. Geographical Analysis 27: 93-115."
+     ],
+     "aliases": [
+      "Moran scatter plot quadrant",
+      "high-high",
+      "low-low"
+     ],
+     "python": "pd.Series(tf.stats.lisa(elev, permutations=0).quadrant.values.ravel().astype(int)).value_counts().sort_index()",
+     "operator": "stats.lisa",
+     "setting": null,
+     "api": "terraflux.stats.lisa",
+     "value": "1  65068\n2  277\n3  72108\n4  188"
+    },
+    {
+     "id": "lisa_cluster",
+     "name": "LISA significant clusters",
+     "level": "cell",
+     "theme": "local autocorrelation",
+     "unit": "class",
+     "range": "0, 1, 2, 3, 4",
+     "what": "The quadrant of the cells whose pseudo p from conditional permutations is below `alpha`, and 0 elsewhere: the map\nof significant high-high and low-low clusters and of the outliers. The card's value counts its classes.\n",
+     "formula": "c_i = \\begin{cases} q_i & p_i < \\alpha \\\\ 0 & \\text{otherwise} \\end{cases}",
+     "symbols": {
+      "p_i": "the pseudo p of cell \\(i\\), \\((\\min(m, P - m) + 1) / (P + 1)\\) over \\(P\\) conditional permutations: its neighbours drawn at random among the other cells, with a generator per cell from `seed`",
+      "\\alpha": "`alpha`, 0.05 by default",
+      "q_i": "the quadrant of the cell"
+     },
+     "use": "With 99 permutations the smallest p is 0.01; use more for a finer map. There is no correction for testing every\ncell, so at `alpha = 0.05` about one cell in twenty is marked by chance.\n",
+     "refs": [
+      "Anselin (1995). Local indicators of spatial association - LISA. Geographical Analysis 27: 93-115."
+     ],
+     "aliases": [
+      "hot spot clusters",
+      "cluster map",
+      "significant LISA"
+     ],
+     "python": "tf.stats.lisa(elev, permutations=99)",
+     "operator": "stats.lisa",
+     "setting": "alpha = 0.05",
+     "api": "terraflux.stats.lisa",
+     "value": "LISA(38800 high-high, 40866 low-low, 0 low-high, 0 high-low cells)"
+    },
+    {
+     "id": "getis_gi_star",
+     "name": "Getis-Ord Gi*",
+     "level": "cell",
+     "theme": "hot spots",
+     "unit": "none",
+     "range": "0 to 1, for values of 0 or more",
+     "what": "The share of the map's total that lies in a cell and its neighbours (the cell itself included): large where high\nvalues cluster, small where low ones do.\n",
+     "formula": "G_i^{*} = \\frac{\\sum_j w_{ij} x_j}{\\sum_j x_j}, \\quad w_{ij} = \\frac{1}{k_i + 1}",
+     "symbols": {
+      "x_j": "the value of cell \\(j\\)",
+      "k_i": "the number of neighbours of cell \\(i\\); the numerator runs over the cell and its neighbours, with weights that sum to 1"
+     },
+     "use": "Its expectation is 1/n, so read it through its z score (the next card). Meant for values of one sign (counts,\ndensities, elevations above a datum); with mixed signs the share has no meaning.\n",
+     "refs": [
+      "Getis & Ord (1992). The analysis of spatial association by use of distance statistics. Geographical Analysis 24: 189-206.",
+      "Ord & Getis (1995). Local spatial autocorrelation statistics: distributional issues and an application. Geographical Analysis 27: 286-306."
+     ],
+     "aliases": [
+      "Gi*",
+      "Getis Ord",
+      "hot spot analysis",
+      "G star"
+     ],
+     "python": "tf.stats.getis_ord(elev).g",
+     "operator": "stats.getis_ord",
+     "setting": "contiguity = \"queen\"",
+     "api": "terraflux.stats.getis_ord",
+     "value": "a map: mean 0.000007265, from 0.000003536 to 0.0000112"
+    },
+    {
+     "id": "getis_z",
+     "name": "Gi* z score and p",
+     "level": "cell",
+     "theme": "hot spots",
+     "unit": "none",
+     "range": "z any; p 0 to 0.5",
+     "what": "The standardised Gi* of each cell (`z`) and the one-sided normal tail probability of its absolute value (`p`).\n",
+     "formula": "z_i = \\frac{G_i^{*} - 1/n}{\\sqrt{V}}, \\quad V = \\frac{1}{n^2}\\,\\frac{s^2}{\\bar{x}^2}, \\quad p_i = \\Phi(-|z_i|)",
+     "symbols": {
+      "n": "the number of cells with a value",
+      "\\bar{x}, s^2": "their mean and their variance (divided by \\(n\\))",
+      "\\Phi": "the standard normal distribution function"
+     },
+     "use": "It assumes independent values around the expectation; spatially structured data such as an elevation inflate the\nz scores. Twice `p` is the two-sided probability that sets the class of the hot and cold spots.\n",
+     "refs": [
+      "Getis & Ord (1992). The analysis of spatial association by use of distance statistics. Geographical Analysis 24: 189-206."
+     ],
+     "aliases": [
+      "Gi z score",
+      "hot spot z score"
+     ],
+     "python": "tf.stats.getis_ord(elev).z",
+     "operator": "stats.getis_ord",
+     "setting": null,
+     "api": "terraflux.stats.getis_ord",
+     "value": "a map: mean -0.0000009435, from -2.34 to 2.472"
+    },
+    {
+     "id": "getis_spots",
+     "name": "Hot and cold spots (Gi* classes)",
+     "level": "cell",
+     "theme": "hot spots",
+     "unit": "class",
+     "range": "-3 to 3",
+     "what": "The confidence class of each cell as a hot or cold spot, as the `Gi_Bin` field of ArcGIS: 3, 2 and 1 for hot spots\nat 99, 95 and 90 % confidence, -1 to -3 for cold spots, 0 for neither. The card's value counts them.\n",
+     "formula": "b_i = \\operatorname{sign}(z_i) \\cdot \\begin{cases} 3 & 2p_i < 0.01 \\\\ 2 & 2p_i < 0.05 \\\\ 1 & 2p_i < 0.10 \\\\ 0 & \\text{otherwise} \\end{cases}",
+     "symbols": {
+      "z_i": "the Gi* z score of cell \\(i\\)",
+      "p_i": "its one-sided p (\\(2 p_i\\) is the two-sided one)"
+     },
+     "use": "There is no correction for testing every cell: with many cells some spots are false.\n",
+     "refs": [
+      "Getis & Ord (1992). The analysis of spatial association by use of distance statistics. Geographical Analysis 24: 189-206."
+     ],
+     "aliases": [
+      "Gi_Bin",
+      "hot spot class",
+      "cold spots"
+     ],
+     "python": "tf.stats.getis_ord(elev)",
+     "operator": "stats.getis_ord",
+     "setting": null,
+     "api": "terraflux.stats.getis_ord",
+     "value": "GetisOrd(7569 hot, 4934 cold cells)"
+    }
+   ]
+  },
+  {
+   "family": "conservation-indices",
+   "title": "Conservation planning and habitat networks",
+   "order": 140,
+   "source": "prioritizr (R), Zonation 5, plangea, GuidosToolbox",
+   "intro": "The measures that judge a conservation plan and the habitat it protects: how a prioritization's solution performs\n(prioritizr's `eval_*` functions: cost, boundary, representation of the features, targets met, the importance of each\nselected unit), the priority surfaces of Zonation (the top fraction of a ranking, the comparison of two rankings, the\nimpact of a planned land use), the ecological intactness of a human footprint, and the habitat networks and zones of\ninfluence that GuidosToolbox computes from a map of habitat.\n\nThe cards show their values on several examples of the library, each the smallest that shows the measure:\n\n- **Serra Verde** (`tf.prioritize.example_data`), an imaginary coastal region of 60 x 90 cells of 1 km with a cost and\n  eight species: `problem` is a minimum-set problem with targets of 20 % of each species, `solution` its optimal\n  solution (534 cells), `caz` and `abf` two Zonation rankings of the species (core-area and additive benefit).\n- **A toy impact assessment**: two random features on 30 x 40 cells and a planned road along one row, with a footprint\n  that destroys everything and a buffer of 3 cells that halves the features (the library's own example).\n- **A toy human footprint** of 5 x 5 cells of 1 km, wild on the left and a town on the right, for intactness.\n- **The habitat map** of `tf.example_data(\"input\")` (1000 x 1000 cells, GuidosToolbox's example), and `mspa` its MSPA\n  map, for the networks and the zones of influence.\n",
+   "example": "import numpy as np\nimport pandas as pd\nimport terraflux as tf\n\nP = tf.prioritize\n# Serra Verde (imaginary, 60 x 90 cells of 1 km): a cost and eight species; a minimum-set problem with 20 % targets\ncost = tf.load_raster(P.example_data(\"cost\"))\nfeatures = tf.load_raster(P.example_data(\"features\"))\nproblem = P.problem(cost, features).add_min_set_objective().add_relative_targets(0.2).add_binary_decisions()\nsolution = problem.solve()\ncaz = P.zonation(features, rule=\"CAZ1\")    # two Zonation rankings of the same species\nabf = P.zonation(features, rule=\"ABF\")\n\n# a toy impact assessment: two random features on 30 x 40 cells, a road planned along row 15\nspecies = np.random.default_rng(0).random((2, 30, 40))\nroad = np.zeros((30, 40), np.uint16)\nroad[15, :] = 1\nscenario = P.ImpactScenario(road, [P.ImpactSource(group=1, source=1, footprint=100, buffers=((3, 50),))])\n\n# a toy human footprint, 5 x 5 cells of 1 km: wild on the left, a town on the right\nhfi = np.array([[0, 0, 0, 10, 40]] * 5, dtype=float)\n\n# GuidosToolbox's example habitat map (1000 x 1000 cells) and its MSPA\nhabitat = tf.load_raster(tf.example_data(\"input\"))\nmspa = tf.mspa(habitat)\n",
+   "data": "landscape",
+   "metrics": [
+    {
+     "id": "eval_n",
+     "name": "Planning units selected",
+     "level": "model",
+     "theme": "solution summaries",
+     "unit": "planning units",
+     "range": "0 or more",
+     "what": "The number of planning units a solution selects: the sum of its values (1 selected, 0 not; a share of the unit\nwith proportion decisions).\n",
+     "formula": "n = \\sum_i x_i",
+     "symbols": {
+      "x_i": "the value of the solution for unit \\(i\\)"
+     },
+     "use": "It counts units, not area: with units of different sizes, weigh them by area in the cost or the features. With\nzones the table has a row overall and one per zone.\n",
+     "refs": [
+      "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+     ],
+     "aliases": [
+      "number of units",
+      "n_summary",
+      "eval_n_summary"
+     ],
+     "python": "P.eval_n_summary(problem, solution)",
+     "operator": "prioritize.evaluate",
+     "setting": null,
+     "api": "terraflux.prioritize.eval_n_summary",
+     "value": "summary     n\noverall 534.0"
+    },
+    {
+     "id": "eval_cost",
+     "name": "Cost of a solution",
+     "level": "model",
+     "theme": "solution summaries",
+     "unit": "the cost's unit",
+     "range": "0 or more",
+     "what": "The total cost of the planning units a solution selects.\n",
+     "formula": "C = \\sum_i c_i x_i",
+     "symbols": {
+      "c_i": "the cost of unit \\(i\\)",
+      "x_i": "the value of the solution for it"
+     },
+     "use": "The objective of a minimum-set problem: compare it between solutions of the same problem (with and without a\nboundary penalty, say), or against the cost of the units already protected.\n",
+     "refs": [
+      "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+     ],
+     "aliases": [
+      "cost_summary",
+      "eval_cost_summary",
+      "total cost"
+     ],
+     "python": "P.eval_cost_summary(problem, solution)",
+     "operator": "prioritize.evaluate",
+     "setting": null,
+     "api": "terraflux.prioritize.eval_cost_summary",
+     "value": "summary    cost\noverall 23593.9"
+    },
+    {
+     "id": "eval_boundary",
+     "name": "Boundary length of a solution",
+     "level": "model",
+     "theme": "solution summaries",
+     "unit": "length (the CRS units for raster cells)",
+     "range": "0 or more",
+     "what": "The length of the edges between selected and unselected units, plus a share (`edge_factor`) of the edges of the\nselected units that face no other unit (the edge of the planning region). A compact solution has a short boundary.\n",
+     "formula": "B = \\sum_i x_i \\left[(T_i - E_i) + e\\,E_i\\right] - 2\\sum_{i<j} b_{ij}\\, x_i x_j",
+     "symbols": {
+      "T_i": "the perimeter of unit \\(i\\) (the diagonal of the boundary matrix)",
+      "b_{ij}": "the length of the edge units \\(i\\) and \\(j\\) share",
+      "E_i": "the edge of unit \\(i\\) that faces no other unit, \\(T_i - \\sum_{j \\ne i} b_{ij}\\)",
+      "e": "`edge_factor` (0.5 by default)"
+     },
+     "use": "Raster cells use their own edges; planning units in a table need the boundary matrix (`data`). With zones, a zones\nmatrix weighs the boundaries between zones.\n",
+     "refs": [
+      "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+     ],
+     "aliases": [
+      "boundary_summary",
+      "eval_boundary_summary",
+      "perimeter of a solution"
+     ],
+     "python": "P.eval_boundary_summary(problem, solution, edge_factor=0.5)",
+     "operator": "prioritize.evaluate",
+     "setting": "edge_factor = 0.5",
+     "api": "terraflux.prioritize.eval_boundary_summary",
+     "value": "summary  boundary\noverall  382500.0"
+    },
+    {
+     "id": "eval_connectivity",
+     "name": "Connectivity of a solution",
+     "level": "model",
+     "theme": "solution summaries",
+     "unit": "the matrix's unit",
+     "range": "0 or more for a matrix of positive values",
+     "what": "The connectivity among the selected units: the sum of the connectivity values between every pair of selected units.\n`eval_asym_connectivity_summary` does the same with an asymmetric matrix, over its directed entries. The card's matrix\nis the shared boundary of neighbouring cells times the mean amount of the first species in the two\n([`tf.prioritize.connectivity_matrix`][terraflux.prioritize.connectivity_matrix]).\n",
+     "formula": "K = \\sum_{i}\\sum_{j} d_{ij}\\, x_i x_j",
+     "symbols": {
+      "d_{ij}": "the connectivity between units \\(i\\) and \\(j\\) (the diagonal counted once); with zones a zones matrix weighs each pair of zones",
+      "x_i": "the value of the solution for unit \\(i\\)"
+     },
+     "use": "Compare solutions of one problem with the same matrix. The library warns when a symmetric matrix is given to the\nasymmetric function, or the other way round.\n",
+     "refs": [
+      "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+     ],
+     "aliases": [
+      "connectivity_summary",
+      "asym_connectivity_summary",
+      "eval_connectivity_summary"
+     ],
+     "python": "P.eval_connectivity_summary(problem, solution, P.connectivity_matrix(cost, features[0]))",
+     "operator": "prioritize.evaluate",
+     "setting": null,
+     "api": "terraflux.prioritize.eval_connectivity_summary",
+     "value": "summary  connectivity\noverall  1276347.9998"
+    },
+    {
+     "id": "eval_representation",
+     "name": "Representation of the features (amount held and its share)",
+     "level": "species",
+     "theme": "solution summaries",
+     "unit": "the feature's unit; proportion",
+     "range": "share 0 to 1",
+     "what": "For each feature, its total amount over the planning units and the amount the solution holds, as an amount and as a\nshare of the total.\n",
+     "formula": "H_f = \\sum_i r_{fi}\\, x_i, \\qquad h_f = \\frac{H_f}{T_f}, \\quad T_f = \\sum_i r_{fi}",
+     "symbols": {
+      "r_{fi}": "the amount of feature \\(f\\) in unit \\(i\\)",
+      "x_i": "the value of the solution for unit \\(i\\)",
+      "T_f": "the total of the feature over all the planning units",
+      "h_f": "`relative_held` (0 when the total is 0)"
+     },
+     "use": "The shares can be above the targets: the cheapest solution that meets every target often holds more of some features\nthan they need (here the harpy eagle, at 30 %).\n",
+     "refs": [
+      "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+     ],
+     "aliases": [
+      "feature representation summary",
+      "held amount",
+      "relative_held"
+     ],
+     "python": "P.eval_feature_representation_summary(problem, solution)[[\"feature\", \"total_amount\", \"absolute_held\", \"relative_held\"]]",
+     "operator": "prioritize.evaluate",
+     "setting": null,
+     "api": "terraflux.prioritize.eval_feature_representation_summary",
+     "value": "            feature  total_amount  absolute_held  relative_held\n             jaguar      1904.698        381.637         0.2004\n      lowland_tapir       576.197        115.637         0.2007\n        harpy_eagle       989.122        296.000         0.2993\n         maned_wolf      1218.039        249.207         0.2046\ngolden_lion_tamarin        73.333         14.933         0.2036\n  neotropical_otter       279.964         56.390         0.2014\n   araucaria_forest       513.818        219.673         0.4275\n           mangrove        65.987         13.830         0.2096"
+    },
+    {
+     "id": "eval_target_coverage",
+     "name": "Target coverage and shortfall",
+     "level": "species",
+     "theme": "solution summaries",
+     "unit": "the feature's unit; proportion",
+     "range": "shortfall 0 or more",
+     "what": "For each target, whether the solution meets it (`met`) and by how much it falls short, as an amount and as a share\nof the feature's total.\n",
+     "formula": "S = \\begin{cases} 0 & H \\ge t \\\\ |t - H| & \\text{otherwise} \\end{cases}, \\qquad S^{rel} = \\frac{S}{T_f}",
+     "symbols": {
+      "H": "the amount the solution holds",
+      "t": "the target, as an amount; for a target of at most \\(t\\) the shortfall is 0 when \\(H \\le t\\), for an exact target when the difference is within 1e-10",
+      "T_f": "the total of the feature"
+     },
+     "use": "A solver stopped at a gap can leave a small shortfall: check `met` before reporting. `met` is true when the\nshortfall is below 1e-10.\n",
+     "refs": [
+      "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+     ],
+     "aliases": [
+      "target_coverage_summary",
+      "shortfall",
+      "targets met"
+     ],
+     "python": "P.eval_target_coverage_summary(problem, solution)[[\"feature\", \"met\", \"absolute_target\", \"absolute_held\", \"absolute_shortfall\"]]",
+     "operator": "prioritize.evaluate",
+     "setting": "relative_targets = 0.2",
+     "api": "terraflux.prioritize.eval_target_coverage_summary",
+     "value": "            feature  met  absolute_target  absolute_held  absolute_shortfall\n             jaguar True         380.9396        381.637                 0.0\n      lowland_tapir True         115.2394        115.637                 0.0\n        harpy_eagle True         197.8244        296.000                 0.0\n         maned_wolf True         243.6078        249.207                 0.0\ngolden_lion_tamarin True          14.6666         14.933                 0.0\n  neotropical_otter True          55.9928         56.390                 0.0\n   araucaria_forest True         102.7636        219.673                 0.0\n           mangrove True          13.1974         13.830                 0.0"
+    },
+    {
+     "id": "eval_extinction_risk",
+     "name": "Extinction risk (species-area)",
+     "level": "species",
+     "theme": "solution summaries",
+     "unit": "probability (per feature); features (the sum)",
+     "range": "0 to 1 per feature",
+     "what": "The risk of losing each feature by the species-area relationship, from the share of its habitat the solution\nholds; the sum over the features is the expected number of features lost if only the solution remained.\n",
+     "formula": "R_f = 1 - h_f^{\\,z}, \\qquad R = \\sum_f R_f",
+     "symbols": {
+      "h_f": "the share of feature \\(f\\) held (`relative_held`, kept within 0 and 1)",
+      "z": "the exponent of the species-area curve (`extinction_z`, 0.25 by default; one value or one per feature)"
+     },
+     "use": "A rough index: the exponent is a general value, not one fitted to the features. The last row of the table is the\nexpected loss.\n",
+     "refs": [
+      "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+     ],
+     "aliases": [
+      "expected species loss",
+      "species-area relationship"
+     ],
+     "python": "P.eval_extinction_risk(problem, solution, z=0.25)",
+     "operator": "prioritize.evaluate",
+     "setting": "extinction_z = 0.25",
+     "api": "terraflux.prioritize.eval_extinction_risk",
+     "value": "            feature  relative_held    z  extinction_risk\n             jaguar         0.2004 0.25           0.3310\n      lowland_tapir         0.2007 0.25           0.3307\n        harpy_eagle         0.2993 0.25           0.2604\n         maned_wolf         0.2046 0.25           0.3274\ngolden_lion_tamarin         0.2036 0.25           0.3282\n  neotropical_otter         0.2014 0.25           0.3301\n   araucaria_forest         0.4275 0.25           0.1914\n           mangrove         0.2096 0.25           0.3234\n            overall            NaN  NaN           2.4226"
+    },
+    {
+     "id": "eval_ferrier",
+     "name": "Ferrier irreplaceability of the selected units",
+     "level": "cell",
+     "theme": "importance of units",
+     "unit": "score",
+     "range": "0 to 1",
+     "what": "How much each selected unit is needed to meet each feature's target, and in total: the chance that the target fails\nwithout it, when the rest of a portfolio of the same size is drawn at random (a normal approximation). A band per\nfeature and a `total`; 0 for the units not selected. The card summarises the total.\n",
+     "formula": "F_{fi} = \\frac{(P^{in}_{fi} - P^{rem}_{fi})\\, w_{in}}{P^{in}_{fi} w_{in} + P^{ex}_{fi} w_{ex}}, \\qquad F_{i} = \\sum_f F_{fi}",
+     "symbols": {
+      "P^{in}_{fi}": "the probability that the target of \\(f\\) is met when unit \\(i\\) is in the portfolio; \\(P^{rem}_{fi}\\) when it is taken out, \\(P^{ex}_{fi}\\) when it is not selected. Each is the normal tail of the mean and variance of the other units' amounts, the standard deviation adjusted for the size of the portfolio",
+      "w_{in}": "the share of the units selected, \\(s / N\\); \\(w_{ex} = 1 - w_{in}\\)"
+     },
+     "use": "It needs one target of \"at least\" per feature and amounts of 0 or more. With many units each one's chance is small,\nso the values are small; compare them between units, not with 1.\n",
+     "refs": [
+      "Ferrier, Pressey & Barrett (2000). A new predictor of the irreplaceability of areas for achieving a conservation goal, its application to real-world planning, and a research agenda for further refinement. Biological Conservation 93: 303-325."
+     ],
+     "aliases": [
+      "irreplaceability",
+      "ferrier importance",
+      "eval_ferrier_importance"
+     ],
+     "python": "P.eval_ferrier_importance(problem, solution).sel(band=\"total\")",
+     "operator": "prioritize.evaluate",
+     "setting": null,
+     "api": "terraflux.prioritize.eval_ferrier_importance",
+     "value": "a map: mean 0.00004961, from 0 to 0.0007302; 575 cells without a value"
+    },
+    {
+     "id": "eval_rare_richness",
+     "name": "Rarity-weighted richness of the selected units",
+     "level": "cell",
+     "theme": "importance of units",
+     "unit": "score (rescaled to 0.01-1)",
+     "range": "0, or 0.01 to 1",
+     "what": "A score for each selected unit: the sum over the features of the unit's amount relative to the feature's largest\namount and to its total, so that units with much of a rare feature score high. 0 for the units not selected.\n",
+     "formula": "RWR_i = \\sum_f \\frac{r_{fi}}{\\max_k r_{fk}\\; T_f}",
+     "symbols": {
+      "r_{fi}": "the amount of feature \\(f\\) in unit \\(i\\)",
+      "\\max_k r_{fk}": "its largest amount in a unit",
+      "T_f": "its total"
+     },
+     "use": "A quick measure of each unit's contribution; it ignores the targets. `rescale=True` (the default) rescales the\nscores of the selected units to 0.01-1.\n",
+     "refs": [
+      "Albuquerque & Beier (2015). Rarity-weighted richness: a simple and reliable alternative to integer programming and heuristic algorithms for minimum set and maximum coverage problems in conservation planning. PLoS ONE 10: e0119905. doi:10.1371/journal.pone.0119905"
+     ],
+     "aliases": [
+      "rarity weighted richness",
+      "RWR"
+     ],
+     "python": "P.eval_rare_richness_importance(problem, solution)",
+     "operator": "prioritize.evaluate",
+     "setting": null,
+     "api": "terraflux.prioritize.eval_rare_richness_importance",
+     "value": "a map: mean 0.01829, from 0 to 1; 575 cells without a value"
+    },
+    {
+     "id": "eval_replacement",
+     "name": "Replacement cost of the selected units",
+     "level": "cell",
+     "theme": "importance of units",
+     "unit": "objective units (rescaled to 0.01-1)",
+     "range": "0 or more, or infinite",
+     "what": "How much the objective worsens when a selected unit is forbidden and the problem is solved again with the other\nselected units kept: the cost of replacing it. Infinite when nothing can replace the unit (a target cannot be met\nwithout it).\n",
+     "formula": "RC_i = z_i - z^{*}",
+     "symbols": {
+      "z^{*}": "the objective of the solution (its selected units locked in)",
+      "z_i": "the objective of the solve with unit \\(i\\) set to 0 (the sign is turned for a maximisation)"
+     },
+     "use": "One solve per selected unit (534 on the example, in parallel; a fraction of a second here, but it grows with the\nsize of the problem). Not defined for a solution that does not meet the problem's constraints. `rescale=True`\nrescales the finite values above 0 to 0.01-1.\n",
+     "refs": [
+      "Cabeza & Moilanen (2006). Replacement cost: a practical measure of site value for cost-effective reserve planning. Biological Conservation 132: 336-342."
+     ],
+     "aliases": [
+      "replacement importance",
+      "eval_replacement_importance"
+     ],
+     "python": "P.eval_replacement_importance(problem, solution)",
+     "operator": "prioritize.evaluate",
+     "setting": "replacement = true",
+     "api": "terraflux.prioritize.eval_replacement_importance",
+     "value": "a map: mean 0.02854, from 0 to 1; 575 cells without a value"
+    },
+    {
+     "id": "eval_rank",
+     "name": "Rank importance of the selected units",
+     "level": "cell",
+     "theme": "importance of units",
+     "unit": "score (rescaled to 0.01-1)",
+     "range": "0, or 0.01 to 1",
+     "what": "How early a selected unit enters the solution when it is built with growing budgets: the problem is solved with\nincreasing budgets (its objective turned into a minimum shortfall), allowed only the solution's units and keeping\nthe units of the step before. Units that enter at the first budget rank highest. The call returns the ranks and a\ntable of the budgets; the card shows the table.\n",
+     "formula": "rank_i = \\operatorname{rescale}_{[0.01,\\,1]}\\left(n - k_i + 1\\right)",
+     "symbols": {
+      "n": "the number of budgets (`rank`), evenly spaced between the cost of the locked-in units and the cost of the solution (or the `budgets` given)",
+      "k_i": "the first budget step (1 to \\(n\\)) at which unit \\(i\\) is selected"
+     },
+     "use": "A priority order inside a solution: what to protect first. More budgets give a finer order, at one solve each.\n",
+     "refs": [
+      "Jung et al. (2021). Areas of global importance for conserving terrestrial biodiversity, carbon and water. Nature Ecology & Evolution 5: 1499-1509. doi:10.1038/s41559-021-01528-7",
+      "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+     ],
+     "aliases": [
+      "rank importance",
+      "eval_rank_importance"
+     ],
+     "python": "P.eval_rank_importance(problem, solution, n=4)[1]",
+     "operator": "prioritize.evaluate",
+     "setting": "rank = 4",
+     "api": "terraflux.prioritize.eval_rank_importance",
+     "value": "   budget  objective  status    gap\n 5898.475     4.0978 optimal 0.0114\n11796.950     1.8001 optimal 0.0223\n17695.425     0.6712 optimal 0.0196\n23593.900     0.0000 optimal 0.0000"
+    },
+    {
+     "id": "position_rank",
+     "name": "Rank by position (Zonation's rank)",
+     "level": "cell",
+     "theme": "priority surfaces",
+     "unit": "rank, 0 to 1",
+     "range": "0 to 1 (exclusive)",
+     "what": "The rank of each cell of a surface by its position: the \\(i\\)-th lowest of the \\(N\\) cells with a value gets\n\\(i/N\\), in single precision, so that a top fraction is the same as Zonation's. Ties keep the order of the cells;\ncells without a value stay without one. The card ranks a 2 x 2 grid with a tie and a missing cell.\n",
+     "formula": "\\rho_{(i)} = \\operatorname{float32}\\left(\\frac{i}{N}\\right), \\quad i = 0, \\ldots, N - 1",
+     "symbols": {
+      "i": "the position of the cell in the ascending order of the values (ties: the earlier cell first)",
+      "N": "the number of cells with a value"
+     },
+     "use": "Use it to turn any priority surface (an importance, a selection frequency) into Zonation's scale, and to take a top\nfraction \\(f\\): the cells ranked at least \\(1 - f\\).\n",
+     "refs": [
+      "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+     ],
+     "aliases": [
+      "Zonation rank",
+      "priority rank",
+      "percentile rank"
+     ],
+     "python": "P.position_rank(np.array([[3.0, 1.0], [np.nan, 1.0]])).ravel()",
+     "api": "terraflux.prioritize.position_rank",
+     "value": "0.6667, 0, nan, 0.3333"
+    },
+    {
+     "id": "lsi_area",
+     "name": "Landscape identification (areas of the top fraction)",
+     "level": "region",
+     "theme": "priority surfaces",
+     "unit": "cells; the surface's, the cost's and the features' units",
+     "range": "areas of min_size cells or more",
+     "what": "The separate areas of the top fraction of a priority surface and what each holds: its cells, the mean value of the\nsurface, its cost and the amount of every feature with its share of the feature's total. The cells are ranked as\nZonation does, so the areas are Zonation's area statistics of separate areas. The card takes the top 10 % of the\ncore-area ranking.\n",
+     "formula": "A = \\{i : \\rho_i \\ge 1 - f\\}",
+     "symbols": {
+      "\\rho_i": "the rank by position of cell \\(i\\) (the card above)",
+      "f": "`top_fraction`"
+     },
+     "use": "Use it to turn a ranking into candidate sites. Areas are 8-connected (or 4) groups of top cells; `min_size` drops\nthe small ones and `merge_distance` merges areas that many cells apart.\n",
+     "refs": [
+      "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+     ],
+     "aliases": [
+      "LSI",
+      "landscape identification",
+      "area statistics of separate areas"
+     ],
+     "python": "P.eval_landscape_identification(caz, 0.1, min_size=5, problem=problem).table[[\"area\", \"cells\", \"mean_value\", \"cost\", \"jaguar_share\"]]",
+     "operator": "prioritize.zonation",
+     "setting": "area_statistics = [0.9, 1.0, 5]",
+     "api": "terraflux.prioritize.eval_landscape_identification",
+     "value": " area  cells  mean_value   cost  jaguar_share\n    1    159      0.9537 6214.0        0.0690\n    2      6      0.9253  217.0        0.0022\n    3     19      0.9427 1140.6        0.0038\n    4     85      0.9370 2679.5        0.0393\n    5     23      0.9793 1064.4        0.0089\n    6     64      0.9529 5507.0        0.0012\n    7     78      0.9476 5552.9        0.0203\n    8     48      0.9521 4552.8        0.0000"
+    },
+    {
+     "id": "lsc_jaccard",
+     "name": "Landscape comparison (Jaccard index of the top fractions)",
+     "level": "model",
+     "theme": "priority surfaces",
+     "unit": "none",
+     "range": "0 to 1",
+     "what": "How much the top fractions of two priority surfaces overlap: the cells in both over the cells in either, at several\nfractions, on the cells with a value in both. The table also counts the cells of both, of only one and of neither,\nand the share of the first's top cells that the second has (`share_of_a_in_b`).\n",
+     "formula": "J_f = \\frac{|A_f \\cap B_f|}{|A_f \\cup B_f|}",
+     "symbols": {
+      "A_f, B_f": "the cells in the top fraction \\(f\\) of the two surfaces, by Zonation's rule"
+     },
+     "use": "Compare two rankings (two Zonation rules, with and without a cost) at the fractions you will act on: they often agree\non the best few percent and differ further down, or the other way round.\n",
+     "refs": [
+      "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+     ],
+     "aliases": [
+      "LSC",
+      "solution comparison",
+      "overlap of top fractions"
+     ],
+     "python": "P.eval_landscape_comparison(caz, abf, fractions=[0.1, 0.3]).table[[\"fraction\", \"both\", \"only_a\", \"only_b\", \"jaccard\"]]",
+     "api": "terraflux.prioritize.eval_landscape_comparison",
+     "value": " fraction  both  only_a  only_b  jaccard\n      0.1   451      31      31   0.8791\n      0.3  1425      22      22   0.9700"
+    },
+    {
+     "id": "impact_area",
+     "name": "Impact, area affected",
+     "level": "species",
+     "theme": "impacts",
+     "unit": "the area unit (cells × area_factor)",
+     "range": "0 or more",
+     "what": "The area of the cells where the feature is present and an impact reaches, by area, impact group, source and zone\n(0 the footprint, then the buffers), in the area unit of the scenario (a cell's area is `area_factor`). On the toy\nroad, 40 cells under the road and 240 in its buffer of 3 cells.\n",
+     "formula": "A = a_{cell} \\cdot \\#\\{i : v_i > 0,\\; m_i < 1\\}",
+     "symbols": {
+      "v_i": "the value of the feature in cell \\(i\\) (positive: present)",
+      "m_i": "the share the impact zones covering the cell leave, \\(\\prod_z (1 - s_z)\\), with \\(s_z\\) the loss of the footprint or of the buffer",
+      "a_{cell}": "`area_factor`"
+     },
+     "use": "It is the `cells` column of the impact table, times `area_factor` in the files Zonation writes.\n",
+     "refs": [
+      "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+     ],
+     "aliases": [
+      "affected area",
+      "impact area"
+     ],
+     "python": "P.zonation(species, impact_groups=[1, -1], impact=scenario).impacts[\"zones\"][[\"feature\", \"zone\", \"cells\"]]",
+     "operator": "prioritize.zonation",
+     "setting": "impact_groups = [1, -1]",
+     "api": "terraflux.prioritize.ImpactScenario",
+     "value": " feature  zone  cells\n       0     0   40.0\n       0     1  240.0"
+    },
+    {
+     "id": "impact_fractional_distribution",
+     "name": "Impact, share of the distribution exposed",
+     "level": "species",
+     "theme": "impacts",
+     "unit": "proportion of the feature",
+     "range": "0 to 1",
+     "what": "The share of the feature's whole distribution that lies in the cells an impact reaches (its footprint or a\nbuffer), whatever the loss there.\n",
+     "formula": "D = \\sum_{i \\in Z} \\frac{v_i}{\\sum_k v_k}",
+     "symbols": {
+      "v_i": "the value of the feature in cell \\(i\\)",
+      "Z": "the cells of the zone that the impact reaches (\\(m_i < 1\\), \\(v_i > 0\\))"
+     },
+     "use": "How much of the feature is exposed, not how much is lost (the next card).\n",
+     "refs": [
+      "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+     ],
+     "aliases": [
+      "fractional_distribution",
+      "exposed share"
+     ],
+     "python": "P.zonation(species, impact_groups=[1, -1], impact=scenario).impacts[\"zones\"][[\"feature\", \"zone\", \"distribution\"]]",
+     "operator": "prioritize.zonation",
+     "setting": "impact_groups = [1, -1]",
+     "api": "terraflux.prioritize.ImpactScenario",
+     "value": " feature  zone  distribution\n       0     0        0.0299\n       0     1        0.1993"
+    },
+    {
+     "id": "impact_fractional_loss",
+     "name": "Impact, share of the distribution lost",
+     "level": "species",
+     "theme": "impacts",
+     "unit": "proportion of the feature",
+     "range": "0 to 1",
+     "what": "The share of the feature's whole distribution that the impact destroys: the exposed distribution times the loss in\neach cell. On the toy road the footprint (100 % loss) loses all it exposes, the buffer (50 %) half.\n",
+     "formula": "L = \\sum_{i \\in Z} (1 - m_i)\\,\\frac{v_i}{\\sum_k v_k}",
+     "symbols": {
+      "m_i": "the share of the feature the impact zones leave in cell \\(i\\) (1 for no impact)",
+      "v_i": "the value of the feature in the cell"
+     },
+     "use": "The headline number of an impact assessment; the share that remains is 1 minus it.\n",
+     "refs": [
+      "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+     ],
+     "aliases": [
+      "fractional_loss",
+      "loss of distribution"
+     ],
+     "python": "P.zonation(species, impact_groups=[1, -1], impact=scenario).impacts[\"zones\"][[\"feature\", \"zone\", \"loss\"]]",
+     "operator": "prioritize.zonation",
+     "setting": "impact_groups = [1, -1]",
+     "api": "terraflux.prioritize.ImpactScenario",
+     "value": " feature  zone   loss\n       0     0 0.0299\n       0     1 0.0996"
+    },
+    {
+     "id": "impact_absolute_distribution",
+     "name": "Impact, distribution exposed in the feature's units",
+     "level": "species",
+     "theme": "impacts",
+     "unit": "the feature's unit (impact_unit)",
+     "range": "0 or more",
+     "what": "The exposed distribution in the feature's own units: its share times the sum of the feature's values. Zonation writes\nit to its impact files; in Python it is the share of the impact table times the feature's sum (`dsum` of the\nresult's `features`), as the card computes it.\n",
+     "formula": "D_{abs} = D \\cdot \\sum_k v^{raw}_k",
+     "symbols": {
+      "D": "the share of the distribution exposed",
+      "\\sum_k v^{raw}_k": "the sum of the feature's values before they are normalised"
+     },
+     "use": "When the feature's values are in a unit that means something (individuals, hectares, tonnes of carbon).\n",
+     "refs": [
+      "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+     ],
+     "aliases": [
+      "absolute_distribution"
+     ],
+     "python": "res = P.zonation(species, impact_groups=[1, -1], impact=scenario)\nz = res.impacts[\"zones\"]\nz.assign(absolute=z[\"distribution\"] * res.features[\"dsum\"].to_numpy()[z[\"feature\"]])[[\"feature\", \"zone\", \"absolute\"]]\n",
+     "operator": "prioritize.zonation",
+     "setting": "impact_groups = [1, -1]",
+     "api": "terraflux.prioritize.ImpactScenario",
+     "value": " feature  zone  absolute\n       0     0   18.3830\n       0     1  122.3742"
+    },
+    {
+     "id": "impact_absolute_loss",
+     "name": "Impact, loss in the feature's units",
+     "level": "species",
+     "theme": "impacts",
+     "unit": "the feature's unit (impact_unit)",
+     "range": "0 or more",
+     "what": "The loss in the feature's own units: the share lost times the sum of the feature's values (written to Zonation's\nimpact files; computed from the table as on the card above).\n",
+     "formula": "L_{abs} = L \\cdot \\sum_k v^{raw}_k",
+     "symbols": {
+      "L": "the share of the distribution lost",
+      "\\sum_k v^{raw}_k": "the sum of the feature's values before they are normalised"
+     },
+     "use": "The amount of the feature the impact destroys.\n",
+     "refs": [
+      "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+     ],
+     "aliases": [
+      "absolute_loss"
+     ],
+     "python": "res = P.zonation(species, impact_groups=[1, -1], impact=scenario)\nz = res.impacts[\"zones\"]\nz.assign(absolute=z[\"loss\"] * res.features[\"dsum\"].to_numpy()[z[\"feature\"]])[[\"feature\", \"zone\", \"absolute\"]]\n",
+     "operator": "prioritize.zonation",
+     "setting": "impact_groups = [1, -1]",
+     "api": "terraflux.prioritize.ImpactScenario",
+     "value": " feature  zone  absolute\n       0     0   18.3830\n       0     1   61.1871"
+    },
+    {
+     "id": "intactness_q",
+     "name": "Ecological intactness (Q)",
+     "level": "cell",
+     "theme": "intactness",
+     "unit": "none",
+     "range": "0 to 1",
+     "what": "How intact a cell and its surroundings are, from the human footprint: high when the cell and its neighbours within\na radius all have a high habitat quality, the near neighbours counting more. The card shows the middle row of the\ntoy footprint, from the wild side to the town.\n",
+     "formula": "Q_i = \\frac{\\sum_{j} \\left(q_i q_j\\right)^{z} w_{ij}}{\\sum_{j} w_{ij}}, \\quad q = e^{-\\gamma\\, HFI}, \\quad w_{ij} = e^{\\beta d_{ij}}",
+     "symbols": {
+      "HFI": "the human footprint index of the cell",
+      "q": "the habitat quality, 1 with no footprint",
+      "\\gamma": "\\(-\\ln 0.2 / 4\\): a footprint of 4 gives a quality of 0.2",
+      "d_{ij}": "the distance between the cells' centres, in km; the cells \\(j\\) are those within `radius` cells of \\(i\\), itself included",
+      "\\beta": "-0.2 per km",
+      "z": "0.5"
+     },
+     "use": "Give `cell_size` in km (or a projected grid). The cells without a footprint value are left out, and at the raster's\nedge the window is the part inside it (plangea leaves the edge cells out and fills them with the mean). With\n`reduction` and `restored`, the footprint is lowered first by the share restored.\n",
+     "refs": [
+      "Beyer, Venter, Grantham & Watson (2020). Substantial losses in ecoregion intactness highlight urgency of globally coordinated action. Conservation Letters 13: e12692. doi:10.1111/conl.12692"
+     ],
+     "aliases": [
+      "habitat intactness",
+      "plangea intactness",
+      "ecoregion intactness"
+     ],
+     "python": "tf.intactness(hfi, radius=1, cell_size=1.0)[2]",
+     "operator": "restoration.intactness",
+     "setting": "radius = 1",
+     "api": "terraflux.intactness",
+     "value": "1, 1, 0.8341, 0.03666, 0.00001022"
+    },
+    {
+     "id": "intactness_gradient",
+     "name": "Intactness gradient (the benefit of restoring a cell)",
+     "level": "cell",
+     "theme": "intactness",
+     "unit": "intactness per unit restored",
+     "range": "0 or more",
+     "what": "How much the total intactness of the map grows per unit of a cell restored: the derivative of the sum of \\(Q\\) with\nrespect to the share of the cell restored. 0 where the footprint is already 0. The card's cells lose 2 points of\nfootprint per unit restored.\n",
+     "formula": "\\frac{\\partial \\sum_i Q_i}{\\partial x_k} = z\\,\\gamma\\, a_k\\left(Q_k + q_k^{z}\\sum_{i}\\frac{q_i^{z}\\, w_{ik}}{W_i}\\right)",
+     "symbols": {
+      "x_k": "the share of cell \\(k\\) restored",
+      "a_k": "the footprint it loses per unit restored (`reduction`)",
+      "W_i": "the sum of the weights of cell \\(i\\), \\(\\sum_j w_{ij}\\)"
+     },
+     "use": "The linear benefit of restoration for intactness in a restoration plan. It is the whole derivative, through the\ncell's neighbours too; plangea's changes only the cell's own factor.\n",
+     "refs": [
+      "Beyer, Venter, Grantham & Watson (2020). Substantial losses in ecoregion intactness highlight urgency of globally coordinated action. Conservation Letters 13: e12692. doi:10.1111/conl.12692"
+     ],
+     "aliases": [
+      "restoration benefit",
+      "intactness derivative"
+     ],
+     "python": "tf.intactness_gradient(hfi, reduction=2.0, radius=1, cell_size=1.0)[2]",
+     "operator": "restoration.intactness_gradient",
+     "setting": "radius = 1",
+     "api": "terraflux.intactness_gradient",
+     "value": "0, 0, 0, 0.0295, 0.00000744"
+    },
+    {
+     "id": "gtn_eca",
+     "name": "Equivalent connected area (ECA) of the MSPA network",
+     "level": "map",
+     "theme": "habitat networks",
+     "unit": "cells (hectares with the cell size)",
+     "range": "0 to ECA_max",
+     "what": "The area of a single core that would be as connected as the network of cores and bridges is. The network's\ncomponents (8-connected groups of MSPA core and bridge cells) add as the root of the sum of their squared core areas:\nonly the cores are habitat, the bridges connect them.\n",
+     "formula": "ECA = \\sqrt{\\sum_{c} A_c^{2}}",
+     "symbols": {
+      "A_c": "the core area (cells of MSPA's core) of component \\(c\\)"
+     },
+     "use": "Needs an MSPA map; the components depend on its edge width. Give `pixel_size` for hectares.\n",
+     "refs": [
+      "Saura, Estreguil, Mouton & Rodríguez-Freire (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990-2000). Ecological Indicators 11: 407-416.",
+      "Vogt & Riitters (2017). GuidosToolbox: universal digital image object analysis. European Journal of Remote Sensing 50: 352-361. doi:10.1080/22797254.2017.1330650"
+     ],
+     "aliases": [
+      "equivalent connected area",
+      "ECA",
+      "GTN"
+     ],
+     "python": "tf.gtn_components(mspa).eca_pixels",
+     "operator": "networks.gtn_components",
+     "setting": null,
+     "api": "terraflux.gtn_components",
+     "value": "182500"
+    },
+    {
+     "id": "gtn_eca_max",
+     "name": "Largest possible ECA of the MSPA network",
+     "level": "map",
+     "theme": "habitat networks",
+     "unit": "cells",
+     "range": "0 or more",
+     "what": "The ECA if all the core area formed one component: the total core area.\n",
+     "formula": "ECA_{max} = \\sum_{c} A_c",
+     "symbols": {
+      "A_c": "the core area of component \\(c\\)"
+     },
+     "use": "The denominator of the degree of coherence.\n",
+     "refs": [
+      "Saura, Estreguil, Mouton & Rodríguez-Freire (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990-2000). Ecological Indicators 11: 407-416."
+     ],
+     "aliases": [
+      "maximum ECA",
+      "total core area"
+     ],
+     "python": "tf.gtn_components(mspa).eca_max_pixels",
+     "operator": "networks.gtn_components",
+     "setting": null,
+     "api": "terraflux.gtn_components",
+     "value": "321764"
+    },
+    {
+     "id": "gtn_doc",
+     "name": "Degree of coherence (DOC) of the MSPA network",
+     "level": "map",
+     "theme": "habitat networks",
+     "unit": "%",
+     "range": "more than 0, up to 100",
+     "what": "The ECA as a share of the total core area: 100 % when all the cores are in one component, low when the habitat is\nsplit into many unconnected pieces.\n",
+     "formula": "DOC = 100 \\cdot \\frac{ECA}{ECA_{max}}",
+     "symbols": {
+      "ECA, ECA_{max}": "the two cards above"
+     },
+     "use": "It does not depend on the size of the map, so it compares maps; keep the MSPA settings the same.\n",
+     "refs": [
+      "Saura, Estreguil, Mouton & Rodríguez-Freire (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990-2000). Ecological Indicators 11: 407-416.",
+      "Vogt & Riitters (2017). GuidosToolbox: universal digital image object analysis. European Journal of Remote Sensing 50: 352-361. doi:10.1080/22797254.2017.1330650"
+     ],
+     "aliases": [
+      "degree of coherence",
+      "coherence",
+      "DOC"
+     ],
+     "python": "tf.gtn_components(mspa).doc",
+     "operator": "networks.gtn_components",
+     "setting": null,
+     "api": "terraflux.gtn_components",
+     "value": "56.71"
+    },
+    {
+     "id": "gtn_link_dpc",
+     "name": "Importance of a link (dPC of a bridge)",
+     "level": "link",
+     "theme": "habitat networks",
+     "unit": "%",
+     "range": "0 to 100",
+     "what": "The loss of connectivity when a link (an MSPA bridge) is cut: the drop of the numerator of PC, in percent, when the\nlink is removed and its component may split. The card shows the three most important links.\n",
+     "formula": "dPC_l = 100 \\cdot \\frac{PC_{num} - PC^{(-l)}_{num}}{PC_{num}}, \\quad PC_{num} = \\sum_{c} A_c^{2}",
+     "symbols": {
+      "A_c": "the core area of component \\(c\\)",
+      "PC^{(-l)}_{num}": "the same sum once link \\(l\\) is removed"
+     },
+     "use": "Finds the bridges whose loss would split the network. In a network with loops most bridges are 0, since the cores\nstay connected the other way. Only the links of components with at least one link are evaluated. The numerator is the\nsum of squared core areas, not the whole PC.\n",
+     "refs": [
+      "Saura & Pascual-Hortal (2007). A new habitat availability index to integrate connectivity in landscape conservation planning: comparison with existing indices and application to a case study. Landscape and Urban Planning 83: 91-103."
+     ],
+     "aliases": [
+      "dPC",
+      "delta PC",
+      "link importance",
+      "bridge importance"
+     ],
+     "python": "tf.gtn_importance(mspa).links.nlargest(3, \"dpc\")[[\"link_id\", \"component_id\", \"pixels\", \"dpc\"]]",
+     "operator": "networks.gtn_importance",
+     "setting": null,
+     "api": "terraflux.gtn_importance",
+     "value": " link_id  component_id  pixels     dpc\n     564           240      14 19.8660\n     548           240      36 19.8458\n     552           240      12 19.8434"
+    },
+    {
+     "id": "gtn_node_dpc",
+     "name": "Importance of a stepping stone (dPC of a core)",
+     "level": "node",
+     "theme": "habitat networks",
+     "unit": "%",
+     "range": "0 to 100",
+     "what": "What a core with two links or more does to connect the others: the loss of connectivity among the other cores when\nit is removed, leaving out its own area on purpose. The card shows the three most important cores.\n",
+     "formula": "dPC_n = 100 \\cdot \\frac{\\left(\\sum_{k \\ne n} A_k\\right)^{2} - \\sum_{c^{\\prime}} A_{c^{\\prime}}^{2}}{PC_{num}}",
+     "symbols": {
+      "A_k": "the area of core \\(k\\); the first term is the squared core area of the component without core \\(n\\), all still connected",
+      "A_{c^{\\prime}}": "the core area of each component left once core \\(n\\) is removed"
+     },
+     "use": "Finds the stepping stones whose loss splits the network. Only cores with at least two linked neighbours are\nevaluated. In the importance map the nodes carry minus their dPC; the table's `dpc` is positive.\n",
+     "refs": [
+      "Saura & Pascual-Hortal (2007). A new habitat availability index to integrate connectivity in landscape conservation planning: comparison with existing indices and application to a case study. Landscape and Urban Planning 83: 91-103."
+     ],
+     "aliases": [
+      "stepping stone",
+      "node importance"
+     ],
+     "python": "tf.gtn_importance(mspa).nodes.nlargest(3, \"dpc\")[[\"node_id\", \"component_id\", \"pixels\", \"degree\", \"dpc\"]]",
+     "operator": "networks.gtn_importance",
+     "setting": null,
+     "api": "terraflux.gtn_importance",
+     "value": " node_id  component_id  pixels  degree     dpc\n     883           240      12       5 19.8548\n     897           240     224       7 19.8393\n     869           240       5       3 19.8387"
+    },
+    {
+     "id": "gtn_normalized_importance",
+     "name": "Normalised importance of links and cores",
+     "level": "link",
+     "theme": "habitat networks",
+     "unit": "%",
+     "range": "0 to 100",
+     "what": "The dPC of a link (or a core) as a percentage of the largest dPC among the links (or among the cores).\n",
+     "formula": "I^{norm} = 100 \\cdot \\frac{dPC}{\\max dPC}",
+     "symbols": {
+      "\\max dPC": "the largest dPC among the links, for a link, or among the cores, for a core (0 when that largest is 0)"
+     },
+     "use": "Maps the most important links and cores: those at 99, 95 and 90 % of the largest.\n",
+     "refs": [
+      "Vogt & Riitters (2017). GuidosToolbox: universal digital image object analysis. European Journal of Remote Sensing 50: 352-361. doi:10.1080/22797254.2017.1330650"
+     ],
+     "aliases": [
+      "normalized importance",
+      "relative dPC"
+     ],
+     "python": "tf.gtn_importance(mspa).links.nlargest(3, \"normalized_importance\")[[\"link_id\", \"dpc\", \"normalized_importance\"]]",
+     "operator": "networks.gtn_importance",
+     "setting": null,
+     "api": "terraflux.gtn_importance",
+     "value": " link_id     dpc  normalized_importance\n     564 19.8660               100.0000\n     548 19.8458                99.8983\n     552 19.8434                99.8861"
+    },
+    {
+     "id": "influence_object_area",
+     "name": "Zones of influence, area of the objects",
+     "level": "patch",
+     "theme": "zones of influence",
+     "unit": "cells",
+     "range": "min_area or more",
+     "what": "The area of each object that has a zone of influence: an 8-connected piece of the foreground of at least `min_area`\ncells, its holes not counted (with `core_buffer`, the foreground within that many cells of its edge left out\nfirst). The zones are the watershed basins of the distance to the objects.\n",
+     "formula": "a_k = \\#\\{\\text{cells of object } k\\}, \\quad a_k \\ge \\text{min area}",
+     "symbols": {
+      "a_k": "the area of object \\(k\\) without its holes (`object_area[k - 1]`)"
+     },
+     "use": "The pieces smaller than `min_area` are not objects (they are coded 176 in the map).\n",
+     "refs": [
+      "Vogt & Riitters (2017). GuidosToolbox: universal digital image object analysis. European Journal of Remote Sensing 50: 352-361. doi:10.1080/22797254.2017.1330650"
+     ],
+     "aliases": [
+      "object area",
+      "zone of influence",
+      "influence zones"
+     ],
+     "python": "tf.influence_zones(habitat, min_area=5000).object_area.tolist()",
+     "operator": "distance.influence_zones",
+     "setting": "min_area = 5000",
+     "api": "terraflux.influence_zones",
+     "value": "[214811, 7927, 7398, 13850, 33508, 13303, 26366, 14983, 6471, 12637]"
+    },
+    {
+     "id": "proximity_distance",
+     "name": "Proximity of the objects (on the watershed lines)",
+     "level": "link",
+     "theme": "zones of influence",
+     "unit": "2 × cells",
+     "range": "0 or more",
+     "what": "How close neighbouring objects come: on the watershed lines between their zones of influence, twice the distance to\nthe nearest object, so the smallest value on a line is the width of the gap between the two objects. The card gives\nthe smallest proximity on all the lines (`prox_min`) and the number of line cells with it.\n",
+     "formula": "prox = \\operatorname{round}\\left(2\\, d_{obj}\\right)",
+     "symbols": {
+      "d_{obj}": "the distance, in cells, from the line cell to the nearest object (a chamfer distance close to the Euclidean); on lines between more than two zones the value is scaled by their number"
+     },
+     "use": "`prox_max` marks the lines below a threshold, the gaps worth closing. Experimental: GuidosToolbox's distance\ntransform is not reproduced exactly.\n",
+     "refs": [
+      "Vogt & Riitters (2017). GuidosToolbox: universal digital image object analysis. European Journal of Remote Sensing 50: 352-361. doi:10.1080/22797254.2017.1330650"
+     ],
+     "aliases": [
+      "proximity",
+      "gap between objects"
+     ],
+     "python": "p = tf.proximity(habitat, min_area=5000)\npd.Series({\"prox_min\": p.prox_min, \"cells with it\": p.prox_min_count})\n",
+     "operator": "distance.objects_proximity",
+     "setting": "min_area = 5000",
+     "api": "terraflux.proximity",
+     "value": "prox_min  2\ncells with it  2"
+    },
+    {
+     "id": "proximity_cag",
+     "name": "Connected area gain (CAG)",
+     "level": "link",
+     "theme": "zones of influence",
+     "unit": "cells",
+     "range": "0 or more",
+     "what": "What joining the objects that meet on a watershed line would gain in connected area: the square root of twice the\nsum of the products of their areas. Two objects of 214 811 and 7 927 cells give 58 358. The card shows the line cells\nwith the largest gain.\n",
+     "formula": "CAG = \\operatorname{round}\\left(\\sqrt{2 \\sum_{i<j} a_i\\, a_j}\\right)",
+     "symbols": {
+      "a_i, a_j": "the areas of the objects whose zones meet at the line cell"
+     },
+     "use": "Ranks the gaps by what closing them would gain; read it with the proximity, which says how wide the gap is.\n",
+     "refs": [
+      "Vogt & Riitters (2017). GuidosToolbox: universal digital image object analysis. European Journal of Remote Sensing 50: 352-361. doi:10.1080/22797254.2017.1330650"
+     ],
+     "aliases": [
+      "CAG",
+      "connected area gain"
+     ],
+     "python": "tf.proximity(habitat, min_area=5000).lines.nlargest(3, \"cag\")[[\"x\", \"y\", \"nbr\", \"cag\", \"areas\"]]",
+     "operator": "distance.objects_proximity",
+     "setting": null,
+     "api": "terraflux.proximity",
+     "value": "  x   y  nbr    cag                  areas\n599 486    3 145857 [214811, 13850, 33508]\n758 672    3 134424  [214811, 7398, 33508]\n756 669    2 119982        [214811, 33508]"
     }
    ]
   }

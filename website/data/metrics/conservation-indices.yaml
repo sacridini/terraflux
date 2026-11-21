@@ -1,0 +1,800 @@
+family: conservation-indices
+title: Conservation planning and habitat networks
+order: 140
+source: "prioritizr (R), Zonation 5, plangea, GuidosToolbox"
+intro: |
+  The measures that judge a conservation plan and the habitat it protects: how a prioritization's solution performs
+  (prioritizr's `eval_*` functions: cost, boundary, representation of the features, targets met, the importance of each
+  selected unit), the priority surfaces of Zonation (the top fraction of a ranking, the comparison of two rankings, the
+  impact of a planned land use), the ecological intactness of a human footprint, and the habitat networks and zones of
+  influence that GuidosToolbox computes from a map of habitat.
+
+  The cards show their values on several examples of the library, each the smallest that shows the measure:
+
+  - **Serra Verde** (`tf.prioritize.example_data`), an imaginary coastal region of 60 x 90 cells of 1 km with a cost and
+    eight species: `problem` is a minimum-set problem with targets of 20 % of each species, `solution` its optimal
+    solution (534 cells), `caz` and `abf` two Zonation rankings of the species (core-area and additive benefit).
+  - **A toy impact assessment**: two random features on 30 x 40 cells and a planned road along one row, with a footprint
+    that destroys everything and a buffer of 3 cells that halves the features (the library's own example).
+  - **A toy human footprint** of 5 x 5 cells of 1 km, wild on the left and a town on the right, for intactness.
+  - **The habitat map** of `tf.example_data("input")` (1000 x 1000 cells, GuidosToolbox's example), and `mspa` its MSPA
+    map, for the networks and the zones of influence.
+example: |
+  import numpy as np
+  import pandas as pd
+  import terraflux as tf
+
+  P = tf.prioritize
+  # Serra Verde (imaginary, 60 x 90 cells of 1 km): a cost and eight species; a minimum-set problem with 20 % targets
+  cost = tf.load_raster(P.example_data("cost"))
+  features = tf.load_raster(P.example_data("features"))
+  problem = P.problem(cost, features).add_min_set_objective().add_relative_targets(0.2).add_binary_decisions()
+  solution = problem.solve()
+  caz = P.zonation(features, rule="CAZ1")    # two Zonation rankings of the same species
+  abf = P.zonation(features, rule="ABF")
+
+  # a toy impact assessment: two random features on 30 x 40 cells, a road planned along row 15
+  species = np.random.default_rng(0).random((2, 30, 40))
+  road = np.zeros((30, 40), np.uint16)
+  road[15, :] = 1
+  scenario = P.ImpactScenario(road, [P.ImpactSource(group=1, source=1, footprint=100, buffers=((3, 50),))])
+
+  # a toy human footprint, 5 x 5 cells of 1 km: wild on the left, a town on the right
+  hfi = np.array([[0, 0, 0, 10, 40]] * 5, dtype=float)
+
+  # GuidosToolbox's example habitat map (1000 x 1000 cells) and its MSPA
+  habitat = tf.load_raster(tf.example_data("input"))
+  mspa = tf.mspa(habitat)
+metrics:
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_milp_eval.py:140-159
+  - id: eval_n
+    name: Planning units selected
+    level: model
+    theme: solution summaries
+    unit: planning units
+    range: "0 or more"
+    aliases: [number of units, n_summary, eval_n_summary]
+    what: |
+      The number of planning units a solution selects: the sum of its values (1 selected, 0 not; a share of the unit
+      with proportion decisions).
+    use: |
+      It counts units, not area: with units of different sizes, weigh them by area in the cost or the features. With
+      zones the table has a row overall and one per zone.
+    formula: 'n = \sum_i x_i'
+    symbols:
+      'x_i': 'the value of the solution for unit \(i\)'
+    python: 'P.eval_n_summary(problem, solution)'
+    operator: prioritize.evaluate
+    api: terraflux.prioritize.eval_n_summary
+    refs:
+      - "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_milp_eval.py:162-181
+  - id: eval_cost
+    name: Cost of a solution
+    level: model
+    theme: solution summaries
+    unit: the cost's unit
+    range: "0 or more"
+    aliases: [cost_summary, eval_cost_summary, total cost]
+    what: |
+      The total cost of the planning units a solution selects.
+    use: |
+      The objective of a minimum-set problem: compare it between solutions of the same problem (with and without a
+      boundary penalty, say), or against the cost of the units already protected.
+    formula: 'C = \sum_i c_i x_i'
+    symbols:
+      'c_i': 'the cost of unit \(i\)'
+      'x_i': 'the value of the solution for it'
+    python: 'P.eval_cost_summary(problem, solution)'
+    operator: prioritize.evaluate
+    api: terraflux.prioritize.eval_cost_summary
+    refs:
+      - "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+
+  # impl: extern/terraflux-py/src/cpp/opt/eval.cpp:97-113
+  - id: eval_boundary
+    name: Boundary length of a solution
+    level: model
+    theme: solution summaries
+    unit: length (the CRS units for raster cells)
+    range: "0 or more"
+    aliases: [boundary_summary, eval_boundary_summary, perimeter of a solution]
+    what: |
+      The length of the edges between selected and unselected units, plus a share (`edge_factor`) of the edges of the
+      selected units that face no other unit (the edge of the planning region). A compact solution has a short boundary.
+    use: |
+      Raster cells use their own edges; planning units in a table need the boundary matrix (`data`). With zones, a zones
+      matrix weighs the boundaries between zones.
+    formula: 'B = \sum_i x_i \left[(T_i - E_i) + e\,E_i\right] - 2\sum_{i<j} b_{ij}\, x_i x_j'
+    symbols:
+      'T_i': 'the perimeter of unit \(i\) (the diagonal of the boundary matrix)'
+      'b_{ij}': 'the length of the edge units \(i\) and \(j\) share'
+      'E_i': 'the edge of unit \(i\) that faces no other unit, \(T_i - \sum_{j \ne i} b_{ij}\)'
+      'e': '`edge_factor` (0.5 by default)'
+    python: 'P.eval_boundary_summary(problem, solution, edge_factor=0.5)'
+    operator: prioritize.evaluate
+    setting: 'edge_factor = 0.5'
+    api: terraflux.prioritize.eval_boundary_summary
+    refs:
+      - "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+
+  # impl: extern/terraflux-py/src/cpp/opt/eval.cpp:115-143
+  - id: eval_connectivity
+    name: Connectivity of a solution
+    level: model
+    theme: solution summaries
+    unit: the matrix's unit
+    range: "0 or more for a matrix of positive values"
+    aliases: [connectivity_summary, asym_connectivity_summary, eval_connectivity_summary]
+    what: |
+      The connectivity among the selected units: the sum of the connectivity values between every pair of selected units.
+      `eval_asym_connectivity_summary` does the same with an asymmetric matrix, over its directed entries. The card's matrix
+      is the shared boundary of neighbouring cells times the mean amount of the first species in the two
+      ([`tf.prioritize.connectivity_matrix`][terraflux.prioritize.connectivity_matrix]).
+    use: |
+      Compare solutions of one problem with the same matrix. The library warns when a symmetric matrix is given to the
+      asymmetric function, or the other way round.
+    formula: 'K = \sum_{i}\sum_{j} d_{ij}\, x_i x_j'
+    symbols:
+      'd_{ij}': 'the connectivity between units \(i\) and \(j\) (the diagonal counted once); with zones a zones matrix weighs each pair of zones'
+      'x_i': 'the value of the solution for unit \(i\)'
+    python: 'P.eval_connectivity_summary(problem, solution, P.connectivity_matrix(cost, features[0]))'
+    operator: prioritize.evaluate
+    api: terraflux.prioritize.eval_connectivity_summary
+    refs:
+      - "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_milp_eval.py:325-357
+  - id: eval_representation
+    name: Representation of the features (amount held and its share)
+    level: species
+    theme: solution summaries
+    unit: the feature's unit; proportion
+    range: "share 0 to 1"
+    aliases: [feature representation summary, held amount, relative_held]
+    what: |
+      For each feature, its total amount over the planning units and the amount the solution holds, as an amount and as a
+      share of the total.
+    use: |
+      The shares can be above the targets: the cheapest solution that meets every target often holds more of some features
+      than they need (here the harpy eagle, at 30 %).
+    formula: 'H_f = \sum_i r_{fi}\, x_i, \qquad h_f = \frac{H_f}{T_f}, \quad T_f = \sum_i r_{fi}'
+    symbols:
+      'r_{fi}': 'the amount of feature \(f\) in unit \(i\)'
+      'x_i': 'the value of the solution for unit \(i\)'
+      'T_f': 'the total of the feature over all the planning units'
+      'h_f': '`relative_held` (0 when the total is 0)'
+    python: 'P.eval_feature_representation_summary(problem, solution)[["feature", "total_amount", "absolute_held", "relative_held"]]'
+    operator: prioritize.evaluate
+    api: terraflux.prioritize.eval_feature_representation_summary
+    refs:
+      - "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_milp_eval.py:360-420
+  - id: eval_target_coverage
+    name: Target coverage and shortfall
+    level: species
+    theme: solution summaries
+    unit: the feature's unit; proportion
+    range: "shortfall 0 or more"
+    aliases: [target_coverage_summary, shortfall, targets met]
+    what: |
+      For each target, whether the solution meets it (`met`) and by how much it falls short, as an amount and as a share
+      of the feature's total.
+    use: |
+      A solver stopped at a gap can leave a small shortfall: check `met` before reporting. `met` is true when the
+      shortfall is below 1e-10.
+    formula: 'S = \begin{cases} 0 & H \ge t \\ |t - H| & \text{otherwise} \end{cases}, \qquad S^{rel} = \frac{S}{T_f}'
+    symbols:
+      'H': 'the amount the solution holds'
+      't': 'the target, as an amount; for a target of at most \(t\) the shortfall is 0 when \(H \le t\), for an exact target when the difference is within 1e-10'
+      'T_f': 'the total of the feature'
+    python: 'P.eval_target_coverage_summary(problem, solution)[["feature", "met", "absolute_target", "absolute_held", "absolute_shortfall"]]'
+    operator: prioritize.evaluate
+    setting: 'relative_targets = 0.2'
+    api: terraflux.prioritize.eval_target_coverage_summary
+    refs:
+      - "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_milp_eval.py:424-461
+  - id: eval_extinction_risk
+    name: Extinction risk (species-area)
+    level: species
+    theme: solution summaries
+    unit: probability (per feature); features (the sum)
+    range: "0 to 1 per feature"
+    aliases: [expected species loss, species-area relationship]
+    what: |
+      The risk of losing each feature by the species-area relationship, from the share of its habitat the solution
+      holds; the sum over the features is the expected number of features lost if only the solution remained.
+    use: |
+      A rough index: the exponent is a general value, not one fitted to the features. The last row of the table is the
+      expected loss.
+    formula: 'R_f = 1 - h_f^{\,z}, \qquad R = \sum_f R_f'
+    symbols:
+      'h_f': 'the share of feature \(f\) held (`relative_held`, kept within 0 and 1)'
+      'z': 'the exponent of the species-area curve (`extinction_z`, 0.25 by default; one value or one per feature)'
+    python: 'P.eval_extinction_risk(problem, solution, z=0.25)'
+    operator: prioritize.evaluate
+    setting: 'extinction_z = 0.25'
+    api: terraflux.prioritize.eval_extinction_risk
+    refs:
+      - "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+
+  # impl: extern/terraflux-py/src/cpp/opt/eval.cpp:225-285
+  - id: eval_ferrier
+    name: Ferrier irreplaceability of the selected units
+    level: cell
+    theme: importance of units
+    unit: score
+    range: "0 to 1"
+    aliases: [irreplaceability, ferrier importance, eval_ferrier_importance]
+    what: |
+      How much each selected unit is needed to meet each feature's target, and in total: the chance that the target fails
+      without it, when the rest of a portfolio of the same size is drawn at random (a normal approximation). A band per
+      feature and a `total`; 0 for the units not selected. The card summarises the total.
+    use: |
+      It needs one target of "at least" per feature and amounts of 0 or more. With many units each one's chance is small,
+      so the values are small; compare them between units, not with 1.
+    formula: 'F_{fi} = \frac{(P^{in}_{fi} - P^{rem}_{fi})\, w_{in}}{P^{in}_{fi} w_{in} + P^{ex}_{fi} w_{ex}}, \qquad F_{i} = \sum_f F_{fi}'
+    symbols:
+      'P^{in}_{fi}': 'the probability that the target of \(f\) is met when unit \(i\) is in the portfolio; \(P^{rem}_{fi}\) when it is taken out, \(P^{ex}_{fi}\) when it is not selected. Each is the normal tail of the mean and variance of the other units'' amounts, the standard deviation adjusted for the size of the portfolio'
+      'w_{in}': 'the share of the units selected, \(s / N\); \(w_{ex} = 1 - w_{in}\)'
+    python: 'P.eval_ferrier_importance(problem, solution).sel(band="total")'
+    operator: prioritize.evaluate
+    api: terraflux.prioritize.eval_ferrier_importance
+    refs:
+      - "Ferrier, Pressey & Barrett (2000). A new predictor of the irreplaceability of areas for achieving a conservation goal, its application to real-world planning, and a research agenda for further refinement. Biological Conservation 93: 303-325."
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_milp_eval.py:518-562
+  - id: eval_rare_richness
+    name: Rarity-weighted richness of the selected units
+    level: cell
+    theme: importance of units
+    unit: score (rescaled to 0.01-1)
+    range: "0, or 0.01 to 1"
+    aliases: [rarity weighted richness, RWR]
+    what: |
+      A score for each selected unit: the sum over the features of the unit's amount relative to the feature's largest
+      amount and to its total, so that units with much of a rare feature score high. 0 for the units not selected.
+    use: |
+      A quick measure of each unit's contribution; it ignores the targets. `rescale=True` (the default) rescales the
+      scores of the selected units to 0.01-1.
+    formula: 'RWR_i = \sum_f \frac{r_{fi}}{\max_k r_{fk}\; T_f}'
+    symbols:
+      'r_{fi}': 'the amount of feature \(f\) in unit \(i\)'
+      '\max_k r_{fk}': 'its largest amount in a unit'
+      'T_f': 'its total'
+    python: 'P.eval_rare_richness_importance(problem, solution)'
+    operator: prioritize.evaluate
+    api: terraflux.prioritize.eval_rare_richness_importance
+    refs:
+      - "Albuquerque & Beier (2015). Rarity-weighted richness: a simple and reliable alternative to integer programming and heuristic algorithms for minimum set and maximum coverage problems in conservation planning. PLoS ONE 10: e0119905. doi:10.1371/journal.pone.0119905"
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_milp_eval.py:565-662
+  - id: eval_replacement
+    name: Replacement cost of the selected units
+    level: cell
+    theme: importance of units
+    unit: objective units (rescaled to 0.01-1)
+    range: "0 or more, or infinite"
+    aliases: [replacement importance, eval_replacement_importance]
+    what: |
+      How much the objective worsens when a selected unit is forbidden and the problem is solved again with the other
+      selected units kept: the cost of replacing it. Infinite when nothing can replace the unit (a target cannot be met
+      without it).
+    use: |
+      One solve per selected unit (534 on the example, in parallel; a fraction of a second here, but it grows with the
+      size of the problem). Not defined for a solution that does not meet the problem's constraints. `rescale=True`
+      rescales the finite values above 0 to 0.01-1.
+    formula: 'RC_i = z_i - z^{*}'
+    symbols:
+      'z^{*}': 'the objective of the solution (its selected units locked in)'
+      'z_i': 'the objective of the solve with unit \(i\) set to 0 (the sign is turned for a maximisation)'
+    python: 'P.eval_replacement_importance(problem, solution)'
+    operator: prioritize.evaluate
+    setting: 'replacement = true'
+    api: terraflux.prioritize.eval_replacement_importance
+    refs:
+      - "Cabeza & Moilanen (2006). Replacement cost: a practical measure of site value for cost-effective reserve planning. Biological Conservation 132: 336-342."
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_milp_eval.py:665-770
+  - id: eval_rank
+    name: Rank importance of the selected units
+    level: cell
+    theme: importance of units
+    unit: score (rescaled to 0.01-1)
+    range: "0, or 0.01 to 1"
+    aliases: [rank importance, eval_rank_importance]
+    what: |
+      How early a selected unit enters the solution when it is built with growing budgets: the problem is solved with
+      increasing budgets (its objective turned into a minimum shortfall), allowed only the solution's units and keeping
+      the units of the step before. Units that enter at the first budget rank highest. The call returns the ranks and a
+      table of the budgets; the card shows the table.
+    use: |
+      A priority order inside a solution: what to protect first. More budgets give a finer order, at one solve each.
+    formula: 'rank_i = \operatorname{rescale}_{[0.01,\,1]}\left(n - k_i + 1\right)'
+    symbols:
+      'n': 'the number of budgets (`rank`), evenly spaced between the cost of the locked-in units and the cost of the solution (or the `budgets` given)'
+      'k_i': 'the first budget step (1 to \(n\)) at which unit \(i\) is selected'
+    python: 'P.eval_rank_importance(problem, solution, n=4)[1]'
+    operator: prioritize.evaluate
+    setting: 'rank = 4'
+    api: terraflux.prioritize.eval_rank_importance
+    refs:
+      - "Jung et al. (2021). Areas of global importance for conserving terrestrial biodiversity, carbon and water. Nature Ecology & Evolution 5: 1499-1509. doi:10.1038/s41559-021-01528-7"
+      - "Hanson, Schuster, Strimas-Mackey, Morrell, Edwards, Arcese, Bennett & Possingham (2025). Systematic conservation prioritization with the prioritizr R package. Conservation Biology. doi:10.1111/cobi.14376"
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_landscape.py:77-101
+  - id: position_rank
+    name: Rank by position (Zonation's rank)
+    level: cell
+    theme: priority surfaces
+    unit: rank, 0 to 1
+    range: "0 to 1 (exclusive)"
+    aliases: [Zonation rank, priority rank, percentile rank]
+    what: |
+      The rank of each cell of a surface by its position: the \(i\)-th lowest of the \(N\) cells with a value gets
+      \(i/N\), in single precision, so that a top fraction is the same as Zonation's. Ties keep the order of the cells;
+      cells without a value stay without one. The card ranks a 2 x 2 grid with a tie and a missing cell.
+    use: |
+      Use it to turn any priority surface (an importance, a selection frequency) into Zonation's scale, and to take a top
+      fraction \(f\): the cells ranked at least \(1 - f\).
+    formula: '\rho_{(i)} = \operatorname{float32}\left(\frac{i}{N}\right), \quad i = 0, \ldots, N - 1'
+    symbols:
+      'i': 'the position of the cell in the ascending order of the values (ties: the earlier cell first)'
+      'N': 'the number of cells with a value'
+    python: 'P.position_rank(np.array([[3.0, 1.0], [np.nan, 1.0]])).ravel()'
+    api: terraflux.prioritize.position_rank
+    refs:
+      - "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_landscape.py:157-250
+  - id: lsi_area
+    name: Landscape identification (areas of the top fraction)
+    level: region
+    theme: priority surfaces
+    unit: cells; the surface's, the cost's and the features' units
+    range: "areas of min_size cells or more"
+    aliases: [LSI, landscape identification, area statistics of separate areas]
+    what: |
+      The separate areas of the top fraction of a priority surface and what each holds: its cells, the mean value of the
+      surface, its cost and the amount of every feature with its share of the feature's total. The cells are ranked as
+      Zonation does, so the areas are Zonation's area statistics of separate areas. The card takes the top 10 % of the
+      core-area ranking.
+    use: |
+      Use it to turn a ranking into candidate sites. Areas are 8-connected (or 4) groups of top cells; `min_size` drops
+      the small ones and `merge_distance` merges areas that many cells apart.
+    formula: 'A = \{i : \rho_i \ge 1 - f\}'
+    symbols:
+      '\rho_i': 'the rank by position of cell \(i\) (the card above)'
+      'f': '`top_fraction`'
+    python: 'P.eval_landscape_identification(caz, 0.1, min_size=5, problem=problem).table[["area", "cells", "mean_value", "cost", "jaguar_share"]]'
+    operator: prioritize.zonation
+    setting: 'area_statistics = [0.9, 1.0, 5]'
+    api: terraflux.prioritize.eval_landscape_identification
+    refs:
+      - "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_landscape.py:286-345
+  - id: lsc_jaccard
+    name: Landscape comparison (Jaccard index of the top fractions)
+    level: model
+    theme: priority surfaces
+    unit: none
+    range: "0 to 1"
+    aliases: [LSC, solution comparison, overlap of top fractions]
+    what: |
+      How much the top fractions of two priority surfaces overlap: the cells in both over the cells in either, at several
+      fractions, on the cells with a value in both. The table also counts the cells of both, of only one and of neither,
+      and the share of the first's top cells that the second has (`share_of_a_in_b`).
+    use: |
+      Compare two rankings (two Zonation rules, with and without a cost) at the fractions you will act on: they often agree
+      on the best few percent and differ further down, or the other way round.
+    formula: 'J_f = \frac{|A_f \cap B_f|}{|A_f \cup B_f|}'
+    symbols:
+      'A_f, B_f': 'the cells in the top fraction \(f\) of the two surfaces, by Zonation''s rule'
+    python: 'P.eval_landscape_comparison(caz, abf, fractions=[0.1, 0.3]).table[["fraction", "both", "only_a", "only_b", "jaccard"]]'
+    api: terraflux.prioritize.eval_landscape_comparison
+    refs:
+      - "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_impacts.py:569-579
+  - id: impact_area
+    name: Impact, area affected
+    level: species
+    theme: impacts
+    unit: the area unit (cells × area_factor)
+    range: "0 or more"
+    aliases: [affected area, impact area]
+    what: |
+      The area of the cells where the feature is present and an impact reaches, by area, impact group, source and zone
+      (0 the footprint, then the buffers), in the area unit of the scenario (a cell's area is `area_factor`). On the toy
+      road, 40 cells under the road and 240 in its buffer of 3 cells.
+    use: |
+      It is the `cells` column of the impact table, times `area_factor` in the files Zonation writes.
+    formula: 'A = a_{cell} \cdot \#\{i : v_i > 0,\; m_i < 1\}'
+    symbols:
+      'v_i': 'the value of the feature in cell \(i\) (positive: present)'
+      'm_i': 'the share the impact zones covering the cell leave, \(\prod_z (1 - s_z)\), with \(s_z\) the loss of the footprint or of the buffer'
+      'a_{cell}': '`area_factor`'
+    python: 'P.zonation(species, impact_groups=[1, -1], impact=scenario).impacts["zones"][["feature", "zone", "cells"]]'
+    operator: prioritize.zonation
+    setting: 'impact_groups = [1, -1]'
+    api: terraflux.prioritize.ImpactScenario
+    refs:
+      - "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_impacts.py:569-579
+  - id: impact_fractional_distribution
+    name: Impact, share of the distribution exposed
+    level: species
+    theme: impacts
+    unit: proportion of the feature
+    range: "0 to 1"
+    aliases: [fractional_distribution, exposed share]
+    what: |
+      The share of the feature's whole distribution that lies in the cells an impact reaches (its footprint or a
+      buffer), whatever the loss there.
+    use: |
+      How much of the feature is exposed, not how much is lost (the next card).
+    formula: 'D = \sum_{i \in Z} \frac{v_i}{\sum_k v_k}'
+    symbols:
+      'v_i': 'the value of the feature in cell \(i\)'
+      'Z': 'the cells of the zone that the impact reaches (\(m_i < 1\), \(v_i > 0\))'
+    python: 'P.zonation(species, impact_groups=[1, -1], impact=scenario).impacts["zones"][["feature", "zone", "distribution"]]'
+    operator: prioritize.zonation
+    setting: 'impact_groups = [1, -1]'
+    api: terraflux.prioritize.ImpactScenario
+    refs:
+      - "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_impacts.py:496-516, 569-579
+  - id: impact_fractional_loss
+    name: Impact, share of the distribution lost
+    level: species
+    theme: impacts
+    unit: proportion of the feature
+    range: "0 to 1"
+    aliases: [fractional_loss, loss of distribution]
+    what: |
+      The share of the feature's whole distribution that the impact destroys: the exposed distribution times the loss in
+      each cell. On the toy road the footprint (100 % loss) loses all it exposes, the buffer (50 %) half.
+    use: |
+      The headline number of an impact assessment; the share that remains is 1 minus it.
+    formula: 'L = \sum_{i \in Z} (1 - m_i)\,\frac{v_i}{\sum_k v_k}'
+    symbols:
+      'm_i': 'the share of the feature the impact zones leave in cell \(i\) (1 for no impact)'
+      'v_i': 'the value of the feature in the cell'
+    python: 'P.zonation(species, impact_groups=[1, -1], impact=scenario).impacts["zones"][["feature", "zone", "loss"]]'
+    operator: prioritize.zonation
+    setting: 'impact_groups = [1, -1]'
+    api: terraflux.prioritize.ImpactScenario
+    refs:
+      - "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_impacts.py:577-578
+  - id: impact_absolute_distribution
+    name: Impact, distribution exposed in the feature's units
+    level: species
+    theme: impacts
+    unit: the feature's unit (impact_unit)
+    range: "0 or more"
+    aliases: [absolute_distribution]
+    what: |
+      The exposed distribution in the feature's own units: its share times the sum of the feature's values. Zonation writes
+      it to its impact files; in Python it is the share of the impact table times the feature's sum (`dsum` of the
+      result's `features`), as the card computes it.
+    use: |
+      When the feature's values are in a unit that means something (individuals, hectares, tonnes of carbon).
+    formula: 'D_{abs} = D \cdot \sum_k v^{raw}_k'
+    symbols:
+      'D': 'the share of the distribution exposed'
+      '\sum_k v^{raw}_k': 'the sum of the feature''s values before they are normalised'
+    python: |
+      res = P.zonation(species, impact_groups=[1, -1], impact=scenario)
+      z = res.impacts["zones"]
+      z.assign(absolute=z["distribution"] * res.features["dsum"].to_numpy()[z["feature"]])[["feature", "zone", "absolute"]]
+    operator: prioritize.zonation
+    setting: 'impact_groups = [1, -1]'
+    api: terraflux.prioritize.ImpactScenario
+    refs:
+      - "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+
+  # impl: extern/terraflux-py/src/terraflux/prioritize/_impacts.py:577-579
+  - id: impact_absolute_loss
+    name: Impact, loss in the feature's units
+    level: species
+    theme: impacts
+    unit: the feature's unit (impact_unit)
+    range: "0 or more"
+    aliases: [absolute_loss]
+    what: |
+      The loss in the feature's own units: the share lost times the sum of the feature's values (written to Zonation's
+      impact files; computed from the table as on the card above).
+    use: |
+      The amount of the feature the impact destroys.
+    formula: 'L_{abs} = L \cdot \sum_k v^{raw}_k'
+    symbols:
+      'L': 'the share of the distribution lost'
+      '\sum_k v^{raw}_k': 'the sum of the feature''s values before they are normalised'
+    python: |
+      res = P.zonation(species, impact_groups=[1, -1], impact=scenario)
+      z = res.impacts["zones"]
+      z.assign(absolute=z["loss"] * res.features["dsum"].to_numpy()[z["feature"]])[["feature", "zone", "absolute"]]
+    operator: prioritize.zonation
+    setting: 'impact_groups = [1, -1]'
+    api: terraflux.prioritize.ImpactScenario
+    refs:
+      - "Moilanen, Lehtinen, Kohonen, Jalkanen, Virtanen & Kujala (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. Methods in Ecology and Evolution 13: 1062-1072. doi:10.1111/2041-210X.13819"
+
+  # impl: extern/terraflux-py/src/terraflux/intactness.py:104-175
+  - id: intactness_q
+    name: Ecological intactness (Q)
+    level: cell
+    theme: intactness
+    unit: none
+    range: "0 to 1"
+    aliases: [habitat intactness, plangea intactness, ecoregion intactness]
+    what: |
+      How intact a cell and its surroundings are, from the human footprint: high when the cell and its neighbours within
+      a radius all have a high habitat quality, the near neighbours counting more. The card shows the middle row of the
+      toy footprint, from the wild side to the town.
+    use: |
+      Give `cell_size` in km (or a projected grid). The cells without a footprint value are left out, and at the raster's
+      edge the window is the part inside it (plangea leaves the edge cells out and fills them with the mean). With
+      `reduction` and `restored`, the footprint is lowered first by the share restored.
+    formula: 'Q_i = \frac{\sum_{j} \left(q_i q_j\right)^{z} w_{ij}}{\sum_{j} w_{ij}}, \quad q = e^{-\gamma\, HFI}, \quad w_{ij} = e^{\beta d_{ij}}'
+    symbols:
+      'HFI': 'the human footprint index of the cell'
+      'q': 'the habitat quality, 1 with no footprint'
+      '\gamma': '\(-\ln 0.2 / 4\): a footprint of 4 gives a quality of 0.2'
+      'd_{ij}': 'the distance between the cells'' centres, in km; the cells \(j\) are those within `radius` cells of \(i\), itself included'
+      '\beta': '-0.2 per km'
+      'z': '0.5'
+    python: 'tf.intactness(hfi, radius=1, cell_size=1.0)[2]'
+    operator: restoration.intactness
+    setting: 'radius = 1'
+    api: terraflux.intactness
+    refs:
+      - "Beyer, Venter, Grantham & Watson (2020). Substantial losses in ecoregion intactness highlight urgency of globally coordinated action. Conservation Letters 13: e12692. doi:10.1111/conl.12692"
+
+  # impl: extern/terraflux-py/src/terraflux/intactness.py:178-240
+  - id: intactness_gradient
+    name: Intactness gradient (the benefit of restoring a cell)
+    level: cell
+    theme: intactness
+    unit: intactness per unit restored
+    range: "0 or more"
+    aliases: [restoration benefit, intactness derivative]
+    what: |
+      How much the total intactness of the map grows per unit of a cell restored: the derivative of the sum of \(Q\) with
+      respect to the share of the cell restored. 0 where the footprint is already 0. The card's cells lose 2 points of
+      footprint per unit restored.
+    use: |
+      The linear benefit of restoration for intactness in a restoration plan. It is the whole derivative, through the
+      cell's neighbours too; plangea's changes only the cell's own factor.
+    formula: '\frac{\partial \sum_i Q_i}{\partial x_k} = z\,\gamma\, a_k\left(Q_k + q_k^{z}\sum_{i}\frac{q_i^{z}\, w_{ik}}{W_i}\right)'
+    symbols:
+      'x_k': 'the share of cell \(k\) restored'
+      'a_k': 'the footprint it loses per unit restored (`reduction`)'
+      'W_i': 'the sum of the weights of cell \(i\), \(\sum_j w_{ij}\)'
+    python: 'tf.intactness_gradient(hfi, reduction=2.0, radius=1, cell_size=1.0)[2]'
+    operator: restoration.intactness_gradient
+    setting: 'radius = 1'
+    api: terraflux.intactness_gradient
+    refs:
+      - "Beyer, Venter, Grantham & Watson (2020). Substantial losses in ecoregion intactness highlight urgency of globally coordinated action. Conservation Letters 13: e12692. doi:10.1111/conl.12692"
+
+  # impl: extern/terraflux-py/src/terraflux/gtn.py:215-380
+  - id: gtn_eca
+    name: Equivalent connected area (ECA) of the MSPA network
+    level: map
+    theme: habitat networks
+    unit: cells (hectares with the cell size)
+    range: "0 to ECA_max"
+    aliases: [equivalent connected area, ECA, GTN]
+    what: |
+      The area of a single core that would be as connected as the network of cores and bridges is. The network's
+      components (8-connected groups of MSPA core and bridge cells) add as the root of the sum of their squared core areas:
+      only the cores are habitat, the bridges connect them.
+    use: |
+      Needs an MSPA map; the components depend on its edge width. Give `pixel_size` for hectares.
+    formula: 'ECA = \sqrt{\sum_{c} A_c^{2}}'
+    symbols:
+      'A_c': 'the core area (cells of MSPA''s core) of component \(c\)'
+    python: 'tf.gtn_components(mspa).eca_pixels'
+    operator: networks.gtn_components
+    api: terraflux.gtn_components
+    refs:
+      - "Saura, Estreguil, Mouton & Rodríguez-Freire (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990-2000). Ecological Indicators 11: 407-416."
+      - "Vogt & Riitters (2017). GuidosToolbox: universal digital image object analysis. European Journal of Remote Sensing 50: 352-361. doi:10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/terraflux/gtn.py:215-380
+  - id: gtn_eca_max
+    name: Largest possible ECA of the MSPA network
+    level: map
+    theme: habitat networks
+    unit: cells
+    range: "0 or more"
+    aliases: [maximum ECA, total core area]
+    what: |
+      The ECA if all the core area formed one component: the total core area.
+    use: |
+      The denominator of the degree of coherence.
+    formula: 'ECA_{max} = \sum_{c} A_c'
+    symbols:
+      'A_c': 'the core area of component \(c\)'
+    python: 'tf.gtn_components(mspa).eca_max_pixels'
+    operator: networks.gtn_components
+    api: terraflux.gtn_components
+    refs:
+      - "Saura, Estreguil, Mouton & Rodríguez-Freire (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990-2000). Ecological Indicators 11: 407-416."
+
+  # impl: extern/terraflux-py/src/terraflux/gtn.py:215-380
+  - id: gtn_doc
+    name: Degree of coherence (DOC) of the MSPA network
+    level: map
+    theme: habitat networks
+    unit: "%"
+    range: "more than 0, up to 100"
+    aliases: [degree of coherence, coherence, DOC]
+    what: |
+      The ECA as a share of the total core area: 100 % when all the cores are in one component, low when the habitat is
+      split into many unconnected pieces.
+    use: |
+      It does not depend on the size of the map, so it compares maps; keep the MSPA settings the same.
+    formula: 'DOC = 100 \cdot \frac{ECA}{ECA_{max}}'
+    symbols:
+      'ECA, ECA_{max}': 'the two cards above'
+    python: 'tf.gtn_components(mspa).doc'
+    operator: networks.gtn_components
+    api: terraflux.gtn_components
+    refs:
+      - "Saura, Estreguil, Mouton & Rodríguez-Freire (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990-2000). Ecological Indicators 11: 407-416."
+      - "Vogt & Riitters (2017). GuidosToolbox: universal digital image object analysis. European Journal of Remote Sensing 50: 352-361. doi:10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/terraflux/gtn.py:600-650
+  - id: gtn_link_dpc
+    name: Importance of a link (dPC of a bridge)
+    level: link
+    theme: habitat networks
+    unit: "%"
+    range: "0 to 100"
+    aliases: [dPC, delta PC, link importance, bridge importance]
+    what: |
+      The loss of connectivity when a link (an MSPA bridge) is cut: the drop of the numerator of PC, in percent, when the
+      link is removed and its component may split. The card shows the three most important links.
+    use: |
+      Finds the bridges whose loss would split the network. In a network with loops most bridges are 0, since the cores
+      stay connected the other way. Only the links of components with at least one link are evaluated. The numerator is the
+      sum of squared core areas, not the whole PC.
+    formula: 'dPC_l = 100 \cdot \frac{PC_{num} - PC^{(-l)}_{num}}{PC_{num}}, \quad PC_{num} = \sum_{c} A_c^{2}'
+    symbols:
+      'A_c': 'the core area of component \(c\)'
+      'PC^{(-l)}_{num}': 'the same sum once link \(l\) is removed'
+    python: 'tf.gtn_importance(mspa).links.nlargest(3, "dpc")[["link_id", "component_id", "pixels", "dpc"]]'
+    operator: networks.gtn_importance
+    api: terraflux.gtn_importance
+    refs:
+      - "Saura & Pascual-Hortal (2007). A new habitat availability index to integrate connectivity in landscape conservation planning: comparison with existing indices and application to a case study. Landscape and Urban Planning 83: 91-103."
+
+  # impl: extern/terraflux-py/src/terraflux/gtn.py:652-700
+  - id: gtn_node_dpc
+    name: Importance of a stepping stone (dPC of a core)
+    level: node
+    theme: habitat networks
+    unit: "%"
+    range: "0 to 100"
+    aliases: [stepping stone, node importance]
+    what: |
+      What a core with two links or more does to connect the others: the loss of connectivity among the other cores when
+      it is removed, leaving out its own area on purpose. The card shows the three most important cores.
+    use: |
+      Finds the stepping stones whose loss splits the network. Only cores with at least two linked neighbours are
+      evaluated. In the importance map the nodes carry minus their dPC; the table's `dpc` is positive.
+    formula: 'dPC_n = 100 \cdot \frac{\left(\sum_{k \ne n} A_k\right)^{2} - \sum_{c^{\prime}} A_{c^{\prime}}^{2}}{PC_{num}}'
+    symbols:
+      'A_k': 'the area of core \(k\); the first term is the squared core area of the component without core \(n\), all still connected'
+      'A_{c^{\prime}}': 'the core area of each component left once core \(n\) is removed'
+    python: 'tf.gtn_importance(mspa).nodes.nlargest(3, "dpc")[["node_id", "component_id", "pixels", "degree", "dpc"]]'
+    operator: networks.gtn_importance
+    api: terraflux.gtn_importance
+    refs:
+      - "Saura & Pascual-Hortal (2007). A new habitat availability index to integrate connectivity in landscape conservation planning: comparison with existing indices and application to a case study. Landscape and Urban Planning 83: 91-103."
+
+  # impl: extern/terraflux-py/src/terraflux/gtn.py:703-728
+  - id: gtn_normalized_importance
+    name: Normalised importance of links and cores
+    level: link
+    theme: habitat networks
+    unit: "%"
+    range: "0 to 100"
+    aliases: [normalized importance, relative dPC]
+    what: |
+      The dPC of a link (or a core) as a percentage of the largest dPC among the links (or among the cores).
+    use: |
+      Maps the most important links and cores: those at 99, 95 and 90 % of the largest.
+    formula: 'I^{norm} = 100 \cdot \frac{dPC}{\max dPC}'
+    symbols:
+      '\max dPC': 'the largest dPC among the links, for a link, or among the cores, for a core (0 when that largest is 0)'
+    python: 'tf.gtn_importance(mspa).links.nlargest(3, "normalized_importance")[["link_id", "dpc", "normalized_importance"]]'
+    operator: networks.gtn_importance
+    api: terraflux.gtn_importance
+    refs:
+      - "Vogt & Riitters (2017). GuidosToolbox: universal digital image object analysis. European Journal of Remote Sensing 50: 352-361. doi:10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/terraflux/influence.py:187-240
+  - id: influence_object_area
+    name: Zones of influence, area of the objects
+    level: patch
+    theme: zones of influence
+    unit: cells
+    range: "min_area or more"
+    aliases: [object area, zone of influence, influence zones]
+    what: |
+      The area of each object that has a zone of influence: an 8-connected piece of the foreground of at least `min_area`
+      cells, its holes not counted (with `core_buffer`, the foreground within that many cells of its edge left out
+      first). The zones are the watershed basins of the distance to the objects.
+    use: |
+      The pieces smaller than `min_area` are not objects (they are coded 176 in the map).
+    formula: 'a_k = \#\{\text{cells of object } k\}, \quad a_k \ge \text{min area}'
+    symbols:
+      'a_k': 'the area of object \(k\) without its holes (`object_area[k - 1]`)'
+    python: 'tf.influence_zones(habitat, min_area=5000).object_area.tolist()'
+    operator: distance.influence_zones
+    setting: 'min_area = 5000'
+    api: terraflux.influence_zones
+    refs:
+      - "Vogt & Riitters (2017). GuidosToolbox: universal digital image object analysis. European Journal of Remote Sensing 50: 352-361. doi:10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/terraflux/influence.py:243-310
+  - id: proximity_distance
+    name: Proximity of the objects (on the watershed lines)
+    level: link
+    theme: zones of influence
+    unit: 2 × cells
+    range: "0 or more"
+    aliases: [proximity, gap between objects]
+    what: |
+      How close neighbouring objects come: on the watershed lines between their zones of influence, twice the distance to
+      the nearest object, so the smallest value on a line is the width of the gap between the two objects. The card gives
+      the smallest proximity on all the lines (`prox_min`) and the number of line cells with it.
+    use: |
+      `prox_max` marks the lines below a threshold, the gaps worth closing. Experimental: GuidosToolbox's distance
+      transform is not reproduced exactly.
+    formula: 'prox = \operatorname{round}\left(2\, d_{obj}\right)'
+    symbols:
+      'd_{obj}': 'the distance, in cells, from the line cell to the nearest object (a chamfer distance close to the Euclidean); on lines between more than two zones the value is scaled by their number'
+    python: |
+      p = tf.proximity(habitat, min_area=5000)
+      pd.Series({"prox_min": p.prox_min, "cells with it": p.prox_min_count})
+    operator: distance.objects_proximity
+    setting: 'min_area = 5000'
+    api: terraflux.proximity
+    refs:
+      - "Vogt & Riitters (2017). GuidosToolbox: universal digital image object analysis. European Journal of Remote Sensing 50: 352-361. doi:10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/terraflux/influence.py:147-155
+  - id: proximity_cag
+    name: Connected area gain (CAG)
+    level: link
+    theme: zones of influence
+    unit: cells
+    range: "0 or more"
+    aliases: [CAG, connected area gain]
+    what: |
+      What joining the objects that meet on a watershed line would gain in connected area: the square root of twice the
+      sum of the products of their areas. Two objects of 214 811 and 7 927 cells give 58 358. The card shows the line cells
+      with the largest gain.
+    use: |
+      Ranks the gaps by what closing them would gain; read it with the proximity, which says how wide the gap is.
+    formula: 'CAG = \operatorname{round}\left(\sqrt{2 \sum_{i<j} a_i\, a_j}\right)'
+    symbols:
+      'a_i, a_j': 'the areas of the objects whose zones meet at the line cell'
+    python: 'tf.proximity(habitat, min_area=5000).lines.nlargest(3, "cag")[["x", "y", "nbr", "cag", "areas"]]'
+    operator: distance.objects_proximity
+    api: terraflux.proximity
+    refs:
+      - "Vogt & Riitters (2017). GuidosToolbox: universal digital image object analysis. European Journal of Remote Sensing 50: 352-361. doi:10.1080/22797254.2017.1330650"

@@ -1,0 +1,275 @@
+family: spatial-statistics
+title: Spatial autocorrelation
+order: 130
+source: "PySAL esda (Moran, Moran_Local, G_Local) / ArcGIS hot spot analysis"
+intro: |
+  How much the neighbouring cells of a map are alike: the global Moran's I of the whole map, its local version (LISA) for
+  every cell, and the Getis-Ord Gi* hot and cold spots. They give the same numbers as PySAL's esda, to rounding. The
+  neighbours of a cell are the cells that touch it, queen contiguity (8 neighbours) by default or rook (4), and the
+  weights are row-standardised (each cell's weights sum to 1). Cells without a value (NaN or `nodata`) are left out, as if
+  the map stopped there.
+
+  The cards show their values on the elevation of a part of south-western Oregon that ships with the library
+  (`tf.example_data("orelevation")`, 371 x 371 cells, every one with a value): a smooth surface, so strongly
+  autocorrelated. Random permutations use `seed` (1 by default), so a run gives the same p values with any number of
+  threads.
+example: |
+  import numpy as np
+  import pandas as pd
+  import terraflux as tf
+
+  # elevation of a part of south-western Oregon (371 x 371 cells), every cell with a value
+  elev = tf.load_raster(tf.example_data("orelevation"))
+metrics:
+  # impl: extern/terraflux-py/src/cpp/stats/stats.cpp:187-235
+  - id: moran_i
+    name: Moran's I (global)
+    level: map
+    theme: global autocorrelation
+    unit: none
+    range: "about -1 to 1"
+    aliases: [Moran I, spatial autocorrelation, global Moran]
+    what: |
+      How much neighbouring cells of a map are alike, over the whole map: positive when similar values sit together,
+      near its expectation (about 0) when they are arranged at random, negative when high values sit next to low ones.
+    use: |
+      Close to 1 on smooth surfaces such as elevation. It depends on the contiguity and on the cell size, so compare maps
+      only at the same resolution; read its size, not only its significance.
+    formula: 'I = \frac{\sum_i \sum_j w_{ij} z_i z_j}{\sum_i z_i^2}, \quad z_i = x_i - \bar{x}'
+    symbols:
+      'x_i': 'the value of cell \(i\)'
+      '\bar{x}': 'the mean over the cells with a value'
+      'w_{ij}': 'the row-standardised contiguity weights (queen or rook), so that their sum \(S_0\) is \(n\)'
+    python: 'tf.stats.moran(elev, permutations=99).i'
+    operator: stats.moran
+    setting: 'contiguity = "queen"'
+    api: terraflux.stats.moran
+    refs:
+      - "Moran (1950). Notes on continuous stochastic phenomena. Biometrika 37: 17-23."
+
+  # impl: extern/terraflux-py/src/cpp/stats/stats.cpp:210-215
+  - id: moran_ei
+    name: Expected Moran's I
+    level: map
+    theme: global autocorrelation
+    unit: none
+    range: "-1/(n - 1)"
+    aliases: [expectation of Moran I]
+    what: |
+      The value Moran's I has on average when the values are arranged at random.
+    use: |
+      Close to 0 on a large map. On a small one compare I with it, not with 0.
+    formula: 'E[I] = -\frac{1}{n-1}'
+    symbols:
+      'n': 'the number of cells with a value'
+    python: 'tf.stats.moran(elev, permutations=0).ei'
+    operator: stats.moran
+    api: terraflux.stats.moran
+    refs:
+      - "Moran (1950). Notes on continuous stochastic phenomena. Biometrika 37: 17-23."
+
+  # impl: extern/terraflux-py/src/cpp/stats/stats.cpp:195-228
+  - id: moran_significance
+    name: Moran's I, z score and p (normality and randomisation)
+    level: map
+    theme: global autocorrelation
+    unit: none
+    range: "z any; p 0 to 1"
+    aliases: [z_norm, z_rand, p_norm, p_rand, significance of Moran I]
+    what: |
+      The standardised score of Moran's I and its two-sided p, under the assumption that the values are normal
+      (`z_norm`, `p_norm`) or that they are one random arrangement of the values observed (`z_rand`, `p_rand`).
+    use: |
+      The cells of a raster are not independent, so very large z scores are expected at any resolution: on a map of
+      137 641 cells almost any pattern is significant. Read the size of I as well.
+    formula:
+      - 'z = \frac{I - E[I]}{\sqrt{\operatorname{Var}(I)}}, \quad p = 2\left[1 - \Phi(|z|)\right]'
+      - '\operatorname{Var}_N(I) = \frac{n^2 S_1 - n S_2 + 3 S_0^2}{(n^2-1) S_0^2} - E[I]^2'
+      - '\operatorname{Var}_R(I) = \frac{n\left[(n^2-3n+3)S_1 - nS_2 + 3S_0^2\right] - k\left[(n^2-n)S_1 - 2nS_2 + 6S_0^2\right]}{(n-1)(n-2)(n-3)S_0^2} - E[I]^2'
+    symbols:
+      'S_0': 'the sum of the weights'
+      'S_1': '\(\tfrac12\sum_{i,j}(w_{ij}+w_{ji})^2\)'
+      'S_2': '\(\sum_i (w_{i\cdot} + w_{\cdot i})^2\), with \(w_{i\cdot}\) and \(w_{\cdot i}\) the sums of row and column \(i\)'
+      'k': 'the kurtosis of the values'
+      '\Phi': 'the standard normal distribution function'
+    python: |
+      m = tf.stats.moran(elev, permutations=0)
+      pd.Series({"z_norm": m.z_norm, "p_norm": m.p_norm, "z_rand": m.z_rand, "p_rand": m.p_rand})
+    operator: stats.moran
+    api: terraflux.stats.moran
+    refs:
+      - "Moran (1950). Notes on continuous stochastic phenomena. Biometrika 37: 17-23."
+
+  # impl: extern/terraflux-py/src/cpp/stats/stats.cpp:187-240
+  - id: moran_p_sim
+    name: Moran's I, pseudo p of permutations
+    level: map
+    theme: global autocorrelation
+    unit: none
+    range: "1/(P + 1) to 1"
+    aliases: [permutation test, pseudo p-value, p_sim]
+    what: |
+      A p value from random permutations of the cell values: how often a shuffled map has a Moran's I at least as far out
+      as the one observed. It makes no assumption about the distribution of the values.
+    use: |
+      Its smallest possible value is 1/(P + 1): 0.01 with 99 permutations, 0.001 with the default 999. It has no value
+      with `permutations=0`.
+    formula: 'p_{sim} = \frac{\min(m,\; P - m) + 1}{P + 1}'
+    symbols:
+      'P': 'the number of permutations (`permutations`)'
+      'm': 'the number of permuted maps whose \(I\) is at least the one observed'
+    python: 'tf.stats.moran(elev, permutations=99).p_sim'
+    operator: stats.moran
+    setting: 'permutations = 99'
+    api: terraflux.stats.moran
+    refs:
+      - "Moran (1950). Notes on continuous stochastic phenomena. Biometrika 37: 17-23."
+
+  # impl: extern/terraflux-py/src/cpp/stats/stats.cpp:243-300
+  - id: lisa_i
+    name: Local Moran's I (LISA)
+    level: cell
+    theme: local autocorrelation
+    unit: none
+    range: "any; expectation -1/(n - 1)"
+    aliases: [LISA, local Moran, local indicator of spatial association]
+    what: |
+      Each cell's part of the global autocorrelation: positive where the cell and its neighbours are alike (both above
+      the mean or both below), negative where the cell differs from them. With row-standardised weights the mean of the
+      local values is the global I.
+    use: |
+      Its z score (`z`, Anselin's variance under randomisation) and pseudo p (`p`, conditional permutations) say which
+      cells stand out; with as many tests as cells, some will by chance (see the clusters card).
+    formula: 'I_i = \frac{z_i \sum_j w_{ij} z_j}{m_2}, \quad m_2 = \frac{1}{n}\sum_k z_k^2'
+    symbols:
+      'z_i': 'the deviation of cell \(i\) from the mean, \(x_i - \bar{x}\)'
+      'w_{ij}': 'the row-standardised queen or rook weights'
+      'n': 'the number of cells with a value'
+    python: 'tf.stats.lisa(elev, permutations=99).i'
+    operator: stats.lisa
+    api: terraflux.stats.lisa
+    refs:
+      - "Anselin (1995). Local indicators of spatial association - LISA. Geographical Analysis 27: 93-115."
+
+  # impl: extern/terraflux-py/src/cpp/stats/stats.cpp:243-300
+  - id: lisa_quadrant
+    name: LISA quadrant
+    level: cell
+    theme: local autocorrelation
+    unit: class
+    range: "1, 2, 3, 4"
+    aliases: [Moran scatter plot quadrant, high-high, low-low]
+    what: |
+      Where each cell falls on the Moran scatter plot, from the sign of its deviation and of the weighted mean deviation
+      of its neighbours: 1 high among high (HH), 2 low among high (LH), 3 low among low (LL), 4 high among low (HL).
+    use: |
+      Classes 2 and 4 are spatial outliers. The quadrant alone does not say whether the cell is significant: the
+      clusters card keeps only those that are.
+    formula: 'q_i = \begin{cases} 1 & z_i > 0,\; \bar{z}^{nb}_i > 0 \\ 2 & z_i < 0,\; \bar{z}^{nb}_i > 0 \\ 3 & z_i < 0,\; \bar{z}^{nb}_i < 0 \\ 4 & z_i > 0,\; \bar{z}^{nb}_i < 0 \end{cases}'
+    symbols:
+      'z_i': 'the deviation of the cell from the mean'
+      '\bar{z}^{nb}_i': 'the weighted mean deviation of its neighbours, \(\sum_j w_{ij} z_j\)'
+    python: 'pd.Series(tf.stats.lisa(elev, permutations=0).quadrant.values.ravel().astype(int)).value_counts().sort_index()'
+    operator: stats.lisa
+    api: terraflux.stats.lisa
+    refs:
+      - "Anselin (1995). Local indicators of spatial association - LISA. Geographical Analysis 27: 93-115."
+
+  # impl: extern/terraflux-py/src/terraflux/stats/_autocorr.py:140-175
+  - id: lisa_cluster
+    name: LISA significant clusters
+    level: cell
+    theme: local autocorrelation
+    unit: class
+    range: "0, 1, 2, 3, 4"
+    aliases: [hot spot clusters, cluster map, significant LISA]
+    what: |
+      The quadrant of the cells whose pseudo p from conditional permutations is below `alpha`, and 0 elsewhere: the map
+      of significant high-high and low-low clusters and of the outliers. The card's value counts its classes.
+    use: |
+      With 99 permutations the smallest p is 0.01; use more for a finer map. There is no correction for testing every
+      cell, so at `alpha = 0.05` about one cell in twenty is marked by chance.
+    formula: 'c_i = \begin{cases} q_i & p_i < \alpha \\ 0 & \text{otherwise} \end{cases}'
+    symbols:
+      'p_i': 'the pseudo p of cell \(i\), \((\min(m, P - m) + 1) / (P + 1)\) over \(P\) conditional permutations: its neighbours drawn at random among the other cells, with a generator per cell from `seed`'
+      '\alpha': '`alpha`, 0.05 by default'
+      'q_i': 'the quadrant of the cell'
+    python: 'tf.stats.lisa(elev, permutations=99)'
+    operator: stats.lisa
+    setting: 'alpha = 0.05'
+    api: terraflux.stats.lisa
+    refs:
+      - "Anselin (1995). Local indicators of spatial association - LISA. Geographical Analysis 27: 93-115."
+
+  # impl: extern/terraflux-py/src/cpp/stats/stats.cpp:303-326
+  - id: getis_gi_star
+    name: Getis-Ord Gi*
+    level: cell
+    theme: hot spots
+    unit: none
+    range: "0 to 1, for values of 0 or more"
+    aliases: [Gi*, Getis Ord, hot spot analysis, G star]
+    what: |
+      The share of the map's total that lies in a cell and its neighbours (the cell itself included): large where high
+      values cluster, small where low ones do.
+    use: |
+      Its expectation is 1/n, so read it through its z score (the next card). Meant for values of one sign (counts,
+      densities, elevations above a datum); with mixed signs the share has no meaning.
+    formula: 'G_i^{*} = \frac{\sum_j w_{ij} x_j}{\sum_j x_j}, \quad w_{ij} = \frac{1}{k_i + 1}'
+    symbols:
+      'x_j': 'the value of cell \(j\)'
+      'k_i': 'the number of neighbours of cell \(i\); the numerator runs over the cell and its neighbours, with weights that sum to 1'
+    python: 'tf.stats.getis_ord(elev).g'
+    operator: stats.getis_ord
+    setting: 'contiguity = "queen"'
+    api: terraflux.stats.getis_ord
+    refs:
+      - "Getis & Ord (1992). The analysis of spatial association by use of distance statistics. Geographical Analysis 24: 189-206."
+      - "Ord & Getis (1995). Local spatial autocorrelation statistics: distributional issues and an application. Geographical Analysis 27: 286-306."
+
+  # impl: extern/terraflux-py/src/cpp/stats/stats.cpp:313-325
+  - id: getis_z
+    name: Gi* z score and p
+    level: cell
+    theme: hot spots
+    unit: none
+    range: "z any; p 0 to 0.5"
+    aliases: [Gi z score, hot spot z score]
+    what: |
+      The standardised Gi* of each cell (`z`) and the one-sided normal tail probability of its absolute value (`p`).
+    use: |
+      It assumes independent values around the expectation; spatially structured data such as an elevation inflate the
+      z scores. Twice `p` is the two-sided probability that sets the class of the hot and cold spots.
+    formula: 'z_i = \frac{G_i^{*} - 1/n}{\sqrt{V}}, \quad V = \frac{1}{n^2}\,\frac{s^2}{\bar{x}^2}, \quad p_i = \Phi(-|z_i|)'
+    symbols:
+      'n': 'the number of cells with a value'
+      '\bar{x}, s^2': 'their mean and their variance (divided by \(n\))'
+      '\Phi': 'the standard normal distribution function'
+    python: 'tf.stats.getis_ord(elev).z'
+    operator: stats.getis_ord
+    api: terraflux.stats.getis_ord
+    refs:
+      - "Getis & Ord (1992). The analysis of spatial association by use of distance statistics. Geographical Analysis 24: 189-206."
+
+  # impl: extern/terraflux-py/src/cpp/stats/stats.cpp:320-325
+  - id: getis_spots
+    name: Hot and cold spots (Gi* classes)
+    level: cell
+    theme: hot spots
+    unit: class
+    range: "-3 to 3"
+    aliases: [Gi_Bin, hot spot class, cold spots]
+    what: |
+      The confidence class of each cell as a hot or cold spot, as the `Gi_Bin` field of ArcGIS: 3, 2 and 1 for hot spots
+      at 99, 95 and 90 % confidence, -1 to -3 for cold spots, 0 for neither. The card's value counts them.
+    use: |
+      There is no correction for testing every cell: with many cells some spots are false.
+    formula: 'b_i = \operatorname{sign}(z_i) \cdot \begin{cases} 3 & 2p_i < 0.01 \\ 2 & 2p_i < 0.05 \\ 1 & 2p_i < 0.10 \\ 0 & \text{otherwise} \end{cases}'
+    symbols:
+      'z_i': 'the Gi* z score of cell \(i\)'
+      'p_i': 'its one-sided p (\(2 p_i\) is the two-sided one)'
+    python: 'tf.stats.getis_ord(elev)'
+    operator: stats.getis_ord
+    api: terraflux.stats.getis_ord
+    refs:
+      - "Getis & Ord (1992). The analysis of spatial association by use of distance statistics. Geographical Analysis 24: 189-206."
