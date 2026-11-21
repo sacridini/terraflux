@@ -8,7 +8,7 @@ Distances to the habitat edge, resistance maps, accumulated costs and
 least-cost paths, the connectivity gain of restoring a corridor, the
 zones of influence of habitat objects, and two inputs of restoration plans:
 the original vegetation of converted land and ecological intactness. Tutorial:
-[distance and restoration](/tutorials/distance-restoration/distance-restoration-in-python/).
+[distance and restoration](/tutorials/distance-restoration/).
 
 ## Distance to the habitat
 

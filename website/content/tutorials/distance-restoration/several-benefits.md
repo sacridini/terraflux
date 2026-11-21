@@ -12,7 +12,7 @@ part: 6
 ---
 
 A restoration programme is rarely about one thing. Funders want carbon, conservation agencies want species, others
-want whole ecosystems back or landscapes less pressed by people, and every region wants its share. In this last part
+want whole ecosystems back or landscapes less pressed by people, and every region wants its share. In this part
 of the series you will give [[restoration.plan]] four benefits (the species' extinction risk of the [previous
 part](../restoration-plan/), carbon, ecological intactness and the risk of collapse of ecosystems), see how
 differently each one alone would plan Serra Verde's 100 km², put them on one scale, trace the trade-off between
@@ -355,6 +355,230 @@ trade-off curve or the sets of weights compared, and the plan's value for each b
 that readers see what each benefit gave up. With regional or ecosystem targets, report the targets and their price in
 benefit.
 
+### In Python
+
+The benefits are methods of the same problem as in [part 5](../restoration-plan/#in-python):
+`add_extinction_risk_benefit`, `add_linear_benefit` (carbon) and `add_intactness_benefit`, each with a `weight` and a
+`name` (the part's graphs call the species' benefit `extinction_risk`; here it is whatever `name=` says). The inputs
+are made again, with the carbon, the footprint, the reduction of the footprint per unit restored (part 3) and the regions:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+P = tf.prioritize
+cover = tf.load_raster(P.example_data("land_cover"))
+past = tf.load_raster(P.example_data("past_cover"))
+ecoregions = tf.load_raster(P.example_data("ecoregions"))
+features = tf.load_raster(P.example_data("features"))
+footprint = tf.load_raster(P.example_data("footprint"))
+carbon = tf.load_raster(P.example_data("carbon_potential"))     # t/ha in restored vegetation
+regions = tf.load_raster(P.example_data("regions"))              # 3 administrative regions
+natural, anthropic = ["forest", "savanna", "mangrove"], ["pasture", "cropland"]
+
+props = past / past.sum("band")                                  # as in part 4
+eco_props = props.copy()
+for code in np.unique(ecoregions.values[np.isfinite(ecoregions.values)]):
+    inside = ecoregions.values == code
+    eco_props.values[:, inside] = np.nanmean(props.values[:, inside], axis=1)[:, None]
+veg = tf.original_vegetation(cover, natural, anthropic, past=past, ecoregions=eco_props)
+suitability = {
+    "jaguar": ["forest", "savanna"], "lowland_tapir": ["forest"], "harpy_eagle": ["forest"],
+    "maned_wolf": ["savanna"], "golden_lion_tamarin": ["forest"],
+    "neotropical_otter": ["forest", "mangrove"], "araucaria_forest": ["forest"], "mangrove": ["mangrove"],
+}
+aoh = tf.sdm.area_of_habitat((features > 0).astype("float32"), cover, natural, suitability=suitability, original=veg)
+
+pasture, cropland = cover.sel(band="pasture"), cover.sel(band="cropland")
+reduction = ((4 * pasture + 7 * cropland) / (pasture + cropland)).fillna(0)   # footprint removed per unit restored
+carbon_mt = carbon * 100 / 1e6                                    # t/ha to Mt of carbon per km2 restored
+```
+
+Each benefit alone, then the three on one scale: every weight is one over the most its benefit reaches alone (the
+node's `weight = 3.89`, `linear_weights = [0.817]`, `intactness_weight = 0.00672`):
+
+```python
+base = P.restoration_problem(veg).add_area_target(100)
+benefits = {
+    "species": lambda q, w=1.0: q.add_extinction_risk_benefit(aoh, weight=w, name="species"),
+    "carbon": lambda q, w=1.0: q.add_linear_benefit(carbon_mt, weight=w, name="carbon"),
+    "intactness": lambda q, w=1.0: q.add_intactness_benefit(footprint, reduction, radius=3, weight=w, name="intactness"),
+}
+best = {name: add(base).solve().benefit for name, add in benefits.items()}      # each benefit alone
+print({k: round(v, 3) for k, v in best.items()}, {k: round(1 / v, 4) for k, v in best.items()})
+
+multi = base
+for name, add in benefits.items():
+    multi = add(multi, 1 / best[name])
+both = multi.solve()
+print(both.status, both.benefits.round(4).to_string(index=False))
+print({k: f"{v / best[k]:.0%}" for k, v in both.benefits.set_index("benefit")["value"].items()})
+```
+
+```text
+{'species': 0.257, 'carbon': 1.224, 'intactness': 148.864} {'species': 3.8889, 'carbon': 0.8173, 'intactness': 0.0067}
+optimal    benefit            kind    value  weight  weighted
+   species extinction_risk   0.2004  3.8889    0.7795
+    carbon          linear   1.0835  0.8173    0.8855
+intactness          linear 104.1504  0.0067    0.6996
+{'species': '78%', 'carbon': '89%', 'intactness': '70%'}
+```
+
+The three weights are the part's, and the plan with all three reaches the part's 78% of the best for the species, 89% for
+carbon and 70% for intactness. `both.benefits` is the node's `benefits` output: each benefit's value, weight and weighted
+value. A plan for more linear benefits (water, timber) has one `add_linear_benefit` each. For intactness, `form="linear"`
+(the default) is the gradient at the plan of nothing, and `form="exact"` optimises the total intactness itself, which is not
+concave: the plan is then a local optimum with a bound on the best (status `"local"` unless they meet):
+
+```python
+exact = (P.restoration_problem(veg).add_intactness_benefit(footprint, reduction, form="exact", name="intactness")
+           .add_area_target(100).solve())
+print(exact.status, f"intactness {exact.benefit:.1f}, bound {exact.bound:.1f}")
+```
+
+```text
+local intactness 172.3, bound 181.5
+```
+
+The exact form reaches a total intactness gained of 172.3 against a bound of 181.5 on the best plan: a local optimum, as the
+status says, on a scale that is not the gradient's (the 148.9 above). Each plan on its own, scored on all three benefits as a share of the best (`evaluate` scores any raster of shares restored):
+
+```python
+cross = {}
+for name, add in benefits.items():
+    alone = add(base).solve()
+    scored = multi.evaluate(restored=alone.restored).benefits.set_index("benefit")["value"]
+    cross[name + " alone"] = {k: f"{scored[k] / best[k]:.0%}" for k in best}
+print(pd.DataFrame(cross).T.to_string())
+```
+
+```text
+                 species carbon intactness
+species alone       100%    80%        42%
+carbon alone         48%   100%        41%
+intactness alone     14%    70%       100%
+```
+
+The plan for species alone has ties, so its intactness is 42% here against 44% in the part, and the others agree to a
+point. The trade-off between species and carbon is a loop over the weight w, and the sets of weights of the part go to
+`compare_weights`, which solves a plan per set and ranks the sets as Strassburg et al. do (each benefit rescaled to 0-1
+over the sets, the mean over their standard deviation):
+
+```python
+for w in (0.0, 0.2, 0.5, 1.0):
+    q = benefits["carbon"](benefits["species"](base, w / best["species"]), (1 - w) / best["carbon"])
+    v = q.solve().benefits.set_index("benefit")["value"]
+    print(f"w = {w:.1f}: species {v['species'] / best['species']:.0%}, carbon {v['carbon'] / best['carbon']:.0%}")
+
+sets = [  # the weights of the part's sets, 1 - 1 - 1 meaning one over the best of each
+    {"species": 3.89, "carbon": 0, "intactness": 0}, {"species": 0, "carbon": 0.817, "intactness": 0},
+    {"species": 0, "carbon": 0, "intactness": 0.00672}, {"species": 3.89, "carbon": 0.817, "intactness": 0.00672},
+    {"species": 7.78, "carbon": 0.817, "intactness": 0.00672}, {"species": 3.89, "carbon": 0.817, "intactness": 0},
+]
+ranked = multi.compare_weights(sets)
+print(ranked.table[["w.species", "w.carbon", "w.intactness", "species", "carbon", "intactness", "score", "rank"]]
+      .round(3).to_string(index=False))
+```
+
+```text
+w = 0.0: species 48%, carbon 100%
+w = 0.2: species 68%, carbon 98%
+w = 0.5: species 100%, carbon 82%
+w = 1.0: species 100%, carbon 80%
+ w.species  w.carbon  w.intactness  species  carbon  intactness  score  rank
+      3.89     0.000         0.000    0.257   0.976      62.092  0.895   5.0
+      0.00     0.817         0.000    0.123   1.224      60.990  0.934   3.0
+      0.00     0.000         0.007    0.037   0.857     148.864  0.577   6.0
+      3.89     0.817         0.007    0.200   1.083     104.150  5.022   1.0
+      7.78     0.817         0.007    0.252   0.992      74.698  1.189   2.0
+      3.89     0.817         0.000    0.257   0.999      60.175  0.918   4.0
+```
+
+The curve is the part's (a weight of 0.2 gives the species 68% of their best for 2% less carbon, and 0.5 gives them all
+of it), and so is the ranking: the equal weights come first, with a score of 5.02. `ranked.best()` is the plan of the
+first set and `ranked.solutions` the plan of each. The ecosystems:
+
+```python
+eco = P.ecosystem_areas(cover, natural, anthropic, ecoregions)     # natural area now and before conversion
+print(eco.table[["species", "current", "potential"]].round(1).to_string(index=False))   # "species": the ecoregion's code
+
+targets = P.ecosystem_targets(eco, 100)                            # 100 km2 shared for the least risk of collapse
+print(targets.round(1).to_string(index=False))
+
+plan_eco = P.restoration_problem(veg).add_extinction_risk_benefit(eco, name="ecosystems").add_area_target(100).solve()
+print(f"a plan for the ecosystems' risk of collapse: {plan_eco.benefit:.3f}")
+```
+
+```text
+species  current  potential
+      1     73.5      114.0
+      2   1478.2     2263.8
+      3   1917.8     1999.0
+      4    354.7      364.0
+ region  target sense
+    1.0    40.5    <=
+    2.0    50.3    <=
+    3.0     0.0    <=
+    4.0     9.3    <=
+a plan for the ecosystems' risk of collapse: 0.118
+```
+
+The table is the part's, the shares of the 100 km² too (40.5, 50.3, 0 and 9.3). `ecosystem_targets` also takes `minimum`
+(each ecosystem's least share), `method="steps"` and `sense`. Its table is a set of regional targets: with the ecoregions
+as the regions, every ecosystem gets its part of a plan driven by the species:
+
+```python
+by_ecoregion = (P.restoration_problem(veg).add_extinction_risk_benefit(aoh, name="species")
+                  .add_area_target(targets, regions=ecoregions))
+print(f"species plan with the ecosystems' targets: {by_ecoregion.solve().benefit:.3f}")
+```
+
+```text
+species plan with the ecosystems' targets: 0.248
+```
+
+Targets per region take a mapping (or a table with `region`, `target` and optionally `sense`) and the raster of regions;
+the part's price of the rule is the loss of benefit:
+
+```python
+free = P.restoration_problem(veg).add_extinction_risk_benefit(aoh, name="species").add_area_target(100).solve()
+shared = (P.restoration_problem(veg).add_extinction_risk_benefit(aoh, name="species")
+            .add_area_target({1: 30, 2: 40, 3: 30}, regions=regions).solve())
+for r in (1, 2, 3):
+    inside = regions.values == r
+    print(f"region {r}: {np.nansum(np.where(inside, free.restored.values, 0)):5.1f} km2 without regional targets, "
+          f"{np.nansum(np.where(inside, shared.restored.values, 0)):5.1f} km2 with them")
+print(f"benefit {shared.benefit:.3f} against {free.benefit:.3f}")
+```
+
+```text
+region 1:   0.0 km2 without regional targets,  30.0 km2 with them
+region 2:  49.7 km2 without regional targets,  40.0 km2 with them
+region 3:  50.3 km2 without regional targets,  30.0 km2 with them
+benefit 0.234 against 0.257
+```
+
+Region 1 gets nothing without the targets, and the rule costs 9% of the benefit (0.234 against 0.257), as the part says.
+`sense=">="` makes minimum targets and `"="` exact ones. Last, the uncertainty of a linear total: with an error of 25% in
+each cell's carbon, [`tf.uncertainty.sum_sd`][terraflux.uncertainty.sum_sd] gives the deviation of the carbon of a plan,
+for independent errors or fully correlated ones (a bias of the carbon map):
+
+```python
+on_plan = np.nan_to_num(free.restored.values)                       # km2 restored per cell (cells of 1 km2)
+total = float(np.nansum(carbon.values * 100 * on_plan))             # tonnes
+sd = 0.25 * carbon.values * 100
+print(f"carbon {total / 1e6:.3f} Mt; sd {tf.uncertainty.sum_sd(sd, weights=on_plan) / 1e6:.3f} Mt if independent, "
+      f"{tf.uncertainty.sum_sd(sd, weights=on_plan, correlation=1.0) / 1e6:.3f} Mt if correlated")
+```
+
+```text
+carbon 0.976 Mt; sd 0.018 Mt if independent, 0.244 Mt if correlated
+```
+
+`tf.uncertainty` also has `product_sd`, `delta_method` and `monte_carlo` for other combinations, and the species' z has its own
+uncertainty in [part 5](../restoration-plan/#in-python).
+
 ## Settings that change the answer
 
 - **The weights**, as the slider shows, and **the scaling**. Scaling by the best alone is one choice; scaling by a
@@ -375,6 +599,8 @@ benefit.
 
 ## Going further
 
+- Which natural land to keep, and where to meet a demand for land: [Conserving and converting](../conserving-and-converting/),
+  the next part, in Python.
 - The series from the start: [Distance to habitat](../distance-to-habitat/), [Costs and corridors](../costs-and-corridors/),
   [Ecological intactness](../ecological-intactness/), [Original vegetation and habitat](../original-vegetation-and-habitat/),
   [A restoration plan](../restoration-plan/).
@@ -387,5 +613,3 @@ benefit.
 - Keith, D. A., Rodríguez, J. P., Rodríguez-Clark, K. M., Nicholson, E., Aapala, K., Alonso, A., et al. (2013). Scientific foundations for an IUCN Red List of Ecosystems. *PLoS ONE*, 8(5), e62111. https://doi.org/10.1371/journal.pone.0062111
 - Strassburg, B. B. N., Iribarrem, A., Beyer, H. L., Cordeiro, C. L., Crouzeilles, R., Jakovac, C. C., et al. (2020). Global priority areas for ecosystem restoration. *Nature*, 586(7831), 724–729. https://doi.org/10.1038/s41586-020-2784-9
 - Venter, O., Sanderson, E. W., Magrach, A., Allan, J. R., Beher, J., Jones, K. R., et al. (2016). Sixteen years of change in the global terrestrial human footprint and implications for biodiversity conservation. *Nature Communications*, 7, 12558. https://doi.org/10.1038/ncomms12558
-
-In Python: [Restoration priorities in Python](/tutorials/distance-restoration/restoration-plans-in-python/).

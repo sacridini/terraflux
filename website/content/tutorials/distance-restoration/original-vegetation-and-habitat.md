@@ -313,6 +313,144 @@ Report the land cover data and classes (which are natural, which anthropic), the
 ecoregions' proportions were made, the share of converted land each source explained, and per species the range
 source, the suitable classes, the elevation limits, and the current and potential habitat with the share left.
 
+### In Python
+
+[`tf.original_vegetation`][terraflux.original_vegetation] and [`tf.sdm.area_of_habitat`][terraflux.sdm.area_of_habitat]
+are the two operators, and Serra Verde's maps ship with the library. The land cover is one raster with a band per class;
+the band names are what the operators look for:
+
+```python
+import numpy as np
+import terraflux as tf
+
+P = tf.prioritize
+cover = tf.load_raster(P.example_data("land_cover"))         # share of each class (6 bands)
+past = tf.load_raster(P.example_data("past_cover"))          # natural classes in the past (3 bands)
+ecoregions = tf.load_raster(P.example_data("ecoregions"))    # 4 ecoregions
+features = tf.load_raster(P.example_data("features"))        # habitat suitability of 8 species
+
+natural = ["forest", "savanna", "mangrove"]
+anthropic = ["pasture", "cropland"]
+print({str(b): round(float(cover.sel(band=b).sum())) for b in cover.band.values})   # km2 of each class
+```
+
+```text
+{'forest': 3391, 'savanna': 381, 'mangrove': 52, 'pasture': 461, 'cropland': 455, 'urban': 84}
+```
+
+The ecoregions' natural proportions (the part's table, made outside the model) are the mean proportions of the natural
+classes of the past inside each ecoregion, as a raster of the same bands:
+
+```python
+props = past / past.sum("band")                    # the proportions of each cell's past
+eco_props = props.copy()
+codes = ecoregions.values
+for code in np.unique(codes[np.isfinite(codes)]):
+    inside = codes == code
+    mean = np.nanmean(props.values[:, inside], axis=1)
+    eco_props.values[:, inside] = mean[:, None]
+    print(int(code), {n: round(float(v), 2) for n, v in zip(natural, mean)})
+```
+
+```text
+1 {'forest': 0.31, 'savanna': 0.0, 'mangrove': 0.69}
+2 {'forest': 0.98, 'savanna': 0.02, 'mangrove': 0.01}
+3 {'forest': 0.91, 'savanna': 0.09, 'mangrove': 0.0}
+4 {'forest': 0.2, 'savanna': 0.8, 'mangrove': 0.0}
+```
+
+These are the part's table (the lowland forest's savanna is 0.02 here, rounded to 0.01 there). Now the original
+vegetation:
+
+```python
+veg = tf.original_vegetation(cover, natural, anthropic, past=past, ecoregions=eco_props)
+src = veg.source.values
+code, cells = np.unique(src[np.isfinite(src)], return_counts=True)
+print(veg.classes, dict(zip(code.astype(int).tolist(), cells.tolist())))   # cells per source
+```
+
+```text
+['forest', 'savanna', 'mangrove'] {0: 4708, 1: 117}
+```
+
+The result holds `veg.original` (one band per natural class), `veg.restore` (the proportions restored land becomes),
+`veg.source` (0 the past, 1 the ecoregion, 2 the failsafe), `veg.anthropic` (the land a plan can restore) and
+`veg.failsafe`, the node's five outputs. The ecoregion fills the 117 nearly converted cells, as the part's map shows.
+`threshold` (0.95) is the converted share above which the ecoregion is used; `restore_to="current"` makes restored
+land take the cell's current natural classes instead of the original ones. Without `past` the current natural shares are
+used, and without `ecoregions` equal proportions: the part shows what that does.
+
+The area of habitat of every species needs a table of the classes each lives in, and its range, here the cells where
+the suitability is above 0:
+
+```python
+ranges = (features > 0).astype("float32")
+suitability = {
+    "jaguar": ["forest", "savanna"], "lowland_tapir": ["forest"], "harpy_eagle": ["forest"],
+    "maned_wolf": ["savanna"], "golden_lion_tamarin": ["forest"],
+    "neotropical_otter": ["forest", "mangrove"], "araucaria_forest": ["forest"], "mangrove": ["mangrove"],
+}
+aoh = tf.sdm.area_of_habitat(ranges, cover, natural, suitability=suitability, original=veg)
+
+t = aoh.table[["species", "current", "potential"]].copy()       # km2
+t["left"] = t["current"] / t["potential"]
+t["risk"] = 1 - t["left"] ** 0.25                               # the species-area relationship, z = 0.25
+print(t.round({"current": 1, "potential": 1, "left": 3, "risk": 3}).to_string(index=False))
+print(f"total risk {t['risk'].sum():.3f}")
+```
+
+```text
+            species  current  potential  left  risk
+             jaguar   2711.6     2862.8 0.947 0.013
+      lowland_tapir    649.5      781.2 0.831 0.045
+        harpy_eagle   1206.4     1206.6 1.000 0.000
+         maned_wolf    365.6      382.0 0.957 0.011
+golden_lion_tamarin     56.8      101.7 0.558 0.136
+  neotropical_otter    311.5      374.2 0.833 0.045
+   araucaria_forest    976.5     1019.7 0.958 0.011
+           mangrove     44.3       68.7 0.645 0.104
+total risk 0.365
+```
+
+The table is the part's. `aoh.table` also has `range_cells`, the `classes` each species uses and `valid` (1 when it
+counts in a plan, as the node's table). The habitat a species gains per unit of each cell restored, `aoh.gain_map(species)`
+(`aoh.gain` is all of them as a stack), is the node's `gain`:
+
+```python
+g = aoh.gain_map("golden_lion_tamarin")
+print(f"{int((g > 0).sum())} cells would give the tamarin habitat, up to {float(g.max()):.2f} of a km2 per km2 restored")
+```
+
+```text
+98 cells would give the tamarin habitat, up to 1.00 of a km2 per km2 restored
+```
+
+Two of the settings of the part, run again. Without the ecoregions, the nearly converted cells get equal shares, and
+the potential habitat of the species that live in forest falls; the elevation limits remove from a range the cells
+outside the species' elevations (`elevation_limits` is a table of species, lower and upper limit, on the relative
+elevation of the example):
+
+```python
+veg0 = tf.original_vegetation(cover, natural, anthropic, past=past)          # no ecoregions
+aoh0 = tf.sdm.area_of_habitat(ranges, cover, natural, suitability=suitability, original=veg0)
+print(aoh0.table.set_index("species").loc[["golden_lion_tamarin", "lowland_tapir"], "potential"].astype(float).round(1).to_dict())
+
+elevation = tf.load_raster(P.example_data("elevation"))
+limits = [{"species": "araucaria_forest", "lower": 0.8, "upper": 1.0}]
+high = tf.sdm.area_of_habitat(ranges, cover, natural, suitability=suitability, original=veg,
+                              elevation=elevation, elevation_limits=limits)
+print(high.table.set_index("species").loc["araucaria_forest", ["range_cells", "current", "potential"]].astype(float).round(1).to_dict())
+```
+
+```text
+{'golden_lion_tamarin': 97.9, 'lowland_tapir': 761.2}
+{'range_cells': 635.0, 'current': 620.2, 'potential': 635.0}
+```
+
+The first line is the part's 97.9 and 761 km2; the second, its 635 cells, 620 and 635 km2. `include_unlisted=False`
+leaves out the species the suitability table does not list (`valid` False), and `cell_area=` gives the cells' area in km2
+for a grid without a projection.
+
 ## Settings that change the answer
 
 - **Suitability.** Which classes a species lives in decides its habitat. If the jaguar lived only in forest,

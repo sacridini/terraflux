@@ -316,6 +316,134 @@ Report the habitat map and its coding, the resistance (its source and values), t
 corridor the open cells (or hectares) to restore, the expense, and the ECA and coherence before and after. Give
 the coherence gain *and* the efficiency: the first says what a corridor achieves, the second what it costs.
 
+### In Python
+
+Every operator of the model is in the library. The forest is the one of the [first part](../distance-to-habitat/#in-python)
+(the example `orforest`, projected and thresholded at 0.7), and [`tf.restoration_status`][terraflux.restoration_status]
+scores how connected it is:
+
+```python
+import numpy as np
+import pandas as pd
+import xarray as xr
+import terraflux as tf
+
+ndvi = tf.load_raster(tf.example_data("orforest"))
+projected = tf.reproject(ndvi, "EPSG:32610", res=30)
+forest = xr.where(projected.isnull(), 0, xr.where(projected >= 0.7, 2, 1)).astype("uint8")   # 0 missing, 1 open, 2 forest
+
+status = tf.restoration_status(forest)
+print(f"{status.nr_comp} objects, ECA {status.eca:,.0f} cells; coherence {status.doc:.1f}%, "
+      f"restoration potential {status.rest_pot:.1f}%, habitat in the area with data {status.rac:.1f}%")
+```
+
+```text
+571 objects, ECA 13,647 cells; coherence 33.0%, restoration potential 67.0%, habitat in the area with data 41.2%
+```
+
+`status` also holds the area with data, the largest object, the average patch size and the critical new object area
+(`status.summary()` prints them all; `status.to_dataframe()` is the node's table). The coherence and the potential
+are the part's chart (33.0% and 67.0%); the 571 objects against 568 of the part, and the sizes of A, B and C below
+(9,530, 7,034 and 4,972 cells against 9,508, 7,035 and 4,995), come from the grid [`tf.reproject`][terraflux.reproject]
+puts the map on, which is not exactly the application's. The object numbers differ too (the part's 36, 284 and 169).
+
+The objects, the resistance and the cost from A:
+
+```python
+objects = tf.accounting(forest)
+ids = objects.ids.values
+a, b, c = (int(o[0]) for o in objects.largest[:3])         # the three largest objects
+A, B, C = ids == a, ids == b, ids == c
+print([int(m.sum()) for m in (A, B, C)])
+
+resistance = tf.distance_to_resistance(forest)             # 2 in the forest, 3 to 100 outside, 0 missing
+cost_a = tf.cost_distance(resistance, A)                   # accumulated cost from A, 8 neighbours
+reach = cost_a.values[np.isfinite(cost_a.values)]
+print(int(resistance.max()), f"B first reached at {cost_a.values[B].min():.0f}, farthest cell {reach.max():.0f}")
+```
+
+```text
+[9530, 7034, 4972]
+16 B first reached at 233, farthest cell 674
+```
+
+[`tf.distance_to_resistance`][terraflux.distance_to_resistance] is [[restoration.resistance]] (any raster of 1 to 100
+works in its place, 0 impassable, such as one made from land cover as in
+[resistance surfaces](/tutorials/circuit-connectivity/resistance-surfaces/)) and [`tf.cost_distance`][terraflux.cost_distance] takes a mask of the sources
+instead of a map of codes. The path, its cost surface and the corridor of near-optimal routes (5% above the least):
+
+```python
+dist = tf.euclidean_distance(forest, pixel_size=30).signed_distance
+path = tf.least_cost_path(resistance, A, B, dist_map=dist)
+print(path.path_length, path.rest_pixels, path.expense, round(path.avg_distance, 2))
+cost = path.combined_cost                                  # cost from A plus cost from B
+print(f"least cost {float(cost.min()):.1f}; {int((cost <= 1.05 * cost.min()).sum())} cells within 5% of it")
+```
+
+```text
+73 71 190.0 0.52
+least cost 233.0; 2144 cells within 5% of it
+```
+
+[`tf.least_cost_path`][terraflux.least_cost_path] gives `lcp_mask` (the path), `path_length`, `rest_pixels` (the open
+cells on it, what would be restored), `expense` and `combined_cost` (the node's `cost`: least, and equal, along the
+path). `avg_distance` is the mean distance to the forest of the restored cells, from the distance map given as
+`dist_map` (the node's `distance` input), here the signed distance of
+[`tf.euclidean_distance`][terraflux.euclidean_distance]; without it, 0.
+
+[`tf.restoration_corridor`][terraflux.restoration_corridor] restores the path and compares the habitat before and
+after. The three corridors of the slider, and the second round, with the forest as it is once A and C are joined:
+
+```python
+rows = {}
+for name, (x, y) in {"A-B": (A, B), "A-C": (A, C), "B-C": (B, C)}.items():
+    r = tf.restoration_corridor(forest, resistance, x, y)
+    rows[name] = {"length": r.lcp_result.path_length, "restored": r.rest_pixels, "expense": r.expense,
+                  "coherence": f"{r.doc_orig:.1f} -> {r.doc_new:.1f}", "eca_gain": round(r.delta_eca),
+                  "efficiency": round(r.efficiency)}
+print(pd.DataFrame(rows).T.to_string())
+
+ac = tf.restoration_corridor(forest, resistance, A, C)
+joined = xr.where(ac.lcp_result.lcp_mask > 0, 2, forest).astype("uint8")   # the corridor A-C restored
+again = tf.restoration_corridor(joined, resistance, A, B)
+print(f"A-B after A-C: coherence {again.doc_orig:.1f} -> {again.doc_new:.1f}, ECA gain {again.delta_eca:,.0f}")
+```
+
+```text
+    length restored expense     coherence eca_gain efficiency
+A-B     73       71   190.0  33.0 -> 50.3     7197         38
+A-C      5        3    10.0  33.0 -> 40.5     3119        312
+B-C      7        5    19.0  33.0 -> 38.7     2363        124
+A-B after A-C: coherence 40.5 -> 60.7, ECA gain 8,401
+```
+
+These are the table of the part: A-B restores the most (71 cells, 17.3 points of coherence), A-C is by far the most
+efficient (3 cells for 7.5 points) and B-C gains the least; the expense and the ECA gain differ from the part's by a
+few units, for the reason above. The second round answers the part's question: once A and C are joined, A-B gains
+20 points (40.5% to 60.7%) instead of 17, because A now carries C with it; the corridors complement each other, they do not
+compete. `r.to_dataframe()` is GuidosToolbox's own spreadsheet row, and `avg_distance` above is in cells. The result has no
+restored map: it is the habitat with the path set to 2, as in `joined`.
+
+The isochrone map takes the marker of the model, and gives the cost of the cheapest A-to-B route through every cell:
+
+```python
+marker = np.zeros(forest.shape, dtype="uint8")
+marker[A], marker[B] = 1, 2
+marker[forest.values == 0] = 3                             # missing: not crossed
+route = tf.isochrone_map_ab(resistance, marker)
+print(route.min_cost, route.max_cost)
+rings = tf.isochrone_map(resistance, marker)               # the cost outward from A alone
+```
+
+```text
+130 740
+```
+
+`route.cost` is the accumulated cost, `route.lcp` the path and `route.map` the same in GuidosToolbox's codes (0 to 100,
+101 the objects, 102 missing, 103 the path, 104 unreachable). The two objects must not touch, and missing cells must
+not separate them, or the call stops with a message, as the node does. `tf.plot(route)` draws the cost, the corridor
+and the path, and `tf.save(route, "route_ab")` writes them.
+
 ## Settings that change the answer
 
 - **The resistance.** The default resistance assumes only that open land far from forest is harder to cross. A
@@ -360,5 +488,3 @@ the coherence gain *and* the efficiency: the first says what a corridor achieves
 - Saura, S., Estreguil, C., Mouton, C., & Rodríguez-Freire, M. (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990–2000). *Ecological Indicators*, 11(2), 407–416. https://doi.org/10.1016/j.ecolind.2010.06.011
 - Tambosi, L. R., Martensen, A. C., Ribeiro, M. C., & Metzger, J. P. (2014). A framework to optimize biodiversity restoration efforts based on habitat amount and landscape connectivity. *Restoration Ecology*, 22(2), 169–177. https://doi.org/10.1111/rec.12049
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
-
-In Python: [Distance & restoration in Python](/tutorials/distance-restoration/distance-restoration-in-python/).

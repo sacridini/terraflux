@@ -220,7 +220,7 @@ page = tf.plot(r, show=False).save("serra_verde_plan.html")
   ([optimal plans](/tutorials/spatial-prioritization/linear-programming/)).
 - **Marxan**: `P.marxan` runs Marxan's own tables and annealing; `add_anneal_solver` solves a problem with it.
 - **Restoration**: how much of every converted cell to restore, for species, carbon and intactness:
-  [restoration priorities](/tutorials/distance-restoration/restoration-plans-in-python/).
+  [restoration priorities](/tutorials/distance-restoration/several-benefits/#in-python).
 - **The ideas behind the steps**:
   [systematic conservation planning](/tutorials/spatial-prioritization/systematic-conservation-planning/).
 - The [API reference](/python/api/prioritization/#optimization) lists every function.

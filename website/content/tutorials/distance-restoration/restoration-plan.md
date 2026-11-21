@@ -203,6 +203,206 @@ ranges and habitats (part 4), the benefit and its parameters (z and its standard
 or budget, the method (exact, with its tolerance and bound), and the results: the area, the cost, the risk reduction
 with its uncertainty, the change of every species' risk, and the map of shares restored.
 
+### In Python
+
+The model of the part is [`tf.prioritize.restoration_problem`][terraflux.prioritize.restoration_problem]: the land that
+can be restored, then a benefit and a target, then `solve()`. The inputs are those of
+[part 4](../original-vegetation-and-habitat/#in-python), made again here in a few lines (the comments are there), with
+the cost map of Serra Verde:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+P = tf.prioritize
+cover = tf.load_raster(P.example_data("land_cover"))
+past = tf.load_raster(P.example_data("past_cover"))
+ecoregions = tf.load_raster(P.example_data("ecoregions"))
+features = tf.load_raster(P.example_data("features"))
+cost = tf.load_raster(P.example_data("cost"))                # thousand USD per km2 restored
+natural, anthropic = ["forest", "savanna", "mangrove"], ["pasture", "cropland"]
+
+props = past / past.sum("band")                              # the ecoregions' natural proportions
+eco_props = props.copy()
+for code in np.unique(ecoregions.values[np.isfinite(ecoregions.values)]):
+    inside = ecoregions.values == code
+    eco_props.values[:, inside] = np.nanmean(props.values[:, inside], axis=1)[:, None]
+veg = tf.original_vegetation(cover, natural, anthropic, past=past, ecoregions=eco_props)
+
+suitability = {
+    "jaguar": ["forest", "savanna"], "lowland_tapir": ["forest"], "harpy_eagle": ["forest"],
+    "maned_wolf": ["savanna"], "golden_lion_tamarin": ["forest"],
+    "neotropical_otter": ["forest", "mangrove"], "araucaria_forest": ["forest"], "mangrove": ["mangrove"],
+}
+aoh = tf.sdm.area_of_habitat((features > 0).astype("float32"), cover, natural, suitability=suitability, original=veg)
+```
+
+The plan of 100 km² is node 3. Its `summary` is `plan.status`, `plan.benefit`, `plan.bound` and `plan.area`:
+
+```python
+p = (P.restoration_problem(veg)                            # the land that can be restored: veg.anthropic
+       .add_extinction_risk_benefit(aoh, name="species")   # z = 0.25 by default
+       .add_area_target(100))                              # km2, at most
+plan = p.solve()
+print(plan.status, f"{plan.area:.1f} km2", f"benefit {plan.benefit:.4f}, bound {plan.bound:.4f}", f"{plan.seconds:.2f} s")
+print(f"{p.n} cells can be restored; the plan touches {int((plan.values > 0).sum())}, "
+      f"{int((plan.values >= p.upper - 1e-9).sum())} of them in full")
+```
+
+```text
+optimal 100.0 km2 benefit 0.2571, bound 0.2571 0.01 s
+2464 cells can be restored; the plan touches 278, 276 of them in full
+```
+
+The risk reduction, 0.257, is the part's, and so is the bound (optimal: no plan of 100 km² avoids more). The part counts
+280 cells touched and 278 in full; the optimum is not unique where cells give the same benefit, so the cells it picks
+can differ by a couple while the benefit does not. `plan.restored` is the map (the share of each cell restored, NaN where
+nothing can be) and `plan.benefits` the table of the benefits (the node's `benefits`). The status is `optimal` when the
+bound and the benefit agree within the tolerance of `p.add_highs_solver(tolerance=...)` (1e-7 by default). The node's
+`species` output is [`tf.prioritize.eval_risk_reduction`][terraflux.prioritize.eval_risk_reduction]:
+
+```python
+rr = P.eval_risk_reduction(p, plan)
+print(rr.table[["species", "gained", "risk_before", "risk_after"]].round(3).to_string(index=False))
+print(f"total {rr.total:.3f}")
+```
+
+```text
+            species  gained  risk_before  risk_after
+             jaguar   5.518        0.013       0.013
+      lowland_tapir  11.068        0.045       0.041
+        harpy_eagle   0.000        0.000       0.000
+         maned_wolf   0.000        0.011       0.011
+golden_lion_tamarin  44.975        0.136       0.000
+  neotropical_otter  22.551        0.045       0.028
+   araucaria_forest   0.000        0.011       0.011
+           mangrove  23.337        0.104       0.004
+total 0.257
+```
+
+That is the part's table. `target` is `add_area_target(area, sense="<=")` (`">="` for a floor, `"="` for exact,
+`relative=True` for a share of the restorable area), `z` an argument of `add_extinction_risk_benefit` (one number or a
+mapping per species), `weight` and `restoration_discount` its other settings, and `restoration_problem(veg, limit=0.5)`
+restores at most half of each cell's converted land (`limit` can be a raster, 0 on land that must stay in production).
+To score any plan, `p.evaluate(restored=raster)` computes the benefits, area and cost of a raster of shares restored: one
+drawn by hand, from another tool or from a previous year.
+
+The slider's plans and the three methods (`method="exact"`, `"steps"` for the original model's stepwise procedure, and
+`p.uniform()` for the same share everywhere) at its targets:
+
+```python
+rows = []
+for target in (25, 50, 100, 150, 200, 300, 400, 600):
+    q = P.restoration_problem(veg).add_extinction_risk_benefit(aoh, name="species").add_area_target(target)
+    exact = q.solve()
+    rows.append({"target": target, "exact": exact.benefit, "steps": q.solve(method="steps", steps=10).benefit,
+                 "uniform": q.uniform().benefit, "cells": int((exact.values > 0).sum())})
+print(pd.DataFrame(rows).round(3).to_string(index=False))
+```
+
+```text
+ target  exact  steps  uniform  cells
+     25  0.097  0.097    0.011     67
+     50  0.175  0.175    0.023    122
+    100  0.257  0.257    0.045    278
+    150  0.290  0.290    0.067    415
+    200  0.312  0.312    0.088    624
+    300  0.346  0.345    0.130    879
+    400  0.359  0.359    0.170   1209
+    600  0.359  0.359    0.247   1209
+```
+
+The benefits are the part's, 0.257 against 0.045 for the same share everywhere at 100 km²; the cell counts differ from the
+slider's by a few, for the reason above. The stepwise procedure comes within 0.1% of the optimum here but gives no bound.
+
+With a cost map, `add_budget(budget, cost)` limits the spending (thousand USD) and `add_min_cost_objective(benefit, cost)`
+finds the cheapest plan for a benefit:
+
+```python
+for budget in (1000, 5000, 9300, 12000):
+    s = p.add_budget(budget, cost).solve()
+    print(f"{budget / 1000:4.1f} million USD: {s.area:5.1f} km2, benefit {s.benefit:.4f} ({s.status})")
+
+plan_cost = float(np.nansum(plan.restored.values * cost.values))
+cheap = p.add_min_cost_objective(0.95 * plan.benefit, cost).solve()
+print(f"first plan {plan_cost / 1000:.2f} million USD; for 95% of its benefit {cheap.cost / 1000:.2f} million USD "
+      f"and {cheap.area:.0f} km2 ({cheap.status})")
+```
+
+```text
+ 1.0 million USD:  12.3 km2, benefit 0.0503 (optimal)
+ 5.0 million USD:  54.4 km2, benefit 0.1858 (optimal)
+ 9.3 million USD: 100.0 km2, benefit 0.2571 (optimal)
+12.0 million USD: 100.0 km2, benefit 0.2571 (optimal)
+first plan 9.24 million USD; for 95% of its benefit 7.90 million USD and 85 km2 (optimal)
+```
+
+The first million avoids 0.050 of risk on 12 km², and past about 9.3 million the area target limits the plan, as the
+chart says. The cheapest plan for 95% of the benefit costs 7.9 million, the first plan 9.2: the last 5% costs 1.3 million.
+
+The priority gradient is `tradeoff`: a plan for each level, each containing the previous (`nested=False` solves every level
+on its own, the trade-off frontier), and `curve.gradient`, the map of how early each cell enters (4 in the first quarter,
+1 only in the last):
+
+```python
+p200 = P.restoration_problem(veg).add_extinction_risk_benefit(aoh, name="species").add_area_target(200)
+curve = p200.tradeoff([0.25, 0.5, 0.75, 1.0])                # 50, 100, 150 and 200 km2
+print(curve.table[["level", "area", "benefit"]].round(4).to_string(index=False))
+g = curve.gradient.values
+print({int(k): int(n) for k, n in zip(*np.unique(g[np.isfinite(g)], return_counts=True)) if k > 0})
+```
+
+```text
+ level  area  benefit
+  0.25  50.0   0.1746
+  0.50 100.0   0.2571
+  0.75 150.0   0.2902
+  1.00 200.0   0.3119
+{1: 209, 2: 137, 3: 156, 4: 122}
+```
+
+The first 50 km² avoid 0.175 of the 0.312 of the whole plan, 56%, as the part says: begin there. `curve.solutions[i]` is the plan
+of each level, `curve.best()` the knee of the curve, and `method="steps"` gives the original model's gradient for comparison. The exponent z and its uncertainty, last:
+
+```python
+for z in (0.15, 0.25, 0.35):
+    q = P.restoration_problem(veg).add_extinction_risk_benefit(aoh, z=z, name="species").add_area_target(100)
+    print(f"z = {z}: risk avoided {q.solve().benefit:.3f}")
+
+for method in ("correlated", "independent"):
+    ru = P.eval_risk_reduction(p, plan, z_sd=0.1, method=method)       # the delta method
+    print(f"{method}: {ru.total:.3f} +- {ru.sd:.3f}")
+low, high = tf.uncertainty.interval(ru.total, ru.sd)
+print(f"95% of the independent case: {low:.3f} to {high:.3f}")
+```
+
+```text
+z = 0.15: risk avoided 0.158
+z = 0.25: risk avoided 0.257
+z = 0.35: risk avoided 0.351
+correlated: 0.257 +- 0.096
+independent: 0.257 +- 0.063
+95% of the independent case: 0.133 to 0.381
+```
+
+These are the part's numbers: 0.257 +- 0.096 when the species' z err together (`"correlated"`, the default, as when they
+come from one study) and +- 0.063 when they are separate estimates.
+[`tf.uncertainty.interval`][terraflux.uncertainty.interval] turns a total and its deviation into a confidence interval.
+Every result saves in one call:
+
+```python
+plan.save("restoration_plan")                            # restored.tif, benefits.csv, summary.json
+rr.save("risk_by_species")                               # the table per species and the totals
+veg.save("original_vegetation")                          # original.tif, restore.tif, source.tif, anthropic.tif
+tf.write_raster(plan.restored, "restored_share.tif")     # just the map
+page = tf.plot(plan.restored, show=False)                # an interactive map
+```
+
+For larger landscapes the exact method scales with the number of cells: its linear programs have only the problem's rows
+(targets and a budget), and with a single area target or budget none is needed, so 9 million cells and 5000
+species solve, proven, in about 10 s.
+
 ## Settings that change the answer
 
 ### The area target
@@ -319,6 +519,7 @@ Report the benefit with its uncertainty; compare plans on the same z.
 - [Several benefits and trade-offs](../several-benefits/), the next part: carbon, intactness and ecosystems together,
   weights, and targets per region.
 - The inputs: [Original vegetation and area of habitat](../original-vegetation-and-habitat/).
+- Keeping natural land, and meeting a demand for land: [Conserving and converting](../conserving-and-converting/), in Python.
 - Choosing whole planning units against targets: [Optimal plans with linear programming](/tutorials/spatial-prioritization/linear-programming/).
 - The operator: [[restoration.plan]].
 
@@ -328,5 +529,3 @@ Report the benefit with its uncertainty; compare plans on the same z.
 - Strassburg, B. B. N., Beyer, H. L., Crouzeilles, R., Iribarrem, A., Barros, F., de Siqueira, M. F., et al. (2019). Strategic approaches to restoring ecosystems can triple conservation gains and halve costs. *Nature Ecology & Evolution*, 3(1), 62–70. https://doi.org/10.1038/s41559-018-0743-8
 - Strassburg, B. B. N., Iribarrem, A., Beyer, H. L., Cordeiro, C. L., Crouzeilles, R., Jakovac, C. C., et al. (2020). Global priority areas for ecosystem restoration. *Nature*, 586(7831), 724–729. https://doi.org/10.1038/s41586-020-2784-9
 - Thomas, C. D., Cameron, A., Green, R. E., Bakkenes, M., Beaumont, L. J., Collingham, Y. C., et al. (2004). Extinction risk from climate change. *Nature*, 427(6970), 145–148. https://doi.org/10.1038/nature02121
-
-In Python: [Restoration priorities in Python](/tutorials/distance-restoration/restoration-plans-in-python/).

@@ -224,6 +224,80 @@ Give the footprint data and year, the cell size, the parameters (radius, γ, β,
 of Beyer et al.), the mean intactness and the share of the area above a threshold, before and after a plan. A map
 of the gradient shows where restoration pays most for intactness.
 
+### In Python
+
+[`tf.intactness`][terraflux.intactness] and [`tf.intactness_gradient`][terraflux.intactness_gradient] are the two
+operators. The data are Serra Verde's, which the library ships ([`tf.prioritize.example_data`][terraflux.prioritize.example_data]):
+the footprint and the six bands of the land cover, from which the reduction is made as the [[raster.calc]] node does:
+
+```python
+import numpy as np
+import terraflux as tf
+
+P = tf.prioritize
+footprint = tf.load_raster(P.example_data("footprint"))    # human footprint, 0-50, cells of 1 km
+cover = tf.load_raster(P.example_data("land_cover"))       # share of six classes, one band each
+pasture, cropland = cover.sel(band="pasture"), cover.sel(band="cropland")
+
+# footprint removed per unit restored: 4 for pasture, 7 for cropland, weighted by their shares
+reduction = ((4 * pasture + 7 * cropland) / (pasture + cropland)).fillna(0)
+converted = pasture + cropland                             # the share of each cell restoration can return
+print(f"footprint: mean {float(footprint.mean()):.1f}, largest {float(footprint.max()):.1f}; "
+      f"converted land {float(converted.sum()):.0f} km2")
+```
+
+```text
+footprint: mean 2.0, largest 23.5; converted land 916 km2
+```
+
+The intactness, where restoring raises it most, and the landscape with all the converted land restored:
+
+```python
+q = tf.intactness(footprint, radius=3)                     # the radius in cells; gamma, beta and z are Beyer et al.'s
+print(f"intactness: mean {float(q.mean()):.2f}, cells above 0.5 {float((q > 0.5).sum() / q.notnull().sum()):.0%}")
+
+gain = tf.intactness_gradient(footprint, reduction, radius=3).where(converted > 0)
+print(f"gradient on converted land: highest {float(gain.max()):.2f}, mean {float(gain.mean()):.2f}")
+
+after = tf.intactness(footprint, radius=3, reduction=reduction, restored=converted)
+print(f"all converted land restored: mean {float(after.mean()):.2f}, "
+      f"cells above 0.5 {float((after > 0.5).sum() / after.notnull().sum()):.0%}")
+```
+
+```text
+intactness: mean 0.70, cells above 0.5 70%
+gradient on converted land: highest 2.31, mean 0.92
+all converted land restored: mean 0.86, cells above 0.5 87%
+```
+
+The numbers are the part's. The cell size in km is read from the projected grid (`cell_size=` gives it for a grid
+without a CRS); `gamma`, `beta` and `z` change the pressure each cell passes
+on, as the text above describes. `reduction` and `restored` take a raster or a number, and the footprint becomes
+`footprint - reduction * restored`, at least 0, as in the `after` node. `tf.write_raster(q, "intactness.tif")` saves a map.
+
+The radius of the slider is one loop. The last column counts how many of the 100 cells of the highest gradient are
+also among the highest with a radius of 3:
+
+```python
+def top100(r):
+    g = tf.intactness_gradient(footprint, reduction, radius=r).where(converted > 0).fillna(-1)
+    return set(np.argsort(g.values.ravel())[-100:])
+
+ref = top100(3)
+for r in (1, 2, 3, 5, 8):
+    qr = tf.intactness(footprint, radius=r)
+    print(f"radius {r}: mean {float(qr.mean()):.3f}, above 0.5 {float((qr > 0.5).sum() / qr.notnull().sum()):.1%}, "
+          f"top 100 shared with radius 3: {len(top100(r) & ref)}")
+```
+
+```text
+radius 1: mean 0.707, above 0.5 70.5%, top 100 shared with radius 3: 89
+radius 2: mean 0.705, above 0.5 70.3%, top 100 shared with radius 3: 92
+radius 3: mean 0.702, above 0.5 69.8%, top 100 shared with radius 3: 100
+radius 5: mean 0.694, above 0.5 69.0%, top 100 shared with radius 3: 83
+radius 8: mean 0.685, above 0.5 68.4%, top 100 shared with radius 3: 59
+```
+
 ## Settings that change the answer
 
 The radius sets the neighbourhood whose pressure a cell shares: a larger radius spreads the effect of a road or a

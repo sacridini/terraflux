@@ -304,6 +304,108 @@ the mean and largest distance on each side, and the share of each side within th
 question (for example "64% of the forest lies within 60 m of an edge"). The curve above is a good figure for a
 paper, and the proximity map a good layer for the next steps of a restoration plan.
 
+### In Python
+
+The distances and the zones are in the library: [`tf.euclidean_distance`][terraflux.euclidean_distance] and
+[`tf.influence_zones`][terraflux.influence_zones]. The map is the part's `ndvi.tif`, which the library ships as the
+example `orforest`; the forest is made as the graph makes it, with [`tf.reproject`][terraflux.reproject] for the
+projection:
+
+```python
+import numpy as np
+import xarray as xr
+import terraflux as tf
+
+ndvi = tf.load_raster(tf.example_data("orforest"))        # summer NDVI, in degrees
+projected = tf.reproject(ndvi, "EPSG:32610", res=30)      # UTM 10 N, cells of 30 m (bilinear for a float map)
+
+# 0 missing, 1 open land, 2 forest; the threshold of 0.7 is a choice
+forest = xr.where(projected.isnull(), 0, xr.where(projected >= 0.7, 2, 1)).astype("uint8")
+print(projected.shape, {int(v): int((forest == v).sum()) for v in (0, 1, 2)})
+```
+
+```text
+(371, 273) {0: 890, 1: 58993, 2: 41400}
+```
+
+The numbers are the part's up to a few cells: the application and `tf.reproject` do not place the 30 m grid on the
+map in exactly the same way, so here the forest has 41,400 cells (41% of those with data) in 571 pieces, against 568
+in the part, and the largest zone below is 9,530 cells, against 9,508.
+
+The signed distance is one call. `pixel_size` gives the statistics in metres:
+
+```python
+distance = tf.euclidean_distance(forest, pixel_size=30)
+print(distance.stats.to_string(index=False))
+```
+
+```text
+              class  pixel_count  mean_distance_px  max_distance_px  mean_distance_units  max_distance_units
+Foreground (Forest)        41400              2.09            12.65                62.82              379.47
+Background (Matrix)        58993              2.67            13.34                80.25              400.25
+```
+
+`distance.signed_distance` is the map in cells (positive in the forest, negative outside, as the node's `map`),
+`distance.byte_map` GuidosToolbox's byte version (the node's `display`) and `distance.stats` the node's `stats`, with
+the means and the largest distances in cells and in metres. The curve of the part is two lines on that map:
+
+```python
+d = distance.signed_distance.values * 30                  # metres, forest positive
+inside, outside = d[forest.values == 2], -d[forest.values == 1]
+for m in (60, 100, 210):
+    print(f"{m:>3} m: {(outside <= m).mean():.0%} of the open land is that close to forest, "
+          f"{(inside <= m).mean():.0%} of the forest to its edge")
+```
+
+```text
+ 60 m: 51% of the open land is that close to forest, 64% of the forest to its edge
+100 m: 73% of the open land is that close to forest, 85% of the forest to its edge
+210 m: 96% of the open land is that close to forest, 99% of the forest to its edge
+```
+
+The library has no function for the node [[distance.proximity]]: it is GDAL's `gdal_proximity`, whose two passes over
+the cells approximate the Euclidean distance, and the exact distance of the signed map gives slightly other numbers.
+The curve above uses the exact one (the open cells of the signed map), as the part's chart does. The zones and the gaps between them:
+
+```python
+zones = tf.influence_zones(forest, min_area=1000)         # 1,000 cells of 30 m: 90 ha
+print(zones.n_objects, sorted(int(a) for a in zones.object_area))
+near = tf.proximity(forest, min_area=1000)
+print(near.prox_min, near.prox_min_count, len(near.lines))
+```
+
+```text
+8 [1012, 1067, 1339, 1913, 3323, 4972, 7034, 9530]
+2 4 467
+```
+
+`zones.zones` is the zone of every cell (0 on the lines between them), `zones.ids` the object of every cell,
+`zones.classes` GuidosToolbox's codes and `zones.object_area` the objects' areas, as the node's outputs. The
+`core_buffer` option drops the forest near the edge of an object before its area is measured, and `buffer` draws a
+background band around the objects. [`tf.proximity`][terraflux.proximity] is the node `distance.objects_proximity`:
+along the lines between zones, how close two neighbouring objects are (`near.distance`, the minimum `near.prox_min`)
+and what joining them would add (`near.cag`, one row per line cell in `near.lines`). Both are experimental, as the
+warning above says.
+
+The threshold of the slider is the one setting worth looping over. Each pass is a real run of the model; at 0.75
+no object reaches 1,000 cells, which is why the zones are left out of the loop:
+
+```python
+for t in (0.60, 0.65, 0.70, 0.75):
+    f = xr.where(projected.isnull(), 0, xr.where(projected >= t, 2, 1)).astype("uint8")
+    dist = tf.euclidean_distance(f, pixel_size=30)
+    print(f"NDVI >= {t:.2f}: forest {(f == 2).sum() / (f > 0).sum():4.0%}, "
+          f"open land {dist.mean_bg_distance * 30:4.0f} m from forest, "
+          f"forest {dist.mean_fg_distance * 30:4.0f} m from its edge")
+```
+
+```text
+NDVI >= 0.60: forest  92%, open land   50 m from forest, forest  216 m from its edge
+NDVI >= 0.65: forest  80%, open land   51 m from forest, forest  116 m from its edge
+NDVI >= 0.70: forest  41%, open land   80 m from forest, forest   63 m from its edge
+NDVI >= 0.75: forest   8%, open land  252 m from forest, forest   42 m from its edge
+```
+
 ## Settings that change the answer
 
 ### The definition of the habitat
@@ -362,5 +464,3 @@ reaches 1,000 cells and the operator stops with the message that no object is ke
 - Haddad, N. M., Brudvig, L. A., Clobert, J., Davies, K. F., Gonzalez, A., Holt, R. D., et al. (2015). Habitat fragmentation and its lasting impact on Earth's ecosystems. *Science Advances*, 1(2), e1500052. https://doi.org/10.1126/sciadv.1500052
 - Murcia, C. (1995). Edge effects in fragmented forests: implications for conservation. *Trends in Ecology & Evolution*, 10(2), 58–62. https://doi.org/10.1016/S0169-5347(00)88977-6
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
-
-In Python: [Distance & restoration in Python](/tutorials/distance-restoration/distance-restoration-in-python/).

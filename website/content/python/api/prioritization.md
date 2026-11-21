@@ -335,7 +335,7 @@ land demand (`add_projected_change`), shares of the land (`relative=True`), othe
 (`add_linear_target`) or the ecosystems' risk of collapse (`ecosystem_targets`); `tradeoff` gives the plans
 of a growing target and the gradient of priorities, `compare_weights` ranks sets of weights. The inputs
 come from `tf.original_vegetation`, `tf.sdm.area_of_habitat` and `tf.intactness`. Tutorial:
-[restoration priorities](/tutorials/distance-restoration/restoration-plans-in-python/).
+[restoration priorities](/tutorials/distance-restoration/restoration-plan/#in-python).
 
 ::: terraflux.prioritize.restoration_problem
 
