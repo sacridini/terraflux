@@ -288,6 +288,136 @@ one when you want a single, repeatable map that depends on nothing but the suita
 The order and why; stochastic or deterministic and the seeds; whether every year met the demand (`steps.csv` and
 the warnings); the regressions and the demand as for CLUE-S; and the validation at several resolutions.
 
+### In Python
+
+The ordered allocation is [`S.Ordered`][terraflux.simulate.Ordered] (`order`, and `stochastic=False` for the
+deterministic one) in place of [`S.CLUE`][terraflux.simulate.CLUE] in the same [`S.Model`][terraflux.simulate.Model]:
+the regressions and the demand of the series, no elasticities (the ordered allocation does not use them), and a seed.
+`lulcc.step`'s `rng` and `history` are the model's own: the seed is R's `set.seed`, and the history is kept inside.
+Plum Island, 1985 to 1999, built land served first:
+
+```python
+import itertools
+import warnings
+
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("pie_landuse"))
+drivers = tf.load_raster(S.example_data("pie_drivers"))
+formulas = {1: ["elevation", "slope"], 2: ["elevation", "slope", "dist_built_1985"], 3: ["elevation", "slope"]}
+glm = S.LogisticRegression(formulas).fit(lu[0], drivers)
+demand = S.AreaDemand.from_maps(lu, times=[1985, 1991, 1999])
+
+def changed(a, b):
+    """Cells whose class differs between two maps (the missing cells of the island left out)."""
+    a, b = a.values, b.values
+    return int(((a != b) & ~np.isnan(a) & ~np.isnan(b)).sum())
+
+ordered = S.Model(glm, demand, S.Ordered(order=[2, 1, 3])).run(lu[0], drivers, seed=1)
+print(ordered, "- every step met the demand:", bool(ordered.steps.converged.all()))
+print(ordered.steps[["iterations", "converged"]].head(3).T.to_string())
+```
+
+```text
+Simulation(14 steps, seed=1) - every step met the demand: True
+step           1     2     3
+iterations     1     1     1
+converged   True  True  True
+```
+
+`steps` has one row per year: `iterations` is always 1 and `converged` is false when a class could not get its demand
+(a warning is raised too, "the demand was not met by N cells"). Against CLUE-S with the elasticities of part 4,
+and the observed map of 1999, with [`S.agreement`][terraflux.simulate.agreement] (cell by cell, the figure of merit of
+Pontius et al. 2008) and the figure of merit at blocks of 1 to 16 cells
+([`S.three_map_comparison`][terraflux.simulate.three_map_comparison]):
+
+```python
+clue = S.Model(glm, demand, S.CLUE(jitter=0.0002, scale=1e-6, max_iter=1000, max_diff=50, mean_diff=50),
+               S.Rules(elasticity=[0.2, 0.2, 0.2])).run(lu[0], drivers, seed=1)
+
+rows = {}
+for name, sim in [("CLUE-S", clue), ("Ordered", ordered)]:
+    a = S.agreement(lu[2], sim.maps[-1], lu[0])
+    blocks = S.three_map_comparison(lu[0], lu[2], sim.maps[-1], factors=[1, 8, 16]).figure_of_merit()["overall"]
+    rows[name] = {"changed in 1986": changed(sim.maps[1], sim.maps[0]),
+                  "changed by 1999": changed(sim.maps[-1], sim.maps[0]),
+                  "hits": a["hits"], "misses": a["misses"], "false alarms": a["false_alarms"],
+                  "figure of merit": round(a["figure_of_merit"], 3), "same class %": round(a["overall"] * 100, 1),
+                  "fom, 8 cells": round(blocks.loc[8], 2), "fom, 16 cells": round(blocks.loc[16], 2)}
+print(pd.DataFrame(rows).to_string())
+print("observed change:", changed(lu[2], lu[0]), "cells")
+```
+
+```text
+                    CLUE-S   Ordered
+changed in 1986  13023.000   610.000
+changed by 1999  19522.000  7506.000
+hits              1609.000   927.000
+misses            5948.000  7336.000
+false alarms     16892.000  6264.000
+figure of merit      0.063     0.062
+same class %        79.000    87.700
+fom, 8 cells         0.170     0.250
+fom, 16 cells        0.210     0.360
+observed change: 8578 cells
+```
+
+The ordered allocation changes about what the demand needs and nothing more; CLUE-S reshuffles in its first year. Only
+one order of the three classes meets the demand every year, and a class served late may fall short. Every order,
+stochastic, with the cells the last year is short of the demand and the figure of merit:
+
+```python
+final = demand.table.iloc[-1]
+rows = []
+for order in itertools.permutations([1, 2, 3]):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")                       # the shortfall is in the table
+        sim = S.Model(glm, demand, S.Ordered(order=list(order))).run(lu[0], drivers, seed=1)
+    cells = {c: int((sim.maps[-1] == c).sum()) for c in (1, 2, 3)}
+    rows.append({"order": "-".join(map(str, order)),
+                 "changed by 1999": changed(sim.maps[-1], sim.maps[0]),
+                 "short in 1999": int(sum(max(final[c] - cells[c], 0) for c in (1, 2, 3))),
+                 "figure of merit": round(S.agreement(lu[2], sim.maps[-1], lu[0])["figure_of_merit"], 3)})
+print(pd.DataFrame(rows).to_string(index=False))
+```
+
+```text
+order  changed by 1999  short in 1999  figure of merit
+1-2-3             8953            291            0.056
+1-3-2             2750           3583            0.036
+2-1-3             7506              0            0.062
+2-3-1             7456             53            0.062
+3-1-2             2720           3613            0.036
+3-2-1             8251            134            0.060
+```
+
+Serve the growing classes first (here built land, 2) and check `converged`. The deterministic allocation takes exactly
+the most suitable cells, and the stochastic one depends on the seed; five seeds show where they disagree:
+
+```python
+det = S.Model(glm, demand, S.Ordered(order=[2, 1, 3], stochastic=False)).run(lu[0], drivers, seed=1)
+print("deterministic changed by 1999:", changed(det.maps[-1], det.maps[0]), "cells")
+
+maps = [S.Model(glm, demand, S.Ordered(order=[2, 1, 3])).run(lu[0], drivers, seed=s).maps[-1].values
+        for s in range(1, 6)]
+print("cells that differ from seed 1:", [int(((m != maps[0]) & ~np.isnan(m)).sum()) for m in maps[1:]])
+built = np.sum([m == 2 for m in maps], axis=0)
+new = (lu[0].values != 2) & ~np.isnan(lu[0].values)
+print("cells built in some runs and not in others:", int((new & (built > 0) & (built < 5)).sum()))
+```
+
+```text
+deterministic changed by 1999: 7512 cells
+cells that differ from seed 1: [853, 839, 878, 842]
+cells built in some runs and not in others: 1592
+```
+
+The rules of part 5 (`allowed` conversions, restrictions, neighbourhood) are the same [`S.Rules`][terraflux.simulate.Rules]
+as for CLUE-S, and a demand per region (`S.Regional`) makes the allocation run region by region.
+
 ## Settings that change the answer
 
 ### The order

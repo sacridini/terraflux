@@ -117,6 +117,109 @@ and judge them there. Pontius et al. (2008) found the same across thirteen publi
 The three pieces and their sources; the rules; the settings and how they were chosen (calibration); replicates; the
 validation against an observed map, against persistence, at several resolutions; and the model file itself.
 
+### In Python
+
+This part has no graph, and the choice is the same in the library: `tf.simulate` has the models of the table as
+interchangeable pieces of one [`S.Model`][terraflux.simulate.Model] (a potential, a demand, an allocation and rules),
+and the classic ones assembled in [`S.presets`][terraflux.simulate.presets]. Which piece answers which row of the table:
+
+| The part's model | In `tf.simulate` |
+|---|---|
+| Dinamica EGO | `S.presets.dinamica(t0, t1, drivers, steps=14)`: [`S.Markov`][terraflux.simulate.Markov], [`S.WeightsOfEvidence`][terraflux.simulate.WeightsOfEvidence] and [`S.ExpanderPatcher`][terraflux.simulate.ExpanderPatcher] |
+| CLUE-S | [`S.CLUE`][terraflux.simulate.CLUE] with [`S.LogisticRegression`][terraflux.simulate.LogisticRegression] and an [`S.AreaDemand`][terraflux.simulate.AreaDemand] |
+| Ordered allocation | [`S.Ordered`][terraflux.simulate.Ordered] |
+| CLUMondo | [`S.CLUMondo`][terraflux.simulate.CLUMondo] with a [`S.ServiceDemand`][terraflux.simulate.ServiceDemand] |
+| PLUS | `S.presets.plus(t0, t1, drivers, steps=14)`: [`S.Estimator`][terraflux.simulate.Estimator] with `target="expansion"` and [`S.CARS`][terraflux.simulate.CARS] |
+| FUTURES | [`S.PatchGrowing`][terraflux.simulate.PatchGrowing] with a [`S.DevelopmentDemand`][terraflux.simulate.DevelopmentDemand] |
+| MOLUSCE | `S.presets.molusce(t0, t1, drivers)`: [`S.MolusceWoE`][terraflux.simulate.MolusceWoE] and [`S.MolusceCA`][terraflux.simulate.MolusceCA] |
+| A demand per region | [`S.Regional`][terraflux.simulate.Regional] in place of the demand, with any of the above |
+| Dynamic drivers | the `dynamic=` argument of [`S.Model`][terraflux.simulate.Model] |
+
+The presets that fit everything from two maps (`dinamica`, `plus`, `molusce`) and those that take the pieces you made
+(`clue_s`, `ordered`, `clumondo`, `futures`) are listed with what each does:
+
+```python
+import re
+import terraflux as tf
+
+S = tf.simulate
+for name in S.presets.__all__:
+    first = getattr(S.presets, name).__doc__.strip().splitlines()[0]
+    print(f"S.presets.{name:17s}", re.sub(r":class:`([^`]*)`", r"\1", first))
+```
+
+```text
+S.presets.clue_s            CLUE-S (Verburg et al. 2002) as lulcc runs it: CLUE allocation of an AreaDemand.
+S.presets.clumondo          CLUMondo: land systems meeting a ServiceDemand with their Supply.
+S.presets.dinamica          Dinamica EGO's classic model: Markov rates, weights of evidence, Expander and Patcher.
+S.presets.futures           FUTURES' patch growing (r.futures.simulation): PatchGrowing with a DevelopmentDemand.
+S.presets.molusce           MOLUSCE: its weights of evidence (MolusceWoE) and simulator (MolusceCA).
+S.presets.observed_patches  The patches of each observed transition: expansions of existing patches and new ones.
+S.presets.ordered           The ordered procedure of Fuchs et al. (2013), lulcc's ``OrderedModel``.
+S.presets.plus              PLUS (Liang et al. 2021): LEAS (a random forest per class on the expansion areas) and CARS.
+```
+
+The shape is the choice that the maps of the next analysis feel. The same demand and the same potential, allocated four
+ways on Sibuyan from 2011 to 2016 (the competitive allocation, the ordered one, random patch seeds, and Dinamica EGO's
+Expander and Patcher with their own rates), and the number of coconut patches each leaves, with
+[`tf.landscape_metrics`][terraflux.landscape_metrics]:
+
+```python
+import numpy as np
+
+lu = tf.load_raster(S.example_data("sibuyan_landuse"))
+drivers = tf.load_raster(S.example_data("sibuyan_drivers"))
+t0, t1 = lu[0].where(lu[0] != 255), lu[1].where(lu[1] != 255)       # 255: outside the island
+drivers = drivers.sel(band=["dist_sea", "dist_roads", "elevation", "slope"])
+
+chain = S.Markov.from_maps(t0, t1, steps=14)
+areas = {c: int((t1 == c).sum()) for c in chain.classes}
+yearly = np.floor(chain.project(areas, steps=5).to_numpy())          # 2011 (step 0) to 2016
+yearly[:, 0] += int(t1.notnull().sum()) - yearly.sum(axis=1)          # forest takes the rounding: the whole island
+demand = S.AreaDemand(yearly, classes=chain.classes)
+
+lr = S.LogisticRegression({c: list(drivers.band.values) for c in chain.classes}).fit(t1, drivers)
+woe = S.WeightsOfEvidence({"dist_roads": 250, "dist_sea": 250, "elevation": 50, "slope": 2},
+                          transitions=[(1, 2), (1, 3), (3, 2)]).fit(t0, t1, drivers)
+rates = {tr: chain.multi.loc[tr] for tr in [(1, 2), (1, 3), (3, 2)]}  # the transitions of the weights
+models = {
+    "competition": S.Model(lr, demand, S.CLUE(jitter=0.0002, scale=1e-6, max_diff=5, mean_diff=5),
+                           S.Rules(elasticity={1: 0.6, 2: 0.4})),
+    "ordered": S.Model(lr, demand, S.Ordered(order=[2, 3, 4, 5, 1])),
+    "random seeds": S.Model(S.RasterPotential({c: lr.predict(drivers).sel({"class": c}).values
+                                               for c in chain.classes}), demand, S.CARS(step_size=10)),
+    "expand and patch": S.Model(woe, rates, S.ExpanderPatcher(steps=5, expansion=0.5, expander=(6, 20, 1.5),
+                                                              patcher=(6, 20, 1.5))),
+}
+
+def patches(m, cls=2):
+    r = tf.landscape_metrics(m.fillna(0).astype("int32"), level="class", metric=["np"])
+    return int(r[r["class"] == cls]["value"].item())
+
+print(f"{'observed 2011':18s}", patches(t1), "coconut patches")
+for name, model in models.items():
+    print(f"{name:18s}", patches(model.run(t1, drivers, seed=1).maps[-1]), "coconut patches in 2016")
+```
+
+```text
+observed 2011      16 coconut patches
+competition        18 coconut patches in 2016
+ordered            22 coconut patches in 2016
+random seeds       17 coconut patches in 2016
+expand and patch   19 coconut patches in 2016
+```
+
+Some steps of the competitive and the ordered runs warn that the demand was not met (by up to 250 cells; this is a
+comparison of shapes, not a calibrated model). The amounts are the same and the patterns are not: the ordered allocation, which takes the most suitable cells wherever
+they are, leaves the most scattered coconut. On larger maps and longer periods the differences grow, and the landscape
+metrics or the connectivity computed on the simulated maps depend on that choice.
+
+Agent-based models and CRAFTY are not in the library: they are graphs of the application (the
+[agents](/tutorials/land-change/agents/) and [CRAFTY](/tutorials/land-change/crafty/) parts). The validation of the
+table's numbers is `S.agreement` and `S.three_map_comparison` ([the ordered allocation](/tutorials/land-change/ordered-allocation/#in-python)
+runs both), and the batches of runs for calibration and replicates are `S.calibrate` and `S.scenarios`, in
+[Calibration and many runs](/tutorials/land-change/calibration-and-many-runs/).
+
 ## Settings that change the answer
 
 Across families, the settings that most often change the conclusions are the same few: the **quantity** (rates or
@@ -146,5 +249,3 @@ runs](/tutorials/land-change/calibration-and-many-runs/)).
 - Mas, J.-F., Kolb, M., Paegelow, M., Camacho Olmedo, M. T., & Houet, T. (2014). Inductive pattern-based land use/cover change models: a comparison of four software packages. *Environmental Modelling & Software*, 51, 94–111. https://doi.org/10.1016/j.envsoft.2013.09.010
 - Pontius, R. G., Jr., Boersma, W., Castella, J.-C., Clarke, K., de Nijs, T., Dietzel, C., et al. (2008). Comparing the input, output, and validation maps for several models of land change. *The Annals of Regional Science*, 42(1), 11–37. https://doi.org/10.1007/s00168-007-0138-2
 - Verburg, P. H., Schot, P. P., Dijst, M. J., & Veldkamp, A. (2004). Land use change modelling: current practice and research priorities. *GeoJournal*, 61(4), 309–324. https://doi.org/10.1007/s10708-004-4946-y
-
-In Python: [Land change simulation in Python](/tutorials/land-change/land-change-simulation-in-python/).

@@ -318,6 +318,78 @@ the landscape, is deciding where change goes.
 **The limits.** The city stops at the water (blue) and leaves holes where the suitability is low: the
 suitability does constrain it, but only at its edge.
 
+### In Python
+
+An automaton like this one is a loop over numpy arrays, with scipy for the neighbourhood: the library supplies the
+landscape, with the same neutral landscape models as the graph (`tf.nlm`, the same seeds give the same maps), and
+`tf.simulate` is for the models the next parts fit from maps. The landscape of nodes 1 to 5:
+
+```python
+import numpy as np
+import terraflux as tf
+from scipy import ndimage
+
+relief = tf.nlm.gaussian_field(150, 150, autocorr_range=30, nug=0, seed=41).values     # node 1
+attraction = tf.nlm.gaussian_field(150, 150, autocorr_range=20, seed=42).values        # node 2
+centre = tf.nlm.distance_gradient(150, 150, origin=[72, 78, 72, 78], nlmr_compat=False,
+                                  rescale=False).values                                # node 3: the old town
+land = (relief >= 0.3) & (relief <= 0.75)                       # water and mountains never change
+suit = np.where(land, 0.6 * attraction + 0.4 * (1 - centre / 106), np.nan)             # node 4
+town = np.where(land, (centre == 0).astype(float), np.nan)                             # node 5
+print(int(land.sum()), "cells of land,", int(np.nansum(town)), "of them the old town")
+```
+
+```text
+20319 cells of land, 33 of them the old town
+```
+
+The rule is one line, and `nbsum(c == 1, 1)` is a uniform filter over the 3 x 3 window (missing cells count as 0,
+as the graph's `nbsum` leaves them out). The loop of [[control.repeat]] is a `for`: `city` is carried from step to step
+and every map is kept, as `collect` does. `k` is the number of city neighbours the rule asks for:
+
+```python
+def nbsum(mask, r=1):
+    """Cells of the mask in the (2r + 1) x (2r + 1) window of every cell, zeros outside the map."""
+    return np.rint(ndimage.uniform_filter(mask.astype(float), size=2 * r + 1, mode="constant") * (2 * r + 1) ** 2)
+
+def grow_city(k=2, steps=40, bar=0.6, fall=0.004):
+    city, maps = town.copy(), [town.copy()]
+    for step in range(1, steps + 1):
+        near = nbsum(city == 1) >= k                            # city cells around each cell
+        city = np.where((city == 0) & near & (suit > bar - step * fall), 1.0, city)
+        maps.append(city)
+    return maps
+
+maps = grow_city()                                              # this page's rule: k = 2, 40 steps
+share = lambda city: round(float(np.nansum(city == 1)) / int(land.sum()) * 100, 1)
+print("city, % of the land, steps 10 to 40:", [share(maps[s]) for s in (10, 20, 30, 40)])
+```
+
+```text
+city, % of the land, steps 10 to 40: [0.2, 0.5, 2.7, 7.2]
+```
+
+The city covers 7.2% of the land at step 40, as in the part, and almost all of it after step 20: the acceleration comes
+from the bar falling and the edge getting longer, not from the rule. A map is a numpy array here, the cells of
+water and mountains missing. The settings that change the answer are arguments, and the number of neighbours decides
+the shape:
+
+```python
+for k in (1, 2, 3, 4):
+    print(f"k = {k}: {share(grow_city(k)[-1])}% of the land")
+```
+
+```text
+k = 1: 17.7% of the land
+k = 2: 7.2% of the land
+k = 3: 2.0% of the land
+k = 4: 0.2% of the land
+```
+
+The shares are those of the part (17.7%, 7.2%, 2.0%, 0.2%). The pitfall of `nbcount` does not exist here: counting the
+city cells is the filter of `city == 1`, and counting the cells with a value would be a filter of `~np.isnan(city)`,
+which is another number.
+
 ## Settings that change the answer
 
 The number of city neighbours a cell needs, \(k\), changes the city completely. Each image is the city after 40

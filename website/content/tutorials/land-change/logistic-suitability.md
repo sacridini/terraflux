@@ -313,6 +313,106 @@ The second number is the one that matters for a simulation. Report it, not the f
 (2001) introduced the ROC to land change modelling precisely to measure how well a suitability map points at
 the observed change, on the Ipswich watershed, in the same region of Massachusetts as these data.
 
+### In Python
+
+[`S.LogisticRegression`][terraflux.simulate.LogisticRegression] does the work of [[glm.fit]] and [[glm.predict]] (R's
+`glm` algorithm, so the coefficients are lulcc's). Plum Island ships with the library, with the band names the part
+uses; `formulas` is the setting of the same name:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("pie_landuse"))          # 1985, 1991, 1999 (1 forest, 2 built, 3 other)
+drivers = tf.load_raster(S.example_data("pie_drivers"))     # elevation, slope, dist_built_1985
+print(lu.band.values, drivers.band.values)
+
+formulas = {1: ["elevation", "slope"], 2: ["elevation", "slope", "dist_built_1985"], 3: ["elevation", "slope"]}
+glm = S.LogisticRegression(formulas).fit(lu[0], drivers)     # fitted on the map of 1985
+print(glm.coefficients.round(5))
+sm = glm.summary
+sm["pseudo_R2"] = 1 - sm.deviance / sm.null_deviance          # McFadden's
+print(sm.round(3))
+```
+
+```text
+['1985' '1991' '1999'] ['elevation' 'slope' 'dist_built_1985']
+       (Intercept)  elevation    slope  dist_built_1985
+class
+1         -1.38985    0.02368  0.05014              NaN
+2          1.63533    0.00823 -0.04404         -0.02286
+3          0.53722   -0.05180 -0.00699              NaN
+        cells  iterations  converged    deviance  null_deviance  pseudo_R2
+class
+1      113563           4       True  148745.566     155299.387      0.042
+2      113563           7       True   71996.229     143532.366      0.498
+3      113563           5       True  112733.713     125561.689      0.102
+```
+
+Without `formulas`, every class gets every driver. A class's `cells` are those with a class and a value in all its
+drivers (113,563 here), and `maxit` and `epsilon` are R's iteration limit and tolerance. `predict` is the suitability,
+a layer per class named by its code, and `landscape` keeps the missing cells missing:
+
+```python
+suit = glm.predict(drivers, landscape=lu[0])
+print(suit.dims, suit["class"].values)
+total = suit.sum("class", skipna=False).values
+print(np.nanpercentile(total, [1, 99]).round(2))             # the suitabilities do not add up to 1 (1st and 99th percentiles)
+```
+
+```text
+('class', 'y', 'x') [1 2 3]
+[0.59 1.6 ]
+```
+
+The fit and the prediction are separate calls for the reason the part gives: `predict` can take drivers that have
+changed since (a distance recomputed from the simulated map), and
+[`LogisticRegression.from_coefficients`][terraflux.simulate.LogisticRegression] is [[glm.coefficients]], a model
+given by its coefficients (here the built land of the table):
+
+```python
+given = S.LogisticRegression.from_coefficients(
+    {2: {"(Intercept)": 1.63533, "elevation": 0.00823, "slope": -0.04404, "dist_built_1985": -0.02286}})
+mine = given.predict(drivers, landscape=lu[0]).sel({"class": 2})
+print(round(float(abs(mine - suit.sel({"class": 2})).max()), 4), "largest difference to the fitted built land")
+```
+
+```text
+0.0002 largest difference to the fitted built land
+```
+
+The ROC of the part is not in the library's land change module: it is `roc_auc_score` of scikit-learn, on the
+suitability against the cells that hold the class, and against the cells that gained it, among those that did not have
+it in 1985:
+
+```python
+from sklearn.metrics import roc_auc_score
+
+a85, a99 = lu[0].values, lu[2].values
+ok = ~np.isnan(a85) & ~np.isnan(a99) & ~np.isnan(suit.sel({"class": 1}).values)
+auc = {}
+for c, name in [(1, "forest"), (2, "built"), (3, "other")]:
+    s = suit.sel({"class": c}).values
+    auc[name + " in 1985"] = roc_auc_score((a85 == c)[ok], s[ok])
+new = ok & (a85 != 2)
+auc["new built land"] = roc_auc_score((a99 == 2)[new], suit.sel({"class": 2}).values[new])
+print(pd.Series(auc).round(2))
+```
+
+```text
+forest in 1985    0.64
+built in 1985     0.94
+other in 1985     0.73
+new built land    0.63
+dtype: float64
+```
+
+The same circle as in the part: the built land of 1985 is nearly perfect (0.94) because the distance to it is 0 on
+every built cell, and the built land that appeared by 1999 is hardly better than chance (0.63). A driver is dropped
+or added in `formulas`, and the fit repeated, as in the dashboard below.
+
 ## Settings that change the answer
 
 The drivers you choose change the suitability far more than any setting of the fit. The dashboard below is

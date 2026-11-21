@@ -338,6 +338,117 @@ What to report from this step, in a paper: the maps of both dates and their clas
 cells or km² and in % of the class), the share of the landscape that changed, and which transitions you model and
 why.
 
+### In Python
+
+The library's land change module is [`tf.simulate`](/python/api/simulate/), and it ships Sibuyan's two maps, so nothing
+is downloaded. The nodes of the graph have their counterparts in [`S.changes`][terraflux.simulate.changes], which
+reads the dates as a series of maps (`nodata=255` makes the outside of the island missing, as the file's
+no-data value does in the application; `cell_area` is in square metres):
+
+```python
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("sibuyan_landuse"))     # a band per date, named 1997 and 2011
+print(lu.band.values)
+ch = S.changes([lu[0], lu[1]], times=[1997, 2011], nodata=255, cell_area=250 * 250)
+print(ch.matrix())                                          # the transition matrix, in cells
+```
+
+```text
+['1997' '2011']
+to       1     2    3    4    5
+from
+1     4160   126  320  116    1
+2        0  1140   18    0    0
+3        0    77  745   16    1
+4        0    61    7  156    0
+5        0     0    0    0  282
+```
+
+This is the table of [[change.crosstab]]. `ch.components()` is [[change.components]] (gain, persistence and loss of
+each class, with the quantity, exchange and shift of the change), and `ch.table` has a row per transition, with its
+cells and its km²:
+
+```python
+print(ch.components().round(3))
+```
+
+```text
+  Category   Gain  Persistence   Loss  Quantity  Exchange  Shift
+0        1    0.0       4160.0  563.0     563.0       0.0    0.0
+1        2  264.0       1140.0   18.0     246.0      36.0    0.0
+2        3  345.0        745.0   94.0     251.0      50.0  138.0
+3        4  132.0        156.0   68.0      64.0      14.0  122.0
+4        5    2.0        282.0    0.0       2.0       0.0    0.0
+5  Overall  743.0       6483.0  743.0     563.0      50.0  130.0
+```
+
+[[change.suggest]] has no function of its own: its ranking is the table sorted, with each transition's share of all
+the change and of the class it leaves:
+
+```python
+tr = ch.table.query("From != To").sort_values("cells", ascending=False).copy()
+tr["% of all change"] = (tr.cells / tr.cells.sum() * 100).round(1)
+tr["% of the class"] = (tr.cells / tr.From.map(ch.areas.iloc[0]) * 100).round(1)
+print(tr[["From", "To", "cells", "km2", "% of all change", "% of the class"]].round(2).to_string(index=False))
+```
+
+```text
+ From  To  cells   km2  % of all change  % of the class
+    1   3    320 20.00             43.1             6.8
+    1   2    126  7.88             17.0             2.7
+    1   4    116  7.25             15.6             2.5
+    3   2     77  4.81             10.4             9.2
+    4   2     61  3.81              8.2            27.2
+    2   3     18  1.12              2.4             1.6
+    3   4     16  1.00              2.2             1.9
+    4   3      7  0.44              0.9             3.1
+    1   5      1  0.06              0.1             0.0
+    3   5      1  0.06              0.1             0.1
+```
+
+`ch.intensity` adds the intensity analysis of Aldwaik & Pontius (see [change detection](/tutorials/change-detection/)):
+whether a class gained or lost faster than the landscape changed as a whole, and which classes a transition targets or
+avoids. Here the gains of coconut (2) and the losses of forest (1):
+
+```python
+ia = ch.intensity(gain=2, loss=1)
+print(ia.category_gain.round(3).to_string(index=False))      # which classes gained faster than the landscape changed
+print(ia.transition_loss.round(3).to_string(index=False))    # which classes took forest more than uniformly
+```
+
+```text
+   Period  To  Interval  GG_km2   Gtj    St
+1997-2011   2        14  16.500 1.343 0.734
+1997-2011   3        14  21.562 2.261 0.734
+1997-2011   4        14   8.250 3.274 0.734
+1997-2011   5        14   0.125 0.050 0.734
+   Period  To  From  Interval  T_m2j_km2  Qtmj   Vtm
+1997-2011   2     1        14      7.875 0.641 1.312
+1997-2011   3     1        14     20.000 2.097 1.312
+1997-2011   4     1        14      7.250 2.877 1.312
+1997-2011   5     1        14      0.062 0.025 1.312
+```
+
+The map of the cells that changed, in their new class, is one line of xarray (the equivalent of the [[raster.calc]]
+node; `0` where nothing changed), ready for [`tf.plot`][terraflux.plot]:
+
+```python
+t0, t1 = lu[0].where(lu[0] != 255), lu[1].where(lu[1] != 255)
+changed = t1.where(t0 != t1, 0)
+print(int((changed > 0).sum()), "cells changed;", round(float((t0 == t1).sum() / t0.notnull().sum()) * 100, 1), "% kept their class")
+```
+
+```text
+743 cells changed; 89.7 % kept their class
+```
+
+`S.changes` takes any number of maps (the intensity analysis of [`ch.intensity`][terraflux.simulate.Changes.intensity]
+is for series of three or more), and the rest of the series builds on it: the Markov chain of the next parts is
+`ch.markov()`, and [`S.Markov`][terraflux.simulate.Markov], the demands, the potentials and the allocations are the
+pieces of the model that [`S.Model`][terraflux.simulate.Model] puts together.
+
 ## Common pitfalls
 
 - **Classes that differ between dates.** If 1997 calls rice 4 and 2011 calls it 3, the matrix shows a fake

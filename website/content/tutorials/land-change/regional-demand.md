@@ -275,6 +275,117 @@ south-west lose 81 and 103 cells as before: the regions do not exchange their de
 The regions and why (administrative, ecological), their demands (tables or chains, and their source), whether the
 potential is global or per region, and the simulated change per region next to the observed one.
 
+### In Python
+
+[`S.Regional`][terraflux.simulate.Regional] is [[demand.regional]]: a map of region ids and a demand for each. The
+sectors are not in the example data, so they are cut here as the part cuts them, by the angle around the centre of the
+island (0 east, 90 north), in numpy; with your own regions, `regions` is a map of ids read with
+[`tf.load_raster`][terraflux.load_raster] (or the [[vector.rasterize]] of a layer):
+
+```python
+import numpy as np
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("sibuyan_landuse"))
+drivers = tf.load_raster(S.example_data("sibuyan_drivers"))
+t0, t1 = lu[0].where(lu[0] != 255), lu[1].where(lu[1] != 255)
+
+ok = t0.notnull().values
+yy, xx = np.indices(t0.shape)
+cy, cx = yy[ok].mean(), xx[ok].mean()
+angle = np.degrees(np.arctan2(-(yy - cy), xx - cx)) % 360
+sector = np.where(angle < 30, 2, np.where(angle < 150, 1, np.where(angle < 270, 3, 2))).astype(float)
+regions = t0.copy(data=np.where(ok, sector, np.nan))                # 1 north, 2 south-east, 3 south-west
+for r, name in [(1, "north"), (2, "south-east"), (3, "south-west")]:
+    f0, f1 = int(((t0 == 1) & (regions == r)).sum()), int(((t1 == 1) & (regions == r)).sum())
+    print(f"{name:11s} forest {f0:5d} -> {f1:5d}  ({f1 - f0:+d}, {(f0 - f1) / f0 * 100:.0f}% lost)")
+```
+
+```text
+north       forest  1554 ->  1205  (-349, 22% lost)
+south-east  forest  1385 ->  1287  (-98, 7% lost)
+south-west  forest  1784 ->  1668  (-116, 7% lost)
+```
+
+The demand of each sector is the linear trend of its own areas, which is what
+[`Regional.from_maps`][terraflux.simulate.Regional] does (each region's cells go through
+[`AreaDemand.from_maps`][terraflux.simulate.AreaDemand]); for chains, `Regional.markov(regions, t0, t1, steps=14)`
+fits one per sector. The model is the part's CLUE-S: a regression per class, the elasticities and the allocation
+settings, run with one demand for the island and with one per sector:
+
+```python
+regional = S.Regional.from_maps(regions, [t0, t1], times=[1997, 2011])
+island = S.AreaDemand.from_maps([t0, t1], times=[1997, 2011])
+print(regional, "- rows of the north:", regional.demands[1].table.iloc[[0, -1]].astype(int).values.tolist())
+
+formulas = {c: ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"] for c in range(1, 6)}
+glm = S.LogisticRegression(formulas).fit(t0, drivers)
+clue = S.CLUE(jitter=0.0001, scale=0.0005, max_iter=1000, max_diff=20, mean_diff=10)
+rules = S.Rules(elasticity=[0.3] * 5)
+
+def forest_change(sim):
+    end = sim.maps[-1]
+    return [int(((end == 1) & (regions == r)).sum()) - int(((t0 == 1) & (regions == r)).sum()) for r in (1, 2, 3)]
+
+runs = {name: S.Model(glm, demand, clue, rules).run(t0, drivers, seed=1)
+        for name, demand in [("one demand", island), ("a demand per sector", regional)]}
+print("observed          ", [int(((t1 == 1) & (regions == r)).sum()) - int(((t0 == 1) & (regions == r)).sum()) for r in (1, 2, 3)])
+for name, sim in runs.items():
+    print(f"{name:18s}", forest_change(sim), "steps that converged:", int(sim.steps.converged.sum()), "of 14")
+```
+
+```text
+Regional(3 regions, steps=14) - rows of the north: [[1554, 158, 209, 129, 148], [1205, 273, 410, 161, 149]]
+observed           [-349, -98, -116]
+one demand         [-461, 101, -201] steps that converged: 10 of 14
+a demand per sector [-330, -79, -103] steps that converged: 14 of 14
+```
+
+With one demand the island's forest loss goes where the suitabilities point, and the south-east, which lost 98 cells,
+gains forest; with a demand per sector each one loses what it lost. The part quotes 468, 214 and +91 cells for the
+island's demand and 330, 81 and 100 for the sectors' (its own run): the library's differ by a few cells to a few tens and
+tell the same story. A `Regional` takes any demand per region (an
+`AreaDemand`, a `Markov` chain or a table of rates), `{region id: demand}`, all with the same number of steps; cells
+outside every region, or in a region with no demand, keep their class. A scenario for one region is that region's
+demand changed: here the north keeps the forest of 1997, and grassland, which would have replaced it, does not appear:
+
+```python
+north = regional.demands[1].table.copy()
+c0, c1 = north.iloc[0].to_numpy(float), north.iloc[-1].to_numpy(float)
+keep = c1.copy()
+keep[0], keep[2] = c0[0], c1[2] - (c0[0] - c1[0])                 # forest kept; grassland gives up that much
+rows = np.rint(np.linspace(c0, keep, 15))
+rows[:, 1] += c0.sum() - rows.sum(axis=1)                         # coconut takes the rounding
+demands = dict(regional.demands)
+demands[1] = S.AreaDemand(rows, classes=north.columns)
+scenario = S.Model(glm, S.Regional(regions, demands), clue, rules).run(t0, drivers, seed=1)
+print("north keeps its forest:", forest_change(scenario))
+```
+
+```text
+north keeps its forest: [2, -81, -106]
+```
+
+The rows of the scenario differ from the part's by a cell here and there (the rounding goes to coconut), so the
+simulated changes can differ by a few cells. For the chain of PLUS, each sector's own chain is projected from its
+cells, and every class meets each sector's projection to the cell:
+
+```python
+chains = S.Regional.markov(regions, t0, t1, steps=14)
+cars = S.CARS(seeds=0.1, decay=0.9, step_size=20, window=3, max_iter=500)
+sim = S.Model(glm, chains, cars).run(t0, drivers, seed=1)
+print("CARS, a chain per sector:", forest_change(sim))
+```
+
+```text
+CARS, a chain per sector: [-349, -98, -116]
+```
+
+[`S.ExpanderPatcher`][terraflux.simulate.ExpanderPatcher] reads a `Regional` of rates in the same way, region by
+region (Dinamica EGO's regionalization), and [`S.Ordered`][terraflux.simulate.Ordered] allocates region by region like
+[`S.CLUE`][terraflux.simulate.CLUE]; the potential stays global unless one is fitted per sector.
+
 ## Settings that change the answer
 
 - **The regions themselves.** Different boundaries give different trends; regions should be the units whose

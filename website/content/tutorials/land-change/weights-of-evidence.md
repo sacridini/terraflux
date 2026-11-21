@@ -278,6 +278,147 @@ The drivers and why each is there; the transitions modelled; the increments (or 
 driver; the bars of the most important drivers of each transition (as above); the association between drivers;
 and any weight edited by hand, with its reason.
 
+### In Python
+
+[`S.WeightsOfEvidence`][terraflux.simulate.WeightsOfEvidence] is [[woe.fit]], with the same settings, and its
+`probability` method is [[woe.probability]]. The data are the library's own (Sibuyan's two maps and its 13 drivers);
+the transitions are those the Markov chain of the previous part gives a positive rate to, as the `markov` input did:
+
+```python
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("sibuyan_landuse"))
+drivers = tf.load_raster(S.example_data("sibuyan_drivers"))          # 13 bands, named
+t0, t1 = lu[0].where(lu[0] != 255), lu[1].where(lu[1] != 255)        # 255: outside the island
+
+chain = S.Markov.from_maps(t0, t1, steps=14)
+transitions = [(int(f), int(t)) for f, t in chain.rates()[["From", "To"]].to_numpy()]
+ranges = {"dist_sea": 250, "dist_roads": 250, "dist_urban": 250, "dist_streams": 250,   # increments, in the
+          "elevation": 50, "slope": 2, "aspect": 30, "pop_density": 50}                   # driver's units
+soils = ["diorite", "ultramafic", "sediments", "no_erosion", "moderate_erosion"]          # one range per category
+woe = S.WeightsOfEvidence(ranges, transitions=transitions, categorical=soils).fit(t0, t1, drivers)
+w = woe.table
+print(len(transitions), "transitions,", len(w), "ranges")
+```
+
+```text
+10 transitions, 677 ranges
+```
+
+`ranges` takes, per driver, an increment, `"categorical"`, a list of limits (used as they are) or a dict of options
+(`{"increment": 250, "tolerance": 3}`), and `increment`, `min_delta`, `max_delta` and `tolerance` are the defaults of
+the others. `woe.table` is the report of Dinamica EGO, a row per range of each driver for each transition: with
+`Possible_Transitions` (\(b\)), `Executed_Transitions` (\(n_B\)), `Weight_Coefficient` (\(W^+\)), `Contrast` and
+`Significant`. These are the rows of the part's table, forest to grassland by the distance to roads:
+
+```python
+sel = w[(w.Transition_From == 1) & (w.Transition_To == 3) & (w.Variable == "dist_roads")]
+print(sel.drop(columns=["Transition_From", "Transition_To", "Variable"]).round(3).to_string(index=False))
+```
+
+```text
+ Range_Lower_Limit  Range_Upper_Limit  Possible_Transitions  Executed_Transitions  Weight_Coefficient  Contrast  Significant
+               0.0              250.0                   128                    24               1.155     1.209            1
+             250.0             2250.0                  2013                   278               0.791     2.320            1
+            2250.0             2500.0                   213                    11              -0.289    -0.301            0
+            2500.0             2750.0                   196                     3              -1.542    -1.578            1
+            2750.0             3750.0                   772                     4              -2.636    -2.815            1
+            3750.0             7500.0                  1401                     0               0.000     0.000            0
+```
+
+The probability maps are `woe.probability(landscape, drivers)`: a layer per transition, named
+`probability_<from>_to_<to>`, with a value in the cells of the origin class and none elsewhere (`dtype="uint8"` gives
+Dinamica's integers). `drivers` may be other than those of the fit, which is how a simulation computes them again at
+every step.
+
+```python
+prob = woe.probability(t0, drivers)
+print(prob.dims, prob.shape)
+print(list(prob.transition.values)[:3], "...")
+p13 = prob.sel(transition="probability_1_to_3")
+print("forest to grassland: mean", round(float(p13.mean()), 4), "highest", round(float(p13.max()), 3))
+```
+
+```text
+('transition', 'y', 'x') (10, 108, 128)
+[np.str_('probability_1_to_2'), np.str_('probability_1_to_3'), np.str_('probability_1_to_4')] ...
+forest to grassland: mean 0.0808 highest 1.0
+```
+
+The increment decides how many ranges a driver gets. With `"auto"` (a hundredth of each driver's range) the fit has more
+than twice as many (1,444 ranges against the 677 above); for one driver and transition, the ranges of the distance to roads of the slider below:
+
+```python
+roads = drivers.sel(band=["dist_roads"])                  # one driver, to look at its ranges
+auto = S.WeightsOfEvidence(categorical=soils, transitions=transitions).fit(t0, t1, drivers)
+print("automatic increments:", len(auto.table), "ranges against", len(w))
+for inc in (75, 100, 250, 500, 1000):
+    one = S.WeightsOfEvidence({"dist_roads": inc}, transitions=[(1, 3)]).fit(t0, t1, roads)
+    print(f"increment {inc:4d} m: {len(one.table)} ranges, {int(one.table.Significant.sum())} significant")
+```
+
+```text
+automatic increments: 1444 ranges against 677
+increment   75 m: 18 ranges, 4 significant
+increment  100 m: 15 ranges, 4 significant
+increment  250 m: 6 ranges, 4 significant
+increment  500 m: 6 ranges, 4 significant
+increment 1000 m: 5 ranges, 4 significant
+```
+
+`fix_abnormal=True` and `possible="stay"` are the settings of the same name. A range where no forest became grassland
+has the weight 0 by default and \(-\ln(b\,n + 1)\) with `fix_abnormal`; and the ranges of one transition can be
+given as limits, as in the part's edit of the ranges (below), keying `ranges` by transition:
+
+```python
+for fix in (False, True):
+    f = S.WeightsOfEvidence({"dist_roads": 250}, transitions=[(1, 3)], fix_abnormal=fix).fit(t0, t1, roads)
+    last = f.table.iloc[-1]
+    print(f"fix_abnormal={fix}: the last range ({last.Range_Lower_Limit:g} m and beyond) has W+ {last.Weight_Coefficient:.1f}")
+
+own = S.WeightsOfEvidence({(1, 3): {"dist_roads": [0, 250, 2250, 3750, 7500]}}).fit(t0, t1, roads)
+print(own.table[["Range_Lower_Limit", "Range_Upper_Limit", "Weight_Coefficient"]].round(3).to_string(index=False))
+```
+
+```text
+fix_abnormal=False: the last range (3750 m and beyond) has W+ 0.0
+fix_abnormal=True: the last range (3750 m and beyond) has W+ -13.0
+ Range_Lower_Limit  Range_Upper_Limit  Weight_Coefficient
+               0.0              250.0               1.155
+             250.0             2250.0               0.791
+            2250.0             3750.0              -1.547
+            3750.0             7500.0               0.000
+```
+
+The independence of the drivers is checked with `woe.correlation()`: for each transition and pair of drivers, the
+cross-tabulation of their ranges gives Cramér's V and the joint information uncertainty, as the `validate.kappa`
+of the section below does on classes of its own cut (the numbers differ a little because the ranges are the fit's):
+
+```python
+cor = woe.correlation()
+c13 = cor[(cor.Transition_From == 1) & (cor.Transition_To == 3)]
+cont = c13[~c13.First_Variable.isin(soils) & ~c13.Second_Variable.isin(soils)]      # the continuous drivers
+top = cont.sort_values("Cramer", ascending=False).head(3)
+print(top[["First_Variable", "Second_Variable", "Cramer", "Joint_Uncertainty"]].round(2).to_string(index=False))
+```
+
+```text
+First_Variable Second_Variable  Cramer  Joint_Uncertainty
+    dist_roads        dist_sea    0.46               0.27
+    dist_roads       elevation    0.39               0.26
+     elevation           slope    0.34               0.22
+```
+
+As in the part, the strongest pair of continuous drivers is the distance to roads with the distance to the sea, and none
+reaches 0.5 (V = 0.46 here, with the fit's ranges; 0.40 for the part's classes of 500 m). Pairs with a soil map come
+higher (V of 0.85 for population density and the sediments): remove the filter above to see them, and
+judge them as the part judges its drivers.
+
+Two things of the part have no Python counterpart: the weights view of the application, and the `weights` setting
+that gives the weight of a range by hand (the application writes it into the model file). In a script, the report is a
+table and the limits of the ranges are the settings, so an edit is a new fit with other limits.
+
 ## Settings that change the answer
 
 ### The increment
@@ -294,7 +435,7 @@ src: /img/tutorials/land-change/weights-of-evidence/inc_{value}.png
 ```
 
 With the automatic increment (a hundredth of each driver's range: 75 m for roads, 3.6° for aspect, 0.01 for a
-driver of 0 and 1), the fit of Sibuyan has 1,435 ranges; with the increments above, 677. A rule of thumb: an
+driver of 0 and 1), the fit of Sibuyan has 1,444 ranges; with the increments above, 677. A rule of thumb: an
 increment no smaller than the cell size for distances (250 m here), and of a few units for slope (degrees) and
 elevation (tens of metres). Drivers coded 0 and 1 should be `categorical`.
 

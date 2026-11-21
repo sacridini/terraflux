@@ -235,6 +235,115 @@ The period and its number of steps; the period's matrix (in probabilities, and t
 of one step or the rates of the transitions you simulate; any transition left out (negative or too rare); and, for
 a scenario, the matrix you gave and why.
 
+### In Python
+
+[`S.Markov.from_maps`][terraflux.simulate.Markov] is [[markov.fit]]: the two maps and the number of steps between
+them. `single` is the period's matrix and `multi` the matrix of one step, its 14th root (both are tables with the
+classes as labels):
+
+```python
+import numpy as np
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("sibuyan_landuse"))
+chain = S.Markov.from_maps(lu[0], lu[1], steps=14, nodata=255)     # 255: outside the island
+print(chain)
+print(chain.single.round(3))
+print(chain.multi.round(4))
+```
+
+```text
+Markov(5 classes, steps=14)
+to        1      2      3      4      5
+from
+1     0.881  0.027  0.068  0.025  0.000
+2     0.000  0.984  0.016  0.000  0.000
+3     0.000  0.092  0.888  0.019  0.001
+4     0.000  0.272  0.031  0.696  0.000
+5     0.000  0.000  0.000  0.000  1.000
+to        1       2       3       4       5
+from
+1     0.991  0.0015  0.0054  0.0021  0.0000
+2     0.000  0.9988  0.0012 -0.0000 -0.0000
+3     0.000  0.0067  0.9915  0.0017  0.0001
+4     0.000  0.0230  0.0026  0.9745 -0.0000
+5     0.000  0.0000  0.0000  0.0000  1.0000
+```
+
+The forest keeps 0.881 of its cells over the period and 0.991 per year. The root has the three negative entries of the
+part (coconut to rice and to other, rice to other), of the order of 1e-5; `chain.rates()` lists the transitions
+with a positive rate, the ones a model simulates:
+
+```python
+print(int((chain.multi.to_numpy() < 0).sum()), "negative rates")
+print(chain.rates().round(4).to_string(index=False))
+```
+
+```text
+3 negative rates
+ From  To   Rate
+    1   2 0.0015
+    1   3 0.0054
+    1   4 0.0021
+    1   5 0.0000
+    2   3 0.0012
+    3   2 0.0067
+    3   4 0.0017
+    3   5 0.0001
+    4   2 0.0230
+    4   3 0.0026
+```
+
+A matrix with a negative eigenvalue has no real root, and the call stops with an error that says so (the pitfall of
+the part); a smaller `steps` is the way out. `chain.project(areas, steps)` is the chain applied to the areas of a
+map, a row per step. The root gives back the cells of 2011, and the period's changes divided by 14 do not:
+
+```python
+areas97 = {c: int((lu[0] == c).sum()) for c in chain.classes}
+areas11 = {c: int((lu[1] == c).sum()) for c in chain.classes}
+root = chain.project(areas97, steps=14)                       # the 14th root, applied 14 times
+P = chain.single.to_numpy()
+divided = np.eye(5) + (P - np.eye(5)) / 14                    # the period's changes divided by 14
+naive = S.Markov(divided, chain.classes).project(areas97, steps=14, multi=False)
+share = lambda row: (row / row.sum() * 100).round(1)
+print("2011 observed ", share(np.array(list(areas11.values()))))
+print("root          ", share(root.iloc[-1].to_numpy()))
+print("rate / 14     ", share(naive.iloc[-1].to_numpy()))
+```
+
+```text
+2011 observed  [57.6 19.4 15.1  4.   3.9]
+root           [57.6 19.4 15.1  4.   3.9]
+rate / 14      [58.  19.5 14.7  3.8  3.9]
+```
+
+The observed forest of 2011 is 57.6% of the island: the root reproduces it and the division gives 58.0%, the
+difference of the chart above. The long run and the scenario are the same call from the areas of 2011, 39 steps to
+2050, and a chain made from a matrix of your own: [`S.Markov(matrix, classes, steps)`][terraflux.simulate.Markov]
+is [[markov.matrix]], and the root is computed as for the fitted one. Halving the forest's losses is a row of the
+period's matrix:
+
+```python
+trend = chain.project(areas11, steps=39)
+half = chain.single.copy()
+half.loc[1] = half.loc[1] / 2                                  # forest's transitions halved ...
+half.loc[1, 1] = 1 - half.loc[1].drop(1).sum()                 # ... and its persistence the rest
+scenario = S.Markov(half, chain.classes, steps=14).project(areas11, steps=39)
+print("persistence of forest:", round(half.loc[1, 1], 3))
+for name, p in [("trend", trend), ("halved", scenario)]:
+    print(f"{name:7s}", "forest in 2050:", round(p.iloc[-1, 0] / p.iloc[-1].sum() * 100, 1), "% of the island")
+```
+
+```text
+persistence of forest: 0.94
+trend   forest in 2050: 40.4 % of the island
+halved  forest in 2050: 48.5 % of the island
+```
+
+The first row of `half` is exactly the part's `markov.matrix` of the scenario. A matrix of one step, given as it is,
+is `S.Markov(m, classes)`: with `steps=1` its `multi` is the matrix itself, and `project` uses it.
+
 ## Settings that change the answer
 
 - **`steps`.** The rates per step depend on the number of steps; a model must simulate steps of the same length

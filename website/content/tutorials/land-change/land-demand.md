@@ -337,6 +337,131 @@ How to report a demand in a paper: its source (trend of which maps, which Markov
 table itself (or its first and last rows and its rate), the conversion from hectares to cells if any, and, for
 scenarios, the storyline behind each column.
 
+### In Python
+
+The three demands are objects of [`tf.simulate`][terraflux.simulate.AreaDemand]: a table of cells with a row per year
+and a column per class, the first row the start. Plum Island ships with the library. The linear trend is
+[`AreaDemand.from_maps`][terraflux.simulate.AreaDemand] ([[demand.from_maps]]), with the same `times` and `out_times`:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("pie_landuse"))          # 1985, 1991, 1999
+drivers = tf.load_raster(S.example_data("pie_drivers"))
+
+trend = S.AreaDemand.from_maps(lu, times=[1985, 1991, 1999])             # a step a year, 1985 to 1999
+print(trend, trend.table.iloc[[0, 1, 2, -1]].to_string())
+far = S.AreaDemand.from_maps(lu, times=[1985, 1991, 1999], out_times=range(1985, 2031, 5))   # beyond the last map
+print(far.table.loc[2030].astype(int).to_dict())
+```
+
+```text
+AreaDemand(14 steps, 3 classes)             1        2        3
+time
+1985  49013.0  37122.0  27428.0
+1986  48683.0  37660.0  27220.0
+1987  48352.0  38198.0  27013.0
+1999  45377.0  43455.0  24731.0
+{1: 38968, 2: 55487, 3: 19108}
+```
+
+`demand.table` is a DataFrame with the year as its index: every row adds up to the cells of the map with a class.
+The Markov demand is the chain of the period projected from the start map (what [[markov.fit]] and [[plus.demand]] do
+together): [`S.Markov.from_maps`][terraflux.simulate.Markov] with its 14 steps, then `project` for 31 years from 1999,
+rounded to whole cells that add up to the map's:
+
+```python
+chain = S.Markov.from_maps(lu[0], lu[2], steps=14)
+print(chain.single.round(3))
+print("forest to built per year:", round(chain.multi.loc[1, 2], 4))
+
+areas99 = {c: int((lu[2] == c).sum()) for c in chain.classes}
+proj = chain.project(areas99, steps=31)                      # 1999 (step 0) to 2030
+whole = np.floor(proj.to_numpy())
+rest = (proj.to_numpy().sum(axis=1) - whole.sum(axis=1)).round().astype(int)
+for i, r in enumerate(rest):                                 # the largest fractions round up
+    frac = proj.to_numpy()[i] - whole[i]
+    whole[i, np.argsort(-frac)[:r]] += 1
+markov = S.AreaDemand(pd.DataFrame(whole, index=range(1999, 2031), columns=chain.classes))
+print(markov.table.loc[2030].astype(int).to_dict(), "(linear:", far.table.loc[2030].astype(int).to_dict(), ")")
+```
+
+```text
+to        1      2      3
+from
+1     0.900  0.087  0.013
+2     0.000  0.996  0.004
+3     0.046  0.082  0.872
+forest to built per year: 0.0065
+{1: 38173, 2: 55541, 3: 19849} (linear: {1: 38968, 2: 55487, 3: 19108} )
+```
+
+The two agree within 1,000 cells per class at 2030, as the chart shows. A scenario is a table written by hand: the
+protection scenario keeps the forest at its 1985 cells, built land follows the trend and other land takes the rest.
+`AreaDemand` takes the table as a DataFrame (or an array with `classes`); the check that every row adds up is yours:
+
+```python
+table = trend.table.copy()
+table[1] = table.loc[1985, 1]                                # the forest of 1985, every year
+table[3] = table.loc[1985].sum() - table[1] - table[2]       # other land: what is left
+protection = S.AreaDemand(table)
+print(protection.table.iloc[[0, 7, 14]].astype(int).to_string())
+print((protection.table.sum(axis=1) == trend.table.sum(axis=1)).all(), "(every row adds up)")
+```
+
+```text
+          1      2      3
+time
+1985  49013  37122  27428
+1992  49013  40738  23812
+1999  49013  43455  21095
+True (every row adds up)
+```
+
+The demand enters the model as its second piece. [`S.Model`][terraflux.simulate.Model] takes the suitability, the
+demand and the allocation (here [`S.CLUE`][terraflux.simulate.CLUE], with the settings of the part's `lulcc.step`), the
+rules (the elasticities) and runs it with a seed; the generator is R's, as [[rng.r]] was, and the history of
+[[lulcc.history]] is kept by the model. Both demands, from 1985 to 1999:
+
+```python
+formulas = {1: ["elevation", "slope"], 2: ["elevation", "slope", "dist_built_1985"], 3: ["elevation", "slope"]}
+glm = S.LogisticRegression(formulas).fit(lu[0], drivers)
+clue = S.CLUE(jitter=0.0002, scale=1e-6, max_iter=1000, max_diff=50, mean_diff=50)
+rules = S.Rules(elasticity=[0.2, 0.2, 0.2])
+
+sims = {name: S.Model(glm, d, clue, rules).run(lu[0], drivers, seed=1)
+        for name, d in [("trend", trend), ("protection", protection)]}
+for name, sim in sims.items():
+    last = sim.steps.iloc[-1]
+    print(f"{name:10s}", {c: int(last[f"cells_{c}"]) for c in (1, 2, 3)}, "converged every step:",
+          bool(sim.steps.converged.all()))
+```
+
+```text
+trend      {1: 45355, 2: 43427, 3: 24781} converged every step: True
+protection {1: 49026, 2: 43409, 3: 21128} converged every step: True
+```
+
+The simulation holds `maps` (a layer per step, the start included) and `steps` (the passes of the allocation, whether it
+met the demand and the cells of each class). The area of forest is kept, and the forest is not: of the cells of
+forest of 1985, how many are something else in the simulated 1999, and how many new ones appear elsewhere:
+
+```python
+f85 = (lu[0] == 1).values
+f99 = (sims["protection"].maps[-1] == 1).values
+print(int((f85 & ~f99).sum()), "cells of forest lost,", int((~f85 & f99).sum()), "new cells of forest")
+```
+
+```text
+7734 cells of forest lost, 7747 new cells of forest
+```
+
+A demand that does not add up to the cells of the map cannot be met, and the allocation says so with a warning at
+every step (`converged` is false in `steps`); a class of the map without a column is the error of the part's pitfall.
+
 ## Settings that change the answer
 
 - **The dates of the observed maps.** With three maps, the linear demand has a kink at the middle date: the

@@ -434,6 +434,144 @@ their unit, the isometry, the `prune_factor`, the regrowth rule and whether logg
 Report the stock taken and the remaining quota per step, the area logged, and how far from the roads the harvest
 went; with several seeds, their range.
 
+### In Python
+
+[`S.ContinuousPatcher`][terraflux.simulate.ContinuousPatcher] is [[dinamica.continuous_patcher]]. The graph's forest,
+timber and road are the library's neutral landscape models (the same seeds give the same maps) and an
+expression on them, with the cells of 100 m that make the stock "per hectare" (the map keeps its cell size, which
+`unit="hectares"` reads):
+
+```python
+import numpy as np
+import terraflux as tf
+
+S = tf.simulate
+land = tf.nlm.random_cluster(200, 200, p=0.55, ai=[0.8, 0.2], resolution=100, seed=7, rescale=False)   # node 1
+richness = tf.nlm.gaussian_field(200, 200, resolution=100, autocorr_range=25, seed=8)                  # node 2
+road = tf.nlm.distance_gradient(200, 200, origin=[60, 60, 1, 200], resolution=100, rescale=False,
+                                nlmr_compat=False)                                                     # node 3: m
+timber = (10 + 30 * richness).where(land == 1, 0)                 # node 4: m3 per hectare
+access = np.exp(-road / 3000).where(timber > 0, 0)                # node 5: the probability of logging
+print(int((land == 1).sum()), "ha of forest,", round(float(timber.sum())), "m3 of timber")
+```
+
+```text
+30873 ha of forest, 764817 m3 of timber
+```
+
+One harvest is `allocate` (the node's `quota` and `seed`, and `mean`, `variance`, `isometry`, `unit`,
+`prune_factor` and `window` as settings of the object). The result holds the five outputs of the node: `stock`,
+`probability`, `taken`, `patches` and the numbers of the table, `remaining`, `n_patches` and `n_cells`:
+
+```python
+cp = S.ContinuousPatcher(mean=25, variance=200, isometry=1.5)     # patches of about 25 ha
+one = cp.allocate(timber, access, quota=15000, seed=1)
+print(one)
+print("taken", round(float(one.taken.sum()), 1), "m3 from", one.n_cells, "ha in", one.n_patches, "patches")
+print("farthest logged cell from the road:", round(float(road.where(one.taken > 0).max()) / 1000, 1), "km")
+```
+
+```text
+StockAllocation(24 patches, 619 cells, remaining quota -16.1248)
+taken 15016.1 m3 from 619 ha in 24 patches
+farthest logged cell from the road: 2.2 km
+```
+
+The part's table has 20 patches and 583 ha for the same quota: the application mixes the year into the seed (the year
+1 when the node has none), as `run` does below, so `allocate` with the same `seed` draws other patches, of the same
+kind. The loop of thirty years is `run`: a quota per year, the probability depleted from year to year (the part's
+`carry`), and `regrowth`, a function of the stock left and the year (the part's [[raster.calc]]); its first year is
+the part's harvest, to the cell:
+
+```python
+full = timber.values
+grow = lambda stock, year: np.minimum(full, stock + full / 30)    # a thirtieth of the original stock a year
+sim = cp.run(timber, access, [15000] * 30, regrowth=grow, seed=1)
+print(sim.steps.iloc[[0, 1, 9, 19, 29]].round(1).to_string())
+print("logged once:", int((sim.taken > 0).any("step").sum()), "ha of", int((land == 1).sum()))
+print("standing timber, thousand m3:", round(float(sim.stock[0].sum()) / 1e3), "->", round(float(sim.stock[-1].sum()) / 1e3))
+```
+
+```text
+        quota    taken  remaining  patches  cells
+step
+1     15000.0  15015.2      -15.2       20    583
+2     15000.0  15001.6       -1.6       23    606
+10    15000.0  15027.9      -27.9       30    622
+20    15000.0  15000.9       -0.9       27    610
+30    15000.0  15005.1       -5.1       45    654
+logged once: 18478 ha of 30873
+standing timber, thousand m3: 765 -> 547
+```
+
+`sim.steps` is the table of each year (`quota`, `taken`, `remaining`, `patches`, `cells`), `sim.stock` the stock at the
+start and after each year's harvest and regrowth, and `sim.taken` the stock taken each year. Each year uses its own
+random numbers (the seed and the year, as the part's `step` input), so a run is reproducible from one seed. A
+`remaining` above zero is the quota the forest could not supply; with a quota of 30,000 m3 a year, it turns positive
+when every cell has been logged once:
+
+```python
+big = cp.run(timber, access, [30000] * 30, regrowth=grow, seed=1)
+short = big.steps[big.steps.remaining > 0]
+print("quota met in", 30 - len(short), "of 30 years; first year short:", int(short.index[0]) if len(short) else None)
+```
+
+```text
+quota met in 25 of 30 years; first year short: 26
+```
+
+`run` keeps the logged cells out for good. A cutting cycle, where a cell is let back once its timber is back, is a loop of
+`allocate`, which takes and gives the maps (the stock after the harvest, the depleted probability), and the
+`reopen` rule of the part is one line:
+
+```python
+def years(quota, n, cycle, seed=1):
+    stock, prob, taken = timber.copy(), access.copy(), []
+    for year in range(1, n + 1):
+        a = cp.allocate(stock, prob, quota, seed=seed + year)
+        taken.append(float(a.taken.sum()))
+        stock = a.stock.copy(data=grow(a.stock.values, year))
+        prob = a.probability
+        if cycle:                                                  # back in the harvest when the timber is back
+            prob = prob.copy(data=np.where((full > 0) & (stock.values >= full), access.values, prob.values))
+    return np.array(taken)
+
+depleted, cycle = years(25000, 80, False), years(25000, 80, True)
+print("years with timber taken: depleted", int((depleted > 1000).sum()), "- with a cycle", int((cycle > 1000).sum()))
+```
+
+```text
+years with timber taken: depleted 31 - with a cycle 80
+```
+
+Without reopening, the harvest stops when every stand has been logged once; with the cycle the quota is met every year,
+as the chart below shows. The settings of the sliders below are the object's: `mean` (and `variance`), `isometry`
+(0 leaves single cells) and `prune_factor`, and the first year's harvest with each shows them:
+
+```python
+for label, patcher in [("mean 5 ha", S.ContinuousPatcher(mean=5, variance=5**2 / 3, isometry=1.5)),    # the sliders: variance
+                       ("mean 25 ha", S.ContinuousPatcher(mean=25, variance=25**2 / 3, isometry=1.5)),  # a third of the
+                       ("mean 100 ha", S.ContinuousPatcher(mean=100, variance=100**2 / 3, isometry=1.5)),  # mean squared
+                       ("isometry 0", S.ContinuousPatcher(mean=25, variance=200, isometry=0)),     # the other sliders: variance 200
+                       ("prune_factor 1", S.ContinuousPatcher(mean=25, variance=200, isometry=1.5, prune_factor=1)),
+                       ("prune_factor 100", S.ContinuousPatcher(mean=25, variance=200, isometry=1.5, prune_factor=100))]:
+    year1 = patcher.run(timber, access, [15000], seed=1)             # the first year, as the sliders show it
+    row, d = year1.steps.iloc[0], road.where(year1.taken[0] > 0)
+    print(f"{label:17s} {int(row.patches):4d} patches, {int(row.cells):4d} ha, mean distance {float(d.mean()) / 1000:.1f} km")
+```
+
+```text
+mean 5 ha          123 patches,  598 ha, mean distance 0.8 km
+mean 25 ha          23 patches,  619 ha, mean distance 0.9 km
+mean 100 ha          9 patches,  624 ha, mean distance 0.6 km
+isometry 0         609 patches,  609 ha, mean distance 0.8 km
+prune_factor 1      21 patches,  570 ha, mean distance 0.2 km
+prune_factor 100    21 patches,  599 ha, mean distance 2.5 km
+```
+
+A map without a coordinate system has no cell area: `unit="hectares"` then stops with an error that says so, and
+`unit="cells"` takes the stock per cell and the sizes in cells. An isometry above 2 is an error too.
+
 ## Settings that change the answer
 
 The sliders below are real runs of the models above, each with one setting changed.
