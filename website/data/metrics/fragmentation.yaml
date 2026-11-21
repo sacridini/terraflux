@@ -1,0 +1,946 @@
+family: fragmentation
+title: Fragmentation
+order: 100
+source: "GuidosToolbox (FAD, FOS, contagion, clustering, entropy, landscape mosaic) and GraySpatCon / Riitters et al."
+intro: |
+  Moving-window measures of how much habitat surrounds each habitat cell and how it is arranged: the foreground area
+  density (FAD) and its six fragmentation classes, the fixed observation scale (FOS) with its three methods, Riitters'
+  contagion and clustering, the spatial entropy, GraySpatCon's statistics of a percentage map, and the landscape mosaic
+  of agriculture, natural and developed land. They are the measures of the
+  [fragmentation tutorials](../../tutorials/fragmentation/fragmentation-and-habitat-loss/), and of GuidosToolbox.
+
+  The cards use the three maps of those tutorials: `forest`, the forest map of GuidosToolbox's sample (1000 x 1000 cells
+  of 25 m, coded 0 missing, 1 background, 2 forest); `cover`, GraySpatCon's sample of the percentage of tree cover of the
+  conterminous United States (1289 x 1990 cells of 2.43 km, 0 to 100, 255 missing); and `three`, the CORINE land cover
+  around Hannover in the mosaic's three groups (1 agriculture, 2 natural, 3 developed, 0 missing: the water is in none).
+
+  A window is a square of an odd number of cells around each cell. The maps of percentages are bytes, as in
+  GuidosToolbox: 0 to 100 on the habitat, 101 on the background and 102 on missing cells, so their values are whole
+  percent; the cards keep the habitat cells (`.where(forest == 2)`), so that the mean of a map is the mean over the
+  habitat.
+example: |
+  import terraflux as tf
+
+  # forest of GuidosToolbox's sample (1000 x 1000 cells of 25 m): 0 missing, 1 background, 2 forest
+  forest = tf.load_raster(tf.example_data("input"))
+  # % tree cover of the conterminous United States (GraySpatCon's sample): 0-100, 255 missing
+  cover = tf.load_raster(tf.example_data("gscinput"))
+  # CORINE around Hannover in the landscape mosaic's three groups: 1 agriculture, 2 natural, 3 developed, 0 missing
+  three = tf.reclassify(tf.load_raster(tf.example_data("clc")), [(1, 12, 3), (12, 23, 1), (23, 40, 2)], others=0)
+metrics:
+  # impl: extern/terraflux-py/src/cpp/gtb/fad.cpp:57-68
+  - id: frag_fad
+    name: Foreground area density (FAD)
+    level: cell
+    theme: density
+    unit: "%"
+    range: "0 to 100"
+    aliases: [FAD, forest area density, foreground density, Pf]
+    what: |
+      The share of habitat (foreground) among the cells of a window centred on each habitat cell: how much of the
+      neighbourhood is habitat. It is the basis of the six fragmentation classes, from rare to intact.
+    use: |
+      Use it for the local amount of habitat at one scale of observation, the window; quote the window in metres with the
+      result. It says how much habitat there is around a cell, not how it is arranged: contagion and clustering add that.
+      The value is quantised as in GuidosToolbox: the proportion is cut to steps of 1/254, rounded to a whole percent and
+      held at 99 unless the window has no background at all, so 100 means an all-habitat window.
+    formula: 'FAD = 100 \, \frac{n_f}{n_v}'
+    symbols:
+      'n_f': the habitat cells (code 2) in the window
+      'n_v': the valid cells of the window, all but the missing (0) and the non-fragmenting special background (4); at the border of the map the window is clipped, not padded
+    python: 'tf.fad(forest, window_size=27).density.where(forest == 2)'
+    operator: fragmentation.fad
+    setting: window = 27
+    api: terraflux.fad.fad
+    refs:
+      - "Riitters, K. H., Wickham, J. D., O'Neill, R. V., Jones, K. B., Smith, E. R., Coulston, J. W., et al. (2002). Fragmentation of continental United States forests. *Ecosystems*, 5(8), 815-822. https://doi.org/10.1007/s10021-002-0209-2"
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/fad.cpp:320-338
+  - id: frag_fad_multiscale
+    name: Multiscale FAD
+    level: cell
+    theme: density
+    unit: "%"
+    range: "0 to 100"
+    aliases: [multiscale FAD, average of scales]
+    what: |
+      The mean of the FAD maps of several windows (by default 7, 13, 27, 81 and 243 cells), which blends the near and the
+      broad neighbourhood in one map. It is classified into the same six classes as FAD.
+    use: |
+      Use it to rank habitat cells by the habitat around them across scales, when no single scale is the right one for
+      the question. Quote the list of windows with the result.
+    formula: 'FAD^{ms}_i = \operatorname{round}\left(\frac{1}{K}\sum_{k=1}^{K} FAD^{(k)}_i\right)'
+    symbols:
+      'K': the number of windows
+      'FAD^{(k)}_i': the FAD of cell \(i\) in window \(k\), in whole percent; the cells that are not habitat keep their codes of background and missing
+    python: 'tf.fad_multiscale(forest).multiscale_map.where(forest == 2)'
+    operator: fragmentation.fad_multiscale
+    setting: windows = [7, 13, 27, 81, 243]
+    api: terraflux.fad.fad_multiscale
+    refs:
+      - "Riitters, K. H., Wickham, J. D., O'Neill, R. V., Jones, K. B., Smith, E. R., Coulston, J. W., et al. (2002). Fragmentation of continental United States forests. *Ecosystems*, 5(8), 815-822. https://doi.org/10.1007/s10021-002-0209-2"
+
+  # impl: extern/terraflux-py/src/terraflux/fos.py:262-279
+  - id: frag_fos_fad
+    name: FOS by foreground area density
+    level: cell
+    theme: density
+    unit: "%"
+    range: "0 to 100"
+    aliases: [FOS, fixed observation scale, FOS-FAD]
+    what: |
+      The fixed observation scale (FOS) map with the FAD method: the share of habitat in the window, taken as the
+      connectivity of each habitat cell, with GuidosToolbox's reports (class shares, ECA, coherence). On a map of
+      percent cover the habitat is the cover at or above a threshold, and the value is the mean cover in the window.
+    use: |
+      The same reading as FAD. Fragmentation in GuidosToolbox's sense is the complement, 100 % less this connectivity.
+      [`tf.fos`][terraflux.fos.fos] reads a map of 0 to 100 as percent cover by its values (`grayscale=True` forces it).
+    formula: 'FOS^{FAD}_i = 100 \, \frac{n_f}{n_v}'
+    symbols:
+      'n_f': the habitat cells of the window; on a percent map, the cells with a cover of at least `gray_threshold` (30 by default), and the value is the window's mean cover
+      'n_v': the valid cells of the window (the special background 4 counted as missing)
+    python: 'tf.fos(forest, window_size=27, method="FAD").map.where(forest == 2)'
+    operator: fragmentation.fos
+    setting: method = "FAD"
+    api: terraflux.fos.fos
+    refs:
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/fos.cpp:46-70
+  - id: frag_fos_fed
+    name: FOS by foreground edge density
+    level: cell
+    theme: clustering
+    unit: "%"
+    range: "0 to 100"
+    aliases: [FED, foreground edge density, FOS-FED, GraySpatCon clustering]
+    what: |
+      The connectivity of each habitat cell from the pairs of neighbouring cells in its window: a pair of two habitat
+      cells counts fully, a habitat-background pair half, a background pair nothing. It mixes the amount of habitat with
+      how much edge cuts it.
+    use: |
+      Lower than FAD where the habitat is cut by many edges, so the difference between the two maps points to edge. On a
+      percent map it is the same mean of the pairs' values.
+    formula: 'FED = 100 \, \frac{E_{ff} + \tfrac{1}{2} E_{fb}}{E_{v}}'
+    symbols:
+      'E_{ff}': the pairs (a cell and its right or lower neighbour, both inside the window) with both cells habitat
+      'E_{fb}': the pairs with one habitat and one background cell
+      'E_{v}': the pairs without a missing cell; the cells outside the map count as missing, so the window is padded, not clipped. On a map of 100 for habitat and 0 for background, this is GraySpatCon's clustering, the mean of \((i + j)/2\) over the pairs
+    python: 'tf.fos(forest, window_size=27, method="FED").map.where(forest == 2)'
+    operator: fragmentation.fos
+    setting: method = "FED"
+    api: terraflux.fos.fos
+    refs:
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/contagion.cpp:300-350
+  - id: frag_fos_fac
+    name: FOS by foreground area clustering
+    level: cell
+    theme: clustering
+    unit: "%"
+    range: "0 to 100"
+    aliases: [FOS-FAC]
+    what: |
+      The connectivity of each habitat cell as the share of habitat-habitat pairs among all the valid pairs of
+      neighbouring cells in the window. Binary maps only.
+    use: |
+      Choose it to measure how clustered the habitat is rather than how much there is; it is the FOS form of the
+      moving-window clustering (FAC) card.
+    formula: 'FAC = 100 \, \frac{E_{ff}}{E_{v}}'
+    symbols:
+      'E_{ff}': the horizontal and vertical pairs of neighbours, both inside the window, with both cells habitat
+      'E_{v}': the pairs without a missing cell (missing and non-fragmenting special background left out)
+    python: 'tf.fos(forest, window_size=27, method="FAC").map.where(forest == 2)'
+    operator: fragmentation.fos
+    setting: method = "FAC"
+    api: terraflux.fos.fos
+    refs:
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/contagion.cpp:70-226
+  - id: frag_pff
+    name: Contagion (Pff)
+    level: cell
+    theme: clustering
+    unit: "proportion (or % as a byte)"
+    range: "0 to 1 (0 to 100 as a byte)"
+    aliases: [Pff, contagion, adjacency, conditional probability of habitat next to habitat]
+    what: |
+      The chance that a neighbour of a habitat cell is habitat too, counted over the pairs of neighbouring cells of a
+      window. High values mean that the habitat is aggregated; the value is mapped on the habitat cells only.
+    use: |
+      Pff looks only at the pairs that involve habitat, so a window of solid habitat gives 1 and one with a single habitat
+      cell gives 0, whatever the amount around. Read it with FAD (Pf): Riitters' fragmentation categories (interior,
+      perforated, edge, transitional, patch) are a rule on the two. `as_byte=False` gives a proportion with no value off
+      the habitat; the default byte map follows GuidosToolbox (steps of 1/254, whole percent, 99 unless exactly 1, 101
+      background, 102 missing).
+    formula: 'P_{ff} = \frac{E_{ff}}{E_{ff} + E_{fb}}'
+    symbols:
+      'E_{ff}': the horizontal and vertical pairs of neighbours with both cells habitat (code 2)
+      'E_{fb}': the pairs with one habitat and one background (code 1) cell; the pairs with a missing cell are left out, and the cells outside the map count as missing
+    python: 'tf.contagion_pff(forest, window_size=13, as_byte=False)'
+    operator: fragmentation.contagion
+    setting: window = 13
+    api: terraflux.contagion.contagion_pff
+    refs:
+      - "Riitters, K., Wickham, J., O'Neill, R., Jones, B., & Smith, E. (2000). Global-scale patterns of forest fragmentation. *Conservation Ecology*, 4(2), 3. https://doi.org/10.5751/ES-00209-040203"
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/contagion.cpp:270-355
+  - id: frag_fac
+    name: Foreground area clustering (FAC)
+    level: cell
+    theme: clustering
+    unit: "proportion (or % as a byte)"
+    range: "0 to 1 (0 to 100 as a byte)"
+    aliases: [FAC, foreground area clustering, clustering]
+    what: |
+      The share of all the valid pairs of neighbouring cells in the window that are habitat-habitat. Unlike Pff it keeps
+      every pair of the window in the denominator, so it grows both with clustering and with the amount of habitat.
+    use: |
+      Prefer it to Pff when the measure should also reflect how much of the window is habitat. The byte coding is that
+      of Pff.
+    formula: 'FAC = \frac{E_{ff}}{E_{v}}'
+    symbols:
+      'E_{ff}': the pairs of neighbours (a cell and its right or lower one) with both cells habitat
+      'E_{v}': all the pairs of neighbours without a missing cell
+    python: 'tf.clustering_fac(forest, window_size=13, as_byte=False)'
+    operator: fragmentation.clustering
+    setting: window = 13
+    api: terraflux.contagion.clustering_fac
+    refs:
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/fad.cpp:82-92
+  - id: frag_fad_rare
+    name: Rare (FAD below 10 %)
+    level: class
+    theme: fragmentation classes
+    unit: "% of the habitat"
+    range: "0 to 100"
+    aliases: [rare, fragmentation class 1]
+    what: |
+      The share of the habitat cells whose window is almost all background (FAD under 10 %): habitat scarcely surrounded
+      by more habitat.
+    use: |
+      Read the six class shares together: they add up to 100 % of the habitat, and each depends on the window, so compare
+      them only at one window size.
+    formula: 'S_{rare} = 100 \, \frac{\#\{i \in F : FAD_i < 10\}}{N_f}'
+    symbols:
+      'F': the habitat cells
+      'N_f': their number
+      'FAD_i': the FAD of cell \(i\), in whole percent
+    python: 'tf.fad(forest, window_size=27).stats.loc[0, "rare_%"]'
+    operator: fragmentation.fad
+    setting: window = 27
+    api: terraflux.fad.fad
+    refs:
+      - "Riitters, K. H., Wickham, J. D., O'Neill, R. V., Jones, K. B., Smith, E. R., Coulston, J. W., et al. (2002). Fragmentation of continental United States forests. *Ecosystems*, 5(8), 815-822. https://doi.org/10.1007/s10021-002-0209-2"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/fad.cpp:82-92
+  - id: frag_fad_patchy
+    name: Patchy (FAD 10 to 40 %)
+    level: class
+    theme: fragmentation classes
+    unit: "% of the habitat"
+    range: "0 to 100"
+    aliases: [patchy, fragmentation class 2]
+    what: |
+      The share of the habitat cells with a FAD of 10 % up to 40 %: habitat in small amounts among mostly other cover.
+    use: |
+      With rare, the habitat that lives in a matrix of something else.
+    formula: 'S_{patchy} = 100 \, \frac{\#\{i \in F : 10 \le FAD_i < 40\}}{N_f}'
+    symbols:
+      'F': the habitat cells
+      'N_f': their number
+      'FAD_i': the FAD of cell \(i\), in whole percent
+    python: 'tf.fad(forest, window_size=27).stats.loc[0, "patchy_%"]'
+    operator: fragmentation.fad
+    setting: window = 27
+    api: terraflux.fad.fad
+    refs:
+      - "Riitters, K. H., Wickham, J. D., O'Neill, R. V., Jones, K. B., Smith, E. R., Coulston, J. W., et al. (2002). Fragmentation of continental United States forests. *Ecosystems*, 5(8), 815-822. https://doi.org/10.1007/s10021-002-0209-2"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/fad.cpp:82-92
+  - id: frag_fad_transitional
+    name: Transitional (FAD 40 to 60 %)
+    level: class
+    theme: fragmentation classes
+    unit: "% of the habitat"
+    range: "0 to 100"
+    aliases: [transitional, fragmentation class 3]
+    what: |
+      The share of the habitat cells with a FAD of 40 % up to 60 %: about as much habitat as background around the cell.
+    use: |
+      These cells sit where a matrix of habitat turns into a matrix of non-habitat, the zone where a little more loss
+      changes which cover dominates.
+    formula: 'S_{trans} = 100 \, \frac{\#\{i \in F : 40 \le FAD_i < 60\}}{N_f}'
+    symbols:
+      'F': the habitat cells
+      'N_f': their number
+      'FAD_i': the FAD of cell \(i\), in whole percent
+    python: 'tf.fad(forest, window_size=27).stats.loc[0, "transitional_%"]'
+    operator: fragmentation.fad
+    setting: window = 27
+    api: terraflux.fad.fad
+    refs:
+      - "Riitters, K. H., Wickham, J. D., O'Neill, R. V., Jones, K. B., Smith, E. R., Coulston, J. W., et al. (2002). Fragmentation of continental United States forests. *Ecosystems*, 5(8), 815-822. https://doi.org/10.1007/s10021-002-0209-2"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/fad.cpp:82-92
+  - id: frag_fad_dominant
+    name: Dominant (FAD 60 to 90 %)
+    level: class
+    theme: fragmentation classes
+    unit: "% of the habitat"
+    range: "0 to 100"
+    aliases: [dominant, fragmentation class 4]
+    what: |
+      The share of the habitat cells with a FAD of 60 % up to 90 %: the habitat is the matrix, with a clear share of other
+      cover.
+    use: |
+      With interior and intact, the habitat that sits within mostly habitat.
+    formula: 'S_{dom} = 100 \, \frac{\#\{i \in F : 60 \le FAD_i < 90\}}{N_f}'
+    symbols:
+      'F': the habitat cells
+      'N_f': their number
+      'FAD_i': the FAD of cell \(i\), in whole percent
+    python: 'tf.fad(forest, window_size=27).stats.loc[0, "dominant_%"]'
+    operator: fragmentation.fad
+    setting: window = 27
+    api: terraflux.fad.fad
+    refs:
+      - "Riitters, K. H., Wickham, J. D., O'Neill, R. V., Jones, K. B., Smith, E. R., Coulston, J. W., et al. (2002). Fragmentation of continental United States forests. *Ecosystems*, 5(8), 815-822. https://doi.org/10.1007/s10021-002-0209-2"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/fad.cpp:82-92
+  - id: frag_fad_interior
+    name: Interior (FAD 90 % to under 100 %)
+    level: class
+    theme: fragmentation classes
+    unit: "% of the habitat"
+    range: "0 to 100"
+    aliases: [interior, fragmentation class 5]
+    what: |
+      The share of the habitat cells with a FAD of at least 90 % but not a full 100 %: almost entirely surrounded by
+      habitat. In FOS with five classes, this class holds the intact cells too.
+    use: |
+      Habitat deep inside large areas of it; intact is the strictest class.
+    formula: 'S_{int} = 100 \, \frac{\#\{i \in F : 90 \le FAD_i < 100\}}{N_f}'
+    symbols:
+      'F': the habitat cells
+      'N_f': their number
+      'FAD_i': the FAD of cell \(i\), in whole percent; it is 100 only for a window with no background cell
+    python: 'tf.fad(forest, window_size=27).stats.loc[0, "interior_%"]'
+    operator: fragmentation.fad
+    setting: window = 27
+    api: terraflux.fad.fad
+    refs:
+      - "Riitters, K. H., Wickham, J. D., O'Neill, R. V., Jones, K. B., Smith, E. R., Coulston, J. W., et al. (2002). Fragmentation of continental United States forests. *Ecosystems*, 5(8), 815-822. https://doi.org/10.1007/s10021-002-0209-2"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/fad.cpp:82-92
+  - id: frag_fad_intact
+    name: Intact (FAD 100 %)
+    level: class
+    theme: fragmentation classes
+    unit: "% of the habitat"
+    range: "0 to 100"
+    aliases: [intact, fragmentation class 6]
+    what: |
+      The share of the habitat cells whose whole window is habitat, with no background cell in it.
+    use: |
+      A strict measure that shrinks fast as the window grows: on the example it is 52 % of the forest in windows of 7
+      cells, 7 % in windows of 27 and 0 in windows of 81 and 243, as for almost any real landscape.
+    formula: 'S_{intact} = 100 \, \frac{\#\{i \in F : FAD_i = 100\}}{N_f}'
+    symbols:
+      'F': the habitat cells
+      'N_f': their number
+      'FAD_i': the FAD of cell \(i\); 100 only when every valid cell of the window is habitat
+    python: 'tf.fad(forest, window_size=27).stats.loc[0, "intact_%"]'
+    operator: fragmentation.fad
+    setting: window = 27
+    api: terraflux.fad.fad
+    refs:
+      - "Riitters, K. H., Wickham, J. D., O'Neill, R. V., Jones, K. B., Smith, E. R., Coulston, J. W., et al. (2002). Fragmentation of continental United States forests. *Ecosystems*, 5(8), 815-822. https://doi.org/10.1007/s10021-002-0209-2"
+
+  # impl: extern/terraflux-py/src/terraflux/fos.py:126-138
+  - id: frag_fos_classes
+    name: FOS class shares (5 or 6 classes)
+    level: class
+    theme: fragmentation classes
+    unit: "% of the habitat"
+    range: "0 to 100"
+    aliases: [FOS classes, fragmentation classes]
+    what: |
+      The share of the habitat cells in each fragmentation class of a FOS map: rare (below 10), patchy (10 to 40),
+      transitional (40 to 60), dominant (60 to 90), interior (90 to 100) and, with six classes, intact (exactly 100).
+      With five classes, interior covers 90 to 100.
+    use: |
+      The `stats` of the result has a row per class, and the shares add up to 100. The classes have the same names for
+      the three methods but not the same meaning: say which method and window they come from.
+    formula: 'S_c = 100 \, \frac{\#\{i \in F : lo_c \le v_i < hi_c\}}{N_f}'
+    symbols:
+      'v_i': the FOS value of habitat cell \(i\), in whole percent
+      'lo_c, hi_c': the edges of class \(c\) above; the last class takes \(v_i \le 100\) (five classes) or \(v_i = 100\) (intact)
+      'F': the habitat cells, \(N_f\) their number
+    python: 'tf.fos(forest, window_size=27, classes=6).stats'
+    operator: fragmentation.fos
+    setting: classes = 6
+    api: terraflux.fos.fos
+    refs:
+      - "Riitters, K. H., Wickham, J. D., O'Neill, R. V., Jones, K. B., Smith, E. R., Coulston, J. W., et al. (2002). Fragmentation of continental United States forests. *Ecosystems*, 5(8), 815-822. https://doi.org/10.1007/s10021-002-0209-2"
+
+  # impl: extern/terraflux-py/src/terraflux/fad.py:168-180
+  - id: frag_fad_average
+    name: Average FAD
+    level: landscape
+    theme: map summaries
+    unit: "%"
+    range: "0 to 100"
+    aliases: [average FAD, mean FAD]
+    what: |
+      The mean FAD over all the habitat cells of the map, at one window: how much habitat an average habitat cell has
+      around it.
+    use: |
+      Compare maps or dates at the same window. It falls as the window grows (on the example, 85.2 % in windows of 7
+      cells, 73.5 % in 27, 51.4 % in 243), so quote the window with it.
+    formula: '\overline{FAD} = \frac{1}{N_f} \sum_{i \in F} FAD_i'
+    symbols:
+      'F': the habitat cells of the map
+      'N_f': their number
+      'FAD_i': the FAD of cell \(i\), in whole percent
+    python: 'tf.fad(forest, window_size=27).stats.loc[0, "average_fad"]'
+    operator: fragmentation.fad
+    setting: window = 27
+    api: terraflux.fad.fad
+    refs:
+      - "Riitters, K. H., Wickham, J. D., O'Neill, R. V., Jones, K. B., Smith, E. R., Coulston, J. W., et al. (2002). Fragmentation of continental United States forests. *Ecosystems*, 5(8), 815-822. https://doi.org/10.1007/s10021-002-0209-2"
+
+  # impl: extern/terraflux-py/src/terraflux/fad.py:264-279
+  - id: frag_fad_avcon
+    name: Average connectivity (AVCON) of FAD
+    level: landscape
+    theme: map summaries
+    unit: "%"
+    range: "0 to 100"
+    aliases: [AVCON, average connectivity]
+    what: |
+      The average FAD of the habitat, scaled by the share of the reporting area that is habitat: one number that mixes
+      how dense the habitat is around its cells with how much habitat the map has.
+    use: |
+      Compare reporting units with different amounts of habitat; it is 100 only when the unit is all habitat. The
+      multiscale result gives it for each window and for the average of the windows.
+    formula: 'AVCON = \overline{FAD} \, \frac{N_f}{N_r}'
+    symbols:
+      '\overline{FAD}': the average FAD of the habitat cells
+      'N_f': the habitat cells
+      'N_r': the cells of the reporting unit, all those that are not missing (code 0)
+    python: 'tf.fad_multiscale(forest).stats.set_index("observation_scale")["avcon"]'
+    operator: fragmentation.fad_multiscale
+    api: terraflux.fad.fad_multiscale
+    refs:
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/terraflux/fos.py:277
+  - id: frag_fos_average
+    name: Average FOS value
+    level: landscape
+    theme: map summaries
+    unit: "%"
+    range: "0 to 100"
+    what: |
+      The mean of the FOS map over the habitat cells, which GuidosToolbox reports as "Average FAD (or FED, FAC) at
+      WS" and the window.
+    use: |
+      The headline number of a FOS run; quote the method and the window with it.
+    formula: '\overline{FOS} = \frac{1}{N_f} \sum_{i \in F} FOS_i'
+    symbols:
+      'F': the habitat cells
+      'N_f': their number
+      'FOS_i': the FOS value of cell \(i\) with the chosen method
+    python: 'tf.fos(forest, window_size=27).average'
+    operator: fragmentation.fos
+    setting: window = 27
+    api: terraflux.fos.fos
+    refs:
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/terraflux/fos.py:279
+  - id: frag_fos_avcon
+    name: Average connectivity (AVCON) of FOS
+    level: landscape
+    theme: map summaries
+    unit: "%"
+    range: "0 to 100"
+    what: |
+      The average FOS value scaled by the habitat's share of the reporting unit, so that a map with little habitat scores
+      low however dense that habitat is.
+    use: |
+      Good for comparing units with unequal amounts of habitat, but it mixes amount and arrangement in one number.
+    formula: 'AVCON = \overline{FOS} \, \frac{N_f}{N_r}'
+    symbols:
+      '\overline{FOS}': the average FOS value of the habitat cells
+      'N_f': the habitat cells
+      'N_r': the cells of the reporting unit, all those that are not missing
+    python: 'tf.fos(forest, window_size=27).avcon'
+    operator: fragmentation.fos
+    setting: window = 27
+    api: terraflux.fos.fos
+    refs:
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/terraflux/fos.py:244-247
+  - id: frag_fos_eca
+    name: Equivalent connected area (ECA) of FOS
+    level: landscape
+    theme: map summaries
+    unit: cells
+    range: "0 to the habitat area"
+    aliases: [ECA, equivalent connected area]
+    what: |
+      The area of a single patch that would be as connected as the habitat of the map: the patches add up as the square
+      root of the sum of their squared areas, so one large patch counts more than many small ones of the same total.
+    use: |
+      Follow the habitat's connectivity through time with it, beside the habitat area. It is in cells here, and it takes
+      the patches as connected components with no dispersal distance: the [connectivity](../connectivity/) cards give the
+      ECA of a habitat graph with one.
+    formula: 'ECA = \sqrt{\sum_{p=1}^{n} a_p^{2}}'
+    symbols:
+      'a_p': the area, in cells, of habitat patch \(p\) (8-connected by default, 4 with `connectivity=4`)
+      'n': the number of patches
+    python: 'tf.fos(forest, window_size=27).eca'
+    operator: fragmentation.fos
+    api: terraflux.fos.fos
+    refs:
+      - "Saura, S., Estreguil, C., Mouton, C., & Rodríguez-Freire, M. (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990-2000). *Ecological Indicators*, 11, 407-416."
+
+  # impl: extern/terraflux-py/src/terraflux/fos.py:304
+  - id: frag_fos_coh
+    name: Coherence (COH)
+    level: landscape
+    theme: map summaries
+    unit: "%"
+    range: "more than 0, up to 100"
+    aliases: [coherence, degree of coherence, DOC]
+    what: |
+      ECA as a percentage of the largest it could be, with all the habitat in one patch: 100 % when the habitat is one
+      patch, less as it splits.
+    use: |
+      It does not depend on the size of the reporting unit, unlike the coherence over the reporting unit.
+    formula: 'COH = 100 \, \frac{ECA}{ECA_{max}}, \qquad ECA_{max} = \sum_p a_p'
+    symbols:
+      'ECA': the equivalent connected area
+      'ECA_{max}': the habitat area, in cells
+    python: 'tf.fos(forest, window_size=27).coherence'
+    operator: fragmentation.fos
+    api: terraflux.fos.fos
+    refs:
+      - "Saura, S., Estreguil, C., Mouton, C., & Rodríguez-Freire, M. (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990-2000). *Ecological Indicators*, 11, 407-416."
+
+  # impl: extern/terraflux-py/src/terraflux/fos.py:304
+  - id: frag_fos_coh_ru
+    name: Coherence over the reporting unit (COH_ru)
+    level: landscape
+    theme: map summaries
+    unit: "%"
+    range: "more than 0, up to 100"
+    aliases: [COH_ru]
+    what: |
+      ECA divided by the area of the whole reporting unit rather than by the habitat's: low both when the habitat is
+      scarce and when it is split.
+    use: |
+      Use it to compare units of the same size, or when the whole unit is what the question is about.
+    formula: 'COH_{ru} = 100 \, \frac{ECA}{N_r}'
+    symbols:
+      'ECA': the equivalent connected area, in cells
+      'N_r': the cells of the reporting unit, all those that are not missing
+    python: 'tf.fos(forest, window_size=27).coherence_ru'
+    operator: fragmentation.fos
+    api: terraflux.fos.fos
+    refs:
+      - "Saura, S., Estreguil, C., Mouton, C., & Rodríguez-Freire, M. (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990-2000). *Ecological Indicators*, 11, 407-416."
+
+  # impl: extern/terraflux-py/src/terraflux/fos.py:244-258
+  - id: frag_fos_patches
+    name: Habitat patches, average patch size and habitat share of FOS
+    level: landscape
+    theme: map summaries
+    unit: count; cells; %
+    range: "0 or more"
+    aliases: [number of patches, average patch size, APS]
+    what: |
+      Three numbers that FOS reports: the number of habitat patches (connected components), their average size, and the
+      habitat as a percentage of the reporting unit (`n_patches`, `average_patch_size`, `fg_area_pct`).
+    use: |
+      Plain description of the habitat, to read beside the connectivity. With 4-connectivity there are more patches.
+    formula:
+      - 'APS = \frac{N_f}{n}'
+      - 'F_{\%} = 100 \, \frac{N_f}{N_r}'
+    symbols:
+      'n': the number of habitat patches (8-connected by default)
+      'N_f': the habitat cells
+      'N_r': the cells of the reporting unit
+    python: |
+      fos = tf.fos(forest, window_size=27)
+      fos.n_patches, fos.average_patch_size, fos.fg_area_pct
+    operator: fragmentation.fos
+    setting: connectivity = 8
+    api: terraflux.fos.fos
+
+  # impl: extern/terraflux-py/src/cpp/gtb/entropy.cpp:78-125
+  - id: frag_entropy
+    name: Spatial entropy
+    level: landscape
+    theme: entropy
+    unit: "%"
+    range: "0 to 100"
+    aliases: [spatial entropy, joint directional entropy, spatial joint entropy]
+    what: |
+      The Shannon entropy of the differences between every cell and its eight neighbours, among habitat, background and
+      missing, scaled to 0-100: 0 for a uniform map, rising as the pattern gets more mixed.
+    use: |
+      One number for the heterogeneity of a map. It is not the Shannon diversity of the classes: it counts transitions
+      between neighbours, not class areas. It is highest near 50 % habitat, so compare it between maps with similar
+      amounts of habitat, or read it with FAD.
+    formula: 'H_{n} = 100 \, \frac{-\sum_{d} p_d \ln p_d}{1.5 \ln 2}'
+    symbols:
+      'd': the coded difference between a cell and one of its 8 neighbours (habitat 7, background 3, missing 0; the border of the map is replicated)
+      'p_d': the share of the \(8N\) pairs of a cell and a neighbour with difference \(d\), \(N\) the cells of the map
+      '1.5 \ln 2': the normalising maximum (1.5 bits); the result is clipped to 0-100
+    python: 'tf.spatial_entropy(forest).entropy_index'
+    operator: fragmentation.entropy
+    api: terraflux.entropy.spatial_entropy
+    refs:
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/entropy.cpp:127-162
+  - id: frag_entropy_map
+    name: Spatial entropy in a window
+    level: cell
+    theme: entropy
+    unit: "%"
+    range: "0 to 100"
+    aliases: [local spatial entropy, entropy map]
+    what: |
+      The same normalised entropy within a square window around each cell, which maps where the pattern is mixed. The
+      window spans `2 * (window_size // 2) + 1` cells, so an even size gives the next odd one; the default is 50.
+    use: |
+      Use it to find the zones of transition of a pattern: dark where the window is all habitat or all background,
+      bright where they are most intermingled. A window needs many cells for a stable count of the differences.
+    formula: 'H_{n}(x) = 100 \, \frac{-\sum_{d} p_d \ln p_d}{1.5 \ln 2}'
+    symbols:
+      'p_d': within the window around cell \(x\), the share of the pairs of a cell and a neighbour (8 directions) with difference \(d\); the window is clipped at the border of the map
+    python: 'tf.spatial_entropy_map(forest, window_size=27)'
+    operator: fragmentation.entropy_map
+    setting: window = 27
+    api: terraflux.entropy.spatial_entropy_map
+    refs:
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/grayspatcon.cpp:51-57
+  - id: frag_gray_mean
+    name: Gray-level window mean
+    level: cell
+    theme: gray-level window statistics
+    unit: the map's unit (here % cover)
+    range: "0 to 100"
+    aliases: [GraySpatCon, average, focal mean, moving average]
+    what: |
+      The mean of the values (0 to 100) in the window around each cell: a moving average of a percentage map.
+    use: |
+      For maps of percent cover; the result is a float32 map. With `mask_missing=True` (the default) the cells that are
+      missing themselves stay missing, as -0.01; the card keeps the cells with a value (`.where(cover <= 100)`).
+    formula: '\mu = \frac{1}{n} \sum_{k=0}^{100} k \, f_k'
+    symbols:
+      'f_k': the number of cells of the window with value \(k\)
+      'n': the valid cells of the window, \(\sum_k f_k\); the missing cells (above 100) are skipped, and the window is clipped at the border of the map
+    python: 'tf.gray_spatial_convolution(cover, metric="mean", window_size=7).where(cover <= 100)'
+    operator: fragmentation.gray_convolution
+    setting: metric = "mean"
+    api: terraflux.grayspatcon.gray_spatial_convolution
+    refs:
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/grayspatcon.cpp:59-67
+  - id: frag_gray_median
+    name: Gray-level window median
+    level: cell
+    theme: gray-level window statistics
+    unit: the map's unit (here % cover)
+    range: "0 to 100"
+    aliases: [focal median]
+    what: |
+      The median of the values in the window; with an even number of valid cells, the lower of the two middle values.
+    use: |
+      Robust to a few extreme cells; good for noisy cover maps.
+    formula: '\tilde{x} = \min\left\{k : \sum_{j \le k} f_j \ge \left\lfloor \frac{n+1}{2} \right\rfloor\right\}'
+    symbols:
+      'f_j': the cells of the window with value \(j\)
+      'n': the valid cells of the window; \(\lfloor (n+1)/2 \rfloor\) is a whole division, so an even \(n\) gives the lower middle value
+    python: 'tf.gray_spatial_convolution(cover, metric="median", window_size=7).where(cover <= 100)'
+    operator: fragmentation.gray_convolution
+    setting: metric = "median"
+    api: terraflux.grayspatcon.gray_spatial_convolution
+
+  # impl: extern/terraflux-py/src/cpp/gtb/grayspatcon.cpp:69-77
+  - id: frag_gray_majority
+    name: Gray-level window majority
+    level: cell
+    theme: gray-level window statistics
+    unit: the map's unit (here % cover)
+    range: "0 to 100"
+    aliases: [mode, focal majority]
+    what: |
+      The most frequent value in the window; on a tie, the lowest value.
+    use: |
+      Meant for values that are classes; on a continuous cover it is noisy, because every value is a class of its own.
+    formula: '\hat{x} = \arg\max_k f_k'
+    symbols:
+      'f_k': the valid cells of the window with value \(k\); ties go to the smallest \(k\)
+    python: 'tf.gray_spatial_convolution(cover, metric="majority", window_size=7).where(cover <= 100)'
+    operator: fragmentation.gray_convolution
+    setting: metric = "majority"
+    api: terraflux.grayspatcon.gray_spatial_convolution
+
+  # impl: extern/terraflux-py/src/cpp/gtb/grayspatcon.cpp:78-84
+  - id: frag_gray_min
+    name: Gray-level window minimum
+    level: cell
+    theme: gray-level window statistics
+    unit: the map's unit (here % cover)
+    range: "0 to 100"
+    aliases: [minimum, focal minimum]
+    what: |
+      The smallest valid value in the window.
+    use: |
+      Erodes the high values; with the maximum it gives the range.
+    formula: 'x_{min} = \min\{k : f_k > 0\}'
+    symbols:
+      'f_k': the cells of the window with value \(k\); missing cells are ignored
+    python: 'tf.gray_spatial_convolution(cover, metric="min", window_size=7).where(cover <= 100)'
+    operator: fragmentation.gray_convolution
+    setting: metric = "min"
+    api: terraflux.grayspatcon.gray_spatial_convolution
+
+  # impl: extern/terraflux-py/src/cpp/gtb/grayspatcon.cpp:85-91
+  - id: frag_gray_max
+    name: Gray-level window maximum
+    level: cell
+    theme: gray-level window statistics
+    unit: the map's unit (here % cover)
+    range: "0 to 100"
+    aliases: [maximum, focal maximum]
+    what: |
+      The largest valid value in the window.
+    use: |
+      Dilates the high values.
+    formula: 'x_{max} = \max\{k : f_k > 0\}'
+    symbols:
+      'f_k': the cells of the window with value \(k\); missing cells are ignored
+    python: 'tf.gray_spatial_convolution(cover, metric="max", window_size=7).where(cover <= 100)'
+    operator: fragmentation.gray_convolution
+    setting: metric = "max"
+    api: terraflux.grayspatcon.gray_spatial_convolution
+
+  # impl: extern/terraflux-py/src/cpp/gtb/grayspatcon.cpp:92-103
+  - id: frag_gray_range
+    name: Gray-level window range
+    level: cell
+    theme: gray-level window statistics
+    unit: the map's unit (here % cover)
+    range: "0 to 100"
+    aliases: [focal range, local contrast]
+    what: |
+      The largest less the smallest value in the window: a quick measure of local contrast.
+    use: |
+      A single outlying cell sets it, unlike the standard deviation.
+    formula: 'R = x_{max} - x_{min}'
+    symbols:
+      'x_{max}': the largest valid value of the window
+      'x_{min}': the smallest
+    python: 'tf.gray_spatial_convolution(cover, metric="range", window_size=7).where(cover <= 100)'
+    operator: fragmentation.gray_convolution
+    setting: metric = "range"
+    api: terraflux.grayspatcon.gray_spatial_convolution
+
+  # impl: extern/terraflux-py/src/cpp/gtb/grayspatcon.cpp:104-117
+  - id: frag_gray_stddev
+    name: Gray-level window standard deviation
+    level: cell
+    theme: gray-level window statistics
+    unit: the map's unit (here % cover)
+    range: "0 or more"
+    aliases: [standard deviation, focal standard deviation, std]
+    what: |
+      The standard deviation of the values in the window, of the population (divided by \(n\), not \(n - 1\)).
+    use: |
+      The local texture, or heterogeneity, of a percentage map: highest where the cover changes most, as where forest
+      meets prairie.
+    formula: '\sigma = \sqrt{\frac{1}{n} \sum_k f_k \, k^2 - \mu^2}'
+    symbols:
+      'f_k': the cells of the window with value \(k\)
+      'n': the valid cells, \(\sum_k f_k\)
+      '\mu': their mean; a negative value from rounding under the root is set to 0
+    python: 'tf.gray_spatial_convolution(cover, metric="stddev", window_size=7).where(cover <= 100)'
+    operator: fragmentation.gray_convolution
+    setting: metric = "stddev"
+    api: terraflux.grayspatcon.gray_spatial_convolution
+
+  # impl: extern/terraflux-py/src/cpp/gtb/grayspatcon.cpp:118-129
+  - id: frag_gray_shannon_diversity
+    name: Gray-level Shannon diversity
+    level: cell
+    theme: gray-level window statistics
+    unit: nats
+    range: "0 to ln(101)"
+    aliases: [Shannon index, Shannon entropy, SHDI]
+    what: |
+      Shannon's index of the values in the window, each value from 0 to 100 taken as a class.
+    use: |
+      Every distinct value counts as a class of its own, so on continuous data it measures the spread of the values
+      more than a diversity.
+    formula: "H' = -\\sum_{k} p_k \\ln p_k"
+    symbols:
+      'p_k': the share of the valid cells of the window with value \(k\), \(f_k / n\); only the values present enter
+    python: 'tf.gray_spatial_convolution(cover, metric="shannon_diversity", window_size=7).where(cover <= 100)'
+    operator: fragmentation.gray_convolution
+    setting: metric = "shannon_diversity"
+    api: terraflux.grayspatcon.gray_spatial_convolution
+    refs:
+      - "Shannon, C. E. (1948). A mathematical theory of communication. *The Bell System Technical Journal*, 27(3), 379-423. https://doi.org/10.1002/j.1538-7305.1948.tb01338.x"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/grayspatcon.cpp:130-146
+  - id: frag_gray_shannon_evenness
+    name: Gray-level Shannon evenness
+    level: cell
+    theme: gray-level window statistics
+    unit: none
+    range: "0 to 1"
+    aliases: [Pielou evenness, SHEI, evenness]
+    what: |
+      The Shannon diversity divided by its largest possible value for the number of distinct values present in the
+      window (Pielou's evenness).
+    use: |
+      The maximum is that of the values present, not of all 101, so a window with only two values can score high;
+      read it with the diversity.
+    formula: "J' = \\frac{H'}{\\ln S}"
+    symbols:
+      "H'": the Shannon diversity of the window's values
+      'S': the number of distinct values in the window; 0 when \(S \le 1\)
+    python: 'tf.gray_spatial_convolution(cover, metric="shannon_evenness", window_size=7).where(cover <= 100)'
+    operator: fragmentation.gray_convolution
+    setting: metric = "shannon_evenness"
+    api: terraflux.grayspatcon.gray_spatial_convolution
+    refs:
+      - "Shannon, C. E. (1948). A mathematical theory of communication. *The Bell System Technical Journal*, 27(3), 379-423. https://doi.org/10.1002/j.1538-7305.1948.tb01338.x"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/grayspatcon.cpp:175-206
+  - id: frag_gray_same_value
+    name: Gray-level same-value adjacency (diagonal contagion)
+    level: cell
+    theme: gray-level window statistics
+    unit: proportion
+    range: "0 to 1"
+    aliases: [diagonal contagion, same-value adjacency]
+    what: |
+      The share of the pairs of neighbouring cells in the window that hold the same value. The library calls it
+      `diagonal_contagion`, but it is not Riitters' contagion, and it pairs a cell with its right and lower neighbours,
+      not the diagonal ones.
+    use: |
+      A measure of how smooth the values are; on a continuous cover it is low, because exact ties are rare. A window
+      with no valid pair gives -0.01.
+    formula: 'D = \frac{\#\{\text{pairs with } v_a = v_b\}}{\#\{\text{valid pairs}\}}'
+    symbols:
+      'v_a, v_b': the values of the two cells of a pair, a cell and its right or lower neighbour, both in the window and both valid (100 or less)
+    python: 'tf.gray_spatial_convolution(cover, metric="diagonal_contagion", window_size=7).where(cover <= 100)'
+    operator: fragmentation.gray_convolution
+    setting: metric = "diagonal_contagion"
+    api: terraflux.grayspatcon.gray_spatial_convolution
+
+  # impl: extern/terraflux-py/src/cpp/gtb/mosaic.cpp:17-31 (recode table), 62-65 (the pure classes); the class regions
+  # were found by calling the library on a 1 % grid of compositions
+  - id: frag_mosaic
+    name: Landscape mosaic (19 classes)
+    level: cell
+    theme: landscape mosaic
+    unit: class code, 1 to 19 (0 missing)
+    range: "1 to 19"
+    aliases: [landscape mosaic, LM19, Agriculture (>60%), Developed (>60%), Forest (>60%), Agriculture-Developed, Agriculture-Forest, Developed-Forest, Developed-Agriculture, Forest-Agriculture, Forest-Developed, Agriculture-Forest-Developed, Developed-Agriculture-Forest, Forest-Agriculture-Developed, Mosaic Agriculture-Developed, Mosaic Agriculture-Forest, Mosaic Developed-Forest, Mosaic Agriculture-Developed-Forest, Pure Forest (100%), Pure Agriculture (100%), Pure Developed (100%)]
+    what: |
+      The mix of agriculture, natural (*forest* in the library's names) and developed land in a window around each cell,
+      as one of 19 classes of the triangle of compositions: the three corners of a pure cover, three classes where one
+      cover dominates alone, six where one dominates with a second, three where one dominates with both others, and four
+      mosaics where none reaches 60 %. A name lists the covers from the most abundant.
+    use: |
+      The classes, with \(p_a\), \(p_f\) and \(p_d\) the shares of agriculture, natural and developed in the window
+      (class edges at multiples of 10 %; the side an edge falls on follows the comparisons of the code):
+
+      | Code | Class | Shares in the window |
+      |---|---|---|
+      | 1 | Agriculture (>60%) | \(p_a \ge 0.8\), \(p_f < 0.1\), \(p_d < 0.1\), not pure |
+      | 2 | Developed (>60%) | \(p_d \ge 0.8\), \(p_a < 0.1\), \(p_f < 0.1\), not pure |
+      | 3 | Forest (>60%) | \(p_f \ge 0.8\), \(p_a < 0.1\), \(p_d < 0.1\), not pure |
+      | 4 | Agriculture-Developed | \(0.6 \le p_a < 0.9\), \(0.1 \le p_d \le 0.4\), \(p_f < 0.1\) |
+      | 5 | Agriculture-Forest | \(0.6 \le p_a < 0.9\), \(0.1 \le p_f \le 0.4\), \(p_d < 0.1\) |
+      | 6 | Developed-Forest | \(0.6 \le p_d < 0.9\), \(0.1 \le p_f \le 0.4\), \(p_a < 0.1\) |
+      | 7 | Developed-Agriculture | \(0.6 \le p_d < 0.9\), \(0.1 \le p_a \le 0.4\), \(p_f < 0.1\) |
+      | 8 | Forest-Agriculture | \(0.6 \le p_f < 0.9\), \(0.1 \le p_a \le 0.4\), \(p_d < 0.1\) |
+      | 9 | Forest-Developed | \(0.6 \le p_f < 0.9\), \(0.1 \le p_d \le 0.4\), \(p_a < 0.1\) |
+      | 10 | Agriculture-Forest-Developed | \(0.6 \le p_a < 0.8\), \(0.1 \le p_f < 0.3\), \(0.1 \le p_d < 0.3\) |
+      | 11 | Developed-Agriculture-Forest | \(0.6 \le p_d < 0.8\), \(0.1 \le p_a < 0.3\), \(0.1 \le p_f < 0.3\) |
+      | 12 | Forest-Agriculture-Developed | \(0.6 \le p_f < 0.8\), \(0.1 \le p_a < 0.3\), \(0.1 \le p_d < 0.3\) |
+      | 13 | Mosaic Agriculture-Developed | \(0.3 \le p_a < 0.6\), \(0.3 \le p_d < 0.6\), \(p_f < 0.1\) |
+      | 14 | Mosaic Agriculture-Forest | \(0.3 \le p_a < 0.6\), \(0.3 \le p_f < 0.6\), \(p_d < 0.1\) |
+      | 15 | Mosaic Developed-Forest | \(0.3 \le p_d < 0.6\), \(0.3 \le p_f < 0.6\), \(p_a < 0.1\) |
+      | 16 | Mosaic Agriculture-Developed-Forest | all three from about 0.1 to under 0.6: the centre of the triangle, what no other class takes |
+      | 17 | Pure Forest (100%) | \(p_f = 1\) |
+      | 18 | Pure Agriculture (100%) | \(p_a = 1\) |
+      | 19 | Pure Developed (100%) | \(p_d = 1\) |
+
+      A pure class and the dominant class of the same cover (17 and 3, 18 and 1, 19 and 2) make together the area that
+      cover dominates. What counts as natural or as agriculture (pastures?) changes every class: say how the land cover
+      was grouped. The library names the classes in `tf.LM19_CLASSES`; the card's value is the share of the cells with
+      data in each class, from [`tf.landscape_mosaic_stats`][terraflux.mosaic.landscape_mosaic_stats].
+    formula: '(p_a, p_f, p_d) \mapsto c \in \{1, \dots, 19\}, \qquad p_a + p_f + p_d = 1'
+    symbols:
+      'p_a, p_f, p_d': the shares of agriculture (input 1), natural (2) and developed (3) among the classified cells of the window; input 0 is missing and left out, and the window is padded with missing cells at the border of the map
+      'c': the class of the cell, from the table; a pure class needs a share of 1 (to single-precision rounding)
+    python: |
+      mosaic = tf.landscape_mosaic(three, window_size=27)   # the map: 19 classes, 0 missing
+      tf.landscape_mosaic_stats(three, window_size=27).groupby("recode_name_19")["percentage"].sum()
+    operator: fragmentation.landscape_mosaic
+    setting: classes = 19
+    api: terraflux.mosaic.landscape_mosaic
+    refs:
+      - "Riitters, K., Wickham, J., O'Neill, R., Jones, B., & Smith, E. (2000). Global-scale patterns of forest fragmentation. *Conservation Ecology*, 4(2), 3. https://doi.org/10.5751/ES-00209-040203"
+      - "Riitters, K. H., Wickham, J. D., & Wade, T. G. (2009). An indicator of forest dynamics using a shifting landscape mosaic. *Ecological Indicators*, 9(1), 107-117. https://doi.org/10.1016/j.ecolind.2008.02.003"
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/mosaic.cpp:59-240
+  - id: frag_mosaic_103
+    name: Landscape mosaic (103 classes)
+    level: cell
+    theme: landscape mosaic
+    unit: class code (103 codes used, up to 236)
+    range: "103 classes"
+    aliases: [LM103, barycentric mosaic, heatmap of the mosaic]
+    what: |
+      The finer classification behind the 19 classes: the mix of agriculture, natural and developed land in the window as
+      a cell of the triangle of compositions with steps of 10 %. The three pure covers are its corners, the other classes
+      its small triangles.
+    use: |
+      Use `output_classes=103` for the heatmap of the compositions (GuidosToolbox's triangle,
+      [`tf.landscape_mosaic_heatmap`][terraflux.lm_heatmap.landscape_mosaic_heatmap]) and the 19 classes for maps. The
+      stats of the mosaic give the cells of each of the 103 classes with its class of 19; the card shows the five largest.
+    formula: '(p_a, p_f, p_d) \mapsto \text{cell of the triangle}, \qquad p_a + p_f + p_d = 1'
+    symbols:
+      'p_a, p_f, p_d': the shares of agriculture (input 1), natural (2) and developed (3) among the classified cells of the window, missing cells left out
+    python: |
+      lm103 = tf.landscape_mosaic(three, window_size=27, output_classes=103)   # the map of the 103 classes
+      tf.landscape_mosaic_stats(three, window_size=27).nlargest(5, "pixel_count")
+    operator: fragmentation.landscape_mosaic
+    setting: classes = 103
+    api: terraflux.mosaic.landscape_mosaic
+    refs:
+      - "Riitters, K., Wickham, J., O'Neill, R., Jones, B., & Smith, E. (2000). Global-scale patterns of forest fragmentation. *Conservation Ecology*, 4(2), 3. https://doi.org/10.5751/ES-00209-040203"
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"

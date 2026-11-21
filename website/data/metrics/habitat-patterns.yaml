@@ -1,0 +1,647 @@
+family: habitat-patterns
+title: Habitat patterns
+order: 110
+source: "GuidosToolbox (MSPA, SPA, parcellation, contortion) / Soille & Vogt 2009"
+intro: |
+  The pattern classes of a binary habitat map, and a few indices of how the map is divided into parcels and how
+  contorted its objects are, as GuidosToolbox computes them. **MSPA** (morphological spatial pattern analysis) sorts every
+  habitat cell into one of seven classes by its place in the pattern (core, islet, perforation, edge, loop, bridge,
+  branch) and the background into openings and the rest; **SPA** is its simplified form, with a fixed edge of one cell
+  and two to six classes. They are the measures of the [habitat patterns tutorials](../../tutorials/habitat-patterns/mspa/).
+
+  The cards show their values on the forest map of GuidosToolbox's sample, the one those tutorials use
+  (`tf.example_data("input")`: 1000 x 1000 cells of 25 m, coded 0 missing, 1 background, 2 forest). A class card gives
+  the class's share of the mapped (non-missing) area and of the habitat, as
+  [`tf.mspa_stats`][terraflux.mspa.mspa_stats] (`pct_data`, `pct_foreground`) and the `stats` of
+  [`tf.spa`][terraflux.spa.spa] (`pct_data`, `pct_fg`) report them; the same tables have the cells of each class. MSPA is
+  run with an edge width of 2 cells (50 m) and 8-connectivity of the habitat; the class codes of the map are core 17,
+  islet 9, perforation 5, edge 3, loop 65, bridge 33, branch 1, background 0, core-opening 100, border-opening 220 and
+  missing 129, and with `internal=True` (the default) the habitat cells of internal features carry their code plus 100.
+  The parcellation tables have a row per class of the map: 1 the background, 2 the forest.
+example: |
+  import terraflux as tf
+
+  # forest of GuidosToolbox's sample (1000 x 1000 cells of 25 m): 0 missing, 1 background, 2 forest
+  forest = tf.load_raster(tf.example_data("input"))
+metrics:
+  # impl: extern/terraflux-py/src/terraflux/mspa.py:195-224 (mspa_stats); class codes mspa.py:23-40
+  - id: mspa_core
+    name: MSPA core
+    level: class
+    theme: MSPA classes
+    unit: "% of the mapped area, % of the habitat"
+    range: "0 to 100 %"
+    aliases: [core area, interior habitat, MSPA]
+    what: |
+      The habitat cells that lie farther than the edge width from any non-habitat cell: the interior of the patches. Every
+      other class of the habitat is defined by how its cells relate to the core.
+    use: |
+      The edge width is the one setting that decides the result, and it should match the distance over which the
+      species feels the edge: on the example, the core is 75 % of the habitat with an edge of 1 cell and 62 % with an
+      edge of 2. Report the edge width (in metres) with the share.
+    formula:
+      - 'P_{core} = 100 \, \frac{N_{core}}{N_{fg}}'
+      - 'P^{data}_{core} = 100 \, \frac{N_{core}}{N_{data}}'
+    symbols:
+      'N_{core}': the cells of class core (codes 17 and, for internal features, 117), farther than `edge_width` cells from the nearest non-habitat cell
+      'N_{fg}': the habitat cells, the sum of the seven habitat classes (core, islet, perforation, edge, loop, bridge, branch)
+      'N_{data}': the cells that are not missing (habitat, background and openings)
+    python: 'tf.mspa_stats(tf.mspa(forest, edge_width=2)).loc["Core", ["pct_data", "pct_foreground"]]'
+    operator: landscape.mspa
+    setting: edge_width = 2
+    api: terraflux.mspa.mspa_stats
+    refs:
+      - "Soille, P., & Vogt, P. (2009). Morphological segmentation of binary patterns. *Pattern Recognition Letters*, 30(4), 456-459. https://doi.org/10.1016/j.patrec.2008.10.015"
+      - "Vogt, P., Riitters, K. H., Estreguil, C., Kozak, J., Wade, T. G., & Wickham, J. D. (2007). Mapping spatial patterns with morphological image processing. *Landscape Ecology*, 22(2), 171-177. https://doi.org/10.1007/s10980-006-9013-2"
+
+  # impl: extern/terraflux-py/src/terraflux/mspa.py:44-53, 195-224
+  - id: mspa_islet
+    name: MSPA islet
+    level: class
+    theme: MSPA classes
+    unit: "% of the mapped area, % of the habitat"
+    range: "0 to 100 %"
+    aliases: [islet, small patches, stepping stones]
+    what: |
+      The habitat objects too small to hold any core: whole patches, separate from the rest of the habitat, that no bridge
+      or loop reaches.
+    use: |
+      Islets are the small patches of the map, possible stepping stones. Their share grows with the edge width, because
+      ever larger objects fall below the size that holds a core (3.3 % of the habitat with an edge of 1 cell on the
+      example, 6.1 % with 2).
+    formula: 'P_{islet} = 100 \, \frac{N_{islet}}{N_{fg}}'
+    symbols:
+      'N_{islet}': the cells of class islet (codes 9 and 109)
+      'N_{fg}': the habitat cells; the share of the mapped area divides by \(N_{data}\), the cells that are not missing, instead
+    python: 'tf.mspa_stats(tf.mspa(forest, edge_width=2)).loc["Islet", ["pct_data", "pct_foreground"]]'
+    operator: landscape.mspa
+    setting: edge_width = 2
+    api: terraflux.mspa.mspa_stats
+    refs:
+      - "Soille, P., & Vogt, P. (2009). Morphological segmentation of binary patterns. *Pattern Recognition Letters*, 30(4), 456-459. https://doi.org/10.1016/j.patrec.2008.10.015"
+
+  # impl: extern/terraflux-py/src/terraflux/mspa.py:44-53, 195-224
+  - id: mspa_perforation
+    name: MSPA perforation
+    level: class
+    theme: MSPA classes
+    unit: "% of the mapped area, % of the habitat"
+    range: "0 to 100 %"
+    aliases: [perforation, internal edge]
+    what: |
+      The band of habitat, as wide as the edge width, around the holes inside a core: the inner boundary of the patches,
+      where the edge is the outer one.
+    use: |
+      Perforation points to gaps inside the habitat (clearings, ponds, small settlements); edge points to the rim of the
+      patches. Read the two together to tell a forest cut from inside from one eaten from its border.
+    formula: 'P_{perf} = 100 \, \frac{N_{perf}}{N_{fg}}'
+    symbols:
+      'N_{perf}': the cells of class perforation (codes 5 and 105)
+      'N_{fg}': the habitat cells
+    python: 'tf.mspa_stats(tf.mspa(forest, edge_width=2)).loc["Perforation", ["pct_data", "pct_foreground"]]'
+    operator: landscape.mspa
+    setting: edge_width = 2
+    api: terraflux.mspa.mspa_stats
+    refs:
+      - "Soille, P., & Vogt, P. (2009). Morphological segmentation of binary patterns. *Pattern Recognition Letters*, 30(4), 456-459. https://doi.org/10.1016/j.patrec.2008.10.015"
+
+  # impl: extern/terraflux-py/src/terraflux/mspa.py:44-53, 195-224
+  - id: mspa_edge
+    name: MSPA edge
+    level: class
+    theme: MSPA classes
+    unit: "% of the mapped area, % of the habitat"
+    range: "0 to 100 %"
+    aliases: [edge, outer edge, patch rim]
+    what: |
+      The band of habitat, as wide as the edge width, along the outer boundary of a core: the rim of the patch where it
+      meets the non-habitat around it.
+    use: |
+      The share of edge measures how exposed the habitat is to its surroundings (light, wind, predators, people). It
+      depends on the edge width, so compare it only between maps run with the same width and cell size.
+    formula: 'P_{edge} = 100 \, \frac{N_{edge}}{N_{fg}}'
+    symbols:
+      'N_{edge}': the cells of class edge (codes 3 and 103)
+      'N_{fg}': the habitat cells
+    python: 'tf.mspa_stats(tf.mspa(forest, edge_width=2)).loc["Edge", ["pct_data", "pct_foreground"]]'
+    operator: landscape.mspa
+    setting: edge_width = 2
+    api: terraflux.mspa.mspa_stats
+    refs:
+      - "Soille, P., & Vogt, P. (2009). Morphological segmentation of binary patterns. *Pattern Recognition Letters*, 30(4), 456-459. https://doi.org/10.1016/j.patrec.2008.10.015"
+
+  # impl: extern/terraflux-py/src/terraflux/mspa.py:56-66
+  - id: mspa_loop
+    name: MSPA loop
+    level: class
+    theme: MSPA classes
+    unit: "% of the mapped area, % of the habitat"
+    range: "0 to 100 %"
+    aliases: [loop, redundant corridor]
+    what: |
+      Narrow strips of habitat that leave a core and come back to the same core: corridors that join a core to itself.
+    use: |
+      Loops give alternative routes within one core area, not between areas, so they add redundancy rather than
+      connectivity. The share counts the loops that run through an edge or a perforation too (see the transition classes).
+    formula: 'P_{loop} = 100 \, \frac{N_{loop}}{N_{fg}}'
+    symbols:
+      'N_{loop}': the cells of class loop, those in an edge or a perforation included (codes 65, 67, 69 and their internal codes 165, 167, 169)
+      'N_{fg}': the habitat cells
+    python: 'tf.mspa_stats(tf.mspa(forest, edge_width=2)).loc["Loop", ["pct_data", "pct_foreground"]]'
+    operator: landscape.mspa
+    setting: edge_width = 2
+    api: terraflux.mspa.mspa_stats
+    refs:
+      - "Soille, P., & Vogt, P. (2009). Morphological segmentation of binary patterns. *Pattern Recognition Letters*, 30(4), 456-459. https://doi.org/10.1016/j.patrec.2008.10.015"
+
+  # impl: extern/terraflux-py/src/terraflux/mspa.py:56-66
+  - id: mspa_bridge
+    name: MSPA bridge
+    level: class
+    theme: MSPA classes
+    unit: "% of the mapped area, % of the habitat"
+    range: "0 to 100 %"
+    aliases: [bridge, corridor, structural corridor, link]
+    what: |
+      Narrow strips of habitat that join two different cores: the structural corridors of the pattern.
+    use: |
+      Bridges are the links when the cores are taken as the nodes of a habitat network (the
+      [MSPA network tutorial](../../tutorials/habitat-networks/mspa-network/)). They are structural: whether a species
+      uses them depends on its behaviour, not on the map. The share counts the bridges through an edge or a perforation too.
+    formula: 'P_{bridge} = 100 \, \frac{N_{bridge}}{N_{fg}}'
+    symbols:
+      'N_{bridge}': the cells of class bridge, those in an edge or a perforation included (codes 33, 35, 37 and their internal codes 133, 135, 137)
+      'N_{fg}': the habitat cells
+    python: 'tf.mspa_stats(tf.mspa(forest, edge_width=2)).loc["Bridge", ["pct_data", "pct_foreground"]]'
+    operator: landscape.mspa
+    setting: edge_width = 2
+    api: terraflux.mspa.mspa_stats
+    refs:
+      - "Soille, P., & Vogt, P. (2009). Morphological segmentation of binary patterns. *Pattern Recognition Letters*, 30(4), 456-459. https://doi.org/10.1016/j.patrec.2008.10.015"
+
+  # impl: extern/terraflux-py/src/terraflux/mspa.py:56-66
+  - id: mspa_branch
+    name: MSPA branch
+    level: class
+    theme: MSPA classes
+    unit: "% of the mapped area, % of the habitat"
+    range: "0 to 100 %"
+    aliases: [branch, dead end, spur]
+    what: |
+      Narrow strips of habitat attached to the rest of the pattern at one end only: dead-end spurs from a core, an edge, a
+      bridge or a loop.
+    use: |
+      Branches add habitat that connects nothing; for dispersal they lead nowhere, though they may still be habitat for
+      species of the edge.
+    formula: 'P_{branch} = 100 \, \frac{N_{branch}}{N_{fg}}'
+    symbols:
+      'N_{branch}': the cells of class branch (codes 1 and 101)
+      'N_{fg}': the habitat cells
+    python: 'tf.mspa_stats(tf.mspa(forest, edge_width=2)).loc["Branch", ["pct_data", "pct_foreground"]]'
+    operator: landscape.mspa
+    setting: edge_width = 2
+    api: terraflux.mspa.mspa_stats
+    refs:
+      - "Soille, P., & Vogt, P. (2009). Morphological segmentation of binary patterns. *Pattern Recognition Letters*, 30(4), 456-459. https://doi.org/10.1016/j.patrec.2008.10.015"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/mspa.cpp:350-365; mspa.py:68-73
+  - id: mspa_core_opening
+    name: MSPA core-opening
+    level: class
+    theme: MSPA classes
+    unit: "% of the mapped area"
+    range: "0 to 100 %"
+    aliases: [core-opening, opening, hole in the core]
+    what: |
+      The background cells of the holes enclosed by core (only with `internal=True`): openings inside the core area, told
+      apart from the openings that lie between the rims of patches.
+    use: |
+      With the border-openings it separates the background that lies inside the habitat from the background outside it.
+      It is background, so it has no share of the habitat.
+    formula: 'P^{data}_{co} = 100 \, \frac{N_{co}}{N_{data}}'
+    symbols:
+      'N_{co}': the cells coded 100
+      'N_{data}': the cells that are not missing
+    python: 'tf.mspa_stats(tf.mspa(forest, edge_width=2)).loc["Core-Opening", "pct_data"]'
+    operator: landscape.mspa
+    setting: internal = true
+    api: terraflux.mspa.mspa_stats
+    refs:
+      - "Soille, P., & Vogt, P. (2009). Morphological segmentation of binary patterns. *Pattern Recognition Letters*, 30(4), 456-459. https://doi.org/10.1016/j.patrec.2008.10.015"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/mspa.cpp:350-365; mspa.py:68-73
+  - id: mspa_border_opening
+    name: MSPA border-opening
+    level: class
+    theme: MSPA classes
+    unit: "% of the mapped area"
+    range: "0 to 100 %"
+    aliases: [border-opening]
+    what: |
+      The background cells of the holes in the habitat that are not core-openings (only with `internal=True`): background
+      enclosed by habitat whose boundary does not touch a core.
+    use: |
+      Read it with the core-opening; the rest of the background is class 0.
+    formula: 'P^{data}_{bo} = 100 \, \frac{N_{bo}}{N_{data}}'
+    symbols:
+      'N_{bo}': the cells coded 220
+      'N_{data}': the cells that are not missing
+    python: 'tf.mspa_stats(tf.mspa(forest, edge_width=2)).loc["Border-Opening", "pct_data"]'
+    operator: landscape.mspa
+    setting: internal = true
+    api: terraflux.mspa.mspa_stats
+    refs:
+      - "Soille, P., & Vogt, P. (2009). Morphological segmentation of binary patterns. *Pattern Recognition Letters*, 30(4), 456-459. https://doi.org/10.1016/j.patrec.2008.10.015"
+
+  # impl: extern/terraflux-py/src/terraflux/mspa.py:68-73, 205-224
+  - id: mspa_background
+    name: MSPA background
+    level: class
+    theme: MSPA classes
+    unit: "% of the mapped area"
+    range: "0 to 100 %"
+    aliases: [background, matrix]
+    what: |
+      The non-habitat cells that are in no opening: the part of the mapped area that is neither habitat nor enclosed by it.
+    use: |
+      Background, the openings and the seven habitat classes add up to the mapped area. Missing cells (code 129) are in no
+      share.
+    formula: 'P^{data}_{bg} = 100 \, \frac{N_{bg}}{N_{data}}'
+    symbols:
+      'N_{bg}': the cells coded 0
+      'N_{data}': the cells that are not missing
+    python: 'tf.mspa_stats(tf.mspa(forest, edge_width=2)).loc["Background", "pct_data"]'
+    operator: landscape.mspa
+    api: terraflux.mspa.mspa_stats
+
+  # impl: extern/terraflux-py/src/terraflux/mspa.py:20-42
+  - id: mspa_internal
+    name: MSPA internal features (+100)
+    level: class
+    theme: MSPA codes
+    unit: class code; the card's value is a count of cells
+    range: "codes 101 to 169 (129 is missing)"
+    aliases: [internal features, internal MSPA classes]
+    what: |
+      With `internal=True` (the default) the habitat cells that lie inside a core-opening get the code of their class plus
+      100, so that features inside the habitat can be told from those outside: a branch inside a clearing is 101, outside
+      it 1. [`tf.mspa_stats`][terraflux.mspa.mspa_stats] counts them with their class.
+    use: |
+      Set `internal=False` for the plain classes. The card counts the cells of internal features on the example.
+    formula: 'c_{internal} = c + 100, \qquad c \in \{1, 3, 5, 9, 17, 33, 35, 37, 65, 67, 69\}'
+    symbols:
+      'c': the MSPA code of the cell's class; core-opening (100) and border-opening (220) are codes of their own
+    python: |
+      m = tf.mspa(forest, edge_width=2, internal=True)
+      int(m.isin([c + 100 for c in (1, 3, 5, 9, 17, 33, 35, 37, 65, 67, 69)]).sum())   # cells of internal features
+    operator: landscape.mspa
+    setting: internal = true
+    api: terraflux.mspa.mspa
+
+  # impl: extern/terraflux-py/src/terraflux/mspa.py:23-40; io.py:903-915
+  - id: mspa_transition
+    name: MSPA transition classes
+    level: class
+    theme: MSPA codes
+    unit: class code; the card's value is a count of cells
+    range: "codes 35, 37, 67, 69 (and 135, 137, 167, 169)"
+    aliases: [bridge in edge, bridge in perforation, loop in edge, loop in perforation, transition]
+    what: |
+      The bridges and loops that run through an edge or a perforation have codes of their own: 35 bridge in edge, 37
+      bridge in perforation, 67 loop in edge, 69 loop in perforation. [`tf.mspa_stats`][terraflux.mspa.mspa_stats] adds
+      them to bridge and loop.
+    use: |
+      The `transition` option changes only the colour table of a written map (shown as bridge or loop when on, as edge or
+      perforation when off), never the codes or the shares.
+    formula: 'c \in \{35, 37, 67, 69\}'
+    symbols:
+      'c': the MSPA code of the cell; plus 100 for internal features
+    python: |
+      m = tf.mspa(forest, edge_width=2)
+      {tf.MSPA_CLASSES[c]: int(m.isin([c, c + 100]).sum()) for c in (35, 37, 67, 69)}
+    operator: landscape.mspa
+    api: terraflux.mspa.MSPA_CLASSES
+
+  # impl: extern/terraflux-py/src/terraflux/spa.py:140-172
+  - id: spa_core
+    name: SPA core (contiguous in SPA2)
+    level: class
+    theme: SPA classes
+    unit: "% of the mapped area, % of the habitat"
+    range: "0 to 100 %"
+    aliases: [SPA, simplified pattern analysis, contiguous]
+    what: |
+      The interior habitat cells of the simplified pattern analysis, with the edge width fixed at one cell and
+      8-connectivity. In SPA2 the class is called *contiguous* and also holds what the other variants call edge and
+      perforation.
+    use: |
+      Use SPA for a quick, coarse classification: the variant (2, 3, 5 or 6) is the number of habitat and opening classes
+      it reports. At an edge of one cell the core of SPA equals the core of MSPA.
+    formula: 'P_{core} = 100 \, \frac{N_{core}}{N_{fg}}'
+    symbols:
+      'N_{core}': the cells coded 17; in SPA2 the contiguous cells (core, edge and perforation)
+      'N_{fg}': the habitat cells, the mapped cells less the background (class 0 and the core-openings)
+    python: 'tf.spa(forest, variant=5).stats.set_index("class").loc["Core", ["pct_data", "pct_fg"]]'
+    operator: landscape.spa
+    setting: variant = 5
+    api: terraflux.spa.spa
+    refs:
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/terraflux/spa.py:44-47
+  - id: spa_edge
+    name: SPA edge
+    level: class
+    theme: SPA classes
+    unit: "% of the mapped area, % of the habitat"
+    range: "0 to 100 %"
+    what: |
+      The one-cell rim along the outer boundary of the core (variants 5 and 6).
+    use: |
+      The same idea as MSPA's edge, with the width fixed at one cell.
+    formula: 'P_{edge} = 100 \, \frac{N_{edge}}{N_{fg}}'
+    symbols:
+      'N_{edge}': the cells coded 3
+      'N_{fg}': the habitat cells
+    python: 'tf.spa(forest, variant=5).stats.set_index("class").loc["Edge", ["pct_data", "pct_fg"]]'
+    operator: landscape.spa
+    setting: variant = 5
+    api: terraflux.spa.spa
+
+  # impl: extern/terraflux-py/src/terraflux/spa.py:44-47
+  - id: spa_perforation
+    name: SPA perforation
+    level: class
+    theme: SPA classes
+    unit: "% of the mapped area, % of the habitat"
+    range: "0 to 100 %"
+    what: |
+      The one-cell rim around the holes inside the core (variants 5 and 6).
+    use: |
+      In variant 3 these cells are part of the margin.
+    formula: 'P_{perf} = 100 \, \frac{N_{perf}}{N_{fg}}'
+    symbols:
+      'N_{perf}': the cells coded 5
+      'N_{fg}': the habitat cells
+    python: 'tf.spa(forest, variant=5).stats.set_index("class").loc["Perforation", ["pct_data", "pct_fg"]]'
+    operator: landscape.spa
+    setting: variant = 5
+    api: terraflux.spa.spa
+
+  # impl: extern/terraflux-py/src/terraflux/spa.py:44-51
+  - id: spa_islet
+    name: SPA islet
+    level: class
+    theme: SPA classes
+    unit: "% of the mapped area, % of the habitat"
+    range: "0 to 100 %"
+    what: |
+      The habitat objects without core (variant 6 only): too small to hold a cell whose whole 3 x 3 neighbourhood is
+      habitat.
+    use: |
+      Variant 5 puts these cells in the margin.
+    formula: 'P_{islet} = 100 \, \frac{N_{islet}}{N_{fg}}'
+    symbols:
+      'N_{islet}': the cells coded 9
+      'N_{fg}': the habitat cells
+    python: 'tf.spa(forest, variant=6).stats.set_index("class").loc["Islet", ["pct_data", "pct_fg"]]'
+    operator: landscape.spa
+    setting: variant = 6
+    api: terraflux.spa.spa
+
+  # impl: extern/terraflux-py/src/terraflux/spa.py:44-51
+  - id: spa_margin
+    name: SPA margin (small linear features in SPA2)
+    level: class
+    theme: SPA classes
+    unit: "% of the mapped area, % of the habitat"
+    range: "0 to 100 %"
+    aliases: [SLF, small linear features, margin]
+    what: |
+      The habitat left once the other classes are taken out: the thin or small features that an opening of 3 x 3 cells
+      removes. In SPA3 it is all the habitat that is not core, in SPA5 what is not core, edge or perforation, in SPA6 also
+      not islet; SPA2 calls it small linear features (SLF).
+    use: |
+      Its meaning changes with the variant (on the example, 24.9 % of the habitat in SPA3, 9.2 % in SPA5, 6.0 % in SPA6),
+      so compare margins only within one variant.
+    formula: 'P_{margin} = 100 \, \frac{N_{margin}}{N_{fg}}'
+    symbols:
+      'N_{margin}': the cells coded 1
+      'N_{fg}': the habitat cells; the classes of one variant add up to it
+    python: 'tf.spa(forest, variant=5).stats.set_index("class").loc["Margin", ["pct_data", "pct_fg"]]'
+    operator: landscape.spa
+    setting: variant = 5
+    api: terraflux.spa.spa
+
+  # impl: extern/terraflux-py/src/terraflux/spa.py:144-150
+  - id: spa_core_opening
+    name: SPA core-opening
+    level: class
+    theme: SPA classes
+    unit: cells
+    range: "0 or more"
+    what: |
+      The background cells in the holes of the core (variants 3, 5 and 6); the rest of the background is *other
+      background*. They enter the porosity.
+    use: |
+      The area of the holes inside the habitat, in cells: multiply by the cell's area for hectares.
+    formula: 'N_{co} = \#\{\text{cells coded } 100\}'
+    symbols:
+      'N_{co}': the cells coded 100, reported as Core-Opening
+    python: 'tf.spa(forest, variant=5).areas["core_opening"]'
+    operator: landscape.spa
+    setting: variant = 5
+    api: terraflux.spa.spa
+
+  # impl: extern/terraflux-py/src/terraflux/spa.py:147-152
+  - id: spa_porosity
+    name: SPA porosity
+    level: landscape
+    theme: SPA classes
+    unit: "%"
+    range: "0 to 100"
+    aliases: [porosity]
+    what: |
+      The share of the contiguous habitat and its inner openings that is opening: how perforated the habitat is.
+    use: |
+      Compare porosity only between maps run with the same SPA variant (on the example, 1.42 % in SPA5 and SPA6, 1.71 % in
+      SPA3). SPA2 does not report it.
+    formula: '\mathrm{Por} = 100 \, \frac{O}{C + O}'
+    symbols:
+      'C': the contiguous habitat cells (core, edge and perforation; in SPA3, which has no edge class, the core only)
+      'O': the core-opening cells (code 100)
+    python: 'tf.spa(forest, variant=5).porosity'
+    operator: landscape.spa
+    setting: variant = 5
+    api: terraflux.spa.spa
+    refs:
+      - "Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352-361. https://doi.org/10.1080/22797254.2017.1330650"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/morphology.cpp:208-215
+  - id: parc_count
+    name: Number of parcels
+    level: class
+    theme: parcellation
+    unit: count
+    range: "1 or more"
+    aliases: [parcellation, number of patches]
+    what: |
+      The number of parcels of each class: the connected regions of touching cells of the same class (8-connectivity by
+      default). Every class of the map counts, the background too; the `global_stats` of the result have the total of the
+      whole map.
+    use: |
+      The count depends on the connectivity rule and on the resolution: 4-connectivity splits parcels that touch only at a
+      corner, and a finer map sees more small ones.
+    formula: 'n_c = \#\{\text{parcels of class } c\}'
+    symbols:
+      'n_c': the number of parcels of class \(c\), a parcel being a largest set of cells of \(c\) that touch by a side (`connectivity=4`) or by a side or a corner (8); class 0 (missing) is left out
+    python: 'tf.parcellation(forest).stats[["Class", "Count"]]'
+    operator: landscape.parcellation
+    setting: connectivity = 8
+    api: terraflux.morphology.parcellation
+
+  # impl: extern/terraflux-py/src/cpp/gtb/morphology.cpp:222; 245
+  - id: parc_aps
+    name: Average parcel size (APS)
+    level: class
+    theme: parcellation
+    unit: cells
+    range: "more than 0"
+    aliases: [APS, mean patch size]
+    what: |
+      The mean area of the parcels of a class, or of all the parcels of the map.
+    use: |
+      An arithmetic mean: a few very large parcels among many small ones give a middle value that describes neither.
+      The area-weighted size (AWAPS) is closer to what a cell of the class lies in.
+    formula:
+      - 'APS_c = \frac{A_c}{n_c}'
+      - 'APS = \frac{A}{n}'
+    symbols:
+      'A_c': the area of class \(c\), in cells
+      'n_c': the number of parcels of class \(c\)
+      'A': the data area, the cells that are not missing
+      'n': the number of parcels of all classes
+    python: 'tf.parcellation(forest).stats[["Class", "APS"]]'
+    operator: landscape.parcellation
+    api: terraflux.morphology.parcellation
+
+  # impl: extern/terraflux-py/src/cpp/gtb/morphology.cpp:223; 256
+  - id: parc_awaps
+    name: Area-weighted average parcel size (AWAPS)
+    level: class
+    theme: parcellation
+    unit: cells
+    range: "more than 0"
+    aliases: [AWAPS, area-weighted mean patch size]
+    what: |
+      The size of the parcel that a cell of the class, picked at random, belongs to: the mean parcel size when each
+      parcel counts in proportion to its area.
+    use: |
+      Closer than APS to what an organism living in the class meets. For the whole map the divisor is the data area and
+      the sum runs over all the parcels.
+    formula: 'AWAPS_c = \frac{\sum_i a_i^2}{A_c}'
+    symbols:
+      'a_i': the area of parcel \(i\) of class \(c\), in cells
+      'A_c': the area of class \(c\), \(\sum_i a_i\)
+    python: 'tf.parcellation(forest).stats[["Class", "AWAPS"]]'
+    operator: landscape.parcellation
+    api: terraflux.morphology.parcellation
+
+  # impl: extern/terraflux-py/src/cpp/gtb/morphology.cpp:224
+  - id: parc_awaps_data
+    name: Effective mesh size of a class (AWAPS over the data area)
+    level: class
+    theme: parcellation
+    unit: cells
+    range: "more than 0, at most the data area"
+    aliases: [effective mesh size, m_eff, MESH]
+    what: |
+      The sum of the squared areas of a class's parcels divided by the area of the whole map: Jaeger's effective mesh size
+      of the class, in cells (the `AWAPS/data` column).
+    use: |
+      The values of the classes add up to the AWAPS of the whole map. Multiply by the cell's area for hectares.
+    formula: 'AWAPS^{data}_c = \frac{\sum_i a_i^2}{A}'
+    symbols:
+      'a_i': the area of parcel \(i\) of class \(c\), in cells
+      'A': the data area, the cells of the map that are not missing
+    python: 'tf.parcellation(forest).stats[["Class", "AWAPS/data"]]'
+    operator: landscape.parcellation
+    api: terraflux.morphology.parcellation
+    refs:
+      - "Jaeger, J. A. G. (2000). Landscape division, splitting index, and effective mesh size: new measures of landscape fragmentation. *Landscape Ecology*, 15(2), 115-130. https://doi.org/10.1023/A:1008129329289"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/morphology.cpp:226-231; 257
+  - id: parc_division
+    name: Division index
+    level: class
+    theme: parcellation
+    unit: probability
+    range: "0 to less than 1"
+    aliases: [DIVISION, landscape division]
+    what: |
+      The chance that two cells of a class, picked at random, fall in different parcels. In the class table it is computed
+      within the class (the divisor is the class's area); the whole map's value uses the data area.
+    use: |
+      0 for a single parcel, close to 1 for many small ones. Jaeger's division of a class divides by the whole landscape
+      instead, so the two differ for any class that does not cover the map.
+    formula: 'D_c = 1 - \sum_i \left(\frac{a_i}{A_c}\right)^2'
+    symbols:
+      'a_i': the area of parcel \(i\) of class \(c\)
+      'A_c': the area of class \(c\); for the whole map, the data area \(A\)
+    python: 'tf.parcellation(forest).stats[["Class", "DIVISION"]]'
+    operator: landscape.parcellation
+    api: terraflux.morphology.parcellation
+    refs:
+      - "Jaeger, J. A. G. (2000). Landscape division, splitting index, and effective mesh size: new measures of landscape fragmentation. *Landscape Ecology*, 15(2), 115-130. https://doi.org/10.1023/A:1008129329289"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/morphology.cpp:102-103; 233-236
+  - id: parc_parc
+    name: Degree of parcellation (PARC)
+    level: class
+    theme: parcellation
+    unit: "%"
+    range: "0 to 100"
+    aliases: [PARC, logarithmic parcellation index]
+    what: |
+      The logarithm of the inverse of the sum of the squared shares of the parcels, scaled to 0-100, with 100 reached when
+      that sum falls to one in a million. It spreads out the low end of the division index, and so tells apart landscapes
+      that are almost undivided.
+    use: |
+      The `PARC[%]` column. Use it to compare the division of maps of different sizes or resolutions, where the division
+      index crowds near 0 or 1.
+    formula: 'PARC = 100 \, \frac{\min\left(-\ln S,\; -\ln 10^{-6}\right)}{-\ln 10^{-6}}, \qquad S = \sum_i \left(\frac{a_i}{A_c}\right)^2'
+    symbols:
+      'a_i': the area of parcel \(i\) of class \(c\)
+      'A_c': the area of class \(c\); for the whole map, the data area
+      '-\ln 10^{-6}': about 13.82, the value of \(-\ln S\) that gives 100 %
+    python: 'tf.parcellation(forest).stats[["Class", "PARC[%]"]]'
+    operator: landscape.parcellation
+    api: terraflux.morphology.parcellation
+    refs:
+      - "Jaeger, J. A. G. (2000). Landscape division, splitting index, and effective mesh size: new measures of landscape fragmentation. *Landscape Ecology*, 15(2), 115-130. https://doi.org/10.1023/A:1008129329289"
+
+  # impl: extern/terraflux-py/src/cpp/gtb/morphology.cpp:440-523
+  - id: contortion
+    name: Contortion of habitat objects
+    level: patch
+    theme: shape
+    unit: number of boundary runs
+    range: "2 or more"
+    aliases: [contortion, convolution of the outline]
+    what: |
+      How contorted the outline of each habitat object is: the number of straight runs of its boundary in x and in y, less
+      a fixed offset. Compact objects score low, elongated or branching ones high.
+    use: |
+      The value depends on the grid and the resolution, so compare objects of the same map. The output map holds
+      \(K + 1\) on each object (0 missing, 1 background, 2 the objects left out: smaller than `min_area` or without a
+      3 x 3 core); the card subtracts the 1. `return_display=True` rescales the values to 3-255 for display.
+    formula: 'K = \max\left(2,\; r_x + r_y - 7\right)'
+    symbols:
+      'r_x, r_y': the number of runs of equal non-zero steps in x and in y along the traced boundary of the 8-connected object
+      '7': the offset of the start and end markers (5 and 6) of the tracing
+    python: |
+      k = tf.contortion(forest, min_area=100)   # K + 1 on every object of 100 cells or more
+      k.where(k > 2) - 1
+    operator: landscape.contortion
+    setting: min_area = 100
+    api: terraflux.morphology.contortion

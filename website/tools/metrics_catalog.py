@@ -78,6 +78,8 @@ def num(v) -> str:
     """A number as a short text: four significant digits, no trailing zeros, no exponent."""
     if v is None or (isinstance(v, float) and math.isnan(v)):
         return "NA"
+    if float(v).is_integer() and abs(float(v)) < 1e15:
+        return str(int(float(v)))  # a count stays exact: 264641, not 264600
     f = float(f"{float(v):.4g}")
     s = f"{f:.10f}".rstrip("0").rstrip(".")
     return "0" if s in ("-0", "") else s
